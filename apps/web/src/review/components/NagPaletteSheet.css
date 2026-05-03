@@ -1,0 +1,174 @@
+/*
+ * KS-2270 (ADR-037 §3, этап E2 / docs/architecture/nag-palette-design.md §3.2)
+ * Стили mobile bottom-sheet'а для NagPaletteSheet.tsx (KS-2269).
+ *
+ * DOM-контракт:
+ *   .nag-palette-sheet-backdrop
+ *     > .nag-palette-sheet[role=dialog]
+ *         > .nag-palette-sheet__handle    (decorative drag-bar)
+ *         > .nag-palette-sheet__header
+ *             > .nag-palette-sheet__title
+ *         > .nag-palette-sheet__content
+ *             > .nag-palette ...          (NagPalette внутри)
+ *
+ * Sheet оборачивает компонент `NagPalette`, поэтому базовые стили
+ * `.nag-palette` (фон / border / shadow / fixed-position / fade-in)
+ * сбрасываются внутри `.nag-palette-sheet__content` — иначе получим
+ * вложенный popup-контейнер поверх sheet-контейнера.
+ *
+ * Кнопки увеличиваются до 48×48 (touch-target ≥44, design-doc §2.2).
+ *
+ * Light-тема — через инверсию токенов в tokens.css. Анимации отключаются
+ * под `prefers-reduced-motion: reduce` (design-doc §3.2).
+ */
+
+/* === Backdrop / scrim ================================================= */
+
+.nag-palette-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: var(--ov-black-40);
+  animation: nag-sheet-backdrop-in 200ms cubic-bezier(0.0, 0.0, 0.2, 1);
+}
+
+@keyframes nag-sheet-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* === Sheet container ================================================== */
+
+.nag-palette-sheet {
+  position: relative;
+  box-sizing: border-box;
+  width: 100vw;
+  max-height: 60vh;
+  min-height: 280px;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  background: var(--c-1a1a2e);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -4px 16px var(--ov-black-50);
+  color: var(--c-e0e0e0);
+  font-family: inherit;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  animation: nag-sheet-slide-up 200ms cubic-bezier(0.0, 0.0, 0.2, 1);
+}
+
+/* design-doc §3.2: на высоких viewport'ах sheet чуть выше */
+@media (min-height: 700px) {
+  .nag-palette-sheet {
+    min-height: 360px;
+  }
+}
+
+@keyframes nag-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* === Drag-handle (decorative) ========================================= */
+
+.nag-palette-sheet__handle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  background: var(--c-666);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* === Header / title =================================================== */
+
+.nag-palette-sheet__header {
+  margin-bottom: 12px;
+  padding-top: 4px;
+  text-align: left;
+}
+
+.nag-palette-sheet__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--c-e0e0e0);
+}
+
+/* === Content ========================================================== */
+
+.nag-palette-sheet__content {
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Сбрасываем root-стили `.nag-palette` внутри sheet — иначе получим
+ * двойной контейнер (popup-карточка внутри bottom-sheet).
+ */
+.nag-palette-sheet__content .nag-palette {
+  position: static;
+  z-index: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
+.nag-palette-sheet__content .nag-palette__group {
+  padding: 6px 0 8px;
+}
+
+.nag-palette-sheet__content .nag-palette__group + .nag-palette__group {
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.nag-palette-sheet__content .nag-palette__group-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.nag-palette-sheet__content .nag-palette__buttons {
+  gap: 6px;
+}
+
+/* design-doc §2.2: 48×48 для touch ≥44 */
+.nag-palette-sheet__content .nag-palette__btn {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+  border-radius: 6px;
+}
+
+.nag-palette-sheet__content .nag-palette__divider {
+  margin: 8px 0;
+}
+
+.nag-palette-sheet__content .nag-palette__delete {
+  margin-top: 8px;
+  min-height: 48px;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-radius: 6px;
+}
+
+/* === reduced-motion =================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .nag-palette-sheet,
+  .nag-palette-sheet-backdrop {
+    animation: none;
+  }
+}

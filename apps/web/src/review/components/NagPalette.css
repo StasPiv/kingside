@@ -1,0 +1,271 @@
+/*
+ * KS-2270 (ADR-037 §3, этап E2 / docs/architecture/nag-palette-design.md §3.1)
+ * Стили desktop-popup'а NAG-палитры для NagPalette.tsx (KS-2269).
+ *
+ * DOM-контракт зафиксирован JSDoc'ом в NagPalette.tsx:
+ *   .nag-palette[role=menu]
+ *     > .nag-palette__group[data-category="quality|positionEval"]
+ *         > .nag-palette__group-label
+ *         > .nag-palette__buttons
+ *             > .nag-palette__btn[data-nag][data-category]
+ *               (modifier: .nag-palette__btn--active)
+ *     > .nag-palette__divider
+ *     > .nag-palette__delete
+ *
+ * Позиционирование (top/left) ставит JS-хост (KS-2269 §3.3) — мы не трогаем.
+ * Light-тема работает автоматически через инверсию `--c-*` / `--ov-*` в
+ * tokens.css (`html[data-theme="light"]`); отдельных override'ов здесь нет.
+ *
+ * Внутри `.nag-palette-sheet__content` базовые свойства root'а сбрасываются —
+ * см. NagPaletteSheet.css (mobile-обёртка переиспользует ту же палитру).
+ */
+
+.nag-palette {
+  /* §3.3: position/top/left ставит JS-хост (KS-2269), не CSS. Здесь —
+   * только визуальная карточка; box-sizing/min-width/max-width задают
+   * внешний habit палитры независимо от того, как её позиционируют. */
+  box-sizing: border-box;
+  min-width: 320px;
+  max-width: 380px;
+  padding: 8px;
+  background: var(--c-1e1e2e);
+  border: 1px solid var(--c-444);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--ov-black-50);
+  color: var(--c-e0e0e0);
+  font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  /* §11.1: легкий fade-in появления — 100ms */
+  animation: nag-palette-fade-in 100ms ease-out;
+}
+
+@keyframes nag-palette-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* === Group ============================================================ */
+
+.nag-palette__group {
+  padding: 4px 6px 6px;
+}
+
+.nag-palette__group + .nag-palette__group {
+  border-top: 1px solid var(--c-333);
+  margin-top: 2px;
+  padding-top: 6px;
+}
+
+.nag-palette__group-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--c-888);
+}
+
+.nag-palette__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* === Button (idle) ==================================================== */
+
+.nag-palette__btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--c-444);
+  border-radius: 4px;
+  color: var(--c-e0e0e0);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.nag-palette__btn:hover {
+  background: var(--c-2a2a3e);
+  border-color: var(--c-666);
+}
+
+.nag-palette__btn:focus-visible {
+  outline: 2px solid var(--c-90caf9);
+  outline-offset: 1px;
+}
+
+/* §11.2: короткий tap-feedback на active-press (~80ms) */
+.nag-palette__btn:active {
+  background: var(--ov-white-15);
+  transition: background-color 80ms ease;
+}
+
+/* === Active states (color-slots §2.1) ================================= */
+
+/* good — NAG 1, 3 (! / !!) */
+.nag-palette__btn--active[data-nag="1"],
+.nag-palette__btn--active[data-nag="3"] {
+  background: var(--ov-success-20-emerald);
+  border-color: var(--c-16a34a);
+  color: var(--c-16a34a);
+}
+
+/* bad — NAG 2, 4 (? / ??) */
+.nag-palette__btn--active[data-nag="2"],
+.nag-palette__btn--active[data-nag="4"] {
+  background: var(--ov-danger-20-r600);
+  border-color: var(--c-dc2626);
+  color: var(--c-dc2626);
+}
+
+/* interesting — NAG 5, 6 (!? / ?!) */
+.nag-palette__btn--active[data-nag="5"],
+.nag-palette__btn--active[data-nag="6"] {
+  background: var(--ov-warning-20-amber);
+  border-color: var(--c-f59e0b);
+  color: var(--c-f59e0b);
+}
+
+/* neutral position — NAG 10, 13 (= / ∞) */
+.nag-palette__btn--active[data-nag="10"],
+.nag-palette__btn--active[data-nag="13"] {
+  background: var(--ov-info-20);
+  border-color: var(--c-666);
+  color: var(--c-e0e0e0);
+}
+
+/* white-favor — NAG 14, 16, 18 (⩲ / ± / +−) */
+.nag-palette__btn--active[data-nag="14"],
+.nag-palette__btn--active[data-nag="16"],
+.nag-palette__btn--active[data-nag="18"] {
+  background: var(--ov-info-20);
+  border-color: var(--c-f0d9b5);
+  color: var(--c-e0e0e0);
+}
+
+/* black-favor — NAG 15, 17, 19 (⩱ / ∓ / −+) */
+.nag-palette__btn--active[data-nag="15"],
+.nag-palette__btn--active[data-nag="17"],
+.nag-palette__btn--active[data-nag="19"] {
+  background: var(--ov-info-20);
+  border-color: var(--c-b58863);
+  color: var(--c-e0e0e0);
+}
+
+.nag-palette__btn--active:hover {
+  filter: brightness(1.12);
+}
+
+/* === Divider ========================================================== */
+
+.nag-palette__divider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--c-333);
+}
+
+/* === Delete (Clear annotations) ======================================= */
+
+.nag-palette__delete {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--c-444);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-f44336);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.nag-palette__delete:hover:not(:disabled) {
+  background: var(--ov-danger-15);
+  border-color: var(--c-f44336);
+}
+
+.nag-palette__delete:focus-visible {
+  outline: 2px solid var(--c-f44336);
+  outline-offset: 1px;
+}
+
+.nag-palette__delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* === reduced-motion =================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .nag-palette {
+    animation: none;
+  }
+  .nag-palette__btn,
+  .nag-palette__delete {
+    transition: none;
+  }
+}
+
+/* === Adaptive ========================================================= */
+
+/*
+ * §8: tablet 768–1024 — компактный popup (320 px width).
+ * Используем фиксированную узкую ширину; группа position-eval
+ * (8 кнопок) при этом размещается в две строки за счёт flex-wrap.
+ */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .nag-palette {
+    min-width: 320px;
+    max-width: 320px;
+  }
+}
+
+/*
+ * ≤768 px — popup используется как fallback (mobile рендерит
+ * NagPaletteSheet, но возможны edge-cases). Кнопки группы position-eval
+ * могут не помещаться в одну строку → разрешаем горизонтальный scroll.
+ */
+@media (max-width: 768px) {
+  .nag-palette {
+    min-width: 280px;
+    max-width: calc(100vw - 16px);
+  }
+
+  .nag-palette__buttons {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .nag-palette__buttons::-webkit-scrollbar {
+    height: 4px;
+  }
+  .nag-palette__buttons::-webkit-scrollbar-thumb {
+    background: var(--ov-white-20);
+    border-radius: 2px;
+  }
+}

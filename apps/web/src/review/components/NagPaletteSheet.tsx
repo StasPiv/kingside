@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { NagPalette, type NagPaletteProps } from './NagPalette';
 
+import './NagPaletteSheet.css';
+
 /**
  * KS-2269 (ADR-037 §3, §6, этап E2) — mobile bottom-sheet обёртка
  * над `NagPalette`. Базовая версия без swipe-to-dismiss (тот сделан

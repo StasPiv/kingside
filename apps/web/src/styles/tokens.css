@@ -292,6 +292,8 @@
   --ov-warning-20-amber: rgba(245, 158, 11, 0.2);
 
   /* Misc tinted overlays */
+  --ov-info-15: rgba(21, 101, 192, 0.15);
+  --ov-info-20: rgba(21, 101, 192, 0.2);
   --ov-info-40: rgba(21, 101, 192, 0.4);
   --ov-slate-50: rgba(15, 23, 42, 0.5);
   --ov-slate-85: rgba(15, 23, 42, 0.85);
@@ -640,6 +642,8 @@
   --ov-warning-20-yellow: rgba(180, 83, 9, 0.22);
   --ov-warning-20-amber: rgba(180, 83, 9, 0.22);
 
+  --ov-info-15: rgba(21, 101, 192, 0.10);
+  --ov-info-20: rgba(21, 101, 192, 0.14);
   --ov-info-40: rgba(21, 101, 192, 0.20);
   --ov-slate-50: rgba(255, 255, 255, 0.55);
   --ov-slate-85: rgba(255, 255, 255, 0.85);
