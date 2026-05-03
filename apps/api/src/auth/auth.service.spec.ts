@@ -228,6 +228,24 @@ describe('AuthService', () => {
       expect(bcrypt.hash).toHaveBeenCalledWith('mypassword', 10);
     });
 
+    it('KS-2255: register не выставляет isTestAccount/isHidden — полагаемся на DEFAULT FALSE из БД', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue(mockUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
+
+      await service.register({
+        username: 'newuser',
+        email: 'new@example.com',
+        password: 'mypassword',
+      });
+
+      const callArg = (prisma.user.create as jest.Mock).mock.calls[0][0];
+      // Контроль: новые поля не передаются — БД проставит DEFAULT FALSE
+      // (миграция 20260503100000_add_user_test_account_hidden, ADR-036 §3).
+      expect(callArg.data).not.toHaveProperty('isTestAccount');
+      expect(callArg.data).not.toHaveProperty('isHidden');
+    });
+
     it('should check for duplicate by username and email', async () => {
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue(mockUser);

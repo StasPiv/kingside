@@ -45,6 +45,16 @@ model User {
   /// `20260430120000_add_synthetic_fields` переводит 12 legacy-ботов в
   /// `isBot=false, isSynthetic=true` (см. KS-2160 §3).
   isSynthetic           Boolean  @default(false) @map("is_synthetic")
+  /// KS-2255 (ADR-036 §3, screenshot tooling E1). Признак seed-аккаунта,
+  /// созданного для генерации скриншотов. Используется фильтрацией
+  /// в публичных endpoint'ах (KS-2256) — не светим эти аккаунты в
+  /// общих списках/чартах. Пишет только seed-скрипт screenshot tooling.
+  isTestAccount         Boolean  @default(false) @map("is_test_account")
+  /// KS-2255 (ADR-036 §3, screenshot tooling E1). Универсальный флаг
+  /// «скрыт из публичных выдач» (модерация / временная блокировка /
+  /// служебные аккаунты). Совместно с `isTestAccount` фильтруется в
+  /// KS-2256.
+  isHidden              Boolean  @default(false) @map("is_hidden")
   /// KS-2160. Двухбуквенный ISO-3166-1 alpha-2 (RU, US, IN, BR…). Используется
   /// в профиле пользователя для отображения флага. Nullable — реальные
   /// пользователи могут не указывать страну. Для synthetic-ов обязателен,
