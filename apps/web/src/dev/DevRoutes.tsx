@@ -7,6 +7,7 @@ import { DevReviewsUiPage } from '../pages/DevReviewsUiPage';
 import { DevEndgameDrillStepPage } from '../pages/DevEndgameDrillStepPage';
 import { DevOpeningDrillStepPage } from '../pages/DevOpeningDrillStepPage';
 import { DevPlayoffBracketPage } from '../pages/DevPlayoffBracketPage';
+import { DevNagPalettePage } from '../pages/DevNagPalettePage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -32,6 +33,8 @@ export default function DevRoutes() {
       <Route path="endgame-drill" element={<DevEndgameDrillStepPage />} />
       <Route path="opening-drill" element={<DevOpeningDrillStepPage />} />
       <Route path="playoff-bracket" element={<DevPlayoffBracketPage />} />
+      {/* KS-2269 / KS-2270: demo для NagPalette + NagPaletteSheet. */}
+      <Route path="nag-palette" element={<DevNagPalettePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
