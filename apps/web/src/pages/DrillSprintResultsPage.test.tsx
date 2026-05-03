@@ -131,4 +131,22 @@ describe('<DrillSprintResultsPage> KS-2241', () => {
       ),
     ).toBe('/drills');
   });
+
+  // KS-2251: Share-кнопка существует в loaded-state, отсутствует в missing-state.
+  it('KS-2251: Share-кнопка отображается в loaded-state с status=idle', () => {
+    renderResults({
+      final: { scoreId: 's', score: 5, accuracy: 0.7, avgPrecision: 0.5 },
+      ended: 'submitted',
+    });
+    const shareBtn = screen.getByTestId('drill-sprint-results-share');
+    expect(shareBtn).toBeInTheDocument();
+    expect(shareBtn.getAttribute('data-share-status')).toBe('idle');
+  });
+
+  it('KS-2251: Share-кнопка отсутствует в missing-state', () => {
+    renderResults(null);
+    expect(
+      screen.queryByTestId('drill-sprint-results-share'),
+    ).not.toBeInTheDocument();
+  });
 });

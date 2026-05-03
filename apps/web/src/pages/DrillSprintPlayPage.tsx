@@ -106,12 +106,21 @@ export function DrillSprintPlayPage() {
     (final: FinalSummary | null, ended: 'submitted' | 'expired') => {
       if (finishedRef.current) return;
       finishedRef.current = true;
+      // KS-2251: пробрасываем durationLabel/setLabel в state — нужны
+      // ResultsPage'у для подписи под share-картинкой. Если sprint
+      // session не отдала эти поля (нет в sessionFromState), оставим
+      // undefined — ResultsPage подставит дефолты.
+      const durMin = Math.round((sessionFromState?.durationMs ?? 180000) / 60000);
       navigate('/drills/sprint/results', {
         replace: true,
-        state: { final, ended },
+        state: {
+          final,
+          ended,
+          durationLabel: `${durMin} min`,
+        },
       });
     },
-    [navigate],
+    [navigate, sessionFromState?.durationMs],
   );
 
   // Тикающий таймер общего времени sprint'а.

@@ -754,6 +754,18 @@
         "openLeaderboard": "Открыть лидерборд",
         "missingResult": "Нет результата спринта. Начните новый спринт."
       },
+      "share": {
+        "button": "Поделиться",
+        "buttonDownload": "Скачать картинку",
+        "downloading": "Готовим картинку…",
+        "shared": "Готово!",
+        "copied": "Ссылка скопирована — вставьте куда хотите",
+        "failed": "Не удалось поделиться. Картинка скачана.",
+        "imageAlt": "Карточка результата спринта",
+        "fileName": "kingside-sprint-result.png",
+        "shareTitle": "Мой результат тренажёра Kingside",
+        "shareText": "Решил {{score}} упражнений с точностью {{accuracy}}% за {{durationLabel}}. Попробуй тренажёры Kingside!"
+      },
       "leaderboard": {
         "heading": "Лидерборд спринта",
         "duration": "Длительность",

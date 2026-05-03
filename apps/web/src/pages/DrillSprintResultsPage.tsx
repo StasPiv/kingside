@@ -1,5 +1,8 @@
+import { useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+
+import { useShareSprintResult } from '../hooks/useShareSprintResult';
 
 /**
  * KS-2241 (ADR-035 §5.5, Drills E4) — итоговая страница sprint-режима.
@@ -30,6 +33,14 @@ interface FinalSummary {
 interface ResultsState {
   final: FinalSummary | null;
   ended: 'submitted' | 'expired';
+  /**
+   * KS-2251: дополнительный контекст для share-картинки (длительность
+   * sprint'а и набор drill'ов). Прокидывается из PlayPage через
+   * navigate state. Опционален — если хост не передал, share-кнопка
+   * подставляет дефолты ("3 min" / "Mixed").
+   */
+  durationLabel?: string;
+  setLabel?: string;
 }
 
 function formatPercent(v: number): string {
@@ -52,6 +63,42 @@ export function DrillSprintResultsPage() {
   };
 
   const playAgain = () => navigate('/drills/sprint', { replace: true });
+
+  // KS-2251: share-логика. Hook вычисляется ДО early-return missing/loaded,
+  // потому что React требует стабильного порядка hooks между рендерами.
+  const { status: shareStatus, share } = useShareSprintResult();
+  const shareDurationLabel = state.durationLabel ?? '3 min';
+  const shareSetLabel = state.setLabel ?? t('drills.sprint.leaderboard.set.mixed', 'Mixed');
+  const shareAccuracyPct = useMemo(() => {
+    const v = state.final?.accuracy ?? 0;
+    return Math.round(Math.max(0, Math.min(1, v)) * 100);
+  }, [state.final?.accuracy]);
+
+  const handleShare = useCallback(() => {
+    if (!state.final) return;
+    void share({
+      data: {
+        score: state.final.score,
+        accuracy: state.final.accuracy,
+        durationLabel: shareDurationLabel,
+        setLabel: shareSetLabel,
+      },
+      texts: {
+        title: t('drills.sprint.share.shareTitle', 'My Kingside drill sprint result'),
+        text: t('drills.sprint.share.shareText', {
+          score: state.final.score,
+          accuracy: shareAccuracyPct,
+          durationLabel: shareDurationLabel,
+          defaultValue:
+            'I solved {{score}} drills with {{accuracy}}% accuracy in {{durationLabel}}.',
+        }),
+        fileName: t(
+          'drills.sprint.share.fileName',
+          'kingside-sprint-result.png',
+        ),
+      },
+    });
+  }, [state.final, shareDurationLabel, shareSetLabel, shareAccuracyPct, share, t]);
 
   if (!state.final) {
     return (
@@ -140,6 +187,25 @@ export function DrillSprintResultsPage() {
           onClick={playAgain}
         >
           {t('drills.sprint.results.playAgain', 'Play again')}
+        </button>
+        {/* KS-2251: Share-кнопка. Status data-attr — для тестов/UI-фидбека. */}
+        <button
+          type="button"
+          className="drill-sprint-results__share"
+          data-testid="drill-sprint-results-share"
+          data-share-status={shareStatus}
+          disabled={shareStatus === 'preparing'}
+          onClick={handleShare}
+        >
+          {shareStatus === 'preparing'
+            ? t('drills.sprint.share.downloading', 'Preparing image…')
+            : shareStatus === 'shared'
+            ? t('drills.sprint.share.shared', 'Shared!')
+            : shareStatus === 'copied'
+            ? t('drills.sprint.share.copied', 'Link copied')
+            : shareStatus === 'failed'
+            ? t('drills.sprint.share.failed', 'Could not share.')
+            : t('drills.sprint.share.button', 'Share')}
         </button>
         {/* KS-2242: leaderboard. Линк всегда ведёт на общий
             /drills/sprint/leaderboard; конкретный scoreId хранится в

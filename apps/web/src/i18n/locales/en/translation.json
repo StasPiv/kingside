@@ -752,6 +752,18 @@
         "openLeaderboard": "Open leaderboard",
         "missingResult": "No sprint result to show. Start a new sprint."
       },
+      "share": {
+        "button": "Share",
+        "buttonDownload": "Download image",
+        "downloading": "Preparing image…",
+        "shared": "Shared!",
+        "copied": "Link copied — paste it anywhere",
+        "failed": "Could not share. Image downloaded instead.",
+        "imageAlt": "Sprint result card",
+        "fileName": "kingside-sprint-result.png",
+        "shareTitle": "My Kingside drill sprint result",
+        "shareText": "I solved {{score}} drills with {{accuracy}}% accuracy in {{durationLabel}}. Try Kingside drills!"
+      },
       "leaderboard": {
         "heading": "Sprint leaderboard",
         "duration": "Duration",
