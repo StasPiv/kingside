@@ -6,9 +6,21 @@
  * уровне one-flat DTO + проверка валидности через
  * `validateAnswerData()` ниже. Глубокую сверку с эталоном делает
  * `TacticDrillValidatorService` (api-contract §4).
+ *
+ * KS-2250-fix-attempt: liberal acceptance. Канонический контракт
+ * (`@kingside/shared#AnswerData`) использует разные поля по shape
+ * (`square` / `squares` / `value` / `from-to`). Frontend (на момент
+ * фикса) шлёт универсальное поле `value` для всех shape:
+ *   - `{shape:'square', value:'d6'}`     ← вместо `square:'d6'`
+ *   - `{shape:'squares', value:['d6','f6']}`
+ *   - `{shape:'move', value:'e2e4'}`     ← UCI-строка
+ *   - `{shape:'number', value:2}`        ← правильно
+ * Тип `value` в DTO — `unknown` (без декораторов IsInt/Max/etc),
+ * валидация по конкретному shape — в `normalizeAnswerData()`. Поля
+ * `square`/`squares`/`from-to` оставлены для канонической формы.
  */
 
-import { IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
 import type { AnswerData, AnswerShape, Square } from '@kingside/shared';
 
 const SQUARE_RE = /^[a-h][1-8]$/;
@@ -17,25 +29,27 @@ export class AnswerDataDto {
   @IsIn(['square', 'squares', 'number', 'move'])
   shape!: AnswerShape;
 
-  // shape === 'square'
+  // shape === 'square' (канонический формат).
   @IsOptional()
   @IsString()
   @Matches(SQUARE_RE)
   square?: Square;
 
-  // shape === 'squares'
+  // shape === 'squares' (канонический формат).
   @IsOptional()
   @IsString({ each: true })
   squares?: Square[];
 
-  // shape === 'number'
+  /**
+   * Универсальное поле от frontend'а (alias к `square`/`squares`/`from-to`/
+   * `number`-value). Тип `unknown` — валидация в `normalizeAnswerData`
+   * по конкретному shape. НЕ ставить @IsInt/@Max — иначе блокируется
+   * shape='square' с строкой клетки в `value`.
+   */
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(4)
-  value?: number;
+  value?: unknown;
 
-  // shape === 'move'
+  // shape === 'move' (канонический формат).
   @IsOptional()
   @IsString()
   @Matches(SQUARE_RE)
@@ -52,53 +66,80 @@ export class AnswerDataDto {
 }
 
 /**
- * Валидация дискриминированной формы (после class-validator
- * поверхностной проверки). Возвращает узкий тип `AnswerData` или
- * сообщение об ошибке.
+ * Валидация дискриминированной формы. Принимает обе формы:
+ *  - канон: `square:'d6'` / `squares:['d6']` / `from+to` / `value:N`
+ *  - liberal: `value:'d6'` / `value:['d6','f6']` / `value:'e2e4'` /
+ *    `value:N`
+ * Возвращает узкий тип `AnswerData` или сообщение об ошибке.
  */
 export function normalizeAnswerData(
   raw: AnswerDataDto,
 ): { ok: true; value: AnswerData } | { ok: false; error: string } {
   switch (raw.shape) {
-    case 'square':
-      if (!raw.square || !SQUARE_RE.test(raw.square)) {
-        return { ok: false, error: 'square is required for shape=square' };
+    case 'square': {
+      const sq = typeof raw.square === 'string'
+        ? raw.square
+        : (typeof raw.value === 'string' ? raw.value : null);
+      if (!sq || !SQUARE_RE.test(sq)) {
+        return { ok: false, error: 'square (or value) [a-h][1-8] required for shape=square' };
       }
-      return { ok: true, value: { shape: 'square', square: raw.square } };
+      return { ok: true, value: { shape: 'square', square: sq } };
+    }
     case 'squares': {
-      if (!Array.isArray(raw.squares) || raw.squares.length === 0) {
-        return { ok: false, error: 'squares[] is required for shape=squares' };
+      const arr = Array.isArray(raw.squares)
+        ? raw.squares
+        : (Array.isArray(raw.value) ? (raw.value as unknown[]) : null);
+      if (!arr || arr.length === 0) {
+        return { ok: false, error: 'squares[] (or value as array) required for shape=squares' };
       }
       const set = new Set<string>();
-      for (const sq of raw.squares) {
-        if (!SQUARE_RE.test(sq)) {
-          return { ok: false, error: `invalid square: ${sq}` };
+      for (const item of arr) {
+        if (typeof item !== 'string' || !SQUARE_RE.test(item)) {
+          return { ok: false, error: `invalid square in array: ${String(item)}` };
         }
-        set.add(sq.toLowerCase());
+        set.add(item.toLowerCase());
       }
       return {
         ok: true,
         value: { shape: 'squares', squares: Array.from(set) },
       };
     }
-    case 'number':
-      if (typeof raw.value !== 'number' || raw.value < 1 || raw.value > 4) {
-        return { ok: false, error: 'value 1..4 required for shape=number' };
+    case 'number': {
+      const n = typeof raw.value === 'number' ? raw.value : null;
+      if (n === null || !Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 4) {
+        return { ok: false, error: 'value 1..4 (integer) required for shape=number' };
       }
-      return { ok: true, value: { shape: 'number', value: raw.value } };
-    case 'move':
-      if (!raw.from || !raw.to || !SQUARE_RE.test(raw.from) || !SQUARE_RE.test(raw.to)) {
-        return { ok: false, error: 'from/to required for shape=move' };
+      return { ok: true, value: { shape: 'number', value: n } };
+    }
+    case 'move': {
+      // Канон: from + to + (опц.) promotion.
+      let from: string | null = null;
+      let to: string | null = null;
+      let promotion: 'q' | 'r' | 'b' | 'n' | null = null;
+      if (raw.from && raw.to) {
+        from = raw.from;
+        to = raw.to;
+        promotion = raw.promotion ?? null;
+      } else if (typeof raw.value === 'string' && raw.value.length >= 4) {
+        // Liberal: UCI-строка `e2e4` или `e7e8q`.
+        from = raw.value.slice(0, 2);
+        to = raw.value.slice(2, 4);
+        const p = raw.value.slice(4, 5);
+        if (p === 'q' || p === 'r' || p === 'b' || p === 'n') promotion = p;
+      }
+      if (!from || !to || !SQUARE_RE.test(from) || !SQUARE_RE.test(to)) {
+        return { ok: false, error: 'from/to (or UCI-string in value) required for shape=move' };
       }
       return {
         ok: true,
         value: {
           shape: 'move',
-          from: raw.from,
-          to: raw.to,
-          ...(raw.promotion ? { promotion: raw.promotion } : {}),
+          from,
+          to,
+          ...(promotion ? { promotion } : {}),
         },
       };
+    }
     default:
       return { ok: false, error: `unknown shape: ${(raw as { shape: string }).shape}` };
   }
