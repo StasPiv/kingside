@@ -585,7 +585,15 @@
       "positionEval": "Position evaluation",
       "clear": "Clear annotations",
       "hint": "1..9 — NAG · Esc — close",
-      "openHotkeyHint": "A — annotate current move"
+      "openHotkeyHint": "A — annotate current move",
+      "variationColor": {
+        "label": "Variation color",
+        "green": "Green",
+        "blue": "Blue",
+        "yellow": "Yellow",
+        "red": "Red",
+        "clear": "Clear color"
+      }
     },
     "group": {
       "quality": "Move quality",

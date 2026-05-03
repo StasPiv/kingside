@@ -7,8 +7,21 @@ import {
   setNagInCategory,
 } from '../../utils/nagCategories';
 import { nagToSymbol } from '../utils/nagUtils';
+import type { VariationColor } from '../types';
 
 import './NagPalette.css';
+
+/**
+ * KS-2291 (ADR-038 §13): 4 swatch-цвета вариации в порядке палитры.
+ * Совпадают с буквенным кодом PGN-макроса `[%cvc X]` (KS-2286) и
+ * палитрой `--c-variation-{name}` (KS-VC-CSS-PALETTE).
+ */
+const VARIATION_COLORS: readonly VariationColor[] = [
+  'green',
+  'blue',
+  'yellow',
+  'red',
+] as const;
 
 /**
  * KS-2282 (ADR-037 §3 R2/R8, E6) — клавиатурный маппинг `1..9`
@@ -105,6 +118,25 @@ export interface NagPaletteProps {
    * delete / Esc). Хост контролирует фактическое закрытие popup'а.
    */
   onClose?: () => void;
+  /**
+   * KS-2291 (ADR-038 §13): true когда текущий ход внутри ВАРИАЦИИ
+   * (а не main-line). Только при этом флаге показывается секция
+   * «Variation color» с 4 swatch + Clear. Если undefined/false —
+   * секция скрыта (variation-color применим только к веткам).
+   */
+  isVariation?: boolean;
+  /**
+   * KS-2291: текущий цвет вариации (с root'а). Используется для
+   * подсветки активной swatch (`.nag-palette__variation-swatch--active`).
+   * undefined → ни одна swatch не активна, Clear disabled.
+   */
+  currentVariationColor?: VariationColor;
+  /**
+   * KS-2291: вызывается при клике по swatch (color) или Clear (null).
+   * Хост подключает `setVariationColor` из useReviewState (KS-2287),
+   * который найдёт root'а вариации через findVariationRoot.
+   */
+  onSetVariationColor?: (color: VariationColor | null) => void;
 }
 
 interface NagButtonProps {
@@ -148,7 +180,14 @@ function NagButton({ nag, category, active, onClick }: NagButtonProps) {
   );
 }
 
-export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
+export function NagPalette({
+  nags,
+  onChange,
+  onClose,
+  isVariation,
+  currentVariationColor,
+  onSetVariationColor,
+}: NagPaletteProps) {
   const { t } = useTranslation();
 
   const isActive = useCallback(
@@ -168,6 +207,25 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
     onChange([]);
     onClose?.();
   }, [onChange, onClose]);
+
+  // KS-2291: клик по swatch — set/toggle. Если кликнули по уже активному
+  // цвету — снимаем (toggle off). Так пользователь может одной кнопкой
+  // и поставить, и снять цвет.
+  const handleSwatchClick = useCallback(
+    (color: VariationColor) => {
+      if (!onSetVariationColor) return;
+      const next = currentVariationColor === color ? null : color;
+      onSetVariationColor(next);
+      onClose?.();
+    },
+    [currentVariationColor, onSetVariationColor, onClose],
+  );
+
+  const handleClearVariationColor = useCallback(() => {
+    if (!onSetVariationColor) return;
+    onSetVariationColor(null);
+    onClose?.();
+  }, [onSetVariationColor, onClose]);
 
   // KS-2282: hotkeys внутри палитры (`1..9` → NAG, Esc → close).
   // Listener — на window, потому что палитра не focus-trap'ится
@@ -259,6 +317,70 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
       >
         {t('nag.palette.clear', 'Clear annotations')}
       </button>
+
+      {/*
+        KS-2291 (ADR-038 §13): секция «Variation color» — 4 swatch +
+        Clear. Видна только в варианте (`isVariation === true`) и
+        только если хост передал `onSetVariationColor`. На main-line
+        полностью скрыта (variation-color применим только к веткам).
+      */}
+      {isVariation && onSetVariationColor && (
+        <>
+          <div className="nag-palette__divider" />
+          <div
+            className="nag-palette__group"
+            data-category="variationColor"
+            data-testid="nag-palette-variation-color"
+          >
+            <div className="nag-palette__group-label">
+              {t('nag.palette.variationColor.label', 'Variation color')}
+            </div>
+            <div className="nag-palette__variation-swatches">
+              {VARIATION_COLORS.map((color) => {
+                const active = currentVariationColor === color;
+                return (
+                  <button
+                    type="button"
+                    key={color}
+                    className={`nag-palette__variation-swatch nag-palette__variation-swatch--${color}${
+                      active ? ' nag-palette__variation-swatch--active' : ''
+                    }`}
+                    data-color={color}
+                    data-testid={`nag-palette-variation-color-${color}`}
+                    aria-pressed={active}
+                    title={t(
+                      `nag.palette.variationColor.${color}`,
+                      color,
+                    )}
+                    aria-label={t(
+                      `nag.palette.variationColor.${color}`,
+                      color,
+                    )}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSwatchClick(color);
+                    }}
+                  />
+                );
+              })}
+              <button
+                type="button"
+                className="nag-palette__variation-clear"
+                data-testid="nag-palette-variation-color-clear"
+                disabled={currentVariationColor === undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleClearVariationColor();
+                }}
+              >
+                {t('nag.palette.variationColor.clear', 'Clear color')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/*
         KS-2282: visible hint про hotkeys. Layout стилизует

@@ -457,3 +457,198 @@ describe('<NagPalette> KS-2282 — hotkeys 1..9 / Esc', () => {
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
+
+describe('<NagPalette> KS-2291 — секция Variation color', () => {
+  it('isVariation=false → секция variation-color НЕ рендерится', () => {
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation={false}
+        onSetVariationColor={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByTestId('nag-palette-variation-color'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('isVariation=undefined (default) → секция скрыта', () => {
+    renderWithProviders(<NagPalette nags={[]} onChange={() => {}} />);
+    expect(
+      screen.queryByTestId('nag-palette-variation-color'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('onSetVariationColor не передан → секция скрыта даже при isVariation=true', () => {
+    renderWithProviders(
+      <NagPalette nags={[]} onChange={() => {}} isVariation />,
+    );
+    expect(
+      screen.queryByTestId('nag-palette-variation-color'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('isVariation=true + onSetVariationColor → 4 swatch + Clear', () => {
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+    );
+    expect(
+      screen.getByTestId('nag-palette-variation-color'),
+    ).toBeInTheDocument();
+    for (const color of ['green', 'blue', 'yellow', 'red'] as const) {
+      expect(
+        screen.getByTestId(`nag-palette-variation-color-${color}`),
+      ).toBeInTheDocument();
+    }
+    expect(
+      screen.getByTestId('nag-palette-variation-color-clear'),
+    ).toBeInTheDocument();
+  });
+
+  it('активная swatch помечена aria-pressed=true и --active', () => {
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="green"
+        onSetVariationColor={() => {}}
+      />,
+    );
+    const green = screen.getByTestId('nag-palette-variation-color-green');
+    expect(green.getAttribute('aria-pressed')).toBe('true');
+    expect(green.className).toMatch(/--active/);
+    const blue = screen.getByTestId('nag-palette-variation-color-blue');
+    expect(blue.getAttribute('aria-pressed')).toBe('false');
+    expect(blue.className).not.toMatch(/--active/);
+  });
+
+  it('клик по swatch → onSetVariationColor("color") + onClose', async () => {
+    const onSetVariationColor = vi.fn();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        onClose={onClose}
+        isVariation
+        onSetVariationColor={onSetVariationColor}
+      />,
+    );
+    await user.click(screen.getByTestId('nag-palette-variation-color-blue'));
+    expect(onSetVariationColor).toHaveBeenCalledWith('blue');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('клик по уже активной swatch → onSetVariationColor(null) (toggle off)', async () => {
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="red"
+        onSetVariationColor={onSetVariationColor}
+      />,
+    );
+    await user.click(screen.getByTestId('nag-palette-variation-color-red'));
+    expect(onSetVariationColor).toHaveBeenCalledWith(null);
+  });
+
+  it('клик по Clear → onSetVariationColor(null)', async () => {
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="green"
+        onSetVariationColor={onSetVariationColor}
+      />,
+    );
+    await user.click(
+      screen.getByTestId('nag-palette-variation-color-clear'),
+    );
+    expect(onSetVariationColor).toHaveBeenCalledWith(null);
+  });
+
+  it('Clear disabled при currentVariationColor=undefined', () => {
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+    );
+    const clearBtn = screen.getByTestId(
+      'nag-palette-variation-color-clear',
+    ) as HTMLButtonElement;
+    expect(clearBtn.disabled).toBe(true);
+  });
+
+  it.each(['green', 'blue', 'yellow', 'red'] as const)(
+    'все 4 swatch имеют type="button" + aria-label',
+    (color) => {
+      renderWithProviders(
+        <NagPalette
+          nags={[]}
+          onChange={() => {}}
+          isVariation
+          onSetVariationColor={() => {}}
+        />,
+      );
+      const btn = screen.getByTestId(
+        `nag-palette-variation-color-${color}`,
+      ) as HTMLButtonElement;
+      expect(btn.getAttribute('type')).toBe('button');
+      expect(btn.getAttribute('aria-label')).toBeTruthy();
+    },
+  );
+});
+
+describe('<NagPaletteSheet> KS-2291 — пробрасывает variation-color props', () => {
+  it('isVariation=true внутри sheet → swatch видны', () => {
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+    );
+    expect(
+      screen.getByTestId('nag-palette-variation-color'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('nag-palette-variation-color-green'),
+    ).toBeInTheDocument();
+  });
+
+  it('isVariation=false → secция скрыта в sheet', () => {
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={() => {}}
+        isVariation={false}
+        onSetVariationColor={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByTestId('nag-palette-variation-color'),
+    ).not.toBeInTheDocument();
+  });
+});

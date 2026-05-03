@@ -73,6 +73,9 @@ export function NagPaletteSheet({
   nags,
   onChange,
   extraActions,
+  isVariation,
+  currentVariationColor,
+  onSetVariationColor,
 }: NagPaletteSheetProps) {
   const { t } = useTranslation();
 
@@ -189,7 +192,14 @@ export function NagPaletteSheet({
           </span>
         </div>
         <div className="nag-palette-sheet__content">
-          <NagPalette nags={nags} onChange={onChange} onClose={onClose} />
+          <NagPalette
+            nags={nags}
+            onChange={onChange}
+            onClose={onClose}
+            isVariation={isVariation}
+            currentVariationColor={currentVariationColor}
+            onSetVariationColor={onSetVariationColor}
+          />
         </div>
         {extraActions && (
           <div

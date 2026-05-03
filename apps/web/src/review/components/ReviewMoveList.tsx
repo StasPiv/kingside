@@ -11,6 +11,10 @@ import { NagPalette } from './NagPalette';
 import { NagPaletteSheet } from './NagPaletteSheet';
 // KS-2278 (ADR-037 §3.4, E4): детект устройства для выбора popup/sheet.
 import { useIsMobile } from '../../hooks/useIsMobile';
+// KS-2291 (ADR-038 §13): variation-color секция в палитре — нужен
+// findVariationRoot для определения isVariation и currentVariationColor.
+import { findVariationRoot } from '../utils/ChessHistoryUtils';
+import type { VariationColor } from '../types';
 import {
   processMoveHierarchy,
   getMoveClasses,
@@ -65,6 +69,14 @@ interface ReviewMoveListProps {
   onSetNag?: (globalIndex: number, nags: number[]) => void;
   onSetComment?: (globalIndex: number, comment: string) => void;
   /**
+   * KS-2291 (ADR-038 §13, VC E3): задать/снять цвет вариации.
+   * `moveIndex` — globalIndex любого хода ВНУТРИ вариации (palette
+   * сама не знает root); reducer (`setVariationColor` из
+   * useReviewState, KS-2287) находит root через findVariationRoot.
+   * Если не передан — секция «Variation color» в палитре скрыта.
+   */
+  onSetVariationColor?: (moveIndex: number, color: VariationColor | null) => void;
+  /**
    * Полностью отключить интерактивное редактирование (контекстное меню,
    * редактор комментария по long-press). Клик по ходу через `onMoveClick`
    * остаётся — навигация по партии нужна и в read-only режиме.
@@ -81,6 +93,7 @@ export function ReviewMoveList({
   onTruncateRemaining,
   onSetNag,
   onSetComment,
+  onSetVariationColor,
   readOnly = false,
 }: ReviewMoveListProps) {
   const editable = !readOnly && Boolean(
@@ -88,7 +101,8 @@ export function ReviewMoveList({
       onDeleteVariation ||
       onTruncateRemaining ||
       onSetNag ||
-      onSetComment,
+      onSetComment ||
+      onSetVariationColor,
   );
   const { t } = useTranslation();
   // KS-2278: режим popup'а определяется устройством (touch + viewport),
@@ -243,6 +257,25 @@ export function ReviewMoveList({
       onSetNag(contextMenu.move.globalIndex, nextNags);
     },
     [contextMenu.move, onSetNag],
+  );
+
+  // KS-2291: вычисления для секции «Variation color» в палитре.
+  // `isVariation` — true если контекстный move лежит ВНУТРИ вариации
+  // (`findVariationRoot` вернул не-null). `currentVariationColor` —
+  // цвет с root'а. `handlePaletteVariationColor` — мостик в host'овский
+  // `onSetVariationColor` (KS-2287, useReviewState.setVariationColor).
+  const variationRoot =
+    contextMenu.move
+      ? (findVariationRoot(history, contextMenu.move) as ChessMove | null)
+      : null;
+  const isVariationContext = variationRoot !== null;
+  const currentVariationColor = variationRoot?.variationColor;
+  const handlePaletteVariationColor = useCallback(
+    (color: VariationColor | null) => {
+      if (!contextMenu.move || !onSetVariationColor) return;
+      onSetVariationColor(contextMenu.move.globalIndex, color);
+    },
+    [contextMenu.move, onSetVariationColor],
   );
 
   // KS-2282: hotkey `A` открывает палитру для текущего хода
@@ -591,6 +624,12 @@ export function ReviewMoveList({
               onChange={handlePaletteChange}
               onClose={closeContextMenu}
               extraActions={actions}
+              // KS-2291: variation-color секция (видна только в варианте).
+              isVariation={isVariationContext}
+              currentVariationColor={currentVariationColor}
+              onSetVariationColor={
+                onSetVariationColor ? handlePaletteVariationColor : undefined
+              }
             />
           );
         }
@@ -610,6 +649,12 @@ export function ReviewMoveList({
                   nags={moveForActions.nags ?? []}
                   onChange={handlePaletteChange}
                   onClose={closeContextMenu}
+                  // KS-2291: variation-color секция (видна только в варианте).
+                  isVariation={isVariationContext}
+                  currentVariationColor={currentVariationColor}
+                  onSetVariationColor={
+                    onSetVariationColor ? handlePaletteVariationColor : undefined
+                  }
                 />
                 <div className="review-context-menu__divider" />
               </>
