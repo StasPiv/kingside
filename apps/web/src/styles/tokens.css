@@ -197,6 +197,15 @@
   --c-151525: #151525;
   --c-ff9800: #ff9800;
 
+  /* Variation-color user override (KS-2289 / ADR-038 §6, R6).
+   * 4-цветная палитра, выбирается пользователем для конкретного варианта
+   * (взамен авто-цвета по уровню). Dark — насыщенные тона, читаемые
+   * на тёмном фоне. */
+  --c-vc-green: #4ade80;
+  --c-vc-blue: #60a5fa;
+  --c-vc-yellow: #fbbf24;
+  --c-vc-red: #f87171;
+
   /* Board / piece colours (theme-invariant — same in light) */
   --c-4b7399: #4b7399;
   --c-6b3a2a: #6b3a2a;
@@ -564,6 +573,14 @@
   --c-9ba0ff: #4f46e5;
   --c-151525: #f4f5fa;
   --c-ff9800: #c26100;
+
+  /* Variation-color user override (KS-2289 / ADR-038 §6).
+   * R6 §8: red в light = #b91c1c (Tailwind 700) — иначе на белом фоне
+   * читается слабо. Остальные тоже сдвинуты в темнее для AA-контраста. */
+  --c-vc-green: #15803d;
+  --c-vc-blue: #1d4ed8;
+  --c-vc-yellow: #a16207;
+  --c-vc-red: #b91c1c;
 
   /* Board / piece colours: identical (board theme owns its own
      palette via BoardSettingsContext — UI theme must not move it) */

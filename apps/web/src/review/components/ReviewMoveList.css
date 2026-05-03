@@ -257,6 +257,24 @@
 .variation-bracket.variation-level-3 { color: var(--c-subline-3); }
 .variation-bracket.variation-level-4 { color: var(--c-subline-4); }
 
+/*
+ * KS-2289 (ADR-038 §6, этап E2) — user-override 4-цветной палитры
+ * варианта. Frontend (KS-2288) рендерит на `.move-item.variation-move`
+ * и `.variation-bracket` ИЛИ `variation-level-N` (auto-coloring), ИЛИ
+ * `variation-color-{green|blue|yellow|red}` (user choice). Поскольку
+ * одновременно классы не приходят, специфичность не критична — простые
+ * правила. Late-define здесь — на случай конфликта при будущих
+ * изменениях контракта (вторичная защита поверх ИЛИ-семантики).
+ *
+ * R6 ADR-038 §8: red в light-теме = #b91c1c (а не #dc2626) для
+ * нормального контраста на белом фоне. Это переопределение лежит в
+ * `tokens.css` (raw `--c-vc-red`).
+ */
+.variation-color-green  { color: var(--c-vc-green); }
+.variation-color-blue   { color: var(--c-vc-blue); }
+.variation-color-yellow { color: var(--c-vc-yellow); }
+.variation-color-red    { color: var(--c-vc-red); }
+
 /* Context menu */
 .review-context-menu {
   position: fixed;
