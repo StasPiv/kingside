@@ -96,6 +96,9 @@ model User {
   userCourses            UserCourse[]
   userCoursePlayProgress UserCoursePlayProgress[]
   userLessonPlayProgress UserLessonPlayProgress[]
+  // KS-2226 (ADR-035 §4): Drills attempt'ы и sprint-скоры юзера.
+  tacticDrillAttempts    TacticDrillAttempt[]
+  tacticDrillSprintScores TacticDrillSprintScore[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1118,4 +1121,83 @@ model FeatureFlag {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("feature_flags")
+}
+
+
+// ─── Tactical drills (KS-2226 / ADR-035 §4) ───────────────────────────
+//
+// Drill — короткая тактическая задача с ответом одной из четырёх форм
+// (square / squares[] / number / move). Эталон в `answer` (JSONB),
+// shape-discriminator валидируется backend'ом перед INSERT (см.
+// tactical-drill-api-contract.md §3 / KS-DRILL-API).
+//
+// `attempts` пишется только для авторизованных юзеров (гости играют
+// без записи прогресса — см. контракт §6). `sprint_scores` — итоги
+// sprint-сессий (3-/5-минутный микс).
+
+model TacticDrill {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// Один из 8 типов из methodology §2. Хранится строкой, чтобы
+  /// расширяться без миграции enum'а; на уровне backend whitelist.
+  type       String
+  fen        String
+  /// Эталон в discriminated-union формате (см. shared
+  /// `TacticDrillAnswer`). Для гостей и юзеров одинаковый, не отдаётся
+  /// в `/next`-DTO — только в `/attempt`-response после submit'а.
+  answer     Json
+  /// Сложность 1..5 (KS-2225). На уровне БД ограничения не ставим —
+  /// формула может меняться, валидация на backend'е.
+  difficulty Int
+  /// Источник эталона: `'generated-lichess'`, `'generated-archive'`,
+  /// `'curated'` (KS-DRILL-CURATED, E5). Хранится строкой.
+  source     String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  attempts TacticDrillAttempt[]
+
+  @@index([type, difficulty])
+  @@map("tactic_drills")
+}
+
+model TacticDrillAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// nullable — для гостей запись не пишется, поле зарезервировано на
+  /// случай, если в v2 решим логировать гостевые попытки анонимно.
+  userId      String?  @map("user_id") @db.Uuid
+  drillId     String   @map("drill_id") @db.Uuid
+  correct     Boolean
+  /// Время решения в миллисекундах от показа до submit'а.
+  timeMs      Int      @map("time_ms")
+  /// Что прислал пользователь (тот же AnswerData shape, что и эталон).
+  /// Хранится для разбора истории попыток и аналитики.
+  answerGiven Json     @map("answer_given")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user  User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  drill TacticDrill @relation(fields: [drillId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([drillId])
+  @@map("tactic_drill_attempts")
+}
+
+model TacticDrillSprintScore {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  /// Кол-во правильно решённых задач в sprint'е.
+  score       Int
+  /// Общее число задач в сессии.
+  drillsCount Int      @map("drills_count")
+  /// `score / drillsCount`, [0..1], округлено до 2 знаков на backend'е.
+  accuracy    Float
+  /// Например `'3min-mixed'` / `'5min-checks-only'` — whitelist на
+  /// backend.
+  mode        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mode, score])
+  @@index([userId, createdAt])
+  @@map("tactic_drill_sprint_scores")
 }
