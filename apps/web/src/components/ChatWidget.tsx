@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import { api } from '../api';
 import { renderMarkdown } from '../utils/simpleMarkdown';
 
@@ -12,6 +13,10 @@ export function ChatWidget() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // KS-2228: runtime feature-flag (backend `GET /config`).
+  // Default `assistantEnabled=false` — иконка чата скрыта у всех,
+  // включается админом через PATCH /admin/feature-flags/assistantEnabled.
+  const assistantEnabled = useFeatureFlag('assistantEnabled');
   const { open, setOpen, messages, streaming, usage, rateLimitEnd, sendMessage, stopStreaming, loadConversation, newConversation } = useChat();
   const [countdown, setCountdown] = useState(0);
   useEffect(() => {
@@ -72,6 +77,10 @@ export function ChatWidget() {
     }
   };
 
+  // KS-2228: при `assistantEnabled=false` (runtime, default) — null,
+  // никаких placeholder'ов или оборачивающих контейнеров (см. MainLayout —
+  // ChatWidget рендерится напрямую без wrapper'а с padding'ом).
+  if (!assistantEnabled) return null;
   if (!user || import.meta.env.VITE_AI_CHAT_ENABLED === 'false') return null;
 
   return (

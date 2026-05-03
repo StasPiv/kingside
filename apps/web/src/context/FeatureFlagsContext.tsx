@@ -54,12 +54,17 @@ const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 мин
  *  - `puzzlesEnabled` = false (раздел «Задачи» временно скрыт);
  *  - `broadcastsEnabled` = true;
  *  - `tournamentsEnabled` = true.
+ *
+ * KS-2228 (KS-2222): чат-ассистент `assistantEnabled` = false
+ * (иконка `ChatWidget` скрыта по умолчанию). Включается админом
+ * через PATCH /admin/feature-flags/assistantEnabled.
  */
 export const DEFAULT_FLAGS: FeatureFlags = {
   lessonsEnabled: true,
   puzzlesEnabled: false,
   broadcastsEnabled: true,
   tournamentsEnabled: true,
+  assistantEnabled: false,
 };
 
 interface FeatureFlagsContextValue {
