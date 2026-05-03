@@ -1,0 +1,404 @@
+/*
+ * KS-2237 (ADR-035 §5.4 / §7.3 / §10, этап E3) — стили компонентов
+ * `apps/web/src/components/drills/*` и страниц `/drills` (лобби) и
+ * `/drills/<slug>` (drill).
+ *
+ * BEM-классы зафиксированы в JSDoc компонентов:
+ *   .drill-type-card                              — карточка лобби
+ *   .drill-board / .drill-board__overlay          — игровая доска
+ *   .drill-feedback.drill-feedback--{correct|incorrect}
+ *   .drill-instructions.drill-instructions--{info|success|error}
+ *   .drill-count-attackers / .drill-count-attackers__btn
+ *
+ * Темы — через семантические токены (`--text-*`, `--bg-*`, `--border-*`),
+ * автоматически инвертируются под `html[data-theme="light"]`. Анимации
+ * отключаются под `prefers-reduced-motion: reduce`.
+ *
+ * Tap-target на mobile ≥44px (R3 §10): обеспечивается через
+ * `min-height/min-width` на интерактивных элементах внутри
+ * `@media (max-width: 768px)`.
+ */
+
+/* ===========================================================
+ * DrillTypeCard — карточка типа drill'а в лобби (`/drills`)
+ * =========================================================== */
+
+.drill-type-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-height: 120px;
+  padding: 16px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease,
+    box-shadow 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.drill-type-card:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.drill-type-card:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-type-card:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.drill-type-card:disabled,
+.drill-type-card[data-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.drill-type-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  font-size: 22px;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+}
+
+.drill-type-card__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.drill-type-card__desc {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.drill-type-card__badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+
+/* ===========================================================
+ * DrillBoard — обёртка доски + overlay-слот
+ * =========================================================== */
+
+.drill-board {
+  position: relative;
+  width: 100%;
+  /* aspect-ratio 1:1 как fallback пока useContainerWidth не вычислит
+   * width (первый кадр без layout-shift). */
+  aspect-ratio: 1 / 1;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.drill-board__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===========================================================
+ * DrillFeedbackOverlay — фон поверх доски (correct/incorrect)
+ * =========================================================== */
+
+.drill-feedback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 4px;
+  animation: drill-feedback-in 220ms ease-out;
+}
+
+.drill-feedback--correct {
+  background: rgba(22, 163, 74, 0.32); /* --c-16a34a @ 32% */
+  box-shadow: inset 0 0 0 3px var(--c-16a34a);
+}
+
+.drill-feedback--incorrect {
+  background: rgba(220, 38, 38, 0.32); /* --c-dc2626 @ 32% */
+  box-shadow: inset 0 0 0 3px var(--c-dc2626);
+}
+
+@keyframes drill-feedback-in {
+  0%   { opacity: 0; transform: scale(1.02); }
+  60%  { opacity: 1; transform: scale(1.0);  }
+  100% { opacity: 1; transform: scale(1.0);  }
+}
+
+/* ===========================================================
+ * DrillInstructions — info/success/error плашки
+ * =========================================================== */
+
+.drill-instructions {
+  display: block;
+  padding: 12px 14px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.45;
+  /* Тонкий цветной accent слева для tone'ов. */
+  border-left-width: 4px;
+}
+
+.drill-instructions--info {
+  border-left-color: var(--accent-primary);
+}
+
+.drill-instructions--success {
+  border-left-color: var(--success-strong);
+  background: var(--ov-success-15-alt);
+}
+
+.drill-instructions--error {
+  border-left-color: var(--danger-strong);
+  background: var(--danger-soft);
+}
+
+/* ===========================================================
+ * DrillCountAttackersButtons — 4 кнопки 1..4
+ * =========================================================== */
+
+.drill-count-attackers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.drill-count-attackers__btn {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.1s ease;
+}
+
+.drill-count-attackers__btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+}
+
+.drill-count-attackers__btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-count-attackers__btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.drill-count-attackers__btn--active,
+.drill-count-attackers__btn[data-active="true"] {
+  background: var(--accent-soft-strong);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-count-attackers__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===========================================================
+ * Drills-page layouts — общие классы для DrillsLobbyPage и
+ * DrillPage. Frontend будет применять при создании страниц
+ * (KS-DRILL-LOBBY / KS-DRILL-PAGE).
+ *
+ * Если страница ещё не создана — стили лежат впрок и не
+ * влияют на текущий рендер.
+ * =========================================================== */
+
+.drills-lobby {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+}
+
+.drills-lobby__title {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.drills-lobby__subtitle {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.drills-lobby__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.drill-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+  align-items: start;
+}
+
+.drill-page__board {
+  min-width: 0;
+}
+
+.drill-page__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drill-page__answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ===========================================================
+ * Mobile-адаптация (R3 §10: клетка доски ≥40px без zoom,
+ * tap-target ≥44px)
+ * =========================================================== */
+
+@media (max-width: 768px) {
+  /* Лобби: одна колонка на узком экране. */
+  .drills-lobby {
+    padding: 16px 12px 32px;
+  }
+
+  .drills-lobby__title {
+    font-size: 22px;
+  }
+
+  .drills-lobby__grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Карточка: гарантируем tap-target — min-height ≥ 44, padding
+   * увеличиваем для пальца. */
+  .drill-type-card {
+    min-height: 88px;
+    padding: 14px 16px;
+  }
+
+  .drill-type-card__title {
+    font-size: 15px;
+  }
+
+  .drill-type-card__desc {
+    font-size: 13px;
+  }
+
+  /* DrillPage: portrait — доска сверху, ответ + инструкция снизу. */
+  .drill-page {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 8px 24px;
+    gap: 12px;
+  }
+
+  .drill-page__sidebar {
+    gap: 10px;
+  }
+
+  /* R3 §10: на mobile-portrait доска должна занимать почти всю ширину
+   * viewport, чтобы клетка осталась ≥40px (8 клеток × 40 = 320px,
+   * запас на отступы). */
+  .drill-board {
+    max-width: min(100vw - 16px, calc(100vh - 240px));
+  }
+
+  /* Tap-target ≥44px для answer-кнопок. */
+  .drill-count-attackers {
+    gap: 10px;
+  }
+
+  .drill-count-attackers__btn {
+    width: 64px;
+    height: 64px;
+    font-size: 24px;
+    border-radius: 12px;
+  }
+
+  .drill-instructions {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+}
+
+/* ===========================================================
+ * Reduced motion
+ * =========================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .drill-type-card,
+  .drill-count-attackers__btn {
+    transition: none;
+  }
+
+  .drill-feedback {
+    animation: none;
+  }
+}
