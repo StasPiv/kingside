@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { fireEvent } from '@testing-library/react';
 
 import { renderWithProviders, screen } from '../../test/test-utils';
 import { NagPalette } from './NagPalette';
@@ -207,6 +208,184 @@ describe('<NagPaletteSheet> KS-2269', () => {
     );
     await user.click(screen.getByTestId('nag-palette-btn-3'));
     expect(onChange).toHaveBeenCalledWith([3]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('<NagPaletteSheet> KS-2277 — swipe-to-dismiss + half-height', () => {
+  it('handle присутствует с aria-label и testid', () => {
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    const handle = screen.getByTestId('nag-palette-sheet-handle');
+    expect(handle).toBeInTheDocument();
+    expect(handle.getAttribute('aria-label')).toMatch(/drag|закрыть|потяни/i);
+  });
+
+  it('swipe-down >= 80px на handle → onClose', () => {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={onClose}
+      />,
+    );
+    const handle = screen.getByTestId('nag-palette-sheet-handle');
+    // touchstart на y=100 → touchmove на y=200 (Δy = 100) → touchend.
+    fireEvent.touchStart(handle, {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    fireEvent.touchMove(handle, {
+      touches: [{ clientX: 50, clientY: 200 }],
+    });
+    fireEvent.touchEnd(handle);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('swipe-down < 80px → onClose НЕ вызывается, sheet возвращается на место', () => {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={onClose}
+      />,
+    );
+    const handle = screen.getByTestId('nag-palette-sheet-handle');
+    fireEvent.touchStart(handle, {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    fireEvent.touchMove(handle, {
+      touches: [{ clientX: 50, clientY: 150 }], // Δy = 50, < threshold
+    });
+    fireEvent.touchEnd(handle);
+    expect(onClose).not.toHaveBeenCalled();
+    // После отпуска drag-offset вернулся на 0.
+    const sheet = screen.getByTestId('nag-palette-sheet');
+    expect(sheet.style.getPropertyValue('--nag-sheet-drag')).toBe('0px');
+    expect(sheet.getAttribute('data-dragging')).toBe('false');
+  });
+
+  it('swipe-UP игнорируется (offset clamp в 0)', () => {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={onClose}
+      />,
+    );
+    const handle = screen.getByTestId('nag-palette-sheet-handle');
+    fireEvent.touchStart(handle, {
+      touches: [{ clientX: 50, clientY: 200 }],
+    });
+    fireEvent.touchMove(handle, {
+      touches: [{ clientX: 50, clientY: 50 }], // Δy = -150 (вверх)
+    });
+    const sheet = screen.getByTestId('nag-palette-sheet');
+    expect(sheet.style.getPropertyValue('--nag-sheet-drag')).toBe('0px');
+    fireEvent.touchEnd(handle);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('drag визуально следует за пальцем (CSS-переменная --nag-sheet-drag обновляется)', () => {
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    const handle = screen.getByTestId('nag-palette-sheet-handle');
+    const sheet = screen.getByTestId('nag-palette-sheet');
+    fireEvent.touchStart(handle, {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    fireEvent.touchMove(handle, {
+      touches: [{ clientX: 50, clientY: 130 }], // Δy = 30
+    });
+    expect(sheet.style.getPropertyValue('--nag-sheet-drag')).toBe('30px');
+    expect(sheet.getAttribute('data-dragging')).toBe('true');
+  });
+
+  it('viewport < 700px → data-half-height="true" + CSS var --nag-sheet-max-height=50vh', () => {
+    // Подменяем innerHeight ДО renderWithProviders, чтобы useEffect
+    // открытия снял именно подменённое значение.
+    const original = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 600,
+    });
+    try {
+      renderWithProviders(
+        <NagPaletteSheet
+          open
+          nags={[]}
+          onChange={() => {}}
+          onClose={() => {}}
+        />,
+      );
+      const sheet = screen.getByTestId('nag-palette-sheet');
+      expect(sheet.getAttribute('data-half-height')).toBe('true');
+      expect(sheet.style.getPropertyValue('--nag-sheet-max-height')).toBe(
+        '50vh',
+      );
+    } finally {
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+
+  it('viewport >= 700px → data-half-height="false", CSS var не задана', () => {
+    const original = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 900,
+    });
+    try {
+      renderWithProviders(
+        <NagPaletteSheet
+          open
+          nags={[]}
+          onChange={() => {}}
+          onClose={() => {}}
+        />,
+      );
+      const sheet = screen.getByTestId('nag-palette-sheet');
+      expect(sheet.getAttribute('data-half-height')).toBe('false');
+      expect(sheet.style.getPropertyValue('--nag-sheet-max-height')).toBe('');
+    } finally {
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+
+  it('клик по handle (без drag) → onClose', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPaletteSheet
+        open
+        nags={[]}
+        onChange={() => {}}
+        onClose={onClose}
+      />,
+    );
+    await user.click(screen.getByTestId('nag-palette-sheet-handle'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
