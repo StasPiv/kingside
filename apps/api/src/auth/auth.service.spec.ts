@@ -2,7 +2,11 @@ jest.mock('../prisma/prisma.service', () => ({
   PrismaService: jest.fn(),
 }));
 
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import * as bcrypt from 'bcrypt';
 
@@ -327,6 +331,65 @@ describe('AuthService', () => {
 
       await expect(service.refresh('invalid-token')).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+  });
+
+  describe('devBypass — KS-2254 (security)', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it('throws ForbiddenException on NODE_ENV=production даже с валидным секретом', async () => {
+      process.env.NODE_ENV = 'production';
+      // Сервис не должен дойти до сравнения секрета — выходим раньше.
+      configService.get.mockImplementation((key: string) =>
+        key === 'DEV_BYPASS_SECRET' ? 'right-secret' : '15m',
+      );
+
+      await expect(service.devBypass('right-secret')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      // Никаких походов в БД на проде.
+      expect(prisma.user.upsert).toBeUndefined?.();
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenException on NODE_ENV=production без секрета (тоже отрезается)', async () => {
+      process.env.NODE_ENV = 'production';
+      await expect(service.devBypass('')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('пускает с валидным секретом на dev (NODE_ENV=development)', async () => {
+      process.env.NODE_ENV = 'development';
+      configService.get.mockImplementation((key: string) =>
+        key === 'DEV_BYPASS_SECRET' ? 'right-secret' : '15m',
+      );
+      const upsertedUser = {
+        id: '00000000-0000-4000-a000-000000000000',
+        username: 'dev',
+      };
+      prisma.user.upsert = jest.fn().mockResolvedValue(upsertedUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
+
+      const result = await service.devBypass('right-secret');
+
+      expect(prisma.user.upsert).toHaveBeenCalled();
+      expect(result.accessToken).toBe('mock-token');
+    });
+
+    it('throws ForbiddenException на dev с неправильным секретом', async () => {
+      process.env.NODE_ENV = 'development';
+      configService.get.mockImplementation((key: string) =>
+        key === 'DEV_BYPASS_SECRET' ? 'right-secret' : '15m',
+      );
+
+      await expect(service.devBypass('wrong-secret')).rejects.toBeInstanceOf(
+        ForbiddenException,
       );
     });
   });

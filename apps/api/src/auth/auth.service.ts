@@ -239,7 +239,14 @@ export class AuthService {
   }
 
   async devBypass(secret: string, username?: string) {
-    // NODE_ENV=production check temporarily disabled for bot testing
+    // KS-2254 (security): dev-bypass категорически запрещён на проде —
+    // даже с валидным секретом. Раньше тут стоял «temporarily disabled»
+    // комментарий, что открывало вход под любым юзером. Возврат проверки
+    // NODE_ENV первичен: secret отдельной защитой остаётся для dev/stage,
+    // но production отрезается до его сравнения.
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('dev-bypass disabled in production');
+    }
 
     const expectedSecret = this.configService.get<string>('DEV_BYPASS_SECRET')
       ?? this.configService.get<string>('VITE_DEV_BYPASS_SECRET');
