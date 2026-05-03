@@ -113,12 +113,11 @@ Drill ≠ puzzle:
 - внутри drill-mode сессии — никогда не повторять.
 
 ### 3.3 Сложность
-Грубая шкала 1–5 на основе:
-- ply из исходной партии (ранний middle-game = легче, эндшпиль = сложнее),
-- количество фигур на доске (≤10 → проще не значит легче, сложнее обзор),
-- наличие «отвлекающих факторов» (для `find-loose-piece` — общее число фигур противника без защиты от 1: чем больше «почти-loose» защитников у соседних, тем труднее).
+Шкала 1–5. Финальная формула с факторами (`pieceCount`, `attackerDensity`, `distractorCount` per-type, `materialBalance`, `mobilityRatio`, `typeSpecific`), per-drill-type веса, нормализации и bucket-cuts (0.20 / 0.35 / 0.55 / 0.75 → 1..5) — зафиксированы в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §9 (KS-2225, согласовано chess-expert).
 
-Конкретный scoring — отдельная задача chess-expert + architect (KS-DRILL-DIFFICULTY).
+Cold-start: минимальная версия v1 (`pieceCount + attackerDensity + typeSpecific_v1`, веса 0.30/0.30/0.40), полная формула как target-state после калибровки на 5000 решений per drill-type. Калибровка двигает bucket-cuts, не веса.
+
+Кандидат «ply из исходной партии» — отброшен (см. methodology §9.9: ply ничего не говорит о сложности drill).
 
 ### 3.4 Рейтинг — **в v1 не считаем**
 Glicko у `Puzzle` работает потому что задача = ход, понятен «выигрыш/проигрыш» партии задачи. Drill — клик за 5 секунд, FP/FN множества → формула выигрыша не очевидна. В v1 храним только raw-метрики (`solved`, `time_ms`, `precision`, `recall`), без рейтинга. Рейтинг — отдельный design в v2.x (KS-DRILL-RATING).

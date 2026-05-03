@@ -660,7 +660,7 @@ it('GET /next response не содержит поле answer', async () => {
 
 ## 9. Открытые вопросы (для KS-2225 и далее)
 
-1. **Difficulty формула** — KS-2225. Этот документ предполагает поле `difficulty: 1..5` в `TacticDrillDto`, но не специфицирует scoring (ply, board-fullness, distractor-count). Все три фактора из ADR-035 §3.3 — задача отдельного design-doc.
+1. ~~**Difficulty формула** — KS-2225.~~ ✅ **Закрыто** в [`tactical-drills-methodology.md`](./tactical-drills-methodology.md) §9 (chess-expert + architect, KS-2225). Кандидат «ply из исходной партии» отброшен; финальные факторы — `pieceCount`, `attackerDensity`, `distractorCount` per-type, `materialBalance`, `mobilityRatio`, `typeSpecific`. Cold-start через минимальную версию v1 (3 фактора), полная формула — target-state после 5000 решений per-drill-type.
 2. **`/next` без `type`** — нужно ли поддерживать «дай мне любую задачу adapted к уровню»? Сейчас контракт требует `type` (UI всегда знает на какой drill-карточке кликнул юзер). В sprint-режиме backend сам выбирает `type` из `sprintSession.types` пула — это покрывается.
 3. **Pagination для `/sprint/leaderboard`** — пока только `limit`, без `offset`. Достаточно ли для топ-500? Если в v2 захочется «моё место с соседями» — добавить `?aroundUserId=<id>&radius=10`.
 4. **`promotion` для shape='move'** — отложено в v2 (генератор отбрасывает). Тип `AnswerMove.promotion` объявлен в §2 как optional, чтобы не пришлось менять контракт при включении в v2.
