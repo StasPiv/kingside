@@ -652,6 +652,70 @@
     "boardSize": "Board size",
     "flipBoard": "Flip board"
   },
+  "drills": {
+    "title": "Tactical drills",
+    "lobbyHeading": "Pick a drill",
+    "lobbySubheading": "Short pattern-recognition exercises. One position — one question.",
+    "instructions": {
+      "findHangingPiece": "Which enemy piece is hanging?",
+      "findLoosePiece": "Which piece is undefended?",
+      "findPin": "Find the pinned piece",
+      "findFork": "Which piece forks?",
+      "findMateInOneSquare": "Where is mate-in-one delivered?",
+      "countAttackers": "How many pieces attack the highlighted square?",
+      "findAllChecks": "Find all checking squares",
+      "findUndefendedAttack": "Which move attacks an undefended piece?"
+    },
+    "types": {
+      "findHangingPiece": "Hanging piece",
+      "findLoosePiece": "Loose piece",
+      "findPin": "Pin",
+      "findFork": "Fork",
+      "findMateInOneSquare": "Mate in one",
+      "countAttackers": "Count attackers",
+      "findAllChecks": "All checks",
+      "findUndefendedAttack": "Undefended attack"
+    },
+    "typeDescriptions": {
+      "findHangingPiece": "Spot the enemy piece that no one defends — free to take.",
+      "findLoosePiece": "Find a piece on the board with no defenders.",
+      "findPin": "Locate the piece pinned against a more valuable one (or the king).",
+      "findFork": "Find the piece that simultaneously attacks two targets.",
+      "findMateInOneSquare": "Identify the square where mate is given in one move.",
+      "countAttackers": "Count how many pieces attack the marked square.",
+      "findAllChecks": "Mark every square where you can deliver a check.",
+      "findUndefendedAttack": "Find a move that attacks an undefended enemy piece."
+    },
+    "buttons": {
+      "submit": "Submit",
+      "skip": "Skip",
+      "next": "Next drill",
+      "showSolution": "Show solution",
+      "tryAgain": "Try again",
+      "backToLobby": "Back to drills"
+    },
+    "feedback": {
+      "correct": "Correct!",
+      "incorrect": "Not quite",
+      "partiallyCorrect": "Almost — {{matched}} of {{total}} squares",
+      "tryAgainHint": "Look at the position once more before the next try.",
+      "solutionLabel": "Solution"
+    },
+    "errors": {
+      "loadFailed": "Could not load drill. Please try again.",
+      "noDrillsAvailable": "No drills available for this type yet.",
+      "submitFailed": "Could not submit answer. Check your connection."
+    },
+    "lobby": {
+      "lockedHint": "Solve the previous drill type to unlock.",
+      "completedBadge": "Solved",
+      "newBadge": "New"
+    },
+    "side": {
+      "whiteToMove": "White to move",
+      "blackToMove": "Black to move"
+    }
+  },
   "puzzle": {
     "title": "Puzzles",
     "whiteToMove": "White to move",

@@ -1,0 +1,581 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`drills i18n — render snapshots > en: render-snapshot DrillInstructions + DrillTypeCard для всех 8 типов 1`] = `
+<div
+  data-testid="drills-i18n-fixture"
+>
+  <h2>
+    Tactical drills
+  </h2>
+  <p>
+    Pick a drill
+  </p>
+  <p>
+    Short pattern-recognition exercises. One position — one question.
+  </p>
+  <section
+    data-drill-id="findHangingPiece"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Which enemy piece is hanging?
+    </div>
+    <button
+      aria-label="Hanging piece. Spot the enemy piece that no one defends — free to take."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Hanging piece
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Spot the enemy piece that no one defends — free to take.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findLoosePiece"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Which piece is undefended?
+    </div>
+    <button
+      aria-label="Loose piece. Find a piece on the board with no defenders."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Loose piece
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Find a piece on the board with no defenders.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findPin"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Find the pinned piece
+    </div>
+    <button
+      aria-label="Pin. Locate the piece pinned against a more valuable one (or the king)."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Pin
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Locate the piece pinned against a more valuable one (or the king).
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findFork"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Which piece forks?
+    </div>
+    <button
+      aria-label="Fork. Find the piece that simultaneously attacks two targets."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Fork
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Find the piece that simultaneously attacks two targets.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findMateInOneSquare"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Where is mate-in-one delivered?
+    </div>
+    <button
+      aria-label="Mate in one. Identify the square where mate is given in one move."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Mate in one
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Identify the square where mate is given in one move.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="countAttackers"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      How many pieces attack the highlighted square?
+    </div>
+    <button
+      aria-label="Count attackers. Count how many pieces attack the marked square."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Count attackers
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Count how many pieces attack the marked square.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findAllChecks"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Find all checking squares
+    </div>
+    <button
+      aria-label="All checks. Mark every square where you can deliver a check."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        All checks
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Mark every square where you can deliver a check.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findUndefendedAttack"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Which move attacks an undefended piece?
+    </div>
+    <button
+      aria-label="Undefended attack. Find a move that attacks an undefended enemy piece."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Undefended attack
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Find a move that attacks an undefended enemy piece.
+      </span>
+    </button>
+  </section>
+</div>
+`;
+
+exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/feedback/errors/lobby/side) 1`] = `
+{
+  "buttons": {
+    "backToLobby": "Back to drills",
+    "next": "Next drill",
+    "showSolution": "Show solution",
+    "skip": "Skip",
+    "submit": "Submit",
+    "tryAgain": "Try again",
+  },
+  "errors": {
+    "loadFailed": "Could not load drill. Please try again.",
+    "noDrillsAvailable": "No drills available for this type yet.",
+    "submitFailed": "Could not submit answer. Check your connection.",
+  },
+  "feedback": {
+    "correct": "Correct!",
+    "incorrect": "Not quite",
+    "partiallyCorrect": "Almost — {{matched}} of {{total}} squares",
+    "solutionLabel": "Solution",
+    "tryAgainHint": "Look at the position once more before the next try.",
+  },
+  "lobby": {
+    "completedBadge": "Solved",
+    "lockedHint": "Solve the previous drill type to unlock.",
+    "newBadge": "New",
+  },
+  "side": {
+    "blackToMove": "Black to move",
+    "whiteToMove": "White to move",
+  },
+}
+`;
+
+exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstructions + DrillTypeCard для всех 8 типов 1`] = `
+<div
+  data-testid="drills-i18n-fixture"
+>
+  <h2>
+    Тактические упражнения
+  </h2>
+  <p>
+    Выберите упражнение
+  </p>
+  <p>
+    Короткие упражнения на распознавание паттернов. Одна позиция — один вопрос.
+  </p>
+  <section
+    data-drill-id="findHangingPiece"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Какая фигура противника висит?
+    </div>
+    <button
+      aria-label="Висящая фигура. Найдите фигуру противника, которую никто не защищает — её можно безнаказанно взять."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Висящая фигура
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Найдите фигуру противника, которую никто не защищает — её можно безнаказанно взять.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findLoosePiece"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Какая фигура без защиты?
+    </div>
+    <button
+      aria-label="Незащищённая фигура. Найдите на доске фигуру без единого защитника."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Незащищённая фигура
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Найдите на доске фигуру без единого защитника.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findPin"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Найдите связанную фигуру
+    </div>
+    <button
+      aria-label="Связка. Определите связанную фигуру — ту, за которой стоит фигура большей ценности (или король)."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Связка
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Определите связанную фигуру — ту, за которой стоит фигура большей ценности (или король).
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findFork"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Какая фигура делает вилку?
+    </div>
+    <button
+      aria-label="Вилка. Найдите фигуру, которая одним ходом нападает на две цели."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Вилка
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Найдите фигуру, которая одним ходом нападает на две цели.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findMateInOneSquare"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Куда ставится мат в один ход?
+    </div>
+    <button
+      aria-label="Мат в один ход. Укажите клетку, на которой ставится мат в один ход."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Мат в один ход
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Укажите клетку, на которой ставится мат в один ход.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="countAttackers"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Сколько фигур атакуют выделенную клетку?
+    </div>
+    <button
+      aria-label="Счёт атакующих. Подсчитайте, сколько фигур атакуют выделенную клетку."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Счёт атакующих
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Подсчитайте, сколько фигур атакуют выделенную клетку.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findAllChecks"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Найдите все клетки, куда можно дать шах
+    </div>
+    <button
+      aria-label="Все шахи. Отметьте все клетки, с которых можно дать шах."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Все шахи
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Отметьте все клетки, с которых можно дать шах.
+      </span>
+    </button>
+  </section>
+  <section
+    data-drill-id="findUndefendedAttack"
+  >
+    <div
+      class="drill-instructions drill-instructions--info"
+      data-testid="drill-instructions"
+      data-tone="info"
+      role="status"
+    >
+      Какой ход нападает на незащищённую фигуру?
+    </div>
+    <button
+      aria-label="Нападение на незащищённую. Найдите ход, который нападает на незащищённую фигуру противника."
+      class="drill-type-card"
+      data-disabled="false"
+      data-testid="drill-type-card"
+      type="button"
+    >
+      <span
+        class="drill-type-card__title"
+      >
+        Нападение на незащищённую
+      </span>
+      <span
+        class="drill-type-card__desc"
+      >
+        Найдите ход, который нападает на незащищённую фигуру противника.
+      </span>
+    </button>
+  </section>
+</div>
+`;
+
+exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/feedback/errors/lobby/side) 1`] = `
+{
+  "buttons": {
+    "backToLobby": "К списку упражнений",
+    "next": "Следующее",
+    "showSolution": "Показать решение",
+    "skip": "Пропустить",
+    "submit": "Ответить",
+    "tryAgain": "Ещё раз",
+  },
+  "errors": {
+    "loadFailed": "Не удалось загрузить упражнение. Попробуйте ещё раз.",
+    "noDrillsAvailable": "Для этого типа пока нет упражнений.",
+    "submitFailed": "Не удалось отправить ответ. Проверьте соединение.",
+  },
+  "feedback": {
+    "correct": "Верно!",
+    "incorrect": "Неверно",
+    "partiallyCorrect": "Почти — {{matched}} из {{total}} клеток",
+    "solutionLabel": "Решение",
+    "tryAgainHint": "Посмотрите на позицию ещё раз перед следующей попыткой.",
+  },
+  "lobby": {
+    "completedBadge": "Решено",
+    "lockedHint": "Решите предыдущий тип упражнения, чтобы открыть этот.",
+    "newBadge": "Новое",
+  },
+  "side": {
+    "blackToMove": "Ход чёрных",
+    "whiteToMove": "Ход белых",
+  },
+}
+`;
