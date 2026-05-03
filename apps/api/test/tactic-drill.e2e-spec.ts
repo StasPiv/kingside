@@ -274,12 +274,122 @@ describe('TacticDrill e2e (KS-2230)', () => {
     expect(res.body.unlocked).not.toContain('find-pin');
   });
 
-  it('POST /tactic-drill/sprint/start — 501 (заглушка)', async () => {
-    const user = await registerUser('sprint');
+  // ─── Sprint flow (KS-2240) ──────────────────────────────────
+
+  it('POST /sprint/start без auth → 401', async () => {
+    await request(app.getHttpServer())
+      .post('/tactic-drill/sprint/start')
+      .send({ durationMs: 180000, types: [] })
+      .expect(401);
+  });
+
+  it('Sprint flow: start → submit (правильный) → finish', async () => {
+    const user = await registerUser('sprintflow');
+    // Засеиваем 2 drill-fork позиции (нужны разные FEN, чтобы UNIQUE
+    // не дёргался; вторая — для next-after-submit).
+    await seedDrill({
+      type: 'find-fork',
+      fen: 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 1',
+      answer: { shape: 'square', square: 'c7' },
+    });
+    await seedDrill({
+      type: 'find-fork',
+      fen: 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 5',
+      answer: { shape: 'square', square: 'c7' },
+    });
+
+    // Start.
+    const start = await request(app.getHttpServer())
+      .post('/tactic-drill/sprint/start')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({ durationMs: 180000, types: ['find-fork'] })
+      .expect(201);
+    expect(start.body.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(start.body.drill.drillType).toBe('find-fork');
+    expect(start.body.drill).not.toHaveProperty('answer');
+
+    // Повторный start без force → 409.
     await request(app.getHttpServer())
       .post('/tactic-drill/sprint/start')
       .set('Authorization', `Bearer ${user.token}`)
-      .send({ durationMs: 180000, types: [] })
-      .expect(501);
+      .send({ durationMs: 180000, types: ['find-fork'] })
+      .expect(409);
+
+    // Submit правильный.
+    const sessionId = start.body.sessionId as string;
+    const firstDrillId = start.body.drill.id as string;
+    const submitOk = await request(app.getHttpServer())
+      .post('/tactic-drill/sprint/submit')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({
+        sessionId,
+        drillId: firstDrillId,
+        userAnswer: { shape: 'square', square: 'c7' },
+        timeMs: 1500,
+      })
+      .expect(201);
+    expect(submitOk.body.attempt.solved).toBe(true);
+    // next или final — оба валидны (зависит от того, есть ли вторая
+    // задача в пуле). Проверяем форму response'а.
+    expect(submitOk.body).toHaveProperty('next');
+
+    // Finish manual — сохранит score в `tactic_drill_sprint_scores`.
+    if (!submitOk.body.final) {
+      const finish = await request(app.getHttpServer())
+        .post('/tactic-drill/sprint/finish')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({ sessionId })
+        .expect(201);
+      expect(finish.body.score).toBeGreaterThanOrEqual(1);
+      expect(typeof finish.body.scoreId).toBe('string');
+      // Cleanup score (чтобы не оставлять мусор после теста).
+      await prisma.tacticDrillSprintScore
+        .delete({ where: { id: finish.body.scoreId } })
+        .catch(() => {});
+    } else {
+      await prisma.tacticDrillSprintScore
+        .delete({ where: { id: submitOk.body.final.scoreId } })
+        .catch(() => {});
+    }
+  });
+
+  it('GET /sprint/leaderboard?mode=test-mode → top-N', async () => {
+    const user = await registerUser('sprintlb');
+    // Зальём прямо в БД 2 score'а — leaderboard их вернёт.
+    const s1 = await prisma.tacticDrillSprintScore.create({
+      data: {
+        userId: user.id,
+        score: 42,
+        drillsCount: 50,
+        accuracy: 0.84,
+        mode: 'test-mode',
+      },
+      select: { id: true },
+    });
+    const s2 = await prisma.tacticDrillSprintScore.create({
+      data: {
+        userId: user.id,
+        score: 30,
+        drillsCount: 50,
+        accuracy: 0.6,
+        mode: 'test-mode',
+      },
+      select: { id: true },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/tactic-drill/sprint/leaderboard?mode=test-mode')
+      .expect(200);
+    expect(res.body.mode).toBe('test-mode');
+    expect(res.body.entries.length).toBeGreaterThanOrEqual(2);
+    // Сортировка по score desc.
+    const scores = res.body.entries.map((e: { score: number }) => e.score);
+    for (let i = 1; i < scores.length; i++) {
+      expect(scores[i - 1]).toBeGreaterThanOrEqual(scores[i]);
+    }
+
+    await prisma.tacticDrillSprintScore
+      .deleteMany({ where: { id: { in: [s1.id, s2.id] } } })
+      .catch(() => {});
   });
 });

@@ -10,12 +10,17 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { TacticDrillController } from './tactic-drill.controller';
 import { TacticDrillService } from './tactic-drill.service';
+import { TacticDrillSprintService } from './tactic-drill-sprint.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
 
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [TacticDrillController],
-  providers: [TacticDrillService, TacticDrillValidatorService],
+  providers: [
+    TacticDrillService,
+    TacticDrillSprintService,
+    TacticDrillValidatorService,
+  ],
   exports: [TacticDrillValidatorService],
 })
 export class TacticDrillModule {}

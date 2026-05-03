@@ -23,8 +23,6 @@ import {
   Body,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   NotFoundException,
   Post,
   Query,
@@ -37,11 +35,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { TacticDrillService } from './tactic-drill.service';
+import { TacticDrillSprintService } from './tactic-drill-sprint.service';
 import { GetNextQueryDto } from './dto/get-next-query.dto';
 import { AttemptRequestDto } from './dto/attempt.dto';
 import {
+  SprintFinishDto,
   SprintLeaderboardQueryDto,
   SprintStartDto,
+  SprintSubmitDto,
 } from './dto/sprint.dto';
 import { normalizeAnswerData } from './dto/answer.dto';
 
@@ -52,7 +53,10 @@ function readUserId(req: Request): string | null {
 
 @Controller('tactic-drill')
 export class TacticDrillController {
-  constructor(private readonly service: TacticDrillService) {}
+  constructor(
+    private readonly service: TacticDrillService,
+    private readonly sprintService: TacticDrillSprintService,
+  ) {}
 
   @Get('types')
   @UseGuards(OptionalJwtGuard)
@@ -104,30 +108,50 @@ export class TacticDrillController {
     return this.service.getMyStats(userId);
   }
 
-  // ─── Sprint (заглушки, KS-DRILL-SPRINT E4) ─────────────────
+  // ─── Sprint (KS-2240, ADR-035 §5.5) ────────────────────────
 
   @Post('sprint/start')
   @UseGuards(JwtAuthGuard)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async sprintStart(@Body() _body: SprintStartDto) {
-    throw new HttpException(
-      'sprint not implemented; tracked in KS-DRILL-SPRINT',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+  async sprintStart(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: SprintStartDto,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException();
+    return this.sprintService.start(userId, body);
   }
 
   @Post('sprint/submit')
   @UseGuards(JwtAuthGuard)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async sprintSubmit(@Body() _body: AttemptRequestDto) {
-    throw new HttpException(
-      'sprint not implemented; tracked in KS-DRILL-SPRINT',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+  async sprintSubmit(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: SprintSubmitDto,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException();
+    const norm = normalizeAnswerData(body.userAnswer);
+    if (!norm.ok) throw new BadRequestException(norm.error);
+    return this.sprintService.submit(userId, {
+      sessionId: body.sessionId,
+      drillId: body.drillId,
+      userAnswer: norm.value,
+      timeMs: body.timeMs,
+    });
+  }
+
+  @Post('sprint/finish')
+  @UseGuards(JwtAuthGuard)
+  async sprintFinish(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: SprintFinishDto,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException();
+    return this.sprintService.finishManual(userId, body.sessionId);
   }
 
   @Get('sprint/leaderboard')
   async sprintLeaderboard(@Query() query: SprintLeaderboardQueryDto) {
-    return this.service.getSprintLeaderboard(query.mode, query.limit);
+    return this.sprintService.leaderboard(query.mode, query.limit);
   }
 }

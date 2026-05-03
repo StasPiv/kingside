@@ -20,7 +20,6 @@ import type {
   TacticDrillAttemptResponse,
   TacticDrillDto,
   TacticDrillSkillLayer,
-  TacticDrillSprintScoreItem,
   TacticDrillStatsItem,
   TacticDrillStatsResponse,
   TacticDrillType,
@@ -247,39 +246,11 @@ export class TacticDrillService {
     };
   }
 
-  /** GET /sprint/leaderboard. Простой топ из `tactic_drill_sprint_scores`. */
-  async getSprintLeaderboard(
-    mode: string,
-    limit = 100,
-  ): Promise<{ mode: string; entries: TacticDrillSprintScoreItem[] }> {
-    const safeLimit = Math.min(Math.max(limit, 1), 500);
-    const rows = await this.prisma.tacticDrillSprintScore.findMany({
-      where: { mode },
-      orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
-      take: safeLimit,
-      select: {
-        userId: true,
-        score: true,
-        accuracy: true,
-        mode: true,
-        createdAt: true,
-        user: { select: { username: true } },
-      },
-    });
-    const entries: TacticDrillSprintScoreItem[] = rows.map((r) => ({
-      userId: r.userId,
-      username: r.user?.username ?? 'unknown',
-      mode: r.mode,
-      score: r.score,
-      accuracy: r.accuracy,
-      createdAt: r.createdAt.toISOString(),
-    }));
-    return { mode, entries };
-  }
-
-  // ─── private ────────────────────────────────────────────────
-
-  private toDto(
+  /**
+   * Public — используется sprint-сервисом (KS-2240) для обёртки
+   * выбранного `tactic_drill`-row в DTO без поля `answer`.
+   */
+  buildDto(
     id: string,
     type: TacticDrillType,
     fen: string,
@@ -294,6 +265,17 @@ export class TacticDrillService {
       answerShape: DRILL_TYPE_ANSWER_SHAPE[type],
       difficulty,
     };
+  }
+
+  // ─── private ────────────────────────────────────────────────
+
+  private toDto(
+    id: string,
+    type: TacticDrillType,
+    fen: string,
+    difficulty: number,
+  ): TacticDrillDto {
+    return this.buildDto(id, type, fen, difficulty);
   }
 }
 
