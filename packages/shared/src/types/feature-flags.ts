@@ -43,6 +43,12 @@ export interface FeatureFlags {
    * включается админом через PATCH без redeploy фронта.
    */
   assistantEnabled: boolean;
+  /**
+   * KS-2231 (ADR-035 §7.2, Drills E2): показывать раздел «Тренажёры»
+   * в UI и пускать на `/drills*`. Default `false` — фича пока в
+   * разработке; включается админом через PATCH без redeploy фронта.
+   */
+  drillsEnabled: boolean;
 }
 
 export interface ConfigResponse {

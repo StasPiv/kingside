@@ -32,6 +32,9 @@ export const KNOWN_FEATURE_FLAGS: FeatureFlags = {
   tournamentsEnabled: true,
   // KS-2222: чат-ассистент по умолчанию скрыт, включается через админку.
   assistantEnabled: false,
+  // KS-2231 (ADR-035 §7.2): раздел «Тренажёры» в разработке, выключен
+  // по умолчанию; включится админом через PATCH.
+  drillsEnabled: false,
 };
 
 /**
@@ -62,6 +65,10 @@ export const FEATURE_FLAG_METADATA: Record<
   assistantEnabled: {
     description:
       'Показывать чат-ассистент (иконка в правом нижнем углу). По умолчанию выключен — включить через PATCH.',
+  },
+  drillsEnabled: {
+    description:
+      'Показывать раздел «Тренажёры» в UI и пускать на /drills*. По умолчанию выключен — включить через PATCH.',
   },
 };
 
