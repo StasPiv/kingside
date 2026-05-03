@@ -215,6 +215,118 @@
   cursor: not-allowed;
 }
 
+/* === Variation color swatches (KS-2292 / ADR-038 §13.4) ===============
+ * Секция «Variation color» — 4 swatch + Clear-кнопка. Видна только в
+ * варианте (frontend условно рендерит). DOM-контракт зафиксирован
+ * NagPalette.tsx (KS-2291). Цвета через --c-vc-{green,blue,yellow,red}
+ * (KS-2289).
+ *
+ * Yellow на светлом фоне сам по себе плохо контрастит → border вокруг
+ * каждой swatch (subtle темнее в dark, чуть светлее в light) обеспечивает
+ * AA-видимость на всех темах. R9 §8.
+ */
+
+.nag-palette__variation-swatches {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nag-palette__variation-swatch {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--c-444);
+  border: 1px solid var(--ov-black-30);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.nag-palette__variation-swatch--green  { background: var(--c-vc-green); }
+.nag-palette__variation-swatch--blue   { background: var(--c-vc-blue); }
+.nag-palette__variation-swatch--yellow { background: var(--c-vc-yellow); }
+.nag-palette__variation-swatch--red    { background: var(--c-vc-red); }
+
+.nag-palette__variation-swatch:hover {
+  transform: scale(1.08);
+  border-color: var(--c-fff);
+}
+
+.nag-palette__variation-swatch:focus-visible {
+  outline: 2px solid var(--c-90caf9);
+  outline-offset: 2px;
+}
+
+.nag-palette__variation-swatch:active {
+  transform: scale(0.94);
+  transition-duration: 80ms;
+}
+
+/* Active state: внутренняя белая обводка + внешнее indigo-кольцо
+ * (универсально читается на всех 4 цветах) */
+.nag-palette__variation-swatch--active {
+  border-color: var(--c-fff);
+  box-shadow:
+    inset 0 0 0 1px var(--c-fff),
+    0 0 0 2px var(--c-7c83ff);
+}
+
+.nag-palette__variation-swatch--active:hover {
+  transform: scale(1.08);
+}
+
+.nag-palette__variation-clear {
+  margin-left: auto;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--c-444);
+  border-radius: 4px;
+  color: var(--c-888);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.nag-palette__variation-clear:hover:not(:disabled) {
+  background: var(--c-2a2a3e);
+  border-color: var(--c-666);
+  color: var(--c-e0e0e0);
+}
+
+.nag-palette__variation-clear:focus-visible {
+  outline: 2px solid var(--c-90caf9);
+  outline-offset: 1px;
+}
+
+.nag-palette__variation-clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* === Hint footer (KS-2282) ============================================
+ * Маленькая строка с подсказками клавиатуры. На mobile sheet (без
+ * клавиатуры) — скрывается. */
+
+.nag-palette__hint {
+  margin-top: 8px;
+  padding: 4px 6px 0;
+  font-size: 11px;
+  color: var(--c-888);
+  text-align: center;
+  letter-spacing: 0.2px;
+}
+
 /* === reduced-motion =================================================== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -222,7 +334,9 @@
     animation: none;
   }
   .nag-palette__btn,
-  .nag-palette__delete {
+  .nag-palette__delete,
+  .nag-palette__variation-swatch,
+  .nag-palette__variation-clear {
     transition: none;
   }
 }

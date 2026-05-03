@@ -214,6 +214,34 @@
   border-radius: 6px;
 }
 
+/* KS-2292: swatch'и в sheet — 48×48 (touch ≥44, design-doc §13.4 mobile).
+ * Clear color — в полную ширину под swatch'ами для удобства тапа. */
+.nag-palette-sheet__content .nag-palette__variation-swatches {
+  gap: 10px;
+}
+
+.nag-palette-sheet__content .nag-palette__variation-swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+}
+
+.nag-palette-sheet__content .nag-palette__variation-clear {
+  margin-left: 0;
+  margin-top: 6px;
+  flex-basis: 100%;
+  min-height: 44px;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* KS-2282: подсказки клавиатуры на touch-устройстве не нужны. */
+.nag-palette-sheet__content .nag-palette__hint {
+  display: none;
+}
+
 /* === Extra actions (KS-2283) =========================================
  * Опциональный блок под NagPalette внутри sheet'а: comment / promote /
  * truncate / delete (то же, что в desktop right-click context-menu).
