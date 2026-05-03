@@ -306,6 +306,29 @@ export function DrillRunner({
     void submit({ shape: 'squares', squares: pickedSquares });
   }, [pickedSquares, submit]);
 
+  // KS-2318: drag-and-drop ввод хода для shape='move'. Параллельно
+  // click-click продолжает работать (handleSquareClick). Возвращаем
+  // boolean (контракт useFastDrag), но реальное значение нам неважно —
+  // submit идёт асинхронно.
+  const handlePieceDrop = useCallback(
+    (args: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (state !== 'idle' || !drill) return false;
+      if (drill.answerShape !== 'move') return false;
+      const { sourceSquare, targetSquare } = args;
+      if (!sourceSquare || !targetSquare) return false;
+      if (sourceSquare === targetSquare) return false;
+      // Сбросим click-state чтобы не было гонки click-click и drag.
+      setPickedFrom(null);
+      void submit({
+        shape: 'move',
+        from: sourceSquare,
+        to: targetSquare,
+      });
+      return true;
+    },
+    [drill, state, submit],
+  );
+
   // ── Visuals ───────────────────────────────────────────────────────
   const highlightedSquares = useMemo<string[]>(() => {
     if (!drill) return [];
@@ -490,6 +513,11 @@ export function DrillRunner({
         boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
         highlightedSquares={highlightedSquares}
         onSquareClick={handleSquareClick}
+        // KS-2318: drag-and-drop ввод хода для shape='move'.
+        // Click-click продолжает работать через onSquareClick.
+        onPieceDrop={
+          drill.answerShape === 'move' ? handlePieceDrop : undefined
+        }
         overlay={
           feedback ? (
             <DrillFeedbackOverlay

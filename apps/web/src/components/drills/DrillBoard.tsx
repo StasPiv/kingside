@@ -3,6 +3,8 @@ import type { Square } from 'chess.js';
 import { MemoChessboard } from '../MemoChessboard';
 import { useContainerWidth } from '../../hooks/useContainerWidth';
 import { useBoardTheme } from '../../hooks/useBoardTheme';
+// KS-2318: pointer-based drag (как в PuzzleBoard) — для drill shape='move'.
+import { useFastDrag } from '../../hooks/useFastDrag';
 
 /**
  * KS-2234 (ADR-035 §7.3, E3) — обёртка `Chessboard` для drill-сценариев.
@@ -44,7 +46,19 @@ export interface DrillBoardProps {
   /** Клик по клетке. Если не задан — клик игнорируется. */
   onSquareClick?: (square: Square) => void;
   /**
+   * KS-2318: drag-and-drop ход (для drill shape='move'). Если задан —
+   * pointer-drag на доске вызывает handler с from/to. `allowDragging`
+   * автоматически включается для UI-фидбека (cursor: grab). Click-click
+   * через `onSquareClick` остаётся доступен параллельно.
+   *
+   * Возвращаемое значение boolean игнорируется DrillBoard'ом — host
+   * сам решает что делать с дропом.
+   */
+  onPieceDrop?: (args: { sourceSquare: string; targetSquare: string | null }) => boolean;
+  /**
    * Разрешить drag (по умолчанию false — drill в основном click/static).
+   * Игнорируется если задан `onPieceDrop` — там drag реализован через
+   * useFastDrag, а не через built-in react-chessboard drag.
    */
   allowDragging?: boolean;
 }
@@ -59,11 +73,26 @@ export function DrillBoard({
   highlightedSquares,
   overlay,
   onSquareClick,
+  onPieceDrop,
   allowDragging = false,
 }: DrillBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(containerRef);
   const { boardThemeOptions, customPieces } = useBoardTheme();
+
+  // KS-2318: pointer-based drag через container. Включается при
+  // переданном onPieceDrop. Хук no-op'ом завершается если enabled=false.
+  useFastDrag(containerRef, {
+    onPieceDrop:
+      onPieceDrop ??
+      (() => false /* unused, hook требует функцию даже при enabled=false */),
+    boardOrientation,
+    enabled: !!onPieceDrop,
+    // Drill — статичная позиция; разрешаем хватать фигуры обоих цветов
+    // (например, drill 'find-undefended-attack' на ходе белых, но
+    // педагогически ученик может попробовать ход чёрной фигурой).
+    allowBothColors: true,
+  });
 
   const squareStyles = useMemo<Record<string, CSSProperties> | undefined>(() => {
     if (!highlightedSquares || highlightedSquares.length === 0) return undefined;

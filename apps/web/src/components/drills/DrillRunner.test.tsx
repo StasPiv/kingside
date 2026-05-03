@@ -15,7 +15,7 @@ vi.mock('../MemoChessboard', () => ({
       squareStyles?: Record<string, CSSProperties>;
     };
   }) => {
-    const SQUARES = ['e4', 'e5', 'd4'];
+    const SQUARES = ['e2', 'e4', 'e5', 'd4'];
     return (
       <div data-testid="mock-board" data-position={options.position}>
         {SQUARES.map((sq) => (
@@ -32,6 +32,35 @@ vi.mock('../MemoChessboard', () => ({
     );
   },
 }));
+
+// KS-2318: useFastDrag — мокаем, чтобы зарегистрировать onPieceDrop
+// в registry и дёргать через test-only api. Реальный pointer-flow в
+// happy-dom тяжело симулировать.
+const dropHandlerRegistry: Array<
+  ((args: { sourceSquare: string; targetSquare: string | null }) => boolean) | null
+> = [];
+vi.mock('../../hooks/useFastDrag', () => ({
+  useFastDrag: (
+    _ref: unknown,
+    opts: {
+      onPieceDrop: (a: { sourceSquare: string; targetSquare: string | null }) => boolean;
+      enabled?: boolean;
+    },
+  ) => {
+    // Регистрируем handler только когда useFastDrag enabled — точно
+    // как в production-коде DrillBoard (enabled=!!onPieceDrop).
+    if (opts.enabled) {
+      dropHandlerRegistry.push(opts.onPieceDrop);
+    }
+    return { suppressAnimationRef: { current: false } };
+  },
+}));
+
+function fireDrop(args: { sourceSquare: string; targetSquare: string }) {
+  const handler = dropHandlerRegistry[dropHandlerRegistry.length - 1];
+  if (!handler) throw new Error('no drop handler registered');
+  return handler(args);
+}
 
 import { DrillRunner } from './DrillRunner';
 
@@ -56,6 +85,7 @@ const SQUARE_DRILL = {
 
 beforeEach(() => {
   vi.useRealTimers();
+  dropHandlerRegistry.length = 0;
 });
 
 afterEach(() => {
@@ -365,6 +395,150 @@ describe('<DrillRunner> KS-2249', () => {
       ),
     );
     expect(screen.getByTestId('custom-header')).toBeInTheDocument();
+  });
+
+  // KS-2318: drag-and-drop для shape='move'.
+  describe('KS-2318 — drag-and-drop ввод хода (shape=move)', () => {
+    const MOVE_DRILL = {
+      id: 'd-move',
+      drillType: 'find-undefended-attack',
+      fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1',
+      sideToMove: 'w',
+      answerShape: 'move',
+      difficulty: 3,
+    };
+
+    it('useFastDrag enabled только для shape=move (для number — нет registry)', async () => {
+      const loadDrill = vi.fn(async () => NUMBER_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // shape=number → onPieceDrop НЕ передаётся в DrillBoard → useFastDrag не enabled.
+      expect(dropHandlerRegistry).toHaveLength(0);
+    });
+
+    it('shape=move: useFastDrag регистрирует handler', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(dropHandlerRegistry.length).toBeGreaterThan(0);
+    });
+
+    it('drag e2→e4 → submit({shape:move, from:e2, to:e4})', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+      }));
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Симулируем drop через зарегистрированный handler.
+      const accepted = fireDrop({ sourceSquare: 'e2', targetSquare: 'e4' });
+      expect(accepted).toBe(true);
+      await waitFor(() =>
+        expect(submitAnswer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            drillId: 'd-move',
+            userAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+          }),
+        ),
+      );
+    });
+
+    it('drop с одинаковыми from/to (no-op) → submit НЕ вызван', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      const accepted = fireDrop({ sourceSquare: 'e2', targetSquare: 'e2' });
+      expect(accepted).toBe(false);
+      expect(submitAnswer).not.toHaveBeenCalled();
+    });
+
+    it('drop когда state≠idle (например, в feedback) → submit НЕ вызван', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Сначала click-click → feedback.
+      await user.click(screen.getByTestId('fire-square-e2'));
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      const callsBeforeDrop = submitAnswer.mock.calls.length;
+      // Drop в feedback-state — игнорируется.
+      const accepted = fireDrop({ sourceSquare: 'd2', targetSquare: 'd4' });
+      expect(accepted).toBe(false);
+      expect(submitAnswer.mock.calls.length).toBe(callsBeforeDrop);
+    });
+
+    it('shape=move: click-click и drag сосуществуют (click-click продолжает работать)', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Click-click flow остаётся живым.
+      await user.click(screen.getByTestId('fire-square-e2'));
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(submitAnswer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+          }),
+        ),
+      );
+    });
   });
 
   it('hideProgress + hideTimer → блоки не рендерятся', async () => {
