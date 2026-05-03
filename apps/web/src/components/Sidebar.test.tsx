@@ -11,6 +11,8 @@ const flagControls = {
   puzzles: false,
   broadcasts: true,
   tournaments: true,
+  // KS-2235 (KS-2231): default `false` — фича в разработке.
+  drills: false,
 };
 vi.mock('../context/FeatureFlagsContext', () => ({
   useFeatureFlags: () => ({
@@ -19,6 +21,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
       puzzlesEnabled: flagControls.puzzles,
       broadcastsEnabled: flagControls.broadcasts,
       tournamentsEnabled: flagControls.tournaments,
+      drillsEnabled: flagControls.drills,
     },
     loading: false,
     error: null,
@@ -29,6 +32,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     if (key === 'puzzlesEnabled') return flagControls.puzzles;
     if (key === 'broadcastsEnabled') return flagControls.broadcasts;
     if (key === 'tournamentsEnabled') return flagControls.tournaments;
+    if (key === 'drillsEnabled') return flagControls.drills;
     return false;
   },
   FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
@@ -39,6 +43,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     puzzlesEnabled: false,
     broadcastsEnabled: true,
     tournamentsEnabled: true,
+    drillsEnabled: false,
   },
 }));
 
@@ -60,6 +65,7 @@ beforeEach(() => {
   flagControls.puzzles = false;
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
+  flagControls.drills = false;
   adminControls.isAdmin = false;
 });
 
@@ -123,6 +129,20 @@ describe('<Sidebar>', () => {
     flagControls.tournaments = true;
     renderWithProviders(<Sidebar />);
     expect(screen.getByTitle(/tournaments|турнир/i)).toBeInTheDocument();
+  });
+
+  it('KS-2235: drillsEnabled=false (default) → пункт «Тренажёры» скрыт', () => {
+    flagControls.drills = false;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/drills|тренажёр/i)).not.toBeInTheDocument();
+  });
+
+  it('KS-2235: drillsEnabled=true → пункт «Тренажёры» виден и ведёт на /drills', () => {
+    flagControls.drills = true;
+    renderWithProviders(<Sidebar />);
+    const link = screen.getByTitle(/drills|тренажёр/i);
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/drills');
   });
 
   it('KS-2252: иконка кнопки обратной связи — 📝 (НЕ 💬, чтобы не путалась с ChatWidget)', () => {

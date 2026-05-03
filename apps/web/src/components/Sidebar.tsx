@@ -46,6 +46,17 @@ const NAV_ITEMS: NavItem[] = [
     featureFlag: 'puzzlesEnabled',
   },
   { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },
+  // KS-2235 (ADR-035 §7.2): «Тренажёры» — runtime feature-flag
+  // `drillsEnabled` (KS-2231). Default `false` — фича в разработке;
+  // включается админом через PATCH /admin/feature-flags/drillsEnabled
+  // без redeploy фронта.
+  {
+    path: '/drills',
+    icon: '🎯',
+    i18nKey: 'nav.drills',
+    match: ['/drills'],
+    featureFlag: 'drillsEnabled',
+  },
   {
     path: '/lessons',
     icon: '📚',

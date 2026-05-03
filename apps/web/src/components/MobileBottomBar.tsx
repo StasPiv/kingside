@@ -17,6 +17,13 @@ export function MobileBottomBar() {
   const tournamentsEnabled = useFeatureFlag('tournamentsEnabled');
   const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
   const broadcastsEnabled = useFeatureFlag('broadcastsEnabled');
+  // KS-2235 (ADR-035 §7.2): «Тренажёры» — runtime feature-flag
+  // `drillsEnabled` (KS-2231). Default `false`. Решение разместить
+  // в more-menu, а не отдельным табом: основной нижний bar уже занят
+  // 5 элементами (Play / Tournaments / Puzzles / Workshop / More).
+  // Drill — узкая фича уровня тренажёра, в more-menu рядом с Lessons /
+  // Archive / TV.
+  const drillsEnabled = useFeatureFlag('drillsEnabled');
   // Admin-пункт по аналогии с Sidebar (KS-2109).
   const { isAdmin } = useAdminStatus();
 
@@ -61,6 +68,12 @@ export function MobileBottomBar() {
           {lessonsEnabled && (
             <Link to="/lessons" data-testid="mobile-more-lessons">
               {t('nav.lessons', 'Lessons')}
+            </Link>
+          )}
+          {/* KS-2235: «Тренажёры» — runtime feature-flag `drillsEnabled`. */}
+          {drillsEnabled && (
+            <Link to="/drills" data-testid="mobile-more-drills">
+              {t('nav.drills', 'Drills')}
             </Link>
           )}
           {/* KS-2110: «Архив» тоже был скрыт на mobile. */}

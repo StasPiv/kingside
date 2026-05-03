@@ -8,6 +8,8 @@ const flagControls = {
   puzzles: false,
   broadcasts: true,
   tournaments: true,
+  // KS-2235 (KS-2231): default `false`.
+  drills: false,
 };
 const adminControls = { isAdmin: false };
 
@@ -17,6 +19,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     if (key === 'puzzlesEnabled') return flagControls.puzzles;
     if (key === 'broadcastsEnabled') return flagControls.broadcasts;
     if (key === 'tournamentsEnabled') return flagControls.tournaments;
+    if (key === 'drillsEnabled') return flagControls.drills;
     return false;
   },
   useFeatureFlags: () => ({
@@ -25,6 +28,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
       puzzlesEnabled: flagControls.puzzles,
       broadcastsEnabled: flagControls.broadcasts,
       tournamentsEnabled: flagControls.tournaments,
+      drillsEnabled: flagControls.drills,
     },
     loading: false,
     error: null,
@@ -38,6 +42,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     puzzlesEnabled: false,
     broadcastsEnabled: true,
     tournamentsEnabled: true,
+    drillsEnabled: false,
   },
 }));
 
@@ -54,6 +59,7 @@ beforeEach(() => {
   flagControls.puzzles = true;
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
+  flagControls.drills = false;
   adminControls.isAdmin = false;
 });
 
@@ -132,6 +138,24 @@ describe('<MobileBottomBar> (KS-2110)', () => {
     renderWithProviders(<MobileBottomBar />);
     await user.click(screen.getByText(/more/i));
     expect(screen.getByTestId('mobile-more-broadcasts')).toBeInTheDocument();
+  });
+
+  it('KS-2235: drillsEnabled=false → пункт «Тренажёры» в more-menu скрыт', async () => {
+    flagControls.drills = false;
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await user.click(screen.getByText(/more/i));
+    expect(screen.queryByTestId('mobile-more-drills')).not.toBeInTheDocument();
+  });
+
+  it('KS-2235: drillsEnabled=true → пункт «Тренажёры» в more-menu виден и ведёт на /drills', async () => {
+    flagControls.drills = true;
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await user.click(screen.getByText(/more/i));
+    const link = screen.getByTestId('mobile-more-drills');
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/drills');
   });
 
   it('isAdmin=false → пункт «Админка» скрыт; isAdmin=true → виден', async () => {
