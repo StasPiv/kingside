@@ -168,13 +168,12 @@ describe('TacticDrillService — KS-2230', () => {
     });
 
     it('KS-2369: count-attackers DTO пробрасывает meta.attackerColor', async () => {
-      // Первый value пуст, второй = 1 → SELECT возвращает drill с meta
-      // содержащим highlightedSquare и attackerColor. Sanitizer обязан
-      // сохранить оба поля.
+      // KS-2371: keyset-формат. Первый value: fwd[]  → bwd[]  → null.
+      // Второй value: fwd с drill (содержит meta).
       const queryMock = prisma.$queryRawUnsafe as jest.Mock;
       queryMock
-        .mockResolvedValueOnce([{ c: BigInt(0) }])
-        .mockResolvedValueOnce([{ c: BigInt(1) }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           {
             id: 'd-ca-meta',
@@ -189,17 +188,19 @@ describe('TacticDrillService — KS-2230', () => {
       expect(r?.meta?.attackerColor).toBe('b');
     });
 
-    it('KS-2346/2368: count-attackers фильтрует по answer.value через raw SQL', async () => {
-      // KS-2368: переписано на $queryRawUnsafe. 4 попытки count (по
-      // одной на value); первая ненулевая → followup findFirst raw.
-      // Имитируем: первые 3 count'а возвращают 0, 4-й = 7. После
-      // count>0 идёт SELECT ... LIMIT 1 OFFSET — возвращает drill.
+    it('KS-2346/2368/2371: count-attackers через keyset random (gen_random_uuid)', async () => {
+      // KS-2371: переписано с count+offset на keyset через `id >=
+      // gen_random_uuid()`. На один value до 2 запросов: forward
+      // (id >= ...) и backward fallback. Имитируем: 3 value пусты
+      // (fwd []  → bwd [] = 6 пустых ответов), 4-й value: fwd [row].
       const queryMock = prisma.$queryRawUnsafe as jest.Mock;
       queryMock
-        .mockResolvedValueOnce([{ c: BigInt(0) }])
-        .mockResolvedValueOnce([{ c: BigInt(0) }])
-        .mockResolvedValueOnce([{ c: BigInt(0) }])
-        .mockResolvedValueOnce([{ c: BigInt(7) }])
+        .mockResolvedValueOnce([]) // value-1 fwd
+        .mockResolvedValueOnce([]) // value-1 bwd
+        .mockResolvedValueOnce([]) // value-2 fwd
+        .mockResolvedValueOnce([]) // value-2 bwd
+        .mockResolvedValueOnce([]) // value-3 fwd
+        .mockResolvedValueOnce([]) // value-3 bwd
         .mockResolvedValueOnce([
           {
             id: 'd-ca',
@@ -211,23 +212,20 @@ describe('TacticDrillService — KS-2230', () => {
         ]);
       const r = await svc.getNext(null, 'count-attackers');
       expect(r?.id).toBe('d-ca');
-      // Проверяем, что raw SQL содержит выражение для функционального
-      // индекса — `(answer->>'value')::int` (KS-2368).
+      // Проверяем, что raw SQL использует keyset (gen_random_uuid).
       const calls = queryMock.mock.calls;
-      const hasFunctionalFilter = calls.some(
+      const hasKeyset = calls.some(
         (c) =>
           typeof c[0] === 'string' &&
-          c[0].includes("answer->>'value'") &&
-          c[0].includes('::int'),
+          c[0].includes('gen_random_uuid()') &&
+          c[0].includes("answer->>'value'"),
       );
-      expect(hasFunctionalFilter).toBe(true);
+      expect(hasKeyset).toBe(true);
     });
 
     it('KS-2346/2368: count-attackers пул пуст по всем value → null', async () => {
-      // Все четыре попытки возвращают c=0 → null.
-      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([
-        { c: BigInt(0) },
-      ]);
+      // Все попытки (4×fwd + 4×bwd) возвращают [] → null.
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([]);
       const r = await svc.getNext(null, 'count-attackers');
       expect(r).toBeNull();
     });

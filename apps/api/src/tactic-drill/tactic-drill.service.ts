@@ -279,10 +279,26 @@ export class TacticDrillService {
   }
 
   /**
-   * KS-2368: одна попытка для конкретного `answer.value`. Raw SQL,
-   * использует partial index `tactic_drills_ca_value_idx` (см.
-   * миграцию 20260504130000). Если в этом value пул пуст — возвращает
-   * null, caller перебирает следующий value.
+   * KS-2368/KS-2371: одна попытка для конкретного `answer.value`.
+   *
+   * Раньше использовали `count(*) + LIMIT 1 OFFSET random()*total`.
+   * После rescore (KS-2354 update 639k строк) planner на functional
+   * expression давал заниженный estimate → выбирался Bitmap Heap Scan
+   * + external sort вместо Index Only Scan. На проде count =11с,
+   * select =13с для value=1 (464k записей). VACUUM ANALYZE не помог —
+   * planner всё равно ошибался в estimate.
+   *
+   * **Keyset-random pick** через `id >= gen_random_uuid()`:
+   *   - UUID v4 равномерно распределён в 128-bit пространстве.
+   *   - Index range scan на partial `(value, id)`-индексе: O(log N).
+   *   - Никаких COUNT, OFFSET, sort'ов — только seek.
+   *
+   * Алгоритм:
+   *   1. SELECT первого row где `id >= gen_random_uuid()` — попадает
+   *      случайно в верхнюю часть диапазона.
+   *   2. Если null (random uuid выше всех существующих id) —
+   *      fallback с новым `gen_random_uuid()`. Редкий случай (~0.01%).
+   *   3. Оба null — value-bucket пуст, return null.
    */
   private async pickCountAttackerByValue(
     value: number,
@@ -295,60 +311,66 @@ export class TacticDrillService {
     difficulty: number;
     meta: unknown;
   } | null> {
-    const baseSql =
-      `FROM tactic_drills WHERE type = 'count-attackers' AND sf_rejected = false ` +
-      `AND (answer->>'value')::int = $1`;
+    const conditions = [
+      `type = 'count-attackers'`,
+      `sf_rejected = false`,
+      `(answer->>'value')::int = $1`,
+    ];
     const params: unknown[] = [value];
-    let extra = '';
     if (difficulty !== null) {
       params.push(difficulty);
-      extra += ` AND difficulty = $${params.length}`;
+      conditions.push(`difficulty = $${params.length}`);
     }
     if (excludeIds.length > 0) {
       params.push(excludeIds);
-      extra += ` AND NOT (id = ANY($${params.length}::uuid[]))`;
+      conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
     }
+    const whereSql = conditions.join(' AND ');
 
-    // KS-2371: timing-логирование. Считает каждый count-вызов
-    // (балансировка делает до 4-х) — DevOps увидит, какой value
-    // тормозит (например пустые value=4, или огромный excludeIds).
-    const tCnt0 = Date.now();
-    const totalRows = await this.prisma.$queryRawUnsafe<{ c: bigint }[]>(
-      `SELECT count(*)::bigint AS c ${baseSql}${extra}`,
+    // Try 1: id >= random uuid → ближайший выше-или-равный.
+    const sqlForward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id >= gen_random_uuid() ` +
+      `ORDER BY id ASC LIMIT 1`;
+    // Try 2 (fallback): id < random uuid → ближайший ниже.
+    const sqlBackward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id < gen_random_uuid() ` +
+      `ORDER BY id DESC LIMIT 1`;
+
+    type Row = {
+      id: string;
+      type: string;
+      fen: string;
+      difficulty: number;
+      meta: unknown;
+    };
+
+    const tFwd0 = Date.now();
+    const fwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      sqlForward,
       ...params,
     );
-    const tCnt = Date.now() - tCnt0;
-    const total = Number(totalRows[0]?.c ?? 0);
-    if (total === 0) {
+    const tFwd = Date.now() - tFwd0;
+    if (fwd[0]) {
       // eslint-disable-next-line no-console
       console.log(
-        `[drill-next] ca-pick value=${value} count=${tCnt}ms total=0 excludeIds=${excludeIds.length}`,
+        `[drill-next] ca-pick value=${value} fwd=${tFwd}ms hit=fwd excludeIds=${excludeIds.length}`,
       );
-      return null;
+      return fwd[0];
     }
 
-    const offset = Math.floor(Math.random() * total);
-    const tSel0 = Date.now();
-    const rows = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: string;
-        type: string;
-        fen: string;
-        difficulty: number;
-        meta: unknown;
-      }>
-    >(
-      `SELECT id, type, fen, difficulty, meta ${baseSql}${extra} ` +
-        `ORDER BY id ASC LIMIT 1 OFFSET $${params.length + 1}`,
+    const tBwd0 = Date.now();
+    const bwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      sqlBackward,
       ...params,
-      offset,
     );
-    const tSel = Date.now() - tSel0;
+    const tBwd = Date.now() - tBwd0;
     // eslint-disable-next-line no-console
     console.log(
-      `[drill-next] ca-pick value=${value} count=${tCnt}ms select=${tSel}ms offset=${offset}/${total} excludeIds=${excludeIds.length}`,
+      `[drill-next] ca-pick value=${value} fwd=${tFwd}ms bwd=${tBwd}ms hit=${bwd[0] ? 'bwd' : 'none'} excludeIds=${excludeIds.length}`,
     );
-    return rows[0] ?? null;
+    return bwd[0] ?? null;
   }
 
   /**
