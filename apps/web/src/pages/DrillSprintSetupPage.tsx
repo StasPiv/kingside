@@ -8,6 +8,7 @@ import type {
 } from '@kingside/shared';
 
 import { api } from '../api';
+import { ApiError } from '../ApiError';
 
 /**
  * KS-2241 (ADR-035 §5.5, Drills E4) — setup-страница sprint-режима.
@@ -66,6 +67,11 @@ export function DrillSprintSetupPage() {
   const [selected, setSelected] = useState<Set<TacticDrillType>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KS-2350: 409 ConflictException от backend = у пользователя уже
+  // активная sprint-сессия. Отдельный режим UI: «Продолжить» / «Начать
+  // новый» (последнее — POST с `force=true`, backend сам прервёт старую).
+  const [conflict, setConflict] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const toggleType = useCallback((type: TacticDrillType) => {
     setSelected((prev) => {
@@ -84,26 +90,70 @@ export function DrillSprintSetupPage() {
     setSelected(new Set());
   }, []);
 
-  const start = useCallback(async () => {
+  // KS-2350: общий вызов POST /sprint/start. force=true → backend
+  // прерывает существующую активную сессию (forceFinish + delete) и
+  // создаёт новую. Без force и при наличии активной сессии — 409.
+  const start = useCallback(
+    async (force = false) => {
+      if (submitting) return;
+      setError(null);
+      setResumeError(null);
+      setSubmitting(true);
+      try {
+        const req: TacticDrillSprintStartRequest & { force?: boolean } = {
+          durationMs: duration,
+          // Пустой Set трактуется backend как «все 8» — отправляем [].
+          types: Array.from(selected),
+          ...(force ? { force: true } : {}),
+        };
+        const resp = await api.post<TacticDrillSprintStartResponse>(
+          '/tactic-drill/sprint/start',
+          req,
+        );
+        setConflict(false);
+        navigate('/drills/sprint/play', { state: { session: resp } });
+      } catch (e) {
+        // KS-2350: 409 = активная сессия. Показываем выбор «Продолжить /
+        // Начать новый», generic-плашку «не удалось» НЕ ставим.
+        if (e instanceof ApiError && e.status === 409) {
+          setConflict(true);
+        } else {
+          setError('loadFailed');
+        }
+        setSubmitting(false);
+      }
+    },
+    [duration, selected, submitting, navigate],
+  );
+
+  // KS-2350: «Продолжить активный спринт». Backend GET-endpoint для
+  // подгрузки активной сессии пока не существует (см. сопровождающий
+  // комментарий координатору) — пробуем `/tactic-drill/sprint/active`,
+  // если 200 — переходим на PlayPage со state, если 404 — показываем
+  // подсказку, что подгрузка пока недоступна, и пользователь может
+  // нажать «Начать новый». Когда backend добавит endpoint — этот код
+  // продолжит работать без изменений.
+  const resume = useCallback(async () => {
     if (submitting) return;
-    setError(null);
+    setResumeError(null);
     setSubmitting(true);
     try {
-      const req: TacticDrillSprintStartRequest = {
-        durationMs: duration,
-        // Пустой Set трактуется backend как «все 8» — отправляем [].
-        types: Array.from(selected),
-      };
-      const resp = await api.post<TacticDrillSprintStartResponse>(
-        '/tactic-drill/sprint/start',
-        req,
+      const session = await api.get<TacticDrillSprintStartResponse>(
+        '/tactic-drill/sprint/active',
       );
-      navigate('/drills/sprint/play', { state: { session: resp } });
-    } catch {
-      setError('loadFailed');
+      setConflict(false);
+      navigate('/drills/sprint/play', { state: { session } });
+    } catch (e) {
+      // 404 = endpoint ещё не реализован, показываем дружелюбную
+      // подсказку. Любая другая — generic.
+      if (e instanceof ApiError && e.status === 404) {
+        setResumeError('notSupported');
+      } else {
+        setResumeError('loadFailed');
+      }
       setSubmitting(false);
     }
-  }, [duration, selected, submitting, navigate]);
+  }, [submitting, navigate]);
 
   return (
     <div className="drill-sprint-setup" data-testid="drill-sprint-setup">
@@ -198,15 +248,81 @@ export function DrillSprintSetupPage() {
         </div>
       )}
 
-      <button
-        type="button"
-        className="drill-sprint-setup__start"
-        data-testid="drill-sprint-setup-start"
-        disabled={submitting}
-        onClick={() => void start()}
-      >
-        {t('drills.sprint.setup.start', 'Start sprint')}
-      </button>
+      {/* KS-2350: 409 → диалог выбора «Продолжить / Начать новый».
+          Replaces the regular Start button to не плодить лишние состояния. */}
+      {conflict ? (
+        <div
+          className="drill-sprint-setup__conflict"
+          data-testid="drill-sprint-setup-conflict"
+          role="alert"
+        >
+          <p className="drill-sprint-setup__conflict-message">
+            {t(
+              'drills.sprint.setup.conflictMessage',
+              'You already have an active sprint. Resume it or start a new one — the previous run will be ended.',
+            )}
+          </p>
+          <div className="drill-sprint-setup__conflict-actions">
+            <button
+              type="button"
+              className="drill-sprint-setup__resume"
+              data-testid="drill-sprint-setup-resume"
+              disabled={submitting}
+              onClick={() => void resume()}
+            >
+              {t('drills.sprint.setup.resume', 'Resume sprint')}
+            </button>
+            <button
+              type="button"
+              className="drill-sprint-setup__force-start"
+              data-testid="drill-sprint-setup-force-start"
+              disabled={submitting}
+              onClick={() => void start(true)}
+            >
+              {t('drills.sprint.setup.forceStart', 'Start a new one')}
+            </button>
+            <button
+              type="button"
+              className="drill-sprint-setup__cancel"
+              data-testid="drill-sprint-setup-cancel"
+              disabled={submitting}
+              onClick={() => {
+                setConflict(false);
+                setResumeError(null);
+              }}
+            >
+              {t('drills.sprint.setup.cancel', 'Cancel')}
+            </button>
+          </div>
+          {resumeError && (
+            <div
+              className="drill-sprint-setup__conflict-hint"
+              data-testid="drill-sprint-setup-resume-error"
+              data-resume-error={resumeError}
+            >
+              {resumeError === 'notSupported'
+                ? t(
+                    'drills.sprint.setup.resumeNotSupported',
+                    'Resuming an active sprint is not supported yet. Use “Start a new one” instead.',
+                  )
+                : t(
+                    'drills.sprint.setup.loadFailed',
+                    'Could not start sprint.',
+                  )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="drill-sprint-setup__start"
+          data-testid="drill-sprint-setup-start"
+          disabled={submitting}
+          onClick={() => void start()}
+        >
+          {t('drills.sprint.setup.start', 'Start sprint')}
+        </button>
+      )}
     </div>
   );
 }

@@ -748,6 +748,102 @@
   font-size: 13px;
 }
 
+/* KS-2350: 409 ConflictException — диалог выбора «Продолжить / Начать
+   новый». Жёлтый info-блок (это не ошибка, это сценарий выбора). */
+.drill-sprint-setup__conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--ov-warning-15-alt, var(--accent-soft));
+  border: 1px solid var(--warning, var(--accent-primary));
+  border-radius: 10px;
+}
+
+.drill-sprint-setup__conflict-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.drill-sprint-setup__conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drill-sprint-setup__resume,
+.drill-sprint-setup__force-start,
+.drill-sprint-setup__cancel {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.drill-sprint-setup__resume {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+}
+
+.drill-sprint-setup__resume:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.drill-sprint-setup__force-start {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+}
+
+.drill-sprint-setup__force-start:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-sprint-setup__cancel {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+}
+
+.drill-sprint-setup__cancel:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.drill-sprint-setup__resume:disabled,
+.drill-sprint-setup__force-start:disabled,
+.drill-sprint-setup__cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drill-sprint-setup__resume:focus-visible,
+.drill-sprint-setup__force-start:focus-visible,
+.drill-sprint-setup__cancel:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-sprint-setup__conflict-hint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+}
+
 .drill-sprint-setup__start {
   align-self: stretch;
   padding: 14px 20px;

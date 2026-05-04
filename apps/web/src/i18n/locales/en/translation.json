@@ -753,7 +753,12 @@
         "clearTypes": "Clear",
         "start": "Start sprint",
         "atLeastOne": "Pick at least one drill type or use «All types».",
-        "loadFailed": "Could not start sprint."
+        "loadFailed": "Could not start sprint.",
+        "conflictMessage": "You already have an active sprint. Resume it or start a new one — the previous run will be ended.",
+        "resume": "Resume sprint",
+        "forceStart": "Start a new one",
+        "cancel": "Cancel",
+        "resumeNotSupported": "Resuming an active sprint is not supported yet. Use «Start a new one» instead."
       },
       "play": {
         "score": "Score",

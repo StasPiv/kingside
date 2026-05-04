@@ -2,13 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { waitFor } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
+import { ApiError } from '../ApiError';
 
 const apiPost = vi.fn();
+const apiGet = vi.fn();
 const navigateMock = vi.fn();
 
 vi.mock('../api', () => ({
   api: {
-    get: vi.fn(async () => ({})),
+    get: (path: string) => apiGet(path),
     post: (path: string, body: unknown) => apiPost(path, body),
     put: vi.fn(async () => ({})),
     patch: vi.fn(async () => ({})),
@@ -41,6 +43,7 @@ const SESSION = {
 
 beforeEach(() => {
   apiPost.mockReset();
+  apiGet.mockReset();
   navigateMock.mockReset();
 });
 
@@ -149,6 +152,137 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
         }),
       ),
     );
+  });
+
+  // KS-2350: 409 → диалог «Продолжить / Начать новый» (force=true).
+  describe('KS-2350 — обработка 409 ConflictException', () => {
+    it('409 → conflict-плашка вместо generic-error', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('sprint session already active', undefined, 409),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drill-sprint-setup-conflict'),
+        ).toBeInTheDocument(),
+      );
+      // Generic-плашка НЕ показана.
+      expect(
+        screen.queryByTestId('drill-sprint-setup-error'),
+      ).not.toBeInTheDocument();
+      // Главная Start-кнопка скрыта в conflict-режиме.
+      expect(
+        screen.queryByTestId('drill-sprint-setup-start'),
+      ).not.toBeInTheDocument();
+      // Видны 3 кнопки выбора.
+      expect(
+        screen.getByTestId('drill-sprint-setup-resume'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('drill-sprint-setup-force-start'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('drill-sprint-setup-cancel'),
+      ).toBeInTheDocument();
+    });
+
+    it('«Начать новый» → POST /sprint/start с force=true и переход на Play', async () => {
+      apiPost
+        .mockRejectedValueOnce(
+          new ApiError('sprint session already active', undefined, 409),
+        )
+        .mockResolvedValueOnce(SESSION);
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drill-sprint-setup-conflict'),
+        ).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drill-sprint-setup-force-start'));
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenLastCalledWith(
+          '/tactic-drill/sprint/start',
+          expect.objectContaining({ force: true }),
+        ),
+      );
+      expect(navigateMock).toHaveBeenCalledWith(
+        '/drills/sprint/play',
+        expect.objectContaining({ state: { session: SESSION } }),
+      );
+    });
+
+    it('«Продолжить» → GET /sprint/active + переход на Play со state', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('sprint session already active', undefined, 409),
+      );
+      apiGet.mockResolvedValue(SESSION);
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-sprint-setup-resume')).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drill-sprint-setup-resume'));
+      await waitFor(() =>
+        expect(apiGet).toHaveBeenCalledWith('/tactic-drill/sprint/active'),
+      );
+      expect(navigateMock).toHaveBeenCalledWith(
+        '/drills/sprint/play',
+        expect.objectContaining({ state: { session: SESSION } }),
+      );
+    });
+
+    it('«Продолжить» при 404 GET → подсказка resumeNotSupported, не падает', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('sprint session already active', undefined, 409),
+      );
+      apiGet.mockRejectedValue(new ApiError('Not Found', undefined, 404));
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-sprint-setup-resume')).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drill-sprint-setup-resume'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drill-sprint-setup-resume-error'),
+        ).toBeInTheDocument(),
+      );
+      expect(
+        screen
+          .getByTestId('drill-sprint-setup-resume-error')
+          .getAttribute('data-resume-error'),
+      ).toBe('notSupported');
+      // Conflict-плашка остаётся открытой, кнопки доступны.
+      expect(
+        screen.getByTestId('drill-sprint-setup-force-start'),
+      ).not.toBeDisabled();
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('«Отмена» закрывает conflict-плашку и возвращает Start-кнопку', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('sprint session already active', undefined, 409),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drill-sprint-setup-conflict'),
+        ).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drill-sprint-setup-cancel'));
+      expect(
+        screen.queryByTestId('drill-sprint-setup-conflict'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('drill-sprint-setup-start')).toBeInTheDocument();
+    });
   });
 
   it('Сетевая ошибка /sprint/start → error-баннер и кнопка снова enabled', async () => {
