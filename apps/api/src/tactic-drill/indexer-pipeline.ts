@@ -25,6 +25,7 @@ import { DRILL_TYPE_ORDER } from '@kingside/shared';
 import {
   countAttackers,
   findAllChecks,
+  findAllChecksMoves,
   findCountAttackersCandidates,
   findFork,
   findHangingPiece,
@@ -136,12 +137,24 @@ export function predicatesForPosition(
       r.answer,
       options.difficultyVersion,
     );
+    // KS-2397: find-all-checks — пишем `meta.expectedMoves` (полный
+    // список check-ходов как пары `{from, to}`). Фронт читает это
+    // поле для рендера/валидации без необходимости в shape='moves'
+    // миграции (KS-2325 остаётся в плане отдельно).
+    let meta: Record<string, unknown> | undefined;
+    if (p.type === 'find-all-checks') {
+      const expectedMoves = findAllChecksMoves(fen);
+      if (expectedMoves.length > 0) {
+        meta = { expectedMoves };
+      }
+    }
     out.push({
       type: p.type,
       fen,
       answer: r.answer,
       difficulty: bucket,
       source,
+      ...(meta ? { meta } : {}),
     });
   }
 

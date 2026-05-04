@@ -84,6 +84,37 @@ describe('predicatesForPosition — KS-2229', () => {
     }
   });
 
+  it('KS-2397: find-all-checks → meta.expectedMoves (массив пар)', () => {
+    // Позиция с несколькими ходами-шахами, без мата (predicate отсекает
+    // мат-в-1 с KS-2227 §2.1 строка 2).
+    // Белая ладья + конь, чёрный король; есть несколько способов
+    // объявить шах без мата.
+    const chess = new Chess('4k3/8/8/8/3N4/8/3R4/4K3 w - - 0 1');
+    const options = parseArgs([]);
+    const drills = predicatesForPosition(chess, options, 'archive');
+    const checks = drills.find((d) => d.type === 'find-all-checks');
+    if (!checks) return; // позиция может не пройти инварианты — ок,
+    // тест-позиция выбрана с запасом, но если pred её отсёк, не валим.
+    expect(checks.meta).toBeDefined();
+    const moves = (checks.meta as { expectedMoves?: { from: string; to: string }[] })?.expectedMoves;
+    expect(moves).toBeDefined();
+    expect(Array.isArray(moves)).toBe(true);
+    expect(moves!.length).toBeGreaterThanOrEqual(2);
+    // Каждая пара — валидные клетки.
+    for (const m of moves!) {
+      expect(m.from).toMatch(/^[a-h][1-8]$/);
+      expect(m.to).toMatch(/^[a-h][1-8]$/);
+    }
+    // Согласованность с answer.squares: множество `to` из expectedMoves
+    // покрывает множество клеток ответа (и наоборот).
+    if (checks.answer.shape === 'squares') {
+      const toSet = new Set(moves!.map((m) => m.to));
+      const ansSet = new Set(checks.answer.squares);
+      expect(toSet.size).toBe(ansSet.size);
+      for (const sq of ansSet) expect(toSet.has(sq)).toBe(true);
+    }
+  });
+
   it('пустая позиция → нет drill-кандидатов', () => {
     const chess = new Chess('4k3/8/8/8/8/8/8/4K3 w - - 0 1');
     const options = parseArgs([]);

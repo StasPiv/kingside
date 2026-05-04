@@ -786,6 +786,7 @@ function sanitizeMeta(
   highlightedSquare?: string;
   attackerColor?: 'w' | 'b';
   expectedCount?: number;
+  expectedMoves?: { from: string; to: string }[];
 } | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -793,6 +794,7 @@ function sanitizeMeta(
     highlightedSquare?: string;
     attackerColor?: 'w' | 'b';
     expectedCount?: number;
+    expectedMoves?: { from: string; to: string }[];
   } = {};
   if (typeof r.highlightedSquare === 'string' && /^[a-h][1-8]$/.test(r.highlightedSquare)) {
     out.highlightedSquare = r.highlightedSquare;
@@ -802,6 +804,25 @@ function sanitizeMeta(
   }
   if (typeof r.expectedCount === 'number' && Number.isFinite(r.expectedCount)) {
     out.expectedCount = r.expectedCount;
+  }
+  // KS-2397: для find-all-checks — массив пар {from, to}. Фильтруем
+  // строго: оба поля — корректные shorthand-клетки.
+  if (Array.isArray(r.expectedMoves)) {
+    const sqRe = /^[a-h][1-8]$/;
+    const moves: { from: string; to: string }[] = [];
+    for (const m of r.expectedMoves) {
+      if (!m || typeof m !== 'object') continue;
+      const mm = m as Record<string, unknown>;
+      if (
+        typeof mm.from === 'string' &&
+        typeof mm.to === 'string' &&
+        sqRe.test(mm.from) &&
+        sqRe.test(mm.to)
+      ) {
+        moves.push({ from: mm.from, to: mm.to });
+      }
+    }
+    if (moves.length > 0) out.expectedMoves = moves;
   }
   return Object.keys(out).length > 0 ? out : null;
 }

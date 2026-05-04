@@ -174,11 +174,18 @@ export interface TacticDrillDto {
    *   - expectedCount: для `squares` — сколько правильных клеток ожидается
    *     (frontend показывает прогресс «3/5 выбрано»). Для всех остальных —
    *     undefined.
+   *   - expectedMoves: KS-2397, для `find-all-checks` — полный список
+   *     check-ходов как пары `{from, to}`. answerShape остаётся 'squares'
+   *     (валидатор отвечает по `to`-клеткам), но фронту нужен полный
+   *     список ходов для рендера/подсветки/наведения. Заполняется
+   *     индексером при импорте; для существующих записей — через
+   *     одноразовый backfill (`scripts/backfill-find-all-checks-meta.ts`).
    */
   meta?: {
     highlightedSquare?: Square;
     attackerColor?: 'w' | 'b';
     expectedCount?: number;
+    expectedMoves?: { from: Square; to: Square }[];
   };
 }
 

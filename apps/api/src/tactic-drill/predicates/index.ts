@@ -11,7 +11,7 @@ export { findFork } from './find-fork';
 // KS-2393: тип `mate-in-1 (deprecated)` удалён (predicate, БД, контракт).
 // При корпусе TWIC strict-uniqueness отсекал >99% позиций (6 записей в
 // проде), для UX выгоднее не показывать раздел вовсе. См. KS-2392 (ADR).
-export { findAllChecks } from './find-all-checks';
+export { findAllChecks, findAllChecksMoves } from './find-all-checks';
 export {
   countAttackers,
   findCountAttackersCandidates,
