@@ -507,3 +507,48 @@ describe('ArchiveGamePage — lazy-блок «Other games»', () => {
     );
   });
 });
+
+// KS-2375: при смене URL-параметра `id` страница должна полностью
+// пересоздаваться (новый mount через `key={id}`). Раньше пользователь
+// жаловался, что при открытии разных партий показывается одна и та же.
+// Защита через `key` гарантирует, что любой предыдущий state (game,
+// ply, lazy-blocks) не выживает на route change даже на медленном fetch'е.
+describe('ArchiveGamePage — KS-2375: смена id пересоздаёт страницу', () => {
+  it('меняем id в useParams → fetch уходит на новый id, контент обновляется', async () => {
+    mockUseParams.mockReturnValue({ id: 'g-1' });
+    mockArchiveApi.getArchiveGameById.mockImplementation(async (id: string) => {
+      if (id === 'g-1') {
+        return {
+          ...baseGame,
+          id: 'g-1',
+          white: { ...baseGame.white, name: 'White-A', slug: 'white-a' },
+          black: { ...baseGame.black, name: 'Black-A', slug: 'black-a' },
+        };
+      }
+      return {
+        ...baseGame,
+        id: 'g-2',
+        white: { ...baseGame.white, name: 'White-B', slug: 'white-b' },
+        black: { ...baseGame.black, name: 'Black-B', slug: 'black-b' },
+        pgn: '1. d4 d5 *',
+      };
+    });
+
+    const { rerender } = renderWithProviders(<ArchiveGamePage />);
+    await waitFor(() =>
+      expect(screen.getByText('White-A')).toBeInTheDocument(),
+    );
+
+    // Переключаемся на новый id — `<ArchiveGamePage key={id}>` инициирует
+    // полный mount нового inner-компонента, новый fetch уйдёт.
+    mockUseParams.mockReturnValue({ id: 'g-2' });
+    rerender(<ArchiveGamePage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('White-B')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('White-A')).not.toBeInTheDocument();
+    // Подтверждаем, что fetch ушёл с новым id.
+    expect(mockArchiveApi.getArchiveGameById).toHaveBeenCalledWith('g-2');
+  });
+});

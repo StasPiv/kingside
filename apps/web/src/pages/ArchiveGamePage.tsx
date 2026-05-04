@@ -148,7 +148,24 @@ function formatDate(date: string | null): string {
   return date.replace(/\./g, '-');
 }
 
+/**
+ * KS-2375: внешняя обёртка-роут пересоздаёт `ArchiveGamePageInner`
+ * при каждой смене `id` через `key={id}`. Это гарантирует, что React
+ * выполнит unmount + mount, а не просто rerender — и любой
+ * stale-state (game, ply, ArchiveOtherGamesBlock'овые items, локальные
+ * caches) физически не выживает на route change. Ранее жалоба
+ * пользователя «при открытии разных партий показывается одна и та же»
+ * лечилась `useEffect[id]`, но на rapid-нав / медленном fetch'е могло
+ * проскочить старое отображение, пока новый запрос ещё в полёте.
+ * Полный mount на key — самый надёжный фикс: никакие use*-памяти не
+ * переносятся между партиями.
+ */
 export function ArchiveGamePage() {
+  const { id } = useParams<{ id: string }>();
+  return <ArchiveGamePageInner key={id ?? '__none__'} />;
+}
+
+function ArchiveGamePageInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation('archive');
