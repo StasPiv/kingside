@@ -324,6 +324,83 @@ describe('TacticDrillSprintService — KS-2240', () => {
     });
   });
 
+  describe('getActiveSession — KS-2352', () => {
+    it('нет активной сессии → null', async () => {
+      const r = await svc.getActiveSession('user-1');
+      expect(r).toBeNull();
+    });
+
+    it('active-маркер есть, но session-state истёк → null + cleanup', async () => {
+      redis.store.set('drill-sprint:active:user-1', 'orphan-id');
+      // session-key отсутствует.
+      const r = await svc.getActiveSession('user-1');
+      expect(r).toBeNull();
+      expect(redis.store.has('drill-sprint:active:user-1')).toBe(false);
+    });
+
+    it('активная сессия → возвращает sessionId/drill/durationMs/remainingMs/modeLabel', async () => {
+      const sessionId = 'sess-1';
+      const startedAt = Date.now() - 30_000; // 30s назад
+      const state = {
+        sessionId,
+        userId: 'user-1',
+        startedAt,
+        durationMs: 180_000,
+        types: ['find-fork'],
+        modeLabel: '3min-pattern',
+        currentDrillId: DRILL_ROW_FORK.id,
+        drillsServed: [DRILL_ROW_FORK.id],
+        attempts: [
+          { drillId: DRILL_ROW_FORK.id, solved: true, timeMs: 1000, iou: null },
+        ],
+      };
+      redis.store.set('drill-sprint:active:user-1', sessionId);
+      redis.store.set(
+        `drill-sprint:session:${sessionId}`,
+        JSON.stringify(state),
+      );
+      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue(
+        DRILL_ROW_FORK,
+      );
+
+      const r = await svc.getActiveSession('user-1');
+      expect(r).not.toBeNull();
+      expect(r!.sessionId).toBe(sessionId);
+      expect(r!.drill.id).toBe(DRILL_ROW_FORK.id);
+      expect(r!.durationMs).toBe(180_000);
+      expect(r!.modeLabel).toBe('3min-pattern');
+      expect(r!.attemptsCount).toBe(1);
+      // remainingMs = duration - elapsed; elapsed≈30s → remaining≈150s
+      expect(r!.remainingMs).toBeGreaterThan(140_000);
+      expect(r!.remainingMs).toBeLessThanOrEqual(180_000);
+      // drill эталон НЕ возвращается (api-contract §7).
+      expect((r!.drill as unknown as Record<string, unknown>)).not.toHaveProperty(
+        'answer',
+      );
+    });
+
+    it('userId mismatch (чужая сессия) → null', async () => {
+      const sessionId = 'sess-other';
+      redis.store.set('drill-sprint:active:user-1', sessionId);
+      redis.store.set(
+        `drill-sprint:session:${sessionId}`,
+        JSON.stringify({
+          sessionId,
+          userId: 'different-user',
+          startedAt: Date.now(),
+          durationMs: 180_000,
+          types: ['find-fork'],
+          modeLabel: '3min-pattern',
+          currentDrillId: 'd',
+          drillsServed: ['d'],
+          attempts: [],
+        }),
+      );
+      const r = await svc.getActiveSession('user-1');
+      expect(r).toBeNull();
+    });
+  });
+
   describe('leaderboard', () => {
     it('возвращает top-N с username и score desc', async () => {
       (prisma.tacticDrillSprintScore.findMany as jest.Mock).mockResolvedValue([

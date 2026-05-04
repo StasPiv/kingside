@@ -88,6 +88,22 @@ export interface SprintSubmitResult {
   };
 }
 
+/**
+ * KS-2352: ответ `GET /sprint/active`. Совместим со `SprintStartResult`
+ * (sessionId/drill/startedAt/durationMs) — фронт может «продолжить»
+ * сессию тем же flow, что после `/sprint/start`. Дополнительно
+ * `remainingMs`/`modeLabel`/`attemptsCount` для UI-счётчиков.
+ */
+export interface SprintActiveResult {
+  sessionId: string;
+  drill: TacticDrillDto;
+  startedAt: string;
+  durationMs: number;
+  remainingMs: number;
+  modeLabel: string;
+  attemptsCount: number;
+}
+
 @Injectable()
 export class TacticDrillSprintService {
   constructor(
@@ -237,6 +253,70 @@ export class TacticDrillSprintService {
     // Продолжаем.
     await this.persistSession(state);
     return { attempt: attemptResp, next };
+  }
+
+  // ─── active (KS-2352) ─────────────────────────────────────
+
+  /**
+   * KS-2352: возвращает текущую активную sprint-сессию пользователя
+   * или `null` если её нет / истекла. Используется фронтом в conflict-
+   * flow (KS-2350) для «продолжить» после 409 на `/sprint/start`.
+   *
+   * Чтение state идемпотентное; если active-маркер указывает на
+   * sessionId, у которого state-key уже истёк — чистим маркер,
+   * чтобы следующий `/sprint/start` не падал в 409.
+   */
+  async getActiveSession(userId: string): Promise<SprintActiveResult | null> {
+    const sessionId = await this.redis.get(this.activeKey(userId));
+    if (!sessionId) return null;
+    const raw = await this.redis.get(this.sessionKey(sessionId));
+    if (!raw) {
+      // active-маркер пережил state — cleanup, чтобы не блокировать новый старт.
+      await this.redis.del(this.activeKey(userId));
+      return null;
+    }
+    let state: SprintSessionState;
+    try {
+      state = JSON.parse(raw) as SprintSessionState;
+    } catch {
+      await this.redis.del(this.activeKey(userId));
+      await this.redis.del(this.sessionKey(sessionId));
+      return null;
+    }
+    if (state.userId !== userId) return null;
+    if (!state.currentDrillId) return null;
+
+    const drillRow = await this.prisma.tacticDrill.findUnique({
+      where: { id: state.currentDrillId },
+      select: {
+        id: true,
+        type: true,
+        fen: true,
+        difficulty: true,
+        meta: true,
+      },
+    });
+    if (!drillRow) return null;
+    const dto = this.drillService.buildDto(
+      drillRow.id,
+      drillRow.type as TacticDrillType,
+      drillRow.fen,
+      drillRow.difficulty,
+      drillRow.meta,
+    );
+
+    const elapsed = Date.now() - state.startedAt;
+    const remainingMs = Math.max(state.durationMs - elapsed, 0);
+
+    return {
+      sessionId: state.sessionId,
+      drill: dto,
+      startedAt: new Date(state.startedAt).toISOString(),
+      durationMs: state.durationMs,
+      remainingMs,
+      modeLabel: state.modeLabel,
+      attemptsCount: state.attempts.length,
+    };
   }
 
   // ─── finish (manual) ───────────────────────────────────────

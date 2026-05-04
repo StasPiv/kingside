@@ -153,6 +153,23 @@ export class TacticDrillController {
     return this.sprintService.start(userId, body);
   }
 
+  /**
+   * KS-2352: вернуть активную sprint-сессию пользователя (для KS-2350
+   * conflict-flow «продолжить»). 200 + структура совместимая с
+   * `SprintStartResult`, либо 404 если активной сессии нет.
+   */
+  @Get('sprint/active')
+  @UseGuards(JwtAuthGuard)
+  async sprintActive(@Req() req: AuthenticatedRequest) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException();
+    const session = await this.sprintService.getActiveSession(userId);
+    if (!session) {
+      throw new NotFoundException('no active sprint session');
+    }
+    return session;
+  }
+
   @Post('sprint/submit')
   @UseGuards(JwtAuthGuard)
   async sprintSubmit(
