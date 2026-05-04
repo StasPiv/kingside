@@ -886,6 +886,127 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2333: side-to-move индикатор для side-sensitive drill-типов.
+  describe('KS-2333 — индикатор стороны для side-sensitive drill-типов', () => {
+    const LOOSE_PIECE_WHITE = {
+      id: 'd-loose-w',
+      drillType: 'find-loose-piece',
+      // Backend контрактом отдаёт sideToMove=null для find-loose-piece,
+      // FEN — реальный источник правды (второе поле = 'w').
+      fen: 'r6k/8/8/8/8/8/8/R6K w - - 0 1',
+      sideToMove: null,
+      answerShape: 'square',
+      difficulty: 1,
+    };
+    const LOOSE_PIECE_BLACK = {
+      ...LOOSE_PIECE_WHITE,
+      id: 'd-loose-b',
+      fen: 'r6k/8/8/8/8/8/8/R6K b - - 0 1',
+    };
+    const HANGING_PIECE_BLACK = {
+      id: 'd-hang-b',
+      drillType: 'find-hanging-piece',
+      fen: 'r6k/8/8/8/8/8/8/R6K b - - 0 1',
+      sideToMove: null,
+      answerShape: 'square',
+      difficulty: 2,
+    };
+    const PIN_DRILL = {
+      id: 'd-pin',
+      drillType: 'find-pin',
+      fen: 'r6k/8/8/8/8/8/8/R6K w - - 0 1',
+      sideToMove: null,
+      answerShape: 'square',
+      difficulty: 1,
+    };
+
+    it('find-loose-piece + sideToMove=null + FEN(w) → индикатор виден с data-side="w"', async () => {
+      const loadDrill = vi.fn(async () => LOOSE_PIECE_WHITE);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      const side = screen.getByTestId('drill-runner-side');
+      expect(side).toBeInTheDocument();
+      expect(side.getAttribute('data-side')).toBe('w');
+    });
+
+    it('find-loose-piece + FEN(b) → индикатор data-side="b"', async () => {
+      const loadDrill = vi.fn(async () => LOOSE_PIECE_BLACK);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      const side = screen.getByTestId('drill-runner-side');
+      expect(side.getAttribute('data-side')).toBe('b');
+    });
+
+    it('find-hanging-piece + sideToMove=null → fallback из FEN тоже работает', async () => {
+      const loadDrill = vi.fn(async () => HANGING_PIECE_BLACK);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-runner-side').getAttribute('data-side'),
+      ).toBe('b');
+    });
+
+    it('find-pin + sideToMove=null → индикатор НЕ показывается (тип не side-sensitive)', async () => {
+      const loadDrill = vi.fn(async () => PIN_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(screen.queryByTestId('drill-runner-side')).not.toBeInTheDocument();
+    });
+
+    it('drill.sideToMove задан явно → имеет приоритет над FEN', async () => {
+      // FEN c 'b', а sideToMove='w' — должен победить sideToMove.
+      const drill = {
+        id: 'd-explicit',
+        drillType: 'find-loose-piece',
+        fen: 'r6k/8/8/8/8/8/8/R6K b - - 0 1',
+        sideToMove: 'w',
+        answerShape: 'square',
+        difficulty: 1,
+      };
+      const loadDrill = vi.fn(async () => drill);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-runner-side').getAttribute('data-side'),
+      ).toBe('w');
+    });
+  });
+
   // KS-2330: навигация по локальной истории drill'ов (Назад/Вперёд).
   describe('KS-2330 — локальная история drill\'ов (Назад / Вперёд)', () => {
     it('первый mount: «Назад» disabled, «Вперёд» disabled (история = 1, без feedback)', async () => {

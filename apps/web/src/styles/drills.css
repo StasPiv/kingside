@@ -258,6 +258,42 @@
 }
 
 /* ===========================================================
+ * KS-2333 — индикатор стороны на ходу в DrillRunner.
+ * Цветной кружок (белый/чёрный) + подпись «Ход белых/чёрных».
+ * Заметный сразу — фигуру какого цвета искать.
+ * =========================================================== */
+
+.drill-runner__side {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px 12px 4px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.drill-runner__side::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: #ffffff;
+}
+
+.drill-runner__side[data-side="b"]::before {
+  background: #1a1a1a;
+}
+
+/* ===========================================================
  * KS-2330 — DrillRunner навигация по локальной истории
  * (кнопки «Назад» / «Вперёд» рядом с прогрессом).
  * =========================================================== */

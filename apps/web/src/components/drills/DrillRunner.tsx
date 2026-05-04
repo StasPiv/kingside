@@ -12,6 +12,7 @@ import type {
   AnswerData,
   TacticDrillAttemptResponse,
   TacticDrillDto,
+  TacticDrillType,
 } from '@kingside/shared';
 
 import { DrillBoard } from './DrillBoard';
@@ -180,6 +181,37 @@ function prefersReducedMotion(): boolean {
 
 function kebabToCamel(s: string): string {
   return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+/**
+ * KS-2333: drill-типы, где правильный ответ зависит от стороны
+ * на ходу (см. backend-predicates `find-loose-piece.ts`,
+ * `find-hanging-piece.ts`, `find-undefended-attack.ts` —
+ * `enemy = oppColor(chess.turn())`).
+ *
+ * Контракт `TacticDrillDto.sideToMove` (shared/tactic-drill.ts:162) для
+ * `find-loose-piece` сейчас возвращает `null` («side-to-move неважна»),
+ * хотя на самом деле важна — пользователь не видит, фигуру какого
+ * цвета искать. Здесь — список типов, для которых фронт извлекает
+ * side-to-move ИЗ FEN'а самостоятельно, если backend не передал.
+ *
+ * Если backend позже начнёт отдавать `sideToMove` для этих типов —
+ * fallback тихо отойдёт (в effectiveSideToMove приоритет у `drill.sideToMove`).
+ */
+const SIDE_SENSITIVE_DRILL_TYPES: ReadonlySet<TacticDrillType> = new Set<
+  TacticDrillType
+>([
+  'find-loose-piece',
+  'find-hanging-piece',
+  'find-undefended-attack',
+]);
+
+/** Извлечь side-to-move из второго поля FEN. Вернёт null при кривом FEN. */
+function sideFromFen(fen: string): 'w' | 'b' | null {
+  const parts = fen.split(' ');
+  if (parts.length < 2) return null;
+  const side = parts[1];
+  return side === 'w' || side === 'b' ? side : null;
 }
 
 export function DrillRunner({
@@ -712,6 +744,15 @@ export function DrillRunner({
   // и стилизации. На хвосте истории (свежий drill) — false.
   const viewingHistory = historyIndex >= 0 && historyIndex < history.length - 1;
 
+  // KS-2333: фактический side-to-move для отображения индикатора
+  // «ход белых / чёрных». Приоритет у `drill.sideToMove` от backend;
+  // если null — для side-sensitive типов извлекаем из FEN.
+  const effectiveSideToMove: 'w' | 'b' | null = drill.sideToMove
+    ? drill.sideToMove
+    : SIDE_SENSITIVE_DRILL_TYPES.has(drill.drillType)
+      ? sideFromFen(drill.fen)
+      : null;
+
   // ── Render: idle / submitting / feedback ──────────────────────────
   return (
     <div
@@ -783,13 +824,13 @@ export function DrillRunner({
         {instructionText}
       </DrillInstructions>
 
-      {drill.sideToMove && (
+      {effectiveSideToMove && (
         <div
           className="drill-runner__side"
           data-testid="drill-runner-side"
-          data-side={drill.sideToMove}
+          data-side={effectiveSideToMove}
         >
-          {drill.sideToMove === 'w'
+          {effectiveSideToMove === 'w'
             ? t('drills.side.whiteToMove', 'White to move')
             : t('drills.side.blackToMove', 'Black to move')}
         </div>
