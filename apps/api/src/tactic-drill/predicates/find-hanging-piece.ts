@@ -20,7 +20,9 @@
  */
 
 import type { AnswerMove } from '@kingside/shared';
+import type { Square as ChessJsSquare } from 'chess.js';
 import { allPieces, oppColor, tryLoadChess, type MoveResult } from './types';
+import { hasDirectOrXRayDefender } from './defenders';
 
 export function findHangingPiece(fen: string): MoveResult {
   const chess = tryLoadChess(fen);
@@ -29,16 +31,18 @@ export function findHangingPiece(fen: string): MoveResult {
   const our = chess.turn();
   const enemy = oppColor(our);
 
-  // 1. Кандидаты-цели.
+  // 1. Кандидаты-цели. KS-2339: «нет защитников» учитывает X-ray
+  // sliding-защитников, чьи линии сейчас заблокированы.
   const targets: string[] = [];
   for (const p of allPieces(chess)) {
     if (p.color !== enemy) continue;
     if (p.type === 'k') continue;
     const attackers = chess.attackers(p.square, our);
-    const defenders = chess.attackers(p.square, enemy);
-    if (attackers.length >= 1 && defenders.length === 0) {
-      targets.push(p.square);
+    if (attackers.length < 1) continue;
+    if (hasDirectOrXRayDefender(chess, p.square as ChessJsSquare, enemy)) {
+      continue;
     }
+    targets.push(p.square);
   }
   if (targets.length !== 1) {
     return {

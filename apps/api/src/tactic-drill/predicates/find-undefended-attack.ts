@@ -19,7 +19,9 @@
  */
 
 import type { AnswerMove } from '@kingside/shared';
+import type { Square as ChessJsSquare } from 'chess.js';
 import { allPieces, oppColor, tryLoadChess, type MoveResult } from './types';
+import { hasDirectOrXRayDefender } from './defenders';
 
 export function findUndefendedAttack(fen: string): MoveResult {
   const chess = tryLoadChess(fen);
@@ -38,11 +40,18 @@ export function findUndefendedAttack(fen: string): MoveResult {
       if (p.color !== enemy) continue;
       if (p.type === 'k') continue; // король атакуется = шах, не drill
       const attackers = chess.attackers(p.square, our);
-      const defenders = chess.attackers(p.square, enemy);
-      if (attackers.length >= 1 && defenders.length === 0) {
-        createsThreat = true;
-        break;
+      if (attackers.length < 1) continue;
+      // KS-2339: учитываем X-ray защитников. Прямой `attackers(enemy)`
+      // не видит sliding piece заблокированную другой фигурой; ход
+      // вроде Rc7-c8 на ферзя b8 при ладье d8 ошибочно считался
+      // нападением, хотя после взятия Rxb8 ферзь рентгеном защищён.
+      if (
+        hasDirectOrXRayDefender(chess, p.square as ChessJsSquare, enemy)
+      ) {
+        continue;
       }
+      createsThreat = true;
+      break;
     }
     chess.undo();
     if (createsThreat) {

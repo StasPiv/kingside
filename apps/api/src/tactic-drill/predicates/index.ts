@@ -18,4 +18,6 @@ export {
 } from './count-attackers';
 export { findUndefendedAttack } from './find-undefended-attack';
 
+export { hasDirectOrXRayDefender } from './defenders';
+
 export * from './types';

@@ -1,17 +1,24 @@
 /**
  * KS-2227 / ADR-035 §2.1 #6 — `find-loose-piece`.
  *
- * Алгоритм: ищем фигуру противника (не король) у которой число
- * **защитников** = 0 (без оглядки на нападающих — это «обзорный» drill,
- * не расчёт обмена). В позиции должна быть **ровно одна** такая фигура,
- * иначе drop (см. ADR §2.1 строка 6).
+ * Алгоритм: ищем фигуру противника (не король) у которой нет ни
+ * прямых, ни **X-ray** защитников (KS-2339). В позиции должна быть
+ * **ровно одна** такая фигура, иначе drop (см. ADR §2.1 строка 6).
  *
- * Сторона на ходу — не важна; «противник» определяется как `oppColor(side-to-move)`,
- * frontend в этом drill side-to-move-индикатор не показывает.
+ * Раньше учитывались только прямые `chess.attackers()` — sliding
+ * piece, чья линия заблокирована другой фигурой, защитниками не
+ * считались. После KS-2339 используется общий хелпер
+ * `hasDirectOrXRayDefender` (см. `defenders.ts`).
+ *
+ * Сторона на ходу — не важна; «противник» определяется как
+ * `oppColor(side-to-move)`, frontend в этом drill side-to-move-
+ * индикатор не показывает.
  */
 
 import type { AnswerSquare } from '@kingside/shared';
+import type { Square as ChessJsSquare } from 'chess.js';
 import { allPieces, oppColor, tryLoadChess, type SquareResult } from './types';
+import { hasDirectOrXRayDefender } from './defenders';
 
 export function findLoosePiece(fen: string): SquareResult {
   const chess = tryLoadChess(fen);
@@ -23,8 +30,9 @@ export function findLoosePiece(fen: string): SquareResult {
   for (const p of allPieces(chess)) {
     if (p.color !== enemy) continue;
     if (p.type === 'k') continue; // король не считается loose
-    const defenders = chess.attackers(p.square, enemy);
-    if (defenders.length === 0) candidates.push(p.square);
+    if (!hasDirectOrXRayDefender(chess, p.square as ChessJsSquare, enemy)) {
+      candidates.push(p.square);
+    }
   }
 
   if (candidates.length !== 1) {
