@@ -276,6 +276,19 @@ export function FindAllChecksRunner({
     (sq: ChessSquare) => {
       if (state !== 'idle') return;
       if (pickedFrom === null) {
+        // KS-2405: первый клик принимаем только на клетке со своей
+        // фигурой (по drill.sideToMove или из 2-го поля FEN). Иначе
+        // игнор — никакого подсветки, никакого attempts++.
+        try {
+          const c = new Chess(drill.fen);
+          const piece = c.get(sq);
+          const side =
+            drill.sideToMove ??
+            (drill.fen.split(' ')[1] === 'b' ? 'b' : 'w');
+          if (!piece || piece.color !== side) return;
+        } catch {
+          return;
+        }
         setPickedFrom(sq);
         return;
       }
@@ -286,7 +299,7 @@ export function FindAllChecksRunner({
       onMove({ from: pickedFrom, to: sq });
       setPickedFrom(null);
     },
-    [state, pickedFrom, onMove],
+    [state, pickedFrom, onMove, drill.fen, drill.sideToMove],
   );
 
   const handlePieceDrop = useCallback(

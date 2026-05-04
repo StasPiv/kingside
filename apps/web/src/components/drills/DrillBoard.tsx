@@ -82,16 +82,19 @@ export function DrillBoard({
 
   // KS-2318: pointer-based drag через container. Включается при
   // переданном onPieceDrop. Хук no-op'ом завершается если enabled=false.
+  // KS-2405: drag разрешён только фигурами стороны-снизу-доски (=
+  // side-to-move в drill-сценариях, см. DrillRunner.boardOrientation).
+  // Раньше стояло allowBothColors:true и попытка взять чужую фигуру
+  // приводила к feedback «неверно», портила статистику. Теперь useFastDrag
+  // сам блокирует drag фигур не своего цвета, никакого ответа в submit
+  // не уходит.
   useFastDrag(containerRef, {
     onPieceDrop:
       onPieceDrop ??
       (() => false /* unused, hook требует функцию даже при enabled=false */),
     boardOrientation,
     enabled: !!onPieceDrop,
-    // Drill — статичная позиция; разрешаем хватать фигуры обоих цветов
-    // (например, drill 'find-undefended-attack' на ходе белых, но
-    // педагогически ученик может попробовать ход чёрной фигурой).
-    allowBothColors: true,
+    allowBothColors: false,
   });
 
   const squareStyles = useMemo<Record<string, CSSProperties> | undefined>(() => {

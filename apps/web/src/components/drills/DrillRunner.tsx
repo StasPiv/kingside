@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Square as ChessSquare } from 'chess.js';
+import { Chess, type Square as ChessSquare } from 'chess.js';
 import type {
   AnswerData,
   TacticDrillAttemptResponse,
@@ -216,6 +216,21 @@ function sideFromFen(fen: string): 'w' | 'b' | null {
   if (parts.length < 2) return null;
   const side = parts[1];
   return side === 'w' || side === 'b' ? side : null;
+}
+
+/**
+ * KS-2405: цвет фигуры на клетке (для проверки «свою» ли фигуру выбрал
+ * пользователь при click-flow в drill shape='move'). Возвращает 'w' / 'b'
+ * для фигуры, null если клетка пустая или кривой FEN.
+ */
+function pieceColorOnSquare(fen: string, square: string): 'w' | 'b' | null {
+  try {
+    const c = new Chess(fen);
+    const piece = c.get(square as ChessSquare);
+    return piece ? piece.color : null;
+  } catch {
+    return null;
+  }
 }
 
 export function DrillRunner({
@@ -521,8 +536,17 @@ export function DrillRunner({
           );
           break;
         case 'move':
-          if (pickedFrom === null) setPickedFrom(sq);
-          else if (pickedFrom === sq) setPickedFrom(null);
+          if (pickedFrom === null) {
+            // KS-2405: первый клик блокируется ТОЛЬКО если на клетке
+            // явно стоит фигура чужого цвета. Пустая клетка / ошибка
+            // парсинга FEN → пропускаем (старое поведение, дальше
+            // backend сам ответит «неверно» — но привычная UX'у).
+            const side =
+              drill.sideToMove ?? sideFromFen(drill.fen);
+            const pieceColor = pieceColorOnSquare(drill.fen, sq);
+            if (side && pieceColor && pieceColor !== side) return;
+            setPickedFrom(sq);
+          } else if (pickedFrom === sq) setPickedFrom(null);
           else {
             void submit({ shape: 'move', from: pickedFrom, to: sq });
             setPickedFrom(null);
@@ -558,6 +582,12 @@ export function DrillRunner({
       const { sourceSquare, targetSquare } = args;
       if (!sourceSquare || !targetSquare) return false;
       if (sourceSquare === targetSquare) return false;
+      // KS-2405: не принимаем drop если фигура НЕ своего цвета.
+      // useFastDrag это уже блокирует, но дублируем защиту здесь —
+      // на случай если drop попадёт другим путём.
+      const side = drill.sideToMove ?? sideFromFen(drill.fen);
+      const pieceColor = pieceColorOnSquare(drill.fen, sourceSquare);
+      if (side && pieceColor && pieceColor !== side) return false;
       // Сбросим click-state чтобы не было гонки click-click и drag.
       setPickedFrom(null);
       void submit({

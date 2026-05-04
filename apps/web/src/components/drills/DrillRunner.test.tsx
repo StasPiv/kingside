@@ -592,6 +592,47 @@ describe('<DrillRunner> KS-2249', () => {
         ),
       );
     });
+
+    // KS-2405: ход чужой фигурой не должен запускать submit, просто
+    // игнорируется на этапе ввода — никакого «неверно» в статистике.
+    it('KS-2405: первый click по чужой фигуре игнорируется (submit НЕ вызван)', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // MOVE_DRILL: ход белых, e5 — чёрная пешка. Первый клик по ней
+      // должен быть проигнорирован (pickedFrom не выставится), второй
+      // клик на e4 не сложит ход — submit НЕ вызывается.
+      await user.click(screen.getByTestId('fire-square-e5'));
+      await user.click(screen.getByTestId('fire-square-e4'));
+      expect(submitAnswer).not.toHaveBeenCalled();
+    });
+
+    it('KS-2405: drag чужой фигурой не вызывает submit', async () => {
+      const loadDrill = vi.fn(async () => MOVE_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // useFastDrag сам блокирует drag не своих фигур, но дублирующая
+      // защита в handlePieceDrop отбрасывает то, что прошло мимо хука.
+      // MOVE_DRILL: ход белых, e5 — чёрная пешка.
+      const accepted = fireDrop({ sourceSquare: 'e5', targetSquare: 'e4' });
+      expect(accepted).toBe(false);
+      expect(submitAnswer).not.toHaveBeenCalled();
+    });
   });
 
   // KS-2319: авто-переход после feedback (кнопка «Следующее» удалена).
@@ -972,12 +1013,14 @@ describe('<DrillRunner> KS-2249', () => {
     const HANGING_MOVE_DRILL = {
       id: 'd-hang-move',
       drillType: 'find-hanging-piece',
-      // Чёрные на ходу. На a8 чёрный король, на h1 белая пешка-чужак — для
-      // мока MemoChessboard клетки e2/e4 видны как fire-square. Реальная
-      // FEN-валидация в фикстуре не нужна (mock не парсит FEN), важно только
-      // что клик из e2 в e4 вызывает submit({shape:'move',from:'e2',to:'e4'}).
-      fen: '7k/8/8/8/8/8/4P3/4K2R b - - 0 1',
-      sideToMove: 'b',
+      // KS-2405: ход БЕЛЫХ. Раньше fen ставил `b` (ход чёрных), e2 —
+      // белая пешка-чужак, и юзер симулировал «ход чужой фигурой» — это
+      // работало по старому поведению. После KS-2405 первый клик /
+      // drag по чужой фигуре блокируется, тест опирается на drag/click
+      // СВОЕЙ фигуры. Семантика теста не меняется (всё ещё проверяем
+      // что move e2→e4 → submit), просто side выровнен с фигурой.
+      fen: '7k/8/8/8/8/8/4P3/4K2R w - - 0 1',
+      sideToMove: 'w',
       answerShape: 'move',
       difficulty: 1,
     };
