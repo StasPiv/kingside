@@ -30,7 +30,7 @@ import { DrillsLobbyPage } from './DrillsLobbyPage';
 const FULL_TYPES = [
   { id: 'count-attackers', layer: 'overview', answerShape: 'number', promptKey: 'k', unlocked: true },
   { id: 'find-loose-piece', layer: 'overview', answerShape: 'square', promptKey: 'k', unlocked: true },
-  { id: 'find-hanging-piece', layer: 'overview', answerShape: 'square', promptKey: 'k', unlocked: true },
+  { id: 'find-hanging-piece', layer: 'overview', answerShape: 'move', promptKey: 'k', unlocked: true },
   { id: 'find-all-checks', layer: 'pattern', answerShape: 'squares', promptKey: 'k', unlocked: true },
   { id: 'find-pin', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },
   { id: 'find-fork', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },

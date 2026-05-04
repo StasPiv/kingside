@@ -22,10 +22,10 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Which enemy piece is hanging?
+      Capture the undefended enemy piece
     </div>
     <button
-      aria-label="Hanging piece. Spot the enemy piece that no one defends — free to take."
+      aria-label="Hanging piece. Find an undefended enemy piece and capture it in one move."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -39,7 +39,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Spot the enemy piece that no one defends — free to take.
+        Find an undefended enemy piece and capture it in one move.
       </span>
     </button>
   </section>
@@ -320,10 +320,10 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Какая фигура противника висит?
+      Возьмите незащищённую фигуру противника
     </div>
     <button
-      aria-label="Висящая фигура. Найдите фигуру противника, которую никто не защищает — её можно безнаказанно взять."
+      aria-label="Висящая фигура. Найдите фигуру противника без защитников и заберите её одним ходом."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -337,7 +337,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Найдите фигуру противника, которую никто не защищает — её можно безнаказанно взять.
+        Найдите фигуру противника без защитников и заберите её одним ходом.
       </span>
     </button>
   </section>

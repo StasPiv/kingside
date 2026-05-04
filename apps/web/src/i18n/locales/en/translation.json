@@ -658,7 +658,7 @@
     "lobbyHeading": "Pick a drill",
     "lobbySubheading": "Short pattern-recognition exercises. One position — one question.",
     "instructions": {
-      "findHangingPiece": "Which enemy piece is hanging?",
+      "findHangingPiece": "Capture the undefended enemy piece",
       "findLoosePiece": "Which piece is undefended?",
       "findPin": "Find the pinned piece",
       "findFork": "Which piece forks?",
@@ -678,7 +678,7 @@
       "findUndefendedAttack": "Undefended attack"
     },
     "typeDescriptions": {
-      "findHangingPiece": "Spot the enemy piece that no one defends — free to take.",
+      "findHangingPiece": "Find an undefended enemy piece and capture it in one move.",
       "findLoosePiece": "Find a piece on the board with no defenders.",
       "findPin": "Locate the piece pinned against a more valuable one (or the king).",
       "findFork": "Find the piece that simultaneously attacks two targets.",

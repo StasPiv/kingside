@@ -886,6 +886,81 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2335 / KS-2337 / KS-2341: find-hanging-piece переведён на
+  // answerShape='move' — drill требует ход-взятие, а не клик клетки.
+  describe("KS-2341 — find-hanging-piece под shape='move'", () => {
+    const HANGING_MOVE_DRILL = {
+      id: 'd-hang-move',
+      drillType: 'find-hanging-piece',
+      // Чёрные на ходу. На a8 чёрный король, на h1 белая пешка-чужак — для
+      // мока MemoChessboard клетки e2/e4 видны как fire-square. Реальная
+      // FEN-валидация в фикстуре не нужна (mock не парсит FEN), важно только
+      // что клик из e2 в e4 вызывает submit({shape:'move',from:'e2',to:'e4'}).
+      fen: '7k/8/8/8/8/8/4P3/4K2R b - - 0 1',
+      sideToMove: 'b',
+      answerShape: 'move',
+      difficulty: 1,
+    };
+
+    it("click-click e2→e4 → submit({shape:'move',from:'e2',to:'e4'}) и НЕ shape='square'", async () => {
+      const loadDrill = vi.fn(async () => HANGING_MOVE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e2'));
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(submitAnswer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            drillId: 'd-hang-move',
+            userAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+          }),
+        ),
+      );
+    });
+
+    it('drag e2→e4 → submit({shape:move,from:e2,to:e4})', async () => {
+      const loadDrill = vi.fn(async () => HANGING_MOVE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+      }));
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Drag-handler регистрируется через useFastDrag mock, проверяем
+      // что для shape='move' он включён.
+      expect(dropHandlerRegistry.length).toBeGreaterThan(0);
+      const accepted = fireDrop({ sourceSquare: 'e2', targetSquare: 'e4' });
+      expect(accepted).toBe(true);
+      await waitFor(() =>
+        expect(submitAnswer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            drillId: 'd-hang-move',
+            userAnswer: { shape: 'move', from: 'e2', to: 'e4' },
+          }),
+        ),
+      );
+    });
+  });
+
   // KS-2333: side-to-move индикатор для side-sensitive drill-типов.
   describe('KS-2333 — индикатор стороны для side-sensitive drill-типов', () => {
     const LOOSE_PIECE_WHITE = {
@@ -907,8 +982,11 @@ describe('<DrillRunner> KS-2249', () => {
       id: 'd-hang-b',
       drillType: 'find-hanging-piece',
       fen: 'r6k/8/8/8/8/8/8/R6K b - - 0 1',
+      // KS-2337/KS-2341: find-hanging-piece переведён на shape='move'.
+      // sideToMove оставлен null — проверяем fallback из FEN
+      // (KS-2333 SIDE_SENSITIVE_DRILL_TYPES).
       sideToMove: null,
-      answerShape: 'square',
+      answerShape: 'move',
       difficulty: 2,
     };
     const PIN_DRILL = {
