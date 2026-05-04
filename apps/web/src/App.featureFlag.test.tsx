@@ -426,6 +426,57 @@ describe('App routing: KS-2232 drills feature flag', () => {
   });
 });
 
+// KS-2331: при F5 на /drills с асинхронной загрузкой флагов App не
+// должен синхронно редиректить на /lobby. Пока loading=true — рендерим
+// loading-плейсхолдер; после флаги доходят и /drills остаётся /drills.
+describe('App routing: KS-2331 — feature flags loading guard', () => {
+  it('flags loading=true → /drills НЕ редиректит на /lobby (показывает loading)', async () => {
+    flags.drills = false; // дефолт пока флаги не пришли
+    // Подменим useFeatureFlags чтобы вернуть loading=true.
+    const mod = await import('./context/FeatureFlagsContext');
+    const spy = vi.spyOn(mod, 'useFeatureFlags').mockReturnValue({
+      flags: {
+        lessonsEnabled: true,
+        puzzlesEnabled: false,
+        broadcastsEnabled: true,
+        tournamentsEnabled: true,
+        assistantEnabled: false,
+        drillsEnabled: false,
+      },
+      loading: true,
+      error: null,
+      refresh: async () => {},
+    });
+    renderWithProviders(<App />, { route: '/drills' });
+    // Не редиректнули в lobby — заглушка lobby не появилась.
+    expect(screen.queryByTestId('page-lobby')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-drills-lobby')).not.toBeInTheDocument();
+    spy.mockRestore();
+  });
+
+  it('flags loading=true → /drills/find-pin тоже не редиректит', async () => {
+    flags.drills = false;
+    const mod = await import('./context/FeatureFlagsContext');
+    const spy = vi.spyOn(mod, 'useFeatureFlags').mockReturnValue({
+      flags: {
+        lessonsEnabled: true,
+        puzzlesEnabled: false,
+        broadcastsEnabled: true,
+        tournamentsEnabled: true,
+        assistantEnabled: false,
+        drillsEnabled: false,
+      },
+      loading: true,
+      error: null,
+      refresh: async () => {},
+    });
+    renderWithProviders(<App />, { route: '/drills/find-pin' });
+    expect(screen.queryByTestId('page-lobby')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-drill')).not.toBeInTheDocument();
+    spy.mockRestore();
+  });
+});
+
 describe('App routing: dev routes', () => {
   // KS-1821: dev-роуты теперь за compile-time guard `import.meta.env.DEV`.
   // В vitest (dev-режим) условие = true — роуты существуют и рендерятся.

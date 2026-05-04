@@ -63,7 +63,7 @@ import { DrillSprintResultsPage } from './pages/DrillSprintResultsPage';
 import { DrillLeaderboardPage } from './pages/DrillLeaderboardPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
-import { useFeatureFlag } from './context/FeatureFlagsContext';
+import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
 import {
@@ -203,6 +203,15 @@ export function App() {
   const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
 
   const location = useLocation();
+  const { t } = useTranslation();
+  // KS-2331: чтобы избежать редиректа `/drills → /lobby` при F5 (когда
+  // флаги ещё не подгружены и `drillsEnabled` стартует как `false`-дефолт),
+  // блокируем рендер `<Routes>` до завершения первого `/config`-запроса.
+  // Cache в localStorage делает большинство rerender'ов мгновенными, но
+  // на первом холодном заходе мы один раз показываем `loading`-плейсхолдер
+  // вместо «не того» маршрута. Решает класс ошибок для всех guard'ов под
+  // флагами (puzzles / broadcasts / tournaments / drills / lessons).
+  const { loading: flagsLoading } = useFeatureFlags();
   // KS-2105: runtime флаг «Уроки» — через FeatureFlagsContext
   // (источник правды backend `GET /config`). До этого тикета здесь
   // дёргался build-time `isLessonsEnabledLive()`, который требовал
@@ -227,6 +236,14 @@ export function App() {
     const returnSearch = returnParams.toString();
     const returnTo = returnSearch ? `${location.pathname}?${returnSearch}` : location.pathname;
     return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} user={searchParams.get('user') ?? undefined} returnTo={returnTo} />;
+  }
+
+  // KS-2331: feature-flag guard'ы рендерят `<Navigate>` синхронно при
+  // первом рендере. Если флаги ещё не пришли с `/config` — `<Navigate>`
+  // успевает переписать URL на `/lobby`. Поэтому держим текущий маршрут
+  // до завершения первой загрузки.
+  if (flagsLoading) {
+    return <div className="loading">{t('common.loading')}</div>;
   }
 
   return (

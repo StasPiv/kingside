@@ -65,6 +65,12 @@ export const DEFAULT_FLAGS: FeatureFlags = {
   broadcastsEnabled: true,
   tournamentsEnabled: true,
   assistantEnabled: false,
+  // KS-2231 / KS-2232 (ADR-035 §7.2, Drills E2): раздел «Тренажёры»
+  // включается админом. Default false совпадает с серверным whitelist.
+  // KS-2331: ключ обязан быть здесь — иначе loadFromCache итерирует
+  // только ключи DEFAULT_FLAGS и теряет drillsEnabled из localStorage,
+  // а первый рендер падает на дефолте → редирект /drills→/lobby.
+  drillsEnabled: false,
 };
 
 interface FeatureFlagsContextValue {
