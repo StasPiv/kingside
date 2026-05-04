@@ -90,7 +90,26 @@ type MoveData = {
   fenAfter: string;
 };
 
+/**
+ * KS-2403: внешняя обёртка-роут пересоздаёт `AnalysisPageInner` при
+ * каждой смене `:id` / `:gameId` через `key={id ?? gameId}`. Это
+ * гарантирует unmount + mount, а не просто rerender — никакой
+ * stale-state (history, annotations, evaluation result, ply, FEN,
+ * локальные refs/caches) не выживает на route change. Образец —
+ * KS-2375 (ArchiveGamePage). Без этого React переиспользовал один
+ * экземпляр `AnalysisPage` между разными :id, и пользователь видел
+ * «ту же партию» при открытии анализа из разных мест.
+ *
+ * Для роута `/analysis` (без id) — fallback `'__none__'`, чтобы при
+ * переходе с `/analysis/UUID` на `/analysis` тоже произошёл remount.
+ */
 export function AnalysisPage() {
+  const params = useParams<{ id?: string; gameId?: string }>();
+  const key = params.id ?? params.gameId ?? '__none__';
+  return <AnalysisPageInner key={key} />;
+}
+
+function AnalysisPageInner() {
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     document.body.classList.add('has-analysis-page');
