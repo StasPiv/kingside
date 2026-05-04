@@ -581,7 +581,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async fetchActiveBroadcasts(): Promise<LichessBroadcast[]> {
-    const url = `${LICHESS_API}/broadcast?nb=20`;
+    // KS-2356: ранее `nb=20` обрезал список Lichess top-20 — на проде
+    // не было Mitropa, Ostrava, Marshall и десятков других live-
+    // турниров с реальными партиями. Увеличиваем до 100 (max разумный
+    // предел Lichess /api/broadcast). Конфигурируется ENV
+    // `LICHESS_BROADCAST_NB` для оперативной подстройки без deploy.
+    //
+    // NB: `MAX_CONCURRENT_STREAMS=50` ограничивает одновременные PGN-
+    // стримы — если live-турниров > 50, они стримятся «по очереди»
+    // через PGN-poll (5 циклов в минуту). Это не теряет данные, но
+    // отдельные раунды могут отставать на несколько минут. Если
+    // станет узким местом — поднять MAX_CONCURRENT_STREAMS отдельно.
+    const nb = parseInt(process.env.LICHESS_BROADCAST_NB ?? '100', 10);
+    const url = `${LICHESS_API}/broadcast?nb=${nb}`;
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
