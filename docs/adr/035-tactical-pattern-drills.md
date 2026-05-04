@@ -39,7 +39,7 @@ Drill ≠ puzzle:
 
 ## 2. Каталог типов упражнений
 
-Восемь типов на старте. Все опираются на `chess.js` (валидатор / генератор ходов) и собственные предикаты на основе `Chess.attackers()` / `Chess.moves({ verbose: true })`.
+Семь типов в v1 (исходно было восемь — `find-mate-in-one-square` удалён в KS-2392, см. §2.2.1 (e)). Все опираются на `chess.js` (валидатор / генератор ходов) и собственные предикаты на основе `Chess.attackers()` / `Chess.moves({ verbose: true })`.
 
 В таблице ниже:
 - **Pattern** — формальное определение
@@ -47,23 +47,22 @@ Drill ≠ puzzle:
 - **Answer-shape** — что кликает пользователь: `square` (одна клетка), `squares[]` (множество), `move` (фигура → клетка)
 - **Side-to-move** — чья сторона на ходу, имеет ли значение
 
-### 2.1 Восемь типов
+### 2.1 Семь типов
 
 | # | id | Pattern | Algo | Answer-shape | Side-to-move |
 |---|---|---|---|---|---|
 | 1 | `find-hanging-piece` | Незащищённая фигура соперника, на которую можно безнаказанно напасть (или есть атакующий с нулевой защитой) | Для каждой `enemy piece` на `sq` (**король исключён из кандидатов-целей**): `attackers(sq, ourColor)` ≥ 1 **и** `attackers(sq, enemyColor)` = 0 (либо SEE > 0). **Король противника считается защитником** через `chess.attackers()` — фигура рядом с королём не считается hanging (см. §2.2.1 KS-2313) | `square` (одна правильная клетка; в задаче должна быть **ровно одна**, иначе drop) | важна |
-| 2 | `find-all-checks` | Все ходы, дающие шах, для стороны на ходу | `Chess.moves({verbose:true}).filter(m => m.san.includes('+'))` → массив пар `{from, to}`. **Инварианты (KS-2313 + KS-2324):** `2 ≤ |moves| ≤ 7` — позиции с одиночным шахом или > 7 шахов отбрасываются. Drop позиций где: (a) есть мат-в-1 (уходят в `find-mate-in-one-square`); (b) среди шахов есть promotion-check (упрощение по аналогии с `find-undefended-attack`). Battery (две разные фигуры дают шах через одну `to`-клетку) — **две отдельные пары**, оба хода нужно сделать | **`moves` (массив `{from, to}`)** — пересмотрено в KS-2324 (бывшее `squares[]` отменено по фидбеку пользователя: «делать ходы», не отмечать клетки). UX: multi-step с auto-undo после каждого хода, scoring IoU 0.7 по парам (см. methodology §11) | важна |
+| 2 | `find-all-checks` | Все ходы, дающие шах, для стороны на ходу | `Chess.moves({verbose:true}).filter(m => m.san.includes('+'))` → массив пар `{from, to}`. **Инварианты (KS-2313 + KS-2324):** `2 ≤ |moves| ≤ 7` — позиции с одиночным шахом или > 7 шахов отбрасываются. Drop позиций где: (a) ~~есть мат-в-1 (уходили в `find-mate-in-one-square`)~~ — после удаления типа в KS-2392 проверка избыточна, см. §2.2.1 (c); (b) среди шахов есть promotion-check (упрощение). Battery (две разные фигуры дают шах через одну `to`-клетку) — **две отдельные пары**, оба хода нужно сделать | **`moves` (массив `{from, to}`)** — пересмотрено в KS-2324 (бывшее `squares[]` отменено по фидбеку пользователя: «делать ходы», не отмечать клетки). UX: multi-step с auto-undo после каждого хода, scoring IoU 0.7 по парам (см. methodology §11) | важна |
 | 3 | `find-pin` | Связанная фигура (любого цвета). По умолчанию — связки на короля (абсолютные). В v2 добавим относительные. В MVP onboarding-объяснение даёт определение: «связанная фигура — та, которую нельзя сдвинуть, потому что за ней под боем король» (KS-2223 §2.2) | Для каждой фигуры P цвета C на `sq`: убрать P → если `kingSq(C)` теперь под боем фигуры дальнобойного типа, лежащей на той же линии «attacker → P → king», и эта фигура атакует через `sq` — связка | `square` (P) | не важна (можно показывать с обеих сторон) |
 | 4 | `find-fork` | **Вилка**: один ход (или существующая позиция) атакует ≥2 ценных фигур противника одновременно. Версия MVP — найти **готовую** вилку (фигура уже атакует двух). Термин «двойной удар» (double attack) шире вилки и зарезервирован под расширение в v2 | Для каждой фигуры `F` стороны на ходу: `attacks_from(F)` ∩ `enemy pieces of value ≥ minor` ≥ 2. Король всегда «ценен» | `square` (фигура, делающая вилку) | важна |
-| 5 | `find-mate-in-one-square` | Ход, ставящий мат в один | `moves({verbose:true})` → играем каждый, проверяем `isCheckmate()`. В позиции должен быть **ровно один** ход, ставящий мат, иначе drop. Strict-uniqueness считается по полной паре `(from, to)`: позиция с двумя разными фигурами на одну `to`-клетку — **drop** (теперь автоматически, не как отдельная проверка) | **`move` (from + to)** — пересмотрено в KS-2320 (бывшее решение KS-2223 §8.3 «строго `square`» отменено по фидбеку пользователя; интуитивнее «сделать ход», как в обычных мат-пазлах) | сторона на ходу = матующая |
-| 6 | `find-loose-piece` (отдельно от `hanging`) | Фигура противника, у которой число защитников = 0 (даже если нападающих нет). Тренирует «обзор» доски, а не расчёт обмена | Для каждой фигуры противника **кроме короля** (king не loose-кандидат): `attackers(sq, enemyColor)` = 0. **Пешки противника — полноценные кандидаты** (без исключения по типу). **Король противника считается защитником** при наличии у соседних фигур (`chess.attackers()` его учитывает). Ровно одна loose-фигура в позиции, иначе drop | `square` | не важна |
-| 7 | `count-attackers` | Сколько фигур атакует данную клетку (показана подсветкой)? | `attackers(sq, color).length` | `number` (1–4 кнопки) | не применимо |
-| 8 | `find-undefended-attack` | Ход, **создающий новую висящую фигуру** у соперника. «Висящая» = под боем нашей фигуры **И** без защитников (см. §2.2.1 (g) терминология). Существующие висящие в исходной позиции — **не** засчитываются: нужна именно новая угроза, появившаяся после хода | Snapshot `threatsBefore` = множество enemy-клеток с `attackers(sq, our) ≥ 1` И `attackers(sq, enemy) = 0` (король исключён). Для каждого легального `m`: apply `m` → собрать `threatsAfter` тем же правилом → undo. Кандидат, если `threatsAfter \ threatsBefore ≠ ∅` (появилась новая клетка). Strict-uniqueness: ровно 1 такой ход, иначе drop. KS-2372 — добавлен snapshot before/after; до этого predicate путал «уже висящую» с «созданной». На практике slider-фигуры почти всегда multivalent → composed drill редкий, но воспроизводимый | `move` (from + to). Promotion в v1 отбрасывается | важна |
+| 5 | `find-loose-piece` (отдельно от `hanging`) | Фигура противника, у которой число защитников = 0 (даже если нападающих нет). Тренирует «обзор» доски, а не расчёт обмена | Для каждой фигуры противника **кроме короля** (king не loose-кандидат): `attackers(sq, enemyColor)` = 0. **Пешки противника — полноценные кандидаты** (без исключения по типу). **Король противника считается защитником** при наличии у соседних фигур (`chess.attackers()` его учитывает). Ровно одна loose-фигура в позиции, иначе drop | `square` | не важна |
+| 6 | `count-attackers` | Сколько фигур атакует данную клетку (показана подсветкой)? | `attackers(sq, color).length` | `number` (1–4 кнопки) | не применимо |
+| 7 | `find-undefended-attack` | Ход, **создающий новую висящую фигуру** у соперника. «Висящая» = под боем нашей фигуры **И** без защитников (см. §2.2.1 (g) терминология). Существующие висящие в исходной позиции — **не** засчитываются: нужна именно новая угроза, появившаяся после хода | Snapshot `threatsBefore` = множество enemy-клеток с `attackers(sq, our) ≥ 1` И `attackers(sq, enemy) = 0` (король исключён). Для каждого легального `m`: apply `m` → собрать `threatsAfter` тем же правилом → undo. Кандидат, если `threatsAfter \ threatsBefore ≠ ∅` (появилась новая клетка). Strict-uniqueness: ровно 1 такой ход, иначе drop. KS-2372 — добавлен snapshot before/after; до этого predicate путал «уже висящую» с «созданной». На практике slider-фигуры почти всегда multivalent → composed drill редкий, но воспроизводимый | `move` (from + to). Promotion в v1 отбрасывается | важна |
 
 #### 2.2 Различия и пересечения
 - `find-hanging-piece` ⊃ `find-loose-piece` логически: если защитников 0, фигура «висит» с любым атакующим. Разделяем потому, что `loose` тренирует обзор без задачи «найти бьющую фигуру», а `hanging` — связку «вижу слабость → знаю, чем брать».
 - `find-pin` и `find-fork` могут пересекаться (одна фигура связана **и** делает вилку). Генератор отбрасывает позиции с несколькими паттернами одного drill-набора, чтобы не путать UI.
-- `find-mate-in-one-square` пересекается с `find-all-checks` (мат — частный случай шаха). Чтобы избежать дублирования, в `find-all-checks` отбрасываем позиции, где есть мат в один.
+- *(исторически)* пересечение `find-mate-in-one-square` с `find-all-checks` (мат — частный случай шаха) стало неактуальным после удаления `find-mate-in-one-square` в KS-2392. Связанная логика drop'а позиций «с матом-в-один» в predicate `find-all-checks` теперь избыточна — её допустимо снять (отдельный backend-тикет, см. KS-2393).
 
 #### 2.2.1 Канонические инварианты предикатов (KS-2313)
 
@@ -78,29 +77,23 @@ Drill ≠ puzzle:
 Пешки противника **являются полноценными loose-кандидатами**. Никакого исключения по типу фигуры в предикате нет — фильтр только `p.type !== 'k'`. Если пешка противника без защитников → она кандидат. Методически это корректно: незащищённая пешка тренирует тот же навык «обзор без расчёта обмена», что и незащищённый конь.
 
 **(c) Минимальный порог `find-all-checks`**.
-`MIN_CHECKS = 2`, `MAX_CHECKS = 7`. Меньше 2 — позиция не drill-задача (одиночный шах = тривиально). Больше 7 — превышает контракт `AnswerSquares` (UI 7-кнопок). Дополнительно — drop позиций с мат-в-один среди шахов: это пересечение уходит в `find-mate-in-one-square` (см. §2.2 выше).
+`MIN_CHECKS = 2`, `MAX_CHECKS = 7`. Меньше 2 — позиция не drill-задача (одиночный шах = тривиально). Больше 7 — превышает контракт `AnswerSquares` (UI 7-кнопок). Исторически дополнительно дроппались позиции с мат-в-один среди шахов (как пересечение с `find-mate-in-one-square`); после удаления типа в KS-2392 эта проверка избыточна — мат-в-1 теперь допустимо включать в множество шахов, отдельным drill-типом он больше не выделяется.
 
 **(d) Canonical answer rule — strict-uniqueness drop**.
-Для всех 8 предикатов (independenly от answer-shape): **позиция с > 1 валидными ответами отбрасывается**. Никакого «выбора лучшего» / «лексикографически первого» / «случайного» эталона среди многих не делается.
+Для всех 7 предикатов (independenly от answer-shape): **позиция с > 1 валидными ответами отбрасывается**. Никакого «выбора лучшего» / «лексикографически первого» / «случайного» эталона среди многих не делается.
 
 Это by design: однозначность задачи + отсутствие неопределённости при сравнении `userAnswer` против эталона. Цена — большой пул кандидатов отсеивается. На практике: для `find-undefended-attack` slider-фигуры (B/R/Q) почти всегда multivalent (длинная диагональ → много `to`-клеток создают undefended-attack) → composed drill редкий, но воспроизводимый.
 
-Уровень сравнения зависит от answer-shape: `square` — по клетке, `move` — по полной паре `(from, to)`, `squares` — по множеству клеток (для shape='squares' дополнительно действует threshold IoU 0.7, см. methodology §6), `number` — по значению. Для shape='move' (`find-undefended-attack`, `find-mate-in-one-square` после KS-2320) ужесточение: позиция с одной `to`-клеткой, но разными `from`-фигурами — тоже drop.
+Уровень сравнения зависит от answer-shape: `square` — по клетке, `move` — по полной паре `(from, to)`, `squares` — по множеству клеток (для shape='squares' дополнительно действует threshold IoU 0.7, см. methodology §6), `number` — по значению. Для shape='move' (`find-undefended-attack`) ужесточение: позиция с одной `to`-клеткой, но разными `from`-фигурами — тоже drop.
 
 Если в v2 появится backend-тикет «выбирать canonical среди многих» — потребуется отдельное обсуждение tie-breaking rule (lexicographic / SEE-best / piece-value-max). В v1 — strict-uniqueness drop, без расширений.
 
 Эти инварианты — **источник истины — код предикатов**. Если код в будущем меняется — ADR §2.1 / §2.2.1 обновляются синхронно.
 
-**(e) `find-mate-in-one-square` — answer-shape revision (KS-2320)**.
-Изначальное решение KS-2223 §8.3 «strictly `square`, fallback на `move` отменён» — **отменено по фидбеку пользователя**. UX-аргумент: пользователь ожидает «сделать ход» (drag фигуру или click-click), как в обычных мат-пазлах; клик по клетке-куда без указания фигуры воспринимается как неполный ввод.
+**(e) `find-mate-in-one-square` — removed (KS-2392)**.
+Тип удалён из системы: страйкт-uniqueness predicate'а (по паре `(from, to)`, KS-2320/2321) на корпусе TWIC даёт ~6 валидных позиций в БД — пул исчерпывается за минуту использования и не имеет смысла как самостоятельный drill. Альтернативные источники (Lichess puzzles с темой `mateIn1`) рассматривались в KS-2391 и отклонены пользователем в пользу полного удаления типа.
 
-Новое решение:
-- **answer-shape: `move`** (`{shape: 'move', from, to}`).
-- Strict-uniqueness drop работает по полной паре `(from, to)`. Позиция, где две разные фигуры дают мат на одну `to` (раньше это было допустимо при shape='square' — клетка одна) — теперь тоже drop. Это сужает банк позиций, но обеспечивает однозначность ответа.
-- Frontend handler shape='move' уже готов в KS-2318 (drag + click-click через тот же mechanism, что у `find-undefended-attack`).
-- Backend-предикат `find-mate-in-one-square.ts` уже хранит `(from, to)` пары и проверяет `length === 1` (строки 26–41 на момент перехода) — изменение минимальное: вернуть `AnswerMove` вместо `AnswerSquare`.
-
-Downstream-импакт фиксируется в отдельных тикетах (см. §10.x плана внедрения / KS-2320 acceptance).
+Литера (e) сохранена под исторической нумерацией; полное содержимое прежней answer-shape revision (KS-2320) — в git history файла до коммита KS-2392. Связанные тикеты на удаление: KS-2393 (backend — predicate, типы, БД), KS-2394 (frontend — UI/i18n/route).
 
 **(f) `find-all-checks` — answer-shape revision (KS-2324)**.
 Изначальное `shape: 'squares'` (отметить все клетки, куда можно дать шах) — **отменено** по фидбеку пользователя. UX-аргумент: пользователь ожидает «делать ходы», не «отмечать клетки» — drill должен быть в той же модальности, что и обычные шахматные пазлы.
@@ -125,8 +118,8 @@ Downstream-импакт фиксируется в отдельных тикет�
 | Термин (RU) | Термин (EN) | Формальное определение | Дрилл, тренирующий понятие |
 |---|---|---|---|
 | **Под боем** (атакована) | **Attacked** | `attackers(sq, enemyColor) ≥ 1`. Защитники не учитываются. Фигура может быть под боем И защищена — это размен, не висящая. | — (вспомогательное понятие) |
-| **Незащищённая** | **Loose** / **undefended** | `attackers(sq, sameColor) = 0`. Атакующих не учитываем — фигура может стоять на доске без всяких угроз и быть «незащищённой». | `find-loose-piece` (тип 6) |
-| **Висящая** | **Hanging** | Под боем И незащищённая одновременно: `attackers(sq, enemyColor) ≥ 1` И `attackers(sq, sameColor) = 0`. Можно взять без размена. | `find-hanging-piece` (тип 1) — взять; `find-undefended-attack` (тип 8) — создать |
+| **Незащищённая** | **Loose** / **undefended** | `attackers(sq, sameColor) = 0`. Атакующих не учитываем — фигура может стоять на доске без всяких угроз и быть «незащищённой». | `find-loose-piece` (тип 5) |
+| **Висящая** | **Hanging** | Под боем И незащищённая одновременно: `attackers(sq, enemyColor) ≥ 1` И `attackers(sq, sameColor) = 0`. Можно взять без размена. | `find-hanging-piece` (тип 1) — взять; `find-undefended-attack` (тип 7) — создать |
 
 Ключевое: «незащищённая» — **не** синоним «висящей». Незащищённая может быть не атакована (стоит спокойно). Висящая — обязательно атакована. Эти термины **раньше употреблялись синонимично** в RU-локализации `find-undefended-attack` («останется на одну незащищённую больше», KS-2386), что было семантически неточно: predicate ищет именно появление новой **висящей** (attacked + undefended), а не любой undefended.
 
@@ -145,7 +138,6 @@ Downstream-импакт фиксируется в отдельных тикет�
 | find-all-checks | «Найдите все клетки, куда можно дать шах» | «Find every check» |
 | find-pin | «Найдите связанную фигуру» | «Find the pinned piece» |
 | find-fork | «Какая фигура делает вилку?» | «Which piece forks?» |
-| find-mate-in-one-square | «Куда поставить мат в один ход?» | «Where is mate in one?» |
 | find-loose-piece | «Какая фигура без защиты?» | «Which piece is undefended?» |
 | count-attackers | «Сколько фигур атакуют выделенную клетку?» | «How many pieces attack the highlighted square?» |
 | find-undefended-attack | «Какой ход создаёт у соперника новую висящую фигуру?» | «Which move creates a new hanging piece for the opponent?» |
@@ -186,7 +178,6 @@ Downstream-импакт фиксируется в отдельных тикет�
 | find-all-checks | 2 000 | 20 000 |
 | find-pin | 1 000 | 10 000 |
 | find-fork | 1 500 | 15 000 |
-| find-mate-in-one-square | 3 000 | 30 000 |
 | find-loose-piece | 2 000 | 20 000 |
 | count-attackers | 500 (хватит — мало вариаций) | 2 000 |
 | find-undefended-attack | 1 500 | 15 000 |
@@ -337,7 +328,7 @@ model TacticDrillSprintScore {
 ```
 /drills/sprint?mode=3min-mixed
 - 3 или 5 минут
-- pool из всех 8 типов (или подмножества — ?types=checks,pins,forks)
+- pool из всех 7 типов (или подмножества — ?types=checks,pins,forks)
 - максимум правильных задач за время
 - на ошибку — НЕ жизнь как в Puzzle Rush, а просто −0 (но накапливаем precision/recall)
 - лидерборд по mode (`tactic_drill_sprint_scores`)
@@ -416,7 +407,7 @@ apps/api/src/tactic-drill/
 Отдельный CLI-скрипт `apps/api/scripts/index-tactic-drills.ts`:
 1. Читать `archive_games` пачками (`played_at DESC`, лимит 1000 партий за прогон).
 2. Восстановить SAN-историю → `Chess` instance.
-3. На каждом ply (`>= 6`, чтобы пропустить дебюты) — прогнать 8 предикатов из §2.1.
+3. На каждом ply (`>= 6`, чтобы пропустить дебюты) — прогнать 7 предикатов из §2.1.
 4. Если предикат сработал **и** в позиции **ровно один** валидный ответ (для типов где это требование) — вставить `tactic_drills` (uniqueness по `(drillType, fen)`).
 5. Считать `difficulty` (см. §3.3).
 
@@ -426,7 +417,6 @@ apps/api/src/tactic-drill/
 
 Интеграция со Stockfish:
 - **в v1 не используем**. Поднимать SF под each candidate position — дорого.
-- В v1.x: одна валидация — для `find-mate-in-one-square` дёшево проверить SF'ом что мата в один действительно нет в других ходах (защита от ошибок предиката). Но достаточно chess.js — `isCheckmate()` детерминирован.
 - В v2: SF для отбраковки тренировочно-плохих позиций (например `find-hanging-piece` где «висящая» фигура на самом деле под прикрытием комбинации в 3 хода).
 
 ### 6.4 Ownership
@@ -522,7 +512,7 @@ apps/web/src/components/drills/
 
 ### Этап E2. MVP backend (без UI)
 - **KS-DRILL-DB** *(backend)* — миграция Prisma: `tactic_drills`, `tactic_drill_attempts`, `tactic_drill_sprint_scores`. Update `packages/db/prisma/schema.prisma`. БЕЗ frontend.
-- **KS-DRILL-PREDICATES** *(backend)* — реализация 8 предикатов на chess.js + unit-тесты. В `apps/api/src/tactic-drill/predicates/`. Покрытие тестами — задача №1 (паттерны легко юнит-тестятся на конкретных FEN'ах).
+- **KS-DRILL-PREDICATES** *(backend)* — реализация 7 предикатов на chess.js + unit-тесты. В `apps/api/src/tactic-drill/predicates/`. Покрытие тестами — задача №1 (паттерны легко юнит-тестятся на конкретных FEN'ах).
 - **KS-DRILL-INDEXER** *(backend)* — CLI-скрипт `apps/api/scripts/index-tactic-drills.ts`. Pipeline по §6.3. Запуск one-shot, генерирует ≥ MVP-объёмы из §3.2.
 - **KS-DRILL-API** *(backend)* — модуль `tactic-drill/`, endpoints из §6.2 (без `/sprint/*` — sprint в E4). Включая stats/me.
 - **KS-DRILL-FF** *(backend)* — feature-flag `drillsEnabled` в `feature_flags`. Default `false`.
@@ -535,7 +525,7 @@ apps/web/src/components/drills/
 - **KS-DRILL-STATS** *(frontend)* — `DrillStatsPanel` в профиле (использует `/stats/me`).
 - **KS-DRILL-CSS** *(layout)* — стили карточек лобби, фидбек-оверлей (зелёная/красная подсветка клеток), mobile-portrait адаптация (см. §5.4).
 - **KS-DRILL-I18N** *(frontend)* — переводы RU/EN из §2.3.
-- **KS-DRILL-QA-MVP** *(qa)* — тест-кейсы для Drill mode: 8 типов × happy-path, mobile portrait, фидбек-флоу, feature-flag off/on. Cypress / Playwright.
+- **KS-DRILL-QA-MVP** *(qa)* — тест-кейсы для Drill mode: 7 типов × happy-path, mobile portrait, фидбек-флоу, feature-flag off/on. Cypress / Playwright.
 
 ### Этап E4. Sprint mode + leaderboard
 - **KS-DRILL-SPRINT-API** *(backend)* — `tactic-drill-sprint.service.ts`, Redis-сессии, endpoints `/sprint/*`. Лидерборд.
@@ -547,7 +537,7 @@ apps/web/src/components/drills/
 ### Этап E5. Расширение pool позиций
 - **KS-DRILL-INDEXER-INC** *(backend)* — инкрементальная индексация: после каждого TWIC import добавлять новые позиции (см. §6.3). Не one-shot.
 - **KS-DRILL-CURATED** *(chess-expert + content)* — 50 курируемых FEN'ов на drill-type (Variant C из §3.1). Заливка через seed.
-- **KS-DRILL-SF-VALIDATE** *(backend)* — Stockfish-валидация `find-mate-in-one-square` и `find-hanging-piece` для отбраковки сомнительных позиций.
+- **KS-DRILL-SF-VALIDATE** *(backend)* — Stockfish-валидация `find-hanging-piece` для отбраковки сомнительных позиций (висящая фигура на самом деле под прикрытием комбинации в 3 хода).
 
 ### Этап E6. Рейтинг и интеграции (v2)
 - **KS-DRILL-RATING** *(architect → backend)* — design рейтинговой формулы (Glicko-light? Elo на пары «юзер vs средняя сложность»?). Затем реализация.
@@ -581,12 +571,12 @@ flowchart TD
 
 | # | Риск / вопрос | Кто решает | Митигация |
 |---|---|---|---|
-| R1 | Сколько типов из 8 действительно полезны? Не «6-8 чтобы было», а с реальной педагогической ценностью | chess-expert (E0) | Если методичка скажет «хватит 4» — урезаем без кода |
-| R2 | Pipeline индексации на 13M позиций × 8 предикатов = долго. На production-БД нагрузит archive-replica | backend (E2) | Не run на prod-replica; копируем партии батчами в worker, считаем offline, вставляем результат |
+| R1 | Сколько типов из 7 действительно полезны? Не «6-7 чтобы было», а с реальной педагогической ценностью | chess-expert (E0) | Если методичка скажет «хватит 4» — урезаем без кода. KS-2392 — пример урезания (`find-mate-in-one-square` снят) |
+| R2 | Pipeline индексации на 13M позиций × 7 предикатов = долго. На production-БД нагрузит archive-replica | backend (E2) | Не run на prod-replica; копируем партии батчами в worker, считаем offline, вставляем результат |
 | R3 | Mobile portrait: клик по клетке 40px без zoom. Особенно проблема для `find-all-checks` где надо 4 клика | layout + qa (E3) | A/B на early-access юзерах. Fallback: zoom on long-press с фиксацией pointer-events |
 | R4 | `find-fork` / `find-pin` могут давать неоднозначные ответы (несколько вилок в позиции) | backend (E2) | Предикат отбрасывает позиции с >1 валидным ответом для shape=`square` |
 | R5 | Stockfish в воркере как узкое место (если в E5 решим валидировать SF'ом) | backend (E5) | Один воркер один SF-instance, лимит 1 позиция/сек, фоновая очередь |
-| R6 | Локализация инструкций — chess-expert + chess.js notation. Решено: **Unicode-символы primary** + SVG-spritеfallback + a11y aria-label (см. [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §7) | chess-expert (закрыто KS-2223) | В promptах основных 8 типов фигуры почти не упоминаются — Unicode нужен в onboarding/разборах; локализованные буквы только в SAN/PGN |
+| R6 | Локализация инструкций — chess-expert + chess.js notation. Решено: **Unicode-символы primary** + SVG-spritеfallback + a11y aria-label (см. [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §7) | chess-expert (закрыто KS-2223) | В promptах основных 7 типов фигуры почти не упоминаются — Unicode нужен в onboarding/разборах; локализованные буквы только в SAN/PGN |
 | R7 | Нужен ли рейтинг вообще или summary «accuracy + avg time» достаточно мотивирует | architect + UX (E6) | **Закрыто KS-2248**: рейтинг есть в v2 (Glicko-1 с continuous outcome), design в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §10. Drill-rating + sprint-score — два независимых leaderboard'а |
 | R8 | Что считать «решено» для shape=`squares[]`? **Threshold 0.7 IoU** (зафиксировано в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §6, KS-2223) | chess-expert (закрыто KS-2223) | Метрить на первых 1000 сессиях; правила пересмотра — methodology-doc §6.4 |
 | R9 | Cooldown 30 дней — что делать power-user'у который пройдёт пул за неделю | backend (E5) | Variant A (генерация на лету) включается как фолбэк когда пул для юзера исчерпан |
