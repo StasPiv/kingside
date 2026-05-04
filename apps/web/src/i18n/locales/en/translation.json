@@ -667,9 +667,9 @@
       "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
       "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
       "findAllChecks": "Make every check",
-      "findUndefendedAttack": "After which move does the opponent end up with one more undefended piece?",
-      "findUndefendedAttackWhite": "After which White move does Black end up with one more undefended piece?",
-      "findUndefendedAttackBlack": "After which Black move does White end up with one more undefended piece?"
+      "findUndefendedAttack": "Which move creates a new hanging piece (attacked and undefended) for the opponent?",
+      "findUndefendedAttackWhite": "Which White move creates a new hanging piece for Black?",
+      "findUndefendedAttackBlack": "Which Black move creates a new hanging piece for White?"
     },
     "types": {
       "findHangingPiece": "Hanging piece",
@@ -679,7 +679,7 @@
       "findMateInOneSquare": "Mate in one",
       "countAttackers": "Count attackers",
       "findAllChecks": "All checks",
-      "findUndefendedAttack": "Undefended attack"
+      "findUndefendedAttack": "Create a hanging piece"
     },
     "typeDescriptions": {
       "findHangingPiece": "Find an undefended enemy piece and capture it in one move.",
@@ -689,7 +689,7 @@
       "findMateInOneSquare": "Identify the square where mate is given in one move.",
       "countAttackers": "Count how many pieces attack the marked square.",
       "findAllChecks": "Mark every square where you can deliver a check.",
-      "findUndefendedAttack": "Find a move that leaves an enemy piece under attack with no defenders."
+      "findUndefendedAttack": "Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."
     },
     "buttons": {
       "submit": "Submit",

@@ -232,10 +232,10 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      After which move does the opponent end up with one more undefended piece?
+      Which move creates a new hanging piece (attacked and undefended) for the opponent?
     </div>
     <button
-      aria-label="Undefended attack. Find a move that leaves an enemy piece under attack with no defenders."
+      aria-label="Create a hanging piece. Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -244,12 +244,12 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       <span
         class="drill-type-card__title"
       >
-        Undefended attack
+        Create a hanging piece
       </span>
       <span
         class="drill-type-card__desc"
       >
-        Find a move that leaves an enemy piece under attack with no defenders.
+        Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging.
       </span>
     </button>
   </section>
@@ -532,10 +532,10 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      После какого хода у соперника останется на одну незащищённую фигуру больше?
+      Какой ход создаёт у соперника новую висящую фигуру (под боем и без защиты)?
     </div>
     <button
-      aria-label="Нападение на незащищённую. Найдите ход, после которого фигура противника окажется под боем и без защитников."
+      aria-label="Создать висящую фигуру. Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников. Такая фигура называется висящей."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -544,12 +544,12 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       <span
         class="drill-type-card__title"
       >
-        Нападение на незащищённую
+        Создать висящую фигуру
       </span>
       <span
         class="drill-type-card__desc"
       >
-        Найдите ход, после которого фигура противника окажется под боем и без защитников.
+        Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников. Такая фигура называется висящей.
       </span>
     </button>
   </section>
