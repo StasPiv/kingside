@@ -82,6 +82,25 @@ export type DrillRunnerState =
   | 'done'
   | 'error';
 
+/**
+ * KS-2330: размер локальной истории drill'ов (последние N показанных
+ * в текущей сессии). При переполнении — самые старые вытесняются.
+ */
+export const DRILL_HISTORY_LIMIT = 10;
+
+/**
+ * KS-2330: один элемент локальной истории. `feedback === null` означает,
+ * что drill ещё не отвечен (только текущий, «живой» drill может быть в
+ * таком состоянии). `pickedSquares` / `pickedFrom` — снэпшот ввода
+ * пользователя на момент ухода с позиции.
+ */
+interface HistoryEntry {
+  drill: TacticDrillDto;
+  feedback: { solved: boolean; correctAnswer: AnswerData } | null;
+  pickedSquares: string[];
+  pickedFrom: string | null;
+}
+
 export interface DrillRunnerCompletion {
   solved: number;
   attempted: number;
@@ -198,6 +217,15 @@ export function DrillRunner({
   const [pickedSquares, setPickedSquares] = useState<string[]>([]);
   const [pickedFrom, setPickedFrom] = useState<string | null>(null);
 
+  // KS-2330: локальная история показанных drill'ов в текущей сессии.
+  // Стек на N=10 элементов (старые вытесняются). Снэпшот включает сам
+  // drill + результат submit'а (если есть) и ввод пользователя на момент
+  // ухода с позиции — чтобы вернуться к ней «как было».
+  // historyIndex указывает на индекс текущего отображаемого drill'а в
+  // history. -1 — до первой загрузки (mount, history ещё пустая).
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+
   // Per-drill таймер.
   const startedAtRef = useRef<number>(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -225,6 +253,26 @@ export function DrillRunner({
       setDrill(next);
       startedAtRef.current = Date.now();
       setState('idle');
+      // KS-2330: пушим новый drill в стек истории, обрезая до
+      // DRILL_HISTORY_LIMIT последних. Текущий drill всегда последний
+      // в стеке (historyIndex = length-1) — по нему идёт submit.
+      setHistory((prev) => {
+        const next_arr: HistoryEntry[] = [
+          ...prev,
+          {
+            drill: next,
+            feedback: null,
+            pickedSquares: [],
+            pickedFrom: null,
+          },
+        ];
+        const trimmed =
+          next_arr.length > DRILL_HISTORY_LIMIT
+            ? next_arr.slice(next_arr.length - DRILL_HISTORY_LIMIT)
+            : next_arr;
+        setHistoryIndex(trimmed.length - 1);
+        return trimmed;
+      });
     } catch {
       setError('loadFailed');
       setState('error');
@@ -236,6 +284,9 @@ export function DrillRunner({
     if (resetOnMount) {
       setAttempted(0);
       setSolved(0);
+      // KS-2330: новая сессия — чистый стек истории.
+      setHistory([]);
+      setHistoryIndex(-1);
     }
     void fetchNext();
     // resetOnMount/loadDrill — явное намерение перезапустить в host'е,
@@ -271,6 +322,12 @@ export function DrillRunner({
   const submit = useCallback(
     async (userAnswer: AnswerData) => {
       if (!drill || state !== 'idle') return;
+      // KS-2330: submit разрешён только на «живом» (последнем) drill'е
+      // стека. Если пользователь смотрит историческую позицию — feedback
+      // там уже есть, state='feedback', и в этот if мы не зайдём, но
+      // защищаемся явно от случая, когда живой drill оказался не на
+      // хвосте (например, из-за гонки fetchNext).
+      if (historyIndex !== history.length - 1) return;
       const timeMs = Date.now() - startedAtRef.current;
       setState('submitting');
       try {
@@ -283,9 +340,25 @@ export function DrillRunner({
         const nextSolved = solved + (resp.solved ? 1 : 0);
         setAttempted(nextAttempted);
         setSolved(nextSolved);
-        setFeedback({
+        const fb = {
           solved: resp.solved,
           correctAnswer: resp.correctAnswer,
+        };
+        setFeedback(fb);
+        // KS-2330: записываем результат + ввод пользователя в текущую
+        // запись истории, чтобы при возврате «Назад → Вперёд» видеть
+        // тот же feedback и тот же ответ.
+        setHistory((prev) => {
+          if (prev.length === 0) return prev;
+          const lastIdx = prev.length - 1;
+          const updated = [...prev];
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            feedback: fb,
+            pickedSquares: [...pickedSquares],
+            pickedFrom,
+          };
+          return updated;
         });
         // Если это последний drill — даём показать feedback, потом done
         // переход через handleNext (юзер сам нажмёт Continue/Retry).
@@ -297,7 +370,7 @@ export function DrillRunner({
         setState('error');
       }
     },
-    [drill, state, attempted, solved],
+    [drill, state, attempted, solved, historyIndex, history.length, pickedSquares, pickedFrom],
   );
 
   const handleNext = useCallback(() => {
@@ -305,6 +378,63 @@ export function DrillRunner({
     if (finishIfDone(attempted, solved)) return;
     void fetchNext();
   }, [finishIfDone, fetchNext, attempted, solved]);
+
+  // KS-2330: переключение на drill из истории по индексу. Восстанавливает
+  // снэпшот: drill, picks, feedback (если был). При наличии feedback'а
+  // — state='feedback', чтобы submit не сработал повторно (см. submit).
+  // Без feedback'а — state='idle' (это «живой» хвостовой drill).
+  const goToHistory = useCallback(
+    (index: number) => {
+      setHistory((prev) => {
+        if (index < 0 || index >= prev.length) return prev;
+        // Сохраняем текущий ввод пользователя в historyIndex, чтобы при
+        // возврате на эту позицию увидеть выбранные клетки.
+        const updated = [...prev];
+        if (historyIndex >= 0 && historyIndex < updated.length) {
+          updated[historyIndex] = {
+            ...updated[historyIndex],
+            pickedSquares: [...pickedSquares],
+            pickedFrom,
+          };
+        }
+        const entry = updated[index];
+        setHistoryIndex(index);
+        setDrill(entry.drill);
+        setPickedSquares([...entry.pickedSquares]);
+        setPickedFrom(entry.pickedFrom);
+        setFeedback(entry.feedback);
+        setError(null);
+        setState(entry.feedback ? 'feedback' : 'idle');
+        // Сбрасываем таймер показа — отсчитывается заново для текущего
+        // отображаемого drill'а (даже исторического). Не влияет на
+        // attempted/solved.
+        startedAtRef.current = Date.now();
+        setElapsedMs(0);
+        return updated;
+      });
+    },
+    [historyIndex, pickedSquares, pickedFrom],
+  );
+
+  const canGoBack = historyIndex > 0;
+  const canGoForward =
+    historyIndex >= 0 &&
+    (historyIndex < history.length - 1 || feedback !== null);
+
+  const handleBack = useCallback(() => {
+    if (!canGoBack) return;
+    goToHistory(historyIndex - 1);
+  }, [canGoBack, goToHistory, historyIndex]);
+
+  const handleForward = useCallback(() => {
+    if (!canGoForward) return;
+    if (historyIndex < history.length - 1) {
+      goToHistory(historyIndex + 1);
+      return;
+    }
+    // На хвосте + есть feedback → грузим новый drill (как при auto-next).
+    handleNext();
+  }, [canGoForward, goToHistory, handleNext, historyIndex, history.length]);
 
   // KS-2319 / KS-2323: авто-переход через delay после feedback.
   // Кнопка «Следующее» удалена.
@@ -314,8 +444,14 @@ export function DrillRunner({
   //    нужно успеть рассмотреть подсветку правильного ответа).
   //  - prefers-reduced-motion: reduce → оба override на 0.
   // При unmount/новом feedback — clearTimeout, без leak'а / двойного перехода.
+  //
+  // KS-2330: авто-переход срабатывает ТОЛЬКО когда мы на хвосте истории
+  // (свежий submit). При просмотре исторической позиции пользователь
+  // должен сам ткнуть «Вперёд» — иначе любой переход в feedback при
+  // возврате назад моментально промотал бы юзера обратно вперёд.
   useEffect(() => {
     if (state !== 'feedback' || !feedback) return;
+    if (historyIndex !== history.length - 1) return;
     const reduced = prefersReducedMotion();
     const baseDelay = feedback.solved
       ? autoNextDelayCorrectMs
@@ -331,6 +467,8 @@ export function DrillRunner({
     autoNextDelayCorrectMs,
     autoNextDelayIncorrectMs,
     handleNext,
+    historyIndex,
+    history.length,
   ]);
 
   // ── Click handlers ────────────────────────────────────────────────
@@ -570,6 +708,10 @@ export function DrillRunner({
     );
   }
 
+  // KS-2330: индикатор «мы смотрим историческую позицию» — для тестов
+  // и стилизации. На хвосте истории (свежий drill) — false.
+  const viewingHistory = historyIndex >= 0 && historyIndex < history.length - 1;
+
   // ── Render: idle / submitting / feedback ──────────────────────────
   return (
     <div
@@ -581,8 +723,37 @@ export function DrillRunner({
       data-solved={solved}
       data-count={Number.isFinite(count) ? String(count) : 'infinity'}
       data-min-solved={String(effectiveMinSolved)}
+      data-viewing-history={viewingHistory ? 'true' : 'false'}
+      data-history-index={String(historyIndex)}
+      data-history-size={String(history.length)}
     >
       {headerSlot}
+
+      <div
+        className="drill-runner__nav"
+        data-testid="drill-runner-nav"
+      >
+        <button
+          type="button"
+          className="drill-runner__nav-btn drill-runner__nav-btn--back"
+          data-testid="drill-runner-back"
+          aria-label={t('drills.buttons.back', 'Previous drill')}
+          disabled={!canGoBack}
+          onClick={handleBack}
+        >
+          ← {t('drills.buttons.back', 'Previous drill')}
+        </button>
+        <button
+          type="button"
+          className="drill-runner__nav-btn drill-runner__nav-btn--forward"
+          data-testid="drill-runner-forward"
+          aria-label={t('drills.buttons.forward', 'Next drill')}
+          disabled={!canGoForward}
+          onClick={handleForward}
+        >
+          {t('drills.buttons.forward', 'Next drill')} →
+        </button>
+      </div>
 
       {!hideProgress && (
         <div

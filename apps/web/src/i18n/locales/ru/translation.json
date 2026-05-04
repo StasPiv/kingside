@@ -695,7 +695,9 @@
       "next": "Следующее",
       "showSolution": "Показать решение",
       "tryAgain": "Ещё раз",
-      "backToLobby": "К списку упражнений"
+      "backToLobby": "К списку упражнений",
+      "back": "Назад",
+      "forward": "Вперёд"
     },
     "feedback": {
       "correct": "Верно!",

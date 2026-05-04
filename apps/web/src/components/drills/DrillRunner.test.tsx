@@ -886,6 +886,276 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2330: навигация по локальной истории drill'ов (Назад/Вперёд).
+  describe('KS-2330 — локальная история drill\'ов (Назад / Вперёд)', () => {
+    it('первый mount: «Назад» disabled, «Вперёд» disabled (история = 1, без feedback)', async () => {
+      const loadDrill = vi.fn(async () => SQUARE_DRILL);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(screen.getByTestId('drill-runner-back')).toBeDisabled();
+      expect(screen.getByTestId('drill-runner-forward')).toBeDisabled();
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-history-size'),
+      ).toBe('1');
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-history-index'),
+      ).toBe('0');
+    });
+
+    it('после авто-перехода (drill #2) «Назад» доступна, история=2', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      // Авто-переход (reduced=true → delay=0) → idle drill #2.
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-history-size'),
+      ).toBe('2');
+      expect(screen.getByTestId('drill-runner-back')).not.toBeDisabled();
+    });
+
+    it('«Назад» восстанавливает прошлый drill вместе с feedback (его ответом и результатом)', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2', fen: '8/8/8/8/8/8/8/8 w - - 0 1' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      // Дождаться загрузки drill #2.
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+      // Запомним FEN живого drill'а #2 (другой, чем у #1).
+      const liveBoardFen = screen
+        .getByTestId('mock-board')
+        .getAttribute('data-position');
+      expect(liveBoardFen).toBe('8/8/8/8/8/8/8/8 w - - 0 1');
+
+      // «Назад» → видим drill #1 + feedback (correct, e4).
+      await user.click(screen.getByTestId('drill-runner-back'));
+      expect(screen.getByTestId('mock-board').getAttribute('data-position')).toBe(
+        SQUARE_DRILL.fen,
+      );
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-state'),
+      ).toBe('feedback');
+      expect(
+        screen.getByTestId('drill-feedback').getAttribute('data-result'),
+      ).toBe('correct');
+    });
+
+    it('«Назад» в feedback не триггерит auto-next (мы не на хвосте)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // На хвосте → 1 drill в истории. «Назад» disabled (history.length=1, idx=0).
+      expect(screen.getByTestId('drill-runner-back')).toBeDisabled();
+      // Дождёмся drill #2 через auto-next (delay=60s, но мы триггернём вручную? нет, он delay'ится — поэтому форсим).
+      // Проверим вместо этого: после ручного «Вперёд» (есть feedback) грузим следующий.
+      expect(screen.getByTestId('drill-runner-forward')).not.toBeDisabled();
+      await user.click(screen.getByTestId('drill-runner-forward'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Теперь возвращаемся назад — drill #1 в feedback. Auto-next не должен
+      // сработать (мы не на хвосте), state остаётся feedback после паузы.
+      await user.click(screen.getByTestId('drill-runner-back'));
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-state'),
+      ).toBe('feedback');
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-viewing-history'),
+      ).toBe('true');
+      // Подождём заметно дольше, чем 0мс — но меньше autoNextDelay'я. Состояние не должно уйти.
+      await new Promise((r) => setTimeout(r, 150));
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-state'),
+      ).toBe('feedback');
+      // loadDrill всё ещё 2 (новый не запрошен).
+      expect(loadDrill).toHaveBeenCalledTimes(2);
+    });
+
+    it('повторный submit на исторический drill не отправляется в API (idempotent)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Отвечаем на drill #1 → feedback.
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // Идём вперёд → drill #2 (idle).
+      await user.click(screen.getByTestId('drill-runner-forward'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+      // Возвращаемся к drill #1 (исторический, в feedback).
+      await user.click(screen.getByTestId('drill-runner-back'));
+      const submitsBefore = submitAnswer.mock.calls.length;
+      // Пытаемся «ответить» снова — клик игнорируется submit'ом, т.к. state=feedback.
+      await user.click(screen.getByTestId('fire-square-d4'));
+      // submitAnswer не вызывается повторно для drill #1.
+      expect(submitAnswer.mock.calls.length).toBe(submitsBefore);
+    });
+
+    it('«Вперёд» с исторической позиции возвращает к актуальному drill\'у (не запрашивает новый)', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2', fen: 'TAIL' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+      // Уходим назад на drill #1.
+      await user.click(screen.getByTestId('drill-runner-back'));
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-history-index'),
+      ).toBe('0');
+      // «Вперёд» → возвращаемся к хвосту, новый drill НЕ грузим.
+      const callsBefore = loadDrill.mock.calls.length;
+      await user.click(screen.getByTestId('drill-runner-forward'));
+      expect(loadDrill).toHaveBeenCalledTimes(callsBefore);
+      expect(screen.getByTestId('mock-board').getAttribute('data-position')).toBe(
+        'TAIL',
+      );
+    });
+
+    it('история ограничена 10 элементами — старые вытесняются (FIFO)', async () => {
+      // Готовим 12 разных drill'ов.
+      const loadDrill = vi.fn();
+      for (let i = 0; i < 12; i += 1) {
+        loadDrill.mockResolvedValueOnce({ ...SQUARE_DRILL, id: `d-${i}` });
+      }
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Отвечаем 11 раз → 12 drill'ов попало в историю, должно остаться 10.
+      for (let i = 0; i < 11; i += 1) {
+        await user.click(screen.getByTestId('fire-square-e4'));
+        await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(i + 2));
+      }
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drill-runner').getAttribute('data-history-size'),
+        ).toBe('10'),
+      );
+    });
+  });
+
   it('hideProgress + hideTimer → блоки не рендерятся', async () => {
     const loadDrill = vi.fn(async () => SQUARE_DRILL);
     const submitAnswer = vi.fn();

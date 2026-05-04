@@ -258,6 +258,64 @@
 }
 
 /* ===========================================================
+ * KS-2330 — DrillRunner навигация по локальной истории
+ * (кнопки «Назад» / «Вперёд» рядом с прогрессом).
+ * =========================================================== */
+
+.drill-runner__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.drill-runner__nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.drill-runner__nav-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-runner__nav-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-runner__nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .drill-runner__nav-btn {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+}
+
+/* ===========================================================
  * Drills-page layouts — общие классы для DrillsLobbyPage и
  * DrillPage. Frontend будет применять при создании страниц
  * (KS-DRILL-LOBBY / KS-DRILL-PAGE).

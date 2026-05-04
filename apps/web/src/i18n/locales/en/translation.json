@@ -693,7 +693,9 @@
       "next": "Next drill",
       "showSolution": "Show solution",
       "tryAgain": "Try again",
-      "backToLobby": "Back to drills"
+      "backToLobby": "Back to drills",
+      "back": "Back",
+      "forward": "Forward"
     },
     "feedback": {
       "correct": "Correct!",
