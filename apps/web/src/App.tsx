@@ -64,6 +64,9 @@ import { DrillLeaderboardPage } from './pages/DrillLeaderboardPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
+// KS-2373: трекаем посещаемость whitelist-разделов, дебаунс ~3.5с.
+// Хук подключается один раз на всё приложение.
+import { useTrackNavStats } from './hooks/useNavStats';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
 import {
@@ -212,6 +215,8 @@ export function App() {
   // вместо «не того» маршрута. Решает класс ошибок для всех guard'ов под
   // флагами (puzzles / broadcasts / tournaments / drills / lessons).
   const { loading: flagsLoading } = useFeatureFlags();
+  // KS-2373: nav-stats incrementer (no-op без auth; дебаунс ~3.5с).
+  useTrackNavStats();
   // KS-2105: runtime флаг «Уроки» — через FeatureFlagsContext
   // (источник правды backend `GET /config`). До этого тикета здесь
   // дёргался build-time `isLessonsEnabledLive()`, который требовал

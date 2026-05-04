@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders, screen } from '../test/test-utils';
+import { waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const flagControls = {
@@ -50,127 +51,171 @@ vi.mock('../hooks/useAdminStatus', () => ({
   useAdminStatus: () => ({ isAdmin: adminControls.isAdmin, loading: false }),
 }));
 
+// KS-2373: useTopNavStats читает /user/nav-stats/top через api.get.
+// Auth должен присутствовать иначе хук вернёт [].
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u1', username: 'tester', loading: false },
+    loading: false,
+  }),
+}));
+
+const apiGetMock = vi.fn();
+vi.mock('../api', () => ({
+  api: {
+    get: (path: string) => apiGetMock(path),
+    post: vi.fn(async () => ({})),
+    put: vi.fn(async () => ({})),
+    patch: vi.fn(async () => ({})),
+    delete: vi.fn(async () => ({})),
+  },
+}));
+
 import { MobileBottomBar } from './MobileBottomBar';
 
 beforeEach(() => {
   flagControls.lessons = true;
-  // KS-2218: тесты, где «Задачи» должны быть видимы, явно ставят
-  // puzzles=true. Default=false соответствует серверному whitelist.
   flagControls.puzzles = true;
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
   flagControls.drills = false;
   adminControls.isAdmin = false;
+  apiGetMock.mockReset();
+  // По умолчанию backend возвращает пустой топ → дефолт.
+  apiGetMock.mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('<MobileBottomBar> (KS-2110)', () => {
-  it('по умолчанию показывает основные пункты Play/Tournaments/Puzzles/Workshop/More', () => {
+describe('<MobileBottomBar> (KS-2110 + KS-2373)', () => {
+  it('пустой топ → дефолт Play / Tournaments / Workshop + More', async () => {
     renderWithProviders(<MobileBottomBar />);
-    expect(screen.getByText(/play/i)).toBeInTheDocument();
-    expect(screen.getByText(/tournaments/i)).toBeInTheDocument();
-    expect(screen.getByText(/puzzles/i)).toBeInTheDocument();
-    expect(screen.getByText(/workshop/i)).toBeInTheDocument();
-    expect(screen.getByText(/more/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiGetMock).toHaveBeenCalledWith(
+        expect.stringContaining('/user/nav-stats/top?limit='),
+      ),
+    );
+    expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-tournaments')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-more')).toBeInTheDocument();
   });
 
-  it('клик «More» → раскрывает меню; виден пункт «Уроки» (lessonsEnabled=true)', async () => {
+  it('KS-2373: топ от API содержит drills → /drills в bar (drillsEnabled=true)', async () => {
+    flagControls.drills = true;
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'drills', count: 45 },
+        { route: 'archive', count: 12 },
+        { route: 'workshop', count: 8 },
+      ],
+    });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-drills')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-archive')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument();
+    // Play вытеснился из bar в more.
+    expect(screen.queryByTestId('mobile-bar-play')).not.toBeInTheDocument();
+  });
+
+  it('KS-2373: топ-роут с выключенным feature-flag отбрасывается', async () => {
+    flagControls.drills = false; // drills выключены
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'drills', count: 99 }, // отфильтруется
+        { route: 'play', count: 5 },
+        { route: 'archive', count: 3 },
+        { route: 'workshop', count: 2 },
+      ],
+    });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mobile-bar-drills')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-archive')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument();
+  });
+
+  it('клик «More» → раскрывает меню; виден пункт «Lessons» (lessonsEnabled=true)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<MobileBottomBar />);
-
+    await waitFor(() =>
+      expect(apiGetMock).toHaveBeenCalled(),
+    );
     expect(screen.queryByTestId('mobile-more-lessons')).not.toBeInTheDocument();
-
-    await user.click(screen.getByText(/more/i));
+    await user.click(screen.getByTestId('mobile-bar-more'));
     expect(screen.getByTestId('mobile-more-lessons')).toBeInTheDocument();
     expect(screen.getByTestId('mobile-more-lessons').getAttribute('href')).toBe(
       '/lessons',
     );
   });
 
-  it('lessonsEnabled=false → пункт «Уроки» скрыт', async () => {
+  it('lessonsEnabled=false → пункт «Уроки» в more скрыт', async () => {
     flagControls.lessons = false;
     const user = userEvent.setup();
     renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
+    await user.click(screen.getByTestId('mobile-bar-more'));
     expect(screen.queryByTestId('mobile-more-lessons')).not.toBeInTheDocument();
   });
 
-  it('KS-2218: tournamentsEnabled=false → таб «Турниры» скрыт', () => {
+  it('KS-2218: tournamentsEnabled=false → /tournaments не в bar и не в more', async () => {
     flagControls.tournaments = false;
+    const user = userEvent.setup();
     renderWithProviders(<MobileBottomBar />);
-    expect(screen.queryByTestId('mobile-bar-tournaments')).not.toBeInTheDocument();
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    expect(
+      screen.queryByTestId('mobile-bar-tournaments'),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(
+      screen.queryByTestId('mobile-more-tournaments'),
+    ).not.toBeInTheDocument();
   });
 
-  it('KS-2218: tournamentsEnabled=true → таб «Турниры» виден', () => {
-    flagControls.tournaments = true;
-    renderWithProviders(<MobileBottomBar />);
-    expect(screen.getByTestId('mobile-bar-tournaments')).toBeInTheDocument();
-  });
-
-  it('KS-2218: puzzlesEnabled=false → таб «Задачи» скрыт', () => {
-    flagControls.puzzles = false;
-    renderWithProviders(<MobileBottomBar />);
-    expect(screen.queryByTestId('mobile-bar-puzzles')).not.toBeInTheDocument();
-  });
-
-  it('KS-2218: puzzlesEnabled=true → таб «Задачи» виден и ведёт на /daily', () => {
+  it('KS-2218: puzzlesEnabled=true → /puzzles доступен через more (если не в топе)', async () => {
     flagControls.puzzles = true;
+    const user = userEvent.setup();
     renderWithProviders(<MobileBottomBar />);
-    const link = screen.getByTestId('mobile-bar-puzzles');
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    const link = screen.getByTestId('mobile-more-puzzles');
     expect(link).toBeInTheDocument();
     expect(link.getAttribute('href')).toBe('/daily');
   });
 
-  it('KS-2218: broadcastsEnabled=false → пункт «Трансляции» в more-menu скрыт', async () => {
-    flagControls.broadcasts = false;
-    const user = userEvent.setup();
-    renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
-    expect(screen.queryByTestId('mobile-more-broadcasts')).not.toBeInTheDocument();
-  });
-
-  it('KS-2218: broadcastsEnabled=true → пункт «Трансляции» в more-menu виден', async () => {
-    flagControls.broadcasts = true;
-    const user = userEvent.setup();
-    renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
-    expect(screen.getByTestId('mobile-more-broadcasts')).toBeInTheDocument();
-  });
-
-  it('KS-2235: drillsEnabled=false → пункт «Тренажёры» в more-menu скрыт', async () => {
-    flagControls.drills = false;
-    const user = userEvent.setup();
-    renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
-    expect(screen.queryByTestId('mobile-more-drills')).not.toBeInTheDocument();
-  });
-
-  it('KS-2235: drillsEnabled=true → пункт «Тренажёры» в more-menu виден и ведёт на /drills', async () => {
+  it('KS-2235: drillsEnabled=true → /drills в more, если не в топе', async () => {
     flagControls.drills = true;
     const user = userEvent.setup();
     renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
-    const link = screen.getByTestId('mobile-more-drills');
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/drills');
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.getByTestId('mobile-more-drills')).toBeInTheDocument();
   });
 
-  it('isAdmin=false → пункт «Админка» скрыт; isAdmin=true → виден', async () => {
+  it('isAdmin=true → пункт «Админка» виден в more', async () => {
     const user = userEvent.setup();
-    const { unmount } = renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
-    expect(screen.queryByTestId('mobile-more-admin')).not.toBeInTheDocument();
-    unmount();
-
     adminControls.isAdmin = true;
     renderWithProviders(<MobileBottomBar />);
-    await user.click(screen.getByText(/more/i));
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
     expect(screen.getByTestId('mobile-more-admin')).toBeInTheDocument();
     expect(screen.getByTestId('mobile-more-admin').getAttribute('href')).toBe(
       '/admin/feature-flags',
     );
+  });
+
+  it('KS-2373: GET ошибка → дефолт без падения', async () => {
+    apiGetMock.mockRejectedValue(new Error('boom'));
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-tournaments')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument();
   });
 });
