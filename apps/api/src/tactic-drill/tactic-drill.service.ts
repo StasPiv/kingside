@@ -121,6 +121,14 @@ export class TacticDrillService {
     type: TacticDrillType,
     difficulty?: number,
   ): Promise<TacticDrillDto | null> {
+    // KS-2371: подробное timing-логирование для диагностики 14с-задержки
+    // на проде. Каждый шаг измеряется hi-res-таймером; финальная строка
+    // в логах включает breakdown. Логи структурированы (`[drill-next]
+    // ...`) — DevOps grep'ает.
+    const t0 = Date.now();
+    let tCooldown = 0;
+    let tBranch = 0;
+
     // KS-2247: исключаем drill'ы, отбракованные Stockfish-валидацией
     // (`sfRejected=true`). Не валидированные (`sfValidatedAt=null`) —
     // выдаём (валидация фоновая, отсутствие отметки не означает
@@ -129,7 +137,9 @@ export class TacticDrillService {
     if (difficulty !== undefined) {
       where.difficulty = difficulty;
     }
+    let recentCount = 0;
     if (userId) {
+      const tCool0 = Date.now();
       const cooldownSince = new Date(
         Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000,
       );
@@ -138,6 +148,8 @@ export class TacticDrillService {
         select: { drillId: true },
         distinct: ['drillId'],
       });
+      tCooldown = Date.now() - tCool0;
+      recentCount = recent.length;
       if (recent.length > 0) {
         where.id = { notIn: recent.map((r) => r.drillId) };
       }
@@ -149,7 +161,14 @@ export class TacticDrillService {
     // одним атакующим встречаются в разы чаще. Идём по value-приоритету
     // в случайном порядке: первый где есть drill — тот и берём.
     if (type === 'count-attackers') {
+      const tBranch0 = Date.now();
       const drill = await this.pickBalancedCountAttackers(where);
+      tBranch = Date.now() - tBranch0;
+      const tTotal = Date.now() - t0;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[drill-next] type=count-attackers cooldown=${tCooldown}ms recent=${recentCount} pick=${tBranch}ms total=${tTotal}ms found=${!!drill}`,
+      );
       if (!drill) return null;
       return this.toDto(
         drill.id,
@@ -162,9 +181,17 @@ export class TacticDrillService {
 
     // Простой LRU-сурогат: берём один drill, выбираем рандом через
     // skip/random offset. Полный «least-recently-shown» — KS-DRILL-INDEXER-INC.
+    const tCount0 = Date.now();
     const total = await this.prisma.tacticDrill.count({ where });
-    if (total === 0) return null;
+    const tCount = Date.now() - tCount0;
+    if (total === 0) {
+      console.log(
+        `[drill-next] type=${type} cooldown=${tCooldown}ms recent=${recentCount} count=${tCount}ms total=0 → null`,
+      );
+      return null;
+    }
     const offset = Math.floor(Math.random() * total);
+    const tFind0 = Date.now();
     const drill = await this.prisma.tacticDrill.findFirst({
       where,
       skip: offset,
@@ -178,6 +205,12 @@ export class TacticDrillService {
         // `answer` — НЕ включаем (api-contract §7).
       },
     });
+    const tFind = Date.now() - tFind0;
+    const tTotal = Date.now() - t0;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[drill-next] type=${type} cooldown=${tCooldown}ms recent=${recentCount} count=${tCount}ms find=${tFind}ms offset=${offset}/${total} total=${tTotal}ms`,
+    );
     if (!drill) return null;
 
     return this.toDto(
@@ -276,14 +309,26 @@ export class TacticDrillService {
       extra += ` AND NOT (id = ANY($${params.length}::uuid[]))`;
     }
 
+    // KS-2371: timing-логирование. Считает каждый count-вызов
+    // (балансировка делает до 4-х) — DevOps увидит, какой value
+    // тормозит (например пустые value=4, или огромный excludeIds).
+    const tCnt0 = Date.now();
     const totalRows = await this.prisma.$queryRawUnsafe<{ c: bigint }[]>(
       `SELECT count(*)::bigint AS c ${baseSql}${extra}`,
       ...params,
     );
+    const tCnt = Date.now() - tCnt0;
     const total = Number(totalRows[0]?.c ?? 0);
-    if (total === 0) return null;
+    if (total === 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[drill-next] ca-pick value=${value} count=${tCnt}ms total=0 excludeIds=${excludeIds.length}`,
+      );
+      return null;
+    }
 
     const offset = Math.floor(Math.random() * total);
+    const tSel0 = Date.now();
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{
         id: string;
@@ -297,6 +342,11 @@ export class TacticDrillService {
         `ORDER BY id ASC LIMIT 1 OFFSET $${params.length + 1}`,
       ...params,
       offset,
+    );
+    const tSel = Date.now() - tSel0;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[drill-next] ca-pick value=${value} count=${tCnt}ms select=${tSel}ms offset=${offset}/${total} excludeIds=${excludeIds.length}`,
     );
     return rows[0] ?? null;
   }
