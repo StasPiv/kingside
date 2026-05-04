@@ -232,7 +232,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Which move creates a threat against an undefended piece?
+      After which move does the opponent end up with one more undefended piece?
     </div>
     <button
       aria-label="Undefended attack. Find a move that leaves an enemy piece under attack with no defenders."
@@ -532,7 +532,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Какой ход создаёт угрозу взятия незащищённой фигуры?
+      После какого хода у соперника останется на одну незащищённую фигуру больше?
     </div>
     <button
       aria-label="Нападение на незащищённую. Найдите ход, после которого фигура противника окажется под боем и без защитников."

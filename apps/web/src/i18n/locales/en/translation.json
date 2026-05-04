@@ -667,7 +667,9 @@
       "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
       "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
       "findAllChecks": "Make every check",
-      "findUndefendedAttack": "Which move creates a threat against an undefended piece?"
+      "findUndefendedAttack": "After which move does the opponent end up with one more undefended piece?",
+      "findUndefendedAttackWhite": "After which White move does Black end up with one more undefended piece?",
+      "findUndefendedAttackBlack": "After which Black move does White end up with one more undefended piece?"
     },
     "types": {
       "findHangingPiece": "Hanging piece",

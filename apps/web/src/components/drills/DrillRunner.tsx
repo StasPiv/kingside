@@ -594,6 +594,16 @@ export function DrillRunner({
     | { attackerColor?: 'w' | 'b' }
     | null)?.attackerColor;
 
+  // KS-2386: для find-undefended-attack нужен side-to-move, чтобы
+  // текст инструкции называл сторону хода и сторону защищающегося
+  // («После какого хода белых у чёрных…»). Считаем его здесь
+  // (дублирует effectiveSideToMove, но тот объявлен ниже по файлу
+  // и недоступен в этом useMemo).
+  const undefendedAttackSide: 'w' | 'b' | null =
+    drill?.drillType === 'find-undefended-attack'
+      ? drill.sideToMove ?? sideFromFen(drill.fen)
+      : null;
+
   const instructionText = useMemo(() => {
     if (!drill) return '';
     if (feedback) {
@@ -612,8 +622,19 @@ export function DrillRunner({
             'How many BLACK pieces attack the highlighted square?',
           );
     }
+    if (drill.drillType === 'find-undefended-attack' && undefendedAttackSide) {
+      return undefendedAttackSide === 'w'
+        ? t(
+            'drills.instructions.findUndefendedAttackWhite',
+            'After which White move does Black end up with one more undefended piece?',
+          )
+        : t(
+            'drills.instructions.findUndefendedAttackBlack',
+            'After which Black move does White end up with one more undefended piece?',
+          );
+    }
     return t(`drills.instructions.${kebabToCamel(drill.drillType)}`);
-  }, [drill, feedback, t, attackerColor]);
+  }, [drill, feedback, t, attackerColor, undefendedAttackSide]);
 
   const instructionTone =
     feedback === null ? 'info' : feedback.solved ? 'success' : 'error';
