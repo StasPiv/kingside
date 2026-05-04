@@ -200,13 +200,25 @@ export function fTypeSpecificV1(
       if (dist <= 3) return 0.5;
       return 1.0;
     }
-    case 'find-loose-piece':
-    case 'find-hanging-piece': {
+    case 'find-loose-piece': {
       // Используем количество «почти-кандидатов» как distractor count.
       // Реальный расчёт (`equal-exchange`/`near-loose`) — в v_full;
       // для v1 берём общее число вражеских не-королевских фигур как
       // прокси: больше фигур → выше distractor-base.
       if (answer.shape !== 'square') return 0;
+      const our = chess.turn();
+      const enemyCount = allPieces(chess).filter(
+        (p) => p.color !== our && p.type !== 'k',
+      ).length;
+      return fDistractorCount(Math.max(0, enemyCount - 1));
+    }
+    case 'find-hanging-piece': {
+      // KS-2335 / KS-2337: shape='move'. Distractor-proxy остаётся —
+      // число вражеских не-королевских фигур как прокси сложности
+      // (больше потенциальных целей и взятий → выше bucket-база).
+      // Клетка цели берётся из answer.to, но в v1 формуле она не
+      // используется напрямую — только счётчик фигур.
+      if (answer.shape !== 'move') return 0;
       const our = chess.turn();
       const enemyCount = allPieces(chess).filter(
         (p) => p.color !== our && p.type !== 'k',

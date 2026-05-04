@@ -79,7 +79,11 @@ export type AnswerShape = 'square' | 'squares' | 'number' | 'move';
  * square». В UI ответ — пара from→to.
  */
 export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
-  'find-hanging-piece':      'square',
+  // KS-2335 (после KS-2337 backend): find-hanging-piece переведён с
+  // 'square' на 'move' — drill теперь требует «возьми незащищённую
+  // фигуру одним ходом», ответ {from, to}. Strict-uniqueness по паре
+  // (from, to). См. docs/architecture/KS-2335-find-hanging-piece-move-shape.md.
+  'find-hanging-piece':      'move',
   'find-loose-piece':        'square',
   'find-pin':                'square',
   'find-fork':               'square',
@@ -302,8 +306,9 @@ export const DRILL_TYPE_LABEL: Record<TacticDrillType, DrillLocalizedString> = {
  */
 export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = {
   'find-hanging-piece':      {
-    ru: 'Найди фигуру под боем без защиты — клетка с зависшей фигурой.',
-    en: 'Find a piece under attack with no defenders — click the hanging piece square.',
+    // KS-2335: drill теперь требует ход-взятие, а не клик клетки.
+    ru: 'Возьми ходом фигуру противника без защитников.',
+    en: 'Capture an undefended enemy piece in one move.',
   },
   'find-loose-piece':        {
     ru: 'Найди фигуру противника, у которой нет ни одного защитника.',
@@ -341,8 +346,9 @@ export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = 
  */
 export const DRILL_HINT: Record<TacticDrillType, DrillLocalizedString> = {
   'find-hanging-piece':      {
-    ru: 'Зависшая = под боем И без защитников.',
-    en: 'Hanging = attacked AND undefended.',
+    // KS-2335: подсказка дополнена призывом «возьми её».
+    ru: 'Зависшая = под боем И без защитников. Возьми её.',
+    en: 'Hanging = attacked AND undefended. Take it.',
   },
   'find-loose-piece':        {
     ru: 'Слабая = без защитников. Под боем не обязательно.',
