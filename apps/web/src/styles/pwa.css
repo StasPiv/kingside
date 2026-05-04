@@ -1,0 +1,90 @@
+/*
+ * KS-2374 — баннер промпта обновления PWA. Появляется снизу справа,
+ * не перекрывает основное содержимое; на мобильных растягивается по
+ * ширине viewport. Высокий z-index чтобы вылезть над модалками.
+ */
+
+.pwa-update-prompt {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-primary);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+
+.pwa-update-prompt__message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.pwa-update-prompt__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pwa-update-prompt__reload,
+.pwa-update-prompt__dismiss {
+  min-height: 36px;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.1s ease;
+}
+
+.pwa-update-prompt__reload {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+}
+
+.pwa-update-prompt__reload:hover {
+  background: var(--accent-hover);
+}
+
+.pwa-update-prompt__reload:active {
+  transform: scale(0.985);
+}
+
+.pwa-update-prompt__dismiss {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+}
+
+.pwa-update-prompt__dismiss:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+@media (max-width: 480px) {
+  .pwa-update-prompt {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    max-width: none;
+  }
+
+  .pwa-update-prompt__reload,
+  .pwa-update-prompt__dismiss {
+    min-height: 44px;
+    flex: 1 1 auto;
+  }
+}

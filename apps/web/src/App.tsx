@@ -67,6 +67,10 @@ import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
 // KS-2373: трекаем посещаемость whitelist-разделов, дебаунс ~3.5с.
 // Хук подключается один раз на всё приложение.
 import { useTrackNavStats } from './hooks/useNavStats';
+// KS-2374: PWA update prompt — баннер «Доступна новая версия» при
+// активации нового Service Worker. Без него после deploy пользователь
+// сидел на старом bundle (запросы виснут / уходят в SW-кэш).
+import { PwaUpdatePrompt } from './components/PwaUpdatePrompt';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
 import {
@@ -252,6 +256,8 @@ export function App() {
   }
 
   return (
+    <>
+    <PwaUpdatePrompt />
     <Routes>
       <Route element={<MainLayout />}>
         <Route index element={<HomePage />} />
@@ -436,5 +442,6 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </>
   );
 }
