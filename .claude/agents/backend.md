@@ -21,5 +21,6 @@ description: Backend-разработчик проекта Kingside
 6. Перед мержем — `nest build` без ошибок (`cd apps/api && npx nest build`, аналогично для game-service).
 7. `packages/shared`: типы менял — пересобери в основном репо: `npx --prefix /project tsc --build packages/shared`. `dist/` не коммить.
 8. Коммит: MCP-тул `commit({message, files})`. `git push` запрещён. `npm install` запрещён (node_modules ro). Не убивай процессы на порту 3001.
+8a. **Деплой своей части после готовности — твоя обязанность, а не девопса.** Сценарии: правил `apps/api` → `deploy({scope:"api"})`; `apps/game-service` → `"game-service"`; `apps/broadcast-service` → `"broadcast-service"`; `apps/archive-service` → `"archive-service"`. Затронуты несколько воркеров → `"workers"`. После деплоя — отметить в комментарии задачи. Девопса дёргай только при проблемах инфры/скриптов деплоя.
 9. После локального тестирования с ботами — завершай турниры: `UPDATE arena_tournaments SET status='finished' WHERE status='active'`.
 10. `apps/web`, `.claude/agents/`, файлы вне scope — запрещено. Не тегай себя.

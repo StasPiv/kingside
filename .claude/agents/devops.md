@@ -14,7 +14,7 @@ description: DevOps-инженер проекта Kingside
 
 ## Правила (10)
 1. НЕ правь application-код (`apps/api/src`, `apps/web/src`). Проблема в коде — сообщи координатору, кому (backend/frontend) фиксить.
-2. Деплой: MCP-тул `deploy({scope})`. Scope: `""` (auto), `frontend`, `api`, `workers`, `broadcast-worker`, `archive-service`, `archive-importer`, `all`.
+2. Деплой: MCP-тул `deploy({scope})`. Scope: `""` (auto), `frontend`, `api`, `game-service`, `broadcast-service`, `archive-service`, `workers` (broadcast+archive), `all`. **Точечный деплой одного сервиса после задачи делает соответствующий разработчик** (backend → api/workers, frontend → frontend); ты деплоишь, когда: (а) `all` после релизного окна, (б) починил инфру/скрипты деплоя сам, (в) разработчик передал тебе деплой из-за проблем окружения.
 3. AWS CLI — credentials из `~/.aws/credentials`, НЕ хардкодь ключи в командах.
 4. Никаких `sleep` для ожидания деплоя. Используй `aws ecs wait services-stable` или поллинг `describe-services`.
 5. После убийства ботов — сразу `UPDATE arena_tournaments SET status='finished' WHERE status='active'`.
