@@ -50,9 +50,21 @@ const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_CYCLES = 72;
 const MISS_COUNT_KEY_PREFIX = 'broadcast:miss-count:';
 const PINNED_POLL_INTERVAL_MS = 60_000;
-const MAX_PGN_POLLS_PER_CYCLE = 5;
+// KS-2356: лимиты переведены на ENV для оперативной подстройки без
+// redeploy. Default'ы сохранены прежние (5 polls/cycle, 50 streams) —
+// при 100 nb broadcast'ов очередь не-streamed ongoing-раундов может
+// растягиваться на 30-40 минут. Поднять `BROADCAST_MAX_PGN_POLLS=20`
+// и `BROADCAST_MAX_STREAMS=100` для ускорения наполнения партий
+// Mitropa/Ostrava и подобных при росте банка.
+const MAX_PGN_POLLS_PER_CYCLE = parseInt(
+  process.env.BROADCAST_MAX_PGN_POLLS ?? '5',
+  10,
+);
 const REDIS_FEN_TTL = 60 * 60 * 12;
-const MAX_CONCURRENT_STREAMS = 50;
+const MAX_CONCURRENT_STREAMS = parseInt(
+  process.env.BROADCAST_MAX_STREAMS ?? '50',
+  10,
+);
 const FETCH_TIMEOUT_MS = 30_000;
 const FETCH_COOLDOWN_TTL = 60 * 60;
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
