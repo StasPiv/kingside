@@ -164,6 +164,41 @@ describe('TacticDrillService — KS-2230', () => {
       const r = await svc.getNext(null, 'find-pin');
       expect(r?.sideToMove).toBeNull();
     });
+
+    it('KS-2346: count-attackers фильтрует по answer.value (балансировка)', async () => {
+      // Каждый из 4-х `count` вызовов внутри pickBalancedCountAttackers
+      // имитируем: первая попытка — пул пуст (count=0, перебираем дальше),
+      // вторая — есть.
+      (prisma.tacticDrill.count as jest.Mock)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(7);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'd-ca',
+        type: 'count-attackers',
+        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+        difficulty: 2,
+        meta: { highlightedSquare: 'd4' },
+      });
+      const r = await svc.getNext(null, 'count-attackers');
+      expect(r?.id).toBe('d-ca');
+      // Проверяем что хотя бы один вызов count имел JSON-фильтр.
+      const calls = (prisma.tacticDrill.count as jest.Mock).mock.calls;
+      const hasAnswerFilter = calls.some(
+        (c) =>
+          c[0]?.where?.answer?.path?.[0] === 'value' &&
+          typeof c[0]?.where?.answer?.equals === 'number',
+      );
+      expect(hasAnswerFilter).toBe(true);
+    });
+
+    it('KS-2346: count-attackers пул пуст по всем value → null', async () => {
+      // Все четыре попытки возвращают 0 → null.
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(0);
+      const r = await svc.getNext(null, 'count-attackers');
+      expect(r).toBeNull();
+    });
   });
 
   describe('recordAttempt', () => {

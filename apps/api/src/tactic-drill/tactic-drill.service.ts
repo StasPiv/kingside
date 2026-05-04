@@ -143,6 +143,23 @@ export class TacticDrillService {
       }
     }
 
+    // KS-2346: для count-attackers балансируем по answer.value (1..4)
+    // равновероятно. Без этого UX-распределение перекошено в сторону
+    // value=1 (~72% банка), потому что в реальных партиях клетки с
+    // одним атакующим встречаются в разы чаще. Идём по value-приоритету
+    // в случайном порядке: первый где есть drill — тот и берём.
+    if (type === 'count-attackers') {
+      const drill = await this.pickBalancedCountAttackers(where);
+      if (!drill) return null;
+      return this.toDto(
+        drill.id,
+        drill.type as TacticDrillType,
+        drill.fen,
+        drill.difficulty,
+        drill.meta,
+      );
+    }
+
     // Простой LRU-сурогат: берём один drill, выбираем рандом через
     // skip/random offset. Полный «least-recently-shown» — KS-DRILL-INDEXER-INC.
     const total = await this.prisma.tacticDrill.count({ where });
@@ -170,6 +187,58 @@ export class TacticDrillService {
       drill.difficulty,
       drill.meta,
     );
+  }
+
+  /**
+   * KS-2346: балансированная выборка count-attackers по answer.value
+   * (1..4 равновероятно). Перебираем values в случайном порядке,
+   * берём первый, у которого есть drill в пуле (с учётом cooldown'а
+   * через `where`). Это даёт пользователю равные доли по ответам
+   * независимо от перекошенного распределения банка.
+   *
+   * `where` — already-prepared фильтр (type, sfRejected, опц. difficulty
+   * и cooldown.id). Расширяется JSON-фильтром по `answer.value`.
+   */
+  private async pickBalancedCountAttackers(
+    baseWhere: Record<string, unknown>,
+  ): Promise<{
+    id: string;
+    type: string;
+    fen: string;
+    difficulty: number;
+    meta: unknown;
+  } | null> {
+    // Перемешаем 1..4 через Fisher-Yates (равномерное распределение
+    // перестановок; `sort(() => Math.random()-0.5)` известный антипаттерн —
+    // в V8 TimSort даёт смещение, value=1 чаще становится первым).
+    const values = [1, 2, 3, 4];
+    for (let i = values.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [values[i], values[j]] = [values[j], values[i]];
+    }
+    for (const value of values) {
+      const where = {
+        ...baseWhere,
+        answer: { path: ['value'], equals: value },
+      } as Record<string, unknown>;
+      const total = await this.prisma.tacticDrill.count({ where });
+      if (total === 0) continue;
+      const offset = Math.floor(Math.random() * total);
+      const drill = await this.prisma.tacticDrill.findFirst({
+        where,
+        skip: offset,
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          type: true,
+          fen: true,
+          difficulty: true,
+          meta: true,
+        },
+      });
+      if (drill) return drill;
+    }
+    return null;
   }
 
   /**
