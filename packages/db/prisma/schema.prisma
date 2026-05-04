@@ -103,6 +103,9 @@ model User {
   // KS-2226 (ADR-035 §4): Drills attempt'ы и sprint-скоры юзера.
   tacticDrillAttempts    TacticDrillAttempt[]
   tacticDrillSprintScores TacticDrillSprintScore[]
+  // KS-2373: статистика посещений разделов для динамического
+  // MobileBottomBar (top-3 разделы → нижняя панель, остальные в «Ещё»).
+  navStats               UserNavStat[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1278,4 +1281,33 @@ model TacticDrillSprintScore {
   @@index([mode, score])
   @@index([userId, createdAt])
   @@map("tactic_drill_sprint_scores")
+}
+
+/**
+ * KS-2373: статистика посещений разделов для динамического
+ * MobileBottomBar — три самых посещаемых раздела отображаются
+ * в нижней панели мобильной версии, остальные — через меню «Ещё».
+ *
+ * Хранится на сервере (не в localStorage), чтобы топ был
+ * cross-device — пользователь видит свой набор на любом девайсе.
+ *
+ * `route` — короткий идентификатор раздела (`'play'`, `'archive'`,
+ * `'drills'` и т. п.; whitelist на backend в DTO). UNIQUE на
+ * (user_id, route): по одной записи на пользователя × раздел,
+ * `count` инкрементируется через UPSERT.
+ *
+ * Index `(user_id, count desc)` — для быстрого `top N` запроса.
+ */
+model UserNavStat {
+  userId    String   @map("user_id") @db.Uuid
+  /// Whitelist'ed route id (см. `apps/web/src/components/MobileBottomBar.tsx`).
+  route     String
+  count     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, route])
+  @@index([userId, count(sort: Desc)])
+  @@map("user_nav_stats")
 }

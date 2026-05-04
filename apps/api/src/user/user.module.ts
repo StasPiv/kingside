@@ -7,6 +7,8 @@ import { UserTimeControlService } from './user-time-control.service';
 import { InternalUsersController } from './internal-users.controller';
 import { UserPreferencesController } from './user-preferences.controller';
 import { UserPreferencesService } from './user-preferences.service';
+import { UserNavStatsController } from './user-nav-stats.controller';
+import { UserNavStatsService } from './user-nav-stats.service';
 import { EcoService } from '../game/eco.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkshopModule } from '../workshop/workshop.module';
@@ -21,6 +23,8 @@ import { WorkshopModule } from '../workshop/workshop.module';
     InternalUsersController,
     // KS-2210: сохранение пользовательских предпочтений.
     UserPreferencesController,
+    // KS-2373: статистика посещений разделов (MobileBottomBar top-3).
+    UserNavStatsController,
   ],
   providers: [
     UserService,
@@ -28,6 +32,7 @@ import { WorkshopModule } from '../workshop/workshop.module';
     UserTimeControlService,
     EcoService,
     UserPreferencesService,
+    UserNavStatsService,
   ],
   exports: [UserService, BlockService],
 })
