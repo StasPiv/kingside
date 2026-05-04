@@ -495,41 +495,80 @@ export class TacticDrillSprintService {
     types: TacticDrillType[],
     excludeIds: string[],
   ): Promise<{ id: string; dto: TacticDrillDto } | null> {
-    // Random pick by offset из пула типов. Простейший подход; в KS-2229
-    // (KS-DRILL-INDEXER-INC) появится «least-recently-shown» курсор.
-    // KS-2247: sf-rejected drill'ы тоже исключаем из sprint-пула.
-    const where: Record<string, unknown> = {
-      type: { in: types },
-      sfRejected: false,
-    };
+    // KS-2378: keyset-random (`id >= gen_random_uuid()`) вместо
+    // `findFirst({skip: offset})`. После KS-2353 re-index пул вырос до
+    // ~600k записей (find-loose-piece 181k + find-hanging-piece 81k +
+    // остальные 6 типов). `OFFSET random*total LIMIT 1` walks O(N)
+    // index-entries — на проде это 15-30с, фронт-таймаут 15с (KS-2351)
+    // срабатывает раньше → пользователь видит «зависание» спринта.
+    //
+    // Алгоритм идентичен `TacticDrillService.pickRandomByKeyset`
+    // (KS-2370/2371): UUID v4 равномерно распределён, индекс
+    // `tactic_drills_type_sf_rejected_id_idx` (KS-2355) поддерживает
+    // range scan по `type IN (...)` + `id >= ...`. O(log N) seek,
+    // <50мс независимо от размера пула.
+    //
+    // KS-2247: sf-rejected drill'ы исключаем из sprint-пула.
+    // KS-2229: drill'ы из текущей сессии (excludeIds) — no-repeat.
+    const conditions = ['type = ANY($1::text[])', 'sf_rejected = false'];
+    const params: unknown[] = [types];
     if (excludeIds.length > 0) {
-      where.id = { notIn: excludeIds };
+      params.push(excludeIds);
+      conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
     }
-    const total = await this.prisma.tacticDrill.count({ where });
-    if (total === 0) return null;
-    const offset = Math.floor(Math.random() * total);
-    const drill = await this.prisma.tacticDrill.findFirst({
-      where,
-      skip: offset,
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        type: true,
-        fen: true,
-        difficulty: true,
-        // KS-2250-fix: meta для count-attackers (highlightedSquare).
-        meta: true,
-      },
-    });
-    if (!drill) return null;
-    const dto = this.drillService.buildDto(
-      drill.id,
-      drill.type as TacticDrillType,
-      drill.fen,
-      drill.difficulty,
-      drill.meta,
+    const whereSql = conditions.join(' AND ');
+
+    const sqlForward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id >= gen_random_uuid() ` +
+      `ORDER BY id ASC LIMIT 1`;
+    const sqlBackward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id < gen_random_uuid() ` +
+      `ORDER BY id DESC LIMIT 1`;
+
+    type Row = {
+      id: string;
+      type: string;
+      fen: string;
+      difficulty: number;
+      meta: unknown;
+    };
+
+    const tFwd0 = Date.now();
+    const fwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      sqlForward,
+      ...params,
     );
-    return { id: drill.id, dto };
+    const tFwd = Date.now() - tFwd0;
+    let row: Row | undefined = fwd[0];
+    let tBwd = 0;
+    let hit: 'fwd' | 'bwd' | 'none' = fwd[0] ? 'fwd' : 'none';
+    if (!row) {
+      const tBwd0 = Date.now();
+      const bwd = await this.prisma.$queryRawUnsafe<Row[]>(
+        sqlBackward,
+        ...params,
+      );
+      tBwd = Date.now() - tBwd0;
+      row = bwd[0];
+      hit = bwd[0] ? 'bwd' : 'none';
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[sprint-pick] types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit}`,
+    );
+    if (!row) return null;
+    // KS-2250-fix: meta для count-attackers (highlightedSquare) проброс
+    // в DTO через `drillService.buildDto`.
+    const dto = this.drillService.buildDto(
+      row.id,
+      row.type as TacticDrillType,
+      row.fen,
+      row.difficulty,
+      row.meta,
+    );
+    return { id: row.id, dto };
   }
 
   private async forceFinish(userId: string, sessionId: string): Promise<void> {

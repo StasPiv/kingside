@@ -44,6 +44,9 @@ function makeRedis(): FakeRedis {
 function makePrisma() {
   return {
     tacticDrill: {
+      // KS-2370/2371/2378: pickRandomByKeyset / pickRandomDrill используют
+      // $queryRawUnsafe; tacticDrill.count/findFirst остаются для
+      // pickRandomFromPool (lesson-flow) и других мест.
       count: jest.fn(),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -52,6 +55,8 @@ function makePrisma() {
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // KS-2378: sprint pickRandomDrill переведён на keyset через raw SQL.
+    $queryRawUnsafe: jest.fn(),
   } as unknown as PrismaService & Record<string, never>;
 }
 
@@ -94,8 +99,10 @@ describe('TacticDrillSprintService — KS-2240', () => {
 
   describe('start', () => {
     it('создаёт сессию и выдаёт первый drill', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue(DRILL_ROW_FORK);
+      // KS-2378: pickRandomDrill через $queryRawUnsafe (keyset).
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([
+        DRILL_ROW_FORK,
+      ]);
 
       const r = await svc.start('user-1', {
         durationMs: 180000,
@@ -153,8 +160,9 @@ describe('TacticDrillSprintService — KS-2240', () => {
           attempts: [],
         }),
       );
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue(DRILL_ROW_FORK);
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([
+        DRILL_ROW_FORK,
+      ]);
 
       const r = await svc.start('user-1', {
         durationMs: 180000,
@@ -167,7 +175,8 @@ describe('TacticDrillSprintService — KS-2240', () => {
     });
 
     it('пул пуст → 404', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(0);
+      // KS-2378: keyset возвращает [] для forward и [] для backward → null.
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([]);
       await expect(
         svc.start('user-1', { durationMs: 180000, types: [] }),
       ).rejects.toMatchObject({ status: 404 });
@@ -185,10 +194,11 @@ describe('TacticDrillSprintService — KS-2240', () => {
 
   describe('submit', () => {
     async function startSession(): Promise<string> {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(2);
-      (prisma.tacticDrill.findFirst as jest.Mock)
-        .mockResolvedValueOnce(DRILL_ROW_FORK) // первая задача
-        .mockResolvedValueOnce(DRILL_ROW_PIN);  // следующая после submit
+      // KS-2378: pickRandomDrill вызывается дважды — на /start (первая
+      // задача) и в /submit (next drill). Forward-keyset hit'ы.
+      (prisma.$queryRawUnsafe as jest.Mock)
+        .mockResolvedValueOnce([DRILL_ROW_FORK]) // первая задача
+        .mockResolvedValueOnce([DRILL_ROW_PIN]); // следующая после submit
       const r = await svc.start('user-1', {
         durationMs: 180000,
         types: ['find-fork', 'find-pin'],
@@ -454,8 +464,10 @@ describe('TacticDrillSprintService — KS-2240', () => {
       durationMs: 180000 | 300000,
       types: string[],
     ): Promise<string> {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue(DRILL_ROW_FORK);
+      // KS-2378: keyset вместо count + findFirst.
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([
+        DRILL_ROW_FORK,
+      ]);
       const r = await svc.start(`u-${Math.random()}`, {
         durationMs,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
