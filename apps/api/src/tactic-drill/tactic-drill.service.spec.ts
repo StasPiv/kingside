@@ -30,6 +30,8 @@ function makePrisma() {
     lessonStep: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
+    // KS-2368: $queryRawUnsafe для balanced count-attackers (raw SQL).
+    $queryRawUnsafe: jest.fn().mockResolvedValue([]),
   } as unknown as PrismaService & Record<string, never>;
 }
 
@@ -165,37 +167,45 @@ describe('TacticDrillService — KS-2230', () => {
       expect(r?.sideToMove).toBeNull();
     });
 
-    it('KS-2346: count-attackers фильтрует по answer.value (балансировка)', async () => {
-      // Каждый из 4-х `count` вызовов внутри pickBalancedCountAttackers
-      // имитируем: первая попытка — пул пуст (count=0, перебираем дальше),
-      // вторая — есть.
-      (prisma.tacticDrill.count as jest.Mock)
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(7);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'd-ca',
-        type: 'count-attackers',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 2,
-        meta: { highlightedSquare: 'd4' },
-      });
+    it('KS-2346/2368: count-attackers фильтрует по answer.value через raw SQL', async () => {
+      // KS-2368: переписано на $queryRawUnsafe. 4 попытки count (по
+      // одной на value); первая ненулевая → followup findFirst raw.
+      // Имитируем: первые 3 count'а возвращают 0, 4-й = 7. После
+      // count>0 идёт SELECT ... LIMIT 1 OFFSET — возвращает drill.
+      const queryMock = prisma.$queryRawUnsafe as jest.Mock;
+      queryMock
+        .mockResolvedValueOnce([{ c: BigInt(0) }])
+        .mockResolvedValueOnce([{ c: BigInt(0) }])
+        .mockResolvedValueOnce([{ c: BigInt(0) }])
+        .mockResolvedValueOnce([{ c: BigInt(7) }])
+        .mockResolvedValueOnce([
+          {
+            id: 'd-ca',
+            type: 'count-attackers',
+            fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+            difficulty: 2,
+            meta: { highlightedSquare: 'd4' },
+          },
+        ]);
       const r = await svc.getNext(null, 'count-attackers');
       expect(r?.id).toBe('d-ca');
-      // Проверяем что хотя бы один вызов count имел JSON-фильтр.
-      const calls = (prisma.tacticDrill.count as jest.Mock).mock.calls;
-      const hasAnswerFilter = calls.some(
+      // Проверяем, что raw SQL содержит выражение для функционального
+      // индекса — `(answer->>'value')::int` (KS-2368).
+      const calls = queryMock.mock.calls;
+      const hasFunctionalFilter = calls.some(
         (c) =>
-          c[0]?.where?.answer?.path?.[0] === 'value' &&
-          typeof c[0]?.where?.answer?.equals === 'number',
+          typeof c[0] === 'string' &&
+          c[0].includes("answer->>'value'") &&
+          c[0].includes('::int'),
       );
-      expect(hasAnswerFilter).toBe(true);
+      expect(hasFunctionalFilter).toBe(true);
     });
 
-    it('KS-2346: count-attackers пул пуст по всем value → null', async () => {
-      // Все четыре попытки возвращают 0 → null.
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(0);
+    it('KS-2346/2368: count-attackers пул пуст по всем value → null', async () => {
+      // Все четыре попытки возвращают c=0 → null.
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([
+        { c: BigInt(0) },
+      ]);
       const r = await svc.getNext(null, 'count-attackers');
       expect(r).toBeNull();
     });

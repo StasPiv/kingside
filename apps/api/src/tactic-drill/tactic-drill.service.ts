@@ -196,8 +196,17 @@ export class TacticDrillService {
    * через `where`). Это даёт пользователю равные доли по ответам
    * независимо от перекошенного распределения банка.
    *
-   * `where` — already-prepared фильтр (type, sfRejected, опц. difficulty
-   * и cooldown.id). Расширяется JSON-фильтром по `answer.value`.
+   * KS-2368: переведено с Prisma JSON-фильтра (`answer = { path:
+   * ['value'], equals }`) на raw SQL с выражением `(answer->>'value')
+   * ::int`. Prisma шлёт `(answer #> '{value}')::jsonb = '$'::jsonb` —
+   * это НЕ использует функциональный индекс. Raw SQL c
+   * `(answer->>'value')::int` использует partial index
+   * `tactic_drills_ca_value_idx` (миграция 20260504130000) — на dev
+   * 0.5мс vs 19мс (×40 ускорение).
+   *
+   * `baseWhere` — already-prepared фильтр (type, sfRejected, опц.
+   * difficulty и cooldown.id). Извлекаем cooldown.notIn массив и
+   * difficulty для raw SQL.
    */
   private async pickBalancedCountAttackers(
     baseWhere: Record<string, unknown>,
@@ -216,29 +225,80 @@ export class TacticDrillService {
       const j = Math.floor(Math.random() * (i + 1));
       [values[i], values[j]] = [values[j], values[i]];
     }
+
+    // Извлекаем дополнительные фильтры из baseWhere для raw SQL.
+    const excludeIds =
+      (baseWhere.id as { notIn?: string[] } | undefined)?.notIn ?? [];
+    const difficultyVal =
+      typeof baseWhere.difficulty === 'number'
+        ? (baseWhere.difficulty as number)
+        : null;
+
     for (const value of values) {
-      const where = {
-        ...baseWhere,
-        answer: { path: ['value'], equals: value },
-      } as Record<string, unknown>;
-      const total = await this.prisma.tacticDrill.count({ where });
-      if (total === 0) continue;
-      const offset = Math.floor(Math.random() * total);
-      const drill = await this.prisma.tacticDrill.findFirst({
-        where,
-        skip: offset,
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          type: true,
-          fen: true,
-          difficulty: true,
-          meta: true,
-        },
-      });
+      const drill = await this.pickCountAttackerByValue(
+        value,
+        excludeIds,
+        difficultyVal,
+      );
       if (drill) return drill;
     }
     return null;
+  }
+
+  /**
+   * KS-2368: одна попытка для конкретного `answer.value`. Raw SQL,
+   * использует partial index `tactic_drills_ca_value_idx` (см.
+   * миграцию 20260504130000). Если в этом value пул пуст — возвращает
+   * null, caller перебирает следующий value.
+   */
+  private async pickCountAttackerByValue(
+    value: number,
+    excludeIds: string[],
+    difficulty: number | null,
+  ): Promise<{
+    id: string;
+    type: string;
+    fen: string;
+    difficulty: number;
+    meta: unknown;
+  } | null> {
+    const baseSql =
+      `FROM tactic_drills WHERE type = 'count-attackers' AND sf_rejected = false ` +
+      `AND (answer->>'value')::int = $1`;
+    const params: unknown[] = [value];
+    let extra = '';
+    if (difficulty !== null) {
+      params.push(difficulty);
+      extra += ` AND difficulty = $${params.length}`;
+    }
+    if (excludeIds.length > 0) {
+      params.push(excludeIds);
+      extra += ` AND NOT (id = ANY($${params.length}::uuid[]))`;
+    }
+
+    const totalRows = await this.prisma.$queryRawUnsafe<{ c: bigint }[]>(
+      `SELECT count(*)::bigint AS c ${baseSql}${extra}`,
+      ...params,
+    );
+    const total = Number(totalRows[0]?.c ?? 0);
+    if (total === 0) return null;
+
+    const offset = Math.floor(Math.random() * total);
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        type: string;
+        fen: string;
+        difficulty: number;
+        meta: unknown;
+      }>
+    >(
+      `SELECT id, type, fen, difficulty, meta ${baseSql}${extra} ` +
+        `ORDER BY id ASC LIMIT 1 OFFSET $${params.length + 1}`,
+      ...params,
+      offset,
+    );
+    return rows[0] ?? null;
   }
 
   /**
