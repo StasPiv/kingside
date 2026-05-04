@@ -50,7 +50,6 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('<DrillSprintSetupPage> KS-2241', () => {
-  // KS-2394: после удаления `find-mate-in-one-square` пресет — 7 типов.
   it('рендерит контейнер + duration radio + 7 type checkboxes', () => {
     renderWithProviders(<DrillSprintSetupPage />);
     expect(screen.getByTestId('drill-sprint-setup')).toBeInTheDocument();
@@ -91,7 +90,7 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
       const cb = screen.getByTestId(`drill-sprint-setup-type-${id}`) as HTMLInputElement;
       expect(cb.checked).toBe(true);
     }
-    // KS-2394: data-selected-count=7 после удаления find-mate-in-one-square.
+    // data-selected-count=7 (все 7 чекбоксов отмечены).
     expect(
       screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
     ).toBe('7');

@@ -25,8 +25,7 @@ const FULL_STATS = {
     { drillType: 'find-all-checks', attempts: 5, solved: 3, accuracy: 0.6, avgTimeMs: 7500, avgIou: 0.71 },
     { drillType: 'find-pin', attempts: 4, solved: 2, accuracy: 0.5, avgTimeMs: 6200 },
     { drillType: 'find-fork', attempts: 2, solved: 2, accuracy: 1.0, avgTimeMs: 5400 },
-    // find-undefended-attack — нет попыток (KS-2394:
-    // find-mate-in-one-square удалён из v1).
+    // find-undefended-attack — нет попыток.
   ],
   unlocked: ['count-attackers', 'find-loose-piece', 'find-hanging-piece'],
 };
@@ -69,7 +68,6 @@ describe('<DrillStatsPanel> KS-2236', () => {
     ).toBe('75%');
   });
 
-  // KS-2394: после удаления `find-mate-in-one-square` строк — 7.
   it('таблица содержит все 7 строк в порядке методики', async () => {
     apiGet.mockResolvedValue(FULL_STATS);
     renderWithProviders(<DrillStatsPanel />);
@@ -123,7 +121,7 @@ describe('<DrillStatsPanel> KS-2236', () => {
     const lockedRows = document.querySelectorAll(
       '[data-drill-type][data-unlocked="false"]',
     );
-    // KS-2394: было 5 locked (8-3 unlocked), теперь 4 (7-3).
+    // FULL_TYPES: 7 типов, 3 unlocked → 4 locked.
     expect(lockedRows).toHaveLength(4);
   });
 

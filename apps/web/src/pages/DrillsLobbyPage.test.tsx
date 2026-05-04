@@ -27,8 +27,6 @@ vi.mock('react-router-dom', async () => {
 
 import { DrillsLobbyPage } from './DrillsLobbyPage';
 
-// KS-2394: `find-mate-in-one-square` удалён из v1; в фикстуре остались
-// 7 типов. Лобби должно отображать ровно 7 карточек.
 const FULL_TYPES = [
   { id: 'count-attackers', layer: 'overview', answerShape: 'number', promptKey: 'k', unlocked: true },
   { id: 'find-loose-piece', layer: 'overview', answerShape: 'square', promptKey: 'k', unlocked: true },
@@ -67,7 +65,6 @@ describe('<DrillsLobbyPage> KS-2232', () => {
     expect(screen.getByTestId('drills-lobby-layer-overview')).toBeInTheDocument();
     expect(screen.getByTestId('drills-lobby-layer-pattern')).toBeInTheDocument();
     expect(screen.getByTestId('drills-lobby-layer-calculation')).toBeInTheDocument();
-    // KS-2394: 7 карточек после удаления find-mate-in-one-square.
     expect(screen.getAllByTestId('drill-type-card')).toHaveLength(7);
   });
 
@@ -89,8 +86,7 @@ describe('<DrillsLobbyPage> KS-2232', () => {
       expect(screen.getByTestId('drills-lobby')).toBeInTheDocument(),
     );
     const cards = screen.getAllByTestId('drill-type-card') as HTMLButtonElement[];
-    // KS-2394: 4 unlocked + 3 locked (find-mate-in-one-square был
-    // locked и удалён).
+    // FULL_TYPES: 4 unlocked + 3 locked.
     const disabled = cards.filter((c) => c.disabled);
     const enabled = cards.filter((c) => !c.disabled);
     expect(enabled).toHaveLength(4);

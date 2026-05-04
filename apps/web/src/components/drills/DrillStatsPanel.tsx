@@ -39,10 +39,6 @@ import { api } from '../../api';
  *   </section>
  */
 
-// KS-2394: тип `find-mate-in-one-square` удалён из v1. Таблица
-// рендерит 7 строк. Если backend ещё какое-то время отдаёт строку
-// `byType.drillType==='find-mate-in-one-square'` — она просто не
-// попадёт в таблицу (DRILL_ORDER её не содержит).
 const DRILL_ORDER: TacticDrillType[] = [
   'count-attackers',
   'find-loose-piece',

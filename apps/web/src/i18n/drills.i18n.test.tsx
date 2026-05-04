@@ -34,8 +34,6 @@ import {
  * автоматически зафейлится, заставив осознанно обновить тест.
  */
 
-// KS-2394: тип `findMateInOneSquare` удалён из v1, ключи в RU/EN
-// translation.json больше не присутствуют. Список 7-элементный.
 const DRILL_IDS = [
   'findHangingPiece',
   'findLoosePiece',
