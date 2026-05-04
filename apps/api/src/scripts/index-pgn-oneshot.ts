@@ -161,6 +161,13 @@ async function main(): Promise<void> {
     fen: string;
     answer: unknown;
     difficulty: number;
+    /**
+     * KS-2354: для count-attackers `predicatesForPosition` возвращает
+     * `meta = { highlightedSquare, attackerColor }`. Раньше скрипт
+     * терял это поле в `flush()`, и в БД попадали записи с `meta=NULL`.
+     * Без `meta.highlightedSquare` фронт не подсвечивает клетку в drill'е.
+     */
+    meta?: Record<string, unknown>;
   }> = [];
 
   async function flush(): Promise<void> {
@@ -172,6 +179,10 @@ async function main(): Promise<void> {
         answer: p.answer as object,
         difficulty: p.difficulty,
         source: 'indexed',
+        // KS-2354: пробрасываем meta при наличии (count-attackers требует
+        // highlightedSquare; для остальных типов meta=undefined — Prisma
+        // оставит NULL, что корректно).
+        ...(p.meta !== undefined ? { meta: p.meta as object } : {}),
       })),
       skipDuplicates: true,
     });
@@ -209,6 +220,8 @@ async function main(): Promise<void> {
             fen: d.fen,
             answer: d.answer,
             difficulty: d.difficulty,
+            // KS-2354: meta из предиката (count-attackers).
+            meta: (d as { meta?: Record<string, unknown> }).meta,
           });
           if (pending.length >= cli.insertBatchSize) {
             await flush();
