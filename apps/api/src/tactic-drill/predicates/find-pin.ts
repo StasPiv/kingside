@@ -16,18 +16,20 @@
  * остаются на g-вертикали и не открывают короля. По шахматной
  * семантике она не связана; теперь predicate её отфильтрует.
  *
- * Реализация п.2: chess.js v1 не отдаёт pseudo-legal ходы, попадающие
- * под собственный шах (он их фильтрует как illegal). Поэтому мы:
- *   a) находим attacker — sliding piece, появившуюся в attackers(king)
- *      после remove(P);
- *   b) убираем attacker из копии позиции и переключаем turn на P.color;
- *   c) `chess.moves({ square: P.square })` теперь даёт pseudo-legal
- *      ходы P относительно связки (без attacker'а они становятся
- *      legal);
- *   d) для каждого хода в клоне — применяем move, возвращаем attacker
- *      на место, проверяем `attackers(kingP, oppColor(P.color))` на
- *      содержание клетки attacker'а; если да — этот ход открывает
- *      короля → P связана.
+ * Реализация п.2 (KS-2340 — переписана с KS-2336): chess.js v1 не
+ * отдаёт pseudo-legal ходы, попадающие под собственный шах. Поэтому
+ * мы геометрически генерируем pseudo-legal targets фигуры P в
+ * исходной позиции (с учётом доски и своих фигур, без учёта связки)
+ * и для каждого target проверяем — лежит ли он на прямой
+ * (attacker, king) через P. Если хотя бы один target НЕ на этой
+ * прямой — ход открывает короля → P связана. Если все на прямой
+ * (или их нет вообще, как у пешки g7 с ладьёй g6 рядом — ходы
+ * физически заблокированы) — P не связана.
+ *
+ * Важно: предыдущий KS-2336 фикс «удалять attacker и брать moves»
+ * давал false-positive для пешки g7 при белой ладье g6 — после
+ * удаления ладьи у пешки появлялись фиктивные ходы g7-g6/g7-g5,
+ * которых в реальной позиции нет.
  *
  * В позиции должна быть **ровно одна** связанная фигура, иначе drop.
  *
@@ -77,68 +79,118 @@ function findNewSlidingAttackerSq(
   return null;
 }
 
+type PieceType = 'p' | 'n' | 'b' | 'r' | 'q';
+
 /**
- * KS-2336: проверка существования pseudo-legal хода P, после которого
- * король P-цвета остаётся под атакой `attackerSq`. Возвращает true
- * если такой ход найден.
+ * KS-2340: pseudo-legal targets фигуры в **исходной** позиции, без
+ * учёта связки (chess.js фильтрует ходы, открывающие короля; нам же
+ * нужны все геометрически возможные ходы). Учитывает доску, свои
+ * фигуры, тип хода для каждой не-королевской фигуры.
+ *
+ * Не возвращает en-passant (упрощение: pawn-капчи только если на
+ * клетке стоит вражеская фигура). Promotion не различается — нас
+ * интересует только клетка target.
  */
-function existsMoveOpeningKing(
-  baseFen: string,
-  pSq: ChessJsSquare,
-  pColor: 'w' | 'b',
-  attackerSq: ChessJsSquare,
-): boolean {
-  const baseChess = tryLoadChess(baseFen);
-  if (!baseChess) return false;
-  const attackerPiece = baseChess.get(attackerSq);
-  if (!attackerPiece) return false;
+function pseudoTargets(
+  chess: Chess,
+  sq: ChessJsSquare,
+  type: PieceType,
+  color: 'w' | 'b',
+): ChessJsSquare[] {
+  const file = sq.charCodeAt(0) - 97;
+  const rank = parseInt(sq[1], 10) - 1;
+  const enemy = color === 'w' ? 'b' : 'w';
+  const out: ChessJsSquare[] = [];
 
-  // 1. Удаляем атакера, переключаем turn на P.color → у P становятся
-  //    «pseudo-legal в смысле связки» ходы (они теперь legal без атакера).
-  const fenParts = baseChess.fen().split(' ');
-  baseChess.remove(attackerSq);
-  const fenNoAttacker = baseChess.fen().split(' ');
-  fenNoAttacker[1] = pColor;
-  // Сбросим castling/en-passant до значений, безопасных для нашей
-  // проверки (нам не нужны кастлинги; en-passant может ввести лишние
-  // ходы пешки, но они тоже валидные pseudo-legal moves в смысле связки).
-  void fenParts; // оставляем для возможного debug
-  const fenForP = fenNoAttacker.join(' ');
+  const squareAt = (f: number, r: number): ChessJsSquare | null => {
+    if (f < 0 || f > 7 || r < 0 || r > 7) return null;
+    return (String.fromCharCode(97 + f) + (r + 1)) as ChessJsSquare;
+  };
 
-  let cTmp: Chess;
-  try {
-    cTmp = new Chess(fenForP);
-  } catch {
-    return false;
+  if (type === 'p') {
+    const dir = color === 'w' ? 1 : -1;
+    const startRank = color === 'w' ? 1 : 6;
+    const f1 = squareAt(file, rank + dir);
+    if (f1 && !chess.get(f1)) out.push(f1);
+    const f2 = squareAt(file, rank + 2 * dir);
+    if (rank === startRank && f1 && f2 && !chess.get(f1) && !chess.get(f2)) {
+      out.push(f2);
+    }
+    for (const dx of [-1, 1]) {
+      const c = squareAt(file + dx, rank + dir);
+      if (!c) continue;
+      const t = chess.get(c);
+      if (t && t.color === enemy) out.push(c);
+    }
+    return out;
   }
 
-  const moves = cTmp.moves({ square: pSq, verbose: true });
-  if (moves.length === 0) return false;
+  if (type === 'n') {
+    for (const [dx, dy] of [
+      [1, 2], [1, -2], [-1, 2], [-1, -2],
+      [2, 1], [2, -1], [-2, 1], [-2, -1],
+    ]) {
+      const c = squareAt(file + dx, rank + dy);
+      if (!c) continue;
+      const t = chess.get(c);
+      if (t && t.color === color) continue;
+      out.push(c);
+    }
+    return out;
+  }
 
-  for (const m of moves) {
-    let c2: Chess;
-    try {
-      c2 = new Chess(cTmp.fen());
-    } catch {
-      continue;
+  // sliding (b/r/q): идём по лучам до первой фигуры (включаем её
+  // если вражеская, исключаем если своя).
+  const dirs: Array<[number, number]> = [];
+  if (type === 'r' || type === 'q') dirs.push([0, 1], [0, -1], [1, 0], [-1, 0]);
+  if (type === 'b' || type === 'q') dirs.push([1, 1], [1, -1], [-1, 1], [-1, -1]);
+  for (const [dx, dy] of dirs) {
+    let f = file + dx;
+    let r = rank + dy;
+    while (true) {
+      const c = squareAt(f, r);
+      if (!c) break;
+      const t = chess.get(c);
+      if (!t) {
+        out.push(c);
+      } else {
+        if (t.color === enemy) out.push(c);
+        break;
+      }
+      f += dx;
+      r += dy;
     }
-    try {
-      c2.move({ from: m.from, to: m.to, promotion: m.promotion });
-    } catch {
-      continue;
-    }
-    let putOk = false;
-    try {
-      putOk = c2.put(attackerPiece, attackerSq);
-    } catch {
-      putOk = false;
-    }
-    if (!putOk) continue;
+  }
+  return out;
+}
 
-    const kingSq = findKingSquare(c2, pColor);
-    if (!kingSq) continue;
-    const attackers = c2.attackers(kingSq, oppColor(pColor));
-    if (attackers.includes(attackerSq)) return true;
+/**
+ * KS-2340: P связана если у неё есть pseudo-legal target, который
+ * **не лежит** на прямой (attacker, king) через P. Если targets
+ * пусты (фигура физически заблокирована, как пешка g7 при ладье g6
+ * вплотную) — не связана. Если все targets на прямой связки (как
+ * пешка c7 при ладье c1) — тоже не связана.
+ *
+ * Прямая (attacker, king) проходит через P (мы знаем это из 1-го
+ * фильтра — иначе attacker не атаковал бы king'а после remove(P)).
+ * Cross product 2D-векторов = 0 ⇔ collinear.
+ */
+function existsTargetOffPinLine(
+  chess: Chess,
+  pSq: ChessJsSquare,
+  pType: PieceType,
+  pColor: 'w' | 'b',
+  attackerSq: ChessJsSquare,
+  kingSq: ChessJsSquare,
+): boolean {
+  const targets = pseudoTargets(chess, pSq, pType, pColor);
+  if (targets.length === 0) return false;
+  const ux = kingSq.charCodeAt(0) - attackerSq.charCodeAt(0);
+  const uy = parseInt(kingSq[1], 10) - parseInt(attackerSq[1], 10);
+  for (const t of targets) {
+    const vx = t.charCodeAt(0) - pSq.charCodeAt(0);
+    const vy = parseInt(t[1], 10) - parseInt(pSq[1], 10);
+    if (ux * vy - uy * vx !== 0) return true;
   }
   return false;
 }
@@ -196,10 +248,22 @@ export function findPin(fen: string): SquareResult {
     }
     if (!newSliding || !attackerSq) continue;
 
-    // KS-2336: достаточное условие — хотя бы один pseudo-legal ход P
-    // открывает короля. Если все ходы остаются на линии связки, фигура
-    // фактически свободна и не считается связанной.
-    if (!existsMoveOpeningKing(fen, p.square, p.color, attackerSq)) continue;
+    // KS-2336/KS-2340: достаточное условие — у P есть pseudo-legal
+    // target, не лежащий на прямой (attacker, king). Геометрический
+    // generator не плодит фиктивных ходов, как было при «удалить
+    // attacker → moves».
+    if (
+      !existsTargetOffPinLine(
+        chess,
+        p.square as ChessJsSquare,
+        p.type as PieceType,
+        p.color,
+        attackerSq,
+        kingSq,
+      )
+    ) {
+      continue;
+    }
 
     candidates.push(p.square);
   }
