@@ -100,11 +100,31 @@ export class AnalysisController {
   }
 
   @Get(':id')
-  findOne(
+  async findOne(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.analysisService.findOne(req.user.id, id);
+    const data = await this.analysisService.findOne(req.user.id, id);
+    // KS-2376: пользователи получали HTTP 304 на разные uuid'ы — клиент
+    // показывал тело первой загруженной партии при открытии любой другой.
+    // Дефолтный weak-ETag Express'а оказался ненадёжен (вероятно, кэш
+    // SW/CDN/прокси переиспользовал If-None-Match между разными URL'ами).
+    //
+    // Лекарство:
+    //   1. Жёстко привязываем ETag к конкретному ресурсу — `id + updated_at`.
+    //      Любой If-None-Match от другого ресурса гарантированно не
+    //      совпадёт, сервер вернёт 200 + правильное тело.
+    //   2. Cache-Control: private, no-cache, must-revalidate — приватный
+    //      кэш (на пользователя), браузер всегда revalidate с If-None-Match,
+    //      stale-ответы запрещены. Public-CDN не кэширует.
+    const ts =
+      data.updatedAt instanceof Date
+        ? data.updatedAt.getTime()
+        : new Date(data.updatedAt as unknown as string).getTime();
+    res.setHeader('ETag', `W/"analysis-${id}-${ts}"`);
+    res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
+    return data;
   }
 
   @Put(':id')
