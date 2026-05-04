@@ -4,7 +4,9 @@
  *
  * Логика:
  *   - `@Cron(EVERY_HOUR)` — берёт `LIMIT N` неvalidированных
- *     drill'ов типов `find-mate-in-one-square` / `find-hanging-piece`.
+ *     drill'ов типа `find-hanging-piece` (KS-2393: тип
+ *     `mate-in-1 (deprecated)` удалён, валидатор остаётся только
+ *     для hanging-piece).
  *   - Каждый drill валидируется через `TacticDrillSfValidatorService.validateOne`.
  *   - Между drill'ами — задержка ≥1с (1 позиция/сек, ADR §6.3 R5).
  *   - Lock-защита от перекрытий (`running`-флаг).

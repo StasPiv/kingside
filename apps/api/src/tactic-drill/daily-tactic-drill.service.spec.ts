@@ -9,7 +9,7 @@
  *  - fallback A: соседний bucket если в target пусто;
  *  - fallback B: repeat (>14d) → isRepeat=true, originalDate;
  *  - fallback C: round-robin к следующему type;
- *  - 404 если все 8 типов исчерпаны;
+ *  - 404 если все 7 типов исчерпаны;
  *  - формат response (drill без answer, drillType/difficulty labels,
  *    derive context.highlight для count-attackers).
  */
@@ -265,7 +265,8 @@ describe('DailyTacticDrillService — KS-2250', () => {
     });
 
     it('14-day no-repeat по type: использованные типы исключаются', async () => {
-      // recentTypes возвращает 7 типов из 8 → останется только find-undefended-attack.
+      // KS-2393: после удаления mate-in-1 (deprecated) типов теперь 7.
+      // recentTypes возвращает 6 типов из 7 → останется только find-undefended-attack.
       setupForPick({
         total: 1,
         foundDrill: {
@@ -279,7 +280,6 @@ describe('DailyTacticDrillService — KS-2250', () => {
           { drillType: 'find-loose-piece' },
           { drillType: 'find-pin' },
           { drillType: 'find-fork' },
-          { drillType: 'find-mate-in-one-square' },
           { drillType: 'count-attackers' },
           { drillType: 'find-all-checks' },
         ],
@@ -305,10 +305,11 @@ describe('DailyTacticDrillService — KS-2250', () => {
     });
 
     it('fallback A: target bucket пустой → пробует соседний bucket', async () => {
-      // Все 8 типов на medium (target) дают 0; на easy/hard есть 1.
+      // KS-2393: после удаления mate-in-1 типов — 7.
+      // Все 7 типов на medium (target) дают 0; на easy/hard есть 1.
       const countMock = prisma.tacticDrill.count as jest.Mock;
-      // 8 zero responses (medium для каждого type) + 1 non-zero (easy для первого type)
-      for (let i = 0; i < 8; i++) countMock.mockResolvedValueOnce(0);
+      // 7 zero responses (medium для каждого type) + 1 non-zero (easy для первого type)
+      for (let i = 0; i < 7; i++) countMock.mockResolvedValueOnce(0);
       countMock.mockResolvedValueOnce(1); // easy для первого type
 
       const findUnique = prisma.dailyTacticDrill.findUnique as jest.Mock;
@@ -341,8 +342,8 @@ describe('DailyTacticDrillService — KS-2250', () => {
 
     it('fallback B: исчерпан банк fresh → repeat с isRepeat=true + originalDate', async () => {
       const countMock = prisma.tacticDrill.count as jest.Mock;
-      // Все 8 типов × 3 bucket'а пусты для fresh.
-      for (let i = 0; i < 8 * 3; i++) countMock.mockResolvedValueOnce(0);
+      // KS-2393: все 7 типов × 3 bucket'а пусты для fresh.
+      for (let i = 0; i < 7 * 3; i++) countMock.mockResolvedValueOnce(0);
 
       const findUnique = prisma.dailyTacticDrill.findUnique as jest.Mock;
       findUnique.mockResolvedValueOnce(null);

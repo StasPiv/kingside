@@ -42,8 +42,8 @@ describe('TacticDrillSfValidatorScheduler — KS-2247', () => {
 
   it('runOnce: считает accepted/rejected/errors корректно', async () => {
     (validator.fetchUnvalidatedBatch as jest.Mock).mockResolvedValue([
-      { id: 'a', type: 'find-mate-in-one-square', fen: 'x', answer: {} },
-      { id: 'b', type: 'find-mate-in-one-square', fen: 'x', answer: {} },
+      { id: 'a', type: 'find-hanging-piece', fen: 'x', answer: {} },
+      { id: 'b', type: 'find-hanging-piece', fen: 'x', answer: {} },
       { id: 'c', type: 'find-hanging-piece', fen: 'x', answer: {} },
     ]);
     (validator.validateOne as jest.Mock)
@@ -63,9 +63,9 @@ describe('TacticDrillSfValidatorScheduler — KS-2247', () => {
   it('runOnce: throttle между задачами (≥ throttleMs)', async () => {
     process.env.TACTIC_DRILL_SF_THROTTLE_MS = '50';
     (validator.fetchUnvalidatedBatch as jest.Mock).mockResolvedValue([
-      { id: 'a', type: 'find-mate-in-one-square', fen: 'x', answer: {} },
-      { id: 'b', type: 'find-mate-in-one-square', fen: 'x', answer: {} },
-      { id: 'c', type: 'find-mate-in-one-square', fen: 'x', answer: {} },
+      { id: 'a', type: 'find-hanging-piece', fen: 'x', answer: {} },
+      { id: 'b', type: 'find-hanging-piece', fen: 'x', answer: {} },
+      { id: 'c', type: 'find-hanging-piece', fen: 'x', answer: {} },
     ]);
     const start = Date.now();
     await scheduler.runOnce();

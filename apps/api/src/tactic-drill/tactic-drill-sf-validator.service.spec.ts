@@ -32,71 +32,8 @@ describe('TacticDrillSfValidatorService — KS-2247', () => {
     svc = new TacticDrillSfValidatorService(prisma as unknown as PrismaService, sf);
   });
 
-  describe('find-mate-in-one-square', () => {
-    const drill = {
-      id: 'd1',
-      type: 'find-mate-in-one-square',
-      fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
-      answer: { shape: 'square', square: 'a8' },
-    };
-
-    it('top PV = mate-in-1 на правильную to → accepted', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockResolvedValue([
-        { pv: 'a1a8', bestMove: 'a1a8', score: { type: 'mate', value: 1 } },
-        { pv: 'a1a7', bestMove: 'a1a7', score: { type: 'cp', value: 200 } },
-      ]);
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(true);
-      expect(prisma.tacticDrill.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'd1' },
-          data: expect.objectContaining({ sfRejected: false }),
-        }),
-      );
-    });
-
-    it('top PV = mate-in-1 на ДРУГУЮ to → rejected', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockResolvedValue([
-        { pv: 'd1d8', bestMove: 'd1d8', score: { type: 'mate', value: 1 } },
-      ]);
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(false);
-      expect(r.reason).toMatch(/top mate to=d8/);
-    });
-
-    it('PV #2 — другой mate-in-1 → rejected (неоднозначность)', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockResolvedValue([
-        { pv: 'a1a8', bestMove: 'a1a8', score: { type: 'mate', value: 1 } },
-        { pv: 'd1d8', bestMove: 'd1d8', score: { type: 'mate', value: 1 } },
-      ]);
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(false);
-      expect(r.reason).toMatch(/secondary mate-in-1/);
-    });
-
-    it('top PV — не мат → rejected', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockResolvedValue([
-        { pv: 'a1a4', bestMove: 'a1a4', score: { type: 'cp', value: 50 } },
-      ]);
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(false);
-      expect(r.reason).toMatch(/not mate-in-1/);
-    });
-
-    it('SF вернул пусто → rejected', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockResolvedValue([]);
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(false);
-    });
-
-    it('SF упал → returns error verdict, БД не обновляется', async () => {
-      (sf.analyzeMultiPV as jest.Mock).mockRejectedValue(new Error('boom'));
-      const r = await svc.validateOne(drill);
-      expect(r.accepted).toBe(false);
-      expect(r.reason).toMatch(/sf-error/);
-      expect(prisma.tacticDrill.update).not.toHaveBeenCalled();
-    });
-  });
+  // KS-2393: describe `mate-in-1 (deprecated)` удалён вместе с типом.
+  // Метод validateMateInOne не существует.
 
   describe('find-hanging-piece', () => {
     const drill = {
@@ -173,16 +110,18 @@ describe('TacticDrillSfValidatorService — KS-2247', () => {
   });
 
   describe('fetchUnvalidatedBatch', () => {
-    it('берёт только mate/hanging без sfValidatedAt', async () => {
+    // KS-2393: после удаления mate-in-1 (deprecated) фильтр —
+    // только find-hanging-piece.
+    it('берёт только find-hanging-piece без sfValidatedAt', async () => {
       (prisma.tacticDrill.findMany as jest.Mock).mockResolvedValue([
-        { id: 'a', type: 'find-mate-in-one-square', fen: '...', answer: {} },
+        { id: 'a', type: 'find-hanging-piece', fen: '...', answer: {} },
       ]);
       const r = await svc.fetchUnvalidatedBatch(50);
       expect(r).toHaveLength(1);
       expect(prisma.tacticDrill.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            type: { in: ['find-mate-in-one-square', 'find-hanging-piece'] },
+            type: 'find-hanging-piece',
             sfValidatedAt: null,
           },
           take: 50,

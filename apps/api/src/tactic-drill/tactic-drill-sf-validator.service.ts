@@ -1,17 +1,12 @@
 /**
  * KS-2247 (ADR-035 §6.3 R5, Drills E5). Stockfish-валидация drill'ов
- * с риском неоднозначности (`find-mate-in-one-square`,
- * `find-hanging-piece`).
+ * с риском неоднозначности.
+ *
+ * KS-2393: после удаления типа `mate-in-1 (deprecated)` валидатор
+ * обслуживает только `find-hanging-piece`. Метод `validateMateInOne`
+ * удалён, fetchUnvalidatedBatch фильтрует только по hanging-piece.
  *
  * Алгоритм:
- *   - **find-mate-in-one-square**: запрашиваем у SF top-3 PV на
- *     глубине ≥6. Эталонный мат — `square` to. Drill отклоняется,
- *     если:
- *       * #1 PV — мат-в-1 с **другой** to-клеткой (есть лучший мат
- *         не там, где сказано в эталоне);
- *       * #2/#3 PV — тоже мат-в-1 с другой to-клеткой (значит,
- *         в позиции ≥2 разных мата, drill неоднозначный — KS-2223 §8.3).
- *
  *   - **find-hanging-piece**: запрашиваем `analyze(fen, depth=10)`.
  *     Эталон — клетка вражеской фигуры, которую можно безнаказанно
  *     взять. Drill отклоняется, если bestMove SF — **не** взятие
@@ -21,9 +16,8 @@
  * Ограничения:
  *   - Throttle 1 позиция/сек обеспечивается на уровне scheduler'а
  *     (`tactic-drill-sf-validator.scheduler.ts`).
- *   - Один SF-instance на validateOne — `StockfishService.analyzeMultiPV`
- *     использует пул, но мы зовём из scheduler-цикла последовательно
- *     (один await за раз), что эффективно даёт «один поток».
+ *   - Один SF-instance на validateOne — последовательный await цикл
+ *     scheduler'а эффективно даёт «один поток».
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { Chess } from 'chess.js';
@@ -31,9 +25,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StockfishService } from '../engine/stockfish.service';
 import type { AnswerData } from '@kingside/shared';
 
-const SF_DEPTH_MATE = 8;
 const SF_DEPTH_HANGING = 10;
-const MULTI_PV = 3;
 
 export interface SfValidationVerdict {
   accepted: boolean;
@@ -63,14 +55,13 @@ export class TacticDrillSfValidatorService {
     let verdict: SfValidationVerdict;
 
     try {
-      if (drill.type === 'find-mate-in-one-square') {
-        verdict = await this.validateMateInOne(drill.fen, answer);
-      } else if (drill.type === 'find-hanging-piece') {
+      if (drill.type === 'find-hanging-piece') {
         verdict = await this.validateHangingPiece(drill.fen, answer);
       } else {
-        // Для других типов — no-op, помечаем как валидное (валидация
-        // не нужна, но проставляем validatedAt чтобы scheduler не брал
-        // их повторно, если кто-то расширит фильтр).
+        // KS-2393: тип mate-in-1 (deprecated) удалён, валидатор
+        // остаётся только для hanging-piece. Для других типов — no-op,
+        // помечаем как валидное (validatedAt проставится, чтобы
+        // scheduler не брал повторно при расширении фильтра).
         verdict = { accepted: true };
       }
     } catch (e) {
@@ -95,57 +86,9 @@ export class TacticDrillSfValidatorService {
     return verdict;
   }
 
-  // ─── find-mate-in-one-square ───────────────────────────────
-
-  private async validateMateInOne(
-    fen: string,
-    answer: AnswerData,
-  ): Promise<SfValidationVerdict> {
-    if (answer.shape !== 'square') {
-      return { accepted: false, reason: 'expected square shape for mate' };
-    }
-    const expectedTo = answer.square.toLowerCase();
-
-    // MultiPV=3 на глубине 8 достаточно для распознания мата-в-1.
-    const lines = await this.stockfish.analyzeMultiPV(fen, SF_DEPTH_MATE, MULTI_PV);
-    if (lines.length === 0) {
-      return { accepted: false, reason: 'sf returned no PV' };
-    }
-
-    // PV #1 должен быть мат-в-1 (mate=1) и to-клетка должна совпадать.
-    const top = lines[0];
-    if (!(top.score.type === 'mate' && top.score.value === 1)) {
-      return {
-        accepted: false,
-        reason: `top PV is not mate-in-1 (got ${top.score.type}=${top.score.value})`,
-      };
-    }
-    const topTo = uciTo(top.bestMove);
-    if (topTo !== expectedTo) {
-      return {
-        accepted: false,
-        reason: `top mate to=${topTo}, expected ${expectedTo}`,
-      };
-    }
-
-    // PV #2/#3 — если тоже мат-в-1 с другой to, drill неоднозначен.
-    for (let i = 1; i < lines.length; i++) {
-      const ln = lines[i];
-      if (ln.score.type === 'mate' && ln.score.value === 1) {
-        const altTo = uciTo(ln.bestMove);
-        if (altTo !== expectedTo) {
-          return {
-            accepted: false,
-            reason: `secondary mate-in-1 to=${altTo} (alt to expected ${expectedTo})`,
-          };
-        }
-      }
-    }
-
-    return { accepted: true };
-  }
-
   // ─── find-hanging-piece ────────────────────────────────────
+  // KS-2393: метод validateMateInOne удалён вместе с типом
+  // mate-in-1 (deprecated).
 
   private async validateHangingPiece(
     fen: string,
@@ -250,7 +193,8 @@ export class TacticDrillSfValidatorService {
     const safeLimit = Math.max(1, Math.min(limit, 1000));
     return this.prisma.tacticDrill.findMany({
       where: {
-        type: { in: ['find-mate-in-one-square', 'find-hanging-piece'] },
+        // KS-2393: только find-hanging-piece (mate-in-1 удалён).
+        type: 'find-hanging-piece',
         sfValidatedAt: null,
       },
       take: safeLimit,

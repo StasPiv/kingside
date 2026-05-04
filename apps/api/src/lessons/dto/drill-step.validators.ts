@@ -8,7 +8,7 @@
  * чтобы пред-сид-проверка и рантайм-валидация API совпадали.
  *
  * Правила:
- *   1. `drillType` ∈ TacticDrillType (8 значений из shared).
+ *   1. `drillType` ∈ TacticDrillType (7 значений из shared).
  *   2. `drillId` (опц.) — UUID v1..v5 (Postgres-подобный). Если задан —
  *      `difficultyBucket` игнорируется backend'ом, но сам по себе
  *      допустим (валидатор не считает это ошибкой — даём редактору
@@ -29,12 +29,12 @@ import type {
   TacticDrillType,
 } from '@kingside/shared';
 
+// KS-2393: исключён `mate-in-1 (deprecated)` (тип удалён).
 const ALLOWED_DRILL_TYPES = new Set<TacticDrillType>([
   'find-hanging-piece',
   'find-loose-piece',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'count-attackers',
   'find-all-checks',
   'find-undefended-attack',

@@ -519,7 +519,6 @@ describe('TacticDrillSprintService — KS-2240', () => {
           'find-loose-piece',
           'find-pin',
           'find-fork',
-          'find-mate-in-one-square',
           'count-attackers',
           'find-all-checks',
           'find-undefended-attack',
@@ -612,19 +611,19 @@ describe('TacticDrillSprintService — KS-2240', () => {
       return state.modeLabel;
     }
 
-    it('все 8 типов → Nmin-mixed', async () => {
-      const all8 = [
+    // KS-2393: после удаления mate-in-1 (deprecated) типов теперь 7.
+    it('все 7 типов → Nmin-mixed', async () => {
+      const all = [
         'find-hanging-piece',
         'find-loose-piece',
         'find-pin',
         'find-fork',
-        'find-mate-in-one-square',
         'count-attackers',
         'find-all-checks',
         'find-undefended-attack',
       ];
-      expect(await modeLabelOfStart(180000, all8)).toBe('3min-mixed');
-      expect(await modeLabelOfStart(300000, all8)).toBe('5min-mixed');
+      expect(await modeLabelOfStart(180000, all)).toBe('3min-mixed');
+      expect(await modeLabelOfStart(300000, all)).toBe('5min-mixed');
     });
 
     it('один тип → слой этого типа', async () => {

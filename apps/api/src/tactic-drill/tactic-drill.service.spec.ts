@@ -48,9 +48,10 @@ describe('TacticDrillService — KS-2230', () => {
   });
 
   describe('listTypes', () => {
-    it('null user → 8 типов, все unlocked', async () => {
+    // KS-2393: после удаления mate-in-1 типов — 7.
+    it('null user → 7 типов, все unlocked', async () => {
       const types = await svc.listTypes(null);
-      expect(types).toHaveLength(8);
+      expect(types).toHaveLength(7);
       for (const t of types) {
         expect(t.unlocked).toBe(true);
         expect(typeof t.promptKey).toBe('string');
@@ -63,7 +64,7 @@ describe('TacticDrillService — KS-2230', () => {
       // оставляет all unlocked.
       (prisma.tacticDrillAttempt.findMany as jest.Mock).mockResolvedValue([]);
       const types = await svc.listTypes('user-1');
-      expect(types).toHaveLength(8);
+      expect(types).toHaveLength(7);
       expect(prisma.tacticDrillAttempt.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId: 'user-1', correct: true },
@@ -298,7 +299,8 @@ describe('TacticDrillService — KS-2230', () => {
       expect(r.total.attempts).toBe(0);
       expect(r.total.accuracy).toBe(0);
       expect(r.unlocked).toEqual([]);
-      expect(r.byType).toHaveLength(8);
+      // KS-2393: после удаления mate-in-1 — 7 типов.
+      expect(r.byType).toHaveLength(7);
     });
 
     it('агрегация per-type корректна', async () => {

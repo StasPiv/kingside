@@ -15,15 +15,18 @@
 // ─── Каталог drill-типов ─────────────────────────────────────────────────
 
 /**
- * 8 drill-типов из methodology §2. Расширение в v2 — отдельным PR с
+ * 7 drill-типов из methodology §2. Расширение в v2 — отдельным PR с
  * обновлением methodology и этого union'а.
+ *
+ * KS-2393: тип `mate-in-1 (deprecated)` удалён (см. KS-2392 ADR).
+ * Strict-uniqueness predicate'а на TWIC-корпусе давал ~6 позиций (>99%
+ * отсев). Решено убрать раздел целиком вместо расширения корпуса.
  */
 export type TacticDrillType =
   | 'find-hanging-piece'
   | 'find-loose-piece'
   | 'find-pin'
   | 'find-fork'
-  | 'find-mate-in-one-square'
   | 'count-attackers'
   | 'find-all-checks'
   | 'find-undefended-attack';
@@ -41,13 +44,14 @@ export const DRILL_TYPE_LAYER: Record<TacticDrillType, TacticDrillSkillLayer> = 
   'find-all-checks':         'pattern',
   'find-pin':                'pattern',
   'find-fork':               'pattern',
-  'find-mate-in-one-square': 'calculation',
   'find-undefended-attack':  'calculation',
 };
 
 /**
  * Порядок прохождения для строгого режима lobby (methodology §4).
- * После прохождения всех 8 — порядок снимается, открыт свободный выбор.
+ * После прохождения всех 7 — порядок снимается, открыт свободный выбор.
+ *
+ * KS-2393: исключён `mate-in-1 (deprecated)`.
  */
 export const DRILL_TYPE_ORDER: TacticDrillType[] = [
   'count-attackers',
@@ -56,7 +60,6 @@ export const DRILL_TYPE_ORDER: TacticDrillType[] = [
   'find-all-checks',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'find-undefended-attack',
 ];
 
@@ -72,11 +75,7 @@ export type AnswerShape = 'square' | 'squares' | 'number' | 'move';
  * Связь drill-type → ожидаемый answer-shape (methodology §2,
  * ADR-035 §2.1 финальный после KS-2223 §8.3 правок).
  *
- * KS-2320 / KS-2321: `find-mate-in-one-square` переведён с `'square'`
- * на `'move'`. Strict-uniqueness теперь по полной паре `(from, to)`,
- * а не по `to`-клетке — это убирает amb'игуазии типа «два разных хода
- * на одну клетку» / «одна фигура с разных стартовых клеток на one
- * square». В UI ответ — пара from→to.
+ * KS-2393: запись `mate-in-1 (deprecated)` удалена вместе с типом.
  */
 export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   // KS-2335 (после KS-2337 backend): find-hanging-piece переведён с
@@ -87,7 +86,6 @@ export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   'find-loose-piece':        'square',
   'find-pin':                'square',
   'find-fork':               'square',
-  'find-mate-in-one-square': 'move',
   'count-attackers':         'number',
   'find-all-checks':         'squares',
   'find-undefended-attack':  'move',
@@ -295,7 +293,6 @@ export const DRILL_TYPE_LABEL: Record<TacticDrillType, DrillLocalizedString> = {
   'find-loose-piece':        { ru: 'Слабо защищённая',     en: 'Loose piece' },
   'find-pin':                { ru: 'Связка',                en: 'Pin' },
   'find-fork':               { ru: 'Вилка',                 en: 'Fork' },
-  'find-mate-in-one-square': { ru: 'Мат в один',            en: 'Mate-in-1' },
   'count-attackers':         { ru: 'Сосчитать атакующих',  en: 'Count attackers' },
   'find-all-checks':         { ru: 'Все шахи',              en: 'All checks' },
   'find-undefended-attack':  { ru: 'Безответная атака',    en: 'Undefended attack' },
@@ -324,10 +321,6 @@ export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = 
   'find-fork':               {
     ru: 'Найди фигуру, которая одновременно атакует две и более ценных фигур противника.',
     en: 'Find the piece attacking two or more valuable opposing pieces simultaneously.',
-  },
-  'find-mate-in-one-square': {
-    ru: 'Найди ход, который ставит мат в один.',
-    en: 'Find the move that delivers mate in one.',
   },
   'count-attackers':         {
     ru: 'Сколько фигур заданного цвета атакуют выделенную клетку?',
@@ -364,10 +357,6 @@ export const DRILL_HINT: Record<TacticDrillType, DrillLocalizedString> = {
   'find-fork':               {
     ru: 'Одна фигура — две и более жертвы.',
     en: 'One piece — two or more targets.',
-  },
-  'find-mate-in-one-square': {
-    ru: 'Какая фигура и куда ставит мат?',
-    en: 'Which piece and where delivers mate?',
   },
   'count-attackers':         {
     ru: 'Учти все «батареи» по линии.',

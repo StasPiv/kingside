@@ -427,13 +427,13 @@ class DrillStepPayloadDto implements DrillStepPayload {
   @IsIn(['drill'])
   type!: 'drill';
 
+  // KS-2393: исключён `mate-in-1 (deprecated)` (тип удалён).
   @IsString()
   @IsIn([
     'find-hanging-piece',
     'find-loose-piece',
     'find-pin',
     'find-fork',
-    'find-mate-in-one-square',
     'count-attackers',
     'find-all-checks',
     'find-undefended-attack',

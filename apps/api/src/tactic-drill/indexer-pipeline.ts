@@ -29,7 +29,6 @@ import {
   findFork,
   findHangingPiece,
   findLoosePiece,
-  findMateInOneSquare,
   findPin,
   findUndefendedAttack,
   pickBestCandidate,
@@ -102,7 +101,8 @@ function newStats(): IndexerStats {
 }
 
 /**
- * Применяет 8 предикатов к FEN, возвращает кандидатов (drills).
+ * Применяет 7 предикатов к FEN, возвращает кандидатов (drills).
+ * KS-2393: тип mate-in-1 удалён.
  */
 export function predicatesForPosition(
   chess: Chess,
@@ -121,7 +121,7 @@ export function predicatesForPosition(
     { type: 'find-loose-piece', run: () => findLoosePiece(fen) },
     { type: 'find-pin', run: () => findPin(fen) },
     { type: 'find-fork', run: () => findFork(fen) },
-    { type: 'find-mate-in-one-square', run: () => findMateInOneSquare(fen) },
+    // KS-2393: тип `mate-in-1 (deprecated)` удалён.
     { type: 'find-all-checks', run: () => findAllChecks(fen) },
     { type: 'find-undefended-attack', run: () => findUndefendedAttack(fen) },
   ];

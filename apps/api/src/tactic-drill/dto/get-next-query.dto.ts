@@ -2,12 +2,12 @@ import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { TacticDrillType } from '@kingside/shared';
 
+// KS-2393: исключён `mate-in-1 (deprecated)` (тип удалён).
 const ALL_TYPES: TacticDrillType[] = [
   'find-hanging-piece',
   'find-loose-piece',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'count-attackers',
   'find-all-checks',
   'find-undefended-attack',

@@ -31,7 +31,7 @@ export const WEIGHTS_FULL: Record<
   'find-all-checks':         { pc: 0.15, ad: 0.20, dc: 0.10, ts: 0.45 },
   'find-pin':                { pc: 0.15, ad: 0.20, dc: 0.15, ts: 0.40 },
   'find-fork':               { pc: 0.15, ad: 0.30, dc: 0.15, ts: 0.30 },
-  'find-mate-in-one-square': { pc: 0.10, ad: 0.20, dc: 0.15, ts: 0.45 },
+  // KS-2393: запись `mate-in-1 (deprecated)` удалена.
   'find-undefended-attack':  { pc: 0.25, ad: 0.20, dc: 0.20, ts: 0.25 },
 };
 
@@ -187,11 +187,7 @@ export function fTypeSpecificV1(
       if (sum <= 10) return 0.6;
       return 1.0;
     }
-    case 'find-mate-in-one-square':
-      // mateType enum пока не вычисляется в v1 (требует heavy
-      // классификации матов). Возвращаем средний 0.5 — позиция
-      // попадёт в bucket 3 по умолчанию; калибровка через cuts.
-      return 0.5;
+    // KS-2393: case `mate-in-1 (deprecated)` удалён вместе с типом.
     case 'find-undefended-attack': {
       // attackDistance: 1→0.2, 2-3→0.5, ≥4→1.0
       if (answer.shape !== 'move') return 0;

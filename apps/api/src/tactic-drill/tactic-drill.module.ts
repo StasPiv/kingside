@@ -38,9 +38,10 @@ import { DailyTacticDrillImageService } from './daily-tactic-drill-image.service
     // KS-2245: cron-индексер новых партий из archive-БД. Включается
     // через ENV `TACTIC_DRILL_INCREMENTAL_ENABLED=1` (default off).
     TacticDrillIncrementalScheduler,
-    // KS-2247: Stockfish-валидация drill'ов с риском неоднозначности
-    // (find-mate-in-one-square / find-hanging-piece). 1 поз/сек.
-    // Включается через ENV `TACTIC_DRILL_SF_VALIDATOR_ENABLED=1`.
+    // KS-2247: Stockfish-валидация drill'ов с риском неоднозначности.
+    // KS-2393: после удаления типа mate-in-1 (deprecated) валидатор
+    // обслуживает только find-hanging-piece. 1 поз/сек, ENV
+    // `TACTIC_DRILL_SF_VALIDATOR_ENABLED=1`.
     StockfishService,
     TacticDrillSfValidatorService,
     TacticDrillSfValidatorScheduler,

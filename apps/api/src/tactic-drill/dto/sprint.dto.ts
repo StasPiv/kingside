@@ -14,12 +14,12 @@ import { Type } from 'class-transformer';
 import type { TacticDrillType } from '@kingside/shared';
 import { AnswerDataDto } from './answer.dto';
 
+// KS-2393: исключён `mate-in-1 (deprecated)` (тип удалён).
 const ALL_TYPES: TacticDrillType[] = [
   'find-hanging-piece',
   'find-loose-piece',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'count-attackers',
   'find-all-checks',
   'find-undefended-attack',
@@ -30,7 +30,7 @@ export class SprintStartDto {
   durationMs!: 180000 | 300000;
 
   @IsArray()
-  @ArrayMaxSize(8)
+  @ArrayMaxSize(7)
   @IsIn(ALL_TYPES, { each: true })
   types!: TacticDrillType[];
 

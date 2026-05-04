@@ -19,7 +19,8 @@ describe('parseArgs — KS-2229 CLI', () => {
     expect(o.maxGames).toBe(Infinity);
     expect(o.gameBatchSize).toBe(200);
     expect(o.insertBatchSize).toBe(500);
-    expect(o.types.size).toBe(8);
+    // KS-2393: после удаления mate-in-1 типов — 7.
+    expect(o.types.size).toBe(7);
   });
 
   it('--difficulty-version=full', () => {
@@ -60,19 +61,8 @@ describe('parseArgs — KS-2229 CLI', () => {
 });
 
 describe('predicatesForPosition — KS-2229', () => {
-  it('back-rank mate FEN → возвращает find-mate-in-one-square drill', () => {
-    const chess = new Chess('6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1');
-    const options = parseArgs([]);
-    const drills = predicatesForPosition(chess, options, 'archive');
-    const mate = drills.find((d) => d.type === 'find-mate-in-one-square');
-    expect(mate).toBeDefined();
-    if (mate) {
-      expect(mate.answer.shape).toBe('square');
-      expect(mate.fen).toBe(chess.fen());
-      expect(mate.difficulty).toBeGreaterThanOrEqual(1);
-      expect(mate.difficulty).toBeLessThanOrEqual(5);
-    }
-  });
+  // KS-2393: тест back-rank mate удалён вместе с типом
+  // `mate-in-1 (deprecated)`. Predicate более не существует.
 
   it('FEN с одним loose-куском → возвращает find-loose-piece drill', () => {
     const chess = new Chess('4k3/8/8/4n3/8/8/8/4K3 w - - 0 1');

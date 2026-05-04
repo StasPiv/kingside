@@ -39,7 +39,6 @@ import {
   findFork,
   findHangingPiece,
   findLoosePiece,
-  findMateInOneSquare,
   findPin,
   findUndefendedAttack,
 } from '../tactic-drill/predicates';
@@ -83,12 +82,12 @@ interface Verdict {
   matchesAnswer: boolean;
 }
 
+// KS-2393: исключён `mate-in-1 (deprecated)` (тип удалён).
 const ALL_TYPES: ReadonlySet<string> = new Set([
   'find-hanging-piece',
   'find-loose-piece',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'count-attackers',
   'find-all-checks',
   'find-undefended-attack',
@@ -223,12 +222,7 @@ function runPredicate(
         ? { valid: true, answer: r.answer }
         : { valid: false, reason: r.reason ?? 'invalid', answer: null };
     }
-    case 'find-mate-in-one-square': {
-      const r = findMateInOneSquare(fen);
-      return r.valid
-        ? { valid: true, answer: r.answer }
-        : { valid: false, reason: r.reason ?? 'invalid', answer: null };
-    }
+    // KS-2393: case `mate-in-1 (deprecated)` удалён.
     case 'find-all-checks': {
       const r = findAllChecks(fen);
       return r.valid
