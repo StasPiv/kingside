@@ -232,10 +232,10 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Which move attacks an undefended piece?
+      Which move creates a threat against an undefended piece?
     </div>
     <button
-      aria-label="Undefended attack. Find a move that attacks an undefended enemy piece."
+      aria-label="Undefended attack. Find a move that leaves an enemy piece under attack with no defenders."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -249,7 +249,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Find a move that attacks an undefended enemy piece.
+        Find a move that leaves an enemy piece under attack with no defenders.
       </span>
     </button>
   </section>
@@ -259,7 +259,9 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
 exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/feedback/errors/lobby/side) 1`] = `
 {
   "buttons": {
+    "back": "Back",
     "backToLobby": "Back to drills",
+    "forward": "Forward",
     "next": "Next drill",
     "showSolution": "Show solution",
     "skip": "Skip",
@@ -282,6 +284,12 @@ exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/fe
     "completedBadge": "Solved",
     "lockedHint": "Solve the previous drill type to unlock.",
     "newBadge": "New",
+    "sprintCtaButton": "Start sprint",
+    "sprintCtaDescription": "Mixed drills against the clock. Race yourself and others.",
+    "sprintCtaTitle": "Sprint",
+    "sprintLeaderboardCtaButton": "Open leaderboard",
+    "sprintLeaderboardCtaDescription": "Top sprint results.",
+    "sprintLeaderboardCtaTitle": "Leaderboard",
   },
   "side": {
     "blackToMove": "Black to move",
@@ -522,10 +530,10 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Какой ход нападает на незащищённую фигуру?
+      Какой ход создаёт угрозу взятия незащищённой фигуры?
     </div>
     <button
-      aria-label="Нападение на незащищённую. Найдите ход, который нападает на незащищённую фигуру противника."
+      aria-label="Нападение на незащищённую. Найдите ход, после которого фигура противника окажется под боем и без защитников."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -539,7 +547,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Найдите ход, который нападает на незащищённую фигуру противника.
+        Найдите ход, после которого фигура противника окажется под боем и без защитников.
       </span>
     </button>
   </section>
@@ -549,7 +557,9 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
 exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/feedback/errors/lobby/side) 1`] = `
 {
   "buttons": {
+    "back": "Назад",
     "backToLobby": "К списку упражнений",
+    "forward": "Вперёд",
     "next": "Следующее",
     "showSolution": "Показать решение",
     "skip": "Пропустить",
@@ -572,6 +582,12 @@ exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/fe
     "completedBadge": "Решено",
     "lockedHint": "Решите предыдущий тип упражнения, чтобы открыть этот.",
     "newBadge": "Новое",
+    "sprintCtaButton": "Начать спринт",
+    "sprintCtaDescription": "Микс упражнений на время. Соревнуйтесь с собой и другими.",
+    "sprintCtaTitle": "Спринт",
+    "sprintLeaderboardCtaButton": "Открыть таблицу",
+    "sprintLeaderboardCtaDescription": "Лучшие результаты спринта.",
+    "sprintLeaderboardCtaTitle": "Таблица лидеров",
   },
   "side": {
     "blackToMove": "Ход чёрных",

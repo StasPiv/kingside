@@ -665,7 +665,7 @@
       "findMateInOneSquare": "Deliver mate-in-one",
       "countAttackers": "How many pieces attack the highlighted square?",
       "findAllChecks": "Make every check",
-      "findUndefendedAttack": "Which move attacks an undefended piece?"
+      "findUndefendedAttack": "Which move creates a threat against an undefended piece?"
     },
     "types": {
       "findHangingPiece": "Hanging piece",
@@ -685,7 +685,7 @@
       "findMateInOneSquare": "Identify the square where mate is given in one move.",
       "countAttackers": "Count how many pieces attack the marked square.",
       "findAllChecks": "Mark every square where you can deliver a check.",
-      "findUndefendedAttack": "Find a move that attacks an undefended enemy piece."
+      "findUndefendedAttack": "Find a move that leaves an enemy piece under attack with no defenders."
     },
     "buttons": {
       "submit": "Submit",
