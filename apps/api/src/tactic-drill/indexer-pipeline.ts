@@ -32,6 +32,7 @@ import {
   findMateInOneSquare,
   findPin,
   findUndefendedAttack,
+  pickBestCandidate,
 } from './predicates';
 import { computeDifficulty } from './difficulty';
 
@@ -146,8 +147,11 @@ export function predicatesForPosition(
 
   if (options.types.has('count-attackers')) {
     const cands = findCountAttackersCandidates(fen);
-    if (cands.length > 0) {
-      const c = cands[0];
+    // KS-2329: до фикса бралось `cands[0]` — всегда a1/a2 при наличии
+    // любой атаки. Теперь скорим кандидатов и берём «тактически
+    // интересного» (атака на ценную фигуру противника, non-edge).
+    const c = pickBestCandidate(fen, cands);
+    if (c) {
       const r = countAttackers(fen, c.targetSquare, c.attackerColor);
       if (r.valid) {
         const { bucket } = computeDifficulty(

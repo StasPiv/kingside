@@ -5,6 +5,7 @@
 import {
   countAttackers,
   findCountAttackersCandidates,
+  pickBestCandidate,
 } from './count-attackers';
 
 describe('countAttackers — KS-2227', () => {
@@ -88,5 +89,44 @@ describe('findCountAttackersCandidates — KS-2227', () => {
 
   it('невалидный FEN → пустой массив', () => {
     expect(findCountAttackersCandidates('garbage')).toEqual([]);
+  });
+});
+
+describe('pickBestCandidate — KS-2329', () => {
+  it('выбирает атаку на самую ценную фигуру противника', () => {
+    // Чёрная ладья d8 атакует белого ферзя d1 (ценность 9).
+    // Белый ферзь d1 атакует чёрную ладью d8 (ценность 5).
+    // Атака на ферзя ценнее → выбирается d1 (attackerColor='b').
+    const fen = '3rk3/8/8/8/8/8/8/3QK3 w - - 0 1';
+    const cands = findCountAttackersCandidates(fen);
+    const best = pickBestCandidate(fen, cands);
+    expect(best).not.toBeNull();
+    expect(best!.targetSquare).toBe('d1');
+    expect(best!.attackerColor).toBe('b');
+  });
+
+  it('пустой массив кандидатов → null', () => {
+    expect(pickBestCandidate('4k3/8/8/8/8/8/8/4K3 w - - 0 1', [])).toBeNull();
+  });
+
+  it('предпочитает не-угол при равных кандидатах с одинаковой ценностью target', () => {
+    // Конструируем сценарий, где ровно две клетки одинаково «ценные»
+    // для скоринга, но одна из них угол. Берём пустую доску с двумя
+    // королями: атаки короля идут только на 8 соседних клеток, угол
+    // a1 vs не-угол a2 — оба пустые. Скор: a1 = 100·1 - 50 = 50,
+    // a2 = 100·1 - 10 = 90. Должен выбрать не-угол.
+    const fen = '4k3/8/8/8/8/8/8/K7 w - - 0 1';
+    const cands = findCountAttackersCandidates(fen);
+    const best = pickBestCandidate(fen, cands);
+    expect(best).not.toBeNull();
+    expect(['a1', 'a8', 'h1', 'h8']).not.toContain(best!.targetSquare);
+  });
+
+  it('детерминирован: одинаковый FEN — одинаковый выбор между запусками', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const cands = findCountAttackersCandidates(fen);
+    const a = pickBestCandidate(fen, cands);
+    const b = pickBestCandidate(fen, cands);
+    expect(a).toEqual(b);
   });
 });

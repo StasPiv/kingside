@@ -13,6 +13,7 @@ export { findAllChecks } from './find-all-checks';
 export {
   countAttackers,
   findCountAttackersCandidates,
+  pickBestCandidate,
   type CountAttackersCandidate,
 } from './count-attackers';
 export { findUndefendedAttack } from './find-undefended-attack';
