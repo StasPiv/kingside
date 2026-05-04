@@ -305,17 +305,17 @@ JWT access-token ~15 минут (надо проверить, типичная �
 - **KS-SCRN-PASSWORD** *(devops)* — генерация пароля, инжект в production env агентов и в один Vault-запись (1Password / AWS Secrets Manager).
 
 ### E3. CLI-скрипт
-- **KS-SCRN-TOOL** *(devops или backend)* — `tools/screenshot.mjs`:
+- **KS-SCRN-TOOL** *(devops или backend)* — `scripts/screenshot.mjs`:
   - всё из §5,
   - юнит-тест на arg-parsing,
   - одна e2e-проверка против локального dev (`npm run dev` + screenshot на `/lobby` без auth и с auth).
 - **KS-SCRN-DOCS** *(architect)* — обновить `CLAUDE.md`:
-  - заменить «Playwright: `… playwright screenshot …`» на «`node tools/screenshot.mjs <url> <out> [--auth=test]`»,
+  - заменить «Playwright: `… playwright screenshot …`» на «`node scripts/screenshot.mjs <url> <out> [--auth=test]`»,
   - добавить раздел «Скриншоты прода под авторизацией».
 
 ### E4. Включение для агентов
 - **KS-SCRN-AGENT-PERM** *(пользователь / devops)* — добавить в `.claude/settings.json` (or settings.local.json) разрешение на:
-  - `Bash(node tools/screenshot.mjs *)`,
+  - `Bash(node scripts/screenshot.mjs *)`,
   - убедиться что env `SCREENSHOT_AGENT_*` пробрасываются в контейнер.
   *(Этот тикет на пользователя — настройки агентов в нашем стандарте меняет только он.)*
 - **KS-SCRN-USE** *(qa + frontend)* — обкатать на свежей задаче (например, повторить KS-2252 проверку): сделать скрин до/после фикса под `--auth=test`.
