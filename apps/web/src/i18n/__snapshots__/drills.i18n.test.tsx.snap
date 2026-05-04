@@ -112,10 +112,10 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Which piece forks?
+      Which move creates a new fork (simultaneous attack on two valuable pieces) for the opponent?
     </div>
     <button
-      aria-label="Fork. Find the piece that simultaneously attacks two targets."
+      aria-label="Create a fork. Find a move after which your piece simultaneously attacks two valuable opponent pieces (knight, bishop, rook, queen, king). Such an attack is called a fork."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -124,12 +124,12 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       <span
         class="drill-type-card__title"
       >
-        Fork
+        Create a fork
       </span>
       <span
         class="drill-type-card__desc"
       >
-        Find the piece that simultaneously attacks two targets.
+        Find a move after which your piece simultaneously attacks two valuable opponent pieces (knight, bishop, rook, queen, king). Such an attack is called a fork.
       </span>
     </button>
   </section>
@@ -382,10 +382,10 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Какая фигура делает вилку?
+      Какой ход создаёт у соперника новую вилку (одновременную атаку на две ценные фигуры)?
     </div>
     <button
-      aria-label="Вилка. Найдите фигуру, которая одним ходом нападает на две цели."
+      aria-label="Создать вилку. Найдите ход, после которого ваша фигура одновременно нападает на две ценные фигуры соперника (конь, слон, ладья, ферзь, король). Такая атака называется вилкой."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -394,12 +394,12 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       <span
         class="drill-type-card__title"
       >
-        Вилка
+        Создать вилку
       </span>
       <span
         class="drill-type-card__desc"
       >
-        Найдите фигуру, которая одним ходом нападает на две цели.
+        Найдите ход, после которого ваша фигура одновременно нападает на две ценные фигуры соперника (конь, слон, ладья, ферзь, король). Такая атака называется вилкой.
       </span>
     </button>
   </section>

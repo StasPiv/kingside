@@ -661,7 +661,9 @@
       "findHangingPiece": "Capture the undefended enemy piece",
       "findLoosePiece": "Which piece is undefended?",
       "findPin": "Find the pinned piece",
-      "findFork": "Which piece forks?",
+      "findFork": "Which move creates a new fork (simultaneous attack on two valuable pieces) for the opponent?",
+      "findForkWhite": "Which White move creates a new fork for Black?",
+      "findForkBlack": "Which Black move creates a new fork for White?",
       "countAttackers": "How many pieces attack the highlighted square?",
       "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
       "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
@@ -674,7 +676,7 @@
       "findHangingPiece": "Hanging piece",
       "findLoosePiece": "Loose piece",
       "findPin": "Pin",
-      "findFork": "Fork",
+      "findFork": "Create a fork",
       "countAttackers": "Count attackers",
       "findAllChecks": "All checks",
       "findUndefendedAttack": "Create a hanging piece"
@@ -683,7 +685,7 @@
       "findHangingPiece": "Find an undefended enemy piece and capture it in one move.",
       "findLoosePiece": "Find a piece on the board with no defenders.",
       "findPin": "Locate the piece pinned against a more valuable one (or the king).",
-      "findFork": "Find the piece that simultaneously attacks two targets.",
+      "findFork": "Find a move after which your piece simultaneously attacks two valuable opponent pieces (knight, bishop, rook, queen, king). Such an attack is called a fork.",
       "countAttackers": "Count how many pieces attack the marked square.",
       "findAllChecks": "Mark every square where you can deliver a check.",
       "findUndefendedAttack": "Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."

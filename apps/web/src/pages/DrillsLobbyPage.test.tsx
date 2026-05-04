@@ -33,7 +33,7 @@ const FULL_TYPES = [
   { id: 'find-hanging-piece', layer: 'overview', answerShape: 'move', promptKey: 'k', unlocked: true },
   { id: 'find-all-checks', layer: 'pattern', answerShape: 'squares', promptKey: 'k', unlocked: true },
   { id: 'find-pin', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },
-  { id: 'find-fork', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },
+  { id: 'find-fork', layer: 'pattern', answerShape: 'move', promptKey: 'k', unlocked: false },
   { id: 'find-undefended-attack', layer: 'calculation', answerShape: 'move', promptKey: 'k', unlocked: false },
 ];
 

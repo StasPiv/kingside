@@ -204,6 +204,10 @@ const SIDE_SENSITIVE_DRILL_TYPES: ReadonlySet<TacticDrillType> = new Set<
   'find-loose-piece',
   'find-hanging-piece',
   'find-undefended-attack',
+  // KS-2401: после миграции (KS-2399/KS-2400) find-fork — shape='move',
+  // формулировка инструкции зависит от стороны хода (по образцу
+  // find-undefended-attack).
+  'find-fork',
 ]);
 
 /** Извлечь side-to-move из второго поля FEN. Вернёт null при кривом FEN. */
@@ -604,6 +608,14 @@ export function DrillRunner({
       ? drill.sideToMove ?? sideFromFen(drill.fen)
       : null;
 
+  // KS-2401: то же самое для find-fork — после миграции shape='move'
+  // (KS-2399/KS-2400) формулировка зависит от стороны хода
+  // («Какой ход белых создаёт у чёрных новую вилку?»).
+  const findForkSide: 'w' | 'b' | null =
+    drill?.drillType === 'find-fork'
+      ? drill.sideToMove ?? sideFromFen(drill.fen)
+      : null;
+
   const instructionText = useMemo(() => {
     if (!drill) return '';
     if (feedback) {
@@ -633,8 +645,19 @@ export function DrillRunner({
             'After which Black move does White end up with one more undefended piece?',
           );
     }
+    if (drill.drillType === 'find-fork' && findForkSide) {
+      return findForkSide === 'w'
+        ? t(
+            'drills.instructions.findForkWhite',
+            'Which White move creates a new fork for Black?',
+          )
+        : t(
+            'drills.instructions.findForkBlack',
+            'Which Black move creates a new fork for White?',
+          );
+    }
     return t(`drills.instructions.${kebabToCamel(drill.drillType)}`);
-  }, [drill, feedback, t, attackerColor, undefendedAttackSide]);
+  }, [drill, feedback, t, attackerColor, undefendedAttackSide, findForkSide]);
 
   const instructionTone =
     feedback === null ? 'info' : feedback.solved ? 'success' : 'error';

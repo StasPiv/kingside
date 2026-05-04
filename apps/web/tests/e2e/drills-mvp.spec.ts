@@ -113,16 +113,16 @@ const FIXTURES: Record<TacticDrillType, DrillFixture> = {
   },
   'find-fork': {
     type: 'find-fork',
-    answerShape: 'square',
+    answerShape: 'move',
     drill: {
       id: 'd-fork',
       drillType: 'find-fork',
       fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 0 1',
       sideToMove: 'w',
-      answerShape: 'square',
+      answerShape: 'move',
       difficulty: 3,
     },
-    correctAnswer: { shape: 'square', square: 'd5' },
+    correctAnswer: { shape: 'move', from: 'c3', to: 'd5' },
   },
   'find-undefended-attack': {
     type: 'find-undefended-attack',
