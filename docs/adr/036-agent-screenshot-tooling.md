@@ -81,7 +81,7 @@ Tooling — это «вытащить этот паттерн в standalone CLI 
 
 ```mermaid
 flowchart LR
-    Agent[Агент<br/>frontend/qa/coordinator] -->|node tools/screenshot.mjs| Script[tools/screenshot.mjs<br/>Playwright Node API]
+    Agent[Агент<br/>frontend/qa/coordinator] -->|node scripts/screenshot.mjs| Script[scripts/screenshot.mjs<br/>Playwright Node API]
     Script -->|читает| Env[/.env агента<br/>SCREENSHOT_USER/<br/>SCREENSHOT_PASS/]
     Script -->|POST /api/auth/login| API[(api.kingside.site)]
     API -->|accessToken<br/>refreshToken| Script
@@ -171,7 +171,7 @@ model User {
 
 ## 4. Где живёт скрипт
 
-**Решение: `/tools/screenshot.mjs`**.
+**Решение: `scripts/screenshot.mjs`**.
 
 Обоснование:
 - `/tools/` уже содержит `mcp-agent.mjs` — агентский tooling, не продуктовый код.
@@ -182,9 +182,9 @@ model User {
 **Запуск** — с использованием уже установленного Playwright из `/project/node_modules` (по соглашению `CLAUDE.md`):
 
 ```bash
-/project/node_modules/.bin/node tools/screenshot.mjs <args>
+/project/node_modules/.bin/node scripts/screenshot.mjs <args>
 # или
-node tools/screenshot.mjs <args>
+node scripts/screenshot.mjs <args>
 ```
 
 (Node версия из контейнера агента — Node 20 LTS.)
@@ -196,7 +196,7 @@ node tools/screenshot.mjs <args>
 ### 5.1 Базовая форма
 
 ```
-node tools/screenshot.mjs <url> <output.png> [options]
+node scripts/screenshot.mjs <url> <output.png> [options]
 ```
 
 | Опция | По умолчанию | Описание |
@@ -215,29 +215,29 @@ node tools/screenshot.mjs <url> <output.png> [options]
 
 **Анонимная страница:**
 ```bash
-node tools/screenshot.mjs https://kingside.site/lobby /tmp/anon-lobby.png
+node scripts/screenshot.mjs https://kingside.site/lobby /tmp/anon-lobby.png
 ```
 
 **Авторизованная страница:**
 ```bash
-node tools/screenshot.mjs https://kingside.site/profile /tmp/profile-auth.png --auth=test
+node scripts/screenshot.mjs https://kingside.site/profile /tmp/profile-auth.png --auth=test
 ```
 
 **Mobile-portrait, с авторизацией:**
 ```bash
-node tools/screenshot.mjs https://kingside.site/play /tmp/mobile-play.png \
+node scripts/screenshot.mjs https://kingside.site/play /tmp/mobile-play.png \
   --auth=test --viewport=mobile
 ```
 
 **Только конкретный компонент (KS-2252 кейс):**
 ```bash
-node tools/screenshot.mjs https://kingside.site/lobby /tmp/header.png \
+node scripts/screenshot.mjs https://kingside.site/lobby /tmp/header.png \
   --auth=test --selector="header" --wait-for="[data-testid=user-menu]"
 ```
 
 **С дебагом:**
 ```bash
-node tools/screenshot.mjs https://kingside.site/analysis /tmp/analysis.png \
+node scripts/screenshot.mjs https://kingside.site/analysis /tmp/analysis.png \
   --auth=test --debug
 # создаёт также /tmp/analysis.png.debug/{network.har,console.log}
 ```
@@ -263,7 +263,7 @@ node tools/screenshot.mjs https://kingside.site/analysis /tmp/analysis.png \
 ### 5.5 Параметризация mobile (детально)
 
 ```ts
-// внутри tools/screenshot.mjs
+// внутри scripts/screenshot.mjs
 import { devices } from '@playwright/test';
 
 const VIEWPORTS = {
@@ -358,7 +358,7 @@ flowchart TD
 | devops | редко | проверка деплоев |
 | chess-expert / content | нет | работают со статичным контентом |
 
-Скрипт не имеет ограничений по роли (это технический инструмент). Allowlist в `.claude/settings.json` — пермит на `Bash(node tools/screenshot.mjs *)` для всех агентов.
+Скрипт не имеет ограничений по роли (это технический инструмент). Allowlist в `.claude/settings.json` — пермит на `Bash(node scripts/screenshot.mjs *)` для всех агентов.
 
 ---
 
@@ -368,7 +368,7 @@ flowchart TD
 1. В `CLAUDE.md` строку про playwright заменить на:
 
    ```
-   - Скриншоты прода: `node tools/screenshot.mjs <url> <out.png> [--auth=test|none] [--viewport=mobile|desktop]`.
+   - Скриншоты прода: `node scripts/screenshot.mjs <url> <out.png> [--auth=test|none] [--viewport=mobile|desktop]`.
      Подробнее: docs/adr/036-agent-screenshot-tooling.md.
    ```
 
