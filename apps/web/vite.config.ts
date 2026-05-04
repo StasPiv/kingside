@@ -54,14 +54,7 @@ export default defineConfig({
     versionPlugin(),
     react(),
     VitePWA({
-      // KS-2374: 'prompt' вместо 'autoUpdate' — показываем пользователю
-      // ненавязчивый промпт «Доступна новая версия. Перезагрузить?»
-      // (см. PwaUpdatePrompt.tsx). Без перезагрузки активный JS остаётся
-      // на старом bundle, поэтому доверять auto-reload без подтверждения
-      // нельзя — мы можем прервать незавершённую партию / форму.
-      // skipWaiting + clientsClaim ниже всё равно гарантируют, что
-      // новый SW встаёт в активные сразу при следующей загрузке.
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       devOptions: {
         enabled: false,
@@ -88,82 +81,46 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        // KS-2374: при apply нового SW удаляем все «брошенные» кеши от
-        // предыдущих сборок — иначе в браузере накапливаются 'assets-cache',
-        // 'html-cache' от прошлых deploy'ев и старые chunk'и могут утечь
-        // в новый сеанс через CacheFirst-матч.
-        cleanupOutdatedCaches: true,
         // Only precache static assets (icons, fonts). JS/CSS have content-hash
-        // в имени файла → handle через runtimeCaching CacheFirst (immutable).
+        // in filenames and are handled via NetworkFirst to avoid stale chunks.
         globPatterns: ['**/*.{svg,png,woff2}'],
         globIgnores: ['**/stockfish/**'],
         // navigateFallback removed: index.html is not in precache (globPatterns),
         // so referencing it as fallback causes PWA to hang on splash screen.
         // Navigation is handled by runtimeCaching NetworkFirst below.
         runtimeCaching: [
-          // ── KS-2374: API/Auth/health — никогда не кэшируем ──────────
-          // SW должен прозрачно проксировать запросы к backend; иначе
-          // старый кэш ответа (даже с TTL 5 мин) рассинхронизирован с
-          // живой сессией. NetworkOnly = SW не делает caches.match,
-          // не задерживает запрос, не отдаёт устаревшие ответы.
           {
-            urlPattern: /\/api\//,
-            handler: 'NetworkOnly',
+            // JS and CSS: network first, fall back to cache
+            urlPattern: /\.(?:js|css)$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'assets-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 86400,
+              },
+            },
           },
           {
-            urlPattern: /\/auth\//,
-            handler: 'NetworkOnly',
-          },
-          {
-            urlPattern: /\/health(?:\?|$)/,
-            handler: 'NetworkOnly',
-          },
-          // ── /index.html и любые SPA-навигации — Network-first ──────
-          // Свежий HTML при каждом переходе → ссылки на актуальные
-          // bundle-хеши assets. networkTimeoutSeconds — fallback на
-          // кеш, если сеть тупит (offline / тяжёлый CloudFront-edge).
-          {
+            // index.html: always fetch fresh
             urlPattern: ({ request }) => request.mode === 'navigate',
             handler: 'NetworkFirst',
             options: {
               cacheName: 'html-cache',
-              networkTimeoutSeconds: 3,
               expiration: {
                 maxEntries: 5,
                 maxAgeSeconds: 3600,
               },
             },
           },
-          // ── /assets/index-<hash>.{js,css} — Cache-first ────────────
-          // Hash в имени файла гарантирует immutable; для нового
-          // bundle URL новый, старого SW кеш не возвращает чужой
-          // контент. CacheFirst → мгновенный paint без сети.
           {
-            urlPattern: /\/assets\/.+\.(?:js|css|woff2|svg|png|webp)$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'assets-cache',
-              expiration: {
-                maxEntries: 200,
-                // 1 год — assets с hash в URL никогда не обновляются.
-                maxAgeSeconds: 60 * 60 * 24 * 365,
-              },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          // Любые другие .js/.css (без /assets/ префикса) — на всякий
-          // случай оставляем NetworkFirst с коротким timeout, чтобы
-          // не подкладывать пользователю старый chunk при rolling
-          // updates сторонних CDN.
-          {
-            urlPattern: /\.(?:js|css)$/,
+            urlPattern: /^https?:\/\/.*\/api\/(?!auth\/)/,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'misc-assets-cache',
-              networkTimeoutSeconds: 3,
+              cacheName: 'api-cache',
               expiration: {
                 maxEntries: 50,
-                maxAgeSeconds: 86400,
+                maxAgeSeconds: 300,
               },
             },
           },

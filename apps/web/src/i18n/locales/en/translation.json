@@ -1,9 +1,4 @@
 {
-  "pwa": {
-    "updateAvailable": "A new version of the app is available.",
-    "reload": "Reload",
-    "later": "Later"
-  },
   "tos": {
     "title": "Terms of Service",
     "lastUpdated": "Last updated: {{date}}",
