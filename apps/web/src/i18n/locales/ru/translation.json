@@ -714,7 +714,13 @@
     "lobby": {
       "lockedHint": "Решите предыдущий тип упражнения, чтобы открыть этот.",
       "completedBadge": "Решено",
-      "newBadge": "Новое"
+      "newBadge": "Новое",
+      "sprintCtaTitle": "Спринт",
+      "sprintCtaDescription": "Микс упражнений на время. Соревнуйтесь с собой и другими.",
+      "sprintCtaButton": "Начать спринт",
+      "sprintLeaderboardCtaTitle": "Таблица лидеров",
+      "sprintLeaderboardCtaDescription": "Лучшие результаты спринта.",
+      "sprintLeaderboardCtaButton": "Открыть таблицу"
     },
     "side": {
       "whiteToMove": "Ход белых",

@@ -349,6 +349,102 @@
   gap: 16px;
 }
 
+/* ===========================================================
+ * KS-2332 — Sprint CTA-блок в `/drills` лобби.
+ * Две карточки бок о бок: «Начать спринт» (primary) и «Таблица
+ * лидеров» (secondary). На mobile — стек.
+ * =========================================================== */
+
+.drills-lobby__sprint-cta {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin: 0 0 24px;
+}
+
+.drills-lobby__sprint-cta-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.drills-lobby__sprint-cta-card--primary {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+}
+
+.drills-lobby__sprint-cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drills-lobby__sprint-cta-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.drills-lobby__sprint-cta-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.drills-lobby__sprint-cta-button {
+  align-self: flex-start;
+  padding: 10px 18px;
+  min-height: 40px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.1s ease;
+}
+
+.drills-lobby__sprint-cta-button:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drills-lobby__sprint-cta-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drills-lobby__sprint-cta-button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.drills-lobby__sprint-cta-button--primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.drills-lobby__sprint-cta-button--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
 .drill-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -393,6 +489,20 @@
   .drills-lobby__grid {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  /* KS-2332: на mobile-portrait Sprint-CTA в один столбец, кнопка
+     растягивается на всю ширину для удобного tap-target. */
+  .drills-lobby__sprint-cta {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .drills-lobby__sprint-cta-button {
+    align-self: stretch;
+    min-height: 44px;
+    text-align: center;
   }
 
   /* Карточка: гарантируем tap-target — min-height ≥ 44, padding

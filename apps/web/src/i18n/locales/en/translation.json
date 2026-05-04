@@ -712,7 +712,13 @@
     "lobby": {
       "lockedHint": "Solve the previous drill type to unlock.",
       "completedBadge": "Solved",
-      "newBadge": "New"
+      "newBadge": "New",
+      "sprintCtaTitle": "Sprint",
+      "sprintCtaDescription": "Mixed drills against the clock. Race yourself and others.",
+      "sprintCtaButton": "Start sprint",
+      "sprintLeaderboardCtaTitle": "Leaderboard",
+      "sprintLeaderboardCtaDescription": "Top sprint results.",
+      "sprintLeaderboardCtaButton": "Open leaderboard"
     },
     "side": {
       "whiteToMove": "White to move",

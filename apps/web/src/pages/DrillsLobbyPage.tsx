@@ -136,6 +136,62 @@ export function DrillsLobbyPage() {
           )}
         </p>
       </header>
+
+      {/* KS-2332: CTA-блок «Спринт» + ссылка на лидерборд. До этого
+          тикета попасть в спринт-режим можно было только зная URL —
+          в лобби не было ни одной ссылки. */}
+      <section
+        className="drills-lobby__sprint-cta"
+        data-testid="drills-lobby-sprint-cta"
+        aria-label={t('drills.lobby.sprintCtaTitle', 'Sprint')}
+      >
+        <div className="drills-lobby__sprint-cta-card drills-lobby__sprint-cta-card--primary">
+          <div className="drills-lobby__sprint-cta-text">
+            <h2 className="drills-lobby__sprint-cta-title">
+              {t('drills.lobby.sprintCtaTitle', 'Sprint')}
+            </h2>
+            <p className="drills-lobby__sprint-cta-description">
+              {t(
+                'drills.lobby.sprintCtaDescription',
+                'Mixed drills against the clock. Race yourself and others.',
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="drills-lobby__sprint-cta-button drills-lobby__sprint-cta-button--primary"
+            data-testid="drills-lobby-sprint-start"
+            onClick={() => navigate('/drills/sprint')}
+          >
+            {t('drills.lobby.sprintCtaButton', 'Start sprint')}
+          </button>
+        </div>
+        <div className="drills-lobby__sprint-cta-card drills-lobby__sprint-cta-card--secondary">
+          <div className="drills-lobby__sprint-cta-text">
+            <h2 className="drills-lobby__sprint-cta-title">
+              {t('drills.lobby.sprintLeaderboardCtaTitle', 'Leaderboard')}
+            </h2>
+            <p className="drills-lobby__sprint-cta-description">
+              {t(
+                'drills.lobby.sprintLeaderboardCtaDescription',
+                'Top sprint results.',
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="drills-lobby__sprint-cta-button"
+            data-testid="drills-lobby-sprint-leaderboard"
+            onClick={() => navigate('/drills/sprint/leaderboard')}
+          >
+            {t(
+              'drills.lobby.sprintLeaderboardCtaButton',
+              'Open leaderboard',
+            )}
+          </button>
+        </div>
+      </section>
+
       {LAYER_ORDER.map((layer) => {
         const items = byLayer[layer];
         if (items.length === 0) return null;

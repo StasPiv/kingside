@@ -15,6 +15,16 @@ vi.mock('../api', () => ({
   },
 }));
 
+// KS-2332: MemoryRouter не обновляет window.location, поэтому
+// проверяем переход через мок useNavigate.
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom',
+  );
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
 import { DrillsLobbyPage } from './DrillsLobbyPage';
 
 const FULL_TYPES = [
@@ -30,6 +40,7 @@ const FULL_TYPES = [
 
 beforeEach(() => {
   apiGetMock.mockReset();
+  navigateMock.mockReset();
 });
 
 afterEach(() => {
@@ -113,6 +124,57 @@ describe('<DrillsLobbyPage> KS-2232', () => {
     await waitFor(() =>
       expect(screen.getByTestId('drills-lobby-error')).toBeInTheDocument(),
     );
+  });
+
+  // KS-2332: Sprint CTA блок (вход в `/drills/sprint` и
+  // `/drills/sprint/leaderboard` из лобби).
+  describe('KS-2332 — Sprint CTA блок', () => {
+    it('CTA-секция отрендерена, обе кнопки — Start sprint и Open leaderboard', async () => {
+      apiGetMock.mockResolvedValue({ types: FULL_TYPES });
+      renderWithProviders(<DrillsLobbyPage />);
+      await waitFor(() =>
+        expect(screen.getByTestId('drills-lobby')).toBeInTheDocument(),
+      );
+      expect(screen.getByTestId('drills-lobby-sprint-cta')).toBeInTheDocument();
+      expect(screen.getByTestId('drills-lobby-sprint-start')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('drills-lobby-sprint-leaderboard'),
+      ).toBeInTheDocument();
+    });
+
+    it('клик «Start sprint» → navigate(/drills/sprint)', async () => {
+      apiGetMock.mockResolvedValue({ types: FULL_TYPES });
+      const user = userEvent.setup();
+      renderWithProviders(<DrillsLobbyPage />);
+      await waitFor(() =>
+        expect(screen.getByTestId('drills-lobby-sprint-start')).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drills-lobby-sprint-start'));
+      expect(navigateMock).toHaveBeenCalledWith('/drills/sprint');
+    });
+
+    it('клик «Open leaderboard» → navigate(/drills/sprint/leaderboard)', async () => {
+      apiGetMock.mockResolvedValue({ types: FULL_TYPES });
+      const user = userEvent.setup();
+      renderWithProviders(<DrillsLobbyPage />);
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('drills-lobby-sprint-leaderboard'),
+        ).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('drills-lobby-sprint-leaderboard'));
+      expect(navigateMock).toHaveBeenCalledWith('/drills/sprint/leaderboard');
+    });
+
+    it('CTA-блок виден даже когда types=[] (не зависит от каталога)', async () => {
+      apiGetMock.mockResolvedValue({ types: [] });
+      renderWithProviders(<DrillsLobbyPage />);
+      await waitFor(() =>
+        expect(screen.getByTestId('drills-lobby')).toBeInTheDocument(),
+      );
+      expect(screen.getByTestId('drills-lobby-sprint-cta')).toBeInTheDocument();
+      expect(screen.getByTestId('drills-lobby-sprint-start')).toBeInTheDocument();
+    });
   });
 
   it('пустой ответ /tactic-drill/types — рендерит header без секций', async () => {
