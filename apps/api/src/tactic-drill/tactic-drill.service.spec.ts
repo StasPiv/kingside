@@ -135,7 +135,8 @@ describe('TacticDrillService — KS-2230', () => {
       );
       expect(r?.id).toBe('drill-1');
       expect(r?.drillType).toBe('find-fork');
-      expect(r?.answerShape).toBe('square');
+      // KS-2400: find-fork переведён на shape='move'.
+      expect(r?.answerShape).toBe('move');
     });
 
     it('select-clause НЕ выбирает answer из БД', async () => {

@@ -172,16 +172,28 @@ export function fTypeSpecificV1(
       return Math.min(depth, 7) / 7;
     }
     case 'find-fork': {
-      // targetsValueSum: ≤6→0.3, 7-10→0.6, ≥11→1.0
-      if (answer.shape !== 'square') return 0;
+      // KS-2400: после миграции на shape='move' forker — наша фигура,
+      // стоящая на клетке `answer.to` ПОСЛЕ хода. Считаем
+      // targetsValueSum по позиции после apply/undo.
+      // targetsValueSum: ≤6→0.3, 7-10→0.6, ≥11→1.0.
+      if (answer.shape !== 'move') return 0;
       const our = chess.turn();
       const enemy = oppColor(our);
       let sum = 0;
-      for (const p of allPieces(chess)) {
-        if (p.color !== enemy) continue;
-        if ((PAWN_VALUE[p.type] ?? 0) < 3) continue; // только ценные
-        const att = chess.attackers(p.square, our);
-        if (att.includes(answer.square as never)) sum += PAWN_VALUE[p.type];
+      try {
+        chess.move({ from: answer.from, to: answer.to });
+      } catch {
+        return 0;
+      }
+      try {
+        for (const p of allPieces(chess)) {
+          if (p.color !== enemy) continue;
+          if ((PAWN_VALUE[p.type] ?? 0) < 3) continue; // только ценные
+          const att = chess.attackers(p.square, our);
+          if (att.includes(answer.to as never)) sum += PAWN_VALUE[p.type];
+        }
+      } finally {
+        chess.undo();
       }
       if (sum <= 6) return 0.3;
       if (sum <= 10) return 0.6;

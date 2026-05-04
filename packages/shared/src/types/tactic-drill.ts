@@ -85,7 +85,10 @@ export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   'find-hanging-piece':      'move',
   'find-loose-piece':        'square',
   'find-pin':                'square',
-  'find-fork':               'square',
+  // KS-2400: find-fork переведён с 'square' (укажи фигуру-вилку,
+  // которая уже стоит) на 'move' (сделай ход, создающий новую
+  // вилку). Snapshot before/after, см. predicate find-fork.ts.
+  'find-fork':               'move',
   'count-attackers':         'number',
   'find-all-checks':         'squares',
   'find-undefended-attack':  'move',
@@ -326,8 +329,9 @@ export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = 
     en: "Find the pinned piece — it can't move because of a more valuable piece behind it.",
   },
   'find-fork':               {
-    ru: 'Найди фигуру, которая одновременно атакует две и более ценных фигур противника.',
-    en: 'Find the piece attacking two or more valuable opposing pieces simultaneously.',
+    // KS-2400: формулировка под shape='move' (создай новую вилку).
+    ru: 'Сделай ход, после которого твоя фигура одновременно атакует ≥2 ценных фигур противника.',
+    en: 'Make a move that creates a fork — your piece attacking ≥2 valuable enemy pieces.',
   },
   'count-attackers':         {
     ru: 'Сколько фигур заданного цвета атакуют выделенную клетку?',
@@ -362,8 +366,9 @@ export const DRILL_HINT: Record<TacticDrillType, DrillLocalizedString> = {
     en: 'Behind the pinned piece sits a more valuable one on the same line.',
   },
   'find-fork':               {
-    ru: 'Одна фигура — две и более жертвы.',
-    en: 'One piece — two or more targets.',
+    // KS-2400: подсказка обновлена — drill теперь требует ход.
+    ru: 'Один ход — твоя фигура атакует две цели, которые до этого были вне удара.',
+    en: 'One move — your piece attacks two targets that were not under attack before.',
   },
   'count-attackers':         {
     ru: 'Учти все «батареи» по линии.',
