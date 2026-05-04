@@ -81,4 +81,29 @@ describe('findHangingPiece — KS-2335 (shape=move)', () => {
       reason: 'invalid_fen',
     });
   });
+
+  it('KS-2371: размен после взятия (X-ray открывается через нашу атакующую) → drop', () => {
+    // Белые на ходу. Target — чёрный конь c5. Наш атакующий: white
+    // rook c4. Между rook'ом c4 и black rook c1 пусто, но c4 САМ
+    // блокирует c1 от c5: defenders(c5, b) = [] (hanging) до хода.
+    // Black pawn d2 защищает c1 (чтобы c1 не оказался вторым hanging
+    // кандидатом — нам нужен ровно 1 target). После Rxc5: c4 пустеет,
+    // black rook c1 теперь видит c5 → exchange. Predicate drop с
+    // reason "exchange".
+    const r = findHangingPiece('k7/8/7K/2n5/2R5/8/3p4/2r5 w - - 0 1');
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.reason).toContain('exchange');
+    }
+  });
+
+  it('KS-2371: чистое взятие (без ответного боя) — valid', () => {
+    // Та же геометрия, но без black rook c1 → после Rxc5 attackers
+    // c5 by black = [] → чистое взятие.
+    const r = findHangingPiece('k7/8/7K/2n5/2R5/8/8/8 w - - 0 1');
+    expect(r).toEqual({
+      valid: true,
+      answer: { shape: 'move', from: 'c4', to: 'c5' },
+    });
+  });
 });

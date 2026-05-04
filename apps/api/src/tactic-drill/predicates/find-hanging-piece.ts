@@ -1,5 +1,5 @@
 /**
- * KS-2227 / KS-2335 / KS-2337 / KS-2349 — `find-hanging-piece`.
+ * KS-2227 / KS-2335 / KS-2337 / KS-2349 / KS-2371 — `find-hanging-piece`.
  *
  * Семантика (после KS-2335): «возьми незащищённую (висящую) фигуру
  * противника одним ходом». Ответ — `{shape:'move', from, to}`.
@@ -16,6 +16,20 @@
  *   3. **Strict-uniqueness по (from, to)**: должно быть ровно
  *      одно такое взятие. Если 2+ наших фигур атакуют цель и обе
  *      могут законно взять — ответ неоднозначен → drop.
+ *   4. **KS-2371: post-capture safety check** — применить ход в
+ *      chess.js, проверить, что атакующая фигура на target-клетке
+ *      не находится под атакой противника (включая X-ray, который
+ *      становится прямым после исчезновения цели). Если есть —
+ *      это размен, не безнаказанное взятие → drop.
+ *
+ *      Это локальная проверка только для этого predicate; не
+ *      переиспользуется helper из defenders.ts (`hasDirectOrXRay
+ *      Defender`), который KS-2349 убрал из этого predicate'а
+ *      из-за false-positive в drill loose-piece. Здесь же
+ *      `chess.attackers(target, enemy)` после `chess.move(...)`
+ *      даёт **прямую** проверку attackers, X-ray-эффект учитывается
+ *      автоматически (фигура на target открывает или нет другие
+ *      линии атаки).
  *
  * Сторона на ходу важна (drill «возьми у противника»); «наш» цвет = `chess.turn()`.
  */
@@ -68,6 +82,22 @@ export function findHangingPiece(fen: string): MoveResult {
   }
 
   const m = captures[0];
+
+  // 4. KS-2371: безнаказанное ли взятие? Применяем ход и смотрим,
+  //    атакована ли наша фигура на target. Если да — размен, drop.
+  //    `chess.attackers` после move уже учитывает геометрию X-ray
+  //    (sliding piece по линии становится прямым атакующим, когда
+  //    блокировавшая фигура ушла на target).
+  chess.move({ from: m.from, to: m.to });
+  const attackersAfter = chess.attackers(target as never, enemy);
+  chess.undo();
+  if (attackersAfter.length > 0) {
+    return {
+      valid: false,
+      reason: `capture is exchange (attackers on ${target} after move: ${attackersAfter.length})`,
+    };
+  }
+
   const answer: AnswerMove = { shape: 'move', from: m.from, to: m.to };
   return { valid: true, answer };
 }
