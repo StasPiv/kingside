@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -73,6 +73,21 @@ export function DrillSprintSetupPage() {
   const [conflict, setConflict] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
 
+  // KS-2351: страховочный watchdog. axios/fetch таймаут в api.ts
+  // должен сработать раньше (15с), но если что-то проскочит мимо
+  // (например, кастомный interceptor забыл прокинуть signal) — этот
+  // таймер на 20с гарантирует, что UI не повиснет навсегда. При
+  // успешном завершении/ошибке он чистится, чтобы не сработать
+  // ложно после navigate.
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWatchdog = useCallback(() => {
+    if (watchdogRef.current !== null) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearWatchdog, [clearWatchdog]);
+
   const toggleType = useCallback((type: TacticDrillType) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -99,6 +114,14 @@ export function DrillSprintSetupPage() {
       setError(null);
       setResumeError(null);
       setSubmitting(true);
+      // KS-2351: watchdog 20с — на случай если api-таймаут (15с) не
+      // сработал. Чистим в успешной/ошибочной ветках ниже.
+      clearWatchdog();
+      watchdogRef.current = setTimeout(() => {
+        setError('timeout');
+        setSubmitting(false);
+        watchdogRef.current = null;
+      }, 20_000);
       try {
         const req: TacticDrillSprintStartRequest & { force?: boolean } = {
           durationMs: duration,
@@ -110,20 +133,30 @@ export function DrillSprintSetupPage() {
           '/tactic-drill/sprint/start',
           req,
         );
+        clearWatchdog();
         setConflict(false);
         navigate('/drills/sprint/play', { state: { session: resp } });
       } catch (e) {
+        clearWatchdog();
         // KS-2350: 409 = активная сессия. Показываем выбор «Продолжить /
         // Начать новый», generic-плашку «не удалось» НЕ ставим.
         if (e instanceof ApiError && e.status === 409) {
           setConflict(true);
+        } else if (
+          // KS-2351: timeout / network — отдельное человеческое
+          // сообщение, чтобы пользователь понимал, что это не его 4xx.
+          e instanceof ApiError &&
+          (e.errorCode === 'REQUEST_TIMEOUT' ||
+            e.errorCode === 'NETWORK_ERROR')
+        ) {
+          setError('timeout');
         } else {
           setError('loadFailed');
         }
         setSubmitting(false);
       }
     },
-    [duration, selected, submitting, navigate],
+    [duration, selected, submitting, navigate, clearWatchdog],
   );
 
   // KS-2350: «Продолжить активный спринт». Backend GET-endpoint для
@@ -145,9 +178,15 @@ export function DrillSprintSetupPage() {
       navigate('/drills/sprint/play', { state: { session } });
     } catch (e) {
       // 404 = endpoint ещё не реализован, показываем дружелюбную
-      // подсказку. Любая другая — generic.
+      // подсказку. Любая другая — generic. KS-2351: timeout/network
+      // → отдельный текст «Сервер не отвечает».
       if (e instanceof ApiError && e.status === 404) {
         setResumeError('notSupported');
+      } else if (
+        e instanceof ApiError &&
+        (e.errorCode === 'REQUEST_TIMEOUT' || e.errorCode === 'NETWORK_ERROR')
+      ) {
+        setResumeError('timeout');
       } else {
         setResumeError('loadFailed');
       }
@@ -242,9 +281,15 @@ export function DrillSprintSetupPage() {
         <div
           className="drill-sprint-setup__error"
           data-testid="drill-sprint-setup-error"
+          data-error={error}
           role="alert"
         >
-          {t('drills.sprint.setup.loadFailed', 'Could not start sprint.')}
+          {error === 'timeout'
+            ? t(
+                'drills.sprint.setup.timeoutFailed',
+                'Server did not respond. Please try again.',
+              )
+            : t('drills.sprint.setup.loadFailed', 'Could not start sprint.')}
         </div>
       )}
 
@@ -305,10 +350,15 @@ export function DrillSprintSetupPage() {
                     'drills.sprint.setup.resumeNotSupported',
                     'Resuming an active sprint is not supported yet. Use “Start a new one” instead.',
                   )
-                : t(
-                    'drills.sprint.setup.loadFailed',
-                    'Could not start sprint.',
-                  )}
+                : resumeError === 'timeout'
+                  ? t(
+                      'drills.sprint.setup.timeoutFailed',
+                      'Server did not respond. Please try again.',
+                    )
+                  : t(
+                      'drills.sprint.setup.loadFailed',
+                      'Could not start sprint.',
+                    )}
             </div>
           )}
         </div>

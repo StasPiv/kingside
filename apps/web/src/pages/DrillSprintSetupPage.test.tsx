@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { waitFor } from '@testing-library/react';
+import { waitFor, fireEvent, act } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 import { ApiError } from '../ApiError';
 
@@ -282,6 +282,83 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
         screen.queryByTestId('drill-sprint-setup-conflict'),
       ).not.toBeInTheDocument();
       expect(screen.getByTestId('drill-sprint-setup-start')).toBeInTheDocument();
+    });
+  });
+
+  // KS-2351: таймауты + сетевые ошибки.
+  describe('KS-2351 — timeout / network errors', () => {
+    it('REQUEST_TIMEOUT → error-баннер с data-error=timeout', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('Request timed out', 'REQUEST_TIMEOUT', 0),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-sprint-setup-error')).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByTestId('drill-sprint-setup-error').getAttribute('data-error'),
+      ).toBe('timeout');
+      // Кнопка снова доступна.
+      expect(screen.getByTestId('drill-sprint-setup-start')).not.toBeDisabled();
+    });
+
+    it('NETWORK_ERROR → тот же data-error=timeout (для пользователя «сервер не отвечает»)', async () => {
+      apiPost.mockRejectedValue(
+        new ApiError('Network error', 'NETWORK_ERROR', 0),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(
+          screen
+            .getByTestId('drill-sprint-setup-error')
+            .getAttribute('data-error'),
+        ).toBe('timeout'),
+      );
+    });
+
+    it('500 → data-error=loadFailed (отличается от timeout)', async () => {
+      apiPost.mockRejectedValue(new ApiError('Internal', undefined, 500));
+      const user = userEvent.setup();
+      renderWithProviders(<DrillSprintSetupPage />);
+      await user.click(screen.getByTestId('drill-sprint-setup-start'));
+      await waitFor(() =>
+        expect(
+          screen
+            .getByTestId('drill-sprint-setup-error')
+            .getAttribute('data-error'),
+        ).toBe('loadFailed'),
+      );
+    });
+
+    it('watchdog: pending Promise → через 20с error=timeout, кнопка enabled', async () => {
+      vi.useFakeTimers();
+      try {
+        apiPost.mockReturnValue(new Promise(() => {})); // never settles
+        renderWithProviders(<DrillSprintSetupPage />);
+        // userEvent проблематичен с fake timers — кликаем напрямую.
+        fireEvent.click(screen.getByTestId('drill-sprint-setup-start'));
+        // До 20с — кнопка disabled, ошибки нет.
+        expect(screen.getByTestId('drill-sprint-setup-start')).toBeDisabled();
+        expect(
+          screen.queryByTestId('drill-sprint-setup-error'),
+        ).not.toBeInTheDocument();
+        // Прокручиваем 20с.
+        act(() => {
+          vi.advanceTimersByTime(20_000);
+        });
+        expect(
+          screen.getByTestId('drill-sprint-setup-error').getAttribute(
+            'data-error',
+          ),
+        ).toBe('timeout');
+        expect(screen.getByTestId('drill-sprint-setup-start')).not.toBeDisabled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
