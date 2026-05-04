@@ -120,7 +120,6 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_BROADCAST_SERVICE":[f"{_P}/apps/broadcast-service:/project/apps/broadcast-service"],
     "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
     "ROLE_WRITE_APPS_ARCHIVE_SERVICE": [f"{_P}/apps/archive-service:/project/apps/archive-service"],
-    "ROLE_WRITE_APPS_SYNTHETIC_BOT_SERVICE": [f"{_P}/apps/synthetic-bot-service:/project/apps/synthetic-bot-service"],
     # Frontend-код
     "ROLE_WRITE_APPS_WEB":             [f"{_P}/apps/web:/project/apps/web"],
     "ROLE_WRITE_APPS_WEB_SRC":         [f"{_P}/apps/web/src:/project/apps/web/src"],
@@ -797,12 +796,14 @@ def _parse_token(token: str) -> list[str] | None:
 AGENT_ROLES: dict[str, list[str]] = {
     "backend": [
         # действия
-        "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_DEPLOY_API",
+        "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE",
+        "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
         "ROLE_WRITE_APPS_ARCHIVE_IMPORTER", "ROLE_WRITE_APPS_ARCHIVE_SERVICE",
-        "ROLE_WRITE_APPS_SYNTHETIC_BOT_SERVICE",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
         "ROLE_READ_APPS_API_NODE_MODULES",
@@ -823,7 +824,10 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_SCRIPTS",
     ],
     "devops": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS",
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API",
+        "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE",
+        "ROLE_DEPLOY_WORKERS",
         "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START", "ROLE_UP",
         "ROLE_DOCKER_COMPOSE",
         "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_WRITE_DOCKER_COMPOSE",
@@ -877,9 +881,9 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
-        "game-service": "ROLE_DEPLOY_WORKERS",
-        "broadcast-service": "ROLE_DEPLOY_WORKERS",
-        "archive-service": "ROLE_DEPLOY_WORKERS",
+        "game-service": "ROLE_DEPLOY_GAME_SERVICE",
+        "broadcast-service": "ROLE_DEPLOY_BROADCAST_SERVICE",
+        "archive-service": "ROLE_DEPLOY_ARCHIVE_SERVICE",
         "workers": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
