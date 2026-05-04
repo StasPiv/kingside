@@ -151,13 +151,22 @@ export class TacticDrillSfValidatorService {
     fen: string,
     answer: AnswerData,
   ): Promise<SfValidationVerdict> {
-    if (answer.shape !== 'square') {
+    // KS-2335 / KS-2337: shape для find-hanging-piece переведён с
+    // 'square' на 'move'. Старая ветка для совместимости с legacy-
+    // данными (curated drill'ы могут оставаться в shape='square'
+    // до их перегенерации) — извлекаем target-клетку из обоих
+    // форматов.
+    let targetSq: string;
+    if (answer.shape === 'move') {
+      targetSq = answer.to.toLowerCase();
+    } else if (answer.shape === 'square') {
+      targetSq = answer.square.toLowerCase();
+    } else {
       return {
         accepted: false,
-        reason: 'expected square shape for hanging-piece',
+        reason: 'expected move or square shape for hanging-piece',
       };
     }
-    const targetSq = answer.square.toLowerCase();
 
     const result = await this.stockfish.analyze(fen, SF_DEPTH_HANGING);
     if (!result.bestMove || result.bestMove === '(none)') {

@@ -153,6 +153,23 @@ describe('TacticDrillSfValidatorService — KS-2247', () => {
       const r = await svc.validateOne(drill);
       expect(r.accepted).toBe(false);
     });
+
+    it('KS-2337: shape="move" принимается, target из answer.to', async () => {
+      // После KS-2337 find-hanging-piece имеет shape='move'. Validator
+      // должен извлекать target из answer.to и не отказывать на shape.
+      const moveDrill = {
+        id: 'd2-move',
+        type: 'find-hanging-piece',
+        fen: '4k3/8/8/4n3/4Q3/8/8/4K3 w - - 0 1',
+        answer: { shape: 'move', from: 'e4', to: 'e5' },
+      };
+      (sf.analyze as jest.Mock).mockResolvedValue({
+        bestMove: 'e4e5',
+        score: { type: 'cp', value: 300 },
+      });
+      const r = await svc.validateOne(moveDrill);
+      expect(r.accepted).toBe(true);
+    });
   });
 
   describe('fetchUnvalidatedBatch', () => {
