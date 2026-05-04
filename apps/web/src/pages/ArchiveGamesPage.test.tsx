@@ -44,6 +44,22 @@ vi.mock('../api/archive', () => ({
   },
 }));
 
+// KS-2403 follow-up: handleRowClick теперь сначала создаёт analysis-запись
+// через POST /analyses, потом navigate(`/analysis/<id>`). Мокаем `api.post`,
+// чтобы тесты могли проверить как успех (получили id → navigate с id),
+// так и ошибку (fallback на navigate('/analysis')).
+const mockApiPost = vi.fn();
+vi.mock('../api', async () => {
+  const actual = await vi.importActual<typeof import('../api')>('../api');
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      post: (...args: unknown[]) => mockApiPost(...args),
+    },
+  };
+});
+
 vi.mock('../hooks/useArchiveGamesByPosition', () => ({
   useArchiveGamesByPosition: () => ({
     items: [],
@@ -82,6 +98,7 @@ beforeEach(() => {
   mockGetGamesMetadata.mockReset();
   mockGetGameById.mockReset();
   mockNavigate.mockReset();
+  mockApiPost.mockReset();
 });
 
 afterEach(() => {
@@ -414,7 +431,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     );
   });
 
-  it('KS-2219: клик по строке (успех getArchiveGameById) → navigate(/analysis)', async () => {
+  it('KS-2219: клик по строке (успех getArchiveGameById) → navigate(/analysis/<created-id>)', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
     // KS-2210/F4: страница пытается загрузить PGN партии и сразу открыть
     // её в анализаторе (`/analysis`), а на детальный URL уходит только
@@ -431,6 +448,54 @@ describe('ArchiveGamesPage — metadata режим', () => {
       date: '2024.01.15',
       plyCount: 60,
     });
+    // KS-2403 follow-up: создание analysis-записи перед навигацией.
+    mockApiPost.mockResolvedValueOnce({ id: 'created-uuid-1' });
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('archive-game-row-g1'));
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/analyses',
+        expect.objectContaining({
+          pgn: '1. e4 e5',
+          title: 'Magnus Carlsen vs Hikaru Nakamura',
+          category: 'analysis',
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/analysis/created-uuid-1',
+        expect.objectContaining({
+          state: expect.objectContaining({
+            pgn: '1. e4 e5',
+            title: 'Magnus Carlsen vs Hikaru Nakamura',
+            breadcrumbRootUrl: '/archive',
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('KS-2403: клик по строке (POST /analyses падает) → fallback navigate(/analysis) без id', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    mockGetGameById.mockResolvedValueOnce({
+      id: 'g1',
+      pgn: '1. e4 e5',
+      white: { name: 'Magnus Carlsen', slug: 'magnus-carlsen', elo: 2870, title: 'GM' },
+      black: { name: 'Hikaru Nakamura', slug: 'hikaru-nakamura', elo: 2780, title: 'GM' },
+      result: '1-0',
+      eco: 'C42',
+      opening: 'Petroff',
+      event: 'World Cup',
+      date: '2024.01.15',
+      plyCount: 60,
+    });
+    mockApiPost.mockRejectedValueOnce(new Error('offline'));
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive' });
 
@@ -442,11 +507,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
       expect(mockNavigate).toHaveBeenCalledWith(
         '/analysis',
         expect.objectContaining({
-          state: expect.objectContaining({
-            pgn: '1. e4 e5',
-            title: 'Magnus Carlsen vs Hikaru Nakamura',
-            breadcrumbRootUrl: '/archive',
-          }),
+          state: expect.objectContaining({ pgn: '1. e4 e5' }),
         }),
       ),
     );

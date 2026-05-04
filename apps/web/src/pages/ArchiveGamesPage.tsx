@@ -9,6 +9,7 @@ import type {
   ArchiveTimeControlCategory,
 } from '@kingside/shared';
 
+import { api } from '../api';
 import { archiveApi } from '../api/archive';
 import { archivePreferencesApi } from '../api/archivePreferencesApi';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
@@ -535,28 +536,51 @@ function ArchiveMetadataMode() {
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
   // KS-2210: сохраняем в localStorage перед уходом — дебаунс PUT (1 сек)
   // не успеет сработать до unmount при быстром переходе.
+  // KS-2403 follow-up: создаём analysis-запись СРАЗУ через POST /analyses
+  // и навигируем на `/analysis/<id>`, а не на голый `/analysis`. Раньше
+  // navigate('/analysis', state) → AnalysisPage сам делал POST на mount
+  // и replaceState(URL). Но React Router об URL не знал, второй клик из
+  // архива в эту же сессию приходил на тот же `/analysis` (для роутера),
+  // компонент НЕ пересоздавался, локальный `localIdRef.current` оставался
+  // равен первому id, autosave перезаписывал первую запись pgn-ом
+  // второй партии — оба анализа в БД оказывались с одинаковыми ходами,
+  // отличались только headers. Создание записи здесь решает корень:
+  // URL /analysis/<id> сразу содержит уникальный id, key={id} в обёртке
+  // AnalysisPage пересоздаёт компонент при каждом клике.
   const handleRowClick = useCallback(
     (item: { id: string }) => {
       saveFiltersToStorage(filterValues);
       archiveApi
         .getArchiveGameById(item.id)
-        .then((game) => {
+        .then(async (game) => {
           const whiteLabel = game.white.name ?? '—';
           const blackLabel = game.black.name ?? '—';
+          const title = `${whiteLabel} vs ${blackLabel}`;
           const currentSearch = searchParams.toString();
           const backUrl = currentSearch
             ? `/archive?${currentSearch}`
             : '/archive';
-          navigate('/analysis', {
-            state: {
+          const navState = {
+            pgn: game.pgn,
+            title,
+            breadcrumbRootTitle: t('games.title', 'Archive games'),
+            breadcrumbRootUrl: '/archive',
+            breadcrumbSection: game.event ?? undefined,
+            breadcrumbBackUrl: backUrl,
+          };
+          try {
+            const created = await api.post<{ id: string }>('/analyses', {
               pgn: game.pgn,
-              title: `${whiteLabel} vs ${blackLabel}`,
-              breadcrumbRootTitle: t('games.title', 'Archive games'),
-              breadcrumbRootUrl: '/archive',
-              breadcrumbSection: game.event ?? undefined,
-              breadcrumbBackUrl: backUrl,
-            },
-          });
+              title,
+              category: 'analysis',
+            });
+            navigate(`/analysis/${created.id}`, { state: navState });
+          } catch {
+            // Если создать запись не удалось (offline/auth) — fallback
+            // на старое поведение. Без id не пересоздастся компонент,
+            // но это всё равно лучше чем заблокировать переход.
+            navigate('/analysis', { state: navState });
+          }
         })
         .catch(() => {
           navigate(`/archive/games/${item.id}`);
