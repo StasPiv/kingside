@@ -2710,6 +2710,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 payload = {}
             message = payload.get("message", "")
             files = payload.get("files", [])
+            agent = str(payload.get("agent", "") or "").lower().strip()
             if not message:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
@@ -2722,14 +2723,34 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "missing 'files' — explicit file list required"}).encode())
                 return
-            log(f"Commit: {message[:72]}, files={files}")
+            log(f"Commit (agent={agent or '?'}): {message[:72]}, files={files}")
+            author_overrides: list[str] = []
+            if agent and agent in AGENT_ROLES:
+                pretty = {
+                    "backend": "Backend Agent",
+                    "frontend": "Frontend Agent",
+                    "layout": "Layout Agent",
+                    "devops": "DevOps Agent",
+                    "architect": "Architect Agent",
+                    "qa": "QA Agent",
+                    "coordinator": "Coordinator Agent",
+                    "chess-expert": "Chess Expert",
+                    "content": "Content Agent",
+                    "marketing": "Marketing Agent",
+                }.get(agent, agent.title() + " Agent")
+                email = f"{agent}@kingside.dev"
+                author_overrides = [
+                    "-c", f"user.name={pretty}",
+                    "-c", f"user.email={email}",
+                    "-c", "commit.gpgsign=false",
+                ]
             try:
                 subprocess.run(
                     ["git", "add"] + files,
                     cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
                 )
                 result = subprocess.run(
-                    ["git", "commit", "-m", message],
+                    ["git"] + author_overrides + ["commit", "-m", message],
                     cwd=PROJECT_DIR, capture_output=True, text=True, timeout=60,
                 )
                 ok = result.returncode == 0

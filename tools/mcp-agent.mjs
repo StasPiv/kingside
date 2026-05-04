@@ -204,7 +204,7 @@ async function call(name, args) {
 
     // Webhook (with auth + roles)
     case 'commit':
-      return webhookPost('/commit', { message: args.message, files: args.files });
+      return webhookPost('/commit', { message: args.message, files: args.files, agent: AGENT });
     case 'git_log':
       return webhookPost('/git-log', {
         mode: args.mode || 'log',
