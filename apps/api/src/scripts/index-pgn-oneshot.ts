@@ -29,6 +29,12 @@
  *   --types=<csv>             whitelist drill-типов (default — все 8).
  *   --difficulty-version=v1|full   default v1 (см. methodology §9.5).
  *   --insert-batch-size=<N>   default 500.
+ *   --update-existing         (KS-2375) при коллизии по UNIQUE(type, fen)
+ *                             обновлять answer/meta/difficulty
+ *                             (UPSERT/ON CONFLICT DO UPDATE) вместо
+ *                             пропуска. Нужен для быстрой раскатки
+ *                             обновлённой логики predicate'ов на existing
+ *                             банк без DELETE + полный re-index.
  *
  * ENV:
  *   - DATABASE_URL (только основная БД tactic_drills).
@@ -52,6 +58,14 @@ interface CliOptions {
   types: Set<TacticDrillType>;
   difficultyVersion: 'v1' | 'full';
   insertBatchSize: number;
+  /**
+   * KS-2375: при коллизии по UNIQUE(type, fen) обновлять answer/meta/
+   * difficulty из новых predicate-результатов (UPSERT). Без флага —
+   * skipDuplicates (старое поведение). Используется для быстрой
+   * раскатки обновлённой логики predicate'ов на existing банк без
+   * DELETE + полный re-index.
+   */
+  updateExisting: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -60,6 +74,7 @@ function parseArgs(argv: string[]): CliOptions {
   let types: Set<TacticDrillType> = new Set(ALL_DRILL_TYPES);
   let difficultyVersion: 'v1' | 'full' = 'v1';
   let insertBatchSize = 500;
+  let updateExisting = false;
 
   for (const arg of argv) {
     const [key, val] = arg.replace(/^--/, '').split('=');
@@ -89,6 +104,10 @@ function parseArgs(argv: string[]): CliOptions {
       case 'insert-batch-size':
         insertBatchSize = parseInt(val, 10);
         break;
+      case 'update-existing':
+        // флаг без значения; допустимо `--update-existing` или `=true`.
+        updateExisting = val === undefined || val === 'true';
+        break;
       default:
         throw new Error(`unknown CLI option: ${arg}`);
     }
@@ -97,7 +116,14 @@ function parseArgs(argv: string[]): CliOptions {
   if (!pgnPath) {
     throw new Error('--pgn=<path> is required');
   }
-  return { pgnPath, maxGames, types, difficultyVersion, insertBatchSize };
+  return {
+    pgnPath,
+    maxGames,
+    types,
+    difficultyVersion,
+    insertBatchSize,
+    updateExisting,
+  };
 }
 
 /** Splitter PGN: каждая партия начинается с `[Event ...]`-тега. */
@@ -121,7 +147,8 @@ async function main(): Promise<void> {
     `[index-pgn] starting pgn=${cli.pgnPath} ` +
       `maxGames=${cli.maxGames === Infinity ? 'inf' : cli.maxGames} ` +
       `types=${[...cli.types].join(',')} ` +
-      `difficulty=${cli.difficultyVersion}\n`,
+      `difficulty=${cli.difficultyVersion} ` +
+      `updateExisting=${cli.updateExisting}\n`,
   );
 
   const text = readFileSync(cli.pgnPath, 'utf8');
@@ -172,21 +199,60 @@ async function main(): Promise<void> {
 
   async function flush(): Promise<void> {
     if (pending.length === 0) return;
-    const result = await prisma.tacticDrill.createMany({
-      data: pending.map((p) => ({
-        type: p.type,
-        fen: p.fen,
-        answer: p.answer as object,
-        difficulty: p.difficulty,
-        source: 'indexed',
-        // KS-2354: пробрасываем meta при наличии (count-attackers требует
-        // highlightedSquare; для остальных типов meta=undefined — Prisma
-        // оставит NULL, что корректно).
-        ...(p.meta !== undefined ? { meta: p.meta as object } : {}),
-      })),
-      skipDuplicates: true,
-    });
-    stats.insertedTotal += result.count;
+    if (cli.updateExisting) {
+      // KS-2375: UPSERT через ON CONFLICT DO UPDATE — обновляет answer/
+      // meta/difficulty existing drill'ов под новые predicate-результаты.
+      // Используется для быстрой раскатки KS-2371/2372 без DELETE +
+      // полный re-index.
+      //
+      // NB: в `tactic_drills` нет колонки `updated_at`, поэтому в SET
+      // её не трогаем (см. schema.prisma — есть только `createdAt`,
+      // `sfValidatedAt`).
+      //
+      // RETURNING id даёт нам количество затронутых строк (включая
+      // как INSERT, так и UPDATE — Postgres возвращает строку при
+      // любом успешном ON CONFLICT DO UPDATE).
+      let touched = 0;
+      for (const p of pending) {
+        const result = (await prisma.$queryRawUnsafe(
+          `INSERT INTO tactic_drills
+             (id, type, fen, answer, difficulty, source, meta, created_at)
+           VALUES
+             (gen_random_uuid(), $1, $2, $3::jsonb, $4, $5,
+              CASE WHEN $6::text IS NULL THEN NULL ELSE $6::jsonb END,
+              NOW())
+           ON CONFLICT (type, fen) DO UPDATE SET
+             answer = EXCLUDED.answer,
+             meta = EXCLUDED.meta,
+             difficulty = EXCLUDED.difficulty
+           RETURNING id`,
+          p.type,
+          p.fen,
+          JSON.stringify(p.answer),
+          p.difficulty,
+          'indexed',
+          p.meta !== undefined ? JSON.stringify(p.meta) : null,
+        )) as unknown[];
+        touched += Array.isArray(result) ? result.length : 0;
+      }
+      stats.insertedTotal += touched;
+    } else {
+      const result = await prisma.tacticDrill.createMany({
+        data: pending.map((p) => ({
+          type: p.type,
+          fen: p.fen,
+          answer: p.answer as object,
+          difficulty: p.difficulty,
+          source: 'indexed',
+          // KS-2354: пробрасываем meta при наличии (count-attackers
+          // требует highlightedSquare; для остальных типов
+          // meta=undefined — Prisma оставит NULL, что корректно).
+          ...(p.meta !== undefined ? { meta: p.meta as object } : {}),
+        })),
+        skipDuplicates: true,
+      });
+      stats.insertedTotal += result.count;
+    }
     pending = [];
   }
 
