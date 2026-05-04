@@ -512,6 +512,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         this.pollOffset = (this.pollOffset + take) % nonStreamedRounds.length;
       }
 
+      // KS-2356: summary state of polling queue для диагностики «почему
+      // конкретный round долго не получает партии».
+      this.logger.log(
+        `[broadcast-sync] poll-cycle ongoing=${ongoingRounds.length} ` +
+          `streamed=${streamedRoundIds.size} queued=${nonStreamedRounds.length} ` +
+          `picked=${toFetch.length} pollOffset=${this.pollOffset}`,
+      );
+
       for (let i = 0; i < toFetch.length; i++) {
         if (i > 0) await this.rateLimitDelay();
         await this.fetchAndProcessRoundPgn(toFetch[i].lichessRoundId).catch(
@@ -542,9 +550,25 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      // KS-2356: ранее silent fail — DevOps не видит почему round
+      // не получает партии. Логируем status для диагностики.
+      this.logger.warn(
+        `[broadcast-sync] PGN poll ${lichessRoundId} HTTP ${res.status}`,
+      );
+      return;
+    }
     const pgn = await res.text();
-    if (!pgn.trim()) return;
+    if (!pgn.trim()) {
+      // KS-2356: пустой PGN — round зарегистрирован в Lichess как
+      // ongoing, но партии ещё не начались (или результаты не
+      // транслируются через PGN-stream). Логируем, чтобы понимать,
+      // что round в очереди, но Lichess не отдаёт данные.
+      this.logger.log(
+        `[broadcast-sync] PGN poll ${lichessRoundId} empty (round ongoing but no PGN data yet)`,
+      );
+      return;
+    }
 
     const hashKey = `broadcast:pgn-hash:${lichessRoundId}`;
     const newHash = createHash('md5').update(pgn).digest('hex');
