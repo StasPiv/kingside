@@ -179,37 +179,29 @@ export class TacticDrillService {
       );
     }
 
-    // Простой LRU-сурогат: берём один drill, выбираем рандом через
-    // skip/random offset. Полный «least-recently-shown» — KS-DRILL-INDEXER-INC.
-    const tCount0 = Date.now();
-    const total = await this.prisma.tacticDrill.count({ where });
-    const tCount = Date.now() - tCount0;
-    if (total === 0) {
-      console.log(
-        `[drill-next] type=${type} cooldown=${tCooldown}ms recent=${recentCount} count=${tCount}ms total=0 → null`,
-      );
-      return null;
-    }
-    const offset = Math.floor(Math.random() * total);
-    const tFind0 = Date.now();
-    const drill = await this.prisma.tacticDrill.findFirst({
-      where,
-      skip: offset,
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        type: true,
-        fen: true,
-        difficulty: true,
-        meta: true, // KS-2250-fix: highlightedSquare для count-attackers.
-        // `answer` — НЕ включаем (api-contract §7).
-      },
-    });
-    const tFind = Date.now() - tFind0;
+    // KS-2370: keyset random pick через `id >= gen_random_uuid()`
+    // вместо `findFirst({skip: offset})`. На больших buckets
+    // (find-loose-piece 138k, find-pin 128k) обычный count + offset
+    // walks по 70k+ index-entries — 2-3с cold cache. Keyset — index
+    // seek O(log N), <50мс независимо от размера. Используется
+    // существующий KS-2355 индекс `(type, sf_rejected, id)`.
+    const excludeIds =
+      (where.id as { notIn?: string[] } | undefined)?.notIn ?? [];
+    const difficultyVal =
+      typeof where.difficulty === 'number'
+        ? (where.difficulty as number)
+        : null;
+    const tBranch0 = Date.now();
+    const drill = await this.pickRandomByKeyset(
+      type,
+      excludeIds,
+      difficultyVal,
+    );
+    const tBranch2 = Date.now() - tBranch0;
     const tTotal = Date.now() - t0;
     // eslint-disable-next-line no-console
     console.log(
-      `[drill-next] type=${type} cooldown=${tCooldown}ms recent=${recentCount} count=${tCount}ms find=${tFind}ms offset=${offset}/${total} total=${tTotal}ms`,
+      `[drill-next] type=${type} cooldown=${tCooldown}ms recent=${recentCount} keyset=${tBranch2}ms total=${tTotal}ms found=${!!drill}`,
     );
     if (!drill) return null;
 
@@ -220,6 +212,86 @@ export class TacticDrillService {
       drill.difficulty,
       drill.meta,
     );
+  }
+
+  /**
+   * KS-2370: keyset-random для drill-типов кроме count-attackers
+   * (count-attackers обслуживается `pickBalancedCountAttackers` →
+   * `pickCountAttackerByValue`, см. KS-2368/KS-2371).
+   *
+   * Алгоритм идентичен KS-2371: `id >= gen_random_uuid()` forward
+   * seek + backward fallback при null. UUID v4 равномерно распределён
+   * → index range scan на `tactic_drills_type_sf_rejected_id_idx`
+   * (KS-2355) даёт O(log N) seek независимо от размера bucket'а.
+   *
+   * `findFirst({skip: offset})` Prisma на 138k записях с offset=70k
+   * walks по 70k index-entries — 2-3с cold cache. Здесь — <50мс.
+   */
+  private async pickRandomByKeyset(
+    type: TacticDrillType,
+    excludeIds: string[],
+    difficulty: number | null,
+  ): Promise<{
+    id: string;
+    type: string;
+    fen: string;
+    difficulty: number;
+    meta: unknown;
+  } | null> {
+    const conditions = [`type = $1`, `sf_rejected = false`];
+    const params: unknown[] = [type];
+    if (difficulty !== null) {
+      params.push(difficulty);
+      conditions.push(`difficulty = $${params.length}`);
+    }
+    if (excludeIds.length > 0) {
+      params.push(excludeIds);
+      conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
+    }
+    const whereSql = conditions.join(' AND ');
+
+    const sqlForward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id >= gen_random_uuid() ` +
+      `ORDER BY id ASC LIMIT 1`;
+    const sqlBackward =
+      `SELECT id, type, fen, difficulty, meta FROM tactic_drills ` +
+      `WHERE ${whereSql} AND id < gen_random_uuid() ` +
+      `ORDER BY id DESC LIMIT 1`;
+
+    type Row = {
+      id: string;
+      type: string;
+      fen: string;
+      difficulty: number;
+      meta: unknown;
+    };
+
+    const tFwd0 = Date.now();
+    const fwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      sqlForward,
+      ...params,
+    );
+    const tFwd = Date.now() - tFwd0;
+    if (fwd[0]) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[drill-next] keyset type=${type} fwd=${tFwd}ms hit=fwd excludeIds=${excludeIds.length}`,
+      );
+      return fwd[0];
+    }
+
+    const tBwd0 = Date.now();
+    const bwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      sqlBackward,
+      ...params,
+    );
+    const tBwd = Date.now() - tBwd0;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[drill-next] keyset type=${type} fwd=${tFwd}ms bwd=${tBwd}ms hit=${bwd[0] ? 'bwd' : 'none'} excludeIds=${excludeIds.length}`,
+    );
+    return bwd[0] ?? null;
   }
 
   /**

@@ -73,56 +73,59 @@ describe('TacticDrillService — KS-2230', () => {
   });
 
   describe('getNext', () => {
+    // KS-2370: keyset random pick через $queryRawUnsafe (gen_random_uuid).
+    // Все non-count-attackers тесты переключены с count/findFirst-моков
+    // на $queryRawUnsafe.
+    const drillForkRow = {
+      id: 'drill-1',
+      type: 'find-fork',
+      fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+      difficulty: 2,
+      meta: null,
+    };
+
     it('пул пустой → null', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(0);
+      // fwd []  → bwd [] = пусто.
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValue([]);
       const r = await svc.getNext(null, 'find-fork');
       expect(r).toBeNull();
     });
 
     it('гость → cooldown не применяется (нет findMany по attempt)', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'drill-1',
-        type: 'find-fork',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 2,
-      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([drillForkRow]);
       const r = await svc.getNext(null, 'find-fork');
       expect(r).toBeDefined();
       expect(prisma.tacticDrillAttempt.findMany).not.toHaveBeenCalled();
     });
 
-    it('auth user → cooldown 30 дней; recent drillIds исключаются', async () => {
+    it('auth user → cooldown 30 дней; recent drillIds исключаются через ANY-array', async () => {
       (prisma.tacticDrillAttempt.findMany as jest.Mock).mockResolvedValue([
         { drillId: 'recent-1' },
         { drillId: 'recent-2' },
       ]);
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(5);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'drill-new',
-        type: 'find-fork',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 2,
-      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([drillForkRow]);
       await svc.getNext('user-1', 'find-fork');
-      expect(prisma.tacticDrill.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            type: 'find-fork',
-            id: { notIn: ['recent-1', 'recent-2'] },
-          }),
-        }),
+      // KS-2370: keyset SQL должен включать NOT (id = ANY(...)) для cooldown.
+      const calls = (prisma.$queryRawUnsafe as jest.Mock).mock.calls;
+      const hasCooldown = calls.some(
+        (c: unknown[]) =>
+          typeof c[0] === 'string' &&
+          c[0].includes('NOT (id = ANY(') &&
+          // ANY получает recent drillIds в параметрах.
+          c.some(
+            (p: unknown) =>
+              Array.isArray(p) &&
+              p.includes('recent-1') &&
+              p.includes('recent-2'),
+          ),
       );
+      expect(hasCooldown).toBe(true);
     });
 
     it('возвращает DTO БЕЗ поля `answer` (api-contract §7)', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'drill-1',
-        type: 'find-fork',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 3,
-      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        { ...drillForkRow, difficulty: 3 },
+      ]);
       const r = await svc.getNext(null, 'find-fork');
       expect(r).toBeDefined();
       // critical: no `answer` key
@@ -135,34 +138,31 @@ describe('TacticDrillService — KS-2230', () => {
     });
 
     it('select-clause НЕ выбирает answer из БД', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'd',
-        type: 'find-fork',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 1,
-      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([drillForkRow]);
       await svc.getNext(null, 'find-fork');
-      const call = (prisma.tacticDrill.findFirst as jest.Mock).mock.calls[0][0];
-      expect(call.select).toEqual(
-        expect.objectContaining({
-          id: true,
-          type: true,
-          fen: true,
-          difficulty: true,
-        }),
+      // KS-2370: проверяем raw SQL. SELECT должен включать только
+      // id/type/fen/difficulty/meta — без `answer`.
+      const calls = (prisma.$queryRawUnsafe as jest.Mock).mock.calls;
+      const sqls = calls.map((c) => c[0]).filter((s): s is string => typeof s === 'string');
+      const hasOnlySafeColumns = sqls.some(
+        (s) =>
+          s.includes('SELECT id, type, fen, difficulty, meta') &&
+          !s.includes(' answer ') &&
+          !s.includes(',answer'),
       );
-      expect(call.select).not.toHaveProperty('answer');
+      expect(hasOnlySafeColumns).toBe(true);
     });
 
     it('side-to-move = null для find-pin / find-loose / count-attackers', async () => {
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'd',
-        type: 'find-pin',
-        fen: '2k5/2p5/8/8/8/8/8/2RK4 b - - 0 1',
-        difficulty: 1,
-      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'd',
+          type: 'find-pin',
+          fen: '2k5/2p5/8/8/8/8/8/2RK4 b - - 0 1',
+          difficulty: 1,
+          meta: null,
+        },
+      ]);
       const r = await svc.getNext(null, 'find-pin');
       expect(r?.sideToMove).toBeNull();
     });
