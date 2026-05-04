@@ -254,7 +254,55 @@ export class AnalysisService implements OnModuleInit {
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
 
+    // KS-2404: ранее любая meta-нормализация затирала existing headers
+    // на null, если в новом dto.pgn нет [White ...]/[Event ...] и т.п.
+    // Это пересекалось со stale-state-багом фронта (KS-2403):
+    // фронт мог прислать только moves без headers — и валидные
+    // event/white/black-поля в БД теряли значения.
+    //
+    // Фикс: обновляем поле header'а только если новое значение **не
+    // null**. Если в новом pgn header'а нет, оставляем то, что было.
+    // Это не покрывает случай «фронт прислал stale moves c HEADERS
+    // от другой игры» (там headers перезатрутся под stale-headers,
+    // и это правильно — мы доверяем тому, что прислал клиент). Но
+    // защищает от потери headers при moves-only PATCH.
     const meta = dto.pgn !== undefined ? this.extractMetadata(dto.pgn) : null;
+    const headerUpdate = meta
+      ? {
+          // headline пересчитываем только если хотя бы один из
+          // White/Black есть — иначе buildHeadline вернул бы null и
+          // затёр существующий headline.
+          ...(meta.white || meta.black
+            ? { headline: this.buildHeadline(dto.pgn) }
+            : {}),
+          ...(meta.opening !== null && { opening: meta.opening }),
+          ...(meta.event !== null && { event: meta.event }),
+          ...(meta.site !== null && { site: meta.site }),
+          ...(meta.pgnDate !== null && { pgnDate: meta.pgnDate }),
+          ...(meta.round !== null && { round: meta.round }),
+          ...(meta.white !== null && { white: meta.white }),
+          ...(meta.black !== null && { black: meta.black }),
+          ...(meta.whiteElo !== null && { whiteElo: meta.whiteElo }),
+          ...(meta.blackElo !== null && { blackElo: meta.blackElo }),
+          ...(meta.result !== null && { result: meta.result }),
+        }
+      : {};
+
+    // KS-2404 telemetry: если фронт прислал PGN с headers, отличными
+    // от тех, что в БД (white/black/round) — лог warn для прод-
+    // диагностики stale-state регрессий. Не блокирующее.
+    if (
+      meta &&
+      ((meta.white && analysis.white && meta.white !== analysis.white) ||
+        (meta.black && analysis.black && meta.black !== analysis.black) ||
+        (meta.round && analysis.round && meta.round !== analysis.round))
+    ) {
+      this.logger.warn(
+        `analysis update headers diverge id=${id} user=${userId} ` +
+          `was: ${analysis.white}/${analysis.black} round=${analysis.round} ` +
+          `now: ${meta.white}/${meta.black} round=${meta.round}`,
+      );
+    }
 
     return this.prisma.analysis.update({
       where: { id },
@@ -264,19 +312,7 @@ export class AnalysisService implements OnModuleInit {
         ...(dto.fen !== undefined && { fen: dto.fen }),
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
-        ...(meta && {
-          headline: this.buildHeadline(dto.pgn),
-          opening: meta.opening ?? null,
-          event: meta.event ?? null,
-          site: meta.site ?? null,
-          pgnDate: meta.pgnDate ?? null,
-          round: meta.round ?? null,
-          white: meta.white ?? null,
-          black: meta.black ?? null,
-          whiteElo: meta.whiteElo ?? null,
-          blackElo: meta.blackElo ?? null,
-          result: meta.result ?? null,
-        }),
+        ...headerUpdate,
       },
     });
   }

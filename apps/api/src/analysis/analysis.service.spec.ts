@@ -172,6 +172,51 @@ describe('AnalysisService', () => {
 
       await expect(service.update(userId, 'nope', { title: 'x' })).rejects.toThrow(NotFoundException);
     });
+
+    // KS-2404: до фикса PATCH с pgn без headers затирал existing
+    // event/white/black-поля в null.
+    it('KS-2404: PATCH с pgn без headers НЕ сбрасывает существующие headers', async () => {
+      const existing = {
+        ...mockAnalysis,
+        pgn: '[White "Carlsen"]\n[Black "Nepo"]\n[Event "Champ"]\n[Round "5"]\n\n1. e4 e5 *',
+        white: 'Carlsen',
+        black: 'Nepo',
+        event: 'Champ',
+        round: '5',
+      };
+      prisma.analysis.findUnique.mockResolvedValue(existing);
+      prisma.analysis.update.mockResolvedValue(existing);
+
+      // moves-only PGN, без headers
+      await service.update(userId, 'analysis-1', { pgn: '1. e4 e5 2. Nf3 Nc6 *' });
+
+      const data = prisma.analysis.update.mock.calls[0][0].data;
+      // pgn обновился
+      expect(data.pgn).toBe('1. e4 e5 2. Nf3 Nc6 *');
+      // headers НЕ затёрлись в null — поля просто не передаются в data
+      expect(data).not.toHaveProperty('white');
+      expect(data).not.toHaveProperty('black');
+      expect(data).not.toHaveProperty('event');
+      expect(data).not.toHaveProperty('round');
+    });
+
+    it('KS-2404: PATCH с pgn с headers — обновляет соответствующие headers', async () => {
+      prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
+      prisma.analysis.update.mockResolvedValue(mockAnalysis);
+
+      const newPgn =
+        '[White "Fischer"]\n[Black "Spassky"]\n[Event "Reykjavik"]\n\n1. e4 c5 *';
+      await service.update(userId, 'analysis-1', { pgn: newPgn });
+
+      const data = prisma.analysis.update.mock.calls[0][0].data;
+      expect(data.pgn).toBe(newPgn);
+      expect(data.white).toBe('Fischer');
+      expect(data.black).toBe('Spassky');
+      expect(data.event).toBe('Reykjavik');
+      // не пришедшие headers НЕ передаются (round, site, opening и т.п.)
+      expect(data).not.toHaveProperty('round');
+      expect(data).not.toHaveProperty('site');
+    });
   });
 
   describe('remove', () => {
