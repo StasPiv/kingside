@@ -1,46 +1,35 @@
 /**
- * KS-2227 / ADR-035 §2.1 #3 — `find-pin` (абсолютные связки).
+ * KS-2227 / ADR-035 §2.1 #3 — `find-pin` (абсолютные и относительные
+ * связки).
  *
- * KS-2336: уточнённая семантика. Связкой считается фигура P, у которой
- * выполнены оба условия:
- *   1. После виртуального удаления P король цвета P попадает под атаку
- *      дальнобойной фигуры противника (Q/R/B), которой не было до
- *      удаления.
- *   2. **Существует хотя бы один pseudo-legal ход P**, после которого
- *      король P цвета остаётся под атакой этой дальнобойной фигуры
- *      (т. е. ход уводит P с защищающей линии).
+ * KS-2336/KS-2340: уточнённая семантика. Связкой считается фигура P,
+ * у которой выполнены оба условия:
+ *   1. За P (в направлении от sliding-attacker'а противника через P)
+ *      первая встреченная фигура — своя, и её ценность > ценности P
+ *      (либо это король; ценность короля = Infinity, абсолютная связка).
+ *   2. Существует хотя бы один pseudo-legal ход P, не лежащий на
+ *      прямой (attacker, anchor). Это значит — P может физически
+ *      сойти с линии связки и открыть anchor.
  *
- * До KS-2336 алгоритм проверял только п.1. Это давало завышение:
- * например, чёрная пешка g7 при чёрном короле g8 и белом ферзе g3 —
- * после удаления пешки король под боем, но все ходы пешки (g6/g5)
- * остаются на g-вертикали и не открывают короля. По шахматной
- * семантике она не связана; теперь predicate её отфильтрует.
+ * KS-2347: расширение с абсолютных связок (anchor=king) на
+ * относительные (anchor=ферзь/ладья/слон/конь, ценнее P). Карточка
+ * лобби обещала «фигура большей ценности или король» — predicate
+ * теперь это покрывает.
  *
- * Реализация п.2 (KS-2340 — переписана с KS-2336): chess.js v1 не
- * отдаёт pseudo-legal ходы, попадающие под собственный шах. Поэтому
- * мы геометрически генерируем pseudo-legal targets фигуры P в
- * исходной позиции (с учётом доски и своих фигур, без учёта связки)
- * и для каждого target проверяем — лежит ли он на прямой
- * (attacker, king) через P. Если хотя бы один target НЕ на этой
- * прямой — ход открывает короля → P связана. Если все на прямой
- * (или их нет вообще, как у пешки g7 с ладьёй g6 рядом — ходы
- * физически заблокированы) — P не связана.
+ * Скейл ценности (см. `types.PIECE_VALUE`):
+ *   pawn=1, knight=3, bishop=3, rook=5, queen=9, king=Inf.
+ * При equal-value «связка» не считается (например, конь за конём —
+ * никакой выгоды от удержания пина).
  *
- * Важно: предыдущий KS-2336 фикс «удалять attacker и брать moves»
- * давал false-positive для пешки g7 при белой ладье g6 — после
- * удаления ладьи у пешки появлялись фиктивные ходы g7-g6/g7-g5,
- * которых в реальной позиции нет.
+ * Реализация п.2: chess.js v1 не отдаёт pseudo-legal ходы под
+ * собственный шах. Геометрический генератор `pseudoTargets` строит
+ * все целевые клетки фигуры в исходной позиции (с учётом доски и
+ * своих фигур, без учёта связки), затем cross-product проверяет
+ * collinear с прямой (attacker, anchor). Если хотя бы один target
+ * не на прямой — связка.
  *
- * В позиции должна быть **ровно одна** связанная фигура, иначе drop.
- *
- * Сторона на ходу не важна: показываем связанные фигуры обоих цветов.
- *
- * Замечание по реализации. Основной обход мутирует рабочий `Chess`-
- * инстанс через remove/put; восстанавливаем после каждого тестового
- * удаления, чтобы не плодить новые `new Chess(fen)` для миллионов
- * позиций индексера. Симуляция ходов P (KS-2336) делается на отдельных
- * клонах через `new Chess(fen)` — её гонка ограничена реальными
- * кандидатами связки (≤ 1 на типичной позиции).
+ * Strict-uniqueness: ровно одна связанная фигура (любого вида), иначе
+ * drop. Сторона на ходу не важна — показываем связки обоих цветов.
  */
 
 import type { Square as ChessJsSquare } from 'chess.js';
@@ -48,34 +37,117 @@ import type { AnswerSquare } from '@kingside/shared';
 import { Chess } from 'chess.js';
 import {
   allPieces,
-  findKingSquare,
   oppColor,
+  PIECE_VALUE,
   tryLoadChess,
   type SquareResult,
 } from './types';
 
-const SLIDING: ReadonlySet<string> = new Set(['q', 'r', 'b']);
+type PinDir = 'rook' | 'bishop';
 
-function attackerTypes(chess: Chess, sq: ChessJsSquare, byColor: 'w' | 'b'): Set<string> {
-  const out = new Set<string>();
-  for (const a of chess.attackers(sq, byColor)) {
-    const piece = chess.get(a);
-    if (piece) out.add(piece.type);
-  }
-  return out;
+const DIRECTIONS: Array<[df: number, dr: number, kind: PinDir]> = [
+  [0, 1, 'rook'], [0, -1, 'rook'], [1, 0, 'rook'], [-1, 0, 'rook'],
+  [1, 1, 'bishop'], [1, -1, 'bishop'], [-1, 1, 'bishop'], [-1, -1, 'bishop'],
+];
+
+function squareAt(file: number, rank: number): ChessJsSquare | null {
+  if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+  return (String.fromCharCode(97 + file) + (rank + 1)) as ChessJsSquare;
 }
 
-function findNewSlidingAttackerSq(
+function isSlider(pieceType: string, dir: PinDir): boolean {
+  if (pieceType === 'q') return true;
+  if (pieceType === 'r' && dir === 'rook') return true;
+  if (pieceType === 'b' && dir === 'bishop') return true;
+  return false;
+}
+
+interface PinAnchor {
+  sliderSq: ChessJsSquare;
+  anchorSq: ChessJsSquare;
+  anchorType: string;
+  /** Направление линии связки: единичный вектор от slider к anchor. */
+  dx: number;
+  dy: number;
+}
+
+/**
+ * Геометрический поиск anchor'а для возможной связки фигуры P.
+ *
+ * Идём по 8 направлениям от P. По каждому:
+ *   - В сторону `dir` ищем первую фигуру → если это enemy slider
+ *     (Q/R/B соответствующего типа линии) → есть кандидат-attacker.
+ *   - В сторону `-dir` (от P назад) ищем первую фигуру → если это
+ *     своя фигура → она anchor. Если первая встреченная — enemy,
+ *     anchor отсутствует (за P в обратную сторону стоит враг,
+ *     не имеет смысла «защищать» его связкой).
+ *
+ * Возвращаем первый найденный (любая 1 связка). Если ни одной —
+ * `null`.
+ */
+function findPinAnchor(
   chess: Chess,
-  kingSq: ChessJsSquare,
-  byColor: 'w' | 'b',
-  beforeSet: Set<ChessJsSquare>,
-): ChessJsSquare | null {
-  for (const a of chess.attackers(kingSq, byColor)) {
-    if (beforeSet.has(a)) continue;
-    const piece = chess.get(a);
-    if (piece && SLIDING.has(piece.type)) return a;
+  pSq: ChessJsSquare,
+  pColor: 'w' | 'b',
+): PinAnchor | null {
+  const enemy = oppColor(pColor);
+  const file = pSq.charCodeAt(0) - 97;
+  const rank = parseInt(pSq[1], 10) - 1;
+
+  for (const [dx, dy, kind] of DIRECTIONS) {
+    // 1) Идём от P в сторону (dx, dy), ищем enemy-slider.
+    let sliderSq: ChessJsSquare | null = null;
+    {
+      let f = file + dx;
+      let r = rank + dy;
+      while (true) {
+        const cell = squareAt(f, r);
+        if (!cell) break;
+        const piece = chess.get(cell);
+        if (piece) {
+          if (piece.color === enemy && isSlider(piece.type, kind)) {
+            sliderSq = cell;
+          }
+          break;
+        }
+        f += dx;
+        r += dy;
+      }
+    }
+    if (!sliderSq) continue;
+
+    // 2) Идём от P в обратную сторону (-dx, -dy), ищем anchor.
+    let anchorSq: ChessJsSquare | null = null;
+    let anchorType: string | null = null;
+    {
+      let f = file - dx;
+      let r = rank - dy;
+      while (true) {
+        const cell = squareAt(f, r);
+        if (!cell) break;
+        const piece = chess.get(cell);
+        if (piece) {
+          if (piece.color === pColor) {
+            anchorSq = cell;
+            anchorType = piece.type;
+          }
+          break; // enemy или our — стоп в любом случае
+        }
+        f -= dx;
+        r -= dy;
+      }
+    }
+    if (!anchorSq || !anchorType) continue;
+
+    return {
+      sliderSq,
+      anchorSq,
+      anchorType,
+      dx,
+      dy,
+    };
   }
+
   return null;
 }
 
@@ -165,15 +237,10 @@ function pseudoTargets(
 }
 
 /**
- * KS-2340: P связана если у неё есть pseudo-legal target, который
- * **не лежит** на прямой (attacker, king) через P. Если targets
- * пусты (фигура физически заблокирована, как пешка g7 при ладье g6
- * вплотную) — не связана. Если все targets на прямой связки (как
- * пешка c7 при ладье c1) — тоже не связана.
- *
- * Прямая (attacker, king) проходит через P (мы знаем это из 1-го
- * фильтра — иначе attacker не атаковал бы king'а после remove(P)).
- * Cross product 2D-векторов = 0 ⇔ collinear.
+ * KS-2340: P связана если у неё есть pseudo-legal target, не лежащий
+ * на прямой (attacker, anchor). Прямая (attacker, anchor) проходит
+ * через P (по построению `findPinAnchor`). Cross product 2D = 0 ⇔
+ * collinear.
  */
 function existsTargetOffPinLine(
   chess: Chess,
@@ -181,12 +248,12 @@ function existsTargetOffPinLine(
   pType: PieceType,
   pColor: 'w' | 'b',
   attackerSq: ChessJsSquare,
-  kingSq: ChessJsSquare,
+  anchorSq: ChessJsSquare,
 ): boolean {
   const targets = pseudoTargets(chess, pSq, pType, pColor);
   if (targets.length === 0) return false;
-  const ux = kingSq.charCodeAt(0) - attackerSq.charCodeAt(0);
-  const uy = parseInt(kingSq[1], 10) - parseInt(attackerSq[1], 10);
+  const ux = anchorSq.charCodeAt(0) - attackerSq.charCodeAt(0);
+  const uy = parseInt(anchorSq[1], 10) - parseInt(attackerSq[1], 10);
   for (const t of targets) {
     const vx = t.charCodeAt(0) - pSq.charCodeAt(0);
     const vy = parseInt(t[1], 10) - parseInt(pSq[1], 10);
@@ -196,7 +263,7 @@ function existsTargetOffPinLine(
 }
 
 export function findPin(fen: string): SquareResult {
-  let chess = tryLoadChess(fen);
+  const chess = tryLoadChess(fen);
   if (!chess) return { valid: false, reason: 'invalid_fen' };
 
   const candidates: string[] = [];
@@ -204,62 +271,26 @@ export function findPin(fen: string): SquareResult {
   for (const p of allPieces(chess)) {
     if (p.type === 'k') continue;
 
-    const kingSq = findKingSquare(chess, p.color);
-    if (!kingSq) continue; // невалидная позиция без короля — пропускаем
-
-    const enemy = oppColor(p.color);
-    const before = attackerTypes(chess, kingSq, enemy);
-    const beforeSquares = new Set<ChessJsSquare>(
-      chess.attackers(kingSq, enemy),
-    );
-
-    chess.remove(p.square);
-    const after = attackerTypes(chess, kingSq, enemy);
-    const attackerSq = findNewSlidingAttackerSq(
+    // KS-2347: anchor может быть и не король, главное — ценность > P.
+    const anchor = findPinAnchor(
       chess,
-      kingSq,
-      enemy,
-      beforeSquares,
+      p.square as ChessJsSquare,
+      p.color,
     );
+    if (!anchor) continue;
 
-    // Восстанавливаем доску. `put` может вернуть false (например, если
-    // движок сочтёт state corrupted); в таком случае пересоздаём
-    // инстанс из исходного FEN.
-    let putOk = false;
-    try {
-      putOk = chess.put({ type: p.type, color: p.color }, p.square);
-    } catch {
-      putOk = false;
-    }
-    if (!putOk) {
-      const restored = tryLoadChess(fen);
-      if (!restored) return { valid: false, reason: 'fen_state_corrupted' };
-      chess = restored;
-    }
+    const pValue = PIECE_VALUE[p.type] ?? 0;
+    const aValue = PIECE_VALUE[anchor.anchorType] ?? 0;
+    if (aValue <= pValue) continue; // равная ценность — не связка
 
-    // Появилась дальнобойная атака на king'а после удаления P → связка
-    // (необходимое условие KS-2227).
-    let newSliding = false;
-    for (const t of after) {
-      if (!before.has(t) && SLIDING.has(t)) {
-        newSliding = true;
-        break;
-      }
-    }
-    if (!newSliding || !attackerSq) continue;
-
-    // KS-2336/KS-2340: достаточное условие — у P есть pseudo-legal
-    // target, не лежащий на прямой (attacker, king). Геометрический
-    // generator не плодит фиктивных ходов, как было при «удалить
-    // attacker → moves».
     if (
       !existsTargetOffPinLine(
         chess,
         p.square as ChessJsSquare,
         p.type as PieceType,
         p.color,
-        attackerSq,
-        kingSq,
+        anchor.sliderSq,
+        anchor.anchorSq,
       )
     ) {
       continue;
