@@ -64,6 +64,13 @@ interface PendingDrill {
   answer: AnswerData;
   difficulty: number;
   source: string;
+  /**
+   * KS-2328: UI-meta. Для `count-attackers` обязательно содержит
+   * `highlightedSquare` и `attackerColor` — без них фронт не знает,
+   * какую клетку подсвечивать. Для остальных типов сейчас undefined
+   * (можно расширить позже под expectedCount и т. п.).
+   */
+  meta?: Record<string, unknown>;
 }
 
 const ALL_DRILL_TYPES: TacticDrillType[] = DRILL_TYPE_ORDER;
@@ -155,6 +162,13 @@ export function predicatesForPosition(
           answer: r.answer,
           difficulty: bucket,
           source,
+          // KS-2328: без `meta.highlightedSquare` фронт не знает, какую
+          // клетку подсвечивать в UI count-attackers (DrillRunner.tsx
+          // читает drill.meta.highlightedSquare для squareStyles).
+          meta: {
+            highlightedSquare: c.targetSquare,
+            attackerColor: c.attackerColor,
+          },
         });
       }
     }
@@ -176,6 +190,8 @@ async function flushBatch(
       answer: p.answer as unknown as object,
       difficulty: p.difficulty,
       source: p.source,
+      // KS-2328: meta нужно сохранять (для count-attackers — обязательно).
+      ...(p.meta !== undefined ? { meta: p.meta as object } : {}),
     })),
     skipDuplicates: true,
   });
