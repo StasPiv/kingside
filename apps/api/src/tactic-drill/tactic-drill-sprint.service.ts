@@ -170,6 +170,14 @@ export class TacticDrillSprintService {
     );
     await this.redis.set(activeKey, sessionId, 'EX', ttl);
 
+    // KS-2380: прод-диагностика. Mode-label рассинхрон с фронтом — частый
+    // источник пустых лидербордов; лог даёт прямой ответ «какой mode
+    // записан под какие types».
+    // eslint-disable-next-line no-console
+    console.log(
+      `[sprint-start] user=${userId} sessionId=${sessionId} types=${types.length}/${ALL_DRILL_TYPES.length} modeLabel=${state.modeLabel} durationMs=${body.durationMs}`,
+    );
+
     return {
       sessionId,
       drill: drill.dto,
@@ -362,6 +370,98 @@ export class TacticDrillSprintService {
     return { mode, entries };
   }
 
+  // ─── auto-finalize (KS-2380) ───────────────────────────────
+
+  /**
+   * KS-2380. Жалоба: пользователь прошёл sprint, но в лидерборде пусто.
+   *
+   * Корневая причина — финал сессии завязан на последний `/sprint/submit`
+   * либо явный `/sprint/finish`. Если пользователь после истечения
+   * таймера не отправил submit (закрыл вкладку, потерял фокус, перешёл
+   * сразу на страницу лидерборда и т.д.) и фронт не вызвал `/finish`,
+   * сессия в Redis висит до TTL (durationMs+60s) и затем тихо удаляется
+   * Redis'ом — БД-записи не появляется.
+   *
+   * Решение: scheduler (см. `tactic-drill-sprint.scheduler.ts`) раз в
+   * минуту вызывает этот метод. Он сканирует `drill-sprint:session:*`,
+   * для каждой timedOut-сессии (`elapsed >= durationMs + grace`)
+   * атомарно удаляет state-key (`redis.del` возвращает 1 только
+   * первому, поэтому гонка с параллельным `submit`/`finish` исключена)
+   * и финализирует state в БД, если были попытки.
+   *
+   * Сессии без attempts (пустые) — просто удаляются: пустую запись
+   * в лидерборд писать смысла нет.
+   *
+   * Возвращает {scanned, finalized, skipped} для прод-логирования.
+   */
+  async autoFinalizeExpiredSessions(): Promise<{
+    scanned: number;
+    finalized: number;
+    skipped: number;
+  }> {
+    const grace = 5_000; // запас, чтобы не конкурировать с обычным submit'ом
+    const now = Date.now();
+    const keys = await this.redis.keys?.('drill-sprint:session:*');
+    if (!keys || keys.length === 0) {
+      return { scanned: 0, finalized: 0, skipped: 0 };
+    }
+
+    let finalized = 0;
+    let skipped = 0;
+    for (const key of keys) {
+      const raw = await this.redis.get(key);
+      if (!raw) {
+        skipped++;
+        continue;
+      }
+      let state: SprintSessionState;
+      try {
+        state = JSON.parse(raw) as SprintSessionState;
+      } catch {
+        // Сломанный JSON — чистим и идём дальше.
+        await this.redis.del(key);
+        skipped++;
+        continue;
+      }
+      const elapsed = now - state.startedAt;
+      if (elapsed < state.durationMs + grace) {
+        // Ещё работает — ничего не делаем.
+        skipped++;
+        continue;
+      }
+      // Atomic guard: только один процесс/тик заберёт сессию.
+      const removed = await this.redis.del(key);
+      if (removed === 0) {
+        skipped++;
+        continue;
+      }
+      try {
+        if (state.attempts.length > 0) {
+          await this.finalize(state);
+          finalized++;
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[sprint-auto-finalize] user=${state.userId} sessionId=${state.sessionId} skipped=empty-attempts`,
+          );
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[sprint-auto-finalize] user=${state.userId} sessionId=${state.sessionId} error=`,
+          e,
+        );
+      }
+      // Чистим active-маркер только если он указывает на эту же сессию.
+      const active = await this.redis.get(this.activeKey(state.userId));
+      if (active === state.sessionId) {
+        await this.redis.del(this.activeKey(state.userId));
+      }
+    }
+
+    return { scanned: keys.length, finalized, skipped };
+  }
+
   // ─── private ───────────────────────────────────────────────
 
   private sessionKey(sessionId: string): string {
@@ -487,6 +587,15 @@ export class TacticDrillSprintService {
       },
       select: { id: true },
     });
+
+    // KS-2380: симметричный лог финала под `[sprint-start]`. По двум
+    // строкам в проде однозначно видно: записалось ли в БД, какой mode,
+    // какой score; чем закрыт цикл — submit'ом или scheduler'ом
+    // (см. `autoFinalizeExpiredSessions`).
+    // eslint-disable-next-line no-console
+    console.log(
+      `[sprint-final] user=${state.userId} sessionId=${state.sessionId} mode=${state.modeLabel} attempts=${total} score=${score} accuracy=${accuracy} scoreId=${row.id}`,
+    );
 
     return { scoreId: row.id, score, accuracy, avgPrecision };
   }

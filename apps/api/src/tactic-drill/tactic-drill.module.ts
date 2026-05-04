@@ -11,6 +11,7 @@ import { AuthModule } from '../auth/auth.module';
 import { TacticDrillController } from './tactic-drill.controller';
 import { TacticDrillService } from './tactic-drill.service';
 import { TacticDrillSprintService } from './tactic-drill-sprint.service';
+import { TacticDrillSprintScheduler } from './tactic-drill-sprint.scheduler';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
 import { TacticDrillIncrementalScheduler } from './tactic-drill-incremental.scheduler';
 import { TacticDrillSfValidatorService } from './tactic-drill-sf-validator.service';
@@ -28,6 +29,11 @@ import { DailyTacticDrillImageService } from './daily-tactic-drill-image.service
   providers: [
     TacticDrillService,
     TacticDrillSprintService,
+    // KS-2380: каждую минуту финализирует sprint-сессии, по которым
+    // фронт не успел вызвать `/sprint/finish` (закрытая вкладка,
+    // потерянный фокус и т. д.). Без него score не попадает в БД,
+    // лидерборд остаётся пустым.
+    TacticDrillSprintScheduler,
     TacticDrillValidatorService,
     // KS-2245: cron-индексер новых партий из archive-БД. Включается
     // через ENV `TACTIC_DRILL_INCREMENTAL_ENABLED=1` (default off).

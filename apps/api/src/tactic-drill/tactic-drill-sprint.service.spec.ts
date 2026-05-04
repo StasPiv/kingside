@@ -22,6 +22,7 @@ interface FakeRedis {
   get: jest.Mock;
   set: jest.Mock;
   del: jest.Mock;
+  keys: jest.Mock;
 }
 
 function makeRedis(): FakeRedis {
@@ -37,6 +38,14 @@ function makeRedis(): FakeRedis {
       const had = store.has(k);
       store.delete(k);
       return had ? 1 : 0;
+    }),
+    keys: jest.fn(async (pattern: string) => {
+      // Минимальная имитация Redis-glob: только префикс "*" в конце.
+      if (!pattern.endsWith('*')) {
+        return Array.from(store.keys()).filter((k) => k === pattern);
+      }
+      const prefix = pattern.slice(0, -1);
+      return Array.from(store.keys()).filter((k) => k.startsWith(prefix));
     }),
   };
 }
@@ -451,6 +460,131 @@ describe('TacticDrillSprintService — KS-2240', () => {
       expect(prisma.tacticDrillSprintScore.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 500 }),
       );
+    });
+  });
+
+  describe('autoFinalizeExpiredSessions — KS-2380', () => {
+    function putSession(
+      sessionId: string,
+      userId: string,
+      overrides: Partial<{
+        startedAt: number;
+        durationMs: number;
+        attempts: { drillId: string; solved: boolean; timeMs: number; iou: number | null }[];
+        modeLabel: string;
+        types: string[];
+      }>,
+    ): void {
+      const state = {
+        sessionId,
+        userId,
+        startedAt: overrides.startedAt ?? Date.now(),
+        durationMs: overrides.durationMs ?? 180000,
+        types: overrides.types ?? ['find-fork'],
+        modeLabel: overrides.modeLabel ?? '3min-pattern',
+        currentDrillId: null,
+        drillsServed: ['d1'],
+        attempts:
+          overrides.attempts ?? [
+            { drillId: 'd1', solved: true, timeMs: 1000, iou: null },
+          ],
+      };
+      redis.store.set(`drill-sprint:session:${sessionId}`, JSON.stringify(state));
+      redis.store.set(`drill-sprint:active:${userId}`, sessionId);
+    }
+
+    it('пустой Redis → no-op', async () => {
+      const r = await svc.autoFinalizeExpiredSessions();
+      expect(r).toEqual({ scanned: 0, finalized: 0, skipped: 0 });
+    });
+
+    it('активная (не timedOut) сессия → пропуск', async () => {
+      putSession('s-running', 'u-1', { startedAt: Date.now() - 30_000 });
+      const r = await svc.autoFinalizeExpiredSessions();
+      expect(r.scanned).toBe(1);
+      expect(r.finalized).toBe(0);
+      expect(r.skipped).toBe(1);
+      // Сессия не тронута.
+      expect(redis.store.has('drill-sprint:session:s-running')).toBe(true);
+      expect(redis.store.has('drill-sprint:active:u-1')).toBe(true);
+      expect(prisma.tacticDrillSprintScore.create).not.toHaveBeenCalled();
+    });
+
+    it('timedOut + есть attempts → finalize + cleanup БД и Redis', async () => {
+      putSession('s-expired', 'u-2', {
+        startedAt: Date.now() - 200_000, // 200с > 180с + grace 5с
+        modeLabel: '3min-mixed',
+        types: [
+          'find-hanging-piece',
+          'find-loose-piece',
+          'find-pin',
+          'find-fork',
+          'find-mate-in-one-square',
+          'count-attackers',
+          'find-all-checks',
+          'find-undefended-attack',
+        ],
+        attempts: [
+          { drillId: 'd1', solved: true, timeMs: 1000, iou: null },
+          { drillId: 'd2', solved: false, timeMs: 2000, iou: null },
+          { drillId: 'd3', solved: true, timeMs: 1500, iou: null },
+        ],
+      });
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-auto-1',
+      });
+
+      const r = await svc.autoFinalizeExpiredSessions();
+      expect(r).toEqual({ scanned: 1, finalized: 1, skipped: 0 });
+
+      expect(prisma.tacticDrillSprintScore.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'u-2',
+            score: 2,
+            drillsCount: 3,
+            mode: '3min-mixed',
+          }),
+        }),
+      );
+      // Redis-сессия и active-маркер удалены.
+      expect(redis.store.has('drill-sprint:session:s-expired')).toBe(false);
+      expect(redis.store.has('drill-sprint:active:u-2')).toBe(false);
+    });
+
+    it('timedOut, но 0 attempts → пустую запись не пишем; Redis cleanup', async () => {
+      putSession('s-empty', 'u-3', {
+        startedAt: Date.now() - 200_000,
+        attempts: [],
+      });
+      const r = await svc.autoFinalizeExpiredSessions();
+      expect(r).toEqual({ scanned: 1, finalized: 0, skipped: 0 });
+      expect(prisma.tacticDrillSprintScore.create).not.toHaveBeenCalled();
+      expect(redis.store.has('drill-sprint:session:s-empty')).toBe(false);
+      expect(redis.store.has('drill-sprint:active:u-3')).toBe(false);
+    });
+
+    it('сломанный JSON → удаляется, не валит scan', async () => {
+      redis.store.set('drill-sprint:session:s-broken', '{not-json');
+      const r = await svc.autoFinalizeExpiredSessions();
+      expect(r.scanned).toBe(1);
+      expect(r.finalized).toBe(0);
+      expect(redis.store.has('drill-sprint:session:s-broken')).toBe(false);
+    });
+
+    it('повторный вызов не финализирует ту же сессию дважды', async () => {
+      putSession('s-once', 'u-4', {
+        startedAt: Date.now() - 200_000,
+        attempts: [{ drillId: 'd1', solved: true, timeMs: 1000, iou: null }],
+      });
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-once',
+      });
+      const r1 = await svc.autoFinalizeExpiredSessions();
+      const r2 = await svc.autoFinalizeExpiredSessions();
+      expect(r1.finalized).toBe(1);
+      expect(r2.finalized).toBe(0);
+      expect(prisma.tacticDrillSprintScore.create).toHaveBeenCalledTimes(1);
     });
   });
 
