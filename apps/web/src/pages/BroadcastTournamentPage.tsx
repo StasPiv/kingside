@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
+import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { BroadcastStandings } from '../components/broadcast/BroadcastStandings';
 
 // Types
@@ -93,10 +94,11 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
 
   const handleGameClick = (game: BroadcastGame) => {
     if (!game.pgn) return;
-    navigate('/analysis', {
+    // KS-2403 follow-up: см. openAnalysisFromPgn.
+    void openAnalysisFromPgn(navigate, {
+      pgn: game.pgn,
+      title: `${game.whitePlayer} vs ${game.blackPlayer}`,
       state: {
-        pgn: game.pgn,
-        title: `${game.whitePlayer} vs ${game.blackPlayer}`,
         breadcrumbRootTitle: broadcast.title,
         breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
       },

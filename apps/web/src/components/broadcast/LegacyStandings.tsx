@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../../api/broadcastApi';
+import { openAnalysisFromPgn } from '../../utils/openAnalysisFromPgn';
 
 /**
  * KS-1736 / ADR-023 §2.10 (A12) — извлечённый из `BroadcastTournamentPage`
@@ -84,10 +85,11 @@ export function LegacyStandings({ tournamentId, broadcastTitle }: LegacyStanding
         const games = Array.isArray(res?.data) ? res.data : [];
         const game = games.find((g) => g.id === gameId);
         if (game?.pgn) {
-          navigate('/analysis', {
+          // KS-2403 follow-up: см. openAnalysisFromPgn.
+          await openAnalysisFromPgn(navigate, {
+            pgn: game.pgn,
+            title: `${playerName} vs ${oppName}`,
             state: {
-              pgn: game.pgn,
-              title: `${playerName} vs ${oppName}`,
               breadcrumbRootTitle: broadcastTitle,
               breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
             },

@@ -7,6 +7,7 @@ import type {
   BroadcastRoundItem,
 } from '@kingside/shared';
 import { broadcastApi } from '../api/broadcastApi';
+import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
@@ -144,10 +145,13 @@ export function BroadcastRoundPage() {
 
   const handleGameClick = (game: LichessGame) => {
     if (!game.pgn) return;
-    navigate('/analysis', {
+    // KS-2403 follow-up: openAnalysisFromPgn создаёт analysis-запись и
+    // идёт на /analysis/<id>, чтобы повторные клики из той же сессии
+    // не приводили к перезаписи через autosave.
+    void openAnalysisFromPgn(navigate, {
+      pgn: game.pgn,
+      title: `${game.whitePlayer} vs ${game.blackPlayer}`,
       state: {
-        pgn: game.pgn,
-        title: `${game.whitePlayer} vs ${game.blackPlayer}`,
         breadcrumbRootTitle: broadcast?.title ?? '',
         breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
         breadcrumbSection: currentRound?.name,

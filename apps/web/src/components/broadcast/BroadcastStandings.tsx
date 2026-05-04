@@ -7,6 +7,7 @@ import type {
 } from '@kingside/shared';
 
 import { broadcastApi } from '../../api/broadcastApi';
+import { openAnalysisFromPgn } from '../../utils/openAnalysisFromPgn';
 import { BroadcastCrosstable } from './BroadcastCrosstable';
 import { PlayoffBracket } from './PlayoffBracket';
 
@@ -63,10 +64,11 @@ export function BroadcastStandings({
 
   const handleGameClick = (game: BroadcastGameSummary) => {
     if (!game.pgn) return;
-    navigate('/analysis', {
+    // KS-2403 follow-up: см. openAnalysisFromPgn.
+    void openAnalysisFromPgn(navigate, {
+      pgn: game.pgn,
+      title: `${game.whitePlayer ?? ''} vs ${game.blackPlayer ?? ''}`,
       state: {
-        pgn: game.pgn,
-        title: `${game.whitePlayer ?? ''} vs ${game.blackPlayer ?? ''}`,
         breadcrumbRootTitle: broadcastTitle,
         breadcrumbRootUrl: `/broadcasts/${broadcastId}`,
       },

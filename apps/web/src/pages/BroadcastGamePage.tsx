@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
+import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 
 /**
  * KS-2204: Тонкий загрузчик — загружает партию из broadcast-service
@@ -55,19 +56,27 @@ export function BroadcastGamePage() {
         const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
         const game = games.find((g) => g.id === gameId) ?? null;
 
-        navigate('/analysis', {
-          replace: true,
-          state: {
-            pgn: game?.pgn ?? undefined,
-            title: game
-              ? `${game.whitePlayer} vs ${game.blackPlayer}`
-              : gameId,
-            breadcrumbRootTitle: meta.title,
-            breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
-            breadcrumbSection: roundName || undefined,
-            breadcrumbBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
-          },
-        });
+        // KS-2403 follow-up: переход через openAnalysisFromPgn создаёт
+        // analysis-запись и идёт на /analysis/<id>, чтобы при следующем
+        // клике из этого же broadcast компонент AnalysisPage
+        // пересоздавался по key={id} и autosave не перезаписывал чужую
+        // запись. Если pgn нет (game не нашёлся) — переход на пустой
+        // /analysis, как было.
+        if (game?.pgn) {
+          void openAnalysisFromPgn(navigate, {
+            pgn: game.pgn,
+            title: `${game.whitePlayer} vs ${game.blackPlayer}`,
+            replace: true,
+            state: {
+              breadcrumbRootTitle: meta.title,
+              breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
+              breadcrumbSection: roundName || undefined,
+              breadcrumbBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
+            },
+          });
+        } else {
+          navigate('/analysis', { replace: true });
+        }
       })
       .catch(() => {
         if (navigatedRef.current) return;
