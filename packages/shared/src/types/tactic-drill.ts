@@ -171,12 +171,15 @@ export interface TacticDrillDto {
   /**
    * Метаданные для UI:
    *   - highlightedSquare: для `count-attackers` показать выделенную клетку
+   *   - attackerColor: для `count-attackers` цвет атакующих ('w'|'b').
+   *     Frontend отображает в вопросе и индикаторе (KS-2367/KS-2369).
    *   - expectedCount: для `squares` — сколько правильных клеток ожидается
    *     (frontend показывает прогресс «3/5 выбрано»). Для всех остальных —
    *     undefined.
    */
   meta?: {
     highlightedSquare?: Square;
+    attackerColor?: 'w' | 'b';
     expectedCount?: number;
   };
 }

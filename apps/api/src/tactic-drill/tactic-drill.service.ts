@@ -632,15 +632,29 @@ export class TacticDrillService {
  * Нормализует `tactic_drills.meta` (JSONB) в shape `TacticDrillDto.meta`.
  * Принимает только whitelist'нутые поля; остальное игнорируется. Если
  * meta пустой/null/невалиден — возвращает null (DTO выходит без `meta`).
+ *
+ * KS-2369: добавлен `attackerColor` для count-attackers — frontend
+ * показывает в вопросе и индикаторе цвет атакующих ('w'|'b').
  */
 function sanitizeMeta(
   raw: unknown,
-): { highlightedSquare?: string; expectedCount?: number } | null {
+): {
+  highlightedSquare?: string;
+  attackerColor?: 'w' | 'b';
+  expectedCount?: number;
+} | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  const out: { highlightedSquare?: string; expectedCount?: number } = {};
+  const out: {
+    highlightedSquare?: string;
+    attackerColor?: 'w' | 'b';
+    expectedCount?: number;
+  } = {};
   if (typeof r.highlightedSquare === 'string' && /^[a-h][1-8]$/.test(r.highlightedSquare)) {
     out.highlightedSquare = r.highlightedSquare;
+  }
+  if (r.attackerColor === 'w' || r.attackerColor === 'b') {
+    out.attackerColor = r.attackerColor;
   }
   if (typeof r.expectedCount === 'number' && Number.isFinite(r.expectedCount)) {
     out.expectedCount = r.expectedCount;

@@ -167,6 +167,28 @@ describe('TacticDrillService — KS-2230', () => {
       expect(r?.sideToMove).toBeNull();
     });
 
+    it('KS-2369: count-attackers DTO пробрасывает meta.attackerColor', async () => {
+      // Первый value пуст, второй = 1 → SELECT возвращает drill с meta
+      // содержащим highlightedSquare и attackerColor. Sanitizer обязан
+      // сохранить оба поля.
+      const queryMock = prisma.$queryRawUnsafe as jest.Mock;
+      queryMock
+        .mockResolvedValueOnce([{ c: BigInt(0) }])
+        .mockResolvedValueOnce([{ c: BigInt(1) }])
+        .mockResolvedValueOnce([
+          {
+            id: 'd-ca-meta',
+            type: 'count-attackers',
+            fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+            difficulty: 3,
+            meta: { highlightedSquare: 'e4', attackerColor: 'b' },
+          },
+        ]);
+      const r = await svc.getNext(null, 'count-attackers');
+      expect(r?.meta?.highlightedSquare).toBe('e4');
+      expect(r?.meta?.attackerColor).toBe('b');
+    });
+
     it('KS-2346/2368: count-attackers фильтрует по answer.value через raw SQL', async () => {
       // KS-2368: переписано на $queryRawUnsafe. 4 попытки count (по
       // одной на value); первая ненулевая → followup findFirst raw.
