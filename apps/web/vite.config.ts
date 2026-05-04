@@ -113,17 +113,14 @@ export default defineConfig({
               },
             },
           },
-          {
-            urlPattern: /^https?:\/\/.*\/api\/(?!auth\/)/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 300,
-              },
-            },
-          },
+          // KS-2402: блок NetworkFirst для `/api/(?!auth/)` удалён.
+          // Причина — баг «одна и та же позиция»: на медленной сети
+          // workbox отдавал из api-cache ответ от другого URL (например,
+          // /analyses/UUID-A в ответ на /analyses/UUID-B), потому что
+          // NetworkFirst при таймауте fallback'ит на cache. Кеш API на
+          // SW-уровне не нужен — ETag/Cache-Control из бэкенда (KS-2376
+          // и общие настройки) работают на уровне браузера, а SW-слой
+          // ломал per-resource invalidation.
         ],
       },
     }),
