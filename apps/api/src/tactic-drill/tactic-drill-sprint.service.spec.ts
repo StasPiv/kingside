@@ -111,7 +111,7 @@ describe('TacticDrillSprintService — KS-2240', () => {
       expect(redis.store.has(key)).toBe(true);
       const state = JSON.parse(redis.store.get(key)!);
       expect(state.userId).toBe('user-1');
-      expect(state.modeLabel).toBe('3min-find-fork-only');
+      expect(state.modeLabel).toBe('3min-pattern');
     });
 
     it('активная сессия → 409', async () => {
@@ -125,7 +125,7 @@ describe('TacticDrillSprintService — KS-2240', () => {
           startedAt: Date.now() - 1000,
           durationMs: 180000,
           types: ['find-fork'],
-          modeLabel: '3min-find-fork-only',
+          modeLabel: '3min-pattern',
           currentDrillId: null,
           drillsServed: [],
           attempts: [],
@@ -147,7 +147,7 @@ describe('TacticDrillSprintService — KS-2240', () => {
           startedAt: Date.now() - 1000,
           durationMs: 180000,
           types: ['find-fork'],
-          modeLabel: '3min-find-fork-only',
+          modeLabel: '3min-pattern',
           currentDrillId: null,
           drillsServed: [],
           attempts: [],
@@ -281,7 +281,9 @@ describe('TacticDrillSprintService — KS-2240', () => {
             score: 0,
             drillsCount: 1,
             accuracy: 0,
-            mode: '3min-custom',
+            // KS-2334: оба типа (find-fork, find-pin) ∈ pattern-слой
+            // → mode нормализуется в `${min}min-${layer}`.
+            mode: '3min-pattern',
           }),
         }),
       );
@@ -300,7 +302,7 @@ describe('TacticDrillSprintService — KS-2240', () => {
         startedAt: Date.now(),
         durationMs: 180000,
         types: ['find-fork'],
-        modeLabel: '3min-find-fork-only',
+        modeLabel: '3min-pattern',
         currentDrillId: null,
         drillsServed: ['d1', 'd2'],
         attempts: [
@@ -362,6 +364,73 @@ describe('TacticDrillSprintService — KS-2240', () => {
       expect(prisma.tacticDrillSprintScore.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 500 }),
       );
+    });
+  });
+
+  describe('buildModeLabel — KS-2334', () => {
+    /**
+     * Косвенная проверка через `start`: сессия в Redis содержит modeLabel.
+     * Формат должен совпадать с фронтовым фильтром
+     * `${min}min-${set}`, set ∈ mixed/overview/pattern/calculation/custom.
+     */
+    async function modeLabelOfStart(
+      durationMs: 180000 | 300000,
+      types: string[],
+    ): Promise<string> {
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue(DRILL_ROW_FORK);
+      const r = await svc.start(`u-${Math.random()}`, {
+        durationMs,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        types: types as any,
+      });
+      const key = `drill-sprint:session:${r.sessionId}`;
+      const state = JSON.parse(redis.store.get(key)!);
+      return state.modeLabel;
+    }
+
+    it('все 8 типов → Nmin-mixed', async () => {
+      const all8 = [
+        'find-hanging-piece',
+        'find-loose-piece',
+        'find-pin',
+        'find-fork',
+        'find-mate-in-one-square',
+        'count-attackers',
+        'find-all-checks',
+        'find-undefended-attack',
+      ];
+      expect(await modeLabelOfStart(180000, all8)).toBe('3min-mixed');
+      expect(await modeLabelOfStart(300000, all8)).toBe('5min-mixed');
+    });
+
+    it('один тип → слой этого типа', async () => {
+      // find-loose-piece ∈ overview
+      expect(await modeLabelOfStart(180000, ['find-loose-piece'])).toBe(
+        '3min-overview',
+      );
+      // find-fork ∈ pattern
+      expect(await modeLabelOfStart(180000, ['find-fork'])).toBe(
+        '3min-pattern',
+      );
+      // find-undefended-attack ∈ calculation
+      expect(await modeLabelOfStart(300000, ['find-undefended-attack'])).toBe(
+        '5min-calculation',
+      );
+    });
+
+    it('подмножество одного слоя → слой', async () => {
+      // pattern-слой = {find-all-checks, find-pin, find-fork}; берём 2 из 3
+      expect(
+        await modeLabelOfStart(180000, ['find-pin', 'find-fork']),
+      ).toBe('3min-pattern');
+    });
+
+    it('микс из разных слоёв (но не все 8) → custom', async () => {
+      // overview + pattern
+      expect(
+        await modeLabelOfStart(180000, ['find-loose-piece', 'find-fork']),
+      ).toBe('3min-custom');
     });
   });
 });

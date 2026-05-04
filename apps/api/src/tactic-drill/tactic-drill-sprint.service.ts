@@ -41,7 +41,8 @@ import type {
   TacticDrillSprintScoreItem,
   TacticDrillType,
 } from '@kingside/shared';
-import { DRILL_TYPE_ORDER } from '@kingside/shared';
+import { DRILL_TYPE_LAYER, DRILL_TYPE_ORDER } from '@kingside/shared';
+import type { TacticDrillSkillLayer } from '@kingside/shared';
 
 const SESSION_TTL_SEC = 600; // 10 мин (api-contract §5.5 410 Gone)
 const ALL_DRILL_TYPES: TacticDrillType[] = DRILL_TYPE_ORDER;
@@ -303,6 +304,21 @@ export class TacticDrillSprintService {
     return Array.from(set);
   }
 
+  /**
+   * KS-2334. Раньше формат был `${min}min-${type}-only` для одиночного
+   * типа и `${min}min-custom` для произвольного подмножества — фронт
+   * (`DrillLeaderboardPage.tsx`) запрашивает `${min}min-${set}` где
+   * `set ∈ {mixed, overview, pattern, calculation}` (taксономия по
+   * `DRILL_TYPE_LAYER`). Из-за рассинхрона leaderboard всегда был
+   * пустым, кроме фильтра «все 8 типов» при честном микс-спринте.
+   *
+   * Новая таксономия (синхрон с фронтом):
+   *   - все 8 типов → `${min}min-mixed`
+   *   - types ⊆ одного слоя L (overview/pattern/calculation) →
+   *     `${min}min-${L}`. Один тип также попадает в свой слой
+   *     (find-loose-piece → overview).
+   *   - иначе (микс из >1 слоя, не все 8) → `${min}min-custom`
+   */
   private buildModeLabel(
     durationMs: number,
     types: TacticDrillType[],
@@ -311,10 +327,13 @@ export class TacticDrillSprintService {
     if (types.length === ALL_DRILL_TYPES.length) {
       return `${minutes}min-mixed`;
     }
-    if (types.length === 1) {
-      // Например `5min-find-fork-only` — для аналитики «sprint только
-      // по конкретному типу».
-      return `${minutes}min-${types[0]}-only`;
+    const layers = new Set<TacticDrillSkillLayer>();
+    for (const t of types) {
+      layers.add(DRILL_TYPE_LAYER[t]);
+    }
+    if (layers.size === 1) {
+      const [layer] = Array.from(layers);
+      return `${minutes}min-${layer}`;
     }
     return `${minutes}min-custom`;
   }
