@@ -292,7 +292,9 @@ exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/fe
     "sprintLeaderboardCtaTitle": "Leaderboard",
   },
   "side": {
+    "blackAttackers": "Black attackers",
     "blackToMove": "Black to move",
+    "whiteAttackers": "White attackers",
     "whiteToMove": "White to move",
   },
 }
@@ -590,7 +592,9 @@ exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/fe
     "sprintLeaderboardCtaTitle": "Таблица лидеров",
   },
   "side": {
+    "blackAttackers": "Атакующие — чёрные",
     "blackToMove": "Ход чёрных",
+    "whiteAttackers": "Атакующие — белые",
     "whiteToMove": "Ход белых",
   },
 }

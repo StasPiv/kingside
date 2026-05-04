@@ -584,6 +584,16 @@ export function DrillRunner({
     return [];
   }, [drill, feedback, pickedSquares, pickedFrom]);
 
+  // KS-2367: для count-attackers вопрос должен указывать цвет
+  // атакующих (`drill.meta.attackerColor`), иначе пользователь не
+  // знает, чьи фигуры считать. Поле появилось в БД после KS-2329 /
+  // KS-2354; в shared `TacticDrillDto.meta` оно пока не описано —
+  // читаем через runtime-cast, чтобы фронт работал и сейчас, и когда
+  // backend расширит контракт.
+  const attackerColor = ((drill?.meta ?? null) as
+    | { attackerColor?: 'w' | 'b' }
+    | null)?.attackerColor;
+
   const instructionText = useMemo(() => {
     if (!drill) return '';
     if (feedback) {
@@ -591,8 +601,19 @@ export function DrillRunner({
         ? t('drills.feedback.correct', 'Correct!')
         : t('drills.feedback.incorrect', 'Not quite');
     }
+    if (drill.drillType === 'count-attackers' && attackerColor) {
+      return attackerColor === 'w'
+        ? t(
+            'drills.instructions.countAttackersWhite',
+            'How many WHITE pieces attack the highlighted square?',
+          )
+        : t(
+            'drills.instructions.countAttackersBlack',
+            'How many BLACK pieces attack the highlighted square?',
+          );
+    }
     return t(`drills.instructions.${kebabToCamel(drill.drillType)}`);
-  }, [drill, feedback, t]);
+  }, [drill, feedback, t, attackerColor]);
 
   const instructionTone =
     feedback === null ? 'info' : feedback.solved ? 'success' : 'error';
@@ -833,6 +854,23 @@ export function DrillRunner({
           {effectiveSideToMove === 'w'
             ? t('drills.side.whiteToMove', 'White to move')
             : t('drills.side.blackToMove', 'Black to move')}
+        </div>
+      )}
+
+      {/* KS-2367: для count-attackers — индикатор цвета атакующих
+          (тот же визуальный стиль что side-to-move в KS-2333: цветной
+          кружок + подпись). Показываем только если backend отдал
+          `meta.attackerColor`; иначе текст инструкции показывает обычный
+          вариант без цвета (back-compat). */}
+      {drill.drillType === 'count-attackers' && attackerColor && (
+        <div
+          className="drill-runner__side drill-runner__side--attackers"
+          data-testid="drill-runner-attacker-color"
+          data-side={attackerColor}
+        >
+          {attackerColor === 'w'
+            ? t('drills.side.whiteAttackers', 'White attackers')
+            : t('drills.side.blackAttackers', 'Black attackers')}
         </div>
       )}
 

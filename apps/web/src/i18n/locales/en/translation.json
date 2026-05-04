@@ -664,6 +664,8 @@
       "findFork": "Which piece forks?",
       "findMateInOneSquare": "Deliver mate-in-one",
       "countAttackers": "How many pieces attack the highlighted square?",
+      "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
+      "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
       "findAllChecks": "Make every check",
       "findUndefendedAttack": "Which move creates a threat against an undefended piece?"
     },
@@ -722,7 +724,9 @@
     },
     "side": {
       "whiteToMove": "White to move",
-      "blackToMove": "Black to move"
+      "blackToMove": "Black to move",
+      "whiteAttackers": "White attackers",
+      "blackAttackers": "Black attackers"
     },
     "layers": {
       "overview": "Board overview",

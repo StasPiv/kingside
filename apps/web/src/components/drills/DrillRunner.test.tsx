@@ -886,6 +886,86 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2367: для count-attackers с meta.attackerColor показываем цвет
+  // атакующих в вопросе и индикатор цвета.
+  describe('KS-2367 — count-attackers: цвет атакующих в вопросе', () => {
+    const COUNT_DRILL_WHITE = {
+      id: 'd-cnt-w',
+      drillType: 'count-attackers',
+      fen: '8/8/8/4p3/4P3/8/8/8 w - - 0 1',
+      sideToMove: null,
+      answerShape: 'number',
+      difficulty: 1,
+      meta: { highlightedSquare: 'e5', attackerColor: 'w' },
+    };
+    const COUNT_DRILL_BLACK = {
+      ...COUNT_DRILL_WHITE,
+      id: 'd-cnt-b',
+      meta: { highlightedSquare: 'e5', attackerColor: 'b' },
+    };
+    const COUNT_DRILL_NO_COLOR = {
+      ...COUNT_DRILL_WHITE,
+      id: 'd-cnt-no',
+      meta: { highlightedSquare: 'e5' },
+    };
+
+    it("attackerColor='w' → инструкция WHITE + индикатор data-side='w'", async () => {
+      const loadDrill = vi.fn(async () => COUNT_DRILL_WHITE);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-instructions').textContent,
+      ).toMatch(/WHITE|БЕЛЫХ/);
+      const indicator = screen.getByTestId('drill-runner-attacker-color');
+      expect(indicator.getAttribute('data-side')).toBe('w');
+    });
+
+    it("attackerColor='b' → инструкция BLACK + индикатор data-side='b'", async () => {
+      const loadDrill = vi.fn(async () => COUNT_DRILL_BLACK);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-instructions').textContent,
+      ).toMatch(/BLACK|ЧЁРНЫХ/);
+      expect(
+        screen.getByTestId('drill-runner-attacker-color').getAttribute('data-side'),
+      ).toBe('b');
+    });
+
+    it('нет meta.attackerColor → старая инструкция, индикатор скрыт (back-compat)', async () => {
+      const loadDrill = vi.fn(async () => COUNT_DRILL_NO_COLOR);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      expect(
+        screen.getByTestId('drill-instructions').textContent ?? '',
+      ).not.toMatch(/WHITE|BLACK|БЕЛЫХ|ЧЁРНЫХ/);
+      expect(
+        screen.queryByTestId('drill-runner-attacker-color'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   // KS-2335 / KS-2337 / KS-2341: find-hanging-piece переведён на
   // answerShape='move' — drill требует ход-взятие, а не клик клетки.
   describe("KS-2341 — find-hanging-piece под shape='move'", () => {

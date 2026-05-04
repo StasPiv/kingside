@@ -666,6 +666,8 @@
       "findFork": "Какая фигура делает вилку?",
       "findMateInOneSquare": "Поставьте мат в один ход",
       "countAttackers": "Сколько фигур атакуют выделенную клетку?",
+      "countAttackersWhite": "Сколько БЕЛЫХ фигур атакуют выделенную клетку?",
+      "countAttackersBlack": "Сколько ЧЁРНЫХ фигур атакуют выделенную клетку?",
       "findAllChecks": "Сделайте все ходы с шахом",
       "findUndefendedAttack": "Какой ход создаёт угрозу взятия незащищённой фигуры?"
     },
@@ -724,7 +726,9 @@
     },
     "side": {
       "whiteToMove": "Ход белых",
-      "blackToMove": "Ход чёрных"
+      "blackToMove": "Ход чёрных",
+      "whiteAttackers": "Атакующие — белые",
+      "blackAttackers": "Атакующие — чёрные"
     },
     "layers": {
       "overview": "Обзор доски",
