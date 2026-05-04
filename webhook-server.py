@@ -796,7 +796,7 @@ def _parse_token(token: str) -> list[str] | None:
 AGENT_ROLES: dict[str, list[str]] = {
     "backend": [
         # действия
-        "ROLE_COMMIT", "ROLE_DEPLOY_API",
+        "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
         "ROLE_DEPLOY_ARCHIVE_SERVICE",
         "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
@@ -810,21 +810,21 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_DOCS",
     ],
     "frontend": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_SCRIPTS",
     ],
     "layout": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_RUN", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_RUN", "ROLE_API_START",
         "ROLE_WRITE_APPS_WEB_SRC",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_SCRIPTS",
     ],
     "devops": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API",
+        "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
         "ROLE_DEPLOY_ARCHIVE_SERVICE",
         "ROLE_DEPLOY_WORKERS",
@@ -834,26 +834,27 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_JUSTFILE", "ROLE_READ_AWS",
     ],
     "architect": [
-        "ROLE_COMMIT",
+        "ROLE_COMMIT", "ROLE_GIT_READ",
         "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_WRITE_DOCS",
     ],
     "marketing": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND",
+        "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND",
     ],
     "coordinator": [
+        "ROLE_GIT_READ",
         "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_READ_DOCS",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_PACKAGE_LOCK", "ROLE_READ_TSCONFIG_BASE",
     ],
     "qa": [
-        "ROLE_READ_PROJECT",
+        "ROLE_GIT_READ", "ROLE_READ_PROJECT",
     ],
     "chess-expert": [],
     "content": [
         # Контент-инженер: RO весь проект (для запуска утилит и чтения схем),
         # CLI-заливка уроков (npm run import:lesson). /tmp монтируется базово.
         # Без COMMIT — контент в git не идёт (copyright).
-        "ROLE_READ_PROJECT", "ROLE_NPM_RUN",
+        "ROLE_GIT_READ", "ROLE_READ_PROJECT", "ROLE_NPM_RUN",
     ],
 }
 
@@ -875,6 +876,7 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/docker-compose": "ROLE_DOCKER_COMPOSE",
     "/npm-run": "ROLE_NPM_RUN",
     "/vite-start": "ROLE_API_START",
+    "/git-log": "ROLE_GIT_READ",
     # Должно совпадать с case-блоком в scripts/deploy-aws.sh:
     # frontend | api | game-service | broadcast-service | archive-service |
     # workers (= broadcast + archive) | all | "" (auto-detect)
@@ -3115,6 +3117,68 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "timeout"}).encode())
             except Exception as e:
                 log(f"Deploy ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
+        if path == "/git-log":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            if not self._check_role("/git-log"):
+                return
+            since = str(payload.get("since", "") or "")
+            try:
+                limit = int(payload.get("limit", 50))
+            except (TypeError, ValueError):
+                limit = 50
+            limit = max(1, min(limit, 500))
+            path_filter = str(payload.get("path", "") or "")
+            grep = str(payload.get("grep", "") or "")
+            sha = str(payload.get("sha", "") or "")
+            mode = str(payload.get("mode", "log") or "log")
+            cmd = ["git", "-C", PROJECT_DIR]
+            if mode == "show":
+                if not sha or not all(c in "0123456789abcdefABCDEF" for c in sha):
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "invalid sha"}).encode())
+                    return
+                cmd += ["show", "--stat", "--patch", "--no-color", sha]
+            else:
+                cmd += ["log", "--no-color", f"-n{limit}",
+                        "--pretty=format:%h%x09%ad%x09%an%x09%s", "--date=iso-strict"]
+                if since:
+                    cmd.append(f"--since={since}")
+                if grep:
+                    cmd += ["--grep", grep]
+                if path_filter:
+                    cmd += ["--", path_filter]
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                stdout = result.stdout
+                if mode == "show":
+                    stdout = stdout[:50000]
+                self.send_response(200 if result.returncode == 0 else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "returncode": result.returncode,
+                    "stdout": stdout,
+                    "stderr": result.stderr[-2000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout"}).encode())
+            except Exception as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()

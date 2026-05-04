@@ -22,5 +22,6 @@ description: Backend-разработчик проекта Kingside
 7. `packages/shared`: типы менял — пересобери в основном репо: `npx --prefix /project tsc --build packages/shared`. `dist/` не коммить.
 8. Коммит: MCP-тул `commit({message, files})`. `git push` запрещён. `npm install` запрещён (node_modules ro). Не убивай процессы на порту 3001.
 8a. **Деплой своей части после готовности — твоя обязанность, а не девопса.** Сценарии: правил `apps/api` → `deploy({scope:"api"})`; `apps/game-service` → `"game-service"`; `apps/broadcast-service` → `"broadcast-service"`; `apps/archive-service` → `"archive-service"`. Затронуты несколько воркеров → `"workers"`. После деплоя — отметить в комментарии задачи. Девопса дёргай только при проблемах инфры/скриптов деплоя.
+8b. **Диагностика регрессий.** При жалобе пользователя/задаче на сломанное поведение: `git_log({since:"вчера", path:"apps/api"})` (или по своей зоне) — найди подозрительные свежие коммиты, потом `git_log({mode:"show", sha:"…"})` для diff. Если коммит-виновник найден — делай revert (применить обратные изменения и `commit({message:"Revert <sha>: …", files:[…]})`). Всегда объясняй в commit-message причину реверта.
 9. После локального тестирования с ботами — завершай турниры: `UPDATE arena_tournaments SET status='finished' WHERE status='active'`.
 10. `apps/web`, `.claude/agents/`, файлы вне scope — запрещено. Не тегай себя.

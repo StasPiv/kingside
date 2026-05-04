@@ -37,6 +37,15 @@ const TOOLS = [
   // --- Webhook ---
   { name: 'commit', description: 'Коммит изменённых файлов в main (требует роль).',
     inputSchema: { type: 'object', properties: { message: { type: 'string' }, files: { type: 'array', items: { type: 'string' } } }, required: ['message', 'files'] } },
+  { name: 'git_log', description: 'Прочитать git-историю репозитория. mode="log" (по умолчанию): список коммитов с фильтрами since/grep/path; mode="show": diff одного коммита по sha. Используй при диагностике регрессий и поиске виновного коммита.',
+    inputSchema: { type: 'object', properties: {
+      mode: { type: 'string', enum: ['log', 'show'], description: 'log — список коммитов; show — diff коммита (нужен sha)' },
+      since: { type: 'string', description: 'для mode=log: ограничить по дате, например "2026-05-04" или "1 day ago"' },
+      limit: { type: 'number', description: 'для mode=log: сколько коммитов (1..500, по умолч. 50)' },
+      path: { type: 'string', description: 'для mode=log: фильтр по пути, например "apps/web/src"' },
+      grep: { type: 'string', description: 'для mode=log: поиск подстроки в commit message' },
+      sha: { type: 'string', description: 'для mode=show: SHA коммита (hex)' },
+    } } },
   { name: 'agent_message', description: 'Прямое сообщение другому агенту. Ставится в FIFO-очередь target; target увидит его следующим tool-запросом. reply_required — обязательный флаг: true (target обязан ответить) | false (уведомление без ответа).',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string' },
@@ -196,6 +205,15 @@ async function call(name, args) {
     // Webhook (with auth + roles)
     case 'commit':
       return webhookPost('/commit', { message: args.message, files: args.files });
+    case 'git_log':
+      return webhookPost('/git-log', {
+        mode: args.mode || 'log',
+        since: args.since || '',
+        limit: args.limit || 50,
+        path: args.path || '',
+        grep: args.grep || '',
+        sha: args.sha || '',
+      });
     case 'agent_message':
       if (typeof args.reply_required !== 'boolean') {
         return { error: 'reply_required is required and must be boolean (true | false)' };
