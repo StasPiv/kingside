@@ -29,12 +29,16 @@ import { DrillRunner, type DrillRunnerSubmitInput } from '../components/drills';
  * testid `drill-runner` — новые тесты привязываются к нему.
  */
 
+// KS-2394: тип `find-mate-in-one-square` удалён из v1 (решение
+// пользователя). Прямой переход `/drills/find-mate-in-one-square`
+// больше не валиден — `isValidType` вернёт false и DrillPage сделает
+// редирект на `/drills`. Когда backend (KS-2393) очистит из shared
+// `TacticDrillType` — удалим и упоминания из shared-типов.
 const ALL_TYPES: TacticDrillType[] = [
   'find-hanging-piece',
   'find-loose-piece',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'count-attackers',
   'find-all-checks',
   'find-undefended-attack',

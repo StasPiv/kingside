@@ -50,7 +50,8 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('<DrillSprintSetupPage> KS-2241', () => {
-  it('рендерит контейнер + duration radio + 8 type checkboxes', () => {
+  // KS-2394: после удаления `find-mate-in-one-square` пресет — 7 типов.
+  it('рендерит контейнер + duration radio + 7 type checkboxes', () => {
     renderWithProviders(<DrillSprintSetupPage />);
     expect(screen.getByTestId('drill-sprint-setup')).toBeInTheDocument();
     expect(screen.getByTestId('drill-sprint-setup-duration-180000')).toBeInTheDocument();
@@ -62,7 +63,6 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
       'find-all-checks',
       'find-pin',
       'find-fork',
-      'find-mate-in-one-square',
       'find-undefended-attack',
     ]) {
       expect(
@@ -79,7 +79,7 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
     expect(r5.checked).toBe(false);
   });
 
-  it('кнопка «Все типы» отмечает все 8 чекбоксов', async () => {
+  it('кнопка «Все типы» отмечает все 7 чекбоксов', async () => {
     const user = userEvent.setup();
     renderWithProviders(<DrillSprintSetupPage />);
     await user.click(screen.getByTestId('drill-sprint-setup-select-all'));
@@ -91,10 +91,10 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
       const cb = screen.getByTestId(`drill-sprint-setup-type-${id}`) as HTMLInputElement;
       expect(cb.checked).toBe(true);
     }
-    // data-selected-count=8.
+    // KS-2394: data-selected-count=7 после удаления find-mate-in-one-square.
     expect(
       screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
-    ).toBe('8');
+    ).toBe('7');
   });
 
   it('кнопка «Очистить» снимает все галочки', async () => {
@@ -103,7 +103,7 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
     await user.click(screen.getByTestId('drill-sprint-setup-select-all'));
     expect(
       screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
-    ).toBe('8');
+    ).toBe('7');
     await user.click(screen.getByTestId('drill-sprint-setup-clear'));
     expect(
       screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
@@ -118,7 +118,7 @@ describe('<DrillSprintSetupPage> KS-2241', () => {
     expect(r5.checked).toBe(true);
   });
 
-  it('Start (без выбора типов) → POST /sprint/start с types=[] (= все 8) и duration', async () => {
+  it('Start (без выбора типов) → POST /sprint/start с types=[] (= все 7) и duration', async () => {
     apiPost.mockResolvedValue(SESSION);
     const user = userEvent.setup();
     renderWithProviders(<DrillSprintSetupPage />);

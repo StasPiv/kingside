@@ -66,6 +66,15 @@ const LAYER_ORDER: TacticDrillSkillLayer[] = [
   'calculation',
 ];
 
+/**
+ * KS-2394: drill-типы, удалённые из v1. Backend (KS-2393) отчищает
+ * их асинхронно — пока не закрыто, фронт фильтрует их при рендере
+ * лобби, чтобы пользователь не видел заглушку без i18n-ключей.
+ */
+const REMOVED_DRILL_TYPES: ReadonlySet<TacticDrillType> = new Set<TacticDrillType>([
+  'find-mate-in-one-square',
+]);
+
 function kebabToCamel(s: string): string {
   return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
@@ -81,7 +90,10 @@ export function DrillsLobbyPage() {
     api
       .get<TacticDrillTypesResponse>('/tactic-drill/types')
       .then((r) => {
-        if (!cancelled) setTypes(r.types);
+        if (!cancelled) {
+          // KS-2394: отсекаем удалённые из v1 drill-типы.
+          setTypes(r.types.filter((it) => !REMOVED_DRILL_TYPES.has(it.id)));
+        }
       })
       .catch(() => {
         if (!cancelled) setError('loadFailed');

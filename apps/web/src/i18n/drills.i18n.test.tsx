@@ -34,12 +34,13 @@ import {
  * автоматически зафейлится, заставив осознанно обновить тест.
  */
 
+// KS-2394: тип `findMateInOneSquare` удалён из v1, ключи в RU/EN
+// translation.json больше не присутствуют. Список 7-элементный.
 const DRILL_IDS = [
   'findHangingPiece',
   'findLoosePiece',
   'findPin',
   'findFork',
-  'findMateInOneSquare',
   'countAttackers',
   'findAllChecks',
   'findUndefendedAttack',
@@ -112,12 +113,12 @@ describe('drills i18n — все ключи присутствуют в обои
 });
 
 describe('drills i18n — render snapshots', () => {
-  it('en: render-snapshot DrillInstructions + DrillTypeCard для всех 8 типов', () => {
+  it('en: render-snapshot DrillInstructions + DrillTypeCard для всех 7 типов', () => {
     const { container } = renderWithLocale(<DrillI18nFixture />, 'en');
     expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('ru: render-snapshot DrillInstructions + DrillTypeCard для всех 8 типов', () => {
+  it('ru: render-snapshot DrillInstructions + DrillTypeCard для всех 7 типов', () => {
     const { container } = renderWithLocale(<DrillI18nFixture />, 'ru');
     expect(container.firstChild).toMatchSnapshot();
   });

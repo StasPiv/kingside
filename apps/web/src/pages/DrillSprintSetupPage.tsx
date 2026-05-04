@@ -43,6 +43,10 @@ import { ApiError } from '../ApiError';
  *   </div>
  */
 
+// KS-2394: тип `find-mate-in-one-square` удалён из v1. Пресет «Все
+// типы» теперь раскрывается на 7 типов; при отправке без выбора
+// (selected.size===0) backend трактует пустой массив как «все
+// доступные» — это поведение мы НЕ меняем.
 const ALL_TYPES: TacticDrillType[] = [
   'count-attackers',
   'find-loose-piece',
@@ -50,7 +54,6 @@ const ALL_TYPES: TacticDrillType[] = [
   'find-all-checks',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'find-undefended-attack',
 ];
 

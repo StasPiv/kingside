@@ -5,8 +5,9 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
  *
  * Покрывает:
  *  • feature-flag off → /drills редирект на /lobby; on → лобби открывается
- *  • лобби: 8 карточек, 3 секции по слою методики
- *  • happy-path для всех 8 drill-типов × 4 answer-shape
+ *  • лобби: 7 карточек (KS-2394 — find-mate-in-one-square удалён),
+ *    3 секции по слою методики
+ *  • happy-path для всех 7 drill-типов × 4 answer-shape
  *  • feedback overlay correct/incorrect + state='feedback'
  *  • mobile portrait flow (hasTouch, viewport 390×844)
  *  • DrillStatsPanel в профиле — обновляется после прохождения
@@ -124,19 +125,7 @@ const FIXTURES: Record<TacticDrillType, DrillFixture> = {
     },
     correctAnswer: { shape: 'square', square: 'd5' },
   },
-  'find-mate-in-one-square': {
-    type: 'find-mate-in-one-square',
-    answerShape: 'square',
-    drill: {
-      id: 'd-mate',
-      drillType: 'find-mate-in-one-square',
-      fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
-      sideToMove: 'w',
-      answerShape: 'square',
-      difficulty: 4,
-    },
-    correctAnswer: { shape: 'square', square: 'd8' },
-  },
+  // KS-2394: тип `find-mate-in-one-square` удалён из v1, фикстура снята.
   'find-undefended-attack': {
     type: 'find-undefended-attack',
     answerShape: 'move',
@@ -152,6 +141,7 @@ const FIXTURES: Record<TacticDrillType, DrillFixture> = {
   },
 };
 
+// KS-2394: `find-mate-in-one-square` удалён из v1 — список 7-элементный.
 const TYPES = [
   'count-attackers',
   'find-loose-piece',
@@ -159,7 +149,6 @@ const TYPES = [
   'find-all-checks',
   'find-pin',
   'find-fork',
-  'find-mate-in-one-square',
   'find-undefended-attack',
 ] as const;
 
@@ -237,10 +226,9 @@ async function setupContextMocks(
             id === 'find-pin' ||
             id === 'find-fork'
               ? 'pattern'
-              : id === 'find-mate-in-one-square' ||
-                id === 'find-undefended-attack'
-              ? 'calculation'
-              : 'overview',
+              : id === 'find-undefended-attack'
+                ? 'calculation'
+                : 'overview',
           answerShape: FIXTURES[id].answerShape,
           promptKey: `review.drill.prompt.${id}`,
           unlocked: true,
@@ -374,7 +362,7 @@ test.describe('KS-2239 / KS-2231 — feature-flag drillsEnabled', () => {
     await expect(page).toHaveURL(/\/lobby/);
   });
 
-  test('on → /drills открывается, лобби рендерит 8 карточек в 3 секциях', async ({
+  test('on → /drills открывается, лобби рендерит 7 карточек в 3 секциях', async ({
     context,
     page,
   }) => {
@@ -384,7 +372,8 @@ test.describe('KS-2239 / KS-2231 — feature-flag drillsEnabled', () => {
     await expect(page.getByTestId('drills-lobby-layer-overview')).toBeVisible();
     await expect(page.getByTestId('drills-lobby-layer-pattern')).toBeVisible();
     await expect(page.getByTestId('drills-lobby-layer-calculation')).toBeVisible();
-    await expect(page.getByTestId('drill-type-card')).toHaveCount(8);
+    // KS-2394: было 8, стало 7 после удаления find-mate-in-one-square.
+    await expect(page.getByTestId('drill-type-card')).toHaveCount(7);
   });
 });
 

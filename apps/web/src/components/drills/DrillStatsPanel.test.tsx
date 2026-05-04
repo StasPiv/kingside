@@ -25,7 +25,8 @@ const FULL_STATS = {
     { drillType: 'find-all-checks', attempts: 5, solved: 3, accuracy: 0.6, avgTimeMs: 7500, avgIou: 0.71 },
     { drillType: 'find-pin', attempts: 4, solved: 2, accuracy: 0.5, avgTimeMs: 6200 },
     { drillType: 'find-fork', attempts: 2, solved: 2, accuracy: 1.0, avgTimeMs: 5400 },
-    // find-mate-in-one-square / find-undefended-attack — нет попыток.
+    // find-undefended-attack — нет попыток (KS-2394:
+    // find-mate-in-one-square удалён из v1).
   ],
   unlocked: ['count-attackers', 'find-loose-piece', 'find-hanging-piece'],
 };
@@ -68,7 +69,8 @@ describe('<DrillStatsPanel> KS-2236', () => {
     ).toBe('75%');
   });
 
-  it('таблица содержит все 8 строк в порядке методики', async () => {
+  // KS-2394: после удаления `find-mate-in-one-square` строк — 7.
+  it('таблица содержит все 7 строк в порядке методики', async () => {
     apiGet.mockResolvedValue(FULL_STATS);
     renderWithProviders(<DrillStatsPanel />);
     await waitFor(() =>
@@ -77,7 +79,7 @@ describe('<DrillStatsPanel> KS-2236', () => {
       ),
     );
     const rows = document.querySelectorAll('[data-drill-type]');
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(7);
     const order = Array.from(rows).map((r) => r.getAttribute('data-drill-type'));
     expect(order).toEqual([
       'count-attackers',
@@ -86,12 +88,11 @@ describe('<DrillStatsPanel> KS-2236', () => {
       'find-all-checks',
       'find-pin',
       'find-fork',
-      'find-mate-in-one-square',
       'find-undefended-attack',
     ]);
   });
 
-  it('строка типа без попыток (find-mate-in-one-square) → нули в ячейках', async () => {
+  it('строка типа без попыток (find-undefended-attack) → нули в ячейках', async () => {
     apiGet.mockResolvedValue(FULL_STATS);
     renderWithProviders(<DrillStatsPanel />);
     await waitFor(() =>
@@ -100,7 +101,7 @@ describe('<DrillStatsPanel> KS-2236', () => {
       ),
     );
     const row = document.querySelector(
-      '[data-drill-type="find-mate-in-one-square"]',
+      '[data-drill-type="find-undefended-attack"]',
     ) as HTMLTableRowElement;
     expect(row).toBeTruthy();
     // accuracy = 0 → "—".
@@ -122,7 +123,8 @@ describe('<DrillStatsPanel> KS-2236', () => {
     const lockedRows = document.querySelectorAll(
       '[data-drill-type][data-unlocked="false"]',
     );
-    expect(lockedRows).toHaveLength(5);
+    // KS-2394: было 5 locked (8-3 unlocked), теперь 4 (7-3).
+    expect(lockedRows).toHaveLength(4);
   });
 
   it('total.attempts = 0 → empty-state с CTA-ссылкой на /drills', async () => {

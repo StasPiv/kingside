@@ -27,6 +27,8 @@ vi.mock('react-router-dom', async () => {
 
 import { DrillsLobbyPage } from './DrillsLobbyPage';
 
+// KS-2394: `find-mate-in-one-square` удалён из v1; в фикстуре остались
+// 7 типов. Лобби должно отображать ровно 7 карточек.
 const FULL_TYPES = [
   { id: 'count-attackers', layer: 'overview', answerShape: 'number', promptKey: 'k', unlocked: true },
   { id: 'find-loose-piece', layer: 'overview', answerShape: 'square', promptKey: 'k', unlocked: true },
@@ -34,7 +36,6 @@ const FULL_TYPES = [
   { id: 'find-all-checks', layer: 'pattern', answerShape: 'squares', promptKey: 'k', unlocked: true },
   { id: 'find-pin', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },
   { id: 'find-fork', layer: 'pattern', answerShape: 'square', promptKey: 'k', unlocked: false },
-  { id: 'find-mate-in-one-square', layer: 'calculation', answerShape: 'square', promptKey: 'k', unlocked: false },
   { id: 'find-undefended-attack', layer: 'calculation', answerShape: 'move', promptKey: 'k', unlocked: false },
 ];
 
@@ -55,7 +56,7 @@ describe('<DrillsLobbyPage> KS-2232', () => {
     expect(apiGetMock).toHaveBeenCalledWith('/tactic-drill/types');
   });
 
-  it('успешный ответ → группировка по layer с заголовками + 8 карточек', async () => {
+  it('успешный ответ → группировка по layer с заголовками + 7 карточек', async () => {
     apiGetMock.mockResolvedValue({ types: FULL_TYPES });
     renderWithProviders(<DrillsLobbyPage />);
 
@@ -66,8 +67,8 @@ describe('<DrillsLobbyPage> KS-2232', () => {
     expect(screen.getByTestId('drills-lobby-layer-overview')).toBeInTheDocument();
     expect(screen.getByTestId('drills-lobby-layer-pattern')).toBeInTheDocument();
     expect(screen.getByTestId('drills-lobby-layer-calculation')).toBeInTheDocument();
-    // 8 карточек drill-типов (testid одинаковый, getAllByTestId).
-    expect(screen.getAllByTestId('drill-type-card')).toHaveLength(8);
+    // KS-2394: 7 карточек после удаления find-mate-in-one-square.
+    expect(screen.getAllByTestId('drill-type-card')).toHaveLength(7);
   });
 
   it('overview-секция содержит ровно 3 карточки (count-attackers, find-loose-piece, find-hanging-piece)', async () => {
@@ -88,11 +89,12 @@ describe('<DrillsLobbyPage> KS-2232', () => {
       expect(screen.getByTestId('drills-lobby')).toBeInTheDocument(),
     );
     const cards = screen.getAllByTestId('drill-type-card') as HTMLButtonElement[];
-    // FULL_TYPES: 4 unlocked + 4 locked.
+    // KS-2394: 4 unlocked + 3 locked (find-mate-in-one-square был
+    // locked и удалён).
     const disabled = cards.filter((c) => c.disabled);
     const enabled = cards.filter((c) => !c.disabled);
     expect(enabled).toHaveLength(4);
-    expect(disabled).toHaveLength(4);
+    expect(disabled).toHaveLength(3);
   });
 
   it('клик по карточке ведёт на /drills/<kebab-id>', async () => {

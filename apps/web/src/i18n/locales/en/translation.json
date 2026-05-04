@@ -662,7 +662,6 @@
       "findLoosePiece": "Which piece is undefended?",
       "findPin": "Find the pinned piece",
       "findFork": "Which piece forks?",
-      "findMateInOneSquare": "Deliver mate-in-one",
       "countAttackers": "How many pieces attack the highlighted square?",
       "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
       "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
@@ -676,7 +675,6 @@
       "findLoosePiece": "Loose piece",
       "findPin": "Pin",
       "findFork": "Fork",
-      "findMateInOneSquare": "Mate in one",
       "countAttackers": "Count attackers",
       "findAllChecks": "All checks",
       "findUndefendedAttack": "Create a hanging piece"
@@ -686,7 +684,6 @@
       "findLoosePiece": "Find a piece on the board with no defenders.",
       "findPin": "Locate the piece pinned against a more valuable one (or the king).",
       "findFork": "Find the piece that simultaneously attacks two targets.",
-      "findMateInOneSquare": "Identify the square where mate is given in one move.",
       "countAttackers": "Count how many pieces attack the marked square.",
       "findAllChecks": "Mark every square where you can deliver a check.",
       "findUndefendedAttack": "Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."
