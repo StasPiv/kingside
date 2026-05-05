@@ -386,6 +386,18 @@ update_eventbridge_schedule_task_def() {
 # KS-1826: атомарно двигает `:latest` в ECR на manifest указанного тега.
 # Вызывается только после того, как ВСЕ gate'ы (migrate + services-stable + smoke)
 # этого блока прошли.
+#
+# KS-2442: поддержка IMMUTABLE-репо. Раньше функция полагалась на
+# tagMutability=MUTABLE (put-image перезаписывал существующий :latest).
+# kingside-tactic-worker создан как IMMUTABLE (KS-2439 spec) — для него
+# put-image на уже занятый :latest падает с TagInvalidParameterException
+# / ImageTagAlreadyExistsException и в логах выглядит как «digest mismatch».
+# Решение: детектируем mutability репо; для IMMUTABLE сначала удаляем тег
+# :latest (deletion на IMMUTABLE разрешена, immutability защищает только
+# от overwrite), затем put-image на новый manifest. Образ старого digest
+# не теряется — он остаётся в репо под своим pinned :<sha>-тегом.
+# Окно без :latest измеряется секундами, на ECS не влияет: task-def держит
+# pinned :<sha>, EventBridge target — task-def ARN, adhoc RunTask тоже.
 ecr_move_latest_to_tag() {
     local repo=$1
     local src_tag=$2
@@ -398,31 +410,54 @@ ecr_move_latest_to_tag() {
         echo "  ERROR: cannot read manifest of ${repo}:${src_tag} — :latest NOT moved."
         return 1
     fi
-    # put-image перезаписывает существующий :latest (tag mutability=MUTABLE).
-    # Если :latest уже указывает на тот же manifest — AWS вернёт
-    # ImageAlreadyExistsException, тогда ничего не делаем.
+
+    local mutability
+    mutability=$(aws ecr describe-repositories \
+        --repository-names "$repo" \
+        --query 'repositories[0].imageTagMutability' --output text 2>/dev/null || echo "")
+
+    # Идемпотентность: если :latest уже указывает на тот же digest — no-op
+    # (для обоих режимов одинаково). Делаем ДО put-image — так избегаем
+    # лишнего delete+put на immutable, и более чистого "no-op" лога.
+    local latest_digest sha_digest
+    latest_digest=$(aws ecr batch-get-image \
+        --repository-name "$repo" \
+        --image-ids imageTag=latest \
+        --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+    sha_digest=$(aws ecr batch-get-image \
+        --repository-name "$repo" \
+        --image-ids imageTag="$src_tag" \
+        --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+    if [ -n "$latest_digest" ] && [ "$latest_digest" = "$sha_digest" ]; then
+        echo "  :latest already points to ${repo}:${src_tag} (no-op)."
+        return 0
+    fi
+
+    # IMMUTABLE: сначала удаляем существующий тег :latest (если есть), затем put.
+    if [ "$mutability" = "IMMUTABLE" ] && [ -n "$latest_digest" ]; then
+        aws ecr batch-delete-image \
+            --repository-name "$repo" \
+            --image-ids imageTag=latest \
+            --output text >/dev/null 2>&1 || true
+    fi
+
     if aws ecr put-image \
         --repository-name "$repo" \
         --image-tag latest \
         --image-manifest "$manifest" \
         --output text >/dev/null 2>&1; then
-        echo "  :latest → ${repo}:${src_tag} (atomic move)."
+        echo "  :latest → ${repo}:${src_tag} (atomic move${mutability:+, mutability=$mutability})."
     else
-        # Проверим, что причина — идентичность manifest, а не реальный сбой.
-        local latest_digest
+        # Перепроверяем: возможно гонка / параллельный deploy уже обновил :latest.
         latest_digest=$(aws ecr batch-get-image \
             --repository-name "$repo" \
             --image-ids imageTag=latest \
             --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
-        local sha_digest
-        sha_digest=$(aws ecr batch-get-image \
-            --repository-name "$repo" \
-            --image-ids imageTag="$src_tag" \
-            --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
         if [ -n "$latest_digest" ] && [ "$latest_digest" = "$sha_digest" ]; then
-            echo "  :latest already points to ${repo}:${src_tag} (no-op)."
+            echo "  :latest already points to ${repo}:${src_tag} (concurrent move)."
+            return 0
         else
-            echo "  ERROR: aws ecr put-image failed and :latest is NOT on ${src_tag} (digest mismatch)."
+            echo "  ERROR: aws ecr put-image failed and :latest is NOT on ${src_tag} (digest mismatch, mutability=${mutability:-unknown})."
             return 1
         fi
     fi
