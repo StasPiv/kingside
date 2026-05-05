@@ -161,8 +161,11 @@ export interface TacticDrillDto {
   fen: string;
   /**
    * Чья сторона на ходу. Для drill'ов где `side-to-move` неважна
-   * (`find-pin`, `find-loose-piece`, `count-attackers`) — `null`,
-   * frontend не показывает индикатор хода.
+   * (`find-pin`, `count-attackers`) — `null`, frontend не показывает
+   * индикатор хода.
+   *
+   * KS-2415: `find-loose-piece` теперь side-sensitive — backend
+   * выводит `sideToMove` из FEN, в DTO `'w' | 'b'`, не `null`.
    */
   sideToMove: 'w' | 'b' | null;
   /** Ожидаемый формат ответа (для UI: один клик / много / число / from→to). */

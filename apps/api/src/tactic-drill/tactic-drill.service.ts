@@ -827,13 +827,21 @@ function sanitizeMeta(
 
 /**
  * Drill'ы, у которых side-to-move не важна (api-contract §2):
- * `find-pin`, `find-loose-piece`, `count-attackers` → `null`.
- * Для остальных — берём из FEN.
+ * `find-pin`, `count-attackers` → `null`.
+ *
+ * KS-2415: `find-loose-piece` исключён из этого списка — drill
+ * side-sensitive (искомая беззащитная фигура принадлежит стороне,
+ * у которой ход — её игрок должен распознать собственную незащищённую
+ * фигуру / фигуру противника, в зависимости от семантики predicate'а).
+ * Раньше DTO отдавал `sideToMove: null`, фронт делал fallback через
+ * `sideFromFen`. Теперь берём из FEN корректно — fallback на фронте
+ * остаётся как safety, но контракт DTO выровнен.
+ *
+ * Для остальных drill-типов — берём из FEN.
  */
 function inferSideToMove(type: TacticDrillType, fen: string): 'w' | 'b' | null {
   const noSide = new Set<TacticDrillType>([
     'find-pin',
-    'find-loose-piece',
     'count-attackers',
   ]);
   if (noSide.has(type)) return null;

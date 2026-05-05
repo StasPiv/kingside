@@ -155,7 +155,7 @@ describe('TacticDrillService — KS-2230', () => {
       expect(hasOnlySafeColumns).toBe(true);
     });
 
-    it('side-to-move = null для find-pin / find-loose / count-attackers', async () => {
+    it('side-to-move = null для find-pin / count-attackers', async () => {
       (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
         {
           id: 'd',
@@ -167,6 +167,38 @@ describe('TacticDrillService — KS-2230', () => {
       ]);
       const r = await svc.getNext(null, 'find-pin');
       expect(r?.sideToMove).toBeNull();
+    });
+
+    // KS-2415: find-loose-piece — side-sensitive, sideToMove берётся из
+    // FEN (не null, как было до фикса). Архитектор зафиксировал
+    // расхождение в KS-2412 — фронт делал fallback через sideFromFen,
+    // теперь контракт DTO выровнен.
+    it('KS-2415: side-to-move берётся из FEN для find-loose-piece (white)', async () => {
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'd-loose-w',
+          type: 'find-loose-piece',
+          fen: '4k3/8/8/4n3/8/8/8/4K3 w - - 0 1',
+          difficulty: 1,
+          meta: null,
+        },
+      ]);
+      const r = await svc.getNext(null, 'find-loose-piece');
+      expect(r?.sideToMove).toBe('w');
+    });
+
+    it('KS-2415: side-to-move берётся из FEN для find-loose-piece (black)', async () => {
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'd-loose-b',
+          type: 'find-loose-piece',
+          fen: '4k3/8/8/4N3/8/8/8/4K3 b - - 0 1',
+          difficulty: 1,
+          meta: null,
+        },
+      ]);
+      const r = await svc.getNext(null, 'find-loose-piece');
+      expect(r?.sideToMove).toBe('b');
     });
 
     it('KS-2369: count-attackers DTO пробрасывает meta.attackerColor', async () => {
