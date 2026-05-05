@@ -1,4 +1,4 @@
-import { useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { memo, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import type { Square } from 'chess.js';
 import { MemoChessboard } from '../MemoChessboard';
 import { useContainerWidth } from '../../hooks/useContainerWidth';
@@ -73,7 +73,20 @@ const HIGHLIGHT_STYLE: CSSProperties = {
   backgroundColor: 'rgba(255, 230, 0, 0.45)',
 };
 
-export function DrillBoard({
+/**
+ * KS-2428: компонент обёрнут в `React.memo`. До правки родительский
+ * sprint-таймер ререндерил sprint-страницу 4 раза в секунду —
+ * DrillBoard пересоздавал useMemo для options (хоть MemoChessboard
+ * внутри и фильтровал тяжёлый ререндер Chessboard, useContainerWidth
+ * + useFastDrag всё равно срабатывали). Memo на верхнем DrillBoard +
+ * вынесенный SprintTimer убирают эти лишние циклы.
+ *
+ * memo использует дефолтное shallow-сравнение пропсов: если родитель
+ * стабилизирует callback'и (через `useCallback` с правильными deps
+ * или ref-based latest pattern) — компонент не ререндерится между
+ * тиками таймера / сменой `pickedFrom` без смены drill'а.
+ */
+function DrillBoardImpl({
   position,
   boardOrientation = 'white',
   highlightedSquares,
@@ -160,3 +173,5 @@ export function DrillBoard({
     </div>
   );
 }
+
+export const DrillBoard = memo(DrillBoardImpl);

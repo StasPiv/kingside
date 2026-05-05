@@ -15,6 +15,7 @@ import {
   DrillCountAttackersButtons,
   DrillFeedbackOverlay,
   DrillInstructions,
+  SprintTimer,
   type DrillCountValue,
 } from '../components/drills';
 // KS-2425: sprint-mode не использовал DrillRunner и потому не получил
@@ -60,14 +61,6 @@ function kebabToCamel(s: string): string {
   return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-function formatTime(ms: number): string {
-  if (ms <= 0) return '0:00';
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 export function DrillSprintPlayPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -103,9 +96,23 @@ export function DrillSprintPlayPage() {
   );
   const durationMs = sessionFromState?.durationMs ?? 0;
 
-  const [timeLeft, setTimeLeft] = useState<number>(durationMs);
   const drillStartRef = useRef<number>(Date.now());
   const finishedRef = useRef(false);
+
+  // KS-2428: latest-ref pattern для drill / feedback / pickedFrom.
+  // Callback'и handleSquareClick/handlePieceDrop/handlePiecePickup
+  // читают актуальные значения через ref'ы — сами callback'и при этом
+  // имеют стабильные ссылки. Это позволяет React.memo на DrillBoard
+  // эффективно срабатывать: при ререндере PlayPage (например, на ответ
+  // сервера / клик пользователя) ссылки на onSquareClick/onPieceDrop/
+  // onPiecePickup не меняются → DrillBoard не переходит к useFastDrag /
+  // useContainerWidth заново.
+  const drillRef = useRef(drill);
+  drillRef.current = drill;
+  const feedbackRef = useRef(feedback);
+  feedbackRef.current = feedback;
+  const pickedFromRef = useRef(pickedFrom);
+  pickedFromRef.current = pickedFrom;
 
   const goToResults = useCallback(
     (final: FinalSummary | null, ended: 'submitted' | 'expired') => {
@@ -128,29 +135,25 @@ export function DrillSprintPlayPage() {
     [navigate, sessionFromState?.durationMs],
   );
 
-  // Тикающий таймер общего времени sprint'а.
-  useEffect(() => {
-    if (!sessionFromState) return;
+  // KS-2428: таймер вынесен в `<SprintTimer>` (memo). Тики 4 раза в
+  // секунду больше не дёргают весь PlayPage — родитель ререндерится
+  // только на ответ сервера / клик пользователя. handleTimerExpire
+  // вызывается ровно один раз когда таймер сел в 0.
+  const handleTimerExpire = useCallback(() => {
     if (finishedRef.current) return;
-    const id = setInterval(() => {
-      const remaining = durationMs - (Date.now() - startedAtMs);
-      if (remaining <= 0) {
-        clearInterval(id);
-        if (finishedRef.current) return;
-        // Время вышло — POST /finish для финального счёта.
-        api
-          .post<FinalSummary>('/tactic-drill/sprint/finish', { sessionId })
-          .then((resp) => goToResults(resp, 'expired'))
-          .catch(() => goToResults(null, 'expired'));
-      } else {
-        setTimeLeft(remaining);
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, [sessionFromState, durationMs, startedAtMs, sessionId, goToResults]);
+    // Время вышло — POST /finish для финального счёта.
+    api
+      .post<FinalSummary>('/tactic-drill/sprint/finish', { sessionId })
+      .then((resp) => goToResults(resp, 'expired'))
+      .catch(() => goToResults(null, 'expired'));
+  }, [sessionId, goToResults]);
 
   const submitAnswer = useCallback(
     async (userAnswer: AnswerData) => {
+      // KS-2428: читаем актуальные drill/feedback из ref, чтобы
+      // submitAnswer оставался стабильной ссылкой между ререндерами.
+      const drill = drillRef.current;
+      const feedback = feedbackRef.current;
       if (!drill || !sessionId || feedback || finishedRef.current) return;
       const timeMs = Date.now() - drillStartRef.current;
       // KS-2425: озвучиваем сам факт хода/ответа — тот же контракт,
@@ -200,20 +203,22 @@ export function DrillSprintPlayPage() {
         setFeedback(null);
       }
     },
-    [drill, sessionId, feedback, goToResults, playDrillSound],
+    [sessionId, goToResults, playDrillSound],
   );
 
   const handleSquareClick = useCallback(
     (sq: ChessSquare) => {
+      // KS-2428: latest-ref для drill/feedback/pickedFrom — стабильная
+      // ссылка callback'а.
+      const drill = drillRef.current;
+      const feedback = feedbackRef.current;
+      const pickedFrom = pickedFromRef.current;
       if (!drill || feedback) return;
       switch (drill.answerShape) {
         case 'square':
-          // KS-2425: для shape='square' submit сразу проигрывает 'move'
-          // + verdict — двойной звук на одно действие не нужен.
           void submitAnswer({ shape: 'square', square: sq });
           break;
         case 'squares':
-          // KS-2425: каждый клик — toggle клетки → 'select'.
           playDrillSound('select');
           setPickedSquares((prev) =>
             prev.includes(sq) ? prev.filter((x) => x !== sq) : [...prev, sq],
@@ -235,7 +240,7 @@ export function DrillSprintPlayPage() {
           break;
       }
     },
-    [drill, feedback, pickedFrom, submitAnswer, playDrillSound],
+    [submitAnswer, playDrillSound],
   );
 
   const handleNumberPick = useCallback(
@@ -257,6 +262,8 @@ export function DrillSprintPlayPage() {
   // verdict.
   const handlePieceDrop = useCallback(
     (args: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      const drill = drillRef.current;
+      const feedback = feedbackRef.current;
       if (!drill || feedback || finishedRef.current) return false;
       if (drill.answerShape !== 'move') return false;
       const { sourceSquare, targetSquare } = args;
@@ -271,7 +278,7 @@ export function DrillSprintPlayPage() {
       });
       return true;
     },
-    [drill, feedback, submitAnswer],
+    [submitAnswer],
   );
 
   // KS-2426: pickup-звук на drag (через useFastDrag → DrillBoard).
@@ -309,6 +316,23 @@ export function DrillSprintPlayPage() {
   const instructionTone =
     feedback === null ? 'info' : feedback.solved ? 'success' : 'error';
 
+  // KS-2428: мемоизируем overlay-элемент, иначе на каждом ререндере
+  // PlayPage создаётся новый JSX-объект — DrillBoard.memo бы не пускал
+  // его как стабильный prop.
+  const boardOverlay = useMemo(
+    () =>
+      feedback ? (
+        <DrillFeedbackOverlay result={feedback.solved ? 'correct' : 'incorrect'} />
+      ) : null,
+    [feedback],
+  );
+
+  const boardOrientation = drill?.sideToMove === 'b' ? 'black' : 'white';
+  const sprintOnPieceDrop =
+    drill?.answerShape === 'move' ? handlePieceDrop : undefined;
+  const sprintOnPiecePickup =
+    drill?.answerShape === 'move' ? handlePiecePickup : undefined;
+
   if (!sessionFromState || !drill) {
     return (
       <div
@@ -337,13 +361,12 @@ export function DrillSprintPlayPage() {
         >
           {t('drills.sprint.play.score', 'Score')}: {score} / {attempted}
         </div>
-        <div
-          className="drill-sprint-play__timer"
-          data-testid="drill-sprint-play-timer"
-          data-ms-left={timeLeft}
-        >
-          {t('drills.sprint.play.timeLeft', 'Time left')}: {formatTime(timeLeft)}
-        </div>
+        <SprintTimer
+          durationMs={durationMs}
+          startedAtMs={startedAtMs}
+          label={t('drills.sprint.play.timeLeft', 'Time left')}
+          onExpire={handleTimerExpire}
+        />
       </header>
 
       <DrillInstructions tone={instructionTone}>{instructionText}</DrillInstructions>
@@ -362,21 +385,13 @@ export function DrillSprintPlayPage() {
 
       <DrillBoard
         position={drill.fen}
-        boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
+        boardOrientation={boardOrientation}
         highlightedSquares={highlightedSquares}
         onSquareClick={handleSquareClick}
         // KS-2426: drag-drop ввод для shape='move' (как в DrillRunner).
-        onPieceDrop={
-          drill.answerShape === 'move' ? handlePieceDrop : undefined
-        }
-        onPiecePickup={
-          drill.answerShape === 'move' ? handlePiecePickup : undefined
-        }
-        overlay={
-          feedback ? (
-            <DrillFeedbackOverlay result={feedback.solved ? 'correct' : 'incorrect'} />
-          ) : null
-        }
+        onPieceDrop={sprintOnPieceDrop}
+        onPiecePickup={sprintOnPiecePickup}
+        overlay={boardOverlay}
       />
 
       <div className="drill-sprint-play__controls" data-testid="drill-sprint-play-controls">

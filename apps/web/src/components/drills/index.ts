@@ -59,3 +59,8 @@ export type {
   DrillTypeInfoModalProps,
   DrillTypeInfoModalVariant,
 } from './DrillTypeInfoModal';
+
+// KS-2428 — sprint-таймер, вынесенный из DrillSprintPlayPage,
+// чтобы тики 4 раза в секунду не дёргали родительский ререндер.
+export { SprintTimer } from './SprintTimer';
+export type { SprintTimerProps } from './SprintTimer';
