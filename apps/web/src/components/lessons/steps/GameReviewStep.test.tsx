@@ -1,33 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import type { GameReviewStepPayload } from '@kingside/shared';
 
-import { renderWithProviders, screen, waitFor } from '../../../test/test-utils';
+import { renderWithProviders, screen } from '../../../test/test-utils';
 import { GameReviewStep } from './GameReviewStep';
 
-// ─── Моки тяжёлых зависимостей ────────────────────────────────────────
-// `useGameReport` дёргает API (`GET /games/:id/report` + `POST
-// /games/:id/analyze`). В unit-тестах шага нам важна диспетчеризация и
-// чек-лист, не сетевой слой — мокаем хук и `GameReportPanel`.
-const mockGameReport = {
-  report: null as unknown,
-  analyzing: false,
-  error: null as string | null,
-  fetchReport: vi.fn(),
-  analyze: vi.fn(),
-};
-
-vi.mock('../../../hooks/useGameReport', () => ({
-  useGameReport: (_gameId: string | undefined) => mockGameReport,
-}));
-
-vi.mock('../../GameReportPanel', () => ({
-  GameReportPanel: () => (
-    <div data-testid="game-report-panel-mock">report-panel</div>
-  ),
-}));
-
-// `ImportExternalModal` дергает `/workshop/import-external`. Для проверки
+// `ImportExternalModal` дёргает `/workshop/import-external`. Для проверки
 // факта открытия модалки достаточно лёгкой заглушки.
 vi.mock('../../workshop/ImportExternalModal', () => ({
   ImportExternalModal: ({
@@ -58,20 +36,12 @@ vi.mock('../../workshop/ImportExternalModal', () => ({
   ),
 }));
 
-beforeEach(() => {
-  mockGameReport.report = null;
-  mockGameReport.analyzing = false;
-  mockGameReport.error = null;
-  mockGameReport.fetchReport.mockReset();
-  mockGameReport.analyze.mockReset();
-});
-
 function payload(p: Partial<GameReviewStepPayload>): GameReviewStepPayload {
   return { type: 'game_review', ...p };
 }
 
 describe('<GameReviewStep>', () => {
-  it('gameId задан → рендерится GameReportPanel и deep-link на /analysis', async () => {
+  it('gameId задан → рендерится deep-link на /analysis (без серверного отчёта, KS-2434)', () => {
     renderWithProviders(
       <GameReviewStep payload={payload({ gameId: 'g-123' })} />,
     );
@@ -79,13 +49,10 @@ describe('<GameReviewStep>', () => {
       'data-mode',
       'gameId',
     );
-    expect(screen.getByTestId('game-report-panel-mock')).toBeInTheDocument();
-    // useEffect вызывает fetchReport при монтировании
-    await waitFor(() =>
-      expect(mockGameReport.fetchReport).toHaveBeenCalledTimes(1),
-    );
-    // deep-link в полный разбор
-    const link = screen.getByRole('link', { name: /full analysis|openFullAnalysis|полный/i });
+    // KS-2434: панель серверного отчёта удалена, deep-link на /analysis остался.
+    const link = screen.getByRole('link', {
+      name: /full analysis|openFullAnalysis|полный/i,
+    });
     expect(link).toHaveAttribute('href', '/analysis/g-123');
   });
 
@@ -96,20 +63,16 @@ describe('<GameReviewStep>', () => {
       'data-mode',
       'pgn',
     );
-    // KS-1999: viewer на месте, его counter — «0/4» (4 plies в этом PGN).
     expect(screen.getByTestId('inline-pgn-viewer')).toBeInTheDocument();
     expect(screen.getByTestId('inline-pgn-viewer-counter').textContent).toBe(
       '0/4',
     );
-    // Сырого PGN-блока и Workshop-ссылки больше нет.
     expect(
       screen.queryByTestId('lesson-game-review-step-pgn-text'),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId('lesson-game-review-step-workshop-link'),
     ).not.toBeInTheDocument();
-    // fetchReport не должен дёргаться без gameId
-    expect(mockGameReport.fetchReport).not.toHaveBeenCalled();
   });
 
   it('пустой payload → кнопки импорта; клик → ImportExternalModal', () => {
@@ -118,7 +81,6 @@ describe('<GameReviewStep>', () => {
       'data-mode',
       'empty',
     );
-    // Модалка не показана по умолчанию
     expect(
       screen.queryByTestId('import-modal-mock-lichess'),
     ).not.toBeInTheDocument();
@@ -148,20 +110,12 @@ describe('<GameReviewStep>', () => {
     ).toBeInTheDocument();
   });
 
-  // ─── KS-2000: чек-лист удалён, шаг завершается обычной «Далее» ────
-
-  it('KS-2000: под viewer\'ом нет чек-листа', () => {
+  it('KS-2000: чек-лист удалён', () => {
     const pgn = '[Event "Test"]\n1. e4 e5 *';
     renderWithProviders(<GameReviewStep payload={payload({ pgn })} />);
-    // Чек-лист и его внутренние тестовые id больше не должны существовать.
     expect(
       screen.queryByTestId('lesson-game-review-step-checklist'),
     ).not.toBeInTheDocument();
-    for (const id of ['key-mistake', 'opponent-plan', 'best-move']) {
-      expect(
-        screen.queryByTestId(`lesson-game-review-step-check-${id}`),
-      ).not.toBeInTheDocument();
-    }
   });
 
   it('KS-2000: кнопка «Далее» всегда активна и вызывает onStepDone по клику', () => {
@@ -176,7 +130,6 @@ describe('<GameReviewStep>', () => {
       'lesson-game-review-step-next',
     ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
-    // KS-2043: текст переименован на «Готово»/«Got it».
     expect(btn.textContent).toMatch(/got it|готово/i);
     fireEvent.click(btn);
     expect(onStepDone).toHaveBeenCalledTimes(1);

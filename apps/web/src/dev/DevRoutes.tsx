@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 
 import { DevPositionStepPage } from '../pages/DevPositionStepPage';
 import { DevVideoStepPage } from '../pages/DevVideoStepPage';
-import { DevGameReviewStepPage } from '../pages/DevGameReviewStepPage';
+// KS-2434: dev-sandbox разбора партии удалён вместе с серверным анализом.
 import { DevReviewsUiPage } from '../pages/DevReviewsUiPage';
 import { DevEndgameDrillStepPage } from '../pages/DevEndgameDrillStepPage';
 import { DevOpeningDrillStepPage } from '../pages/DevOpeningDrillStepPage';
@@ -28,7 +28,8 @@ export default function DevRoutes() {
     <Routes>
       <Route path="position-step" element={<DevPositionStepPage />} />
       <Route path="video-step" element={<DevVideoStepPage />} />
-      <Route path="game-review-step" element={<DevGameReviewStepPage />} />
+      {/* KS-2434: /dev/game-review-step удалён — серверный анализ
+          больше не существует (см. KS-2433). */}
       <Route path="reviews-ui" element={<DevReviewsUiPage />} />
       <Route path="endgame-drill" element={<DevEndgameDrillStepPage />} />
       <Route path="opening-drill" element={<DevOpeningDrillStepPage />} />

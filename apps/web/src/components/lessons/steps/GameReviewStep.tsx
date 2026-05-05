@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { GameReviewStepPayload } from '@kingside/shared';
 
-import { useGameReport } from '../../../hooks/useGameReport';
-import { GameReportPanel } from '../../GameReportPanel';
 import { ImportExternalModal } from '../../workshop/ImportExternalModal';
 import { InlinePgnViewer } from './InlinePgnViewer';
 
@@ -17,37 +15,25 @@ import { InlinePgnViewer } from './InlinePgnViewer';
  * семантически ожидает ровно одно из двух полей (class-validator DTO на
  * backend валидирует XOR). На фронте:
  *
- * - `gameId` задан → тянем готовый `GameReport` через `useGameReport`
- *   (`GET /games/:gameId/report`). Если отчёта нет — пользователь сам
- *   нажимает «Проанализировать» (`POST /games/:gameId/analyze`). Путь
- *   wasm-only по ADR-025 §2.8 — backend считает анализ без серверного
- *   stockfish, `useExternalEngine` не задействован.
+ * - `gameId` задан → ссылка на полный анализ `/analysis/:gameId`
+ *   (там доска + ReviewMoveList + EvalBar/Graph). До KS-2434 здесь
+ *   рендерился серверный отчёт; KS-2433 удалил соответствующие
+ *   endpoint'ы из API, и inline-блок отчёта убрали — остался только
+ *   deep-link.
  *
- * - `pgn` задан → в этой итерации показываем PGN текстом и ссылку в
- *   Мастерскую: для полного разбора нужно сохранить партию как
- *   `Analysis` (там уже есть доска + `ReviewMoveList` + `EvalBar/Graph`).
- *   Полная интеграция этих компонентов внутри урока — отдельная большая
- *   работа (см. комментарий в конце файла), в MVP обходимся ссылкой.
+ * - `pgn` задан → встроенный интерактивный viewer (доска + список
+ *   ходов + навигация). WASM/Stockfish не используется: разбор в уроке
+ *   — только просмотр PGN.
  *
-
-
- * - Оба пустые → показываем выбор источника партии:
- *    * «Импорт с Lichess/chess.com» через `ImportExternalModal`;
- *    * либо ссылка в `/workshop/my-games`, если у пользователя партии
- *      уже есть в БД.
- *   После успешного импорта `ImportExternalModal` вызывает `onImported`,
- *   мы закрываем модалку и пользователь может выбрать партию вручную в
- *   Мастерской — в MVP автовыбор не делаем (нужен отдельный запрос к
- *   `/games/my`, это расширение задачи).
+ * - Оба пустые → выбор источника партии: импорт с Lichess/chess.com
+ *   через `ImportExternalModal` или ссылка в `/workshop`. После
+ *   успешного импорта `ImportExternalModal` вызывает `onImported`,
+ *   и пользователь сам выбирает партию в Мастерской.
  *
- * # KS-2000: чек-лист удалён
+ * # Завершение
  *
- * До KS-2000 под viewer'ом партии рендерился чек-лист «Разбор партии»
- * с тремя hardcoded-вопросами и кнопка «Шаг пройден» disabled до тех
- * пор пока не отмечены все. Это было заложено по умолчанию во ВСЕ
- * шаги — пользователи Pilot-курса такого не заказывали, поведение
- * выглядело как самодеятельность. Чек-лист и его состояние удалены
- * целиком; шаг завершается обычной кнопкой «Далее» через `onStepDone()`.
+ * Шаг завершается обычной кнопкой «Готово» через `onStepDone()`
+ * (см. KS-2000 — ранее был чек-лист, удалён).
  */
 
 interface GameReviewStepProps {
@@ -74,21 +60,6 @@ export function GameReviewStep({
   );
   const [importJustCompleted, setImportJustCompleted] = useState(false);
 
-  const {
-    report,
-    analyzing,
-    error: reportError,
-    fetchReport,
-    analyze,
-  } = useGameReport(gameId);
-
-  // Тянем отчёт при монтировании — только если есть gameId.
-  useEffect(() => {
-    if (gameId) {
-      void fetchReport();
-    }
-  }, [gameId, fetchReport]);
-
   const mode: 'empty' | 'pgn' | 'gameId' = gameId
     ? 'gameId'
     : pgn
@@ -106,12 +77,6 @@ export function GameReviewStep({
           className="lesson-game-review-step__analysis"
           data-testid="lesson-game-review-step-analysis"
         >
-          <GameReportPanel
-            report={report}
-            analyzing={analyzing}
-            error={reportError}
-            onAnalyze={analyze}
-          />
           <p className="lesson-game-review-step__deep-link">
             <Link to={`/analysis/${encodeURIComponent(gameId ?? '')}`}>
               {t('lessons.gameReview.openFullAnalysis', 'Open full analysis')}
@@ -184,13 +149,6 @@ export function GameReviewStep({
         </div>
       )}
 
-      {/* KS-2000: чек-лист удалён. Шаг завершается кнопкой отметки
-          прогресса.
-          KS-2043/KS-2056: текст кнопки — «Готово» (lessons.markDone).
-          Это единственный способ перехода на следующий шаг: кнопка
-          вызывает `onStepDone`, который помечает шаг done и
-          переключает на следующий. Внешней кнопки «Далее» в навигации
-          больше нет. */}
       {!hideNext && (
         <div className="lesson-game-review-step__actions">
           <button
@@ -216,12 +174,3 @@ export function GameReviewStep({
     </div>
   );
 }
-
-// NOTE: полная интеграция `ReviewMoveList` + `EvalBar/EvalGraph` +
-// интерактивной доски внутри шага требует выноса AnalysisPage-state в
-// переиспользуемый хук (`useAnalysisController`?). В текущем коде это
-// state размазан по `AnalysisPage.tsx` (~1200 строк). По L-30 в
-// baseline-итерации оставляем deep-link на `/analysis/:gameId` и
-// `/workshop` — полный разбор открывается в отдельной странице. Выносить
-// hooks из AnalysisPage лучше отдельной задачей (refactor), чтобы не
-// тащить 1000+ строк diff'а в рамках L-30.

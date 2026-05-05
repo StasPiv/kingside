@@ -104,21 +104,7 @@ vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
 }));
 
-// useGameReport keeps its own state that, when fed by the generic `api.get`
-// mock below, ends up with a truthy `report` whose shape does not match
-// GameReportPanel's expectation (no `moves`). Stub it with safe defaults so
-// rendering does not crash.
-vi.mock('../hooks/useGameReport', () => {
-  const api = {
-    report: null,
-    loading: false,
-    analyzing: false,
-    error: null,
-    fetchReport: vi.fn(),
-    analyze: vi.fn(),
-  };
-  return { useGameReport: () => api };
-});
+// KS-2434: серверный анализ партии удалён, мок не нужен.
 
 vi.mock('../hooks/useSavedAnalyses', () => {
   const api = {

@@ -84,16 +84,7 @@ vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
 }));
 
-vi.mock('../hooks/useGameReport', () => ({
-  useGameReport: () => ({
-    report: null,
-    loading: false,
-    analyzing: false,
-    error: null,
-    fetchReport: vi.fn(),
-    analyze: vi.fn(),
-  }),
-}));
+// KS-2434: серверный анализ партии удалён, мок не нужен.
 
 vi.mock('../hooks/useSavedAnalyses', () => ({
   useSavedAnalyses: () => ({

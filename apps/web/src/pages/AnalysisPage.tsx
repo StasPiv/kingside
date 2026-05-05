@@ -36,9 +36,6 @@ import { VariationChooser } from '../components/VariationChooser';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn, extractInitialAnnotations } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
-import { EvalGraph } from '../components/EvalGraph';
-import { GameReportPanel } from '../components/GameReportPanel';
-import { useGameReport } from '../hooks/useGameReport';
 import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
@@ -138,7 +135,8 @@ function AnalysisPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
-  type MobileTabId = 'moves' | 'engine' | 'tree' | 'report';
+  // KS-2434: вкладка 'report' удалена вместе с серверным game-report'ом.
+  type MobileTabId = 'moves' | 'engine' | 'tree';
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
@@ -261,11 +259,8 @@ function AnalysisPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Game Report
-  const { report: gameReport, analyzing: reportAnalyzing, error: reportError, fetchReport, analyze: analyzeGame } = useGameReport(gameId);
-  useEffect(() => { if (gameId) fetchReport(); }, [gameId, fetchReport]);
-
-
+  // KS-2434: серверный анализ партии удалён (см. KS-2433). На странице
+  // анализа теперь только клиентский WASM/external Stockfish.
 
   // Panel collapse state
   const [panelStates, setPanelStates] = useState(() => {
@@ -1420,29 +1415,8 @@ function AnalysisPageInner() {
           </div>
         )}
 
-        {/* Desktop: Report (always visible if gameId) */}
-        {gameId && (
-          <div className="analysis-desktop-only">
-            {gameReport && gameReport.status === 'complete' && (
-              <EvalGraph
-                moves={gameReport.moves}
-                currentMoveIndex={currentGlobalIndex != null ? currentGlobalIndex - 1 : undefined}
-                onSelectMove={(idx) => {
-                  const target = history.find((m) => m.globalIndex === idx + 1);
-                  if (target) gotoMove(target);
-                }}
-              />
-            )}
-            <GameReportPanel
-              report={gameReport}
-              analyzing={reportAnalyzing}
-              error={reportError}
-              onAnalyze={analyzeGame}
-              whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
-              blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
-            />
-          </div>
-        )}
+        {/* KS-2434: блок серверного анализа партии удалён (см. KS-2433).
+            Глубокий анализ — через клиентский Stockfish в нижних панелях. */}
 
         {/* Bridge promo — desktop only */}
         {activeSource === 'wasm' && !bridgePromoDismissed && (
@@ -1572,11 +1546,8 @@ function AnalysisPageInner() {
             <button className={`analysis-mobile-tab${mobileTab === 'tree' ? ' active' : ''}`} onClick={() => setMobileTab('tree')}>
               {t('archive.tree', 'Tree')}
             </button>
-            {gameId && (
-              <button className={`analysis-mobile-tab${mobileTab === 'report' ? ' active' : ''}`} onClick={() => setMobileTab('report')}>
-                {t('analysis.report', 'Report')}
-              </button>
-            )}
+            {/* KS-2434: вкладка 'report' удалена — серверный game-report
+                больше не доступен (см. KS-2433). */}
           </div>
           <div className="analysis-mobile-panel__content">
             {/* KS-1698: каждая вкладка показывает только своё содержимое.
@@ -1648,28 +1619,8 @@ function AnalysisPageInner() {
                 />
               </div>
             )}
-            {mobileTab === 'report' && gameId && (
-              <div className="analysis-mobile-section analysis-mobile-section--report active">
-                {gameReport && gameReport.status === 'complete' && (
-                  <EvalGraph
-                    moves={gameReport.moves}
-                    currentMoveIndex={currentGlobalIndex != null ? currentGlobalIndex - 1 : undefined}
-                    onSelectMove={(idx) => {
-                      const target = history.find((m) => m.globalIndex === idx + 1);
-                      if (target) gotoMove(target);
-                    }}
-                  />
-                )}
-                <GameReportPanel
-                  report={gameReport}
-                  analyzing={reportAnalyzing}
-                  error={reportError}
-                  onAnalyze={analyzeGame}
-                  whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
-                  blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
-                />
-              </div>
-            )}
+            {/* KS-2434: mobile-секция 'report' удалена вместе с
+                серверным game-report (см. KS-2433). */}
           </div>
         </div>
       </div>

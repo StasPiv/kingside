@@ -97,9 +97,7 @@ vi.mock('./pages/DevVideoStepPage', () => ({
 vi.mock('./pages/DevPositionStepPage', () => ({
   DevPositionStepPage: () => <div data-testid="page-dev-position" />,
 }));
-vi.mock('./pages/DevGameReviewStepPage', () => ({
-  DevGameReviewStepPage: () => <div data-testid="page-dev-game-review" />,
-}));
+// KS-2434: страница dev-sandbox разбора партии удалена.
 vi.mock('./pages/DevEndgameDrillStepPage', () => ({
   DevEndgameDrillStepPage: () => <div data-testid="page-dev-endgame" />,
 }));

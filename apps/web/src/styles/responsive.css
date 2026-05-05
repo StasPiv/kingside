@@ -433,23 +433,21 @@
 
   /* All panels full width */
   .analysis-panel,
-  .analysis-panel--flex,
-  .game-report-panel {
+  .analysis-panel--flex {
     width: 100% !important;
     max-width: 100% !important;
   }
 
-  /* Hide EvalGraph and bridge promo */
-  .eval-graph,
+  /* KS-2434: .eval-graph удалён вместе с серверным game-report. */
   .bridge-promo {
     display: none;
   }
 
-  /* Sidebar panel order: Engine(1), Moves(2), GameReport(3), GameInfo(4) */
+  /* Sidebar panel order: Engine(1), Moves(2), GameInfo(3). KS-2434:
+     GameReport больше не рендерится. */
   .analysis-sidebar > .analysis-panel:has(.stockfish-lines) { order: 1; }
   .analysis-sidebar > .analysis-panel--flex { order: 2; }
-  .analysis-sidebar > .game-report-panel { order: 3; }
-  .analysis-sidebar > .analysis-panel:first-child { order: 4; }
+  .analysis-sidebar > .analysis-panel:first-child { order: 3; }
 
   /* Moves panel: takes remaining sidebar space, scrolls internally (KS-927) */
   .analysis-panel--flex {
@@ -721,29 +719,8 @@
 
   /* Player row sizing now handled in 768px block (KS-916) */
 
-  /* GameReportPanel: compact one-line accuracy on mobile (KS-901) */
-  .game-report-accuracy {
-    display: flex;
-    gap: 16px;
-    flex-direction: row;
-  }
-
-  .game-report-accuracy__player {
-    flex-direction: row;
-    gap: 6px;
-  }
-
-  .game-report-accuracy__name {
-    font-size: 12px;
-  }
-
-  .game-report-accuracy__value {
-    font-size: 13px;
-  }
-
-  .game-report-classifications {
-    display: none;
-  }
+  /* KS-2434: .game-report-* стили удалены вместе с серверным
+     game-report (см. KS-2433). */
 
   /* Game page: keep full-height fixed layout, no page scroll */
   body:has(.game-page) {
