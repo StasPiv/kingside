@@ -58,17 +58,23 @@ export interface IndexerStats {
   /** UUID последней обработанной партии (для incremental cursor). */
   lastCursor: string | null;
   /**
-   * KS-2406: счётчики «неучтённых» (dropped) кандидатов по причинам.
-   * Сейчас отслеживается:
-   *   - `findForkUnsafeForker` — позиций, где predicate `find-fork`
-   *     нашёл единственный fork-creating ход, но фигура-форкер встала
-   *     под бой и safety-фильтр отбросил кандидата (см. find-fork.ts).
-   *     Нужен, чтобы видеть в логах: не выкашивает ли новый фильтр
-   *     слишком много позиций. Если % очень велик — повод думать
-   *     про SEE-вариант safety.
+   * KS-2406 / KS-2408: счётчики «неучтённых» (dropped) кандидатов
+   * по причинам. Нужны, чтобы видеть в логах: не выкашивают ли
+   * новые фильтры слишком много позиций.
+   *
+   *   - `findForkUnsafeForker` (KS-2406) — позиций, где predicate
+   *     `find-fork` нашёл fork-creating ход (clean по KS-2408), но
+   *     фигура-форкер встала под бой и safety-фильтр отбросил.
+   *     Если % очень велик — повод думать про SEE-вариант safety.
+   *   - `findForkOverlap` (KS-2408) — позиций, где predicate
+   *     `find-fork` нашёл ход с |targetsAfter|≥2, но множества
+   *     целей форкера до и после хода пересекались (фигура
+   *     продолжала атаковать кого-то из старых). Clean-creator'ов
+   *     при этом не было.
    */
   predicateDrops: {
     findForkUnsafeForker: number;
+    findForkOverlap: number;
   };
 }
 
@@ -113,6 +119,7 @@ function newStats(): IndexerStats {
     lastCursor: null,
     predicateDrops: {
       findForkUnsafeForker: 0,
+      findForkOverlap: 0,
     },
   };
 }
@@ -155,14 +162,14 @@ export function predicatesForPosition(
     if (!options.types.has(p.type)) continue;
     const r = p.run();
     if (!r.valid) {
-      // KS-2406: счётчик отсевов find-fork по safety-форкеру. Reason
-      // выставляется в predicate'е (см. find-fork.ts).
-      if (
-        dropCounters &&
-        p.type === 'find-fork' &&
-        r.reason === 'unsafe-forker'
-      ) {
-        dropCounters.findForkUnsafeForker += 1;
+      // KS-2406 / KS-2408: счётчики отсевов find-fork по причинам.
+      // Reason выставляется в predicate'е (см. find-fork.ts).
+      if (dropCounters && p.type === 'find-fork') {
+        if (r.reason === 'unsafe-forker') {
+          dropCounters.findForkUnsafeForker += 1;
+        } else if (r.reason === 'overlap-with-previous-attacks') {
+          dropCounters.findForkOverlap += 1;
+        }
       }
       continue;
     }
@@ -260,9 +267,11 @@ function logProgress(
   const targets = Array.from(options.types)
     .map((t) => `${t}=${stats.drillsByType[t]}/${options.perTypeTarget}`)
     .join(' ');
-  // KS-2406: показываем счётчик отсева find-fork по unsafe-форкеру —
-  // важно понимать, не выкашивает ли safety слишком много.
-  const drops = `drops:findFork.unsafeForker=${stats.predicateDrops.findForkUnsafeForker}`;
+  // KS-2406 / KS-2408: счётчики отсева find-fork по причинам —
+  // важно видеть, не выкашивают ли фильтры слишком много.
+  const drops =
+    `drops:findFork.unsafeForker=${stats.predicateDrops.findForkUnsafeForker} ` +
+    `findFork.overlap=${stats.predicateDrops.findForkOverlap}`;
   log(
     `[index] games=${stats.gamesProcessed} ` +
       `positions=${stats.positionsScanned} ` +

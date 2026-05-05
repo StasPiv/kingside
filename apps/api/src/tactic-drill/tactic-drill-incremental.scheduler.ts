@@ -90,6 +90,8 @@ export class TacticDrillIncrementalScheduler implements OnModuleDestroy {
           `inserted=${stats.insertedTotal} ` +
           `drops.findFork.unsafeForker=` +
           `${stats.predicateDrops.findForkUnsafeForker} ` +
+          `drops.findFork.overlap=` +
+          `${stats.predicateDrops.findForkOverlap} ` +
           `lastCursor=${stats.lastCursor ?? 'unchanged'}`,
       );
     } catch (err) {
