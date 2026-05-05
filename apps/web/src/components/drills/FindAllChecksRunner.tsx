@@ -17,6 +17,8 @@ import type {
 import { DrillBoard } from './DrillBoard';
 import { DrillFeedbackOverlay } from './DrillFeedbackOverlay';
 import { DrillInstructions } from './DrillInstructions';
+// KS-2423: drill-звуки.
+import { useDrillSounds } from '../../hooks/useDrillSounds';
 
 /**
  * KS-2326 (KS-2324 design / methodology §11) — multi-step UX для
@@ -140,6 +142,8 @@ export function FindAllChecksRunner({
   wrongFlashMs = 600,
 }: FindAllChecksRunnerProps) {
   const { t } = useTranslation();
+  // KS-2423.
+  const { play: playDrillSound } = useDrillSounds();
 
   const expected: MoveDto[] = useMemo(
     () => normalizeMoves(drill.meta?.expectedMoves ?? []),
@@ -254,10 +258,14 @@ export function FindAllChecksRunner({
       if (!expectedKeys.has(key)) {
         setAttempts((a) => a + 1);
         setState('feedback-wrong');
+        // KS-2423: ход-промах.
+        playDrillSound('puzzle-incorrect');
         return;
       }
       if (found.has(key)) {
         setState('feedback-already');
+        // KS-2423: уже найден — тихий «select», как нейтральный фидбек.
+        playDrillSound('select');
         return;
       }
       // Новый правильный шах.
@@ -265,8 +273,10 @@ export function FindAllChecksRunner({
       next.add(key);
       setFound(next);
       setState('feedback-correct');
+      // KS-2423: проигрываем именно «check» — сюжет drill'а.
+      playDrillSound('check');
     },
-    [state, drill.fen, expectedKeys, found],
+    [state, drill.fen, expectedKeys, found, playDrillSound],
   );
 
   // ── Click & Drag handlers ────────────────────────────────────────
@@ -289,17 +299,21 @@ export function FindAllChecksRunner({
         } catch {
           return;
         }
+        // KS-2423: pickup своей фигуры → 'select'.
+        playDrillSound('select');
         setPickedFrom(sq);
         return;
       }
       if (pickedFrom === sq) {
+        // KS-2423.
+        playDrillSound('select');
         setPickedFrom(null);
         return;
       }
       onMove({ from: pickedFrom, to: sq });
       setPickedFrom(null);
     },
-    [state, pickedFrom, onMove, drill.fen, drill.sideToMove],
+    [state, pickedFrom, onMove, drill.fen, drill.sideToMove, playDrillSound],
   );
 
   const handlePieceDrop = useCallback(

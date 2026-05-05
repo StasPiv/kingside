@@ -1,8 +1,10 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useShareSprintResult } from '../hooks/useShareSprintResult';
+// KS-2423: финальный звук sprint'а.
+import { useDrillSounds } from '../hooks/useDrillSounds';
 
 /**
  * KS-2241 (ADR-035 §5.5, Drills E4) — итоговая страница sprint-режима.
@@ -63,6 +65,20 @@ export function DrillSprintResultsPage() {
   };
 
   const playAgain = () => navigate('/drills/sprint', { replace: true });
+
+  // KS-2423: на показе результата играем финальный звук.
+  // - Есть результат и хоть один ответ зачтён — мажорный «game-end».
+  // - Иначе (нулевой score или истёк таймер без попыток) — «puzzle-gameover».
+  // Играем один раз на mount; повторный re-render при изменении state не
+  // должен дублировать звук.
+  const { play: playDrillSound } = useDrillSounds();
+  const finalSoundPlayedRef = useRef(false);
+  useEffect(() => {
+    if (finalSoundPlayedRef.current) return;
+    if (!state.final) return;
+    finalSoundPlayedRef.current = true;
+    playDrillSound(state.final.score > 0 ? 'game-end' : 'puzzle-gameover');
+  }, [state.final, playDrillSound]);
 
   // KS-2251: share-логика. Hook вычисляется ДО early-return missing/loaded,
   // потому что React требует стабильного порядка hooks между рендерами.

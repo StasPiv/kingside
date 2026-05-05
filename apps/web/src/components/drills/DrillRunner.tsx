@@ -21,6 +21,8 @@ import { DrillFeedbackOverlay } from './DrillFeedbackOverlay';
 import { DrillInstructions } from './DrillInstructions';
 // KS-2326: специальный multi-step runner для find-all-checks.
 import { FindAllChecksRunner } from './FindAllChecksRunner';
+// KS-2423: звуки в тренажёрах — обёртка над useSounds с drill-only mute.
+import { useDrillSounds, resolveMoveSound } from '../../hooks/useDrillSounds';
 
 /**
  * KS-2249 (ADR-035 §11, Drills E6) — переиспользуемый runner drill'а.
@@ -251,6 +253,9 @@ export function DrillRunner({
   autoNextDelayIncorrectMs = 1500,
 }: DrillRunnerProps) {
   const { t } = useTranslation();
+  // KS-2423: drill-звуки. Обёртка над useSounds — уважает global mute и
+  // отдельный drill-mute (`drills.soundsMuted`).
+  const { play: playDrillSound } = useDrillSounds();
 
   const effectiveMinSolved = minSolved ?? (Number.isFinite(count) ? count : 0);
 
@@ -380,6 +385,15 @@ export function DrillRunner({
       // хвосте (например, из-за гонки fetchNext).
       if (historyIndex !== history.length - 1) return;
       const timeMs = Date.now() - startedAtRef.current;
+      // KS-2423: озвучиваем сам факт хода. Для shape='move' — move/capture,
+      // shape='squares' — общий «move» как «принял ответ», shape='number'
+      // не озвучиваем (там визуальный feedback от кнопки + дальше correct/
+      // incorrect). Для shape='square' — move (тоже ответ-клик).
+      if (userAnswer.shape === 'move') {
+        playDrillSound(resolveMoveSound(drill.fen, userAnswer.from, userAnswer.to));
+      } else if (userAnswer.shape === 'square' || userAnswer.shape === 'squares') {
+        playDrillSound('move');
+      }
       setState('submitting');
       try {
         const resp = await submitAnswerRef.current({
@@ -396,6 +410,8 @@ export function DrillRunner({
           correctAnswer: resp.correctAnswer,
         };
         setFeedback(fb);
+        // KS-2423: вердикт правильности.
+        playDrillSound(resp.solved ? 'puzzle-correct' : 'puzzle-incorrect');
         // KS-2330: записываем результат + ввод пользователя в текущую
         // запись истории, чтобы при возврате «Назад → Вперёд» видеть
         // тот же feedback и тот же ответ.
@@ -421,7 +437,7 @@ export function DrillRunner({
         setState('error');
       }
     },
-    [drill, state, attempted, solved, historyIndex, history.length, pickedSquares, pickedFrom],
+    [drill, state, attempted, solved, historyIndex, history.length, pickedSquares, pickedFrom, playDrillSound],
   );
 
   const handleNext = useCallback(() => {
@@ -528,9 +544,14 @@ export function DrillRunner({
       if (state !== 'idle' || !drill) return;
       switch (drill.answerShape) {
         case 'square':
+          // KS-2423: для shape='square' клик = ответ; submit() озвучит
+          // 'move' и далее verdict. Здесь дополнительный 'select' не
+          // нужен (был бы двойной звук на одно действие).
           void submit({ shape: 'square', square: sq });
           break;
         case 'squares':
+          // KS-2423: каждый клик — добавление/снятие клетки → 'select'.
+          playDrillSound('select');
           setPickedSquares((prev) =>
             prev.includes(sq) ? prev.filter((x) => x !== sq) : [...prev, sq],
           );
@@ -545,9 +566,14 @@ export function DrillRunner({
               drill.sideToMove ?? sideFromFen(drill.fen);
             const pieceColor = pieceColorOnSquare(drill.fen, sq);
             if (side && pieceColor && pieceColor !== side) return;
+            // KS-2423: pickup своей фигуры → 'select'.
+            playDrillSound('select');
             setPickedFrom(sq);
-          } else if (pickedFrom === sq) setPickedFrom(null);
-          else {
+          } else if (pickedFrom === sq) {
+            // KS-2423: «отжали» уже выбранную клетку — тоже 'select'.
+            playDrillSound('select');
+            setPickedFrom(null);
+          } else {
             void submit({ shape: 'move', from: pickedFrom, to: sq });
             setPickedFrom(null);
           }
@@ -556,7 +582,7 @@ export function DrillRunner({
           break;
       }
     },
-    [drill, pickedFrom, state, submit],
+    [drill, pickedFrom, state, submit, playDrillSound],
   );
 
   const handleNumberPick = useCallback(

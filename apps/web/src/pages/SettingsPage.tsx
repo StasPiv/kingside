@@ -8,6 +8,8 @@ import { useSounds, SOUND_THEMES, previewSound, type SoundTheme } from '../hooks
 import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
+// KS-2423: drill-only mute для звуков тренажёров.
+import { useDrillSounds } from '../hooks/useDrillSounds';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -69,6 +71,11 @@ export function SettingsPage() {
     setDrillsOnboardingMsg(t('settings.drills.resetOnboardingDone'));
     setTimeout(() => setDrillsOnboardingMsg(null), 4000);
   };
+
+  // KS-2423: drill-only mute. Глобальный mute остаётся в секции «Звук»;
+  // здесь добавляем точечный — пользователь может оставить звуки в
+  // обычной игре и убрать только в тренажёрах (и наоборот).
+  const { drillMuted, toggleDrillMuted } = useDrillSounds();
 
   const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = parseInt(e.target.value, 10);
@@ -265,13 +272,33 @@ export function SettingsPage() {
         {externalStatus && <span style={{ marginLeft: 8, fontSize: 12, color: externalStatus.includes('Failed') ? 'var(--c-ef4444)' : 'var(--c-4caf50)' }}>{externalStatus}</span>}
       </section>
 
-      {/* KS-2418: настройки тренажёров — пока только сброс
-          онбординга. Появится больше опций — расширим секцию. */}
+      {/* KS-2418: настройки тренажёров. KS-2423: добавлен toggle
+          drill-звуков. Глобальный mute живёт в секции «Звук» выше. */}
       <section
         className="settings-section"
         data-testid="settings-drills-section"
       >
         <h2>{t('settings.drills.heading', 'Drills')}</h2>
+
+        <div className="settings-field">
+          <label htmlFor="drills-sound-toggle">
+            {t('settings.drills.soundsLabel', 'Drill sound effects')}
+          </label>
+          <input
+            id="drills-sound-toggle"
+            data-testid="settings-drills-sound-toggle"
+            type="checkbox"
+            checked={!drillMuted}
+            onChange={toggleDrillMuted}
+          />
+        </div>
+        <p style={{ fontSize: 13, opacity: 0.75, margin: '0 0 12px 0' }}>
+          {t(
+            'settings.drills.soundsHint',
+            'Sounds for square selection, moves, correct/incorrect verdicts and sprint completion. Global sound toggle in the «Sound» section above must also be on.',
+          )}
+        </p>
+
         <div
           className="settings-field"
           style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}

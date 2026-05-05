@@ -26,7 +26,11 @@ export type SoundEvent =
   | 'game-end'
   | 'puzzle-correct'
   | 'puzzle-incorrect'
-  | 'puzzle-gameover';
+  | 'puzzle-gameover'
+  // KS-2423: тихий короткий «click» при выборе клетки/подъёме фигуры
+  // в тренажёрах. Должен быть НАМНОГО тише чем move/capture, иначе на
+  // shape='squares' (где набирается несколько кликов подряд) утомляет.
+  | 'select';
 
 export type SoundTheme = 'standard' | 'wood' | 'minimal' | 'eightbit';
 
@@ -186,6 +190,11 @@ const standardTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     playTone(ctx, 65, 0.9, t + 0.2, 'sine', 0.2);
     playTone(ctx, 147, 0.5, t + 0.6, 'square', 0.08);
   },
+  select: (ctx) => {
+    // Очень тихий короткий клик — для подсветки выбора клетки.
+    const t = ctx.currentTime;
+    playTone(ctx, 1200, 0.025, t, 'sine', 0.05);
+  },
 };
 
 // =============================================================================
@@ -252,6 +261,12 @@ const woodTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     playTone(ctx, 147, 0.3, t + 0.25, 'triangle', 0.3);
     playTone(ctx, 110, 0.5, t + 0.5, 'triangle', 0.3);
   },
+  select: (ctx) => {
+    const t = ctx.currentTime;
+    // Деревянный тихий тук без полного удара.
+    playNoise(ctx, 0.02, t, 0.1, 1500);
+    playTone(ctx, 220, 0.025, t, 'triangle', 0.1);
+  },
 };
 
 // =============================================================================
@@ -301,6 +316,10 @@ const minimalTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     const t = ctx.currentTime;
     playTone(ctx, 262, 0.15, t, 'sine', 0.14);
     playTone(ctx, 208, 0.2, t + 0.18, 'sine', 0.13);
+  },
+  select: (ctx) => {
+    const t = ctx.currentTime;
+    playTone(ctx, 1500, 0.02, t, 'sine', 0.04);
   },
 };
 
@@ -379,6 +398,10 @@ const eightbitTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     [262, 220, 175, 130].forEach((freq, i) => {
       playTone(ctx, freq, 0.18, t + i * 0.16, 'square', 0.2);
     });
+  },
+  select: (ctx) => {
+    const t = ctx.currentTime;
+    playTone(ctx, 880, 0.025, t, 'square', 0.08);
   },
 };
 

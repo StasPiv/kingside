@@ -285,6 +285,8 @@
     "puzzleRating": "Puzzle Rating",
     "drills": {
       "heading": "Drills",
+      "soundsLabel": "Drill sound effects",
+      "soundsHint": "Sounds for square selection, moves, correct/incorrect verdicts and sprint completion. Global sound toggle in the «Sound» section above must also be on.",
       "resetOnboardingLabel": "Drill onboarding tips",
       "resetOnboardingHint": "A short description is shown once on the first run of each drill. Reset to see it again.",
       "resetOnboardingButton": "Show tips again",
