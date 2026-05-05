@@ -88,11 +88,17 @@ ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service"
 ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service"
+# KS-2440 / ADR-042 §9.1-§9.2: tactic-worker — NestJS standalone CLI, запускается
+# через ECS RunTask (drill-индексер, sf-validate, puzzle-генератор).
+# ECS service'а нет — pipeline аналогичен archive-importer-adhoc (build → push :<sha> →
+# register task-def revision → atomic :latest без update-service / smoke).
+ECR_URI_TACTIC_WORKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-tactic-worker"
 # Короткие имена ECR-repo для aws ecr put-image / batch-get-image.
 ECR_REPO_API="kingside-api"
 ECR_REPO_GAME="kingside-game-service"
 ECR_REPO_BROADCAST_SERVICE="kingside-broadcast-service"
 ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
+ECR_REPO_TACTIC_WORKER="kingside-tactic-worker"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
@@ -104,6 +110,10 @@ TD_FAMILY_GAME="kingside-game-service"
 TD_FAMILY_BROADCAST_SERVICE="kingside-broadcast-service"
 TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
 TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
+# KS-2440: task-def family для tactic-worker. Один family на все subcommand'ы
+# (index-tactic-drills / sf-validate / generate-puzzles), реальная команда
+# передаётся через containerOverrides при RunTask.
+TD_FAMILY_TACTIC_WORKER="kingside-tactic-worker"
 # KS-1897: все task-def family использующие образ kingside-archive-service.
 # Регистрируются на pinned SHA при каждом scope=archive-service деплое
 # (см. шапку файла, секцию KS-1897).
@@ -449,6 +459,7 @@ detect_deploy_scope() {
     local has_broadcast_service=false
     local has_archive_service=false
     local has_synthetic_bot=false
+    local has_tactic_worker=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -469,20 +480,24 @@ detect_deploy_scope() {
                 has_archive_service=true ;;
             apps/synthetic-bot-service/*)
                 has_synthetic_bot=true ;;
+            apps/tactic-worker/*)
+                has_tactic_worker=true ;;
             packages/shared/*)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast_service=true
                 has_archive_service=true
-                has_synthetic_bot=true ;;
+                has_synthetic_bot=true
+                has_tactic_worker=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast_service=true
                 has_archive_service=true
-                has_synthetic_bot=true ;;
+                has_synthetic_bot=true
+                has_tactic_worker=true ;;
         esac
     done <<< "$changed_files"
 
@@ -494,6 +509,7 @@ detect_deploy_scope() {
     $has_broadcast_service && count=$((count + 1))
     $has_archive_service && count=$((count + 1))
     $has_synthetic_bot && count=$((count + 1))
+    $has_tactic_worker && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
         echo "all"
@@ -509,6 +525,8 @@ detect_deploy_scope() {
         echo "archive-service"
     elif $has_synthetic_bot; then
         echo "synthetic-bot"
+    elif $has_tactic_worker; then
+        echo "tactic-worker"
     else
         echo "none"
     fi
@@ -539,6 +557,7 @@ DEPLOY_GAME=false
 DEPLOY_BROADCAST_SERVICE=false
 DEPLOY_ARCHIVE_SERVICE=false
 DEPLOY_SYNTHETIC_BOT=false
+DEPLOY_TACTIC_WORKER=false
 
 case "$SCOPE" in
     frontend)           DEPLOY_FRONTEND=true ;;
@@ -547,8 +566,9 @@ case "$SCOPE" in
     broadcast-service)  DEPLOY_BROADCAST_SERVICE=true ;;
     archive-service)    DEPLOY_ARCHIVE_SERVICE=true ;;
     synthetic-bot)      DEPLOY_SYNTHETIC_BOT=true ;;
+    tactic-worker)      DEPLOY_TACTIC_WORKER=true ;;
     workers)            DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true; DEPLOY_SYNTHETIC_BOT=true ;;
+    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true; DEPLOY_SYNTHETIC_BOT=true; DEPLOY_TACTIC_WORKER=true ;;
     *)                  echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -949,6 +969,59 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     else
         echo "[archive-service] Neither HTTP nor importer ACTIVE — :latest NOT moved (bootstrap flow)."
     fi
+fi
+
+# --- Tactic-worker (apps/tactic-worker): docker build → ECR push под :<sha> →
+#     register task-def revision с pinned :<sha> → put-image :latest (атомарный move) ---
+# KS-2440 / ADR-042 §9.1-§9.2. NestJS standalone CLI, запускается через ECS RunTask
+# (drill-индексер, sf-validate, puzzle-генератор). ECS service'а нет — pipeline
+# аналогичен archive-importer-adhoc: gate'а services-stable / smoke нет.
+# task-def family `kingside-tactic-worker` создан в KS-2439 (revision 1 — bootstrap).
+# Если family ещё не зарегистрирован (deploy раньше KS-2439-инфры) — пропускаем
+# register и :latest move делаем просто на основе свежепушнутого тега; backend/devops
+# дорегистрируют revision вручную после bootstrap.
+#
+# EventBridge schedule (drill-incremental, KS-2439) пока disabled, его target ARN
+# обновлять не нужно. Когда §9.4 включит расписание — добавить сюда вызов
+# update_eventbridge_schedule_task_def по аналогии с archive-importer-daily.
+if $DEPLOY_TACTIC_WORKER; then
+    NEW_IMAGE="${ECR_URI_TACTIC_WORKER}:${DEPLOY_SHA}"
+
+    echo "[tactic-worker] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+
+    echo "[tactic-worker] Building Docker image (tag=$DEPLOY_SHA)..."
+    docker build -t "kingside-tactic-worker:${DEPLOY_SHA}" -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR"
+
+    echo "[tactic-worker] Pushing ${ECR_REPO_TACTIC_WORKER}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-tactic-worker:${DEPLOY_SHA}" "$NEW_IMAGE"
+    docker push "$NEW_IMAGE" 2>&1 | tail -3
+
+    # Регистрируем новую revision task-def, если family существует. Pinned :<sha>
+    # даёт чистый откат и гарантирует что adhoc RunTask тянет проверенный образ
+    # даже если :latest развалится.
+    TW_TD_STATUS=$(aws ecs describe-task-definition --task-definition "$TD_FAMILY_TACTIC_WORKER" \
+        --query 'taskDefinition.status' --output text 2>/dev/null || echo "MISSING")
+    if [ "$TW_TD_STATUS" = "ACTIVE" ]; then
+        echo "[tactic-worker] Registering new task-def revision with image=:${DEPLOY_SHA}..."
+        NEW_TD_ARN=$(register_or_get_task_def "$TD_FAMILY_TACTIC_WORKER" "$NEW_IMAGE")
+        if [ -z "$NEW_TD_ARN" ] || [ "$NEW_TD_ARN" = "None" ]; then
+            echo "  ERROR: failed to register task-def for $TD_FAMILY_TACTIC_WORKER. Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            exit 1
+        fi
+        echo "  task-def: $NEW_TD_ARN"
+    else
+        echo "[tactic-worker] task-def family '$TD_FAMILY_TACTIC_WORKER' not registered yet (status=$TW_TD_STATUS)."
+        echo "[tactic-worker] First-image bootstrap: skip register-task-def. Run KS-2439 setup to create revision 1 from this image."
+    fi
+
+    # Атомарный move :latest. Для tactic-worker это безопасно сразу после push:
+    # gate'а services-stable нет (не сервис), а smoke (RunTask с
+    # `index-tactic-drills --max-games=1`) делает backend пост-деплой по acceptance KS-2439.
+    echo "[tactic-worker] Atomic move ${ECR_REPO_TACTIC_WORKER}:latest → :${DEPLOY_SHA}..."
+    ecr_move_latest_to_tag "$ECR_REPO_TACTIC_WORKER" "$DEPLOY_SHA"
 fi
 
 # --- Synthetic-bot service (apps/synthetic-bot-service) ---
