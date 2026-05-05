@@ -88,6 +88,8 @@ export class TacticDrillIncrementalScheduler implements OnModuleDestroy {
         `incremental indexer: games=${stats.gamesProcessed} ` +
           `positions=${stats.positionsScanned} ` +
           `inserted=${stats.insertedTotal} ` +
+          `drops.findFork.unsafeForker=` +
+          `${stats.predicateDrops.findForkUnsafeForker} ` +
           `lastCursor=${stats.lastCursor ?? 'unchanged'}`,
       );
     } catch (err) {

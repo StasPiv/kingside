@@ -1,5 +1,5 @@
 /**
- * KS-2227 / KS-2399 / KS-2400 — `find-fork`.
+ * KS-2227 / KS-2399 / KS-2400 / KS-2406 — `find-fork`.
  *
  * Семантика (после миграции на shape='move'): «найти ход стороны на
  * ходу, который **создаёт новую** вилку — фигуру нашего цвета,
@@ -19,7 +19,9 @@
  *      a. apply m.
  *      b. Собрать `forksAfter` тем же способом.
  *      c. Если есть square ∈ forksAfter \ forksBefore — m кандидат.
- *      d. undo.
+ *      d. KS-2406: проверить, что фигура-форкер на m.to **в безопасности** —
+ *         нет ни одного прямого атакующего противника (см. ниже).
+ *      e. undo.
  *   3. Strict-uniqueness: ровно 1 такой ход, иначе drop.
  *
  * «Ценные» = `n/b/r/q/k` (PIECE_VALUE ≥ 3). Пешки исключены — взятие
@@ -36,6 +38,22 @@
  * вилку делает другая фигура (discovered fork — вскрылись её атаки
  * после ухода нашей фигуры с линии), её клетка тоже отсутствует в
  * forksBefore (раньше не была вилкой) → детектируется.
+ *
+ * KS-2406 — safety-check форкера. Запрос пользователя: «если фигура
+ * ставит вилку — она не должна вставать под бой». До патча predicate
+ * считал валидным и Qxh7 с вилкой, где ферзь сам тут же берётся —
+ * это тренирует зевок, а не тактику. Простая v1-реализация: если на
+ * клетке `m.to` после хода есть хотя бы один прямой атакующий
+ * противника (`chess.attackers(to, enemy).length > 0`) — кандидат
+ * отбрасывается. SEE/X-ray сейчас не используется (из KS-2339 общая
+ * утилита не вынесена). Промежуточный кейс «форкер атакован, но
+ * защищён равной фигурой» в этой простой версии тоже отбрасывается —
+ * консервативно, согласовано в задаче. Король-форкер не требует
+ * отдельной проверки: chess.js не позволит ходу под шах.
+ *
+ * Дополнительно возвращаем `reason: 'unsafe-forker'` если до safety-
+ * фильтра был ровно 1 кандидат с новой вилкой, а после фильтра
+ * остался 0 — индексер использует это для счётчика отсева в логах.
  */
 
 import type { AnswerMove } from '@kingside/shared';
@@ -83,13 +101,15 @@ export function findFork(fen: string): MoveResult {
 
   const forksBefore = collectForks(chess, our, enemy);
 
-  const candidates: { from: string; to: string }[] = [];
+  // KS-2406: считаем кандидатов до и после safety-фильтра, чтобы
+  // отличать «не было вилки вообще» от «вилка была, но форкер вис».
+  const forkCreating: { from: string; to: string }[] = [];
+  const safeCandidates: { from: string; to: string }[] = [];
 
   for (const m of chess.moves({ verbose: true })) {
     if (m.promotion) continue;
     chess.move({ from: m.from, to: m.to });
     const forksAfter = collectForks(chess, our, enemy);
-    chess.undo();
 
     let createsNew = false;
     for (const sq of forksAfter) {
@@ -98,22 +118,42 @@ export function findFork(fen: string): MoveResult {
         break;
       }
     }
+    let forkerSafe = false;
     if (createsNew) {
-      candidates.push({ from: m.from, to: m.to });
+      // KS-2406 safety: «есть хоть один enemy-attacker на m.to → drop».
+      // chess.attackers сам учитывает геометрию после хода (включая
+      // вскрывшиеся линии); SEE не используется (см. JSDoc).
+      const enemyAttackers = chess.attackers(m.to, enemy);
+      forkerSafe = enemyAttackers.length === 0;
+    }
+    chess.undo();
+
+    if (createsNew) {
+      forkCreating.push({ from: m.from, to: m.to });
+      if (forkerSafe) safeCandidates.push({ from: m.from, to: m.to });
     }
   }
 
-  if (candidates.length !== 1) {
+  if (safeCandidates.length !== 1) {
+    // Особый случай для индексера: были fork-creating ходы, но все
+    // отсеялись safety-фильтром. Помечаем reason'ом, чтобы считать
+    // частоту таких отсевов отдельно от обычных drop'ов.
+    if (forkCreating.length > 0 && safeCandidates.length === 0) {
+      return {
+        valid: false,
+        reason: 'unsafe-forker',
+      };
+    }
     return {
       valid: false,
-      reason: `expected exactly 1 fork-creating move, found ${candidates.length}`,
+      reason: `expected exactly 1 fork-creating move, found ${safeCandidates.length}`,
     };
   }
 
   const answer: AnswerMove = {
     shape: 'move',
-    from: candidates[0].from,
-    to: candidates[0].to,
+    from: safeCandidates[0].from,
+    to: safeCandidates[0].to,
   };
   return { valid: true, answer };
 }

@@ -78,6 +78,7 @@ describe('TacticDrillIncrementalScheduler — KS-2245', () => {
           drillsByType: Record<string, number>;
           insertedTotal: number;
           lastCursor: string | null;
+          predicateDrops: { findForkUnsafeForker: number };
         }>((resolve) => {
           resolveRun = () => resolve({
             gamesProcessed: 0,
@@ -85,6 +86,9 @@ describe('TacticDrillIncrementalScheduler — KS-2245', () => {
             drillsByType: {} as Record<string, number>,
             insertedTotal: 0,
             lastCursor: null,
+            // KS-2406: scheduler логирует это поле; stub без него
+            // приводит к runtime-ошибке в catch-блоке tick().
+            predicateDrops: { findForkUnsafeForker: 0 },
           });
         }),
     );

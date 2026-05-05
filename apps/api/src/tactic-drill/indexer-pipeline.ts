@@ -57,6 +57,19 @@ export interface IndexerStats {
   insertedTotal: number;
   /** UUID последней обработанной партии (для incremental cursor). */
   lastCursor: string | null;
+  /**
+   * KS-2406: счётчики «неучтённых» (dropped) кандидатов по причинам.
+   * Сейчас отслеживается:
+   *   - `findForkUnsafeForker` — позиций, где predicate `find-fork`
+   *     нашёл единственный fork-creating ход, но фигура-форкер встала
+   *     под бой и safety-фильтр отбросил кандидата (см. find-fork.ts).
+   *     Нужен, чтобы видеть в логах: не выкашивает ли новый фильтр
+   *     слишком много позиций. Если % очень велик — повод думать
+   *     про SEE-вариант safety.
+   */
+  predicateDrops: {
+    findForkUnsafeForker: number;
+  };
 }
 
 interface PendingDrill {
@@ -98,24 +111,35 @@ function newStats(): IndexerStats {
     ) as Record<TacticDrillType, number>,
     insertedTotal: 0,
     lastCursor: null,
+    predicateDrops: {
+      findForkUnsafeForker: 0,
+    },
   };
 }
 
 /**
  * Применяет 7 предикатов к FEN, возвращает кандидатов (drills).
  * KS-2393: тип mate-in-1 удалён.
+ *
+ * KS-2406: опциональный `dropCounters` — для мониторинга «отсевов»
+ * по причинам (сейчас только `findForkUnsafeForker`). Если не передан —
+ * статистика не собирается (CLI / тесты, где она не нужна).
  */
 export function predicatesForPosition(
   chess: Chess,
   options: IndexerOptions,
   source: string,
+  dropCounters?: IndexerStats['predicateDrops'],
 ): PendingDrill[] {
   const fen = chess.fen();
   const out: PendingDrill[] = [];
 
+  type SimplePredicateResult =
+    | { valid: true; answer: AnswerData }
+    | { valid: false; reason?: string };
   type SimplePredicate = {
     type: TacticDrillType;
-    run: () => { valid: boolean; answer?: AnswerData };
+    run: () => SimplePredicateResult;
   };
   const simple: SimplePredicate[] = [
     { type: 'find-hanging-piece', run: () => findHangingPiece(fen) },
@@ -130,7 +154,19 @@ export function predicatesForPosition(
   for (const p of simple) {
     if (!options.types.has(p.type)) continue;
     const r = p.run();
-    if (!r.valid || !r.answer) continue;
+    if (!r.valid) {
+      // KS-2406: счётчик отсевов find-fork по safety-форкеру. Reason
+      // выставляется в predicate'е (см. find-fork.ts).
+      if (
+        dropCounters &&
+        p.type === 'find-fork' &&
+        r.reason === 'unsafe-forker'
+      ) {
+        dropCounters.findForkUnsafeForker += 1;
+      }
+      continue;
+    }
+    if (!r.answer) continue;
     const { bucket } = computeDifficulty(
       p.type,
       chess,
@@ -224,10 +260,13 @@ function logProgress(
   const targets = Array.from(options.types)
     .map((t) => `${t}=${stats.drillsByType[t]}/${options.perTypeTarget}`)
     .join(' ');
+  // KS-2406: показываем счётчик отсева find-fork по unsafe-форкеру —
+  // важно понимать, не выкашивает ли safety слишком много.
+  const drops = `drops:findFork.unsafeForker=${stats.predicateDrops.findForkUnsafeForker}`;
   log(
     `[index] games=${stats.gamesProcessed} ` +
       `positions=${stats.positionsScanned} ` +
-      `inserted=${stats.insertedTotal} ${targets}`,
+      `inserted=${stats.insertedTotal} ${targets} ${drops}`,
   );
 }
 
@@ -288,7 +327,12 @@ export async function runIndexer(args: {
       for (const m of history) {
         replay.move({ from: m.from, to: m.to, promotion: m.promotion });
         stats.positionsScanned++;
-        const found = predicatesForPosition(replay, options, source);
+        const found = predicatesForPosition(
+          replay,
+          options,
+          source,
+          stats.predicateDrops,
+        );
         for (const d of found) {
           if (stats.drillsByType[d.type] >= options.perTypeTarget) continue;
           buffer.push(d);
