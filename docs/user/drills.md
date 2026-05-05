@@ -540,33 +540,45 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   которую вы атакуете и у которой нет защитников. Drill требует именно
   **создать новую** такую угрозу: фигура, которая после вашего хода
   оказалась под боем без защиты, **до хода** под этой угрозой не была
-  (могла быть защищена, могла стоять вне атаки — не важно). Это самый
-  простой расчёт на 1 ход: «если я сейчас сюда — что зависнет у соперника?».
+  (могла быть защищена, могла стоять вне атаки — не важно). После KS-2419
+  добавлен **safety-check атакующей фигуры**: на клетке `m.to` после
+  хода у противника не должно быть ни одного прямого attacker'а — иначе
+  это зевок, а не создание угрозы. До патча predicate возвращал и Qxh7,
+  где ферзь после взятия пешки попадает под атаку короля, — теперь такие
+  ходы отсевает.
 - **Как отвечать:** ход на доске — клик «откуда → куда» или drag.
 - **Что засчитывается правильным:** ход, после которого:
   1. множество висящих фигур противника после хода содержит хотя бы
      одну клетку, которой не было в этом множестве до хода (новая
      цель появилась);
-  2. в позиции есть ровно один такой ход (если несколько — drill
+  2. на клетке `m.to` после хода у противника нет ни одного прямого
+     attacker'а (KS-2419, симметрично safety-check'у форкера в KS-2406
+     для `find-fork`); SEE не используется, защита равной фигурой не
+     спасает кандидата;
+  3. в позиции есть ровно один такой ход (если несколько — drill
      отсевает и не показывает).
-- **Пример позиции:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70`
-  (ход белых, drill из прод-БД). Белые: ладья b8, король f7, пешки
-  f6 и h5. Чёрные: ладья a7, король h7. Положение начинается с шаха
-  белому королю f7 от чёрной ладьи a7 по 7-линии (между ними b7-e7
-  пусто). У белых только четыре легальных ответа: уйти королём на
-  e6 / e8 / f8 либо закрыться ладьёй **Rb8-b7**. Только последний
-  ход создаёт новую висящую: ладья на b7 атакует чёрную ладью a7
-  (рядом по 7-линии), а защитников у чёрной a7 нет — чёрный король
-  h7 до a7 не дотягивается. До хода a7 ничем белым не атаковалась
-  (ладья b8 на b7 не выходит на a7 без поворота). Правильный ответ —
-  **b8-b7**: один ход одновременно закрывает шах и подвешивает
-  чёрную ладью.
+- **Пример позиции:** `1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65`
+  (ход белых, drill из прод-БД). Белые: ладья b8, король c4, пешка
+  a3. Чёрные: король c6, ладья e4, пешка c7. Чёрная ладья e4 не
+  атакована до хода (ладья b8 не на 4-линии, пешка a3 нет, король
+  c4 не дотягивается до e4). Правильный ответ — **Kc4-d3**: белый
+  король идёт на d3 и оттуда атакует ладью e4 по диагонали. Защитники
+  e4 = 0 (король c6 не достаёт, пешка c7 бьёт b6/d6). До хода e4
+  не было в `threatsBefore` — новая угроза появилась. Safety: на d3
+  после хода attackers(d3, black) = 0 (ладья e4 атакует e-line и
+  4-line, не d3; король c6 не дотягивается; пешка c7 нет) — атакующая
+  фигура (король) в безопасности. Strict-uniqueness — единственный
+  такой ход в позиции (chess.js не пускает короля на d4/d5 под
+  бой ладьи/короля, остальные ходы белых не создают новой висящей).
 - **Типичные ошибки:**
   - Указать ход, после которого фигура противника попадает под бой,
     но **остаётся защищённой**. Drill ждёт именно «без защиты» — это
     висящая, а не просто атакованная.
   - Указать ход, после которого фигура противника всё ещё под той
     же угрозой, что и до хода (не «новая»).
+  - Указать ход, после которого **сама** атакующая фигура попадает
+    под бой. После KS-2419 такой ход не засчитывается — это зевок,
+    а не создание угрозы.
   - Не учесть, что после нашего хода защитник цели мог уйти. Открытые
     атаки и вскрытия в этот drill попадают тоже.
 
@@ -581,31 +593,46 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   your move and was **not** in that state before the move (it could
   have been defended, or simply not under attack — either is fine).
   This is the simplest one-move calculation: "if I move here, what
-  hangs for the opponent?".
+  hangs for the opponent?". After KS-2419 the predicate also
+  enforces a **safety-check on the attacking piece**: square `m.to`
+  must have zero direct enemy attackers after the move — otherwise
+  it's a blunder, not a threat creation. Before the patch the
+  predicate accepted moves like Qxh7 where the queen got captured by
+  the king right after — those are now filtered out.
 - **How to answer:** make a move — click "from → to" or drag.
 - **What counts as correct:** a move where:
   1. the set of hanging enemy pieces after the move contains at
      least one square that wasn't there before;
-  2. exactly one such move exists in the position (otherwise the
+  2. on `m.to` after the move there are zero direct enemy attackers
+     (KS-2419, mirroring the forker safety-check from KS-2406 in
+     `find-fork`); no SEE, "attacked but defended by an equal piece"
+     still drops the candidate;
+  3. exactly one such move exists in the position (otherwise the
      drill filters the position out).
-- **Example FEN:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70` (White to
-  move, drill from production DB). White: rook on b8, king on f7,
-  pawns on f6 and h5. Black: rook on a7, king on h7. The position
-  starts with the Black rook on a7 giving check to the White king on
-  f7 along the 7th rank (b7-e7 are empty). White has only four legal
-  replies: king moves to e6 / e8 / f8, or block with the rook
-  **Rb8-b7**. Only the block creates a new hanging piece: the rook
-  on b7 attacks the Black rook on a7 (adjacent on the 7th rank), and
-  Black's a7 has no defender — the Black king on h7 is far away.
-  Before the move a7 wasn't attacked by White (the b8 rook can't reach
-  a7 without changing direction). Correct answer: **b8-b7** — a
-  single move both blocks the check and hangs the Black rook.
+- **Example FEN:** `1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65` (White to
+  move, drill from production DB). White: rook on b8, king on c4,
+  pawn on a3. Black: king on c6, rook on e4, pawn on c7. The Black
+  rook on e4 isn't attacked before the move (the b8 rook isn't on the
+  4th rank, the a3 pawn doesn't reach, the king on c4 doesn't either).
+  Correct answer: **Kc4-d3** — the White king steps to d3 and from
+  there attacks the rook on e4 diagonally. Defenders of e4: zero (the
+  king on c6 doesn't reach, the c7 pawn covers b6/d6). The square e4
+  was not in `threatsBefore` — a new threat appeared. Safety: on d3
+  after the move, `attackers(d3, black) = 0` (the e4 rook hits the
+  e-file and 4th rank, not d3; the king on c6 doesn't reach; the c7
+  pawn doesn't either) — the attacking piece (the king) is safe.
+  Strict-uniqueness: this is the only such move (chess.js won't let
+  the king walk to d4/d5 into the rook's or king's attack, and the
+  other White moves don't create a new hanging).
 - **Common mistakes:**
   - Picking a move that attacks an enemy piece which **still has
     defenders** afterwards. The drill expects "undefended" —
     hanging, not merely attacked.
   - Picking a move that keeps the opponent's piece in the same
     threat state it was already in (not "new").
+  - Picking a move that puts **your own** attacking piece under
+    attack. After KS-2419 such moves don't count — that's a blunder,
+    not a threat creation.
   - Forgetting that the defender of the target piece may move away
     on your move. Discovered threats and unmaskings count too.
 
@@ -647,9 +674,9 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
 
 4. **ADR-035 §2.1** содержит формулировки, отстающие от текущих
    predicate'ов (см. KS-2400 / KS-2406 / KS-2408 для `find-fork`,
-   KS-2335 / KS-2349 / KS-2371 для `find-hanging-piece`, KS-2372 для
-   `find-undefended-attack`). Этот документ опирается на код, а не на
-   ADR. Если ADR будем синхронизировать — отдельный тикет.
+   KS-2335 / KS-2349 / KS-2371 для `find-hanging-piece`, KS-2372 /
+   KS-2419 для `find-undefended-attack`). Этот документ опирается на
+   код, а не на ADR. Если ADR будем синхронизировать — отдельный тикет.
 
 5. **`find-fork` использует `attacksBefore` snapshot — overlap-фильтр
    через intersection.** В описании задачи KS-2412 формулировка
@@ -666,6 +693,16 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
    что-то «учебнее» без проверки приведёт к расхождению с реальным
    контентом drill'ов. Для будущих обновлений — брать из БД или
    повторять выгрузку.
+
+7. **KS-2421: пример `find-undefended-attack` заменён.** Старый пример
+   `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70` (Rb8-b7) был валиден до
+   KS-2419, но новое safety-правило его отсевает: ладья на b7 после
+   хода атакована чёрной ладьёй a7. Для документации взят другой
+   реальный drill из той же выгрузки KS-2416 —
+   `1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65` (Kc4-d3), который
+   проходит и старую новизну угрозы, и новую safety-проверку. При
+   reindex'е prod-БД старая запись Rb8-b7 должна отпасть; если этого
+   не произошло — повод проверить миграцию KS-2419.
 
 ---
 

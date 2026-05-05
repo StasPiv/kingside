@@ -301,49 +301,56 @@ delivered through the Telegram bot.
 
 - **Название:** Создать висящую фигуру.
 - **Одна фраза:** Найдите ход, после которого у соперника появится
-  фигура под боем и без защиты.
+  фигура под боем и без защиты — и при этом ваша атакующая фигура
+  сама не подставится под удар.
 - **Краткий смысл:** Это тренажёр на расчёт на один ход. Нужно
   представить, что будет на доске после вашего хода, и проверить:
   не появилась ли там фигура соперника, которую вы атакуете и которую
   никто не защищает? Сюда же входят открытые атаки (когда после ухода
   своей фигуры открывается линия атаки другой) и подведения новых
-  атакующих. Один из самых полезных «строительных блоков» комбинаций.
+  атакующих. Важно: атакующая фигура должна остаться в безопасности —
+  если после хода она сама попадает под бой, тренажёр такой ход не
+  засчитает (это уже не «подвешиваю чужого», а зевок).
 - **Как отвечать:** сделайте ход на доске — клик «откуда → куда» или
   перетаскивание.
-- **Пример позиции:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70`
-  (ход белых). Белые: ладья b8, король f7, пешки f6 и h5. Чёрные:
-  ладья a7 и король h7. Чёрная ладья сейчас даёт шах белому королю
-  по 7-й горизонтали (между a7 и f7 нет фигур). Уйти королём на
-  e7/f7-line закрытое — атаковано. Закрыть шах можно ладьёй —
-  **Rb8-b7**. Этот ход не только закрывает шах, но и сам атакует
-  чёрную ладью a7 (рядом по 7-й), а защитников у неё нет — чёрный
-  король h7 далеко. До нашего хода ладья a7 ничем не атаковалась.
-  Правильный ответ — **b8-b7**: одним ходом и спасли короля, и
-  поймали ладью.
+- **Пример позиции:** `1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65`
+  (ход белых). Белые: ладья b8, король c4, пешка a3. Чёрные: король
+  c6, ладья e4, пешка c7. Чёрная ладья e4 сейчас никем не атакована.
+  Правильный ответ — **Kc4-d3**: белый король подходит на d3 и
+  оттуда нападает на ладью e4 по диагонали. Защитить её некому —
+  чёрный король на c6 до e4 не дотягивается, пешка c7 бьёт только
+  на b6/d6. На самом d3 короля никто не атакует: чёрная ладья e4
+  стоит на 4-й горизонтали и e-вертикали, не на d3; до короля c6
+  далеко. Атакующая фигура (наш король) в безопасности — ход
+  засчитывается. Хорошее напоминание, что король в эндшпиле — это
+  тоже атакующая фигура.
 
 ### EN
 
 - **Title:** Create a hanging piece.
 - **One-liner:** Find the move that leaves the opponent with a piece
-  attacked and undefended.
+  attacked and undefended — and keeps your attacking piece itself safe.
 - **What it trains:** This drill is calculation one move ahead.
   Picture the board after your move and check: is there an enemy
   piece you now attack with no defenders covering it? Discovered
   attacks (a piece of yours moving off a line to expose another's
-  attack) and bringing up a new attacker count too. One of the most
-  useful building blocks of combinations.
+  attack) and bringing up a new attacker count too. Important: your
+  attacking piece must stay safe — if it ends up under attack itself
+  after the move, the drill won't accept it (that's no longer
+  "hanging the opponent's piece", that's a blunder).
 - **How to answer:** make a move on the board — click "from → to" or
   drag.
-- **Example:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70` (White to
-  move). White: rook on b8, king on f7, pawns on f6 and h5. Black:
-  rook on a7 and king on h7. The Black rook is currently giving check
-  to the White king along the 7th rank (no pieces between a7 and f7).
-  Most king escapes are attacked. Blocking with the rook gives
-  **Rb8-b7**. This move doesn't just block the check — it also
-  attacks the Black rook on a7 (adjacent on the 7th rank), and the
-  Black rook has no defender (the king on h7 is too far away). Before
-  the move, a7 wasn't attacked by anyone. Correct answer: **b8-b7** —
-  one move both saves the king and traps the rook.
+- **Example:** `1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65` (White to
+  move). White: rook on b8, king on c4, pawn on a3. Black: king on
+  c6, rook on e4, pawn on c7. The Black rook on e4 isn't currently
+  attacked. Correct answer: **Kc4-d3** — the White king steps to d3
+  and from there attacks the rook on e4 diagonally. Nobody can
+  defend the rook: the Black king on c6 doesn't reach e4, and the
+  c7 pawn only covers b6/d6. The king on d3 itself is safe: the
+  Black rook stands on the 4th rank and the e-file, not d3, and the
+  Black king on c6 is too far. The attacking piece (our king) stays
+  safe — the move counts. A good reminder that in the endgame the
+  king is an attacking piece too.
 
 ---
 

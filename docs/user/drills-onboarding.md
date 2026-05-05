@@ -105,9 +105,12 @@ returned to its starting square. Find them all: positions have between
 ### RU
 Сейчас будем тренировать расчёт на один ход. Нужен ход, после которого
 у соперника появится фигура под боем и без защитников — то есть вы её
-атакуете, а помочь ей некому. Сделайте этот ход на доске.
+атакуете, а помочь ей некому. Важно: атакующая фигура должна сама
+остаться в безопасности — если после хода её бьют, ход не засчитается.
 
 ### EN
 Time to practise one-move calculation. You need a move that leaves an
 enemy piece attacked and undefended afterwards — your piece hits it
-and no one can defend. Play that move on the board.
+and no one can defend. Important: your attacking piece must stay safe
+itself — if it ends up under attack after the move, the drill won't
+count it.
