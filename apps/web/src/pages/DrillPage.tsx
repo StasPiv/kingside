@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -9,7 +9,11 @@ import type {
 } from '@kingside/shared';
 
 import { api } from '../api';
-import { DrillRunner, type DrillRunnerSubmitInput } from '../components/drills';
+import { DrillRunner, DrillTypeInfoModal, type DrillRunnerSubmitInput } from '../components/drills';
+import {
+  hasSeenDrillOnboarding,
+  markDrillOnboardingSeen,
+} from '../utils/drillOnboarding';
 
 /**
  * KS-2233 / KS-2249 — основная страница drill `/drills/:type`.
@@ -21,6 +25,12 @@ import { DrillRunner, type DrillRunnerSubmitInput } from '../components/drills';
  *   - проводка loader'а на `/tactic-drill/next?type=` и submitter'а на
  *     `/tactic-drill/attempt` с `mode='drill'`;
  *   - бесконечный режим (`count=Infinity` в DrillRunner) — нет finish-step'а.
+ *
+ * KS-2418: страница также управляет:
+ *   - первым автопоказом онбординг-модала (короткое объяснение типа);
+ *   - кнопкой «?» в шапке drill — открывает help-модал с расширенным
+ *     описанием. Help/онбординг — единый компонент DrillTypeInfoModal
+ *     с разными `variant`.
  *
  * # Контракт DOM
  *
@@ -43,6 +53,8 @@ function isValidType(s: string | undefined): s is TacticDrillType {
   return !!s && (ALL_TYPES as string[]).includes(s);
 }
 
+type ModalState = { variant: 'onboarding' | 'help' } | null;
+
 export function DrillPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -55,6 +67,29 @@ export function DrillPage() {
   }, [type, navigate]);
 
   const drillType = isValidType(type) ? type : null;
+
+  // KS-2418: модал онбординга/help. На первом рендере страницы при
+  // валидном drill-типе — если онбординг ещё не видели, показываем
+  // его автоматически. Help-модал (через «?») открывается вручную.
+  const [modal, setModal] = useState<ModalState>(null);
+
+  useEffect(() => {
+    if (!drillType) return;
+    if (!hasSeenDrillOnboarding(drillType)) {
+      setModal({ variant: 'onboarding' });
+    }
+  }, [drillType]);
+
+  const handleHelpClick = useCallback(() => {
+    setModal({ variant: 'help' });
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    if (drillType && modal?.variant === 'onboarding') {
+      markDrillOnboardingSeen(drillType);
+    }
+    setModal(null);
+  }, [drillType, modal]);
 
   const loadDrill = useCallback(async (): Promise<TacticDrillDto> => {
     if (!drillType) throw new Error('invalid drill type');
@@ -111,9 +146,32 @@ export function DrillPage() {
             >
               ← {t('drills.buttons.backToLobby', 'Back to drills')}
             </Link>
+            {/* KS-2418: кнопка «?» — открывает help-модал с описанием
+                текущего drill-типа. Не на весь экран; sprint-таймер не
+                страдает (мы здесь не в sprint'е, но контракт держим). */}
+            <button
+              type="button"
+              className="drill-page__help"
+              data-testid="drill-page-help"
+              aria-label={t(
+                'drills.runner.helpAriaLabel',
+                'Open drill description',
+              )}
+              title={t('drills.runner.help', "What's this drill?")}
+              onClick={handleHelpClick}
+            >
+              ?
+            </button>
           </header>
         }
       />
+      {modal && (
+        <DrillTypeInfoModal
+          drillType={drillType}
+          variant={modal.variant}
+          onClose={handleModalClose}
+        />
+      )}
     </div>
   );
 }

@@ -52,3 +52,10 @@ export type {
 // KS-2326 — multi-step runner для find-all-checks.
 export { FindAllChecksRunner } from './FindAllChecksRunner';
 export type { FindAllChecksRunnerProps } from './FindAllChecksRunner';
+
+// KS-2418 — модал-описание drill-типа (онбординг + help).
+export { DrillTypeInfoModal } from './DrillTypeInfoModal';
+export type {
+  DrillTypeInfoModalProps,
+  DrillTypeInfoModalVariant,
+} from './DrillTypeInfoModal';

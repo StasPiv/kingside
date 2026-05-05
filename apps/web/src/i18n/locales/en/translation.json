@@ -283,6 +283,13 @@
     "noBlocked": "No blocked players",
     "unblock": "Unblock",
     "puzzleRating": "Puzzle Rating",
+    "drills": {
+      "heading": "Drills",
+      "resetOnboardingLabel": "Drill onboarding tips",
+      "resetOnboardingHint": "A short description is shown once on the first run of each drill. Reset to see it again.",
+      "resetOnboardingButton": "Show tips again",
+      "resetOnboardingDone": "Tips reset — you'll see them on the next drill run."
+    },
     "pieceAnimation": "Piece Animation",
     "pieceAnimationNone": "No animation",
     "pieceAnimationFast": "Fast (100ms)",
@@ -801,7 +808,7 @@
         "duration5": "5 min",
         "drillSet": "Drill set",
         "set": {
-          "mixed": "Mixed (all 8)",
+          "mixed": "Mixed (all 7)",
           "overview": "Board overview",
           "pattern": "Pattern recognition",
           "calculation": "Calculation"
@@ -840,6 +847,103 @@
       "lockedLabel": "Locked",
       "unlockedLabel": "Unlocked",
       "openLobby": "Open trainer"
+    },
+    "about": {
+      "lobbyLink": "How drills work",
+      "title": "How drills work",
+      "subtitle": "What a drill is, how to solve each type and what the board expects from you.",
+      "introTitle": "What a drill is",
+      "intro": "A drill is a short single-position exercise. Unlike classical puzzles, which often require a long forced sequence, here you respond in one move or one click — the goal is to spot the pattern fast, almost on reflex. The board is static, no one moves for either side. Seven drill types are currently live, each with its own check.",
+      "modesNote": "Beyond single-position practice there's a sprint — a mix of drills against a 3- or 5-minute clock with leaderboards — and a daily drill delivered through the Telegram bot.",
+      "tipsTitle": "Tips while solving",
+      "tips": [
+        "Don't reach for complicated solutions — a drill is always about one simple pattern.",
+        "After a mistake you get about a second and a half to study the highlighted correct answer. If your system is set to reduce motion, position transitions are instant.",
+        "\"Back\" and \"Forward\" buttons let you scroll through the last ten positions you've seen and re-check your answers.",
+        "\"Sprint\" mode mixes drill types — it's no longer studying, it's a speed check."
+      ],
+      "backToLobby": "Back to drills",
+      "openDrill": "Open drill",
+      "oneLinerLabel": "One-liner",
+      "whatItTrainsLabel": "What it trains",
+      "howToAnswerLabel": "How to answer",
+      "exampleLabel": "Example"
+    },
+    "oneLiners": {
+      "findHangingPiece": "Capture the undefended enemy piece in a single move.",
+      "findLoosePiece": "Find the opponent's piece that has no defenders at all.",
+      "findPin": "Find the pinned piece.",
+      "findFork": "Find the move that simultaneously attacks two valuable enemy pieces.",
+      "countAttackers": "How many pieces of the given colour attack the highlighted square?",
+      "findAllChecks": "Play every move that delivers check.",
+      "findUndefendedAttack": "Find the move that leaves the opponent with a piece attacked and undefended."
+    },
+    "whatItTrains": {
+      "findHangingPiece": "The single most common amateur blunder is leaving a piece attacked and undefended. This drill builds the habit of spotting these gifts and grabbing them without delay. Asking yourself \"what's hanging in the opponent's camp?\" before every move noticeably improves results.",
+      "findLoosePiece": "An undefended piece is a potential target even if no one attacks it right now. This drill teaches you to spot the weak spots in the opponent's camp early — tactics begin with finding the target. Without this habit, half the combinations simply don't come to mind.",
+      "findPin": "A pin is when an opponent's piece can't move freely because a more valuable piece of its own colour — or the king — sits behind it on the same line. If the king is behind, the pin is absolute: the piece literally can't move. If a queen, rook, or other valuable piece is behind, the pin is relative: it can move, but the loss outweighs the gain. Spotting pins is both defence and attack — pinned pieces are easy targets to pile up on.",
+      "findFork": "A fork is one of the most common tactical ideas: one move attacks two (or more) valuable targets, and the opponent can't save both. Knights are especially good at it, but queens, rooks, bishops, and even pawns all fork. The drill requires you to create a new fork: hit two targets that this piece wasn't already attacking.",
+      "countAttackers": "Every trade calculation starts with counting attackers and defenders. Two White attackers vs. one Black defender — White can take. This drill builds the habit of seeing that number fast, without effort. Count everyone, including batteries (two rooks, or a rook + queen, lined up along the same file or rank) and pinned attackers — a pinned piece still attacks the square.",
+      "findAllChecks": "Checks are forcing — the opponent must react. Scanning all possible checks before every move is a coach-recommended habit and the foundation for finding tactics and mating attacks. Each position in this drill has between 2 and 7 distinct checking moves to find, including discovered checks and capture-checks.",
+      "findUndefendedAttack": "This drill is calculation one move ahead. Picture the board after your move and check: is there an enemy piece you now attack with no defenders covering it? Discovered attacks and bringing up a new attacker count too. One of the most useful building blocks of combinations."
+    },
+    "howToAnswer": {
+      "findHangingPiece": "Make a move on the board — either click \"from → to\" or drag your piece onto the hanging one.",
+      "findLoosePiece": "One click on the piece's square.",
+      "findPin": "One click on the pinned piece's square.",
+      "findFork": "Make a move on the board — click \"from → to\" or drag.",
+      "countAttackers": "Press a button — 1, 2, 3, or 4.",
+      "findAllChecks": "Play the moves on the board normally — each new check triggers a green flash, the piece is automatically returned to its starting square, and the counter increments. If a move doesn't give check, a red flash; the attempt counts. When all checks are found, the drill auto-completes.",
+      "findUndefendedAttack": "Make a move on the board — click \"from → to\" or drag."
+    },
+    "examples": {
+      "findHangingPiece": {
+        "fen": "8/8/8/5p2/4kP2/8/4K3/8 b - - 8 68",
+        "text": "Black to move. The White pawn on f4 is attacked by the Black king, and nobody defends it: the White king on e2 doesn't reach f4 and no other White pieces are around. The right move is Kxf4 — after the capture the Black king is safe. A clean material win."
+      },
+      "findLoosePiece": {
+        "fen": "8/8/8/8/2p3K1/2P5/1k6/8 w - - 0 59",
+        "text": "White to move. We're hunting a Black piece with no defender. The Black king on b2 doesn't reach c4. There are no other Black pieces. Correct answer: c4 — a Black pawn with zero defenders."
+      },
+      "findPin": {
+        "fen": "5k2/4n3/7P/p5p1/P2q4/6P1/2Q2P2/6K1 b - - 1 41",
+        "text": "Black to move. The Black queen on d4 attacks the White pawn on f2 along the d4–e3–f2 diagonal. Behind the pawn on the same diagonal stands the White king on g1. If the f2 pawn moves, it exposes the king. Correct answer: f2 — the pinned piece sits between the attacking queen and the king."
+      },
+      "findFork": {
+        "fen": "8/8/8/6P1/8/pr6/3Q4/k5K1 w - - 3 56",
+        "text": "White to move. Black has: king on a1, rook on b3, pawn on a3. The White queen sits on d2. The right move is Qd1+ — the queen gives check along the 1st rank and at the same time attacks the rook on b3 along the d1–c2–b3 diagonal. Black has to deal with the check first; the rook is lost."
+      },
+      "countAttackers": {
+        "fen": "8/3n3k/p4p1p/1p3N1P/6P1/1P6/P7/2K5 b - - 0 35",
+        "text": "Highlighted square h6, counting White attackers. The h5 pawn covers g6, not h6. The g4 pawn covers f5/h5. The White knight on f5 covers d4, e3, e7, d6, g7, h4, h6, g3 — yes, h6 is on its list. No other White piece reaches h6. Correct answer: 1."
+      },
+      "findAllChecks": {
+        "fen": "1K6/7r/3k4/8/1n6/8/2R5/8 w - - 84 104",
+        "text": "White to move. The White rook on c2 has two checking moves: Rc6+ (placing the rook next to the king along the 6th rank) and Rd2+ (placing the rook on the same file as the king). Two unique target squares — c6 and d2 — that's the drill's minimum."
+      },
+      "findUndefendedAttack": {
+        "fen": "1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70",
+        "text": "White to move. The Black rook is currently giving check to the White king along the 7th rank. Blocking with the rook gives Rb7. This move doesn't just block the check — it also attacks the Black rook on a7 (adjacent on the 7th rank), and the Black rook has no defender. Correct answer: b7 — one move both saves the king and traps the rook."
+      }
+    },
+    "onboarding": {
+      "title": "What's this drill?",
+      "gotIt": "Got it",
+      "showAgainHint": "You can reopen the description at any time via the «?» button on the board.",
+      "body": {
+        "findHangingPiece": "Time to practise grabbing hanging pieces. There's an enemy piece on the board you attack and nobody defends. Make the move and take it.",
+        "findLoosePiece": "Time to spot undefended pieces. One enemy piece on the board has zero defenders — find it and click its square. It doesn't have to be under attack right now; the absence of any defender is what counts.",
+        "findPin": "Time to find pins. A pinned piece is one that can't move freely because a more valuable piece — or the king — sits behind it on the same line. Click on the pinned piece in the middle, between the attacker and what it shields.",
+        "findFork": "Time to set up forks. A fork is a move after which one of your pieces simultaneously attacks two valuable enemy pieces, and the opponent can't save both. Find the move and play it on the board.",
+        "countAttackers": "Time to practise counting attackers. A square will be highlighted and a colour shown — how many pieces of that colour attack this square? Press the button for 1, 2, 3, or 4. Count batteries along a line and pinned attackers too — they still attack the square.",
+        "findAllChecks": "Time to find every check in the position. Play checking moves on the board one by one — each correct check is counted and the piece is returned to its starting square. Find them all: positions have between 2 and 7 checks. Don't miss discovered checks and capture-checks.",
+        "findUndefendedAttack": "Time to practise one-move calculation. You need a move that leaves an enemy piece attacked and undefended afterwards — your piece hits it and no one can defend. Play that move on the board."
+      }
+    },
+    "runner": {
+      "help": "What's this drill?",
+      "helpAriaLabel": "Open drill description",
+      "closeHelp": "Close"
     }
   },
   "puzzle": {

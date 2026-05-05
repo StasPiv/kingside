@@ -135,6 +135,16 @@ export function DrillsLobbyPage() {
             'Short pattern-recognition exercises. One position — one question.',
           )}
         </p>
+        {/* KS-2418: ссылка на публичную страницу с описанием всех
+            7 типов тренажёров. */}
+        <button
+          type="button"
+          className="drills-lobby__about-link"
+          data-testid="drills-lobby-about-link"
+          onClick={() => navigate('/drills/about')}
+        >
+          {t('drills.about.lobbyLink', 'How drills work')} →
+        </button>
       </header>
 
       {/* KS-2332: CTA-блок «Спринт» + ссылка на лидерборд. До этого

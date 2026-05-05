@@ -7,6 +7,7 @@ import type { Locale } from '@kingside/shared';
 import { useSounds, SOUND_THEMES, previewSound, type SoundTheme } from '../hooks/useSounds';
 import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
 import { HelpButton } from '../components/HelpButton';
+import { resetDrillOnboarding } from '../utils/drillOnboarding';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -59,6 +60,15 @@ export function SettingsPage() {
     const saved = localStorage.getItem('pieceAnimationDuration');
     return saved !== null ? parseInt(saved, 10) : 200;
   });
+
+  // KS-2418: сброс факта показа онбординг-подсказок в drill'ах. После
+  // нажатия — короткое уведомление в той же области (исчезает само).
+  const [drillsOnboardingMsg, setDrillsOnboardingMsg] = useState<string | null>(null);
+  const handleResetDrillsOnboarding = () => {
+    resetDrillOnboarding();
+    setDrillsOnboardingMsg(t('settings.drills.resetOnboardingDone'));
+    setTimeout(() => setDrillsOnboardingMsg(null), 4000);
+  };
 
   const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = parseInt(e.target.value, 10);
@@ -253,6 +263,47 @@ export function SettingsPage() {
           {externalSaving ? t('common.loading') : t('common.save', 'Save')}
         </button>
         {externalStatus && <span style={{ marginLeft: 8, fontSize: 12, color: externalStatus.includes('Failed') ? 'var(--c-ef4444)' : 'var(--c-4caf50)' }}>{externalStatus}</span>}
+      </section>
+
+      {/* KS-2418: настройки тренажёров — пока только сброс
+          онбординга. Появится больше опций — расширим секцию. */}
+      <section
+        className="settings-section"
+        data-testid="settings-drills-section"
+      >
+        <h2>{t('settings.drills.heading', 'Drills')}</h2>
+        <div
+          className="settings-field"
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}
+        >
+          <label className="settings-label">
+            {t('settings.drills.resetOnboardingLabel', 'Drill onboarding tips')}
+          </label>
+          <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+            {t(
+              'settings.drills.resetOnboardingHint',
+              'A short description is shown once on the first run of each drill. Reset to see it again.',
+            )}
+          </p>
+          <button
+            type="button"
+            data-testid="settings-drills-reset-onboarding"
+            onClick={handleResetDrillsOnboarding}
+          >
+            {t(
+              'settings.drills.resetOnboardingButton',
+              'Show tips again',
+            )}
+          </button>
+          {drillsOnboardingMsg && (
+            <span
+              data-testid="settings-drills-reset-onboarding-status"
+              style={{ fontSize: 12, color: 'var(--c-4caf50)' }}
+            >
+              {drillsOnboardingMsg}
+            </span>
+          )}
+        </div>
       </section>
 
       <section className="settings-section">

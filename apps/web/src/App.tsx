@@ -61,6 +61,8 @@ import { DrillSprintPlayPage } from './pages/DrillSprintPlayPage';
 import { DrillSprintResultsPage } from './pages/DrillSprintResultsPage';
 // KS-2242 (Drills E4): лидерборд sprint.
 import { DrillLeaderboardPage } from './pages/DrillLeaderboardPage';
+// KS-2418: публичная страница «Как работают тренажёры».
+import { DrillsAboutPage } from './pages/DrillsAboutPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
@@ -345,6 +347,10 @@ export function App() {
         {drillsEnabled ? (
           <>
             <Route path="/drills" element={<DrillsLobbyPage />} />
+            {/* KS-2418: публичная страница «Как работают тренажёры».
+                Размещаем ВЫШЕ `/drills/:type`, иначе about будет
+                сматчен как drill-type и редиректнут. */}
+            <Route path="/drills/about" element={<DrillsAboutPage />} />
             {/* KS-2241: sprint setup/play/results размещаем ВЫШЕ
                 `/drills/:type`, иначе React Router сматчит «sprint»
                 как drill-type. */}

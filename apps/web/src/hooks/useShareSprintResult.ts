@@ -31,7 +31,7 @@ export interface SprintShareInput {
   accuracy: number;
   /** Длительность сессии (читабельная строка типа "3 мин"). */
   durationLabel: string;
-  /** Чел.-имя drill-set'а ("Все 8 типов"). */
+  /** Чел.-имя drill-set'а ("Все 7 типов"). */
   setLabel: string;
 }
 
