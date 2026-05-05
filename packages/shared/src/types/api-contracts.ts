@@ -180,10 +180,16 @@ export type CreateGameResponse = {
   id: string;
 };
 
-// ─── Game Report (REST) ─────────────────────────────────────────────
+// ─── Game Report (REST) — DEPRECATED ────────────────────────────────
+// KS-2433: эндпоинты GET /api/games/:id/report и POST /api/games/:id/analyze
+// и Stockfish-движок удалены из api. Типы временно остаются в shared,
+// чтобы не ломать сборку frontend'а — будут удалены вместе с UI-точками
+// в follow-up-тикете на frontend.
 
+/** @deprecated KS-2433 — game-report удалён из api. */
 export type MoveClassification = 'brilliant' | 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'book';
 
+/** @deprecated KS-2433 — game-report удалён из api. */
 export type MoveAnalysisItem = {
   moveNumber: number;
   color: 'white' | 'black';
@@ -196,7 +202,7 @@ export type MoveAnalysisItem = {
   classification: MoveClassification;
 };
 
-/** GET /api/games/:id/report, POST /api/games/:id/analyze */
+/** @deprecated KS-2433 — эндпоинты `/games/:id/report` и `/games/:id/analyze` удалены. */
 export type GameReportResponse = {
   id: string;
   gameId: string;
