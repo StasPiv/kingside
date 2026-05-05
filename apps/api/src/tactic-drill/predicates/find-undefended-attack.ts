@@ -1,5 +1,5 @@
 /**
- * KS-2227 / KS-2372 — `find-undefended-attack`.
+ * KS-2227 / KS-2372 / KS-2419 — `find-undefended-attack`.
  *
  * Семантика: «найти ход стороны на ходу, который **создаёт** новую
  * угрозу взятия незащищённой фигуры противника». Угроза должна быть
@@ -17,16 +17,32 @@
  *    snapshot. Кандидатом считаем ход только если в `threatsAfter`
  *    появилась клетка, отсутствовавшая в `threatsBefore`.
  *
+ * KS-2419 — safety-check атакующей фигуры. Запрос пользователя:
+ * «исключить ходы под бой». До патча predicate возвращал и Qxh7,
+ * где ферзь после взятия пешки попадает под атаку короля без
+ * защитника — формально создаётся «новая угроза», но реально это
+ * зевок ферзя, не тренировка тактики. Простая v1 (как в KS-2406):
+ * если на клетке `m.to` после хода есть хоть один прямой
+ * enemy-attacker — кандидат отбрасывается. Без SEE; промежуточный
+ * кейс «атакован, но защищён равной фигурой» отбрасывается тоже
+ * (consistency со spec). Король-атакующий: chess.js не пускает
+ * под шах, отдельной проверки не нужно.
+ *
+ * При drop'е возвращаем `reason: 'unsafe-attacker'` если до safety-
+ * фильтра был ровно 1 creator-кандидат, а после фильтра — 0.
+ * Индексер использует это для счётчика отсева в логах.
+ *
  * Алгоритм:
- *   1. До цикла по ходам: соберём `threatsBefore: Set<square>` =
+ *   1. До цикла: соберём `threatsBefore: Set<square>` =
  *      enemy-фигуры (не король) с attackers(our) ≥ 1 И
  *      defenders(enemy) = 0.
  *   2. Для каждого легального хода m:
  *      a. apply m.
  *      b. Собрать `threatsAfter` тем же способом.
- *      c. Если есть square ∈ threatsAfter \ threatsBefore — m кандидат.
- *      d. undo.
- *   3. Strict-uniqueness: ровно 1 такой ход, иначе drop.
+ *      c. Если есть square ∈ threatsAfter \ threatsBefore — m creator.
+ *      d. KS-2419: safety-check на m.to (есть ли enemy-attacker).
+ *      e. undo.
+ *   3. Strict-uniqueness: ровно 1 safe creator, иначе drop.
  *
  * Promotion отбрасываем (v1).
  */
@@ -64,14 +80,18 @@ export function findUndefendedAttack(fen: string): MoveResult {
   // искать ходы, добавляющие новую угрозу.
   const threatsBefore = collectUndefendedThreats(chess, our, enemy);
 
-  const candidates: { from: string; to: string }[] = [];
+  // KS-2419 буфера для отчётности:
+  //   creatorCandidates — ходы, создающие новую угрозу (диф ≠ ∅).
+  //   safeCandidates — creatorCandidates ∩ safe (атакующая на m.to
+  //     без enemy-attacker'ов).
+  const creatorCandidates: { from: string; to: string }[] = [];
+  const safeCandidates: { from: string; to: string }[] = [];
 
   for (const m of chess.moves({ verbose: true })) {
     // promotion — отбрасываем (v1 не поддерживает).
     if (m.promotion) continue;
     chess.move({ from: m.from, to: m.to });
     const threatsAfter = collectUndefendedThreats(chess, our, enemy);
-    chess.undo();
 
     // Новая угроза = клетка в After, отсутствующая в Before.
     let createsNew = false;
@@ -81,22 +101,40 @@ export function findUndefendedAttack(fen: string): MoveResult {
         break;
       }
     }
+    let attackerSafe = false;
     if (createsNew) {
-      candidates.push({ from: m.from, to: m.to });
+      // KS-2419 safety: «есть хоть один enemy-attacker на m.to → drop».
+      // Простая v1, как в KS-2406 для find-fork.
+      const enemyAttackers = chess.attackers(m.to, enemy);
+      attackerSafe = enemyAttackers.length === 0;
+    }
+    chess.undo();
+
+    if (createsNew) {
+      creatorCandidates.push({ from: m.from, to: m.to });
+      if (attackerSafe) safeCandidates.push({ from: m.from, to: m.to });
     }
   }
 
-  if (candidates.length !== 1) {
+  if (safeCandidates.length !== 1) {
+    // KS-2419: были creator'ы, но все отсеялись safety-фильтром —
+    // отдельный reason для счётчика индексера.
+    if (creatorCandidates.length > 0 && safeCandidates.length === 0) {
+      return {
+        valid: false,
+        reason: 'unsafe-attacker',
+      };
+    }
     return {
       valid: false,
-      reason: `expected exactly 1 undefended-attacking move, found ${candidates.length}`,
+      reason: `expected exactly 1 undefended-attacking move, found ${safeCandidates.length}`,
     };
   }
 
   const answer: AnswerMove = {
     shape: 'move',
-    from: candidates[0].from,
-    to: candidates[0].to,
+    from: safeCandidates[0].from,
+    to: safeCandidates[0].to,
   };
   return { valid: true, answer };
 }

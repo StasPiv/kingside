@@ -81,6 +81,7 @@ describe('TacticDrillIncrementalScheduler — KS-2245', () => {
           predicateDrops: {
             findForkUnsafeForker: number;
             findForkOverlap: number;
+            findUndefendedAttackUnsafeAttacker: number;
           };
         }>((resolve) => {
           resolveRun = () => resolve({
@@ -89,11 +90,12 @@ describe('TacticDrillIncrementalScheduler — KS-2245', () => {
             drillsByType: {} as Record<string, number>,
             insertedTotal: 0,
             lastCursor: null,
-            // KS-2406 / KS-2408: scheduler логирует эти поля;
-            // stub без них приводит к runtime-ошибке в tick().
+            // KS-2406 / KS-2408 / KS-2419: scheduler логирует эти
+            // поля; stub без них приводит к runtime-ошибке в tick().
             predicateDrops: {
               findForkUnsafeForker: 0,
               findForkOverlap: 0,
+              findUndefendedAttackUnsafeAttacker: 0,
             },
           });
         }),

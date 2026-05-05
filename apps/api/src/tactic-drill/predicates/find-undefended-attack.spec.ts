@@ -1,5 +1,9 @@
 /**
- * KS-2227 — `find-undefended-attack` тесты.
+ * KS-2227 / KS-2372 / KS-2419 — `find-undefended-attack` тесты.
+ *
+ * KS-2419: после нахождения creator-кандидата проверяется, что
+ * атакующая фигура на m.to не стоит под боем без защиты — иначе
+ * drop с reason='unsafe-attacker' (зеркально KS-2406 для find-fork).
  */
 
 import { findUndefendedAttack } from './find-undefended-attack';
@@ -87,6 +91,57 @@ describe('findUndefendedAttack — KS-2227', () => {
     expect(r.valid).toBe(false);
     if (!r.valid) {
       expect(r.reason).toContain('found 0');
+    }
+  });
+
+  // ─── KS-2419: safety-check атакующей фигуры ──────────────────────
+
+  it('KS-2419: Rxh7 даёт новую висящую (слон h8), но ладья сама под боем коня f6 → drop (unsafe-attacker)', () => {
+    // Acceptance из KS-2419: единственный creator-ход — Rxh7
+    // (взятие пешки + атака слона h8 без защитников). Но конь f6
+    // атакует h7 → ладья на m.to=h7 unsafe.
+    //
+    // Расклад:
+    //   - 8: чёрный король e8 + слон h8 (target новой угрозы).
+    //   - 7: чёрная пешка h7 (взятие).
+    //   - 6: чёрный конь f6 (атакует h7 — unsafe).
+    //   - 3: белая ладья h3.
+    //   - 1: белый король e1.
+    const r = findUndefendedAttack(
+      '4k2b/7p/5n2/8/8/7R/8/4K3 w - - 0 1',
+    );
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.reason).toBe('unsafe-attacker');
+    }
+  });
+
+  it('KS-2419: Rd1-d4 — creator на безопасной клетке → candidate (как раньше)', () => {
+    // Зеркальный к первому тесту — атакующая (ладья на d4) не
+    // атакована никем чёрным. Пройдёт safety-фильтр и вернётся как
+    // creator. Это та же позиция, что в первом тесте файла; здесь
+    // явно фиксируем что safety-check KS-2419 её не выкидывает.
+    const r = findUndefendedAttack(
+      '4k3/8/8/8/5b2/8/8/3RK3 w - - 0 1',
+    );
+    expect(r).toEqual({
+      valid: true,
+      answer: { shape: 'move', from: 'd1', to: 'd4' },
+    });
+  });
+
+  it('KS-2419: атакующая под боем, но защищена равной фигурой → drop (простая v1)', () => {
+    // Та же позиция Rxh7, но добавлен белый слон b1 — он защищает
+    // h7 по диагонали b1-c2-d3-e4-f5-g6-h7 (после хода ладья на h7,
+    // диагональ свободна). Конь f6 атакует, слон b1 защищает —
+    // SEE-обмен «не теряет», но простая v1 «есть атакующий → drop».
+    // Consistency со spec.
+    const r = findUndefendedAttack(
+      '4k2b/7p/5n2/8/8/7R/8/1B2K3 w - - 0 1',
+    );
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.reason).toBe('unsafe-attacker');
     }
   });
 });
