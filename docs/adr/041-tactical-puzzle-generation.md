@@ -5,6 +5,7 @@
 **Задача:** KS-2430
 **Связанные:**
 - KS-1408 (предыдущий research, source-of-truth по lichess-puzzler) — план был принят, но кода в репо не осталось; MVP начинается заново, опираясь на тот же подход, но с уже готовой схемой `Puzzle`.
+- [ADR-042 tactic-worker extraction](./042-tactic-worker-extraction.md) — генератор живёт **в `apps/tactic-worker`**, не в `apps/api`. Этот ADR (041) изначально описывал `apps/api/src/puzzle-generator/...`; ADR-042 (KS-2432) перенёс место запуска. Где этот ADR пишет «генератор / pipeline», читать как «команда tactic-worker'а».
 - [ADR-035 Tactical pattern drills](./035-tactical-pattern-drills.md) — drill ≠ puzzle, см. §7.
 - [ADR-013 game archive and tree](./013-game-archive-and-tree.md), [ADR-014 archive-games-by-position](./014-archive-games-by-position.md), [ADR-027 archive RDS sizing](./027-archive-rds-sizing.md), [ADR-033 archive database interface](./033-archive-database-interface.md) — `archive_games` как источник партий.
 - [ADR-019/020 archive importer + EventBridge](./019-archive-importer-merge-into-service.md) — прецедент batch-job на ECS с расписанием.
@@ -103,18 +104,18 @@
 
 ### 3.1 Где запускается
 
-**Решение:** отдельный ECS RunTask по расписанию (как `archive-importer`, ADR-019/020). Не Cron внутри `apps/api`.
+**Решение:** subcommand `generate-puzzles` в `apps/tactic-worker` (см. ADR-042). ECS RunTask на task-def `kingside-tactic-worker`, Fargate Spot.
 
 Обоснование:
 - Stockfish MultiPV depth 18 — CPU-heavy, ~50–60 сек на партию. Внутри `apps/api` (0.5 vCPU, REST + WS) задушит event loop.
-- ECS RunTask с `archive-importer` уже работает после KS-2410/2411 (env override / TLS-bypass убраны), переиспользуем шаблон task definition.
+- `tactic-worker` уже содержит `StockfishService` (через `@kingside/stockfish`), drill-предикаты для tagging'а (§4.1а) и pattern «cursor + pg.Client + Prisma» — нужен только новый CLI-subcommand с pipeline'ом генерации.
 - Spot-инстансы дешевле, генерация не имеет SLA.
 
-Альтернатива «cron в `apps/api`» (как `tactic-drill-incremental.scheduler.ts`) рассмотрена и отклонена: drill-индексер делает только chess.js-валидации (микросекунды), Stockfish-нагрузка качественно другая.
+Альтернативы «cron в `apps/api`» и «отдельный mono-purpose сервис только под puzzle-gen» рассмотрены и отклонены: первая нагружает api Stockfish'ем, вторая дублирует инфру (Dockerfile, IAM, Secrets), которую `tactic-worker` уже несёт для drill-индексера.
 
 ### 3.2 Расписание
 
-- **MVP:** ручной запуск через `npm run generate-puzzles -- --max-games=N` (CLI script `apps/api/src/scripts/generate-puzzles.ts` по образцу `index-tactic-drills.ts`). Запуск девопсом или architect'ом для калибровки.
+- **MVP:** ручной запуск через `aws ecs run-task` на task-def `kingside-tactic-worker` с `containerOverrides.command = ["node", "dist/main.js", "generate-puzzles", "--max-games", "N"]`. Запуск девопсом для калибровки.
 - **После калибровки:** EventBridge → ECS RunTask раз в сутки (например 02:00 UTC), batch 500 партий, cursor в Redis (key `puzzle-generator:incremental:cursor`).
 
 ### 3.3 Concurrency
@@ -250,15 +251,15 @@ MVP — три этапа. Каждый — отдельный тикет, те�
 
 ### Этап 1: Batch-генератор (без UI)
 
-- **[backend] Скрипт `apps/api/src/scripts/generate-puzzles.ts`** + reusable модуль `apps/api/src/puzzle-generator/generator-pipeline.ts` по образцу `tactic-drill/indexer-pipeline.ts`. Параметры CLI: `--max-games`, `--cursor`, `--depth`, `--min-rating`. Выходом — `Puzzle`-записи (`source='generated'`). Зависимости: `StockfishService`, `archive-db` через `pg.Client`. Не пишет ничего на UI.
-- **[backend] Predicate-tagging adapter** — модуль, который применяет `findFork` / `findPin` / `findUndefendedAttack` / `findHangingPiece` к стартовой позиции puzzle'а и расставляет теги (§4.1а). Алгоритмические теги (§4.1б) — отдельный модуль того же тикета.
-- **[backend] Миграция Prisma** — partial UNIQUE `(fen, source)` где `source='generated'` (§3.7). Совместимость с существующими Lichess-данными проверить (сделать миграцию idempotent, т.е. безопасной к повторному запуску).
+- **[backend] CLI-subcommand `generate-puzzles` в `apps/tactic-worker`** + модуль `apps/tactic-worker/src/puzzle-generator/generator-pipeline.ts` по образцу `drill-indexer/indexer-pipeline.ts`. Параметры: `--max-games`, `--cursor`, `--depth`, `--min-rating`. Выходом — `Puzzle`-записи (`source='generated'`). Зависимости: `StockfishService` из `@kingside/stockfish`, archive-БД через `pg.Client`. Не пишет ничего на UI. **Зависит от ADR-042 / KS-2432 (`tactic-worker` поднят)**.
+- **[backend] Predicate-tagging adapter** — модуль `apps/tactic-worker/src/puzzle-generator/tagging.ts`, импортирует predicate'ы из `apps/tactic-worker/src/predicates/` и расставляет теги (§4.1а). Алгоритмические теги (§4.1б) — отдельный модуль того же тикета.
+- **[backend] Миграция Prisma** — partial UNIQUE `(fen, source)` где `source='generated'` (§3.7), **в `apps/api/prisma/migrations/`** (Prisma-история централизована в api по конвенции монорепо). Совместимость с существующими Lichess-данными проверить (сделать миграцию idempotent, т.е. безопасной к повторному запуску).
 - **[chess-expert] Sample-test** — после первого batch'а 100 партий: 30 puzzle'ов на проверку, отчёт с %шума и предложением корректировки threshold'ов (§5.2). Зависит от backend (генератор работает на dev DB или одноразово в prod).
 - **[qa] Smoke-тест** — запуск скрипта на 10 dev-партиях, проверка структуры Puzzle-записей, тегов, отсутствия дублей FEN. Зависит от backend (миграция и скрипт готовы).
 
 ### Этап 2: Хранение + интеграция в Puzzle Rush + автозапуск
 
-- **[devops] ECS task definition** для puzzle-generator (по образцу `archive-importer`, ADR-019/020), EventBridge schedule раз в сутки (CRON `0 2 * * *` UTC). Cursor-key в Redis. Зависит от backend этапа 1.
+- **[devops] EventBridge schedule** на task-def `kingside-tactic-worker` (уже зарегистрирован в KS-2432), command `["generate-puzzles","--max-games","500"]`, расписание `cron(0 2 * * ? *)` UTC. Cursor-key в Redis (`puzzle-generator:incremental:cursor`). Зависит от backend этапа 1 + ADR-042.
 - **[backend] Включить generated-puzzles в выдачу Puzzle Rush**: проверить, что сейчас Rush отдаёт только Lichess (или уже всё подряд) — если фильтрует, добавить флаг «включать generated», по умолчанию ON. Зависит от этапа 1 (записи существуют).
 - **[frontend] Категория «Свежие задачи из партий»** на странице `/puzzles`: фильтр по `source='generated'`, опционально по теме. Опциональный для MVP — Puzzle Rush уже даст пользу. Зависит от backend.
 - **[qa] Регресс-тест Puzzle Rush** — что добавление generated-puzzles не ломает существующий flow; пользовательский side определяется правильно (см. `validatePlayerSide:526` для generated — стартует с side-to-move в FEN, а не после setup-move как Lichess).
@@ -347,15 +348,17 @@ Drill predicates эволюционируют (KS-2406/2408/2419 — после�
 
 ### Этап 1 — Batch-генератор без UI
 
-- [ ] **backend (генератор):** `apps/api/src/scripts/generate-puzzles.ts` + `puzzle-generator/generator-pipeline.ts` по образцу drill-индексера. Параметры CLI, чтение `archive_games` через pg, запись в `Puzzle` через Prisma. Threshold'ы из §2 как ENV.
-- [ ] **backend (predicate-tagging):** модуль `puzzle-generator/tagging.ts` — drill-predicate'ы + алгоритмические теги (§4). Зависит от генератора.
-- [ ] **backend (миграция):** Prisma migration — partial UNIQUE `(fen, source) WHERE source='generated'`. Зависит от genератора (без неё дубли).
+> **Предусловие:** ADR-042 / KS-2432 — `apps/tactic-worker` поднят (cм. KS-2433+ в плане ADR-042).
+
+- [ ] **backend (генератор):** subcommand `generate-puzzles` в `apps/tactic-worker` + `puzzle-generator/generator-pipeline.ts` по образцу drill-индексера (тоже в tactic-worker). Параметры CLI, чтение `archive_games` через pg, запись в `Puzzle` через Prisma. Threshold'ы из §2 как ENV.
+- [ ] **backend (predicate-tagging):** модуль `apps/tactic-worker/src/puzzle-generator/tagging.ts` — drill-predicate'ы (импорт из локального `predicates/`) + алгоритмические теги (§4). Зависит от генератора.
+- [ ] **backend (миграция):** Prisma migration в `apps/api/prisma/migrations/` — partial UNIQUE `(fen, source) WHERE source='generated'`. Зависит от генератора (без неё дубли).
 - [ ] **chess-expert (sample-test):** оценить 30 puzzle'ов из первого batch'а 100 партий, отчёт с %шума и предложением threshold'ов. Зависит от backend.
 - [ ] **qa (smoke):** запуск на 10 dev-партиях, проверка структуры записей, тегов, отсутствия дублей. Зависит от backend.
 
 ### Этап 2 — Автозапуск + интеграция в Puzzle Rush
 
-- [ ] **devops (ECS):** task definition по образцу `archive-importer`, EventBridge nightly schedule, Redis cursor. Зависит от этапа 1.
+- [ ] **devops (EventBridge):** schedule на task-def `kingside-tactic-worker` (зарегистрирован в KS-2432), command `["generate-puzzles","--max-games","500"]`, cron `0 2 * * ? *` UTC. Cursor-key в Redis. Зависит от этапа 1 + ADR-042.
 - [ ] **backend (Puzzle Rush):** включить generated-puzzles в выдачу (проверить фильтры, флаг включения, default ON). Зависит от этапа 1.
 - [ ] **frontend (опц.):** категория «Свежие задачи из партий» на `/puzzles` с фильтром по `source` и темам. Опционально для MVP.
 - [ ] **qa (регресс):** Puzzle Rush + единичный `/puzzles` flow на generated-puzzle проверить (`validatePlayerSide` для generated). Зависит от backend.
