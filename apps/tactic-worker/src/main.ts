@@ -25,8 +25,9 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { runIndexTacticDrills } from './cli/index-tactic-drills.cli';
+import { runGeneratePuzzles } from './cli/generate-puzzles.cli';
 
-const SUBCOMMANDS = ['index-tactic-drills'] as const;
+const SUBCOMMANDS = ['index-tactic-drills', 'generate-puzzles'] as const;
 
 function printHelp(): void {
   process.stdout.write(
@@ -35,7 +36,9 @@ function printHelp(): void {
       `  node dist/main.js <subcommand> [args]\n\n` +
       `Subcommands:\n` +
       `  index-tactic-drills   index drill positions from archive_games\n` +
-      `                        (see --help for indexer flags)\n\n` +
+      `                        (see --help for indexer flags)\n` +
+      `  generate-puzzles      generate tactical puzzles from archive_games\n` +
+      `                        (KS-2431 / ADR-041 etap 1 MVP)\n\n` +
       `Run via ECS RunTask:\n` +
       `  containerOverrides.command = ["node","dist/main.js","<subcommand>",...]\n`,
   );
@@ -64,6 +67,9 @@ async function main(): Promise<void> {
     switch (subcommand) {
       case 'index-tactic-drills':
         await runIndexTacticDrills(app, rest);
+        break;
+      case 'generate-puzzles':
+        await runGeneratePuzzles(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.
