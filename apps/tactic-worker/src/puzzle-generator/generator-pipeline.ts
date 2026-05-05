@@ -1,25 +1,27 @@
 /**
- * KS-2431 / ADR-041. Puzzle-generator pipeline (этап 1 MVP).
+ * KS-2431 (WDL pivot). Puzzle-generator pipeline.
  *
- * Высокоуровневый flow:
- *   1. Прочитать batch партий из `archive_games` через pg-клиент.
- *   2. Для каждой партии — пройти ходы, на каждом ply ≥ startPly:
- *      - до хода: analyze(depth) → bestScore + bestMove.
- *      - после хода: analyze(depth) → actualScore (eval позиции после
- *        сделанного хода).
- *      - evalDrop = bestCp(POV ходящего) − actualCp(POV того же).
- *      - Если evalDrop ≥ minEvalDrop → blunder-кандидат.
- *   3. На позиции после blunder: analyzeMultiPV → spread = lines[0] − lines[1]
- *      от лица стороны на ходу. Если spread ≥ minSpread → uniqueness.
- *   4. Отсев recapture (§2.5): если made-move был capture, а первый
- *      ход решения тоже capture на той же клетке — это recapture, drop.
- *   5. buildForcedLine(...) для линии 2..maxLineLength.
- *   6. tagging(startFen, moves, finalCp, endsInMate).
- *   7. Insert в `puzzles` через `insertPuzzle` callback.
+ * Алгоритм:
+ *   1. Идём по партиям из archive_games batch'ами.
+ *   2. На каждой партии: проигрываем ходы chess.js. На ply >= startPly
+ *      на каждой позиции делаем engine.analyzePositionWdl(fen, limit, 2).
+ *   3. Для каждой пары `(prev_wdl, current_wdl_pv1)`:
+ *      - prev_wdl — WDL_signed от лица той стороны, что сейчас на ходу
+ *        (т.е. от лица сходившего ДО хода).
+ *      - current_wdl от лица новой стороны (после хода) → инвертируем
+ *        для сходившего: `-curWdlPv1`.
+ *      - blunderDelta = prev_wdl - (-curWdlPv1) — насколько ход
+ *        ухудшил WDL для сходившего. Положительное → плохой ход.
+ *      - spread = curWdlPv1 - curWdlPv2 (от лица решающей, она же
+ *        новая side-to-move).
+ *   4. Принимаем кандидата если blunderDelta >= X И spread >= Y.
+ *   5. Строим линию через buildForcedLine (на каждом нашем ходу snova
+ *      проверяем spread).
+ *   6. Tagging как раньше.
+ *   7. Insert через callback.
  *
- * Pipeline принимает engine-интерфейс (моки для тестов) и
- * insertPuzzle callback (для тестов и для реального Prisma-writer'а
- * в CLI).
+ * Между ply: prev_wdl обновляется как WDL_signed новой текущей
+ * позиции от лица side-to-move (это уже посчитано при analyze).
  */
 import { Chess } from 'chess.js';
 import type { Client as PgClient } from 'pg';
@@ -31,8 +33,7 @@ import {
   type PuzzleRecord,
   newGeneratorStats,
 } from './types';
-import { cpFromSide, isMateScore } from './score';
-import { isBlunder, isRecapture, isUnique } from './blunder-detection';
+import { wdlSignedFromInfo } from './score';
 import { buildForcedLine } from './line-builder';
 import { computeTags } from './tagging';
 
@@ -63,8 +64,8 @@ export async function runPuzzleGenerator(
     const sql: string = cursor
       ? `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
                 time_control_category
-         FROM archive_games
-         WHERE id > $1 ORDER BY id ASC LIMIT $2`
+         FROM archive_games WHERE id > $1
+         ORDER BY id ASC LIMIT $2`
       : `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
                 time_control_category
          FROM archive_games
@@ -81,20 +82,14 @@ export async function runPuzzleGenerator(
     for (const row of rows) {
       if (stats.gamesProcessed >= options.maxGames) break;
       stats.gamesProcessed++;
-
-      // Фильтры партии (ADR-041 §2.3).
       if (!passesGameFilters(row, options)) continue;
-
       try {
         await processGame(row, engine, options, stats);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`[puzzle-gen] WARN game=${row.id} skipped: ${msg}`);
       }
-
-      if (stats.gamesProcessed % 10 === 0) {
-        logProgress(stats, log);
-      }
+      if (stats.gamesProcessed % 5 === 0) logProgress(stats, log);
     }
   }
 
@@ -106,15 +101,11 @@ function passesGameFilters(
   row: ArchiveGameRow,
   options: GeneratorOptions,
 ): boolean {
-  // Time control — bullet/unknown отсекаем; null допускаем (TWIC часто
-  // не имеет это поле, и партии там качественные).
   const tc = row.time_control_category;
   if (tc && tc !== 'classical' && tc !== 'rapid' && tc !== 'blitz') {
     return false;
   }
-  // Plycount.
   if (row.ply_count != null && row.ply_count < options.minPly) return false;
-  // Min rating — допускаем null (TWIC часто без Elo).
   if (
     row.white_elo != null &&
     row.black_elo != null &&
@@ -140,13 +131,34 @@ async function processGame(
   const history = chess.history({ verbose: true });
   const replay = new Chess();
 
+  // prev_wdl: WDL_signed от лица side-to-move в TEKUSHEY позиции
+  // (которая будет ДО следующего хода). Стартовая позиция: equal,
+  // прогноз "side has slight white advantage" — пусть будет 0.
+  let prev_wdl: number | null = null;
+
   for (let i = 0; i < history.length; i++) {
     const m = history[i];
     const ply = i + 1;
-    const fenBefore = replay.fen();
     const sideToMoveBefore = replay.turn() as 'w' | 'b';
 
-    // Apply move to advance replay.
+    // Перед применением хода: если у нас ещё нет prev_wdl — анализируем
+    // текущую позицию (до хода ply).
+    if (prev_wdl == null && ply >= options.startPly) {
+      try {
+        const pvs = await engine.analyzePositionWdl(
+          replay.fen(),
+          options.engineLimit,
+          1,
+        );
+        if (pvs.length > 0) {
+          prev_wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
+        }
+      } catch {
+        /* no-op, prev_wdl останется null */
+      }
+    }
+
+    // Применяем ход партии.
     let made;
     try {
       made = replay.move({
@@ -159,109 +171,91 @@ async function processGame(
     }
     if (!made) return;
 
-    // Анализируем только ходы начиная с startPly.
     if (ply < options.startPly) continue;
-    // Не анализируем последний ход партии (пустая позиция «после»
-    // может содержать mate — туда уже не строим).
     if (replay.isGameOver()) continue;
+    if (prev_wdl == null) continue; // нет основания для дельты
 
     stats.positionsAnalyzed++;
 
-    let bestBefore;
-    let actualAfter;
+    // Анализируем позицию ПОСЛЕ хода (стартовая позиция кандидата).
+    let pvs;
     try {
-      bestBefore = await engine.analyze(fenBefore, options.depth);
-      actualAfter = await engine.analyze(replay.fen(), options.depth);
-    } catch {
-      // Engine timeout / spawn error — drop этот ply, продолжаем партию.
-      stats.drops.engineError++;
-      continue;
-    }
-    if (!bestBefore.score || !actualAfter.score) {
-      stats.drops.noScore++;
-      continue;
-    }
-
-    // evalDrop в POV сторонявший ход (sideToMoveBefore).
-    // bestBefore.score — относительно sideToMoveBefore (он на ходу).
-    // actualAfter.score — относительно стороны, которая теперь на ходу
-    //   (это противник sideToMoveBefore).
-    const bestCp = cpFromSide(
-      bestBefore.score,
-      sideToMoveBefore,
-      sideToMoveBefore,
-    );
-    const actualCp = cpFromSide(
-      actualAfter.score,
-      sideToMoveBefore,
-      replay.turn() as 'w' | 'b',
-    );
-    const evalDrop = bestCp - actualCp;
-
-    if (!isBlunder(evalDrop, options.minEvalDrop)) {
-      stats.drops.noBlunder++;
-      continue;
-    }
-
-    // Стартовая позиция puzzle = replay.fen() (после blunder).
-    // Сторона, решающая puzzle = replay.turn() (противник зевнувшего).
-    const puzzleFen = replay.fen();
-    const solverSide = replay.turn() as 'w' | 'b';
-
-    // Uniqueness в стартовой позиции puzzle.
-    let mpv;
-    try {
-      mpv = await engine.analyzeMultiPV(
-        puzzleFen,
-        options.depth,
-        options.multiPV,
+      pvs = await engine.analyzePositionWdl(
+        replay.fen(),
+        options.engineLimit,
+        2,
       );
     } catch {
-      stats.drops.mpvFail++;
+      stats.drops.engineError++;
+      // Сбросим prev — следующий ply пересчитает с нуля.
+      prev_wdl = null;
       continue;
     }
-    if (mpv.length < 1) {
-      stats.drops.mpvFail++;
+    if (pvs.length === 0) {
+      stats.drops.engineError++;
+      prev_wdl = null;
       continue;
     }
-    const bestSolver = cpFromSide(mpv[0].score, solverSide, solverSide);
-    const secondSolver =
-      mpv.length >= 2
-        ? cpFromSide(mpv[1].score, solverSide, solverSide)
-        : -Infinity;
-    const spread = isMateScore(mpv[0].score)
-      ? Number.MAX_SAFE_INTEGER
-      : bestSolver - secondSolver;
-    if (!isUnique(spread, options.minSpread)) {
+    const pv1Wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
+    const pv2Wdl =
+      pvs.length >= 2
+        ? wdlSignedFromInfo(pvs[1].wdl, pvs[1].score)
+        : null;
+    if (pv1Wdl == null) {
+      stats.drops.noScore++;
+      prev_wdl = null;
+      continue;
+    }
+
+    // ΔWDL_зевка от лица сходившего: ход хуже если сходивший стал
+    // оцениваться ниже, чем был до хода.
+    // После хода новая side = противник sideToMoveBefore. WDL_PV1 от
+    // лица новой = pv1Wdl. От лица сходившего = -pv1Wdl.
+    const wdlAfterForMover = -pv1Wdl;
+    const blunderDelta = prev_wdl - wdlAfterForMover;
+    // spread на стартовой позиции puzzle'а (от лица решающей =
+    // новой side-to-move).
+    const spread =
+      pv2Wdl != null ? pv1Wdl - pv2Wdl : Number.POSITIVE_INFINITY;
+
+    // Подготовим prev для следующего ply (мы только что применили
+    // ход, теперь side ходит, и pv1Wdl = WDL для неё; это и есть
+    // prev для следующей итерации).
+    const nextPrev = pv1Wdl;
+
+    // Триггер X.
+    if (blunderDelta < options.blunderDelta) {
+      stats.drops.notBlunder++;
+      prev_wdl = nextPrev;
+      continue;
+    }
+    // Триггер Y.
+    if (spread < options.spreadDelta) {
       stats.drops.notUnique++;
+      prev_wdl = nextPrev;
       continue;
     }
 
-    const firstMoveUci = mpv[0].bestMove;
+    const puzzleFen = replay.fen();
+    const solverSide = replay.turn() as 'w' | 'b';
+    const firstMoveUci = pvs[0].bestMove;
 
-    // Recapture-trash filter.
-    if (isRecapture(made, firstMoveUci)) {
-      stats.drops.recapture++;
-      continue;
-    }
-
-    // Build forced line.
+    // Линия.
     const line = await buildForcedLine(puzzleFen, firstMoveUci, {
       engine,
-      depth: options.depth,
-      multiPV: options.multiPV,
-      minSpread: options.minSpread,
-      defenseSpread: 50, // ADR-041 §2.4 ±50cp
+      limit: options.engineLimit,
+      spreadDelta: options.spreadDelta,
       maxLineLength: options.maxLineLength,
       solverSide,
     });
-
     if (line.moves.length < options.minLineLength) {
       stats.drops.tooShort++;
+      prev_wdl = nextPrev;
       continue;
     }
     if (line.moves.length > options.maxLineLength) {
       stats.drops.tooLong++;
+      prev_wdl = nextPrev;
       continue;
     }
 
@@ -269,13 +263,14 @@ async function processGame(
     const tags = computeTags({
       startFen: puzzleFen,
       moves: line.moves,
-      finalCpForSolver: line.finalCpForSolver,
+      // tagging.ts ожидает finalCpForSolver в cp; конвертируем WDL_signed
+      // в условные cp по обратной формуле lichess (только для тегов
+      // crushing/advantage; не критично, точность необязательна).
+      finalCpForSolver: wdlToApproxCp(line.finalWdlForSolver),
       endsInMate: line.endsInMate,
     });
 
-    // Rating (ADR-041 §3.6).
     const rating = computeStartingRating(row, line.moves.length, spread);
-
     const puzzle: PuzzleRecord = {
       id: randomUUID(),
       fen: puzzleFen,
@@ -286,21 +281,23 @@ async function processGame(
       source: 'generated',
       sourceType: 'archive_game',
       sourceId: row.id,
-      sourceMoveNum: ply, // ply, на котором был blunder
-      gap: Math.round(Math.min(spread, 5000)),
-      depth: options.depth,
+      sourceMoveNum: ply,
+      gap: Math.round(spread * 100), // целое в процентных пунктах WDL
+      depth: options.engineLimit.depth ?? 0,
       isPublic: true,
-      acceptedMoves: line.acceptedMoves
-        ? JSON.stringify(line.acceptedMoves)
-        : null,
+      acceptedMoves: null,
       sourceMetadata: JSON.stringify({
-        evalDrop: Math.round(evalDrop),
+        prevWdl: round3(prev_wdl),
+        wdlAfterForMover: round3(wdlAfterForMover),
+        blunderDelta: round3(blunderDelta),
+        spreadDelta: round3(spread),
+        pv1Wdl: round3(pv1Wdl),
+        pv2Wdl: pv2Wdl != null ? round3(pv2Wdl) : null,
+        finalWdlForSolver: round3(line.finalWdlForSolver),
         lineLength: line.moves.length,
-        engine: 'stockfish',
-        depth: options.depth,
-        multiPV: options.multiPV,
-        finalCpForSolver: Math.round(line.finalCpForSolver),
         endsInMate: line.endsInMate,
+        engineLimit: options.engineLimit,
+        engine: 'stockfish',
         generatedAt: new Date().toISOString(),
       }),
     };
@@ -309,20 +306,32 @@ async function processGame(
     try {
       inserted = await options.insertPuzzle(puzzle);
     } catch {
-      // Insert errors считаем drop'ами (БД-уровневый conflict / timeout).
       stats.drops.duplicate++;
+      prev_wdl = nextPrev;
       continue;
     }
     if (!inserted) {
       stats.drops.duplicate++;
+      prev_wdl = nextPrev;
       continue;
     }
-
     stats.inserted++;
     for (const t of tags) {
       stats.tagDistribution[t] = (stats.tagDistribution[t] ?? 0) + 1;
     }
+    prev_wdl = nextPrev;
   }
+}
+
+function wdlToApproxCp(wdl: number): number {
+  // Обратная формула lichess для качественной оценки. Результат
+  // используется только для tagging crushing/advantage порогов.
+  // |wdl| близко к 1 → большие cp. Без exp при граничных.
+  if (wdl >= 0.999) return 5000;
+  if (wdl <= -0.999) return -5000;
+  // 2/(1+exp(-k·cp))-1 = wdl → cp = -ln((1-wdl)/(1+wdl)) / k.
+  const k = 0.00368208;
+  return Math.round(-Math.log((1 - wdl) / (1 + wdl)) / k);
 }
 
 function computeStartingRating(
@@ -334,9 +343,14 @@ function computeStartingRating(
   const b = row.black_elo ?? 1500;
   const avg = Math.round((w + b) / 2);
   const lengthAdj = (lineLength - 4) * 100;
-  const gapAdj = spread > 400 ? -100 : spread < 200 ? 100 : 0;
-  const raw = avg + lengthAdj + gapAdj;
-  return Math.max(600, Math.min(2800, raw));
+  // gapAdj по spread WDL: большой spread (>0.5) — задача проще → −100;
+  // маленький (<0.3) — сложнее → +100.
+  const gapAdj = spread > 0.5 ? -100 : spread < 0.3 ? 100 : 0;
+  return Math.max(600, Math.min(2800, avg + lengthAdj + gapAdj));
+}
+
+function round3(x: number): number {
+  return Math.round(x * 1000) / 1000;
 }
 
 function logProgress(
@@ -344,23 +358,19 @@ function logProgress(
   log: (line: string) => void,
 ): void {
   const drops =
-    `noBlunder=${stats.drops.noBlunder} ` +
+    `notBlunder=${stats.drops.notBlunder} ` +
     `notUnique=${stats.drops.notUnique} ` +
     `tooShort=${stats.drops.tooShort} ` +
     `tooLong=${stats.drops.tooLong} ` +
-    `recapture=${stats.drops.recapture} ` +
     `duplicate=${stats.drops.duplicate} ` +
     `noScore=${stats.drops.noScore} ` +
-    `mpvFail=${stats.drops.mpvFail} ` +
     `engineError=${stats.drops.engineError}`;
+  const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
+  const accountedFor = stats.inserted + sumDrops;
   const tagsArr = Object.entries(stats.tagDistribution)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([k, v]) => `${k}:${v}`);
-  // Инвариант: positionsAnalyzed = inserted + sum(drops). Если
-  // расходится — баг в пути учёта.
-  const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
-  const accountedFor = stats.inserted + sumDrops;
   log(
     `[puzzle-gen] games=${stats.gamesProcessed} ` +
       `analyzed=${stats.positionsAnalyzed} ` +

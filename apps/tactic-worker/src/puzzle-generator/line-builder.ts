@@ -1,49 +1,36 @@
 /**
- * KS-2431. Построение форсированной линии puzzle (ADR-041 §2.4).
+ * KS-2431 (WDL pivot). Построение линии решения с проверкой
+ * spread WDL на каждом нашем ходу.
  *
- * После того как pipeline нашёл blunder и проверил uniqueness в
- * стартовой позиции puzzle, нужно расширить решение на 2-6 полуходов:
+ *   - На каждом нашем ходу (= решающей стороны) — analyzePositionWdl
+ *     с MultiPV=2. Принимаем ход если ΔWDL_спред ≥ spreadDelta или
+ *     если PV2 отсутствует (легальный ход один).
+ *   - На ходах соперника — analyzePositionWdl с MultiPV=1, берём
+ *     PV1 как лучший ответ.
+ *   - Стоп: достигнута maxLineLength, mate, повтор позиции,
+ *     нарушен spread, нет легальных ходов.
  *
- *   - На наших ходах: MultiPV-2, требуем spread ≥ minSpread иначе stop.
- *   - На ходах соперника: если 1 легальный ход — apply forcing.
- *     Иначе берём best ответ; если spread между всеми легальными
- *     ходами соперника < ~50cp — все защиты эквивалентно проигрывают,
- *     можно продолжать; иначе stop (соперник может выбрать «лучшую
- *     защиту», что делает линию неуникальной для нашей цели).
- *   - Stop conditions: mate, повтор, превышение maxLineLength.
- *
- * Результат — массив UCI-ходов и финальная eval. Если линия короче
- * minLineLength — caller отбраковывает puzzle.
+ * Возвращаем UCI-ходы линии и финальный WDL_signed от лица решающей.
  */
 import { Chess } from 'chess.js';
-import type { EngineApi } from './types';
-import { cpFromSide, isMateScore } from './score';
+import type { EngineApi, AnalysisLimit } from './types';
+import { wdlSignedFromInfo } from './score';
 
 export interface LineResult {
-  /** UCI-ходы линии (включая 1-й «решающий» ход и ответы соперника). */
+  /** UCI-ходы (включая первый ход решения). */
   moves: string[];
-  /** Финальная оценка от лица решающей стороны (cp; для мата — большой +). */
-  finalCpForSolver: number;
-  /** True, если линия закончилась матом нашего соперника. */
+  /** WDL от лица решающей в финальной позиции (после последнего хода). */
+  finalWdlForSolver: number;
+  /** Закончилась матом? */
   endsInMate: boolean;
-  /**
-   * AcceptedMoves: для полуходов соперника, где было несколько
-   * эквивалентных защит (spread < threshold), записываем все
-   * допустимые ответы. Формат: индекс полухода → список UCI.
-   * null если на всех ответах был один-единственный ход.
-   */
-  acceptedMoves: Record<number, string[]> | null;
 }
 
 export interface LineBuilderOptions {
   engine: EngineApi;
-  depth: number;
-  multiPV: number;
-  minSpread: number;
-  /** Допустимый спред между лучшим и худшим ответом соперника (если меньше — все защиты «одинаково плохи»). */
-  defenseSpread: number;
+  limit: AnalysisLimit;
+  spreadDelta: number;
   maxLineLength: number;
-  /** Сторона, решающая puzzle (от лица которой считаем eval). */
+  /** Сторона, решающая puzzle. */
   solverSide: 'w' | 'b';
 }
 
@@ -53,21 +40,14 @@ export async function buildForcedLine(
   opts: LineBuilderOptions,
 ): Promise<LineResult> {
   const moves: string[] = [];
-  const acceptedMoves: Record<number, string[]> = {};
   const seen = new Set<string>([startFen]);
-
   const chess = new Chess(startFen);
-  let finalCpForSolver = 0;
+  let finalWdlForSolver = 0;
   let endsInMate = false;
 
-  // Применяем первый ход решения.
+  // Первый ход решения уже выбран pipeline'ом (PV1 после зевка).
   if (!applyUci(chess, firstMoveUci)) {
-    return {
-      moves: [],
-      finalCpForSolver: 0,
-      endsInMate: false,
-      acceptedMoves: null,
-    };
+    return { moves: [], finalWdlForSolver: 0, endsInMate: false };
   }
   moves.push(firstMoveUci);
   seen.add(chess.fen());
@@ -75,127 +55,71 @@ export async function buildForcedLine(
   while (moves.length < opts.maxLineLength) {
     if (chess.isGameOver()) {
       endsInMate = chess.isCheckmate();
-      // Финальный eval — у нас на руках; mate в нашу пользу:
-      finalCpForSolver = endsInMate
-        ? cpFromSide(
-            { type: 'mate', value: 0 },
-            opts.solverSide,
-            chess.turn(),
-          )
-        : finalCpForSolver;
+      // Финальный WDL: если мат — победа решающей (+1), иначе оставляем
+      // что было.
+      if (endsInMate) {
+        // Чей ход был перед матом? Тот, кому теперь некуда ходить —
+        // это сторона, получившая мат. Если это противник solverSide,
+        // решающий выиграл.
+        const losingSide = chess.turn() as 'w' | 'b';
+        finalWdlForSolver = losingSide === opts.solverSide ? -1 : 1;
+      }
       break;
     }
-
     const isOpponentTurn = chess.turn() !== opts.solverSide;
     const fen = chess.fen();
 
     if (isOpponentTurn) {
-      const legal = chess.moves({ verbose: true });
-      if (legal.length === 0) {
-        // Stalemate / mate уже обработан выше — здесь сюрприз, выходим.
+      // Лучший ход соперника, без проверки spread (как cook_advantage).
+      let pvs;
+      try {
+        pvs = await opts.engine.analyzePositionWdl(fen, opts.limit, 1);
+      } catch {
         break;
       }
-      if (legal.length === 1) {
-        const uci = uciOf(legal[0]);
-        if (!applyUci(chess, uci)) break;
-        moves.push(uci);
-        if (seen.has(chess.fen())) break;
-        seen.add(chess.fen());
-        continue;
-      }
-      // MultiPV для соперника: какие ответы дают близкий итоговый eval?
-      const lines = await opts.engine.analyzeMultiPV(
-        fen,
-        opts.depth,
-        Math.min(opts.multiPV, legal.length),
-      );
-      if (lines.length === 0) break;
-      // Сортируем относительно соперника (он играет лучший за себя),
-      // но spread считаем от его лица — берём lines as-is (Stockfish
-      // отдаёт уже от стороны на ходу).
-      const oppCps = lines.map((l) =>
-        cpFromSide(l.score, chess.turn() as 'w' | 'b', chess.turn() as 'w' | 'b'),
-      );
-      const oppMax = oppCps[0];
-      const oppMin = oppCps[oppCps.length - 1];
-      // Если все ответы соперника близки (разброс < defenseSpread) —
-      // все они эквивалентно проигрывают; принимаем best и фиксируем
-      // alternates как acceptedMoves.
-      const okBranch = oppMax - oppMin <= opts.defenseSpread;
-      if (!okBranch) {
-        // Соперник может выбрать «менее проигрышный» вариант — это
-        // означает, что у нас не одно «правильное» решение в линии:
-        // нужен другой наш ход после хода соперника. MVP-стоп.
-        break;
-      }
-      const bestOpp = lines[0].bestMove;
-      if (!applyUci(chess, bestOpp)) break;
-      const idx = moves.length;
-      moves.push(bestOpp);
-      if (lines.length > 1) {
-        // Все близкие альтернативы соперника — допустимы.
-        const alts: string[] = [];
-        for (let i = 0; i < lines.length; i++) {
-          if (oppCps[i] - oppMin <= opts.defenseSpread) {
-            alts.push(lines[i].bestMove);
-          }
-        }
-        if (alts.length > 1) acceptedMoves[idx] = alts;
-      }
-      if (seen.has(chess.fen())) break;
-      seen.add(chess.fen());
-      // Eval после ответа соперника — обновляем для finalCpForSolver:
-      finalCpForSolver = cpFromSide(
-        lines[0].score,
-        opts.solverSide,
-        chess.turn() as 'w' | 'b',
-      );
+      if (pvs.length === 0) break;
+      const oppMove = pvs[0].bestMove;
+      if (!applyUci(chess, oppMove)) break;
+      moves.push(oppMove);
+      const fenAfter = chess.fen();
+      if (seen.has(fenAfter)) break;
+      seen.add(fenAfter);
+      // Обновляем finalWdlForSolver: WDL от лица solverSide теперь.
+      // pvs[0].wdl от лица side-to-move = противник solverSide.
+      // Инверсия: -wdlSignedFromInfo.
+      const oppPovWdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
+      if (oppPovWdl != null) finalWdlForSolver = -oppPovWdl;
     } else {
-      // Наш ход. MultiPV ≥ 2. Spread должен быть ≥ minSpread иначе
-      // линия теряет уникальность (есть второй «равно-сильный» план).
-      const lines = await opts.engine.analyzeMultiPV(
-        fen,
-        opts.depth,
-        Math.min(opts.multiPV, 2),
-      );
-      if (lines.length === 0) break;
-      const ourSide = chess.turn() as 'w' | 'b';
-      const bestCp = cpFromSide(lines[0].score, ourSide, ourSide);
-      if (lines.length >= 2) {
-        const secondCp = cpFromSide(lines[1].score, ourSide, ourSide);
-        const spread = bestCp - secondCp;
-        if (
-          !isMateScore(lines[0].score) /* mate — сам по себе уникален */ &&
-          spread < opts.minSpread
-        ) {
-          // Несколько хороших вариантов — стоп (puzzle обрывается раньше).
-          break;
+      // Наш ход. Требуем ΔWDL_спред ≥ Y.
+      let pvs;
+      try {
+        pvs = await opts.engine.analyzePositionWdl(fen, opts.limit, 2);
+      } catch {
+        break;
+      }
+      if (pvs.length === 0) break;
+      const ourPovWdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
+      if (ourPovWdl == null) break; // нет шансов оценить
+      finalWdlForSolver = ourPovWdl;
+      // Spread проверяется только если PV2 есть.
+      if (pvs.length >= 2) {
+        const secondWdl = wdlSignedFromInfo(pvs[1].wdl, pvs[1].score);
+        if (secondWdl != null) {
+          const spread = ourPovWdl - secondWdl;
+          if (spread < opts.spreadDelta) break;
         }
       }
-      const ourBest = lines[0].bestMove;
-      if (!applyUci(chess, ourBest)) break;
-      moves.push(ourBest);
-      if (seen.has(chess.fen())) break;
-      seen.add(chess.fen());
-      finalCpForSolver = cpFromSide(
-        lines[0].score,
-        opts.solverSide,
-        chess.turn() as 'w' | 'b',
-      );
+      const ourMove = pvs[0].bestMove;
+      if (!applyUci(chess, ourMove)) break;
+      moves.push(ourMove);
+      const fenAfter = chess.fen();
+      if (seen.has(fenAfter)) break;
+      seen.add(fenAfter);
     }
   }
 
   if (chess.isCheckmate()) endsInMate = true;
-  return {
-    moves,
-    finalCpForSolver,
-    endsInMate,
-    acceptedMoves: Object.keys(acceptedMoves).length > 0 ? acceptedMoves : null,
-  };
-}
-
-function uciOf(m: { from: string; to: string; promotion?: string }): string {
-  return `${m.from}${m.to}${m.promotion ?? ''}`;
+  return { moves, finalWdlForSolver, endsInMate };
 }
 
 function applyUci(chess: Chess, uci: string): boolean {
@@ -204,8 +128,8 @@ function applyUci(chess: Chess, uci: string): boolean {
   const to = uci.slice(2, 4);
   const promotion = uci.length > 4 ? (uci[4] as 'q' | 'r' | 'b' | 'n') : undefined;
   try {
-    const res = chess.move({ from, to, ...(promotion ? { promotion } : {}) });
-    return !!res;
+    const r = chess.move({ from, to, ...(promotion ? { promotion } : {}) });
+    return !!r;
   } catch {
     return false;
   }

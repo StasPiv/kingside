@@ -1,29 +1,27 @@
 /**
- * KS-2431 / ADR-041 §6 этап 1. CLI subcommand `generate-puzzles`.
+ * KS-2431 (WDL pivot). CLI subcommand `generate-puzzles`.
  *
- * Образец — `index-tactic-drills.cli.ts` (KS-2438). Подключает:
- *   - `PrismaService` для записи в `puzzles`.
- *   - `StockfishService` для анализа позиций.
- *   - pg.Client к archive-RDS (через `pg-ssl.ts`).
+ * Подключает PrismaService для записи в `puzzles`, StockfishService
+ * с UCI_ShowWDL для анализа. pg.Client к archive-RDS через pg-ssl.ts.
  *
- * Контракт CLI:
+ * Контракт CLI (стартовые значения, играемся X/Y):
  *   ARCHIVE_DATABASE_URL=postgresql://... DATABASE_URL=postgresql://... \
  *     node dist/main.js generate-puzzles \
  *       [--max-games=N]            default 100
- *       [--depth=N]                default 10  (KS-2431 калибровочное)
- *       [--multi-pv=N]             default 3
+ *       [--blunder-delta=X]        default 0.5  (минимум |ΔWDL_зевка|)
+ *       [--spread-delta=Y]         default 0.3  (минимум ΔWDL_спред)
+ *       [--depth=N]                default 20
+ *       [--time-ms=N]              default 5000
+ *       [--nodes=N]                default 2000000
  *       [--min-rating=N]           default 1400
  *       [--min-ply=N]              default 20
  *       [--start-ply=N]            default 20
- *       [--min-eval-drop=N]        default 200 (cp)
- *       [--min-spread=N]           default 150 (cp)
  *       [--min-line-length=N]      default 2
  *       [--max-line-length=N]      default 6
  *       [--game-batch-size=N]      default 100
  *       [--cursor=UUID]            пропустить партии с id ≤ UUID
- *       [--dump-file=PATH]         если задан, дополнительно дампит
- *                                  до 30 первых puzzle'ов в JSON-файл
- *                                  (для chess-expert sample-test'а)
+ *       [--dump-file=PATH]         если задан, дампит до 30 первых
+ *                                  puzzle'ов в JSON-файл (для sample-test)
  */
 import { Logger } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
@@ -54,11 +52,20 @@ export function parseArgs(argv: string[]): CliFlags {
       case 'max-games':
         opts.maxGames = v === 'inf' ? Infinity : parseInt(v, 10);
         break;
-      case 'depth':
-        opts.depth = parseInt(v, 10);
+      case 'blunder-delta':
+        opts.blunderDelta = parseFloat(v);
         break;
-      case 'multi-pv':
-        opts.multiPV = parseInt(v, 10);
+      case 'spread-delta':
+        opts.spreadDelta = parseFloat(v);
+        break;
+      case 'depth':
+        opts.engineLimit = { ...opts.engineLimit, depth: parseInt(v, 10) };
+        break;
+      case 'time-ms':
+        opts.engineLimit = { ...opts.engineLimit, timeMs: parseInt(v, 10) };
+        break;
+      case 'nodes':
+        opts.engineLimit = { ...opts.engineLimit, nodes: parseInt(v, 10) };
         break;
       case 'min-rating':
         opts.minRating = parseInt(v, 10);
@@ -68,12 +75,6 @@ export function parseArgs(argv: string[]): CliFlags {
         break;
       case 'start-ply':
         opts.startPly = parseInt(v, 10);
-        break;
-      case 'min-eval-drop':
-        opts.minEvalDrop = parseInt(v, 10);
-        break;
-      case 'min-spread':
-        opts.minSpread = parseInt(v, 10);
         break;
       case 'min-line-length':
         opts.minLineLength = parseInt(v, 10);
@@ -106,9 +107,9 @@ export async function runGeneratePuzzles(
 
   process.stdout.write(
     `[puzzle-gen] starting ` +
-      `depth=${parsed.depth} multiPV=${parsed.multiPV} ` +
-      `minRating=${parsed.minRating} minEvalDrop=${parsed.minEvalDrop} ` +
-      `minSpread=${parsed.minSpread} ` +
+      `blunderDelta=${parsed.blunderDelta} spreadDelta=${parsed.spreadDelta} ` +
+      `limit={depth=${parsed.engineLimit.depth},time=${parsed.engineLimit.timeMs}ms,nodes=${parsed.engineLimit.nodes}} ` +
+      `minRating=${parsed.minRating} ` +
       `lineLen=${parsed.minLineLength}-${parsed.maxLineLength} ` +
       `cursor=${parsed.cursor ?? 'none'} ` +
       `maxGames=${parsed.maxGames === Infinity ? 'inf' : parsed.maxGames}\n`,

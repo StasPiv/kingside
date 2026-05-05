@@ -1,27 +1,78 @@
 /**
- * KS-2431. Helpers для работы с Stockfish-score (cp / mate).
+ * KS-2431 (WDL pivot). Helpers для работы со Stockfish WDL и cp/mate.
  *
- * Все score'ы из Stockfish — relative to side to move. При сравнении
- * eval'ов **до** и **после** хода (blunder detection) важно учесть
- * смену стороны:
+ * Pipeline puzzle-generator переведён на источник «выигрышные шансы»
+ * из UCI_ShowWDL (per-mille W/D/L), а не на cp-сигмоиду lichess.
+ * Причина: Stockfish WDL — нативная NNUE-оценка вероятности исхода;
+ * lichess-формула — внешняя сигмоида над cp с эмпирически подобранными
+ * коэффициентами и иной кривой насыщения.
  *
- *   - Если до хода Stockfish сказал «у белых +500cp» (это `+500` от
- *     стороны на ходу — белых), и после хода Stockfish говорит
- *     «у чёрных +200cp» (это `+200` от стороны на ходу — чёрных,
- *     т.е. для белых это `-200cp`), то реальный eval для оригинальной
- *     стороны (белых) опустился с +500 до -200, drop = 700cp.
+ * Принципы:
+ *   - WDL_signed = (W − L) / 1000, диапазон [-1..+1] от лица side-to-move.
+ *   - При сравнении до/после хода учитываем смену стороны: для оценки
+ *     «насколько ход ухудшил позицию для сходившего» инвертируем WDL
+ *     после хода (новая сторона на ходу — противник сходившего).
+ *   - Mate-оценки: если Stockfish не отдал WDL (старые версии при mate),
+ *     берём ±1 как заглушку (mate в нашу пользу = +1, против = −1).
  *
- * `cpFromSide(score, asSide, sideToMove)` приводит score из «relative to
- * side-to-move» в «from POV of `asSide`». Для матовых оценок mate-in-N
- * → +inf или -inf (мы конвертируем mate в условные cp по формуле
- * 100_000 - matedist для отбраковки на численных порогах).
+ * cp/mate helpers из исходной версии остаются: `cpFromSide` ещё нужен
+ * для tagging.ts (порог crushing/advantage).
  */
 import type { ScoreCp } from '../stockfish/stockfish.service';
 
-/** Условный «cp-эквивалент» матовой оценки (для сравнений). */
+export interface Wdl {
+  /** per-mille (0..1000), POV side-to-move. */
+  w: number;
+  d: number;
+  l: number;
+}
+
+/**
+ * Знаковая шкала WDL [-1..+1] от лица side-to-move.
+ * `(W − L) / 1000`. +1 = гарантированная победа, -1 = гарантированный
+ * проигрыш, 0 = ничья.
+ */
+export function wdlSigned(wdl: Wdl): number {
+  return (wdl.w - wdl.l) / 1000;
+}
+
+/**
+ * Извлечь WDL_signed из Stockfish-инфо. Если WDL отсутствует (опция
+ * выключена или mate без WDL у некоторых версий), используем
+ * fallback по score:
+ *   - mate в пользу sideToMove → +1
+ *   - mate против sideToMove → -1
+ *   - cp без WDL → null (caller обязан учесть и не использовать в
+ *     арифметике; но обычно WDL всегда есть когда опция включена).
+ */
+export function wdlSignedFromInfo(
+  wdl: Wdl | null | undefined,
+  score: ScoreCp,
+): number | null {
+  if (wdl) return wdlSigned(wdl);
+  if (score.type === 'mate') return score.value > 0 ? 1 : -1;
+  return null;
+}
+
+/**
+ * WDL_signed от лица заданной стороны.
+ * `wdl` — POV side-to-move (как Stockfish отдаёт). Если asSide совпадает
+ * с side-to-move в той позиции — отдаём как есть. Иначе инвертируем.
+ */
+export function wdlFromSide(
+  wdl: Wdl,
+  asSide: 'w' | 'b',
+  sideToMove: 'w' | 'b',
+): number {
+  const signed = wdlSigned(wdl);
+  return asSide === sideToMove ? signed : -signed;
+}
+
+/* ─── cp helpers (для tagging crushing/advantage) ─────────────── */
+
 const MATE_CP_BASE = 100_000;
 
-/** cp от лица side. side === 'w' | 'b', sideToMove = к кому относится score. */
+/** cp от лица side; mate → ±(100000 - distance). */
 export function cpFromSide(
   score: ScoreCp,
   asSide: 'w' | 'b',
@@ -31,31 +82,16 @@ export function cpFromSide(
   if (score.type === 'cp') {
     cp = score.value;
   } else {
-    // mate. value > 0 — мат за стороной на ходу за value полуходов;
-    // value < 0 — мат против стороны на ходу.
     const sign = score.value >= 0 ? 1 : -1;
     cp = sign * (MATE_CP_BASE - Math.abs(score.value));
   }
-  // Если запросили POV другой стороны — инвертируем.
   return asSide === sideToMove ? cp : -cp;
 }
 
-/** «Mate ли это», без знака. */
 export function isMateScore(score: ScoreCp): boolean {
   return score.type === 'mate';
 }
 
-/** Знак мата — true если мат в пользу side-to-move. */
 export function isMateForSideToMove(score: ScoreCp): boolean {
   return score.type === 'mate' && score.value > 0;
-}
-
-/** Проверка: оценка ≥ +200cp от лица side. */
-export function isCrushingForSide(
-  score: ScoreCp,
-  asSide: 'w' | 'b',
-  sideToMove: 'w' | 'b',
-  thresholdCp: number,
-): boolean {
-  return cpFromSide(score, asSide, sideToMove) >= thresholdCp;
 }

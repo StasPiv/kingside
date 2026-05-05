@@ -1,79 +1,80 @@
 /**
- * KS-2431. Типы puzzle-генератора (ADR-041).
+ * KS-2431 (WDL pivot). Типы puzzle-генератора на основе Stockfish WDL.
+ *
+ * Алгоритм отбора:
+ *   1. На каждом ply партии — Stockfish MultiPV=2 c UCI_ShowWDL=true.
+ *   2. ΔWDL_зевка = (-WDL_PV1 от лица новой стороны) − prevWdl
+ *      (от лица той стороны, что только что сходила).
+ *      Кандидат если |ΔWDL_зевка| ≥ blunderDelta (X).
+ *   3. ΔWDL_спред = WDL_PV1 − WDL_PV2 (от лица решающей).
+ *      Кандидат если ΔWDL_спред ≥ spreadDelta (Y).
+ *   4. Линия строится итеративно: на каждом нашем ходу — снова
+ *      MultiPV=2, проверка ΔWDL_спред ≥ spreadDelta. Если нарушен —
+ *      обрубаем линию. На ходах соперника берём PV1 без проверки.
  */
-import type { ScoreCp, MultiPvLine } from '../stockfish/stockfish.service';
+import type { MultiPvLine, AnalysisLimit } from '../stockfish/stockfish.service';
 
-export type { ScoreCp, MultiPvLine };
+export type { MultiPvLine, AnalysisLimit };
 
-/**
- * Минимальный engine-интерфейс для unit-тестов: pipeline зависит
- * только от двух методов StockfishService. Для теста проще передать
- * мок, чем поднимать реальный SF.
- */
+/** Engine-интерфейс для unit-тестов pipeline (мокаемый). */
 export interface EngineApi {
-  analyze(
+  analyzePositionWdl(
     fen: string,
-    depth: number,
-  ): Promise<{ bestMove: string; score?: ScoreCp; depth?: number }>;
-  analyzeMultiPV(
-    fen: string,
-    depth: number,
+    limit: AnalysisLimit,
     multiPV: number,
   ): Promise<MultiPvLine[]>;
 }
 
 export interface GeneratorOptions {
-  /** Максимум партий для обработки. */
+  /** Максимум партий. */
   maxGames: number;
-  /** Stockfish-глубина. KS-2431: стартуем с 10, потом калибруем. */
-  depth: number;
-  /** MultiPV для проверки uniqueness. */
-  multiPV: number;
-  /** Минимальный Elo обоих игроков. Null/undefined в archive_games — допускается. */
+  /** Stockfish-лимит на одну позицию. */
+  engineLimit: AnalysisLimit;
+  /** Порог X — минимальный |ΔWDL_зевка| для срабатывания. */
+  blunderDelta: number;
+  /** Порог Y — минимальный ΔWDL_спред для уникальности. */
+  spreadDelta: number;
+  /** Минимальный Elo обоих игроков (null допускается). */
   minRating: number;
-  /** Минимальная длина партии (плойсы). */
+  /** Минимальный plyCount партии. */
   minPly: number;
-  /** Минимальный ply, с которого ищем blunder (после дебюта). */
+  /** Минимальный ply, с которого ищем зевок. */
   startPly: number;
-  /** Минимальный evalDrop (cp) для blunder-detection. */
-  minEvalDrop: number;
-  /** Минимальный spread (cp) для uniqueness. */
-  minSpread: number;
-  /** Минимальная длина построенной линии в полуходах. */
+  /** Минимальная длина построенной линии. */
   minLineLength: number;
-  /** Максимальная длина построенной линии в полуходах. */
+  /** Максимальная длина построенной линии. */
   maxLineLength: number;
-  /** Размер batch чтения партий из archive-RDS. */
+  /** Размер batch чтения партий. */
   gameBatchSize: number;
-  /** UUID-курсор: брать партии с id > cursor. */
+  /** UUID-cursor: брать партии с id > cursor. */
   cursor?: string | null;
-  /**
-   * Insert-callback: вызывается на каждом успешно сгенерированном
-   * puzzle. Возвращает true, если запись вставилась (уникальный fen),
-   * false при conflict (дубликат). Pipeline использует это для
-   * счётчика `inserted`.
-   */
+  /** Insert-callback: true если запись вставилась (новый FEN), false если конфликт. */
   insertPuzzle: (puzzle: PuzzleRecord) => Promise<boolean>;
   /** Логгер. */
   log?: (line: string) => void;
 }
 
-/** То, что pipeline пишет в БД (поля Puzzle). */
 export interface PuzzleRecord {
   id: string;
-  /** Стартовая FEN puzzle (= позиция после blunder). */
+  /** FEN после зевка — стартовая позиция puzzle. */
   fen: string;
   /** UCI-ходы линии через пробел. */
   moves: string;
   rating: number;
   ratingDev: number;
-  /** Пробел-разделённые теги. */
+  /** Теги через пробел. */
   themes: string;
   source: 'generated';
   sourceType: 'archive_game';
   sourceId: string;
+  /** Ply, на котором был сделан зевочный ход. */
   sourceMoveNum: number;
+  /**
+   * `gap` поле в БД — для UX, целое в процентных пунктах WDL spread'а.
+   * Например spread = 0.47 → gap = 47.
+   */
   gap: number;
+  /** Глубина анализа (фактическая, не запрошенная) или 0. */
   depth: number;
   isPublic: boolean;
   acceptedMoves: string | null;
@@ -84,43 +85,24 @@ export interface GeneratorStats {
   gamesProcessed: number;
   positionsAnalyzed: number;
   inserted: number;
-  /**
-   * Счётчики отсева по причинам. KS-2431: сумма всех drops + inserted
-   * = positionsAnalyzed (инвариант для прозрачности калибровки).
-   */
+  /** Сумма drops + inserted = positionsAnalyzed (инвариант). */
   drops: {
-    /** evalDrop < minEvalDrop */
-    noBlunder: number;
-    /** spread < minSpread */
+    /** |ΔWDL_зевка| < blunderDelta */
+    notBlunder: number;
+    /** ΔWDL_спред < spreadDelta на стартовой позиции */
     notUnique: number;
-    /** длина линии < minLineLength */
+    /** длина построенной линии < minLineLength */
     tooShort: number;
-    /** длина линии > maxLineLength (theoretically нечасто, но возможно) */
+    /** длина > maxLineLength */
     tooLong: number;
-    /** recapture / тривиальный размен (ADR-041 §2.5) */
-    recapture: number;
     /** дубликат FEN (UNIQUE conflict при insert) */
     duplicate: number;
-    /**
-     * Stockfish не вернул score (либо bestBefore, либо actualAfter).
-     * Бывает на patовых / странных позициях — pipeline пропускает.
-     */
+    /** Stockfish не вернул score / WDL */
     noScore: number;
-    /**
-     * analyzeMultiPV крашнулся или вернул пустой массив на uniqueness-
-     * проверке либо при построении линии. KS-2431: раньше «терялись»
-     * без учёта.
-     */
-    mpvFail: number;
-    /**
-     * Engine.analyze() throw'нул (timeout / spawn error). KS-2431:
-     * раньше «терялись» без учёта.
-     */
+    /** ошибка при analyzePositionWdl или PV.length<1 */
     engineError: number;
   };
-  /** Распределение тегов: theme → count puzzle'ов с ним. */
   tagDistribution: Record<string, number>;
-  /** Cursor последней обработанной партии. */
   lastCursor: string | null;
 }
 
@@ -131,13 +113,15 @@ export function defaultGeneratorOptions(
 } {
   return {
     maxGames: 100,
-    depth: 10, // KS-2431 старт; калибруем после первого batch'а
-    multiPV: 3,
+    // Стартовый лимит — ориентир. Подбираем на пользователя.
+    // 5 секунд / 2M nodes / depth 20 — компромисс между качеством
+    // WDL-оценки и временем прогона. Меняется через CLI.
+    engineLimit: { depth: 20, timeMs: 5000, nodes: 2_000_000 },
+    blunderDelta: 0.5, // X — стартовый
+    spreadDelta: 0.3, // Y — стартовый
     minRating: 1400,
     minPly: 20,
     startPly: 20,
-    minEvalDrop: 200,
-    minSpread: 150,
     minLineLength: 2,
     maxLineLength: 6,
     gameBatchSize: 100,
@@ -152,14 +136,12 @@ export function newGeneratorStats(): GeneratorStats {
     positionsAnalyzed: 0,
     inserted: 0,
     drops: {
-      noBlunder: 0,
+      notBlunder: 0,
       notUnique: 0,
       tooShort: 0,
       tooLong: 0,
-      recapture: 0,
       duplicate: 0,
       noScore: 0,
-      mpvFail: 0,
       engineError: 0,
     },
     tagDistribution: {},
