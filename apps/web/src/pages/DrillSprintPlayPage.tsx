@@ -17,6 +17,9 @@ import {
   DrillInstructions,
   type DrillCountValue,
 } from '../components/drills';
+// KS-2425: sprint-mode не использовал DrillRunner и потому не получил
+// звуки KS-2423. Подключаем тот же useDrillSounds (drill-mute уважается).
+import { useDrillSounds, resolveMoveSound } from '../hooks/useDrillSounds';
 
 /**
  * KS-2241 (ADR-035 §5.5, Drills E4) — gameplay sprint-режима.
@@ -69,6 +72,8 @@ export function DrillSprintPlayPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  // KS-2425.
+  const { play: playDrillSound } = useDrillSounds();
 
   const sessionFromState = (location.state as SessionState | null)?.session ?? null;
 
@@ -148,6 +153,13 @@ export function DrillSprintPlayPage() {
     async (userAnswer: AnswerData) => {
       if (!drill || !sessionId || feedback || finishedRef.current) return;
       const timeMs = Date.now() - drillStartRef.current;
+      // KS-2425: озвучиваем сам факт хода/ответа — тот же контракт,
+      // что в DrillRunner (KS-2423).
+      if (userAnswer.shape === 'move') {
+        playDrillSound(resolveMoveSound(drill.fen, userAnswer.from, userAnswer.to));
+      } else if (userAnswer.shape === 'square' || userAnswer.shape === 'squares') {
+        playDrillSound('move');
+      }
       try {
         const resp = await api.post<TacticDrillSprintSubmitResponse>(
           '/tactic-drill/sprint/submit',
@@ -165,6 +177,8 @@ export function DrillSprintPlayPage() {
           solved: resp.attempt.solved,
           correctAnswer: resp.attempt.correctAnswer,
         });
+        // KS-2425: вердикт правильности.
+        playDrillSound(resp.attempt.solved ? 'puzzle-correct' : 'puzzle-incorrect');
         // Через 700ms — показать следующий drill или уйти в results.
         setTimeout(() => {
           if (finishedRef.current) return;
@@ -186,7 +200,7 @@ export function DrillSprintPlayPage() {
         setFeedback(null);
       }
     },
-    [drill, sessionId, feedback, goToResults],
+    [drill, sessionId, feedback, goToResults, playDrillSound],
   );
 
   const handleSquareClick = useCallback(
@@ -194,17 +208,23 @@ export function DrillSprintPlayPage() {
       if (!drill || feedback) return;
       switch (drill.answerShape) {
         case 'square':
+          // KS-2425: для shape='square' submit сразу проигрывает 'move'
+          // + verdict — двойной звук на одно действие не нужен.
           void submitAnswer({ shape: 'square', square: sq });
           break;
         case 'squares':
+          // KS-2425: каждый клик — toggle клетки → 'select'.
+          playDrillSound('select');
           setPickedSquares((prev) =>
             prev.includes(sq) ? prev.filter((x) => x !== sq) : [...prev, sq],
           );
           break;
         case 'move':
           if (pickedFrom === null) {
+            playDrillSound('select');
             setPickedFrom(sq);
           } else if (pickedFrom === sq) {
+            playDrillSound('select');
             setPickedFrom(null);
           } else {
             void submitAnswer({ shape: 'move', from: pickedFrom, to: sq });
@@ -215,7 +235,7 @@ export function DrillSprintPlayPage() {
           break;
       }
     },
-    [drill, feedback, pickedFrom, submitAnswer],
+    [drill, feedback, pickedFrom, submitAnswer, playDrillSound],
   );
 
   const handleNumberPick = useCallback(

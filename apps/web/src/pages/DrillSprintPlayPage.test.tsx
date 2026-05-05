@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { waitFor } from '@testing-library/react';
-import type { CSSProperties } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
@@ -19,6 +18,24 @@ vi.mock('../api', () => ({
     delete: vi.fn(async () => ({})),
   },
 }));
+
+// KS-2425: мокаем useDrillSounds, чтобы проверить факт вызова play()
+// без запуска реального AudioContext.
+const mockPlay = vi.fn();
+vi.mock('../hooks/useDrillSounds', async () => {
+  const actual = await vi.importActual<typeof import('../hooks/useDrillSounds')>(
+    '../hooks/useDrillSounds',
+  );
+  return {
+    ...actual,
+    useDrillSounds: () => ({
+      play: mockPlay,
+      drillMuted: false,
+      globalMuted: false,
+      toggleDrillMuted: vi.fn(),
+    }),
+  };
+});
 
 // Мокаем DrillBoard целиком — он тянет useBoardTheme/useBoardSettingsContext,
 // которые требуют Provider. Нам в этих тестах достаточно проверить
@@ -105,7 +122,10 @@ function renderPlay(stateOverride?: unknown) {
   );
 }
 
-beforeEach(() => apiPost.mockReset());
+beforeEach(() => {
+  apiPost.mockReset();
+  mockPlay.mockReset();
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('<DrillSprintPlayPage> KS-2241', () => {
@@ -206,5 +226,80 @@ describe('<DrillSprintPlayPage> KS-2241', () => {
     const left = Number(timer.getAttribute('data-ms-left'));
     expect(left).toBeGreaterThan(0);
     expect(left).toBeLessThanOrEqual(180000);
+  });
+
+  // ── KS-2425: звуки в sprint-режиме ───────────────────────────────────
+  it('KS-2425: shape=number → puzzle-correct после правильного ответа', async () => {
+    apiPost.mockResolvedValue({
+      attempt: {
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'number', value: 2 },
+      },
+      next: { ...SESSION.drill, id: 'd-num-2' },
+    });
+    const user = userEvent.setup();
+    renderPlay();
+    await user.click(document.querySelector('[data-testid="drill-count-attackers-btn-2"]')!);
+    // shape='number' не озвучивает submit-«move» (визуальный feedback от
+    // кнопки достаточен) — играется только verdict.
+    await waitFor(() => {
+      expect(mockPlay).toHaveBeenCalledWith('puzzle-correct');
+    });
+    expect(mockPlay).not.toHaveBeenCalledWith('move');
+  });
+
+  it('KS-2425: solved=false → puzzle-incorrect', async () => {
+    apiPost.mockResolvedValue({
+      attempt: {
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'number', value: 1 },
+      },
+      next: { ...SESSION.drill, id: 'd-num-2' },
+    });
+    const user = userEvent.setup();
+    renderPlay();
+    await user.click(document.querySelector('[data-testid="drill-count-attackers-btn-2"]')!);
+    await waitFor(() => {
+      expect(mockPlay).toHaveBeenCalledWith('puzzle-incorrect');
+    });
+  });
+
+  it('KS-2425: shape=move click-click → select на pickup, move на коммите', async () => {
+    apiPost.mockResolvedValue({
+      attempt: {
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e4', to: 'e5' },
+      },
+      next: null,
+      final: { scoreId: 'sc-1', score: 1, accuracy: 1, avgPrecision: 0 },
+    });
+    const moveSession = {
+      session: {
+        ...SESSION,
+        drill: {
+          ...SESSION.drill,
+          id: 'd-move',
+          drillType: 'find-undefended-attack',
+          answerShape: 'move',
+          fen: '8/8/8/8/4P3/8/8/8 w - - 0 1',
+        },
+      },
+    };
+    const user = userEvent.setup();
+    renderPlay(moveSession);
+    // Первый клик — pickup.
+    await user.click(document.querySelector('[data-testid="fire-square-e4"]')!);
+    expect(mockPlay).toHaveBeenCalledWith('select');
+    // Второй клик — коммит.
+    await user.click(document.querySelector('[data-testid="fire-square-e5"]')!);
+    await waitFor(() => {
+      // Любой из move/capture/check/castle (resolveMoveSound решит) —
+      // в этой простой позиции выйдет 'move'.
+      expect(mockPlay).toHaveBeenCalledWith('move');
+      expect(mockPlay).toHaveBeenCalledWith('puzzle-correct');
+    });
   });
 });
