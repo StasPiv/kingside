@@ -174,9 +174,13 @@ async function processGame(
       actualAfter = await engine.analyze(replay.fen(), options.depth);
     } catch {
       // Engine timeout / spawn error — drop этот ply, продолжаем партию.
+      stats.drops.engineError++;
       continue;
     }
-    if (!bestBefore.score || !actualAfter.score) continue;
+    if (!bestBefore.score || !actualAfter.score) {
+      stats.drops.noScore++;
+      continue;
+    }
 
     // evalDrop в POV сторонявший ход (sideToMoveBefore).
     // bestBefore.score — относительно sideToMoveBefore (он на ходу).
@@ -213,9 +217,13 @@ async function processGame(
         options.multiPV,
       );
     } catch {
+      stats.drops.mpvFail++;
       continue;
     }
-    if (mpv.length < 1) continue;
+    if (mpv.length < 1) {
+      stats.drops.mpvFail++;
+      continue;
+    }
     const bestSolver = cpFromSide(mpv[0].score, solverSide, solverSide);
     const secondSolver =
       mpv.length >= 2
@@ -341,14 +349,22 @@ function logProgress(
     `tooShort=${stats.drops.tooShort} ` +
     `tooLong=${stats.drops.tooLong} ` +
     `recapture=${stats.drops.recapture} ` +
-    `duplicate=${stats.drops.duplicate}`;
+    `duplicate=${stats.drops.duplicate} ` +
+    `noScore=${stats.drops.noScore} ` +
+    `mpvFail=${stats.drops.mpvFail} ` +
+    `engineError=${stats.drops.engineError}`;
   const tagsArr = Object.entries(stats.tagDistribution)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
+    .slice(0, 10)
     .map(([k, v]) => `${k}:${v}`);
+  // Инвариант: positionsAnalyzed = inserted + sum(drops). Если
+  // расходится — баг в пути учёта.
+  const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
+  const accountedFor = stats.inserted + sumDrops;
   log(
     `[puzzle-gen] games=${stats.gamesProcessed} ` +
       `analyzed=${stats.positionsAnalyzed} ` +
+      `accountedFor=${accountedFor} ` +
       `inserted=${stats.inserted} ` +
       `drops:{${drops}} ` +
       `tags:{${tagsArr.join(' ')}}`,

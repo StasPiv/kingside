@@ -84,7 +84,10 @@ export interface GeneratorStats {
   gamesProcessed: number;
   positionsAnalyzed: number;
   inserted: number;
-  /** Счётчики отсева по причинам. */
+  /**
+   * Счётчики отсева по причинам. KS-2431: сумма всех drops + inserted
+   * = positionsAnalyzed (инвариант для прозрачности калибровки).
+   */
   drops: {
     /** evalDrop < minEvalDrop */
     noBlunder: number;
@@ -92,12 +95,28 @@ export interface GeneratorStats {
     notUnique: number;
     /** длина линии < minLineLength */
     tooShort: number;
-    /** длина линии > maxLineLength */
+    /** длина линии > maxLineLength (theoretically нечасто, но возможно) */
     tooLong: number;
-    /** recapture / тривиальный размен */
+    /** recapture / тривиальный размен (ADR-041 §2.5) */
     recapture: number;
-    /** дубликат FEN (UNIQUE conflict) */
+    /** дубликат FEN (UNIQUE conflict при insert) */
     duplicate: number;
+    /**
+     * Stockfish не вернул score (либо bestBefore, либо actualAfter).
+     * Бывает на patовых / странных позициях — pipeline пропускает.
+     */
+    noScore: number;
+    /**
+     * analyzeMultiPV крашнулся или вернул пустой массив на uniqueness-
+     * проверке либо при построении линии. KS-2431: раньше «терялись»
+     * без учёта.
+     */
+    mpvFail: number;
+    /**
+     * Engine.analyze() throw'нул (timeout / spawn error). KS-2431:
+     * раньше «терялись» без учёта.
+     */
+    engineError: number;
   };
   /** Распределение тегов: theme → count puzzle'ов с ним. */
   tagDistribution: Record<string, number>;
@@ -139,6 +158,9 @@ export function newGeneratorStats(): GeneratorStats {
       tooLong: 0,
       recapture: 0,
       duplicate: 0,
+      noScore: 0,
+      mpvFail: 0,
+      engineError: 0,
     },
     tagDistribution: {},
     lastCursor: null,
