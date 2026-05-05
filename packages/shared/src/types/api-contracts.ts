@@ -180,37 +180,9 @@ export type CreateGameResponse = {
   id: string;
 };
 
-// ─── Game Report (REST) — DEPRECATED ────────────────────────────────
-// KS-2433: эндпоинты GET /api/games/:id/report и POST /api/games/:id/analyze
-// и Stockfish-движок удалены из api. Типы временно остаются в shared,
-// чтобы не ломать сборку frontend'а — будут удалены вместе с UI-точками
-// в follow-up-тикете на frontend.
-
-/** @deprecated KS-2433 — game-report удалён из api. */
-export type MoveClassification = 'brilliant' | 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'book';
-
-/** @deprecated KS-2433 — game-report удалён из api. */
-export type MoveAnalysisItem = {
-  moveNumber: number;
-  color: 'white' | 'black';
-  san: string;
-  uci: string;
-  evalBefore: { type: 'cp' | 'mate'; value: number } | null;
-  evalAfter: { type: 'cp' | 'mate'; value: number } | null;
-  bestMove: string | null;
-  cpLoss: number;
-  classification: MoveClassification;
-};
-
-/** @deprecated KS-2433 — эндпоинты `/games/:id/report` и `/games/:id/analyze` удалены. */
-export type GameReportResponse = {
-  id: string;
-  gameId: string;
-  whiteAccuracy: number;
-  blackAccuracy: number;
-  moves: MoveAnalysisItem[];
-  status: 'pending' | 'analyzing' | 'complete' | 'error';
-} | null;
+// KS-2433/KS-2437: типы game-report (`MoveClassification`,
+// `MoveAnalysisItem`, `GameReportResponse`) удалены — функциональность
+// вынесена из api вместе со Stockfish, frontend очищен в KS-2434.
 
 // ─── Saved Filters (Workshop) ────────────────────────────────────────
 

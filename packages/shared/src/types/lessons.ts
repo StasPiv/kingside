@@ -978,7 +978,9 @@ export interface ReviewsDueResponse {
  * Источник ошибки.
  *  - `puzzle` — неправильная попытка в `PuzzleAttempt`.
  *  - `game_review` — ход классифицирован как `mistake`/`blunder` в анализе
- *    партии (см. `MoveClassification` в api-contracts).
+ *    партии (KS-2433: авто-генерация отчёта через Stockfish удалена;
+ *    источник остаётся для совместимости с историческими записями
+ *    `UserMistake`).
  */
 export type UserMistakeSource = 'puzzle' | 'game_review';
 
