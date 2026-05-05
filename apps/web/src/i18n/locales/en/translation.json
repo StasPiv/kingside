@@ -695,7 +695,7 @@
       "findFork": "Find a move after which your piece simultaneously attacks two valuable opponent pieces (knight, bishop, rook, queen, king). Such an attack is called a fork.",
       "countAttackers": "Count how many pieces attack the marked square.",
       "findAllChecks": "Mark every square where you can deliver a check.",
-      "findUndefendedAttack": "Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."
+      "findUndefendedAttack": "Find a move after which the opponent has a piece that is attacked by your piece and has no defenders — and your attacking piece itself stays safe."
     },
     "buttons": {
       "submit": "Submit",
@@ -876,7 +876,7 @@
       "findFork": "Find the move that simultaneously attacks two valuable enemy pieces.",
       "countAttackers": "How many pieces of the given colour attack the highlighted square?",
       "findAllChecks": "Play every move that delivers check.",
-      "findUndefendedAttack": "Find the move that leaves the opponent with a piece attacked and undefended."
+      "findUndefendedAttack": "Find the move that leaves the opponent with a piece attacked and undefended — and keeps your attacking piece itself safe."
     },
     "whatItTrains": {
       "findHangingPiece": "The single most common amateur blunder is leaving a piece attacked and undefended. This drill builds the habit of spotting these gifts and grabbing them without delay. Asking yourself \"what's hanging in the opponent's camp?\" before every move noticeably improves results.",
@@ -885,7 +885,7 @@
       "findFork": "A fork is one of the most common tactical ideas: one move attacks two (or more) valuable targets, and the opponent can't save both. Knights are especially good at it, but queens, rooks, bishops, and even pawns all fork. The drill requires you to create a new fork: hit two targets that this piece wasn't already attacking.",
       "countAttackers": "Every trade calculation starts with counting attackers and defenders. Two White attackers vs. one Black defender — White can take. This drill builds the habit of seeing that number fast, without effort. Count everyone, including batteries (two rooks, or a rook + queen, lined up along the same file or rank) and pinned attackers — a pinned piece still attacks the square.",
       "findAllChecks": "Checks are forcing — the opponent must react. Scanning all possible checks before every move is a coach-recommended habit and the foundation for finding tactics and mating attacks. Each position in this drill has between 2 and 7 distinct checking moves to find, including discovered checks and capture-checks.",
-      "findUndefendedAttack": "This drill is calculation one move ahead. Picture the board after your move and check: is there an enemy piece you now attack with no defenders covering it? Discovered attacks and bringing up a new attacker count too. One of the most useful building blocks of combinations."
+      "findUndefendedAttack": "This drill is calculation one move ahead. Picture the board after your move and check: is there an enemy piece you now attack with no defenders covering it? Discovered attacks and bringing up a new attacker count too. Important: your attacking piece must stay safe — if it ends up under attack itself after the move, the drill won't accept it (that's no longer \"hanging the opponent's piece\", that's a blunder)."
     },
     "howToAnswer": {
       "findHangingPiece": "Make a move on the board — either click \"from → to\" or drag your piece onto the hanging one.",
@@ -922,8 +922,8 @@
         "text": "White to move. The White rook on c2 has two checking moves: Rc6+ (placing the rook next to the king along the 6th rank) and Rd2+ (placing the rook on the same file as the king). Two unique target squares — c6 and d2 — that's the drill's minimum."
       },
       "findUndefendedAttack": {
-        "fen": "1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70",
-        "text": "White to move. The Black rook is currently giving check to the White king along the 7th rank. Blocking with the rook gives Rb7. This move doesn't just block the check — it also attacks the Black rook on a7 (adjacent on the 7th rank), and the Black rook has no defender. Correct answer: b7 — one move both saves the king and traps the rook."
+        "fen": "1R6/2p5/2k5/8/2K1r3/P7/8/8 w - - 7 65",
+        "text": "White to move. White: rook on b8, king on c4, pawn on a3. Black: king on c6, rook on e4, pawn on c7. The Black rook on e4 isn't currently attacked. Correct answer: Kc4-d3 — the White king steps to d3 and from there attacks the rook on e4 diagonally. Nobody can defend the rook: the Black king on c6 doesn't reach e4, and the c7 pawn only covers b6/d6. The king on d3 itself is safe: the Black rook stands on the 4th rank and the e-file, not d3, and the Black king on c6 is too far. The attacking piece (our king) stays safe — the move counts. A good reminder that in the endgame the king is an attacking piece too."
       }
     },
     "onboarding": {
@@ -937,7 +937,7 @@
         "findFork": "Time to set up forks. A fork is a move after which one of your pieces simultaneously attacks two valuable enemy pieces, and the opponent can't save both. Find the move and play it on the board.",
         "countAttackers": "Time to practise counting attackers. A square will be highlighted and a colour shown — how many pieces of that colour attack this square? Press the button for 1, 2, 3, or 4. Count batteries along a line and pinned attackers too — they still attack the square.",
         "findAllChecks": "Time to find every check in the position. Play checking moves on the board one by one — each correct check is counted and the piece is returned to its starting square. Find them all: positions have between 2 and 7 checks. Don't miss discovered checks and capture-checks.",
-        "findUndefendedAttack": "Time to practise one-move calculation. You need a move that leaves an enemy piece attacked and undefended afterwards — your piece hits it and no one can defend. Play that move on the board."
+        "findUndefendedAttack": "Time to practise one-move calculation. You need a move that leaves an enemy piece attacked and undefended afterwards — your piece hits it and no one can defend. Important: your attacking piece must stay safe itself — if it ends up under attack after the move, the drill won't count it."
       }
     },
     "runner": {

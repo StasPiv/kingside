@@ -205,7 +205,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       Which move creates a new hanging piece (attacked and undefended) for the opponent?
     </div>
     <button
-      aria-label="Create a hanging piece. Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging."
+      aria-label="Create a hanging piece. Find a move after which the opponent has a piece that is attacked by your piece and has no defenders — and your attacking piece itself stays safe."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -219,7 +219,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Find a move after which the opponent has a piece that is attacked by your piece and has no defenders. Such a piece is called hanging.
+        Find a move after which the opponent has a piece that is attacked by your piece and has no defenders — and your attacking piece itself stays safe.
       </span>
     </button>
   </section>
@@ -475,7 +475,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       Какой ход создаёт у соперника новую висящую фигуру (под боем и без защиты)?
     </div>
     <button
-      aria-label="Создать висящую фигуру. Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников. Такая фигура называется висящей."
+      aria-label="Создать висящую фигуру. Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников — и при этом ваша атакующая фигура сама не подставится под удар."
       class="drill-type-card"
       data-disabled="false"
       data-testid="drill-type-card"
@@ -489,7 +489,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       <span
         class="drill-type-card__desc"
       >
-        Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников. Такая фигура называется висящей.
+        Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников — и при этом ваша атакующая фигура сама не подставится под удар.
       </span>
     </button>
   </section>
