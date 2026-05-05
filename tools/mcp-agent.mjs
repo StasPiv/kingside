@@ -63,7 +63,7 @@ const TOOLS = [
     }, required: ['agent'] } },
   { name: 'telegram_send', description: 'Отправить сообщение пользователю в Telegram.',
     inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
-  { name: 'deploy', description: 'Запустить деплой на AWS. scope: frontend | api | game-service | broadcast-service | archive-service | workers (broadcast+archive) | all | "" (auto).',
+  { name: 'deploy', description: 'Запустить деплой на AWS. scope: frontend | api | game-service | broadcast-service | archive-service | tactic-worker | workers (broadcast+archive) | all | "" (auto).',
     inputSchema: { type: 'object', properties: { scope: { type: 'string' } } } },
   { name: 'npm_install', description: 'Запустить npm install на хосте (после изменения package.json).',
     inputSchema: { type: 'object', properties: {} } },

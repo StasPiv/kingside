@@ -120,6 +120,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_BROADCAST_SERVICE":[f"{_P}/apps/broadcast-service:/project/apps/broadcast-service"],
     "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
     "ROLE_WRITE_APPS_ARCHIVE_SERVICE": [f"{_P}/apps/archive-service:/project/apps/archive-service"],
+    "ROLE_WRITE_APPS_TACTIC_WORKER":   [f"{_P}/apps/tactic-worker:/project/apps/tactic-worker"],
     # Frontend-код
     "ROLE_WRITE_APPS_WEB":             [f"{_P}/apps/web:/project/apps/web"],
     "ROLE_WRITE_APPS_WEB_SRC":         [f"{_P}/apps/web/src:/project/apps/web/src"],
@@ -798,12 +799,13 @@ AGENT_ROLES: dict[str, list[str]] = {
         # действия
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
-        "ROLE_DEPLOY_ARCHIVE_SERVICE",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
         "ROLE_WRITE_APPS_ARCHIVE_IMPORTER", "ROLE_WRITE_APPS_ARCHIVE_SERVICE",
+        "ROLE_WRITE_APPS_TACTIC_WORKER",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
         "ROLE_READ_APPS_API_NODE_MODULES",
@@ -826,7 +828,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     "devops": [
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
-        "ROLE_DEPLOY_ARCHIVE_SERVICE",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_WORKERS",
         "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START", "ROLE_UP",
         "ROLE_DOCKER_COMPOSE",
@@ -879,13 +881,14 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/git-log": "ROLE_GIT_READ",
     # Должно совпадать с case-блоком в scripts/deploy-aws.sh:
     # frontend | api | game-service | broadcast-service | archive-service |
-    # workers (= broadcast + archive) | all | "" (auto-detect)
+    # tactic-worker | workers (= broadcast + archive) | all | "" (auto-detect)
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
         "game-service": "ROLE_DEPLOY_GAME_SERVICE",
         "broadcast-service": "ROLE_DEPLOY_BROADCAST_SERVICE",
         "archive-service": "ROLE_DEPLOY_ARCHIVE_SERVICE",
+        "tactic-worker": "ROLE_DEPLOY_TACTIC_WORKER",
         "workers": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
