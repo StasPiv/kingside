@@ -16,6 +16,10 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/game-service/package.json apps/game-service/
 COPY apps/e2e/package.json apps/e2e/
+# KS-2438: apps/tactic-worker зарегистрирован как workspace в
+# package-lock.json. npm ci проверяет наличие package.json для всех
+# workspace'ов из lock'а — без копии падает с EUSAGE.
+COPY apps/tactic-worker/package.json apps/tactic-worker/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 RUN npm ci --ignore-scripts
