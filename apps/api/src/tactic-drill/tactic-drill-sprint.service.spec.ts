@@ -655,4 +655,206 @@ describe('TacticDrillSprintService — KS-2240', () => {
       ).toBe('3min-custom');
     });
   });
+
+  describe('round-robin по типам — KS-2424', () => {
+    /**
+     * KS-2424: при выборе всех типов sprint выдавал drill'ы блоками
+     * по типам (find-loose-piece часто, find-fork редко) — из-за
+     * неравномерности пула в БД. Теперь — round-robin по shuffled-
+     * порядку: на pick #k берётся `state.types[k % len]`. Тест
+     * проверяет, что в первых 10 drill'ах присутствуют все 7 типов.
+     */
+    function setupRoundRobinMock(): void {
+      // Мок $queryRawUnsafe: возвращает drill соответствующего
+      // запрошенного типа. params[0] — массив типов, обычно из 1
+      // элемента (primary-pick); fallback может быть длиннее.
+      let counter = 0;
+      (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+        async (_sql: string, ...params: unknown[]) => {
+          const types = params[0] as string[];
+          const type = types[0];
+          counter += 1;
+          return [
+            {
+              id: `drill-${type}-${counter}`,
+              type,
+              fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+              difficulty: 1,
+              meta: null,
+              answer: { shape: 'square', square: 'a1' },
+            },
+          ];
+        },
+      );
+    }
+
+    it('mixed sprint всех 7 типов → в первых 10 drill\'ах присутствуют все 7 типов', async () => {
+      setupRoundRobinMock();
+      const allTypes = [
+        'find-hanging-piece',
+        'find-loose-piece',
+        'find-pin',
+        'find-fork',
+        'count-attackers',
+        'find-all-checks',
+        'find-undefended-attack',
+      ] as const;
+
+      const r = await svc.start('user-rr', {
+        durationMs: 300000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        types: allTypes as any,
+      });
+      // findUnique для submit — отдаём drill по id (мок).
+      (prisma.tacticDrill.findUnique as jest.Mock).mockImplementation(
+        async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          answer: { shape: 'square', square: 'a1' },
+        }),
+      );
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-1',
+      });
+
+      const seenTypes = new Set<string>();
+      seenTypes.add(r.drill.drillType);
+
+      let currentDrillId = r.drill.id;
+      for (let i = 0; i < 9; i++) {
+        const submit = await svc.submit('user-rr', {
+          sessionId: r.sessionId,
+          drillId: currentDrillId,
+          userAnswer: { shape: 'square', square: 'a1' },
+          timeMs: 1000,
+        });
+        expect(submit.next).not.toBeNull();
+        if (!submit.next) break;
+        seenTypes.add(submit.next.drillType);
+        currentDrillId = submit.next.id;
+      }
+
+      // В первых 10 drill'ах (1 из start + 9 из submit) должны быть
+      // все 7 типов — round-robin гарантирует это в первом цикле.
+      expect(seenTypes.size).toBe(allTypes.length);
+      for (const t of allTypes) {
+        expect(seenTypes.has(t)).toBe(true);
+      }
+    });
+
+    it('mixed sprint: 30 picks → одинаковая частота каждого типа (~30/7≈4.3)', async () => {
+      setupRoundRobinMock();
+      const allTypes = [
+        'find-hanging-piece',
+        'find-loose-piece',
+        'find-pin',
+        'find-fork',
+        'count-attackers',
+        'find-all-checks',
+        'find-undefended-attack',
+      ] as const;
+
+      const r = await svc.start('user-strat', {
+        durationMs: 300000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        types: allTypes as any,
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockImplementation(
+        async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          answer: { shape: 'square', square: 'a1' },
+        }),
+      );
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-1',
+      });
+
+      const counts = new Map<string, number>();
+      const bump = (t: string): void => {
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      };
+      bump(r.drill.drillType);
+
+      let currentDrillId = r.drill.id;
+      for (let i = 0; i < 29; i++) {
+        const submit = await svc.submit('user-strat', {
+          sessionId: r.sessionId,
+          drillId: currentDrillId,
+          userAnswer: { shape: 'square', square: 'a1' },
+          timeMs: 1000,
+        });
+        expect(submit.next).not.toBeNull();
+        if (!submit.next) break;
+        bump(submit.next.drillType);
+        currentDrillId = submit.next.id;
+      }
+
+      // 30 picks / 7 типов = round-robin даёт 4 или 5 каждого типа
+      // (4*7=28, остаток 2 → 2 типа получат +1).
+      for (const t of allTypes) {
+        const c = counts.get(t) ?? 0;
+        expect(c).toBeGreaterThanOrEqual(4);
+        expect(c).toBeLessThanOrEqual(5);
+      }
+    });
+
+    it('один тип → round-robin тривиален, все picks из этого типа', async () => {
+      setupRoundRobinMock();
+      const r = await svc.start('user-single', {
+        durationMs: 180000,
+        types: ['find-fork'],
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockImplementation(
+        async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          answer: { shape: 'square', square: 'a1' },
+        }),
+      );
+      expect(r.drill.drillType).toBe('find-fork');
+
+      const submit = await svc.submit('user-single', {
+        sessionId: r.sessionId,
+        drillId: r.drill.id,
+        userAnswer: { shape: 'square', square: 'a1' },
+        timeMs: 1000,
+      });
+      expect(submit.next?.drillType).toBe('find-fork');
+    });
+
+    it('fallback: primary-тип исчерпан → берём из остальных типов rotation', async () => {
+      // На первый pick (primary single-type) возвращаем []; далее
+      // мок отдаёт drill из «оставшихся».
+      let primaryCalls = 0;
+      (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+        async (_sql: string, ...params: unknown[]) => {
+          const types = params[0] as string[];
+          const type = types[0];
+          if (types.length === 1 && primaryCalls === 0) {
+            // Первый primary-вызов — пусто, симулируем исчерпанный пул.
+            primaryCalls++;
+            return [];
+          }
+          // Дальше — нормально (fwd может вернуть пусто, тогда вызов
+          // bwd; для простоты возвращаем drill всегда, кроме первого).
+          return [
+            {
+              id: `drill-${type}-${primaryCalls++}`,
+              type,
+              fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+              difficulty: 1,
+              meta: null,
+              answer: { shape: 'square', square: 'a1' },
+            },
+          ];
+        },
+      );
+      const r = await svc.start('user-fb', {
+        durationMs: 180000,
+        types: ['find-fork', 'find-pin'],
+      });
+      // Первый pick: primary=один из двух → пусто (fwd+bwd); fallback на
+      // другой тип → есть.
+      expect(r.drill).toBeDefined();
+      expect(['find-fork', 'find-pin']).toContain(r.drill.drillType);
+    });
+  });
 });

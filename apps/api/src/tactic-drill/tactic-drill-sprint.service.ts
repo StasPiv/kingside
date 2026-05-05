@@ -143,8 +143,14 @@ export class TacticDrillSprintService {
       await this.forceFinish(userId, existing).catch(() => {});
     }
 
-    // Первый drill.
-    const drill = await this.pickRandomDrill(types, []);
+    // KS-2424: shuffle списка типов на старте — round-robin потом
+    // идёт в случайном порядке, чтобы первые drill'ы шли вперемешку
+    // по типам, а не блоками по одному типу. Подробности — JSDoc
+    // `pickRandomDrill`.
+    const shuffledTypes = this.shuffleTypes(types);
+
+    // Первый drill — pickIndex=0 в round-robin'е.
+    const drill = await this.pickRandomDrill(shuffledTypes, 0, []);
     if (!drill) {
       throw new NotFoundException('no drills available for selected types');
     }
@@ -155,7 +161,7 @@ export class TacticDrillSprintService {
       userId,
       startedAt: Date.now(),
       durationMs: body.durationMs,
-      types,
+      types: shuffledTypes,
       modeLabel: this.buildModeLabel(body.durationMs, types),
       currentDrillId: drill.id,
       drillsServed: [drill.id],
@@ -234,7 +240,20 @@ export class TacticDrillSprintService {
 
     let next: TacticDrillDto | null = null;
     if (!timedOut) {
-      const picked = await this.pickRandomDrill(state.types, state.drillsServed);
+      // KS-2424: pickIndex в round-robin'е — это длина уже выданных
+      // drill'ов (для следующего pick). На начале нового цикла
+      // (`pickIndex % len === 0`) перемешиваем types, чтобы цикл
+      // шёл в новом порядке. На старте цикл #0 уже перемешан в
+      // `start()`.
+      const pickIndex = state.drillsServed.length;
+      if (pickIndex > 0 && pickIndex % state.types.length === 0) {
+        state.types = this.shuffleTypes(state.types);
+      }
+      const picked = await this.pickRandomDrill(
+        state.types,
+        pickIndex,
+        state.drillsServed,
+      );
       if (picked) {
         state.currentDrillId = picked.id;
         state.drillsServed.push(picked.id);
@@ -600,25 +619,69 @@ export class TacticDrillSprintService {
     return { scoreId: row.id, score, accuracy, avgPrecision };
   }
 
+  /**
+   * KS-2424: round-robin по типам в стратифицированном порядке.
+   *
+   * До KS-2424 при mixed-sprint'е (несколько типов) каждый pick делал
+   * `type = ANY(types)` и keyset-random по полному пулу. Из-за того
+   * что пул сильно неравномерен по типам (find-loose-piece — 181k,
+   * find-fork — ≤1k после safety-фильтров KS-2406/2408/2419), случайный
+   * UUID-seed чаще приводит к «массовому» типу: пользователь видел
+   * первые 5-7 drill'ов одного типа подряд.
+   *
+   * Round-robin лечит это: на pick #k берём `typesRotation[k % len]`
+   * и делаем keyset-random ТОЛЬКО по этому типу. Цикл из всех типов
+   * перемешивается — `start()` инициализирует state.types через
+   * `shuffleTypes()`, `submit()` re-shuffle'ит при достижении границы
+   * цикла. Это даёт стратификацию (одинаковая частота каждого типа за
+   * sprint) и разнобой в первых N drill'ах.
+   *
+   * Fallback: если в выбранном типе нет ни одной записи, не попавшей
+   * в excludeIds (исчерпан пул для текущей сессии), пробуем все
+   * остальные типы из rotation. Без fallback'а sprint мог бы зависать
+   * на типе с малым пулом (find-fork).
+   *
+   * Keyset-random алгоритм идентичен `TacticDrillService.pickRandomByKeyset`
+   * (KS-2370/2371/2378): UUID v4 равномерно распределён, индекс
+   * `tactic_drills_type_sf_rejected_id_idx` (KS-2355) поддерживает
+   * range scan O(log N).
+   *
+   * KS-2247: sf-rejected drill'ы исключаем.
+   * KS-2229: drill'ы из текущей сессии (excludeIds) — no-repeat.
+   */
   private async pickRandomDrill(
-    types: TacticDrillType[],
+    typesRotation: TacticDrillType[],
+    pickIndex: number,
     excludeIds: string[],
   ): Promise<{ id: string; dto: TacticDrillDto } | null> {
-    // KS-2378: keyset-random (`id >= gen_random_uuid()`) вместо
-    // `findFirst({skip: offset})`. После KS-2353 re-index пул вырос до
-    // ~600k записей (find-loose-piece 181k + find-hanging-piece 81k +
-    // остальные 6 типов). `OFFSET random*total LIMIT 1` walks O(N)
-    // index-entries — на проде это 15-30с, фронт-таймаут 15с (KS-2351)
-    // срабатывает раньше → пользователь видит «зависание» спринта.
-    //
-    // Алгоритм идентичен `TacticDrillService.pickRandomByKeyset`
-    // (KS-2370/2371): UUID v4 равномерно распределён, индекс
-    // `tactic_drills_type_sf_rejected_id_idx` (KS-2355) поддерживает
-    // range scan по `type IN (...)` + `id >= ...`. O(log N) seek,
-    // <50мс независимо от размера пула.
-    //
-    // KS-2247: sf-rejected drill'ы исключаем из sprint-пула.
-    // KS-2229: drill'ы из текущей сессии (excludeIds) — no-repeat.
+    const primaryType =
+      typesRotation[pickIndex % typesRotation.length];
+    const primary = await this.pickRandomDrillForTypes(
+      [primaryType],
+      excludeIds,
+      'primary',
+    );
+    if (primary) return primary;
+
+    // Fallback: пул primary-типа исчерпан в этой сессии (или его нет).
+    // Пробуем все оставшиеся типы из rotation.
+    if (typesRotation.length > 1) {
+      const others = typesRotation.filter((t) => t !== primaryType);
+      const fallback = await this.pickRandomDrillForTypes(
+        others,
+        excludeIds,
+        'fallback',
+      );
+      if (fallback) return fallback;
+    }
+    return null;
+  }
+
+  private async pickRandomDrillForTypes(
+    types: TacticDrillType[],
+    excludeIds: string[],
+    phase: 'primary' | 'fallback',
+  ): Promise<{ id: string; dto: TacticDrillDto } | null> {
     const conditions = ['type = ANY($1::text[])', 'sf_rejected = false'];
     const params: unknown[] = [types];
     if (excludeIds.length > 0) {
@@ -665,7 +728,7 @@ export class TacticDrillSprintService {
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[sprint-pick] types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit}`,
+      `[sprint-pick] phase=${phase} types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit}`,
     );
     if (!row) return null;
     // KS-2250-fix: meta для count-attackers (highlightedSquare) проброс
@@ -678,6 +741,20 @@ export class TacticDrillSprintService {
       row.meta,
     );
     return { id: row.id, dto };
+  }
+
+  /**
+   * KS-2424: Fisher-Yates перемешивание массива типов. Возвращает
+   * новый массив, не мутирует исходный. Math.random — ок, нам не
+   * нужна криптостойкость.
+   */
+  private shuffleTypes(types: TacticDrillType[]): TacticDrillType[] {
+    const out = [...types];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
   }
 
   private async forceFinish(userId: string, sessionId: string): Promise<void> {
