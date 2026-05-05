@@ -820,6 +820,153 @@ describe('TacticDrillSprintService — KS-2240', () => {
       expect(submit.next?.drillType).toBe('find-fork');
     });
 
+    it('KS-2429: count-attackers → распределение value по {1,2,3,4} близко к равномерному', async () => {
+      // Симулируем БД с равным количеством drill'ов каждого value.
+      // Мок $queryRawUnsafe смотрит на SQL: если есть фильтр
+      // `(answer->>'value')::int = $N` — извлекаем $N из params и
+      // возвращаем drill с этим value. Иначе (без value-фильтра) —
+      // возвращаем drill с value=1 (имитируя перекошенный банк, где
+      // value=1 сильно доминирует).
+      (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+        async (sql: string, ...params: unknown[]) => {
+          const types = params[0] as string[];
+          const type = types[0];
+          // SQL содержит value-filter если в параметрах есть число
+          // после массива типов. params = [types, value?, excludeIds?].
+          const hasValueFilter = sql.includes("(answer->>'value')::int");
+          let value: number;
+          if (hasValueFilter) {
+            value = params[1] as number;
+          } else {
+            value = 1; // bare bank — почти всё value=1
+          }
+          return [
+            {
+              id: `drill-${type}-${value}-${Math.random()}`,
+              type,
+              fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+              difficulty: 1,
+              meta: { highlightedSquare: 'a1', attackerColor: 'b' },
+              answer: { shape: 'number', value },
+            },
+          ];
+        },
+      );
+      (prisma.tacticDrill.findUnique as jest.Mock).mockImplementation(
+        async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          // value прокидываем через id (parsed выше): берём 3-й сегмент.
+          answer: {
+            shape: 'number',
+            value: parseInt(where.id.split('-')[3] ?? '1', 10),
+          },
+        }),
+      );
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-1',
+      });
+
+      const r = await svc.start('user-ca', {
+        durationMs: 300000,
+        types: ['count-attackers'],
+      });
+      // Парсим value из drill.id (хак для теста, в проде value придёт
+      // от prisma findUnique через answer.value).
+      const observedValues: number[] = [];
+      const parseV = (id: string): number =>
+        parseInt(id.split('-')[3] ?? '1', 10);
+      observedValues.push(parseV(r.drill.id));
+
+      let currentDrillId = r.drill.id;
+      for (let i = 0; i < 99; i++) {
+        const submit = await svc.submit('user-ca', {
+          sessionId: r.sessionId,
+          drillId: currentDrillId,
+          // userAnswer должен пройти validator — neutral
+          userAnswer: { shape: 'number', value: 1 },
+          timeMs: 1000,
+        });
+        if (!submit.next) break;
+        observedValues.push(parseV(submit.next.id));
+        currentDrillId = submit.next.id;
+      }
+
+      expect(observedValues.length).toBe(100);
+      const counts = new Map<number, number>();
+      for (const v of observedValues) {
+        counts.set(v, (counts.get(v) ?? 0) + 1);
+      }
+      // Все 4 value должны присутствовать.
+      for (const v of [1, 2, 3, 4]) {
+        expect(counts.get(v) ?? 0).toBeGreaterThan(0);
+      }
+      // Распределение близко к равномерному: max/min < 3 (ожидаем
+      // 25/25/25/25 ± шум). Без балансировки было бы ~95/2/2/1.
+      const cs = [1, 2, 3, 4].map((v) => counts.get(v) ?? 0);
+      const minCount = Math.min(...cs);
+      const maxCount = Math.max(...cs);
+      expect(maxCount / Math.max(minCount, 1)).toBeLessThan(3);
+    });
+
+    it('KS-2429: count-attackers → в первых 10 drill\'ах ≥3 разных value', async () => {
+      // Acceptance из тикета: «первые 10 drill'ов содержат разные
+      // value (хотя бы 3 разных из {1,2,3,4})».
+      (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+        async (sql: string, ...params: unknown[]) => {
+          const types = params[0] as string[];
+          const type = types[0];
+          const hasValueFilter = sql.includes("(answer->>'value')::int");
+          const value = hasValueFilter ? (params[1] as number) : 1;
+          return [
+            {
+              id: `drill-${type}-${value}-${Math.random()}`,
+              type,
+              fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+              difficulty: 1,
+              meta: { highlightedSquare: 'a1', attackerColor: 'b' },
+              answer: { shape: 'number', value },
+            },
+          ];
+        },
+      );
+      (prisma.tacticDrill.findUnique as jest.Mock).mockImplementation(
+        async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          answer: {
+            shape: 'number',
+            value: parseInt(where.id.split('-')[3] ?? '1', 10),
+          },
+        }),
+      );
+      (prisma.tacticDrillSprintScore.create as jest.Mock).mockResolvedValue({
+        id: 'score-1',
+      });
+
+      const r = await svc.start('user-ca-10', {
+        durationMs: 300000,
+        types: ['count-attackers'],
+      });
+      const seen = new Set<number>();
+      seen.add(parseInt(r.drill.id.split('-')[3] ?? '1', 10));
+
+      let currentDrillId = r.drill.id;
+      for (let i = 0; i < 9; i++) {
+        const submit = await svc.submit('user-ca-10', {
+          sessionId: r.sessionId,
+          drillId: currentDrillId,
+          userAnswer: { shape: 'number', value: 1 },
+          timeMs: 1000,
+        });
+        if (!submit.next) break;
+        seen.add(parseInt(submit.next.id.split('-')[3] ?? '1', 10));
+        currentDrillId = submit.next.id;
+      }
+      // ≥3 разных value в первых 10 drill'ах. С Math.random() шанс что
+      // 10 random'ов из {1,2,3,4} дадут <3 разных value пренебрежимо
+      // мал (~0.1%): P(seen<3) = 4*(3/4)^10 + 4*3*(1/2)^10 ≈ 0.24%.
+      expect(seen.size).toBeGreaterThanOrEqual(3);
+    });
+
     it('fallback: primary-тип исчерпан → берём из остальных типов rotation', async () => {
       // На первый pick (primary single-type) возвращаем []; далее
       // мок отдаёт drill из «оставшихся».

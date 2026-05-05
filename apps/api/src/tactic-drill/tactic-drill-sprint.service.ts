@@ -699,22 +699,65 @@ export class TacticDrillSprintService {
     const primaryType =
       typesRotation[pickIndex % typesRotation.length];
 
-    // Primary: только forward (KS-2427: убрали backward — на null сразу
-    // идём в fallback с другими типами, что перекрывает любой одиночный
-    // пробел и экономит один SQL round-trip).
-    const primary = await this.pickRandomDrillForTypes(
-      [primaryType],
-      excludeIds,
-      'primary',
-      false,
-    );
-    if (primary.row) {
-      return {
-        id: primary.row.id,
-        dto: primary.dto!,
-        sqlCount: primary.sqlCount,
-        fallbackUsed: false,
-      };
+    // KS-2429: для count-attackers перед pick'ом случайно выбираем
+    // target value ∈ {1,2,3,4} равновероятно. Без этого распределение
+    // ответов перекошено в сторону value=1 (~72% банка) — пользователь
+    // видел 9/10 спринт-вопросов с ответом «1». Раньше балансировка
+    // была только в `TacticDrillService.pickBalancedCountAttackers`
+    // (lesson-flow / non-sprint), но не в sprint pickRandomDrill.
+    let primarySqlCount = 0;
+    if (primaryType === 'count-attackers') {
+      const targetValue = 1 + Math.floor(Math.random() * 4);
+      const balanced = await this.pickRandomDrillForTypes(
+        [primaryType],
+        excludeIds,
+        'primary',
+        false,
+        targetValue,
+      );
+      primarySqlCount += balanced.sqlCount;
+      if (balanced.row) {
+        return {
+          id: balanced.row.id,
+          dto: balanced.dto!,
+          sqlCount: primarySqlCount,
+          fallbackUsed: false,
+        };
+      }
+      // Fallback ВНУТРИ count-attackers: target value пуст в этом
+      // sprint'е (excludeIds покрыли) — пробуем без value-фильтра.
+      const bare = await this.pickRandomDrillForTypes(
+        [primaryType],
+        excludeIds,
+        'primary',
+        false,
+      );
+      primarySqlCount += bare.sqlCount;
+      if (bare.row) {
+        return {
+          id: bare.row.id,
+          dto: bare.dto!,
+          sqlCount: primarySqlCount,
+          fallbackUsed: false,
+        };
+      }
+      // Иначе fallback на others-types (как обычно).
+    } else {
+      const primary = await this.pickRandomDrillForTypes(
+        [primaryType],
+        excludeIds,
+        'primary',
+        false,
+      );
+      primarySqlCount += primary.sqlCount;
+      if (primary.row) {
+        return {
+          id: primary.row.id,
+          dto: primary.dto!,
+          sqlCount: primarySqlCount,
+          fallbackUsed: false,
+        };
+      }
     }
 
     // Fallback: примерно "до KS-2424"-поведение — все типы (кроме
@@ -733,7 +776,7 @@ export class TacticDrillSprintService {
         return {
           id: fallback.row.id,
           dto: fallback.dto!,
-          sqlCount: primary.sqlCount + fallback.sqlCount,
+          sqlCount: primarySqlCount + fallback.sqlCount,
           fallbackUsed: true,
         };
       }
@@ -747,6 +790,14 @@ export class TacticDrillSprintService {
     excludeIds: string[],
     phase: 'primary' | 'fallback',
     allowBackward: boolean,
+    /**
+     * KS-2429: для count-attackers — точное значение `answer.value`
+     * (1..4). При указании к WHERE добавляется
+     * `(answer->>'value')::int = $value`. Использует partial-индекс
+     * `tactic_drills_ca_value_idx` (миграция 20260504130000) для O(log N)
+     * seek по value+id. Игнорируется для других типов.
+     */
+    valueFilter?: number,
   ): Promise<{
     row: PickRow | null;
     dto: TacticDrillDto | null;
@@ -754,6 +805,10 @@ export class TacticDrillSprintService {
   }> {
     const conditions = ['type = ANY($1::text[])', 'sf_rejected = false'];
     const params: unknown[] = [types];
+    if (typeof valueFilter === 'number') {
+      params.push(valueFilter);
+      conditions.push(`(answer->>'value')::int = $${params.length}`);
+    }
     if (excludeIds.length > 0) {
       params.push(excludeIds);
       conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
@@ -793,7 +848,7 @@ export class TacticDrillSprintService {
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[sprint-pick] phase=${phase} types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit} sql=${sqlCount}`,
+      `[sprint-pick] phase=${phase} types=${types.length} value=${valueFilter ?? '-'} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit} sql=${sqlCount}`,
     );
     if (!row) return { row: null, dto: null, sqlCount };
     // KS-2250-fix: meta для count-attackers (highlightedSquare) проброс
