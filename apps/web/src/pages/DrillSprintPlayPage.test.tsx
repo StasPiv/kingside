@@ -39,7 +39,8 @@ vi.mock('../hooks/useDrillSounds', async () => {
 
 // Мокаем DrillBoard целиком — он тянет useBoardTheme/useBoardSettingsContext,
 // которые требуют Provider. Нам в этих тестах достаточно проверить
-// onSquareClick проксирование.
+// onSquareClick проксирование. KS-2426: добавлены fire-кнопки для
+// симуляции drag pickup и drop, тестам этого хватает.
 vi.mock('../components/drills', async () => {
   const actual = await vi.importActual<typeof import('../components/drills')>(
     '../components/drills',
@@ -48,10 +49,17 @@ vi.mock('../components/drills', async () => {
     ...actual,
     DrillBoard: ({
       onSquareClick,
+      onPieceDrop,
+      onPiecePickup,
       position,
     }: {
       position: string;
       onSquareClick?: (sq: string) => void;
+      onPieceDrop?: (args: {
+        sourceSquare: string;
+        targetSquare: string | null;
+      }) => boolean;
+      onPiecePickup?: (sq: string) => void;
       overlay?: unknown;
       highlightedSquares?: string[];
     }) => {
@@ -68,6 +76,25 @@ vi.mock('../components/drills', async () => {
               {sq}
             </button>
           ))}
+          {/* KS-2426: симулятор drag — pickup + drop в одном кадре. */}
+          {onPiecePickup && (
+            <button
+              type="button"
+              data-testid="fire-pickup-e4"
+              onClick={() => onPiecePickup('e4')}
+            >
+              pickup-e4
+            </button>
+          )}
+          {onPieceDrop && (
+            <button
+              type="button"
+              data-testid="fire-drop-e4-e5"
+              onClick={() => onPieceDrop({ sourceSquare: 'e4', targetSquare: 'e5' })}
+            >
+              drop-e4-e5
+            </button>
+          )}
         </div>
       );
     },
@@ -264,6 +291,64 @@ describe('<DrillSprintPlayPage> KS-2241', () => {
     await waitFor(() => {
       expect(mockPlay).toHaveBeenCalledWith('puzzle-incorrect');
     });
+  });
+
+  // ── KS-2426: drag-drop ввод хода в sprint ──────────────────────────
+  it('KS-2426: shape=move drag-drop → submit с from/to и звуки select+move+correct', async () => {
+    apiPost.mockResolvedValue({
+      attempt: {
+        attemptId: 'a-drag',
+        solved: true,
+        correctAnswer: { shape: 'move', from: 'e4', to: 'e5' },
+      },
+      next: null,
+      final: { scoreId: 'sc-2', score: 1, accuracy: 1, avgPrecision: 0 },
+    });
+    const moveSession = {
+      session: {
+        ...SESSION,
+        drill: {
+          ...SESSION.drill,
+          id: 'd-move-drag',
+          drillType: 'find-undefended-attack',
+          answerShape: 'move',
+          fen: '8/8/8/8/4P3/8/8/8 w - - 0 1',
+        },
+      },
+    };
+    const user = userEvent.setup();
+    renderPlay(moveSession);
+    // Симулируем pickup (drag прошёл threshold).
+    await user.click(document.querySelector('[data-testid="fire-pickup-e4"]')!);
+    expect(mockPlay).toHaveBeenCalledWith('select');
+    // Drop e4 → e5.
+    await user.click(document.querySelector('[data-testid="fire-drop-e4-e5"]')!);
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        '/tactic-drill/sprint/submit',
+        expect.objectContaining({
+          drillId: 'd-move-drag',
+          mode: 'sprint',
+          sessionId: 'sess-1',
+          userAnswer: { shape: 'move', from: 'e4', to: 'e5' },
+        }),
+      ),
+    );
+    await waitFor(() => {
+      expect(mockPlay).toHaveBeenCalledWith('move');
+      expect(mockPlay).toHaveBeenCalledWith('puzzle-correct');
+    });
+  });
+
+  it('KS-2426: drag без shape="move" → onPieceDrop не передаётся (handler-кнопка отсутствует)', () => {
+    // shape='number' (count-attackers) — drag-drop API недоступно.
+    renderPlay();
+    expect(
+      document.querySelector('[data-testid="fire-drop-e4-e5"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="fire-pickup-e4"]'),
+    ).toBeNull();
   });
 
   it('KS-2425: shape=move click-click → select на pickup, move на коммите', async () => {

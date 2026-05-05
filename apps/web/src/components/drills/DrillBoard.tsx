@@ -56,6 +56,12 @@ export interface DrillBoardProps {
    */
   onPieceDrop?: (args: { sourceSquare: string; targetSquare: string | null }) => boolean;
   /**
+   * KS-2426: callback при pickup'е фигуры (drag прошёл threshold). Host
+   * использует для звука 'select' / визуальной индикации. Срабатывает
+   * только если задан `onPieceDrop`.
+   */
+  onPiecePickup?: (sourceSquare: string) => void;
+  /**
    * Разрешить drag (по умолчанию false — drill в основном click/static).
    * Игнорируется если задан `onPieceDrop` — там drag реализован через
    * useFastDrag, а не через built-in react-chessboard drag.
@@ -74,6 +80,7 @@ export function DrillBoard({
   overlay,
   onSquareClick,
   onPieceDrop,
+  onPiecePickup,
   allowDragging = false,
 }: DrillBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,6 +99,7 @@ export function DrillBoard({
     onPieceDrop:
       onPieceDrop ??
       (() => false /* unused, hook требует функцию даже при enabled=false */),
+    onPiecePickup,
     boardOrientation,
     enabled: !!onPieceDrop,
     allowBothColors: false,

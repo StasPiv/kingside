@@ -250,6 +250,36 @@ export function DrillSprintPlayPage() {
     void submitAnswer({ shape: 'squares', squares: pickedSquares });
   }, [pickedSquares, submitAnswer]);
 
+  // KS-2426: drag-drop ввод хода для shape='move' — по образцу
+  // DrillRunner. Возвращаем boolean для useFastDrag (true = принят,
+  // false = snap-back). При accepted — submit идёт асинхронно через
+  // submitAnswer, который сам играет move/capture/check/castle и
+  // verdict.
+  const handlePieceDrop = useCallback(
+    (args: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (!drill || feedback || finishedRef.current) return false;
+      if (drill.answerShape !== 'move') return false;
+      const { sourceSquare, targetSquare } = args;
+      if (!sourceSquare || !targetSquare) return false;
+      if (sourceSquare === targetSquare) return false;
+      // Сбрасываем click-state, чтобы не было конфликта с click-flow.
+      setPickedFrom(null);
+      void submitAnswer({
+        shape: 'move',
+        from: sourceSquare,
+        to: targetSquare,
+      });
+      return true;
+    },
+    [drill, feedback, submitAnswer],
+  );
+
+  // KS-2426: pickup-звук на drag (через useFastDrag → DrillBoard).
+  // Click-pickup уже озвучивается в handleSquareClick.
+  const handlePiecePickup = useCallback(() => {
+    playDrillSound('select');
+  }, [playDrillSound]);
+
   const highlightedSquares = useMemo<string[]>(() => {
     if (!drill) return [];
     if (feedback) {
@@ -335,6 +365,13 @@ export function DrillSprintPlayPage() {
         boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
         highlightedSquares={highlightedSquares}
         onSquareClick={handleSquareClick}
+        // KS-2426: drag-drop ввод для shape='move' (как в DrillRunner).
+        onPieceDrop={
+          drill.answerShape === 'move' ? handlePieceDrop : undefined
+        }
+        onPiecePickup={
+          drill.answerShape === 'move' ? handlePiecePickup : undefined
+        }
         overlay={
           feedback ? (
             <DrillFeedbackOverlay result={feedback.solved ? 'correct' : 'incorrect'} />

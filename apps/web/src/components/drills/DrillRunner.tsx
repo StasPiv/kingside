@@ -984,6 +984,13 @@ export function DrillRunner({
         onPieceDrop={
           drill.answerShape === 'move' ? handlePieceDrop : undefined
         }
+        // KS-2426: pickup-звук на drag (click-pickup уже озвучен в
+        // handleSquareClick).
+        onPiecePickup={
+          drill.answerShape === 'move'
+            ? () => playDrillSound('select')
+            : undefined
+        }
         overlay={
           feedback ? (
             <DrillFeedbackOverlay
