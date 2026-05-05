@@ -105,12 +105,14 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
      (включая батарею через линию, открывшуюся после взятия).
   Если несколько ваших фигур могут законно взять цель, drill-индексер
   такую позицию отсевает — на показ попадают только однозначные.
-- **Пример позиции:** `4k3/4p3/8/3n4/8/2N5/4P3/4K3 w - - 0 1`
-  (ход белых). Чёрный конь d5 атакован конём c3, защитников у него нет.
-  Правильный ответ — **Nc3xd5**. После взятия конь на d5 никем не
-  атакован: чёрная пешка e7 бьёт по диагонали на d6/f6, чёрный король
-  с e8 не дотягивается. Если бы пешка стояла на e6, взятие было бы
-  разменом, и эта позиция в drill не попала бы.
+- **Пример позиции:** `8/8/8/5p2/4kP2/8/4K3/8 b - - 8 68`
+  (ход чёрных, drill из прод-БД). Белая пешка f4 атакована чёрным
+  королём e4, защитников у неё нет: соседний белый король e2 не
+  дотягивается до f4, других белых нет. Правильный ответ — **Ke4xf4**
+  (король берёт пешку). После взятия король на f4 никем не атакован:
+  чёрная пешка f5 бьёт по диагонали на e4/g4, не на f4; белый король
+  e2 на f4 не дотягивается. Чистый «подарок» — пешку забирают без
+  размена.
 - **Типичные ошибки:**
   - Кликнуть на висящую фигуру без хода — сейчас drill принимает только
     *ход*, а не клик. Нужно нажать на свою фигуру и потом на цель.
@@ -132,12 +134,14 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
 - **What counts as correct:** a capture move where, after the capture,
   no enemy piece attacks your piece on the target square (including
   X-ray batteries that may open up).
-- **Example FEN:** `4k3/4p3/8/3n4/8/2N5/4P3/4K3 w - - 0 1` (White
-  to move). The Black knight on d5 is attacked by the c3 knight and has
-  no defenders. Correct answer: **Nc3xd5**. After the capture nothing
-  attacks the new knight on d5 — the Black pawn on e7 only covers d6/f6,
-  the king on e8 is too far. If a pawn stood on e6, this would be a
-  trade and the position would have been filtered out.
+- **Example FEN:** `8/8/8/5p2/4kP2/8/4K3/8 b - - 8 68` (Black to
+  move, drill from production DB). The White pawn on f4 is attacked
+  by the Black king on e4 and has no defenders: the adjacent White
+  king on e2 doesn't reach f4 and there are no other White pieces.
+  Correct answer: **Ke4xf4** (the king takes the pawn). After the
+  capture nothing attacks the king on f4 — the Black pawn on f5
+  covers e4/g4, not f4; the White king on e2 is too far. A clean
+  pawn grab, no trade.
 - **Common mistakes:**
   - Clicking the hanging piece without making a move — only moves are
     accepted. Click your piece first, then the target.
@@ -164,12 +168,15 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
 - **Что засчитывается правильным:** клик ровно по клетке единственной
   фигуры противника без защитников. «Защитник» — фигура того же цвета,
   атакующая клетку напрямую (без X-ray-эффектов).
-- **Пример позиции:** `6k1/5pp1/5n1p/8/2bP4/2N1B3/PPP2PPP/4K3 w - - 0 1`
-  (ход белых, ищем слабую чёрную фигуру). Все чёрные пешки и конь
-  прикрыты соседями: f7 и g7 защищены королём g8, конь f6 и пешка h6 —
-  пешкой g7. У чёрного слона c4 защитников нет. Правильный ответ —
-  **c4**. Слон не под боем (никто из белых на него не нападает прямо
-  сейчас), но достаточно белой фигуре прийти на c4 — и он висит.
+- **Пример позиции:** `8/8/8/8/2p3K1/2P5/1k6/8 w - - 0 59`
+  (ход белых, drill из прод-БД). На доске четыре фигуры: белый король
+  g4, белая пешка c3, чёрный король b2 и чёрная пешка c4. Чёрный
+  король b2 никого не защищает на c4: он атакует только соседние
+  клетки a1/a2/a3/b1/b3/c1/c2/c3 — на c4 не дотягивается. Других
+  чёрных фигур нет. Правильный ответ — **c4**: чёрная пешка без
+  единого защитника. Под боем она тоже не находится (белая пешка c3
+  бьёт по диагонали на b4/d4), но достаточно подвести любую фигуру —
+  и пешка падает.
 - **Типичные ошибки:**
   - Искать только «вражескую фигуру под боем». Loose piece — про
     отсутствие защитника, а не про атаку.
@@ -190,13 +197,13 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
 - **What counts as correct:** clicking the square of the only
   undefended enemy piece. A "defender" is a same-coloured piece that
   attacks the square directly (no X-ray).
-- **Example FEN:**
-  `6k1/5pp1/5n1p/8/2bP4/2N1B3/PPP2PPP/4K3 w - - 0 1` (White to move,
-  hunting a Black loose piece). All Black pawns and the knight are
-  covered: f7 and g7 by the king on g8, the f6 knight and h6 pawn by
-  the g7 pawn. The Black bishop on c4 has no defender. Correct answer:
-  **c4**. The bishop is not currently under attack, but as soon as a
-  White piece reaches c4 it hangs.
+- **Example FEN:** `8/8/8/8/2p3K1/2P5/1k6/8 w - - 0 59` (White to
+  move, drill from production DB). Just four pieces: White king on g4,
+  White pawn on c3, Black king on b2, Black pawn on c4. The Black king
+  on b2 doesn't defend c4 — it only covers a1/a2/a3/b1/b3/c1/c2/c3,
+  not c4. No other Black pieces. Correct answer: **c4** — a Black pawn
+  with zero defenders. It isn't under attack right now (the White pawn
+  on c3 covers b4/d4), but bringing any piece up will drop it.
 - **Common mistakes:**
   - Looking only for an enemy piece *under attack*. Loose = no
     defender, not "attacked".
@@ -229,12 +236,15 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   2. у связанной фигуры геометрически есть хотя бы один ход вне
      линии связки (то есть фигура физически могла бы сойти, если бы
      не связка).
-- **Пример позиции:** `3qk3/8/8/3n4/8/3R4/8/4K3 b - - 0 1`
-  (ход чёрных). Белая ладья d3 атакует чёрного коня d5 по d-линии. За
-  конём по той же линии — чёрный ферзь d8 (ценнее коня). Любой ход
-  коня уходит с d-линии, поэтому условие «может сойти» выполнено.
-  Правильный ответ — **d5**. Это относительная связка: уйти конём
-  технически можно, но тогда чёрные теряют ферзя.
+- **Пример позиции:** `5k2/4n3/7P/p5p1/P2q4/6P1/2Q2P2/6K1 b - - 1 41`
+  (ход чёрных, drill из прод-БД). Чёрный ферзь d4 атакует белую пешку
+  f2 по диагонали (d4-e3-f2). За пешкой по той же диагонали стоит
+  белый король g1 — анкер бесконечной ценности. Пешка f2 теоретически
+  могла бы пойти на f3 или f4, и оба этих хода уходят с диагонали
+  d4-g1, то есть условие «может сойти» выполнено. Но из-за связки
+  пешка двигаться не вправе — иначе шах королю g1. Правильный ответ —
+  **f2**. Это абсолютная связка: связана белая фигура на чёрного
+  ферзя, привязка к королю.
 - **Типичные ошибки:**
   - Кликать по связывающей фигуре (ладье d3) или по анкеру (ферзю d8).
     Drill спрашивает именно связанную фигуру — ту, что в середине.
@@ -261,13 +271,16 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
      which is treated as infinitely valuable);
   2. the pinned piece has at least one geometric move off the pin line
      (i.e. it could physically step off the line if not for the pin).
-- **Example FEN:** `3qk3/8/8/3n4/8/3R4/8/4K3 b - - 0 1` (Black to
-  move). The White rook on d3 attacks the Black knight on d5 along the
-  d-file. Behind the knight on the same file sits the Black queen
-  on d8 — more valuable. Any knight move steps off the file, so "can
-  move off the line" is satisfied. Correct answer: **d5**. This is a
-  relative pin: technically the knight could move, but Black would lose
-  the queen.
+- **Example FEN:** `5k2/4n3/7P/p5p1/P2q4/6P1/2Q2P2/6K1 b - - 1 41`
+  (Black to move, drill from production DB). The Black queen on d4
+  attacks the White pawn on f2 along the diagonal (d4-e3-f2). Behind
+  the pawn on the same diagonal stands the White king on g1 — an
+  infinitely valuable anchor. The pawn could in principle move to f3
+  or f4, and both squares step off the d4-g1 diagonal, so the "can
+  move off the line" condition holds. But because of the pin the pawn
+  must not move — that would expose the king. Correct answer: **f2**.
+  An absolute pin: a White piece pinned by a Black queen, anchored on
+  the king.
 - **Common mistakes:**
   - Clicking the pinning rook (d3) or the anchor (d8). The drill asks
     for the piece in the middle.
@@ -302,12 +315,16 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   3. на клетку, куда фигура встала (или с которой бьёт через линию,
      если это «вскрытая» вилка), у противника нет ни одного атакующего.
   В drill попадают только позиции с ровно одним таким ходом.
-- **Пример позиции:** `6k1/8/8/8/5Q2/2n5/8/2K5 b - - 0 1`
-  (ход чёрных). Чёрный конь c3 пока не атакует ни короля c1, ни ферзя
-  f4. Правильный ответ — **c3-e2**. После Nxe2 (взятия нет — клетка
-  e2 пустая) конь атакует и короля c1, и ферзя f4. До хода ни короля,
-  ни ферзя конь не атаковал — это «чистая» новая вилка. Самого коня
-  на e2 ничто не атакует.
+- **Пример позиции:** `8/8/8/6P1/8/pr6/3Q4/k5K1 w - - 3 56`
+  (ход белых, drill из прод-БД). Чёрные: король a1, ладья b3, пешка
+  a3. Белые: ферзь d2, пешка g5, король g1. До хода белый ферзь d2
+  не атакует ни чёрного короля a1, ни ладью b3 (d2-a1: не диагональ,
+  d2-b3: не линия и не диагональ). Правильный ответ — **Qd2-d1+**.
+  После хода ферзь на d1 даёт шах королю по 1-линии (b1, c1 пусто) и
+  одновременно атакует ладью b3 по диагонали d1-c2-b3 (c2 пусто). Две
+  ценные цели одним ходом, до хода ни одна из них этим ферзём не
+  атаковалась. Сам ферзь на d1 в безопасности — никто из чёрных не
+  бьёт d1.
 - **Типичные ошибки:**
   - Считать вилкой ход, при котором фигура продолжает бить ту же цель
     и добавляет вторую. Это «дополнительная атака», для drill — нет.
@@ -335,12 +352,15 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   3. no enemy piece attacks the square the forker now stands on
      (including discovered forks, where the forker didn't move).
   Only positions with exactly one such move are shown.
-- **Example FEN:** `6k1/8/8/8/5Q2/2n5/8/2K5 b - - 0 1` (Black to
-  move). The Black knight on c3 currently attacks neither the king on
-  c1 nor the queen on f4. Correct answer: **c3-e2**. After Nxe2
-  (e2 is empty, no capture) the knight attacks both c1 and f4. Before
-  the move the knight attacked neither — a clean new fork. Nothing
-  attacks the knight on e2.
+- **Example FEN:** `8/8/8/6P1/8/pr6/3Q4/k5K1 w - - 3 56` (White to
+  move, drill from production DB). Black: king on a1, rook on b3,
+  pawn on a3. White: queen on d2, pawn on g5, king on g1. Before the
+  move the White queen on d2 attacks neither the Black king on a1
+  nor the rook on b3. Correct answer: **Qd2-d1+**. After the move the
+  queen on d1 gives check along the 1st rank (b1, c1 empty) and also
+  attacks the rook on b3 along the d1-c2-b3 diagonal (c2 empty) — two
+  valuable targets in one move, neither attacked by this queen
+  before. The queen on d1 is itself safe: nothing Black hits d1.
 - **Common mistakes:**
   - Counting a move that keeps attacking the original target and adds
     a second target. That's "double attack continuation", not a fork
@@ -370,9 +390,12 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   по подсвеченной клетке в текущей позиции (с учётом блокировок: если
   ладья за пешкой не достаёт — она не считается). Допустимый диапазон —
   от 1 до 4 (если 0 или ≥5, позиция в drill не попадает).
-- **Пример позиции:** `8/8/8/8/4p3/3P1P2/8/8 w - - 0 1`,
-  выделенная клетка `e4`, цвет атакующих — белые. Атакуют пешка d3 и
-  пешка f3 — обе бьют по диагонали. Правильный ответ — **2**.
+- **Пример позиции:** `8/3n3k/p4p1p/1p3N1P/6P1/1P6/P7/2K5 b - - 0 35`
+  (drill из прод-БД), выделенная клетка `h6`, цвет атакующих — **белые**.
+  На h6 — чёрная пешка. Кто из белых бьёт h6? Пешка h5 бьёт g6 (не h6:
+  пешка идёт диагонально вперёд, прямо вверх не бьёт). Пешка g4 — атакует
+  f5/h5, не h6. Конь f5 — атакует d4, e3, e7, d6, g7, h4, h6, g3 — да,
+  попадает на h6. Других белых атакующих h6 нет. Правильный ответ — **1**.
 - **Типичные ошибки:**
   - Забыть про батарею (две фигуры по одной линии — обе считаются,
     даже если одна стоит за другой).
@@ -399,9 +422,14 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   highlighted square in the current position, respecting blockers (a
   rook behind its own pawn doesn't count). Allowed range: 1 to 4. If
   the count is 0 or ≥5, the position doesn't make it into the drill.
-- **Example FEN:** `8/8/8/8/4p3/3P1P2/8/8 w - - 0 1`, highlighted
-  square `e4`, attackers — White. The d3 and f3 pawns both cover e4
-  diagonally. Correct answer: **2**.
+- **Example FEN:**
+  `8/3n3k/p4p1p/1p3N1P/6P1/1P6/P7/2K5 b - - 0 35` (drill from
+  production DB), highlighted square `h6`, attackers — **White**.
+  On h6 stands a Black pawn. Which White piece hits h6? The h5 pawn
+  attacks g6, not h6 (pawns capture diagonally forward, not straight
+  up). The g4 pawn covers f5/h5, not h6. The f5 knight covers d4, e3,
+  e7, d6, g7, h4, h6, g3 — yes, h6 is on its list. No other White
+  piece reaches h6. Correct answer: **1**.
 - **Common mistakes:**
   - Forgetting batteries (two pieces on a line — both count, even if
     one stands behind the other).
@@ -443,10 +471,14 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   выбор фигуры не важны — важна целевая клетка). Позиции, в которых
   есть мат в один ход, в этот drill не попадают: иначе пользователь
   ждёт мат, а от него требуют список клеток.
-- **Пример позиции:** `8/8/3k4/8/8/2N5/8/3R3K w - - 0 1`
-  (ход белых). Ходы с шахом: ладья по d-линии — Rd2+, Rd3+, Rd4+,
-  Rd5+; конь — Nb5+ и Ne4+. Шесть уникальных целевых клеток: **d2, d3,
-  d4, d5, b5, e4**. Правильный ответ — пройти их все.
+- **Пример позиции:** `1K6/7r/3k4/8/1n6/8/2R5/8 w - - 84 104`
+  (ход белых, drill из прод-БД). На доске: белые — король b8 и ладья
+  c2; чёрные — король d6, конь b4, ладья h7. Ходы белых, дающие шах
+  чёрному королю d6: ладья **Rc2-c6+** (атакует d6 по 6-линии — c6
+  рядом с d6) и ладья **Rc2-d2+** (атакует d6 по d-линии, между d2
+  и d6 пусто). Двух уникальных целевых клеток достаточно для drill —
+  это минимум диапазона `[2, 7]`. Правильный ответ — пройти оба хода:
+  целевые клетки **c6** и **d2**.
 - **Типичные ошибки:**
   - Пропустить открытый шах (фигура уходит, открывая линию атаки за ней).
   - Пропустить шах через взятие, если рядом висит чужая фигура.
@@ -478,10 +510,15 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
   choice of piece don't matter — only the target square). Positions
   containing mate in one are filtered out: otherwise the user expects
   mate but is asked for a list of squares.
-- **Example FEN:** `8/8/3k4/8/8/2N5/8/3R3K w - - 0 1` (White to
-  move). Checking moves: rook along the d-file — Rd2+, Rd3+, Rd4+,
-  Rd5+; knight — Nb5+ and Ne4+. Six unique target squares: **d2, d3,
-  d4, d5, b5, e4**. Correct answer — play them all.
+- **Example FEN:** `1K6/7r/3k4/8/1n6/8/2R5/8 w - - 84 104` (White to
+  move, drill from production DB). On the board: White — king on b8,
+  rook on c2; Black — king on d6, knight on b4, rook on h7. White
+  moves that check the Black king on d6: rook **Rc2-c6+** (attacks d6
+  along the 6th rank — c6 is adjacent to d6) and rook **Rc2-d2+**
+  (attacks d6 along the d-file, the squares between d2 and d6 are
+  empty). Two unique target squares — the minimum of the `[2, 7]`
+  range. Correct answer — play both moves: target squares are **c6**
+  and **d2**.
 - **Common mistakes:**
   - Missing a discovered check (a piece moving out of the way of a
     long-range attacker).
@@ -512,11 +549,18 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
      цель появилась);
   2. в позиции есть ровно один такой ход (если несколько — drill
      отсевает и не показывает).
-- **Пример позиции:** `6k1/8/3p4/8/4P3/8/8/4K3 w - - 0 1`
-  (ход белых). Чёрная пешка d6 не атакована: e4 бьёт по диагонали на
-  d5/f5, а не на d6. Правильный ответ — **e4-e5**. После 1.e4-e5 пешка
-  e5 атакует d6 по диагонали, а защитников у d6 нет. Никакой другой
-  ход белых не создаёт новой угрозы такого же типа.
+- **Пример позиции:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70`
+  (ход белых, drill из прод-БД). Белые: ладья b8, король f7, пешки
+  f6 и h5. Чёрные: ладья a7, король h7. Положение начинается с шаха
+  белому королю f7 от чёрной ладьи a7 по 7-линии (между ними b7-e7
+  пусто). У белых только четыре легальных ответа: уйти королём на
+  e6 / e8 / f8 либо закрыться ладьёй **Rb8-b7**. Только последний
+  ход создаёт новую висящую: ладья на b7 атакует чёрную ладью a7
+  (рядом по 7-линии), а защитников у чёрной a7 нет — чёрный король
+  h7 до a7 не дотягивается. До хода a7 ничем белым не атаковалась
+  (ладья b8 на b7 не выходит на a7 без поворота). Правильный ответ —
+  **b8-b7**: один ход одновременно закрывает шах и подвешивает
+  чёрную ладью.
 - **Типичные ошибки:**
   - Указать ход, после которого фигура противника попадает под бой,
     но **остаётся защищённой**. Drill ждёт именно «без защиты» — это
@@ -544,11 +588,18 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
      least one square that wasn't there before;
   2. exactly one such move exists in the position (otherwise the
      drill filters the position out).
-- **Example FEN:** `6k1/8/3p4/8/4P3/8/8/4K3 w - - 0 1` (White to
-  move). The Black pawn on d6 isn't attacked: e4 hits d5/f5, not d6.
-  Correct answer: **e4-e5**. After 1.e4-e5 the pawn on e5 attacks d6
-  diagonally, and d6 has no defenders. No other White move creates
-  this kind of new threat.
+- **Example FEN:** `1R6/r4K1k/5P2/7P/8/8/8/8 w - - 1 70` (White to
+  move, drill from production DB). White: rook on b8, king on f7,
+  pawns on f6 and h5. Black: rook on a7, king on h7. The position
+  starts with the Black rook on a7 giving check to the White king on
+  f7 along the 7th rank (b7-e7 are empty). White has only four legal
+  replies: king moves to e6 / e8 / f8, or block with the rook
+  **Rb8-b7**. Only the block creates a new hanging piece: the rook
+  on b7 attacks the Black rook on a7 (adjacent on the 7th rank), and
+  Black's a7 has no defender — the Black king on h7 is far away.
+  Before the move a7 wasn't attacked by White (the b8 rook can't reach
+  a7 without changing direction). Correct answer: **b8-b7** — a
+  single move both blocks the check and hangs the Black rook.
 - **Common mistakes:**
   - Picking a move that attacks an enemy piece which **still has
     defenders** afterwards. The drill expects "undefended" —
@@ -606,6 +657,15 @@ clock with leaderboards — and a **daily drill** delivered via Telegram bot.
    форкером»), это актуальная семантика после KS-2408. Зафиксировано
    в карточке; если backend изменит правила — обновить карточку первой,
    до релиза.
+
+6. **FEN-примеры — реальные drill из prod (KS-2416).** По одному
+   примеру на тип взято из выгрузки devops `/tmp/KS-2416/drill-examples.json`
+   (по 5 простых записей на тип, отбор `difficulty ASC LIMIT 5`).
+   Все 7 примеров прошли соответствующий predicate в продакшен-индексере
+   и реально показываются пользователям, поэтому замена строки FEN на
+   что-то «учебнее» без проверки приведёт к расхождению с реальным
+   контентом drill'ов. Для будущих обновлений — брать из БД или
+   повторять выгрузку.
 
 ---
 
