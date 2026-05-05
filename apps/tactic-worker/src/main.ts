@@ -27,11 +27,13 @@ import { AppModule } from './app.module';
 import { runIndexTacticDrills } from './cli/index-tactic-drills.cli';
 import { runGeneratePuzzles } from './cli/generate-puzzles.cli';
 import { runValidateEtalons } from './cli/validate-etalons.cli';
+import { runDumpPuzzles } from './cli/dump-puzzles.cli';
 
 const SUBCOMMANDS = [
   'index-tactic-drills',
   'generate-puzzles',
   'validate-etalons',
+  'dump-puzzles',
 ] as const;
 
 function printHelp(): void {
@@ -78,6 +80,9 @@ async function main(): Promise<void> {
         break;
       case 'validate-etalons':
         await runValidateEtalons(app, rest);
+        break;
+      case 'dump-puzzles':
+        await runDumpPuzzles(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.
