@@ -39,12 +39,22 @@ COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
+# KS-2411: AWS RDS global CA bundle для verify-full подключения к
+# archive-RDS из индексера (`scripts/index-tactic-drills`,
+# `tactic-drill-incremental.scheduler`). Заменяет NODE_TLS_REJECT_UNAUTHORIZED=0
+# в RunTask'ах. Bundle тот же, что в apps/archive-service/certs/.
+COPY apps/api/certs ./apps/api/certs
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_MAX_INSTANCES=4
 ENV NODE_ENV=production
+# KS-2411: Node автоматически подхватывает этот CA bundle для всех
+# TLS-соединений (pg, https, fetch). Безопаснее глобального bypass'а
+# через NODE_TLS_REJECT_UNAUTHORIZED=0. Путь можно переопределить
+# через ENV в task-def при необходимости (например, под regional bundle).
+ENV NODE_EXTRA_CA_CERTS=/app/apps/api/certs/rds-ca.pem
 
 EXPOSE 3001
 

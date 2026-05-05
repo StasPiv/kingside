@@ -44,6 +44,7 @@ import {
   type IndexerOptions,
   type IndexerStats,
 } from './indexer-pipeline';
+import { buildArchivePgClientConfig } from './pg-ssl';
 
 const CURSOR_KEY = 'tactic-drill:incremental:cursor';
 
@@ -108,7 +109,15 @@ export class TacticDrillIncrementalScheduler implements OnModuleDestroy {
    */
   async runOnce(archiveUrl: string): Promise<IndexerStats> {
     const cursor = (await this.redis.get(CURSOR_KEY)) || null;
-    const pg = new PgClient({ connectionString: archiveUrl });
+    // KS-2411: явный verify-full SSL для archive-RDS — заменяет
+    // NODE_TLS_REJECT_UNAUTHORIZED=0 в task-def'ах.
+    const pgConfig = buildArchivePgClientConfig(
+      archiveUrl,
+      process.env,
+      undefined,
+      (msg) => this.logger.warn(msg),
+    );
+    const pg = new PgClient(pgConfig);
     await pg.connect();
     try {
       const options: IndexerOptions = {

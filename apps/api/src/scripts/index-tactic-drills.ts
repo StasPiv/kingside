@@ -43,6 +43,7 @@ import {
   runIndexer,
   type IndexerOptions,
 } from '../tactic-drill/indexer-pipeline';
+import { buildArchivePgClientConfig } from '../tactic-drill/pg-ssl';
 
 const ALL_DRILL_TYPES: TacticDrillType[] = DRILL_TYPE_ORDER;
 
@@ -113,7 +114,15 @@ async function main(): Promise<void> {
   }
 
   const prisma = new PrismaClient();
-  const pg = new PgClient({ connectionString: archiveUrl });
+  // KS-2411: явный verify-full SSL для archive-RDS — заменяет
+  // NODE_TLS_REJECT_UNAUTHORIZED=0 в RunTask'ах.
+  const pgConfig = buildArchivePgClientConfig(
+    archiveUrl,
+    process.env,
+    undefined,
+    (msg) => process.stderr.write(`[index] WARN: ${msg}\n`),
+  );
+  const pg = new PgClient(pgConfig);
   await pg.connect();
   try {
     const stats = await runIndexer({ prisma, pg, options });
