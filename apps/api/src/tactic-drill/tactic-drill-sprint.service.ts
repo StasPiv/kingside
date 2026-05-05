@@ -55,6 +55,15 @@ interface SprintSessionAttempt {
   iou: number | null;
 }
 
+/** KS-2427: общая форма результата keyset-pick'а из tactic_drills. */
+interface PickRow {
+  id: string;
+  type: string;
+  fen: string;
+  difficulty: number;
+  meta: unknown;
+}
+
 interface SprintSessionState {
   sessionId: string;
   userId: string;
@@ -203,6 +212,10 @@ export class TacticDrillSprintService {
       timeMs: number;
     },
   ): Promise<SprintSubmitResult> {
+    // KS-2427: total-time instrumentation для диагностики жалоб на
+    // «медленное переключение». Лог в конце submit'а — суммарное время
+    // endpoint'а от entry до return.
+    const submitT0 = Date.now();
     const state = await this.loadSessionOrThrow(userId, body.sessionId);
 
     if (state.currentDrillId !== body.drillId) {
@@ -239,6 +252,9 @@ export class TacticDrillSprintService {
     const timedOut = elapsed >= state.durationMs;
 
     let next: TacticDrillDto | null = null;
+    let pickSqlCount = 0;
+    let pickFallback = false;
+    let pickMs = 0;
     if (!timedOut) {
       // KS-2424: pickIndex в round-robin'е — это длина уже выданных
       // drill'ов (для следующего pick). На начале нового цикла
@@ -249,15 +265,19 @@ export class TacticDrillSprintService {
       if (pickIndex > 0 && pickIndex % state.types.length === 0) {
         state.types = this.shuffleTypes(state.types);
       }
+      const tPickStart = Date.now();
       const picked = await this.pickRandomDrill(
         state.types,
         pickIndex,
         state.drillsServed,
       );
+      pickMs = Date.now() - tPickStart;
       if (picked) {
         state.currentDrillId = picked.id;
         state.drillsServed.push(picked.id);
         next = picked.dto;
+        pickSqlCount = picked.sqlCount;
+        pickFallback = picked.fallbackUsed;
       }
     }
 
@@ -274,11 +294,23 @@ export class TacticDrillSprintService {
       // Финал.
       const final = await this.finalize(state);
       await this.deleteSession(state);
+      const totalMs = Date.now() - submitT0;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[sprint-submit] user=${userId} sessionId=${state.sessionId} totalMs=${totalMs} pickMs=${pickMs} pickSql=${pickSqlCount} fallback=${pickFallback} timedOut=${timedOut} final=true`,
+      );
       return { attempt: attemptResp, next: null, final };
     }
 
     // Продолжаем.
     await this.persistSession(state);
+    const totalMs = Date.now() - submitT0;
+    // KS-2427: суммарное время submit и SQL-статистика по pick'у —
+    // для диагностики жалоб «переключение стало медленнее».
+    // eslint-disable-next-line no-console
+    console.log(
+      `[sprint-submit] user=${userId} sessionId=${state.sessionId} totalMs=${totalMs} pickMs=${pickMs} pickSql=${pickSqlCount} fallback=${pickFallback}`,
+    );
     return { attempt: attemptResp, next };
   }
 
@@ -620,26 +652,31 @@ export class TacticDrillSprintService {
   }
 
   /**
-   * KS-2424: round-robin по типам в стратифицированном порядке.
+   * KS-2424 / KS-2427: round-robin по типам в стратифицированном порядке.
    *
-   * До KS-2424 при mixed-sprint'е (несколько типов) каждый pick делал
-   * `type = ANY(types)` и keyset-random по полному пулу. Из-за того
-   * что пул сильно неравномерен по типам (find-loose-piece — 181k,
-   * find-fork — ≤1k после safety-фильтров KS-2406/2408/2419), случайный
-   * UUID-seed чаще приводит к «массовому» типу: пользователь видел
-   * первые 5-7 drill'ов одного типа подряд.
+   * KS-2424: до фикса при mixed-sprint'е (несколько типов) каждый pick
+   * делал `type = ANY(types)` по полному пулу. Из-за того что пул сильно
+   * неравномерен по типам (find-loose-piece — 181k, find-fork — ≤1k
+   * после safety-фильтров KS-2406/2408/2419), случайный UUID-seed чаще
+   * приводил к «массовому» типу: пользователь видел первые 5-7 drill'ов
+   * одного типа подряд.
    *
    * Round-robin лечит это: на pick #k берём `typesRotation[k % len]`
    * и делаем keyset-random ТОЛЬКО по этому типу. Цикл из всех типов
    * перемешивается — `start()` инициализирует state.types через
    * `shuffleTypes()`, `submit()` re-shuffle'ит при достижении границы
-   * цикла. Это даёт стратификацию (одинаковая частота каждого типа за
-   * sprint) и разнобой в первых N drill'ах.
+   * цикла.
    *
-   * Fallback: если в выбранном типе нет ни одной записи, не попавшей
-   * в excludeIds (исчерпан пул для текущей сессии), пробуем все
-   * остальные типы из rotation. Без fallback'а sprint мог бы зависать
-   * на типе с малым пулом (find-fork).
+   * KS-2427 — оптимизация SQL count для регрессии на проде:
+   *   - До: primary fwd → primary bwd → fallback fwd → fallback bwd
+   *     (worst case 4 SQL).
+   *   - После: primary fwd → fallback fwd → fallback bwd
+   *     (worst case 3 SQL). Primary bwd убран — если single-type forward
+   *     вернул null (random_uuid выше всех id типа), сразу идём на
+   *     fallback (others), который перекроет любой одиночный пробел.
+   *   - Normal case остаётся 1 SQL.
+   *   - Возвращаем `sqlCount` и `fallbackUsed` — submit логирует
+   *     суммарную статистику (`[sprint-pick-stats]`).
    *
    * Keyset-random алгоритм идентичен `TacticDrillService.pickRandomByKeyset`
    * (KS-2370/2371/2378): UUID v4 равномерно распределён, индекс
@@ -653,26 +690,54 @@ export class TacticDrillSprintService {
     typesRotation: TacticDrillType[],
     pickIndex: number,
     excludeIds: string[],
-  ): Promise<{ id: string; dto: TacticDrillDto } | null> {
+  ): Promise<{
+    id: string;
+    dto: TacticDrillDto;
+    sqlCount: number;
+    fallbackUsed: boolean;
+  } | null> {
     const primaryType =
       typesRotation[pickIndex % typesRotation.length];
+
+    // Primary: только forward (KS-2427: убрали backward — на null сразу
+    // идём в fallback с другими типами, что перекрывает любой одиночный
+    // пробел и экономит один SQL round-trip).
     const primary = await this.pickRandomDrillForTypes(
       [primaryType],
       excludeIds,
       'primary',
+      false,
     );
-    if (primary) return primary;
+    if (primary.row) {
+      return {
+        id: primary.row.id,
+        dto: primary.dto!,
+        sqlCount: primary.sqlCount,
+        fallbackUsed: false,
+      };
+    }
 
-    // Fallback: пул primary-типа исчерпан в этой сессии (или его нет).
-    // Пробуем все оставшиеся типы из rotation.
+    // Fallback: примерно "до KS-2424"-поведение — все типы (кроме
+    // primary), forward + backward. Не должно срабатывать в норме;
+    // нужен на случай, когда `id >= random_uuid()` для primary-типа
+    // ушёл за хвост индекса (вероятность ~1/N, для N=994 это 0.1%).
     if (typesRotation.length > 1) {
       const others = typesRotation.filter((t) => t !== primaryType);
       const fallback = await this.pickRandomDrillForTypes(
         others,
         excludeIds,
         'fallback',
+        true,
       );
-      if (fallback) return fallback;
+      if (fallback.row) {
+        return {
+          id: fallback.row.id,
+          dto: fallback.dto!,
+          sqlCount: primary.sqlCount + fallback.sqlCount,
+          fallbackUsed: true,
+        };
+      }
+      return null; // оба исчерпаны — sprint исчерпал пул, отдадим null
     }
     return null;
   }
@@ -681,7 +746,12 @@ export class TacticDrillSprintService {
     types: TacticDrillType[],
     excludeIds: string[],
     phase: 'primary' | 'fallback',
-  ): Promise<{ id: string; dto: TacticDrillDto } | null> {
+    allowBackward: boolean,
+  ): Promise<{
+    row: PickRow | null;
+    dto: TacticDrillDto | null;
+    sqlCount: number;
+  }> {
     const conditions = ['type = ANY($1::text[])', 'sf_rejected = false'];
     const params: unknown[] = [types];
     if (excludeIds.length > 0) {
@@ -699,38 +769,33 @@ export class TacticDrillSprintService {
       `WHERE ${whereSql} AND id < gen_random_uuid() ` +
       `ORDER BY id DESC LIMIT 1`;
 
-    type Row = {
-      id: string;
-      type: string;
-      fen: string;
-      difficulty: number;
-      meta: unknown;
-    };
-
+    let sqlCount = 0;
     const tFwd0 = Date.now();
-    const fwd = await this.prisma.$queryRawUnsafe<Row[]>(
+    const fwd = await this.prisma.$queryRawUnsafe<PickRow[]>(
       sqlForward,
       ...params,
     );
+    sqlCount += 1;
     const tFwd = Date.now() - tFwd0;
-    let row: Row | undefined = fwd[0];
+    let row: PickRow | undefined = fwd[0];
     let tBwd = 0;
     let hit: 'fwd' | 'bwd' | 'none' = fwd[0] ? 'fwd' : 'none';
-    if (!row) {
+    if (!row && allowBackward) {
       const tBwd0 = Date.now();
-      const bwd = await this.prisma.$queryRawUnsafe<Row[]>(
+      const bwd = await this.prisma.$queryRawUnsafe<PickRow[]>(
         sqlBackward,
         ...params,
       );
+      sqlCount += 1;
       tBwd = Date.now() - tBwd0;
       row = bwd[0];
       hit = bwd[0] ? 'bwd' : 'none';
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[sprint-pick] phase=${phase} types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit}`,
+      `[sprint-pick] phase=${phase} types=${types.length} excludeIds=${excludeIds.length} fwd=${tFwd}ms bwd=${tBwd}ms hit=${hit} sql=${sqlCount}`,
     );
-    if (!row) return null;
+    if (!row) return { row: null, dto: null, sqlCount };
     // KS-2250-fix: meta для count-attackers (highlightedSquare) проброс
     // в DTO через `drillService.buildDto`.
     const dto = this.drillService.buildDto(
@@ -740,7 +805,7 @@ export class TacticDrillSprintService {
       row.difficulty,
       row.meta,
     );
-    return { id: row.id, dto };
+    return { row, dto, sqlCount };
   }
 
   /**
