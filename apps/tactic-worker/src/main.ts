@@ -26,8 +26,13 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { runIndexTacticDrills } from './cli/index-tactic-drills.cli';
 import { runGeneratePuzzles } from './cli/generate-puzzles.cli';
+import { runValidateEtalons } from './cli/validate-etalons.cli';
 
-const SUBCOMMANDS = ['index-tactic-drills', 'generate-puzzles'] as const;
+const SUBCOMMANDS = [
+  'index-tactic-drills',
+  'generate-puzzles',
+  'validate-etalons',
+] as const;
 
 function printHelp(): void {
   process.stdout.write(
@@ -70,6 +75,9 @@ async function main(): Promise<void> {
         break;
       case 'generate-puzzles':
         await runGeneratePuzzles(app, rest);
+        break;
+      case 'validate-etalons':
+        await runValidateEtalons(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.

@@ -236,8 +236,12 @@ export class StockfishService implements OnModuleDestroy {
       const onData = (data: Buffer) => {
         const lines = data.toString().split('\n');
         for (const line of lines) {
+          // KS-2443: regex без literal space перед `score`/`pv` —
+          // в SF15.1 между `multipv N` и `score` стоит ровно один
+          // пробел, а паттерн `.* score` требовал доп. пробела +
+          // символов, и mpv-парсер пустовал.
           const infoMatch = line.match(
-            /^info depth (\d+) .* multipv (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/,
+            /^info depth (\d+).*?multipv (\d+).*?score (cp|mate) (-?\d+).*?pv (.+)/,
           );
           if (infoMatch) {
             const lineDepth = parseInt(infoMatch[1], 10);
