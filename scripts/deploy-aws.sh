@@ -614,7 +614,31 @@ if $DEPLOY_API; then
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
 
     echo "[api] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker build -t "kingside-api:${DEPLOY_SHA}" -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR"
+    # KS-2441: --progress=plain + tee в /tmp + извлечение npm error при failure.
+    # Раньше при неудачной сборке наружу через MCP-deploy улетали последние ~1KB
+    # stderr — там оставалась только npm-help-портянка, реальный `npm error code
+    # EUSAGE / Missing X / ...` обрезался слева. С `--progress=plain` весь вывод
+    # идёт построчно с префиксом #N <step>, а tee гарантирует полный лог в файле.
+    # KS-2441: пишем в /project/logs/, а не /tmp — /project/logs шарится между
+    # webhook-сервером и агентским контейнером (devops читает оттуда полный
+    # лог сразу после deploy). /tmp у webhook'а изолирован.
+    BUILD_LOG="$REPO_DIR/logs/api-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-api:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo ""
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        echo "  --- npm error context (grep по Missing|Invalid|EUSAGE|peer|Tracker|require) ---"
+        grep -E 'npm (error|warn) (code|Missing|Invalid|EUSAGE|peer|require|Tracker)|npm ci' "$BUILD_LOG" \
+            | head -120 || true
+        echo "  --- last 80 lines of build log ---"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
 
     echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
