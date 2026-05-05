@@ -14,9 +14,6 @@ import { TacticDrillSprintService } from './tactic-drill-sprint.service';
 import { TacticDrillSprintScheduler } from './tactic-drill-sprint.scheduler';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
 import { TacticDrillIncrementalScheduler } from './tactic-drill-incremental.scheduler';
-import { TacticDrillSfValidatorService } from './tactic-drill-sf-validator.service';
-import { TacticDrillSfValidatorScheduler } from './tactic-drill-sf-validator.scheduler';
-import { StockfishService } from '../engine/stockfish.service';
 import { TacticDrillRatingService } from './tactic-drill-rating.service';
 import { GlickoRatingService } from '../puzzle/glicko-rating.service';
 import { DailyTacticDrillController } from './daily-tactic-drill.controller';
@@ -38,13 +35,10 @@ import { DailyTacticDrillImageService } from './daily-tactic-drill-image.service
     // KS-2245: cron-индексер новых партий из archive-БД. Включается
     // через ENV `TACTIC_DRILL_INCREMENTAL_ENABLED=1` (default off).
     TacticDrillIncrementalScheduler,
-    // KS-2247: Stockfish-валидация drill'ов с риском неоднозначности.
-    // KS-2393: после удаления типа mate-in-1 (deprecated) валидатор
-    // обслуживает только find-hanging-piece. 1 поз/сек, ENV
-    // `TACTIC_DRILL_SF_VALIDATOR_ENABLED=1`.
-    StockfishService,
-    TacticDrillSfValidatorService,
-    TacticDrillSfValidatorScheduler,
+    // KS-2247: Stockfish-валидация drill'ов удалена в KS-2433
+    // вместе с движком из api. Поля `sfRejected` / `sfValidatedAt`
+    // в `tactic_drills` пока остаются как мёртвые — миграция на drop
+    // оформлена отдельным коммитом.
     // KS-2311: drill rating (Glicko-1) + leaderboard.
     GlickoRatingService,
     TacticDrillRatingService,

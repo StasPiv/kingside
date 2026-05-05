@@ -1,7 +1,9 @@
 FROM node:20-slim AS base
 
+# KS-2433: Stockfish удалён из api-образа. Движок остаётся только в
+# tactic-worker (когда выделим). Game-report и tactic-drill sf-validator
+# больше не используют SF.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    stockfish \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,8 +49,6 @@ COPY apps/api/certs ./apps/api/certs
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 
-ENV STOCKFISH_PATH=/usr/games/stockfish
-ENV STOCKFISH_MAX_INSTANCES=4
 ENV NODE_ENV=production
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех
 # TLS-соединений (pg, https, fetch). Безопаснее глобального bypass'а
