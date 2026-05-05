@@ -129,11 +129,9 @@ export class TacticDrillService {
     let tCooldown = 0;
     let tBranch = 0;
 
-    // KS-2247: исключаем drill'ы, отбракованные Stockfish-валидацией
-    // (`sfRejected=true`). Не валидированные (`sfValidatedAt=null`) —
-    // выдаём (валидация фоновая, отсутствие отметки не означает
-    // дефект).
-    const where: Record<string, unknown> = { type, sfRejected: false };
+    // KS-2433: SF-валидация удалена — фильтр `sfRejected=false`
+    // больше не нужен.
+    const where: Record<string, unknown> = { type };
     if (difficulty !== undefined) {
       where.difficulty = difficulty;
     }
@@ -183,8 +181,8 @@ export class TacticDrillService {
     // вместо `findFirst({skip: offset})`. На больших buckets
     // (find-loose-piece 138k, find-pin 128k) обычный count + offset
     // walks по 70k+ index-entries — 2-3с cold cache. Keyset — index
-    // seek O(log N), <50мс независимо от размера. Используется
-    // существующий KS-2355 индекс `(type, sf_rejected, id)`.
+    // seek O(log N), <50мс независимо от размера. KS-2433: индекс
+    // переехал на `(type, id)` после удаления sf_rejected.
     const excludeIds =
       (where.id as { notIn?: string[] } | undefined)?.notIn ?? [];
     const difficultyVal =
@@ -221,8 +219,9 @@ export class TacticDrillService {
    *
    * Алгоритм идентичен KS-2371: `id >= gen_random_uuid()` forward
    * seek + backward fallback при null. UUID v4 равномерно распределён
-   * → index range scan на `tactic_drills_type_sf_rejected_id_idx`
-   * (KS-2355) даёт O(log N) seek независимо от размера bucket'а.
+   * → index range scan на `tactic_drills_type_id_idx` (KS-2355,
+   * перевыпущен в KS-2433 без sf_rejected) даёт O(log N) seek
+   * независимо от размера bucket'а.
    *
    * `findFirst({skip: offset})` Prisma на 138k записях с offset=70k
    * walks по 70k index-entries — 2-3с cold cache. Здесь — <50мс.
@@ -238,7 +237,7 @@ export class TacticDrillService {
     difficulty: number;
     meta: unknown;
   } | null> {
-    const conditions = [`type = $1`, `sf_rejected = false`];
+    const conditions = [`type = $1`];
     const params: unknown[] = [type];
     if (difficulty !== null) {
       params.push(difficulty);
@@ -309,9 +308,9 @@ export class TacticDrillService {
    * `tactic_drills_ca_value_idx` (миграция 20260504130000) — на dev
    * 0.5мс vs 19мс (×40 ускорение).
    *
-   * `baseWhere` — already-prepared фильтр (type, sfRejected, опц.
-   * difficulty и cooldown.id). Извлекаем cooldown.notIn массив и
-   * difficulty для raw SQL.
+   * `baseWhere` — already-prepared фильтр (type, опц. difficulty и
+   * cooldown.id). Извлекаем cooldown.notIn массив и difficulty для
+   * raw SQL. KS-2433: `sf_rejected` исключён.
    */
   private async pickBalancedCountAttackers(
     baseWhere: Record<string, unknown>,
@@ -385,7 +384,6 @@ export class TacticDrillService {
   } | null> {
     const conditions = [
       `type = 'count-attackers'`,
-      `sf_rejected = false`,
       `(answer->>'value')::int = $1`,
     ];
     const params: unknown[] = [value];

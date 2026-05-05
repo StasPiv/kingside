@@ -1163,14 +1163,10 @@ model TacticDrill {
   /// (по difficulty bucket: 1→1000, 2→1300, 3→1500, 4→1700, 5→2000).
   /// Не обновляется на основе попыток; задаётся при INSERT (BACKFILL).
   rating          Int      @default(1500)
-  /// KS-2247 (ADR-035 §6.3 R5): отметка о Stockfish-валидации.
-  /// `sfValidatedAt` ставится после прогонки drill через SF.
-  /// `sfRejected=true` означает «SF видит альтернативный лучший
-  /// ход / другой мат» — drill исключается из публичной выдачи
-  /// в `tactic-drill.service.getNext`.
-  sfValidatedAt   DateTime? @map("sf_validated_at")
-  sfRejected      Boolean   @default(false) @map("sf_rejected")
-  sfRejectionReason String? @map("sf_rejection_reason")
+  // KS-2247 (ADR-035 §6.3 R5): поля sf_validated_at / sf_rejected /
+  // sf_rejection_reason удалены в KS-2433 — Stockfish-валидация
+  // отключена вместе с движком в api. См. миграцию
+  // `20260505120000_drop_tactic_drills_sf_validation`.
   /// KS-2250-fix: метаданные UI рендера. На MVP содержит:
   ///  - `highlightedSquare?: Square` — для count-attackers (целевая клетка).
   ///  - `attackerColor?: 'w'|'b'` — для count-attackers (чьи атакующие).
@@ -1182,12 +1178,12 @@ model TacticDrill {
   attempts TacticDrillAttempt[]
 
   @@index([type, difficulty])
-  /// KS-2355: ускорение `/tactic-drill/next`. Композитный индекс
-  /// `(type, sf_rejected, id)` покрывает основной фильтр выборки
-  /// random drill'а (`WHERE type=$1 AND sfRejected=false ORDER BY id
-  /// LIMIT 1 OFFSET N`) — index-only scan вместо seq-walk через PK.
-  /// На 600k+ записей даёт sub-100ms вместо 15 секунд.
-  @@index([type, sfRejected, id])
+  /// KS-2355 / KS-2433: композитный `(type, id)` индекс — покрывает
+  /// keyset-random выборку `/tactic-drill/next` (`WHERE type=$1 AND
+  /// id >= gen_random_uuid() ORDER BY id LIMIT 1`). Раньше индекс
+  /// включал `sf_rejected`; после удаления SF-валидации этот столбец
+  /// больше не существует.
+  @@index([type, id])
   /// KS-2229: дедуп для индексера (одна (type, FEN)-комбинация —
   /// одна запись). UNIQUE constraint позволяет использовать
   /// `createMany({ skipDuplicates: true })` без race condition.

@@ -229,7 +229,8 @@ describe('DailyTacticDrillService — KS-2250', () => {
       const countCalls = (prisma.tacticDrill.count as jest.Mock).mock.calls;
       const firstWhere = countCalls[0][0].where;
       expect(firstWhere.difficulty).toEqual({ in: [3] });
-      expect(firstWhere.sfRejected).toBe(false);
+      // KS-2433: sfRejected фильтр удалён вместе с SF-валидацией.
+      expect(firstWhere.sfRejected).toBeUndefined();
     });
 
     it('Понедельник (easy) → difficulty IN [1,2]', async () => {

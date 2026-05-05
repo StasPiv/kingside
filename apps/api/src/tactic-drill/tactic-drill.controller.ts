@@ -88,7 +88,7 @@ export class TacticDrillController {
    *  - возвращает `{drill, stepMeta:{stepId, count, minSolved}}`.
    *
    * 400 — step есть, но не drill / payload malformed.
-   * 404 — step не найден / пул пуст / fixed-drill удалён / sfRejected.
+   * 404 — step не найден / пул пуст / fixed-drill удалён.
    */
   @Get('by-step/:stepId')
   @UseGuards(JwtAuthGuard)

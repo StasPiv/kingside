@@ -190,7 +190,8 @@ export class DailyTacticDrillService {
 
   /**
    * Свежий (не использованный в `daily_tactic_drills` history никогда)
-   * drill заданного type+bucket. Учитываем sfRejected=false.
+   * drill заданного type+bucket. KS-2433: фильтр `sfRejected=false`
+   * убран вместе с удалением SF-валидации.
    */
   private async pickFresh(
     type: TacticDrillType,
@@ -200,7 +201,6 @@ export class DailyTacticDrillService {
     const usedIds = await this.allUsedDrillIds();
     const where: Record<string, unknown> = {
       type,
-      sfRejected: false,
       difficulty: { in: [...difficulties] },
     };
     if (usedIds.length > 0) {
@@ -243,10 +243,10 @@ export class DailyTacticDrillService {
     });
     if (candidates.length === 0) return null;
 
-    // Берём первого кандидата, проверяем что drill не sfRejected.
+    // KS-2433: фильтр `sfRejected=false` убран — поле удалено.
     for (const c of candidates) {
       const drill = await this.prisma.tacticDrill.findFirst({
-        where: { id: c.drillId, sfRejected: false },
+        where: { id: c.drillId },
         // KS-2250-fix: meta для проброса highlightedSquare.
         select: { id: true, type: true, fen: true, difficulty: true, answer: true, meta: true },
       });
