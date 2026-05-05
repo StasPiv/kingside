@@ -20,6 +20,16 @@ DROP INDEX CONCURRENTLY IF EXISTS "tactic_drills_type_sf_rejected_id_idx";
 
 DROP INDEX IF EXISTS "tactic_drills_sf_validated_at_idx";
 
+-- Партиал-индекс KS-2368 ссылается на `sf_rejected = false` в WHERE
+-- clause — DROP COLUMN провалится, пока этот индекс существует.
+-- Перевыпускаем без `sf_rejected`: после удаления валидации все drill'ы
+-- считаются «живыми», поэтому условие `sf_rejected = false` лишнее.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "tactic_drills_ca_value_v2_idx"
+  ON "tactic_drills" (((answer->>'value')::int), id)
+  WHERE type = 'count-attackers';
+
+DROP INDEX CONCURRENTLY IF EXISTS "tactic_drills_ca_value_idx";
+
 BEGIN;
 
 ALTER TABLE "tactic_drills"

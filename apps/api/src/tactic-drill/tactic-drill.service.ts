@@ -595,14 +595,14 @@ export class TacticDrillService {
    *  2. Проверить `payload.type === 'drill'` (иначе 400 — step есть, но
    *     это не drill-step).
    *  3. Если `payload.drillId` указан → отдать тот drill (404 если он
-   *     удалён или sfRejected).
+   *     удалён).
    *  4. Иначе random pick по `drillType` (+ опц. `difficultyBucket`).
    *  5. Если пул при заданном `bucket` пуст — fallback на любой drill
    *     этого `drillType`. Если и тогда пусто — 404.
    *
    * Cooldown 30 дней НЕ применяется (в lesson-context повторное
    * прохождение — это норма; рейтинг fading'ом по KS-2311 §10 не
-   * растёт). Sf-rejected исключаем (как и в `getNext`).
+   * растёт). KS-2433: фильтр `sfRejected=false` снят вместе с SF-валидацией.
    *
    * Возвращает `TacticDrillDto` без `answer` + `stepMeta` для FE-счётчика.
    */
@@ -664,10 +664,11 @@ export class TacticDrillService {
   }
 
   /**
-   * Fixed-режим: драйл по UUID. Проверяем что он существует, не sfRejected
-   * и совпадает по типу с payload (защита от подмены — автор курса не
-   * должен указывать `drillType: 'find-pin'` + drillId фигурной задачи).
+   * Fixed-режим: драйл по UUID. Проверяем что он существует и совпадает
+   * по типу с payload (защита от подмены — автор курса не должен
+   * указывать `drillType: 'find-pin'` + drillId фигурной задачи).
    * При несовпадении возвращаем null → controller выдаёт 404.
+   * KS-2433: проверка `sfRejected` снята вместе с SF-валидацией.
    */
   private async fetchFixedDrillForLesson(
     drillId: string,
@@ -675,10 +676,9 @@ export class TacticDrillService {
   ): Promise<{ id: string; type: string; fen: string; difficulty: number; meta?: unknown } | null> {
     const drill = await this.prisma.tacticDrill.findUnique({
       where: { id: drillId },
-      select: { id: true, type: true, fen: true, difficulty: true, sfRejected: true, meta: true },
+      select: { id: true, type: true, fen: true, difficulty: true, meta: true },
     });
     if (!drill) return null;
-    if (drill.sfRejected) return null;
     if (drill.type !== expectedType) return null;
     return drill;
   }
@@ -686,14 +686,14 @@ export class TacticDrillService {
   /**
    * Random-режим: bucket → diapason difficulty (1..5), затем
    * `ORDER BY random() LIMIT 1`. Если пул пуст при заданном bucket —
-   * fallback на любой drill этого `drillType`. Sf-rejected всегда
-   * исключаем.
+   * fallback на любой drill этого `drillType`. KS-2433: фильтр
+   * `sfRejected=false` снят вместе с SF-валидацией.
    */
   private async pickRandomDrillForLesson(
     drillType: TacticDrillType,
     bucket: DrillDifficultyBucket | undefined,
   ): Promise<{ id: string; type: string; fen: string; difficulty: number; meta?: unknown } | null> {
-    const baseWhere: Record<string, unknown> = { type: drillType, sfRejected: false };
+    const baseWhere: Record<string, unknown> = { type: drillType };
 
     // 1. Сначала пробуем с фильтром по bucket (если задан).
     if (bucket) {

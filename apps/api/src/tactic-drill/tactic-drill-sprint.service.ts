@@ -680,10 +680,10 @@ export class TacticDrillSprintService {
    *
    * Keyset-random алгоритм идентичен `TacticDrillService.pickRandomByKeyset`
    * (KS-2370/2371/2378): UUID v4 равномерно распределён, индекс
-   * `tactic_drills_type_sf_rejected_id_idx` (KS-2355) поддерживает
-   * range scan O(log N).
+   * `tactic_drills_type_id_idx` (KS-2355, перевыпущен в KS-2433 без
+   * sf_rejected) поддерживает range scan O(log N).
    *
-   * KS-2247: sf-rejected drill'ы исключаем.
+   * KS-2433: SF-валидация удалена — фильтр `sf_rejected = false` снят.
    * KS-2229: drill'ы из текущей сессии (excludeIds) — no-repeat.
    */
   private async pickRandomDrill(
@@ -803,7 +803,8 @@ export class TacticDrillSprintService {
     dto: TacticDrillDto | null;
     sqlCount: number;
   }> {
-    const conditions = ['type = ANY($1::text[])', 'sf_rejected = false'];
+    // KS-2433: фильтр `sf_rejected = false` снят вместе с SF-валидацией.
+    const conditions = ['type = ANY($1::text[])'];
     const params: unknown[] = [types];
     if (typeof valueFilter === 'number') {
       params.push(valueFilter);

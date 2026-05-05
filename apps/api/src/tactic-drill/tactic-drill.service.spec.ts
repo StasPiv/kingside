@@ -373,7 +373,6 @@ describe('TacticDrillService — KS-2230', () => {
         type: 'find-fork',
         fen: '4k3/8/8/4r3/2N5/q7/8/4K3 w - - 0 1',
         difficulty: 3,
-        sfRejected: false,
       });
       const r = await svc.pickDrillForLesson(STEP_ID);
       expect(r.drill.id).toBe(DRILL_ID);
@@ -396,23 +395,7 @@ describe('TacticDrillService — KS-2230', () => {
       );
     });
 
-    it('fixed drillId, sfRejected=true → 404', async () => {
-      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
-        id: STEP_ID,
-        type: 'drill',
-        payload: { type: 'drill', drillType: 'find-fork', drillId: DRILL_ID },
-      });
-      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue({
-        id: DRILL_ID,
-        type: 'find-fork',
-        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
-        difficulty: 3,
-        sfRejected: true,
-      });
-      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
-        /no drill available/,
-      );
-    });
+    // KS-2433: тест на sfRejected=true → 404 удалён вместе с SF-валидацией.
 
     it('fixed drillId, drillType подменён → 404 (защита от подмены)', async () => {
       (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
@@ -425,7 +408,6 @@ describe('TacticDrillService — KS-2230', () => {
         type: 'find-fork',
         fen: '4k3/8/8/4r3/2N5/q7/8/4K3 w - - 0 1',
         difficulty: 3,
-        sfRejected: false,
       });
       await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
         /no drill available/,
@@ -454,7 +436,8 @@ describe('TacticDrillService — KS-2230', () => {
       // Проверяем что count вызвался с difficulty IN [1,2].
       const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
       expect(countCall.where.type).toBe('find-fork');
-      expect(countCall.where.sfRejected).toBe(false);
+      // KS-2433: фильтр sfRejected удалён вместе с SF-валидацией.
+      expect(countCall.where.sfRejected).toBeUndefined();
       expect(countCall.where.difficulty).toEqual({ in: [1, 2] });
     });
 
@@ -605,22 +588,7 @@ describe('TacticDrillService — KS-2230', () => {
       expect(r.stepMeta).toEqual({ stepId: STEP_ID, count: 7, minSolved: 7 });
     });
 
-    it('sfRejected=false фильтр всегда применяется', async () => {
-      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
-        id: STEP_ID,
-        type: 'drill',
-        payload: { type: 'drill', drillType: 'find-fork' },
-      });
-      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
-      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
-        id: 'drill-z',
-        type: 'find-fork',
-        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
-        difficulty: 3,
-      });
-      await svc.pickDrillForLesson(STEP_ID);
-      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
-      expect(countCall.where.sfRejected).toBe(false);
-    });
+    // KS-2433: тест «sfRejected=false фильтр всегда применяется» удалён —
+    // SF-валидация и поле sfRejected исключены вместе с движком из api.
   });
 });
