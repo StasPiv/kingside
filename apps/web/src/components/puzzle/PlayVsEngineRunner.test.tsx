@@ -152,8 +152,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       },
     });
     // Engine видит mate: score.type='mate', value=-2 → wdl_user = +1, resign.
+    // KS-2473: + pre-analyze, поэтому отдаём 2 ответа.
     const engine = new ScriptedEngine([
-      result(line({ type: 'mate', value: -2 }, ['e7e5'])),
+      result(line({ type: 'cp', value: 50 }, ['e2e4'])), // pre-analyze
+      result(line({ type: 'mate', value: -2 }, ['e7e5'])), // post-analyze
     ]);
     const onSubmit = vi.fn();
     const { container } = renderWithProviders(
@@ -183,9 +185,13 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // Engine score POV chern (после хода белых) = +800 cp → wdl_engine ~= +0.88,
-    // wdl_user = -0.88 < 0.1 → lose-wdl.
+    // KS-2473: pre-analyze (PV1 до user-хода) запускается параллельно
+    // с post-analyze. ScriptedEngine выдаёт ответы FIFO; для теста на
+    // lose-сценарий важно, чтобы post-analyze обоих был отрицательным
+    // wdl_user. Подаём 2 фиктивных результата (pre + post). Какой
+    // первым — зависит от порядка вызовов; cp=+800 берёт оба.
     const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
       result(line({ type: 'cp', value: 800 }, ['d7d5'])),
     ]);
     const onSubmit = vi.fn();
@@ -220,9 +226,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     //    → state=engine, apply bestmove e7e5.
     // 2) Final analyze (halfMovesPlayed=2 == N): POV user (white) cp=+600 → wdl_user≈+0.64
     //    → win.
+    // KS-2473: pre-analyze запускается параллельно с post-analyze, FIFO.
     const engine = new ScriptedEngine([
-      result(line({ type: 'cp', value: -300 }, ['e7e5'])),
-      result(line({ type: 'cp', value: 600 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 100 }, ['e2e4'])), // pre-analyze user move 1
+      result(line({ type: 'cp', value: -300 }, ['e7e5'])), // post-analyze 1
+      result(line({ type: 'cp', value: 600 }, ['d2d4'])), // final analyze
     ]);
     const onSubmit = vi.fn();
     const { container } = renderWithProviders(
@@ -254,9 +262,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
+    // KS-2473: pre + post analyze.
     const engine = new ScriptedEngine([
-      // analyze после мата: даём score mate -1 (любой мат против side-to-move).
-      result(line({ type: 'mate', value: -1 }, ['g8h8'])),
+      result(line({ type: 'cp', value: 1500 }, ['a1a8'])), // pre-analyze
+      result(line({ type: 'mate', value: -1 }, ['g8h8'])), // post-analyze (после мата)
     ]);
     const onSubmit = vi.fn();
     const { container } = renderWithProviders(
@@ -272,6 +281,48 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.solved).toBe(true);
     expect(arg.reason).toBe('win-mate');
     expect(arg.finalWdl).toBe(1);
+  });
+
+  it('KS-2473: post-mortem bestmoveHint = PV1 в позиции ДО user-хода (lose-сценарий)', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    // pre-analyze (FEN ДО user-хода, white to move): рекомендует d2d4 cp +50.
+    // post-analyze (FEN после user-хода, black to move, POV черных) cp +800
+    //   → wdl_engine ≈ +0.88, wdl_user = -0.88 < failThreshold=0.1 → lose-wdl.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre-analyze: best=d2d4
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post-analyze
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // user сыграл e2-e4, лучший ход (по pre-analyze) = d2d4.
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    // Подождать, пока pre-analyze допишется (фон).
+    const hint = await waitFor(() => {
+      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
+      if (!el) throw new Error('hint not yet rendered');
+      if (el.getAttribute('data-kind') !== 'user') throw new Error('hint kind not user yet');
+      return el;
+    });
+    // played = e4 (e2-e4 в SAN), best = d4 (d2-d4).
+    expect(hint.textContent).toMatch(/e4/);
+    expect(hint.textContent).toMatch(/d4/);
+    // Текст должен соответствовать ключу bestmoveDiff (played != best).
+    expect(hint.textContent).toMatch(/best move was|лучше было/i);
   });
 
   it('initial: показывает blunder-hint и halfMovesLeft = N до первого хода', async () => {

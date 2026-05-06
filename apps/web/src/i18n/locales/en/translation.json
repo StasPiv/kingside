@@ -991,7 +991,8 @@
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
       "blunderHint": "Opponent blundered ({{move}}). Hold the advantage for {{n}} half-moves against the engine.",
-      "bestmoveAt": "Best move at half-move {{n}}: {{uci}}",
+      "bestmoveAt": "Best move at half-move {{n}}: {{san}}",
+      "bestmoveDiff": "You played {{played}} on half-move {{n}}, the best move was {{best}}",
       "finalWdl": "Final WDL",
       "error": "Engine error"
     },
