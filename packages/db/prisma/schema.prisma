@@ -287,6 +287,13 @@ model Puzzle {
   sourceMetadata String? @map("source_metadata") @db.Text
   acceptedMoves  String? @map("accepted_moves")
 
+  // KS-2463 / ADR-044 §3.2. Режим решения пазла:
+  //   - 'forced-line' — классический пазл с фиксированной линией;
+  //   - 'play-vs-engine' — открытая защита (решатель играет против
+  //     движка, удерживая WDL ≥ порога). Старые пазлы получают
+  //     'forced-line' через DEFAULT.
+  solutionMode String @default("forced-line") @map("solution_mode")
+
   attempts           PuzzleAttempt[]
   dailyPuzzles       DailyPuzzle[]
   rushSessionPuzzles PuzzleRushSessionPuzzle[]
@@ -296,6 +303,7 @@ model Puzzle {
   @@index([themes])
   @@index([source])
   @@index([createdBy])
+  @@index([solutionMode])
   @@map("puzzles")
 }
 
