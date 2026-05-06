@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
 
 /**
- * KS-2447: вкладка Live на странице турнира должна обновлять позиции в
- * реальном времени (через 15s polling), как и страница Round. Раньше
- * `liveGames` грузились одним fetch'ем при первичном маунте без интервала
- * — позиции на досках замерзали.
+ * KS-2447 v2: Live-таб — тонкая обёртка. При наличии ongoingRound
+ * редиректит (`<Navigate replace>`) на страницу активного тура, где уже
+ * работает 15s polling и обновление позиций. Без активного тура остаётся
+ * plug «No round in progress». Локальный рендер досок и polling на
+ * Live-табе УБРАН — дублирование логики недопустимо.
+ *
+ * Возврат с round-страницы через breadcrumb (`location.state.fromRound`)
+ * НЕ должен повторно редиректить — иначе пользователь зацикливается.
  */
 
 const broadcastApiMock = { get: vi.fn() };
@@ -22,7 +27,8 @@ vi.mock('react-chessboard', () => ({
   ),
 }));
 
-const navigateMock = vi.fn();
+const locationStateRef: { current: unknown } = { current: null };
+const navigateSpy = vi.fn<(args: { to: string; replace?: boolean }) => void>();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',
@@ -30,7 +36,17 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useParams: () => ({ tournamentId: 'tx' }),
-    useNavigate: () => navigateMock,
+    useLocation: () => ({
+      pathname: '/broadcasts/tx',
+      search: '',
+      hash: '',
+      state: locationStateRef.current,
+      key: 'mock',
+    }),
+    Navigate: ({ to, replace }: { to: string; replace?: boolean }) => {
+      navigateSpy({ to, replace });
+      return null;
+    },
   };
 });
 
@@ -63,51 +79,21 @@ const ROUND = {
   status: 'ongoing' as const,
 };
 
-function gameWithPgnLen(id: string, white: string, black: string, pgnLen: number) {
-  return {
-    id,
-    lichessGameId: `lg-${id}`,
-    whitePlayer: white,
-    blackPlayer: black,
-    result: null,
-    pgn: '1. e4'.padEnd(pgnLen, ' '),
-  };
-}
-
 beforeEach(() => {
   broadcastApiMock.get.mockReset();
-  navigateMock.mockReset();
-  // Только setInterval/clearInterval подменяем — Promise/microtasks
-  // должны идти на реальном scheduler, иначе waitFor зависает.
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  navigateSpy.mockReset();
+  locationStateRef.current = null;
 });
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-describe('BroadcastTournamentPage KS-2447 Live tab polls games', () => {
-  it('Live-tab перезапрашивает партии каждые 15s и обновляет fen, не теряя порядок A→Z', async () => {
-    const initialGames = [
-      gameWithPgnLen('g1', 'Woodward, Andy', 'Carlsen, Magnus', 10),
-      gameWithPgnLen('g2', 'Erdogmus, Yagiz Kaan', 'Abdusattorov, Nodirbek', 10),
-    ];
-    const updatedGames = [
-      // backend перевернул порядок и удлинил pgn у одной партии
-      gameWithPgnLen('g1', 'Woodward, Andy', 'Carlsen, Magnus', 10),
-      gameWithPgnLen('g2', 'Erdogmus, Yagiz Kaan', 'Abdusattorov, Nodirbek', 25),
-    ];
-
+describe('BroadcastTournamentPage KS-2447 v2 Live tab redirects to ongoing round', () => {
+  it('Live-таб при наличии ongoingRound редиректит (Navigate replace) на /broadcasts/:tid/:rid', async () => {
     broadcastApiMock.get.mockImplementation((path: string) => {
       if (path === '/tx') return Promise.resolve(META);
       if (path === '/tx/rounds') return Promise.resolve({ data: [ROUND] });
-      if (path === '/tx/rounds/r6/games') {
-        const callIndex = broadcastApiMock.get.mock.calls.filter(
-          (c) => c[0] === '/tx/rounds/r6/games',
-        ).length;
-        return Promise.resolve({ data: callIndex === 1 ? initialGames : updatedGames });
-      }
       return Promise.reject(new Error(`unexpected ${path}`));
     });
 
@@ -115,89 +101,74 @@ describe('BroadcastTournamentPage KS-2447 Live tab polls games', () => {
       route: '/broadcasts/tx',
     });
 
+    // После того как rounds загрузятся, default activeTab станет 'live'
+    // и Navigate отрендерится с правильным to.
     await waitFor(() => {
-      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument();
+      expect(navigateSpy).toHaveBeenCalledWith({
+        to: '/broadcasts/tx/r6',
+        replace: true,
+      });
     });
 
-    // Первичная сортировка по white: Erdogmus → Woodward
-    const initialIds = Array.from(
-      container.querySelectorAll('.broadcast-boards-grid .broadcast-board-card'),
-    ).map(
-      (c) =>
-        c
-          .querySelector('.broadcast-player--white')
-          ?.textContent?.replace(/^[♔-♟\s]+/, '') ?? '',
+    // Локального рендера досок на Live-табе быть не должно.
+    expect(container.querySelector('.broadcast-boards-grid')).toBeNull();
+    // games-endpoint не должен вызываться — это работа round-страницы.
+    const gamesCalls = broadcastApiMock.get.mock.calls.filter((c) =>
+      String(c[0]).includes('/games'),
     );
-    expect(initialIds[0]).toContain('Erdogmus');
-    expect(initialIds[1]).toContain('Woodward');
-
-    // Промотаем 15s → должен быть второй fetch с обновлённым pgn
-    await vi.advanceTimersByTimeAsync(15_000);
-    await waitFor(() => {
-      const calls = broadcastApiMock.get.mock.calls.filter(
-        (c) => c[0] === '/tx/rounds/r6/games',
-      );
-      expect(calls.length).toBeGreaterThanOrEqual(2);
-    });
-
-    // Порядок остался прежним (white-сортировка), позиция обновилась
-    const updatedNames = Array.from(
-      container.querySelectorAll('.broadcast-boards-grid .broadcast-board-card'),
-    ).map(
-      (c) =>
-        c
-          .querySelector('.broadcast-player--white')
-          ?.textContent?.replace(/^[♔-♟\s]+/, '') ?? '',
-    );
-    expect(updatedNames[0]).toContain('Erdogmus');
-    expect(updatedNames[1]).toContain('Woodward');
+    expect(gamesCalls.length).toBe(0);
   });
 
-  it('KS-2448: клик по live-партии на Live-tab ведёт на /broadcasts/:tid/:rid/:gid/live, а не в Мастерскую', async () => {
-    const liveGames = [
-      gameWithPgnLen('g1', 'Erdogmus, Yagiz Kaan', 'Carlsen, Magnus', 30),
-    ];
-    broadcastApiMock.get.mockImplementation((path: string) => {
-      if (path === '/tx') return Promise.resolve(META);
-      if (path === '/tx/rounds') return Promise.resolve({ data: [ROUND] });
-      if (path === '/tx/rounds/r6/games') return Promise.resolve({ data: liveGames });
-      return Promise.reject(new Error(`unexpected ${path}`));
-    });
-
-    const { container } = renderWithProviders(<BroadcastTournamentPage />, {
-      route: '/broadcasts/tx',
-    });
-    await waitFor(() =>
-      expect(container.querySelector('.broadcast-board-card')).toBeInTheDocument(),
-    );
-
-    const card = container.querySelector('.broadcast-board-card') as HTMLElement;
-    card.click();
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/broadcasts/tx/r6/g1/live',
-    );
-  });
-
-  it('Live-tab без ongoingRound не делает games-fetch и не запускает polling', async () => {
+  it('Live-таб без ongoingRound показывает plug «Нет активного тура» и не редиректит', async () => {
     broadcastApiMock.get.mockImplementation((path: string) => {
       if (path === '/tx') return Promise.resolve(META);
       if (path === '/tx/rounds')
-        return Promise.resolve({ data: [{ ...ROUND, status: 'finished' }] });
+        return Promise.resolve({
+          data: [{ ...ROUND, status: 'finished' }],
+        });
       return Promise.reject(new Error(`unexpected ${path}`));
     });
 
     renderWithProviders(<BroadcastTournamentPage />, { route: '/broadcasts/tx' });
 
-    await waitFor(() => {
-      expect(broadcastApiMock.get).toHaveBeenCalledWith('/tx/rounds');
-    });
+    await waitFor(() =>
+      expect(broadcastApiMock.get).toHaveBeenCalledWith('/tx/rounds'),
+    );
 
-    // Без ongoing round нет games-fetch ни сразу, ни после прогона интервала
-    vi.advanceTimersByTime(20_000);
+    // Без ongoing default tab остаётся 'standings'. Переключаемся на Live.
+    const liveTab = await screen.findByRole('button', { name: /Live/i });
+    fireEvent.click(liveTab);
+
+    // Никакого редиректа — Navigate не вызывался.
+    expect(navigateSpy).not.toHaveBeenCalled();
+    // games-endpoint не дёргается
     const gamesCalls = broadcastApiMock.get.mock.calls.filter((c) =>
       String(c[0]).includes('/games'),
     );
     expect(gamesCalls.length).toBe(0);
+    // и есть plug-сообщение «No round in progress»
+    expect(
+      await screen.findByText(/No round in progress|Нет активного тура/i),
+    ).toBeInTheDocument();
+  });
+
+  it('Возврат с round-страницы (state.fromRound=true) НЕ редиректит на тур', async () => {
+    locationStateRef.current = { fromRound: true };
+    broadcastApiMock.get.mockImplementation((path: string) => {
+      if (path === '/tx') return Promise.resolve(META);
+      if (path === '/tx/rounds') return Promise.resolve({ data: [ROUND] });
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    renderWithProviders(<BroadcastTournamentPage />, { route: '/broadcasts/tx' });
+
+    await waitFor(() =>
+      expect(broadcastApiMock.get).toHaveBeenCalledWith('/tx/rounds'),
+    );
+    // Дадим эффектам отработать.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Default tab остался 'standings' — Navigate не вызывался.
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });

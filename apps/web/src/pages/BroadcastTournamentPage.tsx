@@ -1,12 +1,8 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Chess } from 'chess.js';
-import { Chessboard } from 'react-chessboard';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
-import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { BroadcastStandings } from '../components/broadcast/BroadcastStandings';
-import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 
 // Types
 type BroadcastMeta = {
@@ -36,27 +32,7 @@ type BroadcastRound = {
   status: string;
 };
 
-type BroadcastGame = {
-  id: string;
-  lichessGameId: string;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string | null;
-  pgn: string | null;
-};
-
 type TabId = 'live' | 'standings' | 'rounds' | 'info';
-
-function computeFen(pgn: string): string {
-  if (!pgn) return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  try {
-    const chess = new Chess();
-    chess.loadPgn(pgn);
-    return chess.fen();
-  } catch {
-    return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  }
-}
 
 function formatDate(d: string | null): string {
   if (!d) return '';
@@ -67,87 +43,32 @@ function formatDate(d: string | null): string {
 function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: BroadcastMeta; tournamentId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [rounds, setRounds] = useState<BroadcastRound[]>([]);
-  const [liveGames, setLiveGames] = useState<BroadcastGame[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('standings');
 
   const ongoingRound = useMemo(() => rounds.find((r) => r.status === 'ongoing'), [rounds]);
 
-  // Set default tab after rounds load
+  // KS-2447 v2: Live-таб теперь не хранит локальный рендер партий —
+  // вместо этого при ongoingRound редиректит на страницу активного тура
+  // (`/broadcasts/:tid/:rid`), где уже работает 15s polling и обновление
+  // позиций. Дефолтный таб при наличии ongoingRound остаётся 'live',
+  // чтобы заход на страницу турнира с активным туром автоматически
+  // улетел на тур. ИСКЛЮЧЕНИЕ: возврат с round-страницы через breadcrumb
+  // помечен `state.fromRound=true` — в этом случае default остаётся
+  // 'standings', иначе пользователь зацикливался бы между туром и
+  // лобби.
+  const cameFromRound = (location.state as { fromRound?: boolean } | null)?.fromRound === true;
   useEffect(() => {
-    if (ongoingRound) setActiveTab('live');
-  }, [ongoingRound]);
+    if (ongoingRound && !cameFromRound) setActiveTab('live');
+  }, [ongoingRound, cameFromRound]);
 
   useEffect(() => {
     broadcastApi.get<{ data: BroadcastRound[] }>(`/${tournamentId}/rounds`)
       .then((res) => setRounds(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, [tournamentId]);
-
-  // KS-2447: Live-вкладка должна обновлять позиции в реальном времени, как
-  // и страница Round (`BroadcastRoundPage`). Раньше здесь был одноразовый
-  // fetch без интервала — позиции на досках замерзали; пользователю
-  // приходилось переходить через вкладку «Туры» в активный тур, где
-  // запускается тот же 15s polling. Теперь делаем initial fetch + polling
-  // с 15-секундным интервалом, как на Round-странице. Сортировка по
-  // фамилии белых (KS-2446) применяется к выводу для консистентного
-  // порядка карточек.
-  const prevLiveGamesRef = useRef<BroadcastGame[]>([]);
-  useEffect(() => {
-    if (!ongoingRound) {
-      prevLiveGamesRef.current = [];
-      setLiveGames([]);
-      return;
-    }
-    let cancelled = false;
-    let isFirstFetch = true;
-
-    const fetchLiveGames = () => {
-      broadcastApi
-        .get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${ongoingRound.id}/games`)
-        .then((res) => {
-          if (cancelled) return;
-          const fresh = Array.isArray(res?.data) ? res.data : [];
-          const fingerprint = gamesFingerprint(fresh);
-          const prevFingerprint = gamesFingerprint(prevLiveGamesRef.current);
-          if (isFirstFetch || fingerprint !== prevFingerprint) {
-            setLiveGames(sortGamesByWhite(fresh));
-          }
-          prevLiveGamesRef.current = fresh;
-          isFirstFetch = false;
-        })
-        .catch(() => {});
-    };
-
-    fetchLiveGames();
-    const intervalId = setInterval(fetchLiveGames, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [ongoingRound, tournamentId]);
-
-  const handleGameClick = (game: BroadcastGame) => {
-    if (!game.pgn) return;
-    // KS-2448: для live-партий открываем live-страницу с подпиской.
-    // Live-tab показывается только при наличии ongoingRound, поэтому
-    // не-завершённая партия здесь — всегда live.
-    const isLive =
-      Boolean(ongoingRound) && (!game.result || game.result === '*');
-    if (isLive && ongoingRound) {
-      navigate(`/broadcasts/${tournamentId}/${ongoingRound.id}/${game.id}/live`);
-      return;
-    }
-    void openAnalysisFromPgn(navigate, {
-      pgn: game.pgn,
-      title: `${game.whitePlayer} vs ${game.blackPlayer}`,
-      state: {
-        breadcrumbRootTitle: broadcast.title,
-        breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
-      },
-    });
-  };
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'live', label: t('broadcast.tabLive', 'Live') },
@@ -202,37 +123,16 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
 
       {/* Tab content */}
       <div className="broadcast-tab-content">
-        {/* Live */}
+        {/* Live: KS-2447 v2 — при наличии активного тура редиректим на
+            его страницу (`/broadcasts/:tid/:rid`), где уже работает
+            обновление партий. Без активного тура показываем plug. */}
         {activeTab === 'live' && (
           <div className="broadcast-tab-panel">
             {ongoingRound ? (
-              <>
-                <h2>{ongoingRound.name}</h2>
-                {liveGames.length > 0 ? (
-                  <div className="broadcast-boards-grid">
-                    {liveGames.map((game) => (
-                      <div
-                        key={game.id}
-                        className="broadcast-board-card broadcast-board-card--clickable"
-                        onClick={() => handleGameClick(game)}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <div className="broadcast-board-players"><span className="broadcast-player broadcast-player--black">&#9823; {game.blackPlayer}</span></div>
-                        <div className="broadcast-board-wrap">
-                          <Chessboard options={{ position: computeFen(game.pgn ?? ''), allowDragging: false, showNotation: false, animationDurationInMs: 0 }} />
-                        </div>
-                        <div className="broadcast-board-players"><span className="broadcast-player broadcast-player--white">&#9817; {game.whitePlayer}</span></div>
-                        <div className="broadcast-board-footer">
-                          <span className="broadcast-game-result">{game.result ?? '*'}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="broadcast-tab-empty">{t('broadcast.noLiveGames', 'No games in progress')}</p>
-                )}
-              </>
+              <Navigate
+                to={`/broadcasts/${tournamentId}/${ongoingRound.id}`}
+                replace
+              />
             ) : (
               <p className="broadcast-tab-empty">{t('broadcast.noOngoingRound', 'No round in progress. Check Rounds or Standings.')}</p>
             )}
