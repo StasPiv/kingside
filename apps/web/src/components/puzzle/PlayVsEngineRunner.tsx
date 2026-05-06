@@ -230,7 +230,13 @@ export function PlayVsEngineRunner({
   const startTimeRef = useRef(Date.now());
   const submittedRef = useRef(false);
   const engineRef = useRef<EngineAdapter | null>(null);
-  const engineReadyRef = useRef(false);
+  /**
+   * KS-2473: атомарный promise инициализации движка. Гарантирует, что
+   * параллельные `ensureEngine()` (pre + post analyze в onPieceDrop)
+   * получают ОДИН и тот же worker. Без этого создавались два WASM-
+   * экземпляра, второй ломал stdin первого, runner падал в `error`.
+   */
+  const engineInitPromiseRef = useRef<Promise<EngineAdapter> | null>(null);
   /**
    * KS-2473: единый WASM-worker не выдерживает конкурентных analyze
    * (mid-stream разруха stdin → state=error). Сериализуем все вызовы
@@ -240,13 +246,17 @@ export function PlayVsEngineRunner({
   const lastMoveUciRef = useRef<string | null>(null);
 
   // ── Engine init / cleanup ─────────────────────────────────────────────
-  const ensureEngine = useCallback(async (): Promise<EngineAdapter> => {
-    if (engineRef.current && engineReadyRef.current) return engineRef.current;
-    const engine = engineFactory ? engineFactory() : new WasmEngineAdapter();
-    await engine.init();
-    engineRef.current = engine;
-    engineReadyRef.current = true;
-    return engine;
+  const ensureEngine = useCallback((): Promise<EngineAdapter> => {
+    if (engineRef.current) return Promise.resolve(engineRef.current);
+    if (engineInitPromiseRef.current) return engineInitPromiseRef.current;
+    const promise = (async () => {
+      const engine = engineFactory ? engineFactory() : new WasmEngineAdapter();
+      await engine.init();
+      engineRef.current = engine;
+      return engine;
+    })();
+    engineInitPromiseRef.current = promise;
+    return promise;
   }, [engineFactory]);
 
   /**
@@ -272,7 +282,7 @@ export function PlayVsEngineRunner({
     return () => {
       try { engineRef.current?.destroy(); } catch { /* ignore */ }
       engineRef.current = null;
-      engineReadyRef.current = false;
+      engineInitPromiseRef.current = null;
     };
   }, []);
 
