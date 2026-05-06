@@ -205,10 +205,41 @@ export type FindPuzzlesQuery = {
   limit?: number;
 };
 
+/**
+ * KS-2465 / ADR-044 §5.4. Причина завершения попытки в режиме
+ * `play-vs-engine`. Используется только для логирования (MVP — не пишется
+ * в БД, см. ADR §5.4: PuzzleAttempt.metadata JSONB — v2). Для классики
+ * `forced-line` поле не передаётся.
+ *
+ *  - `win` — решатель удержал WDL ≥ winThreshold через `halfMovesN`
+ *    полуходов (стандартная победа, без мата).
+ *  - `win-mate` — решатель поставил мат до истечения halfMovesN.
+ *  - `win-engine-resign` — движок (через UCI `resign` или WDL ниже
+ *    своего порога) сдался. На клиенте — необязательно, сейчас опц.
+ *  - `lose-wdl` — WDL у решателя упал ниже `failThreshold`.
+ *  - `lose-mate` — мат решателю.
+ */
+export type PlayVsEnginePuzzleReason =
+  | 'win'
+  | 'win-mate'
+  | 'win-engine-resign'
+  | 'lose-wdl'
+  | 'lose-mate';
+
 export type PuzzleAttemptRequest = {
   result: PuzzleAttemptResult;
   timeMs: number;
   userMoves?: string;
+  hintsUsed?: number;
+  /**
+   * KS-2465 / ADR-044 §5.4. Поля режима `play-vs-engine`. Опциональны
+   * (не передаются для `forced-line`). На MVP сервер только логирует
+   * их, в БД не пишет (PuzzleAttempt.metadata — v2).
+   */
+  halfMovesPlayed?: number;
+  /** Финальный WDL_signed решателя в диапазоне [-1..+1]. */
+  finalWdl?: number;
+  reason?: PlayVsEnginePuzzleReason;
 };
 
 export type PuzzleAttemptResponse = {

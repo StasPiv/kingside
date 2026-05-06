@@ -387,6 +387,210 @@ describe('PuzzleService', () => {
 
       await expect(service.getPuzzle('nonexistent')).rejects.toThrow(NotFoundException);
     });
+
+    // ── KS-2465 / ADR-044 §5.5. solutionMode + playVsEngine ─────────
+
+    it("KS-2465: forced-line puzzle получает solutionMode='forced-line' без блока playVsEngine", async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pf1',
+        fen: 'fen-classic',
+        moves: 'e2e4 e7e5 g1f3',
+        rating: 1500,
+        themes: 'fork',
+        source: 'lichess',
+        solutionMode: 'forced-line',
+        sourceMetadata: null,
+      });
+
+      const result = await service.getPuzzle('pf1');
+
+      expect(result.solutionMode).toBe('forced-line');
+      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeUndefined();
+    });
+
+    it('KS-2465: play-vs-engine puzzle парсит sourceMetadata и отдаёт playVsEngine блок', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve1',
+        fen: 'fen-after-blunder',
+        moves: '',
+        rating: 1700,
+        themes: 'sacrifice playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve1');
+
+      expect(result.solutionMode).toBe('play-vs-engine');
+      expect((result as { playVsEngine?: typeof meta }).playVsEngine).toEqual(meta);
+    });
+
+    it('KS-2465: play-vs-engine с битым JSON → fallback forced-line + warn', async () => {
+      const warnSpy = jest
+        .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-bad',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: '{not json',
+      });
+
+      const result = await service.getPuzzle('pve-bad');
+
+      expect(result.solutionMode).toBe('forced-line');
+      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('KS-2465: play-vs-engine без обязательных полей метаданных → fallback forced-line', async () => {
+      const warnSpy = jest
+        .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-partial',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        // halfMovesN отсутствует
+        sourceMetadata: JSON.stringify({
+          blunderMove: 'e2e4',
+          wdlAfterBlunder: 0.7,
+          winThreshold: 0.5,
+          failThreshold: 0.0,
+        }),
+      });
+
+      const result = await service.getPuzzle('pve-partial');
+
+      expect(result.solutionMode).toBe('forced-line');
+      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ── KS-2465 / ADR-044 §5.4. submitAttempt + play-vs-engine ───────
+
+  describe('KS-2465: submitAttempt в режиме play-vs-engine', () => {
+    const playVsEngineMeta = {
+      blunderMove: 'e2e4',
+      wdlAfterBlunder: 0.78,
+      winThreshold: 0.5,
+      failThreshold: 0.0,
+      halfMovesN: 6,
+    };
+    const pvePuzzle = {
+      id: 'pve1',
+      fen: 'fen-after-blunder',
+      moves: '',
+      rating: 1700,
+      themes: 'playVsEngine',
+      source: 'generated',
+      solutionMode: 'play-vs-engine',
+      sourceMetadata: JSON.stringify(playVsEngineMeta),
+    };
+
+    it('submitAttempt принимает halfMovesPlayed/finalWdl/reason и не падает', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(pvePuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1512,
+        puzzleRatingAfter: 1690,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1512 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      const result = await service.submitAttempt(
+        'user-1',
+        'pve1',
+        true,
+        7000,
+        undefined,
+        0,
+        { halfMovesPlayed: 6, finalWdl: 0.82, reason: 'win' },
+      );
+
+      expect(result.solved).toBe(true);
+      expect(result.userRatingAfter).toBe(1512);
+      // play-vs-engine поля НЕ записываются в puzzleAttempt — только лог.
+      const createCall = prisma.puzzleAttempt.create.mock.calls[0]?.[0];
+      expect(createCall.data).not.toHaveProperty('halfMovesPlayed');
+      expect(createCall.data).not.toHaveProperty('finalWdl');
+      expect(createCall.data).not.toHaveProperty('reason');
+    });
+
+    it('validatePlayerSide пропускает (early-return) для play-vs-engine — solved не переопределяется', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(pvePuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1512,
+        puzzleRatingAfter: 1690,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1512 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      // userMoves заведомо «нелегальные» для классической валидации
+      // (без setup-хода, неверная сторона). Для play-vs-engine это
+      // должно игнорироваться.
+      const result = await service.submitAttempt(
+        'user-1',
+        'pve1',
+        true,
+        7000,
+        'a1a8 h1h8',
+        0,
+        { halfMovesPlayed: 6, finalWdl: 0.6, reason: 'win' },
+      );
+
+      expect(result.solved).toBe(true);
+    });
+
+    it('Glicko-2 update идёт через стандартный solved boolean (без play-vs-engine специфики)', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(pvePuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1480,
+        puzzleRatingAfter: 1715,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1480 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      await service.submitAttempt(
+        'user-1',
+        'pve1',
+        false,
+        4000,
+        undefined,
+        0,
+        { halfMovesPlayed: 3, finalWdl: -0.4, reason: 'lose-wdl' },
+      );
+
+      expect(ratingService.applyRatingChange).toHaveBeenCalledWith(
+        'user-1',
+        'pve1',
+        false,
+      );
+    });
   });
 
   describe('KS-299: no repeated attempted puzzles', () => {

@@ -312,7 +312,17 @@ export class PuzzleController {
     @Body() dto: SubmitAttemptDto,
   ) {
     return this.puzzleService.submitAttempt(
-      req.user.id, id, dto.result === 'solved', dto.timeMs, dto.userMoves, dto.hintsUsed,
+      req.user.id,
+      id,
+      dto.result === 'solved',
+      dto.timeMs,
+      dto.userMoves,
+      dto.hintsUsed,
+      {
+        halfMovesPlayed: dto.halfMovesPlayed,
+        finalWdl: dto.finalWdl,
+        reason: dto.reason,
+      },
     );
   }
 
@@ -330,6 +340,11 @@ export class PuzzleController {
       dto.timeMs,
       dto.userMoves,
       dto.hintsUsed,
+      {
+        halfMovesPlayed: dto.halfMovesPlayed,
+        finalWdl: dto.finalWdl,
+        reason: dto.reason,
+      },
     );
   }
 }

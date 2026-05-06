@@ -1,11 +1,26 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { Chess } from 'chess.js';
+import type {
+  PlayVsEnginePuzzleReason,
+  PuzzleSolutionMode,
+} from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
 // KS-1927: MistakesService переехал из `lessons/` в `puzzle/` (ADR-032 §4).
 import { MistakesService } from './mistakes.service';
+
+/**
+ * KS-2465 / ADR-044 §5.5. Параметры режима `play-vs-engine` в DTO.
+ */
+export interface PlayVsEngineDto {
+  blunderMove: string;
+  wdlAfterBlunder: number;
+  winThreshold: number;
+  failThreshold: number;
+  halfMovesN: number;
+}
 
 @Injectable()
 export class PuzzleService {
@@ -73,7 +88,7 @@ export class PuzzleService {
     }
 
     const whereClause = conditions.join(' AND ');
-    const puzzles = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string }>>(
+    const puzzles = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
       `SELECT * FROM puzzles p WHERE ${whereClause} ORDER BY p.popularity DESC LIMIT 10`,
       ...params,
     );
@@ -83,7 +98,7 @@ export class PuzzleService {
       const fbConditions = conditions.filter(c => !c.includes('rating'));
       const fbWhere = fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
       const fbParams = params.slice(2); // skip minRating/maxRating
-      const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string }>>(
+      const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
         `SELECT * FROM puzzles p WHERE ${fbWhere} ORDER BY p.rating ASC LIMIT 1`,
         ...fbParams,
       );
@@ -221,6 +236,7 @@ export class PuzzleService {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
       id: string; fen: string; moves: string; rating: number; themes: string;
       source: string; game_url: string | null; opening_tags: string | null;
+      solution_mode: string | null; source_metadata: string | null;
     }>>(sql, ...paramsList);
 
     return rows.map((p) => this.formatRawPuzzle(p));
@@ -297,6 +313,11 @@ export class PuzzleService {
 
   /**
    * Submit an attempt for a puzzle and return the rating changes.
+   *
+   * KS-2465 / ADR-044 §5.4. Для `solutionMode='play-vs-engine'` принимаем
+   * опц. поля `halfMovesPlayed`, `finalWdl`, `reason` — на MVP только
+   * логируем, в БД не пишем (PuzzleAttempt.metadata JSONB — v2). Glicko-2
+   * update идёт через стандартный `solved` boolean.
    */
   async submitAttempt(
     userId: string,
@@ -305,6 +326,11 @@ export class PuzzleService {
     timeMs: number,
     userMoves?: string,
     hintsUsed?: number,
+    playVsEngine?: {
+      halfMovesPlayed?: number;
+      finalWdl?: number;
+      reason?: PlayVsEnginePuzzleReason;
+    },
   ) {
     const puzzle = await this.prisma.puzzle.findUnique({
       where: { id: puzzleId },
@@ -313,13 +339,36 @@ export class PuzzleService {
       throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
     }
 
-    // Server-side validation: verify user played the correct side
+    // KS-2465: резолвим solutionMode (валидация JSON metadata + fallback).
+    const mode = this.resolveSolutionMode(
+      puzzle.id,
+      (puzzle as { solutionMode?: string | null }).solutionMode,
+      (puzzle as { sourceMetadata?: string | null }).sourceMetadata,
+    );
+
+    // Server-side validation: verify user played the correct side.
+    // Для play-vs-engine validatePlayerSide делает early-return (нет линии).
     if (solved && userMoves) {
-      const isValid = this.validatePlayerSide(puzzle.fen, puzzle.moves, puzzle.source, userMoves);
+      const isValid = this.validatePlayerSide(
+        puzzle.fen,
+        puzzle.moves,
+        puzzle.source,
+        userMoves,
+        mode.solutionMode,
+      );
       if (!isValid) {
         this.logger.warn(`Puzzle ${puzzleId}: user ${userId} played wrong side, overriding solved=false`);
         solved = false;
       }
+    }
+
+    // KS-2465: лог play-vs-engine метаданных попытки (в БД не пишем — v2).
+    if (mode.solutionMode === 'play-vs-engine' && playVsEngine) {
+      this.logger.log(
+        `Puzzle ${puzzleId} play-vs-engine attempt by user ${userId}: ` +
+          `solved=${solved} halfMovesPlayed=${playVsEngine.halfMovesPlayed ?? 'n/a'} ` +
+          `finalWdl=${playVsEngine.finalWdl ?? 'n/a'} reason=${playVsEngine.reason ?? 'n/a'}`,
+      );
     }
 
     // Check if already solved — retry without rating change
@@ -522,8 +571,19 @@ export class PuzzleService {
    * Validate that user's moves were made by the correct side.
    * Lichess puzzles: moves[0] is setup (opponent), player is opposite side.
    * Generated puzzles: no setup, player is the side to move in FEN.
+   *
+   * KS-2465 / ADR-044 §5.4. Для `solutionMode='play-vs-engine'` эталонной
+   * линии нет, серверная валидация хода не применима — early-return true
+   * (anti-cheat для MVP не делаем).
    */
-  private validatePlayerSide(fen: string, moves: string, source: string, userMoves: string): boolean {
+  private validatePlayerSide(
+    fen: string,
+    moves: string,
+    source: string,
+    userMoves: string,
+    solutionMode: PuzzleSolutionMode = 'forced-line',
+  ): boolean {
+    if (solutionMode === 'play-vs-engine') return true;
     try {
       const chess = new Chess(fen);
       const solutionMoves = moves.split(' ');
@@ -556,6 +616,66 @@ export class PuzzleService {
     }
   }
 
+  /**
+   * KS-2465 / ADR-044 §5.5. Резолвим solutionMode + playVsEngine для DTO.
+   *
+   * Если в БД лежит `solutionMode='play-vs-engine'` — парсим
+   * `sourceMetadata` как JSON и собираем блок. При сломанном JSON или
+   * отсутствии обязательных полей — логируем warning и возвращаем
+   * fallback `forced-line` (никогда не отдаём `play-vs-engine` без
+   * валидного блока, чтобы клиент не упал).
+   */
+  private resolveSolutionMode(
+    puzzleId: string,
+    solutionModeRaw: string | null | undefined,
+    sourceMetadata: string | null | undefined,
+  ): { solutionMode: PuzzleSolutionMode; playVsEngine?: PlayVsEngineDto } {
+    if (solutionModeRaw !== 'play-vs-engine') {
+      return { solutionMode: 'forced-line' };
+    }
+    if (!sourceMetadata) {
+      this.logger.warn(
+        `Puzzle ${puzzleId}: solutionMode='play-vs-engine' но sourceMetadata пустой — fallback на forced-line`,
+      );
+      return { solutionMode: 'forced-line' };
+    }
+    try {
+      const meta = JSON.parse(sourceMetadata) as Record<string, unknown>;
+      const blunderMove = meta.blunderMove;
+      const wdlAfterBlunder = meta.wdlAfterBlunder;
+      const winThreshold = meta.winThreshold;
+      const failThreshold = meta.failThreshold;
+      const halfMovesN = meta.halfMovesN;
+      if (
+        typeof blunderMove !== 'string' ||
+        typeof wdlAfterBlunder !== 'number' ||
+        typeof winThreshold !== 'number' ||
+        typeof failThreshold !== 'number' ||
+        typeof halfMovesN !== 'number'
+      ) {
+        this.logger.warn(
+          `Puzzle ${puzzleId}: sourceMetadata не содержит полного play-vs-engine блока — fallback на forced-line`,
+        );
+        return { solutionMode: 'forced-line' };
+      }
+      return {
+        solutionMode: 'play-vs-engine',
+        playVsEngine: {
+          blunderMove,
+          wdlAfterBlunder,
+          winThreshold,
+          failThreshold,
+          halfMovesN,
+        },
+      };
+    } catch (e) {
+      this.logger.warn(
+        `Puzzle ${puzzleId}: sourceMetadata невалидный JSON — fallback на forced-line: ${(e as Error).message}`,
+      );
+      return { solutionMode: 'forced-line' };
+    }
+  }
+
   private formatPuzzle(puzzle: {
     id: string;
     fen: string;
@@ -563,7 +683,14 @@ export class PuzzleService {
     rating: number;
     themes: string;
     source: string;
+    solutionMode?: string | null;
+    sourceMetadata?: string | null;
   }) {
+    const mode = this.resolveSolutionMode(
+      puzzle.id,
+      puzzle.solutionMode,
+      puzzle.sourceMetadata,
+    );
     return {
       id: puzzle.id,
       fen: puzzle.fen,
@@ -571,10 +698,28 @@ export class PuzzleService {
       rating: puzzle.rating,
       themes: puzzle.themes.split(' ').filter(Boolean),
       source: puzzle.source,
+      solutionMode: mode.solutionMode,
+      ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
     };
   }
 
-  private formatRawPuzzle(p: { id: string; fen: string; moves: string; rating: number; themes: string; source: string; game_url?: string | null; opening_tags?: string | null }) {
+  private formatRawPuzzle(p: {
+    id: string;
+    fen: string;
+    moves: string;
+    rating: number;
+    themes: string;
+    source: string;
+    game_url?: string | null;
+    opening_tags?: string | null;
+    solution_mode?: string | null;
+    source_metadata?: string | null;
+  }) {
+    const mode = this.resolveSolutionMode(
+      p.id,
+      p.solution_mode,
+      p.source_metadata,
+    );
     return {
       id: p.id,
       fen: p.fen,
@@ -584,6 +729,8 @@ export class PuzzleService {
       source: p.source,
       gameUrl: p.game_url ?? null,
       openingTags: p.opening_tags ?? null,
+      solutionMode: mode.solutionMode,
+      ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
     };
   }
 }
