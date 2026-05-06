@@ -105,6 +105,34 @@ describe('BroadcastsPage KS-1700 sections', () => {
     expect(screen.queryByTestId('broadcasts-finished')).toBeNull();
   });
 
+  // KS-2445: сортировка по среднему Elo desc внутри каждой секции,
+  // null/undefined avgElo уезжают в конец секции.
+  it('сортирует карточки по avgElo desc внутри каждой секции, без рейтинга — в конец', async () => {
+    const data: BroadcastFixture[] = [
+      makeBroadcast({ id: 'l-low', title: 'Live low', lifecycleStatus: 'live', avgElo: 2200 }),
+      makeBroadcast({ id: 'l-null', title: 'Live no rating', lifecycleStatus: 'live', avgElo: null }),
+      makeBroadcast({ id: 'l-high', title: 'Live high', lifecycleStatus: 'live', avgElo: 2800 }),
+      makeBroadcast({ id: 'l-mid', title: 'Live mid', lifecycleStatus: 'live', avgElo: 2500 }),
+      makeBroadcast({ id: 'u-low', title: 'Upcoming low', lifecycleStatus: 'upcoming', avgElo: 2100 }),
+      makeBroadcast({ id: 'u-high', title: 'Upcoming high', lifecycleStatus: 'upcoming', avgElo: 2600 }),
+    ];
+    mockBroadcastApi.get.mockResolvedValueOnce({ data, total: data.length, limit: 100, offset: 0 });
+
+    renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+
+    await waitFor(() => expect(screen.getByTestId('broadcasts-live')).toBeInTheDocument());
+
+    const liveTitles = Array.from(
+      screen.getByTestId('broadcasts-live').querySelectorAll('.broadcast-lichess-title')
+    ).map((el) => el.textContent);
+    expect(liveTitles).toEqual(['Live high', 'Live mid', 'Live low', 'Live no rating']);
+
+    const upcomingTitles = Array.from(
+      screen.getByTestId('broadcasts-upcoming').querySelectorAll('.broadcast-lichess-title')
+    ).map((el) => el.textContent);
+    expect(upcomingTitles).toEqual(['Upcoming high', 'Upcoming low']);
+  });
+
   it('fallback: если lifecycleStatus отсутствует (старое API), isActive=true → live, иначе → finished', async () => {
     // Имитация ответа старого API без lifecycleStatus — Partial<BroadcastSummary>.
     const data = [

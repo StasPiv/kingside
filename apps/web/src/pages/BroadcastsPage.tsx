@@ -74,6 +74,8 @@ export function BroadcastsPage() {
   // Featured — isPinned=true AND lifecycleStatus='live'; проверяем обе части,
   // т.к. старый API мог выдать pinned=true для finished (до KS-1700 Part B
   // finished не мог быть pinned, но защищаемся на rollout).
+  // KS-2445: внутри каждой секции сортируем по среднему Elo desc, турниры
+  // без avgElo уезжают в конец секции.
   const { featured, live, upcoming, finished } = useMemo(() => {
     const featured: LichessBroadcast[] = [];
     const live: LichessBroadcast[] = [];
@@ -91,6 +93,15 @@ export function BroadcastsPage() {
         finished.push(b);
       }
     }
+    const byAvgEloDesc = (a: LichessBroadcast, b: LichessBroadcast) => {
+      const ax = typeof a.avgElo === 'number' ? a.avgElo : -Infinity;
+      const bx = typeof b.avgElo === 'number' ? b.avgElo : -Infinity;
+      return bx - ax;
+    };
+    featured.sort(byAvgEloDesc);
+    live.sort(byAvgEloDesc);
+    upcoming.sort(byAvgEloDesc);
+    finished.sort(byAvgEloDesc);
     return { featured, live, upcoming, finished };
   }, [lichessBroadcasts]);
 
