@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import type { CSSProperties } from 'react';
 import { renderWithProviders, screen } from '../../test/test-utils';
-import { PlayVsEngineRunner } from './PlayVsEngineRunner';
+import { PlayVsEngineRunner, uciToSan, blunderUciToSan } from './PlayVsEngineRunner';
 import type {
   EngineAdapter,
   AnalysisResult,
@@ -290,5 +290,47 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     );
     expect(screen.getByTestId('puzzle-engine-blunder-hint')).toBeInTheDocument();
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
+  });
+});
+
+/**
+ * KS-2471: UCI→SAN конвертация. blunderUciToSan восстанавливает before-FEN
+ * (фигура с `to` обратно на `from`, side-to-move инвертирован).
+ */
+describe('uciToSan / blunderUciToSan KS-2471', () => {
+  it('uciToSan: легальный ход → SAN', () => {
+    expect(
+      uciToSan('e2e4', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'),
+    ).toBe('e4');
+  });
+
+  it('uciToSan: ход с фигурой и взятием → SAN с x', () => {
+    // r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+    // Nxe5: Nf3 → e5 берёт чёрную пешку.
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    expect(uciToSan('f3e5', fen)).toBe('Nxe5');
+  });
+
+  it('uciToSan: нелегальный ход → fallback UCI', () => {
+    expect(
+      uciToSan('a1a8', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'),
+    ).toBe('a1a8');
+  });
+
+  it('uciToSan: пустой/короткий → возвращает as-is', () => {
+    expect(uciToSan('', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('');
+    expect(uciToSan('e2', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('e2');
+  });
+
+  it('blunderUciToSan: восстанавливает before-FEN и даёт SAN', () => {
+    // post-blunder FEN: чёрные ходят, белые только что сыграли f1f4 (зевок Rf4).
+    // Из реального пазла KS-2466.
+    const postFen = '6k1/7p/b3p1p1/p2pPP2/2pB1R2/2Pn2QP/qr4BN/6K1 b - - 0 30';
+    expect(blunderUciToSan('f1f4', postFen)).toBe('Rf4');
+  });
+
+  it('blunderUciToSan: невалидный UCI → fallback', () => {
+    expect(blunderUciToSan('xx', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('xx');
+    expect(blunderUciToSan('', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('');
   });
 });

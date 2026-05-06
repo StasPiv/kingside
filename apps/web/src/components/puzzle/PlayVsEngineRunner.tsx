@@ -71,6 +71,12 @@ type BestmoveSnapshot = {
   /** Чей ход был при этом анализе (FEN side-to-move). */
   sideToMove: 'w' | 'b';
   bestUci: string;
+  /**
+   * KS-2471: FEN, на котором движок считал bestmove. Нужен для UCI→SAN
+   * конвертации в post-mortem. Сохраняется именно тот fen, к которому
+   * применим UCI напрямую (т.е. до хода).
+   */
+  fen: string;
   /** WDL_signed POV side-to-move (то, что вернул движок). */
   wdlPov: number;
 };
@@ -104,6 +110,61 @@ function toEvalLines(result: AnalysisResult): EvalLine[] {
     score: l.score,
     pv: l.pv.join(' '),
   }));
+}
+
+/**
+ * KS-2471: UCI→SAN относительно заданного FEN. Если ход не легален или
+ * FEN кривой — возвращает исходный UCI как fallback (не падает).
+ */
+export function uciToSan(uci: string, fen: string): string {
+  if (!uci || uci.length < 4) return uci;
+  try {
+    const c = new Chess(fen);
+    const move = c.move({
+      from: uci.slice(0, 2),
+      to: uci.slice(2, 4),
+      promotion: uci.length > 4 ? uci[4] : undefined,
+    });
+    return move?.san ?? uci;
+  } catch {
+    return uci;
+  }
+}
+
+/**
+ * KS-2471: SAN зевка соперника. `puzzle.fen` — это позиция ПОСЛЕ зевка
+ * (там ходит решатель), поэтому напрямую `chess.move(blunderUci)` не
+ * легален. Восстанавливаем before-blunder FEN: переносим фигуру с `to`
+ * обратно на `from` и переключаем side-to-move. На capture-зевках
+ * взятая фигура восстановиться не может — для SAN это не критично
+ * (получим Rf4 вместо Rxf4). При любых ошибках — fallback на UCI.
+ */
+export function blunderUciToSan(blunderUci: string, postBlunderFen: string): string {
+  if (!blunderUci || blunderUci.length < 4) return blunderUci;
+  try {
+    const c = new Chess(postBlunderFen);
+    const from = blunderUci.slice(0, 2) as Parameters<typeof c.get>[0];
+    const to = blunderUci.slice(2, 4) as Parameters<typeof c.get>[0];
+    const piece = c.get(to);
+    if (!piece) return blunderUci;
+    // Снимаем фигуру с `to`, ставим на `from`.
+    c.remove(to);
+    c.put(piece, from);
+    // Переключаем side-to-move через переписывание FEN (chess.js не даёт
+    // прямого setter'а; парсим и собираем обратно).
+    const parts = c.fen().split(' ');
+    parts[1] = parts[1] === 'w' ? 'b' : 'w';
+    const beforeFen = parts.join(' ');
+    const before = new Chess(beforeFen);
+    const move = before.move({
+      from: blunderUci.slice(0, 2),
+      to: blunderUci.slice(2, 4),
+      promotion: blunderUci.length > 4 ? blunderUci[4] : undefined,
+    });
+    return move?.san ?? blunderUci;
+  } catch {
+    return blunderUci;
+  }
 }
 
 export function PlayVsEngineRunner({
@@ -243,7 +304,13 @@ export function PlayVsEngineRunner({
       setLatestWdlUser(wdlUser);
       setBestmoveLog((prev) => [
         ...prev,
-        { halfMove: halfAfterUser, sideToMove: sideAfterUser, bestUci: best.pv[0], wdlPov: wdlEngine },
+        {
+          halfMove: halfAfterUser,
+          sideToMove: sideAfterUser,
+          bestUci: best.pv[0],
+          fen: after.fen(),
+          wdlPov: wdlEngine,
+        },
       ]);
 
       // 2) Терминальные ситуации до хода движка.
@@ -465,19 +532,24 @@ export function PlayVsEngineRunner({
   };
 
   // Лучший ход на полуходе, который игрок может посмотреть в post-mortem.
+  // KS-2471: показываем SAN, не UCI (fallback на UCI если конвертация
+  // не вышла).
   const bestmoveHint = useMemo(() => {
     if (state !== 'win' && state !== 'lose') return null;
     if (!bestmoveLog.length) return null;
-    // На lose: показываем последний полуход с WDL POV-engine, у которого
-    // wdl_user был ниже всех (где упало). На win: последний engine bestmove.
-    if (state === 'lose') {
-      // Полу-ход, после которого зафиксирован lose-wdl.
-      const last = bestmoveLog[bestmoveLog.length - 1];
-      return { halfMove: last.halfMove, uci: last.bestUci };
-    }
     const last = bestmoveLog[bestmoveLog.length - 1];
-    return { halfMove: last.halfMove, uci: last.bestUci };
+    return {
+      halfMove: last.halfMove,
+      uci: last.bestUci,
+      san: uciToSan(last.bestUci, last.fen),
+    };
   }, [state, bestmoveLog]);
+
+  // KS-2471: blunder в SAN.
+  const blunderSan = useMemo(
+    () => blunderUciToSan(params.blunderMove, puzzle.fen),
+    [params.blunderMove, puzzle.fen],
+  );
 
   return (
     <div
@@ -512,7 +584,7 @@ export function PlayVsEngineRunner({
               data-testid="puzzle-engine-blunder-hint"
             >
               {t('puzzle.engine.blunderHint', 'Opponent just blundered ({{move}}). Hold the advantage for {{n}} half-moves.', {
-                move: params.blunderMove || '?',
+                move: blunderSan || '?',
                 n: params.halfMovesN,
               })}
             </p>
@@ -536,7 +608,7 @@ export function PlayVsEngineRunner({
                 <div className="puzzle-engine-runner__bestmove-hint">
                   {t('puzzle.engine.bestmoveAt', 'Best move at half-move {{n}}: {{uci}}', {
                     n: bestmoveHint.halfMove,
-                    uci: bestmoveHint.uci,
+                    uci: bestmoveHint.san,
                   })}
                 </div>
               )}
