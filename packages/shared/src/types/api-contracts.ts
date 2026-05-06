@@ -586,6 +586,14 @@ export type BroadcastSummary = {
   roundCount: number;
   isPinned: boolean;
   avgElo: number | null;
+  /**
+   * Top-3 фавориты турнира по рейтингу. Считается на бэке из сыгранных
+   * партий (whitePlayer/whiteElo + blackPlayer/blackElo). Дедуп по `name`
+   * с выбором максимального elo, сортировка `elo DESC` с tie-break по
+   * `name ASC`. Может быть пустым массивом, если партий ещё нет.
+   * KS-2450.
+   */
+  topPlayers: { name: string; elo: number }[];
 };
 
 /**

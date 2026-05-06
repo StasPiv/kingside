@@ -1,5 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
-import { BroadcastController, deduplicateGamesByPair } from './broadcast.controller';
+import {
+  BroadcastController,
+  buildTopPlayers,
+  deduplicateGamesByPair,
+} from './broadcast.controller';
 
 /**
  * Минимальный unit-test для BroadcastController:
@@ -920,5 +924,71 @@ describe('deduplicateGamesByPair (KS-2213)', () => {
     expect(out).toHaveLength(4);
     const ids = out.map((g) => g.id).sort();
     expect(ids).toEqual(['r1', 'r2', 'r3', 'r4']);
+  });
+});
+
+// KS-2450 — top-3 фавориты по рейтингу.
+describe('buildTopPlayers (KS-2450)', () => {
+  it('пустой вход → []', () => {
+    expect(buildTopPlayers([])).toEqual([]);
+  });
+
+  it('сортировка elo DESC, top-3', () => {
+    const out = buildTopPlayers([
+      { name: 'Carlsen', elo: 2830 },
+      { name: 'Nakamura', elo: 2810 },
+      { name: 'Caruana', elo: 2820 },
+      { name: 'Ding', elo: 2780 },
+      { name: 'Nepo', elo: 2790 },
+    ]);
+    expect(out).toEqual([
+      { name: 'Carlsen', elo: 2830 },
+      { name: 'Caruana', elo: 2820 },
+      { name: 'Nakamura', elo: 2810 },
+    ]);
+  });
+
+  it('дедуп по name — берём максимальный elo', () => {
+    const out = buildTopPlayers([
+      { name: 'Carlsen', elo: 2820 },
+      { name: 'Carlsen', elo: 2830 },
+      { name: 'Carlsen', elo: 2810 },
+    ]);
+    expect(out).toEqual([{ name: 'Carlsen', elo: 2830 }]);
+  });
+
+  it('tie-break по name ASC при равном elo', () => {
+    const out = buildTopPlayers([
+      { name: 'Carlsen', elo: 2800 },
+      { name: 'Anand', elo: 2800 },
+      { name: 'Bareev', elo: 2800 },
+      { name: 'Topalov', elo: 2800 },
+    ]);
+    expect(out).toEqual([
+      { name: 'Anand', elo: 2800 },
+      { name: 'Bareev', elo: 2800 },
+      { name: 'Carlsen', elo: 2800 },
+    ]);
+  });
+
+  it('игнорирует пустые имена и невалидное elo', () => {
+    const out = buildTopPlayers([
+      { name: 'Valid', elo: 2700 },
+      { name: '', elo: 2800 },
+      { name: null, elo: 2900 },
+      { name: 'NoElo', elo: null },
+      { name: 'ZeroElo', elo: 0 },
+      { name: 'NegElo', elo: -100 },
+      { name: '   ', elo: 2700 },
+    ]);
+    expect(out).toEqual([{ name: 'Valid', elo: 2700 }]);
+  });
+
+  it('меньше limit игроков → возвращает все', () => {
+    const out = buildTopPlayers([
+      { name: 'A', elo: 2700 },
+      { name: 'B', elo: 2600 },
+    ]);
+    expect(out).toHaveLength(2);
   });
 });

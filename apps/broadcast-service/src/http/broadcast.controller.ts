@@ -21,6 +21,8 @@ import { computeAdvanceLinks } from '../crosstable/compute-advance-links';
 
 type LifecycleStatus = 'live' | 'upcoming' | 'finished';
 
+type TopPlayer = { name: string; elo: number };
+
 type BroadcastSummary = {
   id: string;
   lichessId: string;
@@ -31,7 +33,38 @@ type BroadcastSummary = {
   roundCount: number;
   isPinned: boolean;
   avgElo: number | null;
+  topPlayers: TopPlayer[];
 };
+
+/**
+ * KS-2450. Билдер top-3 игроков турнира.
+ *
+ * Дедуп по `name`: если у игрока встретилось несколько разных elo —
+ * берём **максимальный** (комментарий выбора зафиксирован: top показывает
+ * пиковую силу состава, не среднюю/последнюю).
+ * Сортировка: `elo DESC`, при равенстве — `name ASC` (стабильный
+ * локализационно-нейтральный tie-break).
+ * Игнорируем записи с пустым/отсутствующим именем или elo ≤ 0.
+ *
+ * Чистая функция — переиспользуется и в тестах, и в HTTP-обработчике.
+ */
+export function buildTopPlayers(
+  raw: ReadonlyArray<{ name: string | null; elo: number | null }>,
+  limit = 3,
+): TopPlayer[] {
+  const byName = new Map<string, number>();
+  for (const p of raw) {
+    const name = p.name?.trim();
+    if (!name) continue;
+    if (p.elo == null || p.elo <= 0) continue;
+    const existing = byName.get(name);
+    if (existing === undefined || p.elo > existing) byName.set(name, p.elo);
+  }
+  return Array.from(byName.entries())
+    .map(([name, elo]) => ({ name, elo }))
+    .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
 
 type BroadcastListResponse = {
   data: BroadcastSummary[];
@@ -258,9 +291,11 @@ export class BroadcastController {
       },
     });
 
-    const detailsMap = await this.computeBroadcastDetails(
-      broadcasts.map((b) => b.id),
-    );
+    const ids = broadcasts.map((b) => b.id);
+    const [detailsMap, topPlayersMap] = await Promise.all([
+      this.computeBroadcastDetails(ids),
+      this.computeTopPlayers(ids),
+    ]);
 
     type Enriched = BroadcastSummary & {
       _updatedAt: Date;
@@ -282,6 +317,7 @@ export class BroadcastController {
         // finished/upcoming не должны висеть в Featured (см. KS-1700 Part B §2).
         isPinned: lifecycleStatus === 'live' ? (d?.isPinned ?? false) : false,
         avgElo: d?.avgElo ?? null,
+        topPlayers: topPlayersMap.get(b.id) ?? [],
         _updatedAt: b.updatedAt,
         _nearestPendingAt: d?.nearestPendingAt ?? null,
       };
@@ -447,6 +483,73 @@ export class BroadcastController {
           nearestPendingAt: null,
         });
       }
+    }
+
+    return result;
+  }
+
+  /**
+   * KS-2450. Top-3 игроков по elo для каждого id (батчем, без N+1).
+   *
+   * SQL: один UNION ALL по white/black из всех партий всех туров каждого
+   * запрошенного броадкаста, фильтр по `broadcastIds`. JS-агрегация
+   * (`buildTopPlayers`) на стороне сервиса — для тестируемости и чтобы
+   * не плодить громоздкий SQL с window-функциями.
+   *
+   * Объёмы: 67 турниров × ~50 пар × 2 стороны = ~6700 строк max — не
+   * требует кеша. Если корпус вырастет — заворачивать в Redis-cache 60-120s
+   * по ключу `broadcasts:topPlayers:<id>` (см. KS-2450 описание).
+   */
+  private async computeTopPlayers(
+    broadcastIds: string[],
+  ): Promise<Map<string, TopPlayer[]>> {
+    const result = new Map<string, TopPlayer[]>();
+    if (broadcastIds.length === 0) return result;
+
+    type Row = {
+      broadcast_id: string;
+      name: string | null;
+      elo: number | null;
+    };
+
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT r.broadcast_id::text AS broadcast_id,
+             g.white_player AS name,
+             g.white_elo AS elo
+        FROM broadcast_games g
+        JOIN broadcast_rounds r ON g.round_id = r.id
+       WHERE r.broadcast_id::text = ANY(${broadcastIds}::text[])
+         AND g.white_player IS NOT NULL
+         AND g.white_elo IS NOT NULL
+         AND g.white_elo > 0
+      UNION ALL
+      SELECT r.broadcast_id::text AS broadcast_id,
+             g.black_player AS name,
+             g.black_elo AS elo
+        FROM broadcast_games g
+        JOIN broadcast_rounds r ON g.round_id = r.id
+       WHERE r.broadcast_id::text = ANY(${broadcastIds}::text[])
+         AND g.black_player IS NOT NULL
+         AND g.black_elo IS NOT NULL
+         AND g.black_elo > 0
+    `;
+
+    const byBroadcast = new Map<
+      string,
+      Array<{ name: string | null; elo: number | null }>
+    >();
+    for (const row of rows) {
+      let arr = byBroadcast.get(row.broadcast_id);
+      if (!arr) {
+        arr = [];
+        byBroadcast.set(row.broadcast_id, arr);
+      }
+      arr.push({ name: row.name, elo: row.elo });
+    }
+
+    for (const id of broadcastIds) {
+      const raw = byBroadcast.get(id) ?? [];
+      result.set(id, buildTopPlayers(raw));
     }
 
     return result;
