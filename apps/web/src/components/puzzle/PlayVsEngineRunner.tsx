@@ -231,6 +231,12 @@ export function PlayVsEngineRunner({
   const submittedRef = useRef(false);
   const engineRef = useRef<EngineAdapter | null>(null);
   const engineReadyRef = useRef(false);
+  /**
+   * KS-2473: единый WASM-worker не выдерживает конкурентных analyze
+   * (mid-stream разруха stdin → state=error). Сериализуем все вызовы
+   * через promise-цепочку.
+   */
+  const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastMoveUciRef = useRef<string | null>(null);
 
   // ── Engine init / cleanup ─────────────────────────────────────────────
@@ -242,6 +248,25 @@ export function PlayVsEngineRunner({
     engineReadyRef.current = true;
     return engine;
   }, [engineFactory]);
+
+  /**
+   * KS-2473: сериализованный вызов analyze. Ставит запрос в очередь и
+   * возвращает Promise<AnalysisResult>. Гарантирует, что в каждый
+   * момент только один analyze в работе.
+   */
+  const queueAnalyze = useCallback(
+    (fen: string): Promise<AnalysisResult> => {
+      const next = engineQueueRef.current.then(async () => {
+        const eng = await ensureEngine();
+        return eng.analyze(fen, analyzeDepth, 1);
+      });
+      // Не пробрасываем ошибки в цепочку, чтобы один сбой не убил все
+      // последующие analyze.
+      engineQueueRef.current = next.catch(() => undefined);
+      return next;
+    },
+    [ensureEngine, analyzeDepth],
+  );
 
   useEffect(() => {
     return () => {
@@ -294,9 +319,8 @@ export function PlayVsEngineRunner({
   const runEngineCycle = useCallback(
     async (after: Chess, halfAfterUser: number) => {
       setState('evaluating');
-      let engine: EngineAdapter;
       try {
-        engine = await ensureEngine();
+        await ensureEngine();
       } catch (e) {
         setErrorMsg(e instanceof Error ? e.message : 'engine-init-failed');
         setState('error');
@@ -306,7 +330,7 @@ export function PlayVsEngineRunner({
       // 1) Оценка после хода пользователя — в этом fen ходит соперник.
       let result: AnalysisResult;
       try {
-        result = await engine.analyze(after.fen(), analyzeDepth, 1);
+        result = await queueAnalyze(after.fen());
       } catch (e) {
         setErrorMsg(e instanceof Error ? e.message : 'engine-error');
         setState('error');
@@ -385,7 +409,7 @@ export function PlayVsEngineRunner({
       if (halfAfterEngine >= params.halfMovesN) {
         // Финальный analyze, чтобы сверить wdl_user после хода engine.
         try {
-          const final = await engine.analyze(next.fen(), analyzeDepth, 1);
+          const final = await queueAnalyze(next.fen());
           const finalBest = pickBestLine(final);
           setEvalLines(toEvalLines(final));
           // Теперь side-to-move == userSide → POV-знак WDL = +1 для user.
@@ -409,7 +433,7 @@ export function PlayVsEngineRunner({
     },
     [
       ensureEngine,
-      analyzeDepth,
+      queueAnalyze,
       params.failThreshold,
       params.winThreshold,
       params.halfMovesN,
@@ -443,24 +467,20 @@ export function PlayVsEngineRunner({
       setHalfMovesPlayed(halfAfterUser);
 
       // KS-2473: pre-analyze позиции ДО хода юзера (PV1 = лучший ход
-      // юзера на этом полуходе). Запускаем в фоне параллельно с
-      // engine-ответом — чтобы не задерживать UX. Если pre-analyze
-      // упадёт, post-mortem-подсказки просто не будет; основной cycle
-      // продолжается независимо.
+      // юзера на этом полуходе). У нас один WASM-worker — конкурентные
+      // analyze пересекают stdin Stockfish'а и ломают его. Поэтому
+      // делаем pre-analyze СЕРИАЛЬНО до post-analyze в runEngineCycle.
+      // Запускается фоном (void async) — onPieceDrop остаётся sync,
+      // PuzzleBoard сразу анимирует фигуру.
       void (async () => {
         try {
-          const eng = await ensureEngine();
-          const pre = await eng.analyze(fenBefore, analyzeDepth, 1);
+          await ensureEngine();
+          const pre = await queueAnalyze(fenBefore);
           const preBest = pickBestLine(pre);
           if (preBest && preBest.pv[0]) {
             setUserBestLog((prev) => [
               ...prev,
-              {
-                halfMove: halfAfterUser,
-                fenBefore,
-                playedUci,
-                bestUci: preBest.pv[0],
-              },
+              { halfMove: halfAfterUser, fenBefore, playedUci, bestUci: preBest.pv[0] },
             ]);
           }
         } catch {
@@ -480,8 +500,8 @@ export function PlayVsEngineRunner({
         void (async () => {
           setState('evaluating');
           try {
-            const engine = await ensureEngine();
-            const result = await engine.analyze(next.fen(), analyzeDepth, 1);
+            await ensureEngine();
+            const result = await queueAnalyze(next.fen());
             const best = pickBestLine(result);
             setEvalLines(toEvalLines(result));
             if (next.isCheckmate()) {
@@ -520,8 +540,8 @@ export function PlayVsEngineRunner({
       params.winThreshold,
       runEngineCycle,
       playSound,
-      analyzeDepth,
       ensureEngine,
+      queueAnalyze,
       finishLose,
       finishWin,
     ],
