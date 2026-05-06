@@ -692,19 +692,30 @@
   line-height: 1.3;
 }
 
-/* KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под title. */
+/* KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под title.
+   KS-2451: явный text-decoration: none — иначе глобальный a:hover из base.css
+   протаскивает underline на дочерний div внутри карточки-ссылки. Цвета
+   подняты для контраста: --c-888 на белой карточке (text-muted, тёмный
+   в light, серый #888 в dark), --c-bbb на featured (заметнее на цветном
+   градиенте в обеих темах). */
 .broadcast-top-players {
   font-size: 11px;
-  color: var(--c-9e9e9e);
+  color: var(--c-888);
   line-height: 1.3;
   white-space: normal;
   overflow-wrap: anywhere;
+  text-decoration: none;
 }
 
 .broadcast-top-players--featured {
   font-size: 12px;
   margin-top: 2px;
-  color: var(--c-c0c0c0, #c0c0c0);
+  color: var(--c-bbb);
+}
+
+.broadcast-lichess-card:hover .broadcast-top-players,
+.broadcast-featured-card:hover .broadcast-top-players {
+  text-decoration: none;
 }
 
 .broadcast-lichess-status {
