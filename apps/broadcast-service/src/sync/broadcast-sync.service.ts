@@ -215,21 +215,39 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    await this.syncBroadcasts();
+    // KS-2450 (deploy-fix): инициальный sync — fire-and-forget. До этого
+    // блокировал OnModuleInit на ~4 минуты (100 broadcasts), из-за чего
+    // app.listen() не успевал открыть порт 3004 раньше ALB health-check
+    // unhealthy threshold (45s). ECS убивал таск как deadlock, деплой
+    // зацикливался на rollback. Стартовый sync теперь идёт в фоне после
+    // того как процесс уже слушает порт; periodic sync — как и раньше.
+    setImmediate(() => {
+      this.syncBroadcasts().catch((e: Error) =>
+        this.logger.error(`[broadcast-sync] Initial sync error: ${e.message}`),
+      );
+    });
     this.syncTimer = setInterval(() => {
       this.syncBroadcasts().catch((e: Error) =>
         this.logger.error(`[broadcast-sync] Sync error: ${e.message}`),
       );
     }, SYNC_INTERVAL_MS);
 
-    await this.syncPinnedBroadcasts();
+    setImmediate(() => {
+      this.syncPinnedBroadcasts().catch((e: Error) =>
+        this.logger.error(
+          `[broadcast-sync] Initial pinned poll error: ${e.message}`,
+        ),
+      );
+    });
     this.pinnedPollTimer = setInterval(() => {
       this.syncPinnedBroadcasts().catch((e: Error) =>
         this.logger.error(`[broadcast-sync] PGN poll error: ${e.message}`),
       );
     }, PINNED_POLL_INTERVAL_MS);
 
-    this.logger.log('[broadcast-sync] Running');
+    this.logger.log(
+      '[broadcast-sync] Running (initial syncs scheduled in background)',
+    );
   }
 
   async stop(): Promise<void> {
