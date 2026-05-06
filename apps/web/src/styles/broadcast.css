@@ -593,10 +593,6 @@
   text-decoration: none;
 }
 
-.broadcast-featured-card:hover .broadcast-featured-title {
-  text-decoration: underline;
-}
-
 .broadcast-featured-badge {
   padding: 4px 10px;
   background: var(--c-4caf50);
@@ -675,10 +671,6 @@
 .broadcast-lichess-card:hover {
   border-color: var(--c-7c83ff);
   text-decoration: none;
-}
-
-.broadcast-lichess-card:hover .broadcast-lichess-title {
-  text-decoration: underline;
 }
 
 /* KS-2449: оборачиваем title + строку фаворитов в отдельный блок,
