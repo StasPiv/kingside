@@ -590,6 +590,11 @@
 .broadcast-featured-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px var(--ov-accent-30);
+  text-decoration: none;
+}
+
+.broadcast-featured-card:hover .broadcast-featured-title {
+  text-decoration: underline;
 }
 
 .broadcast-featured-badge {
@@ -669,6 +674,11 @@
 
 .broadcast-lichess-card:hover {
   border-color: var(--c-7c83ff);
+  text-decoration: none;
+}
+
+.broadcast-lichess-card:hover .broadcast-lichess-title {
+  text-decoration: underline;
 }
 
 /* KS-2449: оборачиваем title + строку фаворитов в отдельный блок,
@@ -693,29 +703,24 @@
 }
 
 /* KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под title.
-   KS-2451: явный text-decoration: none — иначе глобальный a:hover из base.css
-   протаскивает underline на дочерний div внутри карточки-ссылки. Цвета
-   подняты для контраста: --c-888 на белой карточке (text-muted, тёмный
-   в light, серый #888 в dark), --c-bbb на featured (заметнее на цветном
-   градиенте в обеих темах). */
+   KS-2451: цвета подняты для контраста на обеих темах (--c-888 в light
+   #5b6270, в dark #888; --c-bbb в light #4f545d, в dark #bbb).
+   Underline на hover отменён через .broadcast-*-card:hover { text-decoration:
+   none } и подчёркивается ТОЛЬКО title — потому что text-decoration на
+   потомке не прерывает propagation от ancestor `<a>:hover` (CSS-нюанс),
+   единственный надёжный способ — снять underline с самой карточки. */
 .broadcast-top-players {
   font-size: 11px;
   color: var(--c-888);
   line-height: 1.3;
   white-space: normal;
   overflow-wrap: anywhere;
-  text-decoration: none;
 }
 
 .broadcast-top-players--featured {
   font-size: 12px;
   margin-top: 2px;
   color: var(--c-bbb);
-}
-
-.broadcast-lichess-card:hover .broadcast-top-players,
-.broadcast-featured-card:hover .broadcast-top-players {
-  text-decoration: none;
 }
 
 .broadcast-lichess-status {
