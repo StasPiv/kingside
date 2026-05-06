@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { BroadcastStandings } from '../components/broadcast/BroadcastStandings';
+import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 
 // Types
 type BroadcastMeta = {
@@ -84,12 +85,47 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
       .catch(() => {});
   }, [tournamentId]);
 
-  // Load live games from ongoing round
+  // KS-2447: Live-вкладка должна обновлять позиции в реальном времени, как
+  // и страница Round (`BroadcastRoundPage`). Раньше здесь был одноразовый
+  // fetch без интервала — позиции на досках замерзали; пользователю
+  // приходилось переходить через вкладку «Туры» в активный тур, где
+  // запускается тот же 15s polling. Теперь делаем initial fetch + polling
+  // с 15-секундным интервалом, как на Round-странице. Сортировка по
+  // фамилии белых (KS-2446) применяется к выводу для консистентного
+  // порядка карточек.
+  const prevLiveGamesRef = useRef<BroadcastGame[]>([]);
   useEffect(() => {
-    if (!ongoingRound) return;
-    broadcastApi.get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${ongoingRound.id}/games`)
-      .then((res) => setLiveGames(Array.isArray(res?.data) ? res.data : []))
-      .catch(() => {});
+    if (!ongoingRound) {
+      prevLiveGamesRef.current = [];
+      setLiveGames([]);
+      return;
+    }
+    let cancelled = false;
+    let isFirstFetch = true;
+
+    const fetchLiveGames = () => {
+      broadcastApi
+        .get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${ongoingRound.id}/games`)
+        .then((res) => {
+          if (cancelled) return;
+          const fresh = Array.isArray(res?.data) ? res.data : [];
+          const fingerprint = gamesFingerprint(fresh);
+          const prevFingerprint = gamesFingerprint(prevLiveGamesRef.current);
+          if (isFirstFetch || fingerprint !== prevFingerprint) {
+            setLiveGames(sortGamesByWhite(fresh));
+          }
+          prevLiveGamesRef.current = fresh;
+          isFirstFetch = false;
+        })
+        .catch(() => {});
+    };
+
+    fetchLiveGames();
+    const intervalId = setInterval(fetchLiveGames, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, [ongoingRound, tournamentId]);
 
   const handleGameClick = (game: BroadcastGame) => {
