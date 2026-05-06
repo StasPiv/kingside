@@ -984,6 +984,21 @@
     "tryAgain": "Попробовать снова",
     "loadError": "Не удалось загрузить задачу",
     "backToPuzzles": "Назад к задачам",
+    "engine": {
+      "win": "Преимущество удержано",
+      "winMate": "Мат!",
+      "winResign": "Соперник сдался (видит мат)",
+      "loseWdl": "Преимущество потеряно",
+      "loseMate": "Мат вашему королю",
+      "halfMovesLeft_one": "{{count}} полуход осталось",
+      "halfMovesLeft_few": "{{count}} полухода осталось",
+      "halfMovesLeft_many": "{{count}} полуходов осталось",
+      "halfMovesLeft_other": "{{count}} полуходов осталось",
+      "blunderHint": "Соперник зевнул ходом {{move}}. Удержите преимущество {{n}} полуходов против движка.",
+      "bestmoveAt": "Лучший ход на полуходе {{n}}: {{uci}}",
+      "finalWdl": "Финальный WDL",
+      "error": "Ошибка движка"
+    },
     "mistakes": {
       "title": "Дневник ошибок",
       "fullTitle": "Все ошибки",

@@ -2045,3 +2045,111 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
   animation: checking-pulse 1s ease-in-out infinite;
 }
+
+/* ─── KS-2466: Play-vs-engine runner ─────────────────────────────── */
+
+.puzzle-engine-runner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.puzzle-engine-runner__layout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.puzzle-engine-runner__board-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.puzzle-engine-runner__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.puzzle-engine-runner__progress-bar {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  background: var(--c-2a2a4e, #2a2a4e);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.puzzle-engine-runner__progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--c-7c83ff, #7c83ff), var(--c-4caf50, #4caf50));
+  transition: width 0.2s ease;
+}
+
+.puzzle-engine-runner__progress-label {
+  font-size: 12px;
+  color: var(--c-9e9e9e, #9e9e9e);
+  white-space: nowrap;
+}
+
+.puzzle-engine-runner__hint {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--ov-warning-15, rgba(255, 193, 7, 0.12));
+  border-left: 3px solid var(--c-ffc107, #ffc107);
+  border-radius: 4px;
+  color: var(--c-e0e0e0);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.puzzle-engine-runner__result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
+  border-radius: 6px;
+}
+
+.puzzle-engine-runner__result-label {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.puzzle-engine-runner__result-label--win {
+  color: var(--c-4caf50, #4caf50);
+}
+
+.puzzle-engine-runner__result-label--lose {
+  color: var(--c-f44336, #f44336);
+}
+
+.puzzle-engine-runner__bestmove-hint,
+.puzzle-engine-runner__final-wdl {
+  font-size: 13px;
+  color: var(--c-c0c0c0, #c0c0c0);
+}
+
+.puzzle-engine-runner__error {
+  padding: 8px 12px;
+  background: var(--ov-error-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-f44336, #f44336);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .puzzle-engine-runner__layout {
+    flex-direction: column;
+  }
+  .puzzle-engine-runner__progress-label {
+    font-size: 11px;
+  }
+}

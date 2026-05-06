@@ -1,5 +1,12 @@
 import { api } from './api';
-import type { PuzzleDto, PuzzleAttemptResponse, PuzzleAttemptResult, PuzzleRushReviewResponse, PuzzleRushBestMoveResponse } from '@kingside/shared';
+import type {
+  PuzzleDto,
+  PuzzleAttemptResponse,
+  PuzzleAttemptResult,
+  PuzzleRushReviewResponse,
+  PuzzleRushBestMoveResponse,
+  PlayVsEnginePuzzleReason,
+} from '@kingside/shared';
 
 // --- Request / Response types ---
 
@@ -10,10 +17,19 @@ export type PuzzleNextParams = {
   ratingMax?: number;
 };
 
+/**
+ * KS-2466 / ADR-044 §5.4: для `play-vs-engine` пазлов фронт передаёт
+ * дополнительные опц. поля. Бэк (KS-2465) принимает их и пока только
+ * логирует — в БД не пишет (PuzzleAttempt.metadata — v2). Для классики
+ * `forced-line` поля не передаются.
+ */
 export type PuzzleAttemptRequest = {
   result: PuzzleAttemptResult;
   timeMs: number;
   userMoves?: string;
+  halfMovesPlayed?: number;
+  finalWdl?: number;
+  reason?: PlayVsEnginePuzzleReason;
 };
 
 export type DailyPuzzleResponse = {

@@ -6,6 +6,10 @@ import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
 import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
+import {
+  PlayVsEngineRunner,
+  type PlayVsEngineSubmit,
+} from '../components/puzzle/PlayVsEngineRunner';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useAuth } from '../context/AuthContext';
 import type { PuzzleDto } from '@kingside/shared';
@@ -395,6 +399,29 @@ export function PuzzlePage() {
     startTimeRef.current = Date.now();
   };
 
+  // KS-2466 / ADR-044 §5: для пазлов в режиме `play-vs-engine` рендерим
+  // отдельный компонент (там своя state-machine + WASM-движок), а
+  // forced-line ветка ниже не трогается. Гости — просто без submitAttempt
+  // (как в forced-line submitAttemptResult ниже).
+  const handlePlayVsEngineSubmit = useCallback(
+    async (data: PlayVsEngineSubmit) => {
+      if (!puzzle) return;
+      if (!user) return;
+      try {
+        await puzzleApi.submitAttempt(puzzle.id, {
+          result: data.solved ? 'solved' : 'failed',
+          timeMs: data.timeMs,
+          halfMovesPlayed: data.halfMovesPlayed,
+          finalWdl: data.finalWdl,
+          reason: data.reason,
+        });
+      } catch {
+        /* MVP: молча игнорируем сетевые ошибки submit'а. */
+      }
+    },
+    [puzzle, user],
+  );
+
   if (loading) {
     return <div className="loading">{t('common.loading')}</div>;
   }
@@ -417,6 +444,28 @@ export function PuzzlePage() {
       <div className="puzzle-page">
         <div className="error">{error}</div>
         <button onClick={() => loadPuzzle()} style={{ marginTop: 16 }}>{t('puzzle.retry')}</button>
+      </div>
+    );
+  }
+
+  // KS-2466: ветка play-vs-engine. Compose: общий header (back-link, title)
+  // + специальный runner вместо forced-line UI.
+  if (puzzle && puzzle.solutionMode === 'play-vs-engine') {
+    return (
+      <div className="puzzle-page" data-testid="puzzle-page-play-vs-engine">
+        <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
+        <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
+        {!user && (
+          <div className="guest-banner">
+            <Link to="/login">{t('auth.loginToSaveProgress', 'Sign in to save your progress')}</Link>
+          </div>
+        )}
+        <PlayVsEngineRunner
+          key={puzzle.id}
+          puzzle={puzzle}
+          onSubmit={handlePlayVsEngineSubmit}
+          onNext={() => { void loadPuzzle(); }}
+        />
       </div>
     );
   }

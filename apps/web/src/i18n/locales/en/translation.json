@@ -982,6 +982,19 @@
     "tryAgain": "Try Again",
     "loadError": "Failed to load puzzle",
     "backToPuzzles": "Back to Puzzles",
+    "engine": {
+      "win": "You held the advantage",
+      "winMate": "Checkmate!",
+      "winResign": "Engine resigned (sees mate)",
+      "loseWdl": "You lost the advantage",
+      "loseMate": "You got mated",
+      "halfMovesLeft_one": "{{count}} half-move left",
+      "halfMovesLeft_other": "{{count}} half-moves left",
+      "blunderHint": "Opponent blundered ({{move}}). Hold the advantage for {{n}} half-moves against the engine.",
+      "bestmoveAt": "Best move at half-move {{n}}: {{uci}}",
+      "finalWdl": "Final WDL",
+      "error": "Engine error"
+    },
     "mistakes": {
       "title": "Mistakes diary",
       "fullTitle": "All mistakes",
