@@ -60,6 +60,17 @@ export type PuzzleTheme =
   | 'xRayAttack'
   | 'zugzwang';
 
+/**
+ * KS-2462 / ADR-044 §5.5. Режим решения пазла:
+ *  - `forced-line` — классика: решатель играет заранее зафиксированную
+ *    линию `moves`, любое отклонение = fail. Это все исторические
+ *    Lichess-puzzle и custom-задачи курсов.
+ *  - `play-vs-engine` — открытая защита позиции после зевка: решатель
+ *    играет против движка (на клиенте), задача — удержать оценку выше
+ *    `winThreshold` в течение `halfMovesN` полуходов. Линия не задана.
+ */
+export type PuzzleSolutionMode = 'forced-line' | 'play-vs-engine';
+
 export type PuzzleDto = {
   id: string;
   fen: string;
@@ -91,6 +102,35 @@ export type PuzzleDto = {
    * пропускает блок «применить setup-ход с задержкой 300 ms».
    */
   firstMoveIsUser?: boolean;
+  /**
+   * KS-2462 / ADR-044 §5.5. Режим решения пазла. См. `PuzzleSolutionMode`.
+   * Все исторические пазлы получают `'forced-line'` (миграция KS-2463),
+   * новые `play-vs-engine` пазлы заполняют опциональный блок ниже.
+   */
+  solutionMode: PuzzleSolutionMode;
+  /**
+   * KS-2462 / ADR-044 §5.5. Параметры режима `play-vs-engine`. Заполнен
+   * только при `solutionMode === 'play-vs-engine'`; для `forced-line` —
+   * отсутствует.
+   *
+   *  - `blunderMove` — UCI зевка из исходной партии (информативно, для
+   *    подсветки на клиенте);
+   *  - `wdlAfterBlunder` — WDL_signed для решающей сразу после зевка
+   *    (от лица решателя, диапазон [-1..+1]; обычно > 0, иначе позиция
+   *    не выигрывается);
+   *  - `winThreshold` — нижний порог WDL, который решатель должен
+   *    удерживать (default 0.5);
+   *  - `failThreshold` — порог, ниже которого фейл сразу (default 0.0);
+   *  - `halfMovesN` — сколько полуходов решатель играет против движка
+   *    с удержанием порога (default 6).
+   */
+  playVsEngine?: {
+    blunderMove: string;
+    wdlAfterBlunder: number;
+    winThreshold: number;
+    failThreshold: number;
+    halfMovesN: number;
+  };
 };
 
 export type PuzzleAttemptResult = 'solved' | 'failed';
