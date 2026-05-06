@@ -1,27 +1,33 @@
 /**
- * KS-2431 (WDL pivot). CLI subcommand `generate-puzzles`.
+ * KS-2464 / ADR-044 §6. CLI subcommand `generate-puzzles` (play-vs-engine).
  *
  * Подключает PrismaService для записи в `puzzles`, StockfishService
  * с UCI_ShowWDL для анализа. pg.Client к archive-RDS через pg-ssl.ts.
  *
- * Контракт CLI (стартовые значения, играемся X/Y):
+ * Контракт CLI:
  *   ARCHIVE_DATABASE_URL=postgresql://... DATABASE_URL=postgresql://... \
  *     node dist/main.js generate-puzzles \
+ *       [--solution-mode=play-vs-engine|forced-line]  default play-vs-engine
  *       [--max-games=N]            default 100
- *       [--blunder-delta=X]        default 0.5  (минимум |ΔWDL_зевка|)
- *       [--spread-delta=Y]         default 0.3  (минимум ΔWDL_спред)
- *       [--depth=N]                default 20
- *       [--time-ms=N]              default 5000
- *       [--nodes=N]                default 2000000
+ *       [--blunder-delta=X]        default 0.6  (минимум blunderΔ в WDL)
+ *       [--time-ms=N]              default 1000
+ *       [--depth=N]                опц. (по умолчанию используется time-ms)
+ *       [--nodes=N]                опц.
+ *       [--half-moves-n=N]         default 6   (полуходов в solvability-check)
+ *       [--win-threshold=W]        default 0.5
+ *       [--fail-threshold=F]       default 0.0
+ *       [--skip-decided-wdl=W]     default 0.95
+ *       [--min-wdl-after-blunder=W] default 0.5
  *       [--min-rating=N]           default 1400
  *       [--min-ply=N]              default 20
  *       [--start-ply=N]            default 20
- *       [--min-line-length=N]      default 2
- *       [--max-line-length=N]      default 6
  *       [--game-batch-size=N]      default 100
  *       [--cursor=UUID]            пропустить партии с id ≤ UUID
- *       [--dump-file=PATH]         если задан, дампит до 30 первых
- *                                  puzzle'ов в JSON-файл (для sample-test)
+ *       [--dump-file=PATH]         дамп до 30 первых puzzle'ов в JSON
+ *
+ *   Legacy forced-line флаги (--spread-delta, --continue-spread-delta,
+ *   --min-line-length, --max-line-length) принимаются, но в режиме
+ *   play-vs-engine игнорируются.
  */
 import { Logger } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
@@ -58,6 +64,9 @@ export function parseArgs(argv: string[]): CliFlags {
       case 'spread-delta':
         opts.spreadDelta = parseFloat(v);
         break;
+      case 'continue-spread-delta':
+        opts.continueSpreadDelta = parseFloat(v);
+        break;
       case 'depth':
         opts.engineLimit = { ...opts.engineLimit, depth: parseInt(v, 10) };
         break;
@@ -91,6 +100,29 @@ export function parseArgs(argv: string[]): CliFlags {
       case 'dump-file':
         dumpFile = v;
         break;
+      case 'solution-mode':
+        if (v !== 'play-vs-engine' && v !== 'forced-line') {
+          throw new Error(
+            `unknown solution-mode: ${v} (allowed: play-vs-engine | forced-line)`,
+          );
+        }
+        opts.solutionMode = v;
+        break;
+      case 'half-moves-n':
+        opts.halfMovesN = parseInt(v, 10);
+        break;
+      case 'win-threshold':
+        opts.winThreshold = parseFloat(v);
+        break;
+      case 'fail-threshold':
+        opts.failThreshold = parseFloat(v);
+        break;
+      case 'skip-decided-wdl':
+        opts.skipDecidedWdl = parseFloat(v);
+        break;
+      case 'min-wdl-after-blunder':
+        opts.minWdlAfterBlunder = parseFloat(v);
+        break;
       default:
         throw new Error(`unknown CLI option: ${arg}`);
     }
@@ -106,11 +138,14 @@ export async function runGeneratePuzzles(
   const { options: parsed, dumpFile } = parseArgs(argv);
 
   process.stdout.write(
-    `[puzzle-gen] starting ` +
-      `blunderDelta=${parsed.blunderDelta} spreadDelta=${parsed.spreadDelta} ` +
+    `[puzzle-gen] starting solutionMode=${parsed.solutionMode} ` +
+      `blunderDelta=${parsed.blunderDelta} ` +
+      `halfMovesN=${parsed.halfMovesN} ` +
+      `win=${parsed.winThreshold} fail=${parsed.failThreshold} ` +
+      `skipDecidedWdl=${parsed.skipDecidedWdl} ` +
+      `minWdlAfterBlunder=${parsed.minWdlAfterBlunder} ` +
       `limit={depth=${parsed.engineLimit.depth},time=${parsed.engineLimit.timeMs}ms,nodes=${parsed.engineLimit.nodes}} ` +
       `minRating=${parsed.minRating} ` +
-      `lineLen=${parsed.minLineLength}-${parsed.maxLineLength} ` +
       `cursor=${parsed.cursor ?? 'none'} ` +
       `maxGames=${parsed.maxGames === Infinity ? 'inf' : parsed.maxGames}\n`,
   );
@@ -144,6 +179,7 @@ export async function runGeneratePuzzles(
         isPublic: puzzle.isPublic,
         acceptedMoves: puzzle.acceptedMoves,
         sourceMetadata: puzzle.sourceMetadata,
+        solutionMode: puzzle.solutionMode,
       };
       const r = await prisma.puzzle.createMany({
         data: [data],

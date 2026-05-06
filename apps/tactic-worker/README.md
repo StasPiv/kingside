@@ -37,12 +37,77 @@ aws ecs run-task \
   }'
 ```
 
+### `generate-puzzles` (KS-2431, рефакторинг KS-2464 — ADR-044)
+
+Puzzle-генератор в режиме **play-vs-engine**. Алгоритм:
+
+1. На каждом ply ≥ `startPly` — `analyzePositionWdl(fenBefore, multiPV=2)`.
+2. Фильтры зевка:
+   - `samePv1` — ход партии = первой линии движка → не зевок.
+   - `skipDecided` — `|wdlBefore| > skipDecidedWdl` (default 0.95) — партия
+     уже решена.
+   - `gameOver` — позиция терминальная.
+3. Применяем ход → `analyzePositionWdl(fenAfter, multiPV=2)`.
+4. Условие зевка: `blunderΔ ≥ blunderDelta` (default 0.6) И
+   `wdlAfterForSolver ≥ minWdlAfterBlunder` (default 0.5).
+5. **Solvability check**: `halfMovesN` полуходов Stockfish-vs-Stockfish
+   из позиции после зевка. Если WDL для решающей упал ниже
+   `failThreshold` или не достиг `winThreshold` через `halfMovesN` —
+   позиция отбрасывается.
+6. Insert в `puzzles` с `solutionMode='play-vs-engine'`, `moves=''`,
+   `acceptedMoves=null`, `sourceMetadata` JSON (blunderMove,
+   wdlBeforeBlunder, wdlAfterBlunder, halfMovesN, win/fail thresholds,
+   engineParams).
+
+**Запуск локально:**
+```bash
+ARCHIVE_DATABASE_URL=postgresql://... \
+DATABASE_URL=postgresql://... \
+node dist/main.js generate-puzzles \
+  --solution-mode=play-vs-engine \
+  --max-games=1000 \
+  --time-ms=1000 \
+  --blunder-delta=0.6 \
+  --half-moves-n=6 \
+  --win-threshold=0.5 \
+  --fail-threshold=0.0 \
+  --skip-decided-wdl=0.95 \
+  --min-wdl-after-blunder=0.5 \
+  --min-rating=2400
+```
+
+Полный список флагов — в шапке `src/cli/generate-puzzles.cli.ts`.
+
+### `validate-etalons`, `dump-puzzles`
+
+См. соответствующие файлы в `src/cli/`.
+
+### `analyze-pgn` — research-инструмент (не production)
+
+CLI subcommand для калибровки порогов на одной партии или маленьком
+наборе. Не пишет в БД, не используется в проде. Берёт PGN-файл, для
+каждого ply печатает per-position таблицу с WDL, blunderΔ, spread,
+геометрическими предикатами и финальным вердиктом. Поддерживает
+мульти-game параллелизм и эксперименты с ранним выходом.
+
+```bash
+DATABASE_URL=postgresql://... STOCKFISH_POOL_SIZE=16 \
+node dist/main.js analyze-pgn \
+  --pgn-file=/tmp/game.pgn \
+  --time-ms=1000 \
+  --blunder-delta=0.3 \
+  --spread-delta=0.2 \
+  --max-games=100
+```
+
+Используется исключительно для подбора порогов перед изменениями в
+`puzzle-generator/generator-pipeline.ts`.
+
 ### Будущие subcommand'ы (TODO)
 
 | Subcommand | Тикет | ADR-042 |
 |---|---|---|
 | `sf-validate-drills` | §9.3 | Stockfish-валидатор drill'ов |
-| `generate-puzzles` | KS-2431 | puzzle-генератор |
 | `validate-drill-positions` | §9.3 | one-shot maintenance |
 | `backfill-…/prune-…/rescore-…` | §9.3 | maintenance-скрипты |
 
@@ -53,6 +118,10 @@ aws ecs run-task \
 - `REDIS_HOST` / `REDIS_PORT` — cursor для incremental режима (TODO).
 - `STOCKFISH_PATH` — путь к Stockfish (default `/usr/games/stockfish`).
 - `STOCKFISH_POOL_SIZE` — размер пула SF-процессов (default 1).
+- `STOCKFISH_THREADS` — потоков на один SF-процесс (default 1; >1 —
+  lazy SMP, нерепродуцируемо между запусками).
+- `STOCKFISH_LOG_TIMINGS=1` — включает per-position лог в stderr
+  (timestamp/worker-id/label) для отладки параллелизма.
 - `NODE_EXTRA_CA_CERTS` — путь к AWS RDS CA bundle (`/app/apps/tactic-worker/certs/rds-ca.pem`).
 - `ARCHIVE_PG_CA_PATH` — override CA для archive-RDS (опционально).
 - `ARCHIVE_PG_NO_VERIFY=1` — hotfix-bypass SSL для archive-RDS (опционально).

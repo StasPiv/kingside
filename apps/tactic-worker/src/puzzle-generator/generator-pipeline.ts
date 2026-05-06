@@ -1,27 +1,28 @@
 /**
- * KS-2431 (WDL pivot). Puzzle-generator pipeline.
+ * KS-2464 / ADR-044 §6. Puzzle-generator pipeline (play-vs-engine).
  *
  * Алгоритм:
  *   1. Идём по партиям из archive_games batch'ами.
- *   2. На каждой партии: проигрываем ходы chess.js. На ply >= startPly
- *      на каждой позиции делаем engine.analyzePositionWdl(fen, limit, 2).
- *   3. Для каждой пары `(prev_wdl, current_wdl_pv1)`:
- *      - prev_wdl — WDL_signed от лица той стороны, что сейчас на ходу
- *        (т.е. от лица сходившего ДО хода).
- *      - current_wdl от лица новой стороны (после хода) → инвертируем
- *        для сходившего: `-curWdlPv1`.
- *      - blunderDelta = prev_wdl - (-curWdlPv1) — насколько ход
- *        ухудшил WDL для сходившего. Положительное → плохой ход.
- *      - spread = curWdlPv1 - curWdlPv2 (от лица решающей, она же
- *        новая side-to-move).
- *   4. Принимаем кандидата если blunderDelta >= X И spread >= Y.
- *   5. Строим линию через buildForcedLine (на каждом нашем ходу snova
- *      проверяем spread).
- *   6. Tagging как раньше.
- *   7. Insert через callback.
- *
- * Между ply: prev_wdl обновляется как WDL_signed новой текущей
- * позиции от лица side-to-move (это уже посчитано при analyze).
+ *   2. На каждой партии: проигрываем ходы chess.js. На ply >= startPly:
+ *      a. analyzePositionWdl(fenBefore, multiPV=2) — лучший и второй
+ *         ходы движка ДО хода партии.
+ *      b. samePv1 — если ход партии совпал с PV1 → не зевок (drop).
+ *      c. skipDecided — если |wdlBefore| > skipDecidedWdl → drop.
+ *      d. Применяем ход. gameOver — если мат/пат/ничья → drop.
+ *      e. analyzePositionWdl(fenAfter, multiPV=2). pv1 от лица решающей.
+ *      f. blunderΔ = wdlBefore + pv1 (pv1 уже от противоположной стороны;
+ *         сложение даёт величину «насколько хуже стало для сходившего»).
+ *         Если blunderΔ < blunderDelta → drop (notBlunder).
+ *      g. wdlAfter (для решающей) = pv1. Если < minWdlAfterBlunder →
+ *         drop (lowWdlAfterBlunder).
+ *      h. Solvability check: halfMovesN полуходов Stockfish-vs-Stockfish.
+ *         На каждом ply решающей берём bestmove (multiPV=1). После
+ *         каждого хода движка-противника считаем WDL для решающей.
+ *         Если < failThreshold в любой момент — drop (solvabilityFailed).
+ *         Через halfMovesN: если WDL ≥ winThreshold — пазл проходит.
+ *   3. Tagging — drill-предикаты + алгоритмика, технический тег
+ *      `playVsEngine`.
+ *   4. Insert через callback, solutionMode='play-vs-engine', moves=''.
  */
 import { Chess } from 'chess.js';
 import type { Client as PgClient } from 'pg';
@@ -34,7 +35,7 @@ import {
   newGeneratorStats,
 } from './types';
 import { wdlSignedFromInfo } from './score';
-import { buildForcedLine } from './line-builder';
+import type { MultiPvLine } from './types';
 import { computeTags } from './tagging';
 
 interface ArchiveGameRow {
@@ -131,173 +132,166 @@ async function processGame(
   const history = chess.history({ verbose: true });
   const replay = new Chess();
 
-  // prev_wdl: WDL_signed от лица side-to-move в TEKUSHEY позиции
-  // (которая будет ДО следующего хода). Стартовая позиция: equal,
-  // прогноз "side has slight white advantage" — пусть будет 0.
-  let prev_wdl: number | null = null;
-
   for (let i = 0; i < history.length; i++) {
     const m = history[i];
     const ply = i + 1;
-    const sideToMoveBefore = replay.turn() as 'w' | 'b';
 
-    // Перед применением хода: если у нас ещё нет prev_wdl — анализируем
-    // текущую позицию (до хода ply).
-    if (prev_wdl == null && ply >= options.startPly) {
-      try {
-        const pvs = await engine.analyzePositionWdl(
-          replay.fen(),
-          options.engineLimit,
-          1,
-        );
-        if (pvs.length > 0) {
-          prev_wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
-        }
-      } catch {
-        /* no-op, prev_wdl останется null */
-      }
+    if (ply < options.startPly || replay.isGameOver()) {
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
     }
 
-    // Применяем ход партии.
-    let made;
+    // 1. Pre-analyze fenBefore.
+    const fenBefore = replay.fen();
+    let preBefore: MultiPvLine[];
     try {
-      made = replay.move({
-        from: m.from,
-        to: m.to,
-        ...(m.promotion ? { promotion: m.promotion } : {}),
-      });
+      preBefore = await engine.analyzePositionWdl(
+        fenBefore,
+        options.engineLimit,
+        2,
+      );
     } catch {
-      return;
+      // Не считаем positionsAnalyzed (engine упал на пре-анализе).
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
     }
-    if (!made) return;
 
-    if (ply < options.startPly) continue;
-    if (replay.isGameOver()) continue;
-    if (prev_wdl == null) continue; // нет основания для дельты
+    if (preBefore.length === 0) {
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
+    }
+
+    const wdlBefore = wdlSignedFromInfo(
+      preBefore[0].wdl,
+      preBefore[0].score,
+    );
+    if (wdlBefore == null) {
+      stats.positionsAnalyzed++;
+      stats.drops.noScore++;
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
+    }
 
     stats.positionsAnalyzed++;
 
-    // Анализируем позицию ПОСЛЕ хода (стартовая позиция кандидата).
-    let pvs;
+    // 2. samePv1 — ход партии совпал с первой линией движка.
+    const playedUci = `${m.from}${m.to}${m.promotion ?? ''}`;
+    if (samePv1(playedUci, preBefore[0].bestMove)) {
+      stats.drops.samePv1++;
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
+    }
+
+    // 3. skipDecided.
+    if (Math.abs(wdlBefore) > options.skipDecidedWdl) {
+      stats.drops.decided++;
+      if (!(await applyOrReturn(replay, m))) return;
+      continue;
+    }
+
+    // 4. Применяем ход.
+    if (!(await applyOrReturn(replay, m))) return;
+
+    if (replay.isGameOver()) {
+      stats.drops.gameOver++;
+      continue;
+    }
+
+    // 5. Post-analyze fenAfter (PV1 от лица решающей).
+    const fenAfter = replay.fen();
+    const solverSide = replay.turn() as 'w' | 'b';
+    let postPvs: MultiPvLine[];
     try {
-      pvs = await engine.analyzePositionWdl(
-        replay.fen(),
+      postPvs = await engine.analyzePositionWdl(
+        fenAfter,
         options.engineLimit,
         2,
       );
     } catch {
       stats.drops.engineError++;
-      // Сбросим prev — следующий ply пересчитает с нуля.
-      prev_wdl = null;
       continue;
     }
-    if (pvs.length === 0) {
+    if (postPvs.length === 0) {
       stats.drops.engineError++;
-      prev_wdl = null;
       continue;
     }
-    const pv1Wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
-    const pv2Wdl =
-      pvs.length >= 2
-        ? wdlSignedFromInfo(pvs[1].wdl, pvs[1].score)
-        : null;
-    if (pv1Wdl == null) {
+    const wdlAfterForSolver = wdlSignedFromInfo(
+      postPvs[0].wdl,
+      postPvs[0].score,
+    );
+    if (wdlAfterForSolver == null) {
       stats.drops.noScore++;
-      prev_wdl = null;
       continue;
     }
 
-    // ΔWDL_зевка от лица сходившего: ход хуже если сходивший стал
-    // оцениваться ниже, чем был до хода.
-    // После хода новая side = противник sideToMoveBefore. WDL_PV1 от
-    // лица новой = pv1Wdl. От лица сходившего = -pv1Wdl.
-    const wdlAfterForMover = -pv1Wdl;
-    const blunderDelta = prev_wdl - wdlAfterForMover;
-    // spread на стартовой позиции puzzle'а (от лица решающей =
-    // новой side-to-move).
-    const spread =
-      pv2Wdl != null ? pv1Wdl - pv2Wdl : Number.POSITIVE_INFINITY;
-
-    // Подготовим prev для следующего ply (мы только что применили
-    // ход, теперь side ходит, и pv1Wdl = WDL для неё; это и есть
-    // prev для следующей итерации).
-    const nextPrev = pv1Wdl;
-
-    // Триггер X.
+    // 6. blunderΔ = wdlBefore + wdlAfterForSolver (одинаковая POV-логика
+    // как в KS-2431 / cli/analyze-pgn).
+    const blunderDelta = wdlBefore + wdlAfterForSolver;
     if (blunderDelta < options.blunderDelta) {
       stats.drops.notBlunder++;
-      prev_wdl = nextPrev;
-      continue;
-    }
-    // Триггер Y.
-    if (spread < options.spreadDelta) {
-      stats.drops.notUnique++;
-      prev_wdl = nextPrev;
       continue;
     }
 
-    const puzzleFen = replay.fen();
-    const solverSide = replay.turn() as 'w' | 'b';
-    const firstMoveUci = pvs[0].bestMove;
+    // 7. WDL после зевка должен быть достаточно высоким, иначе позиция
+    // фактически не выигрывается явно.
+    if (wdlAfterForSolver < options.minWdlAfterBlunder) {
+      stats.drops.lowWdlAfterBlunder++;
+      continue;
+    }
 
-    // Линия.
-    const line = await buildForcedLine(puzzleFen, firstMoveUci, {
+    // 8. Solvability check.
+    const firstMovePV1 = postPvs[0].bestMove;
+    const solvable = await checkSolvability({
       engine,
-      limit: options.engineLimit,
-      spreadDelta: options.spreadDelta,
-      maxLineLength: options.maxLineLength,
+      startFen: fenAfter,
       solverSide,
+      halfMovesN: options.halfMovesN,
+      winThreshold: options.winThreshold,
+      failThreshold: options.failThreshold,
+      limit: options.engineLimit,
     });
-    if (line.moves.length < options.minLineLength) {
-      stats.drops.tooShort++;
-      prev_wdl = nextPrev;
-      continue;
-    }
-    if (line.moves.length > options.maxLineLength) {
-      stats.drops.tooLong++;
-      prev_wdl = nextPrev;
+    if (!solvable) {
+      stats.drops.solvabilityFailed++;
       continue;
     }
 
-    // Tagging.
+    // 9. Tagging.
     const tags = computeTags({
-      startFen: puzzleFen,
-      moves: line.moves,
-      // tagging.ts ожидает finalCpForSolver в cp; конвертируем WDL_signed
-      // в условные cp по обратной формуле lichess (только для тегов
-      // crushing/advantage; не критично, точность необязательна).
-      finalCpForSolver: wdlToApproxCp(line.finalWdlForSolver),
-      endsInMate: line.endsInMate,
+      startFen: fenAfter,
+      moves: [firstMovePV1],
+      finalCpForSolver: wdlToApproxCp(wdlAfterForSolver),
+      endsInMate: false,
     });
+    tags.push('playVsEngine');
 
-    const rating = computeStartingRating(row, line.moves.length, spread);
+    const rating = computeStartingRating(row, wdlAfterForSolver);
     const puzzle: PuzzleRecord = {
       id: randomUUID(),
-      fen: puzzleFen,
-      moves: line.moves.join(' '),
+      fen: fenAfter,
+      moves: '',
       rating,
       ratingDev: 350,
-      themes: tags.join(' '),
+      themes: Array.from(new Set(tags)).sort().join(' '),
       source: 'generated',
       sourceType: 'archive_game',
       sourceId: row.id,
       sourceMoveNum: ply,
-      gap: Math.round(spread * 100), // целое в процентных пунктах WDL
+      gap: Math.round(wdlAfterForSolver * 100),
       depth: options.engineLimit.depth ?? 0,
       isPublic: true,
       acceptedMoves: null,
+      solutionMode: options.solutionMode,
       sourceMetadata: JSON.stringify({
-        prevWdl: round3(prev_wdl),
-        wdlAfterForMover: round3(wdlAfterForMover),
+        blunderMove: playedUci,
+        wdlBeforeBlunder: round3(wdlBefore),
+        wdlAfterBlunder: round3(wdlAfterForSolver),
         blunderDelta: round3(blunderDelta),
-        spreadDelta: round3(spread),
-        pv1Wdl: round3(pv1Wdl),
-        pv2Wdl: pv2Wdl != null ? round3(pv2Wdl) : null,
-        finalWdlForSolver: round3(line.finalWdlForSolver),
-        lineLength: line.moves.length,
-        endsInMate: line.endsInMate,
-        engineLimit: options.engineLimit,
+        firstMovePV1,
+        winThreshold: options.winThreshold,
+        failThreshold: options.failThreshold,
+        halfMovesN: options.halfMovesN,
         engine: 'stockfish',
+        engineParams: options.engineLimit,
         generatedAt: new Date().toISOString(),
       }),
     };
@@ -307,46 +301,152 @@ async function processGame(
       inserted = await options.insertPuzzle(puzzle);
     } catch {
       stats.drops.duplicate++;
-      prev_wdl = nextPrev;
       continue;
     }
     if (!inserted) {
       stats.drops.duplicate++;
-      prev_wdl = nextPrev;
       continue;
     }
     stats.inserted++;
     for (const t of tags) {
       stats.tagDistribution[t] = (stats.tagDistribution[t] ?? 0) + 1;
     }
-    prev_wdl = nextPrev;
+  }
+}
+
+export function samePv1(playedUci: string, pv1Uci: string): boolean {
+  // Сравниваем from+to (4 символа). Promotion — отдельная буква (5-й
+  // символ); оба варианта (`e7e8q` и `e7e8`) считаем совпадением
+  // только если from+to + promotion идентичны. Если promotion в одном
+  // присутствует, в другом нет — неполное совпадение, не считаем.
+  if (!playedUci || !pv1Uci) return false;
+  if (playedUci.length < 4 || pv1Uci.length < 4) return false;
+  return playedUci.slice(0, 5) === pv1Uci.slice(0, 5);
+}
+
+interface SolvabilityArgs {
+  engine: EngineApi;
+  startFen: string;
+  solverSide: 'w' | 'b';
+  halfMovesN: number;
+  winThreshold: number;
+  failThreshold: number;
+  limit: import('./types').AnalysisLimit;
+}
+
+/**
+ * Проверка решаемости: halfMovesN полуходов Stockfish-vs-Stockfish из
+ * `startFen`. На каждом ply берём bestmove. После каждого
+ * полухода-противника проверяем WDL для решающей; если < failThreshold —
+ * drop. По окончании halfMovesN — если WDL ≥ winThreshold, проходит.
+ */
+async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
+  const { engine, startFen, solverSide, halfMovesN, winThreshold, failThreshold, limit } = args;
+  const chess = new Chess(startFen);
+  let lastWdlForSolver: number | null = null;
+
+  for (let ply = 0; ply < halfMovesN; ply++) {
+    if (chess.isGameOver()) {
+      // Мат за решающую — пазл решаемый. Стейлмейт/ничья — провал.
+      if (chess.isCheckmate()) {
+        // Сторона, которая получила мат — проигравшая. Если это
+        // противник решающей, мы выиграли.
+        const losingSide = chess.turn() as 'w' | 'b';
+        return losingSide !== solverSide;
+      }
+      return false;
+    }
+    let pvs: MultiPvLine[];
+    try {
+      pvs = await engine.analyzePositionWdl(chess.fen(), limit, 1);
+    } catch {
+      return false;
+    }
+    if (pvs.length === 0 || !pvs[0].bestMove) return false;
+    const bm = pvs[0].bestMove;
+    const wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
+    const sideToMove = chess.turn() as 'w' | 'b';
+    // POV: WDL отдан от стороны на ходу.
+    if (wdl != null) {
+      lastWdlForSolver = sideToMove === solverSide ? wdl : -wdl;
+      if (lastWdlForSolver < failThreshold) return false;
+    }
+    if (!applyUci(chess, bm)) return false;
+  }
+
+  // Финальная позиция — анализируем ещё раз для итогового WDL за
+  // решающую (если последний ход был решающего, то после него
+  // sideToMove = противник, и WDL от его лица; инвертируем).
+  try {
+    const finalPvs = await engine.analyzePositionWdl(chess.fen(), limit, 1);
+    if (finalPvs.length > 0) {
+      const w = wdlSignedFromInfo(finalPvs[0].wdl, finalPvs[0].score);
+      if (w != null) {
+        const sideToMove = chess.turn() as 'w' | 'b';
+        lastWdlForSolver = sideToMove === solverSide ? w : -w;
+      }
+    }
+  } catch {
+    // Используем последний известный
+  }
+
+  return lastWdlForSolver != null && lastWdlForSolver >= winThreshold;
+}
+
+async function applyOrReturn(
+  replay: Chess,
+  m: { from: string; to: string; promotion?: string },
+): Promise<boolean> {
+  try {
+    const made = replay.move({
+      from: m.from,
+      to: m.to,
+      ...(m.promotion ? { promotion: m.promotion as 'q' | 'r' | 'b' | 'n' } : {}),
+    });
+    return !!made;
+  } catch {
+    return false;
+  }
+}
+
+function applyUci(chess: Chess, uci: string): boolean {
+  if (uci.length < 4) return false;
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion =
+    uci.length > 4 ? (uci[4] as 'q' | 'r' | 'b' | 'n') : undefined;
+  try {
+    const r = chess.move({
+      from,
+      to,
+      ...(promotion ? { promotion } : {}),
+    });
+    return !!r;
+  } catch {
+    return false;
   }
 }
 
 function wdlToApproxCp(wdl: number): number {
-  // Обратная формула lichess для качественной оценки. Результат
-  // используется только для tagging crushing/advantage порогов.
-  // |wdl| близко к 1 → большие cp. Без exp при граничных.
+  // Обратная формула lichess для качественной оценки. Используется
+  // только для tagging crushing/advantage порогов.
   if (wdl >= 0.999) return 5000;
   if (wdl <= -0.999) return -5000;
-  // 2/(1+exp(-k·cp))-1 = wdl → cp = -ln((1-wdl)/(1+wdl)) / k.
   const k = 0.00368208;
   return Math.round(-Math.log((1 - wdl) / (1 + wdl)) / k);
 }
 
 function computeStartingRating(
   row: ArchiveGameRow,
-  lineLength: number,
-  spread: number,
+  wdlAfterBlunder: number,
 ): number {
   const w = row.white_elo ?? 1500;
   const b = row.black_elo ?? 1500;
   const avg = Math.round((w + b) / 2);
-  const lengthAdj = (lineLength - 4) * 100;
-  // gapAdj по spread WDL: большой spread (>0.5) — задача проще → −100;
-  // маленький (<0.3) — сложнее → +100.
-  const gapAdj = spread > 0.5 ? -100 : spread < 0.3 ? 100 : 0;
-  return Math.max(600, Math.min(2800, avg + lengthAdj + gapAdj));
+  // Чем меньше преимущество после зевка, тем сложнее пазл (сложнее
+  // удерживать). Шаг ±100 в диапазоне [600..2800].
+  const wdlAdj = wdlAfterBlunder >= 0.85 ? -100 : wdlAfterBlunder < 0.6 ? 100 : 0;
+  return Math.max(600, Math.min(2800, avg + wdlAdj));
 }
 
 function round3(x: number): number {
@@ -359,9 +459,11 @@ function logProgress(
 ): void {
   const drops =
     `notBlunder=${stats.drops.notBlunder} ` +
-    `notUnique=${stats.drops.notUnique} ` +
-    `tooShort=${stats.drops.tooShort} ` +
-    `tooLong=${stats.drops.tooLong} ` +
+    `samePv1=${stats.drops.samePv1} ` +
+    `decided=${stats.drops.decided} ` +
+    `gameOver=${stats.drops.gameOver} ` +
+    `lowWdlAfterBlunder=${stats.drops.lowWdlAfterBlunder} ` +
+    `solvabilityFailed=${stats.drops.solvabilityFailed} ` +
     `duplicate=${stats.drops.duplicate} ` +
     `noScore=${stats.drops.noScore} ` +
     `engineError=${stats.drops.engineError}`;

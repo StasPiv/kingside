@@ -1,16 +1,27 @@
 /**
- * KS-2431 (WDL pivot). Типы puzzle-генератора на основе Stockfish WDL.
+ * KS-2464 / ADR-044 §6. Типы puzzle-генератора в режиме play-vs-engine.
  *
  * Алгоритм отбора:
- *   1. На каждом ply партии — Stockfish MultiPV=2 c UCI_ShowWDL=true.
- *   2. ΔWDL_зевка = (-WDL_PV1 от лица новой стороны) − prevWdl
- *      (от лица той стороны, что только что сходила).
- *      Кандидат если |ΔWDL_зевка| ≥ blunderDelta (X).
- *   3. ΔWDL_спред = WDL_PV1 − WDL_PV2 (от лица решающей).
- *      Кандидат если ΔWDL_спред ≥ spreadDelta (Y).
- *   4. Линия строится итеративно: на каждом нашем ходу — снова
- *      MultiPV=2, проверка ΔWDL_спред ≥ spreadDelta. Если нарушен —
- *      обрубаем линию. На ходах соперника берём PV1 без проверки.
+ *   1. На каждом ply ≥ startPly анализируем позицию ДО хода через
+ *      `analyzePositionWdl(fenBefore, limit, multiPV=2)`.
+ *   2. samePv1 — если ход партии совпал с PV1 движка → не зевок.
+ *   3. skipDecided — если |WDL_before| > skipDecidedWdl, партия уже
+ *      решена → не зевок.
+ *   4. После применения хода анализируем `fenAfter` (multiPV=1, можно
+ *      переиспользовать пре-анализ следующего ply через кэш — здесь
+ *      делаем явный второй анализ).
+ *   5. blunderΔ = WDL_before_PV1 + WDL_after_PV1 (WDL_after отдан с POV
+ *      решающей, инвертируем для сравнения с before-side).
+ *   6. Если blunderΔ ≥ blunderDelta И WDL_after_for_solver ≥
+ *      minWdlAfterBlunder — позиция кандидат.
+ *   7. Solvability: прогоняем halfMovesN полуходов Stockfish-vs-Stockfish.
+ *      На каждом ply решающего берём bestmove. Если в любой момент
+ *      WDL решающей < failThreshold — drop. После halfMovesN ходов:
+ *      если WDL ≥ winThreshold — пазл проходит.
+ *   8. Tagging — drill-предикаты + алгоритмические теги, добавляем
+ *      технический тег `playVsEngine`.
+ *   9. Insert с `solutionMode='play-vs-engine'`, `moves=''`,
+ *      `acceptedMoves=null`.
  */
 import type { MultiPvLine, AnalysisLimit } from '../stockfish/stockfish.service';
 
@@ -22,27 +33,75 @@ export interface EngineApi {
     fen: string,
     limit: AnalysisLimit,
     multiPV: number,
+    label?: string,
   ): Promise<MultiPvLine[]>;
 }
+
+export type PuzzleSolutionMode = 'forced-line' | 'play-vs-engine';
 
 export interface GeneratorOptions {
   /** Максимум партий. */
   maxGames: number;
   /** Stockfish-лимит на одну позицию. */
   engineLimit: AnalysisLimit;
-  /** Порог X — минимальный |ΔWDL_зевка| для срабатывания. */
+  /** Минимальный |blunderΔ| WDL для срабатывания зевка (X). */
   blunderDelta: number;
-  /** Порог Y — минимальный ΔWDL_спред для уникальности. */
+  /**
+   * Режим, в котором сохраняем пазлы. Default `play-vs-engine`
+   * (KS-2464). Для legacy `forced-line` нужно явно указывать в CLI —
+   * pipeline в этом режиме принимает старые опции
+   * `spreadDelta`/`continueSpreadDelta`/`min/maxLineLength`.
+   */
+  solutionMode: PuzzleSolutionMode;
+  /**
+   * play-vs-engine: количество полуходов Stockfish-vs-Stockfish для
+   * проверки solvability. Default 6.
+   */
+  halfMovesN: number;
+  /**
+   * play-vs-engine: нижний порог WDL для решающей в финале (через
+   * halfMovesN ходов). Default 0.5.
+   */
+  winThreshold: number;
+  /**
+   * play-vs-engine: порог WDL, ниже которого drop сразу (на любом ply).
+   * Default 0.0.
+   */
+  failThreshold: number;
+  /**
+   * |WDL_before| > этого значения → партия уже решена, ход не считается
+   * зевком (skipDecided). Default 0.95.
+   */
+  skipDecidedWdl: number;
+  /**
+   * Минимальный WDL_for_solver сразу после зевка. Если ниже — позиция
+   * не выигрывается явно, drop. Default 0.5.
+   */
+  minWdlAfterBlunder: number;
+  /**
+   * Legacy forced-line — спред PV1-PV2 на стартовой позиции. Ignored
+   * в play-vs-engine режиме.
+   */
   spreadDelta: number;
+  /**
+   * Legacy forced-line — спред на продолжении линии. Ignored в
+   * play-vs-engine режиме.
+   */
+  continueSpreadDelta: number;
+  /**
+   * Legacy forced-line — порог forced-spread (KS-2431, не используется
+   * после рефакторинга, оставлено как inert).
+   */
+  forcedSpreadDelta: number;
   /** Минимальный Elo обоих игроков (null допускается). */
   minRating: number;
   /** Минимальный plyCount партии. */
   minPly: number;
   /** Минимальный ply, с которого ищем зевок. */
   startPly: number;
-  /** Минимальная длина построенной линии. */
+  /** Legacy forced-line: минимальная длина построенной линии. */
   minLineLength: number;
-  /** Максимальная длина построенной линии. */
+  /** Legacy forced-line: максимальная длина построенной линии. */
   maxLineLength: number;
   /** Размер batch чтения партий. */
   gameBatchSize: number;
@@ -58,7 +117,10 @@ export interface PuzzleRecord {
   id: string;
   /** FEN после зевка — стартовая позиция puzzle. */
   fen: string;
-  /** UCI-ходы линии через пробел. */
+  /**
+   * UCI-ходы линии через пробел. Для play-vs-engine — пустая строка
+   * (линии нет, решатель играет против движка).
+   */
   moves: string;
   rating: number;
   ratingDev: number;
@@ -70,8 +132,8 @@ export interface PuzzleRecord {
   /** Ply, на котором был сделан зевочный ход. */
   sourceMoveNum: number;
   /**
-   * `gap` поле в БД — для UX, целое в процентных пунктах WDL spread'а.
-   * Например spread = 0.47 → gap = 47.
+   * `gap` поле в БД — для UX, целое в процентных пунктах WDL_after_blunder
+   * для решающей (диапазон 0..100). Например WDL=0.78 → gap=78.
    */
   gap: number;
   /** Глубина анализа (фактическая, не запрошенная) или 0. */
@@ -79,6 +141,8 @@ export interface PuzzleRecord {
   isPublic: boolean;
   acceptedMoves: string | null;
   sourceMetadata: string;
+  /** KS-2462/2463/2464 — режим решения пазла. */
+  solutionMode: PuzzleSolutionMode;
 }
 
 export interface GeneratorStats {
@@ -87,19 +151,29 @@ export interface GeneratorStats {
   inserted: number;
   /** Сумма drops + inserted = positionsAnalyzed (инвариант). */
   drops: {
-    /** |ΔWDL_зевка| < blunderDelta */
+    /** blunderΔ < blunderDelta — ход не зевок. */
     notBlunder: number;
-    /** ΔWDL_спред < spreadDelta на стартовой позиции */
-    notUnique: number;
-    /** длина построенной линии < minLineLength */
-    tooShort: number;
-    /** длина > maxLineLength */
-    tooLong: number;
-    /** дубликат FEN (UNIQUE conflict при insert) */
+    /** Ход партии = PV1 движка — не зевок (точно так, как считал движок). */
+    samePv1: number;
+    /** |WDL_before| > skipDecidedWdl — партия уже решена. */
+    decided: number;
+    /** Игра уже терминальная (мат/пат/ничья) после хода. */
+    gameOver: number;
+    /**
+     * play-vs-engine: WDL_after_for_solver < minWdlAfterBlunder —
+     * формально blunderΔ ≥ X, но позиция не выигрывает решающего явно.
+     */
+    lowWdlAfterBlunder: number;
+    /**
+     * play-vs-engine: solvability-check провалился — за halfMovesN
+     * Stockfish-vs-Stockfish WDL у решающей упал/не достиг порогов.
+     */
+    solvabilityFailed: number;
+    /** дубликат FEN (UNIQUE conflict при insert). */
     duplicate: number;
-    /** Stockfish не вернул score / WDL */
+    /** Stockfish не вернул score / WDL. */
     noScore: number;
-    /** ошибка при analyzePositionWdl или PV.length<1 */
+    /** ошибка при analyzePositionWdl или PV.length<1. */
     engineError: number;
   };
   tagDistribution: Record<string, number>;
@@ -113,16 +187,25 @@ export function defaultGeneratorOptions(
 } {
   return {
     maxGames: 100,
-    // Стартовый лимит — ориентир. Подбираем на пользователя.
-    // 5 секунд / 2M nodes / depth 20 — компромисс между качеством
-    // WDL-оценки и временем прогона. Меняется через CLI.
-    engineLimit: { depth: 20, timeMs: 5000, nodes: 2_000_000 },
-    blunderDelta: 0.5, // X — стартовый
-    spreadDelta: 0.3, // Y — стартовый
+    engineLimit: { timeMs: 1000 },
+    // Default play-vs-engine. Lichess-уровень X=0.6 (см. ADR-044 §2.1
+    // и сравнительный анализ с lichess-puzzler).
+    solutionMode: 'play-vs-engine',
+    blunderDelta: 0.6,
+    halfMovesN: 6,
+    winThreshold: 0.5,
+    failThreshold: 0.0,
+    skipDecidedWdl: 0.95,
+    minWdlAfterBlunder: 0.5,
+    // Legacy forced-line дефолты — не используются в play-vs-engine,
+    // но сохраняются для обратной совместимости CLI.
+    spreadDelta: 0.3,
+    continueSpreadDelta: 0.3,
+    forcedSpreadDelta: 0.5,
     minRating: 1400,
     minPly: 20,
     startPly: 20,
-    minLineLength: 2,
+    minLineLength: 1,
     maxLineLength: 6,
     gameBatchSize: 100,
     cursor: null,
@@ -137,9 +220,11 @@ export function newGeneratorStats(): GeneratorStats {
     inserted: 0,
     drops: {
       notBlunder: 0,
-      notUnique: 0,
-      tooShort: 0,
-      tooLong: 0,
+      samePv1: 0,
+      decided: 0,
+      gameOver: 0,
+      lowWdlAfterBlunder: 0,
+      solvabilityFailed: 0,
       duplicate: 0,
       noScore: 0,
       engineError: 0,
