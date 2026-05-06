@@ -604,11 +604,18 @@
   flex-shrink: 0;
 }
 
+.broadcast-featured-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
 .broadcast-featured-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  flex: 1;
 }
 
 .broadcast-featured-source {
@@ -664,16 +671,40 @@
   border-color: var(--c-7c83ff);
 }
 
+/* KS-2449: оборачиваем title + строку фаворитов в отдельный блок,
+   чтобы они занимали всю свободную ширину и не ломали badge справа. */
+.broadcast-lichess-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
 .broadcast-lichess-title {
   margin: 0;
   font-size: 13px;
   font-weight: 500;
-  flex: 1;
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.3;
+}
+
+/* KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под title. */
+.broadcast-top-players {
+  font-size: 11px;
+  color: var(--c-9e9e9e);
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.broadcast-top-players--featured {
+  font-size: 12px;
+  margin-top: 2px;
+  color: var(--c-c0c0c0, #c0c0c0);
 }
 
 .broadcast-lichess-status {

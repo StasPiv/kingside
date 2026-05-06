@@ -32,6 +32,48 @@ function classifyLifecycle(b: LichessBroadcast): BroadcastLifecycleStatus {
   return active ? 'live' : 'finished';
 }
 
+/**
+ * KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под названием
+ * турнира. Имена backend отдаёт в формате «Фамилия, Имя» (Lichess-формат) —
+ * берём часть до первой запятой как фамилию. Если массив пустой — рендер
+ * отсутствует (acceptance: «совсем нет — строка скрыта»).
+ *
+ * Источник данных — поле `topPlayers: {name, elo}[]` в `BroadcastSummary`,
+ * заполняемое backend-ом (KS-2450) через aggregate по партиям турнира,
+ * сортировка elo desc, tie-break по name. Здесь дополнительно не сортируем,
+ * чтобы порядок совпадал с backend-агрегатом.
+ */
+function topPlayersSurnames(
+  topPlayers: { name: string; elo: number }[] | undefined,
+  limit = 3,
+): string {
+  if (!topPlayers || topPlayers.length === 0) return '';
+  return topPlayers
+    .slice(0, limit)
+    .map((p) => {
+      const comma = p.name.indexOf(',');
+      return comma >= 0 ? p.name.slice(0, comma).trim() : p.name.trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function TopPlayersLine({
+  topPlayers,
+  className,
+}: {
+  topPlayers: { name: string; elo: number }[] | undefined;
+  className?: string;
+}) {
+  const text = topPlayersSurnames(topPlayers);
+  if (!text) return null;
+  return (
+    <div className={className ?? 'broadcast-top-players'} data-testid="broadcast-top-players">
+      {text}
+    </div>
+  );
+}
+
 function LichessBroadcastCard({
   broadcast,
   badgeLabel,
@@ -47,7 +89,10 @@ function LichessBroadcastCard({
       to={`/broadcasts/${broadcast.id}`}
       className="broadcast-lichess-card"
     >
-      <h4 className="broadcast-lichess-title">{broadcast.title}</h4>
+      <div className="broadcast-lichess-card-text">
+        <h4 className="broadcast-lichess-title">{broadcast.title}</h4>
+        <TopPlayersLine topPlayers={broadcast.topPlayers} />
+      </div>
       <span className={`broadcast-lichess-status broadcast-lichess-status--${badgeVariant}`}>
         {badgeLabel}
       </span>
@@ -119,7 +164,13 @@ export function BroadcastsPage() {
               className="broadcast-featured-card"
             >
               <div className="broadcast-featured-badge">{t('broadcasts.badgeLive', 'LIVE')}</div>
-              <h3 className="broadcast-featured-title">{b.title}</h3>
+              <div className="broadcast-featured-text">
+                <h3 className="broadcast-featured-title">{b.title}</h3>
+                <TopPlayersLine
+                  topPlayers={b.topPlayers}
+                  className="broadcast-top-players broadcast-top-players--featured"
+                />
+              </div>
               <div className="broadcast-featured-meta">
                 {typeof b.avgElo === 'number' && (
                   <span className="broadcast-featured-elo">Avg: {b.avgElo}</span>

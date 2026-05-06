@@ -24,6 +24,7 @@ type BroadcastFixture = {
   roundCount: number;
   isPinned: boolean;
   avgElo: number | null;
+  topPlayers: { name: string; elo: number }[];
 };
 
 function makeBroadcast(overrides: Partial<BroadcastFixture> & Pick<BroadcastFixture, 'id' | 'title' | 'lifecycleStatus'>): BroadcastFixture {
@@ -34,6 +35,7 @@ function makeBroadcast(overrides: Partial<BroadcastFixture> & Pick<BroadcastFixt
     roundCount: 0,
     isPinned: false,
     avgElo: null,
+    topPlayers: [],
     ...overrides,
   };
 }
@@ -150,5 +152,91 @@ describe('BroadcastsPage KS-1700 sections', () => {
     expect(finished).toHaveTextContent('(1)');
     fireEvent.click(finished.querySelector('.broadcasts-finished-toggle')!);
     expect(screen.getByTestId('broadcasts-finished-grid')).toHaveTextContent('Legacy inactive');
+  });
+});
+
+/**
+ * KS-2449: subtle-строка с фамилиями топ-N рейтинг-фаворитов под title
+ * карточки. Берём `topPlayers` из API; имена в формате "Surname, First" —
+ * рендерим только фамилии через запятую. Пустой массив → строка скрыта.
+ */
+describe('BroadcastsPage KS-2449 top players line', () => {
+  it('рендерит фамилии топ-фаворитов из topPlayers под title (live и featured карточки)', async () => {
+    const data: BroadcastFixture[] = [
+      makeBroadcast({
+        id: 'f1',
+        title: 'Pinned Live',
+        lifecycleStatus: 'live',
+        isPinned: true,
+        avgElo: 2700,
+        topPlayers: [
+          { name: 'Carlsen, Magnus', elo: 2840 },
+          { name: 'Nakamura, Hikaru', elo: 2790 },
+          { name: 'Gukesh, Dommaraju', elo: 2770 },
+        ],
+      }),
+      makeBroadcast({
+        id: 'l1',
+        title: 'Live A',
+        lifecycleStatus: 'live',
+        topPlayers: [
+          { name: 'Erdogmus, Yagiz Kaan', elo: 2520 },
+          { name: 'Van Foreest, Jorden', elo: 2700 },
+        ],
+      }),
+    ];
+    mockBroadcastApi.get.mockResolvedValueOnce({ data, total: data.length, limit: 100, offset: 0 });
+
+    renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+
+    await waitFor(() => expect(screen.getByTestId('broadcasts-featured')).toBeInTheDocument());
+
+    // Featured: фамилии видны под title (только фамилии, в порядке от backend).
+    const featured = screen.getByTestId('broadcasts-featured');
+    expect(featured.querySelector('[data-testid="broadcast-top-players"]')?.textContent).toBe(
+      'Carlsen, Nakamura, Gukesh',
+    );
+
+    // Live: для l1 две фамилии, видны как есть.
+    const live = screen.getByTestId('broadcasts-live');
+    expect(
+      live.querySelector('[data-testid="broadcast-top-players"]')?.textContent,
+    ).toBe('Erdogmus, Van Foreest');
+  });
+
+  it('если topPlayers пустой или отсутствует — строка скрыта (не рендерится placeholder)', async () => {
+    const data: BroadcastFixture[] = [
+      makeBroadcast({
+        id: 'l-empty',
+        title: 'No players',
+        lifecycleStatus: 'live',
+        topPlayers: [],
+      }),
+    ];
+    mockBroadcastApi.get.mockResolvedValueOnce({ data, total: 1, limit: 100, offset: 0 });
+
+    renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+    await waitFor(() => expect(screen.getByTestId('broadcasts-live')).toBeInTheDocument());
+
+    expect(
+      screen.queryByTestId('broadcast-top-players'),
+    ).toBeNull();
+  });
+
+  it('если игрок один — показываем одного', async () => {
+    const data: BroadcastFixture[] = [
+      makeBroadcast({
+        id: 'l-one',
+        title: 'Single',
+        lifecycleStatus: 'live',
+        topPlayers: [{ name: 'Solo, Player', elo: 2500 }],
+      }),
+    ];
+    mockBroadcastApi.get.mockResolvedValueOnce({ data, total: 1, limit: 100, offset: 0 });
+
+    renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+    await waitFor(() => expect(screen.getByTestId('broadcasts-live')).toBeInTheDocument());
+
+    expect(screen.getByTestId('broadcast-top-players').textContent).toBe('Solo');
   });
 });
