@@ -22,6 +22,7 @@ vi.mock('react-chessboard', () => ({
   ),
 }));
 
+const navigateMock = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',
@@ -29,6 +30,7 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useParams: () => ({ tournamentId: 'tx' }),
+    useNavigate: () => navigateMock,
   };
 });
 
@@ -74,6 +76,7 @@ function gameWithPgnLen(id: string, white: string, black: string, pgnLen: number
 
 beforeEach(() => {
   broadcastApiMock.get.mockReset();
+  navigateMock.mockReset();
   // Только setInterval/clearInterval подменяем — Promise/microtasks
   // должны идти на реальном scheduler, иначе waitFor зависает.
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
@@ -148,6 +151,32 @@ describe('BroadcastTournamentPage KS-2447 Live tab polls games', () => {
     );
     expect(updatedNames[0]).toContain('Erdogmus');
     expect(updatedNames[1]).toContain('Woodward');
+  });
+
+  it('KS-2448: клик по live-партии на Live-tab ведёт на /broadcasts/:tid/:rid/:gid/live, а не в Мастерскую', async () => {
+    const liveGames = [
+      gameWithPgnLen('g1', 'Erdogmus, Yagiz Kaan', 'Carlsen, Magnus', 30),
+    ];
+    broadcastApiMock.get.mockImplementation((path: string) => {
+      if (path === '/tx') return Promise.resolve(META);
+      if (path === '/tx/rounds') return Promise.resolve({ data: [ROUND] });
+      if (path === '/tx/rounds/r6/games') return Promise.resolve({ data: liveGames });
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    const { container } = renderWithProviders(<BroadcastTournamentPage />, {
+      route: '/broadcasts/tx',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-board-card')).toBeInTheDocument(),
+    );
+
+    const card = container.querySelector('.broadcast-board-card') as HTMLElement;
+    card.click();
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/broadcasts/tx/r6/g1/live',
+    );
   });
 
   it('Live-tab без ongoingRound не делает games-fetch и не запускает polling', async () => {

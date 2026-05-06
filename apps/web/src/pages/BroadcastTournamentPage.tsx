@@ -130,7 +130,15 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
 
   const handleGameClick = (game: BroadcastGame) => {
     if (!game.pgn) return;
-    // KS-2403 follow-up: см. openAnalysisFromPgn.
+    // KS-2448: для live-партий открываем live-страницу с подпиской.
+    // Live-tab показывается только при наличии ongoingRound, поэтому
+    // не-завершённая партия здесь — всегда live.
+    const isLive =
+      Boolean(ongoingRound) && (!game.result || game.result === '*');
+    if (isLive && ongoingRound) {
+      navigate(`/broadcasts/${tournamentId}/${ongoingRound.id}/${game.id}/live`);
+      return;
+    }
     void openAnalysisFromPgn(navigate, {
       pgn: game.pgn,
       title: `${game.whitePlayer} vs ${game.blackPlayer}`,

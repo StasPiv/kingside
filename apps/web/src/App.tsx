@@ -20,6 +20,7 @@ import { WorkshopPage } from './pages/WorkshopPage';
 import { BroadcastsPage } from './pages/BroadcastsPage';
 import { BroadcastTournamentPage } from './pages/BroadcastTournamentPage';
 import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
+import { BroadcastLiveGamePage } from './pages/BroadcastLiveGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
@@ -432,6 +433,11 @@ export function App() {
             <Route path="/broadcasts" element={<BroadcastsPage />} />
             <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
             <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
+            {/* KS-2448: live-режим просмотра партии — отдельный route с
+                подпиской на 15s polling. `/broadcasts/:tid/:rid/:gid` без
+                /live остаётся прежним лаунчером в Мастерскую (используется
+                кнопкой «Открыть в Мастерской» и shareable-ссылками). */}
+            <Route path="/broadcasts/:tournamentId/:roundId/:gameId/live" element={<BroadcastLiveGamePage />} />
             <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
           </>
         ) : (

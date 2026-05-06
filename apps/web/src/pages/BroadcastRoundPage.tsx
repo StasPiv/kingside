@@ -150,9 +150,16 @@ export function BroadcastRoundPage() {
 
   const handleGameClick = (game: LichessGame) => {
     if (!game.pgn) return;
-    // KS-2403 follow-up: openAnalysisFromPgn создаёт analysis-запись и
-    // идёт на /analysis/<id>, чтобы повторные клики из той же сессии
-    // не приводили к перезаписи через autosave.
+    // KS-2448: для live-партий (текущий тур ongoing, результат ещё не
+    // определён) уходим на live-страницу с подпиской на обновления, а не
+    // в Мастерскую (она замораживала позицию). Для завершённых партий
+    // прежнее поведение — `openAnalysisFromPgn` → `/analysis/<id>`.
+    const isLive =
+      currentRound?.status === 'ongoing' && (!game.result || game.result === '*');
+    if (isLive) {
+      navigate(`/broadcasts/${tournamentId}/${roundId}/${game.id}/live`);
+      return;
+    }
     void openAnalysisFromPgn(navigate, {
       pgn: game.pgn,
       title: `${game.whitePlayer} vs ${game.blackPlayer}`,

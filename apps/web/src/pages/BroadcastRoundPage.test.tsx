@@ -30,6 +30,7 @@ vi.mock('../hooks/useSounds', () => ({
   soundEventFromSan: () => 'move',
 }));
 
+const navigateMock = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',
@@ -37,6 +38,7 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useParams: () => ({ tournamentId: 'tx', roundId: 'r1' }),
+    useNavigate: () => navigateMock,
   };
 });
 
@@ -44,6 +46,7 @@ import { BroadcastRoundPage } from './BroadcastRoundPage';
 
 beforeEach(() => {
   broadcastApiMock.get.mockReset();
+  navigateMock.mockReset();
 });
 
 afterEach(() => {
@@ -139,6 +142,46 @@ describe('BroadcastRoundPage KS-2446 sort by white surname', () => {
       ...overrides,
     } as BroadcastGameSummary;
   }
+
+  it('KS-2448: клик по live-партии в активном туре ведёт на /…/live, по завершённой — в Мастерскую', async () => {
+    const ongoingRound: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: null,
+      status: 'ongoing',
+      tournamentType: 'swiss',
+    };
+    const liveGame: BroadcastGameSummary = {
+      id: 'gLive',
+      lichessGameId: 'lgLive',
+      whitePlayer: 'White, Alpha',
+      blackPlayer: 'Black, Beta',
+      whiteElo: null,
+      blackElo: null,
+      result: '*',
+      pgn: '1. e4',
+      currentFen: null,
+      updatedAt: '2026-04-24T10:00:00.000Z',
+      bracketStage: null,
+      bracketPairId: null,
+      matchScore: null,
+    };
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'Demo' })
+      .mockResolvedValueOnce({ data: [ongoingRound] })
+      .mockResolvedValueOnce({ data: [liveGame] });
+
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-board-card')).toBeInTheDocument(),
+    );
+    (container.querySelector('.broadcast-board-card') as HTMLElement).click();
+
+    expect(navigateMock).toHaveBeenCalledWith('/broadcasts/tx/r1/gLive/live');
+  });
 
   it('сортирует доски по whitePlayer A→Z; null whitePlayer — в конец', async () => {
     const round: BroadcastRoundItem = {
