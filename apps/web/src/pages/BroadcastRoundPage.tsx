@@ -51,6 +51,34 @@ function stripPgnComments(pgn: string): string {
 // используем его, чтобы `PlayoffBracket` получил корректный тип.
 type LichessGame = BroadcastGameSummary;
 
+/**
+ * KS-2446: жёсткая сортировка партий тура по фамилии белых A→Z (locale-aware,
+ * sensitivity 'base'). Lichess отдаёт `whitePlayer` в формате «Фамилия, Имя»,
+ * поэтому прямой `localeCompare` уже эквивалентен сортировке по фамилии.
+ * Tiebreak: blackPlayer (для тёзок) → id (стабильный детерминированный
+ * fallback). Партии без whitePlayer уходят в конец секции.
+ *
+ * Источник прыжков — backend пересортировывал список при обновлении одной
+ * партии; держим стабильный порядок только во frontend перед setGames.
+ */
+function sortGamesByWhite(games: LichessGame[]): LichessGame[] {
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base', usage: 'sort' });
+  return [...games].sort((a, b) => {
+    const aw = a.whitePlayer ?? '';
+    const bw = b.whitePlayer ?? '';
+    if (!aw && !bw) return 0;
+    if (!aw) return 1;
+    if (!bw) return -1;
+    const byWhite = collator.compare(aw, bw);
+    if (byWhite !== 0) return byWhite;
+    const ab = a.blackPlayer ?? '';
+    const bb = b.blackPlayer ?? '';
+    const byBlack = collator.compare(ab, bb);
+    if (byBlack !== 0) return byBlack;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 type LichessRoundInfo = BroadcastRoundItem;
 
 type LichessBroadcastMeta = {
@@ -89,7 +117,7 @@ export function BroadcastRoundPage() {
         if (cancelled) return;
         setBroadcast(meta);
         setRounds(Array.isArray(roundsRes?.data) ? roundsRes.data : []);
-        setGames(Array.isArray(gamesRes?.data) ? gamesRes.data : []);
+        setGames(sortGamesByWhite(Array.isArray(gamesRes?.data) ? gamesRes.data : []));
         setLoading(false);
       })
       .catch((err) => {
@@ -126,10 +154,18 @@ export function BroadcastRoundPage() {
               }
             }
           }
-          const fingerprint = fresh.map((g) => `${g.id}:${g.pgn?.length ?? 0}`).join('|');
-          const prevFingerprint = prev.map((g) => `${g.id}:${g.pgn?.length ?? 0}`).join('|');
+          // KS-2446: fingerprint считаем по id+pgnLen независимо от
+          // порядка backend (id сортируем), чтобы перерендер триггерился
+          // именно изменением хода, а не перестановкой массива.
+          const fingerprintFor = (arr: LichessGame[]) =>
+            arr
+              .map((g) => `${g.id}:${g.pgn?.length ?? 0}`)
+              .sort()
+              .join('|');
+          const fingerprint = fingerprintFor(fresh);
+          const prevFingerprint = fingerprintFor(prev);
           if (isFirstFetch || fingerprint !== prevFingerprint) {
-            setGames(fresh);
+            setGames(sortGamesByWhite(fresh));
           }
           prevGamesRef.current = fresh;
           isFirstFetch = false;

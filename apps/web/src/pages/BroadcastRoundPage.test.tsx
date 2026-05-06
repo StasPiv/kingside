@@ -117,3 +117,63 @@ describe('BroadcastRoundPage (KS-1823 hotfix)', () => {
     );
   });
 });
+
+/**
+ * KS-2446: партии тура должны быть отсортированы по фамилии белых A→Z и
+ * не «прыгать» при поступлении хода (даже если backend меняет порядок).
+ */
+describe('BroadcastRoundPage KS-2446 sort by white surname', () => {
+  function makeGame(overrides: Partial<BroadcastGameSummary> & Pick<BroadcastGameSummary, 'id' | 'whitePlayer'>): BroadcastGameSummary {
+    return {
+      lichessGameId: `lg-${overrides.id}`,
+      blackPlayer: 'Black, Player',
+      whiteElo: null,
+      blackElo: null,
+      result: '*',
+      pgn: '1. e4',
+      currentFen: null,
+      updatedAt: '2026-04-24T10:00:00.000Z',
+      bracketStage: null,
+      bracketPairId: null,
+      matchScore: null,
+      ...overrides,
+    } as BroadcastGameSummary;
+  }
+
+  it('сортирует доски по whitePlayer A→Z; null whitePlayer — в конец', async () => {
+    const round: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 6',
+      startsAt: null,
+      status: 'ongoing',
+      tournamentType: 'swiss',
+    };
+    const games: BroadcastGameSummary[] = [
+      makeGame({ id: 'g1', whitePlayer: 'Woodward, Andy' }),
+      makeGame({ id: 'g2', whitePlayer: 'Zhu, Jiner' }),
+      makeGame({ id: 'g3', whitePlayer: 'Van Foreest, Jorden' }),
+      makeGame({ id: 'g4', whitePlayer: 'Erdogmus, Yagiz Kaan' }),
+      makeGame({ id: 'g5', whitePlayer: null }),
+    ];
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'TePe Sigeman' })
+      .mockResolvedValueOnce({ data: [round] })
+      .mockResolvedValueOnce({ data: games });
+
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument(),
+    );
+    const cards = Array.from(
+      container.querySelectorAll('.broadcast-boards-grid .broadcast-board-card'),
+    );
+    const ids = cards.map((c) =>
+      (c.getAttribute('data-testid') ?? '').replace(/^broadcast-board-card-/, ''),
+    );
+    // Ожидаем порядок по фамилии белых, null — в конец.
+    expect(ids).toEqual(['g4', 'g3', 'g1', 'g2', 'g5']);
+  });
+});
