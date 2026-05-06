@@ -75,35 +75,34 @@ function makePgRowMock(pgn: string, opts: Partial<{ ply_count: number; white_elo
   };
 }
 
-describe('runPuzzleGenerator (play-vs-engine, KS-2464)', () => {
+describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
   it('детектит зевок и пишет puzzle с solutionMode="play-vs-engine"', async () => {
     const pgn = buildPgn();
-    // POV-aware mock: pre-analyze (multiPV=2) показывает PV1=alt (не played),
-    // wdl=0. Post-analyze и solvability: WDL=+0.8 когда ходит "решающая",
-    // -0.8 когда ходит противник (так что для решающей всегда +0.8). Это
-    // стабильное преимущество, solvability проходит. Решающая определяется
-    // по чередованию: первая post-позиция — sideToMove = решающая. Запоминаем
-    // и переворачиваем по ходу.
-    let analyzeCalls = 0;
-    let solverSide: 'w' | 'b' | null = null;
+    // KS-2470: parallel-friendly mock. В `buildPgn` на startPly=20 ходит
+    // чёрный (Bxh3), значит blunderTurn='b', solverSide='w'.
+    // Стратегия: на pre-analyze (multiPV=2) если sideToMove ≠ solver —
+    // ходит блундёр, PV1=alt, wdl≈0 (samePv1 не сработает, не decided).
+    // На post-analyze: ходит solver, PV1=first, wdl=+0.8 (зевок).
+    // Solvability (multiPV=1): +0.8 для решающей, -0.8 для противника.
+    const solverSide: 'w' | 'b' = 'w';
+
     const engine: EngineApi = {
       analyzePositionWdl: jest.fn(
         async (fen: string, _l, multiPV: number): Promise<MultiPvLine[]> => {
-          analyzeCalls++;
           const first = firstLegalUci(fen);
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
           const sideToMove = fen.split(' ')[1] as 'w' | 'b';
-          // Pre-analyze: multiPV=2, нечётный вызов — pre.
-          if (multiPV === 2 && analyzeCalls % 2 === 1) {
+          if (multiPV === 2) {
+            // Pre-analyze: ходит блундёр (sideToMove != solver) → PV1=alt,
+            // wdl≈0 (не decided, samePv1 не срабатывает).
+            // Post-analyze: ходит solver (sideToMove == solver) → PV1=first,
+            // wdl=+0.8 (зевок зафиксирован).
+            if (sideToMove === solverSide) {
+              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+            }
             return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
           }
-          // Post-analyze: multiPV=2, чётный вызов — post (solver=sideToMove).
-          if (multiPV === 2) {
-            solverSide = sideToMove;
-            return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
-          }
-          // Solvability (multiPV=1): возвращаем +0.8 для решающей,
-          // -0.8 для противника.
+          // Solvability (multiPV=1): +0.8 для решающей, -0.8 для противника.
           const wdl = sideToMove === solverSide ? 0.8 : -0.8;
           return [pvWdl(first, wdl)];
         },
@@ -188,20 +187,21 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464)', () => {
 
   it('solvabilityFailed → drop (WDL падает в solvability)', async () => {
     const pgn = buildPgn();
-    let cnt = 0;
+    // Тот же FEN-keyed подход. На startPly=20 ходит чёрный → solverSide='w'.
+    const solverSide: 'w' | 'b' = 'w';
     const engine: EngineApi = {
       analyzePositionWdl: jest.fn(
         async (fen: string, _l, multiPV: number): Promise<MultiPvLine[]> => {
-          cnt++;
           const first = firstLegalUci(fen);
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
-          // pre (multiPV=2, нечётный) — нейтрально, PV1 ≠ played.
-          if (multiPV === 2 && cnt % 2 === 1) {
+          const sideToMove = fen.split(' ')[1] as 'w' | 'b';
+          if (multiPV === 2) {
+            if (sideToMove === solverSide) {
+              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+            }
             return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
           }
-          // post (multiPV=2, чётный) — wdlAfter +0.8 (зевок).
-          if (multiPV === 2) return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
-          // solvability (multiPV=1): WDL обваливается до -1 (фейл).
+          // solvability — обваливается до -1 (фейл).
           return [pvWdl(first, -1.0)];
         },
       ),

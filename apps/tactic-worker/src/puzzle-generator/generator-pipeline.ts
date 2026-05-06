@@ -1,28 +1,31 @@
 /**
  * KS-2464 / ADR-044 §6. Puzzle-generator pipeline (play-vs-engine).
  *
- * Алгоритм:
- *   1. Идём по партиям из archive_games batch'ами.
- *   2. На каждой партии: проигрываем ходы chess.js. На ply >= startPly:
- *      a. analyzePositionWdl(fenBefore, multiPV=2) — лучший и второй
- *         ходы движка ДО хода партии.
- *      b. samePv1 — если ход партии совпал с PV1 → не зевок (drop).
- *      c. skipDecided — если |wdlBefore| > skipDecidedWdl → drop.
- *      d. Применяем ход. gameOver — если мат/пат/ничья → drop.
- *      e. analyzePositionWdl(fenAfter, multiPV=2). pv1 от лица решающей.
- *      f. blunderΔ = wdlBefore + pv1 (pv1 уже от противоположной стороны;
- *         сложение даёт величину «насколько хуже стало для сходившего»).
- *         Если blunderΔ < blunderDelta → drop (notBlunder).
- *      g. wdlAfter (для решающей) = pv1. Если < minWdlAfterBlunder →
- *         drop (lowWdlAfterBlunder).
- *      h. Solvability check: halfMovesN полуходов Stockfish-vs-Stockfish.
- *         На каждом ply решающей берём bestmove (multiPV=1). После
- *         каждого хода движка-противника считаем WDL для решающей.
- *         Если < failThreshold в любой момент — drop (solvabilityFailed).
- *         Через halfMovesN: если WDL ≥ winThreshold — пазл проходит.
- *   3. Tagging — drill-предикаты + алгоритмика, технический тег
- *      `playVsEngine`.
- *   4. Insert через callback, solutionMode='play-vs-engine', moves=''.
+ * KS-2470: восстановлен параллелизм Stockfish-pool. До этого фикса
+ * каждая позиция партии анализировалась последовательно (`for await`
+ * блокировал пул), фактически работал 1 worker из 5. Теперь:
+ *   - партии параллелятся через GAME_CONCURRENCY (env, default 8);
+ *   - внутри партии: stage-based, как в `analyze-pgn.cli.ts`:
+ *     1) collect tasks (replay, синхронно);
+ *     2) Promise.all всех fenBefore (multiPV=2);
+ *     3) фильтры samePv1/skipDecided/gameOver — без движка;
+ *     4) Promise.all всех fenAfter оставшихся (multiPV=2);
+ *     5) blunderΔ + lowWdlAfterBlunder — без движка;
+ *     6) solvability check — Promise.all между кандидатами,
+ *        внутри одного кандидата последовательно по halfMovesN.
+ *
+ * Алгоритм фильтров не изменился (см. ADR-044 §6):
+ *   a. samePv1 — ход партии = PV1 движка → drop.
+ *   b. skipDecided — |wdlBefore| > skipDecidedWdl → drop.
+ *   c. gameOver — позиция терминальная после хода → drop.
+ *   d. blunderΔ = wdlBefore + wdlAfterForSolver. Если < blunderDelta → drop.
+ *   e. wdlAfterForSolver < minWdlAfterBlunder → drop.
+ *   f. Solvability: halfMovesN полуходов Stockfish-vs-Stockfish. WDL
+ *      решающей < failThreshold в любой момент → drop. Через halfMovesN:
+ *      WDL ≥ winThreshold — пазл проходит.
+ *
+ * Tagging — drill-предикаты + алгоритмика + технический тег `playVsEngine`.
+ * Insert через callback, solutionMode='play-vs-engine', moves=''.
  */
 import { Chess } from 'chess.js';
 import type { Client as PgClient } from 'pg';
@@ -61,6 +64,13 @@ export async function runPuzzleGenerator(
   const stats = newGeneratorStats();
   let cursor: string | null = options.cursor ?? null;
 
+  // KS-2470: параллелизм между партиями. GAME_CONCURRENCY env (default 8).
+  // Воркер-pool сам сериализует SF-вызовы по STOCKFISH_POOL_SIZE.
+  const gameConcurrency = Math.max(
+    1,
+    Number(process.env.GAME_CONCURRENCY ?? 8) || 8,
+  );
+
   while (stats.gamesProcessed < options.maxGames) {
     const sql: string = cursor
       ? `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
@@ -80,18 +90,36 @@ export async function runPuzzleGenerator(
     cursor = rows[rows.length - 1].id;
     stats.lastCursor = cursor;
 
-    for (const row of rows) {
-      if (stats.gamesProcessed >= options.maxGames) break;
-      stats.gamesProcessed++;
-      if (!passesGameFilters(row, options)) continue;
-      try {
-        await processGame(row, engine, options, stats);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log(`[puzzle-gen] WARN game=${row.id} skipped: ${msg}`);
-      }
-      if (stats.gamesProcessed % 5 === 0) logProgress(stats, log);
-    }
+    // Лимитируем — нельзя выйти за maxGames.
+    const remaining = options.maxGames - stats.gamesProcessed;
+    const slice = rows.slice(0, Math.max(0, remaining));
+    if (slice.length === 0) break;
+
+    // Параллельный пул воркеров над одной выборкой партий.
+    let nextIdx = 0;
+    const workerCount = Math.min(gameConcurrency, slice.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const idx = nextIdx++;
+          if (idx >= slice.length) return;
+          const row = slice[idx];
+          // gamesProcessed увеличиваем сразу, чтобы logProgress видел темп.
+          stats.gamesProcessed++;
+          if (!passesGameFilters(row, options)) continue;
+          try {
+            await processGame(row, engine, options, stats);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log(`[puzzle-gen] WARN game=${row.id} skipped: ${msg}`);
+          }
+          // Лог прогресса — без жёсткой кратности 5 (партии завершаются
+          // одновременно из-за параллелизма; печатаем каждые 5 ОТНОСИТЕЛЬНО
+          // последнего видимого значения).
+          if (stats.gamesProcessed % 5 === 0) logProgress(stats, log);
+        }
+      }),
+    );
   }
 
   logProgress(stats, log);
@@ -117,6 +145,16 @@ function passesGameFilters(
   return true;
 }
 
+interface PlyTask {
+  ply: number;
+  m: { from: string; to: string; promotion?: string; san: string };
+  fenBefore: string;
+  fenAfter: string;
+  playedUci: string;
+  isGameOverAfter: boolean;
+  solverSide: 'w' | 'b';
+}
+
 async function processGame(
   row: ArchiveGameRow,
   engine: EngineApi,
@@ -130,144 +168,198 @@ async function processGame(
     return;
   }
   const history = chess.history({ verbose: true });
-  const replay = new Chess();
 
+  // ── Pass 1 (sync): replay + сбор задач ──────────────────────────
+  // Идём по партии, на каждом ply ≥ startPly запоминаем fenBefore/fenAfter
+  // + playedUci. Если позиция терминальная после хода — сразу учитываем
+  // gameOver, без анализа.
+  const replay = new Chess();
+  const tasks: PlyTask[] = [];
   for (let i = 0; i < history.length; i++) {
     const m = history[i];
     const ply = i + 1;
-
     if (ply < options.startPly || replay.isGameOver()) {
       if (!(await applyOrReturn(replay, m))) return;
       continue;
     }
-
-    // 1. Pre-analyze fenBefore.
     const fenBefore = replay.fen();
-    let preBefore: MultiPvLine[];
-    try {
-      preBefore = await engine.analyzePositionWdl(
-        fenBefore,
-        options.engineLimit,
-        2,
-      );
-    } catch {
-      // Не считаем positionsAnalyzed (engine упал на пре-анализе).
-      if (!(await applyOrReturn(replay, m))) return;
+    const playedUci = `${m.from}${m.to}${m.promotion ?? ''}`;
+    if (!(await applyOrReturn(replay, m))) return;
+    const fenAfter = replay.fen();
+    const isGameOverAfter = replay.isGameOver();
+    tasks.push({
+      ply,
+      m,
+      fenBefore,
+      fenAfter,
+      playedUci,
+      isGameOverAfter,
+      solverSide: replay.turn() as 'w' | 'b',
+    });
+  }
+  if (tasks.length === 0) return;
+
+  // ── Stage 1 (parallel): pre-analyze всех fenBefore ──────────────
+  // Уникальные FEN'ы (на случай повторов в партии — крайне редко).
+  const fenBeforeSet = Array.from(new Set(tasks.map((t) => t.fenBefore)));
+  const preMap = new Map<string, MultiPvLine[]>();
+  await Promise.all(
+    fenBeforeSet.map(async (fen) => {
+      try {
+        const pvs = await engine.analyzePositionWdl(
+          fen,
+          options.engineLimit,
+          2,
+          `g=${row.id} phase=analyze stage=pre`,
+        );
+        preMap.set(fen, pvs);
+      } catch {
+        preMap.set(fen, []);
+      }
+    }),
+  );
+
+  // ── Stage 2 (sync): samePv1 / skipDecided / engineError / gameOver ─
+  // Отбираем кандидатов, для которых нужен post-analyze.
+  interface PostCandidate {
+    task: PlyTask;
+    wdlBefore: number;
+    pv1Before: string;
+  }
+  const postCandidates: PostCandidate[] = [];
+  for (const t of tasks) {
+    const pre = preMap.get(t.fenBefore) ?? [];
+    if (pre.length === 0) {
+      // pre упал — не считаем positionsAnalyzed (как в старой логике).
       continue;
     }
-
-    if (preBefore.length === 0) {
-      if (!(await applyOrReturn(replay, m))) return;
-      continue;
-    }
-
-    const wdlBefore = wdlSignedFromInfo(
-      preBefore[0].wdl,
-      preBefore[0].score,
-    );
+    const wdlBefore = wdlSignedFromInfo(pre[0].wdl, pre[0].score);
     if (wdlBefore == null) {
       stats.positionsAnalyzed++;
       stats.drops.noScore++;
-      if (!(await applyOrReturn(replay, m))) return;
       continue;
     }
-
     stats.positionsAnalyzed++;
 
-    // 2. samePv1 — ход партии совпал с первой линией движка.
-    const playedUci = `${m.from}${m.to}${m.promotion ?? ''}`;
-    if (samePv1(playedUci, preBefore[0].bestMove)) {
+    if (samePv1(t.playedUci, pre[0].bestMove)) {
       stats.drops.samePv1++;
-      if (!(await applyOrReturn(replay, m))) return;
       continue;
     }
-
-    // 3. skipDecided.
     if (Math.abs(wdlBefore) > options.skipDecidedWdl) {
       stats.drops.decided++;
-      if (!(await applyOrReturn(replay, m))) return;
       continue;
     }
-
-    // 4. Применяем ход.
-    if (!(await applyOrReturn(replay, m))) return;
-
-    if (replay.isGameOver()) {
+    if (t.isGameOverAfter) {
       stats.drops.gameOver++;
       continue;
     }
+    postCandidates.push({ task: t, wdlBefore, pv1Before: pre[0].bestMove });
+  }
 
-    // 5. Post-analyze fenAfter (PV1 от лица решающей).
-    const fenAfter = replay.fen();
-    const solverSide = replay.turn() as 'w' | 'b';
-    let postPvs: MultiPvLine[];
-    try {
-      postPvs = await engine.analyzePositionWdl(
-        fenAfter,
-        options.engineLimit,
-        2,
-      );
-    } catch {
+  if (postCandidates.length === 0) return;
+
+  // ── Stage 3 (parallel): post-analyze fenAfter для кандидатов ────
+  const fenAfterSet = Array.from(
+    new Set(postCandidates.map((c) => c.task.fenAfter)),
+  );
+  const postMap = new Map<string, MultiPvLine[]>();
+  await Promise.all(
+    fenAfterSet.map(async (fen) => {
+      try {
+        const pvs = await engine.analyzePositionWdl(
+          fen,
+          options.engineLimit,
+          2,
+          `g=${row.id} phase=analyze stage=post`,
+        );
+        postMap.set(fen, pvs);
+      } catch {
+        postMap.set(fen, []);
+      }
+    }),
+  );
+
+  // ── Stage 4 (sync): blunderΔ + lowWdlAfterBlunder ────────────────
+  interface SolvabilityCandidate {
+    task: PlyTask;
+    wdlBefore: number;
+    wdlAfterForSolver: number;
+    blunderDelta: number;
+    firstMovePV1: string;
+  }
+  const solvabilityCandidates: SolvabilityCandidate[] = [];
+  for (const c of postCandidates) {
+    const post = postMap.get(c.task.fenAfter) ?? [];
+    if (post.length === 0) {
       stats.drops.engineError++;
       continue;
     }
-    if (postPvs.length === 0) {
-      stats.drops.engineError++;
-      continue;
-    }
-    const wdlAfterForSolver = wdlSignedFromInfo(
-      postPvs[0].wdl,
-      postPvs[0].score,
-    );
+    const wdlAfterForSolver = wdlSignedFromInfo(post[0].wdl, post[0].score);
     if (wdlAfterForSolver == null) {
       stats.drops.noScore++;
       continue;
     }
-
-    // 6. blunderΔ = wdlBefore + wdlAfterForSolver (одинаковая POV-логика
-    // как в KS-2431 / cli/analyze-pgn).
-    const blunderDelta = wdlBefore + wdlAfterForSolver;
+    const blunderDelta = c.wdlBefore + wdlAfterForSolver;
     if (blunderDelta < options.blunderDelta) {
       stats.drops.notBlunder++;
       continue;
     }
-
-    // 7. WDL после зевка должен быть достаточно высоким, иначе позиция
-    // фактически не выигрывается явно.
     if (wdlAfterForSolver < options.minWdlAfterBlunder) {
       stats.drops.lowWdlAfterBlunder++;
       continue;
     }
-
-    // 8. Solvability check.
-    const firstMovePV1 = postPvs[0].bestMove;
-    const solvable = await checkSolvability({
-      engine,
-      startFen: fenAfter,
-      solverSide,
-      halfMovesN: options.halfMovesN,
-      winThreshold: options.winThreshold,
-      failThreshold: options.failThreshold,
-      limit: options.engineLimit,
+    solvabilityCandidates.push({
+      task: c.task,
+      wdlBefore: c.wdlBefore,
+      wdlAfterForSolver,
+      blunderDelta,
+      firstMovePV1: post[0].bestMove,
     });
-    if (!solvable) {
+  }
+
+  if (solvabilityCandidates.length === 0) return;
+
+  // ── Stage 5 (parallel between candidates, sequential within): ───
+  // solvability check. Каждый кандидат — halfMovesN последовательных
+  // SF-вызовов (Stockfish-vs-Stockfish), но между разными кандидатами
+  // партии можно параллелить — пул сам сериализует.
+  const solvableFlags = await Promise.all(
+    solvabilityCandidates.map((sc) =>
+      checkSolvability({
+        engine,
+        startFen: sc.task.fenAfter,
+        solverSide: sc.task.solverSide,
+        halfMovesN: options.halfMovesN,
+        winThreshold: options.winThreshold,
+        failThreshold: options.failThreshold,
+        limit: options.engineLimit,
+        gameId: row.id,
+      }),
+    ),
+  );
+
+  // ── Stage 6 (sequential): tagging + insert ──────────────────────
+  // Insert последовательно — на стороне БД скорость не критична,
+  // в анализе она не нужна.
+  for (let i = 0; i < solvabilityCandidates.length; i++) {
+    const sc = solvabilityCandidates[i];
+    if (!solvableFlags[i]) {
       stats.drops.solvabilityFailed++;
       continue;
     }
 
-    // 9. Tagging.
     const tags = computeTags({
-      startFen: fenAfter,
-      moves: [firstMovePV1],
-      finalCpForSolver: wdlToApproxCp(wdlAfterForSolver),
+      startFen: sc.task.fenAfter,
+      moves: [sc.firstMovePV1],
+      finalCpForSolver: wdlToApproxCp(sc.wdlAfterForSolver),
       endsInMate: false,
     });
     tags.push('playVsEngine');
 
-    const rating = computeStartingRating(row, wdlAfterForSolver);
+    const rating = computeStartingRating(row, sc.wdlAfterForSolver);
     const puzzle: PuzzleRecord = {
       id: randomUUID(),
-      fen: fenAfter,
+      fen: sc.task.fenAfter,
       moves: '',
       rating,
       ratingDev: 350,
@@ -275,18 +367,18 @@ async function processGame(
       source: 'generated',
       sourceType: 'archive_game',
       sourceId: row.id,
-      sourceMoveNum: ply,
-      gap: Math.round(wdlAfterForSolver * 100),
+      sourceMoveNum: sc.task.ply,
+      gap: Math.round(sc.wdlAfterForSolver * 100),
       depth: options.engineLimit.depth ?? 0,
       isPublic: true,
       acceptedMoves: null,
       solutionMode: options.solutionMode,
       sourceMetadata: JSON.stringify({
-        blunderMove: playedUci,
-        wdlBeforeBlunder: round3(wdlBefore),
-        wdlAfterBlunder: round3(wdlAfterForSolver),
-        blunderDelta: round3(blunderDelta),
-        firstMovePV1,
+        blunderMove: sc.task.playedUci,
+        wdlBeforeBlunder: round3(sc.wdlBefore),
+        wdlAfterBlunder: round3(sc.wdlAfterForSolver),
+        blunderDelta: round3(sc.blunderDelta),
+        firstMovePV1: sc.firstMovePV1,
         winThreshold: options.winThreshold,
         failThreshold: options.failThreshold,
         halfMovesN: options.halfMovesN,
@@ -332,6 +424,8 @@ interface SolvabilityArgs {
   winThreshold: number;
   failThreshold: number;
   limit: import('./types').AnalysisLimit;
+  /** Для phase-тегов в логе. */
+  gameId?: string;
 }
 
 /**
@@ -339,11 +433,21 @@ interface SolvabilityArgs {
  * `startFen`. На каждом ply берём bestmove. После каждого
  * полухода-противника проверяем WDL для решающей; если < failThreshold —
  * drop. По окончании halfMovesN — если WDL ≥ winThreshold, проходит.
+ *
+ * Цикл по halfMovesN — последовательный по природе (надо знать ход
+ * предыдущего ply, чтобы получить fen для следующего). Параллелизм —
+ * между разными кандидатами (см. `Stage 5` в `processGame`).
+ *
+ * KS-2470 phase-теги для логов:
+ *   - `phase=defend` — на ходу решающая (она «защищается» от того,
+ *     чтобы упустить преимущество).
+ *   - `phase=attack` — на ходу противник решающей.
  */
 async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
-  const { engine, startFen, solverSide, halfMovesN, winThreshold, failThreshold, limit } = args;
+  const { engine, startFen, solverSide, halfMovesN, winThreshold, failThreshold, limit, gameId } = args;
   const chess = new Chess(startFen);
   let lastWdlForSolver: number | null = null;
+  const labelBase = gameId ? `g=${gameId} ` : '';
 
   for (let ply = 0; ply < halfMovesN; ply++) {
     if (chess.isGameOver()) {
@@ -356,16 +460,22 @@ async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
       }
       return false;
     }
+    const sideToMove = chess.turn() as 'w' | 'b';
+    const phase = sideToMove === solverSide ? 'defend' : 'attack';
     let pvs: MultiPvLine[];
     try {
-      pvs = await engine.analyzePositionWdl(chess.fen(), limit, 1);
+      pvs = await engine.analyzePositionWdl(
+        chess.fen(),
+        limit,
+        1,
+        `${labelBase}phase=${phase} solv-ply=${ply}`,
+      );
     } catch {
       return false;
     }
     if (pvs.length === 0 || !pvs[0].bestMove) return false;
     const bm = pvs[0].bestMove;
     const wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
-    const sideToMove = chess.turn() as 'w' | 'b';
     // POV: WDL отдан от стороны на ходу.
     if (wdl != null) {
       lastWdlForSolver = sideToMove === solverSide ? wdl : -wdl;
@@ -378,11 +488,17 @@ async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
   // решающую (если последний ход был решающего, то после него
   // sideToMove = противник, и WDL от его лица; инвертируем).
   try {
-    const finalPvs = await engine.analyzePositionWdl(chess.fen(), limit, 1);
+    const sideToMove = chess.turn() as 'w' | 'b';
+    const phase = sideToMove === solverSide ? 'defend' : 'attack';
+    const finalPvs = await engine.analyzePositionWdl(
+      chess.fen(),
+      limit,
+      1,
+      `${labelBase}phase=${phase} solv-final`,
+    );
     if (finalPvs.length > 0) {
       const w = wdlSignedFromInfo(finalPvs[0].wdl, finalPvs[0].score);
       if (w != null) {
-        const sideToMove = chess.turn() as 'w' | 'b';
         lastWdlForSolver = sideToMove === solverSide ? w : -w;
       }
     }
