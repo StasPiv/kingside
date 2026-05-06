@@ -263,8 +263,10 @@ exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/fe
   },
   "side": {
     "blackAttackers": "Black attackers",
+    "blackDefenders": "Black defenders",
     "blackToMove": "Black to move",
     "whiteAttackers": "White attackers",
+    "whiteDefenders": "White defenders",
     "whiteToMove": "White to move",
   },
 }
@@ -533,8 +535,10 @@ exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/fe
   },
   "side": {
     "blackAttackers": "Атакующие — чёрные",
+    "blackDefenders": "Защищающие — чёрные",
     "blackToMove": "Ход чёрных",
     "whiteAttackers": "Атакующие — белые",
+    "whiteDefenders": "Защищающие — белые",
     "whiteToMove": "Ход белых",
   },
 }

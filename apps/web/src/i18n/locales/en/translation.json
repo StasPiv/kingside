@@ -676,6 +676,8 @@
       "countAttackers": "How many pieces attack the highlighted square?",
       "countAttackersWhite": "How many WHITE pieces attack the highlighted square?",
       "countAttackersBlack": "How many BLACK pieces attack the highlighted square?",
+      "countDefendersWhite": "How many WHITE pieces defend the highlighted square?",
+      "countDefendersBlack": "How many BLACK pieces defend the highlighted square?",
       "findAllChecks": "Make every check",
       "findUndefendedAttack": "Which move creates a new hanging piece (attacked and undefended) for the opponent?",
       "findUndefendedAttackWhite": "Which White move creates a new hanging piece for Black?",
@@ -736,7 +738,9 @@
       "whiteToMove": "White to move",
       "blackToMove": "Black to move",
       "whiteAttackers": "White attackers",
-      "blackAttackers": "Black attackers"
+      "blackAttackers": "Black attackers",
+      "whiteDefenders": "White defenders",
+      "blackDefenders": "Black defenders"
     },
     "layers": {
       "overview": "Board overview",

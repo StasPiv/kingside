@@ -1007,6 +1007,75 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2452: своя фигура на target-клетке → defenders, а не attackers.
+  // Текст вопроса и pill переключаются по правилу:
+  // pieceColorOnSquare(highlightedSquare) === attackerColor → defenders.
+  describe('KS-2452 — count-attackers: своя фигура → защищают', () => {
+    // FEN: чёрная пешка на e5, белая пешка на e4. Короли добавлены,
+    // чтобы chess.js принял FEN (наш pieceColorOnSquare вернул бы null
+    // на FEN без королей и тест-кейс не отличал бы defenders от
+    // attackers).
+    const FEN = '4k3/8/8/4p3/4P3/8/8/4K3 w - - 0 1';
+
+    async function load(meta: { highlightedSquare: string; attackerColor: 'w' | 'b' }) {
+      const drill = {
+        id: 'd-cnt-def',
+        drillType: 'count-attackers',
+        fen: FEN,
+        sideToMove: null,
+        answerShape: 'number',
+        difficulty: 1,
+        meta,
+      };
+      const loadDrill = vi.fn(async () => drill);
+      const submitAnswer = vi.fn();
+      renderWithProviders(
+        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+    }
+
+    it("attackerColor='b' и на target чёрная фигура → 'defend'/'защищают' + pill 'defenders'", async () => {
+      await load({ highlightedSquare: 'e5', attackerColor: 'b' });
+      const text = screen.getByTestId('drill-instructions').textContent ?? '';
+      expect(text).toMatch(/defend|защищают/i);
+      expect(text).not.toMatch(/attack(s)?\b|атакуют/i);
+      const pill = screen.getByTestId('drill-runner-attacker-color');
+      expect(pill.getAttribute('data-role')).toBe('defenders');
+      expect(pill.textContent).toMatch(/defender|защищающие/i);
+    });
+
+    it("attackerColor='w' и на target белая фигура → 'defend'/'защищают' + pill 'defenders'", async () => {
+      await load({ highlightedSquare: 'e4', attackerColor: 'w' });
+      const text = screen.getByTestId('drill-instructions').textContent ?? '';
+      expect(text).toMatch(/defend|защищают/i);
+      const pill = screen.getByTestId('drill-runner-attacker-color');
+      expect(pill.getAttribute('data-role')).toBe('defenders');
+    });
+
+    it("attackerColor='w' и на target чужая фигура (чёрная) → 'attack'/'атакуют' + pill 'attackers'", async () => {
+      await load({ highlightedSquare: 'e5', attackerColor: 'w' });
+      const text = screen.getByTestId('drill-instructions').textContent ?? '';
+      expect(text).toMatch(/attack|атакуют/i);
+      expect(text).not.toMatch(/defend|защищают/i);
+      const pill = screen.getByTestId('drill-runner-attacker-color');
+      expect(pill.getAttribute('data-role')).toBe('attackers');
+    });
+
+    it("пустая клетка → 'attack'/'атакуют' (defenders применимо только при своей фигуре)", async () => {
+      await load({ highlightedSquare: 'd4', attackerColor: 'w' });
+      const text = screen.getByTestId('drill-instructions').textContent ?? '';
+      expect(text).toMatch(/attack|атакуют/i);
+      expect(text).not.toMatch(/defend|защищают/i);
+      const pill = screen.getByTestId('drill-runner-attacker-color');
+      expect(pill.getAttribute('data-role')).toBe('attackers');
+    });
+  });
+
   // KS-2335 / KS-2337 / KS-2341: find-hanging-piece переведён на
   // answerShape='move' — drill требует ход-взятие, а не клик клетки.
   describe("KS-2341 — find-hanging-piece под shape='move'", () => {

@@ -678,6 +678,8 @@
       "countAttackers": "Сколько фигур атакуют выделенную клетку?",
       "countAttackersWhite": "Сколько БЕЛЫХ фигур атакуют выделенную клетку?",
       "countAttackersBlack": "Сколько ЧЁРНЫХ фигур атакуют выделенную клетку?",
+      "countDefendersWhite": "Сколько БЕЛЫХ фигур защищают выделенную клетку?",
+      "countDefendersBlack": "Сколько ЧЁРНЫХ фигур защищают выделенную клетку?",
       "findAllChecks": "Сделайте все ходы с шахом",
       "findUndefendedAttack": "Какой ход создаёт у соперника новую висящую фигуру (под боем и без защиты)?",
       "findUndefendedAttackWhite": "Какой ход белых создаёт у чёрных новую висящую фигуру?",
@@ -738,7 +740,9 @@
       "whiteToMove": "Ход белых",
       "blackToMove": "Ход чёрных",
       "whiteAttackers": "Атакующие — белые",
-      "blackAttackers": "Атакующие — чёрные"
+      "blackAttackers": "Атакующие — чёрные",
+      "whiteDefenders": "Защищающие — белые",
+      "blackDefenders": "Защищающие — чёрные"
     },
     "layers": {
       "overview": "Обзор доски",

@@ -654,6 +654,16 @@ export function DrillRunner({
     | { attackerColor?: 'w' | 'b' }
     | null)?.attackerColor;
 
+  // KS-2452: если на target-клетке стоит фигура того же цвета, что и
+  // считаемая сторона — это «защищающие» (свои фигуры свою же клетку
+  // защищают, а не атакуют). Если клетка пустая или фигура чужого
+  // цвета — оставляем «атакующие».
+  const countAttackersIsDefenders =
+    drill?.drillType === 'count-attackers' &&
+    !!attackerColor &&
+    !!drill.meta?.highlightedSquare &&
+    pieceColorOnSquare(drill.fen, drill.meta.highlightedSquare) === attackerColor;
+
   // KS-2386: для find-undefended-attack нужен side-to-move, чтобы
   // текст инструкции называл сторону хода и сторону защищающегося
   // («После какого хода белых у чёрных…»). Считаем его здесь
@@ -680,6 +690,18 @@ export function DrillRunner({
         : t('drills.feedback.incorrect', 'Not quite');
     }
     if (drill.drillType === 'count-attackers' && attackerColor) {
+      // KS-2452: своя фигура на target-клетке → defenders, иначе attackers.
+      if (countAttackersIsDefenders) {
+        return attackerColor === 'w'
+          ? t(
+              'drills.instructions.countDefendersWhite',
+              'How many WHITE pieces defend the highlighted square?',
+            )
+          : t(
+              'drills.instructions.countDefendersBlack',
+              'How many BLACK pieces defend the highlighted square?',
+            );
+      }
       return attackerColor === 'w'
         ? t(
             'drills.instructions.countAttackersWhite',
@@ -713,7 +735,15 @@ export function DrillRunner({
           );
     }
     return t(`drills.instructions.${kebabToCamel(drill.drillType)}`);
-  }, [drill, feedback, t, attackerColor, undefendedAttackSide, findForkSide]);
+  }, [
+    drill,
+    feedback,
+    t,
+    attackerColor,
+    countAttackersIsDefenders,
+    undefendedAttackSide,
+    findForkSide,
+  ]);
 
   const instructionTone =
     feedback === null ? 'info' : feedback.solved ? 'success' : 'error';
@@ -967,10 +997,18 @@ export function DrillRunner({
           className="drill-runner__side drill-runner__side--attackers"
           data-testid="drill-runner-attacker-color"
           data-side={attackerColor}
+          data-role={countAttackersIsDefenders ? 'defenders' : 'attackers'}
         >
-          {attackerColor === 'w'
-            ? t('drills.side.whiteAttackers', 'White attackers')
-            : t('drills.side.blackAttackers', 'Black attackers')}
+          {/* KS-2452: pill показывает «Защищающие — …» если своя фигура
+              на target-клетке (своя сторона свою же клетку защищает),
+              иначе обычное «Атакующие — …». */}
+          {countAttackersIsDefenders
+            ? attackerColor === 'w'
+              ? t('drills.side.whiteDefenders', 'White defenders')
+              : t('drills.side.blackDefenders', 'Black defenders')
+            : attackerColor === 'w'
+              ? t('drills.side.whiteAttackers', 'White attackers')
+              : t('drills.side.blackAttackers', 'Black attackers')}
         </div>
       )}
 
