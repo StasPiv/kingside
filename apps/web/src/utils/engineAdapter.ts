@@ -101,6 +101,13 @@ export class WasmEngineAdapter implements EngineAdapter {
       this.worker!.addEventListener('message', handler);
       this.worker!.postMessage('uci');
     });
+
+    // KS-2525 / KS-2521: после uciok включаем UCI_ShowWDL — Stockfish
+    // начинает добавлять `wdl W D L` в info-строки (W/D/L в промилле,
+    // POV side-to-move). Парсер этого поля пишется в KS-2526. Опция
+    // безопасна для старых сборок: если движок её не знает — он
+    // отвечает «No such option», analyze продолжается без wdl.
+    this.worker!.postMessage('setoption name UCI_ShowWDL value true');
   }
 
   setOption(name: string, value: string): void {
