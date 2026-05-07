@@ -56,4 +56,15 @@ describe('<AddStepEmptyState>', () => {
     fireEvent.click(screen.getByTestId('add-step-empty-cta'));
     expect(onAdd).toHaveBeenCalledWith('endgame_drill');
   });
+
+  it('KS-2574: «Quiz» доступен в picker → CTA вызывает onAdd("quiz")', () => {
+    const onAdd = vi.fn();
+    renderWithProviders(<AddStepEmptyState onAdd={onAdd} />);
+    expect(
+      screen.getByTestId('add-step-empty-picker-option-quiz'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('add-step-empty-picker-option-quiz'));
+    fireEvent.click(screen.getByTestId('add-step-empty-cta'));
+    expect(onAdd).toHaveBeenCalledWith('quiz');
+  });
 });

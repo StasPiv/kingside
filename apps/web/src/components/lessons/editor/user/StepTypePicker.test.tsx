@@ -9,9 +9,16 @@ import { StepTypePicker, USER_STEP_TYPES } from './StepTypePicker';
  */
 
 describe('<StepTypePicker>', () => {
-  it('рендерит ровно 3 опции (whitelist UserStepType): text/puzzle/endgame_drill', () => {
+  it('рендерит ровно 4 опции (whitelist UserStepType): text/puzzle/endgame_drill/quiz', () => {
+    // KS-2574: добавлен `quiz` в USER_STEP_TYPES после расширения
+    // shared union (KS-2570) и появления `<QuizStepEditor>` (KS-2573).
     renderWithProviders(<StepTypePicker value={null} onSelect={vi.fn()} />);
-    expect(USER_STEP_TYPES).toEqual(['text', 'puzzle', 'endgame_drill']);
+    expect(USER_STEP_TYPES).toEqual([
+      'text',
+      'puzzle',
+      'endgame_drill',
+      'quiz',
+    ]);
     for (const type of USER_STEP_TYPES) {
       expect(
         screen.getByTestId(`step-type-picker-option-${type}`),

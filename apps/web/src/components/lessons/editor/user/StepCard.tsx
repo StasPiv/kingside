@@ -21,6 +21,7 @@ import {
   PuzzleFields,
   TextFields,
 } from '../fields';
+import { QuizStepEditor } from './QuizStepEditor';
 
 /**
  * `StepCard` — компактная карточка шага в user-редакторе курса
@@ -82,19 +83,26 @@ const TYPE_ICONS: Record<UserStepType, string> = {
   text: '📝',
   puzzle: '♟️',
   endgame_drill: '⚔️',
+  quiz: '❓',
 };
 
 const TYPE_LABEL_KEY: Record<UserStepType, string> = {
   text: 'lessons.my.stepType.text',
   puzzle: 'lessons.my.stepType.puzzle',
   endgame_drill: 'lessons.my.stepType.endgameDrill',
+  quiz: 'lessons.my.stepType.quiz',
 };
 
 /** Длина превью текста заголовка. */
 const PREVIEW_CHARS = 60;
 
 function isUserStepType(type: string): type is UserStepType {
-  return type === 'text' || type === 'puzzle' || type === 'endgame_drill';
+  return (
+    type === 'text' ||
+    type === 'puzzle' ||
+    type === 'endgame_drill' ||
+    type === 'quiz'
+  );
 }
 
 /**
@@ -396,6 +404,12 @@ export function StepCard({
           )}
           {step.payload.type === 'endgame_drill' && (
             <EndgameDrillFields
+              payload={step.payload}
+              onChange={onPayloadChange}
+            />
+          )}
+          {step.payload.type === 'quiz' && (
+            <QuizStepEditor
               payload={step.payload}
               onChange={onPayloadChange}
             />

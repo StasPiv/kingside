@@ -25,6 +25,13 @@ vi.mock('../fields', () => ({
     <div data-testid={`endgame-fields-${payload.type}`} />
   ),
 }));
+// KS-2574: QuizStepEditor — тяжёлый компонент с DnD; мок в StepCard
+// тестах — здесь нас интересует только что он подключён в switch.
+vi.mock('./QuizStepEditor', () => ({
+  QuizStepEditor: ({ payload }: { payload: { type: string } }) => (
+    <div data-testid={`quiz-step-editor`} data-payload-type={payload.type} />
+  ),
+}));
 
 function mkStep(over: Partial<UserLessonStepDto> = {}): UserLessonStepDto {
   return {
@@ -243,17 +250,40 @@ describe('<StepCard>', () => {
     expect(screen.getByTestId('step-renderer-mock')).toBeInTheDocument();
   });
 
-  it('неподдерживаемый тип (quiz из бэкапа админского курса) → unsupported-плашка', () => {
+  it('неподдерживаемый тип (position из бэкапа админского курса) → unsupported-плашка', () => {
+    // KS-2574: `quiz` теперь в whitelist UserStepType — заменили на
+    // `position`, который остался admin-only типом и должен ронять
+    // graceful-degradation плашку.
     const step: UserLessonStepDto = {
       id: 's1',
       userLessonId: 'l1',
       order: 0,
       // @ts-expect-error — тестируем graceful-degradation для типов не из whitelist
-      type: 'quiz',
-      // @ts-expect-error — StepPayload для quiz не в UserStepType-whitelist
-      payload: { type: 'quiz', questions: [] },
+      type: 'position',
+      // @ts-expect-error — position не в UserStepType-whitelist
+      payload: {
+        type: 'position',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        expectedMoves: [],
+      },
     };
     render({ step });
     expect(screen.getByTestId('step-card-unsupported-s1')).toBeInTheDocument();
+  });
+
+  it('KS-2574: quiz-шаг рендерит QuizStepEditor (без unsupported-плашки)', () => {
+    const step: UserLessonStepDto = {
+      id: 's-q',
+      userLessonId: 'l1',
+      order: 0,
+      type: 'quiz',
+      payload: { type: 'quiz', questions: [] },
+    };
+    render({ step });
+    expect(screen.getByTestId('quiz-step-editor')).toBeInTheDocument();
+    // unsupported-плашка НЕ показывается
+    expect(
+      screen.queryByTestId('step-card-unsupported-s-q'),
+    ).not.toBeInTheDocument();
   });
 });

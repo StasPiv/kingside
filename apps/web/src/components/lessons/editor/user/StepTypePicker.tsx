@@ -5,10 +5,13 @@ import type { UserStepType } from '@kingside/shared';
  * `StepTypePicker` — карточки-выбор типа шага для user-редактора
  * (KS-1848 §3.3, KS-1851 / FE-R3).
  *
- * Показывает 3 варианта (text / puzzle / endgame_drill) с иконкой,
- * локализованным названием и кратким описанием. Радиогруппой — т.к.
- * одновременно выбран ровно один тип. Стили/темы подкрутит layout
- * отдельно (L-R7); здесь — семантика + testid'ы.
+ * Показывает 4 варианта (text / puzzle / endgame_drill / quiz) с
+ * иконкой, локализованным названием и кратким описанием. Радиогруппой
+ * — т.к. одновременно выбран ровно один тип. Стили/темы подкрутит
+ * layout отдельно (L-R7); здесь — семантика + testid'ы.
+ *
+ * KS-2574: добавлен `quiz` после KS-2570 (shared union UserStepType
+ * расширен) и KS-2573 (`<QuizStepEditor>` готов).
  *
  * API:
  *  - `value` — текущий выбранный тип (или `null`, если ничего не
@@ -35,12 +38,14 @@ export const USER_STEP_TYPES: readonly UserStepType[] = [
   'text',
   'puzzle',
   'endgame_drill',
+  'quiz',
 ];
 
 const ICONS: Record<UserStepType, string> = {
   text: '📝',
   puzzle: '♟️',
   endgame_drill: '⚔️',
+  quiz: '❓',
 };
 
 const I18N_KEY: Record<UserStepType, { title: string; description: string }> = {
@@ -55,6 +60,10 @@ const I18N_KEY: Record<UserStepType, { title: string; description: string }> = {
   endgame_drill: {
     title: 'lessons.my.stepType.endgameDrill',
     description: 'lessons.my.stepType.endgameDrillDescription',
+  },
+  quiz: {
+    title: 'lessons.my.stepType.quiz',
+    description: 'lessons.my.stepType.quizDescription',
   },
 };
 

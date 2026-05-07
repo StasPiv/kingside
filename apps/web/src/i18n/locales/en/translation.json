@@ -2012,7 +2012,12 @@
       "quiz": "Quiz",
       "position": "Position",
       "game_review": "Game review",
-      "video": "Video"
+      "video": "Video",
+      "endgameDrill": "Position vs. engine",
+      "textDescription": "Text with diagrams to explain theory or ideas.",
+      "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
+      "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
+      "quizDescription": "Multiple-choice questions with optional position; for self-checks."
     },
     "badge": {
       "mastered": "Mastered",
@@ -2452,7 +2457,9 @@
         "puzzle": "Puzzle",
         "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
         "endgameDrill": "Position vs. engine",
-        "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition)."
+        "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
+        "quiz": "Quiz",
+        "quizDescription": "Multiple-choice questions with optional position; for self-checks."
       }
     }
   },
