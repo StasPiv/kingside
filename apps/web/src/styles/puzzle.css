@@ -2229,29 +2229,47 @@ body:has(.puzzle-rush-board) {
   .puzzle-engine-runner__board-col {
     display: grid;
     grid-template-columns: min(70vh, 560px) minmax(260px, 1fr);
-    grid-auto-rows: min-content;
+    /* Явные ряды для info-блоков (progress → hint → actions →
+       result/error). Последний `1fr` — filler: забирает остаток
+       высоты доски, чтобы info шли подряд сверху, не размазываясь
+       по высоте. */
+    grid-template-rows: min-content min-content min-content min-content 1fr;
     align-items: start;
     gap: 10px 16px;
   }
 
-  /* Доска — левая колонка, на все ряды. width:100% от грид-cell'ы
+  /* Доска — левая колонка, span all rows. width:100% от грид-cell'ы
      даёт фикс ширину min(70vh, 560px); MemoChessboard сам делает
-     квадрат через boardStyle width=height. */
+     квадрат через boardStyle width=height. align-self: start — доска
+     прижимается к верху grid-cell, не растягивается, если info-блоки
+     суммарно ниже её. */
   .puzzle-engine-runner__board-col > .board-container {
     grid-column: 1;
     grid-row: 1 / -1;
+    align-self: start;
     width: 100%;
     max-width: min(70vh, 560px);
   }
 
-  /* Все инфо-блоки уходят в правую колонку, в порядке появления в
-     DOM (progress → hint → actions → result/error). */
-  .puzzle-engine-runner__board-col > .puzzle-engine-runner__progress,
-  .puzzle-engine-runner__board-col > .puzzle-engine-runner__hint,
-  .puzzle-engine-runner__board-col > .puzzle-engine-runner__actions,
+  /* Каждому info-блоку — явный grid-row, чтобы шли подряд сверху
+     col 2, не растягиваясь по высоте доски. result и error
+     взаимоисключающие — занимают одну row. */
+  .puzzle-engine-runner__board-col > .puzzle-engine-runner__progress {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .puzzle-engine-runner__board-col > .puzzle-engine-runner__hint {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .puzzle-engine-runner__board-col > .puzzle-engine-runner__actions {
+    grid-column: 2;
+    grid-row: 3;
+  }
   .puzzle-engine-runner__board-col > .puzzle-engine-runner__result,
   .puzzle-engine-runner__board-col > .puzzle-engine-runner__error {
     grid-column: 2;
+    grid-row: 4;
   }
 }
 
