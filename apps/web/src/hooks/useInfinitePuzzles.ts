@@ -103,6 +103,16 @@ export function useInfinitePuzzles(
   const seqRef = useRef(0);
   // Последний actual cursor — нужен для loadMore без замыкания state.
   const cursorRef = useRef<string | null>(null);
+  /**
+   * KS-2565: cursor, с которым мы УЖЕ делали запрос. Защищает от
+   * бесконечного цикла retry, когда retry-effect в `PuzzleBrowserPage`
+   * после `loadingMore: true → false` снова видит sentinel в viewport
+   * и дёргает `loadMore`. Если backend в гонке вернул тот же cursor
+   * (что произошло в проде, 16+ запросов подряд) — мы будем фечить
+   * бесконечно. Идемпотентность: повторный fetch с тем же cursor —
+   * no-op, hasMore переключается в false.
+   */
+  const lastUsedCursorRef = useRef<string | null>(null);
 
   // Стабильная сериализация фильтров — изменения значимых полей
   // вызывают перезагрузку. JSON-сериализация массива тем сохраняет
@@ -121,6 +131,8 @@ export function useInfinitePuzzles(
   useEffect(() => {
     const mySeq = ++seqRef.current;
     cursorRef.current = null;
+    // KS-2565: при смене фильтра — разрешаем заново все cursor'ы.
+    lastUsedCursorRef.current = null;
     setLoading(true);
     setError(null);
     setPuzzles([]);
@@ -150,19 +162,35 @@ export function useInfinitePuzzles(
   }, [filtersKey]);
 
   const loadMore = useCallback(() => {
-    if (!cursorRef.current) return;
+    const cursorAtCall = cursorRef.current;
+    if (!cursorAtCall) return;
     if (loadingMore) return;
+    // KS-2565: если уже фечили с этим cursor (например, retry-effect
+    // вызвал нас дважды подряд, или backend вернул тот же cursor что
+    // мы посылали) — больше не пытаемся, переключаем hasMore=false.
+    if (cursorAtCall === lastUsedCursorRef.current) {
+      cursorRef.current = null;
+      setNextCursor(null);
+      return;
+    }
+    lastUsedCursorRef.current = cursorAtCall;
     const mySeq = ++seqRef.current;
     setLoadingMore(true);
     api
       .get<BrowseResponse>(
-        `/puzzles/browse?${buildQuery(filters, cursorRef.current)}`,
+        `/puzzles/browse?${buildQuery(filters, cursorAtCall)}`,
       )
       .then((res) => {
         if (mySeq !== seqRef.current) return;
         setPuzzles((prev) => [...prev, ...(res.data ?? [])]);
-        setNextCursor(res.nextCursor ?? null);
-        cursorRef.current = res.nextCursor ?? null;
+        // KS-2565: если backend вернул тот же cursor что мы послали —
+        // прогресса нет, считаем, что список закончился.
+        const nextC =
+          res.nextCursor && res.nextCursor !== cursorAtCall
+            ? res.nextCursor
+            : null;
+        setNextCursor(nextC);
+        cursorRef.current = nextC;
       })
       .catch((e) => {
         if (mySeq !== seqRef.current) return;

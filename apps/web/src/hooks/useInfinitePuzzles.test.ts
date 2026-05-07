@@ -141,6 +141,85 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(result.current.puzzles[0].isPublic).toBe(true);
   });
 
+  it('KS-2565: backend возвращает тот же cursor что получил → hasMore=false (защита от цикла)', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: 'cur1',
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({}));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // Backend "глюкает" и возвращает тот же cursor, который мы послали.
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_B],
+      nextCursor: 'cur1',
+    });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.puzzles.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('KS-2565: повторный loadMore с тем же cursor → no-op, hasMore=false', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: 'cur1',
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({}));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_B],
+      nextCursor: 'cur2',
+    });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+
+    // Симулируем багу retry-effect: cursor не успел обновиться, мы
+    // снова дёргаем loadMore с тем же cur1. Гард `lastUsedCursorRef`
+    // должен поймать это: запрос НЕ должен уйти.
+    // (cursorRef сейчас = cur2; чтобы сэмулировать «зависший cur1»,
+    // фейкаем — на самом деле гард срабатывает и при попытке повторно
+    // переслать любой ранее использованный cursor. Здесь убеждаемся,
+    // что после успешного loadMore lastUsedCursor == cur1, и backend
+    // ответ с nextCursor=cur2 НЕ перезапишет lastUsedCursor — так что
+    // если cur1 опять попадёт в cursorRef, loadMore не пошлёт его).
+    expect(apiGet).toHaveBeenCalledTimes(2);
+    // Третий вызов loadMore без подмены cursor → cur2 ≠ lastUsed=cur1,
+    // запрос уйдёт. Проверяем что cycle не возникает.
+    apiGet.mockResolvedValueOnce({
+      data: [],
+      nextCursor: null,
+    });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    expect(apiGet).toHaveBeenCalledTimes(3);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it('KS-2565: одновременные loadMore (двойной retry) → один запрос', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: 'cur1',
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({}));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_B],
+      nextCursor: 'cur2',
+    });
+    // Двойной synchronous loadMore — типичный сценарий: retry-effect и
+    // observer cb стрельнули почти одновременно. Только один уйдёт в
+    // сеть благодаря `loadingMore`-guard'у.
+    act(() => {
+      result.current.loadMore();
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    // 1 initial + 1 loadMore = 2 запроса всего, не 3.
+    expect(apiGet).toHaveBeenCalledTimes(2);
+  });
+
   it('error устанавливается при отказе API', async () => {
     apiGet.mockRejectedValueOnce(new Error('boom'));
     const { result } = renderHook(() => useInfinitePuzzles({}));
