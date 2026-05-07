@@ -17,6 +17,7 @@ import type {
 import {
   TextStepPayloadDto,
   EndgameDrillStepPayloadDto,
+  QuizStepPayloadDto,
   PuzzleSelectionIdsDto,
   PuzzleSelectionCustomDto,
 } from '../../dto/step-payload.dto';
@@ -25,23 +26,28 @@ import { ALLOWED_USER_STEP_TYPES } from '../user-courses-limits';
 /**
  * DTO-валидаторы для `UserLessonStep.payload` (ADR-026 §2.4, KS-1830).
  *
- * Мы не дублируем весь shared-union `StepPayload`. Сценарий «пользователь
- * собирает свой курс» в MVP поддерживает только три типа:
- *   - `text`         — reuse `TextStepPayloadDto` (ADR-024, тот же рендер)
- *   - `puzzle`       — новый `UserPuzzleStepPayloadDto` с `limit: 1..20`
- *     (в системных — до 100; ADR-026 §2.2)
- *   - `endgame_drill`— reuse `EndgameDrillStepPayloadDto`
+ * Сценарий «пользователь собирает свой курс» поддерживает (KS-2569,
+ * ADR-049 Tier 1 #1):
+ *   - `text`         — reuse `TextStepPayloadDto` (ADR-024, тот же рендер).
+ *   - `puzzle`       — `UserPuzzleStepPayloadDto` с `limit: 1..20`
+ *                      (в системных — до 100; ADR-026 §2.2).
+ *   - `endgame_drill`— reuse `EndgameDrillStepPayloadDto`.
+ *   - `quiz`         — reuse `QuizStepPayloadDto` (KS-2569). Без
+ *                      отдельного user-варианта: anti-abuse лимит на
+ *                      `questions.length` пока не вводим
+ *                      (открытый вопрос ADR-049 §2.4, отдельный тикет
+ *                      при необходимости).
  *
- * `quiz`, `position`, `game_review`, `video`, `opening_drill` —
+ * `position`, `game_review`, `video`, `opening_drill`, `drill` —
  * за пределами whitelist'а. Они явно не объявлены в discriminator'е
  * ниже, и запрос с таким `type` свалится с 400:
  *   `Step type '<type>' not allowed in user courses`.
  *
- * Контроль за расширением: добавляя 4-й тип, нужно:
+ * Контроль за расширением: добавляя новый тип, нужно:
  *   1. Внести его в `ALLOWED_USER_STEP_TYPES`.
  *   2. Добавить его DTO в `USER_STEP_PAYLOAD_SUBTYPES` ниже.
- *   3. Обновить `UserStepType` в `@kingside/shared`.
- *   4. Обновить UI-select в `StepEditor` (FE-2).
+ *   3. Обновить `UserStepType` в `@kingside/shared` (KS-2570).
+ *   4. Обновить UI-select в `StepEditor`.
  * Ничего в БД/миграциях менять не надо.
  */
 
@@ -117,7 +123,7 @@ export class UserPuzzleStepPayloadDto implements PuzzleStepPayload {
 
 // Реэкспорт системных DTO, которые используем как есть — чтобы импорты
 // в Create/Update DTO собирались из одного места.
-export { TextStepPayloadDto, EndgameDrillStepPayloadDto };
+export { TextStepPayloadDto, EndgameDrillStepPayloadDto, QuizStepPayloadDto };
 
 /**
  * Whitelist discriminator subtypes для `@Type` на `payload` в
@@ -127,12 +133,14 @@ export const USER_STEP_PAYLOAD_SUBTYPES = [
   { value: TextStepPayloadDto, name: 'text' },
   { value: UserPuzzleStepPayloadDto, name: 'puzzle' },
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
+  { value: QuizStepPayloadDto, name: 'quiz' },
 ] as const;
 
 export type UserStepPayloadDto =
   | TextStepPayloadDto
   | UserPuzzleStepPayloadDto
-  | EndgameDrillStepPayloadDto;
+  | EndgameDrillStepPayloadDto
+  | QuizStepPayloadDto;
 
 /**
  * Проверка type на whitelist до того, как class-transformer попробует

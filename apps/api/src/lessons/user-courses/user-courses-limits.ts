@@ -28,9 +28,19 @@ export const USER_COURSES_LIMITS = {
  * Whitelist типов шагов, разрешённых в пользовательских курсах.
  * Держится на уровне API (discriminator DTO + проверка в сервисе).
  *
- * НЕ Prisma enum: добавление 4-го типа не должно тянуть миграцию БД
+ * НЕ Prisma enum: добавление нового типа не должно тянуть миграцию БД
  * (ADR-026 §2.4).
+ *
+ * KS-2569: добавлен `quiz` (ADR-049 Tier 1 #1) — переиспользуем
+ * системный `QuizStepPayloadDto` без отдельного user-варианта,
+ * anti-abuse лимиты на `questions.length` пока не вводим
+ * (открытый вопрос ADR-049 §2.4).
  */
-export const ALLOWED_USER_STEP_TYPES = ['text', 'puzzle', 'endgame_drill'] as const;
+export const ALLOWED_USER_STEP_TYPES = [
+  'text',
+  'puzzle',
+  'endgame_drill',
+  'quiz',
+] as const;
 
 export type AllowedUserStepType = (typeof ALLOWED_USER_STEP_TYPES)[number];

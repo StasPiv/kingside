@@ -109,7 +109,7 @@ describe('UserLessonsService (KS-1829)', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it.each(['video', 'quiz', 'game_review', 'opening_drill', 'position'])(
+    it.each(['video', 'game_review', 'opening_drill', 'position', 'drill'])(
       'type=%s вне whitelist → 400',
       async (type) => {
         await expect(
@@ -121,7 +121,8 @@ describe('UserLessonsService (KS-1829)', () => {
       },
     );
 
-    it.each(['text', 'puzzle', 'endgame_drill'])(
+    // KS-2569: quiz добавлен в whitelist (ADR-049 Tier 1 #1).
+    it.each(['text', 'puzzle', 'endgame_drill', 'quiz'])(
       'type=%s whitelist — проходит',
       async (type) => {
         prisma.userLessonStep.findFirst.mockResolvedValue(null);
@@ -133,6 +134,43 @@ describe('UserLessonsService (KS-1829)', () => {
         ).resolves.toBeDefined();
       },
     );
+
+    // KS-2569: создание quiz-шага через сервис с реалистичным payload.
+    it('создание quiz-шага сохраняет payload как есть', async () => {
+      prisma.userLessonStep.findFirst.mockResolvedValue(null);
+      prisma.userLessonStep.create.mockImplementation(async ({ data }: any) => ({
+        id: 's-quiz',
+        ...data,
+      }));
+      const payload = {
+        type: 'quiz',
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'Best move?',
+            options: [
+              { id: 'o1', label: 'e4' },
+              { id: 'o2', label: 'd4' },
+            ],
+            correctOptionIds: ['o1'],
+          },
+        ],
+      };
+      // KS-2570 поднимет 'quiz' в shared `UserStepType`. До этого —
+      // явный cast через `as any`, как в whitelist-параметризованном
+      // тесте выше (рантайм-проверка важна, типы догоняем отдельным
+      // тикетом).
+      const r = await service.addStep('l1', {
+        type: 'quiz' as any,
+        payload: payload as any,
+      });
+      expect(prisma.userLessonStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ type: 'quiz', payload }),
+        }),
+      );
+      expect(r.type).toBe('quiz');
+    });
 
     it('50 шагов в уроке → 51-й падает 400 "Steps per lesson limit reached"', async () => {
       prisma.userLessonStep.count.mockResolvedValue(50);

@@ -74,9 +74,64 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
     expect(typeErr).toBeUndefined();
   });
 
+  // KS-2569: quiz добавлен в whitelist (ADR-049 Tier 1 #1).
+  it('type=quiz с валидным payload — без ошибок', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'quiz',
+      payload: {
+        type: 'quiz',
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'Best move?',
+            options: [
+              { id: 'o1', label: 'e4' },
+              { id: 'o2', label: 'd4' },
+            ],
+            correctOptionIds: ['o1'],
+          },
+        ],
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('type=quiz с пустым questions[] — ошибка', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'quiz',
+      payload: {
+        type: 'quiz',
+        questions: [],
+      },
+    });
+    // Ошибка валидации в nested payload.
+    expect(errors.find((e) => e.property === 'payload')).toBeDefined();
+  });
+
+  it('type=quiz без correctOptionIds — ошибка', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'quiz',
+      payload: {
+        type: 'quiz',
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'Best move?',
+            options: [
+              { id: 'o1', label: 'e4' },
+              { id: 'o2', label: 'd4' },
+            ],
+            // correctOptionIds отсутствует
+          },
+        ],
+      },
+    });
+    expect(errors.find((e) => e.property === 'payload')).toBeDefined();
+  });
+
   // ─── Whitelist «запрещены» → 400 ─────────────────────────────────
 
-  it.each(['video', 'quiz', 'game_review', 'opening_drill', 'position'])(
+  it.each(['video', 'game_review', 'opening_drill', 'position', 'drill'])(
     'type=%s (вне whitelist) — ошибка на свойстве type',
     async (type) => {
       const errors = await validateDto(CreateUserLessonStepDto, {
