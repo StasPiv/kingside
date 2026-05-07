@@ -261,8 +261,17 @@ class QuizStepPayloadDto implements QuizStepPayload {
   @IsIn(['quiz'])
   type!: 'quiz';
 
+  /**
+   * KS-2590 (hotfix): пустой `questions[]` разрешён — это draft-flow
+   * редактора (`<QuizStepEditor>` создаёт пустой шаг через addStep,
+   * пользователь добавляет вопросы позже, autosave не должен ломаться).
+   *
+   * Если позже потребуется требование «публиковать только непустые
+   * квизы» — добавить отдельную PUBLISH-валидацию на этапе
+   * публикации курса/урока, а не блокировать каждый POST/PATCH в
+   * редакторе. См. ADR-049 §2.4.
+   */
   @IsArray()
-  @ArrayNotEmpty()
   @ValidateNested({ each: true })
   @Type(() => QuizQuestionDto)
   questions!: QuizQuestionDto[];

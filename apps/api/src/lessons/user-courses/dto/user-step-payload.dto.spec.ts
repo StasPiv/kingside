@@ -96,7 +96,9 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('type=quiz с пустым questions[] — ошибка', async () => {
+  // KS-2590 (hotfix): пустой questions[] разрешён — это draft-flow
+  // редактора. Запрет переехал в PUBLISH-валидацию (отдельный шаг).
+  it('type=quiz с пустым questions[] — без ошибок (draft-flow KS-2590)', async () => {
     const errors = await validateDto(CreateUserLessonStepDto, {
       type: 'quiz',
       payload: {
@@ -104,8 +106,7 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
         questions: [],
       },
     });
-    // Ошибка валидации в nested payload.
-    expect(errors.find((e) => e.property === 'payload')).toBeDefined();
+    expect(errors).toHaveLength(0);
   });
 
   it('type=quiz без correctOptionIds — ошибка', async () => {
