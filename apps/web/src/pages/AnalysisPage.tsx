@@ -399,8 +399,19 @@ function AnalysisPageInner() {
   // useAnalysisPersistence через PUT /games/:id/analysis, для saved
   // (analysisId) — useSavedAnalyses.update; для puzzleFen / "/analysis"
   // / custom-position'а раньше autosave не было совсем.
+  //
+  // KS-2486 (reopen): при заходе на `/analysis?fen=<X>` (открыть пазл в
+  // мастерской) autosave-restore выполнялся ПЕРВЫМ рендером с
+  // `initialFen=DEFAULT` ДО того как puzzleFen-effect успевал записать
+  // переданный FEN; restore возвращал PGN из прошлой ad-hoc сессии
+  // (например, недавний Ruy Lopez), и пользователь видел чужие ходы
+  // вместо позиции пазла. Решение: если в URL передан `?fen=`, считаем
+  // это явным запросом «новая сессия с этой позиции» — отключаем
+  // ad-hoc autosave целиком (ни save, ни restore). Сохранять заметки
+  // по позиции пазла можно через стандартный saved-analyses flow,
+  // когда пользователь начнёт делать ходы (createAnalysis ниже).
   useAdHocAnalysisAutosave({
-    enabled: !gameId && !analysisId,
+    enabled: !gameId && !analysisId && !puzzleFen,
     initialFen,
     history,
     initialAnnotations,
