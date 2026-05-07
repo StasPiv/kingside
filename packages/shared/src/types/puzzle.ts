@@ -170,6 +170,65 @@ export interface PuzzleSourceGame {
 }
 
 /**
+ * KS-2581 (ADR-050 §3 #2). Один элемент batch-сохранения пазлов через
+ * `POST /api/puzzles/batch`. Используется и серверным CLI tactic-worker,
+ * и клиентским WDL-генератором (KS-2584).
+ *
+ * Семантика полей зеркалит backend `BatchPuzzleItemDto` (см.
+ * `apps/api/src/puzzle/dto/batch-puzzle.dto.ts`). Бэк применяет
+ * class-validator поверх — типы здесь и runtime-валидация остаются
+ * согласованы вручную (нет автогенерации схемы).
+ *
+ *   - `moves` — UCI ходы решения, разделены пробелами. Допустима пустая
+ *     строка для `solutionMode='play-vs-engine'` (линия не задана,
+ *     решатель играет против движка).
+ *   - `gap` — cp-разница до/после блaндера (legacy-метрика, для
+ *     совместимости с lichess-puzzle-генератором). WDL-pipeline всё
+ *     равно её передаёт.
+ *   - `themes` — comma-separated список `PuzzleTheme` (формат БД: TEXT,
+ *     не enum-array).
+ *   - `sourceType` — origin-маркер (`pgn_import` / `wdl-generated` /
+ *     `archive` и т.п.). Используется для фильтрации в browse.
+ *   - `sourceMetadata` — произвольный JSON, фронт WDL-генератора кладёт
+ *     `blunderMove`/`wdlBeforeBlunder`/`wdlAfterBlunder` для
+ *     `play-vs-engine` сценария.
+ *   - `acceptedMoves` — alternative-line UCI (для multi-PV solution).
+ *   - `isPublic` (KS-2580) — default `false` (draft) на бэке. Старые
+ *     CLI-клиенты, не передающие поле, после KS-2580 получат draft —
+ *     intentional breaking-change (см. ADR-050 §2.3).
+ *   - `solutionMode` (KS-2580) — default `'forced-line'`. Серверный
+ *     WDL-pipeline и клиентский генератор (KS-2584) передают
+ *     `'play-vs-engine'`.
+ */
+export interface BatchPuzzleItem {
+  fen: string;
+  moves: string;
+  rating: number;
+  gap: number;
+  themes: string;
+  sourceType: string;
+  sourceId?: string | null;
+  sourceMoveNum?: number;
+  sourceMetadata?: Record<string, unknown>;
+  acceptedMoves?: string;
+  isPublic?: boolean;
+  solutionMode?: PuzzleSolutionMode;
+}
+
+/**
+ * KS-2581. Тело запроса `POST /api/puzzles/batch`.
+ * `puzzles` — массив до 200 элементов (бэк делает `slice(0, 200)`).
+ */
+export interface BatchPuzzlesRequest {
+  puzzles: BatchPuzzleItem[];
+}
+
+export interface BatchPuzzlesResponse {
+  /** Сколько строк реально вставилось (`createMany.skipDuplicates: true`). */
+  count: number;
+}
+
+/**
  * KS-2493 / ADR-046 §5.3. Метрики статистики пазлов в разрезе одного
  * `solutionMode` для блока «Modes breakdown» на странице stats.
  *

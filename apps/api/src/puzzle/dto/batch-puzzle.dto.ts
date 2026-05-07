@@ -9,7 +9,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { PuzzleSolutionMode } from '@kingside/shared';
+import type {
+  BatchPuzzleItem,
+  PuzzleSolutionMode,
+} from '@kingside/shared';
 
 /**
  * KS-2580 (ADR-050 §3 #1). DTO для `POST /api/puzzles/batch`.
@@ -31,7 +34,12 @@ import type { PuzzleSolutionMode } from '@kingside/shared';
  * `play-vs-engine` сценария — `acceptedMoves`/`sourceMetadata`
  * описывают solution).
  */
-export class BatchPuzzleItemDto {
+/**
+ * KS-2581: реализация shared-интерфейса `BatchPuzzleItem`. Поля и
+ * семантика — там, здесь только class-validator декораторы для
+ * NestJS ValidationPipe.
+ */
+export class BatchPuzzleItemDto implements BatchPuzzleItem {
   @IsString()
   fen!: string;
 
@@ -62,7 +70,7 @@ export class BatchPuzzleItemDto {
   sourceMoveNum?: number;
 
   @IsOptional()
-  sourceMetadata?: Record<string, string>;
+  sourceMetadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()
