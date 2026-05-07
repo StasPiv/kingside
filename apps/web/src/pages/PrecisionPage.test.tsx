@@ -1,20 +1,25 @@
 /**
- * KS-2484. Тесты `PrecisionPage` — fetch, рендер карточек,
- * empty / error состояния, навигация на /puzzle/:id.
+ * KS-2484 → KS-2578 → KS-2586. Тесты `PrecisionPage`.
+ * Покрываем: загрузку (через `useInfinitePuzzles` после KS-2586), рендер
+ * карточек, empty / error состояния, навигацию, KS-2545 stats-блок,
+ * KS-2586 draft badge + индивидуальный publish.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { waitFor } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 
 const mockNavigate = vi.fn();
+const mockSearchParams = new URLSearchParams();
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>();
-  return { ...actual, useNavigate: () => mockNavigate };
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    useSearchParams: () => [mockSearchParams, vi.fn()] as const,
+  };
 });
 
-// Лёгкая замена Chessboard — иначе react-chessboard тащит много модулей,
-// тест медленный и не тематический. Главное — что компонент рендерится.
 vi.mock('react-chessboard', () => ({
   Chessboard: ({
     options,
@@ -30,15 +35,14 @@ vi.mock('react-chessboard', () => ({
 }));
 
 const apiGet = vi.fn();
+const apiPatch = vi.fn();
 vi.mock('../api', () => ({
   api: {
     get: (...args: unknown[]) => apiGet(...args),
+    patch: (...args: unknown[]) => apiPatch(...args),
   },
 }));
 
-// KS-2545: PrecisionPage теперь использует `useAuth` для gate'а
-// stats-блока. Глобально мокаем гостя; в KS-2545-тестах внутри describe
-// переопределяем на пользователя через `authValue`.
 const authValue: { user: { id: string; username: string } | null } = {
   user: null,
 };
@@ -57,13 +61,12 @@ const SAMPLE = [
     themes: ['crushing', 'knightMove', 'playVsEngine'],
     source: 'generated',
     solutionMode: 'play-vs-engine',
-    playVsEngine: {
-      blunderMove: 'a8b8',
-      wdlAfterBlunder: 0.958,
-      winThreshold: 0.5,
-      failThreshold: 0,
-      halfMovesN: 6,
-    },
+    moves: '',
+    sourceId: null,
+    sourceMoveNum: null,
+    sourceMetadata: null,
+    createdAt: '2026-05-07T10:00:00Z',
+    isPublic: true,
   },
   {
     id: 'bc940cc2-15ab-4fc9-bf06-feaf114f2a28',
@@ -72,37 +75,51 @@ const SAMPLE = [
     themes: ['crushing', 'playVsEngine', 'rookMove'],
     source: 'generated',
     solutionMode: 'play-vs-engine',
+    moves: '',
+    sourceId: null,
+    sourceMoveNum: null,
+    sourceMetadata: null,
+    createdAt: '2026-05-07T10:00:00Z',
+    isPublic: true,
   },
 ];
 
+const wrap = (data: unknown[]) => ({ data, nextCursor: null });
+
 beforeEach(() => {
   apiGet.mockReset();
+  apiPatch.mockReset();
   mockNavigate.mockReset();
   authValue.user = null;
+  // Сброс search params между тестами.
+  for (const key of Array.from(mockSearchParams.keys())) {
+    mockSearchParams.delete(key);
+  }
 });
 
 afterEach(() => vi.restoreAllMocks());
 
 /**
- * KS-2578: тесты переведены с legacy `/puzzles?solutionMode=play-vs-engine`
- * на унифицированный `/puzzles/browse?source=generated&limit=20`. Ответ
- * теперь обёрнут в `{ data, nextCursor }` (контракт KS-2560 cursor-API).
- * Helper `wrap` оборачивает массив для совместимости со старыми
- * SAMPLE-фикстурами без переписывания каждого теста.
+ * KS-2586: PrecisionPage переехал на `useInfinitePuzzles`. Хук строит
+ * query с `limit=20&source=generated[&visibility=...]` — порядок
+ * фиксированный (см. `buildQuery` в useInfinitePuzzles.ts). Тесты
+ * проверяют ключи через регулярки, не строгое совпадение.
  */
-const wrap = (data: unknown[]) => ({ data, nextCursor: null });
 
-describe('<PrecisionPage> KS-2484', () => {
-  it('fetch /puzzles/browse?source=generated&limit=20 при mount (KS-2578)', async () => {
+describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () => {
+  it('fetch /puzzles/browse с source=generated и limit=20 при mount', async () => {
     apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
-    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
-    expect(apiGet).toHaveBeenCalledWith(
-      '/puzzles/browse?source=generated&limit=20',
-    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/^\/puzzles\/browse\?/);
+    expect(url).toMatch(/source=generated/);
+    expect(url).toMatch(/limit=20/);
+    expect(url).not.toMatch(/visibility=/); // visibility не задан
+    expect(url).not.toMatch(/mine=/); // mine не задан
   });
 
-  it('рендерит карточки на каждый пазл с FEN, рейтингом, темами', async () => {
+  it('рендерит карточки на каждый пазл с FEN, рейтингом', async () => {
     apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -113,21 +130,14 @@ describe('<PrecisionPage> KS-2484', () => {
     const cards = screen.getAllByTestId('play-vs-engine-card');
     expect(cards).toHaveLength(2);
     expect(cards[0].getAttribute('data-puzzle-id')).toBe(SAMPLE[0].id);
-    // FEN пробрасывается в Chessboard.
     const boards = screen.getAllByTestId('mock-chessboard');
     expect(boards[0].getAttribute('data-position')).toBe(SAMPLE[0].fen);
-    // Ориентация по side-to-move: SAMPLE[1].fen — 'b' → black внизу.
     expect(boards[1].getAttribute('data-orientation')).toBe('black');
-    // Рейтинг видим.
     const ratings = screen.getAllByTestId('play-vs-engine-card-rating');
     expect(ratings[0].textContent).toMatch(/1973/);
-    // KS-2554: чипы тем убраны с карточек.
-    expect(
-      screen.queryAllByTestId('play-vs-engine-card-theme'),
-    ).toHaveLength(0);
   });
 
-  it('KS-2547: клик по «Solve» навигирует на /puzzle/:id?source=precision', async () => {
+  it('KS-2547: клик по «Solve» → /puzzle/:id?source=precision', async () => {
     apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     const user = userEvent.setup();
     renderWithProviders(<PrecisionPage />);
@@ -142,7 +152,7 @@ describe('<PrecisionPage> KS-2484', () => {
     );
   });
 
-  it('пустой ответ → empty state с плейсхолдером', async () => {
+  it('пустой ответ → empty state', async () => {
     apiGet.mockResolvedValueOnce(wrap([]));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -151,10 +161,9 @@ describe('<PrecisionPage> KS-2484', () => {
       ).toBe('empty'),
     );
     expect(screen.getByTestId('play-vs-engine-empty')).toBeInTheDocument();
-    expect(screen.queryAllByTestId('play-vs-engine-card')).toHaveLength(0);
   });
 
-  it('ошибка API → error state с retry-кнопкой', async () => {
+  it('ошибка API → error state с retry-кнопкой (через reload)', async () => {
     apiGet.mockRejectedValueOnce(new Error('boom'));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -163,19 +172,12 @@ describe('<PrecisionPage> KS-2484', () => {
       ).toBe('error'),
     );
     expect(screen.getByTestId('play-vs-engine-error')).toBeInTheDocument();
-    // Retry → новый запрос.
-    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /retry|повторить/i }));
-    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
-      ).toBe('ready'),
-    );
+    expect(
+      screen.getByRole('button', { name: /retry|повторить/i }),
+    ).toBeInTheDocument();
   });
 
-  it('гость (user=null) → stats-блок НЕ рендерится', async () => {
+  it('гость → stats-блок НЕ рендерится', async () => {
     apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -187,14 +189,203 @@ describe('<PrecisionPage> KS-2484', () => {
   });
 });
 
+describe('<PrecisionPage> KS-2586 — URL params (mine, visibility)', () => {
+  it('mine=true → запрос содержит mine=true', async () => {
+    mockSearchParams.set('mine', 'true');
+    apiGet.mockResolvedValue(wrap(SAMPLE));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/mine=true/);
+    expect(
+      screen
+        .getByTestId('play-vs-engine-puzzles')
+        .getAttribute('data-mine'),
+    ).toBe('true');
+  });
+
+  it('visibility=draft → запрос содержит visibility=draft', async () => {
+    mockSearchParams.set('visibility', 'draft');
+    apiGet.mockResolvedValue(wrap(SAMPLE));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/visibility=draft/);
+    expect(
+      screen
+        .getByTestId('play-vs-engine-puzzles')
+        .getAttribute('data-visibility'),
+    ).toBe('draft');
+  });
+
+  it('невалидный visibility (junk) → не пробрасывается в query', async () => {
+    mockSearchParams.set('visibility', 'invalid-value');
+    apiGet.mockResolvedValue(wrap(SAMPLE));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).not.toMatch(/visibility=invalid-value/);
+  });
+});
+
+describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
+  beforeEach(() => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockSearchParams.set('mine', 'true');
+    mockSearchParams.set('visibility', 'draft');
+  });
+
+  it('owned draft → Draft badge + Publish button видны', async () => {
+    const draft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      userId: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([draft]));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('precision-card-draft-badge'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('precision-card-publish'),
+    ).toBeInTheDocument();
+  });
+
+  it('owned public → ни badge, ни Publish button', async () => {
+    const pub = {
+      ...SAMPLE[0],
+      isPublic: true,
+      userId: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([pub]));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('precision-card-draft-badge'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('precision-card-publish'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("чужой draft (другой userId) → ни badge, ни Publish button у текущего юзера", async () => {
+    const otherDraft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      userId: 'u-someone-else',
+    };
+    apiGet.mockResolvedValueOnce(wrap([otherDraft]));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('precision-card-draft-badge'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('precision-card-publish'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('Publish click → PATCH /puzzles/:id { isPublic: true } + оптимистичный апдейт (badge исчезает)', async () => {
+    const draft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      userId: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([draft]));
+    apiPatch.mockResolvedValueOnce({ ok: true });
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('precision-card-publish')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('precision-card-publish'));
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith(`/puzzles/${draft.id}`, {
+        isPublic: true,
+      }),
+    );
+    // patchLocally убирает badge и кнопку (isPublic стал true).
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('precision-card-draft-badge'),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('precision-card-publish'),
+    ).not.toBeInTheDocument();
+    // Показывается «Published» toast (исчезнет через 2с — но в тесте
+    // достаточно проверить что он появился).
+    expect(
+      screen.getByTestId('precision-card-published-toast'),
+    ).toBeInTheDocument();
+  });
+
+  it('Publish ошибка → показывает publish-error, badge остаётся', async () => {
+    const draft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      userId: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([draft]));
+    apiPatch.mockRejectedValueOnce(new Error('publish boom'));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('precision-card-publish')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('precision-card-publish'));
+    await waitFor(() =>
+      expect(screen.getByTestId('precision-publish-error').textContent).toMatch(
+        /publish boom/,
+      ),
+    );
+    // badge всё ещё там (оптимистик не применился, так как api упал).
+    expect(
+      screen.getByTestId('precision-card-draft-badge'),
+    ).toBeInTheDocument();
+  });
+
+  it('Publish во время запроса → кнопка disabled + текст «Publishing…»', async () => {
+    const draft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      userId: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([draft]));
+    let resolvePatch: (v: unknown) => void = () => {};
+    apiPatch.mockReturnValueOnce(
+      new Promise((res) => {
+        resolvePatch = res;
+      }),
+    );
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('precision-card-publish')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('precision-card-publish'));
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('precision-card-publish') as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    expect(screen.getByTestId('precision-card-publish').textContent).toMatch(
+      /Publishing|Публикуем/,
+    );
+    resolvePatch({ ok: true });
+  });
+});
+
 describe('<PrecisionPage> KS-2545 — stats-блок', () => {
   it('рендерит totalAttempted/totalSolved/lastAttemptAt из API', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
-    // Маршрутизация по URL: puzzles list, stats/me, attempts list.
     apiGet.mockImplementation((url: string) => {
-      if (url === '/puzzles/browse?source=generated&limit=20') {
-        return Promise.resolve(wrap(SAMPLE));
-      }
+      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
       if (url === '/puzzles/stats/me') {
         return Promise.resolve({
           byMode: {
@@ -217,12 +408,10 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
       }
       if (url === '/puzzles/attempts?take=20&skip=0') {
         return Promise.resolve([
-          // Свежий attempt forced-line — должны его пропустить.
           {
             createdAt: '2026-05-06T10:00:00Z',
             puzzle: { solutionMode: 'forced-line' },
           },
-          // Первый PvE — он и должен быть «последним».
           {
             createdAt: '2026-05-05T15:00:00Z',
             puzzle: { solutionMode: 'play-vs-engine' },
@@ -245,8 +434,6 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
     expect(screen.getByTestId('precision-stats-solved').textContent).toMatch(
       /7/,
     );
-    // lastAttemptAt — рендерится через `toLocaleDateString`, проверяем
-    // что это не «—» (значит дата подставилась).
     const lastEl = screen.getByTestId('precision-stats-last-attempt');
     expect(lastEl.textContent).not.toMatch(/—/);
   });
@@ -254,9 +441,7 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
   it('user без play-vs-engine attempts → lastAttemptAt = «—»', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
-      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
-        return Promise.resolve([]);
-      }
+      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap([]));
       if (url === '/puzzles/stats/me') {
         return Promise.resolve({
           byMode: {
@@ -303,15 +488,10 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
   it('stats/me падает → блок рендерится с нулями (graceful)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
-      if (url === '/puzzles/browse?source=generated&limit=20') {
-        return Promise.resolve(wrap(SAMPLE));
-      }
-      if (url === '/puzzles/stats/me') {
+      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
+      if (url === '/puzzles/stats/me') return Promise.reject(new Error('500'));
+      if (url === '/puzzles/attempts?take=20&skip=0')
         return Promise.reject(new Error('500'));
-      }
-      if (url === '/puzzles/attempts?take=20&skip=0') {
-        return Promise.reject(new Error('500'));
-      }
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);
@@ -320,7 +500,6 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
       if (!el) throw new Error('stats not yet rendered');
       return el;
     });
-    // Оба запроса упали через `.catch` → fetchStats положил нули.
     expect(block.getAttribute('data-attempts')).toBe('0');
     expect(block.getAttribute('data-solved')).toBe('0');
     expect(

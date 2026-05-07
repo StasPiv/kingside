@@ -86,6 +86,7 @@ describe('useInfinitePuzzles KS-2561', () => {
         mine: true,
         hideSolved: true,
         source: 'lichess',
+        visibility: 'draft',
         limit: 30,
       }),
     );
@@ -98,6 +99,32 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(url).toMatch(/mine=true/);
     expect(url).toMatch(/hideSolved=true/);
     expect(url).toMatch(/source=lichess/);
+    expect(url).toMatch(/visibility=draft/);
+  });
+
+  it('KS-2586: смена visibility → новый запрос с другим параметром', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    const { rerender } = renderHook(
+      ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>
+        useInfinitePuzzles(filters),
+      {
+        initialProps: {
+          filters: {
+            visibility: 'draft',
+          } as Parameters<typeof useInfinitePuzzles>[0],
+        },
+      },
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    rerender({
+      filters: {
+        visibility: 'public',
+      } as Parameters<typeof useInfinitePuzzles>[0],
+    });
+    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
+    expect(apiGet.mock.calls[0][0] as string).toMatch(/visibility=draft/);
+    expect(apiGet.mock.calls[1][0] as string).toMatch(/visibility=public/);
   });
 
   it('смена фильтров → новый запрос без cursor (reset)', async () => {

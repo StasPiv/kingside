@@ -1271,6 +1271,10 @@
     "openPuzzle": "Open puzzle",
     "backToAll": "All puzzles",
     "cardTitle": "#{{id}}",
+    "draftBadge": "Draft",
+    "publishedBadge": "Published",
+    "publish": "Publish",
+    "publishing": "Publishing…",
     "stats": {
       "totalAttempted": "Attempts",
       "totalSolved": "Solved",

@@ -51,6 +51,12 @@ export interface InfinitePuzzleFilters {
    * (после KS-2557 hotfix).
    */
   source?: string;
+  /**
+   * KS-2582 / KS-2586: фильтр по `is_public`. `'draft'` = только
+   * `is_public=false`; `'public'` = только `is_public=true`; `'all'`
+   * (или undefined) = без фильтра. Backend whitelist'ит значения.
+   */
+  visibility?: 'draft' | 'public' | 'all';
   /** Размер страницы. По умолчанию 30. */
   limit?: number;
 }
@@ -86,6 +92,7 @@ function buildQuery(
   if (filters.mine) params.set('mine', 'true');
   if (filters.hideSolved) params.set('hideSolved', 'true');
   if (filters.source) params.set('source', filters.source);
+  if (filters.visibility) params.set('visibility', filters.visibility);
   return params.toString();
 }
 
@@ -124,6 +131,7 @@ export function useInfinitePuzzles(
     mine: filters.mine,
     hideSolved: filters.hideSolved,
     source: filters.source,
+    visibility: filters.visibility,
     limit: filters.limit,
   });
 

@@ -1,92 +1,57 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import type { PuzzleStatsByMode } from '@kingside/shared';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import {
+  useInfinitePuzzles,
+  type BrowsePuzzleDto,
+  type InfinitePuzzleFilters,
+} from '../hooks/useInfinitePuzzles';
 
 /**
- * KS-2484 (ADR-044) → KS-2578 — список тренировки точности.
+ * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
+ * точности.
  *
- * KS-2578: переведено с `solutionMode=play-vs-engine`-фильтра на
- * `source=generated`. Решение пользователя: вся /precision — это
- * пазлы нашего tactic-worker'а (`source='generated'`), безотносительно
- * `solutionMode` (forced-line / play-vs-engine оба могут попадать в
- * generated). Лicheess-пазлы наоборот видны только в `/puzzles`
- * (KS-2578 § 1).
+ * Эволюция:
+ *  - KS-2484: legacy `/puzzles?solutionMode=play-vs-engine` фильтр.
+ *  - KS-2578: переезд на унифицированный `/puzzles/browse?source=
+ *    generated`. Pages cards = generated пазлы (forced-line +
+ *    play-vs-engine), lichess живёт в `/puzzles`.
+ *  - KS-2585: добавил draft/publish-flow в PuzzleGeneratorModal.
+ *  - KS-2586: индивидуальный publish из карточки на `/precision?mine=
+ *    true`. URL-параметры:
+ *      - `mine=true` — только пазлы текущего юзера;
+ *      - `visibility=draft|public|all` — фильтр по `is_public`.
  *
- * Backend (`KS-2560`) поддерживает `GET /puzzles/browse?source=generated`
- * с whitelist'ом параметра. Поле `playVsEngine` опционально и
- * сохранено в DTO для обратной совместимости — не все generated
- * пазлы имеют этот блок.
- *
- * Минимальный UI: карточки с мини-доской (FEN-превью), темой,
- * рейтингом, кликом на `/puzzle/:id`. Если пазлов нет — плейсхолдер.
+ * Backend: `KS-2560` (source-фильтр), `KS-2580` (per-puzzle
+ * `PATCH /puzzles/:id { isPublic }`), `KS-2582` (visibility-фильтр в
+ * `/puzzles/browse`).
  *
  * # DOM
  *
  *   <div class="play-vs-engine-puzzles" data-testid="play-vs-engine-puzzles"
- *        data-state="loading|ready|empty|error">
- *     <h1>…</h1>
- *     <p class="play-vs-engine-puzzles__intro">…</p>
- *     <div class="play-vs-engine-puzzles__list">
- *       <article data-testid="play-vs-engine-card" data-puzzle-id="…" />
+ *        data-state="loading|ready|empty|error" data-mine="true|false"
+ *        data-visibility="draft|public|all">
+ *     <article data-testid="play-vs-engine-card" data-puzzle-id="…"
+ *              data-public="true|false">
  *       …
- *     </div>
+ *       <span data-testid="precision-card-draft-badge" />     // если draft+owned
+ *       <button data-testid="precision-card-publish" />        // если draft+owned
+ *     </article>
+ *     …
  *   </div>
  */
 
-interface PrecisionPuzzleDto {
-  id: string;
-  fen: string;
-  rating: number;
-  themes: string[] | string;
-  source: string;
-  /**
-   * KS-2578: после переезда на `source=generated` режим уже не
-   * фиксированно `play-vs-engine` — сюда попадают и forced-line
-   * generated. Оставлен опциональным, как в `BrowsePuzzleDto`.
-   */
-  solutionMode?: 'forced-line' | 'play-vs-engine';
-  playVsEngine?: {
-    blunderMove?: string;
-    wdlAfterBlunder?: number;
-    winThreshold?: number;
-    failThreshold?: number;
-    halfMovesN?: number;
-  };
-}
-
-interface BrowseResponse {
-  data: PrecisionPuzzleDto[];
-  nextCursor: string | null;
-}
-
 const LIMIT = 20;
 
-/** Сторона на ходу из FEN — для ориентации мини-доски (нижняя сторона). */
 function sideFromFen(fen: string): 'white' | 'black' {
   const parts = fen.split(' ');
   return parts[1] === 'b' ? 'black' : 'white';
 }
 
-// KS-2542 (ADR-048): компонент переименован `PlayVsEnginePuzzlesPage`
-// → `PrecisionPage` после переезда на роут `/precision`. Внутренние
-// CSS-классы и testid'ы пока сохраняем — они не часть API.
-
-/**
- * KS-2545 / ADR-048 §6: top-блок stats на главной /precision.
- * Источники:
- *  - `byMode['play-vs-engine']` из `GET /puzzles/stats/me` (KS-2493) —
- *    `attempts` (totalAttempted) и `solved` (totalSolved).
- *  - Последняя попытка в режиме play-vs-engine — из `GET /puzzles/attempts`
- *    (KS-2494). Берём первый attempt с `puzzle.solutionMode === 'play-vs-engine'`
- *    (бэкенд сортирует по `createdAt desc`). `null` если попыток нет.
- *
- * `byMode['play-vs-engine']` — внутренний API-маркер, не меняется
- * (KS-2544 i18n переименование не затрагивает контракты бэка).
- */
 interface PrecisionStatsState {
   totalAttempted: number;
   totalSolved: number;
@@ -102,35 +67,81 @@ interface AttemptListItem {
   puzzle?: { solutionMode?: 'forced-line' | 'play-vs-engine' };
 }
 
+function isVisibility(v: string | null): v is 'draft' | 'public' | 'all' {
+  return v === 'draft' || v === 'public' || v === 'all';
+}
+
 export function PrecisionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
 
-  const [puzzles, setPuzzles] = useState<PrecisionPuzzleDto[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error'>(
-    'loading',
+  // KS-2586: URL-state read.
+  const mineParam = searchParams.get('mine') === 'true';
+  const visibilityParam = searchParams.get('visibility');
+  const visibility: 'draft' | 'public' | 'all' | undefined = isVisibility(
+    visibilityParam,
+  )
+    ? visibilityParam
+    : undefined;
+
+  // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
+  // нужен `patchLocally` для оптимистичного апдейта после publish'а.
+  // Поведение page state'а сохраняем тем же набором значений.
+  const filters = useMemo<InfinitePuzzleFilters>(
+    () => ({
+      source: 'generated',
+      mine: mineParam ? true : undefined,
+      visibility,
+      limit: LIMIT,
+    }),
+    [mineParam, visibility],
   );
+
+  const {
+    puzzles,
+    loading,
+    error,
+    patchLocally,
+  } = useInfinitePuzzles(filters);
+
   const [stats, setStats] = useState<PrecisionStatsState | null>(null);
 
-  const fetchPuzzles = useCallback(async () => {
-    setState('loading');
-    try {
-      // KS-2578: переход на унифицированный `/puzzles/browse` с
-      // обязательным `source=generated`. Backend KS-2560 whitelist'ом
-      // фильтрует, гарантируя что lichess-пазлы сюда не утекут.
-      const res = await api.get<BrowseResponse>(
-        `/puzzles/browse?source=generated&limit=${LIMIT}`,
-      );
-      const list = Array.isArray(res?.data) ? res.data : [];
-      setPuzzles(list);
-      setState(list.length === 0 ? 'empty' : 'ready');
-    } catch {
-      setPuzzles([]);
-      setState('error');
-    }
-  }, []);
+  /** id пазла, который сейчас публикуется (для disable + spinner). */
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  /** id пазла, недавно опубликованного — для 2-сек «Published» badge. */
+  const [recentlyPublishedId, setRecentlyPublishedId] = useState<string | null>(
+    null,
+  );
+  const [publishError, setPublishError] = useState<string | null>(null);
 
+  const handlePublish = useCallback(
+    async (puzzleId: string) => {
+      if (publishingId) return;
+      setPublishingId(puzzleId);
+      setPublishError(null);
+      try {
+        await api.patch(`/puzzles/${puzzleId}`, { isPublic: true });
+        // Оптимистичный апдейт через hook'овский patchLocally —
+        // карточка моментально перерисовывается без isPublic=false.
+        patchLocally(puzzleId, { isPublic: true });
+        setRecentlyPublishedId(puzzleId);
+        // Через 2 секунды убираем «Published» индикатор.
+        window.setTimeout(() => {
+          setRecentlyPublishedId((prev) => (prev === puzzleId ? null : prev));
+        }, 2000);
+      } catch (e) {
+        setPublishError(e instanceof Error ? e.message : 'Publish failed');
+      } finally {
+        setPublishingId(null);
+      }
+    },
+    [publishingId, patchLocally],
+  );
+
+  // Stats — без изменений после KS-2545. Переезжать на хук смысла нет:
+  // источник `/puzzles/stats/me` отдельный.
   const fetchStats = useCallback(async () => {
     if (!user) {
       setStats(null);
@@ -160,18 +171,24 @@ export function PrecisionPage() {
   }, [user]);
 
   useEffect(() => {
-    void fetchPuzzles();
-  }, [fetchPuzzles]);
-
-  useEffect(() => {
     void fetchStats();
   }, [fetchStats]);
+
+  const pageState: 'loading' | 'ready' | 'empty' | 'error' = loading
+    ? 'loading'
+    : error
+      ? 'error'
+      : puzzles.length === 0
+        ? 'empty'
+        : 'ready';
 
   return (
     <div
       className="play-vs-engine-puzzles"
       data-testid="play-vs-engine-puzzles"
-      data-state={state}
+      data-state={pageState}
+      data-mine={mineParam ? 'true' : 'false'}
+      data-visibility={visibility ?? 'all'}
     >
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('precision.title', 'Precision training')}</h1>
@@ -235,7 +252,7 @@ export function PrecisionPage() {
         )}
       </header>
 
-      {state === 'loading' && (
+      {pageState === 'loading' && (
         <p
           className="play-vs-engine-puzzles__status"
           data-testid="play-vs-engine-loading"
@@ -244,19 +261,21 @@ export function PrecisionPage() {
         </p>
       )}
 
-      {state === 'error' && (
+      {pageState === 'error' && (
         <div
           className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
           data-testid="play-vs-engine-error"
         >
           <p>{t('precision.loadError', 'Could not load puzzles.')}</p>
-          <button type="button" onClick={() => void fetchPuzzles()}>
+          {/* KS-2586: после миграции на хук — повторная попытка через
+              перезагрузку страницы; хук сам делает fetch при mount. */}
+          <button type="button" onClick={() => window.location.reload()}>
             {t('common.retry', 'Retry')}
           </button>
         </div>
       )}
 
-      {state === 'empty' && (
+      {pageState === 'empty' && (
         <p
           className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--empty"
           data-testid="play-vs-engine-empty"
@@ -268,14 +287,25 @@ export function PrecisionPage() {
         </p>
       )}
 
-      {state === 'ready' && (
+      {publishError && (
+        <p
+          className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
+          data-testid="precision-publish-error"
+        >
+          {publishError}
+        </p>
+      )}
+
+      {pageState === 'ready' && (
         <div className="play-vs-engine-puzzles__list">
-          {puzzles.map((p) => {
+          {puzzles.map((p: BrowsePuzzleDto) => {
             const orientation = sideFromFen(p.fen);
+            const isMine =
+              user !== null && p.userId !== undefined && p.userId === user.id;
+            const isDraft = p.isPublic === false;
+            const justPublished = recentlyPublishedId === p.id;
             const onClick = () =>
               // KS-2547 / ADR-048 §5: новый канон `?source=precision`.
-              // Старый `?source=play-vs-engine` остаётся как silent
-              // backward-compat для уже разосланных ссылок.
               navigate(`/puzzle/${p.id}?source=precision`);
             return (
               <article
@@ -283,6 +313,8 @@ export function PrecisionPage() {
                 className="play-vs-engine-card"
                 data-testid="play-vs-engine-card"
                 data-puzzle-id={p.id}
+                data-public={p.isPublic === false ? 'false' : 'true'}
+                data-mine={isMine ? 'true' : 'false'}
               >
                 <button
                   type="button"
@@ -305,9 +337,26 @@ export function PrecisionPage() {
                     {t('precision.cardTitle', '#{{id}}', {
                       id: p.id.slice(0, 8),
                     })}
+                    {/* KS-2586: badge «Draft» рядом с заголовком — виден
+                        пользователю-владельцу, чтобы он знал что пазл
+                        пока приватный. После publish исчезает. */}
+                    {isMine && isDraft && (
+                      <span
+                        className="precision-card__badge precision-card__badge--draft"
+                        data-testid="precision-card-draft-badge"
+                      >
+                        {t('precision.draftBadge', 'Draft')}
+                      </span>
+                    )}
+                    {isMine && justPublished && (
+                      <span
+                        className="precision-card__badge precision-card__badge--published"
+                        data-testid="precision-card-published-toast"
+                      >
+                        {t('precision.publishedBadge', 'Published')}
+                      </span>
+                    )}
                   </div>
-                  {/* KS-2554: чипы тем убраны на карточках precision —
-                      решение пользователя, темы пока без переводов. */}
                   <div className="play-vs-engine-card__meta">
                     <span
                       className="play-vs-engine-card__rating"
@@ -326,14 +375,34 @@ export function PrecisionPage() {
                         : t('drills.side.blackToMove', 'Black to move')}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="play-vs-engine-card__solve-btn"
-                    data-testid="play-vs-engine-card-solve"
-                    onClick={onClick}
-                  >
-                    {t('puzzleBrowser.solve', 'Solve')}
-                  </button>
+                  <div className="play-vs-engine-card__actions">
+                    <button
+                      type="button"
+                      className="play-vs-engine-card__solve-btn"
+                      data-testid="play-vs-engine-card-solve"
+                      onClick={onClick}
+                    >
+                      {t('puzzleBrowser.solve', 'Solve')}
+                    </button>
+                    {/* KS-2586: индивидуальный publish — только владельцу
+                        + только для draft (`isPublic=false`). После клика
+                        — оптимистичный апдейт через `patchLocally`,
+                        кнопка исчезает (т.к. isPublic=true), на 2с
+                        показывается «Published» badge. */}
+                    {isMine && isDraft && (
+                      <button
+                        type="button"
+                        className="precision-card__publish-btn"
+                        data-testid="precision-card-publish"
+                        onClick={() => void handlePublish(p.id)}
+                        disabled={publishingId === p.id}
+                      >
+                        {publishingId === p.id
+                          ? t('precision.publishing', 'Publishing…')
+                          : t('precision.publish', 'Publish')}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </article>
             );

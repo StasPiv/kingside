@@ -1285,6 +1285,10 @@
     "openPuzzle": "Открыть пазл",
     "backToAll": "Все пазлы",
     "cardTitle": "#{{id}}",
+    "draftBadge": "Черновик",
+    "publishedBadge": "Опубликовано",
+    "publish": "Опубликовать",
+    "publishing": "Публикуем…",
     "stats": {
       "totalAttempted": "Попыток",
       "totalSolved": "Решено",
