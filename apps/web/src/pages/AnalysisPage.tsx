@@ -352,6 +352,19 @@ function AnalysisPageInner() {
     if (!gameId) {
       const pgn = (location.state as { pgn?: string } | null)?.pgn;
       if (pgn) {
+        // KS-2502 fix: новая ad-hoc сессия из `state.pgn` (например
+        // клик «Открыть партию» из загруженного PGN-файла →
+        // `navigate('/analysis', { state: { pgn } })`). URL остаётся
+        // `/analysis` без `:id`, поэтому `useParams` не сообщает о
+        // смене записи, а `localIdRef.current` мог остаться
+        // привязанным к ранее созданному auto-save'ом entry.id —
+        // тогда auto-save через 600мс перезаписывал старую запись
+        // содержимым новой партии (все записи в DB становились
+        // одинаковыми). Сбрасываем ref, чтобы createAnalysis создал
+        // новую запись (либо привязываемся к state.localId если
+        // host явно его передал).
+        localIdRef.current =
+          (location.state as { localId?: string } | null)?.localId ?? undefined;
         try {
           const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
           if (fenMatch) setInitialFen(fenMatch[1]);
