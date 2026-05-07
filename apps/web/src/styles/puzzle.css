@@ -2150,7 +2150,6 @@ body:has(.puzzle-rush-board) {
   color: var(--c-f44336, #f44336);
 }
 
-.puzzle-engine-runner__bestmove-hint,
 .puzzle-engine-runner__final-wdl {
   font-size: 13px;
   color: var(--c-c0c0c0, #c0c0c0);
@@ -2164,12 +2163,51 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
 }
 
-@media (max-width: 640px) {
+/* KS-2512 (layout): на mobile EvalBar остаётся СБОКУ от доски, но
+   сжимается до узкой колонки (24px), чтобы доска занимала максимум
+   ширины и оставалась квадратной. Глобальный `responsive.css` скрывает
+   `.eval-bar-container` на mobile (`display: none`) — для puzzle-engine-
+   runner override'им: оценка нужна для review-сценария.
+
+   Старое поведение `flex-direction: column` для `__layout` убрано:
+   EvalBar — vertical-bar (transform: scaleY), при column-направлении
+   родителя она бы становилась широкой и низкой полосой с пустотой
+   внутри (без правки JS-компонента это не превратить в horizontal). */
+@media (max-width: 768px) {
   .puzzle-engine-runner__layout {
-    flex-direction: column;
+    flex-direction: row;
+    gap: 8px;
   }
+
+  .puzzle-engine-runner .eval-bar-container,
+  .puzzle-engine-runner .eval-bar {
+    width: 24px;
+    /* Override глобального `.eval-bar-container { display: none }` из
+       responsive.css — здесь EvalBar нужна. */
+    display: flex;
+  }
+
+  .puzzle-engine-runner .eval-bar-label {
+    font-size: 12px;
+  }
+
   .puzzle-engine-runner__progress-label {
     font-size: 11px;
+  }
+}
+
+@media (max-width: 360px) {
+  /* Очень узкие экраны: EvalBar до 18px, gap минимальный. Доска
+     остаётся квадратной благодаря board__col flex: 1, min-width: 0. */
+  .puzzle-engine-runner__layout {
+    gap: 6px;
+  }
+  .puzzle-engine-runner .eval-bar-container,
+  .puzzle-engine-runner .eval-bar {
+    width: 18px;
+  }
+  .puzzle-engine-runner .eval-bar-label {
+    font-size: 10px;
   }
 }
 
@@ -2541,12 +2579,18 @@ body:has(.puzzle-rush-board) {
 }
 
 /* KS-2508 / ADR-047 §2.2 + §3 #5: PostGameReview — список ходов с
-   метками классификации после play-vs-engine. Layout-полировка в
-   KS-2512 (layout-агент); здесь — функциональный минимум. */
+   метками классификации после play-vs-engine.
+
+   KS-2512 (layout): добавлены tinted-фоны по классу хода (легче
+   сканируется список — green/yellow/red пятна), hover-подсветка ряда
+   (affordance под клик, который добавит ADR-047 §3 #7), mobile-
+   адаптив. Cursor: pointer не ставим, пока в TSX нет onClick — иначе
+   обманываем юзера. */
 .post-game-review {
   margin-top: 12px;
   padding: 10px 12px;
   background: var(--c-1e293b);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 6px;
   text-align: left;
 }
@@ -2569,10 +2613,14 @@ body:has(.puzzle-rush-board) {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: 4px;
   font-size: 13px;
   background: rgba(255, 255, 255, 0.02);
+  transition: background-color 0.12s ease;
+}
+.post-game-review__row:hover {
+  background-color: rgba(255, 255, 255, 0.06);
 }
 .post-game-review__half {
   color: var(--c-94a3b8);
@@ -2596,13 +2644,73 @@ body:has(.puzzle-rush-board) {
   color: var(--c-94a3b8);
   margin-left: 32px;
 }
-.post-game-review__row--best       { border-left: 3px solid #4ade80; }
-.post-game-review__row--good       { border-left: 3px solid #94a3b8; }
-.post-game-review__row--inaccuracy { border-left: 3px solid #facc15; }
-.post-game-review__row--mistake    { border-left: 3px solid #f97316; }
-.post-game-review__row--blunder    { border-left: 3px solid #f87171; }
+
+/* Класс-зависимая полоса слева + tinted-фон. Цвета совпадают с
+   палитрой EvalBar/анализа: зелёный = best, серый = good (нейтрально,
+   без раздражения), жёлтый/оранжевый/красный — степени ошибки. */
+.post-game-review__row--best {
+  border-left: 3px solid #4ade80;
+  background: rgba(74, 222, 128, 0.07);
+}
+.post-game-review__row--good {
+  border-left: 3px solid #94a3b8;
+  background: rgba(148, 163, 184, 0.05);
+}
+.post-game-review__row--inaccuracy {
+  border-left: 3px solid #facc15;
+  background: rgba(250, 204, 21, 0.08);
+}
+.post-game-review__row--mistake {
+  border-left: 3px solid #f97316;
+  background: rgba(249, 115, 22, 0.10);
+}
+.post-game-review__row--blunder {
+  border-left: 3px solid #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* Hover усиливает tint (на 4-5%), сохраняя цвет класса. */
+.post-game-review__row--best:hover       { background: rgba(74, 222, 128, 0.13); }
+.post-game-review__row--good:hover       { background: rgba(148, 163, 184, 0.10); }
+.post-game-review__row--inaccuracy:hover { background: rgba(250, 204, 21, 0.14); }
+.post-game-review__row--mistake:hover    { background: rgba(249, 115, 22, 0.16); }
+.post-game-review__row--blunder:hover    { background: rgba(248, 113, 113, 0.18); }
+
 .post-game-review__row--best       .post-game-review__class { color: #4ade80; }
 .post-game-review__row--good       .post-game-review__class { color: #94a3b8; }
 .post-game-review__row--inaccuracy .post-game-review__class { color: #facc15; }
 .post-game-review__row--mistake    .post-game-review__class { color: #f97316; }
 .post-game-review__row--blunder    .post-game-review__class { color: #f87171; }
+
+@media (prefers-reduced-motion: reduce) {
+  .post-game-review__row {
+    transition: none;
+  }
+}
+
+/* Mobile: компактнее ряды, меньшие отступы, чтобы влезало больше
+   ходов без скролла. SAN не уменьшаем — это основной читаемый
+   токен. */
+@media (max-width: 640px) {
+  .post-game-review {
+    padding: 8px 10px;
+  }
+  .post-game-review__row {
+    gap: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .post-game-review__half {
+    min-width: 20px;
+  }
+  .post-game-review__san {
+    min-width: 48px;
+  }
+  .post-game-review__class {
+    font-size: 11px;
+  }
+  .post-game-review__best {
+    margin-left: 26px;
+    font-size: 11px;
+  }
+}
