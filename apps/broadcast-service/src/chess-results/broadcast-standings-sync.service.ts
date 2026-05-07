@@ -23,6 +23,7 @@ import {
   type MatcherMetrics,
 } from '../crosstable/player-matcher';
 import { parseRrCrosstable } from './parsers/parse-rr-crosstable';
+import { sortCrosstableByPoints } from '../crosstable/sort-crosstable';
 import { parseSwissRanking } from './parsers/parse-swiss-ranking';
 import {
   parseSwissPairings,
@@ -225,7 +226,9 @@ export class BroadcastStandingsSyncService {
     // заполненную из broadcast_games).
     if (tournamentType === 'unknown') {
       const reason = `tournamentType='unknown' for format='${broadcast.format ?? ''}'`;
-      const response = this.buildLegacyResponse(broadcast, reason);
+      const response = sortCrosstableByPoints(
+        this.buildLegacyResponse(broadcast, reason),
+      );
       await this.persist(broadcastId, response, lifecycle);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
       return response;
@@ -236,10 +239,8 @@ export class BroadcastStandingsSyncService {
       // detected тип известен — заполняем internal-fallback shape.
       const reason =
         'broadcast.chessResultsTournamentId is null (Lichess standings_url not chess-results)';
-      const response = this.buildInternalFallback(
-        broadcast,
-        tournamentType,
-        reason,
+      const response = sortCrosstableByPoints(
+        this.buildInternalFallback(broadcast, tournamentType, reason),
       );
       await this.persist(broadcastId, response, lifecycle, reason);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
@@ -284,6 +285,13 @@ export class BroadcastStandingsSyncService {
       const errorStatus = this.classifyError(err);
       this.refreshTotal.inc({ status: errorStatus, type: tournamentType });
     }
+
+    // KS-2477: сортируем `players[]` по убыванию очков (с tiebreak'ом)
+    // и пересобираем `matrix` / `pairings` под новый порядок. Это
+    // последний шаг для всех веток (chess-results / fetch-error
+    // fallback / unknown / no-id), чтобы фронт получал готовую
+    // отсортированную таблицу независимо от источника.
+    response = sortCrosstableByPoints(response);
 
     await this.persist(broadcastId, response, lifecycle, fetchErrReason);
     return response;
@@ -1069,6 +1077,18 @@ export class BroadcastStandingsSyncService {
    * + типа диктует какой shape у нас в JSON-колонках.
    */
   private materialize(
+    cached: PrismaBroadcastStandingsRow,
+  ): CrosstableResponse {
+    return sortCrosstableByPoints(this.materializeRaw(cached));
+  }
+
+  /**
+   * KS-2477: «сырая» десериализация cached row в response shape.
+   * Применение sortCrosstableByPoints отделено в `materialize()` —
+   * чтобы старые записи в кэше (созданные до KS-2477) тоже выдавались
+   * отсортированными без принудительного refresh.
+   */
+  private materializeRaw(
     cached: PrismaBroadcastStandingsRow,
   ): CrosstableResponse {
     const fetchedAt = cached.fetchedAt.toISOString();
