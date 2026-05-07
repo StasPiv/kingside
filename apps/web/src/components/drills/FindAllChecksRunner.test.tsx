@@ -367,6 +367,50 @@ describe('<FindAllChecksRunner> KS-2326', () => {
       expect(onComplete).not.toHaveBeenCalled();
     });
 
+    it('KS-2481: solved=false → auto-complete не запускается, panel остаётся, manual click обязателен', async () => {
+      const submit = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'squares', squares: ['d8', 'h8'] },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <FindAllChecksRunner
+          drill={DRILL}
+          submitAnswer={submit}
+          onComplete={onComplete}
+          correctFlashMs={20}
+          // KS-2481: incorrect=0 раньше дал бы мгновенный auto-complete;
+          // теперь при solved=false таймер не запускается.
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={0}
+        />,
+      );
+      // Финиш через «Готово» с одним шахом → solved=false.
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-d8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      await user.click(screen.getByTestId('facr-finish'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('done'),
+      );
+      // Подождём 150мс — даже с incorrect=0 onComplete не должен сработать.
+      await new Promise((r) => setTimeout(r, 150));
+      expect(onComplete).not.toHaveBeenCalled();
+      // Panel остаётся.
+      expect(screen.getByTestId('drill-explanation-panel')).toBeInTheDocument();
+      // Manual click — единственный путь.
+      await user.click(screen.getByTestId('drill-explanation-next'));
+      expect(onComplete).toHaveBeenCalledWith({ solved: false, foundCount: 1 });
+    });
+
     it('FP-клик на не-шах накапливает wrongTos для финального разбора', async () => {
       const submit = vi.fn(async () => ({
         attemptId: 'a1',

@@ -194,7 +194,9 @@ export function FindAllChecksRunner({
   alreadyFlashMs = 400,
   wrongFlashMs = 600,
   autoNextDelayCorrectMs = 0,
-  autoNextDelayIncorrectMs = 3500,
+  // KS-2481: при solved=false auto-complete не запускается, prop
+  // оставлен в типе для backward-compat и явно съедается alias'ом `_*`.
+  autoNextDelayIncorrectMs: _autoNextDelayIncorrectMs = 3500,
 }: FindAllChecksRunnerProps) {
   const { t } = useTranslation();
   // KS-2423.
@@ -315,11 +317,13 @@ export function FindAllChecksRunner({
 
   useEffect(() => {
     if (state !== 'done' || !submitResp) return;
+    // KS-2481: auto-complete отключён при solved=false — пользователь
+    // должен сам нажать «Дальше», чтобы успеть рассмотреть финальный
+    // разбор (missed-стрелки, FP-клетки, текстовые notes). Manual
+    // переход через DrillExplanationPanel.onNext остаётся.
+    if (!submitResp.solved) return;
     const reduced = prefersReducedMotion();
-    const baseDelay = submitResp.solved
-      ? autoNextDelayCorrectMs
-      : autoNextDelayIncorrectMs;
-    const delay = reduced ? 0 : baseDelay;
+    const delay = reduced ? 0 : autoNextDelayCorrectMs;
     completeTimerRef.current = setTimeout(() => {
       callOnComplete(submitResp.solved, found.size);
     }, Math.max(0, delay));
@@ -333,7 +337,6 @@ export function FindAllChecksRunner({
     state,
     submitResp,
     autoNextDelayCorrectMs,
-    autoNextDelayIncorrectMs,
     callOnComplete,
     found.size,
   ]);

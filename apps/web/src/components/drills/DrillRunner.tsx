@@ -562,11 +562,13 @@ export function DrillRunner({
   useEffect(() => {
     if (state !== 'feedback' || !feedback) return;
     if (historyIndex !== history.length - 1) return;
+    // KS-2481: при неверном ответе auto-next ОТКЛЮЧЁН — пользователь
+    // должен успеть рассмотреть стрелки/подсветки и текст разбора.
+    // Переход только по клику «Дальше» в DrillExplanationPanel
+    // (handleNext через onNext). При solved=true — старая логика.
+    if (!feedback.solved) return;
     const reduced = prefersReducedMotion();
-    const baseDelay = feedback.solved
-      ? autoNextDelayCorrectMs
-      : autoNextDelayIncorrectMs;
-    const delay = reduced ? 0 : baseDelay;
+    const delay = reduced ? 0 : autoNextDelayCorrectMs;
     const id = setTimeout(() => {
       handleNext();
     }, Math.max(0, delay));
@@ -575,7 +577,6 @@ export function DrillRunner({
     state,
     feedback,
     autoNextDelayCorrectMs,
-    autoNextDelayIncorrectMs,
     handleNext,
     historyIndex,
     history.length,

@@ -315,7 +315,9 @@ describe('<DrillRunner> KS-2249', () => {
         'feedback',
       ),
     );
-    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
+    // KS-2481: при solved=false auto-next отключён, переход только по
+    // ручному клику «Дальше» в DrillExplanationPanel.
+    await user.click(screen.getByTestId('drill-explanation-next'));
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -370,7 +372,13 @@ describe('<DrillRunner> KS-2249', () => {
       ),
     );
     await user.click(screen.getByTestId('fire-square-d4'));
-    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
+    // KS-2481: solved=false → manual «Дальше».
+    await waitFor(() =>
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+        'feedback',
+      ),
+    );
+    await user.click(screen.getByTestId('drill-explanation-next'));
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -697,7 +705,8 @@ describe('<DrillRunner> KS-2249', () => {
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
-    it('неверный ответ → авто-переход тоже срабатывает (одинаковое поведение)', async () => {
+    it('KS-2481: неверный ответ → auto-next ОТКЛЮЧЁН, переход только по manual «Дальше»', async () => {
+      disableReducedMotion();
       const loadDrill = vi
         .fn()
         .mockResolvedValueOnce(SQUARE_DRILL)
@@ -712,6 +721,7 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
+          // Даже с incorrect=0 — таймер не должен сработать при solved=false.
           autoNextDelayCorrectMs={0}
           autoNextDelayIncorrectMs={0}
         />,
@@ -721,8 +731,20 @@ describe('<DrillRunner> KS-2249', () => {
           'idle',
         ),
       );
-      // Кликаем НЕ-правильный ответ (mock всё равно вернёт solved:false).
       await user.click(screen.getByTestId('fire-square-d4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // Подождём заметно дольше любого таймера — состояние должно остаться.
+      await new Promise((r) => setTimeout(r, 150));
+      expect(
+        screen.getByTestId('drill-runner').getAttribute('data-state'),
+      ).toBe('feedback');
+      expect(loadDrill).toHaveBeenCalledTimes(1);
+      // Manual «Дальше» — единственный путь.
+      await user.click(screen.getByTestId('drill-explanation-next'));
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
@@ -788,7 +810,7 @@ describe('<DrillRunner> KS-2249', () => {
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
-    it('KS-2323: НЕВЕРНЫЙ ответ + correct=60s / incorrect=0 → авто-переход МГНОВЕННЫЙ (по incorrect-delay)', async () => {
+    it('KS-2481: неверный + incorrect=0 → НЕ переходит (incorrect delay игнорируется), только manual', async () => {
       disableReducedMotion();
       const loadDrill = vi
         .fn()
@@ -796,7 +818,7 @@ describe('<DrillRunner> KS-2249', () => {
         .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
       const submitAnswer = vi.fn(async () => ({
         attemptId: 'a1',
-        solved: false, // неверный
+        solved: false,
         correctAnswer: { shape: 'square', square: 'e4' },
       }));
       const user = userEvent.setup();
@@ -804,6 +826,8 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
+          // KS-2481: incorrect=0 раньше давал мгновенный auto-next; теперь
+          // при solved=false таймер не запускается.
           autoNextDelayCorrectMs={60_000}
           autoNextDelayIncorrectMs={0}
         />,
@@ -814,8 +838,15 @@ describe('<DrillRunner> KS-2249', () => {
         ),
       );
       await user.click(screen.getByTestId('fire-square-d4'));
-      // Неверный → incorrect delay = 0 → loadDrill #2 сразу
-      // (correct=60s НЕ влияет, потому что ответ неверный).
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      expect(loadDrill).toHaveBeenCalledTimes(1);
+      // Manual click — единственный путь.
+      await user.click(screen.getByTestId('drill-explanation-next'));
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
@@ -856,8 +887,10 @@ describe('<DrillRunner> KS-2249', () => {
       );
     });
 
-    it('KS-2323 + reduced-motion: оба delay → 0, неверный тоже мгновенно', async () => {
-      // beforeEach уже вернул reduced=true.
+    it('KS-2481: reduced-motion + неверный → таймер всё равно не запускается, manual обязателен', async () => {
+      // beforeEach уже вернул reduced=true. Раньше reduced override'ил
+      // delay на 0 и неверный шёл auto-next; теперь при solved=false
+      // таймер не запускается ни в каком режиме.
       const loadDrill = vi
         .fn()
         .mockResolvedValueOnce(SQUARE_DRILL)
@@ -882,7 +915,14 @@ describe('<DrillRunner> KS-2249', () => {
         ),
       );
       await user.click(screen.getByTestId('fire-square-d4'));
-      // reduced=true → override на 0, переход моментальный, несмотря на 60s.
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      expect(loadDrill).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByTestId('drill-explanation-next'));
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
