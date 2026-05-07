@@ -2191,7 +2191,66 @@ body:has(.puzzle-rush-board) {
    строки Win/Draw/Loss — компактный vertical rhythm. */
 .puzzle-engine-runner__wdl-summary[data-mode="permille"]
   .puzzle-engine-runner__wdl-summary-line > div {
-  padding: 1px 0;
+  padding: 2px 0;
+}
+
+/* KS-2530 (layout): финальная стилизация трёх строк W/D/L.
+
+   Win = зелёный (#4ade80), Loss = красный (#f87171), Draw =
+   нейтральный (#cbd5e1). Цифры моноширинные (tabular-nums), чтобы
+   `60% → 30% (-30%)` выравнивались по разрядам в трёх соседних
+   строках.
+
+   Дельту со знаком (зелёный «+», красный «−») точечно через CSS
+   красить нельзя: TSX рендерит всю строку одной фразой через
+   i18next без отдельного span под delta. Окрашиваем строку
+   целиком — это и есть UX-сигнал «win прибавилось / loss убавилось».
+
+   Идентификация — по `data-testid` (класс
+   `.puzzle-engine-runner__wdl-row` в текущем TSX отсутствует; для
+   будущего рефакторинга frontend'а селектор по классу также
+   подключён). */
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  .puzzle-engine-runner__wdl-summary-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-win"],
+.puzzle-engine-runner__wdl-row--win {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-draw"],
+.puzzle-engine-runner__wdl-row--draw {
+  color: #cbd5e1;
+  font-weight: 400;
+}
+
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-loss"],
+.puzzle-engine-runner__wdl-row--loss {
+  color: #f87171;
+  font-weight: 500;
+}
+
+@media (max-width: 480px) {
+  .puzzle-engine-runner__wdl-summary[data-mode="permille"]
+    .puzzle-engine-runner__wdl-summary-line {
+    gap: 1px;
+    font-size: 12px;
+  }
+  .puzzle-engine-runner__wdl-summary[data-mode="permille"]
+    .puzzle-engine-runner__wdl-summary-line > div {
+    padding: 1px 0;
+  }
 }
 
 .puzzle-engine-runner__error {
