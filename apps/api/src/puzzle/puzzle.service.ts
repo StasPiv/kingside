@@ -657,6 +657,12 @@ export class PuzzleService {
 
   /**
    * Get user's recent puzzle attempts.
+   *
+   * KS-2494 / ADR-046 §5.4. К каждому attempt'у возвращаем
+   * `puzzle.solutionMode` — нужен фронту (KS-2498) для переключения
+   * поведения клика по recent-attempt'у: для `play-vs-engine` пазл
+   * открывается на `/puzzle/:id` (нет линии для `/analysis`), для
+   * `forced-line` — старое поведение.
    */
   async getUserAttempts(userId: string, take = 20, skip = 0) {
     return this.prisma.puzzleAttempt.findMany({
@@ -665,7 +671,16 @@ export class PuzzleService {
       take,
       skip,
       include: {
-        puzzle: { select: { id: true, fen: true, rating: true, themes: true, source: true } },
+        puzzle: {
+          select: {
+            id: true,
+            fen: true,
+            rating: true,
+            themes: true,
+            source: true,
+            solutionMode: true,
+          },
+        },
       },
     });
   }

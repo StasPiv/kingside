@@ -956,6 +956,84 @@ describe('PuzzleService', () => {
     });
   });
 
+  // ── KS-2494 / ADR-046 §5.4. getUserAttempts.solutionMode ──────────
+
+  describe('getUserAttempts (KS-2494)', () => {
+    it('включает puzzle.solutionMode в select', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+
+      await service.getUserAttempts('user-1', 20, 0);
+
+      expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            puzzle: {
+              select: expect.objectContaining({
+                id: true,
+                solutionMode: true,
+              }),
+            },
+          },
+        }),
+      );
+    });
+
+    it('возвращает массив attempts с puzzle.solutionMode', async () => {
+      const mockAttempts = [
+        {
+          id: 'a1',
+          userId: 'user-1',
+          puzzleId: 'p1',
+          solved: true,
+          puzzle: {
+            id: 'p1',
+            fen: 'fen1',
+            rating: 1500,
+            themes: 'mate',
+            source: 'lichess',
+            solutionMode: 'forced-line',
+          },
+        },
+        {
+          id: 'a2',
+          userId: 'user-1',
+          puzzleId: 'p2',
+          solved: false,
+          puzzle: {
+            id: 'p2',
+            fen: 'fen2',
+            rating: 1700,
+            themes: 'crushing playVsEngine',
+            source: 'generated',
+            solutionMode: 'play-vs-engine',
+          },
+        },
+      ];
+      prisma.puzzleAttempt.findMany.mockResolvedValue(mockAttempts);
+
+      const result = await service.getUserAttempts('user-1', 20, 0);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].puzzle.solutionMode).toBe('forced-line');
+      expect(result[1].puzzle.solutionMode).toBe('play-vs-engine');
+    });
+
+    it('пробрасывает take/skip без изменений', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+
+      await service.getUserAttempts('user-1', 5, 10);
+
+      expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1' },
+          take: 5,
+          skip: 10,
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+    });
+  });
+
   // ── KS-2493 / ADR-046 §5.3. getStats.byMode ───────────────────────
 
   describe('getStats — byMode (KS-2493)', () => {
