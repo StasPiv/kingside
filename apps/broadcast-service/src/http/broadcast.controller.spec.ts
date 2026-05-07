@@ -168,12 +168,14 @@ describe('BroadcastController', () => {
     ];
 
     // Возвращаем $queryRaw строки с соответствующим lifecycle-сигналом.
-    // Поля совпадают с контроллерным SQL: end_date_passed / first_round_started.
+    // Поля совпадают с контроллерным SQL: end_date_passed / first_round_started /
+    // has_active_rounds (KS-2514).
     const queryRawRows = [
       {
         id: 'uuid-finished',
         end_date_passed: true,
         first_round_started: true,
+        has_active_rounds: false,
         nearest_pending_at: null,
         avg_elo: 2400,
         elo_games_count: 10,
@@ -182,6 +184,7 @@ describe('BroadcastController', () => {
         id: 'uuid-live',
         end_date_passed: false,
         first_round_started: true,
+        has_active_rounds: true,
         nearest_pending_at: null,
         avg_elo: 2750,
         elo_games_count: 10,
@@ -190,6 +193,7 @@ describe('BroadcastController', () => {
         id: 'uuid-upcoming-late',
         end_date_passed: false,
         first_round_started: false,
+        has_active_rounds: false,
         nearest_pending_at: upcomingLate,
         avg_elo: null,
         elo_games_count: 0,
@@ -198,6 +202,7 @@ describe('BroadcastController', () => {
         id: 'uuid-upcoming-soon',
         end_date_passed: false,
         first_round_started: false,
+        has_active_rounds: false,
         nearest_pending_at: upcomingSoon,
         avg_elo: null,
         elo_games_count: 0,
@@ -289,6 +294,78 @@ describe('BroadcastController', () => {
         'uuid-upcoming-soon',
         'uuid-upcoming-late',
       ]);
+    });
+
+    it('KS-2514: end_date_passed но has_active_rounds → live (Sigeman last round ongoing)', async () => {
+      // Регрессия: Lichess ставит end_date = время начала последнего
+      // тура (а не окончания партий). Раунд ongoing, но end_date <
+      // NOW() → старая логика выдавала finished. Теперь
+      // has_active_rounds=true перебивает end_date_passed.
+      const sigemanLike = {
+        id: 'uuid-sigeman',
+        lichessId: 'sig',
+        title: 'TePe Sigeman & Co Chess Tournament 2026',
+        isActive: true,
+        startDate: new Date(now - 6 * 86400 * 1000),
+        updatedAt: new Date(now - 1000),
+        _count: { rounds: 7 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([sigemanLike]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-sigeman',
+            end_date_passed: true,
+            first_round_started: true,
+            has_active_rounds: true, // Round 7 ongoing
+            nearest_pending_at: null,
+            avg_elo: 2750,
+            elo_games_count: 30,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].lifecycleStatus).toBe('live');
+      expect(res.data[0].isPinned).toBe(true); // strong field, live
+    });
+
+    it('KS-2514: end_date_passed и нет активных раундов → finished (старое поведение)', async () => {
+      const finishedBroadcast = {
+        id: 'uuid-actually-finished',
+        lichessId: 'fin',
+        title: 'Done Tournament',
+        isActive: true,
+        startDate: new Date(now - 30 * 86400 * 1000),
+        updatedAt: new Date(now - 86400 * 1000),
+        _count: { rounds: 9 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([finishedBroadcast]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-actually-finished',
+            end_date_passed: true,
+            first_round_started: true,
+            has_active_rounds: false,
+            nearest_pending_at: null,
+            avg_elo: 2700,
+            elo_games_count: 50,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data[0].lifecycleStatus).toBe('finished');
     });
 
     it('broadcast без detail-строки (не в $queryRaw) дефолтится в finished', async () => {

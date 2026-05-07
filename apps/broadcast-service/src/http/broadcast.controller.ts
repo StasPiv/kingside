@@ -347,9 +347,13 @@ export class BroadcastController {
    * Вычисляет lifecycleStatus, isPinned, avgElo и nearestPendingAt.
    *
    * lifecycleStatus:
-   *  1. `finished` (приоритет) — `end_date IS NOT NULL AND end_date < NOW()`.
-   *     Это надёжный сигнал от Lichess API; не зависит от актуальности
-   *     round-статусов (sync может отставать при сбоях).
+   *  1. `finished` (приоритет) — `end_date IS NOT NULL AND end_date < NOW()`
+   *     **И нет активных раундов** (KS-2514: Lichess часто ставит
+   *     end_date = время начала последнего тура, реальная игра идёт
+   *     ещё несколько часов; sync статус раундов — надёжнее, чем
+   *     end_date Lichess BCS, особенно для турниров с большим
+   *     контролем). Активным считается раунд `status='ongoing'` или
+   *     `status='pending'` с `starts_at > NOW()`.
    *  2. `upcoming` — `end_date` ещё не прошёл (или нет) И первый тур
    *     ещё не начался (starts_at > NOW() И status != 'ongoing').
    *  3. `live` — иначе: первый тур начался, end_date не прошёл.
@@ -396,6 +400,7 @@ export class BroadcastController {
       id: string;
       end_date_passed: boolean;
       first_round_started: boolean;
+      has_active_rounds: boolean;
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -403,7 +408,7 @@ export class BroadcastController {
 
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT b.id::text as id,
-        -- end_date прошёл → турнир завершён (надёжный сигнал от Lichess)
+        -- end_date прошёл (Lichess BCS-сигнал, не всегда точный — см. KS-2514).
         (b.end_date IS NOT NULL AND b.end_date < NOW()) AS end_date_passed,
         -- Первый тур (по starts_at ASC) начался: starts_at <= NOW() или ongoing
         COALESCE((
@@ -414,6 +419,18 @@ export class BroadcastController {
            ORDER BY r.starts_at ASC NULLS LAST
            LIMIT 1
         ), FALSE) AS first_round_started,
+        -- KS-2514: «активный раунд» = ongoing ИЛИ pending в будущем.
+        -- Если есть хоть один такой — даже при прошедшем end_date
+        -- турнир ещё «live»: Lichess часто ставит end_date = старт
+        -- последнего тура, реальные партии идут ещё часами после.
+        EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+             AND (
+               r.status = 'ongoing'
+               OR (r.status = 'pending' AND r.starts_at IS NOT NULL AND r.starts_at > NOW())
+             )
+        ) AS has_active_rounds,
         -- MIN starts_at будущих раундов — только для сортировки upcoming
         (
           SELECT MIN(r.starts_at)
@@ -458,9 +475,17 @@ export class BroadcastController {
         avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
 
       let lifecycleStatus: LifecycleStatus;
-      if (row.end_date_passed) lifecycleStatus = 'finished';
-      else if (!row.first_round_started) lifecycleStatus = 'upcoming';
-      else lifecycleStatus = 'live';
+      // KS-2514: end_date_passed AND нет активных раундов → finished;
+      // если активные раунды есть — продолжаем как live (или upcoming
+      // если первый ещё не стартовал — край case'а, но обработать его
+      // надо).
+      if (row.end_date_passed && !row.has_active_rounds) {
+        lifecycleStatus = 'finished';
+      } else if (!row.first_round_started) {
+        lifecycleStatus = 'upcoming';
+      } else {
+        lifecycleStatus = 'live';
+      }
 
       const isPinned = lifecycleStatus === 'live' && strongField;
 
