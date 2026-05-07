@@ -267,3 +267,178 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     expect(res.data[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
+
+/**
+ * KS-2580: per-puzzle isPublic + solutionMode в POST /puzzles/batch.
+ *
+ * До KS-2580: isPublic всегда true, solutionMode не передавался.
+ * После: дефолт isPublic=false (draft), solutionMode='forced-line'
+ * (backward-compat для CLI/seed). Клиентский WDL-генератор (KS-2584)
+ * шлёт solutionMode='play-vs-engine' и isPublic=false.
+ */
+describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
+  function makeBatchPrisma() {
+    return {
+      puzzle: {
+        createMany: jest
+          .fn<Promise<{ count: number }>, [unknown]>()
+          .mockResolvedValue({ count: 1 }),
+      },
+    } as unknown as PrismaService & {
+      puzzle: { createMany: jest.Mock };
+    };
+  }
+
+  const minimalPuzzle = {
+    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    moves: 'e2e4',
+    rating: 1500,
+    gap: 100,
+    themes: 'fork',
+    sourceType: 'pgn_import',
+  };
+
+  it('default: isPublic=false (draft), solutionMode="forced-line"', async () => {
+    const prisma = makeBatchPrisma();
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.batch(
+      { puzzles: [minimalPuzzle as any] } as any,
+      loginReq('user-1'),
+    );
+
+    const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    expect(args.data[0].isPublic).toBe(false);
+    expect(args.data[0].solutionMode).toBe('forced-line');
+  });
+
+  it('explicit isPublic=true → пишется true', async () => {
+    const prisma = makeBatchPrisma();
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.batch(
+      {
+        puzzles: [{ ...minimalPuzzle, isPublic: true } as any],
+      } as any,
+      loginReq('user-1'),
+    );
+
+    const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    expect(args.data[0].isPublic).toBe(true);
+  });
+
+  it('solutionMode="play-vs-engine" с moves="" → принимается, поле сохраняется', async () => {
+    const prisma = makeBatchPrisma();
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.batch(
+      {
+        puzzles: [
+          {
+            ...minimalPuzzle,
+            moves: '',
+            solutionMode: 'play-vs-engine',
+            acceptedMoves: 'e4d5,d2d4',
+          } as any,
+        ],
+      } as any,
+      loginReq('user-1'),
+    );
+
+    const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    expect(args.data[0].solutionMode).toBe('play-vs-engine');
+    expect(args.data[0].moves).toBe('');
+    expect(args.data[0].acceptedMoves).toBe('e4d5,d2d4');
+  });
+
+  it('per-puzzle конфигурация: разные isPublic/solutionMode в одном batch', async () => {
+    const prisma = makeBatchPrisma();
+    (prisma.puzzle.createMany as jest.Mock).mockResolvedValueOnce({ count: 2 });
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.batch(
+      {
+        puzzles: [
+          { ...minimalPuzzle, isPublic: true, solutionMode: 'forced-line' } as any,
+          { ...minimalPuzzle, isPublic: false, solutionMode: 'play-vs-engine' } as any,
+        ],
+      } as any,
+      loginReq('user-1'),
+    );
+
+    const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    expect(args.data[0].isPublic).toBe(true);
+    expect(args.data[0].solutionMode).toBe('forced-line');
+    expect(args.data[1].isPublic).toBe(false);
+    expect(args.data[1].solutionMode).toBe('play-vs-engine');
+  });
+
+  it('пустой puzzles[] → count=0, createMany не вызывается', async () => {
+    const prisma = makeBatchPrisma();
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const res = await controller.batch(
+      { puzzles: [] } as any,
+      loginReq('user-1'),
+    );
+    expect(res.count).toBe(0);
+    expect(prisma.puzzle.createMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * KS-2580: валидация невалидного solutionMode на уровне DTO
+ * (class-validator). Проверяем что class-transformer + validate
+ * ловит мусор до контроллера.
+ */
+describe('BatchPuzzlesDto — class-validator (KS-2580)', () => {
+  it('невалидный solutionMode → ошибка валидации', async () => {
+    const { plainToInstance } = await import('class-transformer');
+    const { validate } = await import('class-validator');
+    const { BatchPuzzlesDto } = await import('./dto/batch-puzzle.dto');
+
+    const dto = plainToInstance(BatchPuzzlesDto, {
+      puzzles: [
+        {
+          fen: 'fen',
+          moves: 'e2e4',
+          rating: 1500,
+          gap: 100,
+          themes: 'fork',
+          sourceType: 'pgn_import',
+          solutionMode: 'invalid-mode',
+        },
+      ],
+    });
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: false,
+    });
+    // Ошибка должна прилететь на nested property `puzzles[0].solutionMode`.
+    const flat = JSON.stringify(errors);
+    expect(flat).toContain('solutionMode');
+  });
+
+  it('валидный solutionMode="play-vs-engine" + isPublic=false → без ошибок', async () => {
+    const { plainToInstance } = await import('class-transformer');
+    const { validate } = await import('class-validator');
+    const { BatchPuzzlesDto } = await import('./dto/batch-puzzle.dto');
+
+    const dto = plainToInstance(BatchPuzzlesDto, {
+      puzzles: [
+        {
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          gap: 100,
+          themes: 'fork',
+          sourceType: 'wdl-generated',
+          solutionMode: 'play-vs-engine',
+          isPublic: false,
+        },
+      ],
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+});

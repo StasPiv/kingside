@@ -21,6 +21,7 @@ import { PuzzleService } from './puzzle.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { FindPuzzlesDto } from './dto/find-puzzles.dto';
+import { BatchPuzzlesDto } from './dto/batch-puzzle.dto';
 import {
   decodePuzzleCursor,
   encodePuzzleCursor,
@@ -305,11 +306,16 @@ export class PuzzleController {
 
   /**
    * POST /puzzles/batch — save generated puzzles.
+   *
+   * KS-2580 (ADR-050 §3 #1): per-puzzle опц. поля `isPublic` (default
+   * `false` — draft) и `solutionMode` (default `'forced-line'`).
+   * Клиентский WDL-генератор (KS-2584) сохраняет в draft и публикует
+   * после ревью; серверный pipeline передаёт `solutionMode='play-vs-engine'`.
    */
   @UseGuards(JwtAuthGuard)
   @Post('batch')
   async batch(
-    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number; sourceMetadata?: Record<string, string>; acceptedMoves?: string }> },
+    @Body() body: BatchPuzzlesDto,
     @Request() req: AuthenticatedRequest,
   ) {
     const puzzles = body.puzzles ?? [];
@@ -324,7 +330,13 @@ export class PuzzleController {
         sourceId: p.sourceId || null, sourceMoveNum: p.sourceMoveNum ?? 0,
         sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
         acceptedMoves: p.acceptedMoves || null, depth: 14,
-        createdBy: req.user.id, isPublic: true,
+        createdBy: req.user.id,
+        // KS-2580: default false (draft); фронт передаёт `true` для
+        // immediate-publish.
+        isPublic: p.isPublic ?? false,
+        // KS-2580: default 'forced-line' (для backward-compat с CLI/seed).
+        // Серверный WDL-pipeline передаёт 'play-vs-engine'.
+        solutionMode: p.solutionMode ?? 'forced-line',
       })),
       skipDuplicates: true,
     });
