@@ -197,6 +197,81 @@ describe('BroadcastStandingsSyncService — getFresh stale', () => {
   });
 });
 
+describe('BroadcastStandingsSyncService — KS-2479 TTL для internal-fallback', () => {
+  // У трансляций без chess-results URL (TCEC, Sardinia, региональные
+  // open'ы) lifecycle часто определяется как `finished` (раунды
+  // status=pending без startsAt в окне), и TTL для persisted-кэша
+  // ставится +24h. Это блокировало автоматическое распространение
+  // фиксов internal-fallback'а на проде. KS-2479: для internal-fallback
+  // с detected-типом TTL принудительно = live (5 min).
+
+  it('internal-fallback round-robin + lifecycle=finished → staleAt = +5min (KS-2479)', async () => {
+    const broadcast = {
+      ...baseBroadcast,
+      chessResultsTournamentId: null,
+    };
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    await svc.refresh('bc-1');
+
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    const fetchedAt = upsert.create.fetchedAt as Date;
+    const staleAt = upsert.create.staleAt as Date;
+    const ttl = staleAt.getTime() - fetchedAt.getTime();
+    // Раньше было 24h. После KS-2479 — 5min.
+    expect(ttl).toBeLessThan(10 * 60 * 1000);
+    expect(ttl).toBeGreaterThanOrEqual(5 * 60 * 1000);
+  });
+
+  it('internal-fallback unknown (CrosstableLegacy) → TTL по lifecycle (старое поведение)', async () => {
+    // Knockout без detect — единственный legit-кейс для unknown.
+    // Здесь TTL должен оставаться по lifecycle: для finished = 24h.
+    const broadcast = {
+      ...baseBroadcast,
+      format: 'Knockout',
+      chessResultsTournamentId: null,
+    };
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-1');
+    expect(r.tournamentType).toBe('unknown');
+
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    const fetchedAt = upsert.create.fetchedAt as Date;
+    const staleAt = upsert.create.staleAt as Date;
+    const ttl = staleAt.getTime() - fetchedAt.getTime();
+    // Старое поведение: finished → 24h.
+    expect(ttl).toBeGreaterThan(12 * 60 * 60 * 1000);
+  });
+
+  it('chess-results round-robin (sourceType=chess-results) → TTL по lifecycle (без изменений)', async () => {
+    // Для типизированных chess-results-ответов TTL по lifecycle.
+    const html = readFileSync(
+      join(FIXTURES_DIR, 'rr-art5-crosstable.html'),
+      'utf8',
+    );
+    const fetchPage = jest.fn().mockResolvedValue(html);
+    const fetcher = makeFetcher(fetchPage);
+    const prisma = makePrisma({ broadcast: baseBroadcast, lifecycle: 'finished' });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher });
+
+    const r = await svc.refresh('bc-1');
+    expect(r.sourceType).toBe('chess-results');
+
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    const fetchedAt = upsert.create.fetchedAt as Date;
+    const staleAt = upsert.create.staleAt as Date;
+    const ttl = staleAt.getTime() - fetchedAt.getTime();
+    // chess-results на finished — 24h по lifecycle.
+    expect(ttl).toBeGreaterThan(12 * 60 * 60 * 1000);
+  });
+});
+
 describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)', () => {
   it('round-robin format без chess-results-id → tournamentType=round-robin (НЕ unknown), internal-fallback', async () => {
     const broadcast = {

@@ -1097,7 +1097,24 @@ export class BroadcastStandingsSyncService {
     lifecycle: Lifecycle,
     fallbackReason?: string | null,
   ): Promise<void> {
-    const ttlMs = TTL_MS_BY_LIFECYCLE[lifecycle];
+    // KS-2479: internal-fallback с detected-типом (round-robin / swiss /
+    // team-*) строит данные из `broadcast_games` от Lichess BCS — это
+    // живой источник, новые партии и переклассификации должны прилетать
+    // в API без ручного SQL-сброса. Для таких записей TTL принудительно
+    // = live (5 мин), независимо от lifecycle. Раньше lifecycle для
+    // трансляций без активных раундов в окне (TCEC, Sardinia после
+    // финиша) определялся как `finished` → TTL=24h, и любой backend-фикс
+    // (KS-2474, KS-2476, KS-2477) застревал на проде до DELETE-запроса
+    // от devops.
+    //
+    // Для `tournamentType='unknown'` (CrosstableLegacy — полная заглушка
+    // без detected-типа) поведение не меняется: TTL по lifecycle.
+    // Для chess-results / external источников TTL тоже по lifecycle.
+    const baseTtl = TTL_MS_BY_LIFECYCLE[lifecycle];
+    const isLiveLikeFallback =
+      response.sourceType === 'internal-fallback' &&
+      response.tournamentType !== 'unknown';
+    const ttlMs = isLiveLikeFallback ? TTL_MS_BY_LIFECYCLE.live : baseTtl;
     const fetchedAt = new Date(this.now());
     const staleAt = new Date(this.now() + ttlMs);
     // Раскладываем response по JSON-колонкам.
