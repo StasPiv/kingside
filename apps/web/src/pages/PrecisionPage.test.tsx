@@ -83,18 +83,27 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * KS-2578: тесты переведены с legacy `/puzzles?solutionMode=play-vs-engine`
+ * на унифицированный `/puzzles/browse?source=generated&limit=20`. Ответ
+ * теперь обёрнут в `{ data, nextCursor }` (контракт KS-2560 cursor-API).
+ * Helper `wrap` оборачивает массив для совместимости со старыми
+ * SAMPLE-фикстурами без переписывания каждого теста.
+ */
+const wrap = (data: unknown[]) => ({ data, nextCursor: null });
+
 describe('<PrecisionPage> KS-2484', () => {
-  it('fetch /puzzles?solutionMode=play-vs-engine&limit=20 при mount', async () => {
-    apiGet.mockResolvedValueOnce(SAMPLE);
+  it('fetch /puzzles/browse?source=generated&limit=20 при mount (KS-2578)', async () => {
+    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
     expect(apiGet).toHaveBeenCalledWith(
-      '/puzzles?solutionMode=play-vs-engine&limit=20',
+      '/puzzles/browse?source=generated&limit=20',
     );
   });
 
   it('рендерит карточки на каждый пазл с FEN, рейтингом, темами', async () => {
-    apiGet.mockResolvedValueOnce(SAMPLE);
+    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -119,7 +128,7 @@ describe('<PrecisionPage> KS-2484', () => {
   });
 
   it('KS-2547: клик по «Solve» навигирует на /puzzle/:id?source=precision', async () => {
-    apiGet.mockResolvedValueOnce(SAMPLE);
+    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     const user = userEvent.setup();
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -134,7 +143,7 @@ describe('<PrecisionPage> KS-2484', () => {
   });
 
   it('пустой ответ → empty state с плейсхолдером', async () => {
-    apiGet.mockResolvedValueOnce([]);
+    apiGet.mockResolvedValueOnce(wrap([]));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -155,7 +164,7 @@ describe('<PrecisionPage> KS-2484', () => {
     );
     expect(screen.getByTestId('play-vs-engine-error')).toBeInTheDocument();
     // Retry → новый запрос.
-    apiGet.mockResolvedValueOnce(SAMPLE);
+    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /retry|повторить/i }));
     await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
@@ -167,7 +176,7 @@ describe('<PrecisionPage> KS-2484', () => {
   });
 
   it('гость (user=null) → stats-блок НЕ рендерится', async () => {
-    apiGet.mockResolvedValueOnce(SAMPLE);
+    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -183,8 +192,8 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
     authValue.user = { id: 'u1', username: 'tester' };
     // Маршрутизация по URL: puzzles list, stats/me, attempts list.
     apiGet.mockImplementation((url: string) => {
-      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
-        return Promise.resolve(SAMPLE);
+      if (url === '/puzzles/browse?source=generated&limit=20') {
+        return Promise.resolve(wrap(SAMPLE));
       }
       if (url === '/puzzles/stats/me') {
         return Promise.resolve({
@@ -294,8 +303,8 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
   it('stats/me падает → блок рендерится с нулями (graceful)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
-      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
-        return Promise.resolve(SAMPLE);
+      if (url === '/puzzles/browse?source=generated&limit=20') {
+        return Promise.resolve(wrap(SAMPLE));
       }
       if (url === '/puzzles/stats/me') {
         return Promise.reject(new Error('500'));

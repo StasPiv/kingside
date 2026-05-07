@@ -131,6 +131,11 @@ export function PuzzleBrowserPage() {
       themes: filters.themes,
       mine: filters.mine,
       hideSolved: user ? filters.hideSolved : false,
+      // KS-2578: на /puzzles показываем только lichess-источник.
+      // Generated-пазлы (наш tactic-worker) живут в /precision.
+      // Параметр в URL не выносим — это политическое решение продукта,
+      // а не пользовательский фильтр.
+      source: 'lichess',
       limit: PAGE_SIZE,
     }),
     [filters, user],

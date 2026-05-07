@@ -75,6 +75,14 @@ describe('<PuzzleBrowserPage> KS-2561 — фильтры и infinite scroll', ()
     expect(url).not.toMatch(/order=/);
   });
 
+  it('KS-2578: фиксированный source=lichess в каждом запросе (generated живут в /precision)', async () => {
+    renderWithProviders(<PuzzleBrowserPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/source=lichess/);
+    expect(url).not.toMatch(/source=generated/);
+  });
+
   it('рендерит карточку-диаграмму (FEN) без чипов тем', async () => {
     apiGet.mockResolvedValueOnce({ data: [PUZZLE], nextCursor: null });
     renderWithProviders(<PuzzleBrowserPage />);

@@ -7,13 +7,19 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 /**
- * KS-2484 (ADR-044) — список play-vs-engine пазлов.
+ * KS-2484 (ADR-044) → KS-2578 — список тренировки точности.
  *
- * Backend API (rev:113, KS-2472) принимает фильтр
- * `solutionMode=play-vs-engine` и возвращает массив пазлов с полем
- * `playVsEngine: { blunderMove, wdlAfterBlunder, winThreshold,
- * failThreshold, halfMovesN }`. На текущий момент таких пазлов в
- * генерации мало (~единицы) — фоновое заполнение KS-2466 ещё идёт.
+ * KS-2578: переведено с `solutionMode=play-vs-engine`-фильтра на
+ * `source=generated`. Решение пользователя: вся /precision — это
+ * пазлы нашего tactic-worker'а (`source='generated'`), безотносительно
+ * `solutionMode` (forced-line / play-vs-engine оба могут попадать в
+ * generated). Лicheess-пазлы наоборот видны только в `/puzzles`
+ * (KS-2578 § 1).
+ *
+ * Backend (`KS-2560`) поддерживает `GET /puzzles/browse?source=generated`
+ * с whitelist'ом параметра. Поле `playVsEngine` опционально и
+ * сохранено в DTO для обратной совместимости — не все generated
+ * пазлы имеют этот блок.
  *
  * Минимальный UI: карточки с мини-доской (FEN-превью), темой,
  * рейтингом, кликом на `/puzzle/:id`. Если пазлов нет — плейсхолдер.
@@ -31,13 +37,18 @@ import { useAuth } from '../context/AuthContext';
  *   </div>
  */
 
-interface PlayVsEnginePuzzleDto {
+interface PrecisionPuzzleDto {
   id: string;
   fen: string;
   rating: number;
-  themes: string[];
+  themes: string[] | string;
   source: string;
-  solutionMode: 'play-vs-engine';
+  /**
+   * KS-2578: после переезда на `source=generated` режим уже не
+   * фиксированно `play-vs-engine` — сюда попадают и forced-line
+   * generated. Оставлен опциональным, как в `BrowsePuzzleDto`.
+   */
+  solutionMode?: 'forced-line' | 'play-vs-engine';
   playVsEngine?: {
     blunderMove?: string;
     wdlAfterBlunder?: number;
@@ -45,6 +56,11 @@ interface PlayVsEnginePuzzleDto {
     failThreshold?: number;
     halfMovesN?: number;
   };
+}
+
+interface BrowseResponse {
+  data: PrecisionPuzzleDto[];
+  nextCursor: string | null;
 }
 
 const LIMIT = 20;
@@ -91,7 +107,7 @@ export function PrecisionPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [puzzles, setPuzzles] = useState<PlayVsEnginePuzzleDto[]>([]);
+  const [puzzles, setPuzzles] = useState<PrecisionPuzzleDto[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error'>(
     'loading',
   );
@@ -100,10 +116,13 @@ export function PrecisionPage() {
   const fetchPuzzles = useCallback(async () => {
     setState('loading');
     try {
-      const data = await api.get<PlayVsEnginePuzzleDto[]>(
-        `/puzzles?solutionMode=play-vs-engine&limit=${LIMIT}`,
+      // KS-2578: переход на унифицированный `/puzzles/browse` с
+      // обязательным `source=generated`. Backend KS-2560 whitelist'ом
+      // фильтрует, гарантируя что lichess-пазлы сюда не утекут.
+      const res = await api.get<BrowseResponse>(
+        `/puzzles/browse?source=generated&limit=${LIMIT}`,
       );
-      const list = Array.isArray(data) ? data : [];
+      const list = Array.isArray(res?.data) ? res.data : [];
       setPuzzles(list);
       setState(list.length === 0 ? 'empty' : 'ready');
     } catch {
