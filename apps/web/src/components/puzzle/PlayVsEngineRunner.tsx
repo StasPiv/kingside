@@ -1138,9 +1138,16 @@ export function PlayVsEngineRunner({
                   KS-2510: клик по строке показывает на доске позицию
                   ДО этого хода (`fenBefore`) — для визуального разбора
                   «что было перед моей ошибкой». */}
+              {/* KS-2534: PGN-формат с NAG-аннотациями вместо карточек.
+                  Отдаём всю партию через `playedSans` + `userBestLog`
+                  для классификации; компонент сам ходит chess.js'ом
+                  от `initialFen` для номеров ходов и SAN'а вариантов. */}
               <PostGameReview
+                initialFen={puzzle.fen}
+                playedSans={playedSans}
                 userBestLog={userBestLog}
-                onSelectMove={(s) => setReviewFen(s.fenBefore)}
+                userSide={userSide}
+                onSelectMove={({ fenBefore }) => setReviewFen(fenBefore)}
               />
               {onNext && (
                 <button

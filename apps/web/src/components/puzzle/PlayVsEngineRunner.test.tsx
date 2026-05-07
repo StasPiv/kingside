@@ -340,16 +340,18 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // PostGameReview ждёт, пока классификация уже не graceful good
     // (т.е. pre/post уже допущены/fallback отработал).
     await waitFor(() => {
-      const row = screen.queryByTestId('post-game-review-row-1');
+      const row = screen.queryByTestId('post-game-review-move-0');
       if (!row) throw new Error('row not yet built');
       const cls = row.getAttribute('data-class');
       if (cls === 'good') throw new Error('still graceful good');
     });
-    const row = screen.getByTestId('post-game-review-row-1');
+    const row = screen.getByTestId('post-game-review-move-0');
     expect(row.textContent).toMatch(/e4/); // played
-    const best = screen.getByTestId('post-game-review-best-1');
-    expect(best.textContent).toMatch(/d4/); // best
-    expect(best.textContent).toMatch(/best was|лучше было/i);
+    const best = screen.getByTestId('post-game-review-variation-0');
+    // KS-2534: вариант с лучшим ходом теперь в формате «(1. d4!)»
+    // вместо старого «Best was: d4». Текст содержит SAN и «!».
+    expect(best.textContent).toMatch(/d4!/);
+    expect(best.textContent).toMatch(/^\(1\./);
   });
 
   it('KS-2505/2506/KS-2509: cp=+50 → cp=-800 даёт класс blunder (cp-loss=850)', async () => {
@@ -378,12 +380,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       ).toBe('lose');
     });
     await waitFor(() => {
-      const row = screen.queryByTestId('post-game-review-row-1');
+      const row = screen.queryByTestId('post-game-review-move-0');
       if (!row || row.getAttribute('data-class') !== 'blunder') {
         throw new Error('not yet blunder');
       }
     });
-    const row = screen.getByTestId('post-game-review-row-1');
+    const row = screen.getByTestId('post-game-review-move-0');
     expect(row.getAttribute('data-class')).toBe('blunder');
   });
 
@@ -413,7 +415,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       ).toBe('lose');
     });
     await waitFor(() => {
-      const row = screen.queryByTestId('post-game-review-row-1');
+      const row = screen.queryByTestId('post-game-review-move-0');
       if (!row || row.getAttribute('data-class') !== 'blunder') {
         throw new Error('not yet blunder');
       }
@@ -446,7 +448,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       ).toBe('lose');
     });
     await waitFor(() => {
-      const row = screen.queryByTestId('post-game-review-row-1');
+      const row = screen.queryByTestId('post-game-review-move-0');
       if (!row || row.getAttribute('data-class') !== 'blunder') {
         throw new Error('not yet blunder');
       }
@@ -998,7 +1000,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // Дожидаемся, пока review-кнопка появится (post-game-review зависит
     // от state win|lose).
     const btn = await waitFor(() => {
-      const el = screen.queryByTestId('post-game-review-select-1');
+      const el = screen.queryByTestId('post-game-review-move-0');
       if (!el) throw new Error('select btn not yet rendered');
       return el as HTMLButtonElement;
     });
@@ -1042,7 +1044,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     const review = await waitFor(() => {
       const el = screen.queryByTestId('post-game-review');
       if (!el) throw new Error('review not rendered yet');
-      const row = el.querySelector('[data-testid="post-game-review-row-1"]');
+      const row = el.querySelector('[data-testid="post-game-review-move-0"]');
       if (!row) throw new Error('row not yet built');
       const cls = row.getAttribute('data-class');
       // Дожидаемся, пока классификация уже опирается на cpAfter (а не
@@ -1051,7 +1053,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       return el;
     });
     const row = review.querySelector(
-      '[data-testid="post-game-review-row-1"]',
+      '[data-testid="post-game-review-move-0"]',
     ) as HTMLElement;
     expect(row.getAttribute('data-class')).toBe('blunder');
   });

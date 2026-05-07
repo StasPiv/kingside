@@ -1,120 +1,278 @@
 import { useTranslation } from 'react-i18next';
+import { Chess } from 'chess.js';
 import { classifyMove, type MoveClass } from '../../utils/moveClassification';
-import { uciToSan, type UserBestSnapshot } from './PlayVsEngineRunner';
+import type { UserBestSnapshot } from './PlayVsEngineRunner';
 
 /**
- * KS-2508 / ADR-047 §2.2 + §3 #5.
+ * KS-2534 / ADR-047. Полная переработка «Разбор партии» из карточек в
+ * стандартную PGN-нотацию с NAG-знаками к user-ходам и вариантом с
+ * лучшим ходом в скобках после плохого хода. Источники:
+ *  - `playedSans` — все полуходы (user + engine) в порядке игры.
+ *  - `userBestLog` — классификация и bestUci по каждому user-ходу.
+ *  - `initialFen` + `userSide` — для расчёта move-number / fenBefore.
  *
- * Список user-ходов с метками классификации после завершения play-vs-engine
- * пазла. Метки берутся через `classifyMove` (KS-2504) на основе
- * cpBefore/cpAfter (KS-2505/KS-2506) и флага `isBest = playedUci === bestUci`.
- *
- * Если у snapshot'а cpBefore или cpAfter `null` (race-условие при pre/post
- * analyze, см. ADR-047 §4(i)) — графейфолим в `'good'`. Runner делает
- * fallback-analyze по завершении партии и дописывает cpAfter, поэтому
- * к моменту рендера PostGameReview обычно все поля уже на месте.
- *
- * Pure-компонент: не делает запросов и не дёргает движок. Тестируется
- * на разных классификациях напрямую.
- *
- * i18n RU/EN — минимальные ключи; полировка строк в KS-2511.
+ * Engine-ходы рендерятся без знаков. По клику на ход родитель
+ * получает `fenBefore` для подсветки позиции на доске (KS-2510).
  */
 
-export interface PostGameReviewProps {
+const NAG_BY_CLASS: Record<MoveClass, string> = {
+  best: '!',
+  good: '',
+  inaccuracy: '?!',
+  mistake: '?',
+  blunder: '??',
+};
+
+type Token =
+  | { kind: 'movenum'; text: string }
+  | {
+      kind: 'move';
+      san: string;
+      nag: string;
+      isUser: boolean;
+      cls: MoveClass | null;
+      fenBefore: string;
+      halfIndex: number;
+    }
+  | {
+      kind: 'variation';
+      text: string;
+      fenBefore: string;
+      halfIndex: number;
+    };
+
+interface BuildArgs {
+  initialFen: string;
+  playedSans: string[];
   userBestLog: UserBestSnapshot[];
+  userSide: 'w' | 'b';
+}
+
+/**
+ * Собирает токены для рендера: префиксы номеров полных ходов,
+ * пользовательские/движковые ходы с правильным NAG, и в варианте «(N. SAN!)»
+ * с лучшим ходом — там, где user'ский ход хуже good. Все вычисления
+ * локальные, без React (можно тестировать отдельно).
+ */
+export function buildPgnReviewTokens({
+  initialFen,
+  playedSans,
+  userBestLog,
+  userSide,
+}: BuildArgs): Token[] {
+  const c = new Chess(initialFen);
+  let userIdx = 0;
+  const tokens: Token[] = [];
+
+  for (let i = 0; i < playedSans.length; i++) {
+    const fenBefore = c.fen();
+    const parts = fenBefore.split(' ');
+    const mvNum = parseInt(parts[5] || '1', 10);
+    const isWhite = parts[1] === 'w';
+    const isUser = (isWhite ? 'w' : 'b') === userSide;
+
+    // Префикс номера полного хода (стандарт PGN).
+    if (isWhite) {
+      tokens.push({ kind: 'movenum', text: `${mvNum}.` });
+    } else if (i === 0) {
+      tokens.push({ kind: 'movenum', text: `${mvNum}...` });
+    }
+
+    let nag = '';
+    let cls: MoveClass | null = null;
+    let variationText: string | null = null;
+
+    if (isUser) {
+      const log = userBestLog[userIdx];
+      if (log && log.cpBefore != null && log.cpAfter != null) {
+        const isBest = log.playedUci === log.bestUci;
+        cls = classifyMove({
+          cpBefore: log.cpBefore,
+          cpAfter: log.cpAfter,
+          isBest,
+        });
+        nag = NAG_BY_CLASS[cls];
+        if (
+          cls === 'inaccuracy' ||
+          cls === 'mistake' ||
+          cls === 'blunder'
+        ) {
+          // Лучший ход в SAN — играем bestUci на копии fenBefore.
+          try {
+            const c2 = new Chess(fenBefore);
+            const mv = c2.move({
+              from: log.bestUci.slice(0, 2),
+              to: log.bestUci.slice(2, 4),
+              promotion:
+                log.bestUci.length > 4 ? log.bestUci[4] : undefined,
+            });
+            if (mv) {
+              const prefix = isWhite ? `${mvNum}.` : `${mvNum}...`;
+              variationText = `(${prefix} ${mv.san}!)`;
+            }
+          } catch {
+            /* ignore — невалидный bestUci, вариант не показываем */
+          }
+        }
+      } else if (log && log.playedUci === log.bestUci) {
+        // нет cp-данных но played==best → !
+        cls = 'best';
+        nag = NAG_BY_CLASS.best;
+      }
+      userIdx++;
+    }
+
+    tokens.push({
+      kind: 'move',
+      san: playedSans[i],
+      nag,
+      isUser,
+      cls,
+      fenBefore,
+      halfIndex: i,
+    });
+    if (variationText) {
+      tokens.push({
+        kind: 'variation',
+        text: variationText,
+        fenBefore,
+        halfIndex: i,
+      });
+    }
+
+    // Применяем фактический ход к Chess-инстансу.
+    try {
+      c.move(playedSans[i]);
+    } catch {
+      // Если SAN невалиден на текущей позиции — прерываем парсинг,
+      // дальнейшие токены могут быть некорректными. Лучше показать
+      // что собралось, чем падать.
+      break;
+    }
+  }
+
+  return tokens;
+}
+
+export interface PostGameReviewProps {
+  /** Начальная позиция партии (puzzle.fen). */
+  initialFen: string;
+  /** Все полуходы (user + engine) в SAN, в порядке игры. */
+  playedSans: string[];
+  /** Pre/post-analyze snapshots для каждого user-хода. */
+  userBestLog: UserBestSnapshot[];
+  /** Чьим цветом играет user (по puzzle.fen side-to-move). */
+  userSide: 'w' | 'b';
   /**
-   * KS-2510 / ADR-047 §3 #7. Клик по строке передаёт родителю snapshot
-   * выбранного хода — родитель показывает `fenBefore` на доске. Не
-   * передан → строки не кликабельны (рендерятся как `<div>`, без button-
-   * семантики), что важно для тестов KS-2508, где callback не нужен.
+   * KS-2510 / KS-2534. Клик по ходу/варианту передаёт fenBefore —
+   * родитель показывает позицию на доске. Не передан → токены не
+   * кликабельны.
    */
-  onSelectMove?: (snapshot: UserBestSnapshot) => void;
+  onSelectMove?: (info: { fenBefore: string }) => void;
 }
 
 export function PostGameReview({
+  initialFen,
+  playedSans,
   userBestLog,
+  userSide,
   onSelectMove,
 }: PostGameReviewProps) {
   const { t } = useTranslation();
-  if (!userBestLog.length) return null;
+  if (!playedSans.length) return null;
+
+  const tokens = buildPgnReviewTokens({
+    initialFen,
+    playedSans,
+    userBestLog,
+    userSide,
+  });
+
+  const handleSelect = (fenBefore: string) => {
+    if (onSelectMove) onSelectMove({ fenBefore });
+  };
 
   return (
     <div className="post-game-review" data-testid="post-game-review">
       <h3 className="post-game-review__title">
         {t('puzzle.engine.review.headerLabel', 'Game review')}
       </h3>
-      <ol className="post-game-review__list">
-        {userBestLog.map((s) => {
-          const playedSan = uciToSan(s.playedUci, s.fenBefore);
-          const bestSan = uciToSan(s.bestUci, s.fenBefore);
-          const isBest = s.playedUci === s.bestUci;
-          // Если cp-данных нет (pre-analyze не успел и fallback тоже
-          // не помог) — мягко падаем в 'good': вреда от этого нет, но
-          // помечать ход как blunder без данных нечестно.
-          const cls: MoveClass =
-            s.cpBefore == null || s.cpAfter == null
-              ? isBest
-                ? 'best'
-                : 'good'
-              : classifyMove({
-                  cpBefore: s.cpBefore,
-                  cpAfter: s.cpAfter,
-                  isBest,
-                });
-          // «Best was» показываем только когда юзер реально сыграл хуже,
-          // т.е. при inaccuracy/mistake/blunder. На best/good — не
-          // зашумляем (хороший/идеальный ход и без подсказки понятен).
-          const showBest = cls !== 'best' && cls !== 'good';
-          // KS-2510: если родитель передал onSelectMove, рендерим строку
-          // как button — для клавиатурной/screen-reader доступности и
-          // нативного hover/active-стиля; иначе оставляем div (KS-2508
-          // unit-тесты этого ожидают).
-          const inner = (
-            <>
-              <span className="post-game-review__half">{s.halfMove}.</span>
-              <span className="post-game-review__san">{playedSan}</span>
+      <div className="post-game-review__pgn" data-testid="post-game-review-pgn">
+        {tokens.map((tok, i) => {
+          if (tok.kind === 'movenum') {
+            return (
               <span
-                className="post-game-review__class"
-                data-testid={`post-game-review-class-${s.halfMove}`}
+                key={`mn-${i}`}
+                className="post-game-review__movenum"
               >
-                {t(`puzzle.engine.review.class.${cls}`, cls)}
+                {tok.text}{' '}
               </span>
-              {showBest && (
-                <div
-                  className="post-game-review__best"
-                  data-testid={`post-game-review-best-${s.halfMove}`}
-                >
-                  {t('puzzle.engine.review.bestWas', 'Best was: {{san}}', {
-                    san: bestSan,
-                  })}
-                </div>
+            );
+          }
+          if (tok.kind === 'variation') {
+            const cb = onSelectMove
+              ? () => handleSelect(tok.fenBefore)
+              : undefined;
+            return cb ? (
+              <button
+                key={`var-${i}`}
+                type="button"
+                className="post-game-review__variation"
+                data-testid={`post-game-review-variation-${tok.halfIndex}`}
+                onClick={cb}
+              >
+                {tok.text}{' '}
+              </button>
+            ) : (
+              <span
+                key={`var-${i}`}
+                className="post-game-review__variation"
+                data-testid={`post-game-review-variation-${tok.halfIndex}`}
+              >
+                {tok.text}{' '}
+              </span>
+            );
+          }
+          // move token
+          const cls = tok.cls ?? 'engine';
+          const className = `post-game-review__move post-game-review__move--${cls}${tok.isUser ? ' post-game-review__move--user' : ''}`;
+          const cb = onSelectMove
+            ? () => handleSelect(tok.fenBefore)
+            : undefined;
+          const content = (
+            <>
+              {tok.san}
+              {tok.nag && (
+                <span className="post-game-review__nag">{tok.nag}</span>
               )}
+              {' '}
             </>
           );
-          return (
-            <li
-              key={s.halfMove}
-              className={`post-game-review__row post-game-review__row--${cls}${onSelectMove ? ' post-game-review__row--clickable' : ''}`}
-              data-testid={`post-game-review-row-${s.halfMove}`}
-              data-half={s.halfMove}
-              data-class={cls}
+          return cb ? (
+            <button
+              key={`mv-${i}`}
+              type="button"
+              className={className}
+              data-testid={`post-game-review-move-${tok.halfIndex}`}
+              data-class={tok.cls ?? ''}
+              data-is-user={tok.isUser ? 'true' : 'false'}
+              onClick={cb}
             >
-              {onSelectMove ? (
-                <button
-                  type="button"
-                  className="post-game-review__row-btn"
-                  data-testid={`post-game-review-select-${s.halfMove}`}
-                  onClick={() => onSelectMove(s)}
-                >
-                  {inner}
-                </button>
-              ) : (
-                inner
-              )}
-            </li>
+              {content}
+            </button>
+          ) : (
+            <span
+              key={`mv-${i}`}
+              className={className}
+              data-testid={`post-game-review-move-${tok.halfIndex}`}
+              data-class={tok.cls ?? ''}
+              data-is-user={tok.isUser ? 'true' : 'false'}
+            >
+              {content}
+            </span>
           );
         })}
-      </ol>
+      </div>
     </div>
   );
 }

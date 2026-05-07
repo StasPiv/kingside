@@ -1,12 +1,16 @@
 /**
- * KS-2508 — тесты `<PostGameReview>`. Pure-компонент: проверяем
- * рендер на разных классификациях, fallback при null cp-полях,
- * empty-state и условный показ «Best was».
+ * KS-2534 — тесты `<PostGameReview>` после переработки в PGN-формат.
+ * Проверяем рендер всей партии единой строкой, NAG-знаки на user-ходах,
+ * варианты с лучшим ходом в скобках после плохого user-хода и
+ * кликабельность токенов.
  */
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, screen } from '../../test/test-utils';
-import { PostGameReview } from './PostGameReview';
+import {
+  PostGameReview,
+  buildPgnReviewTokens,
+} from './PostGameReview';
 import type { UserBestSnapshot } from './PlayVsEngineRunner';
 
 const STARTING_FEN =
@@ -24,261 +28,333 @@ function snap(over: Partial<UserBestSnapshot> = {}): UserBestSnapshot {
   };
 }
 
-describe('<PostGameReview> KS-2508', () => {
-  it('пустой userBestLog → null (компонент не рендерится)', () => {
+describe('<PostGameReview> KS-2534', () => {
+  it('пустой playedSans → null', () => {
     const { container } = renderWithProviders(
-      <PostGameReview userBestLog={[]} />,
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={[]}
+        userBestLog={[]}
+        userSide="w"
+      />,
     );
     expect(container.querySelector('[data-testid="post-game-review"]')).toBeNull();
   });
 
-  it('played === best → метка `best` (без блока «Best was»)', () => {
+  it('идеальная партия (все user-ходы best) → нет NAG `?`/`??`/`?!`, может быть `!`', () => {
+    // user играет e4 (best), engine отвечает e5; user играет Nf3 (best),
+    // engine — Nc6.
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
+        fenBefore: STARTING_FEN,
         playedUci: 'e2e4',
         bestUci: 'e2e4',
         cpBefore: 30,
         cpAfter: 30,
       }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(screen.getByTestId('post-game-review')).toBeInTheDocument();
-    const row = screen.getByTestId('post-game-review-row-1');
-    expect(row.getAttribute('data-class')).toBe('best');
-    // «Best was» не показывается на best/good.
-    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
-  });
-
-  it('cp-loss < 50 → good (нет «Best was»)', () => {
-    const log: UserBestSnapshot[] = [
-      snap({
-        halfMove: 1,
-        playedUci: 'e2e4',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: 70, // loss=30
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(screen.getByTestId('post-game-review-row-1').getAttribute('data-class')).toBe(
-      'good',
-    );
-    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
-  });
-
-  it('cp-loss 50-99 → inaccuracy (с «Best was»)', () => {
-    const log: UserBestSnapshot[] = [
-      snap({
-        halfMove: 2,
-        playedUci: 'g1f3',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: 30, // loss=70
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    const row = screen.getByTestId('post-game-review-row-2');
-    expect(row.getAttribute('data-class')).toBe('inaccuracy');
-    expect(screen.getByTestId('post-game-review-best-2')).toBeInTheDocument();
-  });
-
-  it('cp-loss 100-199 → mistake (с «Best was»)', () => {
-    const log: UserBestSnapshot[] = [
       snap({
         halfMove: 3,
-        playedUci: 'b1c3',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: -50, // loss=150
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(
-      screen.getByTestId('post-game-review-row-3').getAttribute('data-class'),
-    ).toBe('mistake');
-    expect(screen.getByTestId('post-game-review-best-3')).toBeInTheDocument();
-  });
-
-  it('cp-loss ≥ 200 → blunder (с «Best was»)', () => {
-    const log: UserBestSnapshot[] = [
-      snap({
-        halfMove: 4,
-        playedUci: 'h2h3',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: -300, // loss=400
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(
-      screen.getByTestId('post-game-review-row-4').getAttribute('data-class'),
-    ).toBe('blunder');
-    expect(screen.getByTestId('post-game-review-best-4')).toBeInTheDocument();
-  });
-
-  it('cpBefore=null или cpAfter=null → fallback: best (если played==best) либо good', () => {
-    const log: UserBestSnapshot[] = [
-      // played === best → даже без cp, помечаем best.
-      snap({
-        halfMove: 1,
-        playedUci: 'e2e4',
-        bestUci: 'e2e4',
-        cpBefore: null,
-        cpAfter: null,
-      }),
-      // played !== best и нет cp → graceful good (вреда нет, но
-      // помечать blunder без данных нечестно).
-      snap({
-        halfMove: 2,
-        playedUci: 'h2h3',
-        bestUci: 'd2d4',
-        cpBefore: null,
-        cpAfter: null,
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(
-      screen.getByTestId('post-game-review-row-1').getAttribute('data-class'),
-    ).toBe('best');
-    expect(
-      screen.getByTestId('post-game-review-row-2').getAttribute('data-class'),
-    ).toBe('good');
-    // На graceful-good «Best was» не показываем — нечего объяснять
-    // без cp-данных.
-    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
-    expect(screen.queryByTestId('post-game-review-best-2')).toBeNull();
-  });
-
-  it('SAN played и SAN best отображаются в правильных строках', () => {
-    const log: UserBestSnapshot[] = [
-      snap({
-        halfMove: 1,
-        playedUci: 'h2h3',
-        bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -200, // mistake / blunder, чтобы Best was показался
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    const row = screen.getByTestId('post-game-review-row-1');
-    expect(row.textContent).toMatch(/h3/); // played
-    const best = screen.getByTestId('post-game-review-best-1');
-    expect(best.textContent).toMatch(/e4/); // best (через SAN)
-    expect(best.textContent).toMatch(/Best was|Лучше было/);
-  });
-
-  it('KS-2510: без onSelectMove строка не button — нет post-game-review-select-N', () => {
-    const log: UserBestSnapshot[] = [snap()];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    expect(screen.queryByTestId('post-game-review-select-1')).toBeNull();
-  });
-
-  it('KS-2510: с onSelectMove строка кликабельна и зовёт callback со snapshot', async () => {
-    const onSelectMove = vi.fn();
-    const log: UserBestSnapshot[] = [
-      snap({ halfMove: 1, playedUci: 'e2e4' }),
-      snap({
-        halfMove: 2,
-        fenBefore: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
-        playedUci: 'g1f3',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: -200, // mistake, чтобы row реально был кликабелен
-      }),
-    ];
-    renderWithProviders(
-      <PostGameReview userBestLog={log} onSelectMove={onSelectMove} />,
-    );
-    const btn = screen.getByTestId('post-game-review-select-2');
-    expect(btn.tagName).toBe('BUTTON');
-    await userEvent.click(btn);
-    expect(onSelectMove).toHaveBeenCalledTimes(1);
-    expect(onSelectMove).toHaveBeenCalledWith(log[1]);
-    // Передан именно snapshot с тем же fenBefore, который потом
-    // дёргает родитель.
-    const arg = onSelectMove.mock.calls[0][0] as UserBestSnapshot;
-    expect(arg.fenBefore).toBe(log[1].fenBefore);
-  });
-
-  it('заголовок и метки не fallback на ключи (i18n работает)', () => {
-    const log: UserBestSnapshot[] = [
-      snap({
-        halfMove: 1,
-        playedUci: 'h2h3',
-        bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -300,
-      }),
-    ];
-    renderWithProviders(<PostGameReview userBestLog={log} />);
-    const root = screen.getByTestId('post-game-review');
-    // Ни один из ключей i18n не должен утечь в DOM как fallback.
-    expect(root.textContent).not.toContain('puzzle.engine.review.headerLabel');
-    expect(root.textContent).not.toContain('puzzle.engine.review.class.blunder');
-    expect(root.textContent).toMatch(/Game review|Разбор партии/);
-    expect(root.textContent).toMatch(/Blunder|Зевок/);
-  });
-
-  it('KS-2511: snapshot полного разбора по всем 5 классам', () => {
-    // Каждая классификация представлена строкой с правильным
-    // cp-loss'ом. SAN-ы выбраны разные, чтобы snapshot отличался
-    // содержательно, а не только метками.
-    const log: UserBestSnapshot[] = [
-      // 1. best: played === best
-      snap({
-        halfMove: 1,
-        playedUci: 'e2e4',
-        bestUci: 'e2e4',
-        cpBefore: 30,
-        cpAfter: 30,
-      }),
-      // 2. good: cp-loss < 50
-      snap({
-        halfMove: 2,
         fenBefore:
           'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
         playedUci: 'g1f3',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: 70,
+        bestUci: 'g1f3',
+        cpBefore: 50,
+        cpAfter: 50,
       }),
-      // 3. inaccuracy: cp-loss 50-99
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['e4', 'e5', 'Nf3', 'Nc6']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    // Нет «?» или «??» в выводе.
+    expect(pgn.textContent).not.toMatch(/\?\?/);
+    expect(pgn.textContent).not.toMatch(/(^|[^!])\?(?!\?)/);
+    // Должно быть e4 и Nf3 с «!».
+    expect(pgn.textContent).toMatch(/e4!/);
+    expect(pgn.textContent).toMatch(/Nf3!/);
+    // Ходы движка (e5, Nc6) — без NAG.
+    expect(pgn.textContent).toMatch(/e5(?![!?])/);
+    expect(pgn.textContent).toMatch(/Nc6(?![!?])/);
+  });
+
+  it('blunder с лучшим ходом → NAG ?? и вариант «(N. SAN!)»', () => {
+    // user сыграл d2-d3 вместо лучшего e2-e4; cpBefore=100, cpAfter=-300
+    // → cp-loss=400 → blunder.
+    const log: UserBestSnapshot[] = [
       snap({
-        halfMove: 3,
-        fenBefore:
-          'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2',
-        playedUci: 'b8c6',
-        bestUci: 'g8f6',
-        cpBefore: 100,
-        cpAfter: 30,
-      }),
-      // 4. mistake: cp-loss 100-199
-      snap({
-        halfMove: 4,
-        fenBefore:
-          'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
-        playedUci: 'f1c4',
-        bestUci: 'd2d4',
-        cpBefore: 100,
-        cpAfter: -50,
-      }),
-      // 5. blunder: cp-loss ≥ 200
-      snap({
-        halfMove: 5,
-        fenBefore:
-          'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3',
-        playedUci: 'h7h6',
-        bestUci: 'g8f6',
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
         cpBefore: 100,
         cpAfter: -300,
       }),
     ];
-    const { container } = renderWithProviders(
-      <PostGameReview userBestLog={log} />,
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    expect(pgn.textContent).toMatch(/d3\?\?/); // blunder NAG
+    expect(pgn.textContent).toMatch(/\(1\. e4!\)/); // вариант
+  });
+
+  it('inaccuracy → ?!', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: 30, // cp-loss=70 → inaccuracy
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    expect(pgn.textContent).toMatch(/d3\?!/); // inaccuracy
+    expect(pgn.textContent).toMatch(/\(1\. e4!\)/);
+  });
+
+  it('mistake → ?', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -50, // cp-loss=150 → mistake
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    // ровно один знак вопроса
+    expect(pgn.textContent).toMatch(/d3\?(?!\?)/);
+    expect(pgn.textContent).toMatch(/\(1\. e4!\)/);
+  });
+
+  it('user играет чёрными → префикс «N...» у первого хода и движок ходит первым (но первого нет, начинаем с user)', () => {
+    // FEN side='b', user играет первым (солвер).
+    const fen = 'rnbqkbnr/pppppppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: fen,
+        playedUci: 'b8c6',
+        bestUci: 'b8c6',
+        cpBefore: 0,
+        cpAfter: 0,
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={fen}
+        playedSans={['Nc6']}
+        userBestLog={log}
+        userSide="b"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    // Префикс «1...» перед чёрным ходом.
+    expect(pgn.textContent).toMatch(/1\.\.\. Nc6/);
+  });
+
+  it('клик по user-ходу зовёт onSelectMove с fenBefore', async () => {
+    const onSelectMove = vi.fn();
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: 30,
+        cpAfter: 30,
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['e4']}
+        userBestLog={log}
+        userSide="w"
+        onSelectMove={onSelectMove}
+      />,
+    );
+    const moveBtn = screen.getByTestId('post-game-review-move-0');
+    expect(moveBtn.tagName).toBe('BUTTON');
+    await userEvent.click(moveBtn);
+    expect(onSelectMove).toHaveBeenCalledWith({ fenBefore: STARTING_FEN });
+  });
+
+  it('клик по варианту зовёт onSelectMove с тем же fenBefore', async () => {
+    const onSelectMove = vi.fn();
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -300, // blunder, вариант показан
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+        onSelectMove={onSelectMove}
+      />,
+    );
+    const variation = screen.getByTestId('post-game-review-variation-0');
+    expect(variation.tagName).toBe('BUTTON');
+    await userEvent.click(variation);
+    expect(onSelectMove).toHaveBeenCalledWith({ fenBefore: STARTING_FEN });
+  });
+
+  it('engine-ходы помечены data-is-user="false" и не имеют user-class', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: 30,
+        cpAfter: 30,
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['e4', 'e5']}
+        userBestLog={log}
+        userSide="w"
+      />,
     );
     expect(
-      container.querySelector('[data-testid="post-game-review"]'),
-    ).toMatchSnapshot();
+      screen
+        .getByTestId('post-game-review-move-0')
+        .getAttribute('data-is-user'),
+    ).toBe('true');
+    expect(
+      screen
+        .getByTestId('post-game-review-move-1')
+        .getAttribute('data-is-user'),
+    ).toBe('false');
+  });
+});
+
+describe('buildPgnReviewTokens KS-2534', () => {
+  it('партия с одним blunder + лучший ход в варианте', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -300,
+      }),
+    ];
+    const tokens = buildPgnReviewTokens({
+      initialFen: STARTING_FEN,
+      playedSans: ['d3'],
+      userBestLog: log,
+      userSide: 'w',
+    });
+    // [movenum '1.', move 'd3' isUser blunder, variation '(1. e4!)']
+    expect(tokens).toHaveLength(3);
+    expect(tokens[0]).toEqual({ kind: 'movenum', text: '1.' });
+    expect(tokens[1]).toMatchObject({
+      kind: 'move',
+      san: 'd3',
+      nag: '??',
+      isUser: true,
+      cls: 'blunder',
+    });
+    expect(tokens[2]).toMatchObject({
+      kind: 'variation',
+      text: '(1. e4!)',
+    });
+  });
+
+  it('идеальная партия (best) → один best NAG, без вариантов', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: 30,
+        cpAfter: 30,
+      }),
+    ];
+    const tokens = buildPgnReviewTokens({
+      initialFen: STARTING_FEN,
+      playedSans: ['e4'],
+      userBestLog: log,
+      userSide: 'w',
+    });
+    expect(tokens.find((t) => t.kind === 'variation')).toBeUndefined();
+    const moveTok = tokens.find((t) => t.kind === 'move');
+    expect(moveTok).toMatchObject({ nag: '!', cls: 'best' });
+  });
+
+  it('несколько ошибок подряд (mistake + blunder) — два варианта', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -50, // mistake
+      }),
+      snap({
+        halfMove: 3,
+        // FEN после d3 e5: white to move.
+        fenBefore: 'rnbqkbnr/pppp1ppp/8/4p3/8/3P4/PPP1PPPP/RNBQKBNR w KQkq - 0 2',
+        playedUci: 'h2h3',
+        // d2-d4 здесь нелегален (d2 пуст после первого хода d3); берём
+        // легальный лучший ход g1-f3 (Nf3).
+        bestUci: 'g1f3',
+        cpBefore: 100,
+        cpAfter: -300, // blunder
+      }),
+    ];
+    const tokens = buildPgnReviewTokens({
+      initialFen: STARTING_FEN,
+      playedSans: ['d3', 'e5', 'h3'],
+      userBestLog: log,
+      userSide: 'w',
+    });
+    const variations = tokens.filter((t) => t.kind === 'variation');
+    expect(variations).toHaveLength(2);
   });
 });

@@ -2775,6 +2775,62 @@ body:has(.puzzle-rush-board) {
   font-weight: 600;
   color: var(--c-cbd5e1);
 }
+
+/* KS-2534: PGN-нотация в одной строке с inline-кнопками-ходами и
+   вариантами. Тонкая граница под user-ходами с NAG, варианты —
+   курсивом. */
+.post-game-review__pgn {
+  font-size: 14px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-e2e8f0);
+  word-spacing: 1px;
+}
+.post-game-review__movenum {
+  color: var(--c-94a3b8);
+  font-weight: 600;
+}
+.post-game-review__move {
+  display: inline;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.post-game-review__move:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.post-game-review__move:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 1px;
+}
+.post-game-review__move--best       { color: #4ade80; }
+.post-game-review__move--good       { color: var(--c-e2e8f0); }
+.post-game-review__move--inaccuracy { color: #facc15; }
+.post-game-review__move--mistake    { color: #f97316; }
+.post-game-review__move--blunder    { color: #f87171; }
+.post-game-review__nag {
+  font-weight: 700;
+  margin-left: 1px;
+}
+.post-game-review__variation {
+  display: inline;
+  padding: 0 2px;
+  margin: 0 2px;
+  background: transparent;
+  border: 0;
+  color: var(--c-94a3b8);
+  font: inherit;
+  font-style: italic;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.post-game-review__variation:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
 .post-game-review__list {
   list-style: none;
   margin: 0;
