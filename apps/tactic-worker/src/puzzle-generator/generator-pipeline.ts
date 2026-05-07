@@ -37,7 +37,7 @@ import {
   type PuzzleRecord,
   newGeneratorStats,
 } from './types';
-import { wdlSignedFromInfo } from './score';
+import { wdlSignedFromInfo, type Wdl } from './score';
 import type { MultiPvLine } from './types';
 import { computeTags } from './tagging';
 
@@ -228,6 +228,12 @@ async function processGame(
   interface PostCandidate {
     task: PlyTask;
     wdlBefore: number;
+    /**
+     * KS-2523: полный Wdl-объект (per-mille от Stockfish, POV side-to-
+     * move в `fenBefore` = блундёр). null если Stockfish WDL не
+     * вернул (старые версии при mate); в metadata тогда не пишется.
+     */
+    wdlBeforeRaw: Wdl | null;
     pv1Before: string;
   }
   const postCandidates: PostCandidate[] = [];
@@ -257,7 +263,12 @@ async function processGame(
       stats.drops.gameOver++;
       continue;
     }
-    postCandidates.push({ task: t, wdlBefore, pv1Before: pre[0].bestMove });
+    postCandidates.push({
+      task: t,
+      wdlBefore,
+      wdlBeforeRaw: pre[0].wdl ?? null,
+      pv1Before: pre[0].bestMove,
+    });
   }
 
   if (postCandidates.length === 0) return;
@@ -288,6 +299,10 @@ async function processGame(
     task: PlyTask;
     wdlBefore: number;
     wdlAfterForSolver: number;
+    /** KS-2523: raw Wdl POV blunder (на fenBefore). */
+    wdlBeforeRaw: Wdl | null;
+    /** KS-2523: raw Wdl POV solver (на fenAfter). */
+    wdlAfterRaw: Wdl | null;
     blunderDelta: number;
     firstMovePV1: string;
   }
@@ -316,6 +331,8 @@ async function processGame(
       task: c.task,
       wdlBefore: c.wdlBefore,
       wdlAfterForSolver,
+      wdlBeforeRaw: c.wdlBeforeRaw,
+      wdlAfterRaw: post[0].wdl ?? null,
       blunderDelta,
       firstMovePV1: post[0].bestMove,
     });
@@ -389,6 +406,18 @@ async function processGame(
         engine: 'stockfish',
         engineParams: options.engineLimit,
         generatedAt: new Date().toISOString(),
+        // KS-2523: полные Wdl-объекты (per-mille от Stockfish). UI
+        // (KS-2524) показывает три числа W/D/L отдельно. Старые
+        // signed-поля `wdlBeforeBlunder`/`wdlAfterBlunder` сохранены
+        // для backward-compat с legacy-пазлами.
+        //
+        // POV: Stockfish-native — `wdlBefore` от лица side-to-move в
+        // позиции до зевка (= блундёр), `wdlAfter` от лица side-to-
+        // move после хода (= решающая = солвер). Если у Stockfish не
+        // было WDL (старые версии при mate) — поле не пишется,
+        // фронт fallback'ом смотрит на signed.
+        ...(sc.wdlBeforeRaw !== null ? { wdlBefore: sc.wdlBeforeRaw } : {}),
+        ...(sc.wdlAfterRaw !== null ? { wdlAfter: sc.wdlAfterRaw } : {}),
         // KS-2489: PGN headers — для backend `resolveSourceGame`
         // (KS-2487) и frontend-блока «Из партии». Включаются только
         // если хоть один заголовок был. Резолвер на api игнорирует

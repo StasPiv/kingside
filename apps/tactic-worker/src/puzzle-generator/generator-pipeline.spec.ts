@@ -146,6 +146,31 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     expect(meta.wdlAfterBlunder).toBeGreaterThanOrEqual(0.5);
     expect(meta.halfMovesN).toBe(2);
     expect(p.themes.split(' ')).toContain('playVsEngine');
+    // KS-2523: полные Wdl-объекты {w,d,l} (per-mille). Backward-compat
+    // signed wdlBeforeBlunder/wdlAfterBlunder остаются.
+    expect(meta.wdlBefore).toBeDefined();
+    expect(meta.wdlBefore).toEqual(
+      expect.objectContaining({
+        w: expect.any(Number),
+        d: expect.any(Number),
+        l: expect.any(Number),
+      }),
+    );
+    expect(meta.wdlAfter).toBeDefined();
+    expect(meta.wdlAfter).toEqual(
+      expect.objectContaining({
+        w: expect.any(Number),
+        d: expect.any(Number),
+        l: expect.any(Number),
+      }),
+    );
+    // Сумма W+D+L должна быть около 1000 per-mille (точное значение
+    // зависит от движка; в моке pvWdl создаёт W+L=1000, D=0).
+    const sum =
+      (meta.wdlBefore.w as number) +
+      (meta.wdlBefore.d as number) +
+      (meta.wdlBefore.l as number);
+    expect(sum).toBe(1000);
     // accountedFor invariant
     const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
     expect(stats.inserted + sumDrops).toBe(stats.positionsAnalyzed);
