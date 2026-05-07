@@ -152,6 +152,16 @@ function AnalysisPageInner() {
   const localIdRef = useRef<string | undefined>(
     (location.state as { localId?: string } | null)?.localId ?? analysisId,
   );
+  // Safety-net: при смене `:id` синхронизируем `localIdRef.current`,
+  // даже если KS-2403 `key={id}` обёртка по какой-то причине не
+  // пересоздала компонент (например, прямые `replaceState` без
+  // navigate, тесты с MemoryRouter без unmount-mount). Без этого
+  // auto-save (см. ниже) сохраняет history текущей открытой партии в
+  // запись с предыдущим `id` — все партии в Workshop становятся
+  // одинаковыми.
+  useEffect(() => {
+    localIdRef.current = analysisId;
+  }, [analysisId]);
   const breadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
   const breadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
   const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
@@ -390,7 +400,11 @@ function AnalysisPageInner() {
       } finally { setLoading(false); }
     };
     fetchData();
-  }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
+    // Safety-net: `analysisId` в deps — при смене `:id` без remount'а
+    // обёртки (теоретический edge-case к KS-2403) этот effect перезапустит
+    // `getById` с актуальным id, иначе stale-state предыдущей партии
+    // оставался бы при любом открытии следующей.
+  }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen]);
 
   useAnalysisPersistence(gameId, history, initialAnnotations, annotationsByIndex);
 
