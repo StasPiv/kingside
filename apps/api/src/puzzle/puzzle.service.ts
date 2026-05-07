@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import type {
   PlayVsEnginePuzzleReason,
   PuzzleSolutionMode,
+  PuzzleSourceGame,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -715,12 +716,21 @@ export class PuzzleService {
     source: string;
     solutionMode?: string | null;
     sourceMetadata?: string | null;
+    gameUrl?: string | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
   }) {
     const mode = this.resolveSolutionMode(
       puzzle.id,
       puzzle.solutionMode,
       puzzle.sourceMetadata,
     );
+    const sourceGame = this.resolveSourceGame({
+      gameUrl: puzzle.gameUrl ?? null,
+      sourceType: puzzle.sourceType ?? null,
+      sourceId: puzzle.sourceId ?? null,
+      sourceMetadata: puzzle.sourceMetadata ?? null,
+    });
     return {
       id: puzzle.id,
       fen: puzzle.fen,
@@ -730,6 +740,7 @@ export class PuzzleService {
       source: puzzle.source,
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
+      ...(sourceGame ? { sourceGame } : {}),
     };
   }
 
@@ -744,12 +755,20 @@ export class PuzzleService {
     opening_tags?: string | null;
     solution_mode?: string | null;
     source_metadata?: string | null;
+    source_type?: string | null;
+    source_id?: string | null;
   }) {
     const mode = this.resolveSolutionMode(
       p.id,
       p.solution_mode,
       p.source_metadata,
     );
+    const sourceGame = this.resolveSourceGame({
+      gameUrl: p.game_url ?? null,
+      sourceType: p.source_type ?? null,
+      sourceId: p.source_id ?? null,
+      sourceMetadata: p.source_metadata ?? null,
+    });
     return {
       id: p.id,
       fen: p.fen,
@@ -761,6 +780,83 @@ export class PuzzleService {
       openingTags: p.opening_tags ?? null,
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
+      ...(sourceGame ? { sourceGame } : {}),
     };
+  }
+
+  /**
+   * KS-2487. Резолвим блок `sourceGame` для DTO. Источники данных:
+   *
+   *   1. `puzzle.sourceMetadata` — JSON-строка. Если в ней есть ключи
+   *      `headers` (объект с PGN-тегами `White/Black/Event/Date/Result`)
+   *      или соответствующие top-level поля (`white/black/event/date/
+   *      result`) — забираем их как есть. Это путь для будущих
+   *      generated-puzzle (KS-2487-* — апдейт `tactic-worker` пишет
+   *      headers в metadata).
+   *   2. `puzzle.gameUrl` (lichess) — URL партии. Сохраняем как
+   *      `pgnUrl`. White/Black у Lichess пазлов в gameUrl не зашиты —
+   *      доступны только через дополнительный запрос к Lichess API,
+   *      что вне backend-scope (фронт может разворачивать сам).
+   *   3. `puzzle.sourceType='archive_game' + puzzle.sourceId` — UUID
+   *      строки в `archive_games`. Сохраняем `archiveGameId` для
+   *      глубокой ссылки на архив; backend не делает JOIN (archive-БД
+   *      — отдельный pg-кластер, не подключён к api Prisma).
+   *
+   * Возвращает `undefined`, если не нашлось ни одного поля — фронт
+   * не рисует блок «Из партии».
+   */
+  private resolveSourceGame(input: {
+    gameUrl: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    sourceMetadata: string | null;
+  }): PuzzleSourceGame | undefined {
+    const out: PuzzleSourceGame = {};
+
+    if (input.sourceMetadata) {
+      try {
+        const meta = JSON.parse(input.sourceMetadata) as Record<string, unknown>;
+        // Headers могут быть как top-level, так и под ключом `headers`.
+        const headers =
+          typeof meta.headers === 'object' && meta.headers !== null
+            ? (meta.headers as Record<string, unknown>)
+            : {};
+        const pick = (key: string): string | undefined => {
+          const v = headers[key] ?? meta[key];
+          return typeof v === 'string' && v.trim().length > 0 ? v : undefined;
+        };
+        const white =
+          pick('white') ?? pick('White');
+        const black =
+          pick('black') ?? pick('Black');
+        const event = pick('event') ?? pick('Event');
+        const date = pick('date') ?? pick('Date');
+        const resultRaw = pick('result') ?? pick('Result');
+        if (white) out.white = white;
+        if (black) out.black = black;
+        if (event) out.event = event;
+        if (date) out.date = date;
+        if (
+          resultRaw === '1-0' ||
+          resultRaw === '0-1' ||
+          resultRaw === '1/2-1/2' ||
+          resultRaw === '*'
+        ) {
+          out.result = resultRaw;
+        }
+      } catch {
+        // Невалидный JSON — пропускаем, остальные источники работают.
+      }
+    }
+
+    if (input.sourceType === 'archive_game' && input.sourceId) {
+      out.archiveGameId = input.sourceId;
+    }
+
+    if (input.gameUrl) {
+      out.pgnUrl = input.gameUrl;
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
   }
 }

@@ -512,6 +512,190 @@ describe('PuzzleService', () => {
       warnSpy.mockRestore();
     });
 
+    // ── KS-2487. sourceGame ─────────────────────────────────────────
+
+    it('KS-2487: gameUrl (lichess) → sourceGame.pgnUrl', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-l1',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'lichess',
+        solutionMode: 'forced-line',
+        sourceMetadata: null,
+        gameUrl: 'https://lichess.org/abcdefgh',
+        sourceType: null,
+        sourceId: null,
+      });
+      const result = await service.getPuzzle('p-l1');
+      expect(result.sourceGame).toEqual({
+        pgnUrl: 'https://lichess.org/abcdefgh',
+      });
+    });
+
+    it('KS-2487: archive_game source → sourceGame.archiveGameId', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-g1',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'forced-line',
+        sourceMetadata: null,
+        gameUrl: null,
+        sourceType: 'archive_game',
+        sourceId: '550e8400-e29b-41d4-a716-446655440000',
+      });
+      const result = await service.getPuzzle('p-g1');
+      expect(result.sourceGame).toEqual({
+        archiveGameId: '550e8400-e29b-41d4-a716-446655440000',
+      });
+    });
+
+    it('KS-2487: PGN headers в sourceMetadata → white/black/event/date/result', async () => {
+      const meta = {
+        headers: {
+          White: 'Carlsen, M.',
+          Black: 'Nepomniachtchi, I.',
+          Event: 'World Championship 2026',
+          Date: '2026.04.20',
+          Result: '1-0',
+        },
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-h1',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'forced-line',
+        sourceMetadata: JSON.stringify(meta),
+        gameUrl: null,
+        sourceType: 'archive_game',
+        sourceId: 'aaaa',
+      });
+      const result = await service.getPuzzle('p-h1');
+      expect(result.sourceGame).toEqual({
+        white: 'Carlsen, M.',
+        black: 'Nepomniachtchi, I.',
+        event: 'World Championship 2026',
+        date: '2026.04.20',
+        result: '1-0',
+        archiveGameId: 'aaaa',
+      });
+    });
+
+    it('KS-2487: top-level white/black в sourceMetadata тоже работают', async () => {
+      const meta = { white: 'Alice', black: 'Bob', date: '2026-04-01' };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-h2',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'forced-line',
+        sourceMetadata: JSON.stringify(meta),
+        gameUrl: null,
+        sourceType: null,
+        sourceId: null,
+      });
+      const result = await service.getPuzzle('p-h2');
+      expect(result.sourceGame).toEqual({
+        white: 'Alice',
+        black: 'Bob',
+        date: '2026-04-01',
+      });
+    });
+
+    it('KS-2487: невалидный result в sourceMetadata игнорируется', async () => {
+      const meta = { white: 'A', black: 'B', result: 'win' };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-bad',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'forced-line',
+        sourceMetadata: JSON.stringify(meta),
+        gameUrl: null,
+        sourceType: null,
+        sourceId: null,
+      });
+      const result = await service.getPuzzle('p-bad');
+      expect(result.sourceGame).toEqual({ white: 'A', black: 'B' });
+      expect(
+        (result.sourceGame as { result?: string } | undefined)?.result,
+      ).toBeUndefined();
+    });
+
+    it('KS-2487: пазл без gameUrl/sourceId/headers → sourceGame не выставляется', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-empty',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'lichess',
+        solutionMode: 'forced-line',
+        sourceMetadata: null,
+        gameUrl: null,
+        sourceType: null,
+        sourceId: null,
+      });
+      const result = await service.getPuzzle('p-empty');
+      expect(
+        (result as { sourceGame?: unknown }).sourceGame,
+      ).toBeUndefined();
+    });
+
+    it('KS-2487: combined — headers + archiveGameId + pgnUrl', async () => {
+      const meta = { White: 'A', Black: 'B', Event: 'Tata Steel' };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-mix',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'forced-line',
+        sourceMetadata: JSON.stringify(meta),
+        gameUrl: 'https://lichess.org/xxx',
+        sourceType: 'archive_game',
+        sourceId: 'arch-123',
+      });
+      const result = await service.getPuzzle('p-mix');
+      expect(result.sourceGame).toEqual({
+        white: 'A',
+        black: 'B',
+        event: 'Tata Steel',
+        archiveGameId: 'arch-123',
+        pgnUrl: 'https://lichess.org/xxx',
+      });
+    });
+
+    it('KS-2487: невалидный JSON sourceMetadata → headers пропускаются, gameUrl остаётся', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'p-broken',
+        fen: 'fen',
+        moves: 'e2e4',
+        rating: 1500,
+        themes: '',
+        source: 'lichess',
+        solutionMode: 'forced-line',
+        sourceMetadata: '{not json',
+        gameUrl: 'https://lichess.org/yyy',
+        sourceType: null,
+        sourceId: null,
+      });
+      const result = await service.getPuzzle('p-broken');
+      expect(result.sourceGame).toEqual({ pgnUrl: 'https://lichess.org/yyy' });
+    });
+
     it('KS-2465: play-vs-engine без обязательных полей метаданных → fallback forced-line', async () => {
       const warnSpy = jest
         .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')

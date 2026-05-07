@@ -131,7 +131,32 @@ export type PuzzleDto = {
     failThreshold: number;
     halfMovesN: number;
   };
+  /**
+   * KS-2487. Источник позиции пазла — партия, из которой он сгенерирован.
+   * Все поля опциональные: что-то находится в PGN headers, что-то в
+   * `archive_games`, что-то — только URL. Frontend (KS-2487-FE) рендерит
+   * блок «Из партии: White vs Black, Event, Date» если хотя бы White/
+   * Black есть; иначе — кнопку «Открыть партию» по `pgnUrl`/
+   * `archiveGameId`.
+   *
+   * Если о партии-источнике у нас нет ни одного поля — `sourceGame`
+   * не выставляется (фронт не рисует блок).
+   */
+  sourceGame?: PuzzleSourceGame;
 };
+
+export interface PuzzleSourceGame {
+  white?: string;
+  black?: string;
+  event?: string;
+  /** ISO-строка или PGN-формат «YYYY.MM.DD». */
+  date?: string;
+  result?: '1-0' | '0-1' | '1/2-1/2' | '*';
+  /** UUID `archive_games.id` для глубокой ссылки в архив. */
+  archiveGameId?: string;
+  /** Прямая ссылка/URL партии — Lichess `gameUrl` для пазлов lichess. */
+  pgnUrl?: string;
+}
 
 export type PuzzleAttemptResult = 'solved' | 'failed';
 
