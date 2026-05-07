@@ -1,41 +1,21 @@
 import { memo } from 'react';
+import { PIECE_SVG, isPieceChar } from './puzzlePieces';
 
 /**
- * KS-2563 / ADR — PuzzleBrowserPage performance.
+ * KS-2563 / KS-2566 — PuzzleBrowserPage performance + стандартные фигуры.
  *
- * Лёгкая статическая мини-доска из FEN: один SVG, ~80–100 DOM-нод,
- * без `react-chessboard`/chess.js. Используется на `/puzzles` гриде,
- * где раньше каждый `<Chessboard>` mount стоил ~30–50 мс и держал
- * worker-потоки drag-handlers — при ~50+ карточках страница лагала.
+ * Лёгкая статическая мини-доска из FEN: один SVG, без mount
+ * `<Chessboard>`. Используется на `/puzzles` гриде, где раньше каждый
+ * `<Chessboard>` стоил ~30–50 мс mount.
  *
- * Сравнение замеров (jsdom-friendly, нагрузочно повторно: 50 boards):
- *   - `<Chessboard>` (react-chessboard 5.x): ~2.4 c initial mount.
- *   - `<PuzzleMiniBoard>`: ~30 мс initial mount.
+ * KS-2566: фигуры — стандартный набор Cburnett (тот же, что использует
+ * react-chessboard в трансляциях). Перенесён в `puzzlePieces.tsx` как
+ * статические JSX-элементы с paths/groups; mounting Chessboard НЕ
+ * происходит — рендер ускоренный.
  *
  * Pure: получает FEN + ориентацию + размер, рендерит inline SVG.
  * Не интерактивен: drag/click обрабатывает родительская кнопка.
- *
- * Цвета пешек/фигур — Unicode-глифы (♔♚ etc.). Чтобы и на тёмных, и
- * на светлых клетках читалось одинаково — белые фигуры рендерим с
- * `fill=#fff` + черной обводкой (paint-order: stroke), чёрные —
- * наоборот. Это эффект «белая фигура с обводкой» как в большинстве
- * шахматных диаграмм-наборов.
  */
-
-const PIECE_GLYPH: Record<string, string> = {
-  K: '♔',
-  Q: '♕',
-  R: '♖',
-  B: '♗',
-  N: '♘',
-  P: '♙',
-  k: '♚',
-  q: '♛',
-  r: '♜',
-  b: '♝',
-  n: '♞',
-  p: '♟',
-};
 
 const LIGHT_FILL = '#f0d9b5';
 const DARK_FILL = '#b58863';
@@ -67,7 +47,7 @@ export function fenToSquares(fen: string): SquareCell[] {
           cells.push({ file, rank, piece: null });
           file++;
         }
-      } else if (PIECE_GLYPH[ch]) {
+      } else if (isPieceChar(ch)) {
         if (file < 8) cells.push({ file, rank, piece: ch });
         file++;
       }
@@ -135,33 +115,24 @@ export const PuzzleMiniBoard = memo(function PuzzleMiniBoard({
           />
         );
       })}
-      {/* Фигуры — текст с Unicode-глифом, обведённый контрастным
-          цветом. paint-order сначала рисует stroke, потом fill сверху,
-          чтобы fill оставался кругом обводки. */}
+      {/* KS-2566: фигуры — стандартный pieceset Cburnett, тот же, что
+          в react-chessboard для трансляций. Каждая фигура — статический
+          JSX-элемент с viewBox 0 0 45 45; позиционируем через `<g
+          transform="translate(...) scale(1/45)">`. */}
       {cells.map((c) => {
         if (!c.piece) return null;
         const x = flip ? 7 - c.file : c.file;
         const y = flip ? c.rank : 7 - c.rank;
-        const isWhite = c.piece === c.piece.toUpperCase();
+        const piece = isPieceChar(c.piece) ? c.piece : null;
+        if (!piece) return null;
         return (
-          <text
+          <g
             key={`p${c.file}-${c.rank}`}
-            x={x + 0.5}
-            y={y + 0.85}
-            fontSize={1}
-            textAnchor="middle"
-            style={{
-              fill: isWhite ? '#fff' : '#000',
-              stroke: isWhite ? '#000' : '#fff',
-              strokeWidth: 0.04,
-              paintOrder: 'stroke fill',
-              userSelect: 'none',
-              fontFamily:
-                'system-ui,-apple-system,"Segoe UI Symbol","Apple Symbols","Noto Sans Symbols2",sans-serif',
-            }}
+            transform={`translate(${x},${y}) scale(${1 / 45})`}
+            data-piece={piece}
           >
-            {PIECE_GLYPH[c.piece]}
-          </text>
+            {PIECE_SVG[piece]}
+          </g>
         );
       })}
     </svg>

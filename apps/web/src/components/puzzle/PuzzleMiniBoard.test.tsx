@@ -56,14 +56,22 @@ describe('fenToSquares KS-2563', () => {
 });
 
 describe('<PuzzleMiniBoard> KS-2563', () => {
-  it('рендерит 64 квадрата + 32 фигуры на стартовой позиции', () => {
+  it('рендерит 64 квадрата + 32 фигуры (Cburnett) на стартовой позиции', () => {
     const { container } = render(<PuzzleMiniBoard fen={STARTING_FEN} />);
     const svg = container.querySelector('[data-testid="puzzle-mini-board"]');
     expect(svg).toBeInTheDocument();
     const rects = svg!.querySelectorAll('rect');
     expect(rects.length).toBe(64);
-    const texts = svg!.querySelectorAll('text');
-    expect(texts.length).toBe(32); // 16 white + 16 black
+    // KS-2566: фигуры теперь — group'ы с data-piece (paths внутри),
+    // а не <text> Unicode-глифы.
+    const pieces = svg!.querySelectorAll('[data-piece]');
+    expect(pieces.length).toBe(32); // 16 white + 16 black
+    // Проверяем разнообразие: должен быть и белый, и чёрный король.
+    expect(svg!.querySelector('[data-piece="K"]')).not.toBeNull();
+    expect(svg!.querySelector('[data-piece="k"]')).not.toBeNull();
+    // И ферзи.
+    expect(svg!.querySelector('[data-piece="Q"]')).not.toBeNull();
+    expect(svg!.querySelector('[data-piece="q"]')).not.toBeNull();
   });
 
   it('orientation=black меняет атрибут data-orientation', () => {
