@@ -103,8 +103,21 @@ export class PuzzleService {
     const minRating = filters?.ratingMin ?? userRating - range;
     const maxRating = filters?.ratingMax ?? userRating + range;
 
+    // KS-2562: на проде RDS t3.micro и 6M lichess-пазлов. Чтобы
+    // запрос укладывался в индекс `puzzles_rating_popularity_partial_idx`
+    // (миграция 20260507162355) — добавляем `popularity >= 50` к
+    // основному пути. Этот partial-индекс компактен (~25 МБ vs 250 МБ
+    // полного composite) и помещается в shared_buffers. Если в
+    // диапазоне нет популярных пазлов — fallback ниже игнорирует это
+    // условие.
+    const POPULARITY_THRESHOLD = 50;
+
     // Build conditions for raw query
-    const conditions: string[] = ['p.rating >= $1', 'p.rating <= $2'];
+    const conditions: string[] = [
+      'p.rating >= $1',
+      'p.rating <= $2',
+      `p.popularity >= ${POPULARITY_THRESHOLD}`,
+    ];
     const params: (string | number)[] = [minRating, maxRating];
     let paramIdx = 3;
 
@@ -148,8 +161,12 @@ export class PuzzleService {
     );
 
     if (puzzles.length === 0) {
-      // Fallback: remove rating filter
-      const fbConditions = conditions.filter(c => !c.includes('rating'));
+      // Fallback: remove rating + popularity filters (KS-2562:
+      // popularity >= 50 тоже снимаем — иначе fallback бесполезен в
+      // редких случаях когда в диапазоне нет популярных).
+      const fbConditions = conditions.filter(
+        (c) => !c.includes('rating') && !c.includes('popularity'),
+      );
       const fbWhere = fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
       const fbParams = params.slice(2); // skip minRating/maxRating
       const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(

@@ -15,6 +15,13 @@
 -- стопает рано на LIMIT 10.
 --
 -- IF NOT EXISTS — для совместимости с CONCURRENTLY от devops.
+--
+-- ВАЖНО: эта миграция (полный composite) на t3.micro оказалась
+-- неэффективной из-за shared_buffers 256 МБ — индекс на 6M строк
+-- ~250 МБ не вмещается. Planner на широком range выбирал Parallel
+-- Seq Scan. Следующая миграция `20260507162355_puzzles_popular_partial_idx`
+-- DROP'ит этот индекс и создаёт partial WHERE popularity >= 50
+-- (~10% строк, индекс ~25 МБ — влезает в кэш).
 
 CREATE INDEX IF NOT EXISTS "puzzles_rating_popularity_idx"
   ON "puzzles" ("rating", "popularity" DESC);
