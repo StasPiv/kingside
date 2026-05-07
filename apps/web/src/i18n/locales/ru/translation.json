@@ -2064,6 +2064,19 @@
         "add": "Добавить шаг",
         "empty": "Шагов пока нет."
       },
+      "diagram": {
+        "modeToggleLabel": "Режим взаимодействия",
+        "modeDrag": "Двигать фигуры",
+        "modeDraw": "Рисовать стрелки",
+        "clearArrows": "Очистить стрелки",
+        "clearHighlights": "Очистить выделения",
+        "resetFen": "Сбросить позицию",
+        "caption": "Подпись",
+        "captionPlaceholder": "Подпись (необязательно)…",
+        "orientation": "Ориентация",
+        "orientationWhite": "Белые снизу",
+        "orientationBlack": "Чёрные снизу"
+      },
       "step": {
         "type": "Тип",
         "text": {

@@ -2058,6 +2058,19 @@
         "add": "Add step",
         "empty": "No steps yet."
       },
+      "diagram": {
+        "modeToggleLabel": "Interaction mode",
+        "modeDrag": "Drag pieces",
+        "modeDraw": "Draw arrows",
+        "clearArrows": "Clear arrows",
+        "clearHighlights": "Clear highlights",
+        "resetFen": "Reset position",
+        "caption": "Caption",
+        "captionPlaceholder": "Optional caption…",
+        "orientation": "Orientation",
+        "orientationWhite": "White at bottom",
+        "orientationBlack": "Black at bottom"
+      },
       "step": {
         "type": "Type",
         "text": {

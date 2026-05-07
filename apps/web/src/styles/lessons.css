@@ -6495,3 +6495,94 @@
 .curriculum-pillar-block--placeholder {
   min-height: 200px;
 }
+
+/* ---- KS-2571: shared DiagramEditor (визуальный редактор диаграмм) ---- */
+
+.diagram-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-muted, #f1f5f9);
+  border: 1px solid var(--border-subtle, #d1d5db);
+  border-radius: 8px;
+}
+
+.diagram-editor__board {
+  width: 100%;
+  max-width: 320px;
+  align-self: center;
+  /* Подавляем нативное контекстное меню — ПКМ нужен для drawing'а. */
+  user-select: none;
+}
+
+.diagram-editor__mode-toggle {
+  display: flex;
+  gap: 4px;
+  align-self: center;
+}
+
+.diagram-editor__mode-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle, #d1d5db);
+  color: var(--text-default, #1f2937);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.diagram-editor__mode-btn--active {
+  background: var(--accent, #3b82f6);
+  color: var(--accent-text, #ffffff);
+  border-color: var(--accent, #3b82f6);
+}
+
+.diagram-editor__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.diagram-editor__tool-btn {
+  background: var(--bg-default, #ffffff);
+  border: 1px solid var(--border-subtle, #d1d5db);
+  color: var(--text-default, #1f2937);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.diagram-editor__tool-btn:hover {
+  background: var(--bg-hover, #e2e8f0);
+}
+
+.diagram-editor__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.diagram-editor__caption-field,
+.diagram-editor__orientation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 160px;
+}
+
+.diagram-editor__field-label {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.diagram-editor__caption-input,
+.diagram-editor__orientation-select {
+  background: var(--bg-default, #ffffff);
+  border: 1px solid var(--border-subtle, #d1d5db);
+  color: var(--text-default, #1f2937);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
