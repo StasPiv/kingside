@@ -46,8 +46,6 @@ import * as readline from 'readline';
 import { PrismaClient, Prisma } from '@kingside/db';
 import { parseLine } from './parse-puzzle-csv';
 
-const prisma = new PrismaClient();
-
 interface ImportOptions {
   csvPath: string;
   /** true → запустить `zstd -d --stdout <csvPath>` и читать stdout. */
@@ -56,7 +54,10 @@ interface ImportOptions {
   limit: number;
 }
 
-async function importPuzzles(opts: ImportOptions): Promise<void> {
+async function importPuzzles(
+  opts: ImportOptions,
+  prisma: PrismaClient,
+): Promise<void> {
   const { csvPath, useZstd, limit } = opts;
   if (!fs.existsSync(csvPath)) {
     throw new Error(`File not found: ${csvPath}`);
@@ -163,7 +164,11 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  importPuzzles({ csvPath, useZstd, limit })
+  // KS-2556: PrismaClient создаётся только когда скрипт запущен
+  // напрямую (CLI). Это позволяет файлу попадать в dist без побочных
+  // эффектов при случайном импорте другим модулем.
+  const prisma = new PrismaClient();
+  importPuzzles({ csvPath, useZstd, limit }, prisma)
     .catch((e) => {
       console.error('Import failed:', e);
       process.exit(1);
