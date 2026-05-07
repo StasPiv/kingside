@@ -858,7 +858,21 @@ export interface CrosstableGameRef {
  *
  * `result='bye' | 'forfeit'` — не-партия, `gameRef` всегда `null`.
  * `result=null` — для round-robin диагональ (игрок vs он сам).
+ *
+ * KS-2476: для double / multi-round-robin (TCEC, FIDE Grand Prix
+ * с двойными встречами) одна и та же пара играет ≥ 2 партии. В
+ * single-RR `result/gameRef/color` описывают единственную встречу;
+ * в double-RR заполняется массив `games[]` со всеми партиями
+ * пары (отсортированы по времени проведения), а top-level
+ * `result/gameRef/color` остаются для backward-совместимости со
+ * старыми клиентами и описывают последнюю партию.
  */
+export interface CrosstableCellGame {
+  result: 'win' | 'loss' | 'draw' | 'bye' | 'forfeit' | null;
+  color?: 'white' | 'black';
+  gameRef?: CrosstableGameRef | null;
+}
+
 export interface CrosstableCell {
   /** Ранг оппонента в `players[]`. Опционально для bye / forfeit. */
   opponentRank?: number;
@@ -866,6 +880,15 @@ export interface CrosstableCell {
   color?: 'white' | 'black';
   /** `null` — chess-results знает партию, у нас её нет; `undefined` — bye/forfeit. */
   gameRef?: CrosstableGameRef | null;
+  /**
+   * KS-2476: все встречи пары (для double / multi-round-robin).
+   * Длина ≥ 2 для двойного круга; для single-RR не заполняется
+   * (фронт читает top-level `result/gameRef/color`). Если массив
+   * присутствует, в нём ВСЕ встречи (включая ту, что описана
+   * top-level полями) — именно его UI рендерит как «1 / ½», без
+   * дедупликации.
+   */
+  games?: CrosstableCellGame[];
 }
 
 /**

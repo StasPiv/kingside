@@ -59,8 +59,17 @@ function computeSonnebornBerger(
     // opponentRank — позиция в players (1-based в исходном порядке).
     const oppIdx = cell.opponentRank - 1;
     const oppPts = players[oppIdx]?.points ?? 0;
-    if (cell.result === 'win') sb += oppPts;
-    else if (cell.result === 'draw') sb += 0.5 * oppPts;
+    // KS-2476: для double-RR суммируем по всем партиям пары;
+    // для single-RR — по top-level result.
+    if (cell.games && cell.games.length > 0) {
+      for (const g of cell.games) {
+        if (g.result === 'win') sb += oppPts;
+        else if (g.result === 'draw') sb += 0.5 * oppPts;
+      }
+    } else {
+      if (cell.result === 'win') sb += oppPts;
+      else if (cell.result === 'draw') sb += 0.5 * oppPts;
+    }
   }
   return Math.round(sb * 100) / 100;
 }

@@ -429,6 +429,140 @@ describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)'
     expect(dardha!.gamesPlayed).toBe(1);
   });
 
+  it('KS-2476: double round-robin internal-fallback → cell.games[] с обеими встречами пары', async () => {
+    // TCEC-like: 2 движка, 2 раунда (двойной круг).
+    // R1: A белыми, win 1-0. R2: B белыми, draw.
+    // Ожидаем cell A→B: games=[{white,win},{black,draw}], top-level=last.
+    // Cell B→A: games=[{black,loss},{white,draw}].
+    const broadcast = {
+      id: 'bc-tcec',
+      format: '2-engines double round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          games: [
+            {
+              id: 'g-1',
+              roundId: 'round-1',
+              whitePlayer: 'Engine A',
+              blackPlayer: 'Engine B',
+              whiteElo: 3500,
+              blackElo: 3500,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'round-2',
+          name: 'Round 2',
+          startsAt: new Date('2026-05-01T11:00:00Z'),
+          games: [
+            {
+              id: 'g-2',
+              roundId: 'round-2',
+              whitePlayer: 'Engine B',
+              blackPlayer: 'Engine A',
+              whiteElo: 3500,
+              blackElo: 3500,
+              result: '1/2-1/2',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-tcec');
+
+    expect(r.tournamentType).toBe('round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (r.tournamentType !== 'round-robin') return;
+
+    // После sortCrosstableByPoints: A — points=1.5 (win + draw),
+    // B — points=0.5. Должны идти A, B.
+    expect(r.players[0].name).toBe('Engine A');
+    expect(r.players[1].name).toBe('Engine B');
+
+    // cell A vs B (matrix[0][1])
+    const cellAB = r.matrix[0][1];
+    expect(cellAB.games).toBeDefined();
+    expect(cellAB.games).toHaveLength(2);
+    // Первая по startsAt: R1 — A белыми win.
+    expect(cellAB.games![0].color).toBe('white');
+    expect(cellAB.games![0].result).toBe('win');
+    expect(cellAB.games![0].gameRef?.gameId).toBe('g-1');
+    // Вторая: R2 — A чёрными draw.
+    expect(cellAB.games![1].color).toBe('black');
+    expect(cellAB.games![1].result).toBe('draw');
+    expect(cellAB.games![1].gameRef?.gameId).toBe('g-2');
+    // top-level = последняя.
+    expect(cellAB.result).toBe('draw');
+
+    // cell B vs A (matrix[1][0]) — зеркало.
+    const cellBA = r.matrix[1][0];
+    expect(cellBA.games).toBeDefined();
+    expect(cellBA.games).toHaveLength(2);
+    expect(cellBA.games![0].color).toBe('black');
+    expect(cellBA.games![0].result).toBe('loss');
+    expect(cellBA.games![1].color).toBe('white');
+    expect(cellBA.games![1].result).toBe('draw');
+
+    // gamesPlayed считает все партии.
+    expect(r.players[0].gamesPlayed).toBe(2);
+    expect(r.players[1].gamesPlayed).toBe(2);
+    expect(r.players[0].points).toBe(1.5);
+    expect(r.players[1].points).toBe(0.5);
+  });
+
+  it('KS-2476: single round-robin не выставляет cell.games (backward-compat)', async () => {
+    // 2 игрока, 1 раунд — обычный single-RR. cell.games должно быть
+    // undefined, top-level result/gameRef как раньше.
+    const broadcast = {
+      id: 'bc-single',
+      format: '2-player round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          games: [
+            {
+              id: 'g-1',
+              roundId: 'round-1',
+              whitePlayer: 'A',
+              blackPlayer: 'B',
+              whiteElo: 2000,
+              blackElo: 2000,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-single');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+    const cellAB = r.matrix[0][1];
+    expect(cellAB.games).toBeUndefined();
+    expect(cellAB.result).toBe('win');
+    expect(cellAB.gameRef?.gameId).toBe('g-1');
+  });
+
   it('format не распознан (Knockout) → unknown + CrosstableLegacy (единственный legit unknown)', async () => {
     const broadcast = {
       ...baseBroadcast,

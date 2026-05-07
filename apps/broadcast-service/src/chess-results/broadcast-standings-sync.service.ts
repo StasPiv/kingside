@@ -566,19 +566,35 @@ export class BroadcastStandingsSyncService {
     void reason; // персистится в `fetchError` отдельно через persist().
     switch (tournamentType) {
       case 'round-robin': {
-        // Строим N×N матрицу из broadcast_games (KS-2203: для турниров без
-        // chess_results_tournament_id — например Sigeman — данные есть в
-        // broadcast_games через Lichess, только matrix была пустой).
+        // Строим N×N матрицу из broadcast_games (KS-2203). KS-2476:
+        // для double / multi-RR (TCEC «octuple round-robin» и т.п.)
+        // одна и та же пара играет ≥ 2 партии — все они складываются
+        // в `cell.games[]`. Top-level `result/gameRef/color` остаются
+        // как backward-compat для старого фронта (последняя партия
+        // пары).
         const N = players.length;
         const nameToIdx = new Map<string, number>();
         for (let i = 0; i < players.length; i++) {
           nameToIdx.set(players[i].normalizedName, i);
         }
-        // Все ячейки инициализируем как «не сыграно» (result: null).
-        // Диагональ тоже null — «игрок vs он сам».
-        const matrix: CrosstableCell[][] = Array.from({ length: N }, () =>
-          Array.from({ length: N }, (): CrosstableCell => ({ result: null })),
+
+        // Аккумулятор matrix[i][j]: список встреч с точки зрения
+        // игрока i против j. Для каждой реальной партии добавляем
+        // одну запись в [i][j] (с цветом и результатом для i) и
+        // одну в [j][i] (с противоположным цветом и инвертированным
+        // результатом для j).
+        type Entry = {
+          result: CrosstableCell['result'];
+          color: 'white' | 'black';
+          gameRef: CrosstableGameRef;
+          startsAt: number;
+          gameId: string;
+          isReal: boolean;
+        };
+        const accMatrix: Entry[][][] = Array.from({ length: N }, () =>
+          Array.from({ length: N }, (): Entry[] => []),
         );
+
         const roundById = new Map(broadcast.rounds.map((r) => [r.id, r]));
         for (const g of broadcast.rounds.flatMap((r) => r.games)) {
           const wNorm = normalizePlayerName(g.whitePlayer?.trim() ?? '');
@@ -609,28 +625,80 @@ export class BroadcastStandingsSyncService {
             roundId: g.roundId,
             roundName: round?.name ?? '',
           };
-          // KS-2214: не затираем реальный результат placeholder-ом.
-          // Lichess хранит placeholder-записи (result="*") вместе с реальными
-          // партиями — их физический порядок в heap непредсказуем после UPDATE.
-          // Перезаписываем ячейку только если новый результат «лучше»:
-          // реальный (≠null) > отсутствующий (null).
-          if (wRes !== null || matrix[wi][bi].result === null) {
-            matrix[wi][bi] = {
-              opponentRank: players[bi].rank,
-              result: wRes,
-              color: 'white',
-              gameRef: wRes !== null ? gameRef : null,
-            };
-          }
-          if (bRes !== null || matrix[bi][wi].result === null) {
-            matrix[bi][wi] = {
-              opponentRank: players[wi].rank,
-              result: bRes,
-              color: 'black',
-              gameRef: bRes !== null ? gameRef : null,
-            };
-          }
+          const startsAt = round?.startsAt?.getTime() ?? 0;
+          const isReal = wRes !== null;
+          accMatrix[wi][bi].push({
+            result: wRes,
+            color: 'white',
+            gameRef,
+            startsAt,
+            gameId: g.id,
+            isReal,
+          });
+          accMatrix[bi][wi].push({
+            result: bRes,
+            color: 'black',
+            gameRef,
+            startsAt,
+            gameId: g.id,
+            isReal,
+          });
         }
+
+        const matrix: CrosstableCell[][] = accMatrix.map((row, i) =>
+          row.map((entries, j): CrosstableCell => {
+            if (i === j || entries.length === 0) return { result: null };
+
+            // KS-2214 placeholder-фикс: если для одного и того же
+            // roundId есть и реальная (result≠null) запись, и
+            // placeholder (result=null) — оставляем только реальную.
+            // Для разных roundId — обе как разные туры.
+            const byRound = new Map<string, Entry[]>();
+            for (const e of entries) {
+              const arr = byRound.get(e.gameRef.roundId) ?? [];
+              arr.push(e);
+              byRound.set(e.gameRef.roundId, arr);
+            }
+            const cleaned: Entry[] = [];
+            const seenGameId = new Set<string>();
+            for (const arr of byRound.values()) {
+              const real = arr.filter((e) => e.isReal);
+              const pick = real.length > 0 ? real : arr;
+              for (const e of pick) {
+                if (seenGameId.has(e.gameId)) continue;
+                seenGameId.add(e.gameId);
+                cleaned.push(e);
+              }
+            }
+            // Сортировка: реальные туры впереди по времени; tie-break
+            // по gameId для детерминизма.
+            cleaned.sort((a, b) => {
+              if (a.startsAt !== b.startsAt) return a.startsAt - b.startsAt;
+              return a.gameId.localeCompare(b.gameId);
+            });
+
+            const last = cleaned[cleaned.length - 1];
+            // KS-2476: `games` выставляем только для double / multi-RR
+            // (≥ 2 встречи пары). Для single-RR оставляем undefined —
+            // backward-compat для старого фронта (KS-2203).
+            const games =
+              cleaned.length >= 2
+                ? cleaned.map((e) => ({
+                    result: e.result,
+                    color: e.color,
+                    gameRef: e.isReal ? e.gameRef : null,
+                  }))
+                : undefined;
+            return {
+              opponentRank: players[j].rank,
+              result: last.result,
+              color: last.color,
+              gameRef: last.isReal ? last.gameRef : null,
+              ...(games ? { games } : {}),
+            };
+          }),
+        );
+
         return {
           tournamentType: 'round-robin',
           sourceType: 'internal-fallback',
