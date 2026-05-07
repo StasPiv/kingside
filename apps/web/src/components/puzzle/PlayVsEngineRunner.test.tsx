@@ -808,6 +808,48 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(lossRow.textContent).toMatch(/\+76%/);
   });
 
+  it('KS-2529: snapshot primary-summary с тремя строками Win/Draw/Loss', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+        wdlAfter: { w: 850, d: 130, l: 20 },
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
+        w: 780,
+        d: 200,
+        l: 20,
+      })),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    await waitFor(() => {
+      const sum = screen.getByTestId('puzzle-engine-wdl-summary');
+      if (sum.getAttribute('data-mode') !== 'permille') {
+        throw new Error('not on primary mode yet');
+      }
+    });
+    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+    // Snapshot фиксирует структуру (атрибуты, обёртки, тексты строк
+    // Win/Draw/Loss с переводом и формат «label: X% → Y% (delta)»).
+    expect(summary).toMatchSnapshot();
+  });
+
   it('KS-2528: primary preserved — header «Advantage preserved» когда W не упало больше L', async () => {
     // start {w:200, d:600, l:200} → 20/60/20.
     // final = same wdl → 20/60/20. Δ=0/0/0 → preserved.

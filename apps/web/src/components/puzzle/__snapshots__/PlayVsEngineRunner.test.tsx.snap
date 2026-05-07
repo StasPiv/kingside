@@ -1,0 +1,42 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PlayVsEngineRunner KS-2466 state-machine > KS-2529: snapshot primary-summary с тремя строками Win/Draw/Loss 1`] = `
+<div
+  class="puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--lost"
+  data-final-d="20"
+  data-final-l="78"
+  data-final-w="2"
+  data-mode="permille"
+  data-preserved="false"
+  data-start-d="13"
+  data-start-l="2"
+  data-start-w="85"
+  data-testid="puzzle-engine-wdl-summary"
+>
+  <div
+    class="puzzle-engine-runner__wdl-summary-header"
+  >
+    Advantage lost
+  </div>
+  <div
+    class="puzzle-engine-runner__wdl-summary-line"
+    data-testid="puzzle-engine-wdl-summary-line"
+  >
+    <div
+      data-testid="puzzle-engine-wdl-row-win"
+    >
+      Win: 85% → 2% (−83%)
+    </div>
+    <div
+      data-testid="puzzle-engine-wdl-row-draw"
+    >
+      Draw: 13% → 20% (+7%)
+    </div>
+    <div
+      data-testid="puzzle-engine-wdl-row-loss"
+    >
+      Loss: 2% → 78% (+76%)
+    </div>
+  </div>
+</div>
+`;

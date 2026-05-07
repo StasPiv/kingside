@@ -1063,10 +1063,10 @@
         "lostHeader": "Advantage lost",
         "linePreserved": "Winning chances: {{start}}% → {{final}}%",
         "lineLost": "Winning chances: {{start}}% → {{final}}% (−{{delta}}%)",
-        "rowLine": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
-        "labelWin": "Win",
-        "labelDraw": "Draw",
-        "labelLoss": "Loss"
+        "lineWdl": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
+        "win": "Win",
+        "draw": "Draw",
+        "loss": "Loss"
       },
       "review": {
         "headerLabel": "Game review",

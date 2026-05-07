@@ -993,10 +993,10 @@ export function PlayVsEngineRunner({
                       >
                         <div data-testid="puzzle-engine-wdl-row-win">
                           {t(
-                            'puzzle.engine.summary.rowLine',
+                            'puzzle.engine.summary.lineWdl',
                             '{{label}}: {{start}}% → {{final}}% ({{delta}})',
                             {
-                              label: t('puzzle.engine.summary.labelWin', 'Win'),
+                              label: t('puzzle.engine.summary.win', 'Win'),
                               start: start.w,
                               final: final.w,
                               delta: `${signedFmt(dW)}%`,
@@ -1005,11 +1005,11 @@ export function PlayVsEngineRunner({
                         </div>
                         <div data-testid="puzzle-engine-wdl-row-draw">
                           {t(
-                            'puzzle.engine.summary.rowLine',
+                            'puzzle.engine.summary.lineWdl',
                             '{{label}}: {{start}}% → {{final}}% ({{delta}})',
                             {
                               label: t(
-                                'puzzle.engine.summary.labelDraw',
+                                'puzzle.engine.summary.draw',
                                 'Draw',
                               ),
                               start: start.d,
@@ -1020,11 +1020,11 @@ export function PlayVsEngineRunner({
                         </div>
                         <div data-testid="puzzle-engine-wdl-row-loss">
                           {t(
-                            'puzzle.engine.summary.rowLine',
+                            'puzzle.engine.summary.lineWdl',
                             '{{label}}: {{start}}% → {{final}}% ({{delta}})',
                             {
                               label: t(
-                                'puzzle.engine.summary.labelLoss',
+                                'puzzle.engine.summary.loss',
                                 'Loss',
                               ),
                               start: start.l,

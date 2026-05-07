@@ -1073,10 +1073,10 @@
         "lostHeader": "Преимущество потеряно",
         "linePreserved": "Шансы на победу: {{start}}% → {{final}}%",
         "lineLost": "Шансы на победу: {{start}}% → {{final}}% (−{{delta}}%)",
-        "rowLine": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
-        "labelWin": "Победа",
-        "labelDraw": "Ничья",
-        "labelLoss": "Поражение"
+        "lineWdl": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
+        "win": "Победа",
+        "draw": "Ничья",
+        "loss": "Поражение"
       },
       "review": {
         "headerLabel": "Разбор партии",
