@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   UserMistakeRecommendation,
@@ -39,7 +39,10 @@ export function PuzzleMistakesPracticePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!theme) {
+    // KS-2497: для legacy `theme=playVsEngine` будет `<Navigate>`
+    // ниже — API дёргать не нужно (плюс mock в тестах не настроен,
+    // tape падает с TypeError).
+    if (!theme || theme === 'playVsEngine') {
       setLoading(false);
       return;
     }
@@ -69,6 +72,14 @@ export function PuzzleMistakesPracticePage() {
       cancelled = true;
     };
   }, [theme, t]);
+
+  // KS-2497 (ADR-046 §5.7): legacy-ссылки
+  // `/puzzles/mistakes-practice?theme=playVsEngine` (шумовая тема,
+  // отфильтрованная KS-2496) теперь редиректят на новый раздел.
+  // `replace` — кнопка «назад» не возвращает сюда.
+  if (theme === 'playVsEngine') {
+    return <Navigate to="/puzzles/play-vs-engine" replace />;
+  }
 
   if (!theme) {
     return (

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Route, Routes } from 'react-router-dom';
 
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
 import { PuzzleMistakesPracticePage } from './PuzzleMistakesPracticePage';
@@ -97,5 +98,31 @@ describe('<PuzzleMistakesPracticePage>', () => {
     await waitFor(() =>
       expect(screen.getByTestId('mistakes-practice-error')).toBeInTheDocument(),
     );
+  });
+
+  // KS-2497 (ADR-046 §5.7): legacy-ссылка с playVsEngine редиректит на
+  // /puzzles/play-vs-engine. Тест через `Routes` — после Navigate
+  // MemoryRouter показывает контент целевой страницы.
+  it('KS-2497: theme=playVsEngine → редирект на /puzzles/play-vs-engine', () => {
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/puzzles/mistakes-practice"
+          element={<PuzzleMistakesPracticePage />}
+        />
+        <Route
+          path="/puzzles/play-vs-engine"
+          element={<div data-testid="play-vs-engine-stub">play-vs-engine page</div>}
+        />
+      </Routes>,
+      { route: '/puzzles/mistakes-practice?theme=playVsEngine' },
+    );
+    // После Navigate MemoryRouter рендерит совпавший роут.
+    expect(screen.getByTestId('play-vs-engine-stub')).toBeInTheDocument();
+    // Старая страница НЕ рендерится.
+    expect(screen.queryByTestId('mistakes-practice-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mistakes-practice-empty')).not.toBeInTheDocument();
+    // API не дёргался — early-return.
+    expect(apiMock.getRecommendations).not.toHaveBeenCalled();
   });
 });
