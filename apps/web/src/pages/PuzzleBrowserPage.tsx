@@ -185,13 +185,9 @@ export function PuzzleBrowserPage() {
                 </span>
                 <span className="puzzle-rating">{puzzle.rating}</span>
               </div>
-              <div className="puzzle-card-themes">
-                {(Array.isArray(puzzle.themes) ? puzzle.themes : (puzzle.themes || '').split(/\s+/).filter(Boolean)).slice(0, 3).map((theme: string) => (
-                  <span key={theme} className="puzzle-theme-tag">
-                    {t(`puzzleBrowser.themes.${theme}`, theme) as string}
-                  </span>
-                ))}
-              </div>
+              {/* KS-2554: чипы тем убраны (часть тем приходит сырыми
+                  camelCase-ключами от tactic-worker без переводов).
+                  Логика выбора по теме — задача на будущее. */}
               <div className="puzzle-card-actions">
                 <button
                   className="puzzle-solve-btn"

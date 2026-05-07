@@ -112,11 +112,10 @@ describe('<PrecisionPage> KS-2484', () => {
     // Рейтинг видим.
     const ratings = screen.getAllByTestId('play-vs-engine-card-rating');
     expect(ratings[0].textContent).toMatch(/1973/);
-    // Темы (≤3 первых).
-    const themes = screen
-      .getAllByTestId('play-vs-engine-card-theme')
-      .map((n) => n.textContent);
-    expect(themes.length).toBeGreaterThan(0);
+    // KS-2554: чипы тем убраны с карточек.
+    expect(
+      screen.queryAllByTestId('play-vs-engine-card-theme'),
+    ).toHaveLength(0);
   });
 
   it('KS-2547: клик по «Solve» навигирует на /puzzle/:id?source=precision', async () => {

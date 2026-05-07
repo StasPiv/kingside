@@ -287,17 +287,8 @@ export function PrecisionPage() {
                       id: p.id.slice(0, 8),
                     })}
                   </div>
-                  <div className="play-vs-engine-card__themes">
-                    {p.themes.slice(0, 3).map((theme) => (
-                      <span
-                        key={theme}
-                        className="play-vs-engine-card__theme-tag"
-                        data-testid="play-vs-engine-card-theme"
-                      >
-                        {t(`puzzleBrowser.themes.${theme}`, theme)}
-                      </span>
-                    ))}
-                  </div>
+                  {/* KS-2554: чипы тем убраны на карточках precision —
+                      решение пользователя, темы пока без переводов. */}
                   <div className="play-vs-engine-card__meta">
                     <span
                       className="play-vs-engine-card__rating"
