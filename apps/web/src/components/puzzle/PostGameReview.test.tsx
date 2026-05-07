@@ -3,7 +3,8 @@
  * рендер на разных классификациях, fallback при null cp-полях,
  * empty-state и условный показ «Best was».
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders, screen } from '../../test/test-utils';
 import { PostGameReview } from './PostGameReview';
 import type { UserBestSnapshot } from './PlayVsEngineRunner';
@@ -165,6 +166,39 @@ describe('<PostGameReview> KS-2508', () => {
     const best = screen.getByTestId('post-game-review-best-1');
     expect(best.textContent).toMatch(/e4/); // best (через SAN)
     expect(best.textContent).toMatch(/Best was|Лучше было/);
+  });
+
+  it('KS-2510: без onSelectMove строка не button — нет post-game-review-select-N', () => {
+    const log: UserBestSnapshot[] = [snap()];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(screen.queryByTestId('post-game-review-select-1')).toBeNull();
+  });
+
+  it('KS-2510: с onSelectMove строка кликабельна и зовёт callback со snapshot', async () => {
+    const onSelectMove = vi.fn();
+    const log: UserBestSnapshot[] = [
+      snap({ halfMove: 1, playedUci: 'e2e4' }),
+      snap({
+        halfMove: 2,
+        fenBefore: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+        playedUci: 'g1f3',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: -200, // mistake, чтобы row реально был кликабелен
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview userBestLog={log} onSelectMove={onSelectMove} />,
+    );
+    const btn = screen.getByTestId('post-game-review-select-2');
+    expect(btn.tagName).toBe('BUTTON');
+    await userEvent.click(btn);
+    expect(onSelectMove).toHaveBeenCalledTimes(1);
+    expect(onSelectMove).toHaveBeenCalledWith(log[1]);
+    // Передан именно snapshot с тем же fenBefore, который потом
+    // дёргает родитель.
+    const arg = onSelectMove.mock.calls[0][0] as UserBestSnapshot;
+    expect(arg.fenBefore).toBe(log[1].fenBefore);
   });
 
   it('заголовок и метки не fallback на ключи (i18n работает)', () => {

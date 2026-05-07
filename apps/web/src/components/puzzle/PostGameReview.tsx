@@ -22,9 +22,19 @@ import { uciToSan, type UserBestSnapshot } from './PlayVsEngineRunner';
 
 export interface PostGameReviewProps {
   userBestLog: UserBestSnapshot[];
+  /**
+   * KS-2510 / ADR-047 §3 #7. Клик по строке передаёт родителю snapshot
+   * выбранного хода — родитель показывает `fenBefore` на доске. Не
+   * передан → строки не кликабельны (рендерятся как `<div>`, без button-
+   * семантики), что важно для тестов KS-2508, где callback не нужен.
+   */
+  onSelectMove?: (snapshot: UserBestSnapshot) => void;
 }
 
-export function PostGameReview({ userBestLog }: PostGameReviewProps) {
+export function PostGameReview({
+  userBestLog,
+  onSelectMove,
+}: PostGameReviewProps) {
   const { t } = useTranslation();
   if (!userBestLog.length) return null;
 
@@ -55,14 +65,12 @@ export function PostGameReview({ userBestLog }: PostGameReviewProps) {
           // т.е. при inaccuracy/mistake/blunder. На best/good — не
           // зашумляем (хороший/идеальный ход и без подсказки понятен).
           const showBest = cls !== 'best' && cls !== 'good';
-          return (
-            <li
-              key={s.halfMove}
-              className={`post-game-review__row post-game-review__row--${cls}`}
-              data-testid={`post-game-review-row-${s.halfMove}`}
-              data-half={s.halfMove}
-              data-class={cls}
-            >
+          // KS-2510: если родитель передал onSelectMove, рендерим строку
+          // как button — для клавиатурной/screen-reader доступности и
+          // нативного hover/active-стиля; иначе оставляем div (KS-2508
+          // unit-тесты этого ожидают).
+          const inner = (
+            <>
               <span className="post-game-review__half">{s.halfMove}.</span>
               <span className="post-game-review__san">{playedSan}</span>
               <span
@@ -80,6 +88,28 @@ export function PostGameReview({ userBestLog }: PostGameReviewProps) {
                     san: bestSan,
                   })}
                 </div>
+              )}
+            </>
+          );
+          return (
+            <li
+              key={s.halfMove}
+              className={`post-game-review__row post-game-review__row--${cls}${onSelectMove ? ' post-game-review__row--clickable' : ''}`}
+              data-testid={`post-game-review-row-${s.halfMove}`}
+              data-half={s.halfMove}
+              data-class={cls}
+            >
+              {onSelectMove ? (
+                <button
+                  type="button"
+                  className="post-game-review__row-btn"
+                  data-testid={`post-game-review-select-${s.halfMove}`}
+                  onClick={() => onSelectMove(s)}
+                >
+                  {inner}
+                </button>
+              ) : (
+                inner
               )}
             </li>
           );

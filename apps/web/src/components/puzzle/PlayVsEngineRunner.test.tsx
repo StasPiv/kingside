@@ -469,6 +469,52 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
+  it('KS-2510: клик по ходу в PostGameReview переключает доску на fenBefore', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+    ]);
+    const initialFen = puzzle.fen;
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    // До клика по review reviewFen=null → атрибут пустой.
+    const runner = screen.getByTestId('puzzle-engine-runner');
+    expect(runner.getAttribute('data-review-fen')).toBe('');
+    // Дожидаемся, пока review-кнопка появится (post-game-review зависит
+    // от state win|lose).
+    const btn = await waitFor(() => {
+      const el = screen.queryByTestId('post-game-review-select-1');
+      if (!el) throw new Error('select btn not yet rendered');
+      return el as HTMLButtonElement;
+    });
+    btn.click();
+    // После клика runner проставляет reviewFen = fenBefore первого
+    // user-хода. На полуходе 1 fenBefore = initialFen пазла.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-review-fen'),
+      ).toBe(initialFen);
+    });
+  });
+
   it('KS-2508: PostGameReview рендерится на win/lose с метками для каждого user-хода', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {

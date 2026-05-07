@@ -2682,6 +2682,28 @@ body:has(.puzzle-rush-board) {
 .post-game-review__row--mistake    .post-game-review__class { color: #f97316; }
 .post-game-review__row--blunder    .post-game-review__class { color: #f87171; }
 
+/* KS-2510: кликабельные строки разбора. Кнопка занимает всю строку,
+   inherit-стили чтобы layout (KS-2512) не съехал. */
+.post-game-review__row--clickable { padding: 0; }
+.post-game-review__row-btn {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.post-game-review__row-btn:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: -2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .post-game-review__row {
     transition: none;

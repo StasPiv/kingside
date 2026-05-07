@@ -248,6 +248,13 @@ export function PlayVsEngineRunner({
    * pre-analyze'ом параллельно с engine-ответом, см. `onPieceDrop`.
    */
   const [userBestLog, setUserBestLog] = useState<UserBestSnapshot[]>([]);
+  /**
+   * KS-2510 / ADR-047 §3 #7. Когда юзер кликает строку в PostGameReview,
+   * на доске показываем `fenBefore` выбранного хода. Доска по-прежнему
+   * disabled (state ∈ win|lose), фигуры не двигаются. Сбрасывается на
+   * null при смене puzzle (через reset useEffect).
+   */
+  const [reviewFen, setReviewFen] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   const startTimeRef = useRef(Date.now());
@@ -608,6 +615,9 @@ export function PlayVsEngineRunner({
     setLatestWdlUser(params.wdlAfterBlunder);
     setReason(null);
     setUserBestLog([]);
+    // KS-2510: при новом пазле выкл review-snapshot, чтобы доска
+    // показывала актуальную позицию для нового решения.
+    setReviewFen(null);
     // KS-2486 reopen: сброс SAN-лога при смене drill'а.
     setPlayedSans([]);
     setErrorMsg('');
@@ -754,6 +764,7 @@ export function PlayVsEngineRunner({
       data-half-moves={halfMovesPlayed}
       data-reason={reason ?? ''}
       data-eval-lines={evalLines.length}
+      data-review-fen={reviewFen ?? ''}
     >
       <div className="puzzle-engine-runner__layout">
         <EvalBar lines={evalLines} isBlackTurn={isBlackOriented} />
@@ -785,12 +796,21 @@ export function PlayVsEngineRunner({
             </p>
           )}
 
+          {/* KS-2510: при выбранном snapshot'е (reviewFen != null) на
+              доске показываем позицию ДО ошибочного хода, чтобы юзер
+              визуально видел альтернативу. Новый Chess создаём ad-hoc;
+              он не сохраняется в game-стейт, чтобы ход «Next» вернул
+              финальную позицию (не нужна — пазл уже завершён, но
+              consistency со стандартным reset-флоу). lastMoveUci при
+              review убираем — выделение на старой позиции запутает. */}
           <PuzzleBoard
-            game={game}
+            game={reviewFen ? new Chess(reviewFen) : game}
             boardOrientation={orientation}
-            enabled={state === 'thinking'}
+            enabled={state === 'thinking' && !reviewFen}
             onPieceDrop={onPieceDrop}
-            lastMoveUci={lastMoveUciRef.current ?? blunderHighlight}
+            lastMoveUci={
+              reviewFen ? null : (lastMoveUciRef.current ?? blunderHighlight)
+            }
             status={boardStatus}
           />
 
@@ -837,8 +857,14 @@ export function PlayVsEngineRunner({
                   метками классификации (best/good/inaccuracy/mistake/
                   blunder). Появляется только на win/lose. Если у
                   последнего хода cpAfter=null — fallback-effect выше
-                  допишет, и компонент перерисуется с правильной меткой. */}
-              <PostGameReview userBestLog={userBestLog} />
+                  допишет, и компонент перерисуется с правильной меткой.
+                  KS-2510: клик по строке показывает на доске позицию
+                  ДО этого хода (`fenBefore`) — для визуального разбора
+                  «что было перед моей ошибкой». */}
+              <PostGameReview
+                userBestLog={userBestLog}
+                onSelectMove={(s) => setReviewFen(s.fenBefore)}
+              />
               {onNext && (
                 <button
                   type="button"
