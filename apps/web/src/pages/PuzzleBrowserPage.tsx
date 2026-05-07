@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Chessboard } from 'react-chessboard';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
 import { HelpButton } from '../components/HelpButton';
+import { PuzzleMiniBoard } from '../components/puzzle/PuzzleMiniBoard';
 import {
   useInfinitePuzzles,
   type BrowsePuzzleDto,
@@ -147,24 +147,66 @@ export function PuzzleBrowserPage() {
     patchLocally,
   } = useInfinitePuzzles(filtersForHook);
 
-  // IntersectionObserver — догружает следующую страницу когда sentinel
-  // показывается. Стабильная ссылка на loadMore через ref избегает
-  // пересоздания observer'а на каждый рендер.
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // KS-2563: IntersectionObserver-based infinite scroll.
+  //
+  // Правка относительно KS-2561:
+  //  1. Используем callback-ref, чтобы observer переподписывался,
+  //     если sentinel пере-маунтится (например, при смене вкладки).
+  //  2. Запоминаем актуальное состояние видимости (`sentinelInView`).
+  //     Когда `loadingMore` падает в false, а sentinel всё ещё в
+  //     viewport (грид из 30 карточек короче, чем экран — что вероятно
+  //     на больших мониторах) — фоллбек-trigger дёргает `loadMore`
+  //     ещё раз. Без этого браузер ждал нового scroll-события, и
+  //     пользователь видел «пусто», пока не проскроллит вручную.
+  //  3. Cap-fallback на случай, если IntersectionObserver не поддержан
+  //     (старые webview): после первого fetch проверяем размер
+  //     `documentElement.scrollHeight` против viewport. Не делаем —
+  //     избыточно для современных браузеров; observer достаточно.
+  const sentinelInViewRef = useRef(false);
+  const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef(loadMore);
   loadMoreRef.current = loadMore;
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
+  const setSentinelEl = useCallback((el: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!el) {
+      sentinelInViewRef.current = false;
+      return;
+    }
     const obs = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
+        const isVis = entries[0]?.isIntersecting ?? false;
+        sentinelInViewRef.current = isVis;
+        if (isVis) loadMoreRef.current();
       },
-      { rootMargin: '300px' },
+      { rootMargin: '600px' },
     );
     obs.observe(el);
-    return () => obs.disconnect();
+    observerRef.current = obs;
   }, []);
+  useEffect(
+    () => () => {
+      // cleanup при unmount компонента.
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    },
+    [],
+  );
+
+  // KS-2563: фоллбек-trigger. После любого окончания загрузки (init
+  // или loadMore) — если sentinel всё ещё в viewport и впереди есть
+  // ещё страница, дёрнуть `loadMore`. Без этого на широких экранах
+  // 30 карточек могут поместиться короче, чем viewport, и observer
+  // не сработает повторно (intersection state не меняется).
+  useEffect(() => {
+    if (loading || loadingMore) return;
+    if (!hasMore) return;
+    if (sentinelInViewRef.current) {
+      loadMoreRef.current();
+    }
+  }, [loading, loadingMore, hasMore, puzzles.length]);
 
   const [showGenerator, setShowGenerator] = useState(false);
 
@@ -387,7 +429,7 @@ export function PuzzleBrowserPage() {
 
       {/* Sentinel + loading-more индикатор. */}
       <div
-        ref={sentinelRef}
+        ref={setSentinelEl}
         className="puzzle-browser-sentinel"
         data-testid="puzzle-browser-sentinel"
         aria-hidden="true"
@@ -461,14 +503,13 @@ function PuzzleDiagramCard({
         onClick={onOpen}
         aria-label={t('puzzleBrowser.openPuzzle', 'Open puzzle')}
       >
-        <Chessboard
-          options={{
-            position: puzzle.fen,
-            boardOrientation: orientation,
-            animationDurationInMs: 0,
-            allowDragging: false,
-            showNotation: false,
-          }}
+        {/* KS-2563: лёгкая статическая SVG-доска вместо `<Chessboard>`.
+            Mass-mount react-chessboard был источником лагов на 30+
+            карточках — каждая доска инициализирует drag-handlers и
+            piece-set workers. PuzzleMiniBoard — pure render. */}
+        <PuzzleMiniBoard
+          fen={puzzle.fen}
+          orientation={orientation}
         />
       </button>
       <div className="puzzle-card__meta">

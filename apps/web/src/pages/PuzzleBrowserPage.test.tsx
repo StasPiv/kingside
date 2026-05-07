@@ -28,20 +28,8 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ user: null, login: vi.fn(), logout: vi.fn() }),
 }));
 
-// react-chessboard тащит много модулей, мокаем для скорости / не падения.
-vi.mock('react-chessboard', () => ({
-  Chessboard: ({
-    options,
-  }: {
-    options: { position: string; boardOrientation: string };
-  }) => (
-    <div
-      data-testid="mock-chessboard"
-      data-position={options.position}
-      data-orientation={options.boardOrientation}
-    />
-  ),
-}));
+// KS-2563: react-chessboard на /puzzles не используется (заменён на
+// `<PuzzleMiniBoard>`); сам мини-board pure SVG, моков не требует.
 
 import { PuzzleBrowserPage } from './PuzzleBrowserPage';
 
@@ -93,10 +81,10 @@ describe('<PuzzleBrowserPage> KS-2561 — фильтры и infinite scroll', ()
     await waitFor(() =>
       expect(screen.getByTestId('puzzle-card')).toBeInTheDocument(),
     );
-    // Диаграмма с переданным FEN.
-    expect(
-      screen.getByTestId('mock-chessboard').getAttribute('data-position'),
-    ).toBe(PUZZLE.fen);
+    // KS-2563: статическая мини-доска (SVG) вместо <Chessboard>.
+    const mini = screen.getByTestId('puzzle-mini-board');
+    expect(mini).toBeInTheDocument();
+    expect(mini.getAttribute('data-orientation')).toBe('white');
     // Рейтинг видим, чипы тем — НЕТ.
     expect(screen.getByTestId('puzzle-card-rating').textContent).toBe('1500');
     expect(screen.queryByText(/mateIn1/i)).toBeNull();
