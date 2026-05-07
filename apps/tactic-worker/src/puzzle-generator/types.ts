@@ -24,6 +24,7 @@
  *      `acceptedMoves=null`.
  */
 import type { MultiPvLine, AnalysisLimit } from '../stockfish/stockfish.service';
+import { PUZZLE_GEN_DEFAULTS } from '@kingside/shared';
 
 export type { MultiPvLine, AnalysisLimit };
 
@@ -191,12 +192,10 @@ export function defaultGeneratorOptions(
     // Default play-vs-engine. Lichess-уровень X=0.6 (см. ADR-044 §2.1
     // и сравнительный анализ с lichess-puzzler).
     solutionMode: 'play-vs-engine',
-    blunderDelta: 0.6,
-    halfMovesN: 6,
-    winThreshold: 0.5,
-    failThreshold: 0.0,
-    skipDecidedWdl: 0.95,
-    minWdlAfterBlunder: 0.5,
+    // KS-2583: алгоритмические пороги — общие с клиентским генератором
+    // (`@kingside/shared:PUZZLE_GEN_DEFAULTS`). Серверные options-only
+    // поля ниже добавляются отдельно.
+    ...PUZZLE_GEN_DEFAULTS,
     // Legacy forced-line дефолты — не используются в play-vs-engine,
     // но сохраняются для обратной совместимости CLI.
     spreadDelta: 0.3,
@@ -204,7 +203,6 @@ export function defaultGeneratorOptions(
     forcedSpreadDelta: 0.5,
     minRating: 1400,
     minPly: 20,
-    startPly: 20,
     minLineLength: 1,
     maxLineLength: 6,
     gameBatchSize: 100,
