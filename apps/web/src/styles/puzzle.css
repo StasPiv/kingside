@@ -1504,14 +1504,16 @@ body:has(.puzzle-rush-board) {
   margin-right: 8px;
 }
 
-/* KS-2585: draft/publish flow — заменил inline-кнопки на блок с
-   заголовком и подсказкой. Layout вертикальный, а не горизонтальный. */
+/* KS-2585 / KS-2588: draft/publish flow — блок «N saved as drafts»
+   с заголовком, подсказкой и двумя action-кнопками («My drafts»
+   secondary и «Publish all» primary). KS-2588 — финализация
+   размеров под 44px touch-target на mobile, focus-visible. */
 .puzzle-generator-saved {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-top: 8px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--c-4ade80);
   border-radius: 8px;
   background: rgba(74, 222, 128, 0.08);
@@ -1520,28 +1522,50 @@ body:has(.puzzle-rush-board) {
 .puzzle-generator-saved__title {
   margin: 0;
   font-size: 15px;
+  font-weight: 600;
   color: var(--c-4ade80);
 }
 
 .puzzle-generator-saved__hint {
   margin: 0;
   font-size: 13px;
+  line-height: 1.4;
   color: var(--c-aaa);
 }
 
 .puzzle-generator-saved__actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 .puzzle-generator-saved button {
+  flex: 1 1 140px;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
   background: var(--c-7c83ff);
   color: var(--c-fff);
   border: none;
-  padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
+  transition: background-color 0.12s ease, filter 0.12s ease, transform 0.1s ease;
+}
+
+.puzzle-generator-saved button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.puzzle-generator-saved button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.puzzle-generator-saved button:focus-visible {
+  outline: 2px solid var(--c-7c83ff);
+  outline-offset: 2px;
 }
 
 .puzzle-generator-saved button:disabled {
@@ -1550,28 +1574,67 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-generator-saved__publish {
+  /* Primary CTA — выделена зелёным, чтобы отличалась от secondary
+     «My drafts». !important сохраняем — TSX подключает её КАК
+     `.puzzle-generator-saved button`, и общий селектор сильнее
+     специфичности модификатора. */
   background: var(--c-4ade80) !important;
   color: var(--c-111) !important;
-  font-weight: 600;
+  font-weight: 700 !important;
 }
 
-/* KS-2585: solvability toggle и param hint — мелкие подсказки под
-   контролами в advanced settings. */
+.puzzle-generator-saved__publish:focus-visible {
+  outline-color: var(--c-4ade80);
+}
+
+/* KS-2585 / KS-2588: solvability toggle — checkbox + label + warning-
+   hint. Layout grid'ом auto 1fr, чтобы checkbox в левой колонке, текст
+   и hint в правой. */
 .puzzle-gen-toggle {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  align-items: start;
   font-size: 13px;
+  color: var(--c-ccc);
   cursor: pointer;
 }
 
 .puzzle-gen-toggle input[type="checkbox"] {
-  margin-right: 6px;
+  grid-row: 1 / 3;
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--c-7c83ff);
+}
+
+.puzzle-gen-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-7c83ff);
+  outline-offset: 2px;
+}
+
+.puzzle-gen-toggle > span:first-of-type {
+  /* Основная подпись checkbox'а. */
+  grid-column: 2;
+  font-weight: 500;
+}
+
+/* KS-2588: hint solvability имеет warning-цвет — пользователь видит
+   что включение опции делает генерацию заметно медленнее (~5 минут
+   на 50 puzzles). */
+.puzzle-gen-toggle .puzzle-gen-filter-hint {
+  grid-column: 2;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--c-f59e0b);
 }
 
 .puzzle-gen-param-hint {
   margin: 4px 0 0;
   font-size: 12px;
+  line-height: 1.4;
   color: var(--c-aaa);
 }
 
@@ -1878,8 +1941,63 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-gen-param input[type="range"] {
+  /* KS-2588: range-slider с заметным трeком и крупным thumb'ом для
+     touch-target ≥ 24×24 (фактическое hit-area браузеры обычно
+     расширяют до ~40×40). Шаги 5% (`step=5` в TSX) — пользователь
+     видит «защёлкивание». accent-color подсвечивает заполненную
+     часть трека и thumb единым цветом. */
   width: 100%;
+  height: 24px;
+  margin: 4px 0 6px;
   accent-color: var(--c-7c83ff);
+  cursor: pointer;
+}
+
+.puzzle-gen-param input[type="range"]:focus-visible {
+  outline: 2px solid var(--c-7c83ff);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* WebKit / Chromium thumb — увеличенный, чтобы было удобно тянуть
+   пальцем. Стандартный 12-14px на мобиле слишком мелкий. */
+.puzzle-gen-param input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--c-7c83ff);
+  border: 2px solid var(--c-fff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.puzzle-gen-param input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--c-7c83ff);
+  border: 2px solid var(--c-fff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  /* На mobile увеличиваем hit-area: высота input 44px (вмещает
+     thumb + расширенный padding). Сам трек остаётся 4-6px тонким
+     (рисуется браузером внутри input'а). */
+  .puzzle-gen-param input[type="range"] {
+    height: 44px;
+  }
+  .puzzle-gen-param input[type="range"]::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+  .puzzle-gen-param input[type="range"]::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
 }
 
 /* Filters */
@@ -3199,15 +3317,24 @@ body:has(.puzzle-rush-board) {
   padding: 12px 0;
 }
 
-/* KS-2586: индивидуальный publish из puzzle-card на /precision?mine=true. */
+/* KS-2586 / KS-2588: индивидуальный publish из puzzle-card на
+   /precision?mine=true. KS-2588 — финализация: white-space:nowrap у
+   badge, transition + focus-visible у publish-btn, mobile touch
+   target. */
 .precision-card__badge {
   display: inline-block;
   margin-left: 8px;
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
   vertical-align: middle;
+  /* KS-2588: badge не должен ломать заголовок карточки на 2 строки
+     при узкой ширине. */
+  white-space: nowrap;
 }
 
 .precision-card__badge--draft {
@@ -3224,19 +3351,38 @@ body:has(.puzzle-rush-board) {
 
 .play-vs-engine-card__actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .precision-card__publish-btn {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
   background: var(--c-4ade80, #4ade80);
   color: var(--c-111, #111);
-  font-weight: 600;
   border: none;
-  padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  transition: filter 0.12s ease, transform 0.1s ease, box-shadow 0.12s ease;
+}
+
+.precision-card__publish-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px rgba(74, 222, 128, 0.25);
+}
+
+.precision-card__publish-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.precision-card__publish-btn:focus-visible {
+  outline: 2px solid var(--c-4ade80, #4ade80);
+  outline-offset: 2px;
 }
 
 .precision-card__publish-btn:disabled {
@@ -3244,6 +3390,25 @@ body:has(.puzzle-rush-board) {
   cursor: not-allowed;
 }
 
-.precision-card__publish-btn:hover:not(:disabled) {
-  filter: brightness(1.05);
+@media (max-width: 480px) {
+  /* На mobile publish-кнопка занимает всю ширину под Solve, минимум
+     44px height для touch-target. */
+  .precision-card__publish-btn {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 14px;
+  }
+  .precision-card__badge {
+    /* На мобильнике уменьшаем padding/letter-spacing чтобы badge не
+       занимал слишком много места рядом с заголовком. */
+    padding: 1px 6px;
+    letter-spacing: 0.2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .precision-card__publish-btn,
+  .puzzle-generator-saved button {
+    transition: none;
+  }
 }
