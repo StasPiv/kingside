@@ -78,34 +78,43 @@ export function PuzzleMistakesPage() {
         </div>
       )}
 
-      {!loading && !error && aggregates.length === 0 && (
-        <div className="lessons-empty" data-testid="mistakes-empty">
-          {t(
-            'puzzle.mistakes.emptyFull',
-            'No mistakes recorded yet. Keep solving puzzles.',
-          )}
-        </div>
-      )}
-
-      {!loading && !error && aggregates.length > 0 && (
-        <>
-          <p className="mistakes-page__total" data-testid="mistakes-page-total">
-            {t('puzzle.mistakes.totalThemes', {
-              count: totalThemes,
-              defaultValue: '{{count}} themes',
-            })}
-          </p>
-          <table className="mistakes-page__table" data-testid="mistakes-page-table">
-            <thead>
-              <tr>
-                <th>{t('puzzle.mistakes.col.theme', 'Theme')}</th>
-                <th>{t('puzzle.mistakes.col.count', 'Mistakes')}</th>
-                <th>{t('puzzle.mistakes.col.lastOccurred', 'Last occurred')}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {aggregates.map((agg) => (
+      {!loading && !error && (() => {
+        // KS-2496 (ADR-046 §5.6): защитный фильтр от шумовой темы
+        // `playVsEngine` (см. MistakesDiaryBlock).
+        const filtered = aggregates.filter((a) => a.theme !== 'playVsEngine');
+        const filteredTotal = Math.max(
+          0,
+          totalThemes - (aggregates.length - filtered.length),
+        );
+        if (filtered.length === 0) {
+          return (
+            <div className="lessons-empty" data-testid="mistakes-empty">
+              {t(
+                'puzzle.mistakes.emptyFull',
+                'No mistakes recorded yet. Keep solving puzzles.',
+              )}
+            </div>
+          );
+        }
+        return (
+          <>
+            <p className="mistakes-page__total" data-testid="mistakes-page-total">
+              {t('puzzle.mistakes.totalThemes', {
+                count: filteredTotal,
+                defaultValue: '{{count}} themes',
+              })}
+            </p>
+            <table className="mistakes-page__table" data-testid="mistakes-page-table">
+              <thead>
+                <tr>
+                  <th>{t('puzzle.mistakes.col.theme', 'Theme')}</th>
+                  <th>{t('puzzle.mistakes.col.count', 'Mistakes')}</th>
+                  <th>{t('puzzle.mistakes.col.lastOccurred', 'Last occurred')}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((agg) => (
                 <tr
                   key={agg.theme}
                   data-testid={`mistakes-page-row-${agg.theme}`}
@@ -129,10 +138,11 @@ export function PuzzleMistakesPage() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </>
-      )}
+              </tbody>
+            </table>
+          </>
+        );
+      })()}
     </div>
   );
 }

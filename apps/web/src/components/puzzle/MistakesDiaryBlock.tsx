@@ -83,8 +83,16 @@ export function MistakesDiaryBlock({ limit = TOP_LIMIT }: MistakesDiaryBlockProp
   if (errored) return null;
   if (aggregates === null || aggregates.length === 0) return null;
 
-  const topItems = aggregates.slice(0, limit);
-  const hasMore = (totalThemes ?? aggregates.length) > topItems.length;
+  // KS-2496 (ADR-046 §5.6): защитный фильтр от шумовой темы
+  // `playVsEngine` — пока не применён backfill (KS-2492), она может
+  // прилетать в `user_mistakes.themes`. Темой её показывать
+  // методически бессмысленно (нет «темы» как таковой — просто
+  // признак режима пазла).
+  const filtered = aggregates.filter((a) => a.theme !== 'playVsEngine');
+  if (filtered.length === 0) return null;
+  const topItems = filtered.slice(0, limit);
+  const filteredTotal = Math.max(0, (totalThemes ?? aggregates.length) - (aggregates.length - filtered.length));
+  const hasMore = filteredTotal > topItems.length;
 
   return (
     <section

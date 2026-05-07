@@ -54,6 +54,11 @@ export function MistakesDiaryHint() {
   if (errored) return null;
   if (aggregates === null || aggregates.length === 0) return null;
 
+  // KS-2496 (ADR-046 §5.6): защитный фильтр от шумовой темы
+  // `playVsEngine` (см. MistakesDiaryBlock).
+  const filtered = aggregates.filter((a) => a.theme !== 'playVsEngine');
+  if (filtered.length === 0) return null;
+
   return (
     <section
       className="puzzle-mistakes-hint"
