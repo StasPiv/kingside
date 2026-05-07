@@ -19,6 +19,7 @@ import {
   WasmEngineAdapter,
   type EngineAdapter,
   type AnalysisResult,
+  type WdlDistribution,
 } from '../../utils/engineAdapter';
 import type { EvalLine } from '../../hooks/useStockfish';
 
@@ -126,6 +127,15 @@ export function cpFromScore(score: { type: 'cp' | 'mate'; value: number }): numb
     return score.value > 0 ? MATE_CP_ENCODING : -MATE_CP_ENCODING;
   }
   return score.value;
+}
+
+/**
+ * KS-2527: инвертировать POV WDL — w↔l, d остаётся. Нужно когда analyze
+ * был сделан на FEN'е соперника (post-analyze), а в state хранится POV
+ * user. Pure-функция, без side-эффектов.
+ */
+export function flipWdl(wdl: WdlDistribution): WdlDistribution {
+  return { w: wdl.l, d: wdl.d, l: wdl.w };
 }
 
 function sideFromFen(fen: string): 'w' | 'b' {
@@ -254,6 +264,16 @@ export function PlayVsEngineRunner({
     sideFromFen(puzzle.fen),
   );
   const [latestWdlUser, setLatestWdlUser] = useState<number>(params.wdlAfterBlunder);
+  /**
+   * KS-2527 / KS-2521: «настоящий» WDL Stockfish'а (UCI_ShowWDL +
+   * KS-2526 парсер). Объект `{w,d,l}` в промилле, POV user. null —
+   * info без `wdl ...` (старый Stockfish или Bridge без WDL-патча);
+   * downstream-логика делает fallback на сигмоиду cp (`latestWdlUser`).
+   *
+   * NB: на post-analyze FEN'е ходит соперник, поэтому wdl из движка
+   * POV соперника — инвертируем (`w↔l`) перед записью.
+   */
+  const [latestWdl, setLatestWdl] = useState<WdlDistribution | null>(null);
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
   /**
    * KS-2473: лог «лучшего хода юзера» в позиции ДО user-move. Заполняется
@@ -400,6 +420,8 @@ export function PlayVsEngineRunner({
       const wdlEngine = scoreToWdlSigned(best.score);
       const wdlUser = -wdlEngine;
       setLatestWdlUser(wdlUser);
+      // KS-2527: post-analyze FEN POV соперника → flipWdl для POV user.
+      setLatestWdl(best.wdl ? flipWdl(best.wdl) : null);
 
       // KS-2506: cpAfter POV юзера = −cp(score) POV соперника. Дописываем
       // в snapshot, созданный pre-analyze'ом. Pre-analyze идёт через
@@ -475,6 +497,8 @@ export function PlayVsEngineRunner({
           // Теперь side-to-move == userSide → POV-знак WDL = +1 для user.
           const wdlFinalUser = finalBest ? scoreToWdlSigned(finalBest.score) : wdlUser;
           setLatestWdlUser(wdlFinalUser);
+          // KS-2527: side-to-move на final FEN = userSide → POV user без flip.
+          setLatestWdl(finalBest?.wdl ?? null);
           if (wdlFinalUser >= params.winThreshold) {
             finishWin('win', wdlFinalUser, halfAfterEngine);
           } else {
@@ -587,6 +611,8 @@ export function PlayVsEngineRunner({
             }
             const wdlUser = best ? -scoreToWdlSigned(best.score) : 0;
             setLatestWdlUser(wdlUser);
+            // KS-2527: post-analyze FEN POV соперника → flipWdl.
+            setLatestWdl(best?.wdl ? flipWdl(best.wdl) : null);
             if (wdlUser < params.failThreshold) {
               finishLose('lose-wdl', wdlUser, halfAfterUser);
               return;
@@ -636,6 +662,9 @@ export function PlayVsEngineRunner({
     // setEvalLines (initial) опередит сброс.
     setEvalSide(sideFromFen(puzzle.fen));
     setLatestWdlUser(params.wdlAfterBlunder);
+    // KS-2527: latestWdl сбрасываем в null — initial analyze запишет
+    // настоящее значение из движка (если UCI_ShowWDL поддерживается).
+    setLatestWdl(null);
     setReason(null);
     setUserBestLog([]);
     // KS-2510: при новом пазле выкл review-snapshot, чтобы доска
@@ -671,6 +700,10 @@ export function PlayVsEngineRunner({
         setEvalLines(toEvalLines(initial));
         // KS-2519: initial analyze был на puzzle.fen → side = решатель.
         setEvalSide(sideFromFen(puzzle.fen));
+        // KS-2527: на puzzle.fen ходит решатель = user → wdl POV user
+        // без flip. null если info без wdl.
+        const initialBest = pickBestLine(initial);
+        setLatestWdl(initialBest?.wdl ?? null);
       } catch {
         /* ignore — EvalBar не критичен, юзер сделает ход и анализ
            перезапустится в runEngineCycle. */
@@ -790,6 +823,11 @@ export function PlayVsEngineRunner({
       data-reason={reason ?? ''}
       data-eval-lines={evalLines.length}
       data-eval-side={evalSide}
+      data-latest-wdl={
+        latestWdl
+          ? `${latestWdl.w},${latestWdl.d},${latestWdl.l}`
+          : ''
+      }
       data-review-fen={reviewFen ?? ''}
     >
       <div className="puzzle-engine-runner__layout">

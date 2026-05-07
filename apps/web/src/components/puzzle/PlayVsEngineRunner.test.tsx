@@ -98,8 +98,14 @@ class ScriptedEngine implements EngineAdapter {
   destroy(): void { /* no-op */ }
 }
 
-function line(score: InfoLine['score'], pv: string[], depth = 12, multipv = 1): InfoLine {
-  return { depth, multipv, score, pv };
+function line(
+  score: InfoLine['score'],
+  pv: string[],
+  depth = 12,
+  multipv = 1,
+  wdl?: { w: number; d: number; l: number },
+): InfoLine {
+  return { depth, multipv, score, pv, ...(wdl ? { wdl } : {}) };
 }
 
 function result(infoLine: InfoLine): AnalysisResult {
@@ -467,6 +473,102 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     );
     expect(screen.getByTestId('puzzle-engine-blunder-hint')).toBeInTheDocument();
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
+  });
+
+  it('KS-2527: initial analyze c wdl → latestWdl POV user без flip (data-latest-wdl)', async () => {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      // initial analyze на FEN решателя (=user) → POV user без flip.
+      result(line({ type: 'cp', value: 50 }, ['e2e4'], 12, 1, { w: 700, d: 200, l: 100 })),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    await waitFor(() => {
+      const v = screen
+        .getByTestId('puzzle-engine-runner')
+        .getAttribute('data-latest-wdl');
+      if (v !== '700,200,100') throw new Error(`got ${v}`);
+    });
+  });
+
+  it('KS-2527: initial analyze без wdl → latestWdl=null (data-latest-wdl=пусто)', async () => {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 25 }, ['e2e4'])), // без wdl
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // Дожидаемся, пока initial analyze отработает: evalLines > 0.
+    await waitFor(() => {
+      const lines = Number(
+        screen
+          .getByTestId('puzzle-engine-runner')
+          .getAttribute('data-eval-lines'),
+      );
+      if (lines <= 0) throw new Error('initial not done yet');
+    });
+    // Без wdl latestWdl остаётся null → атрибут пустой.
+    expect(
+      screen
+        .getByTestId('puzzle-engine-runner')
+        .getAttribute('data-latest-wdl'),
+    ).toBe('');
+  });
+
+  it('KS-2527: post-analyze wdl POV соперника → flipWdl даёт POV user', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    // post-analyze cp+800 → engine думает что у него +0.88 → user проиграл.
+    // wdl POV opp = {w:850, d:120, l:30} → POV user = {w:30, d:120, l:850}.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre, без wdl
+      result(line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, { w: 850, d: 120, l: 30 })),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    // После post-analyze data-latest-wdl = "30,120,850" (флип w↔l).
+    await waitFor(() => {
+      const v = screen
+        .getByTestId('puzzle-engine-runner')
+        .getAttribute('data-latest-wdl');
+      if (v !== '30,120,850') throw new Error(`got ${v}`);
+    });
   });
 
   it('KS-2519: initial analyze на белый side-to-move → data-eval-side=w', async () => {
