@@ -21,6 +21,10 @@ import { PuzzleService } from './puzzle.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { FindPuzzlesDto } from './dto/find-puzzles.dto';
+import {
+  decodePuzzleCursor,
+  encodePuzzleCursor,
+} from './puzzle-cursor-codec';
 
 @Controller('puzzles')
 export class PuzzleController {
@@ -108,21 +112,41 @@ export class PuzzleController {
   }
 
   /**
-   * GET /puzzles/browse — список пазлов с фильтрами.
+   * GET /puzzles/browse — keyset-курсорная пагинация (KS-2560).
    *
-   * KS-2556: hard-coded `p.source='generated'` убран; теперь видны
-   * пазлы любого источника (lichess + generated). Опциональный
-   * query-параметр `?source=lichess|generated` фильтрует по конкретному
-   * источнику; без параметра — все.
+   * История:
+   *  - KS-2556: hard-coded `p.source='generated'` убран, добавлен
+   *    optional `?source=`.
+   *  - KS-2557: cap-стратегия total (LIMIT 1001) — облегчила COUNT,
+   *    но всё ещё offset-пагинация.
+   *  - KS-2560: переход на курсор по образцу `archive-service`
+   *    (см. `cursor-codec.ts`). COUNT(*) удалён полностью —
+   *    бесконечная прокрутка на фронте не нуждается в total.
+   *
+   * Сорт: `created_at DESC, id DESC` (id — tie-breaker для
+   * стабильности при равных timestamps; покрывается индексом
+   * `puzzles_created_at_idx`).
+   *
+   * Cursor: `base64url(JSON({c: ISO-date, i: id}))`. Без курсора —
+   * первая страница. Возвращаем `nextCursor` если есть N+1-ая строка.
+   *
+   * Фильтры:
+   *  - `?ratingMin=&ratingMax=` (диапазон).
+   *  - `?themes=fork,pin` (ANY-of через OR — пазл подходит если
+   *    содержит хоть один из перечисленных тегов).
+   *  - `?source=lichess|generated` (whitelist).
+   *
+   * Visibility:
+   *  - anon: только `is_public=true`.
+   *  - login: `is_public=true OR created_by=me` (свои закрытые тоже).
+   *  - `?mine=true` (login) — только свои (включая закрытые).
    */
   @UseGuards(OptionalJwtGuard)
   @Get('browse')
   async browse(
     @Request() req: AuthenticatedRequest,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
-    @Query('sort') sort?: string,
-    @Query('order') order?: string,
+    @Query('cursor') cursor?: string,
     @Query('mine') mine?: string,
     @Query('themes') themes?: string,
     @Query('ratingMin') ratingMinStr?: string,
@@ -131,15 +155,9 @@ export class PuzzleController {
     @Query('source') sourceParam?: string,
   ) {
     const userId = req.user?.id;
-    const take = Math.min(50, limit);
+    const take = Math.min(50, Math.max(1, limit));
 
-    const allowedSort: Record<string, string> = { rating: 'rating', createdAt: 'created_at' };
-    const sortCol = allowedSort[sort ?? ''] ?? 'created_at';
-    const sortDir = order === 'asc' ? 'ASC' : 'DESC';
-
-    // KS-2556: whitelist допустимых значений `source` (защита от sql
-    // injection — параметризовать через $-bind тоже можно, но whitelist
-    // короче и согласуется с типом колонки в схеме).
+    // KS-2556 whitelist `source`.
     const ALLOWED_SOURCES = new Set(['lichess', 'generated']);
     const sourceFilter =
       sourceParam && ALLOWED_SOURCES.has(sourceParam) ? sourceParam : null;
@@ -147,97 +165,141 @@ export class PuzzleController {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
     let idx = 1;
+    const next = (): string => `$${idx++}`;
+
     if (sourceFilter !== null) {
-      conditions.push(`p.source = $${idx}`);
+      conditions.push(`p.source = ${next()}`);
       params.push(sourceFilter);
-      idx++;
     }
 
-    // Visibility
     if (mine === 'true' && userId) {
-      conditions.push(`p.created_by = $${idx}::uuid`);
+      conditions.push(`p.created_by = ${next()}::uuid`);
       params.push(userId);
-      idx++;
     } else if (userId) {
-      conditions.push(`(p.created_by = $${idx}::uuid OR p.is_public = true)`);
+      const placeholder = next();
+      conditions.push(`(p.created_by = ${placeholder}::uuid OR p.is_public = true)`);
       params.push(userId);
-      idx++;
     } else {
       conditions.push('p.is_public = true');
     }
 
     if (themes) {
-      for (const t of themes.split(',')) {
-        conditions.push(`p.themes LIKE $${idx}`);
-        params.push(`%${t.trim()}%`);
-        idx++;
+      // KS-2560 ANY-of: пазл проходит, если в `themes` есть хоть один
+      // из перечисленных тегов. Делаем OR-цепочку через LIKE.
+      const themeList = themes
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      if (themeList.length > 0) {
+        const orParts = themeList.map((t) => {
+          const ph = next();
+          params.push(`%${t}%`);
+          return `p.themes LIKE ${ph}`;
+        });
+        conditions.push(`(${orParts.join(' OR ')})`);
       }
     }
-    if (ratingMinStr) { conditions.push(`p.rating >= $${idx}`); params.push(parseInt(ratingMinStr, 10)); idx++; }
-    if (ratingMaxStr) { conditions.push(`p.rating <= $${idx}`); params.push(parseInt(ratingMaxStr, 10)); idx++; }
 
-    // hideSolved: exclude all attempted puzzles (solved and failed)
+    if (ratingMinStr) {
+      conditions.push(`p.rating >= ${next()}`);
+      params.push(parseInt(ratingMinStr, 10));
+    }
+    if (ratingMaxStr) {
+      conditions.push(`p.rating <= ${next()}`);
+      params.push(parseInt(ratingMaxStr, 10));
+    }
+
     if (hideSolved === 'true' && userId) {
-      conditions.push(`NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid)`);
+      const ph = next();
+      conditions.push(
+        `NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = ${ph}::uuid)`,
+      );
       params.push(userId);
-      idx++;
+    }
+
+    // KS-2560 keyset cursor: `(created_at, id) < (cursor.c, cursor.i)`.
+    // Декодируем cursor; если невалидный — игнорируем (первая страница).
+    const decoded = decodePuzzleCursor(cursor);
+    if (decoded) {
+      const phC = next();
+      const phI = next();
+      conditions.push(
+        `(p.created_at < ${phC}::timestamp OR (p.created_at = ${phC}::timestamp AND p.id < ${phI}))`,
+      );
+      params.push(decoded.c, decoded.i);
+    }
+
+    // solvedStatus subquery (login only).
+    let solvedStatusSelect = ', NULL AS solved_status';
+    if (userId) {
+      const ph = next();
+      solvedStatusSelect = `, CASE
+          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = ${ph}::uuid AND pa.solved = true) THEN 'solved'
+          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = ${ph}::uuid) THEN 'failed'
+          ELSE NULL
+        END AS solved_status`;
+      params.push(userId);
     }
 
     const whereClause = conditions.join(' AND ');
 
-    // solvedStatus subquery
-    const solvedStatusSelect = userId
-      ? `, CASE
-          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid AND pa.solved = true) THEN 'solved'
-          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid) THEN 'failed'
-          ELSE NULL
-        END AS solved_status`
-      : ', NULL AS solved_status';
-    if (userId) { params.push(userId); idx++; }
+    // KS-2560: запрашиваем `take + 1` чтобы понять есть ли nextCursor.
+    const limitPh = next();
+    params.push(take + 1);
 
-    const limitParam = `$${idx}`;
-    params.push(take);
-    idx++;
-    const offsetParam = `$${idx}`;
-    params.push(offset);
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
+      FROM puzzles p WHERE ${whereClause}
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT ${limitPh}`;
 
-    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source_type, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
-      FROM puzzles p WHERE ${whereClause} ORDER BY p.${sortCol} ${sortDir} LIMIT ${limitParam} OFFSET ${offsetParam}`;
-    // KS-2557: cap-стратегия для total. Полный COUNT(*) по 6M lichess-
-    // пазлов с фильтрами `is_public + NOT EXISTS(puzzle_attempts)` =
-    // full scan + anti-join, ~10s. Считаем только до 1001 совпадения
-    // (LIMIT 1001 в подзапросе). Postgres делает Index Scan с
-    // early-stop как только наберёт 1001 строку — ms-уровень.
-    //
-    // На фронте `totalCapped: true` показываем как «1000+». UX-impact
-    // минимальный (50 страниц по 20 — больше чем пользователь
-    // прокрутит), perf-выигрыш — критический.
-    const COUNT_CAP = 1000;
-    const countQuery = `SELECT COUNT(*)::int as total FROM (
-      SELECT 1 FROM puzzles p WHERE ${whereClause} LIMIT ${COUNT_CAP + 1}
-    ) sub`;
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        fen: string;
+        moves: string;
+        rating: number;
+        themes: string;
+        source: string;
+        source_type: string | null;
+        is_public: boolean;
+        created_by: string | null;
+        created_at: Date | string;
+        solved_status: string | null;
+      }>
+    >(dataQuery, ...params);
 
-    const [data, countResult] = await Promise.all([
-      this.prisma.$queryRawUnsafe<Array<any>>(dataQuery, ...params),
-      this.prisma.$queryRawUnsafe<[{ total: number }]>(
-        countQuery,
-        ...params.slice(0, -2),
-      ),
-    ]);
-
-    const rawTotal = countResult[0]?.total ?? 0;
-    const totalCapped = rawTotal > COUNT_CAP;
-    const total = totalCapped ? COUNT_CAP : rawTotal;
+    const hasMore = rows.length > take;
+    const slice = hasMore ? rows.slice(0, take) : rows;
+    const last = hasMore ? rows[take - 1] : null;
+    const nextCursor =
+      last && hasMore
+        ? encodePuzzleCursor({
+            c:
+              last.created_at instanceof Date
+                ? last.created_at.toISOString()
+                : new Date(last.created_at).toISOString(),
+            i: last.id,
+          })
+        : null;
 
     return {
-      data: data.map((p: any) => ({
-        id: p.id, fen: p.fen, moves: p.moves, rating: p.rating,
-        themes: p.themes, sourceType: p.source_type, isPublic: p.is_public,
-        createdBy: p.created_by, createdAt: p.created_at?.toISOString?.() ?? p.created_at,
+      data: slice.map((p) => ({
+        id: p.id,
+        fen: p.fen,
+        moves: p.moves,
+        rating: p.rating,
+        themes: p.themes,
+        source: p.source,
+        sourceType: p.source_type,
+        isPublic: p.is_public,
+        createdBy: p.created_by,
+        createdAt:
+          p.created_at instanceof Date
+            ? p.created_at.toISOString()
+            : new Date(p.created_at).toISOString(),
         solvedStatus: p.solved_status ?? null,
       })),
-      total,
-      totalCapped,
+      nextCursor,
     };
   }
 
