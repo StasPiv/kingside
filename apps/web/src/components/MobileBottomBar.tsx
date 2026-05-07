@@ -63,6 +63,12 @@ export function MobileBottomBar() {
     archive: true,
     profile: true,
     puzzles: puzzlesEnabled,
+    // KS-2552 / ADR-048: gate такой же как у `puzzles`. Без этой строки
+    // фильтр на строке `candidate.filter((r) => flagsByRoute[r])`
+    // выкидывал `precision` (undefined → falsy), даже когда backend
+    // отдавал его в top-3 — mobile bar показывал старую кнопку
+    // (`play` как добор из DEFAULT_TOP).
+    precision: puzzlesEnabled,
   };
 
   const topRoutes = useMemo<NavRoute[]>(() => {

@@ -122,6 +122,44 @@ describe('<MobileBottomBar> (KS-2110 + KS-2373)', () => {
     expect(screen.queryByTestId('mobile-bar-play')).not.toBeInTheDocument();
   });
 
+  it('KS-2552: precision в top-3 от API → /precision в bar (puzzlesEnabled=true)', async () => {
+    flagControls.puzzles = true;
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'workshop', count: 30 },
+        { route: 'puzzles', count: 25 },
+        { route: 'precision', count: 21 },
+      ],
+    });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-precision')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-puzzles')).toBeInTheDocument();
+    // Play вытеснен из bar (top-3 заняты другими).
+    expect(screen.queryByTestId('mobile-bar-play')).not.toBeInTheDocument();
+  });
+
+  it('KS-2552: precision в top-3, но puzzlesEnabled=false → отфильтровывается', async () => {
+    flagControls.puzzles = false;
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'precision', count: 50 },
+        { route: 'workshop', count: 30 },
+        { route: 'play', count: 20 },
+        { route: 'archive', count: 5 },
+      ],
+    });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-workshop')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mobile-bar-precision')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bar-archive')).toBeInTheDocument();
+  });
+
   it('KS-2373: топ-роут с выключенным feature-flag отбрасывается', async () => {
     flagControls.drills = false; // drills выключены
     apiGetMock.mockResolvedValue({
