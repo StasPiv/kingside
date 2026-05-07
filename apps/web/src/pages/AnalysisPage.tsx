@@ -427,8 +427,17 @@ function AnalysisPageInner() {
   // (analysisId) — useSavedAnalyses.update; для puzzleFen / "/analysis"
   // / custom-position'а раньше autosave не было совсем.
   //
+  // KS-2502: при `navigate('/analysis', { state: { pgn } })` —
+  // например клик «Открыть партию» из загруженного PGN-файла или
+  // из puzzle-страницы — restore из localStorage перетирал переданный
+  // pgn ad-hoc-снимком предыдущей сессии (видна «чужая» партия).
+  // Отключаем autosave полностью при наличии `state.pgn` или
+  // `puzzleFen`/`puzzlePgn` в URL — это явный сигнал «новая ad-hoc
+  // сессия с этими данными», восстанавливать чужой снимок нельзя.
+  const stateHasPgn = !!(location.state as { pgn?: string } | null)?.pgn;
   useAdHocAnalysisAutosave({
-    enabled: !gameId && !analysisId,
+    enabled:
+      !gameId && !analysisId && !stateHasPgn && !puzzleFen && !puzzlePgn,
     initialFen,
     history,
     initialAnnotations,
