@@ -118,10 +118,14 @@ export function explainFindAllChecks(input: ExplainDrillInput): DrillExplanation
   const arrows: DrillExplanationArrow[] = [];
   for (const m of expectedMoves) {
     const userPicked = userSquaresSet.has(m.to);
+    // KS-2460: для FAC найденные шахи рисуются как `correct-attack`
+    // (зелёные стрелки атаки на короля), пропущенные — `missed-attack`
+    // (оранжевые). Семантически это атаки, не «правильные ходы»
+    // вообще — корону шахуем, а не двигаем фигуры абстрактно.
     arrows.push({
       from: m.from,
       to: m.to,
-      role: userPicked || solved ? 'correct-move' : 'missed-attack',
+      role: userPicked || solved ? 'correct-attack' : 'missed-attack',
     });
   }
 

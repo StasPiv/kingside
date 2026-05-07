@@ -893,6 +893,13 @@ export function DrillRunner({
         <FindAllChecksRunner
           drill={drill}
           submitAnswer={(input) => submitAnswerRef.current(input)}
+          // KS-2460: пробрасываем те же auto-next-задержки, что у
+          // обычных drill'ов в DrillRunner. По умолчанию у FACR
+          // короткое продолжение для solved (0мс) и длинное для
+          // ошибки (3500мс) — чтобы успеть рассмотреть финальный
+          // разбор с missed/FP-стрелками.
+          autoNextDelayCorrectMs={autoNextDelayCorrectMs}
+          autoNextDelayIncorrectMs={autoNextDelayIncorrectMs}
           onComplete={({ solved: ok }) => {
             const nextAttempted = attempted + 1;
             const nextSolved = solved + (ok ? 1 : 0);

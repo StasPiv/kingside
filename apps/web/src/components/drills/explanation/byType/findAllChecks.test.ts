@@ -33,7 +33,9 @@ describe('explainFindAllChecks', () => {
       solved: true,
     });
     expect(result.arrows).toEqual([
-      { from: 'a1', to: 'a8', role: 'correct-move' },
+      // KS-2460: FAC использует `correct-attack` (атака на короля), не
+      // `correct-move` — методически точнее, см. findAllChecks.ts.
+      { from: 'a1', to: 'a8', role: 'correct-attack' },
     ]);
     expect(result.highlights).toContainEqual({ square: 'e8', role: 'target' });
     expect(result.highlights).toContainEqual({ square: 'a8', role: 'correct' });

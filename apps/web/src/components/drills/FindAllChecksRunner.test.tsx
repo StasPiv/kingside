@@ -248,6 +248,176 @@ describe('<FindAllChecksRunner> KS-2326', () => {
     expect(root.getAttribute('data-state')).toBe('error');
   });
 
+  // KS-2460: финальный экран с DrillExplanationPanel.
+  describe('KS-2460 — финальный экран с разбором', () => {
+    it('solved=true: после auto-submit рендерится panel data-result="correct"', async () => {
+      const submit = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'squares', squares: ['d8', 'h8'] },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <FindAllChecksRunner
+          drill={DRILL}
+          submitAnswer={submit}
+          onComplete={onComplete}
+          correctFlashMs={20}
+          // Длинный auto-next, чтобы успеть проверить panel до перехода.
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-d8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      await user.click(screen.getByTestId('fire-square-h5'));
+      await user.click(screen.getByTestId('fire-square-h8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('done'),
+      );
+      const panel = screen.getByTestId('drill-explanation-panel');
+      expect(panel.getAttribute('data-result')).toBe('correct');
+      expect(screen.getByTestId('drill-explanation-next')).toBeInTheDocument();
+      // onComplete ещё не вызван — таймер 60с.
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('manual «Дальше» прерывает auto-next и сразу вызывает onComplete', async () => {
+      const submit = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'squares', squares: ['d8', 'h8'] },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <FindAllChecksRunner
+          drill={DRILL}
+          submitAnswer={submit}
+          onComplete={onComplete}
+          correctFlashMs={20}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      // Найти все шахи → done.
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-d8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      await user.click(screen.getByTestId('fire-square-h5'));
+      await user.click(screen.getByTestId('fire-square-h8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('done'),
+      );
+      // Manual click — onComplete должен быть вызван моментально.
+      await user.click(screen.getByTestId('drill-explanation-next'));
+      expect(onComplete).toHaveBeenCalledWith({ solved: true, foundCount: 2 });
+    });
+
+    it('solved=false (через «Готово» с одним шахом): panel data-result="incorrect" + missed-стрелка для пропущенного', async () => {
+      const submit = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'squares', squares: ['d8', 'h8'] },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <FindAllChecksRunner
+          drill={DRILL}
+          submitAnswer={submit}
+          onComplete={onComplete}
+          correctFlashMs={20}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      // Только один шах.
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-d8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      // Финишируем через «Готово».
+      await user.click(screen.getByTestId('facr-finish'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('done'),
+      );
+      const panel = screen.getByTestId('drill-explanation-panel');
+      expect(panel.getAttribute('data-result')).toBe('incorrect');
+      // На длинном auto-next-таймере onComplete пока не вызвался.
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('FP-клик на не-шах накапливает wrongTos для финального разбора', async () => {
+      const submit = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'squares', squares: ['d8', 'h8'] },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <FindAllChecksRunner
+          drill={DRILL}
+          submitAnswer={submit}
+          onComplete={onComplete}
+          correctFlashMs={20}
+          alreadyFlashMs={20}
+          wrongFlashMs={20}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      // FP-ход d1→a1: легальный, но не шах.
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-a1'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      // Корректный шах + finish → done.
+      await user.click(screen.getByTestId('fire-square-d1'));
+      await user.click(screen.getByTestId('fire-square-d8'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('idle'),
+      );
+      await user.click(screen.getByTestId('facr-finish'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
+        ).toBe('done'),
+      );
+      // В панели должен быть wrong-note (engine видит a1 в userAnswer
+      // как не входящую в correctSquares).
+      const wrongNote = screen
+        .getAllByTestId('drill-explanation-note')
+        .find((n) => n.getAttribute('data-tone') === 'wrong');
+      expect(wrongNote).toBeDefined();
+    });
+  });
+
   it('expectedMoves в формате object (не UCI-string) — нормализуется', async () => {
     const drill = {
       ...DRILL,

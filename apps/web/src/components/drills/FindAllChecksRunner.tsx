@@ -14,11 +14,51 @@ import type {
   TacticDrillDto,
 } from '@kingside/shared';
 
-import { DrillBoard } from './DrillBoard';
+import { DrillBoard, type DrillBoardArrow } from './DrillBoard';
 import { DrillFeedbackOverlay } from './DrillFeedbackOverlay';
 import { DrillInstructions } from './DrillInstructions';
+import { DrillExplanationPanel } from './DrillExplanationPanel';
 // KS-2423: drill-звуки.
 import { useDrillSounds } from '../../hooks/useDrillSounds';
+// KS-2460: explanation-engine для финального экрана.
+import { explainDrill } from './explanation/explainDrill';
+import type { ArrowRole } from './explanation/types';
+
+/** KS-2460: matchMedia для prefers-reduced-motion (SSR-safe). */
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * KS-2460: placeholder-цвета стрелок по `ArrowRole`. Дублируется с
+ * DrillRunner — не выносим, чтобы FACR не зависел от внутренностей
+ * DrillRunner. Финальные цвета — KS-2458 (layout) через CSS-токены
+ * `--drill-arrow-*`.
+ */
+function arrowRoleColor(role: ArrowRole): string {
+  switch (role) {
+    case 'correct-attack':
+    case 'correct-move':
+      return '#16a34a';
+    case 'missed-attack':
+      return '#94a3b8';
+    case 'wrong-attack':
+      return '#dc2626';
+    case 'pin-line':
+      return '#f97316';
+    case 'defense':
+      return '#3b82f6';
+    case 'threat-target':
+      return '#dc2626';
+  }
+}
 
 /**
  * KS-2326 (KS-2324 design / methodology §11) — multi-step UX для
@@ -107,6 +147,19 @@ export interface FindAllChecksRunnerProps {
   alreadyFlashMs?: number;
   /** Длительность wrong-feedback (default 600мс). */
   wrongFlashMs?: number;
+  /**
+   * KS-2460: задержка между финальным `state='done'` и `onComplete()`
+   * для случая `solved=true`. По умолчанию `0` (быстрое продолжение
+   * — пользователь нашёл всё). Manual «Дальше» через панель прерывает
+   * таймер. При `prefers-reduced-motion: reduce` runtime-override → 0.
+   */
+  autoNextDelayCorrectMs?: number;
+  /**
+   * KS-2460: то же для `solved=false` (что-то пропустил/ошибся). По
+   * умолчанию `3500` — дать время рассмотреть стрелки missed-шахов и
+   * клетки FP-кликов (методика KS-2454).
+   */
+  autoNextDelayIncorrectMs?: number;
 }
 
 function uciToMove(s: string): MoveDto | null {
@@ -140,6 +193,8 @@ export function FindAllChecksRunner({
   correctFlashMs = 600,
   alreadyFlashMs = 400,
   wrongFlashMs = 600,
+  autoNextDelayCorrectMs = 0,
+  autoNextDelayIncorrectMs = 3500,
 }: FindAllChecksRunnerProps) {
   const { t } = useTranslation();
   // KS-2423.
@@ -158,9 +213,33 @@ export function FindAllChecksRunner({
   const [found, setFound] = useState<Set<string>>(new Set());
   const [attempts, setAttempts] = useState(0);
   const [lastMove, setLastMove] = useState<MoveDto | null>(null);
+  // KS-2460: накапливаем `to`-клетки ошибочных кликов (FP — клик на
+  // клетку, которая НЕ является целью ни одного шахующего хода). Нужны
+  // для `wrong`-highlight'ов в финальном explanation. Если to-клетка
+  // совпадает с правильной (другой шах ходит туда же — редко, но
+  // возможно), не считаем её FP.
+  const [wrongTos, setWrongTos] = useState<Set<string>>(new Set());
+  // KS-2460: ответ от backend сохраняем для финального explanation —
+  // `correctAnswer` нужен engine'у, `solved` определяет роль стрелок.
+  const [submitResp, setSubmitResp] =
+    useState<TacticDrillAttemptResponse | null>(null);
 
   const startedAtRef = useRef<number>(Date.now());
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // KS-2460: таймер задержанного onComplete на финальном экране.
+  // Manual «Дальше» в панели делает clearTimeout + onComplete.
+  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  // KS-2460: чтобы avoid double-onComplete если manual click и
+  // авто-таймер сработают одновременно.
+  const onCompleteCalledRef = useRef(false);
+
+  // KS-2460: клетки правильных шахов (для отбора FP-кликов в wrongTos).
+  const expectedToSet = useMemo(
+    () => new Set(expected.map((m) => m.to)),
+    [expected],
+  );
 
   // Сбрасываем при смене drill (например, ResultsRunner перерендер).
   useEffect(() => {
@@ -168,9 +247,15 @@ export function FindAllChecksRunner({
     setFound(new Set());
     setAttempts(0);
     setLastMove(null);
+    // KS-2460: новый drill — очищаем накопленные FP-клетки и сохранённый
+    // backend-ответ, освобождаем done-таймер.
+    setWrongTos(new Set());
+    setSubmitResp(null);
+    onCompleteCalledRef.current = false;
     startedAtRef.current = Date.now();
     return () => {
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      if (completeTimerRef.current) clearTimeout(completeTimerRef.current);
     };
   }, [drill.id, expected.length]);
 
@@ -192,12 +277,15 @@ export function FindAllChecksRunner({
         userAnswer,
         timeMs,
       });
+      // KS-2460: НЕ вызываем onComplete сразу. Сохраняем ответ, рендерим
+      // финальный экран с DrillExplanationPanel, ждём auto-next-таймер
+      // или manual «Дальше» в панели.
+      setSubmitResp(resp);
       setState('done');
-      onComplete?.({ solved: resp.solved, foundCount: found.size });
     } catch {
       setState('error');
     }
-  }, [drill.id, found, state, submitAnswer, onComplete]);
+  }, [drill.id, found, state, submitAnswer]);
 
   // Trigger auto-submit когда found достиг expected.length.
   useEffect(() => {
@@ -207,6 +295,48 @@ export function FindAllChecksRunner({
       void finalSubmit();
     }
   }, [state, found, expected.length, finalSubmit]);
+
+  // KS-2460: после `state='done'` запускаем отложенный onComplete —
+  // даём пользователю время рассмотреть финальный разбор. Manual
+  // «Дальше» через DrillExplanationPanel снимает таймер и вызывает
+  // onComplete сразу.
+  const callOnComplete = useCallback(
+    (solved: boolean, foundCount: number) => {
+      if (onCompleteCalledRef.current) return;
+      onCompleteCalledRef.current = true;
+      if (completeTimerRef.current) {
+        clearTimeout(completeTimerRef.current);
+        completeTimerRef.current = null;
+      }
+      onCompleteRef.current?.({ solved, foundCount });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (state !== 'done' || !submitResp) return;
+    const reduced = prefersReducedMotion();
+    const baseDelay = submitResp.solved
+      ? autoNextDelayCorrectMs
+      : autoNextDelayIncorrectMs;
+    const delay = reduced ? 0 : baseDelay;
+    completeTimerRef.current = setTimeout(() => {
+      callOnComplete(submitResp.solved, found.size);
+    }, Math.max(0, delay));
+    return () => {
+      if (completeTimerRef.current) {
+        clearTimeout(completeTimerRef.current);
+        completeTimerRef.current = null;
+      }
+    };
+  }, [
+    state,
+    submitResp,
+    autoNextDelayCorrectMs,
+    autoNextDelayIncorrectMs,
+    callOnComplete,
+    found.size,
+  ]);
 
   // Возвращаем feedback-state в idle через delay.
   useEffect(() => {
@@ -258,6 +388,19 @@ export function FindAllChecksRunner({
       if (!expectedKeys.has(key)) {
         setAttempts((a) => a + 1);
         setState('feedback-wrong');
+        // KS-2460: накапливаем `to`-клетку FP-хода для wrong-highlight'а
+        // в финальном экране — но только если она действительно «не в
+        // целях»: если другая правильная стрелка ведёт в ту же клетку,
+        // не маркируем (engine всё равно отбрасывает FP, попавшие в
+        // correctSquares).
+        if (!expectedToSet.has(move.to)) {
+          setWrongTos((prev) => {
+            if (prev.has(move.to)) return prev;
+            const next = new Set(prev);
+            next.add(move.to);
+            return next;
+          });
+        }
         // KS-2423: ход-промах.
         playDrillSound('puzzle-incorrect');
         return;
@@ -276,7 +419,7 @@ export function FindAllChecksRunner({
       // KS-2423: проигрываем именно «check» — сюжет drill'а.
       playDrillSound('check');
     },
-    [state, drill.fen, expectedKeys, found, playDrillSound],
+    [state, drill.fen, expectedKeys, expectedToSet, found, playDrillSound],
   );
 
   // ── Click & Drag handlers ────────────────────────────────────────
@@ -377,6 +520,51 @@ export function FindAllChecksRunner({
     return () => clearInterval(id);
   }, [state]);
 
+  // KS-2460: финальный explanation. Считаем когда state='done' и есть
+  // submitResp — engine использует backend-ответ (источник истины) +
+  // expected-список для рисования стрелок и определения роли каждой.
+  // userAnswer — все ответы пользователя (правильные `to`-клетки +
+  // FP-клики), engine разделит на correct/missed/wrong.
+  const finalExplanation = useMemo(() => {
+    if (state !== 'done' || !submitResp) return null;
+    // userAnswer.squares = правильные to-клетки (из found) ∪ wrong-to.
+    const userTos = [
+      ...Array.from(found.values()).map((k) => k.slice(2, 4)),
+      ...Array.from(wrongTos.values()),
+    ];
+    // Гарантируем shape='squares' для correctAnswer; backend для FAC
+    // отдаёт именно его (KS-2325).
+    const correctAnswer: AnswerData =
+      submitResp.correctAnswer.shape === 'squares'
+        ? submitResp.correctAnswer
+        : {
+            shape: 'squares',
+            squares: expected.map((m) => m.to),
+          };
+    return explainDrill({
+      drill,
+      correctAnswer,
+      userAnswer: { shape: 'squares', squares: userTos },
+      solved: submitResp.solved,
+    });
+  }, [state, submitResp, found, wrongTos, drill, expected]);
+
+  const finalArrows = useMemo<DrillBoardArrow[] | undefined>(() => {
+    if (!finalExplanation || finalExplanation.arrows.length === 0) {
+      return undefined;
+    }
+    return finalExplanation.arrows.map((a) => ({
+      startSquare: a.from,
+      endSquare: a.to,
+      color: arrowRoleColor(a.role),
+    }));
+  }, [finalExplanation]);
+
+  const handleManualNext = useCallback(() => {
+    if (!submitResp) return;
+    callOnComplete(submitResp.solved, found.size);
+  }, [submitResp, found.size, callOnComplete]);
+
   // ── Error: нет expectedMoves ─────────────────────────────────────
   if (state === 'error' && expected.length === 0) {
     return (
@@ -442,20 +630,40 @@ export function FindAllChecksRunner({
         </div>
       )}
 
-      <DrillBoard
-        position={drill.fen}
-        boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
-        highlightedSquares={highlightedSquares}
-        onSquareClick={handleSquareClick}
-        onPieceDrop={handlePieceDrop}
-        overlay={
-          state === 'feedback-correct' ? (
-            <DrillFeedbackOverlay result="correct" />
-          ) : state === 'feedback-wrong' ? (
-            <DrillFeedbackOverlay result="incorrect" />
-          ) : null
-        }
-      />
+      {/* KS-2460: на финальном экране (`done`) рендерим board+panel
+          в обёртке `__board-and-panel` — то же layout, что у DrillRunner
+          (mobile column / desktop row через CSS-брейкпоинт 768px). */}
+      <div className="drill-runner__board-and-panel">
+        <DrillBoard
+          position={drill.fen}
+          boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
+          highlightedSquares={
+            state === 'done' ? undefined : highlightedSquares
+          }
+          // KS-2460: на финальном экране подсветки и стрелки приходят
+          // из explainDrill — engine знает о found / wrongTos.
+          roleHighlights={
+            state === 'done' ? finalExplanation?.highlights : undefined
+          }
+          arrows={state === 'done' ? finalArrows : undefined}
+          onSquareClick={state === 'done' ? undefined : handleSquareClick}
+          onPieceDrop={state === 'done' ? undefined : handlePieceDrop}
+          overlay={
+            state === 'feedback-correct' ? (
+              <DrillFeedbackOverlay result="correct" />
+            ) : state === 'feedback-wrong' ? (
+              <DrillFeedbackOverlay result="incorrect" />
+            ) : null
+          }
+        />
+        {state === 'done' && finalExplanation && submitResp && (
+          <DrillExplanationPanel
+            explanation={finalExplanation}
+            solved={submitResp.solved}
+            onNext={handleManualNext}
+          />
+        )}
+      </div>
 
       {/* Кнопка «Готово» — для альтернативного завершения если юзер
           считает что больше шахов нет (например, нашёл 2 из 3, но не
