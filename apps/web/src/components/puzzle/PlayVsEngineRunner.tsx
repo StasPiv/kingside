@@ -999,11 +999,11 @@ export function PlayVsEngineRunner({
                   const dW = final.w - start.w;
                   const dD = final.d - start.d;
                   const dL = final.l - start.l;
-                  // ТЗ: (delta_W − delta_L) > 0 → потеряно. Знак считаем
-                  // через `start − final` (rise of L outweighs rise of W
-                  // → user lost).
-                  const lostness = start.w - final.w - (start.l - final.l);
-                  const preserved = lostness <= 0;
+                  // KS-2535: header берётся из runner state, а не из
+                  // локальной дельты. До тикета внутренний header мог
+                  // не совпадать с внешним reasonLabel'ом (KS-2533 был
+                  // про обратный случай). Один источник истины — state.
+                  const preserved = state === 'win';
                   return (
                     <div
                       className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
@@ -1085,7 +1085,11 @@ export function PlayVsEngineRunner({
                 );
                 const finalPct = wdlSignedToWinChancePercent(latestWdlUser);
                 const deltaPct = startPct - finalPct;
-                const preserved = deltaPct <= 0;
+                // KS-2535: header — из runner state, а не из локальной
+                // дельты cp. Цифры (98% → 57%) остаются как информация,
+                // но «удержано/потеряно» определяется тем, прошёл ли
+                // юзер winThreshold по effectiveSignedWdl (см. KS-2533).
+                const preserved = state === 'win';
                 return (
                   <div
                     className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
@@ -1111,13 +1115,14 @@ export function PlayVsEngineRunner({
                       className="puzzle-engine-runner__wdl-summary-line"
                       data-testid="puzzle-engine-wdl-summary-line"
                     >
-                      {preserved
+                      {/* KS-2535: line decoupled from header — формат
+                          с «(−Z%)» зависит от фактической дельты, а
+                          не от win/lose state. Это позволяет показать
+                          «Winning chances 98% → 57% (−41%)» при
+                          state=win (юзер прошёл по WDL-объекту, но
+                          в сигмоиде шансы упали). */}
+                      {deltaPct > 0
                         ? t(
-                            'puzzle.engine.summary.linePreserved',
-                            'Winning chances: {{start}}% → {{final}}%',
-                            { start: startPct, final: finalPct },
-                          )
-                        : t(
                             'puzzle.engine.summary.lineLost',
                             'Winning chances: {{start}}% → {{final}}% (−{{delta}}%)',
                             {
@@ -1125,6 +1130,11 @@ export function PlayVsEngineRunner({
                               final: finalPct,
                               delta: deltaPct,
                             },
+                          )
+                        : t(
+                            'puzzle.engine.summary.linePreserved',
+                            'Winning chances: {{start}}% → {{final}}%',
+                            { start: startPct, final: finalPct },
                           )}
                     </div>
                   </div>

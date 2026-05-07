@@ -852,6 +852,67 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(summary).toMatchSnapshot();
   });
 
+  it('KS-2535: header summary одинаковый со state — state=win + delta>0 в fallback → preserved', async () => {
+    // wdlAfterBlunder=0.96 (старт ≈ 98%), final wdlUser=+0.14 (≈ 57%).
+    // delta_pct = 98 − 57 = 41 > 0, но WDL-объект решает state=win.
+    // До KS-2535 header брался из дельты → «Advantage lost».
+    // Теперь — из state → «Advantage preserved».
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.96,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 2,
+        wdlAfter: { w: 980, d: 20, l: 0 },
+      },
+    });
+    // halfMovesN=2 → user-ход → engine-ход → final analyze.
+    // final POV user: cp=+50 (sigmoid≈+0.12), wdl POV user {800,150,50}
+    //   → signedWdl=(800-50)/1000=+0.75 ≥ winThreshold → win.
+    // sigmoid даёт ≈ 56% (final), startPct=98% → deltaPct=41 > 0.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 80 }, ['e2e4'])), // pre
+      result(line({ type: 'cp', value: -50 }, ['e7e5'], 12, 1, {
+        w: 50,
+        d: 150,
+        l: 800,
+      })), // post POV opp (user winning)
+      result(line({ type: 'cp', value: 50 }, ['d2d4'], 12, 1, {
+        w: 800,
+        d: 150,
+        l: 50,
+      })), // final POV user — winning по WDL, но низкий cp
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('win');
+    });
+    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+    // Header «удержано», даже если deltaPct>0 в fallback.
+    expect(summary.getAttribute('data-preserved')).toBe('true');
+    expect(summary.textContent).toMatch(
+      /Advantage preserved|Преимущество удержано/,
+    );
+    // Если режим fallback (signed) — линия должна показать «(−Z%)»
+    // именно из-за дельты. Если режим primary — три строки.
+    const mode = summary.getAttribute('data-mode');
+    if (mode === 'signed') {
+      const deltaPct = Number(summary.getAttribute('data-delta-pct'));
+      const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
+      if (deltaPct > 0) {
+        expect(lineEl.textContent).toMatch(/−\d+%/);
+      }
+    }
+  });
+
   it('KS-2533: при идеальной игре с WDL POV user {1000,0,0} в финале → state=win (а не lose-wdl)', async () => {
     // Симулируем баг: signed cp small (sigmoid < winThreshold), но
     // движок отдал WDL {1000,0,0} → реально позиция выигрышная.
