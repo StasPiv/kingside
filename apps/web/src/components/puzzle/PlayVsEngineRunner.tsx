@@ -241,6 +241,18 @@ export function PlayVsEngineRunner({
   const [state, setState] = useState<RunnerState>('thinking');
   const [halfMovesPlayed, setHalfMovesPlayed] = useState(0);
   const [evalLines, setEvalLines] = useState<EvalLine[]>([]);
+  /**
+   * KS-2519: side-to-move на FEN, по которому посчитан текущий
+   * `evalLines`. Stockfish отдаёт score POV side-to-move; EvalBar
+   * (через `evalToPercent` / `formatEval`) умеет инвертировать знак,
+   * если `isBlackTurn=true`. Без этого на FEN'ах, где ходят чёрные
+   * (post-analyze, или userSide='b'), bar отображал перевёрнутую
+   * оценку. Сохраняется синхронно с `setEvalLines` во всех трёх
+   * analyze-местах: initial, post-analyze, final.
+   */
+  const [evalSide, setEvalSide] = useState<'w' | 'b'>(() =>
+    sideFromFen(puzzle.fen),
+  );
   const [latestWdlUser, setLatestWdlUser] = useState<number>(params.wdlAfterBlunder);
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
   /**
@@ -383,6 +395,8 @@ export function PlayVsEngineRunner({
         return;
       }
       setEvalLines(toEvalLines(result));
+      // KS-2519: side-to-move на FEN после user-хода — соперник.
+      setEvalSide(sideFromFen(after.fen()));
       const wdlEngine = scoreToWdlSigned(best.score);
       const wdlUser = -wdlEngine;
       setLatestWdlUser(wdlUser);
@@ -456,6 +470,8 @@ export function PlayVsEngineRunner({
           const final = await queueAnalyze(next.fen());
           const finalBest = pickBestLine(final);
           setEvalLines(toEvalLines(final));
+          // KS-2519: после хода движка side-to-move = userSide.
+          setEvalSide(sideFromFen(next.fen()));
           // Теперь side-to-move == userSide → POV-знак WDL = +1 для user.
           const wdlFinalUser = finalBest ? scoreToWdlSigned(finalBest.score) : wdlUser;
           setLatestWdlUser(wdlFinalUser);
@@ -563,6 +579,8 @@ export function PlayVsEngineRunner({
             const result = await queueAnalyze(next.fen());
             const best = pickBestLine(result);
             setEvalLines(toEvalLines(result));
+            // KS-2519: side-to-move на FEN после user-хода — соперник.
+            setEvalSide(sideFromFen(next.fen()));
             if (next.isCheckmate()) {
               finishWin('win-mate', 1, halfAfterUser);
               return;
@@ -612,6 +630,11 @@ export function PlayVsEngineRunner({
     setState('thinking');
     setHalfMovesPlayed(0);
     setEvalLines([]);
+    // KS-2519: на старте side-to-move = ходящему в puzzle.fen
+    // (решатель). EvalBar до initial analyze получит пустой массив и
+    // отрендерит «0.0», но evalSide важен на случай, если первый
+    // setEvalLines (initial) опередит сброс.
+    setEvalSide(sideFromFen(puzzle.fen));
     setLatestWdlUser(params.wdlAfterBlunder);
     setReason(null);
     setUserBestLog([]);
@@ -646,6 +669,8 @@ export function PlayVsEngineRunner({
         const initial = await queueAnalyze(puzzle.fen);
         if (cancelled) return;
         setEvalLines(toEvalLines(initial));
+        // KS-2519: initial analyze был на puzzle.fen → side = решатель.
+        setEvalSide(sideFromFen(puzzle.fen));
       } catch {
         /* ignore — EvalBar не критичен, юзер сделает ход и анализ
            перезапустится в runEngineCycle. */
@@ -764,10 +789,16 @@ export function PlayVsEngineRunner({
       data-half-moves={halfMovesPlayed}
       data-reason={reason ?? ''}
       data-eval-lines={evalLines.length}
+      data-eval-side={evalSide}
       data-review-fen={reviewFen ?? ''}
     >
       <div className="puzzle-engine-runner__layout">
-        <EvalBar lines={evalLines} isBlackTurn={isBlackOriented} />
+        {/* KS-2519: isBlackTurn должен отражать side-to-move на FEN, по
+            которому посчитан evalLines (Stockfish отдаёт score POV
+            side-to-move). До тикета сюда подставлялась `isBlackOriented`
+            (ориентация доски, не side-to-move) — bar показывал
+            перевёрнутую оценку при чёрном решателе. */}
+        <EvalBar lines={evalLines} isBlackTurn={evalSide === 'b'} />
 
         <div className="puzzle-engine-runner__board-col">
           <div className="puzzle-engine-runner__progress" data-testid="puzzle-engine-progress">

@@ -469,6 +469,95 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
+  it('KS-2519: initial analyze на белый side-to-move → data-eval-side=w', async () => {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 25 }, ['e2e4'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // initial analyze пишет evalSide = ходящему в puzzle.fen ('w').
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-eval-side'),
+      ).toBe('w');
+    });
+  });
+
+  it('KS-2519: пазл с чёрным решателем → initial analyze data-eval-side=b', async () => {
+    const puzzle = makePuzzle({
+      // FEN с side-to-move='b': чёрные ходят (решатель чёрный).
+      fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'g1f3',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 25 }, ['e7e5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-eval-side'),
+      ).toBe('b');
+    });
+  });
+
+  it('KS-2519: после user-хода post-analyze → data-eval-side флипается на соперника', async () => {
+    // Стартовый side-to-move = 'w' (юзер белый). После e2-e4 → side='b'.
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // После initial analyze evalSide='w'.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-eval-side'),
+      ).toBe('w');
+    });
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    // post-analyze был на FEN после e2-e4 → side-to-move='b'.
+    expect(
+      screen.getByTestId('puzzle-engine-runner').getAttribute('data-eval-side'),
+    ).toBe('b');
+  });
+
   it('KS-2518: lose-wdl показывает summary с дельтой и заголовком «Advantage lost»', async () => {
     // wdlAfterBlunder=0.6 (старт), post-analyze cp=+800 POV opp →
     // wdlEngine ≈ +0.88, wdlUser ≈ -0.88, < failThreshold=0.1 → lose-wdl.
