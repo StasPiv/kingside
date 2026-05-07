@@ -50,9 +50,11 @@ const NAV_ITEMS: NavItem[] = [
   // `drillsEnabled` (KS-2231). Default `false` — фича в разработке;
   // включается админом через PATCH /admin/feature-flags/drillsEnabled
   // без redeploy фронта.
+  // KS-2550: иконка 🧠 (тактическая «накачка мозга») — освобождает 🎯
+  // для /precision (точность), не пересекается с /puzzles (🧩).
   {
     path: '/drills',
-    icon: '🎯',
+    icon: '🧠',
     i18nKey: 'nav.drills',
     match: ['/drills'],
     featureFlag: 'drillsEnabled',
@@ -60,19 +62,20 @@ const NAV_ITEMS: NavItem[] = [
   // KS-2539 / ADR-048 §3 #3: «Тренировка точности» — раздел play-vs-engine
   // (бывший /puzzles/play-vs-engine). Gate за `puzzlesEnabled` — общий с
   // основным разделом «Задачи».
-  // KS-2548: иконка 🎓 (выпускник/мастерство — тренировка против движка
-  // ради точности). Альтернативы 🎯 и 🏹 отброшены — 🎯 уже занят
-  // /drills, а 🏹 хуже считывается на mobile-bar в маленьком кегле.
+  // KS-2550: иконка 🎯 (мишень — точность/прицел). Освобождает 🎓
+  // для /lessons (академическая шапочка → курсы).
   {
     path: '/precision',
-    icon: '🎓',
+    icon: '🎯',
     i18nKey: 'nav.precision',
     match: ['/precision'],
     featureFlag: 'puzzlesEnabled',
   },
+  // KS-2550: 📚 → 🎓 (академическая шляпа = «учусь, прохожу курс»),
+  // 📚 переезжает в /archive.
   {
     path: '/lessons',
-    icon: '📚',
+    icon: '🎓',
     i18nKey: 'nav.lessons',
     match: ['/lessons'],
     // KS-2105: раздел скрывается, когда админ выключил
@@ -83,7 +86,8 @@ const NAV_ITEMS: NavItem[] = [
   // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
   // i18n-ключ — отдельный namespace `archive` (`archive.menuTitle`),
   // см. `apps/web/src/i18n/locales/{ru,en}/archive.json`.
-  { path: '/archive', icon: '🗂', i18nKey: 'archive:menuTitle', match: ['/archive'] },
+  // KS-2550: 🗂 → 📚 (книги/собрание партий — лучше передаёт «архив»).
+  { path: '/archive', icon: '📚', i18nKey: 'archive:menuTitle', match: ['/archive'] },
   // KS-2218: «Трансляции» — runtime feature-flag `broadcastsEnabled`.
   {
     path: '/broadcasts',

@@ -94,7 +94,8 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
   lessons: {
     to: '/lessons',
     matches: ['/lessons'],
-    icon: '📚',
+    /* KS-2550: 📚 → 🎓 (академическая шляпа), 📚 переехала в archive. */
+    icon: '🎓',
     labelKey: 'nav.lessons',
     labelFallback: 'Lessons',
     flag: 'lessonsEnabled',
@@ -102,7 +103,8 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
   drills: {
     to: '/drills',
     matches: ['/drills'],
-    icon: '🎯',
+    /* KS-2550: 🎯 → 🧠 (тренажёр-«накачка мозга»). 🎯 переехала в precision. */
+    icon: '🧠',
     labelKey: 'nav.drills',
     labelFallback: 'Drills',
     flag: 'drillsEnabled',
@@ -118,7 +120,8 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
   archive: {
     to: '/archive',
     matches: ['/archive'],
-    icon: '🗂',
+    /* KS-2550: 🗂 → 📚 (книги/собрание партий — лучше передаёт «архив»). */
+    icon: '📚',
     labelKey: 'archive:menuTitle',
     labelFallback: 'Archive',
     flag: null,
@@ -147,7 +150,8 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
   precision: {
     to: '/precision',
     matches: ['/precision'],
-    icon: '🎓',
+    /* KS-2550: 🎓 → 🎯 (мишень — точность/прицел). 🎓 переехала в lessons. */
+    icon: '🎯',
     labelKey: 'nav.precision',
     labelFallback: 'Precision training',
     // KS-2544: для mobile bottom bar используем короткое «Precision».
