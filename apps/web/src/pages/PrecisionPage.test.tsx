@@ -119,7 +119,7 @@ describe('<PrecisionPage> KS-2484', () => {
     expect(themes.length).toBeGreaterThan(0);
   });
 
-  it('клик по «Solve» навигирует на /puzzle/:id?source=play-vs-engine', async () => {
+  it('KS-2547: клик по «Solve» навигирует на /puzzle/:id?source=precision', async () => {
     apiGet.mockResolvedValueOnce(SAMPLE);
     const user = userEvent.setup();
     renderWithProviders(<PrecisionPage />);
@@ -130,7 +130,7 @@ describe('<PrecisionPage> KS-2484', () => {
     );
     await user.click(screen.getAllByTestId('play-vs-engine-card-solve')[0]);
     expect(mockNavigate).toHaveBeenCalledWith(
-      `/puzzle/${SAMPLE[0].id}?source=play-vs-engine`,
+      `/puzzle/${SAMPLE[0].id}?source=precision`,
     );
   });
 

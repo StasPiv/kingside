@@ -67,7 +67,7 @@ describe('<RecentAttempts> KS-2498', () => {
     ).toBeInTheDocument();
   });
 
-  it('play-vs-engine: ссылка ведёт на /puzzle/:id?source=play-vs-engine и кнопки «Анализ» НЕТ', () => {
+  it('KS-2547: play-vs-engine attempt → /puzzle/:id?source=precision и кнопки «Анализ» НЕТ', () => {
     const a = build({
       id: 'att-pve',
       puzzleId: 'puz-pve-1',
@@ -81,7 +81,7 @@ describe('<RecentAttempts> KS-2498', () => {
 
     const link = screen.getByTestId('recent-attempts-link-att-pve');
     expect(link.getAttribute('href')).toBe(
-      '/puzzle/puz-pve-1?source=play-vs-engine',
+      '/puzzle/puz-pve-1?source=precision',
     );
 
     const row = screen.getByTestId('recent-attempts-row-att-pve');

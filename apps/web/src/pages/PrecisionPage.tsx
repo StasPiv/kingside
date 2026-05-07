@@ -254,7 +254,10 @@ export function PrecisionPage() {
           {puzzles.map((p) => {
             const orientation = sideFromFen(p.fen);
             const onClick = () =>
-              navigate(`/puzzle/${p.id}?source=play-vs-engine`);
+              // KS-2547 / ADR-048 §5: новый канон `?source=precision`.
+              // Старый `?source=play-vs-engine` остаётся как silent
+              // backward-compat для уже разосланных ссылок.
+              navigate(`/puzzle/${p.id}?source=precision`);
             return (
               <article
                 key={p.id}

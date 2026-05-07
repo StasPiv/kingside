@@ -13,8 +13,10 @@ import { api } from '../../api';
  *
  * Поведение по KS-2498:
  *  - Основной клик по строке → `/puzzle/:id`. Для play-vs-engine —
- *    `/puzzle/:id?source=play-vs-engine` (тот же query, что в листе
- *    PrecisionPage).
+ *    `/puzzle/:id?source=precision` (KS-2547, ADR-048 §5; тот же query,
+ *    что в листе PrecisionPage). Старый `?source=play-vs-engine`
+ *    остаётся как silent backward-compat — читатели обязаны принимать
+ *    оба значения.
  *  - Иконка «Анализ» (отдельная кнопка справа) рендерится только если
  *    `attempt.puzzle.solutionMode !== 'play-vs-engine'`. Клик собирает
  *    PGN из `puzzle.fen + puzzle.moves` и навигирует на /analysis с
@@ -110,8 +112,11 @@ export function RecentAttempts({ attempts }: RecentAttemptsProps) {
       <div className="puzzle-stats-attempts">
         {pageAttempts.map((a) => {
           const isPvE = a.puzzle?.solutionMode === 'play-vs-engine';
+          // KS-2547 / ADR-048 §5: канон `?source=precision`. Старый
+          // `?source=play-vs-engine` остаётся как silent backward-compat
+          // для уже разосланных ссылок (читатели обязаны принимать оба).
           const href = isPvE
-            ? `/puzzle/${a.puzzleId}?source=play-vs-engine`
+            ? `/puzzle/${a.puzzleId}?source=precision`
             : `/puzzle/${a.puzzleId}`;
           return (
             <div
