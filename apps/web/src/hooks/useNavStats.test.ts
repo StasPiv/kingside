@@ -92,6 +92,23 @@ describe('resolveNavRoute (KS-2373)', () => {
     expect(resolveNavRoute('/feedback')).toBeNull();
     expect(resolveNavRoute('/login')).toBeNull();
   });
+
+  it('KS-2540: /precision и его подпути → precision', () => {
+    expect(resolveNavRoute('/precision')).toBe('precision');
+    expect(resolveNavRoute('/precision/abc')).toBe('precision');
+  });
+
+  it('KS-2540: /precision не пересекается с другими ключами', () => {
+    // Префикс не должен совпасть с /play, /puzzles, /puzzle-rush.
+    expect(resolveNavRoute('/precision')).not.toBe('play');
+    expect(resolveNavRoute('/precision')).not.toBe('puzzles');
+  });
+
+  it('KS-2540: NAV_ROUTES.precision имеет корректный мета', () => {
+    expect(NAV_ROUTES.precision.to).toBe('/precision');
+    expect(NAV_ROUTES.precision.flag).toBe('puzzlesEnabled');
+    expect(NAV_ROUTES.precision.matches).toEqual(['/precision']);
+  });
 });
 
 function makeWrapper(initialPath: string) {
@@ -199,7 +216,7 @@ describe('useTopNavStats (KS-2373)', () => {
 });
 
 describe('NAV_ROUTES (KS-2373) — целостность whitelist', () => {
-  it('содержит ровно 9 routes как backend whitelist', () => {
+  it('содержит ровно 10 routes как backend whitelist (KS-2540 +precision)', () => {
     expect(Object.keys(NAV_ROUTES).sort()).toEqual(
       [
         'archive',
@@ -207,6 +224,7 @@ describe('NAV_ROUTES (KS-2373) — целостность whitelist', () => {
         'drills',
         'lessons',
         'play',
+        'precision',
         'profile',
         'puzzles',
         'tournaments',

@@ -40,7 +40,8 @@ export type NavRoute =
   | 'broadcasts'
   | 'archive'
   | 'profile'
-  | 'puzzles';
+  | 'puzzles'
+  | 'precision';
 
 export interface NavRouteMeta {
   /** path, на который ведёт ссылка из bar'а. */
@@ -128,6 +129,19 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     icon: '🧩',
     labelKey: 'nav.puzzles',
     labelFallback: 'Puzzles',
+    flag: 'puzzlesEnabled',
+  },
+  // KS-2540 / ADR-048: «Тренировка точности» — bottom-bar учёт
+  // переходов на /precision. Backend whitelist расширен в KS-2537,
+  // POST /user/nav-stats/increment {route:'precision'} → 204. Префикс
+  // /precision не пересекается с другими ключами выше (resolveNavRoute
+  // последовательно проверяет matches; /precision !== /puzzle*, /play*).
+  precision: {
+    to: '/precision',
+    matches: ['/precision'],
+    icon: '🎓',
+    labelKey: 'nav.precision',
+    labelFallback: 'Precision',
     flag: 'puzzlesEnabled',
   },
 };
