@@ -2998,3 +2998,138 @@ body:has(.puzzle-rush-board) {
     font-size: 11px;
   }
 }
+
+/* KS-2561: новый layout /puzzles — фильтры сверху, карточки-диаграммы
+   гридом. Селекторы с двумя подчёркиваниями (BEM) — отдельны от
+   старых `puzzle-filters`/`puzzle-card` (одиночные классы остались
+   для legacy-CSS, не конфликтуют с новыми BEM-elementами). */
+.puzzle-filters__rating {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.puzzle-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+.puzzle-filters__field-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--c-94a3b8);
+}
+.puzzle-filters__field input[type='number'] {
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  color: var(--c-e2e8f0);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 14px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.puzzle-filters__hide-solved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-cbd5e1);
+  font-size: 13px;
+  user-select: none;
+}
+.puzzle-filters__reset {
+  background: transparent;
+  color: var(--c-94a3b8);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.puzzle-filters__reset:hover {
+  color: var(--c-e2e8f0);
+  border-color: var(--c-475569, #475569);
+}
+.puzzle-filters__themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.puzzle-filters__theme-chip {
+  background: var(--c-1a1a2e);
+  color: var(--c-cbd5e1);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.puzzle-filters__theme-chip:hover {
+  border-color: var(--c-475569, #475569);
+}
+.puzzle-filters__theme-chip.active {
+  background: var(--accent-primary, #7c83ff);
+  color: #fff;
+  border-color: var(--accent-primary, #7c83ff);
+}
+
+/* KS-2561: грид карточек-диаграмм. Размер ячейки делает 4 колонки
+   при ширине ≥1024px и адаптивно сужает на mobile. */
+.puzzle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.puzzle-card__board-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.puzzle-card__board-btn:hover {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+}
+.puzzle-card__board-btn:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+.puzzle-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.puzzle-card__rating {
+  font-weight: 700;
+  color: var(--c-e2e8f0);
+  font-variant-numeric: tabular-nums;
+}
+.puzzle-card__side {
+  font-size: 16px;
+  color: var(--c-cbd5e1);
+}
+.puzzle-card__status--solved { color: #4ade80; }
+.puzzle-card__status--failed { color: #f87171; }
+.puzzle-card__owner-actions {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 6px 8px;
+}
+.puzzle-browser-sentinel {
+  width: 100%;
+  height: 1px;
+}
+.puzzle-browser-loading-more,
+.puzzle-browser-end {
+  text-align: center;
+  color: var(--c-94a3b8);
+  font-size: 13px;
+  padding: 12px 0;
+}
