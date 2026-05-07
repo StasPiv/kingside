@@ -15,6 +15,7 @@ export * from './constants/archive.js';
 export * from './utils/time-control.js';
 export * from './utils/fen-key.js';
 export * from './utils/archive-name-normalize.js';
+export * from './chess/index.js';
 // NB: `./utils/position-key.js` намеренно НЕ реэкспортируется — он тянет `node:crypto`
 // и ломает браузерный бандл. Backend (apps/api, apps/archive-service) импортирует
 // функцию напрямую: `@kingside/shared/dist/utils/position-key`.

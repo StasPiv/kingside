@@ -9,6 +9,9 @@
     "lint": "eslint src/",
     "test": "vitest run"
   },
+  "dependencies": {
+    "chess.js": "^1.4.0"
+  },
   "devDependencies": {
     "vitest": "^4.0.18"
   }
