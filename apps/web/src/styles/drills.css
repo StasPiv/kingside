@@ -20,6 +20,64 @@
  */
 
 /* ===========================================================
+ * KS-2458 (ADR-043 §4.3) — design-токены ролей подсветки и стрелок.
+ *
+ * Источник правды для SquareRole + ArrowRole. Используются:
+ *  - в `DrillBoard.tsx` через inline `squareStyles` (react-chessboard
+ *    не поддерживает CSS-переменные напрямую; компонент ставит ровно
+ *    эти rgba в `ROLE_STYLE`),
+ *  - в `DrillRunner.tsx` / `DevDrillExplanationPage.tsx` для цвета
+ *    стрелок (`arrowRoleColor`).
+ *
+ * Если меняешь значение — синхронизируй в TSX-коде. Альтернатива
+ * (`getComputedStyle(document.documentElement).getPropertyValue(...)`)
+ * пока не реализована: добавит лишние reflow'ы при ререндере доски.
+ *
+ * Контраст. Подсветки — полупрозрачные накладки поверх клеток доски
+ * (бежевый ↔ коричневый в обеих темах). Берём насыщенные первичные
+ * оттенки (≥30% alpha) — они читаются на обоих цветах клеток. Стрелки
+ * — solid hex, контраст ≥4.5:1 к самой светлой клетке доски.
+ * =========================================================== */
+
+:root {
+  /* SquareRole. Базовые значения = тёмная тема (data-theme="dark" или
+   * без атрибута). Светлая тема перекрывает ниже. */
+  --drill-role-target:  rgba(255, 230, 0, 0.45);   /* жёлтый — целевая клетка */
+  --drill-role-correct: rgba(34, 197, 94, 0.40);   /* зелёный — верный выбор */
+  --drill-role-missed:  rgba(148, 163, 184, 0.45); /* серый — пропустил */
+  --drill-role-wrong:   rgba(220, 38, 38, 0.40);   /* красный — неверный выбор */
+  --drill-role-context: rgba(59, 130, 246, 0.30);  /* синий — контекст (защитник, anchor) */
+
+  /* ArrowRole. Solid hex — react-chessboard рисует стрелки сплошным
+   * цветом, alpha не используется. */
+  --drill-arrow-correct-attack: #16a34a; /* зелёный — нужная атака */
+  --drill-arrow-missed-attack:  #94a3b8; /* серый — пропущенная атака */
+  --drill-arrow-wrong-attack:   #dc2626; /* красный — неверная атака */
+  --drill-arrow-correct-move:   #16a34a; /* зелёный — правильный ход */
+  --drill-arrow-pin-line:       #f97316; /* оранжевый — линия связки */
+  --drill-arrow-defense:        #3b82f6; /* синий — защитник */
+  --drill-arrow-threat-target:  #dc2626; /* красный — цель угрозы (fork target) */
+}
+
+html[data-theme="light"] {
+  /* Светлая тема: насыщеннее (контраст по бежевым клеткам), alpha чуть
+   * выше — иначе теряется на светлом фоне. */
+  --drill-role-target:  rgba(234, 179, 8, 0.50);
+  --drill-role-correct: rgba(22, 163, 74, 0.42);
+  --drill-role-missed:  rgba(100, 116, 139, 0.42);
+  --drill-role-wrong:   rgba(220, 38, 38, 0.42);
+  --drill-role-context: rgba(37, 99, 235, 0.30);
+
+  --drill-arrow-correct-attack: #15803d;
+  --drill-arrow-missed-attack:  #64748b;
+  --drill-arrow-wrong-attack:   #b91c1c;
+  --drill-arrow-correct-move:   #15803d;
+  --drill-arrow-pin-line:       #ea580c;
+  --drill-arrow-defense:        #1d4ed8;
+  --drill-arrow-threat-target:  #b91c1c;
+}
+
+/* ===========================================================
  * DrillTypeCard — карточка типа drill'а в лобби (`/drills`)
  * =========================================================== */
 
@@ -141,11 +199,11 @@
  * =========================================================== */
 
 /*
- * KS-2457 (ADR-043 §4.4): overlay при feedback'е стал второстепенным
- * визуалом — основной разбор теперь даёт `DrillExplanationPanel` +
- * стрелки/role-highlights на доске. Снижаем заливку (32% → 14%) и
- * сокращаем длительность fade-in (220ms → 200ms) — чтобы overlay не
- * перекрывал стрелки и быстро уходил из фокуса внимания.
+ * KS-2457 / KS-2458 (ADR-043 §4.4): overlay при feedback'е — фоновый
+ * визуал, основной разбор даёт `DrillExplanationPanel` + role-стрелки
+ * на доске. Заливка 0.18 (KS-2458 ревью: 0.14 был слишком слабым на
+ * тёмной теме поверх коричневых клеток, 0.18 читается на обеих темах
+ * и не перекрывает стрелки), длительность fade-in 200мс.
  */
 .drill-feedback {
   position: absolute;
@@ -156,12 +214,12 @@
 }
 
 .drill-feedback--correct {
-  background: rgba(22, 163, 74, 0.14);
+  background: rgba(22, 163, 74, 0.18);
   box-shadow: inset 0 0 0 2px rgba(22, 163, 74, 0.55);
 }
 
 .drill-feedback--incorrect {
-  background: rgba(220, 38, 38, 0.14);
+  background: rgba(220, 38, 38, 0.18);
   box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.55);
 }
 
@@ -300,14 +358,24 @@
   border: 1px solid var(--border-mid);
   border-radius: 10px;
   color: var(--text-primary);
-  flex: 0 0 auto;
+  /* Mobile (<768px): доска сверху, панель снизу растягивается на всю
+   * ширину под доской. */
+  flex: 1 1 auto;
+  /* KS-2458: панель появляется при `state='feedback'` — короткий fade-in,
+   * чтобы переход с пустой колонки → панель не выглядел резко. */
+  animation: drill-explanation-panel-in 200ms ease-out;
 }
 
 @media (min-width: 768px) {
   .drill-explanation-panel {
-    /* На desktop — фиксированная колонка справа от доски. */
+    /* Desktop: фиксированная колонка справа от доски. Sticky внутри
+     * `.drill-runner__board-and-panel`, чтобы при длинной странице
+     * панель оставалась на виду. */
     flex: 0 0 320px;
     max-width: 360px;
+    position: sticky;
+    top: 16px;
+    align-self: flex-start;
   }
 }
 
@@ -324,6 +392,16 @@
   font-size: 18px;
   font-weight: 600;
   line-height: 1.25;
+}
+
+/* KS-2458: цвет заголовка по результату — мгновенное «correct/incorrect»
+ * считывание без чтения текста. */
+.drill-explanation-panel--correct .drill-explanation-panel__title {
+  color: var(--success-strong);
+}
+
+.drill-explanation-panel--incorrect .drill-explanation-panel__title {
+  color: var(--danger-strong);
 }
 
 .drill-explanation-panel__notes {
@@ -375,6 +453,24 @@
   margin-top: 1px;
 }
 
+/* KS-2458: окрашиваем глиф per-tone (✓ зелёный, ✕ красный, ⊘ серый,
+ * • синий) — иконка должна совпадать с цветовой ролью note'а. */
+.drill-explanation-panel__note--success .drill-explanation-panel__note-glyph {
+  color: var(--success-strong);
+}
+
+.drill-explanation-panel__note--missed .drill-explanation-panel__note-glyph {
+  color: var(--text-muted, #94a3b8);
+}
+
+.drill-explanation-panel__note--wrong .drill-explanation-panel__note-glyph {
+  color: var(--danger-strong);
+}
+
+.drill-explanation-panel__note--info .drill-explanation-panel__note-glyph {
+  color: var(--accent-primary);
+}
+
 .drill-explanation-panel__note-text {
   flex: 1 1 auto;
   word-break: break-word;
@@ -408,7 +504,18 @@
   outline-offset: 2px;
 }
 
+/* KS-2458: fade-in панели при появлении. translateY(4px) → 0 для
+ * лёгкого «появилось», без сильного движения. */
+@keyframes drill-explanation-panel-in {
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .drill-explanation-panel {
+    animation: none;
+  }
+
   .drill-explanation-panel__next {
     transition: none;
   }
