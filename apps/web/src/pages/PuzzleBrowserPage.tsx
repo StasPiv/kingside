@@ -94,6 +94,14 @@ export function PuzzleBrowserPage() {
         <button className={`puzzle-browser-tab${mine ? ' active' : ''}`} onClick={() => toggleMine(true)}>
           {t('puzzleBrowser.myPuzzles', 'My puzzles')}
         </button>
+        {/* KS-2485: точка входа в раздел play-vs-engine (KS-2484). */}
+        <Link
+          to="/puzzles/play-vs-engine"
+          className="puzzle-browser-tab puzzle-browser-tab--play-vs-engine"
+          data-testid="puzzle-browser-tab-play-vs-engine"
+        >
+          {t('puzzles.playVsEngine.navLink', 'Play vs Engine')}
+        </Link>
         {user && (
           <Link to="/puzzles/stats" className="puzzle-browser-tab">
             {t('puzzleStats.title', 'Statistics')}
