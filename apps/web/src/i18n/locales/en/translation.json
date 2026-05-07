@@ -1250,6 +1250,8 @@
     }
   },
   "puzzleStats": {
+    "recentAttempts": "Recent Attempts",
+    "analyze": "Analyze",
     "modes": {
       "heading": "Modes breakdown",
       "attempts": "Attempts",

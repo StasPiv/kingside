@@ -1982,11 +1982,30 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-stats-attempt__link { color: var(--c-7c83ff); text-decoration: none; }
+.puzzle-stats-attempt__link:hover { text-decoration: underline; }
 .puzzle-stats-attempt__result.correct { color: var(--c-4ade80); }
 .puzzle-stats-attempt__result.wrong { color: var(--c-f87171); }
 .puzzle-stats-attempt__time { color: var(--c-94a3b8); }
 .puzzle-stats-attempt__rating { color: var(--c-cbd5e1); margin-left: auto; }
 .puzzle-stats-attempt__date { color: var(--c-64748b); font-size: 11px; }
+
+/* KS-2498 / ADR-046 §5.8: иконка «Анализ» только для forced-line.
+   Кнопка-иконка справа от даты, прозрачный фон, hover подсвечивает. */
+.puzzle-stats-attempt__analyze {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--c-94a3b8);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+.puzzle-stats-attempt__analyze:hover {
+  background: var(--c-334155);
+  color: var(--c-e2e8f0);
+  border-color: var(--c-475569);
+}
 
 /* Puzzle review mode */
 .puzzle-review-label {

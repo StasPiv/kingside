@@ -1264,6 +1264,8 @@
     }
   },
   "puzzleStats": {
+    "recentAttempts": "Недавние попытки",
+    "analyze": "Анализ",
     "modes": {
       "heading": "Режимы решения",
       "attempts": "Попыток",
