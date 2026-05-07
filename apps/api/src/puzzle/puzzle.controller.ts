@@ -39,6 +39,7 @@ export class PuzzleController {
       ratingMin: dto.ratingMin,
       ratingMax: dto.ratingMax,
       limit: dto.limit,
+      solutionMode: dto.solutionMode,
     });
   }
 
@@ -61,6 +62,7 @@ export class PuzzleController {
       themes: dto?.themes,
       ratingMin: dto?.ratingMin,
       ratingMax: dto?.ratingMax,
+      solutionMode: dto?.solutionMode,
     });
   }
 

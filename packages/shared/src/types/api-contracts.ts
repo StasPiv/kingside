@@ -203,6 +203,13 @@ export type FindPuzzlesQuery = {
   ratingMin?: number;
   ratingMax?: number;
   limit?: number;
+  /**
+   * KS-2472 / ADR-044 §5.5. Опциональный фильтр по режиму решения.
+   * Без значения — без фильтра (все режимы), `forced-line` — классика,
+   * `play-vs-engine` — режим «доиграй с движком». Whitelist двух
+   * значений; невалидный → 400 с DTO-уровня class-validator'а.
+   */
+  solutionMode?: 'forced-line' | 'play-vs-engine';
 };
 
 /**

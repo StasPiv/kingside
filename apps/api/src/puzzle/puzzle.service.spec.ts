@@ -124,6 +124,62 @@ describe('PuzzleService', () => {
       );
     });
 
+    // ── KS-2472 / ADR-044 §5.5: solutionMode фильтр ───────────────
+
+    it('KS-2472: solutionMode=play-vs-engine добавляет where.solutionMode', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ solutionMode: 'play-vs-engine' });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { solutionMode: 'play-vs-engine' },
+        }),
+      );
+    });
+
+    it('KS-2472: solutionMode=forced-line добавляет where.solutionMode', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ solutionMode: 'forced-line' });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { solutionMode: 'forced-line' },
+        }),
+      );
+    });
+
+    it('KS-2472: без solutionMode → where.solutionMode не выставляется', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ ratingMin: 1000 });
+
+      const callArg = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(callArg.where.solutionMode).toBeUndefined();
+    });
+
+    it('KS-2472: solutionMode комбинируется с другими фильтрами', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({
+        themes: ['mate'],
+        ratingMin: 1000,
+        ratingMax: 1500,
+        solutionMode: 'play-vs-engine',
+      });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            rating: { gte: 1000, lte: 1500 },
+            AND: [{ themes: { contains: 'mate' } }],
+            solutionMode: 'play-vs-engine',
+          },
+        }),
+      );
+    });
+
     // ── KS-1761 (L-06): расширение для LessonsModule ──────────────
 
     it('KS-1761: ANDs all themes when a multi-theme filter is provided', async () => {

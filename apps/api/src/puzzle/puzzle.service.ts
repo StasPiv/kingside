@@ -41,7 +41,13 @@ export class PuzzleService {
   async getNextPuzzle(
     userId: string | null,
     excludeId?: string,
-    filters?: { themes?: string[]; ratingMin?: number; ratingMax?: number },
+    filters?: {
+      themes?: string[];
+      ratingMin?: number;
+      ratingMax?: number;
+      // KS-2472 / ADR-044 §5.5. Whitelist валидируется на DTO-уровне.
+      solutionMode?: 'forced-line' | 'play-vs-engine';
+    },
   ) {
     const DEFAULT_RATING = 1500;
     const range = 200;
@@ -85,6 +91,15 @@ export class PuzzleService {
         params.push(`%${theme}%`);
         paramIdx++;
       }
+    }
+
+    // KS-2472 / ADR-044 §5.5. Фильтр по solutionMode. Без значения —
+    // без фильтра. Whitelist строки проверяется DTO ('forced-line' /
+    // 'play-vs-engine') — sql injection невозможен.
+    if (filters?.solutionMode) {
+      conditions.push(`p.solution_mode = $${paramIdx}`);
+      params.push(filters.solutionMode);
+      paramIdx++;
     }
 
     const whereClause = conditions.join(' AND ');
@@ -136,8 +151,10 @@ export class PuzzleService {
     source?: string;
     excludeIds?: string[];
     orderBy?: 'random' | 'rating' | 'popularity';
+    // KS-2472 / ADR-044 §5.5. Whitelist валидируется на DTO-уровне.
+    solutionMode?: 'forced-line' | 'play-vs-engine';
   }) {
-    const { themes, ratingMin, ratingMax, limit, source, excludeIds, orderBy } = params;
+    const { themes, ratingMin, ratingMax, limit, source, excludeIds, orderBy, solutionMode } = params;
     const take = limit ?? 10;
     const order = orderBy ?? 'rating';
 
@@ -149,6 +166,7 @@ export class PuzzleService {
         source,
         excludeIds,
         take,
+        solutionMode,
       });
     }
 
@@ -172,6 +190,11 @@ export class PuzzleService {
 
     if (excludeIds && excludeIds.length > 0) {
       where.id = { notIn: excludeIds };
+    }
+
+    // KS-2472 / ADR-044 §5.5.
+    if (solutionMode !== undefined) {
+      where.solutionMode = solutionMode;
     }
 
     const prismaOrder =
@@ -200,8 +223,10 @@ export class PuzzleService {
     source?: string;
     excludeIds?: string[];
     take: number;
+    // KS-2472 / ADR-044 §5.5.
+    solutionMode?: 'forced-line' | 'play-vs-engine';
   }) {
-    const { themes, ratingMin, ratingMax, source, excludeIds, take } = params;
+    const { themes, ratingMin, ratingMax, source, excludeIds, take, solutionMode } = params;
     const conditions: string[] = [];
     const paramsList: (string | number)[] = [];
     let idx = 1;
@@ -228,6 +253,11 @@ export class PuzzleService {
       const placeholders = excludeIds.map(() => `$${idx++}`).join(', ');
       conditions.push(`p.id NOT IN (${placeholders})`);
       paramsList.push(...excludeIds);
+    }
+    // KS-2472 / ADR-044 §5.5. Whitelist DTO защищает от sql injection.
+    if (solutionMode !== undefined) {
+      conditions.push(`p.solution_mode = $${idx++}`);
+      paramsList.push(solutionMode);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
