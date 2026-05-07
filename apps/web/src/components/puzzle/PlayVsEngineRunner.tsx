@@ -142,6 +142,32 @@ export function flipWdl(wdl: WdlDistribution): WdlDistribution {
   return { w: wdl.l, d: wdl.d, l: wdl.w };
 }
 
+/**
+ * KS-2533: «настоящий» signed WDL из объекта `{w,d,l}` (per-mille):
+ *   `(w − l) / 1000` ∈ [-1..+1].
+ * Когда от движка приходит реальный WDL-распределение — мы должны
+ * принимать win/lose решения по нему, а не по сигмоиде cp (которая
+ * для cp=+50 даёт +0.124, ниже winThreshold=0.5, даже если W=1000‰).
+ *
+ * Возвращает POV того же side, что и переданный wdl-объект; вызывающий
+ * обязан передать POV user (через `flipWdl` если нужно).
+ */
+export function signedWdlFromObj(wdl: WdlDistribution): number {
+  return (wdl.w - wdl.l) / 1000;
+}
+
+/**
+ * KS-2533: эффективный signed WDL POV user для win/lose-решений.
+ * Если есть `wdlObj` (реальный WDL из движка POV user) — используем
+ * его; иначе fallback на сигмоиду cp (`sigmoidWdl`, тоже POV user).
+ */
+export function effectiveSignedWdl(
+  wdlObj: WdlDistribution | null,
+  sigmoidWdl: number,
+): number {
+  return wdlObj ? signedWdlFromObj(wdlObj) : sigmoidWdl;
+}
+
 function sideFromFen(fen: string): 'w' | 'b' {
   const parts = fen.split(' ');
   return parts[1] === 'b' ? 'b' : 'w';
@@ -425,7 +451,13 @@ export function PlayVsEngineRunner({
       const wdlUser = -wdlEngine;
       setLatestWdlUser(wdlUser);
       // KS-2527: post-analyze FEN POV соперника → flipWdl для POV user.
-      setLatestWdl(best.wdl ? flipWdl(best.wdl) : null);
+      const wdlUserObj = best.wdl ? flipWdl(best.wdl) : null;
+      setLatestWdl(wdlUserObj);
+      // KS-2533: для win/lose решений используем «настоящий» WDL,
+      // если есть; sigmoidная wdlUser — fallback. Без этого при
+      // позиции Победа=100% sigmoid от cp=+50 ≈ +0.12 < winThreshold,
+      // и UI показывал lose-wdl при идеальной игре (см. KS-2533).
+      const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
 
       // KS-2506: cpAfter POV юзера = −cp(score) POV соперника. Дописываем
       // в snapshot, созданный pre-analyze'ом. Pre-analyze идёт через
@@ -446,13 +478,15 @@ export function PlayVsEngineRunner({
         finishWin('win-mate', 1, halfAfterUser);
         return;
       }
-      if (wdlUser < params.failThreshold) {
-        finishLose('lose-wdl', wdlUser, halfAfterUser);
+      // KS-2533: смотрим effWdlUser, чтобы при WDL-данных юзер не
+      // получил lose-wdl при реально выигрывающей позиции.
+      if (effWdlUser < params.failThreshold) {
+        finishLose('lose-wdl', effWdlUser, halfAfterUser);
         return;
       }
       // engine видит мат против себя — resign.
       if (best.score.type === 'mate' && best.score.value < 0) {
-        finishWin('win-engine-resign', wdlUser, halfAfterUser);
+        finishWin('win-engine-resign', effWdlUser, halfAfterUser);
         return;
       }
 
@@ -502,16 +536,19 @@ export function PlayVsEngineRunner({
           const wdlFinalUser = finalBest ? scoreToWdlSigned(finalBest.score) : wdlUser;
           setLatestWdlUser(wdlFinalUser);
           // KS-2527: side-to-move на final FEN = userSide → POV user без flip.
-          setLatestWdl(finalBest?.wdl ?? null);
-          if (wdlFinalUser >= params.winThreshold) {
-            finishWin('win', wdlFinalUser, halfAfterEngine);
+          const finalWdlObj = finalBest?.wdl ?? null;
+          setLatestWdl(finalWdlObj);
+          // KS-2533: см. effWdlUser выше — те же причины.
+          const effWdlFinal = effectiveSignedWdl(finalWdlObj, wdlFinalUser);
+          if (effWdlFinal >= params.winThreshold) {
+            finishWin('win', effWdlFinal, halfAfterEngine);
           } else {
-            finishLose('lose-wdl', wdlFinalUser, halfAfterEngine);
+            finishLose('lose-wdl', effWdlFinal, halfAfterEngine);
           }
         } catch {
-          // Если final analyze упал — судим по последнему wdlUser.
-          if (wdlUser >= params.winThreshold) finishWin('win', wdlUser, halfAfterEngine);
-          else finishLose('lose-wdl', wdlUser, halfAfterEngine);
+          // Если final analyze упал — судим по последнему effWdlUser.
+          if (effWdlUser >= params.winThreshold) finishWin('win', effWdlUser, halfAfterEngine);
+          else finishLose('lose-wdl', effWdlUser, halfAfterEngine);
         }
         return;
       }
@@ -616,17 +653,21 @@ export function PlayVsEngineRunner({
             const wdlUser = best ? -scoreToWdlSigned(best.score) : 0;
             setLatestWdlUser(wdlUser);
             // KS-2527: post-analyze FEN POV соперника → flipWdl.
-            setLatestWdl(best?.wdl ? flipWdl(best.wdl) : null);
-            if (wdlUser < params.failThreshold) {
-              finishLose('lose-wdl', wdlUser, halfAfterUser);
+            const wdlUserObj = best?.wdl ? flipWdl(best.wdl) : null;
+            setLatestWdl(wdlUserObj);
+            // KS-2533: WDL-данные приоритетнее sigmoid.
+            const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
+            if (effWdlUser < params.failThreshold) {
+              finishLose('lose-wdl', effWdlUser, halfAfterUser);
               return;
             }
             if (best && best.score.type === 'mate' && best.score.value < 0) {
-              finishWin('win-engine-resign', wdlUser, halfAfterUser);
+              finishWin('win-engine-resign', effWdlUser, halfAfterUser);
               return;
             }
-            if (wdlUser >= params.winThreshold) finishWin('win', wdlUser, halfAfterUser);
-            else finishLose('lose-wdl', wdlUser, halfAfterUser);
+            if (effWdlUser >= params.winThreshold)
+              finishWin('win', effWdlUser, halfAfterUser);
+            else finishLose('lose-wdl', effWdlUser, halfAfterUser);
           } catch (e) {
             setErrorMsg(e instanceof Error ? e.message : 'engine-error');
             setState('error');

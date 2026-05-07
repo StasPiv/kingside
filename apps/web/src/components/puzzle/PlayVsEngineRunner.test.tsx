@@ -850,9 +850,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(summary).toMatchSnapshot();
   });
 
-  it('KS-2528: primary preserved — header «Advantage preserved» когда W не упало больше L', async () => {
-    // start {w:200, d:600, l:200} → 20/60/20.
-    // final = same wdl → 20/60/20. Δ=0/0/0 → preserved.
+  it('KS-2533: при идеальной игре с WDL POV user {1000,0,0} в финале → state=win (а не lose-wdl)', async () => {
+    // Симулируем баг: signed cp small (sigmoid < winThreshold), но
+    // движок отдал WDL {1000,0,0} → реально позиция выигрышная.
+    // До KS-2533 win/lose решалось по signed → lose-wdl. После — по
+    // signedWdlFromObj → win.
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -860,7 +862,63 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         winThreshold: 0.5,
         failThreshold: 0.0,
         halfMovesN: 2,
-        wdlAfter: { w: 200, d: 600, l: 200 },
+        wdlAfter: { w: 1000, d: 0, l: 0 },
+      },
+    });
+    // halfMovesN=2 → user-ход → engine-ход → final analyze.
+    // final POV user: cp=+50 (sigmoid≈+0.124, < winThreshold!) но
+    // wdl {1000,0,0} → effectiveSignedWdl = +1.0 ≥ 0.5 → win.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 80 }, ['e2e4'])), // pre
+      result(line({ type: 'cp', value: -50 }, ['e7e5'], 12, 1, {
+        w: 0,
+        d: 0,
+        l: 1000,
+      })), // post POV opp
+      // final POV user: «слабый» cp но абсолютный WDL.
+      result(line({ type: 'cp', value: 50 }, ['d2d4'], 12, 1, {
+        w: 1000,
+        d: 0,
+        l: 0,
+      })),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      const st = screen
+        .getByTestId('puzzle-engine-runner')
+        .getAttribute('data-state');
+      // Должен быть win, а не lose.
+      if (st !== 'win') throw new Error(`expected win, got ${st}`);
+    });
+    expect(
+      screen.getByTestId('puzzle-engine-runner').getAttribute('data-reason'),
+    ).toBe('win');
+    // Внутренний header WDL-summary тоже preserved.
+    await waitFor(() => {
+      const sum = screen.getByTestId('puzzle-engine-wdl-summary');
+      if (sum.getAttribute('data-preserved') !== 'true') {
+        throw new Error('expected preserved=true');
+      }
+    });
+  });
+
+  it('KS-2528: primary preserved — header «Advantage preserved» когда W не упало больше L', async () => {
+    // start {w:200, d:600, l:200} → 20/60/20.
+    // start = {w:900, d:80, l:20} → 90/8/2.
+    // final = same → 90/8/2. Δ=0/0/0 → preserved + signedWdl=0.88 ≥ winThreshold.
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 2,
+        wdlAfter: { w: 900, d: 80, l: 20 },
       },
     });
     // halfMovesN=2: user-ход → engine-ход → final analyze.
@@ -868,16 +926,18 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 100 }, ['e2e4'])), // pre
+      // post-analyze POV opp: solver winning → opp WDL low.
       result(line({ type: 'cp', value: -300 }, ['e7e5'], 12, 1, {
-        w: 800,
-        d: 150,
-        l: 50,
-      })), // post (POV opp), не требуется для preserved (final analyze ниже)
+        w: 20,
+        d: 80,
+        l: 900,
+      })),
+      // final analyze POV user: signedWdl = (900-20)/1000 = 0.88 → win.
       result(line({ type: 'cp', value: 600 }, ['d2d4'], 12, 1, {
-        w: 200,
-        d: 600,
-        l: 200,
-      })), // final POV user
+        w: 900,
+        d: 80,
+        l: 20,
+      })),
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
