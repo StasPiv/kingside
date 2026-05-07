@@ -107,10 +107,18 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
  * «Final Round»).
  *
  * Из индивидуального списка `PLAYOFF_NAME_PATTERNS` убраны:
- *   `finals?`, `grand final`, `championship`, `winners?`, `losers?`,
- *   `tie-?break` — могут быть частью team-регламента или швейцарки.
+ *   `finals?`, `grand final`, `championship`, `winners?`, `losers?` —
+ *   могут быть частью team-регламента или швейцарки.
  *   Одиночная `F` — слишком широкое (`Final` само по себе неоднозначно
  *   в team-контексте).
+ *
+ * KS-2564: `tie-?break` ВКЛЮЧЁН в strict — тайбрейк-раунд (Carlsen vs
+ * Erigaisi на Norway Chess: «Tiebreaks» после Round Robin) семантически
+ * всегда playoff: отдельная стадия для разрешения ничьей между
+ * лидерами, partии не должны идти в круговую таблицу. В швейцарке
+ * тайбрейк применяется к итоговым стандингам (Бухгольц/Sonneborn-Berger),
+ * а не как отдельный раунд — конфликта с `Swiss` форматом нет. Для
+ * team-турниров tiebreak-раунды в практике не встречаются.
  */
 const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
   /\bplay[- ]?offs?\b/i,
@@ -122,6 +130,8 @@ const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
   /(?:^|[\s(|/-])R\d{1,3}(?=[\s)|/-]|$)/,
   /(?:^|[\s(|/])(?:QF|SF)(?:[\s)|/]|$)/,
   /\barmageddon\b/i,
+  // KS-2564: tiebreak-раунд — всегда playoff, перебивает явный RR/Swiss
+  /\btie[- ]?break(?:s|er|ers)?\b/i,
 ];
 
 const SWISS_PATTERN = /\bswiss\b/i;

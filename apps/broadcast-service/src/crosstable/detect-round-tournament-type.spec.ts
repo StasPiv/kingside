@@ -140,6 +140,32 @@ describe('detectRoundTournamentType', () => {
     ).toBe('playoff');
   });
 
+  it('KS-2564: "Tiebreaks" в Round-Robin турнире → playoff (перебивает RR-формат)', () => {
+    // Norway Chess / Champions Chess Tour: основной этап — round-robin
+    // (`tour.format = "Round-Robin"`), плюс отдельный раунд «Tiebreaks»
+    // для разрешения ничьей. Раньше strict-маркер не содержал tiebreak,
+    // и tiebreak-раунд возвращал `round_robin` — партии тайбрейка
+    // попадали в круговую таблицу.
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Tiebreaks',
+        broadcastFormat: '8-player round-robin',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('KS-2564: "Tiebreak" в Swiss турнире → playoff (перебивает Swiss-формат)', () => {
+    // На практике швейцарки разрешают ничью через тайбрейки в стандингах
+    // (Бухгольц), а не отдельным раундом. Но если организатор всё-таки
+    // создаёт раунд «Tiebreak» — это playoff-стадия по семантике.
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Tiebreak',
+        broadcastFormat: '9-round Swiss',
+      }),
+    ).toBe('playoff');
+  });
+
   it('"Round 16" (без "of") — НЕ матчит R16-сокращение (это Round 16 швейцарки)', () => {
     expect(
       detectRoundTournamentType({
@@ -297,14 +323,19 @@ describe('detectRoundTournamentType', () => {
       ).toBe('round_robin');
     });
 
-    it('"Tiebreak" в team НЕ playoff (был ложный триггер)', () => {
+    it('KS-2564: "Tiebreak" в team → playoff (tiebreak-раунд = отдельная стадия)', () => {
+      // Раньше тест ожидал 'swiss': страх ложного срабатывания на team-
+      // регламенте. На практике team-турниры не используют слово
+      // «Tiebreak» в нейтральных контекстах (тайбрейки в team-стандингах
+      // — Бухгольц/match-points, не отдельный раунд). Если организатор
+      // явно назвал раунд «Tiebreak» — это всегда playoff-стадия.
       expect(
         detectRoundTournamentType({
           roundName: 'Tiebreak 1',
           broadcastFormat: 'Team Swiss',
           isTeamTournament: true,
         }),
-      ).toBe('swiss');
+      ).toBe('playoff');
     });
 
     it('регрессия: "Quarterfinals" в team ВСЁ РАВНО playoff (жёсткий маркер)', () => {
