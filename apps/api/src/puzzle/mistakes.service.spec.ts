@@ -82,6 +82,74 @@ describe('MistakesService (L-31, KS-1802)', () => {
 
       await expect(service.recordPuzzleMistake('u1', 'p1')).rejects.toBe(err);
     });
+
+    // ── KS-2491 / ADR-046 §5.1. MODE_TAG_BLACKLIST ──────────────────
+
+    it('KS-2491: фильтрует playVsEngine при наличии тематик (mate playVsEngine)', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        themes: 'mate playVsEngine',
+      });
+      prisma.userMistake.findFirst.mockResolvedValue(null);
+
+      await service.recordPuzzleMistake('u1', 'p1');
+
+      expect(prisma.userMistake.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          source: 'puzzle',
+          puzzleId: 'p1',
+          themes: ['mate'],
+        },
+      });
+    });
+
+    it('KS-2491: themes=playVsEngine (только маркер) → пустой массив', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({ themes: 'playVsEngine' });
+      prisma.userMistake.findFirst.mockResolvedValue(null);
+
+      await service.recordPuzzleMistake('u1', 'p1');
+
+      expect(prisma.userMistake.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          source: 'puzzle',
+          puzzleId: 'p1',
+          themes: [],
+        },
+      });
+    });
+
+    it('KS-2491: тематики без mode-маркера остаются без изменений', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({ themes: 'mate fork' });
+      prisma.userMistake.findFirst.mockResolvedValue(null);
+
+      await service.recordPuzzleMistake('u1', 'p1');
+
+      expect(prisma.userMistake.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          source: 'puzzle',
+          puzzleId: 'p1',
+          themes: ['mate', 'fork'],
+        },
+      });
+    });
+
+    it('KS-2491: фильтр работает и на update-пути (existing mistake)', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        themes: 'crushing playVsEngine knightMove',
+      });
+      prisma.userMistake.findFirst.mockResolvedValue({ id: 'm-existing' });
+
+      await service.recordPuzzleMistake('u1', 'p1');
+
+      expect(prisma.userMistake.update).toHaveBeenCalledWith({
+        where: { id: 'm-existing' },
+        data: expect.objectContaining({
+          themes: ['crushing', 'knightMove'],
+        }),
+      });
+    });
   });
 
   // ─── recordGameMistake ────────────────────────────────────────────

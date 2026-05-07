@@ -44,6 +44,18 @@ export class MistakesService {
   static readonly AGGREGATE_DEFAULT_LIMIT = 20;
   static readonly AGGREGATE_MAX_LIMIT = 50;
 
+  /**
+   * KS-2491 / ADR-046 §5.1. Тех.теги-маркеры режима, которые не должны
+   * попадать в `user_mistakes.themes` (а через `getAggregates` — в UI
+   * Дневника ошибок). `playVsEngine` — это категория решения пазла,
+   * а не тематика тактики.
+   *
+   * Список расширяемый: при появлении новых режимов добавить сюда.
+   */
+  static readonly MODE_TAG_BLACKLIST: ReadonlySet<string> = new Set([
+    'playVsEngine',
+  ]);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -62,7 +74,13 @@ export class MistakesService {
       this.logger.warn(`recordPuzzleMistake: puzzle ${puzzleId} not found`);
       return;
     }
-    const themes = puzzle.themes.split(' ').filter(Boolean);
+    // KS-2491 / ADR-046 §5.1. Из `puzzle.themes` отфильтровываем
+    // тех.теги-маркеры режима (`playVsEngine` и т.д.), чтобы они не
+    // подмешивались к настоящим тематикам в Дневнике ошибок.
+    const themes = puzzle.themes
+      .split(' ')
+      .filter(Boolean)
+      .filter((t) => !MistakesService.MODE_TAG_BLACKLIST.has(t));
 
     const existing = await this.prisma.userMistake.findFirst({
       where: { userId, source: 'puzzle', puzzleId },
