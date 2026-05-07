@@ -434,6 +434,155 @@ describe('pairKey / countPairs / hasMatchStructure', () => {
   });
 });
 
+describe('KS-2474: явный tournamentFormat — сигнал высшего приоритета', () => {
+  // Регрессия: трансляция «Sardinia World Chess Festival 2026 | Open A»
+  // с форматом «9-round Swiss» классифицировалась как playoff из-за
+  // совпадения слова «Final» в имени раунда. Явный формат должен
+  // перебивать мягкие маркеры в имени.
+
+  it('"9-round Swiss" + "Round 9 | Final" → swiss (Sardinia regression)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'Round 9 | Final',
+      }),
+    ).toBe('swiss');
+  });
+
+  it('"11-round Swiss" + "Final Round" → swiss', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '11-round Swiss',
+        roundName: 'Final Round',
+      }),
+    ).toBe('swiss');
+  });
+
+  it('"Single Round Robin" + любое имя → round_robin', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Single Round Robin',
+        roundName: 'Round 3',
+      }),
+    ).toBe('round_robin');
+  });
+
+  it('"Knockout" + "Quarterfinals" → playoff (формат и эвристика согласованы)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Knockout',
+        roundName: 'Quarterfinals',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('tournamentFormat=undefined + "Quarterfinals" → playoff (старая эвристика работает)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: undefined,
+        roundName: 'Quarterfinals',
+      }),
+    ).toBe('playoff');
+  });
+
+  // ── Strict-маркеры в имени всё ещё перебивают Swiss-формат ─────────
+
+  it('"Swiss" + "Playoffs | Final" → playoff (strict-маркер сильнее)', () => {
+    // Смешанные турниры: Swiss-фаза + knockout-финал (Chess.com Open).
+    // Явный «Playoffs» в имени → playoff даже при Swiss-формате.
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'Playoffs | Final',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"Swiss" + "R16 Armageddon" → playoff (R16 — strict knockout)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'R16 Armageddon',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"Swiss" + "Round of 16" → playoff (round of N — strict)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'Round of 16',
+      }),
+    ).toBe('playoff');
+  });
+
+  // ── Knockout-форматы (явный сигнал высшего приоритета) ─────────────
+
+  it('"Single-elimination" + любое имя → playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Single-elimination',
+        roundName: 'Round 1',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"Double Elimination" + "Round 5" → playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Double Elimination',
+        roundName: 'Round 5',
+      }),
+    ).toBe('playoff');
+  });
+
+  // ── tournamentFormat имеет приоритет над broadcastFormat ───────────
+
+  it('tournamentFormat="Swiss" перебивает broadcastFormat="Knockout"', () => {
+    // На случай рассинхрона полей: явное tournamentFormat имеет
+    // приоритет.
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Swiss',
+        broadcastFormat: 'Knockout',
+        roundName: 'Round 5',
+      }),
+    ).toBe('swiss');
+  });
+
+  // ── Структурный сигнал по-прежнему перебивает Swiss-формат ─────────
+
+  it('Swiss-формат + структура match (две партии пары) → playoff (сохранено)', () => {
+    // Тот же сценарий, что и в существующем тесте «две партии у одной
+    // пары»: смешанные knockout-стадии в Swiss-турнирах детектятся
+    // структурой даже без явного knockout-маркера в имени.
+    const games = [
+      { whitePlayer: 'A', blackPlayer: 'B' },
+      { whitePlayer: 'B', blackPlayer: 'A' },
+      { whitePlayer: 'C', blackPlayer: 'D' },
+    ];
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'Day 3',
+        games,
+      }),
+    ).toBe('playoff');
+  });
+
+  // ── isTeamTournament + tournamentFormat ────────────────────────────
+
+  it('team Swiss + "Final Match Day 1" → swiss (KS-2474 + KS-1847)', () => {
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: 'Team Swiss',
+        roundName: 'Final Match Day 1',
+        isTeamTournament: true,
+      }),
+    ).toBe('swiss');
+  });
+});
+
 describe('KS-2212: round-robin format отключает structureSaysMatch', () => {
   // Lichess создаёт placeholder-игры за день до тура, затем новые lichessGameId
   // для реальных партий. Одна пара встречается ≥ 2 раз в broadcast_games —

@@ -22,8 +22,21 @@ import type { BroadcastRoundTournamentType } from '@kingside/shared';
 export interface DetectRoundInput {
   /** `BroadcastRound.name`. */
   roundName: string;
-  /** `Broadcast.format` (или null, если не пришёл с Lichess). */
+  /**
+   * `Broadcast.format` (или null, если не пришёл с Lichess). Алиас
+   * `tournamentFormat` для совместимости с явной семантикой «формат
+   * турнира» (KS-2474). Если переданы оба — приоритет у
+   * `tournamentFormat`.
+   */
   broadcastFormat?: string | null;
+  /**
+   * KS-2474: явный формат турнира (тот же `Broadcast.format`, но с
+   * именем, отражающим семантику высшего приоритета). Если содержит
+   * однозначные маркеры (`Swiss`, `Round Robin`, `Knockout`,
+   * `Single-/Double-elimination`), эвристика по названию раунда не
+   * перебивает его. Алиас для `broadcastFormat`.
+   */
+  tournamentFormat?: string | null;
   /**
    * Пары игроков в раунде. Порядок пары не важен — классификатор
    * нормализует через сортировку внутри пары. Пустой массив допустим
@@ -76,7 +89,9 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Строгий whitelist knockout-маркеров для команд-турниров (KS-1847).
+ * Строгий whitelist knockout-маркеров для команд-турниров (KS-1847)
+ * и для случаев, когда явный формат турнира противоречит мягкой
+ * эвристике имени (KS-2474).
  *
  * В team-форматах `finals/championship/winners/losers/grand final` —
  * часть обычного регламента (Bundesliga «Championship Round 5»,
@@ -85,9 +100,15 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
  * team-контексте как нейтральные бренды: явные «play-off / knockout /
  * bracket / semi-/quarter-final / round of N / R\d+ / QF / SF / armageddon».
  *
+ * Тот же набор используется в шаге 2 общего детектора (KS-2474):
+ * только эти маркеры могут перебить явный `Swiss` / `Round Robin`
+ * формат — слабые сигналы вроде `\bfinals?\b` не должны переписывать
+ * швейцарку (трансляция «Sardinia Open A», «9-round Swiss» с раундом
+ * «Final Round»).
+ *
  * Из индивидуального списка `PLAYOFF_NAME_PATTERNS` убраны:
  *   `finals?`, `grand final`, `championship`, `winners?`, `losers?`,
- *   `tie-?break` — могут быть частью team-регламента.
+ *   `tie-?break` — могут быть частью team-регламента или швейцарки.
  *   Одиночная `F` — слишком широкое (`Final` само по себе неоднозначно
  *   в team-контексте).
  */
@@ -105,6 +126,21 @@ const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
 
 const SWISS_PATTERN = /\bswiss\b/i;
 const ROUND_ROBIN_PATTERN = /\bround[- ]?robin\b/i;
+/**
+ * KS-2474: маркеры явного knockout-формата на уровне всего турнира.
+ * Lichess/chess-results выдают такие строки в `tour.format`:
+ *   «Knockout», «Single-elimination», «Double-elimination»,
+ *   «Swiss-Knockout» (Champions Chess Tour). При наличии любого из
+ *   них в `tournamentFormat`/`broadcastFormat` детектор без оглядок
+ *   возвращает `playoff` — этот сигнал согласован со структурой
+ *   knockout-сетки и должен иметь высший приоритет.
+ *
+ * `Elimination` (без префикса) в практике встречается только как
+ * часть `single-/double-elimination`, поэтому `\belimination\b`
+ * достаточно покрывает оба варианта.
+ */
+const KNOCKOUT_FORMAT_PATTERN =
+  /\b(?:knock[- ]?out|elimination|single[- ]?elim|double[- ]?elim)\b/i;
 
 /**
  * Нормализует имя игрока для сравнения пар. Lichess иногда возвращает
@@ -167,64 +203,90 @@ function roundNameLooksLikePlayoff(name: string): boolean {
 }
 
 /**
- * Строгий матчинг по названию раунда — для командных турниров (KS-1847).
- * Видит только однозначные knockout-маркеры.
+ * Строгий матчинг по названию раунда — для командных турниров (KS-1847)
+ * и для override явного формата (KS-2474).
  */
 function roundNameLooksLikePlayoffStrict(name: string): boolean {
   return STRICT_PLAYOFF_PATTERNS.some((re) => re.test(name));
 }
 
 /**
- * Итоговый детект. Порядок:
- *   1. playoff-сигналы — knockout-ключевики в названии ИЛИ структура
- *      «одни и те же пары в нескольких партиях» (≥ 2).
- *   2. Явный swiss в формате/названии → `swiss`.
- *   3. Явный round-robin → `round_robin`.
- *   4. `unknown` — fallback.
+ * Итоговый детект (порядок применения):
  *
- * Ключевая особенность: если есть структурный признак match-а, даже
- * при `format = "9-round Swiss"` считаем раунд плей-оффом — бывают
- * турниры, где Swiss-основа и knockout-финал объединены (пример в
- * тикете: «2026 Chess.com Open | Playoffs | Winners»).
+ *   1. **Явный knockout-формат** (`tournamentFormat`/`broadcastFormat`
+ *      содержит `Knockout`/`elimination`) → `playoff` без оглядки на
+ *      имя. Lichess/chess-results проставляют это поле осознанно —
+ *      доверяем больше любых других сигналов (KS-2474).
  *
- * KS-1847: для командных турниров (`isTeamTournament=true`) применяется
- * строгий whitelist `STRICT_PLAYOFF_PATTERNS` (без `finals`/
- * `championship`/`winners`/`losers`/`grand_final`/tie-break — они часть
- * team-регламента, не knockout-маркеры), и игнорируется структурный
- * сигнал `hasMatchStructure` (двухкруговка между командами ложно
- * триггерила playoff).
+ *   2. **Strict knockout-маркеры в имени** (`Playoffs`, `Knockout`,
+ *      `Bracket`, `Semi-/Quarter-final`, `Round of N`, `R\d+`, `QF`/
+ *      `SF`, `Armageddon`) → `playoff`. Эти однозначные ключевики
+ *      перебивают даже явный Swiss/Round Robin формат — встречаются
+ *      смешанные турниры (Chess.com Open: Swiss-фаза + knockout-фаза).
+ *
+ *   3. **Структурный сигнал** «одни и те же пары в нескольких партиях»
+ *      → `playoff`. Отключён для team-турниров (KS-1847) и для явного
+ *      round-robin формата (KS-2212), где Lichess создаёт placeholder-
+ *      игры, ложно триггерящие сигнал.
+ *
+ *   4. **Явный Swiss/Round Robin формат** → `swiss`/`round_robin`
+ *      (KS-2474). Перебивает мягкие маркеры в имени (`Final Round`,
+ *      `Championship Day`, `Winners Group`, `Tiebreak`) — Lichess
+ *      выдаёт «9-round Swiss» осознанно для всей трансляции.
+ *
+ *   5. **Полный whitelist в имени** (`Final`, `Championship`,
+ *      `Winners`, `Losers`, `Grand Final`, `Tiebreak`) — старая
+ *      эвристика. Применяется только для одиночных турниров
+ *      (`isTeamTournament !== true`) и только если до 4 шага мы
+ *      не приняли решения. Для team — strict whitelist в шаге 2 уже
+ *      исчерпывает knockout-маркеры.
+ *
+ *   6. **Swiss/Round Robin в имени** → `swiss`/`round_robin` (если
+ *      формат пуст).
+ *
+ *   7. `unknown` — fallback.
  */
 export function detectRoundTournamentType(
   input: DetectRoundInput,
 ): BroadcastRoundTournamentType {
   const name = (input.roundName ?? '').trim();
-  const format = (input.broadcastFormat ?? '').trim();
+  // KS-2474: `tournamentFormat` имеет приоритет над `broadcastFormat`,
+  // если переданы оба. По смыслу — одно и то же поле, новый алиас
+  // вводится только для семантической ясности в callsite-ах.
+  const format = (
+    input.tournamentFormat ??
+    input.broadcastFormat ??
+    ''
+  ).trim();
   const games = input.games ?? [];
   const isTeam = input.isTeamTournament === true;
 
-  const nameSaysPlayoff = isTeam
-    ? roundNameLooksLikePlayoffStrict(name)
-    : roundNameLooksLikePlayoff(name);
-  // Для команд-турниров структурный сигнал отключён — см. доку к
-  // `isTeamTournament` в `DetectRoundInput`.
-  //
-  // KS-2212: для явного round-robin формата структурный сигнал тоже
-  // ненадёжен. Lichess создаёт placeholder-игры за день до тура, затем
-  // новые lichessGameId для реальных партий — в итоге одна и та же пара
-  // встречается ≥ 2 раз в `broadcast_games`, что вызывало ложное
-  // `hasMatchStructure = true` → 'playoff' для обычных round-robin
-  // туров (пример: Sigeman 2026, Round 2).
-  // Если format явно указывает round-robin, доверяем ему, а не структуре.
+  // 1. Явный knockout-формат имеет высший приоритет.
+  if (KNOCKOUT_FORMAT_PATTERN.test(format)) return 'playoff';
+
+  // 2. Strict knockout-маркеры в имени перебивают любой формат
+  // (смешанные турниры: Swiss + knockout-финал, Chess.com Open).
+  if (roundNameLooksLikePlayoffStrict(name)) return 'playoff';
+
+  // 3. Структурный сигнал. Отключён для team (KS-1847) и для явного
+  // round-robin формата (KS-2212).
   const formatIsRoundRobin = ROUND_ROBIN_PATTERN.test(format);
   const structureSaysMatch =
     !isTeam && !formatIsRoundRobin && hasMatchStructure(games);
+  if (structureSaysMatch) return 'playoff';
 
-  if (nameSaysPlayoff || structureSaysMatch) return 'playoff';
+  // 4. Явный Swiss/RR формат перебивает мягкие маркеры имени
+  // (KS-2474: «Final Round» в «9-round Swiss» — это всё ещё швейцарка).
+  if (formatIsRoundRobin) return 'round_robin';
+  if (SWISS_PATTERN.test(format)) return 'swiss';
 
-  // После плей-оффа идёт либо явный swiss/rr, либо unknown.
-  // Критерий — любой из источников: название раунда или format.
-  const combined = `${name} ${format}`;
-  if (ROUND_ROBIN_PATTERN.test(combined)) return 'round_robin';
-  if (SWISS_PATTERN.test(combined)) return 'swiss';
+  // 5. Полный whitelist в имени — только для одиночных турниров.
+  // Для team шаг 2 (strict) — единственный источник playoff.
+  if (!isTeam && roundNameLooksLikePlayoff(name)) return 'playoff';
+
+  // 6. Swiss/RR в имени (формата нет).
+  if (ROUND_ROBIN_PATTERN.test(name)) return 'round_robin';
+  if (SWISS_PATTERN.test(name)) return 'swiss';
+
   return 'unknown';
 }

@@ -760,9 +760,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // применяет строгий whitelist knockout-маркеров и игнорирует
     // структурный сигнал, чтобы Bundesliga / team-championship не
     // детектились как playoff по словам `final`/`championship`.
+    // KS-2474: явный формат (`broadcast.format`, например «9-round Swiss»)
+    // имеет высший приоритет над эвристикой имени раунда — иначе
+    // швейцарка с раундом «Final Round» ложно классифицируется как
+    // playoff. Передаём дополнительно как `tournamentFormat` для
+    // явной семантики в callsite-е.
     const tournamentType = detectRoundTournamentType({
       roundName: round.name,
       broadcastFormat: broadcast.format,
+      tournamentFormat: broadcast.format,
       isTeamTournament: broadcast.teamTable,
     });
     const upserted = await this.prisma.broadcastRound.upsert({

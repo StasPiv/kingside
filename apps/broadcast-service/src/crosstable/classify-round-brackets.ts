@@ -47,7 +47,11 @@ export async function classifyRoundBrackets(
 
   const detectInput: DetectRoundInput = {
     roundName: round.name,
+    // KS-2474: пробрасываем формат и под старым `broadcastFormat`, и
+    // под новым `tournamentFormat` — детектор использует второй как
+    // сигнал высшего приоритета над эвристикой имени.
     broadcastFormat: round.broadcast.format,
+    tournamentFormat: round.broadcast.format,
     isTeamTournament: round.broadcast.teamTable,
     games: round.games.map((g) => ({
       whitePlayer: g.whitePlayer,
