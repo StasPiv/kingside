@@ -1278,7 +1278,12 @@
     "loadError": "Не удалось загрузить пазлы.",
     "openPuzzle": "Открыть пазл",
     "backToAll": "Все пазлы",
-    "cardTitle": "#{{id}}"
+    "cardTitle": "#{{id}}",
+    "stats": {
+      "totalAttempted": "Попыток",
+      "totalSolved": "Решено",
+      "lastAttempt": "Последняя"
+    }
   },
   "puzzleStats": {
     "recentAttempts": "Недавние попытки",

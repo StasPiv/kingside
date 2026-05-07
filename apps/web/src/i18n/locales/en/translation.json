@@ -1264,7 +1264,12 @@
     "loadError": "Could not load puzzles.",
     "openPuzzle": "Open puzzle",
     "backToAll": "All puzzles",
-    "cardTitle": "#{{id}}"
+    "cardTitle": "#{{id}}",
+    "stats": {
+      "totalAttempted": "Attempts",
+      "totalSolved": "Solved",
+      "lastAttempt": "Last attempt"
+    }
   },
   "puzzleStats": {
     "recentAttempts": "Recent Attempts",

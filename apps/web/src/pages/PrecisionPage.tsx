@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
+import type { PuzzleStatsByMode } from '@kingside/shared';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * KS-2484 (ADR-044) — список play-vs-engine пазлов.
@@ -56,14 +58,44 @@ function sideFromFen(fen: string): 'white' | 'black' {
 // KS-2542 (ADR-048): компонент переименован `PlayVsEnginePuzzlesPage`
 // → `PrecisionPage` после переезда на роут `/precision`. Внутренние
 // CSS-классы и testid'ы пока сохраняем — они не часть API.
+
+/**
+ * KS-2545 / ADR-048 §6: top-блок stats на главной /precision.
+ * Источники:
+ *  - `byMode['play-vs-engine']` из `GET /puzzles/stats/me` (KS-2493) —
+ *    `attempts` (totalAttempted) и `solved` (totalSolved).
+ *  - Последняя попытка в режиме play-vs-engine — из `GET /puzzles/attempts`
+ *    (KS-2494). Берём первый attempt с `puzzle.solutionMode === 'play-vs-engine'`
+ *    (бэкенд сортирует по `createdAt desc`). `null` если попыток нет.
+ *
+ * `byMode['play-vs-engine']` — внутренний API-маркер, не меняется
+ * (KS-2544 i18n переименование не затрагивает контракты бэка).
+ */
+interface PrecisionStatsState {
+  totalAttempted: number;
+  totalSolved: number;
+  lastAttemptAt: string | null;
+}
+
+interface PuzzleStatsMeResponse {
+  byMode?: PuzzleStatsByMode;
+}
+
+interface AttemptListItem {
+  createdAt: string;
+  puzzle?: { solutionMode?: 'forced-line' | 'play-vs-engine' };
+}
+
 export function PrecisionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [puzzles, setPuzzles] = useState<PlayVsEnginePuzzleDto[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error'>(
     'loading',
   );
+  const [stats, setStats] = useState<PrecisionStatsState | null>(null);
 
   const fetchPuzzles = useCallback(async () => {
     setState('loading');
@@ -80,9 +112,41 @@ export function PrecisionPage() {
     }
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    if (!user) {
+      setStats(null);
+      return;
+    }
+    try {
+      const [statsRes, attemptsRes] = await Promise.all([
+        api.get<PuzzleStatsMeResponse>('/puzzles/stats/me').catch(() => null),
+        api
+          .get<AttemptListItem[]>('/puzzles/attempts?take=20&skip=0')
+          .catch(() => [] as AttemptListItem[]),
+      ]);
+      const mode = statsRes?.byMode?.['play-vs-engine'];
+      const attempts = Array.isArray(attemptsRes) ? attemptsRes : [];
+      const lastPve =
+        attempts.find(
+          (a) => a.puzzle?.solutionMode === 'play-vs-engine',
+        ) ?? null;
+      setStats({
+        totalAttempted: mode?.attempts ?? 0,
+        totalSolved: mode?.solved ?? 0,
+        lastAttemptAt: lastPve ? lastPve.createdAt : null,
+      });
+    } catch {
+      setStats(null);
+    }
+  }, [user]);
+
   useEffect(() => {
     void fetchPuzzles();
   }, [fetchPuzzles]);
+
+  useEffect(() => {
+    void fetchStats();
+  }, [fetchStats]);
 
   return (
     <div
@@ -103,6 +167,53 @@ export function PrecisionPage() {
             ← {t('precision.backToAll', 'All puzzles')}
           </Link>
         </div>
+        {/* KS-2545 / ADR-048 §6: top-блок stats. Видим только
+            аутентифицированному юзеру (gate `user`) — гостям API
+            возвращает 401 и stats будет null. */}
+        {user && stats && (
+          <div
+            className="precision-stats"
+            data-testid="precision-stats"
+            data-attempts={String(stats.totalAttempted)}
+            data-solved={String(stats.totalSolved)}
+          >
+            <div
+              className="precision-stats__cell"
+              data-testid="precision-stats-attempted"
+            >
+              <div className="precision-stats__value">
+                {stats.totalAttempted}
+              </div>
+              <div className="precision-stats__label">
+                {t('precision.stats.totalAttempted', 'Attempts')}
+              </div>
+            </div>
+            <div
+              className="precision-stats__cell"
+              data-testid="precision-stats-solved"
+            >
+              <div className="precision-stats__value">
+                {stats.totalSolved}
+              </div>
+              <div className="precision-stats__label">
+                {t('precision.stats.totalSolved', 'Solved')}
+              </div>
+            </div>
+            <div
+              className="precision-stats__cell"
+              data-testid="precision-stats-last-attempt"
+            >
+              <div className="precision-stats__value">
+                {stats.lastAttemptAt
+                  ? new Date(stats.lastAttemptAt).toLocaleDateString()
+                  : '—'}
+              </div>
+              <div className="precision-stats__label">
+                {t('precision.stats.lastAttempt', 'Last attempt')}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {state === 'loading' && (

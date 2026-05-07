@@ -2414,6 +2414,37 @@ body:has(.puzzle-rush-board) {
   margin-bottom: 20px;
 }
 
+/* KS-2545 / ADR-048 §6: top-блок stats на /precision. Минимальная
+   разметка — финал в KS-2548 (layout). */
+.precision-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 20px 0;
+  padding: 12px 16px;
+  background: var(--c-1e293b);
+  border-radius: 6px;
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+}
+.precision-stats__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 80px;
+}
+.precision-stats__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-e2e8f0);
+  font-variant-numeric: tabular-nums;
+}
+.precision-stats__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--c-94a3b8);
+}
+
 .play-vs-engine-puzzles__back-link {
   color: var(--accent-primary, #7c83ff);
   text-decoration: none;

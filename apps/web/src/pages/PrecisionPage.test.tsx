@@ -36,6 +36,17 @@ vi.mock('../api', () => ({
   },
 }));
 
+// KS-2545: PrecisionPage теперь использует `useAuth` для gate'а
+// stats-блока. Глобально мокаем гостя; в KS-2545-тестах внутри describe
+// переопределяем на пользователя через `authValue`.
+const authValue: { user: { id: string; username: string } | null } = {
+  user: null,
+};
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: authValue.user, loading: false }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 import { PrecisionPage } from './PrecisionPage';
 
 const SAMPLE = [
@@ -67,6 +78,7 @@ const SAMPLE = [
 beforeEach(() => {
   apiGet.mockReset();
   mockNavigate.mockReset();
+  authValue.user = null;
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -153,5 +165,158 @@ describe('<PrecisionPage> KS-2484', () => {
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
       ).toBe('ready'),
     );
+  });
+
+  it('гость (user=null) → stats-блок НЕ рендерится', async () => {
+    apiGet.mockResolvedValueOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
+      ).toBe('ready'),
+    );
+    expect(screen.queryByTestId('precision-stats')).toBeNull();
+  });
+});
+
+describe('<PrecisionPage> KS-2545 — stats-блок', () => {
+  it('рендерит totalAttempted/totalSolved/lastAttemptAt из API', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    // Маршрутизация по URL: puzzles list, stats/me, attempts list.
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
+        return Promise.resolve(SAMPLE);
+      }
+      if (url === '/puzzles/stats/me') {
+        return Promise.resolve({
+          byMode: {
+            'forced-line': {
+              attempts: 30,
+              solved: 20,
+              accuracy: 67,
+              avgRating: 1500,
+              avgTimeMs: 12000,
+            },
+            'play-vs-engine': {
+              attempts: 12,
+              solved: 7,
+              accuracy: 58,
+              avgRating: 1980,
+              avgTimeMs: 32000,
+            },
+          },
+        });
+      }
+      if (url === '/puzzles/attempts?take=20&skip=0') {
+        return Promise.resolve([
+          // Свежий attempt forced-line — должны его пропустить.
+          {
+            createdAt: '2026-05-06T10:00:00Z',
+            puzzle: { solutionMode: 'forced-line' },
+          },
+          // Первый PvE — он и должен быть «последним».
+          {
+            createdAt: '2026-05-05T15:00:00Z',
+            puzzle: { solutionMode: 'play-vs-engine' },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    renderWithProviders(<PrecisionPage />);
+    const block = await waitFor(() => {
+      const el = screen.queryByTestId('precision-stats');
+      if (!el) throw new Error('stats not yet rendered');
+      return el;
+    });
+    expect(block.getAttribute('data-attempts')).toBe('12');
+    expect(block.getAttribute('data-solved')).toBe('7');
+    expect(
+      screen.getByTestId('precision-stats-attempted').textContent,
+    ).toMatch(/12/);
+    expect(screen.getByTestId('precision-stats-solved').textContent).toMatch(
+      /7/,
+    );
+    // lastAttemptAt — рендерится через `toLocaleDateString`, проверяем
+    // что это не «—» (значит дата подставилась).
+    const lastEl = screen.getByTestId('precision-stats-last-attempt');
+    expect(lastEl.textContent).not.toMatch(/—/);
+  });
+
+  it('user без play-vs-engine attempts → lastAttemptAt = «—»', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
+        return Promise.resolve([]);
+      }
+      if (url === '/puzzles/stats/me') {
+        return Promise.resolve({
+          byMode: {
+            'forced-line': {
+              attempts: 5,
+              solved: 4,
+              accuracy: 80,
+              avgRating: 1500,
+              avgTimeMs: 10000,
+            },
+            'play-vs-engine': {
+              attempts: 0,
+              solved: 0,
+              accuracy: 0,
+              avgRating: null,
+              avgTimeMs: 0,
+            },
+          },
+        });
+      }
+      if (url === '/puzzles/attempts?take=20&skip=0') {
+        return Promise.resolve([
+          {
+            createdAt: '2026-05-06T10:00:00Z',
+            puzzle: { solutionMode: 'forced-line' },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    renderWithProviders(<PrecisionPage />);
+    const block = await waitFor(() => {
+      const el = screen.queryByTestId('precision-stats');
+      if (!el) throw new Error('stats not yet rendered');
+      return el;
+    });
+    expect(block.getAttribute('data-attempts')).toBe('0');
+    expect(block.getAttribute('data-solved')).toBe('0');
+    expect(
+      screen.getByTestId('precision-stats-last-attempt').textContent,
+    ).toMatch(/—/);
+  });
+
+  it('stats/me падает → блок рендерится с нулями (graceful)', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/puzzles?solutionMode=play-vs-engine&limit=20') {
+        return Promise.resolve(SAMPLE);
+      }
+      if (url === '/puzzles/stats/me') {
+        return Promise.reject(new Error('500'));
+      }
+      if (url === '/puzzles/attempts?take=20&skip=0') {
+        return Promise.reject(new Error('500'));
+      }
+      return Promise.resolve([]);
+    });
+    renderWithProviders(<PrecisionPage />);
+    const block = await waitFor(() => {
+      const el = screen.queryByTestId('precision-stats');
+      if (!el) throw new Error('stats not yet rendered');
+      return el;
+    });
+    // Оба запроса упали через `.catch` → fetchStats положил нули.
+    expect(block.getAttribute('data-attempts')).toBe('0');
+    expect(block.getAttribute('data-solved')).toBe('0');
+    expect(
+      screen.getByTestId('precision-stats-last-attempt').textContent,
+    ).toMatch(/—/);
   });
 });
