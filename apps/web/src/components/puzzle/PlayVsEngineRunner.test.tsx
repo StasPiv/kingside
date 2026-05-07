@@ -330,9 +330,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(hint.textContent).toMatch(/best move was|лучше было/i);
   });
 
-  it('KS-2505: userBestLog snapshot содержит cpBefore (cp-оценка POV user)', async () => {
-    // pre-analyze cp=+50 → user сделает ход → lose → подсказка с
-    // data-cp-before="50".
+  it('KS-2505/2506: userBestLog snapshot содержит cpBefore и cpAfter POV user', async () => {
+    // pre-analyze cp=+50 (POV user) → cpBefore=50.
+    // post-analyze cp=+800 (POV opponent, ходит engine после user-хода)
+    //   → cpAfter POV user = -800. wdl_engine = +0.88, wdl_user = -0.88
+    //   < failThreshold=0.1 → lose-wdl.
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -361,9 +363,62 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       if (!el || el.getAttribute('data-kind') !== 'user') {
         throw new Error('user hint not yet rendered');
       }
+      // Дожидаемся, пока КАК pre-analyze, так и post-analyze допишут поля.
+      if (
+        el.getAttribute('data-cp-before') === '' ||
+        el.getAttribute('data-cp-after') === ''
+      ) {
+        throw new Error('cp fields not yet populated');
+      }
       return el;
     });
     expect(hint.getAttribute('data-cp-before')).toBe('50');
+    // KS-2506: знак инвертирован (engine cp +800 → user cp −800).
+    expect(hint.getAttribute('data-cp-after')).toBe('-800');
+  });
+
+  it('KS-2506: post-analyze mate (engine матует юзера) → cpAfter = −100000', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    // pre cp=+50 (для покрытия cpBefore=50).
+    // post mate=+2 (POV engine — engine матует за 2) → wdl_engine=+1,
+    //   wdl_user=-1 < failThreshold → lose-wdl.
+    //   cpAfter POV user = −cpFromScore(mate +2) = −100000.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'mate', value: 2 }, ['d7d5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    const hint = await waitFor(() => {
+      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
+      if (!el || el.getAttribute('data-kind') !== 'user') {
+        throw new Error('user hint not yet rendered');
+      }
+      if (
+        el.getAttribute('data-cp-before') === '' ||
+        el.getAttribute('data-cp-after') === ''
+      ) {
+        throw new Error('cp fields not yet populated');
+      }
+      return el;
+    });
+    expect(hint.getAttribute('data-cp-after')).toBe('-100000');
   });
 
   it('KS-2505: mate-оценка в pre-analyze → cpBefore = +100000', async () => {

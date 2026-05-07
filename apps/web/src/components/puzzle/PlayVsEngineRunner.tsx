@@ -103,6 +103,16 @@ type UserBestSnapshot = {
    * грейсфолить (KS-2506+).
    */
   cpBefore: number | null;
+  /**
+   * KS-2506 / ADR-047 §3 #3. cp-оценка позиции ПОСЛЕ хода юзера POV
+   * юзера. На post-analyze FEN ходит соперник → score движка POV
+   * соперника, поэтому ИНВЕРТИРУЕМ знак: `cpAfter_user = -cpAfter_opp`.
+   * Записывается в `runEngineCycle` после первого analyze. null —
+   * post-analyze упал / завершился до записи (race с pre-analyze
+   * исключён: post-analyze всегда позже создания snapshot'а в
+   * pre-analyze, и оба идут через тот же queueAnalyze).
+   */
+  cpAfter: number | null;
 };
 
 /**
@@ -401,6 +411,19 @@ export function PlayVsEngineRunner({
         },
       ]);
 
+      // KS-2506: cpAfter POV юзера = −cp(score) POV соперника. Дописываем
+      // в snapshot, созданный pre-analyze'ом. Pre-analyze идёт через
+      // тот же queueAnalyze раньше post-analyze, так что snapshot обычно
+      // уже на месте; если по какой-то причине pre-analyze упал и
+      // snapshot отсутствует — просто молча пропускаем (cpAfter останется
+      // вне лога; downstream-классификатор грейсфолит на null).
+      const cpAfterUser = -cpFromScore(best.score);
+      setUserBestLog((prev) =>
+        prev.map((s) =>
+          s.halfMove === halfAfterUser ? { ...s, cpAfter: cpAfterUser } : s,
+        ),
+      );
+
       // 2) Терминальные ситуации до хода движка.
       if (after.isCheckmate()) {
         // Side-to-move (engine) получил мат от пользователя.
@@ -537,6 +560,9 @@ export function PlayVsEngineRunner({
                 playedUci,
                 bestUci: preBest.pv[0],
                 cpBefore,
+                // KS-2506: cpAfter дописывается из runEngineCycle после
+                // post-analyze; до этого момента — null.
+                cpAfter: null,
               },
             ]);
           }
@@ -682,6 +708,9 @@ export function PlayVsEngineRunner({
         // KS-2505: cp оценки позиции до хода (POV user). null если
         // pre-analyze не успел.
         cpBefore: lastUser.cpBefore,
+        // KS-2506: cp оценки позиции после хода (POV user). null если
+        // post-analyze не дошёл (например, тест без post-analyze).
+        cpAfter: lastUser.cpAfter,
         kind: 'user' as const,
       };
     }
@@ -694,6 +723,7 @@ export function PlayVsEngineRunner({
       played: '',
       best: last.bestUci,
       cpBefore: null,
+      cpAfter: null,
       kind: 'engine' as const,
     };
   }, [state, userBestLog, bestmoveLog]);
@@ -797,6 +827,11 @@ export function PlayVsEngineRunner({
                     bestmoveHint.cpBefore == null
                       ? ''
                       : String(bestmoveHint.cpBefore)
+                  }
+                  data-cp-after={
+                    bestmoveHint.cpAfter == null
+                      ? ''
+                      : String(bestmoveHint.cpAfter)
                   }
                 >
                   {bestmoveHint.kind === 'user'
