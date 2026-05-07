@@ -66,27 +66,11 @@ export interface PlayVsEngineRunnerProps {
 
 type RunnerState = 'thinking' | 'evaluating' | 'engine' | 'win' | 'lose' | 'error';
 
-type BestmoveSnapshot = {
-  /** Полуход, на котором сделан анализ (1..N). */
-  halfMove: number;
-  /** Чей ход был при этом анализе (FEN side-to-move). */
-  sideToMove: 'w' | 'b';
-  bestUci: string;
-  /**
-   * KS-2471: FEN, на котором движок считал bestmove. Нужен для UCI→SAN
-   * конвертации в post-mortem. Сохраняется именно тот fen, к которому
-   * применим UCI напрямую (т.е. до хода).
-   */
-  fen: string;
-  /** WDL_signed POV side-to-move (то, что вернул движок). */
-  wdlPov: number;
-};
-
 /**
  * KS-2473: лучший ход юзера на полуходе. PV1 от движка В ПОЗИЦИИ ДО
- * user-хода (т.е. там, где ходит юзер). В отличие от `BestmoveSnapshot`,
- * который содержит «лучший ответ движка после хода юзера», эта
- * структура — для post-mortem-подсказки «ты сыграл X, лучше было Y».
+ * user-хода (т.е. там, где ходит юзер). KS-2509: единственный лог,
+ * нужный для post-mortem (PostGameReview); старый `BestmoveSnapshot`
+ * (engine-ответы) упразднён вместе с inline-bestmoveHint.
  */
 export type UserBestSnapshot = {
   halfMove: number;
@@ -260,11 +244,6 @@ export function PlayVsEngineRunner({
   const [latestWdlUser, setLatestWdlUser] = useState<number>(params.wdlAfterBlunder);
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
   /**
-   * Все engine bestmove'ы по полуходам — для post-mortem-подсказки
-   * («лучший ход на ходу X был …»). KS-2466 §4.
-   */
-  const [bestmoveLog, setBestmoveLog] = useState<BestmoveSnapshot[]>([]);
-  /**
    * KS-2473: лог «лучшего хода юзера» в позиции ДО user-move. Заполняется
    * pre-analyze'ом параллельно с engine-ответом, см. `onPieceDrop`.
    */
@@ -397,20 +376,9 @@ export function PlayVsEngineRunner({
         return;
       }
       setEvalLines(toEvalLines(result));
-      const sideAfterUser = sideFromFen(after.fen()); // != userSide
       const wdlEngine = scoreToWdlSigned(best.score);
       const wdlUser = -wdlEngine;
       setLatestWdlUser(wdlUser);
-      setBestmoveLog((prev) => [
-        ...prev,
-        {
-          halfMove: halfAfterUser,
-          sideToMove: sideAfterUser,
-          bestUci: best.pv[0],
-          fen: after.fen(),
-          wdlPov: wdlEngine,
-        },
-      ]);
 
       // KS-2506: cpAfter POV юзера = −cp(score) POV соперника. Дописываем
       // в snapshot, созданный pre-analyze'ом. Pre-analyze идёт через
@@ -639,7 +607,6 @@ export function PlayVsEngineRunner({
     setEvalLines([]);
     setLatestWdlUser(params.wdlAfterBlunder);
     setReason(null);
-    setBestmoveLog([]);
     setUserBestLog([]);
     // KS-2486 reopen: сброс SAN-лога при смене drill'а.
     setPlayedSans([]);
@@ -767,47 +734,10 @@ export function PlayVsEngineRunner({
     }
   };
 
-  // KS-2473 / KS-2471: post-mortem-подсказка показывает «ты сыграл X,
-  // лучше было Y», где Y — PV1 в позиции ДО хода юзера (`userBestLog`,
-  // KS-2473), а не «лучший ответ движка после хода юзера» (старое
-  // поведение из bestmoveLog). Если pre-analyze ещё не пришёл (фон
-  // не успел до win/lose) — fallback на bestmoveLog (engine-reply),
-  // чтобы пользователь хоть что-то увидел.
-  const bestmoveHint = useMemo(() => {
-    if (state !== 'win' && state !== 'lose') return null;
-    const lastUser = userBestLog[userBestLog.length - 1];
-    if (lastUser) {
-      const playedSan = uciToSan(lastUser.playedUci, lastUser.fenBefore);
-      const bestSan = uciToSan(lastUser.bestUci, lastUser.fenBefore);
-      return {
-        halfMove: lastUser.halfMove,
-        playedSan,
-        bestSan,
-        // True если юзер сыграл оптимально (played == best или одинаковый SAN).
-        played: lastUser.playedUci,
-        best: lastUser.bestUci,
-        // KS-2505: cp оценки позиции до хода (POV user). null если
-        // pre-analyze не успел.
-        cpBefore: lastUser.cpBefore,
-        // KS-2506: cp оценки позиции после хода (POV user). null если
-        // post-analyze не дошёл (например, тест без post-analyze).
-        cpAfter: lastUser.cpAfter,
-        kind: 'user' as const,
-      };
-    }
-    if (!bestmoveLog.length) return null;
-    const last = bestmoveLog[bestmoveLog.length - 1];
-    return {
-      halfMove: last.halfMove,
-      playedSan: '',
-      bestSan: uciToSan(last.bestUci, last.fen),
-      played: '',
-      best: last.bestUci,
-      cpBefore: null,
-      cpAfter: null,
-      kind: 'engine' as const,
-    };
-  }, [state, userBestLog, bestmoveLog]);
+  // KS-2509 / ADR-047 §3 #6: блок `bestmoveHint` (показывал только
+  // последний ход) полностью заменён на `<PostGameReview>` — там
+  // полный список ходов с cp-loss классификацией. JSX рендерится
+  // ниже в win/lose-блоке.
 
   // KS-2471: blunder в SAN.
   const blunderSan = useMemo(
@@ -900,43 +830,6 @@ export function PlayVsEngineRunner({
               <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
                 {reasonLabel(reason)}
               </div>
-              {bestmoveHint && (
-                <div
-                  className="puzzle-engine-runner__bestmove-hint"
-                  data-testid="puzzle-engine-bestmove-hint"
-                  data-kind={bestmoveHint.kind}
-                  data-cp-before={
-                    bestmoveHint.cpBefore == null
-                      ? ''
-                      : String(bestmoveHint.cpBefore)
-                  }
-                  data-cp-after={
-                    bestmoveHint.cpAfter == null
-                      ? ''
-                      : String(bestmoveHint.cpAfter)
-                  }
-                >
-                  {bestmoveHint.kind === 'user'
-                    ? bestmoveHint.played === bestmoveHint.best
-                      ? t('puzzle.engine.bestmoveAt', 'Best move at half-move {{n}}: {{san}}', {
-                          n: bestmoveHint.halfMove,
-                          san: bestmoveHint.bestSan,
-                        })
-                      : t(
-                          'puzzle.engine.bestmoveDiff',
-                          'You played {{played}} on half-move {{n}}, the best move was {{best}}',
-                          {
-                            n: bestmoveHint.halfMove,
-                            played: bestmoveHint.playedSan,
-                            best: bestmoveHint.bestSan,
-                          },
-                        )
-                    : t('puzzle.engine.bestmoveAt', 'Best move at half-move {{n}}: {{san}}', {
-                        n: bestmoveHint.halfMove,
-                        san: bestmoveHint.bestSan,
-                      })}
-                </div>
-              )}
               <div className="puzzle-engine-runner__final-wdl">
                 {t('puzzle.engine.finalWdl', 'Final WDL')}: {latestWdlUser.toFixed(2)}
               </div>

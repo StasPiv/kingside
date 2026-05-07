@@ -301,54 +301,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.finalWdl).toBe(1);
   });
 
-  it('KS-2473: post-mortem bestmoveHint = PV1 в позиции ДО user-хода (lose-сценарий)', async () => {
-    const puzzle = makePuzzle({
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.1,
-        halfMovesN: 6,
-      },
-    });
-    // pre-analyze (FEN ДО user-хода, white to move): рекомендует d2d4 cp +50.
-    // post-analyze (FEN после user-хода, black to move, POV черных) cp +800
-    //   → wdl_engine ≈ +0.88, wdl_user = -0.88 < failThreshold=0.1 → lose-wdl.
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre-analyze: best=d2d4
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post-analyze
-    ]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
-    );
-    // user сыграл e2-e4, лучший ход (по pre-analyze) = d2d4.
-    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
-    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
-      ).toBe('lose');
-    });
-    // Подождать, пока pre-analyze допишется (фон).
-    const hint = await waitFor(() => {
-      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
-      if (!el) throw new Error('hint not yet rendered');
-      if (el.getAttribute('data-kind') !== 'user') throw new Error('hint kind not user yet');
-      return el;
-    });
-    // played = e4 (e2-e4 в SAN), best = d4 (d2-d4).
-    expect(hint.textContent).toMatch(/e4/);
-    expect(hint.textContent).toMatch(/d4/);
-    // Текст должен соответствовать ключу bestmoveDiff (played != best).
-    expect(hint.textContent).toMatch(/best move was|лучше было/i);
-  });
+  // KS-2509: блок bestmoveHint удалён — вместо него PostGameReview.
+  // Тесты ниже (бывшие KS-2473/KS-2505/KS-2506) переписаны на проверку
+  // классификации в строках post-game-review.
 
-  it('KS-2505/2506: userBestLog snapshot содержит cpBefore и cpAfter POV user', async () => {
-    // pre-analyze cp=+50 (POV user) → cpBefore=50.
-    // post-analyze cp=+800 (POV opponent, ходит engine после user-хода)
-    //   → cpAfter POV user = -800. wdl_engine = +0.88, wdl_user = -0.88
-    //   < failThreshold=0.1 → lose-wdl.
+  it('KS-2473/KS-2509: post-game review показывает PV1 как «Best was» в позиции ДО user-хода (lose)', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -360,12 +317,13 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: cp=+50
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: best=d2d4
       result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post → lose-wdl
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
+    // user сыграл e2-e4 (по pre-analyze лучший = d2d4).
     (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
     (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
     await waitFor(() => {
@@ -373,26 +331,22 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
       ).toBe('lose');
     });
-    const hint = await waitFor(() => {
-      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
-      if (!el || el.getAttribute('data-kind') !== 'user') {
-        throw new Error('user hint not yet rendered');
-      }
-      // Дожидаемся, пока КАК pre-analyze, так и post-analyze допишут поля.
-      if (
-        el.getAttribute('data-cp-before') === '' ||
-        el.getAttribute('data-cp-after') === ''
-      ) {
-        throw new Error('cp fields not yet populated');
-      }
-      return el;
+    // PostGameReview ждёт, пока классификация уже не graceful good
+    // (т.е. pre/post уже допущены/fallback отработал).
+    await waitFor(() => {
+      const row = screen.queryByTestId('post-game-review-row-1');
+      if (!row) throw new Error('row not yet built');
+      const cls = row.getAttribute('data-class');
+      if (cls === 'good') throw new Error('still graceful good');
     });
-    expect(hint.getAttribute('data-cp-before')).toBe('50');
-    // KS-2506: знак инвертирован (engine cp +800 → user cp −800).
-    expect(hint.getAttribute('data-cp-after')).toBe('-800');
+    const row = screen.getByTestId('post-game-review-row-1');
+    expect(row.textContent).toMatch(/e4/); // played
+    const best = screen.getByTestId('post-game-review-best-1');
+    expect(best.textContent).toMatch(/d4/); // best
+    expect(best.textContent).toMatch(/best was|лучше было/i);
   });
 
-  it('KS-2506: post-analyze mate (engine матует юзера) → cpAfter = −100000', async () => {
+  it('KS-2505/2506/KS-2509: cp=+50 → cp=-800 даёт класс blunder (cp-loss=850)', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -402,10 +356,41 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // pre cp=+50 (для покрытия cpBefore=50).
-    // post mate=+2 (POV engine — engine матует за 2) → wdl_engine=+1,
-    //   wdl_user=-1 < failThreshold → lose-wdl.
-    //   cpAfter POV user = −cpFromScore(mate +2) = −100000.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post (POV opp) → cpAfter=-800
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    await waitFor(() => {
+      const row = screen.queryByTestId('post-game-review-row-1');
+      if (!row || row.getAttribute('data-class') !== 'blunder') {
+        throw new Error('not yet blunder');
+      }
+    });
+    const row = screen.getByTestId('post-game-review-row-1');
+    expect(row.getAttribute('data-class')).toBe('blunder');
+  });
+
+  it('KS-2506/KS-2509: post mate (engine матует) → cpAfter=−100000 → blunder', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 50 }, ['d2d4'])),
@@ -421,23 +406,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
       ).toBe('lose');
     });
-    const hint = await waitFor(() => {
-      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
-      if (!el || el.getAttribute('data-kind') !== 'user') {
-        throw new Error('user hint not yet rendered');
+    await waitFor(() => {
+      const row = screen.queryByTestId('post-game-review-row-1');
+      if (!row || row.getAttribute('data-class') !== 'blunder') {
+        throw new Error('not yet blunder');
       }
-      if (
-        el.getAttribute('data-cp-before') === '' ||
-        el.getAttribute('data-cp-after') === ''
-      ) {
-        throw new Error('cp fields not yet populated');
-      }
-      return el;
     });
-    expect(hint.getAttribute('data-cp-after')).toBe('-100000');
   });
 
-  it('KS-2505: mate-оценка в pre-analyze → cpBefore = +100000', async () => {
+  it('KS-2505/KS-2509: mate в pre-analyze (cpBefore=+100000) и cp=-800 после → blunder', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -447,8 +424,6 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // pre-analyze: mate +3 у юзера (он матует за 3) → cpBefore = +100000.
-    // post-analyze падает в lose-wdl чтобы дойти до подсказки.
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
       result(line({ type: 'mate', value: 3 }, ['d2d4'])),
@@ -464,14 +439,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
       ).toBe('lose');
     });
-    const hint = await waitFor(() => {
-      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
-      if (!el || el.getAttribute('data-kind') !== 'user') {
-        throw new Error('user hint not yet rendered');
+    await waitFor(() => {
+      const row = screen.queryByTestId('post-game-review-row-1');
+      if (!row || row.getAttribute('data-class') !== 'blunder') {
+        throw new Error('not yet blunder');
       }
-      return el;
     });
-    expect(hint.getAttribute('data-cp-before')).toBe('100000');
   });
 
   it('initial: показывает blunder-hint и halfMovesLeft = N до первого хода', async () => {

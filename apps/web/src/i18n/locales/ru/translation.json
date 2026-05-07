@@ -1066,8 +1066,6 @@
       "halfMovesLeft_many": "{{count}} полуходов осталось",
       "halfMovesLeft_other": "{{count}} полуходов осталось",
       "blunderHint": "Соперник зевнул ходом {{move}}. Удержите преимущество {{n}} полуходов против движка.",
-      "bestmoveAt": "Лучший ход на полуходе {{n}}: {{san}}",
-      "bestmoveDiff": "Вы сыграли {{played}} на полуходе {{n}}, лучше было {{best}}",
       "finalWdl": "Финальный WDL",
       "error": "Ошибка движка",
       "openInWorkshop": "Открыть в мастерской",
