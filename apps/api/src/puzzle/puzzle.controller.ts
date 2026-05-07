@@ -108,7 +108,12 @@ export class PuzzleController {
   }
 
   /**
-   * GET /puzzles/browse — list puzzles with filters (generated).
+   * GET /puzzles/browse — список пазлов с фильтрами.
+   *
+   * KS-2556: hard-coded `p.source='generated'` убран; теперь видны
+   * пазлы любого источника (lichess + generated). Опциональный
+   * query-параметр `?source=lichess|generated` фильтрует по конкретному
+   * источнику; без параметра — все.
    */
   @UseGuards(OptionalJwtGuard)
   @Get('browse')
@@ -123,6 +128,7 @@ export class PuzzleController {
     @Query('ratingMin') ratingMinStr?: string,
     @Query('ratingMax') ratingMaxStr?: string,
     @Query('hideSolved') hideSolved?: string,
+    @Query('source') sourceParam?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, limit);
@@ -131,9 +137,21 @@ export class PuzzleController {
     const sortCol = allowedSort[sort ?? ''] ?? 'created_at';
     const sortDir = order === 'asc' ? 'ASC' : 'DESC';
 
-    const conditions: string[] = ["p.source = 'generated'"];
+    // KS-2556: whitelist допустимых значений `source` (защита от sql
+    // injection — параметризовать через $-bind тоже можно, но whitelist
+    // короче и согласуется с типом колонки в схеме).
+    const ALLOWED_SOURCES = new Set(['lichess', 'generated']);
+    const sourceFilter =
+      sourceParam && ALLOWED_SOURCES.has(sourceParam) ? sourceParam : null;
+
+    const conditions: string[] = [];
     const params: (string | number)[] = [];
     let idx = 1;
+    if (sourceFilter !== null) {
+      conditions.push(`p.source = $${idx}`);
+      params.push(sourceFilter);
+      idx++;
+    }
 
     // Visibility
     if (mine === 'true' && userId) {
