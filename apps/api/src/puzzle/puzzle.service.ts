@@ -23,6 +23,29 @@ export interface PlayVsEngineDto {
   winThreshold: number;
   failThreshold: number;
   halfMovesN: number;
+  /** KS-2524: полные WDL-объекты per-mille. Опциональные (legacy). */
+  wdlBefore?: { w: number; d: number; l: number };
+  wdlAfter?: { w: number; d: number; l: number };
+}
+
+/**
+ * KS-2524: проверка `{w,d,l}` объекта из metadata. Все три поля —
+ * числа [0..1000]. Возвращает строго типизированный объект или null.
+ */
+function parseWdlObject(value: unknown): { w: number; d: number; l: number } | null {
+  if (!value || typeof value !== 'object') return null;
+  const obj = value as Record<string, unknown>;
+  const { w, d, l } = obj;
+  if (typeof w !== 'number' || typeof d !== 'number' || typeof l !== 'number') {
+    return null;
+  }
+  if (
+    !Number.isFinite(w) || !Number.isFinite(d) || !Number.isFinite(l) ||
+    w < 0 || d < 0 || l < 0
+  ) {
+    return null;
+  }
+  return { w, d, l };
 }
 
 /**
@@ -776,6 +799,11 @@ export class PuzzleService {
         );
         return { solutionMode: 'forced-line' };
       }
+      // KS-2524: опциональные `{w,d,l}` объекты per-mille от Stockfish.
+      // Legacy-пазлы (до KS-2523) их не имеют — поля undefined,
+      // фронт fallback'ом смотрит на `wdlAfterBlunder` (signed).
+      const wdlBefore = parseWdlObject(meta.wdlBefore);
+      const wdlAfter = parseWdlObject(meta.wdlAfter);
       return {
         solutionMode: 'play-vs-engine',
         playVsEngine: {
@@ -784,6 +812,8 @@ export class PuzzleService {
           winThreshold,
           failThreshold,
           halfMovesN,
+          ...(wdlBefore ? { wdlBefore } : {}),
+          ...(wdlAfter ? { wdlAfter } : {}),
         },
       };
     } catch (e) {

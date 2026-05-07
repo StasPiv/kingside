@@ -519,6 +519,105 @@ describe('PuzzleService', () => {
 
     // ── KS-2487. sourceGame ─────────────────────────────────────────
 
+    // ── KS-2524 / KS-2521. playVsEngine.wdlBefore / wdlAfter ─────────
+
+    it('KS-2524: parser достаёт wdlBefore/wdlAfter из metadata', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlBefore: { w: 850, d: 130, l: 20 },
+        wdlAfter: { w: 200, d: 600, l: 200 },
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-wdl',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'sacrifice playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-wdl');
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as { playVsEngine?: typeof meta }).playVsEngine;
+      expect(pve).toBeDefined();
+      expect(pve!.wdlBefore).toEqual({ w: 850, d: 130, l: 20 });
+      expect(pve!.wdlAfter).toEqual({ w: 200, d: 600, l: 200 });
+      expect(pve!.wdlAfterBlunder).toBe(0.78);
+    });
+
+    it('KS-2524: legacy puzzle без wdl-объектов → wdlBefore/wdlAfter undefined', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-legacy',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-legacy');
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as {
+        playVsEngine?: {
+          wdlBefore?: unknown;
+          wdlAfter?: unknown;
+          wdlAfterBlunder?: number;
+        };
+      }).playVsEngine;
+      expect(pve).toBeDefined();
+      expect(pve!.wdlBefore).toBeUndefined();
+      expect(pve!.wdlAfter).toBeUndefined();
+      expect(pve!.wdlAfterBlunder).toBe(0.78);
+    });
+
+    it('KS-2524: невалидный wdl-объект (отсутствует w) игнорируется', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlBefore: { w: 850, d: 130 }, // без l
+        wdlAfter: { w: 'wat', d: 600, l: 200 }, // w не число
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-bad-wdl',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-bad-wdl');
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as {
+        playVsEngine?: {
+          wdlBefore?: unknown;
+          wdlAfter?: unknown;
+        };
+      }).playVsEngine;
+      expect(pve!.wdlBefore).toBeUndefined();
+      expect(pve!.wdlAfter).toBeUndefined();
+    });
+
     it('KS-2487: gameUrl (lichess) → sourceGame.pgnUrl', async () => {
       prisma.puzzle.findUnique.mockResolvedValue({
         id: 'p-l1',

@@ -130,6 +130,17 @@ export type PuzzleDto = {
     winThreshold: number;
     failThreshold: number;
     halfMovesN: number;
+    /**
+     * KS-2523 / KS-2524: полные WDL-объекты (per-mille от Stockfish,
+     * 0..1000) — для UI показа W/D/L отдельно. POV side-to-move в
+     * соответствующей позиции:
+     *   - `wdlBefore` — POV блундёра (до зевка).
+     *   - `wdlAfter`  — POV решающего (солвера, после зевка).
+     * Опциональные: legacy-пазлы (до KS-2523) не имеют этого блока,
+     * фронт fallback'ом смотрит на `wdlAfterBlunder` (signed).
+     */
+    wdlBefore?: { w: number; d: number; l: number };
+    wdlAfter?: { w: number; d: number; l: number };
   };
   /**
    * KS-2487. Источник позиции пазла — партия, из которой он сгенерирован.
