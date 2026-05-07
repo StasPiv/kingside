@@ -19,7 +19,7 @@ function build() {
       // первый вызов — dataQuery, возвращает строки; второй — countQuery.
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ total: 0 }]),
-  } as unknown as PrismaService;
+  } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
   const service = {} as unknown as PuzzleService;
   const controller = new PuzzleController(service, prisma);
   return { controller, prisma };
@@ -87,6 +87,47 @@ describe('PuzzleController.browse — KS-2556', () => {
     const [dataSql, ...dataParams] = queryRaw.mock.calls[0];
     expect(dataSql).toContain('p.source = $1');
     expect(dataParams[0]).toBe('generated');
+  });
+
+  it('KS-2557: countQuery — cap LIMIT 1001 в подзапросе (early-stop)', async () => {
+    const { controller, prisma } = build();
+    await controller.browse(anonReq, 20, 0);
+
+    const queryRaw = (prisma as unknown as { $queryRawUnsafe: jest.Mock })
+      .$queryRawUnsafe;
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    const [countSql] = queryRaw.mock.calls[1];
+    expect(countSql).toContain('LIMIT 1001');
+    expect(countSql).toContain('SELECT COUNT(*)::int');
+    expect(countSql).toContain('FROM (');
+  });
+
+  it('KS-2557: total ≤ 1000, totalCapped=false когда rawTotal < cap', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn<Promise<unknown>, [string, ...unknown[]]>()
+        .mockResolvedValueOnce([]) // dataQuery
+        .mockResolvedValueOnce([{ total: 42 }]), // countQuery
+    } as unknown as PrismaService;
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const result = await controller.browse(anonReq, 20, 0);
+    expect(result.total).toBe(42);
+    expect(result.totalCapped).toBe(false);
+  });
+
+  it('KS-2557: total = 1000, totalCapped=true когда rawTotal >= cap+1', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn<Promise<unknown>, [string, ...unknown[]]>()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: 1001 }]),
+    } as unknown as PrismaService;
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const result = await controller.browse(anonReq, 20, 0);
+    expect(result.total).toBe(1000);
+    expect(result.totalCapped).toBe(true);
   });
 
   it('?source=garbage → значение игнорируется (без source-фильтра)', async () => {

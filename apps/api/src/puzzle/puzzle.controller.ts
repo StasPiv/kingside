@@ -203,12 +203,31 @@ export class PuzzleController {
 
     const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source_type, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
       FROM puzzles p WHERE ${whereClause} ORDER BY p.${sortCol} ${sortDir} LIMIT ${limitParam} OFFSET ${offsetParam}`;
-    const countQuery = `SELECT COUNT(*)::int as total FROM puzzles p WHERE ${whereClause}`;
+    // KS-2557: cap-стратегия для total. Полный COUNT(*) по 6M lichess-
+    // пазлов с фильтрами `is_public + NOT EXISTS(puzzle_attempts)` =
+    // full scan + anti-join, ~10s. Считаем только до 1001 совпадения
+    // (LIMIT 1001 в подзапросе). Postgres делает Index Scan с
+    // early-stop как только наберёт 1001 строку — ms-уровень.
+    //
+    // На фронте `totalCapped: true` показываем как «1000+». UX-impact
+    // минимальный (50 страниц по 20 — больше чем пользователь
+    // прокрутит), perf-выигрыш — критический.
+    const COUNT_CAP = 1000;
+    const countQuery = `SELECT COUNT(*)::int as total FROM (
+      SELECT 1 FROM puzzles p WHERE ${whereClause} LIMIT ${COUNT_CAP + 1}
+    ) sub`;
 
     const [data, countResult] = await Promise.all([
       this.prisma.$queryRawUnsafe<Array<any>>(dataQuery, ...params),
-      this.prisma.$queryRawUnsafe<[{ total: number }]>(countQuery, ...params.slice(0, -2)),
+      this.prisma.$queryRawUnsafe<[{ total: number }]>(
+        countQuery,
+        ...params.slice(0, -2),
+      ),
     ]);
+
+    const rawTotal = countResult[0]?.total ?? 0;
+    const totalCapped = rawTotal > COUNT_CAP;
+    const total = totalCapped ? COUNT_CAP : rawTotal;
 
     return {
       data: data.map((p: any) => ({
@@ -217,7 +236,8 @@ export class PuzzleController {
         createdBy: p.created_by, createdAt: p.created_at?.toISOString?.() ?? p.created_at,
         solvedStatus: p.solved_status ?? null,
       })),
-      total: countResult[0]?.total ?? 0,
+      total,
+      totalCapped,
     };
   }
 
