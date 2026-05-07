@@ -13,6 +13,7 @@ import type {
 } from '@kingside/shared';
 import { PuzzleBoard } from '../PuzzleBoard';
 import { EvalBar } from '../EvalBar';
+import { PostGameReview } from './PostGameReview';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import {
   WasmEngineAdapter,
@@ -87,7 +88,7 @@ type BestmoveSnapshot = {
  * который содержит «лучший ответ движка после хода юзера», эта
  * структура — для post-mortem-подсказки «ты сыграл X, лучше было Y».
  */
-type UserBestSnapshot = {
+export type UserBestSnapshot = {
   halfMove: number;
   /** FEN, в котором ходил юзер (до его хода). */
   fenBefore: string;
@@ -678,6 +679,56 @@ export function PlayVsEngineRunner({
     };
   }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze]);
 
+  // ── KS-2508 / ADR-047 §4(i) ──────────────────────────────────────────
+  // Fallback-analyze для записей userBestLog без cpAfter. Сценарий:
+  // pre-analyze (фоновый, fire-and-forget) опаздывает создать snapshot,
+  // и когда runEngineCycle пытается дописать cpAfter через `prev.map`,
+  // записи ещё нет — cpAfter теряется. Pre-analyze добавляет snapshot
+  // позже с cpAfter=null. После завершения партии (state in win|lose)
+  // пробегаем по записям с cpAfter===null и считаем cp на FEN после
+  // playedUci через тот же queueAnalyze. Score POV соперника →
+  // инвертируем, как в KS-2506.
+  useEffect(() => {
+    if (state !== 'win' && state !== 'lose') return;
+    let cancelled = false;
+    void (async () => {
+      const missing = userBestLog.filter((s) => s.cpAfter === null);
+      if (missing.length === 0) return;
+      try {
+        await ensureEngine();
+      } catch {
+        return;
+      }
+      for (const s of missing) {
+        if (cancelled) return;
+        try {
+          const c = new Chess(s.fenBefore);
+          c.move({
+            from: s.playedUci.slice(0, 2),
+            to: s.playedUci.slice(2, 4),
+            promotion:
+              s.playedUci.length > 4 ? s.playedUci[4] : undefined,
+          });
+          const r = await queueAnalyze(c.fen());
+          if (cancelled) return;
+          const b = pickBestLine(r);
+          if (!b) continue;
+          const cpAfter = -cpFromScore(b.score);
+          setUserBestLog((prev) =>
+            prev.map((x) =>
+              x.halfMove === s.halfMove ? { ...x, cpAfter } : x,
+            ),
+          );
+        } catch {
+          /* ignore — отсутствие cpAfter PostGameReview грейсфолит. */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state, userBestLog, ensureEngine, queueAnalyze]);
+
   // ── UI helpers ───────────────────────────────────────────────────────
   const halfMovesLeft = Math.max(0, params.halfMovesN - halfMovesPlayed);
   const progressPercent = Math.min(100, Math.round((halfMovesPlayed / params.halfMovesN) * 100));
@@ -889,6 +940,12 @@ export function PlayVsEngineRunner({
               <div className="puzzle-engine-runner__final-wdl">
                 {t('puzzle.engine.finalWdl', 'Final WDL')}: {latestWdlUser.toFixed(2)}
               </div>
+              {/* KS-2508 / ADR-047 §2.2 + §3 #5: список ходов с
+                  метками классификации (best/good/inaccuracy/mistake/
+                  blunder). Появляется только на win/lose. Если у
+                  последнего хода cpAfter=null — fallback-effect выше
+                  допишет, и компонент перерисуется с правильной меткой. */}
+              <PostGameReview userBestLog={userBestLog} />
               {onNext && (
                 <button
                   type="button"

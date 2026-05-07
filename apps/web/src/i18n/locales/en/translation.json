@@ -1060,7 +1060,18 @@
       "bestmoveDiff": "You played {{played}} on half-move {{n}}, the best move was {{best}}",
       "finalWdl": "Final WDL",
       "error": "Engine error",
-      "openInWorkshop": "Open in Workshop"
+      "openInWorkshop": "Open in Workshop",
+      "review": {
+        "title": "Review",
+        "bestWas": "Best was: {{san}}",
+        "class": {
+          "best": "Best",
+          "good": "Good",
+          "inaccuracy": "Inaccuracy",
+          "mistake": "Mistake",
+          "blunder": "Blunder"
+        }
+      }
     },
     "sourceGame": {
       "fromGame": "From game",

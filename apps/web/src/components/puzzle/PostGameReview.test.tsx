@@ -1,0 +1,187 @@
+/**
+ * KS-2508 — тесты `<PostGameReview>`. Pure-компонент: проверяем
+ * рендер на разных классификациях, fallback при null cp-полях,
+ * empty-state и условный показ «Best was».
+ */
+import { describe, it, expect } from 'vitest';
+import { renderWithProviders, screen } from '../../test/test-utils';
+import { PostGameReview } from './PostGameReview';
+import type { UserBestSnapshot } from './PlayVsEngineRunner';
+
+const STARTING_FEN =
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+function snap(over: Partial<UserBestSnapshot> = {}): UserBestSnapshot {
+  return {
+    halfMove: 1,
+    fenBefore: STARTING_FEN,
+    playedUci: 'e2e4',
+    bestUci: 'e2e4',
+    cpBefore: 30,
+    cpAfter: 30,
+    ...over,
+  };
+}
+
+describe('<PostGameReview> KS-2508', () => {
+  it('пустой userBestLog → null (компонент не рендерится)', () => {
+    const { container } = renderWithProviders(
+      <PostGameReview userBestLog={[]} />,
+    );
+    expect(container.querySelector('[data-testid="post-game-review"]')).toBeNull();
+  });
+
+  it('played === best → метка `best` (без блока «Best was»)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: 30,
+        cpAfter: 30,
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(screen.getByTestId('post-game-review')).toBeInTheDocument();
+    const row = screen.getByTestId('post-game-review-row-1');
+    expect(row.getAttribute('data-class')).toBe('best');
+    // «Best was» не показывается на best/good.
+    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
+  });
+
+  it('cp-loss < 50 → good (нет «Best was»)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        playedUci: 'e2e4',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: 70, // loss=30
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(screen.getByTestId('post-game-review-row-1').getAttribute('data-class')).toBe(
+      'good',
+    );
+    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
+  });
+
+  it('cp-loss 50-99 → inaccuracy (с «Best was»)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 2,
+        playedUci: 'g1f3',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: 30, // loss=70
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    const row = screen.getByTestId('post-game-review-row-2');
+    expect(row.getAttribute('data-class')).toBe('inaccuracy');
+    expect(screen.getByTestId('post-game-review-best-2')).toBeInTheDocument();
+  });
+
+  it('cp-loss 100-199 → mistake (с «Best was»)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 3,
+        playedUci: 'b1c3',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: -50, // loss=150
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(
+      screen.getByTestId('post-game-review-row-3').getAttribute('data-class'),
+    ).toBe('mistake');
+    expect(screen.getByTestId('post-game-review-best-3')).toBeInTheDocument();
+  });
+
+  it('cp-loss ≥ 200 → blunder (с «Best was»)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 4,
+        playedUci: 'h2h3',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: -300, // loss=400
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(
+      screen.getByTestId('post-game-review-row-4').getAttribute('data-class'),
+    ).toBe('blunder');
+    expect(screen.getByTestId('post-game-review-best-4')).toBeInTheDocument();
+  });
+
+  it('cpBefore=null или cpAfter=null → fallback: best (если played==best) либо good', () => {
+    const log: UserBestSnapshot[] = [
+      // played === best → даже без cp, помечаем best.
+      snap({
+        halfMove: 1,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: null,
+        cpAfter: null,
+      }),
+      // played !== best и нет cp → graceful good (вреда нет, но
+      // помечать blunder без данных нечестно).
+      snap({
+        halfMove: 2,
+        playedUci: 'h2h3',
+        bestUci: 'd2d4',
+        cpBefore: null,
+        cpAfter: null,
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    expect(
+      screen.getByTestId('post-game-review-row-1').getAttribute('data-class'),
+    ).toBe('best');
+    expect(
+      screen.getByTestId('post-game-review-row-2').getAttribute('data-class'),
+    ).toBe('good');
+    // На graceful-good «Best was» не показываем — нечего объяснять
+    // без cp-данных.
+    expect(screen.queryByTestId('post-game-review-best-1')).toBeNull();
+    expect(screen.queryByTestId('post-game-review-best-2')).toBeNull();
+  });
+
+  it('SAN played и SAN best отображаются в правильных строках', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        playedUci: 'h2h3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -200, // mistake / blunder, чтобы Best was показался
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    const row = screen.getByTestId('post-game-review-row-1');
+    expect(row.textContent).toMatch(/h3/); // played
+    const best = screen.getByTestId('post-game-review-best-1');
+    expect(best.textContent).toMatch(/e4/); // best (через SAN)
+    expect(best.textContent).toMatch(/Best was|Лучше было/);
+  });
+
+  it('заголовок и метки не fallback на ключи (i18n работает)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        playedUci: 'h2h3',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -300,
+      }),
+    ];
+    renderWithProviders(<PostGameReview userBestLog={log} />);
+    const root = screen.getByTestId('post-game-review');
+    expect(root.textContent).not.toContain('puzzle.engine.review.title');
+    expect(root.textContent).not.toContain('puzzle.engine.review.class.blunder');
+    expect(root.textContent).toMatch(/Review|Разбор/);
+    expect(root.textContent).toMatch(/Blunder|Зевок/);
+  });
+});

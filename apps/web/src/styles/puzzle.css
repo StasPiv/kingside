@@ -2539,3 +2539,70 @@ body:has(.puzzle-rush-board) {
   font-weight: 600;
   color: var(--accent-primary, #7c83ff);
 }
+
+/* KS-2508 / ADR-047 §2.2 + §3 #5: PostGameReview — список ходов с
+   метками классификации после play-vs-engine. Layout-полировка в
+   KS-2512 (layout-агент); здесь — функциональный минимум. */
+.post-game-review {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--c-1e293b);
+  border-radius: 6px;
+  text-align: left;
+}
+.post-game-review__title {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-cbd5e1);
+}
+.post-game-review__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.post-game-review__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.post-game-review__half {
+  color: var(--c-94a3b8);
+  min-width: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.post-game-review__san {
+  font-weight: 600;
+  color: var(--c-e2e8f0);
+  min-width: 56px;
+}
+.post-game-review__class {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.post-game-review__best {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--c-94a3b8);
+  margin-left: 32px;
+}
+.post-game-review__row--best       { border-left: 3px solid #4ade80; }
+.post-game-review__row--good       { border-left: 3px solid #94a3b8; }
+.post-game-review__row--inaccuracy { border-left: 3px solid #facc15; }
+.post-game-review__row--mistake    { border-left: 3px solid #f97316; }
+.post-game-review__row--blunder    { border-left: 3px solid #f87171; }
+.post-game-review__row--best       .post-game-review__class { color: #4ade80; }
+.post-game-review__row--good       .post-game-review__class { color: #94a3b8; }
+.post-game-review__row--inaccuracy .post-game-review__class { color: #facc15; }
+.post-game-review__row--mistake    .post-game-review__class { color: #f97316; }
+.post-game-review__row--blunder    .post-game-review__class { color: #f87171; }

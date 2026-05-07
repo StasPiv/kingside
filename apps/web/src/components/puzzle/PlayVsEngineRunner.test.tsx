@@ -496,6 +496,50 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
+  it('KS-2508: PostGameReview рендерится на win/lose с метками для каждого user-хода', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    // pre cp=+50 (POV user), post cp=+800 (POV opp) → cpAfter user=-800,
+    //   cp-loss=850 → blunder. Также played(e2e4) != best(d2d4).
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    const review = await waitFor(() => {
+      const el = screen.queryByTestId('post-game-review');
+      if (!el) throw new Error('review not rendered yet');
+      const row = el.querySelector('[data-testid="post-game-review-row-1"]');
+      if (!row) throw new Error('row not yet built');
+      const cls = row.getAttribute('data-class');
+      // Дожидаемся, пока классификация уже опирается на cpAfter (а не
+      // graceful good из-за null).
+      if (cls === 'good') throw new Error('still graceful good');
+      return el;
+    });
+    const row = review.querySelector(
+      '[data-testid="post-game-review-row-1"]',
+    ) as HTMLElement;
+    expect(row.getAttribute('data-class')).toBe('blunder');
+  });
+
   it('KS-2507: initial pre-analyze стартовой позиции — evalLines не пустой при mount', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {

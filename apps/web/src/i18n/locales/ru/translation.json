@@ -1070,7 +1070,18 @@
       "bestmoveDiff": "Вы сыграли {{played}} на полуходе {{n}}, лучше было {{best}}",
       "finalWdl": "Финальный WDL",
       "error": "Ошибка движка",
-      "openInWorkshop": "Открыть в мастерской"
+      "openInWorkshop": "Открыть в мастерской",
+      "review": {
+        "title": "Разбор",
+        "bestWas": "Лучше было: {{san}}",
+        "class": {
+          "best": "Лучший",
+          "good": "Хороший",
+          "inaccuracy": "Неточность",
+          "mistake": "Ошибка",
+          "blunder": "Зевок"
+        }
+      }
     },
     "sourceGame": {
       "fromGame": "Из партии",
