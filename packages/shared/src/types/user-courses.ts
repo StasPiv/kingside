@@ -22,12 +22,15 @@ import type { CourseCardFields, LessonStepState, StepPayload } from './lessons.j
 // ─── Discriminators ───────────────────────────────────────────────────
 
 /**
- * Whitelist типов шагов в пользовательских курсах (MVP, ADR-026 §2.3).
+ * Whitelist типов шагов в пользовательских курсах (ADR-026 §2.3).
  *
  * Новый тип добавляется в 3 места: этот union, `ALLOWED_USER_STEP_TYPES`
  * в API-DTO (BE-3) и UI `<select>` редактора шага (FE-2).
+ *
+ * KS-2570: добавлен `'quiz'` (ADR-049 Tier 1 #2). Backend-whitelist
+ * расширен в KS-2569.
  */
-export type UserStepType = 'text' | 'puzzle' | 'endgame_drill';
+export type UserStepType = 'text' | 'puzzle' | 'endgame_drill' | 'quiz';
 
 // ─── Core DTOs ────────────────────────────────────────────────────────
 
