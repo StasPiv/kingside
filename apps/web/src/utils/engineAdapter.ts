@@ -4,11 +4,32 @@
  * and BridgeEngineAdapter (external engine via WebSocket).
  */
 
+/**
+ * KS-2526 / KS-2521. WDL-распределение из Stockfish (UCI_ShowWDL=true,
+ * см. KS-2525). Все значения в промилле (0..1000), POV side-to-move.
+ * Сумма обычно равна 1000, но движок может отдавать ±погрешность —
+ * UI должен принимать как есть.
+ *
+ * Поле опциональное: старые сборки Stockfish или Bridge-engine без
+ * WDL-патча (см. KS-2521) не присылают `wdl ...` в info, парсер
+ * возвращает `undefined`.
+ */
+export type WdlDistribution = {
+  /** Wins per mille (0..1000), POV side-to-move. */
+  w: number;
+  /** Draws per mille. */
+  d: number;
+  /** Losses per mille. */
+  l: number;
+};
+
 export type InfoLine = {
   multipv: number;
   depth: number;
   score: { type: 'cp' | 'mate'; value: number };
   pv: string[];
+  /** KS-2526: распределение W/D/L (опционально). */
+  wdl?: WdlDistribution;
 };
 
 export type AnalysisResult = {
@@ -27,7 +48,7 @@ export interface EngineAdapter {
 
 // ─── Shared helpers ───
 
-function parseInfoLine(line: string): InfoLine | null {
+export function parseInfoLine(line: string): InfoLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
   const pvMatch = line.match(/\bpv (.+)/);
   if (!depthMatch || !pvMatch) return null;
@@ -35,6 +56,22 @@ function parseInfoLine(line: string): InfoLine | null {
   const depth = parseInt(depthMatch[1], 10);
   const multipvMatch = line.match(/\bmultipv (\d+)/);
   const multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
+  // KS-2526: захват `wdl W D L` ДО split(pv), потому что pv — последняя
+  // секция info, и токены wdl находятся раньше неё. Парсим из всей
+  // строки, чтобы не зависеть от порядка с другими полями.
+  let wdl: WdlDistribution | undefined;
+  const wdlMatch = line.match(/\bwdl (\d+) (\d+) (\d+)/);
+  if (wdlMatch) {
+    wdl = {
+      w: parseInt(wdlMatch[1], 10),
+      d: parseInt(wdlMatch[2], 10),
+      l: parseInt(wdlMatch[3], 10),
+    };
+  }
+  // pv может содержать `wdl 800 150 50` если он попал в хвост; чтобы
+  // не сломать pv-токены, используем pvMatch до wdl-фильтрации. По
+  // спецификации UCI pv — последний токен, поэтому захват `(.+)`
+  // безопасен: wdl всегда стоит ДО pv.
   const pv = pvMatch[1].split(/\s+/);
 
   let score: { type: 'cp' | 'mate'; value: number };
@@ -48,7 +85,7 @@ function parseInfoLine(line: string): InfoLine | null {
     return null;
   }
 
-  return { depth, multipv, score, pv };
+  return { depth, multipv, score, pv, ...(wdl ? { wdl } : {}) };
 }
 
 function buildResult(
@@ -255,6 +292,17 @@ export class BridgeEngineAdapter implements EngineAdapter {
         try { msg = JSON.parse(e.data); } catch { return; }
 
         if (msg.type === 'line') {
+          // KS-2526: bridge может слать wdl как объект {w,d,l}; если
+          // нет — оставляем undefined.
+          const wdlRaw = msg.wdl as Record<string, unknown> | undefined;
+          const wdl: WdlDistribution | undefined =
+            wdlRaw &&
+            typeof wdlRaw === 'object' &&
+            typeof wdlRaw.w === 'number' &&
+            typeof wdlRaw.d === 'number' &&
+            typeof wdlRaw.l === 'number'
+              ? { w: wdlRaw.w, d: wdlRaw.d, l: wdlRaw.l }
+              : undefined;
           const info: InfoLine = {
             depth: Number(msg.depth ?? 0),
             multipv: Number(msg.multipv ?? 1),
@@ -263,6 +311,7 @@ export class BridgeEngineAdapter implements EngineAdapter {
               value: Number((msg.score as Record<string, unknown>)?.value ?? 0),
             },
             pv: String(msg.pv ?? '').split(/\s+/).filter(Boolean),
+            ...(wdl ? { wdl } : {}),
           };
 
           if (info.multipv === 1) {

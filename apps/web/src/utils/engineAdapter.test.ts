@@ -9,7 +9,7 @@
  * все последующие postMessage в `sent[]` для ассертов теста.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WasmEngineAdapter } from './engineAdapter';
+import { WasmEngineAdapter, parseInfoLine } from './engineAdapter';
 
 class MockWorker {
   static sent: string[] = [];
@@ -77,5 +77,58 @@ describe('WasmEngineAdapter KS-2525', () => {
     );
     const uciIdx = MockWorker.sent.indexOf('uci');
     expect(wdlIdx).toBeGreaterThan(uciIdx);
+  });
+});
+
+/**
+ * KS-2526: парсер UCI info-строк теперь захватывает `wdl W D L` →
+ * `{ w, d, l }` и кладёт в `InfoLine.wdl`. Поле опциональное (старые
+ * сборки/Bridge без WDL-патча).
+ */
+describe('parseInfoLine KS-2526', () => {
+  const baseLine =
+    'info depth 12 seldepth 18 multipv 1 score cp 32 nodes 12345 nps 6789';
+  const pvSuffix = ' pv e2e4 e7e5 g1f3';
+
+  it('строка с wdl 800 150 50 → InfoLine.wdl = {w:800,d:150,l:50}', () => {
+    const info = parseInfoLine(`${baseLine} wdl 800 150 50${pvSuffix}`);
+    expect(info).not.toBeNull();
+    expect(info!.wdl).toEqual({ w: 800, d: 150, l: 50 });
+  });
+
+  it('строка без wdl → InfoLine.wdl === undefined', () => {
+    const info = parseInfoLine(`${baseLine}${pvSuffix}`);
+    expect(info).not.toBeNull();
+    expect(info!.wdl).toBeUndefined();
+  });
+
+  it('wdl парсится независимо от позиции (до score)', () => {
+    const info = parseInfoLine(
+      'info depth 12 multipv 1 wdl 500 400 100 score cp 10 pv e2e4',
+    );
+    expect(info!.wdl).toEqual({ w: 500, d: 400, l: 100 });
+    expect(info!.score).toEqual({ type: 'cp', value: 10 });
+  });
+
+  it('wdl не ломает разбор pv (pv остаётся последним)', () => {
+    const info = parseInfoLine(`${baseLine} wdl 100 700 200${pvSuffix}`);
+    expect(info!.pv).toEqual(['e2e4', 'e7e5', 'g1f3']);
+  });
+
+  it('wdl с нулевыми компонентами (мат-исход)', () => {
+    const info = parseInfoLine(
+      `info depth 5 multipv 1 score mate 3 wdl 1000 0 0 pv a1a8`,
+    );
+    expect(info!.wdl).toEqual({ w: 1000, d: 0, l: 0 });
+    expect(info!.score).toEqual({ type: 'mate', value: 3 });
+  });
+
+  it('regex не путает wdl с другими полями (например, depth-числами)', () => {
+    // Текст без литерала «wdl», но с похожими тройками — не должно
+    // прилипнуть.
+    const info = parseInfoLine(
+      'info depth 800 150 50 multipv 1 score cp 0 pv e2e4',
+    );
+    expect(info!.wdl).toBeUndefined();
   });
 });
