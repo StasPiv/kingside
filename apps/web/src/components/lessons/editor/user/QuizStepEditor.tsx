@@ -251,6 +251,13 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
         </label>
       </div>
 
+      <h4
+        className="quiz-step-editor__questions-title"
+        data-testid="quiz-questions-title"
+      >
+        {t('lessons.my.editor.quiz.questions.title', 'Questions')}
+      </h4>
+
       <ReorderableList itemIds={questionIds} onReorder={reorderQuestions}>
         <ol className="quiz-step-editor__questions">
           {questions.map((q, i) => {
@@ -314,11 +321,11 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                         className="quiz-question__icon-btn"
                         onClick={() => duplicateQuestion(i)}
                         aria-label={t(
-                          'editor.step.quiz.duplicateQuestion',
+                          'lessons.my.editor.quiz.duplicateQuestion',
                           'Duplicate',
                         )}
                         title={t(
-                          'editor.step.quiz.duplicateQuestion',
+                          'lessons.my.editor.quiz.duplicateQuestion',
                           'Duplicate',
                         )}
                         data-testid={`quiz-question-duplicate-${i}`}
@@ -330,11 +337,11 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                         className="quiz-question__icon-btn quiz-question__icon-btn--danger"
                         onClick={() => removeQuestion(i)}
                         aria-label={t(
-                          'editor.step.quiz.removeQuestion',
+                          'lessons.my.editor.quiz.deleteQuestion',
                           'Delete question',
                         )}
                         title={t(
-                          'editor.step.quiz.removeQuestion',
+                          'lessons.my.editor.quiz.deleteQuestion',
                           'Delete question',
                         )}
                         data-testid={`quiz-question-remove-${i}`}
@@ -347,7 +354,10 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                       <div className="quiz-question__body">
                         <label className="quiz-question__field">
                           <span className="quiz-question__field-label">
-                            {t('editor.step.quiz.prompt', 'Prompt')}
+                            {t(
+                              'lessons.my.editor.quiz.questionPrompt',
+                              'Question text',
+                            )}
                           </span>
                           <input
                             type="text"
@@ -378,7 +388,10 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                               onClick={() => addFen(i)}
                               data-testid={`quiz-question-add-fen-${i}`}
                             >
-                              + {t('editor.step.quiz.addFen', 'Add position')}
+                              {t(
+                                'lessons.my.editor.quiz.questionPositionAdd',
+                                'Add position',
+                              )}
                             </button>
                           ) : (
                             <div className="quiz-question__fen-block">
@@ -396,7 +409,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                                   data-testid={`quiz-question-remove-fen-${i}`}
                                 >
                                   {t(
-                                    'editor.step.quiz.removeFen',
+                                    'lessons.my.editor.quiz.questionPositionRemove',
                                     'Remove position',
                                   )}
                                 </button>
@@ -445,7 +458,34 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                         <div
                           className={`quiz-question__options${v.tooFewOptions || v.noCorrect ? ' quiz-question__options--invalid' : ''}`}
                         >
-                          <h5>{t('editor.step.quiz.options', 'Options')}</h5>
+                          <h5>
+                            {t(
+                              'lessons.my.editor.quiz.options.title',
+                              'Options',
+                            )}
+                          </h5>
+                          {v.tooFewOptions && (
+                            <p
+                              className="quiz-question__validation"
+                              data-testid={`quiz-question-validation-min-${i}`}
+                            >
+                              {t(
+                                'lessons.my.editor.quiz.validation.minOptions',
+                                'At least 2 options required',
+                              )}
+                            </p>
+                          )}
+                          {v.noCorrect && (
+                            <p
+                              className="quiz-question__validation"
+                              data-testid={`quiz-question-validation-no-correct-${i}`}
+                            >
+                              {t(
+                                'lessons.my.editor.quiz.validation.noCorrect',
+                                'Mark at least one correct option',
+                              )}
+                            </p>
+                          )}
                           <ReorderableList
                             itemIds={q.options.map((o) => o.id)}
                             onReorder={(ids) => reorderOptions(i, ids)}
@@ -509,7 +549,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                                             }
                                           />
                                           {t(
-                                            'editor.step.quiz.correct',
+                                            'lessons.my.editor.quiz.optionCorrect',
                                             'Correct',
                                           )}
                                         </label>
@@ -541,15 +581,17 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                             disabled={q.options.length >= MAX_OPTIONS_UI}
                             data-testid={`quiz-add-option-${i}`}
                           >
-                            +{' '}
-                            {t('editor.step.quiz.addOption', 'Add option')}
+                            {t(
+                              'lessons.my.editor.quiz.addOption',
+                              '+ Add option',
+                            )}
                           </button>
                         </div>
 
                         <label className="quiz-question__field">
                           <span className="quiz-question__field-label">
                             {t(
-                              'editor.step.quiz.explanation',
+                              'lessons.my.editor.quiz.explanation',
                               'Explanation (optional)',
                             )}
                           </span>
@@ -581,7 +623,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
         onClick={addQuestion}
         data-testid="quiz-add-question"
       >
-        + {t('editor.step.quiz.addQuestion', 'Add question')}
+        {t('lessons.my.editor.quiz.addQuestion', '+ Add question')}
       </button>
     </div>
   );

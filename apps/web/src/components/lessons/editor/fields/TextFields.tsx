@@ -146,6 +146,20 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
     return placeholders.filter((n) => n >= diagrams.length || n < 0);
   }, [payload.bodyMarkdown, diagrams.length]);
 
+  // KS-2575: предупреждение «диаграмма существует, но нигде в md не
+  // используется» — обратная ситуация по сравнению с orphan'ом
+  // (placeholder есть, диаграммы нет).
+  const unusedIndices = useMemo(() => {
+    const placeholders = new Set(
+      collectPlaceholderIndices(payload.bodyMarkdown),
+    );
+    const result: number[] = [];
+    for (let i = 0; i < diagrams.length; i++) {
+      if (!placeholders.has(i)) result.push(i);
+    }
+    return result;
+  }, [payload.bodyMarkdown, diagrams.length]);
+
   return (
     <div className="editor-step__fields">
       <div className="editor-step__body">
@@ -159,13 +173,33 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
         />
       </div>
       <div className="editor-diagrams">
-        <h4>{t('editor.step.text.diagrams', 'Diagrams')}</h4>
+        <h4>
+          {t('lessons.my.editor.text.diagrams.title', 'Diagrams')}
+        </h4>
         <p className="editor-step__hint" data-testid="editor-diagrams-hint">
-          {t(
-            'editor.step.text.diagramHint',
-            'Add a diagram below, then place {{diagram:N}} marker in the markdown where you want it to appear.',
-          )}
+          {t('lessons.my.editor.text.diagrams.placeholderHint', {
+            defaultValue:
+              'Use {{placeholder}} placeholder in text to display.',
+            placeholder: '{{diagram:N}}',
+          })}
         </p>
+        {unusedIndices.length > 0 && (
+          <div
+            className="editor-diagrams__unused-warning"
+            role="status"
+            data-testid="editor-diagrams-unused-warning"
+          >
+            {unusedIndices.map((n) => (
+              <p key={n} data-testid={`editor-diagrams-unused-${n}`}>
+                {t('lessons.my.editor.text.diagrams.unusedWarning', {
+                  defaultValue:
+                    'Diagram {{n}} is not referenced in text',
+                  n: n + 1,
+                })}
+              </p>
+            ))}
+          </div>
+        )}
 
         {orphanIndices.length > 0 && (
           <p
@@ -207,7 +241,7 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
                   {isCollapsed ? '▸' : '▾'}
                 </button>
                 <span className="editor-diagram__title">
-                  {t('editor.step.text.diagramN', {
+                  {t('lessons.my.editor.text.diagrams.itemTitle', {
                     defaultValue: 'Diagram {{n}}',
                     n: i + 1,
                   })}
@@ -248,8 +282,14 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
                   className="editor-diagram__icon-btn"
                   onClick={() => duplicateDiagram(i)}
                   data-testid={`editor-diagram-duplicate-${i}`}
-                  aria-label={t('editor.step.text.duplicate', 'Duplicate')}
-                  title={t('editor.step.text.duplicate', 'Duplicate')}
+                  aria-label={t(
+                    'lessons.my.editor.text.diagrams.duplicate',
+                    'Duplicate',
+                  )}
+                  title={t(
+                    'lessons.my.editor.text.diagrams.duplicate',
+                    'Duplicate',
+                  )}
                 >
                   ⎘
                 </button>
@@ -258,8 +298,14 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
                   className="editor-diagram__icon-btn editor-diagram__icon-btn--danger"
                   onClick={() => removeDiagram(i)}
                   data-testid={`editor-diagram-remove-${i}`}
-                  aria-label={t('editor.step.text.removeDiagram', 'Delete')}
-                  title={t('editor.step.text.removeDiagram', 'Delete')}
+                  aria-label={t(
+                    'lessons.my.editor.text.diagrams.delete',
+                    'Delete',
+                  )}
+                  title={t(
+                    'lessons.my.editor.text.diagrams.delete',
+                    'Delete',
+                  )}
                 >
                   −
                 </button>
@@ -285,7 +331,7 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
                   />
 
                   <label className="editor-diagram__fen-label">
-                    FEN
+                    {t('editor.diagram.fenLabel', 'FEN')}
                     <div className="editor-diagram__fen-row">
                       <input
                         value={d.fen}
@@ -326,7 +372,7 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
           }}
           data-testid="editor-step-text-add-diagram"
         >
-          + {t('editor.step.text.addDiagram', 'Add diagram')}
+          {t('lessons.my.editor.text.diagrams.add', '+ Add diagram')}
         </button>
       </div>
 

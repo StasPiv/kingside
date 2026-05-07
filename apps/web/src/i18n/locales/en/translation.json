@@ -2072,9 +2072,15 @@
         "resetFen": "Reset position",
         "caption": "Caption",
         "captionPlaceholder": "Optional caption…",
-        "orientation": "Orientation",
-        "orientationWhite": "White at bottom",
-        "orientationBlack": "Black at bottom"
+        "fenLabel": "FEN",
+        "orientation": {
+          "label": "Orientation",
+          "white": "White on bottom",
+          "black": "Black on bottom"
+        },
+        "hint": {
+          "draw": "Right-click — highlight square, right-click drag — arrow. Shift/Alt/Ctrl — color"
+        }
       },
       "step": {
         "type": "Type",
@@ -2449,17 +2455,49 @@
           "savedAt": "Saved at {{time}}",
           "error": "Failed to save",
           "retry": "Retry"
+        },
+        "stepType": {
+          "text": "Lecture",
+          "textDescription": "Text with diagrams to explain theory or ideas.",
+          "puzzle": "Puzzle",
+          "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
+          "endgameDrill": "Position vs. engine",
+          "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
+          "quiz": "Quiz",
+          "quizDescription": "Multiple-choice questions with optional position; for self-checks."
+        },
+        "text": {
+          "diagrams": {
+            "title": "Diagrams",
+            "add": "+ Add diagram",
+            "itemTitle": "Diagram {{n}}",
+            "delete": "Delete",
+            "duplicate": "Duplicate",
+            "placeholderHint": "Use {{placeholder}} placeholder in text to display.",
+            "unusedWarning": "Diagram {{n}} is not referenced in text"
+          }
+        },
+        "quiz": {
+          "questions": {
+            "title": "Questions"
+          },
+          "options": {
+            "title": "Options"
+          },
+          "addQuestion": "+ Add question",
+          "questionPrompt": "Question text",
+          "questionPositionAdd": "Add position",
+          "questionPositionRemove": "Remove position",
+          "addOption": "+ Add option",
+          "optionCorrect": "Correct",
+          "explanation": "Explanation (optional)",
+          "deleteQuestion": "Delete question",
+          "duplicateQuestion": "Duplicate question",
+          "validation": {
+            "minOptions": "At least 2 options required",
+            "noCorrect": "Mark at least one correct option"
+          }
         }
-      },
-      "stepType": {
-        "text": "Lecture",
-        "textDescription": "Text with diagrams to explain theory or ideas.",
-        "puzzle": "Puzzle",
-        "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
-        "endgameDrill": "Position vs. engine",
-        "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
-        "quiz": "Quiz",
-        "quizDescription": "Multiple-choice questions with optional position; for self-checks."
       }
     }
   },
@@ -2469,6 +2507,27 @@
       "subtitle": "Try again later or invite a friend",
       "retry": "Try again",
       "changeTc": "Choose another time control"
+    }
+  },
+  "editor": {
+    "diagram": {
+      "modeToggleLabel": "Interaction mode",
+      "modeDrag": "Drag pieces",
+      "modeDraw": "Draw arrows",
+      "clearArrows": "Clear arrows",
+      "clearHighlights": "Clear highlights",
+      "resetFen": "Reset position",
+      "caption": "Caption",
+      "captionPlaceholder": "Optional caption…",
+      "fenLabel": "FEN",
+      "orientation": {
+        "label": "Orientation",
+        "white": "White on bottom",
+        "black": "Black on bottom"
+      },
+      "hint": {
+        "draw": "Right-click — highlight square, right-click drag — arrow. Shift/Alt/Ctrl — color"
+      }
     }
   }
 }

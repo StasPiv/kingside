@@ -48,22 +48,24 @@ const ICONS: Record<UserStepType, string> = {
   quiz: '❓',
 };
 
+// KS-2575: ключи под `lessons.my.editor.stepType.*` (нагруженный блок
+// с descriptions), `quiz`-ключ соответствует спеке тикета.
 const I18N_KEY: Record<UserStepType, { title: string; description: string }> = {
   text: {
-    title: 'lessons.my.stepType.text',
-    description: 'lessons.my.stepType.textDescription',
+    title: 'lessons.my.editor.stepType.text',
+    description: 'lessons.my.editor.stepType.textDescription',
   },
   puzzle: {
-    title: 'lessons.my.stepType.puzzle',
-    description: 'lessons.my.stepType.puzzleDescription',
+    title: 'lessons.my.editor.stepType.puzzle',
+    description: 'lessons.my.editor.stepType.puzzleDescription',
   },
   endgame_drill: {
-    title: 'lessons.my.stepType.endgameDrill',
-    description: 'lessons.my.stepType.endgameDrillDescription',
+    title: 'lessons.my.editor.stepType.endgameDrill',
+    description: 'lessons.my.editor.stepType.endgameDrillDescription',
   },
   quiz: {
-    title: 'lessons.my.stepType.quiz',
-    description: 'lessons.my.stepType.quizDescription',
+    title: 'lessons.my.editor.stepType.quiz',
+    description: 'lessons.my.editor.stepType.quizDescription',
   },
 };
 

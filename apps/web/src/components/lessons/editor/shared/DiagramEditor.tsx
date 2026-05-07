@@ -557,6 +557,18 @@ export function DiagramEditor({
         </div>
       )}
 
+      {!drawingDisabled && !isCoarse && (
+        <p
+          className="diagram-editor__hint"
+          data-testid="diagram-editor-hint"
+        >
+          {t(
+            'editor.diagram.hint.draw',
+            'Right-click — highlight square, right-click drag — arrow. Shift/Alt/Ctrl — color',
+          )}
+        </p>
+      )}
+
       <div className="diagram-editor__meta">
         <label className="diagram-editor__caption-field">
           <span className="diagram-editor__field-label">
@@ -577,7 +589,7 @@ export function DiagramEditor({
 
         <label className="diagram-editor__orientation-field">
           <span className="diagram-editor__field-label">
-            {t('editor.diagram.orientation', 'Orientation')}
+            {t('editor.diagram.orientation.label', 'Orientation')}
           </span>
           <select
             className="diagram-editor__orientation-select"
@@ -586,10 +598,10 @@ export function DiagramEditor({
             onChange={handleOrientationChange}
           >
             <option value="white">
-              {t('editor.diagram.orientationWhite', 'White at bottom')}
+              {t('editor.diagram.orientation.white', 'White on bottom')}
             </option>
             <option value="black">
-              {t('editor.diagram.orientationBlack', 'Black at bottom')}
+              {t('editor.diagram.orientation.black', 'Black on bottom')}
             </option>
           </select>
         </label>
