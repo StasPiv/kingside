@@ -1024,27 +1024,59 @@ export function DrillRunner({
         </button>
       </div>
 
-      {!hideProgress && (
+      {/* KS-2558: ряд stats-ячеек (Решено / Попытки / Время) аналогично
+          `.precision-stats` на /precision. data-testid у `__progress` и
+          `__timer` сохранены — старые селекторы тестов работают. */}
+      {(!hideProgress || !hideTimer) && (
         <div
-          className="drill-runner__progress"
-          data-testid="drill-runner-progress"
-          data-attempted={attempted}
-          data-solved={solved}
+          className="drill-runner__stats"
+          data-testid="drill-runner-stats"
         >
-          {contextLabel && (
-            <span className="drill-runner__context">{contextLabel} · </span>
+          {!hideProgress && (
+            <div
+              className="drill-runner__stats-cell drill-runner__progress"
+              data-testid="drill-runner-progress"
+              data-attempted={attempted}
+              data-solved={solved}
+            >
+              <span className="drill-runner__stats-value">
+                {solved} / {Number.isFinite(count) ? count : attempted}
+              </span>
+              <span className="drill-runner__stats-label">
+                {contextLabel
+                  ? contextLabel
+                  : t('drills.runner.stats.solved', 'Solved')}
+              </span>
+            </div>
           )}
-          {solved} / {Number.isFinite(count) ? count : attempted}
-        </div>
-      )}
 
-      {!hideTimer && (
-        <div
-          className="drill-runner__timer"
-          data-testid="drill-runner-timer"
-          data-elapsed-ms={elapsedMs}
-        >
-          {Math.floor(elapsedMs / 1000)}s
+          {!hideProgress && (
+            <div
+              className="drill-runner__stats-cell"
+              data-testid="drill-runner-attempted"
+              data-attempted={attempted}
+            >
+              <span className="drill-runner__stats-value">{attempted}</span>
+              <span className="drill-runner__stats-label">
+                {t('drills.runner.stats.attempts', 'Attempts')}
+              </span>
+            </div>
+          )}
+
+          {!hideTimer && (
+            <div
+              className="drill-runner__stats-cell drill-runner__timer"
+              data-testid="drill-runner-timer"
+              data-elapsed-ms={elapsedMs}
+            >
+              <span className="drill-runner__stats-value">
+                {Math.floor(elapsedMs / 1000)}s
+              </span>
+              <span className="drill-runner__stats-label">
+                {t('drills.runner.stats.time', 'Time')}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

@@ -1016,7 +1016,12 @@
     "runner": {
       "help": "What's this drill?",
       "helpAriaLabel": "Open drill description",
-      "closeHelp": "Close"
+      "closeHelp": "Close",
+      "stats": {
+        "solved": "Solved",
+        "attempts": "Attempts",
+        "time": "Time"
+      }
     }
   },
   "puzzle": {

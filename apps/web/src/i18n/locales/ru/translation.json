@@ -1024,7 +1024,12 @@
     "runner": {
       "help": "Что это за тренажёр?",
       "helpAriaLabel": "Открыть описание тренажёра",
-      "closeHelp": "Закрыть"
+      "closeHelp": "Закрыть",
+      "stats": {
+        "solved": "Решено",
+        "attempts": "Попыток",
+        "time": "Время"
+      }
     }
   },
   "puzzle": {

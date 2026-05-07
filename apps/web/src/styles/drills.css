@@ -558,6 +558,66 @@ html[data-theme="light"] {
 }
 
 /* ===========================================================
+ * KS-2558 — DrillRunner шапка stats-ячеек (Решено / Попытки / Время).
+ * До правки `__progress` и `__timer` рендерились отдельными div'ами
+ * без оформления — текст столбиком. Теперь общий ряд по образцу
+ * `.precision-stats__cell` на /precision (KS-2545): фон, ряд из
+ * трёх ячеек со значением и подписью.
+ * =========================================================== */
+
+.drill-runner__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 12px 0;
+  padding: 10px 14px;
+  background: var(--bg-elevated, var(--c-1e293b));
+  border: 1px solid var(--border-mid, var(--c-2a2a4e, #2a2a4e));
+  border-radius: 8px;
+}
+
+.drill-runner__stats-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
+  flex: 1 1 auto;
+}
+
+.drill-runner__stats-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary, var(--c-e2e8f0));
+  font-variant-numeric: tabular-nums;
+}
+
+.drill-runner__stats-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary, var(--c-94a3b8));
+}
+
+/* Mobile: компактнее, ячейки растягиваются на доступное место. */
+@media (max-width: 480px) {
+  .drill-runner__stats {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .drill-runner__stats-cell {
+    min-width: 60px;
+  }
+  .drill-runner__stats-value {
+    font-size: 17px;
+  }
+  .drill-runner__stats-label {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+}
+
+/* ===========================================================
  * KS-2330 — DrillRunner навигация по локальной истории
  * (кнопки «Назад» / «Вперёд» рядом с прогрессом).
  * =========================================================== */
