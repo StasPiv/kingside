@@ -598,24 +598,49 @@ export function FindAllChecksRunner({
     >
       {headerSlot}
 
+      {/* KS-2559: ряд stats-ячеек (Найдено / Попыток / Время) — общий
+          класс `.drill-runner__stats` из KS-2558, чтобы шапка
+          `find-all-checks` совпадала с остальными drill-типами. data-
+          testid `facr-hud` и `facr-timer` сохранены на cell'ах. */}
       <div
-        className="find-all-checks-runner__hud"
+        className="drill-runner__stats find-all-checks-runner__hud"
         data-testid="facr-hud"
         data-found={found.size}
         data-expected={expected.length}
       >
-        {hud}
-      </div>
-
-      {!hideTimer && (
-        <div
-          className="find-all-checks-runner__timer"
-          data-testid="facr-timer"
-          data-elapsed-ms={elapsedMs}
-        >
-          {Math.floor(elapsedMs / 1000)}s
+        <div className="drill-runner__stats-cell">
+          <span className="drill-runner__stats-value">{hud}</span>
+          <span className="drill-runner__stats-label">
+            {t('drills.runner.stats.solved', 'Solved')}
+          </span>
         </div>
-      )}
+
+        <div
+          className="drill-runner__stats-cell"
+          data-testid="facr-attempts"
+          data-attempts={attempts}
+        >
+          <span className="drill-runner__stats-value">{attempts}</span>
+          <span className="drill-runner__stats-label">
+            {t('drills.runner.stats.attempts', 'Attempts')}
+          </span>
+        </div>
+
+        {!hideTimer && (
+          <div
+            className="drill-runner__stats-cell find-all-checks-runner__timer"
+            data-testid="facr-timer"
+            data-elapsed-ms={elapsedMs}
+          >
+            <span className="drill-runner__stats-value">
+              {Math.floor(elapsedMs / 1000)}s
+            </span>
+            <span className="drill-runner__stats-label">
+              {t('drills.runner.stats.time', 'Time')}
+            </span>
+          </div>
+        )}
+      </div>
 
       <DrillInstructions tone={instructionTone}>
         {instructionText}

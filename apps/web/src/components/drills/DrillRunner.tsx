@@ -878,19 +878,12 @@ export function DrillRunner({
         data-count={Number.isFinite(count) ? String(count) : 'infinity'}
       >
         {headerSlot}
-        {!hideProgress && (
-          <div
-            className="drill-runner__progress"
-            data-testid="drill-runner-progress"
-            data-attempted={attempted}
-            data-solved={solved}
-          >
-            {contextLabel && (
-              <span className="drill-runner__context">{contextLabel} · </span>
-            )}
-            {solved} / {Number.isFinite(count) ? count : attempted}
-          </div>
-        )}
+        {/* KS-2559: для find-all-checks убран дубль `__progress` —
+            FindAllChecksRunner ниже сам рендерит ряд `.drill-runner__stats`
+            с тремя ячейками (Найдено/Попыток/Время), выводящими
+            актуальный прогресс ВНУТРИ drill'а (`found / expected`).
+            Старый общий `solved / count` (0/0 при count=Infinity) был
+            мало-информативен и шёл голым текстом. */}
         <FindAllChecksRunner
           drill={drill}
           submitAnswer={(input) => submitAnswerRef.current(input)}
