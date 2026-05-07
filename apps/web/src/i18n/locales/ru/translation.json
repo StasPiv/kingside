@@ -1345,6 +1345,7 @@
       "opening": "Дебют",
       "pawnEndgame": "Пешечный эндшпиль",
       "pin": "Связка",
+      "playVsEngine": "Против движка",
       "promotion": "Превращение",
       "queenEndgame": "Ферзевый эндшпиль",
       "queenRookEndgame": "Ферзево-ладейный эндшпиль",

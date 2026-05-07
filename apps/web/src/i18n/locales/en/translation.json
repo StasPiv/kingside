@@ -1331,6 +1331,7 @@
       "opening": "Opening",
       "pawnEndgame": "Pawn Endgame",
       "pin": "Pin",
+      "playVsEngine": "Play vs Engine",
       "promotion": "Promotion",
       "queenEndgame": "Queen Endgame",
       "queenRookEndgame": "Queen & Rook Endgame",
