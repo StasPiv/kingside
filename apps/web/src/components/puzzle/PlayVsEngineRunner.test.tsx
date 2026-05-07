@@ -342,6 +342,41 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-blunder-hint')).toBeInTheDocument();
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
+
+  // KS-2486: ссылка «Open in Workshop» — всегда видна, href с FEN.
+  it('KS-2486: рендерит puzzle-engine-workshop-link с href=/analysis?fen=<currentFen>', async () => {
+    const customFen = '1rb2rk1/3nq1bp/2n1p1p1/ppppPp2/5P2/P1PPBNP1/1P1N1QBP/R4RK1 w - - 2 15';
+    const puzzle = makePuzzle({
+      fen: customFen,
+      playVsEngine: {
+        blunderMove: 'a8b8',
+        wdlAfterBlunder: 0.95,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    // Engine не нужен для render-теста, но runner вызовет init/analyze в effect'е.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 50 }, ['a1b1'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    const link = screen.getByTestId('puzzle-engine-workshop-link');
+    expect(link).toBeInTheDocument();
+    // href совпадает с /analysis?fen=<encoded>, FEN из puzzle (до ходов).
+    expect(link.getAttribute('href')).toBe(
+      `/analysis?fen=${encodeURIComponent(customFen)}`,
+    );
+    // target=_blank — мастерская в новой вкладке, не прерывает решение.
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toMatch(/noopener/);
+    // i18n текст — не fallback на ключ.
+    const text = (link.textContent ?? '').trim();
+    expect(text).toMatch(/Workshop|мастерской/i);
+    expect(text).not.toContain('puzzle.engine.openInWorkshop');
+  });
 });
 
 /**

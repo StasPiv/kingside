@@ -1059,7 +1059,8 @@
       "bestmoveAt": "Best move at half-move {{n}}: {{san}}",
       "bestmoveDiff": "You played {{played}} on half-move {{n}}, the best move was {{best}}",
       "finalWdl": "Final WDL",
-      "error": "Engine error"
+      "error": "Engine error",
+      "openInWorkshop": "Open in Workshop"
     },
     "mistakes": {
       "title": "Mistakes diary",

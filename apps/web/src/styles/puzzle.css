@@ -2324,3 +2324,45 @@ body:has(.puzzle-rush-board) {
     padding: 8px 10px 10px;
   }
 }
+
+/* ===========================================================
+ * KS-2486 — кнопка «Open in Workshop» рядом с доской play-vs-engine.
+ * =========================================================== */
+
+.puzzle-engine-runner__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.puzzle-engine-runner__workshop-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-primary, #7c83ff);
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  border: 1px solid var(--ov-accent-20, rgba(124, 131, 255, 0.20));
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.puzzle-engine-runner__workshop-link::after {
+  content: "↗";
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.puzzle-engine-runner__workshop-link:hover {
+  background: var(--ov-accent-20, rgba(124, 131, 255, 0.25));
+  border-color: var(--accent-primary, #7c83ff);
+  color: var(--accent-primary, #7c83ff);
+}
+
+.puzzle-engine-runner__workshop-link:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}

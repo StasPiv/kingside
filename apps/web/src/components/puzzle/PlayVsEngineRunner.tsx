@@ -699,6 +699,24 @@ export function PlayVsEngineRunner({
             status={boardStatus}
           />
 
+          {/* KS-2486: открыть текущую позицию в мастерской (анализ).
+              Доступна в любой момент партии, FEN — current `game.fen()`.
+              `target=_blank` чтобы не прервать решение пазла. */}
+          <div
+            className="puzzle-engine-runner__actions"
+            data-testid="puzzle-engine-actions"
+          >
+            <a
+              className="puzzle-engine-runner__workshop-link"
+              data-testid="puzzle-engine-workshop-link"
+              href={`/analysis?fen=${encodeURIComponent(game.fen())}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t('puzzle.engine.openInWorkshop', 'Open in Workshop')}
+            </a>
+          </div>
+
           {(state === 'win' || state === 'lose') && (
             <div className="puzzle-engine-runner__result" data-testid="puzzle-engine-result">
               <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
