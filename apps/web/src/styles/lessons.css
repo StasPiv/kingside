@@ -6496,13 +6496,34 @@
   min-height: 200px;
 }
 
-/* ---- KS-2571: shared DiagramEditor (визуальный редактор диаграмм) ---- */
+/* ===========================================================
+ * KS-2571 / KS-2576: shared DiagramEditor (визуальный редактор
+ * диаграмм). База — KS-2571 (frontend); финальная стилизация
+ * (двухколоночный desktop layout, mobile mode-toggle 44×44, tools
+ * горизонтальный wrap) — KS-2576 (layout).
+ *
+ * DOM-контракт (см. DiagramEditor.tsx):
+ *   .diagram-editor
+ *     .diagram-editor__board
+ *     .diagram-editor__mode-toggle      // только при isCoarse + !drawingDisabled
+ *       .diagram-editor__mode-btn[--active]
+ *     .diagram-editor__tools             // если !drawingDisabled
+ *       .diagram-editor__tool-btn × 3
+ *     .diagram-editor__meta
+ *       .diagram-editor__caption-field
+ *       .diagram-editor__orientation-field
+ *
+ * Цвета — design-system токены `--bg-*`, `--border-*`, `--text-*`,
+ * `--accent`. Hardcoded fallback'ы оставлены на случай отсутствия
+ * токенов (ранние KS-1693 SSR/тесты).
+ * =========================================================== */
 
 .diagram-editor {
+  /* Mobile-first: один столбец. Desktop переопределяет в @media. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 12px;
+  padding: 12px;
   background: var(--bg-muted, #f1f5f9);
   border: 1px solid var(--border-subtle, #d1d5db);
   border-radius: 8px;
@@ -6510,32 +6531,61 @@
 
 .diagram-editor__board {
   width: 100%;
-  max-width: 320px;
+  max-width: 360px;
   align-self: center;
-  /* Подавляем нативное контекстное меню — ПКМ нужен для drawing'а. */
+  /* ПКМ перехвачен в TSX через onContextMenu — браузерное меню не
+     показывается. user-select:none предотвращает выделение текста на
+     drag-стрелках. */
   user-select: none;
+  -webkit-user-select: none;
 }
 
+/* Mode-toggle отображается только на coarse-указателе (mobile / touch).
+   На desktop компонент не рендерит этот блок — но если рендерит, мы
+   всё равно держим минимальную touch-target 44×44 для accessibility
+   (R3 §10). */
 .diagram-editor__mode-toggle {
   display: flex;
-  gap: 4px;
-  align-self: center;
+  gap: 6px;
+  align-self: stretch;
+  justify-content: center;
 }
 
 .diagram-editor__mode-btn {
-  background: transparent;
+  flex: 1 1 auto;
+  min-height: 44px;
+  min-width: 88px;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--bg-default, #ffffff);
   border: 1px solid var(--border-subtle, #d1d5db);
+  border-radius: 8px;
   color: var(--text-default, #1f2937);
-  padding: 6px 12px;
-  border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.diagram-editor__mode-btn:hover:not(:disabled) {
+  background: var(--bg-hover, #e2e8f0);
+  border-color: var(--accent, #3b82f6);
+}
+
+.diagram-editor__mode-btn:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
 }
 
 .diagram-editor__mode-btn--active {
   background: var(--accent, #3b82f6);
   color: var(--accent-text, #ffffff);
   border-color: var(--accent, #3b82f6);
+}
+
+.diagram-editor__mode-btn--active:hover:not(:disabled) {
+  background: var(--accent, #3b82f6);
+  color: var(--accent-text, #ffffff);
 }
 
 .diagram-editor__tools {
@@ -6545,17 +6595,27 @@
 }
 
 .diagram-editor__tool-btn {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 13px;
   background: var(--bg-default, #ffffff);
   border: 1px solid var(--border-subtle, #d1d5db);
   color: var(--text-default, #1f2937);
-  padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12px;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .diagram-editor__tool-btn:hover {
   background: var(--bg-hover, #e2e8f0);
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
+}
+
+.diagram-editor__tool-btn:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
 }
 
 .diagram-editor__meta {
@@ -6568,21 +6628,116 @@
 .diagram-editor__orientation-field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   flex: 1 1 160px;
+  min-width: 0;
 }
 
 .diagram-editor__field-label {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted, #6b7280);
 }
 
 .diagram-editor__caption-input,
 .diagram-editor__orientation-select {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 14px;
   background: var(--bg-default, #ffffff);
   border: 1px solid var(--border-subtle, #d1d5db);
-  color: var(--text-default, #1f2937);
-  padding: 4px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  color: var(--text-default, #1f2937);
+}
+
+.diagram-editor__caption-input:focus-visible,
+.diagram-editor__orientation-select:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 1px;
+  border-color: var(--accent, #3b82f6);
+}
+
+/* ---- Desktop ≥768px: двухколоночный grid [board | panel] ---- */
+@media (min-width: 768px) {
+  .diagram-editor {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(220px, 1fr);
+    grid-template-rows: auto;
+    grid-template-areas:
+      "board tools"
+      "board meta"
+      "board fill";
+    gap: 12px 16px;
+    align-items: start;
+  }
+
+  .diagram-editor__board {
+    grid-area: board;
+    align-self: start;
+    /* На desktop board держит фиксированную ширину колонки. */
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Mode-toggle на desktop в DOM не появляется (isCoarse=false), но
+     если устройство с тач+мышью (гибрид) — поместим над tools в panel. */
+  .diagram-editor__mode-toggle {
+    grid-column: 2;
+    align-self: start;
+  }
+
+  .diagram-editor__tools {
+    grid-area: tools;
+  }
+
+  .diagram-editor__meta {
+    grid-area: meta;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .diagram-editor__caption-field,
+  .diagram-editor__orientation-field {
+    flex: 0 0 auto;
+  }
+}
+
+/* ---- Mobile <480px: tools в горизонтальный scroll, чтобы не
+   занимали 2-3 ряда (минимизируем вертикальную высоту над/под доской). */
+@media (max-width: 480px) {
+  .diagram-editor {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .diagram-editor__tools {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Скрываем scrollbar, оставляем сам скролл. */
+    scrollbar-width: none;
+  }
+
+  .diagram-editor__tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .diagram-editor__tool-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .diagram-editor__caption-field,
+  .diagram-editor__orientation-field {
+    flex: 1 1 100%;
+  }
+}
+
+/* ---- Reduced motion: убрать transitions на интерактивных кнопках. */
+@media (prefers-reduced-motion: reduce) {
+  .diagram-editor__mode-btn,
+  .diagram-editor__tool-btn {
+    transition: none;
+  }
 }
