@@ -29,7 +29,7 @@ import type {
   ExplainDrillInput,
 } from '../types';
 import { EMPTY_EXPLANATION } from '../types';
-import { formatSquareList, oppColor } from '../helpers';
+import { formatSquareList, moveToSan, oppColor } from '../helpers';
 
 export function explainFindHangingPiece(input: ExplainDrillInput): DrillExplanation {
   const { drill, correctAnswer, userAnswer, solved } = input;
@@ -102,12 +102,16 @@ export function explainFindHangingPiece(input: ExplainDrillInput): DrillExplanat
     if (wrongTo !== targetSq) {
       highlights.push({ square: wrongTo, role: 'wrong' });
     }
+    // KS-2482: ход в SAN-нотации (Bxa6, Nxe4, ...).
+    const wrongSan = moveToSan(
+      drill.fen,
+      userAnswer.from,
+      userAnswer.to,
+      userAnswer.promotion,
+    );
     notes.push({
       key: 'drills.explanation.findHangingPiece.wrong',
-      params: {
-        from: userAnswer.from,
-        to: userAnswer.to,
-      },
+      params: { san: wrongSan },
       tone: 'wrong',
     });
   }

@@ -37,7 +37,7 @@ import type {
   ExplainDrillInput,
 } from '../types';
 import { EMPTY_EXPLANATION } from '../types';
-import { formatSquareList } from '../helpers';
+import { formatSquareList, moveToSan } from '../helpers';
 
 export function explainFindFork(input: ExplainDrillInput): DrillExplanation {
   const { drill, correctAnswer, userAnswer, solved } = input;
@@ -97,6 +97,16 @@ export function explainFindFork(input: ExplainDrillInput): DrillExplanation {
     })),
   ];
 
+  // KS-2482: ходы в notes — в SAN-нотации (Nc7+, Bb2, Qd1xd8) через
+  // chess.js. UCI-from/to остаётся в highlights/arrows, но в текстовых
+  // нотках пользователь видит человекочитаемый ход.
+  const correctSan = moveToSan(
+    drill.fen,
+    correctAnswer.from,
+    correctAnswer.to,
+    correctAnswer.promotion,
+  );
+
   const notes: DrillExplanationNote[] = [];
   if (kingSq) {
     notes.push({
@@ -104,7 +114,7 @@ export function explainFindFork(input: ExplainDrillInput): DrillExplanation {
       params: {
         piece: forker.type,
         pieceKey: `chess.pieces.${forker.type}`,
-        move: `${correctAnswer.from}${correctAnswer.to}`,
+        san: correctSan,
         king: kingSq,
         targets: formatSquareList(nonKingTargets),
       },
@@ -116,7 +126,7 @@ export function explainFindFork(input: ExplainDrillInput): DrillExplanation {
       params: {
         piece: forker.type,
         pieceKey: `chess.pieces.${forker.type}`,
-        move: `${correctAnswer.from}${correctAnswer.to}`,
+        san: correctSan,
         targets: formatSquareList(nonKingTargets),
       },
       tone: solved ? 'success' : 'info',
@@ -128,9 +138,15 @@ export function explainFindFork(input: ExplainDrillInput): DrillExplanation {
     if (wrongTo !== correctAnswer.to) {
       highlights.push({ square: wrongTo, role: 'wrong' });
     }
+    const wrongSan = moveToSan(
+      drill.fen,
+      userAnswer.from,
+      userAnswer.to,
+      userAnswer.promotion,
+    );
     notes.push({
       key: 'drills.explanation.findFork.wrong',
-      params: { from: userAnswer.from, to: userAnswer.to },
+      params: { san: wrongSan },
       tone: 'wrong',
     });
   }

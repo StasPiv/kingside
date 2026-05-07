@@ -38,7 +38,7 @@ import type {
   ExplainDrillInput,
 } from '../types';
 import { EMPTY_EXPLANATION } from '../types';
-import { formatSquareList, iterAllSquares, oppColor } from '../helpers';
+import { formatSquareList, iterAllSquares, moveToSan, oppColor } from '../helpers';
 
 interface MoveTag {
   from: string;
@@ -145,15 +145,23 @@ export function explainFindAllChecks(input: ExplainDrillInput): DrillExplanation
     }
   }
 
-  const movesLabel = expectedMoves
-    .map((m) => `${m.from}${m.to}`)
-    .join(', ');
+  // KS-2482: список правильных ходов в SAN (Ra8+, Qxh7+, Nf3+) — это
+  // натуральная нотация шахов. Для пропущенных/лишних missed/wrong
+  // показываем `to`-клетки (у пользователя нет from в shape='squares' —
+  // SAN там не вычислимо).
+  const expectedSans: string[] = expectedMoves
+    .map((m) => moveToSan(drill.fen, m.from, m.to))
+    .filter((s) => s.length > 0);
+  const movesLabel = expectedSans.length > 0
+    ? expectedSans.join(', ')
+    : formatSquareList(correctAnswer.squares);
+
   const notes: DrillExplanationNote[] = [
     {
       key: 'drills.explanation.findAllChecks.correct',
       params: {
         count: correctAnswer.squares.length,
-        moves: movesLabel || formatSquareList(correctAnswer.squares),
+        moves: movesLabel,
       },
       tone: solved ? 'success' : 'info',
     },
@@ -163,14 +171,24 @@ export function explainFindAllChecks(input: ExplainDrillInput): DrillExplanation
   if (!solved && userAnswer && userAnswer.shape === 'squares') {
     const missed = correctAnswer.squares.filter((s) => !userSquaresSet.has(s));
     if (missed.length > 0) {
+      // KS-2482: пропущенные показываем как SAN правильных ходов с
+      // соответствующей `to`-клеткой (если expectedMoves даёт from).
+      const missedSans = expectedMoves
+        .filter((m) => missed.includes(m.to))
+        .map((m) => moveToSan(drill.fen, m.from, m.to))
+        .filter((s) => s.length > 0);
       notes.push({
         key: 'drills.explanation.findAllChecks.missed',
-        params: { moves: formatSquareList(missed) },
+        params: {
+          moves: missedSans.length > 0 ? missedSans.join(', ') : formatSquareList(missed),
+        },
         tone: 'missed',
       });
     }
     const wrong = userAnswer.squares.filter((s) => !correctSquaresSet.has(s));
     if (wrong.length > 0) {
+      // У FP-кликов нет `from` (shape='squares' — единственное `to`),
+      // поэтому SAN не доступно — оставляем клетки.
       notes.push({
         key: 'drills.explanation.findAllChecks.wrong',
         params: { moves: formatSquareList(wrong) },
@@ -180,18 +198,19 @@ export function explainFindAllChecks(input: ExplainDrillInput): DrillExplanation
   }
 
   // Per-move discovered / double теги — методика KS-2454 (учить
-  // отличать механику).
+  // отличать механику). KS-2482: тег несёт SAN-нотацию хода вместо UCI.
   for (const tag of tags) {
+    const tagSan = moveToSan(drill.fen, tag.from, tag.to);
     if (tag.kind === 'discovered') {
       notes.push({
         key: 'drills.explanation.findAllChecks.tagDiscovered',
-        params: { from: tag.from, to: tag.to },
+        params: { san: tagSan },
         tone: 'info',
       });
     } else if (tag.kind === 'double') {
       notes.push({
         key: 'drills.explanation.findAllChecks.tagDouble',
-        params: { from: tag.from, to: tag.to },
+        params: { san: tagSan },
         tone: 'info',
       });
     }

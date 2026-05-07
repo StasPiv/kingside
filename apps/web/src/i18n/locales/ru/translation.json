@@ -797,7 +797,7 @@
       "findHangingPiece": {
         "correct": "{{piece}} на {{square}} висит: атакуют {{attackers}}, защищают {{defenders}}.",
         "correctUndefended": "{{piece}} на {{square}} висит: атакует {{attackers}}, защитников нет.",
-        "wrong": "Ваш ход {{from}}{{to}} не берёт зависшую фигуру."
+        "wrong": "Ваш ход {{san}} не берёт зависшую фигуру."
       },
       "findAllChecks": {
         "correct_one": "{{count}} ход даёт шах: {{moves}}.",
@@ -806,9 +806,9 @@
         "correct_other": "{{count}} ходов дают шах: {{moves}}.",
         "missed": "Пропустили: {{moves}}.",
         "wrong": "{{moves}} — не шах.",
-        "tagDirect": "{{from}}{{to}} — прямой шах.",
-        "tagDiscovered": "{{from}}{{to}} — вскрытый шах.",
-        "tagDouble": "{{from}}{{to}} — двойной шах.",
+        "tagDirect": "{{san}} — прямой шах.",
+        "tagDiscovered": "{{san}} — вскрытый шах.",
+        "tagDouble": "{{san}} — двойной шах.",
         "summaryGroup": "Прямые: {{direct}}; вскрытые: {{discovered}}; двойные: {{double}}."
       },
       "findPin": {
@@ -817,15 +817,15 @@
         "wrong": "{{square}} не связана."
       },
       "findFork": {
-        "correct": "{{piece}} ходом {{move}} ставит вилку на {{targets}}.",
-        "correctWithCheck": "{{piece}} ходом {{move}} ставит вилку с шахом: {{king}} и {{targets}}.",
-        "wrong": "{{from}}{{to}} не создаёт вилку."
+        "correct": "{{piece}} ходом {{san}} ставит вилку на {{targets}}.",
+        "correctWithCheck": "{{piece}} ходом {{san}} ставит вилку с шахом: {{king}} и {{targets}}.",
+        "wrong": "{{san}} не создаёт вилку."
       },
       "findUndefendedAttack": {
-        "correct": "{{move}}: атака на {{piece}} ({{square}}), защитников нет.",
-        "correctMulti": "{{move}}: новых висящих фигур — {{count}} ({{squares}}).",
-        "correctFreeWin": "{{move}}: выигрывает {{piece}} ({{square}}) без размена.",
-        "wrong": "{{from}}{{to}} не создаёт новой угрозы."
+        "correct": "{{san}}: атака на {{piece}} ({{square}}), защитников нет.",
+        "correctMulti": "{{san}}: новых висящих фигур — {{count}} ({{squares}}).",
+        "correctFreeWin": "{{san}}: выигрывает {{piece}} ({{square}}) без размена.",
+        "wrong": "{{san}} не создаёт новой угрозы."
       }
     },
     "lesson": {

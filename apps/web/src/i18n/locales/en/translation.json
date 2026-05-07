@@ -791,16 +791,16 @@
       "findHangingPiece": {
         "correct": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, defended by {{defenders}}.",
         "correctUndefended": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, no defenders.",
-        "wrong": "Your move {{from}}{{to}} doesn't capture the hanging piece."
+        "wrong": "Your move {{san}} doesn't capture the hanging piece."
       },
       "findAllChecks": {
         "correct_one": "{{count}} move gives check: {{moves}}.",
         "correct_other": "{{count}} moves give check: {{moves}}.",
         "missed": "Missed: {{moves}}.",
         "wrong": "{{moves}} — not a check.",
-        "tagDirect": "{{from}}{{to}} — direct check.",
-        "tagDiscovered": "{{from}}{{to}} — discovered check.",
-        "tagDouble": "{{from}}{{to}} — double check.",
+        "tagDirect": "{{san}} — direct check.",
+        "tagDiscovered": "{{san}} — discovered check.",
+        "tagDouble": "{{san}} — double check.",
         "summaryGroup": "Direct: {{direct}}; discovered: {{discovered}}; double: {{double}}."
       },
       "findPin": {
@@ -809,15 +809,15 @@
         "wrong": "{{square}} is not pinned."
       },
       "findFork": {
-        "correct": "{{piece}} via {{move}} forks {{targets}}.",
-        "correctWithCheck": "{{piece}} via {{move}} forks the king ({{king}}) and {{targets}}.",
-        "wrong": "{{from}}{{to}} doesn't create a fork."
+        "correct": "{{piece}} via {{san}} forks {{targets}}.",
+        "correctWithCheck": "{{piece}} via {{san}} forks the king ({{king}}) and {{targets}}.",
+        "wrong": "{{san}} doesn't create a fork."
       },
       "findUndefendedAttack": {
-        "correct": "{{move}}: attacks {{piece}} ({{square}}), no defenders.",
-        "correctMulti": "{{move}}: creates {{count}} hanging pieces — {{squares}}.",
-        "correctFreeWin": "{{move}}: wins {{piece}} ({{square}}) without trade.",
-        "wrong": "{{from}}{{to}} doesn't create a new threat."
+        "correct": "{{san}}: attacks {{piece}} ({{square}}), no defenders.",
+        "correctMulti": "{{san}}: creates {{count}} hanging pieces — {{squares}}.",
+        "correctFreeWin": "{{san}}: wins {{piece}} ({{square}}) without trade.",
+        "wrong": "{{san}} doesn't create a new threat."
       }
     },
     "lesson": {

@@ -32,7 +32,7 @@ import type {
   ExplainDrillInput,
 } from '../types';
 import { EMPTY_EXPLANATION } from '../types';
-import { formatSquareList } from '../helpers';
+import { formatSquareList, moveToSan } from '../helpers';
 
 export function explainFindUndefendedAttack(
   input: ExplainDrillInput,
@@ -83,6 +83,15 @@ export function explainFindUndefendedAttack(
     highlights.push({ square: sq, role: 'context' });
   }
 
+  // KS-2482: ход выводим в SAN (Bb2, Nf3xe5) — пользователь читает
+  // натуральную алгебраику, а не UCI-склейку.
+  const correctSan = moveToSan(
+    drill.fen,
+    correctAnswer.from,
+    correctAnswer.to,
+    correctAnswer.promotion,
+  );
+
   const notes: DrillExplanationNote[] = [];
   if (newThreats.length === 1) {
     const sq = newThreats[0];
@@ -90,7 +99,7 @@ export function explainFindUndefendedAttack(
     notes.push({
       key: 'drills.explanation.findUndefendedAttack.correct',
       params: {
-        move: `${correctAnswer.from}${correctAnswer.to}`,
+        san: correctSan,
         piece: victim?.type ?? '?',
         pieceKey: victim ? `chess.pieces.${victim.type}` : 'chess.pieces.unknown',
         square: sq,
@@ -101,7 +110,7 @@ export function explainFindUndefendedAttack(
     notes.push({
       key: 'drills.explanation.findUndefendedAttack.correctMulti',
       params: {
-        move: `${correctAnswer.from}${correctAnswer.to}`,
+        san: correctSan,
         count: newThreats.length,
         squares: formatSquareList(newThreats),
       },
@@ -113,7 +122,7 @@ export function explainFindUndefendedAttack(
     notes.push({
       key: 'drills.explanation.findUndefendedAttack.correctMulti',
       params: {
-        move: `${correctAnswer.from}${correctAnswer.to}`,
+        san: correctSan,
         count: 0,
         squares: '',
       },
@@ -126,9 +135,15 @@ export function explainFindUndefendedAttack(
     if (wrongTo !== correctAnswer.to) {
       highlights.push({ square: wrongTo, role: 'wrong' });
     }
+    const wrongSan = moveToSan(
+      drill.fen,
+      userAnswer.from,
+      userAnswer.to,
+      userAnswer.promotion,
+    );
     notes.push({
       key: 'drills.explanation.findUndefendedAttack.wrong',
-      params: { from: userAnswer.from, to: userAnswer.to },
+      params: { san: wrongSan },
       tone: 'wrong',
     });
   }

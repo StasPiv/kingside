@@ -53,7 +53,12 @@ describe('explainFindFork', () => {
       n.key.endsWith('findFork.correctWithCheck'),
     );
     expect(note).toBeDefined();
-    expect(note?.params).toMatchObject({ king: 'e8', targets: 'a8' });
+    // KS-2482: ход в SAN — Nc7+ (royal fork, конь бьёт короля и ладью).
+    expect(note?.params).toMatchObject({
+      san: 'Nc7+',
+      king: 'e8',
+      targets: 'a8',
+    });
   });
 
   it('неверный ход: wrong highlight + wrong note', () => {
@@ -70,6 +75,7 @@ describe('explainFindFork', () => {
     expect(result.highlights).toContainEqual({ square: 'b6', role: 'wrong' });
     const wrongNote = result.notes.find((n) => n.key.endsWith('.wrong'));
     expect(wrongNote?.tone).toBe('wrong');
-    expect(wrongNote?.params).toMatchObject({ from: 'd5', to: 'b6' });
+    // KS-2482: SAN-нотация ошибочного хода.
+    expect(wrongNote?.params).toMatchObject({ san: 'Nb6' });
   });
 });

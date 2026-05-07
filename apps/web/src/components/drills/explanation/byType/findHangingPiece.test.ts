@@ -48,18 +48,18 @@ describe('explainFindHangingPiece', () => {
 
   it('неверный ответ: wrong highlight на userAnswer.to + wrong note', () => {
     const correct: AnswerData = { shape: 'move', from: 'd4', to: 'e5' };
-    // Любой другой ход — пусть Ke1-e2 (нелегальный hanging-ход, но
-    // tracker только смотрит userAnswer.to).
-    const user: AnswerData = { shape: 'move', from: 'e1', to: 'e2' };
+    // KS-2482: используем легальный король-ход Kd1 (e1→d1 пустая клетка
+    // вне атаки чёрной ладьи на e-line) — chess.js даёт SAN=`Kd1`.
+    const user: AnswerData = { shape: 'move', from: 'e1', to: 'd1' };
     const result = explainFindHangingPiece({
       drill: drill({ fen }),
       correctAnswer: correct,
       userAnswer: user,
       solved: false,
     });
-    expect(result.highlights).toContainEqual({ square: 'e2', role: 'wrong' });
+    expect(result.highlights).toContainEqual({ square: 'd1', role: 'wrong' });
     const wrongNote = result.notes.find((n) => n.key.endsWith('.wrong'));
     expect(wrongNote?.tone).toBe('wrong');
-    expect(wrongNote?.params).toMatchObject({ from: 'e1', to: 'e2' });
+    expect(wrongNote?.params).toMatchObject({ san: 'Kd1' });
   });
 });

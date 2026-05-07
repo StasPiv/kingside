@@ -8,7 +8,7 @@
  * - `formatSquareList` — строка «e4, f3, d3» для notes.
  * - `iterAllSquares` — итератор по всем 64 клеткам.
  */
-import type { Color, PieceSymbol, Square } from 'chess.js';
+import { Chess, type Color, type PieceSymbol, type Square } from 'chess.js';
 
 export function oppColor(c: Color): Color {
   return c === 'w' ? 'b' : 'w';
@@ -82,4 +82,34 @@ export function squareSetsEqual(a: string[], b: string[]): boolean {
   const setA = new Set(a);
   for (const x of b) if (!setA.has(x)) return false;
   return true;
+}
+
+/**
+ * KS-2482: получить SAN-нотацию для хода `{from, to, promotion?}` в
+ * позиции `fen`. Pure-функция: создаёт временный Chess-инстанс,
+ * применяет ход и возвращает `move.san` (`Qb2`, `Nf3`, `Bxa6`, `O-O`).
+ *
+ * Если ход не легален в позиции (что для drill'ов — аномалия) или FEN
+ * кривой, возвращаем UCI-склейку `from + to` как fallback — UI не
+ * упадёт, но текст будет менее красивым, и проблема будет видна в
+ * notes.
+ */
+export function moveToSan(
+  fen: string,
+  from: string,
+  to: string,
+  promotion?: 'q' | 'r' | 'b' | 'n',
+): string {
+  try {
+    const c = new Chess(fen);
+    const m = c.move({
+      from: from as Square,
+      to: to as Square,
+      ...(promotion ? { promotion } : {}),
+    });
+    if (m && m.san) return m.san;
+  } catch {
+    /* fall through */
+  }
+  return `${from}${to}`;
 }

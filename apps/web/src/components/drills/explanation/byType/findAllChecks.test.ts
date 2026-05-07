@@ -39,7 +39,10 @@ describe('explainFindAllChecks', () => {
     ]);
     expect(result.highlights).toContainEqual({ square: 'e8', role: 'target' });
     expect(result.highlights).toContainEqual({ square: 'a8', role: 'correct' });
-    expect(result.notes.find((n) => n.key.endsWith('.correct'))).toBeDefined();
+    const correctNote = result.notes.find((n) => n.key.endsWith('.correct'));
+    expect(correctNote).toBeDefined();
+    // KS-2482: список ходов в `moves` — SAN, не UCI.
+    expect(correctNote?.params).toMatchObject({ count: 1, moves: 'Ra8+' });
     // direct → нет discovered/double тэгов
     expect(
       result.notes.find((n) => n.key.endsWith('.tagDiscovered')),
@@ -88,6 +91,7 @@ describe('explainFindAllChecks', () => {
     });
     const tagDouble = result.notes.find((n) => n.key.endsWith('.tagDouble'));
     expect(tagDouble).toBeDefined();
-    expect(tagDouble?.params).toMatchObject({ from: 'e6', to: 'c7' });
+    // KS-2482: SAN-нотация хода — Nc7+ (double check).
+    expect(tagDouble?.params).toMatchObject({ san: 'Nc7+' });
   });
 });

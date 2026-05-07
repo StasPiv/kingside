@@ -48,7 +48,11 @@ describe('explainFindUndefendedAttack', () => {
     expect(result.notes[0].key).toBe(
       'drills.explanation.findUndefendedAttack.correct',
     );
-    expect(result.notes[0].params).toMatchObject({ square: 'e5' });
+    // KS-2482: ход correctAnswer выводится как SAN — Bb2.
+    expect(result.notes[0].params).toMatchObject({
+      square: 'e5',
+      san: 'Bb2',
+    });
     expect(result.notes[0].tone).toBe('success');
   });
 
@@ -64,6 +68,7 @@ describe('explainFindUndefendedAttack', () => {
     expect(result.highlights).toContainEqual({ square: 'a3', role: 'wrong' });
     const wrongNote = result.notes.find((n) => n.key.endsWith('.wrong'));
     expect(wrongNote?.tone).toBe('wrong');
-    expect(wrongNote?.params).toMatchObject({ from: 'c1', to: 'a3' });
+    // KS-2482: SAN-нотация ошибочного хода.
+    expect(wrongNote?.params).toMatchObject({ san: 'Ba3' });
   });
 });
