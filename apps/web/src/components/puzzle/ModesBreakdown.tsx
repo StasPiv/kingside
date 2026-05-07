@@ -53,10 +53,12 @@ const MODES: ModeMeta[] = [
   },
   {
     key: 'play-vs-engine',
-    to: '/puzzles/play-vs-engine',
-    titleKey: 'puzzleStats.modes.playVsEngine.title',
-    titleFallback: 'Play vs Engine',
-    descriptionKey: 'puzzleStats.modes.playVsEngine.description',
+    // KS-2538/2544: путь раздела переехал на `/precision`; ключ
+    // `play-vs-engine` остаётся API-маркером (внутренний solutionMode).
+    to: '/precision',
+    titleKey: 'puzzleStats.modes.precision.title',
+    titleFallback: 'Precision',
+    descriptionKey: 'puzzleStats.modes.precision.description',
     descriptionFallback: 'Hold the advantage against a strong engine for N half-moves.',
   },
 ];

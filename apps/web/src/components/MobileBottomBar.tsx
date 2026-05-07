@@ -126,7 +126,11 @@ export function MobileBottomBar() {
           >
             <span className="mobile-bar-icon">{meta.icon}</span>
             <span className="mobile-bar-label">
-              {t(meta.labelKey, meta.labelFallback)}
+              {/* KS-2544: предпочитаем короткое название (если задано),
+                  чтобы в узкой mobile-bar колонке не обрезалось. */}
+              {meta.labelShortKey
+                ? t(meta.labelShortKey, meta.labelShortFallback ?? meta.labelFallback)
+                : t(meta.labelKey, meta.labelFallback)}
             </span>
           </Link>
         );

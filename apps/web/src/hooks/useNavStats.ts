@@ -54,6 +54,14 @@ export interface NavRouteMeta {
   labelKey: string;
   /** Fallback-текст, если ключ не найден. */
   labelFallback: string;
+  /**
+   * KS-2544: i18n-ключ короткого названия (для mobile bottom bar,
+   * где места меньше). Опционально — если не задан, mobile bar
+   * использует обычный `labelKey`.
+   */
+  labelShortKey?: string;
+  /** KS-2544: fallback короткого названия. */
+  labelShortFallback?: string;
   /** Какой feature-flag должен быть `true`. `null` = всегда видим. */
   flag: keyof FeatureFlags | null;
 }
@@ -141,7 +149,10 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     matches: ['/precision'],
     icon: '🎓',
     labelKey: 'nav.precision',
-    labelFallback: 'Precision',
+    labelFallback: 'Precision training',
+    // KS-2544: для mobile bottom bar используем короткое «Precision».
+    labelShortKey: 'nav.precisionShort',
+    labelShortFallback: 'Precision',
     flag: 'puzzlesEnabled',
   },
 };

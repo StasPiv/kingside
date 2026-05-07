@@ -91,16 +91,16 @@ export function PrecisionPage() {
       data-state={state}
     >
       <header className="play-vs-engine-puzzles__header">
-        <h1>{t('puzzles.playVsEngine.title', 'Play vs Engine puzzles')}</h1>
+        <h1>{t('precision.title', 'Precision training')}</h1>
         <p className="play-vs-engine-puzzles__intro">
           {t(
-            'puzzles.playVsEngine.intro',
+            'precision.intro',
             'Practice positions where a Stockfish-strong engine punishes mistakes. Find the precise sequence and outplay the machine.',
           )}
         </p>
         <div className="play-vs-engine-puzzles__nav">
           <Link to="/puzzles" className="play-vs-engine-puzzles__back-link">
-            ← {t('puzzles.playVsEngine.backToAll', 'All puzzles')}
+            ← {t('precision.backToAll', 'All puzzles')}
           </Link>
         </div>
       </header>
@@ -119,7 +119,7 @@ export function PrecisionPage() {
           className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
           data-testid="play-vs-engine-error"
         >
-          <p>{t('puzzles.playVsEngine.loadError', 'Could not load puzzles.')}</p>
+          <p>{t('precision.loadError', 'Could not load puzzles.')}</p>
           <button type="button" onClick={() => void fetchPuzzles()}>
             {t('common.retry', 'Retry')}
           </button>
@@ -132,7 +132,7 @@ export function PrecisionPage() {
           data-testid="play-vs-engine-empty"
         >
           {t(
-            'puzzles.playVsEngine.empty',
+            'precision.empty',
             'No play-vs-engine puzzles yet — the generator is still filling the bank. Check back soon.',
           )}
         </p>
@@ -155,7 +155,7 @@ export function PrecisionPage() {
                   type="button"
                   className="play-vs-engine-card__board-btn"
                   onClick={onClick}
-                  aria-label={t('puzzles.playVsEngine.openPuzzle', 'Open puzzle')}
+                  aria-label={t('precision.openPuzzle', 'Open puzzle')}
                 >
                   <Chessboard
                     options={{
@@ -169,7 +169,7 @@ export function PrecisionPage() {
                 </button>
                 <div className="play-vs-engine-card__body">
                   <div className="play-vs-engine-card__title">
-                    {t('puzzles.playVsEngine.cardTitle', '#{{id}}', {
+                    {t('precision.cardTitle', '#{{id}}', {
                       id: p.id.slice(0, 8),
                     })}
                   </div>

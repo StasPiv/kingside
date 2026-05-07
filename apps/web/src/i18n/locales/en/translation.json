@@ -68,7 +68,8 @@
     "feedback": "Feedback",
     "lessons": "Lessons",
     "drills": "Drills",
-    "precision": "Precision Training",
+    "precision": "Precision training",
+    "precisionShort": "Precision",
     "admin": "Admin"
   },
   "admin": {
@@ -1256,16 +1257,14 @@
     "error": "Failed to load leaderboard",
     "backToRush": "Back to Puzzle Rush"
   },
-  "puzzles": {
-    "playVsEngine": {
-      "title": "Play vs Engine puzzles",
-      "intro": "Practice positions where a Stockfish-strong engine punishes mistakes. Find the precise sequence and outplay the machine.",
-      "empty": "No play-vs-engine puzzles yet — the generator is still filling the bank. Check back soon.",
-      "loadError": "Could not load puzzles.",
-      "openPuzzle": "Open puzzle",
-      "backToAll": "All puzzles",
-      "cardTitle": "#{{id}}"
-    }
+  "precision": {
+    "title": "Precision training",
+    "intro": "Practice positions where a Stockfish-strong engine punishes mistakes. Find the precise sequence and outplay the machine.",
+    "empty": "No precision puzzles yet — the generator is still filling the bank. Check back soon.",
+    "loadError": "Could not load puzzles.",
+    "openPuzzle": "Open puzzle",
+    "backToAll": "All puzzles",
+    "cardTitle": "#{{id}}"
   },
   "puzzleStats": {
     "recentAttempts": "Recent Attempts",
@@ -1281,8 +1280,8 @@
         "title": "Forced line",
         "description": "Classic Lichess tactics — find the only winning sequence."
       },
-      "playVsEngine": {
-        "title": "Play vs Engine",
+      "precision": {
+        "title": "Precision",
         "description": "Hold the advantage against a strong engine for N half-moves."
       }
     }

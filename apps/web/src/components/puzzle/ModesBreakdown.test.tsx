@@ -36,7 +36,7 @@ describe('<ModesBreakdown> KS-2495', () => {
     expect(fl.getAttribute('href')).toBe('/puzzles');
     expect(fl.getAttribute('data-mode')).toBe('forced-line');
     const pve = screen.getByTestId('modes-breakdown-card-play-vs-engine');
-    expect(pve.getAttribute('href')).toBe('/puzzles/play-vs-engine');
+    expect(pve.getAttribute('href')).toBe('/precision');
     expect(pve.getAttribute('data-mode')).toBe('play-vs-engine');
   });
 
