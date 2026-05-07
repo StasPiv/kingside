@@ -1062,6 +1062,11 @@
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop"
     },
+    "sourceGame": {
+      "fromGame": "From game",
+      "openInArchive": "Open in archive",
+      "openOnLichess": "Open on Lichess"
+    },
     "mistakes": {
       "title": "Mistakes diary",
       "fullTitle": "All mistakes",

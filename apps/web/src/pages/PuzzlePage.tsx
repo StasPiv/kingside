@@ -6,6 +6,8 @@ import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
 import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
+// KS-2488: блок «Из партии» (sourceGame) под доской пазла.
+import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import {
   PlayVsEngineRunner,
   type PlayVsEngineSubmit,
@@ -466,6 +468,10 @@ export function PuzzlePage() {
           onSubmit={handlePlayVsEngineSubmit}
           onNext={() => { void loadPuzzle(); }}
         />
+        {/* KS-2488: блок «Из партии» — headers + ссылки на архив /
+            Lichess. Сам компонент возвращает null если sourceGame
+            отсутствует или пустой. */}
+        <PuzzleSourceGame source={puzzle.sourceGame} />
       </div>
     );
   }
@@ -609,6 +615,10 @@ export function PuzzlePage() {
           </button>
         </div>
       </div>
+
+      {/* KS-2488: блок «Из партии» (sourceGame) — headers + ссылки
+          архив/Lichess. Возвращает null если sourceGame пустой. */}
+      <PuzzleSourceGame source={puzzle?.sourceGame} />
 
       {/* KS-1928 / ADR-032 §5: compact hint «Слабые темы» под доской.
           Self-fetching: скрыт при пустом списке / без auth / ошибке.

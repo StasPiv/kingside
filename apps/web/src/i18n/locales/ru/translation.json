@@ -1072,6 +1072,11 @@
       "error": "Ошибка движка",
       "openInWorkshop": "Открыть в мастерской"
     },
+    "sourceGame": {
+      "fromGame": "Из партии",
+      "openInArchive": "Открыть в архиве",
+      "openOnLichess": "Открыть на Lichess"
+    },
     "mistakes": {
       "title": "Дневник ошибок",
       "fullTitle": "Все ошибки",
