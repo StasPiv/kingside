@@ -145,6 +145,22 @@ describe('<Sidebar>', () => {
     expect(link.getAttribute('href')).toBe('/drills');
   });
 
+  it('KS-2539: puzzlesEnabled=false → пункт «Тренировка точности» скрыт', () => {
+    flagControls.puzzles = false;
+    renderWithProviders(<Sidebar />);
+    expect(
+      screen.queryByTitle(/precision|тренировка точности/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('KS-2539: puzzlesEnabled=true → пункт «Тренировка точности» виден и ведёт на /precision', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />);
+    const link = screen.getByTitle(/precision|тренировка точности/i);
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/precision');
+  });
+
   it('KS-2252: иконка кнопки обратной связи — 📝 (НЕ 💬, чтобы не путалась с ChatWidget)', () => {
     renderWithProviders(<Sidebar />);
     const btn = screen.getByTestId('sidebar-feedback-btn');
