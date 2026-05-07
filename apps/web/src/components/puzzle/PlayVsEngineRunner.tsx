@@ -648,6 +648,36 @@ export function PlayVsEngineRunner({
     lastMoveUciRef.current = null;
   }, [puzzle.id, puzzle.fen, params.wdlAfterBlunder]);
 
+  // ── KS-2507 / ADR-047 §2.1 + §3 #4 ───────────────────────────────────
+  // Initial pre-analyze стартовой позиции — чтобы `<EvalBar />` сразу
+  // показывал оценку, а не дефолтный «0.0», пока юзер думает над первым
+  // ходом. Идёт через тот же queueAnalyze — последовательно с pre/post
+  // analyze, без риска пересечения stdin Stockfish'а.
+  //
+  // Запускается только при смене puzzle.id (deps по тикету). Race с
+  // pre-analyze первого хода: setEvalLines в обоих местах — последний
+  // запиcавший выигрывает, что для UI приемлемо: pre-analyze хода
+  // запускается на FEN ДО хода (== puzzle.fen на 1-м полуходе), так что
+  // оба analyze дают одну и ту же оценку. Ошибки молча проглатываем —
+  // EvalBar не критичен.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureEngine();
+        const initial = await queueAnalyze(puzzle.fen);
+        if (cancelled) return;
+        setEvalLines(toEvalLines(initial));
+      } catch {
+        /* ignore — EvalBar не критичен, юзер сделает ход и анализ
+           перезапустится в runEngineCycle. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze]);
+
   // ── UI helpers ───────────────────────────────────────────────────────
   const halfMovesLeft = Math.max(0, params.halfMovesN - halfMovesPlayed);
   const progressPercent = Math.min(100, Math.round((halfMovesPlayed / params.halfMovesN) * 100));
@@ -742,6 +772,7 @@ export function PlayVsEngineRunner({
       data-state={state}
       data-half-moves={halfMovesPlayed}
       data-reason={reason ?? ''}
+      data-eval-lines={evalLines.length}
     >
       <div className="puzzle-engine-runner__layout">
         <EvalBar lines={evalLines} isBlackTurn={isBlackOriented} />

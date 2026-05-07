@@ -111,6 +111,14 @@ function result(infoLine: InfoLine): AnalysisResult {
   };
 }
 
+/**
+ * KS-2507: первый запрос к движку — initial analyze стартовой позиции
+ * (для EvalBar). ScriptedEngine выдаёт ответы FIFO, поэтому каждому
+ * тесту прикрепляем «фиктивный» нулевой ответ в начало очереди.
+ */
+const INITIAL_ANALYZE = (): AnalysisResult =>
+  result(line({ type: 'cp', value: 0 }, ['e2e4']));
+
 function makePuzzle(over: Partial<PuzzleDto> = {}): PuzzleDto {
   return {
     id: 'p-test',
@@ -158,7 +166,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     // Engine видит mate: score.type='mate', value=-2 → wdl_user = +1, resign.
     // KS-2473: + pre-analyze, поэтому отдаём 2 ответа.
+    // KS-2507: + initial analyze стартовой позиции при mount.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 50 }, ['e2e4'])), // pre-analyze
       result(line({ type: 'mate', value: -2 }, ['e7e5'])), // post-analyze
     ]);
@@ -196,6 +206,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // wdl_user. Подаём 2 фиктивных результата (pre + post). Какой
     // первым — зависит от порядка вызовов; cp=+800 берёт оба.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 800 }, ['d7d5'])),
       result(line({ type: 'cp', value: 800 }, ['d7d5'])),
     ]);
@@ -233,6 +244,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     //    → win.
     // KS-2473: pre-analyze запускается параллельно с post-analyze, FIFO.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 100 }, ['e2e4'])), // pre-analyze user move 1
       result(line({ type: 'cp', value: -300 }, ['e7e5'])), // post-analyze 1
       result(line({ type: 'cp', value: 600 }, ['d2d4'])), // final analyze
@@ -269,6 +281,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     // KS-2473: pre + post analyze.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 1500 }, ['a1a8'])), // pre-analyze
       result(line({ type: 'mate', value: -1 }, ['g8h8'])), // post-analyze (после мата)
     ]);
@@ -302,6 +315,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // post-analyze (FEN после user-хода, black to move, POV черных) cp +800
     //   → wdl_engine ≈ +0.88, wdl_user = -0.88 < failThreshold=0.1 → lose-wdl.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre-analyze: best=d2d4
       result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post-analyze
     ]);
@@ -345,6 +359,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       },
     });
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: cp=+50
       result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post → lose-wdl
     ]);
@@ -392,6 +407,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     //   wdl_user=-1 < failThreshold → lose-wdl.
     //   cpAfter POV user = −cpFromScore(mate +2) = −100000.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 50 }, ['d2d4'])),
       result(line({ type: 'mate', value: 2 }, ['d7d5'])),
     ]);
@@ -434,6 +450,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // pre-analyze: mate +3 у юзера (он матует за 3) → cpBefore = +100000.
     // post-analyze падает в lose-wdl чтобы дойти до подсказки.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'mate', value: 3 }, ['d2d4'])),
       result(line({ type: 'cp', value: 800 }, ['d7d5'])),
     ]);
@@ -467,12 +484,43 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([]);
+    // KS-2507: initial pre-analyze стартовой позиции теперь идёт сразу
+    // на mount, поэтому отдаём ScriptedEngine один ответ.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 30 }, ['e2e4'])),
+    ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
     expect(screen.getByTestId('puzzle-engine-blunder-hint')).toBeInTheDocument();
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
+  });
+
+  it('KS-2507: initial pre-analyze стартовой позиции — evalLines не пустой при mount', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    // Один ответ — initial analyze. Без user-хода не должно быть других.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 25 }, ['e2e4'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // До initial analyze evalLines.length=0 (синхронный first-paint
+    // через reset useEffect). После — 1 (отдали одну линию).
+    await waitFor(() => {
+      const root = screen.getByTestId('puzzle-engine-runner');
+      const count = Number(root.getAttribute('data-eval-lines'));
+      if (count <= 0) throw new Error('evalLines не дописались');
+      expect(count).toBeGreaterThan(0);
+    });
   });
 
   // KS-2486: ссылка «Open in Workshop» — всегда видна, href с FEN
@@ -529,6 +577,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // 1) pre-analyze user-хода (e2e4): cp нейтральный.
     // 2) post-analyze: ход движка e7e5, wdl_user остаётся выше fail-threshold.
     const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 100 }, ['e2e4'])),
       result(line({ type: 'cp', value: -100 }, ['e7e5'])),
     ]);
