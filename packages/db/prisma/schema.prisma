@@ -307,6 +307,9 @@ model Puzzle {
   // KS-2557: ORDER BY created_at DESC LIMIT 20 для /puzzles/browse —
   // на 6M lichess строк без индекса делал full scan + sort.
   @@index([createdAt])
+  // KS-2562: getNextPuzzle делает range scan по rating + ORDER BY
+  // popularity DESC LIMIT 10. Composite index даёт sorted output.
+  @@index([rating, popularity(sort: Desc)], name: "puzzles_rating_popularity_idx")
   @@map("puzzles")
 }
 
