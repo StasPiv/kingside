@@ -59,10 +59,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   // KS-2539 / ADR-048 §3 #3: «Тренировка точности» — раздел play-vs-engine
   // (бывший /puzzles/play-vs-engine). Gate за `puzzlesEnabled` — общий с
-  // основным разделом «Задачи». Иконка `🎚` — placeholder; финал в KS-2548.
+  // основным разделом «Задачи».
+  // KS-2548: иконка 🎓 (выпускник/мастерство — тренировка против движка
+  // ради точности). Альтернативы 🎯 и 🏹 отброшены — 🎯 уже занят
+  // /drills, а 🏹 хуже считывается на mobile-bar в маленьком кегле.
   {
     path: '/precision',
-    icon: '🎚',
+    icon: '🎓',
     i18nKey: 'nav.precision',
     match: ['/precision'],
     featureFlag: 'puzzlesEnabled',
