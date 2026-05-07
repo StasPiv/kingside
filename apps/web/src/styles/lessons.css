@@ -1480,7 +1480,6 @@
   padding-top: 8px;
 }
 
-.editor-diagram,
 .editor-quiz-question,
 .editor-quiz-option {
   display: grid;
@@ -1490,6 +1489,98 @@
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
+}
+
+/* KS-2572: collapsible-карточка диаграммы. */
+.editor-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.editor-diagram--collapsed {
+  padding: 4px 6px;
+}
+
+.editor-diagram__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-diagram__toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+}
+
+.editor-diagram__title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.editor-diagram__ref {
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg-muted);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text-secondary, var(--text-primary));
+}
+
+.editor-diagram__spacer {
+  flex: 1 1 auto;
+}
+
+.editor-diagram__icon-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.editor-diagram__icon-btn:hover:not(:disabled) {
+  background: var(--bg-muted);
+}
+
+.editor-diagram__icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-diagram__icon-btn--danger {
+  color: var(--danger, #ca3431);
+  border-color: var(--danger, #ca3431);
+}
+
+.editor-diagram__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-diagrams__warning {
+  background: var(--warning-bg, rgba(252, 220, 88, 0.18));
+  border: 1px solid var(--warning, #d4a017);
+  color: var(--warning-text, #6b4f00);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 0;
 }
 
 /* KS-1875: FEN-инпут с кнопкой Edit on board справа. */
