@@ -290,7 +290,10 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                           'puzzleGenerator.blunderDelta',
                           'Minimum blunder strength',
                         )}
-                        : {blunderDeltaPct}%
+                        :{' '}
+                        {t('puzzleGenerator.blunderDeltaValue', '{{percent}}%', {
+                          percent: blunderDeltaPct,
+                        })}
                       </label>
                       <input
                         type="range"
@@ -423,8 +426,8 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                     </h3>
                     <p className="puzzle-generator-saved__hint">
                       {t(
-                        'puzzleGenerator.savedAsDraftsHint',
-                        'Drafts are visible only to you. Publish them to make them appear in /precision for everyone.',
+                        'puzzleGenerator.draftsExplanation',
+                        'Drafts are visible only to you. Publish them to make them appear in Precision Training for everyone.',
                       )}
                     </p>
                     <div className="puzzle-generator-saved__actions">
@@ -446,7 +449,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                           ? t('puzzleGenerator.publishing', 'Publishing…')
                           : t(
                               'puzzleGenerator.publishAll',
-                              'Publish all to Precision',
+                              'Publish all to Precision Training',
                             )}
                       </button>
                     </div>
