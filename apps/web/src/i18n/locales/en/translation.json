@@ -1056,9 +1056,14 @@
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
       "blunderHint": "Opponent blundered ({{move}}). Hold the advantage for {{n}} half-moves against the engine.",
-      "finalWdl": "Final WDL",
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop",
+      "summary": {
+        "preservedHeader": "Advantage preserved",
+        "lostHeader": "Advantage lost",
+        "linePreserved": "Starting WDL: {{start}} → Final: {{final}}.",
+        "lineLost": "Starting WDL: {{start}} → Final: {{final}}. Lost: {{delta}}"
+      },
       "review": {
         "headerLabel": "Game review",
         "bestWas": "Best was: {{san}}",

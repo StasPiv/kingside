@@ -469,6 +469,87 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
+  it('KS-2518: lose-wdl показывает summary с дельтой и заголовком «Advantage lost»', async () => {
+    // wdlAfterBlunder=0.6 (старт), post-analyze cp=+800 POV opp →
+    // wdlEngine ≈ +0.88, wdlUser ≈ -0.88, < failThreshold=0.1 → lose-wdl.
+    // delta = 0.6 − (−0.88) = 1.48.
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+    expect(summary.getAttribute('data-preserved')).toBe('false');
+    expect(summary.getAttribute('data-start-wdl')).toBe('0.60');
+    // Дельта положительная (потеряно).
+    const delta = Number(summary.getAttribute('data-delta-wdl'));
+    expect(delta).toBeGreaterThan(0);
+    expect(summary.textContent).toMatch(/Advantage lost|Преимущество потеряно/);
+    const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
+    expect(lineEl.textContent).toMatch(/Lost|Потеряно/);
+    // Подстрока стартового значения формата +0.60.
+    expect(lineEl.textContent).toMatch(/\+0\.60/);
+  });
+
+  it('KS-2518: win с финальным WDL ≥ старта → header «Advantage preserved», без «Lost»', async () => {
+    // halfMovesN=2, после user-хода wdl остаётся ~+0.6, post-analyze
+    // cp=-300 POV engine → wdl_engine≈-0.37, wdl_user≈+0.37 (≥0.0).
+    // Final analyze cp=+600 → wdl_user≈+0.64 (≥winThreshold).
+    // delta = 0.6 − 0.64 ≈ -0.04, preserved=true.
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 2,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 100 }, ['e2e4'])),
+      result(line({ type: 'cp', value: -300 }, ['e7e5'])),
+      result(line({ type: 'cp', value: 600 }, ['d2d4'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('win');
+    });
+    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+    expect(summary.getAttribute('data-preserved')).toBe('true');
+    expect(summary.textContent).toMatch(
+      /Advantage preserved|Преимущество удержано/,
+    );
+    const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
+    // На preserved «Lost: …» не выводится.
+    expect(lineEl.textContent).not.toMatch(/Lost:|Потеряно:/);
+  });
+
   it('KS-2510: клик по ходу в PostGameReview переключает доску на fenBefore', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {

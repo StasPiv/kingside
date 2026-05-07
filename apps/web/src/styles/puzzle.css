@@ -2157,9 +2157,35 @@ body:has(.puzzle-rush-board) {
   color: var(--c-f44336, #f44336);
 }
 
+/* KS-2518: WDL-summary блок заменил одиночный «Финальный WDL». Если
+   позже понадобится legacy-стиль одной строки — селектор оставлен. */
 .puzzle-engine-runner__final-wdl {
   font-size: 13px;
   color: var(--c-c0c0c0, #c0c0c0);
+}
+
+.puzzle-engine-runner__wdl-summary {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--c-1e293b, #1e293b);
+  text-align: left;
+}
+.puzzle-engine-runner__wdl-summary-header {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.puzzle-engine-runner__wdl-summary--lost .puzzle-engine-runner__wdl-summary-header {
+  color: #f87171;
+}
+.puzzle-engine-runner__wdl-summary--preserved .puzzle-engine-runner__wdl-summary-header {
+  color: #4ade80;
+}
+.puzzle-engine-runner__wdl-summary-line {
+  font-size: 13px;
+  color: var(--c-cbd5e1, #cbd5e1);
+  font-variant-numeric: tabular-nums;
 }
 
 .puzzle-engine-runner__error {

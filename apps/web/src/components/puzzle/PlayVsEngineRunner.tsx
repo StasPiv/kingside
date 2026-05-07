@@ -850,9 +850,70 @@ export function PlayVsEngineRunner({
               <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
                 {reasonLabel(reason)}
               </div>
-              <div className="puzzle-engine-runner__final-wdl">
-                {t('puzzle.engine.finalWdl', 'Final WDL')}: {latestWdlUser.toFixed(2)}
-              </div>
+              {/* KS-2518: блок WDL-summary. До тикета был только
+                  «Финальный WDL: -0.27», без контекста. Теперь видны
+                  стартовый WDL (после blunder'а соперника), финальный и
+                  дельта. Mini-header переключается на «Advantage
+                  preserved», если delta ≤ 0 (юзер не потерял оценку). */}
+              {(() => {
+                const startWdl = params.wdlAfterBlunder;
+                const finalWdl = latestWdlUser;
+                const delta = startWdl - finalWdl; // > 0 = потеряно
+                const preserved = delta <= 0;
+                const fmtSigned = (n: number): string => {
+                  if (Math.abs(n) < 0.005) return '0.00';
+                  // U+2212 minus, как в ранее уже принятом форматировании
+                  // EvalBar (KS-2466 §UI). Полагаемся на toFixed(2).
+                  return `${n > 0 ? '+' : '−'}${Math.abs(n).toFixed(2)}`;
+                };
+                const fmtAbs = (n: number): string =>
+                  Math.abs(n).toFixed(2);
+                return (
+                  <div
+                    className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
+                    data-testid="puzzle-engine-wdl-summary"
+                    data-preserved={preserved ? 'true' : 'false'}
+                    data-start-wdl={startWdl.toFixed(2)}
+                    data-final-wdl={finalWdl.toFixed(2)}
+                    data-delta-wdl={delta.toFixed(2)}
+                  >
+                    <div className="puzzle-engine-runner__wdl-summary-header">
+                      {preserved
+                        ? t(
+                            'puzzle.engine.summary.preservedHeader',
+                            'Advantage preserved',
+                          )
+                        : t(
+                            'puzzle.engine.summary.lostHeader',
+                            'Advantage lost',
+                          )}
+                    </div>
+                    <div
+                      className="puzzle-engine-runner__wdl-summary-line"
+                      data-testid="puzzle-engine-wdl-summary-line"
+                    >
+                      {preserved
+                        ? t(
+                            'puzzle.engine.summary.linePreserved',
+                            'Starting WDL: {{start}} → Final: {{final}}.',
+                            {
+                              start: fmtSigned(startWdl),
+                              final: fmtSigned(finalWdl),
+                            },
+                          )
+                        : t(
+                            'puzzle.engine.summary.lineLost',
+                            'Starting WDL: {{start}} → Final: {{final}}. Lost: {{delta}}',
+                            {
+                              start: fmtSigned(startWdl),
+                              final: fmtSigned(finalWdl),
+                              delta: fmtAbs(delta),
+                            },
+                          )}
+                    </div>
+                  </div>
+                );
+              })()}
               {/* KS-2508 / ADR-047 §2.2 + §3 #5: список ходов с
                   метками классификации (best/good/inaccuracy/mistake/
                   blunder). Появляется только на win/lose. Если у

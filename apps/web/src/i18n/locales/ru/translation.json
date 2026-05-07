@@ -1066,9 +1066,14 @@
       "halfMovesLeft_many": "{{count}} полуходов осталось",
       "halfMovesLeft_other": "{{count}} полуходов осталось",
       "blunderHint": "Соперник зевнул ходом {{move}}. Удержите преимущество {{n}} полуходов против движка.",
-      "finalWdl": "Финальный WDL",
       "error": "Ошибка движка",
       "openInWorkshop": "Открыть в мастерской",
+      "summary": {
+        "preservedHeader": "Преимущество удержано",
+        "lostHeader": "Преимущество потеряно",
+        "linePreserved": "Стартовый WDL: {{start}} → Финальный: {{final}}.",
+        "lineLost": "Стартовый WDL: {{start}} → Финальный: {{final}}. Потеряно: {{delta}}"
+      },
       "review": {
         "headerLabel": "Разбор партии",
         "bestWas": "Лучше было: {{san}}",
