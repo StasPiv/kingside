@@ -1264,8 +1264,7 @@
       "loadError": "Could not load puzzles.",
       "openPuzzle": "Open puzzle",
       "backToAll": "All puzzles",
-      "cardTitle": "#{{id}}",
-      "navLink": "Play vs Engine"
+      "cardTitle": "#{{id}}"
     }
   },
   "puzzleStats": {

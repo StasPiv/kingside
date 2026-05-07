@@ -1278,8 +1278,7 @@
       "loadError": "Не удалось загрузить пазлы.",
       "openPuzzle": "Открыть пазл",
       "backToAll": "Все пазлы",
-      "cardTitle": "#{{id}}",
-      "navLink": "Против движка"
+      "cardTitle": "#{{id}}"
     }
   },
   "puzzleStats": {

@@ -38,16 +38,12 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('<PuzzleBrowserPage> KS-2485 — точка входа в play-vs-engine', () => {
-  it('рендерит вкладку «Play vs Engine» с href=/puzzles/play-vs-engine', async () => {
+describe('<PuzzleBrowserPage> KS-2541 — вкладка «Play vs Engine» удалена', () => {
+  it('на /puzzles нет вкладки «Play vs Engine» (раздел переехал на /precision)', async () => {
     renderWithProviders(<PuzzleBrowserPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const link = screen.getByTestId('puzzle-browser-tab-play-vs-engine');
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/puzzles/play-vs-engine');
-    // Текст: i18n label (RU/EN) — проверяем, что не пусто и не ключ.
-    const text = (link.textContent ?? '').trim();
-    expect(text.length).toBeGreaterThan(0);
-    expect(text).not.toBe('puzzles.playVsEngine.navLink');
+    expect(
+      screen.queryByTestId('puzzle-browser-tab-play-vs-engine'),
+    ).toBeNull();
   });
 });

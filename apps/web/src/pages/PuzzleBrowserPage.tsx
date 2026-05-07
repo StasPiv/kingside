@@ -94,14 +94,9 @@ export function PuzzleBrowserPage() {
         <button className={`puzzle-browser-tab${mine ? ' active' : ''}`} onClick={() => toggleMine(true)}>
           {t('puzzleBrowser.myPuzzles', 'My puzzles')}
         </button>
-        {/* KS-2485: точка входа в раздел play-vs-engine (KS-2484). */}
-        <Link
-          to="/puzzles/play-vs-engine"
-          className="puzzle-browser-tab puzzle-browser-tab--play-vs-engine"
-          data-testid="puzzle-browser-tab-play-vs-engine"
-        >
-          {t('puzzles.playVsEngine.navLink', 'Play vs Engine')}
-        </Link>
+        {/* KS-2541 / ADR-048: вкладка «Play vs Engine» удалена — раздел
+            переехал на `/precision` (sidebar + редирект со старого URL,
+            см. KS-2538/2539). KS-2485 откатан в этом тикете. */}
         {user && (
           <Link to="/puzzles/stats" className="puzzle-browser-tab">
             {t('puzzleStats.title', 'Statistics')}
