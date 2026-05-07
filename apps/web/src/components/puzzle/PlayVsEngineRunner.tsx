@@ -210,6 +210,13 @@ export function PlayVsEngineRunner({
   const orientation = userSide === 'w' ? 'white' : 'black';
 
   const [game, setGame] = useState<Chess>(() => new Chess(puzzle.fen));
+  // KS-2486 reopen: список SAN-нотаций всех применённых ходов (user +
+  // engine), накапливаем отдельно — `game` пересоздаётся через
+  // `new Chess(game.fen())` на каждом ходу и теряет history, поэтому
+  // `game.pgn()` для Workshop-ссылки даёт только последнюю позицию.
+  // Сохранение SAN'ов отдельно даёт «настоящую» партию: `?pgn=` в
+  // ссылке — это `playedSans.join(' ')`.
+  const [playedSans, setPlayedSans] = useState<string[]>([]);
   const [state, setState] = useState<RunnerState>('thinking');
   const [halfMovesPlayed, setHalfMovesPlayed] = useState(0);
   const [evalLines, setEvalLines] = useState<EvalLine[]>([]);
@@ -406,6 +413,8 @@ export function PlayVsEngineRunner({
       playSound(soundEventFromSan(applied.san));
       lastMoveUciRef.current = uci;
       setGame(next);
+      // KS-2486 reopen: ход движка тоже идёт в общий лог SAN.
+      setPlayedSans((prev) => [...prev, applied!.san]);
       const halfAfterEngine = halfAfterUser + 1;
       setHalfMovesPlayed(halfAfterEngine);
 
@@ -473,6 +482,9 @@ export function PlayVsEngineRunner({
       lastMoveUciRef.current = playedUci;
       const fenBefore = game.fen();
       setGame(next);
+      // KS-2486 reopen: пишем SAN в общий лог, чтобы потом собрать
+      // PGN партии для Workshop-ссылки.
+      setPlayedSans((prev) => [...prev, move!.san]);
       const halfAfterUser = halfMovesPlayed + 1;
       setHalfMovesPlayed(halfAfterUser);
 
@@ -567,6 +579,8 @@ export function PlayVsEngineRunner({
     setReason(null);
     setBestmoveLog([]);
     setUserBestLog([]);
+    // KS-2486 reopen: сброс SAN-лога при смене drill'а.
+    setPlayedSans([]);
     setErrorMsg('');
     submittedRef.current = false;
     startTimeRef.current = Date.now();
@@ -699,9 +713,12 @@ export function PlayVsEngineRunner({
             status={boardStatus}
           />
 
-          {/* KS-2486: открыть текущую позицию в мастерской (анализ).
-              Доступна в любой момент партии, FEN — current `game.fen()`.
-              `target=_blank` чтобы не прервать решение пазла. */}
+          {/* KS-2486: открыть пазл в мастерской (анализ). Передаём
+              `?fen=<initialPuzzleFen>&pgn=<пройденные ходы>` — Workshop
+              откроется с НАЧАЛЬНОЙ позицией пазла и партией всех
+              сделанных ходов (включая ходы движка), пользователь
+              сможет промотать с начала и разобрать каждый ход
+              (KS-2486 reopen). `target=_blank` — не прерывать пазл. */}
           <div
             className="puzzle-engine-runner__actions"
             data-testid="puzzle-engine-actions"
@@ -709,7 +726,17 @@ export function PlayVsEngineRunner({
             <a
               className="puzzle-engine-runner__workshop-link"
               data-testid="puzzle-engine-workshop-link"
-              href={`/analysis?fen=${encodeURIComponent(game.fen())}`}
+              href={(() => {
+                // KS-2486 reopen: PGN — пройденные ходы (user + engine)
+                // в SAN, объединённые пробелом. AnalysisPage парсит
+                // SAN из `?pgn=` и реплеит на `?fen=` (initial puzzle FEN).
+                const movesText = playedSans.join(' ');
+                const fenParam = `fen=${encodeURIComponent(puzzle.fen)}`;
+                const pgnParam = movesText
+                  ? `&pgn=${encodeURIComponent(movesText)}`
+                  : '';
+                return `/analysis?${fenParam}${pgnParam}`;
+              })()}
               target="_blank"
               rel="noopener noreferrer"
             >

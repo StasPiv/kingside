@@ -343,8 +343,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
-  // KS-2486: ссылка «Open in Workshop» — всегда видна, href с FEN.
-  it('KS-2486: рендерит puzzle-engine-workshop-link с href=/analysis?fen=<currentFen>', async () => {
+  // KS-2486: ссылка «Open in Workshop» — всегда видна, href с FEN
+  // пазла (initial). KS-2486 reopen: при наличии ходов href добавляет
+  // `&pgn=...` чтобы Workshop открыл партию с начала.
+  it('KS-2486: до первого хода href=/analysis?fen=<puzzle.fen> (без pgn)', async () => {
     const customFen = '1rb2rk1/3nq1bp/2n1p1p1/ppppPp2/5P2/P1PPBNP1/1P1N1QBP/R4RK1 w - - 2 15';
     const puzzle = makePuzzle({
       fen: customFen,
@@ -365,7 +367,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     );
     const link = screen.getByTestId('puzzle-engine-workshop-link');
     expect(link).toBeInTheDocument();
-    // href совпадает с /analysis?fen=<encoded>, FEN из puzzle (до ходов).
+    // history пустая → pgn-параметр не передаётся, только fen.
     expect(link.getAttribute('href')).toBe(
       `/analysis?fen=${encodeURIComponent(customFen)}`,
     );
@@ -376,6 +378,50 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     const text = (link.textContent ?? '').trim();
     expect(text).toMatch(/Workshop|мастерской/i);
     expect(text).not.toContain('puzzle.engine.openInWorkshop');
+  });
+
+  // KS-2486 reopen: после ходов пользователя/движка href должен содержать
+  // НАЧАЛЬНУЮ позицию пазла + PGN всех сделанных ходов, чтобы Workshop
+  // открылся с начала партии и пользователь мог промотать каждый ход.
+  it('KS-2486 reopen: после хода href содержит initialFen и pgn-параметр со всеми ходами', async () => {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    // 1) pre-analyze user-хода (e2e4): cp нейтральный.
+    // 2) post-analyze: ход движка e7e5, wdl_user остаётся выше fail-threshold.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 100 }, ['e2e4'])),
+      result(line({ type: 'cp', value: -100 }, ['e7e5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    // user ход e2e4 (mock-board: click e2 → click e4).
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    // Дожидаемся применения engine-ответа — после него в game.pgn()
+    // должны быть оба полухода (e4 + e5).
+    await waitFor(() => {
+      const link = screen.getByTestId('puzzle-engine-workshop-link');
+      const href = link.getAttribute('href') ?? '';
+      // FEN — начальный пазла, не текущий.
+      expect(href).toContain(
+        `fen=${encodeURIComponent(puzzle.fen)}`,
+      );
+      // pgn-параметр присутствует и содержит SAN обоих ходов.
+      expect(href).toMatch(/&pgn=/);
+      const pgnEncoded = href.split('&pgn=')[1] ?? '';
+      const pgnDecoded = decodeURIComponent(pgnEncoded);
+      expect(pgnDecoded).toContain('e4');
+      expect(pgnDecoded).toContain('e5');
+    });
   });
 });
 
