@@ -5,6 +5,9 @@ import { useContainerWidth } from '../../hooks/useContainerWidth';
 import { useBoardTheme } from '../../hooks/useBoardTheme';
 // KS-2318: pointer-based drag (как в PuzzleBoard) — для drill shape='move'.
 import { useFastDrag } from '../../hooks/useFastDrag';
+// KS-2457: типы из explanation-engine'а — DrillBoard понимает role-based
+// highlights (DrillExplanationHighlight) и стрелки (DrillBoardArrow).
+import type { DrillExplanationHighlight, SquareRole } from './explanation/types';
 
 /**
  * KS-2234 (ADR-035 §7.3, E3) — обёртка `Chessboard` для drill-сценариев.
@@ -34,6 +37,17 @@ import { useFastDrag } from '../../hooks/useFastDrag';
  * `<DrillFeedbackOverlay>` через prop `overlay`, не через
  * `highlightedSquares`.
  */
+/**
+ * KS-2457: контракт стрелки DrillBoard'а. `react-chessboard@5`
+ * требует `Arrow = { startSquare, endSquare, color: string }`. Цвета
+ * на этом этапе — placeholder (KS-2458 layout заменит на токены).
+ */
+export interface DrillBoardArrow {
+  startSquare: string;
+  endSquare: string;
+  color: string;
+}
+
 export interface DrillBoardProps {
   /** FEN позиции. */
   position: string;
@@ -41,6 +55,19 @@ export interface DrillBoardProps {
   boardOrientation?: 'white' | 'black';
   /** Клетки для жёлтой «внимание»-подсветки (целевые/важные). */
   highlightedSquares?: string[];
+  /**
+   * KS-2457: role-based подсветка клеток (приоритет
+   * `wrong > missed > correct > target > context` при коллизии).
+   * Применяется параллельно с `highlightedSquares` — последний даёт
+   * базовый жёлтый, role-based перезаписывает по доминирующей роли.
+   */
+  roleHighlights?: DrillExplanationHighlight[];
+  /**
+   * KS-2457: стрелки на доске. Прокидываются в `MemoChessboard.options.arrows`.
+   * `MemoChessboard` уже сравнивает `prevOpts.arrows` по identity — host
+   * должен мемоизировать массив, чтобы не триггерить лишние ререндеры.
+   */
+  arrows?: DrillBoardArrow[];
   /** Произвольный overlay поверх доски (feedback, текстовая подсказка). */
   overlay?: ReactNode;
   /** Клик по клетке. Если не задан — клик игнорируется. */
@@ -74,6 +101,33 @@ const HIGHLIGHT_STYLE: CSSProperties = {
 };
 
 /**
+ * KS-2457: placeholder-стили role-based подсветки. Финальные цвета и
+ * shadow'ы — KS-2458 layout (токенизация под темы). Здесь — рабочая
+ * заглушка, чтобы UI читался уже сейчас.
+ */
+const ROLE_STYLE: Record<SquareRole, CSSProperties> = {
+  target: { backgroundColor: 'rgba(255, 230, 0, 0.45)' },
+  correct: { backgroundColor: 'rgba(34, 197, 94, 0.40)' },
+  missed: { backgroundColor: 'rgba(148, 163, 184, 0.45)' },
+  wrong: { backgroundColor: 'rgba(220, 38, 38, 0.40)' },
+  context: { backgroundColor: 'rgba(59, 130, 246, 0.25)' },
+};
+
+/**
+ * Приоритет ролей при коллизии: одна клетка может попасть в несколько
+ * highlight'ов (KS-2454: например `target` + `correct` для loose-piece).
+ * Решаем по доминирующей роли в порядке `wrong > missed > correct >
+ * target > context` (см. ADR-043 §4.3).
+ */
+const ROLE_PRIORITY: Record<SquareRole, number> = {
+  wrong: 5,
+  missed: 4,
+  correct: 3,
+  target: 2,
+  context: 1,
+};
+
+/**
  * KS-2428: компонент обёрнут в `React.memo`. До правки родительский
  * sprint-таймер ререндерил sprint-страницу 4 раза в секунду —
  * DrillBoard пересоздавал useMemo для options (хоть MemoChessboard
@@ -90,6 +144,8 @@ function DrillBoardImpl({
   position,
   boardOrientation = 'white',
   highlightedSquares,
+  roleHighlights,
+  arrows,
   overlay,
   onSquareClick,
   onPieceDrop,
@@ -119,11 +175,30 @@ function DrillBoardImpl({
   });
 
   const squareStyles = useMemo<Record<string, CSSProperties> | undefined>(() => {
-    if (!highlightedSquares || highlightedSquares.length === 0) return undefined;
+    const hasFlat = highlightedSquares && highlightedSquares.length > 0;
+    const hasRole = roleHighlights && roleHighlights.length > 0;
+    if (!hasFlat && !hasRole) return undefined;
     const styles: Record<string, CSSProperties> = {};
-    for (const sq of highlightedSquares) styles[sq] = HIGHLIGHT_STYLE;
+    if (hasFlat) {
+      for (const sq of highlightedSquares!) styles[sq] = HIGHLIGHT_STYLE;
+    }
+    // KS-2457: role-based подсветка. Для каждой клетки выбираем
+    // доминирующую роль по `ROLE_PRIORITY` и применяем её стиль (поверх
+    // плоского highlight'а, если он был).
+    if (hasRole) {
+      const dominant: Record<string, SquareRole> = {};
+      for (const h of roleHighlights!) {
+        const prev = dominant[h.square];
+        if (!prev || ROLE_PRIORITY[h.role] > ROLE_PRIORITY[prev]) {
+          dominant[h.square] = h.role;
+        }
+      }
+      for (const [sq, role] of Object.entries(dominant)) {
+        styles[sq] = ROLE_STYLE[role];
+      }
+    }
     return styles;
-  }, [highlightedSquares]);
+  }, [highlightedSquares, roleHighlights]);
 
   const handleClick = useMemo(() => {
     if (!onSquareClick) return undefined;
@@ -145,6 +220,7 @@ function DrillBoardImpl({
       allowDragging,
       showNotation: true,
       ...(squareStyles && { squareStyles }),
+      ...(arrows && arrows.length > 0 && { arrows }),
       ...(handleClick && { onSquareClick: handleClick }),
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
@@ -155,6 +231,7 @@ function DrillBoardImpl({
       boardOrientation,
       allowDragging,
       squareStyles,
+      arrows,
       handleClick,
       boardStyle,
       boardThemeOptions,

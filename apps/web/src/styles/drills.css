@@ -140,28 +140,34 @@
  * DrillFeedbackOverlay — фон поверх доски (correct/incorrect)
  * =========================================================== */
 
+/*
+ * KS-2457 (ADR-043 §4.4): overlay при feedback'е стал второстепенным
+ * визуалом — основной разбор теперь даёт `DrillExplanationPanel` +
+ * стрелки/role-highlights на доске. Снижаем заливку (32% → 14%) и
+ * сокращаем длительность fade-in (220ms → 200ms) — чтобы overlay не
+ * перекрывал стрелки и быстро уходил из фокуса внимания.
+ */
 .drill-feedback {
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: 4px;
-  animation: drill-feedback-in 220ms ease-out;
+  animation: drill-feedback-in 200ms ease-out;
 }
 
 .drill-feedback--correct {
-  background: rgba(22, 163, 74, 0.32); /* --c-16a34a @ 32% */
-  box-shadow: inset 0 0 0 3px var(--c-16a34a);
+  background: rgba(22, 163, 74, 0.14);
+  box-shadow: inset 0 0 0 2px rgba(22, 163, 74, 0.55);
 }
 
 .drill-feedback--incorrect {
-  background: rgba(220, 38, 38, 0.32); /* --c-dc2626 @ 32% */
-  box-shadow: inset 0 0 0 3px var(--c-dc2626);
+  background: rgba(220, 38, 38, 0.14);
+  box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.55);
 }
 
 @keyframes drill-feedback-in {
-  0%   { opacity: 0; transform: scale(1.02); }
-  60%  { opacity: 1; transform: scale(1.0);  }
-  100% { opacity: 1; transform: scale(1.0);  }
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 /* ===========================================================
@@ -255,6 +261,157 @@
 .drill-count-attackers__btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ===========================================================
+ * KS-2457 — DrillExplanationPanel + board+panel layout.
+ *
+ * `__board-and-panel` обёртка живёт внутри `<DrillRunner>`. На mobile
+ * (<768px) — column: доска сверху, панель под ней. На desktop (≥768px)
+ * — row: доска слева/центре, панель справа. Финальные цвета/токены —
+ * KS-2458 (layout); здесь — рабочая структура.
+ * =========================================================== */
+
+.drill-runner__board-and-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .drill-runner__board-and-panel {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .drill-runner__board-and-panel > .drill-board {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.drill-explanation-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  color: var(--text-primary);
+  flex: 0 0 auto;
+}
+
+@media (min-width: 768px) {
+  .drill-explanation-panel {
+    /* На desktop — фиксированная колонка справа от доски. */
+    flex: 0 0 320px;
+    max-width: 360px;
+  }
+}
+
+.drill-explanation-panel--correct {
+  border-left: 4px solid var(--success-strong);
+}
+
+.drill-explanation-panel--incorrect {
+  border-left: 4px solid var(--danger-strong);
+}
+
+.drill-explanation-panel__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.drill-explanation-panel__notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drill-explanation-panel__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.drill-explanation-panel__note--success {
+  border-left: 3px solid var(--success-strong);
+}
+
+.drill-explanation-panel__note--missed {
+  border-left: 3px solid var(--text-muted, #94a3b8);
+}
+
+.drill-explanation-panel__note--wrong {
+  border-left: 3px solid var(--danger-strong);
+}
+
+.drill-explanation-panel__note--info {
+  border-left: 3px solid var(--accent-primary);
+}
+
+.drill-explanation-panel__note-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.drill-explanation-panel__note-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.drill-explanation-panel__next {
+  align-self: stretch;
+  padding: 10px 16px;
+  min-height: 44px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.1s ease;
+}
+
+.drill-explanation-panel__next:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.drill-explanation-panel__next:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.drill-explanation-panel__next:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drill-explanation-panel__next {
+    transition: none;
+  }
 }
 
 /* ===========================================================

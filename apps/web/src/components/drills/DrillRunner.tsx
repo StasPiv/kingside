@@ -15,14 +15,18 @@ import type {
   TacticDrillType,
 } from '@kingside/shared';
 
-import { DrillBoard } from './DrillBoard';
+import { DrillBoard, type DrillBoardArrow } from './DrillBoard';
 import { DrillCountAttackersButtons, type DrillCountValue } from './DrillCountAttackersButtons';
 import { DrillFeedbackOverlay } from './DrillFeedbackOverlay';
 import { DrillInstructions } from './DrillInstructions';
+import { DrillExplanationPanel } from './DrillExplanationPanel';
 // KS-2326: специальный multi-step runner для find-all-checks.
 import { FindAllChecksRunner } from './FindAllChecksRunner';
 // KS-2423: звуки в тренажёрах — обёртка над useSounds с drill-only mute.
 import { useDrillSounds, resolveMoveSound } from '../../hooks/useDrillSounds';
+// KS-2457: explanation-engine — стрелки/highlights/notes по результату submit'а.
+import { explainDrill } from './explanation/explainDrill';
+import type { ArrowRole } from './explanation/types';
 
 /**
  * KS-2249 (ADR-035 §11, Drills E6) — переиспользуемый runner drill'а.
@@ -221,6 +225,29 @@ function sideFromFen(fen: string): 'w' | 'b' | null {
 }
 
 /**
+ * KS-2457: placeholder-цвета стрелок по `ArrowRole`. Финальные —
+ * KS-2458 layout (токенизация под темы). Pure-функция, безопасно вне
+ * компонента.
+ */
+function arrowRoleColor(role: ArrowRole): string {
+  switch (role) {
+    case 'correct-attack':
+    case 'correct-move':
+      return '#16a34a'; // green
+    case 'missed-attack':
+      return '#94a3b8'; // gray
+    case 'wrong-attack':
+      return '#dc2626'; // red
+    case 'pin-line':
+      return '#f97316'; // orange
+    case 'defense':
+      return '#3b82f6'; // blue
+    case 'threat-target':
+      return '#dc2626'; // red
+  }
+}
+
+/**
  * KS-2405: цвет фигуры на клетке (для проверки «свою» ли фигуру выбрал
  * пользователь при click-flow в drill shape='move'). Возвращает 'w' / 'b'
  * для фигуры, null если клетка пустая или кривой FEN.
@@ -250,7 +277,11 @@ export function DrillRunner({
   hideTimer = false,
   testId = 'drill-runner',
   autoNextDelayCorrectMs = 0,
-  autoNextDelayIncorrectMs = 1500,
+  // KS-2457: дефолт повышен с 1500 до 3500 — после неверного ответа
+  // пользователь должен успеть рассмотреть стрелки и подсветки. KS-2454
+  // методика: 3 секунды минимум на считывание разбора. Manual «Дальше»
+  // через DrillExplanationPanel прерывает таймер.
+  autoNextDelayIncorrectMs = 3500,
 }: DrillRunnerProps) {
   const { t } = useTranslation();
   // KS-2423: drill-звуки. Обёртка над useSounds — уважает global mute и
@@ -272,6 +303,13 @@ export function DrillRunner({
   // Накапливаемые ответы (squares / move).
   const [pickedSquares, setPickedSquares] = useState<string[]>([]);
   const [pickedFrom, setPickedFrom] = useState<string | null>(null);
+
+  // KS-2457: запоминаем ответ пользователя при submit'е, чтобы передать
+  // его в `explainDrill()` при feedback (для wrong-highlights и
+  // userAnswer-notes). Сбрасывается при загрузке нового drill'а.
+  const [lastSubmittedAnswer, setLastSubmittedAnswer] = useState<AnswerData | null>(
+    null,
+  );
 
   // KS-2330: локальная история показанных drill'ов в текущей сессии.
   // Стек на N=10 элементов (старые вытесняются). Снэпшот включает сам
@@ -304,6 +342,8 @@ export function DrillRunner({
     setPickedSquares([]);
     setPickedFrom(null);
     setElapsedMs(0);
+    // KS-2457: новый drill — сбрасываем сохранённый ответ.
+    setLastSubmittedAnswer(null);
     try {
       const next = await loadDrillRef.current();
       setDrill(next);
@@ -395,6 +435,9 @@ export function DrillRunner({
         playDrillSound('move');
       }
       setState('submitting');
+      // KS-2457: запоминаем `userAnswer` ДО submit'а — explanation-engine
+      // использует его в feedback'е для wrong-highlights и userAnswer-нот.
+      setLastSubmittedAnswer(userAnswer);
       try {
         const resp = await submitAnswerRef.current({
           drillId: drill.id,
@@ -627,15 +670,41 @@ export function DrillRunner({
   );
 
   // ── Visuals ───────────────────────────────────────────────────────
+
+  // KS-2457: explanation вычисляется ОДИН раз при `state='feedback'` для
+  // текущей пары (drill, feedback). Используется для:
+  //  - role-based highlights на доске (`DrillBoard.roleHighlights`).
+  //  - стрелок (`DrillBoard.arrows`).
+  //  - текстовых notes в `DrillExplanationPanel`.
+  // Когда мы вне feedback'а или drill ещё не загружен — null.
+  const explanation = useMemo(() => {
+    if (!drill || !feedback) return null;
+    return explainDrill({
+      drill,
+      correctAnswer: feedback.correctAnswer,
+      userAnswer: lastSubmittedAnswer,
+      solved: feedback.solved,
+    });
+  }, [drill, feedback, lastSubmittedAnswer]);
+
+  // KS-2457: arrows для DrillBoard. Цвета — placeholder (KS-2458 layout
+  // финализирует). Memo по explanation — react-chessboard сравнивает
+  // arrows по identity.
+  const explanationArrows = useMemo<DrillBoardArrow[] | undefined>(() => {
+    if (!explanation || explanation.arrows.length === 0) return undefined;
+    return explanation.arrows.map((a) => ({
+      startSquare: a.from,
+      endSquare: a.to,
+      color: arrowRoleColor(a.role),
+    }));
+  }, [explanation]);
+
   const highlightedSquares = useMemo<string[]>(() => {
     if (!drill) return [];
-    if (feedback) {
-      const c = feedback.correctAnswer;
-      if (c.shape === 'square') return [c.square];
-      if (c.shape === 'squares') return c.squares;
-      if (c.shape === 'move') return [c.from, c.to];
-      return drill.meta?.highlightedSquare ? [drill.meta.highlightedSquare] : [];
-    }
+    // KS-2457: при feedback role-based highlights делает explanation —
+    // плоский highlightedSquares оставляем пустым, чтобы не дублировать
+    // подсветку.
+    if (feedback) return [];
     if (drill.answerShape === 'squares') return pickedSquares;
     if (drill.answerShape === 'move' && pickedFrom) return [pickedFrom];
     if (drill.answerShape === 'number' && drill.meta?.highlightedSquare) {
@@ -1012,37 +1081,61 @@ export function DrillRunner({
         </div>
       )}
 
-      <DrillBoard
-        position={drill.fen}
-        boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
-        highlightedSquares={highlightedSquares}
-        onSquareClick={handleSquareClick}
-        // KS-2318: drag-and-drop ввод хода для shape='move'.
-        // Click-click продолжает работать через onSquareClick.
-        onPieceDrop={
-          drill.answerShape === 'move' ? handlePieceDrop : undefined
-        }
-        // KS-2426: pickup-звук на drag (click-pickup уже озвучен в
-        // handleSquareClick).
-        onPiecePickup={
-          drill.answerShape === 'move'
-            ? () => playDrillSound('select')
-            : undefined
-        }
-        overlay={
-          feedback ? (
-            <DrillFeedbackOverlay
-              result={feedback.solved ? 'correct' : 'incorrect'}
-            />
-          ) : null
-        }
-      />
+      {/* KS-2457: обёртка board+panel — flex-row на desktop (≥768px),
+          flex-column на mobile (см. drills.css). Панель появляется при
+          feedback'е, board остаётся по центру/слева. */}
+      <div className="drill-runner__board-and-panel">
+        <DrillBoard
+          position={drill.fen}
+          boardOrientation={drill.sideToMove === 'b' ? 'black' : 'white'}
+          highlightedSquares={highlightedSquares}
+          // KS-2457: role-based подсветки и стрелки во время feedback'а.
+          roleHighlights={explanation?.highlights}
+          arrows={explanationArrows}
+          onSquareClick={handleSquareClick}
+          // KS-2318: drag-and-drop ввод хода для shape='move'.
+          // Click-click продолжает работать через onSquareClick.
+          onPieceDrop={
+            drill.answerShape === 'move' ? handlePieceDrop : undefined
+          }
+          // KS-2426: pickup-звук на drag (click-pickup уже озвучен в
+          // handleSquareClick).
+          onPiecePickup={
+            drill.answerShape === 'move'
+              ? () => playDrillSound('select')
+              : undefined
+          }
+          overlay={
+            feedback ? (
+              <DrillFeedbackOverlay
+                result={feedback.solved ? 'correct' : 'incorrect'}
+              />
+            ) : null
+          }
+        />
+        {/* KS-2457: explanation-panel рядом с доской — только при
+            feedback'е и только если мы на хвосте истории (для
+            исторических позиций панель не нужна, юзер уже её видел). */}
+        {state === 'feedback' && explanation && feedback && (
+          <DrillExplanationPanel
+            explanation={explanation}
+            solved={feedback.solved}
+            // KS-2457: manual «Дальше» прерывает auto-next-таймер
+            // (effect cleanup автоматически clearTimeout сделает при
+            // смене state в handleNext) и грузит следующий drill.
+            onNext={handleNext}
+          />
+        )}
+      </div>
 
       <div
         className="drill-runner__answer-controls"
         data-testid="drill-runner-controls"
       >
-        {drill.answerShape === 'number' && (
+        {/* KS-2457: при feedback'е count-attackers панель замещает
+            кнопки чисел — пользователь видит разбор, а не тот же ряд
+            disabled-кнопок 1..4. */}
+        {drill.answerShape === 'number' && state !== 'feedback' && (
           <DrillCountAttackersButtons
             disabled={state !== 'idle'}
             onSelect={handleNumberPick}

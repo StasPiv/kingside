@@ -1547,6 +1547,177 @@ describe('<DrillRunner> KS-2249', () => {
     });
   });
 
+  // KS-2457: интеграция explanation-panel'я в DrillRunner.
+  describe('KS-2457 — DrillExplanationPanel в feedback', () => {
+    // Используем реальный FEN с обоими королями, иначе chess.js
+    // (внутри explainDrill) не примет позицию. Pin-сценарий: white queen
+    // e4, black rook e7, kings e8/e1 — re7 связана с ke8.
+    const PIN_DRILL_REAL = {
+      id: 'd-pin-real',
+      drillType: 'find-pin',
+      fen: '4k3/4r3/8/8/4Q3/8/8/4K3 w - - 0 1',
+      sideToMove: 'w',
+      answerShape: 'square',
+      difficulty: 1,
+    };
+
+    it('после правильного submit → panel рендерится с data-result="correct"', async () => {
+      disableReducedMotion();
+      const loadDrill = vi.fn(async () => PIN_DRILL_REAL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e7' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          // Замораживаем feedback — успеть прочитать DOM до auto-next.
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // SQUARES в моке — e2/e4/e5/d4. Кликнем e4 — submit вернёт solved:true
+      // (mock не проверяет реальный square).
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      const panel = screen.getByTestId('drill-explanation-panel');
+      expect(panel.getAttribute('data-result')).toBe('correct');
+      expect(screen.getByTestId('drill-explanation-next')).toBeInTheDocument();
+    });
+
+    it('manual «Дальше» прерывает auto-next-таймер и грузит следующий drill', async () => {
+      disableReducedMotion();
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(PIN_DRILL_REAL)
+        .mockResolvedValueOnce({ ...PIN_DRILL_REAL, id: 'd-pin-real-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'square', square: 'e7' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          // Длинный auto-next-delay — manual click должен сработать раньше.
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // Manual click — должен перейти к следующему drill'у моментально.
+      await user.click(screen.getByTestId('drill-explanation-next'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('shape="number" + feedback: кнопки чисел не рендерятся (panel замещает)', async () => {
+      disableReducedMotion();
+      const COUNT_DRILL_REAL = {
+        id: 'd-count-real',
+        drillType: 'count-attackers',
+        fen: '4k3/8/8/4p3/3P1P2/8/8/4K3 w - - 0 1',
+        sideToMove: null,
+        answerShape: 'number',
+        difficulty: 1,
+        meta: { highlightedSquare: 'e5', attackerColor: 'w' },
+      };
+      const loadDrill = vi.fn(async () => COUNT_DRILL_REAL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'number', value: 2 },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Перед кликом — кнопка-число доступна.
+      expect(screen.getByTestId('drill-count-attackers-btn-2')).toBeInTheDocument();
+      await user.click(screen.getByTestId('drill-count-attackers-btn-2'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // В feedback'е кнопок чисел нет — DrillCountAttackersButtons не
+      // рендерится, на их месте — DrillExplanationPanel.
+      expect(
+        screen.queryByTestId('drill-count-attackers-btn-2'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('drill-explanation-panel')).toBeInTheDocument();
+    });
+
+    it('userAnswer пробрасывается в explanation: wrong-note содержит userAnswer-параметры', async () => {
+      disableReducedMotion();
+      const loadDrill = vi.fn(async () => PIN_DRILL_REAL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'square', square: 'e7' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Кликаем e5 — заведомо «не та» клетка относительно correctAnswer e7.
+      await user.click(screen.getByTestId('fire-square-e5'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      // Среди notes должен быть wrong-tone (userAnswer был передан в engine).
+      const wrongNote = screen
+        .getAllByTestId('drill-explanation-note')
+        .find((n) => n.getAttribute('data-tone') === 'wrong');
+      expect(wrongNote).toBeDefined();
+    });
+  });
+
   it('hideProgress + hideTimer → блоки не рендерятся', async () => {
     const loadDrill = vi.fn(async () => SQUARE_DRILL);
     const submitAnswer = vi.fn();
