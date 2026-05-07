@@ -1,8 +1,57 @@
 import { Chess } from 'chess.js';
-import type { EngineAdapter, BridgeConfig } from './engineAdapter';
+import {
+  PUZZLE_GEN_DEFAULTS,
+  wdlSigned,
+  wdlSignedFromInfo,
+  type Wdl,
+} from '@kingside/shared';
+import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
 
 export type { BridgeConfig };
+
+/**
+ * KS-2584 / ADR-050 §2.1, §3 #5 — клиентский генератор пазлов на
+ * WDL-алгоритме (зеркало серверного `tactic-worker/puzzle-generator`).
+ *
+ * Прежний CP-алгоритм (gap ≥ 50 cp + эвристики hanging/attacked-by-lesser/
+ * undefended) переехал в исторический контекст: он находил «уникальные
+ * лучшие ходы» по cp-разнице, что плохо коррелирует с реальной потерей
+ * шансов на победу. WDL-алгоритм ловит «зевок» как падение
+ * вероятности победы (W − L) ≥ 0.6 от лица сходившего.
+ *
+ * Псевдокод (исходник в ADR-050 §2.1):
+ *
+ *   для каждой позиции (ply ≥ startPly):
+ *     fenBefore, playedUci = ход партии
+ *     [line1, line2] = analyze(fenBefore, depth, multiPV=2)
+ *     wdlBefore = wdlSignedFromInfo(line1.wdl, line1.score)
+ *     if line1.pv[0] === playedUci → drop:samePv1
+ *     if |wdlBefore| > 0.95         → drop:decided
+ *     fenAfter = apply(playedUci)
+ *     if isGameOver(fenAfter)       → drop:gameOver
+ *     [a1, a2] = analyze(fenAfter, depth, multiPV=2)
+ *     wdlAfter (POV соперника) = wdlSignedFromInfo(a1.wdl, a1.score)
+ *     wdlAfterForSolver = -wdlAfter
+ *     blunderΔ = wdlBefore + wdlAfterForSolver
+ *     if blunderΔ < blunderDelta(0.6)               → drop:notBlunder
+ *     if wdlAfterForSolver < minWdlAfterBlunder(0.5)→ drop:lowWdlAfterBlunder
+ *     (опц.) solvability check (halfMovesN=6 SF-vs-SF) → drop:solvabilityFailed
+ *     accept → play-vs-engine puzzle, isPublic=false
+ *
+ * Все WDL-пороги — общий `PUZZLE_GEN_DEFAULTS` из `@kingside/shared`
+ * (KS-2583 / KS-2579-#4). При отсутствии поля `info.wdl` (старая
+ * сборка Stockfish без UCI_ShowWDL) `wdlSignedFromInfo` падает на
+ * mate-фоллбек ±1, иначе возвращает `null` — позиция skip:noWdl.
+ *
+ * Регрессии cp-алгоритма больше нет: `gapThreshold`/`maxSecondCp`/
+ * `topSpread`/`acceptedMoves`/`skipHangingCapture`/`skipAttackedByLesser`/
+ * `skipUndefendedAfterMove`/`evalGrowth`/cp-`classifyThemes`/
+ * `estimateRating` удалены. UI-поля, читающие старые ключи, остаются в
+ * `PuzzleGeneratorModal` до #6 (KS-2584 explicitly не трогает UI). Для
+ * этой совместимости старые поля помечены `@deprecated` и игнорируются
+ * самим алгоритмом.
+ */
 
 export type SourceMetadata = {
   white?: string;
@@ -10,23 +59,46 @@ export type SourceMetadata = {
   event?: string;
   date?: string;
   result?: string;
-  bestScore?: number;
-  bestMove?: string;
-  secondBestScore?: number;
-  secondBestMove?: string;
+  // KS-2584: WDL-метаданные пазла (зеркало серверного DTO `playVsEngine`).
+  blunderMove?: string;
+  wdlBeforeBlunder?: number;
+  wdlAfterBlunder?: number;
+  blunderDelta?: number;
+  halfMovesN?: number;
+  winThreshold?: number;
+  failThreshold?: number;
+  depth?: number;
 };
 
 export type GeneratedPuzzleData = {
   fen: string;
-  moves: string; // space-separated UCI moves
-  acceptedMoves?: string; // space-separated UCI moves (multiple correct answers)
+  /**
+   * KS-2584: для play-vs-engine пазлов solution-линия не известна
+   * заранее (соперник = Stockfish, ход юзера определяется в рантайме).
+   * Оставляем пустую строку — backend контракт допускает.
+   */
+  moves: string;
+  /** @deprecated KS-2584: не используется в play-vs-engine. */
+  acceptedMoves?: string;
   rating: number;
+  /**
+   * KS-2584: «насколько большой перевес после правильного хода»
+   * (для UX: 0..100). До KS-2584 — gap в сантипешках между линиями.
+   */
   gap: number;
   themes: string;
   sourceType: string;
   sourceId: string | null;
   sourceMoveNum: number;
   sourceMetadata?: SourceMetadata;
+  /** KS-2584: единственный поддерживаемый mode после WDL-pivot. */
+  solutionMode: 'play-vs-engine';
+  /**
+   * KS-2584: важно — клиент создаёт пазлы как DRAFT (`isPublic: false`),
+   * чтобы автор сначала сам мог пройти и оценить. Backend whitelist
+   * KS-2560 уважает поле.
+   */
+  isPublic: false;
 };
 
 export type GenerationProgress = {
@@ -37,175 +109,220 @@ export type GenerationProgress = {
   puzzlesFound: number;
 };
 
-
-function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
-  if (score.type === 'mate') {
-    // Differentiate by mate distance: mate in 1 = 10000, mate in 2 = 9900, etc.
-    const dist = Math.abs(score.value);
-    const base = 10000 - (dist - 1) * 100;
-    return score.value > 0 ? base : -base;
-  }
-  return score.value;
-}
-
-function classifyThemes(gap: number, pv: string[], fen: string, isMate: boolean, mateDist: number): string[] {
-  const themes: string[] = [];
-  const chess = new Chess(fen);
-  const pieces = chess.board().flat().filter(Boolean).length;
-
-  // Mate themes
-  if (isMate) {
-    themes.push('mate');
-    if (mateDist === 1) themes.push('mateIn1');
-    else if (mateDist === 2) themes.push('mateIn2');
-    else if (mateDist === 3) themes.push('mateIn3');
-    else if (mateDist <= 5) themes.push('mateIn5');
-  } else {
-    if (gap >= 500) themes.push('crushing');
-    else if (gap >= 300) themes.push('advantage');
-  }
-
-  // Length
-  if (pv.length <= 2) themes.push('oneMove');
-  else if (pv.length <= 4) themes.push('short');
-  if (pv.length >= 10) themes.push('long');
-
-  // Endgame
-  if (pieces <= 10) themes.push('endgame');
-
-  // Tactical detection
-  try {
-    const move = chess.move({ from: pv[0].slice(0, 2), to: pv[0].slice(2, 4), promotion: pv[0][4] });
-    if (move?.captured) themes.push('capture');
-    if (move?.san.includes('+')) themes.push('check');
-    if (move?.san.includes('#')) themes.push('checkmate');
-  } catch { /* ignore */ }
-
-  if (themes.length === 0) themes.push('tactical');
-  return themes;
-}
-
-const PIECE_VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-
-/** Estimate puzzle rating based on move type (obvious/standard/hard/brilliant) */
-function estimateRating(fen: string, pv: string[], isMate: boolean, mateDist: number): number {
-  const chess = new Chess(fen);
-  const allMoves = chess.moves({ verbose: true });
-  const solutionUci = pv[0];
-  const from = solutionUci.slice(0, 2);
-  const to = solutionUci.slice(2, 4);
-  const promotion = solutionUci[4];
-
-  const move = chess.move({ from, to, promotion });
-  if (!move) return 1500;
-  chess.undo();
-
-  const isCapture = !!move.captured;
-  const isCheck = move.san.includes('+') || move.san.includes('#');
-  const isQuietMove = !isCapture && !isCheck;
-
-  const opponent = move.color === 'w' ? 'b' : 'w';
-  const isTargetDefended = chess.isAttacked(to as Parameters<typeof chess.isAttacked>[0], opponent);
-
-  const movedPieceValue = PIECE_VALUE[move.piece] || 0;
-  const capturedPieceValue = move.captured ? (PIECE_VALUE[move.captured] || 0) : 0;
-  const isSacrifice = isTargetDefended && movedPieceValue > capturedPieceValue;
-  const isBigSacrifice = isSacrifice && movedPieceValue >= 5;
-
-  const isHangingCapture = isCapture && !isTargetDefended && capturedPieceValue >= 3;
-
-  const temptingAlternatives = allMoves.filter(m =>
-    (m.captured || m.san.includes('+')) &&
-    !(m.from === from && m.to === to)
-  ).length;
-
-  let rating = 1200;
-
-  if (isHangingCapture) {
-    rating = 700;
-  } else if (isCapture && !isTargetDefended) {
-    rating = 800;
-  } else if (isCapture && capturedPieceValue > movedPieceValue) {
-    rating = 900;
-  } else if (isCheck && !isQuietMove) {
-    rating = 1000;
-  } else if (isCapture) {
-    rating = 1100;
-  } else if (isCheck) {
-    rating = 1200;
-  } else if (isBigSacrifice) {
-    rating = 1800;
-  } else if (isSacrifice) {
-    rating = 1600;
-  } else if (isQuietMove) {
-    rating = 1500;
-  }
-
-  const playerMoves = Math.ceil(pv.length / 2);
-  rating += (playerMoves - 1) * 150;
-
-  rating += Math.min(300, temptingAlternatives * 50);
-
-  if (isMate && mateDist === 1) {
-    rating = Math.min(rating, 1200);
-  }
-
-  return Math.min(2800, Math.max(600, Math.round(rating / 50) * 50));
-}
-
-/**
- * Analyze positions from a PGN game and find puzzles.
- * Uses a Stockfish WASM worker directly.
- */
 export interface PuzzleGenSettings {
+  /** Глубина SF-анализа (полуходов). По умолчанию 14. */
   depth: number;
-  multiPv: number;
-  gapThreshold: number;
-  maxSecondCp: number;
-  skipHangingCapture: boolean;
-  skipAttackedByLesser: boolean;
-  skipUndefendedAfterMove: boolean;
-  acceptedMoves: number;
+  /**
+   * Минимальная разница `wdlBefore + wdlAfterForSolver` ([0..2]),
+   * чтобы считать ход блaндером. По умолчанию `PUZZLE_GEN_DEFAULTS.
+   * blunderDelta` = 0.6.
+   */
+  blunderDelta: number;
+  /**
+   * Включить halfMovesN=6 SF-vs-SF проверку решаемости пазла. На
+   * MVP по умолчанию выключено (тяжёлый отдельный анализ × N полуходов).
+   */
+  solvabilityCheck: boolean;
+
+  // ─── Legacy поля (deprecated, игнорируются алгоритмом). ───
+  // PuzzleGeneratorModal до #6 (UI-refactor) ещё дёргает их —
+  // оставляем optional, чтобы тип совместим с modal-state'ом без
+  // правки UI. Удаляются в #6.
+  /** @deprecated KS-2584: удалён CP-алгоритм. */
+  multiPv?: number;
+  /** @deprecated KS-2584. */
+  gapThreshold?: number;
+  /** @deprecated KS-2584. */
+  maxSecondCp?: number;
+  /** @deprecated KS-2584. */
+  skipHangingCapture?: boolean;
+  /** @deprecated KS-2584. */
+  skipAttackedByLesser?: boolean;
+  /** @deprecated KS-2584. */
+  skipUndefendedAfterMove?: boolean;
+  /** @deprecated KS-2584. */
+  acceptedMoves?: number;
 }
 
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   depth: 14,
-  multiPv: 3,
+  blunderDelta: PUZZLE_GEN_DEFAULTS.blunderDelta,
+  solvabilityCheck: false,
+  // Legacy defaults для совместимости с modal'ом до #6.
+  multiPv: 2,
   gapThreshold: 50,
   maxSecondCp: 300,
-  skipHangingCapture: true,
-  skipAttackedByLesser: true,
+  skipHangingCapture: false,
+  skipAttackedByLesser: false,
   skipUndefendedAfterMove: false,
   acceptedMoves: 1,
 };
 
+const MULTI_PV = 2;
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * KS-2584: упрощённый client-side `computeTagsClient`. Серверный аналог
+ * — `apps/tactic-worker/src/puzzle-generator` `computeTagsServer`. Без
+ * cp-эвристик; темы выводятся из WDL и количества фигур на доске.
+ */
+function computeTagsClient(
+  fenAfter: string,
+  wdlAfterForSolver: number,
+  isMate: boolean,
+  mateDist: number,
+): string[] {
+  const themes: string[] = ['playVsEngine'];
+  if (isMate) {
+    themes.push('mate');
+    if (mateDist <= 5) themes.push('mateInN');
+    if (mateDist === 1) themes.push('mateIn1');
+    else if (mateDist === 2) themes.push('mateIn2');
+    else if (mateDist === 3) themes.push('mateIn3');
+  }
+  if (wdlAfterForSolver >= 0.95) themes.push('crushing');
+  else if (wdlAfterForSolver >= 0.5) themes.push('advantage');
+
+  try {
+    const chess = new Chess(fenAfter);
+    const pieces = chess.board().flat().filter(Boolean).length;
+    if (pieces <= 7) themes.push('endgame');
+  } catch {
+    /* fenAfter может быть невалиден — без endgame-метки */
+  }
+  return themes;
+}
+
+/**
+ * KS-2584: упрощённый `computeStartingRating` (ADR-044 §3.5 — точная
+ * формула опирается на Elo игроков, чего на клиенте нет). MVP: 1500
+ * базовый, −150 если позиция сильно разгромная (легче решить, нужно
+ * ниже). `clamp(800, 2000)` гарантирует разумный диапазон.
+ */
+function computeStartingRating(wdlAfterForSolver: number): number {
+  const base = 1500 - (wdlAfterForSolver > 0.85 ? 150 : 0);
+  return clamp(base, 800, 2000);
+}
+
+/**
+ * Solvability-check (halfMovesN=6 SF-vs-SF от `fenAfter`). Решающий
+ * ходит по `analyze(currentFen, depth, multiPv=1)`. На каждом ходу
+ * решающего проверяем `wdl ≥ failThreshold`; в конце требуем `wdl ≥
+ * winThreshold`. Зеркало `apps/tactic-worker/src/puzzle-generator/
+ * generator-pipeline.ts`-passa.
+ */
+async function solvabilityPasses(
+  engine: EngineAdapter,
+  fenAfter: string,
+  depth: number,
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
+  const halfMoves = PUZZLE_GEN_DEFAULTS.halfMovesN;
+  const winT = PUZZLE_GEN_DEFAULTS.winThreshold;
+  const failT = PUZZLE_GEN_DEFAULTS.failThreshold;
+  let chess: Chess;
+  try {
+    chess = new Chess(fenAfter);
+  } catch {
+    return false;
+  }
+  // На fenAfter сторона на ходу — это решающий (соперник сходившего).
+  const solverColor = chess.turn();
+  let lastWdlForSolver = 0;
+  for (let half = 0; half < halfMoves; half++) {
+    if (abortSignal?.aborted) return false;
+    if (chess.isGameOver()) {
+      // checkmate решающим — успех; иначе draw — провал.
+      if (chess.isCheckmate()) {
+        const winnerIsSolver = chess.turn() !== solverColor;
+        return winnerIsSolver && lastWdlForSolver >= winT;
+      }
+      return false;
+    }
+    const result = await engine.analyze(chess.fen(), depth, 1);
+    if (result.lines.length === 0) return false;
+    const line = result.lines[0];
+    const sideOnMove = chess.turn();
+    const wdl = wdlSignedFromInfo(line.wdl, line.score);
+    if (wdl === null) return false;
+    const wdlForSolver = sideOnMove === solverColor ? wdl : -wdl;
+    if (sideOnMove === solverColor) {
+      lastWdlForSolver = wdlForSolver;
+    }
+    if (wdlForSolver < failT) return false;
+    const move = line.pv[0];
+    if (!move) return false;
+    try {
+      const piece = move.length > 4 ? move[4] : undefined;
+      const moved = chess.move({
+        from: move.slice(0, 2),
+        to: move.slice(2, 4),
+        promotion: piece,
+      });
+      if (!moved) return false;
+    } catch {
+      return false;
+    }
+  }
+  return lastWdlForSolver >= winT;
+}
+
+/** Извлечь WDL_signed (POV side-to-move) из info-строки. */
+function extractWdlSigned(line: InfoLine): number | null {
+  return wdlSignedFromInfo(line.wdl ?? null, line.score);
+}
+
 export async function generatePuzzlesFromPgn(
   pgn: string,
   onProgress: (progress: GenerationProgress) => void,
-  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal; bridgeConfig?: BridgeConfig } = {},
+  options: Partial<PuzzleGenSettings> & {
+    abortSignal?: AbortSignal;
+    bridgeConfig?: BridgeConfig;
+    /**
+     * KS-2584: фабрика движка для unit-тестов (mock без WASM-воркера).
+     * В production не используется — обычный путь через bridgeConfig
+     * или WasmEngineAdapter.
+     */
+    engineFactory?: () => EngineAdapter;
+  } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
-  const { depth, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove, acceptedMoves } = settings;
-  // Ensure multiPv is at least acceptedMoves + 1 (need gap after N-th move)
-  const effectiveMultiPv = Math.max(settings.multiPv, acceptedMoves + 1);
-  const { abortSignal, bridgeConfig } = options;
+  const settings: PuzzleGenSettings = {
+    ...DEFAULT_PUZZLE_GEN_SETTINGS,
+    ...options,
+  };
+  const { depth, blunderDelta, solvabilityCheck } = settings;
+  const { abortSignal, bridgeConfig, engineFactory } = options;
+  const startPly = PUZZLE_GEN_DEFAULTS.startPly;
+  const skipDecidedThreshold = PUZZLE_GEN_DEFAULTS.skipDecidedWdl;
+  const minWdlAfterBlunder = PUZZLE_GEN_DEFAULTS.minWdlAfterBlunder;
 
-  // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
-  console.log('[PuzzleGen] PGN split into', games.length, 'games, input length:', pgn.length);
+  console.log(
+    '[PuzzleGen] PGN split into',
+    games.length,
+    'games, input length:',
+    pgn.length,
+  );
   const puzzles: GeneratedPuzzleData[] = [];
 
-  // Create engine adapter
   let engine: EngineAdapter;
-  if (bridgeConfig) {
+  if (engineFactory) {
+    engine = engineFactory();
+  } else if (bridgeConfig) {
     engine = new BridgeEngineAdapter(bridgeConfig);
   } else {
     engine = new WasmEngineAdapter();
   }
 
   await engine.init();
-
-  engine.setOption('MultiPV', String(effectiveMultiPv));
+  engine.setOption('MultiPV', String(MULTI_PV));
   if (bridgeConfig) {
     engine.setOption('Threads', '16');
     engine.setOption('Hash', '256');
@@ -217,15 +334,19 @@ export async function generatePuzzlesFromPgn(
     if (abortSignal?.aborted) break;
 
     const gamePgn = stripPgnAnnotations(games[gi]);
-    const chess = new Chess();
+    const chessForReplay = new Chess();
     try {
-      chess.loadPgn(gamePgn);
+      chessForReplay.loadPgn(gamePgn);
     } catch (e) {
-      console.warn('[PuzzleGen] Failed to parse game', gi + 1, ':', e instanceof Error ? e.message : e);
+      console.warn(
+        '[PuzzleGen] Failed to parse game',
+        gi + 1,
+        ':',
+        e instanceof Error ? e.message : e,
+      );
       continue;
     }
 
-    // Parse PGN headers for source metadata
     const metadata: SourceMetadata = {};
     const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
     let hMatch;
@@ -238,176 +359,194 @@ export async function generatePuzzlesFromPgn(
       else if (key === 'Result') metadata.result = value;
     }
 
-    const moves = chess.history({ verbose: true });
-    console.log('[PuzzleGen] Game', gi + 1, ':', moves.length, 'moves');
-    const positions: { fen: string; moveNum: number }[] = [];
-    // Use FEN from PGN header if present, otherwise standard start
+    const moveHistory = chessForReplay.history({ verbose: true });
+    console.log('[PuzzleGen] Game', gi + 1, ':', moveHistory.length, 'moves');
+
     const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
     const startFen = fenMatch ? fenMatch[1] : undefined;
     const replay = startFen ? new Chess(startFen) : new Chess();
-    for (let i = 0; i < moves.length; i++) {
-      positions.push({ fen: replay.fen(), moveNum: i + 1 });
-      replay.move(moves[i].san);
+
+    // Собираем последовательность (fenBefore, playedUci, moveNum) для
+    // каждого хода партии.
+    interface Step {
+      fenBefore: string;
+      playedUci: string;
+      moveNum: number;
+    }
+    const steps: Step[] = [];
+    for (let i = 0; i < moveHistory.length; i++) {
+      const fenBefore = replay.fen();
+      const m = moveHistory[i];
+      const uci = `${m.from}${m.to}${m.promotion ?? ''}`;
+      steps.push({ fenBefore, playedUci: uci, moveNum: i + 1 });
+      replay.move(m.san);
     }
 
-    const SKIP_OPENING = 20; // skip first 10 moves (20 half-moves)
-    for (let pi = SKIP_OPENING; pi < positions.length; pi++) {
+    for (let pi = startPly; pi < steps.length; pi++) {
       if (abortSignal?.aborted) break;
 
       onProgress({
         gameIndex: gi,
         totalGames: games.length,
         positionIndex: pi,
-        totalPositions: positions.length,
+        totalPositions: steps.length,
         puzzlesFound: puzzles.length,
       });
 
-      const { fen, moveNum } = positions[pi];
+      const { fenBefore, playedUci, moveNum } = steps[pi];
+      const logBase = `[PuzzleGen] pos=${pi} playedUci=${playedUci}`;
 
-      // Skip terminal positions (checkmate, stalemate, draw)
+      // Skip terminal позиции до анализа.
+      let fenAfter = '';
+      let isMate = false;
+      let mateDist = 0;
       try {
-        const check = new Chess(fen);
-        if (check.isGameOver()) { console.log(`[PuzzleGen] pos=${pi} SKIP: gameOver`); continue; }
-        const legalMoves = check.moves().length;
-        if (legalMoves <= 1) { console.log(`[PuzzleGen] pos=${pi} SKIP: legalMoves=${legalMoves}`); continue; }
-      } catch (e) {
-        console.warn('[PuzzleGen] pos=', pi, 'SKIP: fen check error:', e instanceof Error ? e.message : e);
-        continue;
-      }
-
-      // Single analysis with depth history tracking
-      let analysis: Awaited<ReturnType<EngineAdapter['analyze']>>;
-      try {
-        analysis = await engine.analyze(fen, depth, effectiveMultiPv);
-      } catch (e) {
-        console.error('[PuzzleGen] Engine analyze error at pos', pi, ':', e);
-        continue;
-      }
-      if (analysis.lines.length === 0) continue;
-
-      const best = analysis.lines[0];
-      const bestMoveUci = best.pv[0];
-
-      const bestCp = scoreToCP(best.score);
-      // For acceptedMoves=N, gap is between N-th and (N+1)-th line
-      const N = acceptedMoves;
-      const nthCp = analysis.lines.length > N - 1 ? scoreToCP(analysis.lines[N - 1].score) : bestCp;
-      const nextCp = analysis.lines.length > N ? scoreToCP(analysis.lines[N].score) : 0;
-      const gap = analysis.lines.length > N ? Math.abs(nthCp - nextCp) : (best.score.type === 'mate' ? 10000 : 0);
-      // topSpread: difference between 1st and N-th move (must be small for multiple accepted)
-      const topSpread = Math.abs(bestCp - nthCp);
-      const TOP_SPREAD_THRESHOLD = 30;
-      const secondCp = analysis.lines.length >= 2 ? scoreToCP(analysis.lines[1].score) : 0;
-
-      // Eval growth: compare eval at depth 1 vs depth 14
-      const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
-      const evalAtDeep = bestCp;
-      const evalGrowth = evalAtDeep - evalAtShallow;
-      // KS-2034: EVAL_GROWTH_THRESHOLD удалён — нигде не сравнивался,
-      // только лог `growth=...` использовал `evalGrowth`. Если вернутся
-      // условия по eval-growth — добавлять явно с использованием.
-
-      // Analyze bestMove properties
-      let isHangingCapture = false;
-      let attackedByLesser = false;
-      let undefendedAfterMove = false;
-      if (best.pv.length >= 1) {
-        try {
-          const testChess = new Chess(fen);
-          const from = best.pv[0].slice(0, 2);
-          const to = best.pv[0].slice(2, 4);
-          const movedPiece = testChess.get(from as Parameters<typeof testChess.get>[0]);
-          const movedValue = movedPiece ? (PIECE_VALUE[movedPiece.type] || 0) : 0;
-          const moveObj = testChess.move({ from, to, promotion: best.pv[0][4] });
-
-          if (moveObj) {
-            // Hanging capture: captured piece and no recapture possible
-            if (moveObj.captured) {
-              const recaptures = testChess.moves({ verbose: true }).filter(m => m.to === moveObj.to && m.captured);
-              if (recaptures.length === 0) isHangingCapture = true;
-            }
-
-            // Attacked by lesser: after move, piece on target attacked by cheaper piece
-            const opponent = moveObj.color === 'w' ? 'b' : 'w';
-            if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
-              const attackerMoves = testChess.moves({ verbose: true }).filter(m => m.to === to);
-              const cheapestAttacker = Math.min(...attackerMoves.map(m => PIECE_VALUE[m.piece] || 0));
-              if (cheapestAttacker < movedValue) attackedByLesser = true;
-
-              // Undefended: attacked but not defended by own pieces
-              testChess.undo();
-              testChess.move(moveObj.san); // replay to check own defense
-              // Swap turn to check if own side defends
-              // chess.js doesn't have "isDefended" — approximate: undo, check if own piece attacks the square
-              // (`ownColor = moveObj.color` удалён — переменная не использовалась).
-              const preMove = new Chess(fen);
-              // Check if any own piece (other than the moved one) attacks the target square
-              const ownAttacks = preMove.moves({ verbose: true }).filter(m => m.to === to && m.from !== from);
-              if (ownAttacks.length === 0) undefendedAfterMove = true;
-            }
-
-            testChess.undo();
-          }
-        } catch { /* ignore */ }
-      }
-
-      const isMate = best.score.type === 'mate';
-      const mateDist = isMate ? Math.abs(best.score.value) : 0;
-      const logBase = `[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`;
-
-      // Apply filters with explicit skip reason
-      if (skipHangingCapture && isHangingCapture) {
-        console.log(`${logBase} SKIP:hangingCapture`); continue;
-      }
-      if (skipAttackedByLesser && attackedByLesser) {
-        console.log(`${logBase} SKIP:attackedByLesser`); continue;
-      }
-      if (skipUndefendedAfterMove && undefendedAfterMove) {
-        console.log(`${logBase} SKIP:undefendedAfterMove`); continue;
-      }
-      if (analysis.lines.length >= 2 && Math.abs(secondCp) > maxSecondCp) {
-        console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>${maxSecondCp}`); continue;
-      }
-      if (gap < gapThreshold) {
-        console.log(`${logBase} SKIP:gap<${gapThreshold}`); continue;
-      }
-      if (N > 1 && topSpread > TOP_SPREAD_THRESHOLD) {
-        console.log(`${logBase} SKIP:topSpread=${topSpread}>${TOP_SPREAD_THRESHOLD}`); continue;
-      }
-      if (best.pv.length < (isMate ? 1 : 2)) {
-        console.log(`${logBase} SKIP:pv.length=${best.pv.length}<${isMate ? 1 : 2}`); continue;
-      }
-
-      {
-        const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
-        const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
-        console.log(`${logBase} ACCEPTED rating=${rating}`);
-
-        // Use scores from THIS position's analysis (same side moves)
-        const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
-
-        // Collect accepted moves (top N lines' first moves)
-        const acceptedMovesList = analysis.lines.slice(0, N).map((l) => l.pv[0]).filter(Boolean);
-
-        puzzles.push({
-          fen,
-          moves: best.pv.slice(0, 8).join(' '),
-          acceptedMoves: acceptedMovesList.length > 1 ? acceptedMovesList.join(' ') : undefined,
-          rating,
-          gap,
-          themes: themes.join(' '),
-          sourceType: 'pgn_import',
-          sourceId: null,
-          sourceMoveNum: moveNum,
-          sourceMetadata: {
-            ...metadata,
-            bestScore: bestCp,
-            bestMove: best.pv[0],
-            secondBestScore: secondLine ? scoreToCP(secondLine.score) : undefined,
-            secondBestMove: secondLine ? secondLine.pv[0] : undefined,
-          },
+        const checkBefore = new Chess(fenBefore);
+        if (checkBefore.isGameOver()) {
+          console.log(`${logBase} SKIP:gameOverBefore`);
+          continue;
+        }
+        const moved = checkBefore.move({
+          from: playedUci.slice(0, 2),
+          to: playedUci.slice(2, 4),
+          promotion: playedUci.length > 4 ? playedUci[4] : undefined,
         });
+        if (!moved) {
+          console.log(`${logBase} SKIP:invalidMove`);
+          continue;
+        }
+        fenAfter = checkBefore.fen();
+        if (checkBefore.isGameOver()) {
+          console.log(`${logBase} SKIP:gameOverAfter`);
+          continue;
+        }
+      } catch (e) {
+        console.warn(
+          `${logBase} SKIP:fenError`,
+          e instanceof Error ? e.message : e,
+        );
+        continue;
       }
+
+      // Анализ before.
+      let beforeRes;
+      try {
+        beforeRes = await engine.analyze(fenBefore, depth, MULTI_PV);
+      } catch (e) {
+        console.error(`${logBase} SKIP:analyzeBeforeError`, e);
+        continue;
+      }
+      if (beforeRes.lines.length === 0) {
+        console.log(`${logBase} SKIP:noLinesBefore`);
+        continue;
+      }
+      const lineBefore = beforeRes.lines[0];
+      const wdlBefore = extractWdlSigned(lineBefore);
+      if (wdlBefore === null) {
+        console.log(`${logBase} SKIP:noWdlBefore`);
+        continue;
+      }
+      if (lineBefore.pv[0] === playedUci) {
+        console.log(
+          `${logBase} wdlBefore=${round3(wdlBefore)} SKIP:samePv1`,
+        );
+        continue;
+      }
+      if (Math.abs(wdlBefore) > skipDecidedThreshold) {
+        console.log(
+          `${logBase} wdlBefore=${round3(wdlBefore)} SKIP:decided`,
+        );
+        continue;
+      }
+
+      // Анализ after (POV соперника сходившего).
+      let afterRes;
+      try {
+        afterRes = await engine.analyze(fenAfter, depth, MULTI_PV);
+      } catch (e) {
+        console.error(`${logBase} SKIP:analyzeAfterError`, e);
+        continue;
+      }
+      if (afterRes.lines.length === 0) {
+        console.log(`${logBase} SKIP:noLinesAfter`);
+        continue;
+      }
+      const lineAfter = afterRes.lines[0];
+      const wdlAfter = extractWdlSigned(lineAfter);
+      if (wdlAfter === null) {
+        console.log(`${logBase} SKIP:noWdlAfter`);
+        continue;
+      }
+      const wdlAfterForSolver = -wdlAfter;
+      const blunderΔ = wdlBefore + wdlAfterForSolver;
+
+      if (blunderΔ < blunderDelta) {
+        console.log(
+          `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} SKIP:notBlunder`,
+        );
+        continue;
+      }
+      if (wdlAfterForSolver < minWdlAfterBlunder) {
+        console.log(
+          `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} SKIP:lowWdlAfterBlunder`,
+        );
+        continue;
+      }
+
+      // Mate check (для тагов).
+      if (lineAfter.score.type === 'mate') {
+        // mate value на fenAfter — POV соперника. Если он отрицательный —
+        // mate в пользу решающего (нам нужен этот случай).
+        if (lineAfter.score.value < 0) {
+          isMate = true;
+          mateDist = Math.abs(lineAfter.score.value);
+        }
+      }
+
+      if (solvabilityCheck) {
+        const ok = await solvabilityPasses(engine, fenAfter, depth, abortSignal);
+        if (!ok) {
+          console.log(
+            `${logBase} blunderΔ=${round3(blunderΔ)} SKIP:solvabilityFailed`,
+          );
+          continue;
+        }
+      }
+
+      const themes = computeTagsClient(
+        fenAfter,
+        wdlAfterForSolver,
+        isMate,
+        mateDist,
+      );
+      const rating = computeStartingRating(wdlAfterForSolver);
+      console.log(
+        `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} ACCEPTED rating=${rating}`,
+      );
+
+      puzzles.push({
+        fen: fenAfter,
+        moves: '',
+        rating,
+        gap: Math.round(wdlAfterForSolver * 100),
+        themes: themes.join(' '),
+        sourceType: 'pgn_import',
+        sourceId: null,
+        sourceMoveNum: moveNum,
+        sourceMetadata: {
+          ...metadata,
+          blunderMove: playedUci,
+          wdlBeforeBlunder: round3(wdlBefore),
+          wdlAfterBlunder: round3(wdlAfterForSolver),
+          blunderDelta: round3(blunderΔ),
+          halfMovesN: PUZZLE_GEN_DEFAULTS.halfMovesN,
+          winThreshold: PUZZLE_GEN_DEFAULTS.winThreshold,
+          failThreshold: PUZZLE_GEN_DEFAULTS.failThreshold,
+          depth,
+        },
+        solutionMode: 'play-vs-engine',
+        isPublic: false,
+      });
     }
   }
 
@@ -416,10 +555,10 @@ export async function generatePuzzlesFromPgn(
   return puzzles;
 }
 
+// ─── PGN-парсер (без изменений из старой версии) ───
 
 /** Strip comments {…}, variations (…), NAG ($1 etc), extra whitespace from PGN movetext */
 function stripPgnAnnotations(pgn: string): string {
-  // Preserve header lines, only strip from movetext
   const lines = pgn.split('\n');
   const result: string[] = [];
   for (const line of lines) {
@@ -463,3 +602,8 @@ function splitPgnIntoGames(pgn: string): string[] {
 
   return games.filter((g) => g.trim().length > 0);
 }
+
+// ─── Test-only re-exports ───
+
+export { wdlSigned, wdlSignedFromInfo };
+export type { Wdl };

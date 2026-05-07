@@ -185,9 +185,14 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                       <input type="number" min={1} max={3} value={settings.acceptedMoves} onChange={(e) => updateSetting('acceptedMoves', Number(e.target.value))} />
                     </div>
                   </div>
-                  {settings.acceptedMoves > 1 && (
+                  {/* KS-2584: legacy-поля `acceptedMoves`/`multiPv` помечены
+                      `@deprecated` и игнорируются алгоритмом, но UI их пока
+                      отображает (refactor в #6). Optional-chaining добавлено,
+                      чтобы тип PuzzleGenSettings.acceptedMoves?: number
+                      проходил TS strict. */}
+                  {(settings.acceptedMoves ?? 1) > 1 && (
                     <p className="puzzle-gen-engine-hint">
-                      {t('puzzleGenerator.acceptedMovesHint', 'MultiPV will be auto-increased to {{n}} for {{m}} accepted moves', { n: Math.max(settings.multiPv, settings.acceptedMoves + 1), m: settings.acceptedMoves })}
+                      {t('puzzleGenerator.acceptedMovesHint', 'MultiPV will be auto-increased to {{n}} for {{m}} accepted moves', { n: Math.max(settings.multiPv ?? 2, (settings.acceptedMoves ?? 1) + 1), m: settings.acceptedMoves ?? 1 })}
                     </p>
                   )}
 
