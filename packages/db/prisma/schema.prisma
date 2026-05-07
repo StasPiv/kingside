@@ -304,6 +304,9 @@ model Puzzle {
   @@index([source])
   @@index([createdBy])
   @@index([solutionMode])
+  // KS-2557: ORDER BY created_at DESC LIMIT 20 для /puzzles/browse —
+  // на 6M lichess строк без индекса делал full scan + sort.
+  @@index([createdAt])
   @@map("puzzles")
 }
 
