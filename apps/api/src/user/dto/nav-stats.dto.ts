@@ -18,6 +18,8 @@ export const NAV_ROUTES = [
   'archive',
   'profile',
   'puzzles',
+  // KS-2537 / ADR-048 §3 #1. Раздел «Тренировка точности».
+  'precision',
 ] as const;
 
 export type NavRoute = (typeof NAV_ROUTES)[number];
