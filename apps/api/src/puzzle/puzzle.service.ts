@@ -76,6 +76,21 @@ export class PuzzleService {
   /**
    * Get a puzzle matching the user's current rating (±200 range).
    * Excludes puzzles the user has already solved.
+   *
+   * KS-2562: на t3.micro RDS shared_buffers 256 МБ vs heap 2.2 ГБ
+   * (6M lichess-пазлов). Любой план SQL-запроса с rating-range ±200
+   * читает ~190k disk-блоков → 11+ сек I/O даже с partial индексом.
+   *
+   * Решение: Redis-кэш top-N popular IDs по rating-bucket'ам (100-wide).
+   *   - Fast path (без themes/solutionMode): mget 5 buckets из Redis,
+   *     filter solved (один точечный SQL по ids), random pick, fetch
+   *     1 пазл по id. Cache-hit ≈ 30-50 мс.
+   *   - Cache miss на конкретный bucket: SQL с узким `rating BETWEEN
+   *     b AND b+99 AND popularity>=50 ORDER BY popularity DESC LIMIT
+   *     100` через partial индекс — ~20-50 мс на узком range. Cache
+   *     заполняется на 1 час.
+   *   - Slow path (themes / solutionMode заданы): старая логика с
+   *     полным WHERE — редкий случай, на который t3.micro мириться.
    */
   async getNextPuzzle(
     userId: string | null,
@@ -102,23 +117,161 @@ export class PuzzleService {
 
     const minRating = filters?.ratingMin ?? userRating - range;
     const maxRating = filters?.ratingMax ?? userRating + range;
+    const hasThemes = !!(filters?.themes && filters.themes.length > 0);
+    const hasSolutionMode = !!filters?.solutionMode;
 
-    // KS-2562: на проде RDS t3.micro и 6M lichess-пазлов. Чтобы
-    // запрос укладывался в индекс `puzzles_rating_popularity_partial_idx`
-    // (миграция 20260507162355) — добавляем `popularity >= 50` к
-    // основному пути. Этот partial-индекс компактен (~25 МБ vs 250 МБ
-    // полного composite) и помещается в shared_buffers. Если в
-    // диапазоне нет популярных пазлов — fallback ниже игнорирует это
-    // условие.
+    // KS-2562 fast path — без themes/solutionMode фильтров.
+    if (!hasThemes && !hasSolutionMode) {
+      const fast = await this.getNextPuzzleFast(
+        userId,
+        minRating,
+        maxRating,
+        excludeId,
+      );
+      if (fast) return fast;
+      // Если кэш пуст / в bucket'ах нет ID после фильтра solved —
+      // продолжаем slow path (он же fallback).
+    }
+
+    return this.getNextPuzzleSlow(userId, excludeId, {
+      minRating,
+      maxRating,
+      themes: filters?.themes,
+      solutionMode: filters?.solutionMode,
+    });
+  }
+
+  /**
+   * KS-2562 fast path: Redis-кэш топ-popular IDs по 100-wide
+   * rating-bucket'ам. Возвращает ОДИН пазл или null (cache empty).
+   *
+   * Алгоритм:
+   *   1. Bucket'ы [floor(min/100)*100 .. floor(max/100)*100], шаг 100.
+   *      Для ±200 типично 5 bucket'ов.
+   *   2. mget из Redis (key `puzzle:hot:<bucket>`).
+   *   3. Cache miss на bucket → SQL по узкому range, заполняем cache
+   *      на 1 час.
+   *   4. Конкатенируем все ID, выкидываем excludeId.
+   *   5. Если userId — точечный `puzzle_attempts.findMany({puzzleId in
+   *      ids, userId, solved:true})`, выкидываем solved.
+   *   6. Random pick → `puzzle.findUnique` → format.
+   *   7. null если после фильтрации пусто (caller fallback'нет на slow).
+   */
+  private async getNextPuzzleFast(
+    userId: string | null,
+    minRating: number,
+    maxRating: number,
+    excludeId?: string,
+  ): Promise<ReturnType<PuzzleService['formatPuzzle']> | null> {
+    const HOT_PER_BUCKET = 100;
+    const POPULARITY_THRESHOLD = 50;
+    const CACHE_TTL_SEC = 3600;
+
+    const minBucket = Math.floor(minRating / 100) * 100;
+    const maxBucket = Math.floor(maxRating / 100) * 100;
+    const buckets: number[] = [];
+    for (let b = minBucket; b <= maxBucket; b += 100) buckets.push(b);
+    if (buckets.length === 0) return null;
+
+    // 1. Redis mget; для каждого bucket — JSON-массив puzzleId либо null.
+    const cacheKeys = buckets.map((b) => `puzzle:hot:${b}`);
+    let cached: (string | null)[];
+    try {
+      cached = await Promise.all(cacheKeys.map((k) => this.redis.get(k)));
+    } catch (e) {
+      this.logger.warn(
+        `getNextPuzzleFast: redis mget failed: ${(e as Error).message}; fallback slow`,
+      );
+      return null;
+    }
+
+    // 2. Заполнить промахи через узкий SQL.
+    const allIds: string[] = [];
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i];
+      let ids: string[] | null = null;
+      if (cached[i]) {
+        try {
+          const parsed = JSON.parse(cached[i] as string) as unknown;
+          if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+            ids = parsed as string[];
+          }
+        } catch {
+          // bad cache entry — refill ниже.
+        }
+      }
+      if (ids === null) {
+        const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM puzzles
+           WHERE rating >= ${b} AND rating < ${b + 100}
+             AND popularity >= ${POPULARITY_THRESHOLD}
+           ORDER BY popularity DESC
+           LIMIT ${HOT_PER_BUCKET}
+        `;
+        ids = rows.map((r) => r.id);
+        // Кэшируем даже пустой массив — иначе на bucket без популярных
+        // пазлов будем каждый раз бить тяжёлый SQL.
+        try {
+          await this.redis.set(
+            cacheKeys[i],
+            JSON.stringify(ids),
+            'EX',
+            CACHE_TTL_SEC,
+          );
+        } catch (e) {
+          this.logger.warn(
+            `getNextPuzzleFast: redis set failed: ${(e as Error).message}`,
+          );
+        }
+      }
+      allIds.push(...ids);
+    }
+
+    // 3. Filter excludeId.
+    let candidates = excludeId ? allIds.filter((id) => id !== excludeId) : allIds;
+
+    // 4. Filter solved (login).
+    if (userId && candidates.length > 0) {
+      const solvedRows = await this.prisma.puzzleAttempt.findMany({
+        where: { userId, solved: true, puzzleId: { in: candidates } },
+        select: { puzzleId: true },
+      });
+      const solvedSet = new Set(solvedRows.map((r) => r.puzzleId));
+      candidates = candidates.filter((id) => !solvedSet.has(id));
+    }
+
+    if (candidates.length === 0) return null;
+
+    // 5. Random pick + точечный fetch.
+    const pickedId = candidates[Math.floor(Math.random() * candidates.length)];
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id: pickedId } });
+    if (!puzzle) return null;
+    return this.formatPuzzle(puzzle);
+  }
+
+  /**
+   * KS-2562 slow path — старая логика для редких случаев (themes /
+   * solutionMode), а также fallback когда fast path вернул null
+   * (нет популярных пазлов после фильтра solved).
+   */
+  private async getNextPuzzleSlow(
+    userId: string | null,
+    excludeId: string | undefined,
+    opts: {
+      minRating: number;
+      maxRating: number;
+      themes?: string[];
+      solutionMode?: 'forced-line' | 'play-vs-engine';
+    },
+  ) {
     const POPULARITY_THRESHOLD = 50;
 
-    // Build conditions for raw query
     const conditions: string[] = [
       'p.rating >= $1',
       'p.rating <= $2',
       `p.popularity >= ${POPULARITY_THRESHOLD}`,
     ];
-    const params: (string | number)[] = [minRating, maxRating];
+    const params: (string | number)[] = [opts.minRating, opts.maxRating];
     let paramIdx = 3;
 
     if (excludeId) {
@@ -127,7 +280,6 @@ export class PuzzleService {
       paramIdx++;
     }
 
-    // NOT EXISTS: exclude only solved puzzles (failed can reappear)
     if (userId) {
       conditions.push(`NOT EXISTS (
         SELECT 1 FROM puzzle_attempts pa
@@ -137,20 +289,17 @@ export class PuzzleService {
       paramIdx++;
     }
 
-    if (filters?.themes && filters.themes.length > 0) {
-      for (const theme of filters.themes) {
+    if (opts.themes && opts.themes.length > 0) {
+      for (const theme of opts.themes) {
         conditions.push(`p.themes LIKE $${paramIdx}`);
         params.push(`%${theme}%`);
         paramIdx++;
       }
     }
 
-    // KS-2472 / ADR-044 §5.5. Фильтр по solutionMode. Без значения —
-    // без фильтра. Whitelist строки проверяется DTO ('forced-line' /
-    // 'play-vs-engine') — sql injection невозможен.
-    if (filters?.solutionMode) {
+    if (opts.solutionMode) {
       conditions.push(`p.solution_mode = $${paramIdx}`);
-      params.push(filters.solutionMode);
+      params.push(opts.solutionMode);
       paramIdx++;
     }
 
@@ -161,14 +310,13 @@ export class PuzzleService {
     );
 
     if (puzzles.length === 0) {
-      // Fallback: remove rating + popularity filters (KS-2562:
-      // popularity >= 50 тоже снимаем — иначе fallback бесполезен в
-      // редких случаях когда в диапазоне нет популярных).
+      // Финальный fallback: убираем rating + popularity, берём самый
+      // низкорейтинговый пазл (хоть что-то).
       const fbConditions = conditions.filter(
         (c) => !c.includes('rating') && !c.includes('popularity'),
       );
       const fbWhere = fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
-      const fbParams = params.slice(2); // skip minRating/maxRating
+      const fbParams = params.slice(2);
       const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
         `SELECT * FROM puzzles p WHERE ${fbWhere} ORDER BY p.rating ASC LIMIT 1`,
         ...fbParams,
