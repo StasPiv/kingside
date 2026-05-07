@@ -150,4 +150,39 @@ describe('<MistakesDiaryHint>', () => {
     await waitFor(() => expect(apiMock.getAggregates).toHaveBeenCalled());
     expect(apiMock.getAggregates).toHaveBeenCalledWith({ limit: 3 });
   });
+
+  // KS-2496 (ADR-046 §5.6).
+  it('KS-2496: тема playVsEngine отфильтрована из чипов', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 6 }),
+        agg({ theme: 'pin', count: 4 }),
+      ],
+      totalThemes: 2,
+      since: null,
+      limit: 3,
+    });
+    renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('puzzle-mistakes-hint')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('puzzle-mistakes-hint-chip-playVsEngine'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('puzzle-mistakes-hint-chip-pin')).toBeInTheDocument();
+  });
+
+  it('KS-2496: единственная тема — playVsEngine → hint скрыт', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 9 }),
+      ],
+      totalThemes: 1,
+      since: null,
+      limit: 3,
+    });
+    renderRouter();
+    await waitFor(() => expect(apiMock.getAggregates).toHaveBeenCalled());
+    expect(screen.queryByTestId('puzzle-mistakes-hint')).not.toBeInTheDocument();
+  });
 });

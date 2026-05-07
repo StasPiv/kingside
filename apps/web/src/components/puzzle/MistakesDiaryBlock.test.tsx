@@ -198,4 +198,39 @@ describe('<MistakesDiaryBlock> — full', () => {
     await waitFor(() => expect(apiMock.getAggregates).toHaveBeenCalled());
     expect(apiMock.getAggregates).toHaveBeenCalledWith({ limit: 5 });
   });
+
+  // KS-2496 (ADR-046 §5.6): защитный фильтр от шумовой темы playVsEngine.
+  it('KS-2496: тема playVsEngine отфильтрована из рендера', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 12 }),
+        agg({ theme: 'fork', count: 8 }),
+        agg({ theme: 'pin', count: 5 }),
+      ],
+      totalThemes: 3,
+      since: null,
+      limit: 5,
+    });
+    renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('mistakes-diary-block')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-diary-item-playVsEngine')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mistakes-diary-item-fork')).toBeInTheDocument();
+    expect(screen.getByTestId('mistakes-diary-item-pin')).toBeInTheDocument();
+  });
+
+  it('KS-2496: единственная тема — playVsEngine → блок не рендерится', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 9 }),
+      ],
+      totalThemes: 1,
+      since: null,
+      limit: 5,
+    });
+    renderRouter();
+    await waitFor(() => expect(apiMock.getAggregates).toHaveBeenCalled());
+    expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
+  });
 });

@@ -95,4 +95,41 @@ describe('<PuzzleMistakesPage>', () => {
       '/puzzles',
     );
   });
+
+  // KS-2496 (ADR-046 §5.6): защитный фильтр playVsEngine.
+  it('KS-2496: тема playVsEngine не появляется в таблице', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 12 }),
+        agg({ theme: 'fork', count: 7 }),
+      ],
+      totalThemes: 2,
+      since: null,
+      limit: 100,
+    });
+    renderWithProviders(<PuzzleMistakesPage />, { route: '/puzzles/mistakes' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mistakes-page-table')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-page-row-playVsEngine')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mistakes-page-row-fork')).toBeInTheDocument();
+    // total коррелирует с отфильтрованным списком (1 вместо 2)
+    expect(screen.getByTestId('mistakes-page-total')).toHaveTextContent('1');
+  });
+
+  it('KS-2496: единственная тема — playVsEngine → empty-state', async () => {
+    apiMock.getAggregates.mockResolvedValueOnce({
+      aggregates: [
+        agg({ theme: 'playVsEngine' as UserMistakeAggregate['theme'], count: 9 }),
+      ],
+      totalThemes: 1,
+      since: null,
+      limit: 100,
+    });
+    renderWithProviders(<PuzzleMistakesPage />, { route: '/puzzles/mistakes' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mistakes-empty')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-page-table')).not.toBeInTheDocument();
+  });
 });

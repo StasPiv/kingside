@@ -69,7 +69,7 @@ export function MistakesDiaryHint() {
         {t('puzzle.mistakes.title', 'Mistakes diary')}
       </h3>
       <ul className="puzzle-mistakes-hint__chips">
-        {aggregates.slice(0, HINT_LIMIT).map((agg) => (
+        {filtered.slice(0, HINT_LIMIT).map((agg) => (
           <li
             key={agg.theme}
             className="puzzle-mistakes-hint__chip-item"
