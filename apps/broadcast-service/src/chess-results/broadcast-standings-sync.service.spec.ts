@@ -300,7 +300,9 @@ describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)'
     expect(berlin?.rank).toBe(2);
   });
 
-  it('swiss format без chess-results-id → tournamentType=swiss, минимальный shape', async () => {
+  it('swiss format без chess-results-id, пустые игры → roundCount=R, pairings=[]', async () => {
+    // Регрессия минимального shape: rounds есть, но без partii — pairings
+    // получается пустым (N=0 игроков → 0×R матрица), roundCount=R раундов.
     const broadcast = {
       ...baseBroadcast,
       format: '9-round Swiss', // → swiss
@@ -315,8 +317,116 @@ describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)'
     expect(r.tournamentType).toBe('swiss');
     expect(r.sourceType).toBe('internal-fallback');
     if (r.tournamentType !== 'swiss') return;
-    expect(r.roundCount).toBe(0);
+    expect(r.roundCount).toBe(1); // baseBroadcast: 1 round, 0 games
     expect(r.pairings).toEqual([]);
+  });
+
+  it('KS-2474: swiss без chess-results, есть games → pairings заполнены по турам', async () => {
+    // Sardinia-like: трансляция со standingsUrl на vesus.org (не
+    // chess-results), partii приходят от Lichess через broadcast_games.
+    // Internal-fallback должен собрать pairings[playerIdx][roundIdx]
+    // напрямую — иначе фронт рендерит таблицу без колонок R1..RN.
+    const broadcast = {
+      id: 'bc-sardinia',
+      format: '9-round Swiss',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-03T13:45:00Z'),
+          games: [
+            {
+              id: 'g-1',
+              roundId: 'round-1',
+              whitePlayer: 'Svane, Frederik',
+              blackPlayer: 'Nepomniachtchi, Ian',
+              whiteElo: 2645,
+              blackElo: 2729,
+              result: '1/2-1/2',
+              pgn: null,
+            },
+            {
+              id: 'g-2',
+              roundId: 'round-1',
+              whitePlayer: 'Jacobson, Brandon',
+              blackPlayer: 'Dardha, Daniel',
+              whiteElo: 2594,
+              blackElo: 2602,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'round-2',
+          name: 'Round 2',
+          startsAt: new Date('2026-05-04T13:45:00Z'),
+          games: [
+            {
+              id: 'g-3',
+              roundId: 'round-2',
+              whitePlayer: 'Nepomniachtchi, Ian',
+              blackPlayer: 'Jacobson, Brandon',
+              whiteElo: 2729,
+              blackElo: 2594,
+              result: '1/2-1/2',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-sardinia');
+
+    expect(r.tournamentType).toBe('swiss');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (r.tournamentType !== 'swiss') return;
+
+    expect(r.roundCount).toBe(2);
+    expect(r.players).toHaveLength(4);
+    // pairings[playerIdx][roundIdx] для всех 4 игроков, 2 раунда.
+    expect(r.pairings).toHaveLength(4);
+    expect(r.pairings[0]).toHaveLength(2);
+
+    // Найти Nepomniachtchi (играл оба раунда: ничья в R1 vs Svane,
+    // ничья в R2 vs Jacobson).
+    const nepo = r.players.find((p) => p.name === 'Nepomniachtchi, Ian');
+    expect(nepo).toBeDefined();
+    const nepoIdx = r.players.indexOf(nepo!);
+    const nepoR1 = r.pairings[nepoIdx][0];
+    expect(nepoR1.result).toBe('draw');
+    expect(nepoR1.color).toBe('black');
+    expect(nepoR1.gameRef?.gameId).toBe('g-1');
+    const nepoR2 = r.pairings[nepoIdx][1];
+    expect(nepoR2.result).toBe('draw');
+    expect(nepoR2.color).toBe('white');
+    expect(nepoR2.gameRef?.gameId).toBe('g-3');
+
+    // Jacobson выиграл R1 (white vs Dardha 1-0) и сделал ничью R2 (black).
+    const jac = r.players.find((p) => p.name === 'Jacobson, Brandon');
+    const jacIdx = r.players.indexOf(jac!);
+    expect(r.pairings[jacIdx][0].result).toBe('win');
+    expect(r.pairings[jacIdx][0].color).toBe('white');
+    expect(r.pairings[jacIdx][0].gameRef?.gameId).toBe('g-2');
+    expect(r.pairings[jacIdx][1].result).toBe('draw');
+    expect(r.pairings[jacIdx][1].color).toBe('black');
+
+    // Dardha не играл R2 → ячейка пустая (result: null).
+    const dardha = r.players.find((p) => p.name === 'Dardha, Daniel');
+    const dardhaIdx = r.players.indexOf(dardha!);
+    expect(r.pairings[dardhaIdx][0].result).toBe('loss');
+    expect(r.pairings[dardhaIdx][1].result).toBeNull();
+
+    // gamesPlayed пересчитан по pairings.
+    expect(nepo!.gamesPlayed).toBe(2);
+    expect(jac!.gamesPlayed).toBe(2);
+    expect(dardha!.gamesPlayed).toBe(1);
   });
 
   it('format не распознан (Knockout) → unknown + CrosstableLegacy (единственный legit unknown)', async () => {

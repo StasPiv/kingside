@@ -632,16 +632,118 @@ export class BroadcastStandingsSyncService {
           matrix,
         };
       }
-      case 'swiss':
+      case 'swiss': {
+        // KS-2474: Swiss internal-fallback с pairings из broadcast_games.
+        // Раньше возвращался пустой `pairings: []` — фронт рендерил
+        // только базовую таблицу без колонок R1..RN с результатами туров.
+        // Для трансляций без chess-results-id (Sardinia / vesus.org и
+        // т.п.) данные о партиях есть в `broadcast_games` от Lichess
+        // BCS API — собираем pairings[playerIdx][roundIdx] напрямую,
+        // по аналогии с round-robin internal-fallback (KS-2203).
+        const N = players.length;
+        const sortedRounds = [...broadcast.rounds].sort((a, b) => {
+          // По startsAt ASC, fallback на parseRoundNumber из имени.
+          const aTs = a.startsAt?.getTime() ?? null;
+          const bTs = b.startsAt?.getTime() ?? null;
+          if (aTs !== null && bTs !== null && aTs !== bTs) return aTs - bTs;
+          const aN = parseRoundNumber(a.name) ?? Number.POSITIVE_INFINITY;
+          const bN = parseRoundNumber(b.name) ?? Number.POSITIVE_INFINITY;
+          return aN - bN;
+        });
+        const R = sortedRounds.length;
+        const nameToIdx = new Map<string, number>();
+        for (let i = 0; i < players.length; i++) {
+          nameToIdx.set(players[i].normalizedName, i);
+        }
+        const roundIdxById = new Map<string, number>();
+        sortedRounds.forEach((r, i) => roundIdxById.set(r.id, i));
+
+        const pairings: CrosstableCell[][] = Array.from({ length: N }, () =>
+          Array.from(
+            { length: R },
+            (): CrosstableCell => ({ result: null }),
+          ),
+        );
+
+        for (const round of sortedRounds) {
+          for (const g of round.games) {
+            const wNorm = normalizePlayerName(g.whitePlayer?.trim() ?? '');
+            const bNorm = normalizePlayerName(g.blackPlayer?.trim() ?? '');
+            const wi = wNorm ? (nameToIdx.get(wNorm) ?? null) : null;
+            const bi = bNorm ? (nameToIdx.get(bNorm) ?? null) : null;
+            const ri = roundIdxById.get(g.roundId) ?? null;
+            if (wi === null || bi === null || ri === null || wi === bi) {
+              continue;
+            }
+            const res = g.result ?? '';
+            const wRes: CrosstableCell['result'] =
+              res === '1-0'
+                ? 'win'
+                : res === '0-1'
+                  ? 'loss'
+                  : res === '1/2-1/2'
+                    ? 'draw'
+                    : null;
+            const bRes: CrosstableCell['result'] =
+              res === '1-0'
+                ? 'loss'
+                : res === '0-1'
+                  ? 'win'
+                  : res === '1/2-1/2'
+                    ? 'draw'
+                    : null;
+            const gameRef: CrosstableGameRef = {
+              gameId: g.id,
+              roundId: g.roundId,
+              roundName: round.name,
+            };
+            // KS-2214: не затираем реальный результат placeholder-ом
+            // (Lichess создаёт за день placeholder-партии с result='*').
+            if (wRes !== null || pairings[wi][ri].result === null) {
+              pairings[wi][ri] = {
+                opponentRank: players[bi].rank,
+                color: 'white',
+                result: wRes,
+                gameRef: wRes !== null ? gameRef : null,
+              };
+            }
+            if (bRes !== null || pairings[bi][ri].result === null) {
+              pairings[bi][ri] = {
+                opponentRank: players[wi].rank,
+                color: 'black',
+                result: bRes,
+                gameRef: bRes !== null ? gameRef : null,
+              };
+            }
+          }
+        }
+
+        // KS-2206: gamesPlayed = реальные сыгранные партии по pairings.
+        // buildLegacyPlayersFromGames уже считает по результатам,
+        // но для согласованности с UI (счётчик GP в шапке таблицы)
+        // пересчитаем по pairings — каждая ячейка с результатом ≠ bye.
+        const playersWithGP = players.map((p, idx) => {
+          const played = pairings[idx]
+            ? pairings[idx].filter(
+                (c) =>
+                  c.result !== null &&
+                  c.result !== 'bye' &&
+                  c.result !== 'forfeit',
+              ).length
+            : 0;
+          return { ...p, gamesPlayed: played };
+        });
+
         return {
           tournamentType: 'swiss',
           sourceType: 'internal-fallback',
           sourceUrl: null,
           fetchedAt: null,
-          players,
-          roundCount: 0,
-          pairings: [],
+          players: playersWithGP,
+          roundCount: R,
+          pairings,
         };
+      }
       case 'team-swiss':
       case 'team-round-robin':
         return {
