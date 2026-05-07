@@ -106,4 +106,22 @@ describe('<ModesBreakdown> KS-2495', () => {
     expect(root.textContent).toMatch(/Modes breakdown|Режимы решения/);
     expect(root.textContent).toMatch(/Train|Тренировать/);
   });
+
+  it('KS-2546: play-vs-engine карточка использует длинный title «Precision training / Тренировка точности»', () => {
+    renderWithProviders(<ModesBreakdown byMode={buildByMode()} />);
+    const pve = screen.getByTestId('modes-breakdown-card-play-vs-engine');
+    // i18n не должен падать на ключ.
+    expect(pve.textContent).not.toContain('precision.title');
+    // По ТЗ title — «Тренировка точности» (ru) или «Precision training» (en).
+    expect(pve.textContent).toMatch(/Precision training|Тренировка точности/);
+    // И НЕ короткое «Precision»/«Точность» в одиночку (это для других мест).
+    expect(pve.textContent).not.toMatch(/^Precision$/m);
+  });
+
+  it('KS-2546: play-vs-engine карточка ведёт на /precision (не /puzzles/play-vs-engine)', () => {
+    renderWithProviders(<ModesBreakdown byMode={buildByMode()} />);
+    const pve = screen.getByTestId('modes-breakdown-card-play-vs-engine');
+    expect(pve.getAttribute('href')).toBe('/precision');
+    expect(pve.getAttribute('href')).not.toBe('/puzzles/play-vs-engine');
+  });
 });

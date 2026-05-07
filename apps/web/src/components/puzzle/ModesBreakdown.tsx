@@ -56,8 +56,12 @@ const MODES: ModeMeta[] = [
     // KS-2538/2544: путь раздела переехал на `/precision`; ключ
     // `play-vs-engine` остаётся API-маркером (внутренний solutionMode).
     to: '/precision',
-    titleKey: 'puzzleStats.modes.precision.title',
-    titleFallback: 'Precision',
+    // KS-2546: используем длинный титул «Тренировка точности» / «Precision
+    // training» для карточки на /puzzles/stats — она занимает достаточно
+    // места. Короткий `puzzleStats.modes.precision.title` («Точность»)
+    // зарезервирован для других мест.
+    titleKey: 'precision.title',
+    titleFallback: 'Precision training',
     descriptionKey: 'puzzleStats.modes.precision.description',
     descriptionFallback: 'Hold the advantage against a strong engine for N half-moves.',
   },
