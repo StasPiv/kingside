@@ -93,6 +93,16 @@
     "light": "Включить светлую тему",
     "dark": "Включить тёмную тему"
   },
+  "chess": {
+    "pieces": {
+      "p": "пешка",
+      "n": "конь",
+      "b": "слон",
+      "r": "ладья",
+      "q": "ферзь",
+      "k": "король"
+    }
+  },
   "play": {
     "title": "Играть",
     "quickPlay": "Быстрая игра",
@@ -756,6 +766,67 @@
       "wrong": "Это не шах",
       "finish": "Готово",
       "missingData": "Нет данных для проверки. Попробуйте позже."
+    },
+    "explanation": {
+      "common": {
+        "title": "Разбор",
+        "yourAnswer": "Ваш ответ: {{answer}}",
+        "correctAnswer": "Правильный ответ: {{answer}}",
+        "next": "Дальше"
+      },
+      "countAttackers": {
+        "correct_one": "{{count}} фигура атакует клетку {{square}}.",
+        "correct_few": "{{count}} фигуры атакуют клетку {{square}}.",
+        "correct_many": "{{count}} фигур атакуют клетку {{square}}.",
+        "correct_other": "{{count}} фигур атакуют клетку {{square}}.",
+        "userAnswer": "Ваш ответ: {{userCount}}.",
+        "list": "Атакующие: {{pieces}}."
+      },
+      "countDefenders": {
+        "correct_one": "{{count}} фигура защищает клетку {{square}}.",
+        "correct_few": "{{count}} фигуры защищают клетку {{square}}.",
+        "correct_many": "{{count}} фигур защищают клетку {{square}}.",
+        "correct_other": "{{count}} фигур защищают клетку {{square}}.",
+        "userAnswer": "Ваш ответ: {{userCount}}.",
+        "list": "Защищающие: {{pieces}}."
+      },
+      "findLoosePiece": {
+        "correct": "{{piece}} на {{square}} не защищена ни одной своей фигурой.",
+        "wrong": "Фигура на {{square}} защищена: {{defenders}}."
+      },
+      "findHangingPiece": {
+        "correct": "{{piece}} на {{square}} висит: атакуют {{attackers}}, защищают {{defenders}}.",
+        "correctUndefended": "{{piece}} на {{square}} висит: атакует {{attackers}}, защитников нет.",
+        "wrong": "Ваш ход {{from}}{{to}} не берёт зависшую фигуру."
+      },
+      "findAllChecks": {
+        "correct_one": "{{count}} ход даёт шах: {{moves}}.",
+        "correct_few": "{{count}} хода дают шах: {{moves}}.",
+        "correct_many": "{{count}} ходов дают шах: {{moves}}.",
+        "correct_other": "{{count}} ходов дают шах: {{moves}}.",
+        "missed": "Пропустили: {{moves}}.",
+        "wrong": "{{moves}} — не шах.",
+        "tagDirect": "{{from}}{{to}} — прямой шах.",
+        "tagDiscovered": "{{from}}{{to}} — вскрытый шах.",
+        "tagDouble": "{{from}}{{to}} — двойной шах.",
+        "summaryGroup": "Прямые: {{direct}}; вскрытые: {{discovered}}; двойные: {{double}}."
+      },
+      "findPin": {
+        "correctAbsolute": "{{attacker}} ({{fromSquare}}) даёт абсолютную связку: {{pinned}} ({{pinnedSquare}}) не может уйти, за ней король.",
+        "correctRelative": "{{attacker}} ({{fromSquare}}) связывает {{pinned}} ({{pinnedSquare}}) с более ценной {{anchor}} ({{anchorSquare}}).",
+        "wrong": "{{square}} не связана."
+      },
+      "findFork": {
+        "correct": "{{piece}} ходом {{move}} ставит вилку на {{targets}}.",
+        "correctWithCheck": "{{piece}} ходом {{move}} ставит вилку с шахом: {{king}} и {{targets}}.",
+        "wrong": "{{from}}{{to}} не создаёт вилку."
+      },
+      "findUndefendedAttack": {
+        "correct": "{{move}}: атака на {{piece}} ({{square}}), защитников нет.",
+        "correctMulti": "{{move}}: новых висящих фигур — {{count}} ({{squares}}).",
+        "correctFreeWin": "{{move}}: выигрывает {{piece}} ({{square}}) без размена.",
+        "wrong": "{{from}}{{to}} не создаёт новой угрозы."
+      }
     },
     "lesson": {
       "contextLabel": "Упражнение",

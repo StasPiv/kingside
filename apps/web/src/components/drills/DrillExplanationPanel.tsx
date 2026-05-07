@@ -69,9 +69,25 @@ const TONE_GLYPH: Record<DrillExplanationNoteTone, string> = {
 
 function NoteItem({ note }: { note: DrillExplanationNote }) {
   const { t } = useTranslation();
-  // KS-2459: пока ключи не переведены, fallback — сам ключ +
-  // подставленные params (i18next подставит {param} даже без перевода).
-  const text = t(note.key, { defaultValue: note.key, ...note.params });
+  // KS-2459: разрешаем «вложенные» i18n-ключи через convention. Любой
+  // params-ключ с суффиксом `Key` (напр. `pieceKey`,`attackerKey`) трактуем
+  // как ссылку на i18n-ключ (`chess.pieces.n` и т.п.) — переводим его и
+  // перезаписываем соответствующий «базовый» param (`piece`,`attacker`).
+  // Так в RU/EN формулировках можем писать «{{piece}} на {{square}}» и
+  // получать «конь/knight», а byType-модули (KS-2456) могут не знать про
+  // язык, передавая только chess-нотацию.
+  const params: Record<string, string | number> = { ...(note.params ?? {}) };
+  for (const k of Object.keys(params)) {
+    if (k.endsWith('Key') && typeof params[k] === 'string') {
+      const baseKey = k.slice(0, -3);
+      params[baseKey] = t(params[k] as string, {
+        defaultValue: String(params[baseKey] ?? params[k]),
+      });
+    }
+  }
+  // KS-2459: для ключей с count i18next автоматически подбирает
+  // `_one`/`_few`/`_many`/`_other` суффикс по правилам locale.
+  const text = t(note.key, { defaultValue: note.key, ...params });
   return (
     <li
       className={`drill-explanation-panel__note drill-explanation-panel__note--${note.tone}`}

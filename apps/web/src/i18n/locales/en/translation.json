@@ -93,6 +93,16 @@
     "light": "Switch to light theme",
     "dark": "Switch to dark theme"
   },
+  "chess": {
+    "pieces": {
+      "p": "pawn",
+      "n": "knight",
+      "b": "bishop",
+      "r": "rook",
+      "q": "queen",
+      "k": "king"
+    }
+  },
   "play": {
     "title": "Play",
     "quickPlay": "Quick Play",
@@ -754,6 +764,61 @@
       "wrong": "Not a check",
       "finish": "Done",
       "missingData": "No data to validate against. Please try again later."
+    },
+    "explanation": {
+      "common": {
+        "title": "Review",
+        "yourAnswer": "Your answer: {{answer}}",
+        "correctAnswer": "Correct answer: {{answer}}",
+        "next": "Next"
+      },
+      "countAttackers": {
+        "correct_one": "{{count}} piece attacks {{square}}.",
+        "correct_other": "{{count}} pieces attack {{square}}.",
+        "userAnswer": "Your answer: {{userCount}}.",
+        "list": "Attackers: {{pieces}}."
+      },
+      "countDefenders": {
+        "correct_one": "{{count}} piece defends {{square}}.",
+        "correct_other": "{{count}} pieces defend {{square}}.",
+        "userAnswer": "Your answer: {{userCount}}.",
+        "list": "Defenders: {{pieces}}."
+      },
+      "findLoosePiece": {
+        "correct": "{{piece}} on {{square}} is not defended by any friendly piece.",
+        "wrong": "Piece on {{square}} is defended by: {{defenders}}."
+      },
+      "findHangingPiece": {
+        "correct": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, defended by {{defenders}}.",
+        "correctUndefended": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, no defenders.",
+        "wrong": "Your move {{from}}{{to}} doesn't capture the hanging piece."
+      },
+      "findAllChecks": {
+        "correct_one": "{{count}} move gives check: {{moves}}.",
+        "correct_other": "{{count}} moves give check: {{moves}}.",
+        "missed": "Missed: {{moves}}.",
+        "wrong": "{{moves}} — not a check.",
+        "tagDirect": "{{from}}{{to}} — direct check.",
+        "tagDiscovered": "{{from}}{{to}} — discovered check.",
+        "tagDouble": "{{from}}{{to}} — double check.",
+        "summaryGroup": "Direct: {{direct}}; discovered: {{discovered}}; double: {{double}}."
+      },
+      "findPin": {
+        "correctAbsolute": "{{attacker}} ({{fromSquare}}) creates an absolute pin: {{pinned}} ({{pinnedSquare}}) is pinned to the king.",
+        "correctRelative": "{{attacker}} ({{fromSquare}}) pins {{pinned}} ({{pinnedSquare}}) to the more valuable {{anchor}} ({{anchorSquare}}).",
+        "wrong": "{{square}} is not pinned."
+      },
+      "findFork": {
+        "correct": "{{piece}} via {{move}} forks {{targets}}.",
+        "correctWithCheck": "{{piece}} via {{move}} forks the king ({{king}}) and {{targets}}.",
+        "wrong": "{{from}}{{to}} doesn't create a fork."
+      },
+      "findUndefendedAttack": {
+        "correct": "{{move}}: attacks {{piece}} ({{square}}), no defenders.",
+        "correctMulti": "{{move}}: creates {{count}} hanging pieces — {{squares}}.",
+        "correctFreeWin": "{{move}}: wins {{piece}} ({{square}}) without trade.",
+        "wrong": "{{from}}{{to}} doesn't create a new threat."
+      }
     },
     "lesson": {
       "contextLabel": "Drill",

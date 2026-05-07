@@ -272,6 +272,74 @@ exports[`drills i18n — render snapshots > en: snapshot UX-копи (buttons/fe
 }
 `;
 
+exports[`drills i18n — render snapshots > en: snapshot drills.explanation + chess.pieces 1`] = `
+{
+  "chessPieces": {
+    "b": "bishop",
+    "k": "king",
+    "n": "knight",
+    "p": "pawn",
+    "q": "queen",
+    "r": "rook",
+  },
+  "explanation": {
+    "common": {
+      "correctAnswer": "Correct answer: {{answer}}",
+      "next": "Next",
+      "title": "Review",
+      "yourAnswer": "Your answer: {{answer}}",
+    },
+    "countAttackers": {
+      "correct_one": "{{count}} piece attacks {{square}}.",
+      "correct_other": "{{count}} pieces attack {{square}}.",
+      "list": "Attackers: {{pieces}}.",
+      "userAnswer": "Your answer: {{userCount}}.",
+    },
+    "countDefenders": {
+      "correct_one": "{{count}} piece defends {{square}}.",
+      "correct_other": "{{count}} pieces defend {{square}}.",
+      "list": "Defenders: {{pieces}}.",
+      "userAnswer": "Your answer: {{userCount}}.",
+    },
+    "findAllChecks": {
+      "correct_one": "{{count}} move gives check: {{moves}}.",
+      "correct_other": "{{count}} moves give check: {{moves}}.",
+      "missed": "Missed: {{moves}}.",
+      "summaryGroup": "Direct: {{direct}}; discovered: {{discovered}}; double: {{double}}.",
+      "tagDirect": "{{from}}{{to}} — direct check.",
+      "tagDiscovered": "{{from}}{{to}} — discovered check.",
+      "tagDouble": "{{from}}{{to}} — double check.",
+      "wrong": "{{moves}} — not a check.",
+    },
+    "findFork": {
+      "correct": "{{piece}} via {{move}} forks {{targets}}.",
+      "correctWithCheck": "{{piece}} via {{move}} forks the king ({{king}}) and {{targets}}.",
+      "wrong": "{{from}}{{to}} doesn't create a fork.",
+    },
+    "findHangingPiece": {
+      "correct": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, defended by {{defenders}}.",
+      "correctUndefended": "{{piece}} on {{square}} is hanging: attacked by {{attackers}}, no defenders.",
+      "wrong": "Your move {{from}}{{to}} doesn't capture the hanging piece.",
+    },
+    "findLoosePiece": {
+      "correct": "{{piece}} on {{square}} is not defended by any friendly piece.",
+      "wrong": "Piece on {{square}} is defended by: {{defenders}}.",
+    },
+    "findPin": {
+      "correctAbsolute": "{{attacker}} ({{fromSquare}}) creates an absolute pin: {{pinned}} ({{pinnedSquare}}) is pinned to the king.",
+      "correctRelative": "{{attacker}} ({{fromSquare}}) pins {{pinned}} ({{pinnedSquare}}) to the more valuable {{anchor}} ({{anchorSquare}}).",
+      "wrong": "{{square}} is not pinned.",
+    },
+    "findUndefendedAttack": {
+      "correct": "{{move}}: attacks {{piece}} ({{square}}), no defenders.",
+      "correctFreeWin": "{{move}}: wins {{piece}} ({{square}}) without trade.",
+      "correctMulti": "{{move}}: creates {{count}} hanging pieces — {{squares}}.",
+      "wrong": "{{from}}{{to}} doesn't create a new threat.",
+    },
+  },
+}
+`;
+
 exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstructions + DrillTypeCard для всех 7 типов 1`] = `
 <div
   data-testid="drills-i18n-fixture"
@@ -540,6 +608,80 @@ exports[`drills i18n — render snapshots > ru: snapshot UX-копи (buttons/fe
     "whiteAttackers": "Атакующие — белые",
     "whiteDefenders": "Защищающие — белые",
     "whiteToMove": "Ход белых",
+  },
+}
+`;
+
+exports[`drills i18n — render snapshots > ru: snapshot drills.explanation + chess.pieces 1`] = `
+{
+  "chessPieces": {
+    "b": "слон",
+    "k": "король",
+    "n": "конь",
+    "p": "пешка",
+    "q": "ферзь",
+    "r": "ладья",
+  },
+  "explanation": {
+    "common": {
+      "correctAnswer": "Правильный ответ: {{answer}}",
+      "next": "Дальше",
+      "title": "Разбор",
+      "yourAnswer": "Ваш ответ: {{answer}}",
+    },
+    "countAttackers": {
+      "correct_few": "{{count}} фигуры атакуют клетку {{square}}.",
+      "correct_many": "{{count}} фигур атакуют клетку {{square}}.",
+      "correct_one": "{{count}} фигура атакует клетку {{square}}.",
+      "correct_other": "{{count}} фигур атакуют клетку {{square}}.",
+      "list": "Атакующие: {{pieces}}.",
+      "userAnswer": "Ваш ответ: {{userCount}}.",
+    },
+    "countDefenders": {
+      "correct_few": "{{count}} фигуры защищают клетку {{square}}.",
+      "correct_many": "{{count}} фигур защищают клетку {{square}}.",
+      "correct_one": "{{count}} фигура защищает клетку {{square}}.",
+      "correct_other": "{{count}} фигур защищают клетку {{square}}.",
+      "list": "Защищающие: {{pieces}}.",
+      "userAnswer": "Ваш ответ: {{userCount}}.",
+    },
+    "findAllChecks": {
+      "correct_few": "{{count}} хода дают шах: {{moves}}.",
+      "correct_many": "{{count}} ходов дают шах: {{moves}}.",
+      "correct_one": "{{count}} ход даёт шах: {{moves}}.",
+      "correct_other": "{{count}} ходов дают шах: {{moves}}.",
+      "missed": "Пропустили: {{moves}}.",
+      "summaryGroup": "Прямые: {{direct}}; вскрытые: {{discovered}}; двойные: {{double}}.",
+      "tagDirect": "{{from}}{{to}} — прямой шах.",
+      "tagDiscovered": "{{from}}{{to}} — вскрытый шах.",
+      "tagDouble": "{{from}}{{to}} — двойной шах.",
+      "wrong": "{{moves}} — не шах.",
+    },
+    "findFork": {
+      "correct": "{{piece}} ходом {{move}} ставит вилку на {{targets}}.",
+      "correctWithCheck": "{{piece}} ходом {{move}} ставит вилку с шахом: {{king}} и {{targets}}.",
+      "wrong": "{{from}}{{to}} не создаёт вилку.",
+    },
+    "findHangingPiece": {
+      "correct": "{{piece}} на {{square}} висит: атакуют {{attackers}}, защищают {{defenders}}.",
+      "correctUndefended": "{{piece}} на {{square}} висит: атакует {{attackers}}, защитников нет.",
+      "wrong": "Ваш ход {{from}}{{to}} не берёт зависшую фигуру.",
+    },
+    "findLoosePiece": {
+      "correct": "{{piece}} на {{square}} не защищена ни одной своей фигурой.",
+      "wrong": "Фигура на {{square}} защищена: {{defenders}}.",
+    },
+    "findPin": {
+      "correctAbsolute": "{{attacker}} ({{fromSquare}}) даёт абсолютную связку: {{pinned}} ({{pinnedSquare}}) не может уйти, за ней король.",
+      "correctRelative": "{{attacker}} ({{fromSquare}}) связывает {{pinned}} ({{pinnedSquare}}) с более ценной {{anchor}} ({{anchorSquare}}).",
+      "wrong": "{{square}} не связана.",
+    },
+    "findUndefendedAttack": {
+      "correct": "{{move}}: атака на {{piece}} ({{square}}), защитников нет.",
+      "correctFreeWin": "{{move}}: выигрывает {{piece}} ({{square}}) без размена.",
+      "correctMulti": "{{move}}: новых висящих фигур — {{count}} ({{squares}}).",
+      "wrong": "{{from}}{{to}} не создаёт новой угрозы.",
+    },
   },
 }
 `;
