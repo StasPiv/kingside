@@ -291,12 +291,19 @@ export function App() {
             при `puzzlesEnabled=false`. Точный путь матчится раньше
             wildcard-guard'а ниже. */}
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
+        {/* KS-2538 / ADR-048: алиас `/puzzles/play-vs-engine` →
+            `/precision` (с сохранением query). Стоит ВЫШЕ wildcard-
+            guard'а `/puzzles/*` (см. else-ветку ниже), чтобы при
+            `puzzlesEnabled=false` редирект всё равно сработал — иначе
+            wildcard поглотил бы путь и увёл в /lobby. Само наполнение
+            раздела `/precision` ниже под флагом. */}
+        <Route path="/puzzles/play-vs-engine" element={<RedirectWithQuery to="/precision" />} />
         {puzzlesEnabled ? (
           <>
             <Route path="/daily" element={<DailyPuzzlePage />} />
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
-            {/* KS-2484: список play-vs-engine пазлов (фильтр solutionMode). */}
-            <Route path="/puzzles/play-vs-engine" element={<PlayVsEnginePuzzlesPage />} />
+            {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
+            <Route path="/precision" element={<PlayVsEnginePuzzlesPage />} />
             <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
             {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
             <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
