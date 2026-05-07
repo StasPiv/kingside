@@ -2151,12 +2151,24 @@
         "quiz": {
           "threshold": "Порог зачёта (0..1)",
           "promptKey": "i18n-ключ вопроса",
-          "multi": "Несколько правильных",
+          "prompt": "Вопрос",
+          "multi": "Несколько правильных ответов",
           "options": "Варианты",
           "correct": "Правильный",
           "explanationKey": "i18n-ключ пояснения",
+          "explanation": "Пояснение (необязательно)",
           "addQuestion": "Добавить вопрос",
-          "removeQuestion": "Удалить вопрос"
+          "addOption": "Добавить вариант",
+          "removeQuestion": "Удалить вопрос",
+          "removeOption": "Удалить вариант",
+          "duplicateQuestion": "Дублировать вопрос",
+          "questionN": "Вопрос {{n}}",
+          "addFen": "Добавить позицию",
+          "removeFen": "Убрать позицию",
+          "positionLabel": "Позиция",
+          "optionPlaceholder": "Текст ответа…",
+          "dragHandle": "Переместить",
+          "invalidBadge": "Требует внимания"
         },
         "position": {
           "expected": "Ожидаемые ходы (UCI, через запятую)"

@@ -2145,12 +2145,24 @@
         "quiz": {
           "threshold": "Pass threshold (0..1)",
           "promptKey": "Prompt i18n key",
-          "multi": "Multiple correct",
+          "prompt": "Prompt",
+          "multi": "Multiple correct answers",
           "options": "Options",
           "correct": "Correct",
           "explanationKey": "Explanation i18n key",
+          "explanation": "Explanation (optional)",
           "addQuestion": "Add question",
-          "removeQuestion": "Remove question"
+          "addOption": "Add option",
+          "removeQuestion": "Delete question",
+          "removeOption": "Remove option",
+          "duplicateQuestion": "Duplicate question",
+          "questionN": "Question {{n}}",
+          "addFen": "Add position",
+          "removeFen": "Remove position",
+          "positionLabel": "Position",
+          "optionPlaceholder": "Answer text…",
+          "dragHandle": "Reorder",
+          "invalidBadge": "Needs attention"
         },
         "position": {
           "expected": "Expected moves (UCI, comma-separated)"
