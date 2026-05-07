@@ -1200,8 +1200,12 @@
 
 .broadcast-xt-cell-game {
   display: inline-flex;
-  align-items: baseline;
-  gap: 1px;
+  /* KS-2483: было baseline — кружок-маркер съезжал вниз и смещался
+     вправо относительно цифры (в flex-контексте vertical-align на
+     дочернем игнорируется). center выравнивает цифру и кружок по
+     одной горизонтальной оси. */
+  align-items: center;
+  gap: 2px;
   padding: 1px 3px;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -1245,11 +1249,12 @@
   display: inline-block;
   width: 9px;
   height: 9px;
-  margin-left: 3px;
+  margin-left: 1px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--c-808098, #808098);
-  vertical-align: middle;
+  /* vertical-align не нужен: родитель — inline-flex с align-items: center,
+     и flex выравнивает дочерние по своей оси. */
   flex-shrink: 0;
   /* Прячем букву w/b визуально, оставляем в DOM. */
   font-size: 0;
