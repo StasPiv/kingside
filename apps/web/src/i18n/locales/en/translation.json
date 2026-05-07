@@ -239,6 +239,7 @@
     "syncError": "Connection error",
     "close": "Close",
     "playoff": {
+      "title": "Playoff",
       "winners": "Winners bracket",
       "losers": "Losers bracket",
       "gamesLink_one": "{{count}} game",

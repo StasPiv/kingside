@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import type {
   BroadcastBracketResponse,
   BroadcastGameSummary,
+  BroadcastRoundsResponse,
+  BroadcastRoundItem,
 } from '@kingside/shared';
 
 import { broadcastApi } from '../../api/broadcastApi';
@@ -12,21 +14,57 @@ import { BroadcastCrosstable } from './BroadcastCrosstable';
 import { PlayoffBracket } from './PlayoffBracket';
 
 /**
- * Вкладка Standings страницы трансляции (KS-1825).
+ * Вкладка Standings страницы трансляции (KS-1825 → KS-2567).
  *
- * Сначала запрашивает `GET /broadcasts/:id/bracket` (KS-1824):
- *   - `tournamentType === 'playoff'` → рендерит сетку `<PlayoffBracket>`
- *     c `games`/`links` из ответа.
- *   - иначе — старый `<BroadcastCrosstable>` (round-robin/swiss/unknown).
+ * KS-2567: для гибридных турниров (Round Robin / Swiss + Playoff,
+ * напр. Norway Chess: круг + тайбрейки между лидерами) показываем ОБЕ
+ * секции стэком — `<BroadcastCrosstable>` сверху, `<PlayoffBracket>`
+ * под ним. До тикета был either-or, и при `tournamentType='playoff'`
+ * круговая таблица первого этапа полностью пряталась.
  *
- * Ошибка `/bracket` — не блокирующая: показываем cross-table как
- * fallback (backend всегда вернёт что-нибудь, но CORS/503 бывают). Это
- * сохраняет регрессионную симметрию с до-KS-1825 поведением.
+ * Источники данных (бэкенд KS-2564, контракт подтверждён `[from
+ * backend · ACK]`):
+ *  - `GET /broadcasts/:id/rounds` — детектор гибрида: `tournamentType`
+ *    у каждого раунда. `hasMain = round_robin|swiss`, `hasPlayoff =
+ *    playoff`.
+ *  - `GET /broadcasts/:id/bracket` — playoff-партии (только playoff,
+ *    `games[]` отфильтрован по соответствующим раундам).
+ *  - `GET /broadcasts/:id/crosstable` — основная круговая (KS-2564
+ *    исключил playoff-раунды из расчёта).
+ *
+ * Решение по рендеру:
+ *   hasMain && hasPlayoff   → крестик + плей-офф (гибрид)
+ *   hasMain && !hasPlayoff  → только крестик (классический RR/Swiss)
+ *  !hasMain && hasPlayoff   → только плей-офф (single-stage knockout,
+ *                              «либо-либо» по уточнению координатора)
+ *   ни тот, ни другой       → fallback на крестик (legacy/unknown)
+ *
+ * Ошибки `/bracket` или `/rounds` — не блокирующие: показываем
+ * крестик-фоллбек, чтобы страница не ломалась (как и до KS-2567).
  */
 
 interface BroadcastStandingsProps {
   broadcastId: string;
   broadcastTitle: string;
+}
+
+function detectHybrid(rounds: BroadcastRoundItem[] | null): {
+  hasMain: boolean;
+  hasPlayoff: boolean;
+} {
+  if (!rounds || rounds.length === 0)
+    return { hasMain: false, hasPlayoff: false };
+  let hasMain = false;
+  let hasPlayoff = false;
+  for (const r of rounds) {
+    if (r.tournamentType === 'round_robin' || r.tournamentType === 'swiss') {
+      hasMain = true;
+    } else if (r.tournamentType === 'playoff') {
+      hasPlayoff = true;
+    }
+    if (hasMain && hasPlayoff) break;
+  }
+  return { hasMain, hasPlayoff };
 }
 
 export function BroadcastStandings({
@@ -37,6 +75,7 @@ export function BroadcastStandings({
   const navigate = useNavigate();
 
   const [bracket, setBracket] = useState<BroadcastBracketResponse | null>(null);
+  const [rounds, setRounds] = useState<BroadcastRoundItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [errored, setErrored] = useState(false);
 
@@ -44,15 +83,19 @@ export function BroadcastStandings({
     let cancelled = false;
     setLoading(true);
     setErrored(false);
-    broadcastApi
-      .get<BroadcastBracketResponse>(`/${broadcastId}/bracket`)
-      .then((res) => {
+    // Параллельно тянем bracket + rounds. Crosstable загружает себя
+    // сам через `useBroadcastCrosstable`.
+    Promise.allSettled([
+      broadcastApi.get<BroadcastBracketResponse>(`/${broadcastId}/bracket`),
+      broadcastApi.get<BroadcastRoundsResponse>(`/${broadcastId}/rounds`),
+    ])
+      .then(([bracketRes, roundsRes]) => {
         if (cancelled) return;
-        setBracket(res);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setErrored(true);
+        if (bracketRes.status === 'fulfilled') setBracket(bracketRes.value);
+        else setErrored(true);
+        if (roundsRes.status === 'fulfilled') setRounds(roundsRes.value.data);
+        // /rounds error не блокирующий — fallback hybrid-detection
+        // через bracket.tournamentType ниже.
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -64,7 +107,6 @@ export function BroadcastStandings({
 
   const handleGameClick = (game: BroadcastGameSummary) => {
     if (!game.pgn) return;
-    // KS-2403 follow-up: см. openAnalysisFromPgn.
     void openAnalysisFromPgn(navigate, {
       pgn: game.pgn,
       title: `${game.whitePlayer ?? ''} vs ${game.blackPlayer ?? ''}`,
@@ -83,21 +125,45 @@ export function BroadcastStandings({
     );
   }
 
-  if (!errored && bracket?.tournamentType === 'playoff' && bracket.games.length > 0) {
-    // `bracket.links` от backend игнорируем — на prod-данных они содержат
-    // мусорные связи (R16-пары спарены по индексу, а не по реальному
-    // игроку-победителю). `PlayoffBracket` сам деривирует линии из игр.
-    return (
-      <PlayoffBracket games={bracket.games} onGameClick={handleGameClick} />
-    );
-  }
+  const { hasMain, hasPlayoff: hasPlayoffByRounds } = detectHybrid(rounds);
+  const playoffGames = bracket?.games ?? [];
+  // Если /rounds упал, опираемся на bracket: tournamentType='playoff'
+  // означает, что есть хотя бы один playoff-раунд.
+  const hasPlayoff =
+    hasPlayoffByRounds || (bracket?.tournamentType === 'playoff' && playoffGames.length > 0);
+  const showBracket =
+    !errored && hasPlayoff && playoffGames.length > 0;
+  // KS-2567 (по уточнению координатора): крестик скрываем только для
+  // single-stage knockout (есть playoff и нет main). В остальных
+  // случаях (гибрид или RR/Swiss only или unknown) — рендерим крестик.
+  const showCrosstable = !(hasPlayoff && !hasMain);
 
-  // Fallback (не-playoff, ошибка /bracket, или пустой playoff): старый
-  // cross-table, чтобы страница не ломалась.
   return (
-    <BroadcastCrosstable
-      broadcastId={broadcastId}
-      broadcastTitle={broadcastTitle}
-    />
+    <div className="broadcast-standings" data-testid="broadcast-standings">
+      {showCrosstable && (
+        <BroadcastCrosstable
+          broadcastId={broadcastId}
+          broadcastTitle={broadcastTitle}
+        />
+      )}
+      {showBracket && (
+        <section
+          className="broadcast-playoff-section"
+          data-testid="broadcast-playoff-section"
+        >
+          {/* Заголовок секции виден только когда выше уже есть круговая —
+              чтобы не дублировать “Тайбрейки” над одиночным бракетом. */}
+          {showCrosstable && (
+            <h2 className="broadcast-playoff-section__title">
+              {t('broadcast.playoff.title', 'Playoff')}
+            </h2>
+          )}
+          <PlayoffBracket
+            games={playoffGames}
+            onGameClick={handleGameClick}
+          />
+        </section>
+      )}
+    </div>
   );
 }

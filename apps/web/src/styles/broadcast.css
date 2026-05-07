@@ -1871,3 +1871,22 @@
     margin-top: 8px;
   }
 }
+
+/* KS-2567: hybrid-турнир — крестик сверху, плей-офф снизу.
+   Заголовок «Плей-офф» отделяет блоки. */
+.broadcast-standings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.broadcast-playoff-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.broadcast-playoff-section__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-e2e8f0, #e2e8f0);
+}

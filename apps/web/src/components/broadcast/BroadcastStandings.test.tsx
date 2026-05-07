@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { BroadcastBracketResponse } from '@kingside/shared';
+import type {
+  BroadcastBracketResponse,
+  BroadcastRoundItem,
+  BroadcastRoundsResponse,
+} from '@kingside/shared';
 
 import { renderWithProviders, screen, waitFor } from '../../test/test-utils';
 
@@ -17,9 +21,7 @@ vi.mock('./BroadcastCrosstable', () => ({
   }: {
     broadcastId: string;
     broadcastTitle: string;
-  }) => (
-    <div data-testid="crosstable-mock" data-broadcast-id={broadcastId} />
-  ),
+  }) => <div data-testid="crosstable-mock" data-broadcast-id={broadcastId} />,
 }));
 
 vi.mock('./PlayoffBracket', () => ({
@@ -44,15 +46,14 @@ beforeEach(() => {
   broadcastApiMock.get.mockReset();
 });
 
-function mockBracketResponse(
+function makeBracket(
   type: BroadcastBracketResponse['tournamentType'],
-  games: number,
-  links: number,
-) {
-  const response: BroadcastBracketResponse = {
+  gamesCount: number,
+): BroadcastBracketResponse {
+  return {
     broadcastId: 'bc-1',
     tournamentType: type,
-    games: Array.from({ length: games }, (_, i) => ({
+    games: Array.from({ length: gamesCount }, (_, i) => ({
       id: `g-${i}`,
       lichessGameId: `lg-${i}`,
       whitePlayer: 'A',
@@ -67,104 +68,187 @@ function mockBracketResponse(
       bracketPairId: type === 'playoff' ? `p:${i}` : null,
       matchScore: null,
     })),
-    links: Array.from({ length: links }, (_, i) => ({
-      fromPairId: `p:${i}`,
-      toPairId: `p:${i + 1}`,
-      kind: 'winner' as const,
-    })),
+    links: [],
   };
-  broadcastApiMock.get.mockResolvedValueOnce(response);
-  return response;
 }
 
-describe('<BroadcastStandings>', () => {
+function makeRounds(
+  ...types: Array<BroadcastRoundItem['tournamentType']>
+): BroadcastRoundsResponse {
+  return {
+    data: types.map((tt, i) => ({
+      id: `r-${i}`,
+      lichessRoundId: `lr-${i}`,
+      name: `Round ${i + 1}`,
+      startsAt: null,
+      status: 'finished',
+      tournamentType: tt,
+    })),
+  };
+}
+
+/**
+ * Хелпер для двух параллельных вызовов: /bracket + /rounds.
+ * BroadcastStandings делает их через `Promise.allSettled`, маршрутизируем
+ * mock по URL.
+ */
+function mockApi(
+  bracket: BroadcastBracketResponse | Error | null,
+  rounds: BroadcastRoundsResponse | Error | null,
+) {
+  broadcastApiMock.get.mockImplementation((url: string) => {
+    if (url.endsWith('/bracket')) {
+      if (bracket instanceof Error) return Promise.reject(bracket);
+      if (bracket === null) return new Promise(() => {});
+      return Promise.resolve(bracket);
+    }
+    if (url.endsWith('/rounds')) {
+      if (rounds instanceof Error) return Promise.reject(rounds);
+      if (rounds === null) return new Promise(() => {});
+      return Promise.resolve(rounds);
+    }
+    return Promise.reject(new Error(`Unexpected URL: ${url}`));
+  });
+}
+
+describe('<BroadcastStandings> KS-2567', () => {
   it('загрузка → показывает loading-индикатор', () => {
     broadcastApiMock.get.mockReturnValue(new Promise(() => {}));
     renderWithProviders(
       <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
     );
-    expect(screen.getByTestId('broadcast-standings-loading')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('broadcast-standings-loading'),
+    ).toBeInTheDocument();
   });
 
-  it('tournamentType=playoff → PlayoffBracket с играми (links от backend игнорируются — деривируются на клиенте)', async () => {
-    mockBracketResponse('playoff', 3, 2);
+  it('hybrid (round_robin + playoff) → рендер ОБЕИХ секций: crosstable сверху + PlayoffBracket снизу', async () => {
+    mockApi(
+      makeBracket('playoff', 3),
+      makeRounds('round_robin', 'round_robin', 'playoff'),
+    );
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('playoff-bracket-mock')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('broadcast-playoff-section'),
+    ).toBeInTheDocument();
+    // Заголовок «Playoff» виден над bracket'ом, потому что выше есть
+    // crosstable.
+    expect(
+      screen.getByTestId('broadcast-playoff-section').textContent,
+    ).toMatch(/Playoff|Плей-офф/);
+  });
+
+  it('hybrid (swiss + playoff) → ОБЕИ секции', async () => {
+    mockApi(makeBracket('playoff', 2), makeRounds('swiss', 'swiss', 'playoff'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('playoff-bracket-mock')).toBeInTheDocument();
+  });
+
+  it('pure round_robin (без playoff) → только crosstable', async () => {
+    mockApi(makeBracket('round_robin', 0), makeRounds('round_robin', 'round_robin'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
+  });
+
+  it('pure swiss → только crosstable', async () => {
+    mockApi(makeBracket('swiss', 0), makeRounds('swiss', 'swiss'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
+  });
+
+  it('pure playoff (single-stage knockout) → только PlayoffBracket', async () => {
+    mockApi(makeBracket('playoff', 4), makeRounds('playoff', 'playoff'));
     renderWithProviders(
       <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
     );
     await waitFor(() =>
       expect(screen.getByTestId('playoff-bracket-mock')).toBeInTheDocument(),
     );
-    expect(screen.getByTestId('playoff-bracket-mock')).toHaveAttribute(
-      'data-games-count',
-      '3',
+    expect(screen.queryByTestId('crosstable-mock')).not.toBeInTheDocument();
+    // Заголовок секции скрыт, когда нет конкуренции с crosstable.
+    expect(
+      screen.queryByTestId('broadcast-playoff-section')!.textContent,
+    ).not.toMatch(/Playoff|Плей-офф/);
+  });
+
+  it('unknown tournament type → fallback crosstable, bracket скрыт', async () => {
+    mockApi(makeBracket('unknown', 0), makeRounds('unknown', 'unknown'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
     );
-    // Prop `links` НЕ передаётся — компонент сам их выведет.
-    expect(screen.getByTestId('playoff-bracket-mock')).toHaveAttribute(
-      'data-links-count',
-      '0',
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
+  });
+
+  it('playoff с пустым games → bracket НЕ рендерится, crosstable показывается', async () => {
+    mockApi(
+      makeBracket('playoff', 0),
+      makeRounds('round_robin', 'round_robin'),
+    );
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
+  });
+
+  it('ошибка /bracket → fallback на crosstable (страница не ломается)', async () => {
+    mockApi(new Error('boom'), makeRounds('round_robin'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
+  });
+
+  it('ошибка /rounds, но /bracket=playoff → bracket показан (fallback hybrid-detection через bracket.tournamentType)', async () => {
+    mockApi(makeBracket('playoff', 2), new Error('rounds 500'));
+    renderWithProviders(
+      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
+    );
+    // /rounds упал → hasMain=false; tournamentType='playoff' и
+    // games.length>0 → bracket показан, crosstable скрыт (single-stage).
+    await waitFor(() =>
+      expect(screen.getByTestId('playoff-bracket-mock')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('crosstable-mock')).not.toBeInTheDocument();
   });
 
-  it('tournamentType=round_robin → crosstable, НЕ PlayoffBracket', async () => {
-    mockBracketResponse('round_robin', 0, 0);
-    renderWithProviders(
-      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
-  });
-
-  it('tournamentType=swiss → crosstable', async () => {
-    mockBracketResponse('swiss', 0, 0);
-    renderWithProviders(
-      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
-    );
-  });
-
-  it('tournamentType=unknown → crosstable', async () => {
-    mockBracketResponse('unknown', 0, 0);
-    renderWithProviders(
-      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
-    );
-  });
-
-  it('playoff с пустым games → fallback на crosstable', async () => {
-    mockBracketResponse('playoff', 0, 0);
-    renderWithProviders(
-      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
-    );
-  });
-
-  it('ошибка /bracket → fallback на crosstable (страница не ломается)', async () => {
-    broadcastApiMock.get.mockRejectedValueOnce(new Error('boom'));
-    renderWithProviders(
-      <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('crosstable-mock')).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId('playoff-bracket-mock')).not.toBeInTheDocument();
-  });
-
-  it('запрос идёт на корректный endpoint /:id/bracket', async () => {
-    mockBracketResponse('round_robin', 0, 0);
+  it('запрос идёт на корректные endpoints (/bracket + /rounds)', async () => {
+    mockApi(makeBracket('round_robin', 0), makeRounds('round_robin'));
     renderWithProviders(
       <BroadcastStandings broadcastId="abc-123" broadcastTitle="T" />,
     );
-    await waitFor(() =>
-      expect(broadcastApiMock.get).toHaveBeenCalledWith('/abc-123/bracket'),
-    );
+    await waitFor(() => {
+      expect(broadcastApiMock.get).toHaveBeenCalledWith('/abc-123/bracket');
+      expect(broadcastApiMock.get).toHaveBeenCalledWith('/abc-123/rounds');
+    });
   });
 });
