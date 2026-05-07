@@ -16,6 +16,7 @@ import {
 } from './broadcast-channels';
 import { runStaleCheck } from './stale-check';
 import { extractChessResultsTournamentId } from './extract-chess-results-id';
+import { extractTournamentFormatFromTitle } from '../crosstable/extract-tournament-format';
 import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
 import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
 import { applyBracketLinks } from '../crosstable/apply-bracket-links';
@@ -708,12 +709,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // KS-2474: Lichess не всегда отдаёт `tour.info.format`. Для таких
+    // трансляций (Sardinia World Chess Festival 2026 | Open A | 9-round
+    // Swiss) format сидит в хвосте `tour.name`. Без явного формата
+    // детектор раунда падает на эвристику имени и ложно классифицирует
+    // швейцарку как playoff. Fallback извлекает «format-like» сегмент
+    // (Swiss / Round Robin / Knockout / elimination / Match).
+    const formatFromTitle = info?.format
+      ? null
+      : extractTournamentFormatFromTitle(bc.tour.name);
     const fields = {
       title: bc.tour.name,
       description: bc.tour.description ?? null,
       url: bc.tour.url ?? null,
       isActive: true,
-      format: info?.format ?? null,
+      format: info?.format ?? formatFromTitle ?? null,
       timeControl: info?.tc ?? null,
       location: info?.location ?? null,
       players: info?.players ?? null,

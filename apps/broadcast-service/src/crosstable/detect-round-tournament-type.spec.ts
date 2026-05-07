@@ -151,7 +151,30 @@ describe('detectRoundTournamentType', () => {
 
   // ── playoff по структуре пар ─────────────────────────────────────
 
-  it('две партии у одной пары → playoff, даже если название нейтральное', () => {
+  it('две партии у одной пары при пустом формате → playoff', () => {
+    // Без явного формата структурный сигнал работает (одиночные
+    // турниры, knockout без указания tour.info.format).
+    const games = [
+      game('Magnus Carlsen', 'Hikaru Nakamura'),
+      game('Hikaru Nakamura', 'Magnus Carlsen'),
+      game('Fabi', 'Ding'),
+    ];
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Day 3',
+        broadcastFormat: null,
+        games,
+      }),
+    ).toBe('playoff');
+  });
+
+  it('KS-2474: две партии у одной пары на 9-round Swiss → swiss (placeholder Lichess)', () => {
+    // Lichess создаёт placeholder-игры за день до раунда — одна пара
+    // встречается ≥ 2 раз в broadcast_games без реального match-формата.
+    // При явном Swiss/RR формате доверяем формату и игнорируем
+    // структурный сигнал. Knockout-стадии Swiss-турниров (Chess.com
+    // Open) ловятся strict-маркерами в имени раунда (Playoffs/Bracket/
+    // Round of N), а не структурой.
     const games = [
       game('Magnus Carlsen', 'Hikaru Nakamura'),
       game('Hikaru Nakamura', 'Magnus Carlsen'),
@@ -163,7 +186,7 @@ describe('detectRoundTournamentType', () => {
         broadcastFormat: '9-round Swiss',
         games,
       }),
-    ).toBe('playoff');
+    ).toBe('swiss');
   });
 
   it('одна партия на пару — не playoff по структуре', () => {
@@ -385,7 +408,7 @@ describe('detectRoundTournamentType', () => {
       ).toBe('playoff');
     });
 
-    it('структурный сигнал в одиночном → playoff (сохранено)', () => {
+    it('структурный сигнал в одиночном при пустом формате → playoff', () => {
       const games = [
         game('A', 'B'),
         game('B', 'A'),
@@ -394,7 +417,7 @@ describe('detectRoundTournamentType', () => {
       expect(
         detectRoundTournamentType({
           roundName: 'Day 3',
-          broadcastFormat: '9-round Swiss',
+          broadcastFormat: null,
           isTeamTournament: false,
           games,
         }),
@@ -552,10 +575,11 @@ describe('KS-2474: явный tournamentFormat — сигнал высшего �
 
   // ── Структурный сигнал по-прежнему перебивает Swiss-формат ─────────
 
-  it('Swiss-формат + структура match (две партии пары) → playoff (сохранено)', () => {
-    // Тот же сценарий, что и в существующем тесте «две партии у одной
-    // пары»: смешанные knockout-стадии в Swiss-турнирах детектятся
-    // структурой даже без явного knockout-маркера в имени.
+  it('Swiss-формат + структура match (две партии пары) → swiss (KS-2474 hotfix)', () => {
+    // Lichess placeholder-партии давали ложный structureSaysMatch=true
+    // на швейцарках (Sardinia Open A). При явном Swiss формате
+    // доверяем формату — knockout-стадии Swiss-турниров ловятся
+    // strict-маркерами в имени, а не структурой пар.
     const games = [
       { whitePlayer: 'A', blackPlayer: 'B' },
       { whitePlayer: 'B', blackPlayer: 'A' },
@@ -567,7 +591,7 @@ describe('KS-2474: явный tournamentFormat — сигнал высшего �
         roundName: 'Day 3',
         games,
       }),
-    ).toBe('playoff');
+    ).toBe('swiss');
   });
 
   // ── isTeamTournament + tournamentFormat ────────────────────────────
@@ -578,6 +602,26 @@ describe('KS-2474: явный tournamentFormat — сигнал высшего �
         tournamentFormat: 'Team Swiss',
         roundName: 'Final Match Day 1',
         isTeamTournament: true,
+      }),
+    ).toBe('swiss');
+  });
+
+  it('Sardinia full regression: Round 1 + 9-round Swiss + placeholder pairs → swiss', () => {
+    // Полный сценарий поломки: Round 1 ещё не сыгран, Lichess создал
+    // placeholder-партии за сутки + реальные → две партии у одной пары.
+    // Без KS-2474-fix классифицировался как playoff (структура), хотя
+    // tournamentFormat явно 9-round Swiss.
+    const games = [
+      { whitePlayer: 'Aronian', blackPlayer: 'Caruana' },
+      { whitePlayer: 'Caruana', blackPlayer: 'Aronian' }, // placeholder
+      { whitePlayer: 'Vidit', blackPlayer: 'Giri' },
+      { whitePlayer: 'Giri', blackPlayer: 'Vidit' }, // placeholder
+    ];
+    expect(
+      detectRoundTournamentType({
+        tournamentFormat: '9-round Swiss',
+        roundName: 'Round 1',
+        games,
       }),
     ).toBe('swiss');
   });

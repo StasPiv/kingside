@@ -269,16 +269,26 @@ export function detectRoundTournamentType(
   if (roundNameLooksLikePlayoffStrict(name)) return 'playoff';
 
   // 3. Структурный сигнал. Отключён для team (KS-1847) и для явного
-  // round-robin формата (KS-2212).
+  // round-robin (KS-2212) или Swiss формата (KS-2474 hotfix).
+  // Lichess создаёт placeholder-партии за день до раунда, и одна и та
+  // же пара может встречаться ≥ 2 раз (placeholder + реальная игра).
+  // Это ложно триггерит structureSaysMatch=true и перебивает явный
+  // формат — Sardinia Open A Round 1 классифицировалась как playoff
+  // несмотря на «9-round Swiss» в title. Для смешанных Swiss+knockout
+  // турниров knockout-стадия ловится strict-маркерами в имени (шаг 2).
   const formatIsRoundRobin = ROUND_ROBIN_PATTERN.test(format);
+  const formatIsSwiss = SWISS_PATTERN.test(format);
   const structureSaysMatch =
-    !isTeam && !formatIsRoundRobin && hasMatchStructure(games);
+    !isTeam &&
+    !formatIsRoundRobin &&
+    !formatIsSwiss &&
+    hasMatchStructure(games);
   if (structureSaysMatch) return 'playoff';
 
   // 4. Явный Swiss/RR формат перебивает мягкие маркеры имени
   // (KS-2474: «Final Round» в «9-round Swiss» — это всё ещё швейцарка).
   if (formatIsRoundRobin) return 'round_robin';
-  if (SWISS_PATTERN.test(format)) return 'swiss';
+  if (formatIsSwiss) return 'swiss';
 
   // 5. Полный whitelist в имени — только для одиночных турниров.
   // Для team шаг 2 (strict) — единственный источник playoff.
