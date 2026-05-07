@@ -179,6 +179,144 @@ describe('<RoundRobinCrosstable>', () => {
     expect(screen.getByText('SB')).toBeInTheDocument();
   });
 
+  // KS-2478: double / multi-RR — ячейка с массивом cell.games[].
+  describe('KS-2478 — double-RR cell.games[]', () => {
+    it('cell.games (2 встречи) → рендерит обе с раздельными data-color/data-result + раздельные ссылки', () => {
+      const data: CrosstableRoundRobin = {
+        ...BASE,
+        tournamentType: 'round-robin',
+        players: [
+          player({ rank: 1, name: 'Alice', points: 1.5, gamesPlayed: 2 }),
+          player({ rank: 2, name: 'Bob', points: 0.5, gamesPlayed: 2 }),
+        ],
+        matrix: [
+          [
+            { result: null },
+            {
+              // top-level — последняя партия (back-compat)
+              result: 'draw',
+              color: 'black',
+              gameRef: { gameId: 'g2', roundId: 'r-g2', roundName: 'R14' },
+              games: [
+                {
+                  result: 'win',
+                  color: 'white',
+                  gameRef: { gameId: 'g1', roundId: 'r-g1', roundName: 'R1' },
+                },
+                {
+                  result: 'draw',
+                  color: 'black',
+                  gameRef: { gameId: 'g2', roundId: 'r-g2', roundName: 'R14' },
+                },
+              ],
+            },
+          ],
+          [
+            {
+              result: 'draw',
+              color: 'white',
+              gameRef: { gameId: 'g2', roundId: 'r-g2', roundName: 'R14' },
+              games: [
+                {
+                  result: 'loss',
+                  color: 'black',
+                  gameRef: { gameId: 'g1', roundId: 'r-g1', roundName: 'R1' },
+                },
+                {
+                  result: 'draw',
+                  color: 'white',
+                  gameRef: { gameId: 'g2', roundId: 'r-g2', roundName: 'R14' },
+                },
+              ],
+            },
+            { result: null },
+          ],
+        ],
+      };
+
+      renderWithProviders(<RoundRobinCrosstable data={data} broadcastId="b1" />);
+
+      // У строки Alice есть multi-cell.
+      const multiCells = screen.getAllByTestId('broadcast-xt-cell-multi');
+      expect(multiCells.length).toBeGreaterThanOrEqual(1);
+      // В первой multi-cell два значка с разными цветами.
+      const game0 = screen.getAllByTestId('broadcast-xt-cell-game-0')[0];
+      const game1 = screen.getAllByTestId('broadcast-xt-cell-game-1')[0];
+      expect(game0.getAttribute('data-color')).toBe('white');
+      expect(game0.getAttribute('data-result')).toBe('win');
+      expect(game1.getAttribute('data-color')).toBe('black');
+      expect(game1.getAttribute('data-result')).toBe('draw');
+      // Текстовые символы — «1» и «½».
+      expect(game0.textContent).toContain('1');
+      expect(game1.textContent).toContain('½');
+      // Клик по первому значку — навигация на g1.
+      fireEvent.click(game0);
+      expect(mockNavigate).toHaveBeenCalledWith('/broadcasts/b1/r-g1/g1');
+      // Клик по второму — на g2.
+      mockNavigate.mockClear();
+      fireEvent.click(game1);
+      expect(mockNavigate).toHaveBeenCalledWith('/broadcasts/b1/r-g2/g2');
+    });
+
+    it('cell без games[] (single-RR) → старый рендер с top-level result/gameRef', () => {
+      const data: CrosstableRoundRobin = {
+        ...BASE,
+        tournamentType: 'round-robin',
+        players: [
+          player({ rank: 1, name: 'Alice', points: 1, gamesPlayed: 1 }),
+          player({ rank: 2, name: 'Bob', points: 0, gamesPlayed: 1 }),
+        ],
+        matrix: [
+          [{ result: null }, win('only-game')],
+          [loss('only-game'), { result: null }],
+        ],
+      };
+      renderWithProviders(<RoundRobinCrosstable data={data} broadcastId="b" />);
+      // Multi-cell не появляется.
+      expect(screen.queryByTestId('broadcast-xt-cell-multi')).not.toBeInTheDocument();
+      // Старая single-result ячейка кликабельна.
+      const winCell = document.querySelector('.broadcast-xt-cell--win')!;
+      expect(winCell).toHaveClass('broadcast-xt-cell--clickable');
+      fireEvent.click(winCell);
+      expect(mockNavigate).toHaveBeenCalledWith('/broadcasts/b/r-only-game/only-game');
+    });
+
+    it('cell.games длины 1 → одиночный рендер (не multi-mode)', () => {
+      // Backend rev:40 не должен такое отдавать (filter ≥2), но
+      // защищаемся от регрессий single-RR.
+      const data: CrosstableRoundRobin = {
+        ...BASE,
+        tournamentType: 'round-robin',
+        players: [
+          player({ rank: 1, name: 'A', points: 1, gamesPlayed: 1 }),
+          player({ rank: 2, name: 'B', points: 0, gamesPlayed: 1 }),
+        ],
+        matrix: [
+          [
+            { result: null },
+            {
+              result: 'win',
+              color: 'white',
+              gameRef: { gameId: 'g1', roundId: 'r-g1', roundName: 'R1' },
+              games: [
+                {
+                  result: 'win',
+                  color: 'white',
+                  gameRef: { gameId: 'g1', roundId: 'r-g1', roundName: 'R1' },
+                },
+              ],
+            },
+          ],
+          [{ result: null }, { result: null }],
+        ],
+      };
+      renderWithProviders(<RoundRobinCrosstable data={data} broadcastId="b" />);
+      expect(screen.queryByTestId('broadcast-xt-cell-multi')).not.toBeInTheDocument();
+      // Top-level result рендерится по-старому.
+      expect(document.querySelector('.broadcast-xt-cell--win')).toHaveTextContent('1');
+    });
+  });
+
   it('возвращает empty-state при пустом players[]', () => {
     const data: CrosstableRoundRobin = {
       ...BASE,

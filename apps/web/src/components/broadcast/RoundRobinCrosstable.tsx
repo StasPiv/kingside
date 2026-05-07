@@ -1,12 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CrosstableRoundRobin } from '@kingside/shared';
 import {
+  cellLetterForColor,
   cellResultClass,
+  formatGameSymbol,
   formatResultSymbol,
   gameRefPath,
+  gameResultClass,
   isCellClickable,
+  isMultiGameCell,
 } from './crosstableCell';
 
 /**
@@ -107,6 +111,78 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
                 if (!cell || cell.result === null) {
                   return <td key={`c-${ci}`} className="broadcast-xt-cell" />;
                 }
+                const title = t('broadcast.crosstable.cellVs', {
+                  player: p.name,
+                  opponent: opp.name,
+                  defaultValue: `${p.name} vs ${opp.name}`,
+                });
+                // KS-2478: double / multi-RR — рендерим все встречи пары
+                // в одной ячейке. Каждая встреча — отдельная кликабельная
+                // ссылка с цветовым маркером (w/b). Backend (rev:40)
+                // выставляет `cell.games` только при ≥2 встречах, поэтому
+                // single-RR ниже идёт по старой ветке без регрессий.
+                if (isMultiGameCell(cell)) {
+                  return (
+                    <td
+                      key={`c-${ci}`}
+                      className="broadcast-xt-cell broadcast-xt-cell--multi"
+                      title={title}
+                      data-testid="broadcast-xt-cell-multi"
+                    >
+                      <div className="broadcast-xt-cell-games">
+                        {cell.games!.map((g, gi) => {
+                          const ref = g.gameRef ?? null;
+                          const gClickable = !!ref;
+                          const gCls = [
+                            'broadcast-xt-cell-game',
+                            gameResultClass(g),
+                            gClickable ? 'broadcast-xt-cell-game--clickable' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ');
+                          const onGameClick = gClickable
+                            ? (e: ReactMouseEvent) => {
+                                e.stopPropagation();
+                                navigate(gameRefPath(broadcastId, ref!));
+                              }
+                            : undefined;
+                          return (
+                            <span
+                              key={`g-${gi}`}
+                              className={gCls}
+                              onClick={onGameClick}
+                              role={gClickable ? 'button' : undefined}
+                              tabIndex={gClickable ? 0 : undefined}
+                              data-testid={`broadcast-xt-cell-game-${gi}`}
+                              data-color={g.color ?? ''}
+                              data-result={g.result ?? ''}
+                              title={
+                                g.color
+                                  ? t('broadcast.crosstable.cellGameColor', {
+                                      color: g.color,
+                                      defaultValue: `as ${g.color}`,
+                                    })
+                                  : undefined
+                              }
+                            >
+                              <span className="broadcast-xt-cell-game__sym">
+                                {formatGameSymbol(g)}
+                              </span>
+                              {g.color && (
+                                <sup
+                                  className={`broadcast-xt-cell-game__color broadcast-xt-cell-game__color--${g.color}`}
+                                  aria-hidden="true"
+                                >
+                                  {cellLetterForColor(g.color)}
+                                </sup>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  );
+                }
                 const clickable = isCellClickable(cell);
                 const cls = [
                   'broadcast-xt-cell',
@@ -118,11 +194,6 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
                 const onClick = clickable && cell.gameRef
                   ? () => navigate(gameRefPath(broadcastId, cell.gameRef!))
                   : undefined;
-                const title = t('broadcast.crosstable.cellVs', {
-                  player: p.name,
-                  opponent: opp.name,
-                  defaultValue: `${p.name} vs ${opp.name}`,
-                });
                 return (
                   <td
                     key={`c-${ci}`}
