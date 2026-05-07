@@ -1504,11 +1504,35 @@ body:has(.puzzle-rush-board) {
   margin-right: 8px;
 }
 
+/* KS-2585: draft/publish flow — заменил inline-кнопки на блок с
+   заголовком и подсказкой. Layout вертикальный, а не горизонтальный. */
 .puzzle-generator-saved {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--c-4ade80);
+  border-radius: 8px;
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.puzzle-generator-saved__title {
+  margin: 0;
+  font-size: 15px;
   color: var(--c-4ade80);
+}
+
+.puzzle-generator-saved__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-aaa);
+}
+
+.puzzle-generator-saved__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .puzzle-generator-saved button {
@@ -1518,6 +1542,37 @@ body:has(.puzzle-rush-board) {
   padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.puzzle-generator-saved button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.puzzle-generator-saved__publish {
+  background: var(--c-4ade80) !important;
+  color: var(--c-111) !important;
+  font-weight: 600;
+}
+
+/* KS-2585: solvability toggle и param hint — мелкие подсказки под
+   контролами в advanced settings. */
+.puzzle-gen-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.puzzle-gen-toggle input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.puzzle-gen-param-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--c-aaa);
 }
 
 .puzzle-generator-retry {

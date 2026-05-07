@@ -2,18 +2,73 @@ import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import type { GeneratedPuzzleData, GenerationProgress, PuzzleGenSettings, BridgeConfig } from '../utils/puzzleGenerator';
-import { generatePuzzlesFromPgn, DEFAULT_PUZZLE_GEN_SETTINGS } from '../utils/puzzleGenerator';
+import type {
+  GeneratedPuzzleData,
+  GenerationProgress,
+  PuzzleGenSettings,
+  BridgeConfig,
+} from '../utils/puzzleGenerator';
+import {
+  generatePuzzlesFromPgn,
+  DEFAULT_PUZZLE_GEN_SETTINGS,
+} from '../utils/puzzleGenerator';
 import { loadEngineConfigs } from '../hooks/useEngine';
+
+/**
+ * KS-2585 (ADR-050 §2.2/§2.3, KS-2579-#6) — UI генератора пазлов
+ * после WDL-pivot'а (KS-2584).
+ *
+ * Изменения по сравнению с CP-эпохой:
+ *  - удалены controls `Lines (multiPv)`, `Min gap`, `Max 2nd eval`,
+ *    `Accepted moves`, чекбоксы `skipHanging/skipAttacked/skipUndefended`
+ *    — они потеряли смысл с переходом на WDL-алгоритм;
+ *  - добавлен слайдер «Минимальная сила зевка» (`blunderDelta` 30..90 %
+ *    шаг 5 %, дефолт 60 %, маппинг `value / 100`);
+ *  - добавлен toggle «Строгая проверка решаемости (медленнее)»
+ *    (`solvabilityCheck`); дефолт OFF — на WASM прогоняется ~5 минут на
+ *    50 пазлов;
+ *  - после сохранения вместо «Solve now / My puzzles» показывается draft/
+ *    publish flow: «N saved as drafts» + кнопки «My drafts» / «Publish
+ *    all to Precision».
+ *
+ * `loadSettings` мигрирует localStorage: старые ключи (`multiPv`/
+ * `gapThreshold`/`maxSecondCp`/`acceptedMoves`/`skip*`) игнорируются,
+ * берутся только новые поля (depth/blunderDelta/solvabilityCheck) с
+ * fallback'ом на `DEFAULT_PUZZLE_GEN_SETTINGS`. Юзер один раз увидит
+ * дефолты — это OK (одноразовая миграция).
+ */
 
 const LS_KEY = 'puzzleGenSettings';
 
+/**
+ * Прочитать настройки из localStorage. Старые legacy-ключи (KS-2584 и
+ * раньше) полностью игнорируем — берём только поля новой схемы и
+ * мерджим с дефолтами. Это безопасная одноразовая миграция: даже если
+ * у юзера в LS лежал JSON с `multiPv: 5, skipHanging: true`, новая
+ * схема просто их не прочитает.
+ */
 function loadSettings(): PuzzleGenSettings {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) return { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...JSON.parse(raw) };
-  } catch { /* ignore */ }
-  return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
+    if (!raw) return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
+    const parsed = JSON.parse(raw) as Partial<PuzzleGenSettings>;
+    return {
+      depth:
+        typeof parsed.depth === 'number'
+          ? parsed.depth
+          : DEFAULT_PUZZLE_GEN_SETTINGS.depth,
+      blunderDelta:
+        typeof parsed.blunderDelta === 'number'
+          ? parsed.blunderDelta
+          : DEFAULT_PUZZLE_GEN_SETTINGS.blunderDelta,
+      solvabilityCheck:
+        typeof parsed.solvabilityCheck === 'boolean'
+          ? parsed.solvabilityCheck
+          : DEFAULT_PUZZLE_GEN_SETTINGS.solvabilityCheck,
+    };
+  } catch {
+    return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
+  }
 }
 
 function saveSettings(s: PuzzleGenSettings) {
@@ -34,6 +89,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<{ saved: number; total: number } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [settings, setSettings] = useState<PuzzleGenSettings>(loadSettings);
@@ -46,7 +102,10 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     ? { wsUrl: savedConfigs[0].wsUrl, secretKey: savedConfigs[0].secretKey }
     : undefined;
 
-  const updateSetting = <K extends keyof PuzzleGenSettings>(key: K, value: PuzzleGenSettings[K]) => {
+  const updateSetting = <K extends keyof PuzzleGenSettings>(
+    key: K,
+    value: PuzzleGenSettings[K],
+  ) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
       saveSettings(next);
@@ -75,7 +134,11 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     setSaved(false);
     abortRef.current = new AbortController();
     try {
-      const puzzles = await generatePuzzlesFromPgn(pgnText, (p) => setProgress(p), { ...settings, abortSignal: abortRef.current.signal, bridgeConfig });
+      const puzzles = await generatePuzzlesFromPgn(
+        pgnText,
+        (p) => setProgress(p),
+        { ...settings, abortSignal: abortRef.current.signal, bridgeConfig },
+      );
       setResult(puzzles);
     } catch (err) {
       console.error('[PuzzleGen] Generation error:', err);
@@ -88,7 +151,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
       setGenerating(false);
       abortRef.current = null;
     }
-  }, [pgnText, generating, settings]);
+  }, [pgnText, generating, settings, bridgeConfig]);
 
   const handleSave = useCallback(async () => {
     if (!result || result.length === 0 || saving) return;
@@ -114,9 +177,40 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     }
   }, [result, saving]);
 
+  const handlePublishAll = useCallback(async () => {
+    if (publishing) return;
+    setPublishing(true);
+    setError(null);
+    try {
+      // KS-2585 (ADR-050 §2.3): batch-публикация всех черновиков
+      // текущего пользователя. Backend в KS-2579-#1 принимает PATCH без
+      // body и ставит `is_public=true` для всех `solutionMode='play-vs-engine'`
+      // пазлов с `userId=current && is_public=false`.
+      await api.patch('/puzzles/publish-all', {});
+      onClose();
+      navigate('/precision');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Publish failed');
+    } finally {
+      setPublishing(false);
+    }
+  }, [publishing, onClose, navigate]);
+
+  const handleViewMyDrafts = useCallback(() => {
+    onClose();
+    navigate('/precision?mine=true&visibility=draft');
+  }, [onClose, navigate]);
+
+  // KS-2585: blunderDelta UI работает в %, а в state — в долях [0..1].
+  const blunderDeltaPct = Math.round(settings.blunderDelta * 100);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content puzzle-generator-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content puzzle-generator-modal"
+        onClick={(e) => e.stopPropagation()}
+        data-testid="puzzle-generator-modal"
+      >
         <div className="modal-header">
           <h2>{t('puzzleGenerator.title', 'Generate Puzzles from PGN')}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -134,22 +228,37 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               value={pgnText}
               onChange={(e) => setPgnText(e.target.value)}
               rows={6}
+              data-testid="puzzle-generator-textarea"
             />
 
             {/* Advanced Settings */}
             <div className="puzzle-gen-advanced">
-              <button className="puzzle-gen-advanced__toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
+              <button
+                className="puzzle-gen-advanced__toggle"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                data-testid="puzzle-generator-advanced-toggle"
+              >
                 {showAdvanced ? '▾' : '▸'} {t('puzzleGenerator.advancedSettings', 'Advanced Settings')}
               </button>
               {showAdvanced && (
-                <div className="puzzle-gen-advanced__body">
+                <div
+                  className="puzzle-gen-advanced__body"
+                  data-testid="puzzle-generator-advanced-body"
+                >
                   {/* ENGINE */}
                   <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionEngine', 'ENGINE')}</h4>
                   <div className="puzzle-gen-engine-tabs">
-                    <button className={`puzzle-gen-engine-tab${engineType === 'wasm' ? ' active' : ''}`} onClick={() => setEngineType('wasm')}>
+                    <button
+                      className={`puzzle-gen-engine-tab${engineType === 'wasm' ? ' active' : ''}`}
+                      onClick={() => setEngineType('wasm')}
+                    >
                       WASM
                     </button>
-                    <button className={`puzzle-gen-engine-tab${engineType === 'bridge' ? ' active' : ''}`} onClick={() => setEngineType('bridge')} disabled={!hasBridge}>
+                    <button
+                      className={`puzzle-gen-engine-tab${engineType === 'bridge' ? ' active' : ''}`}
+                      onClick={() => setEngineType('bridge')}
+                      disabled={!hasBridge}
+                    >
                       Bridge
                     </button>
                   </div>
@@ -166,62 +275,87 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                   <div className="puzzle-gen-params">
                     <div className="puzzle-gen-param">
                       <label>{t('puzzleGenerator.depth', 'Depth')}: {settings.depth}</label>
-                      <input type="range" min={8} max={22} value={settings.depth} onChange={(e) => updateSetting('depth', Number(e.target.value))} />
+                      <input
+                        type="range"
+                        min={8}
+                        max={22}
+                        value={settings.depth}
+                        onChange={(e) => updateSetting('depth', Number(e.target.value))}
+                        data-testid="puzzle-generator-depth"
+                      />
                     </div>
                     <div className="puzzle-gen-param">
-                      <label>{t('puzzleGenerator.lines', 'Lines')}</label>
-                      <input type="number" min={2} max={5} value={settings.multiPv} onChange={(e) => updateSetting('multiPv', Number(e.target.value))} />
+                      <label>
+                        {t(
+                          'puzzleGenerator.blunderDelta',
+                          'Minimum blunder strength',
+                        )}
+                        : {blunderDeltaPct}%
+                      </label>
+                      <input
+                        type="range"
+                        min={30}
+                        max={90}
+                        step={5}
+                        value={blunderDeltaPct}
+                        onChange={(e) =>
+                          updateSetting(
+                            'blunderDelta',
+                            Number(e.target.value) / 100,
+                          )
+                        }
+                        data-testid="puzzle-generator-blunder-delta"
+                      />
+                      <p className="puzzle-gen-param-hint">
+                        {t(
+                          'puzzleGenerator.blunderDeltaHint',
+                          'Higher means stricter selection. 60% matches the server pipeline.',
+                        )}
+                      </p>
                     </div>
-                    <div className="puzzle-gen-param">
-                      <label>{t('puzzleGenerator.minGap', 'Min gap (cp)')}</label>
-                      <input type="number" min={10} value={settings.gapThreshold} onChange={(e) => updateSetting('gapThreshold', Number(e.target.value))} />
-                    </div>
-                    <div className="puzzle-gen-param">
-                      <label>{t('puzzleGenerator.maxSecond', 'Max 2nd eval (cp)')}</label>
-                      <input type="number" min={50} value={settings.maxSecondCp} onChange={(e) => updateSetting('maxSecondCp', Number(e.target.value))} />
-                    </div>
-                    <div className="puzzle-gen-param">
-                      <label>{t('puzzleGenerator.acceptedMoves', 'Accepted moves')}</label>
-                      <input type="number" min={1} max={3} value={settings.acceptedMoves} onChange={(e) => updateSetting('acceptedMoves', Number(e.target.value))} />
-                    </div>
+                    <label className="puzzle-gen-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.solvabilityCheck}
+                        onChange={(e) =>
+                          updateSetting(
+                            'solvabilityCheck',
+                            e.target.checked,
+                          )
+                        }
+                        data-testid="puzzle-generator-solvability"
+                      />
+                      <span>
+                        {t(
+                          'puzzleGenerator.solvabilityCheck',
+                          'Strict solvability check (slower)',
+                        )}
+                      </span>
+                      <span className="puzzle-gen-filter-hint">
+                        {t(
+                          'puzzleGenerator.solvabilityCheckHint',
+                          'Plays out 6 half-moves against the engine. WASM: ~5 min for 50 puzzles.',
+                        )}
+                      </span>
+                    </label>
                   </div>
-                  {/* KS-2584: legacy-поля `acceptedMoves`/`multiPv` помечены
-                      `@deprecated` и игнорируются алгоритмом, но UI их пока
-                      отображает (refactor в #6). Optional-chaining добавлено,
-                      чтобы тип PuzzleGenSettings.acceptedMoves?: number
-                      проходил TS strict. */}
-                  {(settings.acceptedMoves ?? 1) > 1 && (
-                    <p className="puzzle-gen-engine-hint">
-                      {t('puzzleGenerator.acceptedMovesHint', 'MultiPV will be auto-increased to {{n}} for {{m}} accepted moves', { n: Math.max(settings.multiPv ?? 2, (settings.acceptedMoves ?? 1) + 1), m: settings.acceptedMoves ?? 1 })}
-                    </p>
-                  )}
 
-                  {/* FILTERS */}
-                  <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionFilters', 'FILTERS')}</h4>
-                  <div className="puzzle-gen-filters">
-                    <label className="puzzle-gen-filter">
-                      <input type="checkbox" checked={settings.skipHangingCapture} onChange={(e) => updateSetting('skipHangingCapture', e.target.checked)} />
-                      <span>{t('puzzleGenerator.skipHanging', 'Skip hanging captures')}</span>
-                      <span className="puzzle-gen-filter-hint">{t('puzzleGenerator.skipHangingHint', 'Exclude obvious free pieces')}</span>
-                    </label>
-                    <label className="puzzle-gen-filter">
-                      <input type="checkbox" checked={settings.skipAttackedByLesser} onChange={(e) => updateSetting('skipAttackedByLesser', e.target.checked)} />
-                      <span>{t('puzzleGenerator.skipAttacked', 'Skip attacked by lesser')}</span>
-                      <span className="puzzle-gen-filter-hint">{t('puzzleGenerator.skipAttackedHint', 'Exclude moves where piece lands on attacked square')}</span>
-                    </label>
-                    <label className="puzzle-gen-filter">
-                      <input type="checkbox" checked={settings.skipUndefendedAfterMove} onChange={(e) => updateSetting('skipUndefendedAfterMove', e.target.checked)} />
-                      <span>{t('puzzleGenerator.skipUndefended', 'Skip undefended after move')}</span>
-                      <span className="puzzle-gen-filter-hint puzzle-gen-filter-hint--warning">{t('puzzleGenerator.skipUndefendedHint', 'May filter out valid puzzles — use with caution')}</span>
-                    </label>
-                  </div>
-
-                  <button className="puzzle-gen-settings-reset" onClick={resetSettings}>{t('puzzleGenerator.resetDefaults', 'Reset to defaults')}</button>
+                  <button
+                    className="puzzle-gen-settings-reset"
+                    onClick={resetSettings}
+                  >
+                    {t('puzzleGenerator.resetDefaults', 'Reset to defaults')}
+                  </button>
                 </div>
               )}
             </div>
 
-            <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim() || (engineType === 'bridge' && !hasBridge)}>
+            <button
+              className="puzzle-generator-start"
+              onClick={handleGenerate}
+              disabled={!pgnText.trim() || (engineType === 'bridge' && !hasBridge)}
+              data-testid="puzzle-generator-start"
+            >
               {t('puzzleGenerator.generate', 'Generate Puzzles')}
             </button>
           </div>
@@ -243,21 +377,32 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
 
         {result && (
           <div className="puzzle-generator-result">
-            <div className="puzzle-generator-result-count">{result.length} puzzles generated</div>
+            <div className="puzzle-generator-result-count">
+              {t('puzzleGenerator.resultCount', '{{count}} puzzles generated', { count: result.length })}
+            </div>
             {result.length > 0 && (
               <>
                 <div className="puzzle-generator-result-list">
                   {result.slice(0, 10).map((p, i) => (
                     <div key={i} className="puzzle-generator-result-item">
                       <span className="puzzle-rating">{p.rating}</span>
-                      <span className="puzzle-gap">gap: {p.gap}cp</span>
+                      <span className="puzzle-gap">gap: {p.gap}</span>
                       <span className="puzzle-themes-inline">{p.themes}</span>
                     </div>
                   ))}
-                  {result.length > 10 && <div className="puzzle-generator-result-more">...and {result.length - 10} more</div>}
+                  {result.length > 10 && (
+                    <div className="puzzle-generator-result-more">
+                      {t('puzzleGenerator.andNMore', '...and {{count}} more', { count: result.length - 10 })}
+                    </div>
+                  )}
                 </div>
                 {!saved ? (
-                  <button className="puzzle-generator-save" onClick={handleSave} disabled={saving}>
+                  <button
+                    className="puzzle-generator-save"
+                    onClick={handleSave}
+                    disabled={saving}
+                    data-testid="puzzle-generator-save"
+                  >
                     {saving && saveProgress
                       ? `${t('puzzleGenerator.saving', 'Saving')} ${saveProgress.saved}/${saveProgress.total}...`
                       : saving
@@ -265,23 +410,71 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                         : t('puzzleGenerator.save', 'Save to Server')}
                   </button>
                 ) : (
-                  <div className="puzzle-generator-saved">
-                    <span>{t('puzzleGenerator.saved', 'Saved!')}</span>
+                  <div
+                    className="puzzle-generator-saved"
+                    data-testid="puzzle-generator-saved"
+                  >
+                    <h3 className="puzzle-generator-saved__title">
+                      {t(
+                        'puzzleGenerator.savedAsDrafts',
+                        '{{count}} saved as drafts',
+                        { count: result.length },
+                      )}
+                    </h3>
+                    <p className="puzzle-generator-saved__hint">
+                      {t(
+                        'puzzleGenerator.savedAsDraftsHint',
+                        'Drafts are visible only to you. Publish them to make them appear in /precision for everyone.',
+                      )}
+                    </p>
                     <div className="puzzle-generator-saved__actions">
-                      <button onClick={() => { onClose(); navigate('/puzzles?mine=true&solve=first'); }}>{t('puzzleGenerator.solveNow', 'Solve now')}</button>
-                      <button onClick={() => { onClose(); navigate('/puzzles?mine=true'); }}>{t('puzzleGenerator.myPuzzles', 'My puzzles')}</button>
+                      <button
+                        type="button"
+                        onClick={handleViewMyDrafts}
+                        data-testid="puzzle-generator-my-drafts"
+                      >
+                        {t('puzzleGenerator.myDrafts', 'My drafts')}
+                      </button>
+                      <button
+                        type="button"
+                        className="puzzle-generator-saved__publish"
+                        onClick={handlePublishAll}
+                        disabled={publishing}
+                        data-testid="puzzle-generator-publish-all"
+                      >
+                        {publishing
+                          ? t('puzzleGenerator.publishing', 'Publishing…')
+                          : t(
+                              'puzzleGenerator.publishAll',
+                              'Publish all to Precision',
+                            )}
+                      </button>
                     </div>
                   </div>
                 )}
               </>
             )}
-            <button className="puzzle-generator-retry" onClick={() => { setResult(null); setProgress(null); }}>
+            <button
+              className="puzzle-generator-retry"
+              onClick={() => {
+                setResult(null);
+                setProgress(null);
+                setSaved(false);
+              }}
+            >
               {t('puzzleGenerator.generateMore', 'Generate More')}
             </button>
           </div>
         )}
 
-        {error && <div className="puzzle-generator-error">{error}</div>}
+        {error && (
+          <div
+            className="puzzle-generator-error"
+            data-testid="puzzle-generator-error"
+          >
+            {error}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -123,39 +123,12 @@ export interface PuzzleGenSettings {
    * MVP по умолчанию выключено (тяжёлый отдельный анализ × N полуходов).
    */
   solvabilityCheck: boolean;
-
-  // ─── Legacy поля (deprecated, игнорируются алгоритмом). ───
-  // PuzzleGeneratorModal до #6 (UI-refactor) ещё дёргает их —
-  // оставляем optional, чтобы тип совместим с modal-state'ом без
-  // правки UI. Удаляются в #6.
-  /** @deprecated KS-2584: удалён CP-алгоритм. */
-  multiPv?: number;
-  /** @deprecated KS-2584. */
-  gapThreshold?: number;
-  /** @deprecated KS-2584. */
-  maxSecondCp?: number;
-  /** @deprecated KS-2584. */
-  skipHangingCapture?: boolean;
-  /** @deprecated KS-2584. */
-  skipAttackedByLesser?: boolean;
-  /** @deprecated KS-2584. */
-  skipUndefendedAfterMove?: boolean;
-  /** @deprecated KS-2584. */
-  acceptedMoves?: number;
 }
 
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   depth: 14,
   blunderDelta: PUZZLE_GEN_DEFAULTS.blunderDelta,
   solvabilityCheck: false,
-  // Legacy defaults для совместимости с modal'ом до #6.
-  multiPv: 2,
-  gapThreshold: 50,
-  maxSecondCp: 300,
-  skipHangingCapture: false,
-  skipAttackedByLesser: false,
-  skipUndefendedAfterMove: false,
-  acceptedMoves: 1,
 };
 
 const MULTI_PV = 2;
