@@ -2187,6 +2187,12 @@ body:has(.puzzle-rush-board) {
   color: var(--c-cbd5e1, #cbd5e1);
   font-variant-numeric: tabular-nums;
 }
+/* KS-2528: в primary-режиме (permille) внутри есть три отдельные
+   строки Win/Draw/Loss — компактный vertical rhythm. */
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  .puzzle-engine-runner__wdl-summary-line > div {
+  padding: 1px 0;
+}
 
 .puzzle-engine-runner__error {
   padding: 8px 12px;

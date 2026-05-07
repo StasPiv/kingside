@@ -1071,8 +1071,12 @@
       "summary": {
         "preservedHeader": "Преимущество удержано",
         "lostHeader": "Преимущество потеряно",
-        "linePreserved": "Стартовый WDL: {{start}} → Финальный: {{final}}.",
-        "lineLost": "Стартовый WDL: {{start}} → Финальный: {{final}}. Потеряно: {{delta}}"
+        "linePreserved": "Шансы на победу: {{start}}% → {{final}}%",
+        "lineLost": "Шансы на победу: {{start}}% → {{final}}% (−{{delta}}%)",
+        "rowLine": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
+        "labelWin": "Победа",
+        "labelDraw": "Ничья",
+        "labelLoss": "Поражение"
       },
       "review": {
         "headerLabel": "Разбор партии",

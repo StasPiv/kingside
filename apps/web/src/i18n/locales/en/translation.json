@@ -1061,8 +1061,12 @@
       "summary": {
         "preservedHeader": "Advantage preserved",
         "lostHeader": "Advantage lost",
-        "linePreserved": "Starting WDL: {{start}} → Final: {{final}}.",
-        "lineLost": "Starting WDL: {{start}} → Final: {{final}}. Lost: {{delta}}"
+        "linePreserved": "Winning chances: {{start}}% → {{final}}%",
+        "lineLost": "Winning chances: {{start}}% → {{final}}% (−{{delta}}%)",
+        "rowLine": "{{label}}: {{start}}% → {{final}}% ({{delta}})",
+        "labelWin": "Win",
+        "labelDraw": "Draw",
+        "labelLoss": "Loss"
       },
       "review": {
         "headerLabel": "Game review",

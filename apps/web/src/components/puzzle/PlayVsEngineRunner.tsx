@@ -16,6 +16,10 @@ import { EvalBar } from '../EvalBar';
 import { PostGameReview } from './PostGameReview';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import {
+  wdlSignedToWinChancePercent,
+  permilleToPercent,
+} from '../../utils/chessFormat';
+import {
   WasmEngineAdapter,
   type EngineAdapter,
   type AnalysisResult,
@@ -919,32 +923,137 @@ export function PlayVsEngineRunner({
               <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
                 {reasonLabel(reason)}
               </div>
-              {/* KS-2518: блок WDL-summary. До тикета был только
-                  «Финальный WDL: -0.27», без контекста. Теперь видны
-                  стартовый WDL (после blunder'а соперника), финальный и
-                  дельта. Mini-header переключается на «Advantage
-                  preserved», если delta ≤ 0 (юзер не потерял оценку). */}
+              {/* KS-2518 → KS-2522 → KS-2528: финальный summary блок.
+                  Primary path: если у пазла есть `puzzle.playVsEngine.wdlAfter`
+                  (per-mille POV решающего, KS-2524) И движок прислал
+                  `latestWdl` (per-mille POV user, KS-2527) — рендерим три
+                  строки Win/Draw/Loss с before → after и signed-дельтой.
+                  Header удержано/потеряно по `(start.w − final.w) − (start.l − final.l)`.
+                  Fallback (legacy/без UCI_ShowWDL): одна строка «Шансы
+                  на победу X% → Y% (−Z%)» через wdlSignedToWinChancePercent. */}
               {(() => {
-                const startWdl = params.wdlAfterBlunder;
-                const finalWdl = latestWdlUser;
-                const delta = startWdl - finalWdl; // > 0 = потеряно
-                const preserved = delta <= 0;
-                const fmtSigned = (n: number): string => {
-                  if (Math.abs(n) < 0.005) return '0.00';
-                  // U+2212 minus, как в ранее уже принятом форматировании
-                  // EvalBar (KS-2466 §UI). Полагаемся на toFixed(2).
-                  return `${n > 0 ? '+' : '−'}${Math.abs(n).toFixed(2)}`;
-                };
-                const fmtAbs = (n: number): string =>
-                  Math.abs(n).toFixed(2);
+                const wdlAfter = puzzle.playVsEngine?.wdlAfter;
+                const start = wdlAfter
+                  ? {
+                      w: permilleToPercent(wdlAfter.w),
+                      d: permilleToPercent(wdlAfter.d),
+                      l: permilleToPercent(wdlAfter.l),
+                    }
+                  : null;
+                const final = latestWdl
+                  ? {
+                      w: permilleToPercent(latestWdl.w),
+                      d: permilleToPercent(latestWdl.d),
+                      l: permilleToPercent(latestWdl.l),
+                    }
+                  : null;
+
+                if (start && final) {
+                  // Primary: 3 строки.
+                  // signedFmt: «−65», «+47» (ноль без знака).
+                  const signedFmt = (n: number): string => {
+                    if (n === 0) return '0';
+                    return `${n > 0 ? '+' : '−'}${Math.abs(n)}`;
+                  };
+                  const dW = final.w - start.w;
+                  const dD = final.d - start.d;
+                  const dL = final.l - start.l;
+                  // ТЗ: (delta_W − delta_L) > 0 → потеряно. Знак считаем
+                  // через `start − final` (rise of L outweighs rise of W
+                  // → user lost).
+                  const lostness = start.w - final.w - (start.l - final.l);
+                  const preserved = lostness <= 0;
+                  return (
+                    <div
+                      className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
+                      data-testid="puzzle-engine-wdl-summary"
+                      data-preserved={preserved ? 'true' : 'false'}
+                      data-mode="permille"
+                      data-start-w={String(start.w)}
+                      data-start-d={String(start.d)}
+                      data-start-l={String(start.l)}
+                      data-final-w={String(final.w)}
+                      data-final-d={String(final.d)}
+                      data-final-l={String(final.l)}
+                    >
+                      <div className="puzzle-engine-runner__wdl-summary-header">
+                        {preserved
+                          ? t(
+                              'puzzle.engine.summary.preservedHeader',
+                              'Advantage preserved',
+                            )
+                          : t(
+                              'puzzle.engine.summary.lostHeader',
+                              'Advantage lost',
+                            )}
+                      </div>
+                      <div
+                        className="puzzle-engine-runner__wdl-summary-line"
+                        data-testid="puzzle-engine-wdl-summary-line"
+                      >
+                        <div data-testid="puzzle-engine-wdl-row-win">
+                          {t(
+                            'puzzle.engine.summary.rowLine',
+                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                            {
+                              label: t('puzzle.engine.summary.labelWin', 'Win'),
+                              start: start.w,
+                              final: final.w,
+                              delta: `${signedFmt(dW)}%`,
+                            },
+                          )}
+                        </div>
+                        <div data-testid="puzzle-engine-wdl-row-draw">
+                          {t(
+                            'puzzle.engine.summary.rowLine',
+                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                            {
+                              label: t(
+                                'puzzle.engine.summary.labelDraw',
+                                'Draw',
+                              ),
+                              start: start.d,
+                              final: final.d,
+                              delta: `${signedFmt(dD)}%`,
+                            },
+                          )}
+                        </div>
+                        <div data-testid="puzzle-engine-wdl-row-loss">
+                          {t(
+                            'puzzle.engine.summary.rowLine',
+                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                            {
+                              label: t(
+                                'puzzle.engine.summary.labelLoss',
+                                'Loss',
+                              ),
+                              start: start.l,
+                              final: final.l,
+                              delta: `${signedFmt(dL)}%`,
+                            },
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Fallback (legacy / engine без UCI_ShowWDL).
+                const startPct = wdlSignedToWinChancePercent(
+                  params.wdlAfterBlunder,
+                );
+                const finalPct = wdlSignedToWinChancePercent(latestWdlUser);
+                const deltaPct = startPct - finalPct;
+                const preserved = deltaPct <= 0;
                 return (
                   <div
                     className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
                     data-testid="puzzle-engine-wdl-summary"
                     data-preserved={preserved ? 'true' : 'false'}
-                    data-start-wdl={startWdl.toFixed(2)}
-                    data-final-wdl={finalWdl.toFixed(2)}
-                    data-delta-wdl={delta.toFixed(2)}
+                    data-mode="signed"
+                    data-start-pct={String(startPct)}
+                    data-final-pct={String(finalPct)}
+                    data-delta-pct={String(deltaPct)}
                   >
                     <div className="puzzle-engine-runner__wdl-summary-header">
                       {preserved
@@ -964,19 +1073,16 @@ export function PlayVsEngineRunner({
                       {preserved
                         ? t(
                             'puzzle.engine.summary.linePreserved',
-                            'Starting WDL: {{start}} → Final: {{final}}.',
-                            {
-                              start: fmtSigned(startWdl),
-                              final: fmtSigned(finalWdl),
-                            },
+                            'Winning chances: {{start}}% → {{final}}%',
+                            { start: startPct, final: finalPct },
                           )
                         : t(
                             'puzzle.engine.summary.lineLost',
-                            'Starting WDL: {{start}} → Final: {{final}}. Lost: {{delta}}',
+                            'Winning chances: {{start}}% → {{final}}% (−{{delta}}%)',
                             {
-                              start: fmtSigned(startWdl),
-                              final: fmtSigned(finalWdl),
-                              delta: fmtAbs(delta),
+                              start: startPct,
+                              final: finalPct,
+                              delta: deltaPct,
                             },
                           )}
                     </div>
