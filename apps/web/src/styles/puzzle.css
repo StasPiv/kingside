@@ -2077,7 +2077,14 @@ body:has(.puzzle-rush-board) {
 .puzzle-engine-runner__layout {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  /* KS-2516 hotfix: align-items: flex-start не растягивал eval-bar-
+     container — у него width: 44px, но высоты нет (полагается на
+     stretch родителя). EvalBar схлопывалась в height: 0, transform:
+     scaleY(...) применялся к нулевой высоте → визуально пусто.
+     stretch берёт высоту самого высокого сиблинга (`__board-col` —
+     прогресс+доска+actions+result), eval-bar заполняется
+     пропорционально. */
+  align-items: stretch;
 }
 
 .puzzle-engine-runner__board-col {
