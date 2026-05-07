@@ -41,7 +41,7 @@ export function PostGameReview({
   return (
     <div className="post-game-review" data-testid="post-game-review">
       <h3 className="post-game-review__title">
-        {t('puzzle.engine.review.title', 'Review')}
+        {t('puzzle.engine.review.headerLabel', 'Game review')}
       </h3>
       <ol className="post-game-review__list">
         {userBestLog.map((s) => {

@@ -213,9 +213,72 @@ describe('<PostGameReview> KS-2508', () => {
     ];
     renderWithProviders(<PostGameReview userBestLog={log} />);
     const root = screen.getByTestId('post-game-review');
-    expect(root.textContent).not.toContain('puzzle.engine.review.title');
+    // Ни один из ключей i18n не должен утечь в DOM как fallback.
+    expect(root.textContent).not.toContain('puzzle.engine.review.headerLabel');
     expect(root.textContent).not.toContain('puzzle.engine.review.class.blunder');
-    expect(root.textContent).toMatch(/Review|Разбор/);
+    expect(root.textContent).toMatch(/Game review|Разбор партии/);
     expect(root.textContent).toMatch(/Blunder|Зевок/);
+  });
+
+  it('KS-2511: snapshot полного разбора по всем 5 классам', () => {
+    // Каждая классификация представлена строкой с правильным
+    // cp-loss'ом. SAN-ы выбраны разные, чтобы snapshot отличался
+    // содержательно, а не только метками.
+    const log: UserBestSnapshot[] = [
+      // 1. best: played === best
+      snap({
+        halfMove: 1,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        cpBefore: 30,
+        cpAfter: 30,
+      }),
+      // 2. good: cp-loss < 50
+      snap({
+        halfMove: 2,
+        fenBefore:
+          'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+        playedUci: 'g1f3',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: 70,
+      }),
+      // 3. inaccuracy: cp-loss 50-99
+      snap({
+        halfMove: 3,
+        fenBefore:
+          'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2',
+        playedUci: 'b8c6',
+        bestUci: 'g8f6',
+        cpBefore: 100,
+        cpAfter: 30,
+      }),
+      // 4. mistake: cp-loss 100-199
+      snap({
+        halfMove: 4,
+        fenBefore:
+          'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+        playedUci: 'f1c4',
+        bestUci: 'd2d4',
+        cpBefore: 100,
+        cpAfter: -50,
+      }),
+      // 5. blunder: cp-loss ≥ 200
+      snap({
+        halfMove: 5,
+        fenBefore:
+          'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3',
+        playedUci: 'h7h6',
+        bestUci: 'g8f6',
+        cpBefore: 100,
+        cpAfter: -300,
+      }),
+    ];
+    const { container } = renderWithProviders(
+      <PostGameReview userBestLog={log} />,
+    );
+    expect(
+      container.querySelector('[data-testid="post-game-review"]'),
+    ).toMatchSnapshot();
   });
 });

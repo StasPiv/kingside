@@ -1060,7 +1060,7 @@
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop",
       "review": {
-        "title": "Review",
+        "headerLabel": "Game review",
         "bestWas": "Best was: {{san}}",
         "class": {
           "best": "Best",

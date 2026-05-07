@@ -1070,7 +1070,7 @@
       "error": "Ошибка движка",
       "openInWorkshop": "Открыть в мастерской",
       "review": {
-        "title": "Разбор",
+        "headerLabel": "Разбор партии",
         "bestWas": "Лучше было: {{san}}",
         "class": {
           "best": "Лучший",

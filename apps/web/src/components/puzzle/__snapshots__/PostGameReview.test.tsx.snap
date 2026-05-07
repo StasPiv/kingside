@@ -1,0 +1,156 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<PostGameReview> KS-2508 > KS-2511: snapshot полного разбора по всем 5 классам 1`] = `
+<div
+  class="post-game-review"
+  data-testid="post-game-review"
+>
+  <h3
+    class="post-game-review__title"
+  >
+    Game review
+  </h3>
+  <ol
+    class="post-game-review__list"
+  >
+    <li
+      class="post-game-review__row post-game-review__row--best"
+      data-class="best"
+      data-half="1"
+      data-testid="post-game-review-row-1"
+    >
+      <span
+        class="post-game-review__half"
+      >
+        1
+        .
+      </span>
+      <span
+        class="post-game-review__san"
+      >
+        e4
+      </span>
+      <span
+        class="post-game-review__class"
+        data-testid="post-game-review-class-1"
+      >
+        Best
+      </span>
+    </li>
+    <li
+      class="post-game-review__row post-game-review__row--good"
+      data-class="good"
+      data-half="2"
+      data-testid="post-game-review-row-2"
+    >
+      <span
+        class="post-game-review__half"
+      >
+        2
+        .
+      </span>
+      <span
+        class="post-game-review__san"
+      >
+        Nf3
+      </span>
+      <span
+        class="post-game-review__class"
+        data-testid="post-game-review-class-2"
+      >
+        Good
+      </span>
+    </li>
+    <li
+      class="post-game-review__row post-game-review__row--inaccuracy"
+      data-class="inaccuracy"
+      data-half="3"
+      data-testid="post-game-review-row-3"
+    >
+      <span
+        class="post-game-review__half"
+      >
+        3
+        .
+      </span>
+      <span
+        class="post-game-review__san"
+      >
+        Nc6
+      </span>
+      <span
+        class="post-game-review__class"
+        data-testid="post-game-review-class-3"
+      >
+        Inaccuracy
+      </span>
+      <div
+        class="post-game-review__best"
+        data-testid="post-game-review-best-3"
+      >
+        Best was: Nf6
+      </div>
+    </li>
+    <li
+      class="post-game-review__row post-game-review__row--mistake"
+      data-class="mistake"
+      data-half="4"
+      data-testid="post-game-review-row-4"
+    >
+      <span
+        class="post-game-review__half"
+      >
+        4
+        .
+      </span>
+      <span
+        class="post-game-review__san"
+      >
+        Bc4
+      </span>
+      <span
+        class="post-game-review__class"
+        data-testid="post-game-review-class-4"
+      >
+        Mistake
+      </span>
+      <div
+        class="post-game-review__best"
+        data-testid="post-game-review-best-4"
+      >
+        Best was: d4
+      </div>
+    </li>
+    <li
+      class="post-game-review__row post-game-review__row--blunder"
+      data-class="blunder"
+      data-half="5"
+      data-testid="post-game-review-row-5"
+    >
+      <span
+        class="post-game-review__half"
+      >
+        5
+        .
+      </span>
+      <span
+        class="post-game-review__san"
+      >
+        h6
+      </span>
+      <span
+        class="post-game-review__class"
+        data-testid="post-game-review-class-5"
+      >
+        Blunder
+      </span>
+      <div
+        class="post-game-review__best"
+        data-testid="post-game-review-best-5"
+      >
+        Best was: Nf6
+      </div>
+    </li>
+  </ol>
+</div>
+`;
