@@ -597,6 +597,161 @@ describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)'
     expect(r.players[1].points).toBe(0.5);
   });
 
+  it('KS-2564: тайбрейк-раунды (tournamentType=playoff) исключаются из crosstable', async () => {
+    // Carlsen vs Erigaisi: 2 классических раунда + 2 тайбрейка.
+    // В круговой таблице должны попасть только классика.
+    const broadcast = {
+      id: 'bc-tiebreak',
+      format: '2-player round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'r-classic-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          tournamentType: 'round_robin',
+          games: [
+            {
+              id: 'g-c1',
+              roundId: 'r-classic-1',
+              whitePlayer: 'Carlsen',
+              blackPlayer: 'Erigaisi',
+              whiteElo: 2839,
+              blackElo: 2725,
+              result: '1/2-1/2',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'r-classic-2',
+          name: 'Round 2',
+          startsAt: new Date('2026-05-02T10:00:00Z'),
+          tournamentType: 'round_robin',
+          games: [
+            {
+              id: 'g-c2',
+              roundId: 'r-classic-2',
+              whitePlayer: 'Erigaisi',
+              blackPlayer: 'Carlsen',
+              whiteElo: 2725,
+              blackElo: 2839,
+              result: '0-1',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'r-tiebreak-1',
+          name: 'Tiebreak 1',
+          startsAt: new Date('2026-05-03T10:00:00Z'),
+          tournamentType: 'playoff',
+          games: [
+            {
+              id: 'g-tb1',
+              roundId: 'r-tiebreak-1',
+              whitePlayer: 'Carlsen',
+              blackPlayer: 'Erigaisi',
+              whiteElo: 2839,
+              blackElo: 2725,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'r-tiebreak-2',
+          name: 'Armageddon',
+          startsAt: new Date('2026-05-03T11:00:00Z'),
+          tournamentType: 'playoff',
+          games: [
+            {
+              id: 'g-tb2',
+              roundId: 'r-tiebreak-2',
+              whitePlayer: 'Erigaisi',
+              blackPlayer: 'Carlsen',
+              whiteElo: 2725,
+              blackElo: 2839,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-tiebreak');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+
+    // После сортировки по очкам: Carlsen (1.5) выше Erigaisi (0.5).
+    expect(r.players[0].name).toBe('Carlsen');
+    expect(r.players[1].name).toBe('Erigaisi');
+
+    // cell Carlsen vs Erigaisi: только 2 классики (½ и win).
+    const cellCE = r.matrix[0][1];
+    expect(cellCE.games).toBeDefined();
+    expect(cellCE.games).toHaveLength(2);
+    const gameIds = cellCE.games!.map((g) => g.gameRef?.gameId);
+    expect(gameIds).toContain('g-c1');
+    expect(gameIds).toContain('g-c2');
+    expect(gameIds).not.toContain('g-tb1');
+    expect(gameIds).not.toContain('g-tb2');
+
+    // gamesPlayed считает только классические партии (2, не 4).
+    expect(r.players[0].gamesPlayed).toBe(2);
+    expect(r.players[1].gamesPlayed).toBe(2);
+    // points: 1.5 + 0.5 = 2 (только классика, без тайбрейков).
+    expect(r.players[0].points).toBe(1.5);
+    expect(r.players[1].points).toBe(0.5);
+  });
+
+  it('KS-2564: tournamentType=null (legacy) не фильтруется (back-compat)', async () => {
+    // Старые раунды до KS-1813 — без classifier'а. Их пропускаем
+    // для back-compat: считаем как round_robin.
+    const broadcast = {
+      id: 'bc-legacy',
+      format: '2-player round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'r-legacy',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          tournamentType: null,
+          games: [
+            {
+              id: 'g-legacy',
+              roundId: 'r-legacy',
+              whitePlayer: 'A',
+              blackPlayer: 'B',
+              whiteElo: 2000,
+              blackElo: 2000,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-legacy');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+    // Legacy round пропущен → matrix содержит партию.
+    const cellAB = r.matrix[0][1];
+    expect(cellAB.result).toBe('win');
+    expect(cellAB.gameRef?.gameId).toBe('g-legacy');
+  });
+
   it('KS-2476: single round-robin не выставляет cell.games (backward-compat)', async () => {
     // 2 игрока, 1 раунд — обычный single-RR. cell.games должно быть
     // undefined, top-level result/gameRef как раньше.

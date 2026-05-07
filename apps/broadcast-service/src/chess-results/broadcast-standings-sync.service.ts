@@ -98,6 +98,25 @@ export interface SyncDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/**
+ * KS-2564: фильтр раундов для круговой таблицы. Тайбрейки и armageddon
+ * идут отдельной стадией турнира (`tournamentType='playoff'`), их
+ * партии не должны попадать в основной crosstable. Исключаем также
+ * `unknown` — небезопасно тащить неклассифицированные раунды (могут
+ * быть тайбрейки без явного маркера).
+ *
+ * `BroadcastRound.tournamentType` проставляется детектором
+ * `detect-round-tournament-type.ts` (KS-2474) при upsert'е раундов.
+ * `null` (legacy раунды до KS-1813) допускаем — back-compat.
+ */
+function isCrosstableRound(round: {
+  tournamentType: string | null | undefined;
+}): boolean {
+  const t = round.tournamentType;
+  if (t == null) return true;
+  return t !== 'playoff' && t !== 'unknown';
+}
+
 @Injectable()
 export class BroadcastStandingsSyncService {
   private readonly logger = new Logger(BroadcastStandingsSyncService.name);
@@ -596,7 +615,10 @@ export class BroadcastStandingsSyncService {
         );
 
         const roundById = new Map(broadcast.rounds.map((r) => [r.id, r]));
-        for (const g of broadcast.rounds.flatMap((r) => r.games)) {
+        // KS-2564: тайбрейки/armageddon (`tournamentType='playoff'`)
+        // не должны попадать в круговую таблицу.
+        const crosstableRounds = broadcast.rounds.filter(isCrosstableRound);
+        for (const g of crosstableRounds.flatMap((r) => r.games)) {
           const wNorm = normalizePlayerName(g.whitePlayer?.trim() ?? '');
           const bNorm = normalizePlayerName(g.blackPlayer?.trim() ?? '');
           const wi = wNorm ? (nameToIdx.get(wNorm) ?? null) : null;
@@ -717,15 +739,20 @@ export class BroadcastStandingsSyncService {
         // BCS API — собираем pairings[playerIdx][roundIdx] напрямую,
         // по аналогии с round-robin internal-fallback (KS-2203).
         const N = players.length;
-        const sortedRounds = [...broadcast.rounds].sort((a, b) => {
-          // По startsAt ASC, fallback на parseRoundNumber из имени.
-          const aTs = a.startsAt?.getTime() ?? null;
-          const bTs = b.startsAt?.getTime() ?? null;
-          if (aTs !== null && bTs !== null && aTs !== bTs) return aTs - bTs;
-          const aN = parseRoundNumber(a.name) ?? Number.POSITIVE_INFINITY;
-          const bN = parseRoundNumber(b.name) ?? Number.POSITIVE_INFINITY;
-          return aN - bN;
-        });
+        // KS-2564: тайбрейки/playoff не идут в основные swiss-pairings
+        // (это отдельная стадия KS-1814 — bracket-сетка). Фильтруем
+        // согласованно с round-robin / players-сборкой.
+        const sortedRounds = broadcast.rounds
+          .filter(isCrosstableRound)
+          .sort((a, b) => {
+            // По startsAt ASC, fallback на parseRoundNumber из имени.
+            const aTs = a.startsAt?.getTime() ?? null;
+            const bTs = b.startsAt?.getTime() ?? null;
+            if (aTs !== null && bTs !== null && aTs !== bTs) return aTs - bTs;
+            const aN = parseRoundNumber(a.name) ?? Number.POSITIVE_INFINITY;
+            const bN = parseRoundNumber(b.name) ?? Number.POSITIVE_INFINITY;
+            return aN - bN;
+          });
         const R = sortedRounds.length;
         const nameToIdx = new Map<string, number>();
         for (let i = 0; i < players.length; i++) {
@@ -877,7 +904,12 @@ export class BroadcastStandingsSyncService {
       team: string | null;
     };
     const acc = new Map<string, Acc>();
-    const allGames = broadcast.rounds.flatMap((r) => r.games);
+    // KS-2564: тайбрейки/playoff-раунды не влияют на rank/points/
+    // gamesPlayed в основной круговой таблице. Фильтр согласован с
+    // matrix-сборкой выше (case 'round-robin' в buildInternalFallback).
+    const allGames = broadcast.rounds
+      .filter(isCrosstableRound)
+      .flatMap((r) => r.games);
     for (const g of allGames) {
       const w = g.whitePlayer?.trim() ?? '';
       const b = g.blackPlayer?.trim() ?? '';
@@ -944,7 +976,11 @@ export class BroadcastStandingsSyncService {
     broadcast: BroadcastWithRounds,
     chessResultsPlayers: ReadonlyArray<CrosstablePlayer>,
   ): Map<string, ReturnType<typeof Object>> {
-    const games: BroadcastGameInput[] = broadcast.rounds.flatMap((r) =>
+    // KS-2564: для chess-results round-robin тайбрейк-партии не
+    // должны участвовать в gameRef-маппинге crosstable. Иначе ячейка
+    // получит ссылку на тайбрейк-игру вместо классической.
+    const crosstableRounds = broadcast.rounds.filter(isCrosstableRound);
+    const games: BroadcastGameInput[] = crosstableRounds.flatMap((r) =>
       r.games.map((g) => ({
         id: g.id,
         whitePlayer: g.whitePlayer,
@@ -955,7 +991,7 @@ export class BroadcastStandingsSyncService {
       })),
     );
     const roundsById = new Map<string, BroadcastRoundInput>(
-      broadcast.rounds.map((r) => [
+      crosstableRounds.map((r) => [
         r.id,
         { id: r.id, name: r.name, startsAt: r.startsAt },
       ]),
@@ -1244,6 +1280,14 @@ type BroadcastWithRounds = {
     id: string;
     name: string;
     startsAt: Date | null;
+    /**
+     * KS-2474 / KS-2564: тип турнирной стадии раунда — один из
+     * `'round_robin' | 'swiss' | 'playoff' | 'unknown'`. Проставляется
+     * детектором при upsert'е раундов. `playoff` исключаются из
+     * crosstable (тайбрейки/armageddon — отдельная стадия). null —
+     * legacy раунды до KS-1813, считаем безопасными.
+     */
+    tournamentType: string | null;
     games: Array<{
       id: string;
       roundId: string;
