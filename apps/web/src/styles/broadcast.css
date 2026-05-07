@@ -1178,17 +1178,22 @@
  * ========================================================== */
 
 .broadcast-xt-cell--multi {
-  width: 64px;
-  min-width: 64px;
+  /* KS-2480: ширина увеличена 64px → 80px, чтобы оба результата
+     встречи (например `½ 1`) помещались в одну строку без переноса. */
+  width: 80px;
+  min-width: 80px;
   padding: 4px 4px;
 }
 
 .broadcast-xt-cell-games {
+  /* KS-2480: row + nowrap — оба значка одной парой на одной строке
+     рядом, не столбиком. */
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 5px;
   font-size: 12px;
   line-height: 1.1;
 }
@@ -1406,17 +1411,20 @@
     padding: 5px 2px;
   }
 
-  /* KS-2478: на мобильных multi-game ячейка переносится в две строки —
-     иначе значки не помещаются. */
+  /* KS-2480: и на mobile оставляем оба результата в одну строку.
+     Ячейку расширяем 48px → 64px, gap уменьшаем до 2px,
+     font-size 11px — двух значков `½ 1` хватает. Горизонтальный
+     скролл таблицы (как сейчас) допустим. */
   .broadcast-xt-cell--multi {
-    width: 48px;
-    min-width: 48px;
+    width: 64px;
+    min-width: 64px;
     padding: 4px 3px;
   }
 
   .broadcast-xt-cell-games {
-    flex-direction: column;
-    gap: 1px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 2px;
     font-size: 11px;
   }
 
