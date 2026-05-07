@@ -2153,3 +2153,174 @@ body:has(.puzzle-rush-board) {
     font-size: 11px;
   }
 }
+
+/* ===========================================================
+ * KS-2484 — список play-vs-engine пазлов (`/puzzles/play-vs-engine`).
+ * Минимальный визуал, дизайн будет дотюнен layout-агентом позже.
+ * =========================================================== */
+
+.play-vs-engine-puzzles {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.play-vs-engine-puzzles__header h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+}
+
+.play-vs-engine-puzzles__intro {
+  margin: 0 0 12px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.play-vs-engine-puzzles__nav {
+  margin-bottom: 20px;
+}
+
+.play-vs-engine-puzzles__back-link {
+  color: var(--accent-primary, #7c83ff);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.play-vs-engine-puzzles__back-link:hover {
+  text-decoration: underline;
+}
+
+.play-vs-engine-puzzles__status {
+  margin: 24px 0;
+  padding: 16px 20px;
+  background: var(--bg-surface, #1f2937);
+  border: 1px solid var(--border-mid, #334155);
+  border-radius: 10px;
+  color: var(--text-secondary, #94a3b8);
+  text-align: center;
+}
+
+.play-vs-engine-puzzles__status--error {
+  border-color: var(--danger-strong, #dc2626);
+  color: var(--danger-strong, #dc2626);
+}
+
+.play-vs-engine-puzzles__status--error button {
+  margin-top: 10px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.play-vs-engine-puzzles__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.play-vs-engine-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface, #1f2937);
+  border: 1px solid var(--border-mid, #334155);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+
+.play-vs-engine-card:hover {
+  border-color: var(--accent-primary, #7c83ff);
+  transform: translateY(-1px);
+}
+
+.play-vs-engine-card__board-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  cursor: pointer;
+}
+
+.play-vs-engine-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.play-vs-engine-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.play-vs-engine-card__themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.play-vs-engine-card__theme-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--accent-primary, #7c83ff);
+}
+
+.play-vs-engine-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.play-vs-engine-card__rating {
+  font-variant-numeric: tabular-nums;
+}
+
+.play-vs-engine-card__side {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated, #0f172a);
+  color: var(--text-secondary, #94a3b8);
+}
+
+.play-vs-engine-card__solve-btn {
+  margin-top: 4px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-primary, #7c83ff);
+  color: var(--text-on-accent, #0f172a);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.play-vs-engine-card__solve-btn:hover {
+  background: var(--accent-hover, #6b72e6);
+}
+
+@media (max-width: 600px) {
+  .play-vs-engine-puzzles__list {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .play-vs-engine-card__body {
+    padding: 8px 10px 10px;
+  }
+}

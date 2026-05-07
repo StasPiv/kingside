@@ -1231,6 +1231,18 @@
     "error": "Failed to load leaderboard",
     "backToRush": "Back to Puzzle Rush"
   },
+  "puzzles": {
+    "playVsEngine": {
+      "title": "Play vs Engine puzzles",
+      "intro": "Practice positions where a Stockfish-strong engine punishes mistakes. Find the precise sequence and outplay the machine.",
+      "empty": "No play-vs-engine puzzles yet — the generator is still filling the bank. Check back soon.",
+      "loadError": "Could not load puzzles.",
+      "openPuzzle": "Open puzzle",
+      "backToAll": "All puzzles",
+      "cardTitle": "#{{id}}",
+      "navLink": "Play vs Engine"
+    }
+  },
   "puzzleBrowser": {
     "title": "Puzzles",
     "allPuzzles": "All puzzles",
