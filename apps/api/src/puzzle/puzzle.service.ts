@@ -5,6 +5,8 @@ import type {
   PlayVsEnginePuzzleReason,
   PuzzleSolutionMode,
   PuzzleSourceGame,
+  PuzzleStatsByMode,
+  PuzzleStatsByModeEntry,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -21,6 +23,19 @@ export interface PlayVsEngineDto {
   winThreshold: number;
   failThreshold: number;
   halfMovesN: number;
+}
+
+/**
+ * KS-2493: пустая запись `byMode` (для режимов без попыток).
+ */
+function emptyByModeEntry(): PuzzleStatsByModeEntry {
+  return {
+    attempts: 0,
+    solved: 0,
+    accuracy: 0,
+    avgRating: null,
+    avgTimeMs: 0,
+  };
 }
 
 @Injectable()
@@ -473,6 +488,12 @@ export class PuzzleService {
 
   /**
    * Get puzzle statistics for a user.
+   *
+   * KS-2493 / ADR-046 §5.3. К ответу добавлен блок `byMode` с разбивкой
+   * метрик (`attempts/solved/accuracy/avgRating/avgTimeMs`) по
+   * `solutionMode` (`forced-line` / `play-vs-engine`). JOIN
+   * `puzzle_attempts ↔ puzzles` по `solution_mode`. Оба ключа
+   * присутствуют всегда — пустой режим заполняется нулями (`avgRating=null`).
    */
   async getStats(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -483,7 +504,14 @@ export class PuzzleService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [totalAttempted, totalSolved, bestRush, avgTime, todaySnapshot] = await Promise.all([
+    const [
+      totalAttempted,
+      totalSolved,
+      bestRush,
+      avgTime,
+      todaySnapshot,
+      byModeRows,
+    ] = await Promise.all([
       this.prisma.puzzleAttempt.count({ where: { userId } }),
       this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
       this.prisma.puzzleRushScore.findFirst({
@@ -498,7 +526,50 @@ export class PuzzleService {
       this.prisma.puzzleRatingSnapshot.findUnique({
         where: { userId_date: { userId, date: today } },
       }),
+      // KS-2493: GROUP BY solution_mode. COALESCE для старых пазлов
+      // без значения (миграция KS-2463 проставила default 'forced-line',
+      // но raw read на всякий случай). avg(p.rating) / avg(pa.time_ms)
+      // возвращают NULL при 0 строк — это резолвится в JS-картирование.
+      this.prisma.$queryRaw<
+        Array<{
+          solution_mode: string | null;
+          attempts: bigint;
+          solved: bigint;
+          avg_rating: number | null;
+          avg_time_ms: number | null;
+        }>
+      >`
+        SELECT
+          COALESCE(p.solution_mode, 'forced-line') AS solution_mode,
+          COUNT(*)::bigint AS attempts,
+          SUM(CASE WHEN pa.solved THEN 1 ELSE 0 END)::bigint AS solved,
+          AVG(p.rating)::float AS avg_rating,
+          AVG(pa.time_ms)::float AS avg_time_ms
+        FROM puzzle_attempts pa
+        JOIN puzzles p ON pa.puzzle_id = p.id
+        WHERE pa.user_id = ${userId}::uuid
+        GROUP BY COALESCE(p.solution_mode, 'forced-line')
+      `,
     ]);
+
+    const byMode: PuzzleStatsByMode = {
+      'forced-line': emptyByModeEntry(),
+      'play-vs-engine': emptyByModeEntry(),
+    };
+    for (const row of byModeRows) {
+      const mode = row.solution_mode === 'play-vs-engine'
+        ? 'play-vs-engine'
+        : 'forced-line';
+      const attempts = Number(row.attempts);
+      const solved = Number(row.solved);
+      byMode[mode] = {
+        attempts,
+        solved,
+        accuracy: attempts > 0 ? Math.round((solved / attempts) * 100) : 0,
+        avgRating: row.avg_rating != null ? Math.round(row.avg_rating) : null,
+        avgTimeMs: row.avg_time_ms != null ? Math.round(row.avg_time_ms) : 0,
+      };
+    }
 
     return {
       rating: user.ratingPuzzle,
@@ -511,6 +582,7 @@ export class PuzzleService {
       todaySolved: todaySnapshot?.solved ?? 0,
       todayAttempted: todaySnapshot?.attempts ?? 0,
       bestPuzzleRushScore: bestRush?.score ?? null,
+      byMode,
     };
   }
 

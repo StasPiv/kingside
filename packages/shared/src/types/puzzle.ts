@@ -158,6 +158,36 @@ export interface PuzzleSourceGame {
   pgnUrl?: string;
 }
 
+/**
+ * KS-2493 / ADR-046 §5.3. Метрики статистики пазлов в разрезе одного
+ * `solutionMode` для блока «Modes breakdown» на странице stats.
+ *
+ *   - `attempts` — всего попыток в этом режиме.
+ *   - `solved` — успешных.
+ *   - `accuracy` — `solved / attempts * 100`, округлённый до целого
+ *     (0..100). При `attempts === 0` — `0`.
+ *   - `avgRating` — средний рейтинг пазлов, по которым пользователь
+ *     делал попытки. `null` если попыток нет.
+ *   - `avgTimeMs` — среднее время на попытку, мс. `0` если попыток нет.
+ */
+export interface PuzzleStatsByModeEntry {
+  attempts: number;
+  solved: number;
+  accuracy: number;
+  avgRating: number | null;
+  avgTimeMs: number;
+}
+
+/**
+ * KS-2493 / ADR-046 §5.3. Block `byMode` в ответе `GET /puzzles/stats/me`.
+ * Гарантированно содержит обе ключа: даже если пользователь не делал
+ * попыток в одном из режимов — `attempts=0`, `avgRating=null`.
+ */
+export interface PuzzleStatsByMode {
+  'forced-line': PuzzleStatsByModeEntry;
+  'play-vs-engine': PuzzleStatsByModeEntry;
+}
+
 export type PuzzleAttemptResult = 'solved' | 'failed';
 
 export type PuzzleAttempt = {

@@ -26,9 +26,13 @@ describe('PuzzleService', () => {
         count: jest.fn(),
         findMany: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
+        aggregate: jest.fn(),
       },
       puzzleRushScore: {
         findFirst: jest.fn(),
+      },
+      puzzleRatingSnapshot: {
+        findUnique: jest.fn(),
       },
       user: {
         findUnique: jest.fn(),
@@ -36,6 +40,7 @@ describe('PuzzleService', () => {
         update: jest.fn(),
       },
       $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+      $queryRaw: jest.fn().mockResolvedValue([]),
     } as any;
 
     i18n = {
@@ -948,6 +953,172 @@ describe('PuzzleService', () => {
           NotFoundException,
         );
       });
+    });
+  });
+
+  // ── KS-2493 / ADR-046 §5.3. getStats.byMode ───────────────────────
+
+  describe('getStats — byMode (KS-2493)', () => {
+    function setupStatsMocks(byModeRows: Array<{
+      solution_mode: string | null;
+      attempts: number;
+      solved: number;
+      avg_rating: number | null;
+      avg_time_ms: number | null;
+    }>) {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ratingPuzzle: 1500,
+        ratingPuzzleDev: 80,
+        puzzleStreak: 3,
+      });
+      prisma.puzzleAttempt.count.mockResolvedValue(0);
+      prisma.puzzleRushScore.findFirst.mockResolvedValue(null);
+      prisma.puzzleAttempt.aggregate.mockResolvedValue({ _avg: { timeMs: null } });
+      prisma.puzzleRatingSnapshot.findUnique.mockResolvedValue(null);
+      // BigInt → Number в service.
+      prisma.$queryRaw.mockResolvedValue(
+        byModeRows.map((r) => ({
+          ...r,
+          attempts: BigInt(r.attempts),
+          solved: BigInt(r.solved),
+        })),
+      );
+    }
+
+    it('возвращает обе ключа byMode даже когда попыток нет', async () => {
+      setupStatsMocks([]);
+
+      const r = await service.getStats('user-1');
+
+      expect(r.byMode).toEqual({
+        'forced-line': {
+          attempts: 0,
+          solved: 0,
+          accuracy: 0,
+          avgRating: null,
+          avgTimeMs: 0,
+        },
+        'play-vs-engine': {
+          attempts: 0,
+          solved: 0,
+          accuracy: 0,
+          avgRating: null,
+          avgTimeMs: 0,
+        },
+      });
+    });
+
+    it('считает accuracy / avgRating / avgTimeMs для forced-line', async () => {
+      setupStatsMocks([
+        {
+          solution_mode: 'forced-line',
+          attempts: 10,
+          solved: 7,
+          avg_rating: 1450.5,
+          avg_time_ms: 12345.6,
+        },
+      ]);
+
+      const r = await service.getStats('user-1');
+
+      expect(r.byMode['forced-line']).toEqual({
+        attempts: 10,
+        solved: 7,
+        accuracy: 70,
+        avgRating: 1451, // округление
+        avgTimeMs: 12346,
+      });
+      // Второй режим — пустая запись.
+      expect(r.byMode['play-vs-engine'].attempts).toBe(0);
+      expect(r.byMode['play-vs-engine'].avgRating).toBeNull();
+    });
+
+    it('обе режима заполнены — оба корректно', async () => {
+      setupStatsMocks([
+        {
+          solution_mode: 'forced-line',
+          attempts: 8,
+          solved: 4,
+          avg_rating: 1500,
+          avg_time_ms: 10000,
+        },
+        {
+          solution_mode: 'play-vs-engine',
+          attempts: 4,
+          solved: 1,
+          avg_rating: 1700,
+          avg_time_ms: 30000,
+        },
+      ]);
+
+      const r = await service.getStats('user-1');
+
+      expect(r.byMode['forced-line']).toEqual({
+        attempts: 8,
+        solved: 4,
+        accuracy: 50,
+        avgRating: 1500,
+        avgTimeMs: 10000,
+      });
+      expect(r.byMode['play-vs-engine']).toEqual({
+        attempts: 4,
+        solved: 1,
+        accuracy: 25,
+        avgRating: 1700,
+        avgTimeMs: 30000,
+      });
+    });
+
+    it('NULL solution_mode → попадает в forced-line (старые пазлы до миграции)', async () => {
+      setupStatsMocks([
+        {
+          solution_mode: null,
+          attempts: 5,
+          solved: 3,
+          avg_rating: 1400,
+          avg_time_ms: 8000,
+        },
+      ]);
+
+      const r = await service.getStats('user-1');
+      expect(r.byMode['forced-line'].attempts).toBe(5);
+      expect(r.byMode['forced-line'].solved).toBe(3);
+      expect(r.byMode['forced-line'].accuracy).toBe(60);
+    });
+
+    it('неожиданный solution_mode игнорируется и попадает в forced-line bucket', async () => {
+      // Защита от мусорных данных в БД (например, 'unknown' или старый
+      // тег). По дизайну допускаем только 2 режима — fallback в forced-line.
+      setupStatsMocks([
+        {
+          solution_mode: 'wat',
+          attempts: 2,
+          solved: 0,
+          avg_rating: 1000,
+          avg_time_ms: 1000,
+        },
+      ]);
+
+      const r = await service.getStats('user-1');
+      expect(r.byMode['forced-line'].attempts).toBe(2);
+      expect(r.byMode['play-vs-engine'].attempts).toBe(0);
+    });
+
+    it('avgRating round-trip: NULL avg_rating → null, числовое → integer', async () => {
+      setupStatsMocks([
+        {
+          solution_mode: 'play-vs-engine',
+          attempts: 1,
+          solved: 0,
+          avg_rating: null,
+          avg_time_ms: null,
+        },
+      ]);
+
+      const r = await service.getStats('user-1');
+      expect(r.byMode['play-vs-engine'].avgRating).toBeNull();
+      expect(r.byMode['play-vs-engine'].avgTimeMs).toBe(0);
+      expect(r.byMode['play-vs-engine'].accuracy).toBe(0);
     });
   });
 });
