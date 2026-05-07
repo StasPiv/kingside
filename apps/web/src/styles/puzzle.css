@@ -2432,3 +2432,91 @@ body:has(.puzzle-rush-board) {
   outline: 2px solid var(--accent-primary, #7c83ff);
   outline-offset: 2px;
 }
+
+/* ===========================================================
+ * KS-2495 — Modes breakdown на /puzzles/stats. Две карточки
+ * forced-line / play-vs-engine.
+ * =========================================================== */
+
+.modes-breakdown {
+  margin: 24px 0;
+}
+
+.modes-breakdown__title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.modes-breakdown__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.modes-breakdown__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--bg-surface, #1f2937);
+  border: 1px solid var(--border-mid, #334155);
+  border-radius: 10px;
+  color: var(--text-primary, #f1f5f9);
+  text-decoration: none;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+
+.modes-breakdown__card:hover {
+  border-color: var(--accent-primary, #7c83ff);
+  transform: translateY(-1px);
+}
+
+.modes-breakdown__card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modes-breakdown__card-description {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.modes-breakdown__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.modes-breakdown__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modes-breakdown__metric dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.modes-breakdown__metric dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.modes-breakdown__cta {
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-primary, #7c83ff);
+}

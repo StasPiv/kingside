@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { PuzzleStatsByMode } from '@kingside/shared';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { MistakesDiaryBlock } from '../components/puzzle/MistakesDiaryBlock';
+import { ModesBreakdown } from '../components/puzzle/ModesBreakdown';
 
 type PuzzleStats = {
   rating: number;
@@ -16,6 +18,8 @@ type PuzzleStats = {
   todayAttempted: number;
   totalSolved?: number;
   totalAttempted?: number;
+  /** KS-2493 (api rev:119, ADR-046 §5.3). Опционально — старый клиент без блока. */
+  byMode?: PuzzleStatsByMode;
 };
 
 type RatingPoint = {
@@ -172,6 +176,13 @@ export function PuzzleStatsPage() {
           )}
         </div>
       )}
+
+      {/* KS-2495 (ADR-046 §5.5): Modes breakdown — две карточки
+          forced-line / play-vs-engine с метриками и ссылкой в раздел.
+          Backend (rev:119, KS-2493) гарантирует обе ключа в byMode;
+          если старый api или ошибка — поле отсутствует и блок не
+          рендерится. */}
+      {stats?.byMode && <ModesBreakdown byMode={stats.byMode} />}
 
       {/* Rating Graph */}
       {ratingHistory.length > 1 && (

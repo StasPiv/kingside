@@ -1249,6 +1249,24 @@
       "navLink": "Play vs Engine"
     }
   },
+  "puzzleStats": {
+    "modes": {
+      "heading": "Modes breakdown",
+      "attempts": "Attempts",
+      "solved": "Solved",
+      "accuracy": "Accuracy",
+      "avgRating": "Avg rating",
+      "train": "Train",
+      "forcedLine": {
+        "title": "Forced line",
+        "description": "Classic Lichess tactics — find the only winning sequence."
+      },
+      "playVsEngine": {
+        "title": "Play vs Engine",
+        "description": "Hold the advantage against a strong engine for N half-moves."
+      }
+    }
+  },
   "puzzleBrowser": {
     "title": "Puzzles",
     "allPuzzles": "All puzzles",

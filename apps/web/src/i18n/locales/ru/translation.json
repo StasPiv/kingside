@@ -1263,6 +1263,24 @@
       "navLink": "Против движка"
     }
   },
+  "puzzleStats": {
+    "modes": {
+      "heading": "Режимы решения",
+      "attempts": "Попыток",
+      "solved": "Решено",
+      "accuracy": "Точность",
+      "avgRating": "Средний рейтинг",
+      "train": "Тренировать",
+      "forcedLine": {
+        "title": "Точная серия",
+        "description": "Классическая тактика Lichess — найди единственную выигрывающую серию."
+      },
+      "playVsEngine": {
+        "title": "Против движка",
+        "description": "Удержи преимущество против сильного движка N полуходов."
+      }
+    }
+  },
   "puzzleBrowser": {
     "title": "Задачи",
     "allPuzzles": "Все задачи",
