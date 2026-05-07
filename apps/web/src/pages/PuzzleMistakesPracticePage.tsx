@@ -73,12 +73,13 @@ export function PuzzleMistakesPracticePage() {
     };
   }, [theme, t]);
 
-  // KS-2497 (ADR-046 §5.7): legacy-ссылки
+  // KS-2497 (ADR-046 §5.7) → KS-2543 (ADR-048): legacy-ссылки
   // `/puzzles/mistakes-practice?theme=playVsEngine` (шумовая тема,
-  // отфильтрованная KS-2496) теперь редиректят на новый раздел.
-  // `replace` — кнопка «назад» не возвращает сюда.
+  // отфильтрованная KS-2496) теперь редиректят на новый раздел
+  // `/precision` (бывший `/puzzles/play-vs-engine`). `replace` — кнопка
+  // «назад» не возвращает сюда.
   if (theme === 'playVsEngine') {
-    return <Navigate to="/puzzles/play-vs-engine" replace />;
+    return <Navigate to="/precision" replace />;
   }
 
   if (!theme) {

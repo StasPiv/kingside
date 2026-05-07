@@ -100,10 +100,11 @@ describe('<PuzzleMistakesPracticePage>', () => {
     );
   });
 
-  // KS-2497 (ADR-046 §5.7): legacy-ссылка с playVsEngine редиректит на
-  // /puzzles/play-vs-engine. Тест через `Routes` — после Navigate
+  // KS-2497 (ADR-046 §5.7) → KS-2543 (ADR-048): legacy-ссылка с
+  // playVsEngine редиректит на новый раздел /precision (бывший
+  // /puzzles/play-vs-engine). Тест через `Routes` — после Navigate
   // MemoryRouter показывает контент целевой страницы.
-  it('KS-2497: theme=playVsEngine → редирект на /puzzles/play-vs-engine', () => {
+  it('KS-2497/KS-2543: theme=playVsEngine → редирект на /precision', () => {
     renderWithProviders(
       <Routes>
         <Route
@@ -111,14 +112,14 @@ describe('<PuzzleMistakesPracticePage>', () => {
           element={<PuzzleMistakesPracticePage />}
         />
         <Route
-          path="/puzzles/play-vs-engine"
-          element={<div data-testid="play-vs-engine-stub">play-vs-engine page</div>}
+          path="/precision"
+          element={<div data-testid="precision-stub">precision page</div>}
         />
       </Routes>,
       { route: '/puzzles/mistakes-practice?theme=playVsEngine' },
     );
     // После Navigate MemoryRouter рендерит совпавший роут.
-    expect(screen.getByTestId('play-vs-engine-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('precision-stub')).toBeInTheDocument();
     // Старая страница НЕ рендерится.
     expect(screen.queryByTestId('mistakes-practice-loading')).not.toBeInTheDocument();
     expect(screen.queryByTestId('mistakes-practice-empty')).not.toBeInTheDocument();
