@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import type { CSSProperties } from 'react';
 import { renderWithProviders, screen } from '../../test/test-utils';
-import { PlayVsEngineRunner, uciToSan, blunderUciToSan } from './PlayVsEngineRunner';
+import {
+  PlayVsEngineRunner,
+  uciToSan,
+  blunderUciToSan,
+  cpFromScore,
+} from './PlayVsEngineRunner';
 import type {
   EngineAdapter,
   AnalysisResult,
@@ -325,6 +330,78 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(hint.textContent).toMatch(/best move was|лучше было/i);
   });
 
+  it('KS-2505: userBestLog snapshot содержит cpBefore (cp-оценка POV user)', async () => {
+    // pre-analyze cp=+50 → user сделает ход → lose → подсказка с
+    // data-cp-before="50".
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: cp=+50
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post → lose-wdl
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    const hint = await waitFor(() => {
+      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
+      if (!el || el.getAttribute('data-kind') !== 'user') {
+        throw new Error('user hint not yet rendered');
+      }
+      return el;
+    });
+    expect(hint.getAttribute('data-cp-before')).toBe('50');
+  });
+
+  it('KS-2505: mate-оценка в pre-analyze → cpBefore = +100000', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.1,
+        halfMovesN: 6,
+      },
+    });
+    // pre-analyze: mate +3 у юзера (он матует за 3) → cpBefore = +100000.
+    // post-analyze падает в lose-wdl чтобы дойти до подсказки.
+    const engine = new ScriptedEngine([
+      result(line({ type: 'mate', value: 3 }, ['d2d4'])),
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+      ).toBe('lose');
+    });
+    const hint = await waitFor(() => {
+      const el = screen.queryByTestId('puzzle-engine-bestmove-hint');
+      if (!el || el.getAttribute('data-kind') !== 'user') {
+        throw new Error('user hint not yet rendered');
+      }
+      return el;
+    });
+    expect(hint.getAttribute('data-cp-before')).toBe('100000');
+  });
+
   it('initial: показывает blunder-hint и halfMovesLeft = N до первого хода', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
@@ -464,5 +541,29 @@ describe('uciToSan / blunderUciToSan KS-2471', () => {
   it('blunderUciToSan: невалидный UCI → fallback', () => {
     expect(blunderUciToSan('xx', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('xx');
     expect(blunderUciToSan('', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('');
+  });
+});
+
+/**
+ * KS-2505: cpFromScore — нормализация cp/mate в одно cp-число для
+ * downstream-классификатора (KS-2504 classifyMove).
+ */
+describe('cpFromScore KS-2505', () => {
+  it('cp pass-through (положительный)', () => {
+    expect(cpFromScore({ type: 'cp', value: 50 })).toBe(50);
+  });
+  it('cp pass-through (отрицательный)', () => {
+    expect(cpFromScore({ type: 'cp', value: -250 })).toBe(-250);
+  });
+  it('cp = 0', () => {
+    expect(cpFromScore({ type: 'cp', value: 0 })).toBe(0);
+  });
+  it('mate +N → +100000', () => {
+    expect(cpFromScore({ type: 'mate', value: 1 })).toBe(100000);
+    expect(cpFromScore({ type: 'mate', value: 5 })).toBe(100000);
+  });
+  it('mate −N → −100000', () => {
+    expect(cpFromScore({ type: 'mate', value: -1 })).toBe(-100000);
+    expect(cpFromScore({ type: 'mate', value: -7 })).toBe(-100000);
   });
 });

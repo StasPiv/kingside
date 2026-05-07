@@ -95,6 +95,14 @@ type UserBestSnapshot = {
   playedUci: string;
   /** UCI, который рекомендовал движок в той же позиции. */
   bestUci: string;
+  /**
+   * KS-2505 / ADR-047 §3 #2. cp-оценка позиции `fenBefore` POV юзера
+   * (на этом FEN ходит юзер → score из движка уже POV side-to-move).
+   * Mate-оценки кодируются ±100000 (см. `cpFromScore`). null —
+   * pre-analyze не успел/упал, классификатор downstream должен
+   * грейсфолить (KS-2506+).
+   */
+  cpBefore: number | null;
 };
 
 /**
@@ -105,6 +113,24 @@ function scoreToWdlSigned(score: { type: 'cp' | 'mate'; value: number }): number
   if (score.type === 'mate') return score.value > 0 ? 1 : -1;
   const k = 400;
   return 2 / (1 + Math.exp(-score.value / k)) - 1;
+}
+
+/**
+ * KS-2505 / ADR-047 §3 #2. Нормализуем `score` к одному cp-числу для
+ * downstream-классификатора (`classifyMove`, KS-2504). Mate кодируется
+ * `±MATE_CP_ENCODING` — гигантский cp-loss попадает в blunder, что и
+ * нужно для хода, в котором юзер потерял мат.
+ *
+ * NB: знак не инвертируется — вызывающий обязан передавать `score` в
+ * системе отсчёта, в которой он хочет получить cp (POV side-to-move
+ * на анализируемом FEN).
+ */
+const MATE_CP_ENCODING = 100000;
+export function cpFromScore(score: { type: 'cp' | 'mate'; value: number }): number {
+  if (score.type === 'mate') {
+    return score.value > 0 ? MATE_CP_ENCODING : -MATE_CP_ENCODING;
+  }
+  return score.value;
 }
 
 function sideFromFen(fen: string): 'w' | 'b' {
@@ -500,9 +526,18 @@ export function PlayVsEngineRunner({
           const pre = await queueAnalyze(fenBefore);
           const preBest = pickBestLine(pre);
           if (preBest && preBest.pv[0]) {
+            // KS-2505: на `fenBefore` ходит юзер → score POV user без
+            // инверсии. Mate нормализован cpFromScore до ±100000.
+            const cpBefore = cpFromScore(preBest.score);
             setUserBestLog((prev) => [
               ...prev,
-              { halfMove: halfAfterUser, fenBefore, playedUci, bestUci: preBest.pv[0] },
+              {
+                halfMove: halfAfterUser,
+                fenBefore,
+                playedUci,
+                bestUci: preBest.pv[0],
+                cpBefore,
+              },
             ]);
           }
         } catch {
@@ -644,6 +679,9 @@ export function PlayVsEngineRunner({
         // True если юзер сыграл оптимально (played == best или одинаковый SAN).
         played: lastUser.playedUci,
         best: lastUser.bestUci,
+        // KS-2505: cp оценки позиции до хода (POV user). null если
+        // pre-analyze не успел.
+        cpBefore: lastUser.cpBefore,
         kind: 'user' as const,
       };
     }
@@ -655,6 +693,7 @@ export function PlayVsEngineRunner({
       bestSan: uciToSan(last.bestUci, last.fen),
       played: '',
       best: last.bestUci,
+      cpBefore: null,
       kind: 'engine' as const,
     };
   }, [state, userBestLog, bestmoveLog]);
@@ -754,6 +793,11 @@ export function PlayVsEngineRunner({
                   className="puzzle-engine-runner__bestmove-hint"
                   data-testid="puzzle-engine-bestmove-hint"
                   data-kind={bestmoveHint.kind}
+                  data-cp-before={
+                    bestmoveHint.cpBefore == null
+                      ? ''
+                      : String(bestmoveHint.cpBefore)
+                  }
                 >
                   {bestmoveHint.kind === 'user'
                     ? bestmoveHint.played === bestmoveHint.best
