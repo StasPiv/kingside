@@ -11,7 +11,11 @@
  *   - Инвариант accountedFor=analyzed.
  */
 import { Chess } from 'chess.js';
-import { runPuzzleGenerator, samePv1 } from './generator-pipeline';
+import {
+  pickPgnHeaders,
+  runPuzzleGenerator,
+  samePv1,
+} from './generator-pipeline';
 import {
   defaultGeneratorOptions,
   type EngineApi,
@@ -292,5 +296,134 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     });
     expect(stats.positionsAnalyzed).toBe(0);
     expect(insertPuzzle).not.toHaveBeenCalled();
+  });
+});
+
+describe('pickPgnHeaders (KS-2489)', () => {
+  it('whitelist: возвращает только Seven Tag Roster + ELO', () => {
+    const raw = {
+      White: 'Carlsen, M.',
+      Black: 'Nepomniachtchi, I.',
+      Event: 'World Championship 2026',
+      Site: 'Dubai UAE',
+      Round: '5',
+      Date: '2026.04.20',
+      Result: '1-0',
+      WhiteElo: '2839',
+      BlackElo: '2789',
+      // Не включаются в whitelist:
+      Annotator: 'GM Anand',
+      ECO: 'C60',
+      TimeControl: '120+30',
+    };
+    const out = pickPgnHeaders(raw);
+    expect(out).toEqual({
+      White: 'Carlsen, M.',
+      Black: 'Nepomniachtchi, I.',
+      Event: 'World Championship 2026',
+      Site: 'Dubai UAE',
+      Round: '5',
+      Date: '2026.04.20',
+      Result: '1-0',
+      WhiteElo: '2839',
+      BlackElo: '2789',
+    });
+  });
+
+  it('пустые значения и whitespace игнорируются', () => {
+    const out = pickPgnHeaders({
+      White: '',
+      Black: '   ',
+      Event: 'Tata Steel',
+      Date: undefined,
+    });
+    expect(out).toEqual({ Event: 'Tata Steel' });
+  });
+
+  it('пустой объект → пустой объект', () => {
+    expect(pickPgnHeaders({})).toEqual({});
+  });
+
+  it('значения тримятся', () => {
+    expect(pickPgnHeaders({ White: '  Magnus  ', Date: ' 2026.01.01 ' })).toEqual({
+      White: 'Magnus',
+      Date: '2026.01.01',
+    });
+  });
+});
+
+describe('runPuzzleGenerator + PGN headers (KS-2489)', () => {
+  it('пишет PGN headers в puzzle.sourceMetadata.headers при генерации из archive_game', async () => {
+    // PGN с заполненными headers — chess.js getHeaders() их вернёт.
+    const c = new Chess();
+    c.setHeader('White', 'Carlsen, Magnus');
+    c.setHeader('Black', 'Nepomniachtchi, Ian');
+    c.setHeader('Event', 'World Championship 2026');
+    c.setHeader('Date', '2026.04.20');
+    c.setHeader('Result', '1-0');
+    c.setHeader('WhiteElo', '2839');
+    c.setHeader('BlackElo', '2789');
+    const moves = [
+      'e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'd3', 'd6',
+      'O-O', 'Nf6', 'h3', 'h6', 'Nc3', 'Bg4', 'Be3', 'Bxe3',
+      'fxe3', 'Qd7', 'a3', 'Bxh3', 'gxh3', 'Qxh3',
+    ];
+    for (const m of moves) c.move(m);
+    const pgn = c.pgn();
+
+    const solverSide: 'w' | 'b' = 'w';
+    const engine: EngineApi = {
+      analyzePositionWdl: jest.fn(
+        async (fen: string, _l, multiPV: number): Promise<MultiPvLine[]> => {
+          const first = firstLegalUci(fen);
+          const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
+          const sideToMove = fen.split(' ')[1] as 'w' | 'b';
+          if (multiPV === 2) {
+            if (sideToMove === solverSide) {
+              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+            }
+            return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
+          }
+          const wdl = sideToMove === solverSide ? 0.8 : -0.8;
+          return [pvWdl(first, wdl)];
+        },
+      ),
+    };
+
+    const inserted: PuzzleRecord[] = [];
+    const insertPuzzle = jest.fn(async (p: PuzzleRecord) => {
+      inserted.push(p);
+      return true;
+    });
+    const fakePg = makePgRowMock(pgn);
+    const opts = defaultGeneratorOptions({
+      maxGames: 1,
+      blunderDelta: 0.5,
+      halfMovesN: 2,
+      winThreshold: 0.5,
+      failThreshold: 0.0,
+      minWdlAfterBlunder: 0.5,
+      startPly: 20,
+      engineLimit: { timeMs: 100 },
+    });
+    await runPuzzleGenerator({
+      pg: fakePg as never,
+      engine,
+      options: { ...opts, insertPuzzle },
+    });
+
+    expect(inserted.length).toBeGreaterThanOrEqual(1);
+    const meta = JSON.parse(inserted[0].sourceMetadata);
+    expect(meta.headers).toBeDefined();
+    expect(meta.headers.White).toBe('Carlsen, Magnus');
+    expect(meta.headers.Black).toBe('Nepomniachtchi, Ian');
+    expect(meta.headers.Event).toBe('World Championship 2026');
+    expect(meta.headers.Date).toBe('2026.04.20');
+    expect(meta.headers.Result).toBe('1-0');
+    expect(meta.headers.WhiteElo).toBe('2839');
+    expect(meta.headers.BlackElo).toBe('2789');
+    // Старые поля не пострадали.
+    expect(meta.blunderMove).toMatch(/^[a-h][1-8][a-h][1-8]/);
+    expect(meta.halfMovesN).toBe(2);
   });
 });

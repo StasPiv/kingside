@@ -167,6 +167,10 @@ async function processGame(
   } catch {
     return;
   }
+  // KS-2489: PGN headers партии — нужны фронту (KS-2487/2488) для блока
+  // «Из партии: White vs Black, Event, Date». Извлекаем сразу после
+  // loadPgn, потом вкладываем в `puzzle.sourceMetadata.headers`.
+  const headers = pickPgnHeaders(chess.getHeaders() ?? {});
   const history = chess.history({ verbose: true });
 
   // ── Pass 1 (sync): replay + сбор задач ──────────────────────────
@@ -385,6 +389,11 @@ async function processGame(
         engine: 'stockfish',
         engineParams: options.engineLimit,
         generatedAt: new Date().toISOString(),
+        // KS-2489: PGN headers — для backend `resolveSourceGame`
+        // (KS-2487) и frontend-блока «Из партии». Включаются только
+        // если хоть один заголовок был. Резолвер на api игнорирует
+        // отсутствие — sourceGame.archiveGameId всегда есть.
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
       }),
     };
 
@@ -404,6 +413,42 @@ async function processGame(
       stats.tagDistribution[t] = (stats.tagDistribution[t] ?? 0) + 1;
     }
   }
+}
+
+/**
+ * KS-2489: ключи PGN-заголовков, которые мы сохраняем в `sourceMetadata.
+ * headers` для дальнейшего показа на фронте (KS-2487/2488). Берём
+ * стандартные Seven Tag Roster (`White/Black/Date/Event/Site/Round/
+ * Result`) плюс ELO; остальные теги (`TimeControl`, `ECO`, `Variation`,
+ * движковые теги Lichess `[Annotator]/[BlackTitle]` и т.д.) не нужны —
+ * блок «Из партии» обходится этими.
+ *
+ * Возвращает только непустые значения. Пустой объект (нет ни одного
+ * ключа) → `sourceMetadata.headers` не пишется (резолвер на api в
+ * KS-2487 в любом случае проверяет наличие).
+ */
+export function pickPgnHeaders(
+  raw: Record<string, string | undefined>,
+): Record<string, string> {
+  const KEYS = [
+    'White',
+    'Black',
+    'Event',
+    'Date',
+    'Site',
+    'Round',
+    'Result',
+    'WhiteElo',
+    'BlackElo',
+  ] as const;
+  const out: Record<string, string> = {};
+  for (const k of KEYS) {
+    const v = raw[k];
+    if (typeof v === 'string' && v.trim().length > 0) {
+      out[k] = v.trim();
+    }
+  }
+  return out;
 }
 
 export function samePv1(playedUci: string, pv1Uci: string): boolean {
