@@ -217,20 +217,21 @@ function AnalysisPageInner() {
       if (puzzleSide) setBoardOrientation(puzzleSide);
       if (puzzlePgn) {
         try {
-          // KS-2486: парсим PGN через `parseAnnotatedPgn` — он
-          // строит ChessMove[] со всеми обязательными полями
-          // (`globalIndex`, `fen`, `from`/`to`, аннотации). Прежняя
-          // ручная конструкция оставляла только {san, uci, fenAfter}
-          // и reducer LOAD_FROM_PGN видел history без globalIndex —
-          // currentMove не привязывался к позиции, доска остатка
-          // initialFen, Moves-панель пустая.
-          //
-          // PGN заголовок `[FEN "..."][SetUp "1"]` обязателен, иначе
-          // парсер стартует с DEFAULT_POSITION и `replay.move(san)`
-          // фейлится на первом же ходу пазла (если позиция не
-          // стандартная).
-          const fullPgn = `[FEN "${puzzleFen}"]\n[SetUp "1"]\n\n${puzzlePgn}`;
-          loadFromPgn(parseAnnotatedPgn(fullPgn), extractInitialAnnotations(fullPgn));
+          // Parse SAN moves from PGN and apply with custom FEN
+          const sanMoves = puzzlePgn.replace(/\d+\.\.\./g, '').replace(/\d+\./g, '').trim().split(/\s+/).filter(Boolean);
+          const replay = new Chess(puzzleFen);
+          const chessMoves: ChessMove[] = [];
+          for (const san of sanMoves) {
+            if (san === '*' || san === '1-0' || san === '0-1' || san === '1/2-1/2') break;
+            const mv = replay.move(san);
+            if (!mv) break;
+            chessMoves.push({
+              san: mv.san,
+              uci: mv.from + mv.to + (mv.promotion || ''),
+              fenAfter: replay.fen(),
+            } as unknown as ChessMove);
+          }
+          loadFromPgn(chessMoves);
         } catch { /* ignore parse errors */ }
       } else if (puzzleMovesParam) {
         try {
@@ -399,18 +400,8 @@ function AnalysisPageInner() {
   // (analysisId) — useSavedAnalyses.update; для puzzleFen / "/analysis"
   // / custom-position'а раньше autosave не было совсем.
   //
-  // KS-2486 (reopen): при заходе на `/analysis?fen=<X>` (открыть пазл в
-  // мастерской) autosave-restore выполнялся ПЕРВЫМ рендером с
-  // `initialFen=DEFAULT` ДО того как puzzleFen-effect успевал записать
-  // переданный FEN; restore возвращал PGN из прошлой ad-hoc сессии
-  // (например, недавний Ruy Lopez), и пользователь видел чужие ходы
-  // вместо позиции пазла. Решение: если в URL передан `?fen=`, считаем
-  // это явным запросом «новая сессия с этой позиции» — отключаем
-  // ad-hoc autosave целиком (ни save, ни restore). Сохранять заметки
-  // по позиции пазла можно через стандартный saved-analyses flow,
-  // когда пользователь начнёт делать ходы (createAnalysis ниже).
   useAdHocAnalysisAutosave({
-    enabled: !gameId && !analysisId && !puzzleFen,
+    enabled: !gameId && !analysisId,
     initialFen,
     history,
     initialAnnotations,
