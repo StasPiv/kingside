@@ -269,6 +269,213 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 });
 
 /**
+ * KS-2582: visibility=public|draft|all для GET /puzzles/browse.
+ *
+ * Логика (ADR-050 §3 #3):
+ *  - anon/mine=false: ВСЕГДА is_public=true, visibility игнорируется.
+ *  - mine=true + visibility=all (default): свои public + свои draft.
+ *  - mine=true + visibility=public: только свои is_public=true.
+ *  - mine=true + visibility=draft: только свои is_public=false.
+ *  - visibility=draft без mine=true → 400.
+ *  - visibility вне whitelist → 400.
+ */
+describe('PuzzleController.browse — KS-2582 visibility', () => {
+  it('mine=true + visibility=draft → AND p.is_public = false', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.browse(
+      loginReq('user-1'),
+      20,
+      undefined,
+      'true',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'draft',
+    );
+
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
+    expect(sql).toContain('p.is_public = false');
+    expect(sql).not.toContain('p.is_public = true');
+  });
+
+  it('mine=true + visibility=public → AND p.is_public = true', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.browse(
+      loginReq('user-1'),
+      20,
+      undefined,
+      'true',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'public',
+    );
+
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
+    expect(sql).toContain('p.is_public = true');
+    expect(sql).not.toContain('p.is_public = false');
+  });
+
+  it('mine=true + visibility=all (default) → только created_by, без is_public-фильтра', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.browse(
+      loginReq('user-1'),
+      20,
+      undefined,
+      'true',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'all',
+    );
+
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
+    // Нет ни одного is_public-условия в WHERE (поле в SELECT-list — ок).
+    expect(sql).not.toContain('p.is_public = true');
+    expect(sql).not.toContain('p.is_public = false');
+  });
+
+  it('mine=true без visibility → default all (поведение KS-2560 не сломано)', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.browse(loginReq('user-1'), 20, undefined, 'true');
+
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
+    expect(sql).not.toContain('p.is_public = true');
+    expect(sql).not.toContain('p.is_public = false');
+  });
+
+  it('visibility=draft без mine=true → 400', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await expect(
+      controller.browse(
+        loginReq('user-1'),
+        20,
+        undefined,
+        undefined, // mine=undefined
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'draft',
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('mine=true'),
+    });
+  });
+
+  it('visibility=draft без логина (anon) → 400', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await expect(
+      controller.browse(
+        anonReq,
+        20,
+        undefined,
+        'true', // mine=true, но userId нет
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'draft',
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('mine=true'),
+    });
+  });
+
+  it('visibility=garbage → 400 валидация whitelist', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await expect(
+      controller.browse(
+        loginReq('user-1'),
+        20,
+        undefined,
+        'true',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'garbage',
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('public, draft, all'),
+    });
+  });
+
+  it('mine=false (anon) + visibility=draft (попытка обхода) → 400', async () => {
+    // mine=false НЕ установлен — но visibility='draft' приходит.
+    // Без mine=true (для drafts) — отвечаем 400 даже до проверки auth.
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await expect(
+      controller.browse(
+        anonReq,
+        20,
+        undefined,
+        'false',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'draft',
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('anon + visibility=public → ВСЕГДА is_public=true (visibility игнорируется в anon)', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    await controller.browse(
+      anonReq,
+      20,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'public',
+    );
+
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toContain('p.is_public = true');
+  });
+});
+
+/**
  * KS-2580: per-puzzle isPublic + solutionMode в POST /puzzles/batch.
  *
  * До KS-2580: isPublic всегда true, solutionMode не передавался.

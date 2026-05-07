@@ -1,5 +1,6 @@
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -137,10 +138,16 @@ export class PuzzleController {
    *    содержит хоть один из перечисленных тегов).
    *  - `?source=lichess|generated` (whitelist).
    *
-   * Visibility:
-   *  - anon: только `is_public=true`.
-   *  - login: `is_public=true OR created_by=me` (свои закрытые тоже).
-   *  - `?mine=true` (login) — только свои (включая закрытые).
+   * Visibility (KS-2582, ADR-050 §3 #3):
+   *  - anon или `mine=false`: ВСЕГДА `is_public=true`. Параметр
+   *    `visibility` игнорируется — не утекаем чужие drafts.
+   *  - `mine=true` + `visibility=all` (default): свои public + свои
+   *    draft (старое поведение `mine=true`).
+   *  - `mine=true` + `visibility=public`: только свои `is_public=true`.
+   *  - `mine=true` + `visibility=draft`: только свои `is_public=false`.
+   *  - `visibility=draft` БЕЗ `mine=true` → 400 (явная ошибка, чтобы
+   *    клиент не ждал drafts там, где их в принципе быть не может).
+   *  - `visibility` вне whitelist → 400.
    */
   @UseGuards(OptionalJwtGuard)
   @Get('browse')
@@ -154,6 +161,7 @@ export class PuzzleController {
     @Query('ratingMax') ratingMaxStr?: string,
     @Query('hideSolved') hideSolved?: string,
     @Query('source') sourceParam?: string,
+    @Query('visibility') visibilityParam?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -162,6 +170,23 @@ export class PuzzleController {
     const ALLOWED_SOURCES = new Set(['lichess', 'generated']);
     const sourceFilter =
       sourceParam && ALLOWED_SOURCES.has(sourceParam) ? sourceParam : null;
+
+    // KS-2582 whitelist `visibility`. Default — 'all' (для mine=true)
+    // или игнор (для mine=false / anon — там всегда public).
+    const ALLOWED_VISIBILITY = new Set(['public', 'draft', 'all']);
+    if (visibilityParam !== undefined && !ALLOWED_VISIBILITY.has(visibilityParam)) {
+      throw new BadRequestException(
+        `visibility must be one of: public, draft, all (got '${visibilityParam}')`,
+      );
+    }
+    const visibility = visibilityParam ?? 'all';
+    // Запрос draft'ов имеет смысл только в контексте «свои» —
+    // и только для авторизованного пользователя.
+    if (visibility === 'draft' && (mine !== 'true' || !userId)) {
+      throw new BadRequestException(
+        "visibility='draft' requires authenticated mine=true (drafts are private)",
+      );
+    }
 
     const conditions: string[] = [];
     const params: (string | number)[] = [];
@@ -176,6 +201,14 @@ export class PuzzleController {
     if (mine === 'true' && userId) {
       conditions.push(`p.created_by = ${next()}::uuid`);
       params.push(userId);
+      // KS-2582: дополнительно фильтруем по is_public когда нужно.
+      // visibility='all' (default для mine=true) — без доп. фильтра,
+      // отдаём и public, и draft (старое поведение mine=true).
+      if (visibility === 'public') {
+        conditions.push('p.is_public = true');
+      } else if (visibility === 'draft') {
+        conditions.push('p.is_public = false');
+      }
     } else if (userId) {
       const placeholder = next();
       conditions.push(`(p.created_by = ${placeholder}::uuid OR p.is_public = true)`);
