@@ -1,7 +1,7 @@
 /**
  * KS-2538 — тесты роутинга `/precision` и алиаса `/puzzles/play-vs-engine`.
  * Проверяем минимальное поведение: новый роут рендерит
- * `PlayVsEnginePuzzlesPage`, старый URL редиректит на новый с
+ * `PrecisionPage`, старый URL редиректит на новый с
  * сохранением query. Полного App не поднимаем — слишком тяжело;
  * монтируем только нужные роуты в `<MemoryRouter>`.
  */
@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 
-// Mock тяжёлых зависимостей PlayVsEnginePuzzlesPage, чтобы тест роутинга
+// Mock тяжёлых зависимостей PrecisionPage, чтобы тест роутинга
 // был быстрым и не падал на отсутствии api/контекстов.
 vi.mock('react-chessboard', () => ({
   Chessboard: () => <div data-testid="mock-chessboard" />,
@@ -28,7 +28,7 @@ vi.mock('../context/BoardSettingsContext', () => ({
   BoardSettingsProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-import { PlayVsEnginePuzzlesPage } from './PlayVsEnginePuzzlesPage';
+import { PrecisionPage } from './PrecisionPage';
 
 /**
  * Вспомогательный компонент: под App.tsx логику алиаса. Выровнен по
@@ -64,7 +64,7 @@ function renderAt(path: string) {
           element={
             <>
               <LocationProbe />
-              <PlayVsEnginePuzzlesPage />
+              <PrecisionPage />
             </>
           }
         />
@@ -80,9 +80,9 @@ describe('Routing KS-2538 /precision', () => {
     apiGet.mockResolvedValue([]);
   });
 
-  it('/precision рендерит PlayVsEnginePuzzlesPage', async () => {
+  it('/precision рендерит PrecisionPage', async () => {
     renderAt('/precision');
-    // PlayVsEnginePuzzlesPage делает api.get('/puzzles?...'). Просто
+    // PrecisionPage делает api.get('/puzzles?...'). Просто
     // проверим что фетч произошёл — значит компонент смонтирован.
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalled();

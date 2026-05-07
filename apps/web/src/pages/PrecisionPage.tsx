@@ -53,7 +53,10 @@ function sideFromFen(fen: string): 'white' | 'black' {
   return parts[1] === 'b' ? 'black' : 'white';
 }
 
-export function PlayVsEnginePuzzlesPage() {
+// KS-2542 (ADR-048): компонент переименован `PlayVsEnginePuzzlesPage`
+// → `PrecisionPage` после переезда на роут `/precision`. Внутренние
+// CSS-классы и testid'ы пока сохраняем — они не часть API.
+export function PrecisionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 

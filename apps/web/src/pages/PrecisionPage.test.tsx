@@ -1,5 +1,5 @@
 /**
- * KS-2484. Тесты `PlayVsEnginePuzzlesPage` — fetch, рендер карточек,
+ * KS-2484. Тесты `PrecisionPage` — fetch, рендер карточек,
  * empty / error состояния, навигация на /puzzle/:id.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -36,7 +36,7 @@ vi.mock('../api', () => ({
   },
 }));
 
-import { PlayVsEnginePuzzlesPage } from './PlayVsEnginePuzzlesPage';
+import { PrecisionPage } from './PrecisionPage';
 
 const SAMPLE = [
   {
@@ -71,10 +71,10 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('<PlayVsEnginePuzzlesPage> KS-2484', () => {
+describe('<PrecisionPage> KS-2484', () => {
   it('fetch /puzzles?solutionMode=play-vs-engine&limit=20 при mount', async () => {
     apiGet.mockResolvedValueOnce(SAMPLE);
-    renderWithProviders(<PlayVsEnginePuzzlesPage />);
+    renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
     expect(apiGet).toHaveBeenCalledWith(
       '/puzzles?solutionMode=play-vs-engine&limit=20',
@@ -83,7 +83,7 @@ describe('<PlayVsEnginePuzzlesPage> KS-2484', () => {
 
   it('рендерит карточки на каждый пазл с FEN, рейтингом, темами', async () => {
     apiGet.mockResolvedValueOnce(SAMPLE);
-    renderWithProviders(<PlayVsEnginePuzzlesPage />);
+    renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
@@ -110,7 +110,7 @@ describe('<PlayVsEnginePuzzlesPage> KS-2484', () => {
   it('клик по «Solve» навигирует на /puzzle/:id?source=play-vs-engine', async () => {
     apiGet.mockResolvedValueOnce(SAMPLE);
     const user = userEvent.setup();
-    renderWithProviders(<PlayVsEnginePuzzlesPage />);
+    renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
@@ -124,7 +124,7 @@ describe('<PlayVsEnginePuzzlesPage> KS-2484', () => {
 
   it('пустой ответ → empty state с плейсхолдером', async () => {
     apiGet.mockResolvedValueOnce([]);
-    renderWithProviders(<PlayVsEnginePuzzlesPage />);
+    renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
@@ -136,7 +136,7 @@ describe('<PlayVsEnginePuzzlesPage> KS-2484', () => {
 
   it('ошибка API → error state с retry-кнопкой', async () => {
     apiGet.mockRejectedValueOnce(new Error('boom'));
-    renderWithProviders(<PlayVsEnginePuzzlesPage />);
+    renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),

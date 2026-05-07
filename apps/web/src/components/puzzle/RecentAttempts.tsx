@@ -14,7 +14,7 @@ import { api } from '../../api';
  * Поведение по KS-2498:
  *  - Основной клик по строке → `/puzzle/:id`. Для play-vs-engine —
  *    `/puzzle/:id?source=play-vs-engine` (тот же query, что в листе
- *    PlayVsEnginePuzzlesPage).
+ *    PrecisionPage).
  *  - Иконка «Анализ» (отдельная кнопка справа) рендерится только если
  *    `attempt.puzzle.solutionMode !== 'play-vs-engine'`. Клик собирает
  *    PGN из `puzzle.fen + puzzle.moves` и навигирует на /analysis с

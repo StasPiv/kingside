@@ -13,7 +13,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 // KS-2484 (ADR-044): отдельный список play-vs-engine пазлов.
-import { PlayVsEnginePuzzlesPage } from './pages/PlayVsEnginePuzzlesPage';
+import { PrecisionPage } from './pages/PrecisionPage';
 import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
@@ -303,7 +303,7 @@ export function App() {
             <Route path="/daily" element={<DailyPuzzlePage />} />
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
-            <Route path="/precision" element={<PlayVsEnginePuzzlesPage />} />
+            <Route path="/precision" element={<PrecisionPage />} />
             <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
             {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
             <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
