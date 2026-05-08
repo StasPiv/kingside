@@ -335,6 +335,85 @@ describe('BroadcastController', () => {
       expect(res.data[0].isPinned).toBe(true); // strong field, live
     });
 
+    it('KS-2592: все раунды finished → lifecycle=finished, даже если end_date IS NULL (TCEC)', async () => {
+      // Регрессия: TCEC и подобные движковые турниры приходят с
+      // Lichess без `end_date`. Старая логика требовала end_date_passed,
+      // и при NULL → end_date_passed=false → турнир навечно оставался
+      // в `live` после закрытия всех раундов. Новая ветка
+      // `all_rounds_finished` ловит этот кейс независимо от end_date.
+      const tcecLike = {
+        id: 'uuid-tcec',
+        lichessId: 'tcec1',
+        title: 'TCEC Double Fischer Random Chess 5 | League A',
+        isActive: false,
+        startDate: null,
+        updatedAt: new Date(now - 3 * 86400 * 1000),
+        _count: { rounds: 14 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([tcecLike]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-tcec',
+            end_date_passed: false, // end_date IS NULL
+            first_round_started: true,
+            has_active_rounds: false,
+            all_rounds_finished: true, // ключевой сигнал
+            nearest_pending_at: null,
+            avg_elo: 3600,
+            elo_games_count: 56,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].lifecycleStatus).toBe('finished');
+      expect(res.data[0].isPinned).toBe(false);
+    });
+
+    it('KS-2592: all_rounds_finished=false и нет активных раундов → не finished (защита от пустого броадкаста)', async () => {
+      // Защитный кейс: если в броадкасте нет раундов вообще (пустой —
+      // например, только что создан), `all_rounds_finished=false`
+      // (vacuous truth не срабатывает благодаря явному EXISTS).
+      // Турнир должен быть `upcoming`, не `finished`.
+      const empty = {
+        id: 'uuid-empty',
+        lichessId: 'empty',
+        title: 'Just created',
+        isActive: true,
+        startDate: null,
+        updatedAt: new Date(now - 1000),
+        _count: { rounds: 0 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([empty]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-empty',
+            end_date_passed: false,
+            first_round_started: false,
+            has_active_rounds: false,
+            all_rounds_finished: false, // нет раундов вообще
+            nearest_pending_at: null,
+            avg_elo: null,
+            elo_games_count: 0,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data[0].lifecycleStatus).toBe('upcoming');
+    });
+
     it('KS-2514: end_date_passed и нет активных раундов → finished (старое поведение)', async () => {
       const finishedBroadcast = {
         id: 'uuid-actually-finished',

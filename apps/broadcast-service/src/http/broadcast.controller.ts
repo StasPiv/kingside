@@ -401,6 +401,7 @@ export class BroadcastController {
       end_date_passed: boolean;
       first_round_started: boolean;
       has_active_rounds: boolean;
+      all_rounds_finished: boolean;
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -431,6 +432,22 @@ export class BroadcastController {
                OR (r.status = 'pending' AND r.starts_at IS NOT NULL AND r.starts_at > NOW())
              )
         ) AS has_active_rounds,
+        -- KS-2592: все раунды завершены — turnir тоже finished, даже если
+        -- broadcast.end_date IS NULL. Lichess не для всех турниров отдаёт
+        -- end_date (TCEC и подобные движковые трансляции — пустое поле),
+        -- из-за чего без этого условия после закрытия всех раундов
+        -- broadcast навечно оставался в lifecycleStatus='live'.
+        -- Условие: есть хотя бы один раунд И ни одного раунда со статусом
+        -- ≠ 'finished'. Без has_any часть пустые броадкасты ложно ушли бы
+        -- в finished (vacuous truth для NOT EXISTS).
+        (
+          EXISTS (SELECT 1 FROM broadcast_rounds r WHERE r.broadcast_id = b.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM broadcast_rounds r
+             WHERE r.broadcast_id = b.id
+               AND r.status <> 'finished'
+          )
+        ) AS all_rounds_finished,
         -- MIN starts_at будущих раундов — только для сортировки upcoming
         (
           SELECT MIN(r.starts_at)
@@ -476,10 +493,16 @@ export class BroadcastController {
 
       let lifecycleStatus: LifecycleStatus;
       // KS-2514: end_date_passed AND нет активных раундов → finished;
-      // если активные раунды есть — продолжаем как live (или upcoming
-      // если первый ещё не стартовал — край case'а, но обработать его
-      // надо).
-      if (row.end_date_passed && !row.has_active_rounds) {
+      //          если активные раунды есть — продолжаем как live.
+      // KS-2592: дополнительный путь к `finished` — все раунды броадкаста
+      //          уже `finished`. Покрывает кейсы, когда `broadcast.end_date`
+      //          NULL (TCEC и другие движковые турниры), из-за чего
+      //          предыдущая ветка не срабатывала и турнир оставался
+      //          навсегда в `live` после закрытия последнего раунда.
+      if (
+        (row.end_date_passed && !row.has_active_rounds) ||
+        row.all_rounds_finished
+      ) {
         lifecycleStatus = 'finished';
       } else if (!row.first_round_started) {
         lifecycleStatus = 'upcoming';
