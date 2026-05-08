@@ -232,7 +232,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
     <div className="quiz-step-editor" data-testid="quiz-step-editor">
       <div className="quiz-step-editor__threshold">
         <label>
-          {t('editor.step.quiz.threshold', 'Pass threshold (0..1)')}
+          {t('lessons.editor.step.quiz.threshold', 'Pass threshold (0..1)')}
           <input
             type="number"
             step="0.05"
@@ -299,7 +299,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                         {isCollapsed ? '▸' : '▾'}
                       </button>
                       <span className="quiz-question__title">
-                        {t('editor.step.quiz.questionN', {
+                        {t('lessons.editor.step.quiz.questionN', {
                           defaultValue: 'Question {{n}}',
                           n: i + 1,
                         })}
@@ -449,7 +449,7 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                               }
                             />
                             {t(
-                              'editor.step.quiz.multi',
+                              'lessons.editor.step.quiz.multi',
                               'Multiple correct answers',
                             )}
                           </label>

@@ -385,7 +385,7 @@ export function StepCard({
           onClick={onToggleExpand}
           onPointerDown={stopPointerPropagation}
           aria-expanded={expanded}
-          aria-label={t('editor.preview', 'Preview')}
+          aria-label={t('lessons.editor.preview', 'Preview')}
         >
           {expanded ? '▾' : '▸'}
         </button>
@@ -435,8 +435,8 @@ export function StepCard({
               aria-expanded={previewOpen}
             >
               {previewOpen
-                ? t('editor.hidePreview', 'Hide preview')
-                : t('editor.preview', 'Preview')}
+                ? t('lessons.editor.hidePreview', 'Hide preview')
+                : t('lessons.editor.preview', 'Preview')}
             </button>
           </div>
           {previewOpen && (

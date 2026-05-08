@@ -283,7 +283,7 @@ export function CustomPuzzleField({
             onClick={() => setBoardEditorOpen(true)}
             data-testid={`editor-custom-puzzle-${index}-edit-board`}
           >
-            {t('editor.step.text.editBoard', 'Edit on board')}
+            {t('lessons.editor.step.text.editBoard', 'Edit on board')}
           </button>
         </div>
       </label>

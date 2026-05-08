@@ -48,7 +48,7 @@ export function EndgameDrillFields({
             onClick={() => setBoardEditorOpen(true)}
             data-testid="editor-endgame-edit-board"
           >
-            {t('editor.step.text.editBoard', 'Edit on board')}
+            {t('lessons.editor.step.text.editBoard', 'Edit on board')}
           </button>
         </div>
       </label>

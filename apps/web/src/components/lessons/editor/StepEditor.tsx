@@ -200,7 +200,7 @@ function StepPreview({ step }: { step: StepFixture }) {
 
   return (
     <details className="editor-step__preview" data-testid={`editor-step-preview-${step.id}`}>
-      <summary>{t('editor.preview', 'Preview')}</summary>
+      <summary>{t('lessons.editor.preview', 'Preview')}</summary>
       <div className="editor-step__preview-body">
         <StepRenderer step={syntheticStep} hideNext />
       </div>

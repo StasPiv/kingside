@@ -179,7 +179,7 @@ export function CourseOutline({
             className="course-outline__expand"
             data-testid={`course-outline-expand-${lesson.id}`}
             aria-expanded={expanded}
-            aria-label={t('editor.preview', 'Preview')}
+            aria-label={t('lessons.editor.preview', 'Preview')}
             onClick={() => onToggleLessonExpand(lesson.id)}
             onPointerDown={stopPointerPropagation}
           >

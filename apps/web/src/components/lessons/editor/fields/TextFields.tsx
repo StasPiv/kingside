@@ -344,7 +344,7 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
                         onClick={() => setEditingIdx(i)}
                         data-testid={`editor-diagram-edit-board-${i}`}
                       >
-                        {t('editor.step.text.editBoard', 'Edit on board')}
+                        {t('lessons.editor.step.text.editBoard', 'Edit on board')}
                       </button>
                     </div>
                   </label>
