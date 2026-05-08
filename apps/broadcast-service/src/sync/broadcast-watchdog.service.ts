@@ -383,7 +383,14 @@ export class BroadcastWatchdogService implements OnModuleInit, OnModuleDestroy {
   private async tickSafe(): Promise<void> {
     if (this.stopped) return;
     if (!(await this.acquireLock())) {
-      // другой instance держит lock — пропускаем тик
+      // KS-2591: другой instance держит lock — пропускаем тик. Раньше
+      // ветка была silent return, из-за чего «watchdog молчит» нельзя
+      // было отличить от «watchdog не запущен» (полная тишина в логах
+      // в обоих случаях). Лог на уровне `log` без debounce — нормально
+      // для нескольких реплик.
+      this.logger.log(
+        '[broadcast-watchdog] tick skipped (lock held by other replica)',
+      );
       return;
     }
     const start = Date.now();

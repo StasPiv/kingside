@@ -127,6 +127,46 @@ interface ParsedGame {
   lichessGameId: string | null;
 }
 
+/**
+ * KS-2591. Должен ли раунд быть закрыт по итогам PGN-обновления?
+ *
+ * Контекст: главный sync-цикл (`upsertRound`) переводит раунд в `finished`
+ * только когда Lichess отдаёт `round.finished:true`. Но если broadcast
+ * выпал из Lichess top-20 и был помечен `is_active=false` ДО того, как
+ * Lichess успел обновить флаг — `upsertRound` для его раундов больше не
+ * вызывается, а PGN-poll продолжает писать партии. Раунд залипает в
+ * `ongoing`, турнир висит в «текущих» (см. историю TePe Sigeman 2026,
+ * раунд `o7KV2kHF`).
+ *
+ * Этот хелпер — второй ремень безопасности рядом с watchdog'ом
+ * (KS-2158): когда мы видим, что в текущем PGN все партии с финальным
+ * результатом, а раунд ещё `ongoing` — закрываем его, не дожидаясь
+ * watchdog tick'а.
+ *
+ * Условия закрытия (все одновременно):
+ *  - есть хотя бы одна распарсенная игра (`games.length > 0`) — пустой PGN
+ *    бывает между турами и НЕ должен трактоваться как «всё закрыто»;
+ *  - каждая игра имеет финальный `result` (`'1-0' | '0-1' | '1/2-1/2'`),
+ *    т.е. ни одна с `'*'` или пустой строкой;
+ *  - `currentStatus === 'ongoing'` — `pending`/`finished`/`failed` не трогаем
+ *    (pending: ещё не стартовал; finished: уже закрыт; failed: оставляем
+ *    оператору решать).
+ *
+ * Чистая функция, экспортируется для прямого юнит-тестирования.
+ */
+export function shouldCloseRoundAsFinished(
+  games: ReadonlyArray<{ result: string }>,
+  currentStatus: string,
+): boolean {
+  if (currentStatus !== 'ongoing') return false;
+  if (games.length === 0) return false;
+  for (const g of games) {
+    const r = g.result;
+    if (!r || r === '*') return false;
+  }
+  return true;
+}
+
 @Injectable()
 export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcastSyncService.name);
@@ -1043,6 +1083,24 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     } catch (e: unknown) {
       this.logger.warn(
         `[broadcast-sync] applyBracketLinks(processPgnUpdate) failed for broadcast=${round.broadcastId.slice(0, 8)}: ${(e as Error).message}`,
+      );
+    }
+
+    // KS-2591: второй ремень безопасности рядом с watchdog'ом — если
+    // все распарсенные партии финальные, а раунд ещё `ongoing`,
+    // закрываем его прямо сейчас, не дожидаясь watchdog-tick'а
+    // (watchdog default-stale=30 мин, плюс fail-counter — может
+    // суммарно тянуть час). Это ловит TePe-Sigeman-кейс: broadcast
+    // выпал из Lichess top-20 (`upsertRound` больше не вызывается),
+    // PGN-poll продолжает писать партии, и единственный способ
+    // закрыть последний раунд — это здесь.
+    if (shouldCloseRoundAsFinished(games, round.status)) {
+      await this.prisma.broadcastRound.update({
+        where: { id: round.id },
+        data: { status: 'finished' },
+      });
+      this.logger.log(
+        `[broadcast-sync] processPgnUpdate: round=${roundId} closed (all ${games.length} games final)`,
       );
     }
   }

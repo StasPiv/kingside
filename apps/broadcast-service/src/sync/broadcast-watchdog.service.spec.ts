@@ -10,10 +10,13 @@
  * `prisma`/`redis`/`fetchFn` — без поднятия NestJS.
  */
 import {
+  BroadcastWatchdogService,
   runWatchdogTick,
   type WatchdogPrisma,
   type WatchdogRedis,
 } from './broadcast-watchdog.service';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { RedisService } from '../redis/redis.service';
 
 interface FakeRound {
   id: string;
@@ -362,6 +365,37 @@ describe('runWatchdogTick — KS-2158', () => {
       expect.stringContaining('make_interval(mins => $1::int)'),
       45,
     );
+  });
+
+  // KS-2591: проверяем, что при skipped lock тик пишет лог
+  // (ранее был silent return — нельзя было отличить «не запущен»
+  // от «лок держит другая реплика»).
+  it('tickSafe: lock=false → пишет лог о skipped tick и не идёт дальше', async () => {
+    const setSpy = jest.fn(async () => null); // NX returns null when key exists
+    const fakeRedis = { set: setSpy } as unknown as RedisService;
+    const fakePrisma = {
+      $queryRawUnsafe: jest.fn(),
+    } as unknown as PrismaService;
+
+    const service = new BroadcastWatchdogService(fakePrisma, fakeRedis);
+    const logSpy = jest
+      .spyOn(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (service as any).logger as { log: (m: string) => void },
+        'log',
+      )
+      .mockImplementation(() => {});
+
+    // приватный метод — вызываем через any-cast
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (service as any).tickSafe();
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      '[broadcast-watchdog] tick skipped (lock held by other replica)',
+    );
+    // lock не получен — основной путь не запускался, $queryRawUnsafe не дёргали
+    expect(fakePrisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   it('параметр unreachableFailThreshold перебивает дефолт', async () => {
