@@ -7528,3 +7528,80 @@
   font-weight: 700;
   color: var(--accent-primary);
 }
+
+/* ============================================================
+ * KS-2623 / ADR-052 §3.3.4 — mobile-адаптация MyCoursesPage.
+ * Брейкпоинт <560px (и <720px частично — он уже выше переводит
+ * grid в single column).
+ * ============================================================ */
+
+/* По умолчанию (desktop+tablet) sticky-CTA и mobile-only пункты
+ * меню скрыты; header-кнопка видна. */
+.my-courses-page__create-sticky {
+  display: none;
+}
+
+.my-courses-page__menu-item--mobile-only {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  /* 1. Header-кнопка «+ Create» прячется — её роль играет sticky-CTA. */
+  .my-courses-page__create-header {
+    display: none;
+  }
+
+  /* 2. Карточка вертикальная — primary-actions в строку, описание
+   *    с одной строки внутри ограничения переходит на 2 строки. */
+  .my-courses-page__actions {
+    padding: 8px 12px 12px;
+  }
+
+  /* 3. Copy link скрывается из строки primary-actions; пользователь
+   *    использует «Copy link» в меню «⋮ Ещё» — там есть mobile-only
+   *    пункт. */
+  .my-courses-page__action--copy {
+    display: none;
+  }
+
+  .my-courses-page__menu-item--mobile-only {
+    display: block;
+  }
+
+  /* 4. Sticky `+ Create` — full-width пиньяй у нижней кромки. iOS
+   *    safe-area через env(safe-area-inset-bottom). MobileBottomBar
+   *    у нас 56px высотой (см. layout.css), отступаем на её высоту,
+   *    чтобы sticky-CTA не перекрывалась навигацией. */
+  .my-courses-page__create-sticky {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 12px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0,
+      var(--bg-page, var(--bg-surface)) 12px
+    );
+    z-index: 28;
+    /* На empty-state sticky избыточен: сам блок «У вас пока нет
+     * курсов» содержит свою CTA. */
+  }
+
+  .my-courses-page[data-state='empty'] .my-courses-page__create-sticky {
+    display: none;
+  }
+
+  .my-courses-page__create-sticky-btn {
+    width: 100%;
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* Чтобы последняя карточка не оказалась под sticky-кнопкой —
+   * добавляем нижний padding контейнеру списка. */
+  .my-courses-page .my-courses-block__grid {
+    padding-bottom: 80px;
+  }
+}

@@ -297,13 +297,15 @@ export function MyCoursesPage() {
           <p className="my-courses-page__subtitle">
             {t(
               'lessons.my.subtitle',
-              'All courses you authored — public and private.',
+              'Manage your custom courses',
             )}
           </p>
         </div>
+        {/* KS-2623: на mobile (<560px) header-кнопка «+ Create»
+            скрывается, вместо неё внизу экрана видна sticky-CTA. */}
         <button
           type="button"
-          className="my-courses-block__create"
+          className="my-courses-block__create my-courses-page__create-header"
           onClick={handleCreate}
           disabled={creating}
           data-testid="my-courses-create"
@@ -489,9 +491,13 @@ export function MyCoursesPage() {
                   >
                     {t('lessons.my.actions.edit', 'Edit')}
                   </button>
+                  {/* KS-2623: Copy link на desktop остаётся в строке;
+                      на <560px скрыт CSS'ом и доступен из меню «⋮ Ещё»
+                      ниже (в JSX продублирован, чтобы не разводить
+                      параллельные деревья под media-query). */}
                   <button
                     type="button"
-                    className="my-courses-page__action"
+                    className="my-courses-page__action my-courses-page__action--copy"
                     onClick={() => handleCopyLink(c)}
                     data-testid={`my-courses-action-copy-${c.id}`}
                   >
@@ -519,6 +525,22 @@ export function MyCoursesPage() {
                         role="menu"
                         data-testid={`my-courses-menu-${c.id}`}
                       >
+                        {/* KS-2623: «Copy link» в меню — основной
+                            способ копирования на mobile (<560px).
+                            На desktop этот пункт скрыт CSS'ом, потому
+                            что есть отдельная кнопка в строке. */}
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="my-courses-page__menu-item my-courses-page__menu-item--mobile-only"
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            void handleCopyLink(c);
+                          }}
+                          data-testid={`my-courses-menu-copy-${c.id}`}
+                        >
+                          {t('lessons.my.actions.copyLink', 'Copy link')}
+                        </button>
                         <button
                           type="button"
                           role="menuitem"
@@ -556,6 +578,29 @@ export function MyCoursesPage() {
           })}
         </ul>
       )}
+
+      {/* KS-2623: sticky `+ Create` для mobile. На desktop скрыта;
+          на <560px пинуется к низу экрана с safe-area, не закрывая
+          контент (нижний padding у grid'а уже есть от MobileBottomBar
+          через layout.css). Empty-state не комбинируется со sticky:
+          там сама кнопка стоит в центре блока, sticky прячется в CSS
+          через `.my-courses-page[data-state="empty"]`. */}
+      <div
+        className="my-courses-page__create-sticky"
+        data-testid="my-courses-create-sticky"
+      >
+        <button
+          type="button"
+          className="my-courses-block__create my-courses-page__create-sticky-btn"
+          onClick={handleCreate}
+          disabled={creating}
+          data-testid="my-courses-create-sticky-btn"
+        >
+          {creating
+            ? t('lessons.my.createModal.submitting', 'Creating…')
+            : t('lessons.my.create', '+ Create my course')}
+        </button>
+      </div>
 
       {toast && (
         <div
