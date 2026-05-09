@@ -2761,6 +2761,13 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   border: 1px solid var(--border-color, #e5e7eb);
   background: var(--bg-secondary, #f9fafb);
   color: inherit;
+  /* KS-2680: разрешаем перенос на новые строки в длинных локалях
+     (RU: «Скопировать ссылку» / «Сделать публичным»), но запрещаем
+     разрыв ВНУТРИ слова. */
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  line-height: 1.25;
 }
 
 .analysis-share__copy:hover,
@@ -2821,5 +2828,31 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
     );
     overflow-y: auto;
     z-index: 100;
+  }
+
+  /* KS-2680: на узком mobile кнопки popup'а складываются в столбец на
+     всю ширину, чтобы длинный текст («Скопировать ссылку», «Сделать
+     публичным») не обрезался и не уезжал из flex-end. Селекторы
+     включают `.analysis-share__popup`, чтобы перебить более общее
+     правило `.analysis-board-controls button { flex: 1; max-width:
+     64px }` (тот же mobile-блок, тоже специфичность 0,1,1) — без
+     этого кнопки popup'а резались до 64px и текст ломался посреди
+     слова. */
+  .analysis-share__popup .analysis-share__actions {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .analysis-share__popup .analysis-share__copy,
+  .analysis-share__popup .analysis-share__toggle {
+    width: 100%;
+    max-width: none;
+    flex: 0 0 auto;
+    text-align: center;
+    padding: 10px 12px;
+    min-height: 40px;
+    height: auto;
+    font-size: 14px;
   }
 }
