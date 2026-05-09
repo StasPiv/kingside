@@ -2571,7 +2571,70 @@ body:has(.puzzle-rush-board) {
 }
 
 .play-vs-engine-puzzles__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
+}
+
+/* ============================================================
+ * KS-2664 — табы «All / My puzzles» в шапке /precision (KS-2661).
+ * До этого классы `.precision-tabs` / `.precision-tab` не имели
+ * стилей: кнопки слипались. Стиль вкладок выровнен с
+ * `.lessons-tabs` (KS-2656), чтобы было единое поведение.
+ * ============================================================ */
+.precision-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.precision-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.precision-tab:hover:not(.precision-tab--active) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.precision-tab:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.precision-tab--active {
+  color: var(--text-on-accent, #fff);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+@media (max-width: 480px) {
+  .precision-tabs {
+    width: 100%;
+    display: flex;
+  }
+  .precision-tab {
+    flex: 1 1 0;
+    text-align: center;
+  }
 }
 
 /* KS-2545 / ADR-048 §6: top-блок stats на /precision. Минимальная
