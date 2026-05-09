@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
+import { openAnalysis } from '../utils/openAnalysis';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { HelpButton } from '../components/HelpButton';
 import { ServerBusyBanner } from '../components/ServerBusyBanner';
@@ -91,7 +92,12 @@ export function LobbyPage() {
     reader.onload = (ev) => {
       const pgn = ev.target?.result as string;
       if (pgn) {
-        navigate('/analysis', { state: { pgn } });
+        // KS-2607 (ADR-051 §4 B5): загрузка PGN через openAnalysis — POST
+        // /analyses {pgn} → navigate('/analysis/<id>'). PGN через router
+        // state больше НЕ передаём (id в URL уникальный, AnalysisPage
+        // подгружает по id; см. KS-2403 / ADR-051).
+        const fileName = file.name.replace(/\.pgn$/i, '');
+        void openAnalysis(navigate, { pgn, title: fileName, t });
         closeModal();
       }
     };
@@ -457,7 +463,13 @@ export function LobbyPage() {
       <div className="workshop-section">
         <button
           className="play-btn"
-          onClick={() => { navigate('/analysis'); closeModal(); }}
+          onClick={() => {
+            // KS-2607 (ADR-051 §4 B5): «Свободная партия» — пустой анализ
+            // через openAnalysis({ pgn: '' }) → POST /analyses {pgn:''} →
+            // navigate('/analysis/<id>'). Без передачи state/query.
+            void openAnalysis(navigate, { pgn: '', t });
+            closeModal();
+          }}
         >
           {t('lobby.workshop.newGame')}
         </button>
