@@ -43,21 +43,25 @@ export function MyCoursesEntryCta() {
 
   if (!user) return null;
 
+  // KS-2625: текст с count берём из единого i18n-ключа
+  // `entryCta.withCount` («Мои курсы ({{count}})» / «My courses
+  // ({{count}})»). До прихода числа показываем заголовок без скобок —
+  // меньше визуального шума при медленном API.
+  const label =
+    count === null
+      ? t('lessons.my.entryCta.title', 'My courses')
+      : t('lessons.my.entryCta.withCount', {
+          count,
+          defaultValue: 'My courses ({{count}})',
+        });
+
   return (
     <Link
       to="/lessons/my"
       className="my-courses-entry-cta"
       data-testid="my-courses-entry-cta"
     >
-      <span className="my-courses-entry-cta__label">
-        {t('lessons.my.entryCta.title', 'My courses')}
-      </span>
-      <span
-        className="my-courses-entry-cta__count"
-        data-testid="my-courses-entry-cta-count"
-      >
-        ({count ?? '—'})
-      </span>
+      <span className="my-courses-entry-cta__label">{label}</span>
       <span className="my-courses-entry-cta__arrow" aria-hidden="true">
         →
       </span>

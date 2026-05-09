@@ -2308,13 +2308,16 @@
     },
     "my": {
       "title": "My courses",
-      "subtitle": "All courses you authored — public and private.",
+      "subtitle": "Manage your custom courses",
       "pageTitle": "My courses",
       "breadcrumbLabel": "breadcrumb",
       "create": "+ Create my course",
       "createShort": "Create course",
-      "empty": "You haven't created any courses yet",
-      "emptyHeading": "You haven't created any courses yet.",
+      "empty": {
+        "heading": "You don't have courses yet.",
+        "cta": "+ Create your first course"
+      },
+      "emptyHeading": "You don't have courses yet.",
       "emptyCta": "Create your first course",
       "loadError": "Failed to load your courses.",
       "updatedRelative": "updated {{relative}}",
@@ -2340,7 +2343,8 @@
         "delete": "Delete"
       },
       "entryCta": {
-        "title": "My courses"
+        "title": "My courses",
+        "withCount": "My courses ({{count}})"
       },
       "deleteConfirm": {
         "body_one": "Delete course \"{{title}}\"? {{count}} student will lose progress.",
@@ -2392,6 +2396,7 @@
         "error": "Failed to create the course"
       },
       "editor": {
+        "defaultCourseTitle": "New course",
         "title": "Edit course",
         "save": "Save",
         "saving": "Saving…",
