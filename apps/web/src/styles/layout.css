@@ -716,6 +716,23 @@ body.has-analysis-page .main {
   gap: 2px;
 }
 
+/* KS-2614: явно сбрасываем подчёркивание во ВСЕХ состояниях ссылки —
+   глобальное `a:hover { text-decoration: underline }` (base.css)
+   и user-agent для `:focus`/`:active`/`:visited` подчёркивали подпись
+   активной кнопки в нижней панели (например, «Задачи»). */
+.mobile-bar-item,
+.mobile-bar-item:hover,
+.mobile-bar-item:focus,
+.mobile-bar-item:focus-visible,
+.mobile-bar-item:active,
+.mobile-bar-item:visited,
+.mobile-bar-item .mobile-bar-label,
+.mobile-bar-item:hover .mobile-bar-label,
+.mobile-bar-item:focus .mobile-bar-label,
+.mobile-bar-item:active .mobile-bar-label {
+  text-decoration: none;
+}
+
 .mobile-bar-item--active { color: var(--c-7c83ff); }
 .mobile-bar-icon { font-size: 18px; }
 .mobile-bar-label { font-size: 10px; }
@@ -741,6 +758,15 @@ body.has-analysis-page .main {
 }
 
 .mobile-more-menu a:hover { background: var(--ov-accent-10); }
+/* KS-2614: тот же сброс подчёркивания и для пунктов меню «Ещё». */
+.mobile-more-menu a,
+.mobile-more-menu a:hover,
+.mobile-more-menu a:focus,
+.mobile-more-menu a:focus-visible,
+.mobile-more-menu a:active,
+.mobile-more-menu a:visited {
+  text-decoration: none;
+}
 
 /* Dashboard (KS-1107) */
 .dashboard-page {
