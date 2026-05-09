@@ -7,7 +7,7 @@ describe('CoursesService.recommendLevel (KS-1767 / ADR-024 §2.3)', () => {
   beforeEach(() => {
     prisma = {
       user: { findUnique: jest.fn() },
-      course: { findMany: jest.fn(), findUnique: jest.fn() },
+      course: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
       userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
       userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
       lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
@@ -109,8 +109,12 @@ describe('CoursesService.getCourseBySlug — SM-2 поля (KS-1809 / L-22)', ()
   beforeEach(() => {
     prisma = {
       user: { findUnique: jest.fn() },
-      course: {
-        findUnique: jest.fn().mockResolvedValue({
+      course: (() => {
+        // KS-2639 / ADR-054 §3.1 п.5. После Phase A `getCourseBySlug` ищет
+        // системный курс через `findFirst({ slug, lang, ownerId: null })`,
+        // а не через старый `findUnique({slug_lang})`. Чтобы не дублировать
+        // payload — общий resolver для обоих методов.
+        const courseStub = {
           id: courseId,
           slug: 'beginner',
           level: 'beginner',
@@ -133,8 +137,12 @@ describe('CoursesService.getCourseBySlug — SM-2 поля (KS-1809 / L-22)', ()
               _count: { steps: 3 },
             },
           ],
-        }),
-      },
+        };
+        return {
+          findUnique: jest.fn().mockResolvedValue(courseStub),
+          findFirst: jest.fn().mockResolvedValue(courseStub),
+        };
+      })(),
       userLessonProgress: {
         findMany: jest.fn(),
         count: jest.fn(),
@@ -256,7 +264,7 @@ describe('CoursesService — Lessons-redesign card fields (KS-1933/KS-1934/KS-19
   beforeEach(() => {
     prisma = {
       user: { findUnique: jest.fn() },
-      course: { findMany: jest.fn(), findUnique: jest.fn() },
+      course: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
       userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
       userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
       lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
@@ -309,10 +317,11 @@ describe('CoursesService — Lessons-redesign card fields (KS-1933/KS-1934/KS-19
   });
 
   it('getCourseBySlug прокидывает все новые поля карточки в DTO курса', async () => {
-    prisma.course.findUnique.mockResolvedValue({
-      ...baseCourseRow,
-      lessons: [],
-    });
+    // KS-2639 / ADR-054: после Phase A `getCourseBySlug` ищет курс
+    // через `findFirst` (partial-unique namespace), не `findUnique`.
+    const stub = { ...baseCourseRow, lessons: [] };
+    prisma.course.findUnique.mockResolvedValue(stub);
+    prisma.course.findFirst.mockResolvedValue(stub);
     prisma.userCourseProgress.findUnique = jest.fn().mockResolvedValue(null);
 
     const res = await service.getCourseBySlug('beginner', null);
@@ -368,6 +377,7 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
       course: {
         findMany: jest.fn().mockResolvedValue([courseRow]),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
       userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
       userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
@@ -468,7 +478,8 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
   });
 
   it('getCourseBySlug: маппит lastActivityAt и currentLesson*', async () => {
-    prisma.course.findUnique.mockResolvedValue({
+    // KS-2639 / ADR-054: findFirst вместо findUnique (partial-unique).
+    const stub = {
       ...courseRow,
       lessons: courseRow.lessons.map((l) => ({
         ...l,
@@ -478,7 +489,9 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
         isPublished: true,
         _count: { steps: 1 },
       })),
-    });
+    };
+    prisma.course.findUnique.mockResolvedValue(stub);
+    prisma.course.findFirst.mockResolvedValue(stub);
     prisma.userLessonProgress.findMany.mockResolvedValue([
       {
         lessonId: 'L1',
@@ -555,7 +568,7 @@ describe('CoursesService — inline fields mapping (KS-1964/KS-1966)', () => {
   beforeEach(() => {
     prisma = {
       user: { findUnique: jest.fn() },
-      course: { findMany: jest.fn(), findUnique: jest.fn() },
+      course: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
       userCourseProgress: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() },
       userLessonProgress: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn() },
       lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
@@ -601,43 +614,44 @@ describe('CoursesService — inline fields mapping (KS-1964/KS-1966)', () => {
   });
 
   it('getCourseBySlug: маппит inline для course и для lessons', async () => {
-    prisma.course.findUnique.mockResolvedValue(
-      baseCourseRow({
-        title: 'Inline title',
-        description: 'Inline desc',
-        audience: 'Inline audience',
-        hook: 'Inline hook',
-        outcome: 'Inline outcome',
-        lessons: [
-          {
-            id: 'L1',
-            slug: 'l-1',
-            order: 0,
-            blockKey: 'block',
-            kind: 'theory',
-            titleKey: 'L1.title',
-            summaryKey: 'L1.summary',
-            isPublished: true,
-            title: 'Урок 1',
-            summary: 'Краткий конспект',
-            _count: { steps: 1 },
-          },
-          {
-            id: 'L2',
-            slug: 'l-2',
-            order: 1,
-            blockKey: 'block',
-            kind: 'theory',
-            titleKey: 'L2.title',
-            summaryKey: 'L2.summary',
-            isPublished: true,
-            title: null,
-            summary: null,
-            _count: { steps: 1 },
-          },
-        ],
-      }),
-    );
+    // KS-2639 / ADR-054: findFirst вместо findUnique (partial-unique).
+    const stub = baseCourseRow({
+      title: 'Inline title',
+      description: 'Inline desc',
+      audience: 'Inline audience',
+      hook: 'Inline hook',
+      outcome: 'Inline outcome',
+      lessons: [
+        {
+          id: 'L1',
+          slug: 'l-1',
+          order: 0,
+          blockKey: 'block',
+          kind: 'theory',
+          titleKey: 'L1.title',
+          summaryKey: 'L1.summary',
+          isPublished: true,
+          title: 'Урок 1',
+          summary: 'Краткий конспект',
+          _count: { steps: 1 },
+        },
+        {
+          id: 'L2',
+          slug: 'l-2',
+          order: 1,
+          blockKey: 'block',
+          kind: 'theory',
+          titleKey: 'L2.title',
+          summaryKey: 'L2.summary',
+          isPublished: true,
+          title: null,
+          summary: null,
+          _count: { steps: 1 },
+        },
+      ],
+    });
+    prisma.course.findUnique.mockResolvedValue(stub);
+    prisma.course.findFirst.mockResolvedValue(stub);
 
     const res = await service.getCourseBySlug('beginner', null);
 

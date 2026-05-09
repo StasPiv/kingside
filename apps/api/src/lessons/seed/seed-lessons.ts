@@ -49,24 +49,35 @@ async function main(): Promise<void> {
 
     for (const course of COURSES) {
       // KS-2095: seed-режим всегда RU (root). Composite-key (slug, lang).
-      const dbCourse = await prisma.course.upsert({
-        where: { slug_lang: { slug: course.slug, lang: 'ru' } },
-        update: {
-          level: course.level,
-          titleKey: course.titleKey,
-          descriptionKey: course.descriptionKey,
-          order: course.order,
-          isPublished: course.isPublished,
-        },
-        create: {
-          slug: course.slug,
-          level: course.level,
-          titleKey: course.titleKey,
-          descriptionKey: course.descriptionKey,
-          order: course.order,
-          isPublished: course.isPublished,
-        },
+      // KS-2639 / ADR-054 §3.1 п.5. compound `slug_lang` снят (заменён
+      // на partial-unique с `WHERE owner_id IS NULL`). Prisma typings
+      // не поддерживают partial-unique в `upsert.where`, поэтому
+      // эмулируем upsert через find-first + update/create в системном
+      // namespace (`ownerId: null`).
+      const existing = await prisma.course.findFirst({
+        where: { slug: course.slug, lang: 'ru', ownerId: null },
       });
+      const dbCourse = existing
+        ? await prisma.course.update({
+            where: { id: existing.id },
+            data: {
+              level: course.level,
+              titleKey: course.titleKey,
+              descriptionKey: course.descriptionKey,
+              order: course.order,
+              isPublished: course.isPublished,
+            },
+          })
+        : await prisma.course.create({
+            data: {
+              slug: course.slug,
+              level: course.level,
+              titleKey: course.titleKey,
+              descriptionKey: course.descriptionKey,
+              order: course.order,
+              isPublished: course.isPublished,
+            },
+          });
       coursesUpserted++;
 
       for (const lesson of course.lessons) {

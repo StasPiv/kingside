@@ -129,6 +129,25 @@ function makePrismaMock() {
           return null;
         },
       ),
+      // KS-2639 / ADR-054 Phase A. После снятия compound-unique
+      // `(slug, lang)` импортёр ищет существующий системный курс через
+      // `findFirst({slug, lang, ownerId: null})`.
+      findFirst: jest.fn(
+        async (args: { where: { slug?: string; lang?: string; ownerId?: string | null } }) => {
+          const { slug, lang, ownerId } = args.where;
+          return (
+            courses.find((c) => {
+              if (slug !== undefined && c.slug !== slug) return false;
+              if (lang !== undefined && c.lang !== lang) return false;
+              if (ownerId !== undefined) {
+                const cOwner = (c as { ownerId?: string | null }).ownerId ?? null;
+                if (cOwner !== ownerId) return false;
+              }
+              return true;
+            }) ?? null
+          );
+        },
+      ),
       // KS-2095: новые места в импортёре зовут findMany для поиска parent.
       findMany: jest.fn(
         async (args: { where: { slug?: string; lang?: { not: string } } }) => {

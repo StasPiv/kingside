@@ -67,6 +67,25 @@ function makeMock() {
           return courses.find((c) => c.slug === slug && c.lang === lang) ?? null;
         },
       ),
+      // KS-2639 / ADR-054 Phase A. lookup системного курса теперь идёт
+      // через `findFirst({slug, lang, ownerId: null})` (partial-unique
+      // namespace), а не compound-unique.
+      findFirst: jest.fn(
+        async (args: { where: { slug?: string; lang?: string; ownerId?: string | null } }) => {
+          const { slug, lang, ownerId } = args.where;
+          return (
+            courses.find((c) => {
+              if (slug !== undefined && c.slug !== slug) return false;
+              if (lang !== undefined && c.lang !== lang) return false;
+              if (ownerId !== undefined) {
+                const cOwner = (c as { ownerId?: string | null }).ownerId ?? null;
+                if (cOwner !== ownerId) return false;
+              }
+              return true;
+            }) ?? null
+          );
+        },
+      ),
       findMany: jest.fn(
         async (args: { where: { slug?: string; lang?: { not: string } } }) => {
           return courses.filter((c) => {

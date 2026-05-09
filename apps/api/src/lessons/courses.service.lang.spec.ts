@@ -172,6 +172,31 @@ function makePrisma(state: {
           };
         },
       ),
+      // KS-2639 / ADR-054 §3.1 п.5. После Phase A `getCourseBySlug` ищет
+      // системный курс через `findFirst({ slug, lang, ownerId: null })` —
+      // мок повторяет ту же фильтрацию для обратной совместимости теста.
+      findFirst: jest.fn(
+        async (args: { where: { slug: string; lang: string; ownerId: string | null } }) => {
+          const { slug, lang, ownerId } = args.where;
+          const c = state.courses.find((x) => {
+            const xOwner = (x as { ownerId?: string | null }).ownerId ?? null;
+            return (
+              x.slug === slug &&
+              x.lang === lang &&
+              // Фикстуры теста не содержат ownerId — сравниваем как
+              // системные (ownerId IS NULL ⇔ undefined в фикстуре).
+              xOwner === ownerId
+            );
+          });
+          if (!c) return null;
+          return {
+            ...c,
+            lessons: state.lessons
+              .filter((l) => l.courseId === c.id && l.isPublished)
+              .map((l) => ({ ...l, _count: { steps: 0 } })),
+          };
+        },
+      ),
     },
     userCourseProgress: {
       findMany: jest.fn(async (args: { where: { userId: string; courseId: { in: string[] } } }) => {

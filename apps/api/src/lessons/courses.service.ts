@@ -209,8 +209,12 @@ export class CoursesService {
     userId: string | null,
   ): Promise<CourseWithLessonsResponse> {
     const lang = await this.resolveUserLocale(userId);
-    const course = await this.prisma.course.findUnique({
-      where: { slug_lang: { slug, lang } },
+    // KS-2639 / ADR-054 §3.1 п.5. После Phase A уникальность `(slug, lang)`
+    // обеспечена partial-unique индексом `WHERE owner_id IS NULL` —
+    // compound `slug_lang` в Prisma-типе больше нет. Через `findFirst`
+    // явно ограничиваемся системным namespace (`ownerId: null`).
+    const course = await this.prisma.course.findFirst({
+      where: { slug, lang, ownerId: null },
       include: {
         lessons: {
           where: { isPublished: true },

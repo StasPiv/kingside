@@ -142,8 +142,11 @@ export class LessonsAdminImportService {
     _meta: { created: boolean; updated: boolean };
   }> {
     // KS-2095: lookup курса в выбранном языке.
-    const existing = await tx.course.findUnique({
-      where: { slug_lang: { slug, lang } },
+    // KS-2639 / ADR-054 §3.1 п.5. compound `slug_lang` снят в Phase A;
+    // выбираем только системные (`ownerId: null`) через partial-unique
+    // namespace.
+    const existing = await tx.course.findFirst({
+      where: { slug, lang, ownerId: null },
     });
 
     if (!existing) {

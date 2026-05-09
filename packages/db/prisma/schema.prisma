@@ -100,6 +100,11 @@ model User {
   userCourses            UserCourse[]
   userCoursePlayProgress UserCoursePlayProgress[]
   userLessonPlayProgress UserLessonPlayProgress[]
+  // KS-2639 / ADR-054 §3.2 Phase A. Курсы, у которых User —
+  // владелец (Course.ownerId). Системные курсы остаются с
+  // ownerId=NULL и в этой связи не участвуют. onDelete Cascade —
+  // удаление пользователя сносит его авторские курсы.
+  ownedCourses           Course[]                 @relation("OwnedCourses")
   // KS-2226 (ADR-035 §4): Drills attempt'ы и sprint-скоры юзера.
   tacticDrillAttempts    TacticDrillAttempt[]
   tacticDrillSprintScores TacticDrillSprintScore[]
@@ -847,6 +852,11 @@ model FeedbackVote {
 
 model Course {
   id               String   @id @default(uuid()) @db.Uuid
+  /// KS-2639 / ADR-054 §3.2 Phase A. Владелец пользовательского курса.
+  /// `NULL` — системный курс (как и было до миграции). UUID — авторский
+  /// курс пользователя. FK на User c onDelete Cascade: удаление автора
+  /// сносит его курсы (и каскадом — уроки/шаги/прогресс).
+  ownerId          String?  @map("owner_id") @db.Uuid
   slug             String
   /// KS-2095: язык контента курса. У одного `parentCourseId` максимум
   /// один курс на каждый lang. Root-курсы (parentCourseId=NULL) имеют
@@ -883,16 +893,32 @@ model Course {
   blockOrder       String[] @default([]) @map("block_order")
   order            Int      @default(0)
   isPublished      Boolean  @default(false) @map("is_published")
+  /// KS-2639 / ADR-054 §3.2 Phase A. Видимость пользовательского курса:
+  /// FALSE — приватный (только владелец), TRUE — публичный.
+  /// Семантически имеет смысл только при `ownerId IS NOT NULL`. Для
+  /// системных курсов (ownerId IS NULL) поле обязано оставаться FALSE
+  /// — эта инвариант пока не закреплён CHECK constraint'ом (будет в
+  /// Phase E, см. §6 ADR), но enforced на уровне сервиса.
+  isPublic         Boolean  @default(false) @map("is_public")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
+  /// KS-2639 / ADR-054 §3.2 Phase A. Связь на владельца авторского
+  /// курса. Для системных курсов — NULL.
+  owner        User?     @relation("OwnedCourses", fields: [ownerId], references: [id], onDelete: Cascade)
   lessons      Lesson[]
   progress     UserCourseProgress[]
   /// KS-2095: self-relation для языковых вариантов.
   parent       Course?   @relation("CourseTranslations", fields: [parentCourseId], references: [id], onDelete: SetNull)
   translations Course[]  @relation("CourseTranslations")
 
-  @@unique([slug, lang])
+  /// KS-2639 / ADR-054 §3.2 Phase A. Slug-namespace по владельцу:
+  /// уникальность `(slug, lang)` для системных и `(owner_id, slug)`
+  /// для пользовательских реализована partial-unique индексами в SQL
+  /// (Prisma 6.x не умеет partial-unique в schema). Старый
+  /// `@@unique([slug, lang])` снят и заменён на partial-индекс
+  /// `courses_slug_lang_system_uniq` с `WHERE owner_id IS NULL` —
+  /// поведение для системных курсов идентично прежнему.
   /// KS-2095: один lang на parent. PostgreSQL UNIQUE с NULL trips каждый
   /// NULL distinct, поэтому root-курсы с одинаковым lang не конфликтуют —
   /// уникальность работает только когда parent_course_id IS NOT NULL.
@@ -900,12 +926,22 @@ model Course {
   @@index([level, order])
   @@index([isPublished])
   @@index([lang, isPublished])
+  /// KS-2639 / ADR-054 §3.2 Phase A. Listing «свои курсы» сортируется
+  /// по `updatedAt` — индекс покрывает запрос автора.
+  @@index([ownerId, updatedAt])
   @@map("courses")
 }
 
 model Lesson {
   id          String   @id @default(uuid()) @db.Uuid
   courseId    String   @map("course_id") @db.Uuid
+  /// KS-2639 / ADR-054 §3.2 Phase A. Денормализация `Course.ownerId` —
+  /// чтобы guard'ы и фильтры могли проверять владельца без JOIN.
+  /// Сервис обязан держать `Lesson.ownerId === Course.ownerId` уроков,
+  /// которым он принадлежит. Для системных курсов — NULL. FK на User
+  /// сознательно не ставится: целостность обеспечивается через
+  /// `course_id → courses → owner_id`.
+  ownerId     String?  @map("owner_id") @db.Uuid
   slug        String
   order       Int      @default(0)
   blockKey    String   @map("block_key")
@@ -941,12 +977,19 @@ model Lesson {
   @@index([courseId, blockKey, order])
   @@index([isPublished])
   @@index([parentLessonId])
+  /// KS-2639 / ADR-054 §3.2 Phase A. Owner-guard ищет уроки конкретного
+  /// автора по курсу — индекс по `(owner_id, course_id)`.
+  @@index([ownerId, courseId])
   @@map("lessons")
 }
 
 model LessonStep {
   id        String   @id @default(uuid()) @db.Uuid
   lessonId  String   @map("lesson_id") @db.Uuid
+  /// KS-2639 / ADR-054 §3.2 Phase A. Денормализация `Course.ownerId` /
+  /// `Lesson.ownerId`. NULL для шагов системных уроков. FK не ставим:
+  /// целостность через `lesson_id → lessons → courses → owner_id`.
+  ownerId   String?  @map("owner_id") @db.Uuid
   order     Int      @default(0)
   type      String // "text" | "position" | "puzzle" | "quiz" | "video" | "game_review"
   payload   Json // JSONB; shape — дискриминированный union StepPayload
