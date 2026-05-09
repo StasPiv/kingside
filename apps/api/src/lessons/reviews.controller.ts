@@ -54,10 +54,13 @@ export class LessonReviewsController {
           courseSlug: lesson.course.slug,
           // KS-2148: inline title — UI fallback в порядке title → i18nKey → slug
           courseTitle: lesson.course.title ?? null,
-          courseTitleI18nKey: lesson.course.titleKey,
-          lessonSlug: lesson.slug,
+          // KS-2640 / ADR-054 Phase B: поля стали nullable; reviews —
+          // только системные уроки (см. ADR §3.2 п.7), значит
+          // titleKey/summaryKey/slug непусты, защищаем `?? ''`.
+          courseTitleI18nKey: lesson.course.titleKey ?? '',
+          lessonSlug: lesson.slug ?? '',
           lessonTitle: lesson.title ?? null,
-          lessonTitleI18nKey: lesson.titleKey,
+          lessonTitleI18nKey: lesson.titleKey ?? '',
           dueAt: r.dueAt.toISOString(),
           lastReviewedAt: r.lastReviewedAt?.toISOString() ?? null,
           intervalDays: r.interval,

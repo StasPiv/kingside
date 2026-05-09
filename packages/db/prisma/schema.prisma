@@ -868,9 +868,13 @@ model Course {
   /// и нормализацией прогресса (UserCourseProgress.courseId всегда
   /// хранится как root id).
   parentCourseId   String?  @map("parent_course_id") @db.Uuid
-  level            String // "beginner" | "intermediate" | "advanced"
-  titleKey         String   @map("title_key")
-  descriptionKey   String   @map("description_key")
+  /// KS-2640 / ADR-054 §4 Phase B. NULLable: пользовательские курсы не
+  /// имеют формального уровня сложности и i18n-ключей — это поля
+  /// исключительно системных. У существующих системных записей значения
+  /// сохраняются (миграция `DROP NOT NULL` без переписи).
+  level            String?  // "beginner" | "intermediate" | "advanced" — только для системных
+  titleKey         String?  @map("title_key")
+  descriptionKey   String?  @map("description_key")
   // KS-1964: inline-поля admin API. Имеют приоритет над i18n-ключами;
   // если null — UI/сервис берёт `*Key` как fallback (см. B-3/B-4).
   title            String?
@@ -879,7 +883,8 @@ model Course {
   hook             String?
   outcome          String?
   coverUrl         String?  @map("cover_url")
-  difficulty       Int      @default(2) // 1=easy, 2=medium, 3=hard
+  /// KS-2640 / ADR-054 §4 Phase B. NULLable для пользовательских.
+  difficulty       Int?     // 1=easy, 2=medium, 3=hard — только для системных
   estimatedMinutes Int?     @map("estimated_minutes")
   audienceI18nKey  String?  @map("audience_i18n_key")
   hookI18nKey      String?  @map("hook_i18n_key")
@@ -942,12 +947,16 @@ model Lesson {
   /// сознательно не ставится: целостность обеспечивается через
   /// `course_id → courses → owner_id`.
   ownerId     String?  @map("owner_id") @db.Uuid
-  slug        String
+  /// KS-2640 / ADR-054 §4 Phase B. NULLable для пользовательских уроков:
+  /// у них нет slug / blockKey / kind / *Key — все эти поля — атрибуты
+  /// системных курсов. Существующие системные записи остаются
+  /// заполненными.
+  slug        String?
   order       Int      @default(0)
-  blockKey    String   @map("block_key")
-  kind        String // "theory" | "tactics_set" | "endgame_set" | "opening_line" | "game_review" | "quiz"
-  titleKey    String   @map("title_key")
-  summaryKey  String   @map("summary_key")
+  blockKey    String?  @map("block_key") // только для системных
+  kind        String?  // "theory" | "tactics_set" | "endgame_set" | "opening_line" | "game_review" | "quiz"
+  titleKey    String?  @map("title_key")
+  summaryKey  String?  @map("summary_key")
   // KS-1964: inline-поля admin API. Приоритет над `*Key` (см. B-3/B-4).
   title       String?
   summary     String?

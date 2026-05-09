@@ -334,7 +334,14 @@ export class LessonsAdminImportService {
           isPublished: payload.isPublished ?? false,
         },
       });
-      return { id: created.id, slug: created.slug, _meta: { created: true, updated: false } };
+      // KS-2640 / ADR-054 Phase B: `lessons.slug` стал nullable; здесь
+      // создаём системный урок с обязательным `payload.slug`, поэтому
+      // `created.slug` гарантировано non-null.
+      return {
+        id: created.id,
+        slug: created.slug ?? payload.slug,
+        _meta: { created: true, updated: false },
+      };
     }
 
     const data: Prisma.LessonUpdateInput = {};
@@ -353,16 +360,18 @@ export class LessonsAdminImportService {
     }
 
     if (Object.keys(data).length === 0) {
+      // KS-2640: slug стал nullable; для системного урока он непустой
+      // по построению (insert выше), default '' — fallback для типа.
       return {
         id: existing.id,
-        slug: existing.slug,
+        slug: existing.slug ?? payload.slug,
         _meta: { created: false, updated: false },
       };
     }
     const updated = await tx.lesson.update({ where: { id: existing.id }, data });
     return {
       id: updated.id,
-      slug: updated.slug,
+      slug: updated.slug ?? payload.slug,
       _meta: { created: false, updated: true },
     };
   }

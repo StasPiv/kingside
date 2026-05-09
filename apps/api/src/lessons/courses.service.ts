@@ -165,12 +165,15 @@ export class CoursesService {
       return {
         id: c.id,
         slug: c.slug,
-        level: c.level as CourseLevel,
-        titleI18nKey: c.titleKey,
-        descriptionI18nKey: c.descriptionKey,
+        // KS-2640 / ADR-054 Phase B: поля nullable в БД. Для системных
+        // курсов (`ownerId IS NULL`) гарантировано непусты — `?? ''`
+        // как защитный no-op для типов.
+        level: (c.level ?? 'beginner') as CourseLevel,
+        titleI18nKey: c.titleKey ?? '',
+        descriptionI18nKey: c.descriptionKey ?? '',
         // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1).
         coverUrl: c.coverUrl,
-        difficulty: c.difficulty as 1 | 2 | 3,
+        difficulty: (c.difficulty ?? 2) as 1 | 2 | 3,
         estimatedMinutes: c.estimatedMinutes,
         audienceI18nKey: c.audienceI18nKey,
         hookI18nKey: c.hookI18nKey,
@@ -313,12 +316,15 @@ export class CoursesService {
       else if (prog?.startedAt) state = 'in_progress';
       const summary: CourseLessonSummary = {
         id: l.id,
-        slug: l.slug,
+        // KS-2640 / ADR-054 Phase B: поля Lesson.{slug,blockKey,kind,
+        // titleKey,summaryKey} стали nullable; для системных уроков
+        // непусты — `?? ''` как защитный no-op для типов.
+        slug: l.slug ?? '',
         order: l.order,
-        blockKey: l.blockKey,
-        kind: l.kind as LessonKind,
-        titleI18nKey: l.titleKey,
-        summaryI18nKey: l.summaryKey,
+        blockKey: l.blockKey ?? '',
+        kind: (l.kind ?? 'theory') as LessonKind,
+        titleI18nKey: l.titleKey ?? '',
+        summaryI18nKey: l.summaryKey ?? '',
         // KS-1964/KS-1966 (Admin API B-4): inline-поля урока. FE
         // приоритет: `lesson.title ?? t(lesson.titleI18nKey)`.
         title: l.title,
@@ -386,12 +392,15 @@ export class CoursesService {
       course: {
         id: course.id,
         slug: course.slug,
-        level: course.level as CourseLevel,
-        titleI18nKey: course.titleKey,
-        descriptionI18nKey: course.descriptionKey,
+        // KS-2640 / ADR-054 Phase B: поля Course.{level,titleKey,
+        // descriptionKey,difficulty} стали nullable; для системных —
+        // непусты, `?? ...` как защита для типов.
+        level: (course.level ?? 'beginner') as CourseLevel,
+        titleI18nKey: course.titleKey ?? '',
+        descriptionI18nKey: course.descriptionKey ?? '',
         // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1).
         coverUrl: course.coverUrl,
-        difficulty: course.difficulty as 1 | 2 | 3,
+        difficulty: (course.difficulty ?? 2) as 1 | 2 | 3,
         estimatedMinutes: course.estimatedMinutes,
         audienceI18nKey: course.audienceI18nKey,
         hookI18nKey: course.hookI18nKey,

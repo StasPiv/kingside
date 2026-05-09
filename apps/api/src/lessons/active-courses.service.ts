@@ -120,10 +120,13 @@ export class ActiveCoursesService {
         id: c.id,
         slug: c.slug,
         level: c.level as CourseLevel,
-        titleI18nKey: c.titleKey,
-        descriptionI18nKey: c.descriptionKey,
+        // KS-2640 / ADR-054 Phase B: поля nullable в БД; в этой ветке
+        // (`kind: 'system'`) гарантировано NOT NULL — даём `?? ''` как
+        // защита-нo-op для типов.
+        titleI18nKey: c.titleKey ?? '',
+        descriptionI18nKey: c.descriptionKey ?? '',
         coverUrl: c.coverUrl,
-        difficulty: c.difficulty as 1 | 2 | 3,
+        difficulty: (c.difficulty ?? 2) as 1 | 2 | 3,
         estimatedMinutes: c.estimatedMinutes,
         audienceI18nKey: c.audienceI18nKey,
         hookI18nKey: c.hookI18nKey,

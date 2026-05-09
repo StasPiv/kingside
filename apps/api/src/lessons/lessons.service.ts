@@ -62,11 +62,13 @@ export class LessonsService {
       lesson: {
         id: lesson.id,
         courseId: lesson.courseId,
-        slug: lesson.slug,
+        // KS-2640 / ADR-054 Phase B: поля стали nullable; для системных
+        // уроков непусты — `?? ''` защищает type-чек.
+        slug: lesson.slug ?? '',
         order: lesson.order,
-        kind: lesson.kind as LessonKind,
-        titleI18nKey: lesson.titleKey,
-        summaryI18nKey: lesson.summaryKey,
+        kind: (lesson.kind ?? 'theory') as LessonKind,
+        titleI18nKey: lesson.titleKey ?? '',
+        summaryI18nKey: lesson.summaryKey ?? '',
         // KS-1980: inline-поля урока (KS-1964/KS-1965). FE приоритет
         // `title ?? t(titleI18nKey)`. В KS-1966 inline уже пробрасывался
         // через listCourses/getCourseBySlug; здесь — для LessonPage.
