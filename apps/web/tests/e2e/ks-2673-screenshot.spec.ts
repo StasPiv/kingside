@@ -223,3 +223,77 @@ for (const locale of ['ru', 'en'] as const) {
     void draftId;
   });
 }
+
+/**
+ * KS-2673 + KS-2675 — Delete действительно удаляет пазл с попытками.
+ * Backend в KS-2675 поставил Cascade на FK puzzle_attempts → DELETE
+ * `/puzzles/:id` теперь не падает с 500 даже когда есть attempts.
+ *
+ * Сценарий: создать пазл → submit attempt → DELETE → GET 404.
+ */
+test('KS-2673/KS-2675: Delete удаляет пазл с attempts (cascade)', async ({
+  request,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'desktop',
+    'Достаточно одного desktop-прогона.',
+  );
+  const tokens = await devBypass(`ks2673-cascade-${Date.now()}`);
+  const ts = Date.now();
+  const rnd = Math.floor(Math.random() * 9000) + 1000;
+  const half = (ts + rnd) % 99;
+  const full = ((ts + rnd) % 89) + 10;
+  // 1) Создаём пазл.
+  await request.post(`${API_URL}/puzzles/batch`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    data: {
+      puzzles: [
+        {
+          fen: `r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - ${half} ${full}`,
+          moves: '',
+          acceptedMoves: '',
+          rating: 1500,
+          gap: 50,
+          themes: 'middlegame',
+          sourceType: 'pgn',
+          sourceId: `cascade-${ts}-${rnd}`,
+          sourceMoveNum: 7,
+          solutionMode: 'play-vs-engine',
+          isPublic: false,
+        },
+      ],
+    },
+  });
+  const list = await api<{ data: Array<{ id: string; rating: number }> }>(
+    tokens,
+    'GET',
+    '/puzzles/browse?mine=1&source=generated&limit=5',
+  );
+  const id = list.data?.[0]?.id;
+  if (!id) throw new Error('seeded puzzle missing in browse');
+  // 2) Submit attempt → создастся puzzle_attempts row.
+  const attemptRes = await request.post(
+    `${API_URL}/puzzles/${id}/attempts`,
+    {
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      data: { result: 'solved', timeMs: 1000 },
+    },
+  );
+  if (!attemptRes.ok()) {
+    throw new Error(`attempt failed: ${attemptRes.status()}`);
+  }
+  // 3) DELETE — после KS-2675 не падает на FK constraint.
+  const delRes = await request.delete(`${API_URL}/puzzles/${id}`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+  });
+  if (!delRes.ok()) {
+    throw new Error(`delete failed: ${delRes.status()}`);
+  }
+  // 4) GET → 404.
+  const getRes = await request.get(`${API_URL}/puzzles/${id}`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+  });
+  if (getRes.status() !== 404) {
+    throw new Error(`expected 404 after delete, got ${getRes.status()}`);
+  }
+});
