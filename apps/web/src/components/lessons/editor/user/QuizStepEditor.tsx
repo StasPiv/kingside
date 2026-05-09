@@ -310,7 +310,11 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                           data-testid={`quiz-question-invalid-${i}`}
                         >
                           {t(
-                            'editor.step.quiz.invalidBadge',
+                            // KS-2596: правильный namespace `lessons.editor.…`
+                            // (см. KS-2593 — тот же баг с отсутствием `lessons.`
+                            // префикса). Без префикса i18next не находил RU и
+                            // фоллбэчил на defaultValue 'Needs attention'.
+                            'lessons.editor.step.quiz.invalidBadge',
                             'Needs attention',
                           )}
                         </span>
@@ -535,7 +539,10 @@ export function QuizStepEditor({ payload, onChange }: QuizStepEditorProps) {
                                             )
                                           }
                                           placeholder={t(
-                                            'editor.step.quiz.optionPlaceholder',
+                                            // KS-2596: правильный namespace
+                                            // `lessons.editor.step.quiz.…`
+                                            // (см. KS-2593 — тот же баг).
+                                            'lessons.editor.step.quiz.optionPlaceholder',
                                             'Answer text…',
                                           )}
                                         />

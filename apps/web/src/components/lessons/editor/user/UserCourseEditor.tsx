@@ -62,6 +62,38 @@ type MobileTab = 'outline' | 'editor';
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
+/**
+ * KS-2596: backend (NestJS ValidationPipe / class-validator) возвращает
+ * для невалидного quiz-payload сырые строки вида:
+ *   `payload.questions.0.correctOptionIds should not be empty`
+ *   `payload.questions.0.options must contain at least 2 elements`
+ *
+ * Эти сообщения не локализованы, не дружелюбны для автора и в RU выглядели
+ * как «английский хвост» в красной плашке. Здесь распознаём типовые quiz-
+ * валидации и перекрываем человекочитаемым текстом из i18n
+ * (`lessons.my.editor.quiz.validation.*` — те же ключи, что подсвечиваются
+ * inline в QuizStepEditor). Если паттерн не распознан — отдаём raw
+ * как было до KS-2596 (back-compat для не-quiz ошибок и неизвестных форматов).
+ */
+function localizeQuizSaveError(
+  t: (key: string, defaultValue?: string) => string,
+  raw: string,
+): string {
+  if (/correctOptionIds.*should not be empty/i.test(raw)) {
+    return t(
+      'lessons.my.editor.quiz.validation.noCorrect',
+      'Mark at least one correct option',
+    );
+  }
+  if (/options.*(must contain|at least 2)/i.test(raw)) {
+    return t(
+      'lessons.my.editor.quiz.validation.minOptions',
+      'At least 2 options required',
+    );
+  }
+  return raw;
+}
+
 export function UserCourseEditor() {
   const { slug } = useParams<{ slug: string }>();
   const { user } = useAuth();
@@ -300,12 +332,17 @@ export function UserCourseEditor() {
       // promise-rejection здесь приводил к «пустой странице» через
       // глобальный fail-path; теперь UI остаётся в редакторе и
       // отображает alert-bar с возможностью dismiss.
-      const message =
+      const rawMessage =
         err instanceof Error
           ? err.message
           : typeof err === 'string'
             ? err
             : t('lessons.my.editor.saveError', 'Could not save step');
+      // KS-2596: backend (NestJS ValidationPipe) возвращает сырое
+      // class-validator сообщение вида `payload.questions.0.correctOptionIds
+      // should not be empty`. Для quiz-валидаций перекрываем человекочитаемым
+      // текстом из i18n. Если паттерн не распознан — показываем raw как было.
+      const message = localizeQuizSaveError(t, rawMessage);
       setStepSaveError(message);
     });
   };
