@@ -135,7 +135,13 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     flag: null,
   },
   puzzles: {
-    to: '/daily',
+    // KS-2612: переключили `to` с `/daily` («Задача дня» — один пазл) на
+    // `/puzzles` (список задач) — то же поведение, что у десктопного
+    // Sidebar'а. На /daily остаётся прямая навигация из Dashboard /
+    // Features, а сама страница «Задача дня» теперь не входит в
+    // mobile-bar / sidebar — клик пункта «Задачи» открывает список,
+    // как на десктопе.
+    to: '/puzzles',
     matches: ['/daily', '/puzzles', '/puzzle-rush', '/puzzle'],
     icon: '🧩',
     labelKey: 'nav.puzzles',

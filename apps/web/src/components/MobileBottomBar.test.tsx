@@ -223,7 +223,9 @@ describe('<MobileBottomBar> (KS-2110 + KS-2373)', () => {
     await user.click(screen.getByTestId('mobile-bar-more'));
     const link = screen.getByTestId('mobile-more-puzzles');
     expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/daily');
+    // KS-2612: пункт «Задачи» в mobile-bar теперь ведёт на /puzzles
+    // (список), как в десктопном Sidebar — а не на /daily («Задача дня»).
+    expect(link.getAttribute('href')).toBe('/puzzles');
   });
 
   it('KS-2235: drillsEnabled=true → /drills в more, если не в топе', async () => {
