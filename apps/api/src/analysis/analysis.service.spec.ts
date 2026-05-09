@@ -155,6 +155,20 @@ describe('AnalysisService', () => {
       expect(data.white).toBe('Carlsen');
       expect(data.black).toBe('Nepo');
     });
+
+    // ── KS-2600 (ADR-051 §3 share-1): новая запись по умолчанию
+    // приватная (`isPublic=false`). Контракт: backend не передаёт
+    // явное значение в Prisma при create — поле получает `false` из
+    // schema.prisma `@default(false)`. Тест фиксирует, что сервис не
+    // включает `isPublic` в payload (Prisma подставит default сама).
+    it('KS-2600: create НЕ передаёт isPublic — Prisma подставит default=false', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+
+      await service.create(userId, { pgn: '' });
+
+      const data = prisma.analysis.create.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('isPublic');
+    });
   });
 
   describe('findAll', () => {

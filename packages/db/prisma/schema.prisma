@@ -402,6 +402,12 @@ model Analysis {
   category        String  @default("analysis")
   tags            String  @default("")
   currentPosition Int?    @map("current_position")
+  /// KS-2600 (ADR-051 §3, share-1). Флаг публичности анализа.
+  /// Если `true` — запись доступна по `GET /analyses/public/:id`
+  /// без авторизации (см. share-2). Toggle делает автор через
+  /// `PATCH /analyses/:id/share` (см. share-3). По умолчанию `false`
+  /// — все существующие записи остаются приватными после миграции.
+  isPublic        Boolean @default(false) @map("is_public")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
