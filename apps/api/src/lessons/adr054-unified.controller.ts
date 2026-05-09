@@ -1,29 +1,21 @@
 /**
  * KS-2643 / ADR-054 §4 Phase C2 — унифицированные роуты под `/lessons/*`.
  *
- * Контроллеры обрабатывают новые URL, на которые legacy-alias из
- * `Adr054*AliasController` редиректит при включённом фича-флаге
- * `ADR054_UNIFIED_API=true` (см. `adr054-alias.controller.ts`).
+ * Контроллеры обрабатывают единые URL для системных и пользовательских
+ * ресурсов. KS-2647 / Phase E1: legacy-роуты `/lessons/user-*` и
+ * связанный feature flag (`ADR054_UNIFIED_API`) удалены — фронт
+ * полностью на unified, alias-контроллеры больше не нужны.
  *
- * Прагматика реализации: вместо переписывания CRUD-логики поверх
- * единых таблиц мы делегируем на существующие `UserCoursesService` /
- * `UserLessonsService` / `UserLessonStepsService` / `UserProgressService`,
- * которые уже покрыты тестами и работают через `user_*`-таблицы. Эти
- * таблицы держатся синхронно с `courses/lessons/lesson_steps` (Phase B
- * скопировал данные, Phase E удалит legacy). Унификация на уровне
- * controller'ов даёт единый URL-namespace и snapshot-точку для Phase D
- * (frontend), без переписывания сервисного слоя.
+ * Делегация на сервисы: вместо переписывания CRUD поверх единых таблиц
+ * используем существующие `UserCoursesService` / `UserLessonsService` /
+ * `UserLessonStepsService` / `UserProgressService` — они инкапсулируют
+ * лимиты, type-whitelist и owner-checks, покрыты тестами. Пока работают
+ * через `user_*` таблицы; Phase E2 переключит их на единые таблицы,
+ * Phase E3 дропнет `user_*`.
  *
- * После Phase E (drop user_* таблиц) сервисы переключатся на единые
- * таблицы — это локальное изменение `UserCoursesService` и т.д. без
- * касания этих контроллеров.
- *
- * Guards: используем существующий `UserCourseOwnerGuard` (он уже
- * проверяет owner/public/admin — то же, что декларирует
- * `LessonsAccessGuard` из KS-2642 каркаса). Единый guard `LessonsAccessGuard`
- * остаётся в коде для будущей унификации; в этой подзадаче не
- * перетаскиваем legacy-роуты на него — это бы перенесло на нас риск
- * регрессии в guard-логике, а acceptance-задача — про URL.
+ * Guards: `UserCourseOwnerGuard` (owner/public access). Единый
+ * `LessonsAccessGuard` остаётся в коде на случай будущего рефакторинга
+ * сервисного слоя.
  */
 
 import {
