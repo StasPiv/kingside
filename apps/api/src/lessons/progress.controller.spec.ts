@@ -103,8 +103,10 @@ describe('ProgressController', () => {
   // ─── KS-2646 / ADR-054 Phase D fix — унифицированная форма с :lessonId ─
 
   describe('POST /lessons/progress/lessons/:lessonId/step (unified)', () => {
-    it('системный урок → ProgressService.updateStep', async () => {
-      prisma.lesson.findUnique.mockResolvedValue({ id: 'L1' });
+    it('системный урок (ownerId=null) → ProgressService.updateStep', async () => {
+      // KS-2655: после слияния `user_lessons` в `lessons` тип урока
+      // определяется по `ownerId === null`, а не по presence в БД.
+      prisma.lesson.findUnique.mockResolvedValue({ ownerId: null });
       service.updateStep.mockResolvedValue({} as any);
       await controller.unifiedUpdateStep(req, 'L1', {
         stepId: 'S1',
@@ -114,8 +116,12 @@ describe('ProgressController', () => {
       expect(userProgressService.updateStepProgress).not.toHaveBeenCalled();
     });
 
-    it('пользовательский урок (нет в системной) → UserProgressService.updateStepProgress', async () => {
-      prisma.lesson.findUnique.mockResolvedValue(null);
+    it('пользовательский урок (ownerId !== null) → UserProgressService.updateStepProgress', async () => {
+      // KS-2655: пользовательский урок определяется ownerId, а не
+      // отсутствием в `lessons`. До фикса findUnique возвращал
+      // результат всегда → шли в системный сервис → completedAt не
+      // выставлялся.
+      prisma.lesson.findUnique.mockResolvedValue({ ownerId: 'owner-1' });
       userProgressService.updateStepProgress.mockResolvedValue({} as any);
       await controller.unifiedUpdateStep(req, 'UL1', {
         stepId: 'S1',
@@ -129,19 +135,36 @@ describe('ProgressController', () => {
       );
       expect(service.updateStep).not.toHaveBeenCalled();
     });
+
+    it('урок не найден → системный сервис (он кинет 404)', async () => {
+      // KS-2655: если урок не существует, идём в системный сервис —
+      // он отдаст единый 404 как и раньше.
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      service.updateStep.mockRejectedValue(new Error('not found'));
+      await expect(
+        controller.unifiedUpdateStep(req, 'X', { stepId: 'S', state: 'done' }),
+      ).rejects.toThrow('not found');
+      expect(service.updateStep).toHaveBeenCalled();
+    });
   });
 
   describe('POST /lessons/progress/lessons/:lessonId/complete (unified)', () => {
-    it('системный урок: прокидывает quality в ProgressService', async () => {
-      prisma.lesson.findUnique.mockResolvedValue({ id: 'L1' });
+    it('системный урок (ownerId=null): прокидывает quality в ProgressService', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ ownerId: null });
       service.completeLesson.mockResolvedValue({} as any);
       await controller.unifiedComplete(req, 'L1', { score: 0.9, quality: 4 });
       expect(service.completeLesson).toHaveBeenCalledWith('user-1', 'L1', 0.9, 4);
       expect(userProgressService.completeLesson).not.toHaveBeenCalled();
     });
 
-    it('пользовательский урок: вызывает UserProgressService без quality', async () => {
-      prisma.lesson.findUnique.mockResolvedValue(null);
+    it('KS-2655 регрессия: пользовательский урок (ownerId !== null) → UserProgressService', async () => {
+      // До фикса findUnique({id}) возвращал row для пользовательского
+      // урока тоже — controller считал его системным и шёл в
+      // ProgressService.completeLesson, у которого `touchCourseProgress`
+      // фильтрует по `isPublished:true`. Пользовательские уроки по
+      // CHECK constraint всегда `is_published=false` → completedAt
+      // курса не выставлялся.
+      prisma.lesson.findUnique.mockResolvedValue({ ownerId: 'owner-1' });
       userProgressService.completeLesson.mockResolvedValue({} as any);
       await controller.unifiedComplete(req, 'UL1', { score: 0.7, quality: 3 });
       // Для пользовательских уроков quality игнорируется (ADR-054 §3.2 п.7).

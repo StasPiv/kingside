@@ -145,16 +145,26 @@ export class ProgressController {
   }
 
   /**
-   * Узкий select по системной таблице `Lesson` — для определения,
-   * куда роутить унифицированный запрос. ADR-054 Phase E: после drop
-   * `user_lessons` этот метод схлопнется в `return true` (всё —
-   * системные).
+   * KS-2655 (регрессия после Phase E3 / KS-2649): после слияния
+   * `user_lessons` в единую `lessons` `findUnique` находит и системный,
+   * и пользовательский урок — раньше presence в `lessons` равнялся
+   * «системный». Теперь системный определяется по `ownerId === null`
+   * (Phase A денормализация). До фикса все пользовательские complete-
+   * запросы ошибочно шли в системный `ProgressService`, у которого
+   * `touchCourseProgress` фильтрует по `isPublished:true` — а
+   * пользовательский урок по CHECK `lessons_published_user_check`
+   * всегда `is_published=false`, поэтому `UserCourseProgress.completedAt`
+   * никогда не выставлялся.
+   *
+   * Если урок не найден — возвращаем `true` (системный сервис кинет
+   * 404 как и раньше).
    */
   private async isSystemLesson(lessonId: string): Promise<boolean> {
-    const sys = await this.prisma.lesson.findUnique({
+    const row = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
-      select: { id: true },
+      select: { ownerId: true },
     });
-    return sys !== null;
+    if (!row) return true;
+    return row.ownerId === null;
   }
 }
