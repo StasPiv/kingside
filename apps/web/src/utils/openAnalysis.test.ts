@@ -57,7 +57,9 @@ describe('openAnalysis (KS-2603)', () => {
     });
   });
 
-  it('режим 2 (pgn непустой): POST + navigate', async () => {
+  it('режим 2 (pgn непустой): POST + navigate, pgn НЕ в state по умолчанию', async () => {
+    // KS-2605: по умолчанию pgn/title в state не передаются —
+    // AnalysisPage подгружает по id через GET /analyses/:id.
     (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'new-id-1',
     });
@@ -72,6 +74,21 @@ describe('openAnalysis (KS-2603)', () => {
       category: 'analysis',
     });
     expect(navigate).toHaveBeenCalledWith('/analysis/new-id-1', {
+      state: { breadcrumbRootTitle: 'Archive' },
+    });
+  });
+
+  it('режим 2 с includePgnInState: true (legacy back-compat): pgn/title в state', async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'new-id-legacy',
+    });
+    await openAnalysis(navigate, {
+      pgn: '1. e4 e5',
+      title: 'My game',
+      state: { breadcrumbRootTitle: 'Archive' },
+      includePgnInState: true,
+    });
+    expect(navigate).toHaveBeenCalledWith('/analysis/new-id-legacy', {
       state: {
         breadcrumbRootTitle: 'Archive',
         pgn: '1. e4 e5',
@@ -80,7 +97,7 @@ describe('openAnalysis (KS-2603)', () => {
     });
   });
 
-  it('режим 2 (pgn пустой): POST {pgn:""} + navigate', async () => {
+  it('режим 2 (pgn пустой): POST {pgn:""} + navigate без pgn в state', async () => {
     (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'new-empty-1',
     });
@@ -91,7 +108,7 @@ describe('openAnalysis (KS-2603)', () => {
       category: 'analysis',
     });
     expect(navigate).toHaveBeenCalledWith('/analysis/new-empty-1', {
-      state: { pgn: '', title: 'New analysis' },
+      state: {},
     });
   });
 
@@ -106,7 +123,7 @@ describe('openAnalysis (KS-2603)', () => {
       category: 'analysis',
     });
     expect(navigate).toHaveBeenCalledWith('/analysis/new-empty-2', {
-      state: { pgn: '', title: 'New analysis' },
+      state: {},
     });
   });
 

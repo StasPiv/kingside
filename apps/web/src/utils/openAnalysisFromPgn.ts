@@ -39,5 +39,10 @@ export async function openAnalysisFromPgn(
     title: args.title,
     state: args.state,
     replace: args.replace,
+    // KS-2605: legacy callsite'ы (Archive/Broadcast) рассчитывают, что
+    // `AnalysisPage` сделает быстрый initial-render по `state.pgn` до
+    // прихода GET /analyses/:id. Сохраняем старый контракт через флаг.
+    // Новые callsite'ы (B2..B5) идут через openAnalysis напрямую без него.
+    includePgnInState: true,
   });
 }

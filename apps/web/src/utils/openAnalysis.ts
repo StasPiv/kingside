@@ -78,6 +78,16 @@ export interface OpenAnalysisArgs {
    * из `analysis.openError`. Если нет — используется fallback EN.
    */
   t?: (key: string, defaultValue: string) => string;
+  /**
+   * KS-2605 (ADR-051 §4 B3): по умолчанию helper НЕ кладёт `pgn`/`title`
+   * в `state` навигации — id в URL уникальный, `AnalysisPage` подгружает
+   * запись по id через GET /analyses/:id, передача PGN через state не
+   * нужна и противоречит цели ADR-051. Старая обёртка
+   * `openAnalysisFromPgn` для legacy Archive/Broadcast сохраняет прежний
+   * контракт через `includePgnInState: true` — там AnalysisPage умеет
+   * показать initial-render по `state.pgn` до прихода ответа GET.
+   */
+  includePgnInState?: boolean;
 }
 
 const DEFAULT_TITLE = 'New analysis';
@@ -101,9 +111,13 @@ export async function openAnalysis(
   // 2. POST /analyses (pgn — может быть '' для «свободного анализа»).
   const pgn = args.pgn ?? '';
   const title = args.title ?? DEFAULT_TITLE;
-  // Включаем pgn/title в state — `AnalysisPage` использует их для
-  // быстрого initial-render (до того, как fetch запись с сервера).
-  navOpts.state = { ...navOpts.state, pgn, title };
+  // KS-2605: pgn/title в state — только если явно запрошено через
+  // `includePgnInState`. По умолчанию state не содержит PGN — id в URL
+  // уникальный, AnalysisPage подгружает по id (GET /analyses/:id).
+  // Legacy-обёртка `openAnalysisFromPgn` задаёт флаг для back-compat.
+  if (args.includePgnInState) {
+    navOpts.state = { ...navOpts.state, pgn, title };
+  }
 
   try {
     const created = await api.post<{ id: string }>('/analyses', {

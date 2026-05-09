@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
+import { openAnalysis } from '../../utils/openAnalysis';
 import { ImportExternalModal } from './ImportExternalModal';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -240,16 +241,23 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
   }, [file.id, refreshKey]);
 
   const handleOpenGame = (game: PgnFileGame) => {
-    navigate('/analysis', {
+    // KS-2605 (ADR-051 §4 B3): идём через openAnalysis — helper делает
+    // POST /analyses {pgn} → navigate('/analysis/<id>'). PGN больше НЕ
+    // передаётся через router state — id в URL уникальный, AnalysisPage
+    // подгружает запись по id (KS-2403). Breadcrumb-метаданные оставляем
+    // в state — они по-прежнему нужны для навигации «назад» в файл/раздел
+    // и не несут содержимое партии.
+    void openAnalysis(navigate, {
+      pgn: game.pgn,
+      title: `${game.white} vs ${game.black}`,
       state: {
-        pgn: game.pgn,
-        title: `${game.white} vs ${game.black}`,
         breadcrumbSection: t('workshop.pgnFiles.title'),
         breadcrumbBackUrl: '/workshop/pgn-files',
         breadcrumbFileName: fileName,
         breadcrumbFileBackUrl: `/workshop/pgn-files/${file.id}`,
         breadcrumbFileBackState: { file: { ...file, name: fileName } },
       },
+      t,
     });
   };
 
