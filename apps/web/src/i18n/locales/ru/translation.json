@@ -2330,12 +2330,16 @@
     },
     "my": {
       "title": "Мои курсы",
-      "subtitle": "Курсы, которые ты создал",
+      "subtitle": "Все курсы, которые ты создал — публичные и приватные.",
+      "pageTitle": "Мои курсы",
+      "breadcrumbLabel": "хлебные крошки",
       "create": "+ Создать свой курс",
       "createShort": "Создать курс",
       "empty": "Вы ещё не создали ни одного курса",
+      "emptyHeading": "Вы ещё не создали ни одного курса.",
       "emptyCta": "Создать первый курс",
-      "loadError": "Не удалось загрузить ваши курсы",
+      "loadError": "Не удалось загрузить ваши курсы.",
+      "updatedRelative": "обновлено {{relative}}",
       "edit": "Редактировать",
       "open": "Открыть",
       "delete": "Удалить",
@@ -2365,7 +2369,8 @@
         "enrolledLabel": "Записано",
         "completedLabel": "Прошли",
         "inProgressLabel": "В процессе",
-        "compact": "{{enrolled}} записано · {{completed}} прошли"
+        "compact": "{{enrolled}} записано · {{completed}} прошли",
+        "percent": "{{enrolled}} записано · {{completed}} прошли ({{percent}}%)"
       },
       "updatedAt": "Обновлён {{date}}",
       "author": "Автор: {{name}}",

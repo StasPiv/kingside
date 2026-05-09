@@ -2308,12 +2308,16 @@
     },
     "my": {
       "title": "My courses",
-      "subtitle": "Courses you've created",
+      "subtitle": "All courses you authored — public and private.",
+      "pageTitle": "My courses",
+      "breadcrumbLabel": "breadcrumb",
       "create": "+ Create my course",
       "createShort": "Create course",
       "empty": "You haven't created any courses yet",
+      "emptyHeading": "You haven't created any courses yet.",
       "emptyCta": "Create your first course",
-      "loadError": "Failed to load your courses",
+      "loadError": "Failed to load your courses.",
+      "updatedRelative": "updated {{relative}}",
       "edit": "Edit",
       "open": "Open",
       "delete": "Delete",
@@ -2339,7 +2343,8 @@
         "enrolledLabel": "Enrolled",
         "completedLabel": "Completed",
         "inProgressLabel": "In progress",
-        "compact": "{{enrolled}} enrolled · {{completed}} completed"
+        "compact": "{{enrolled}} enrolled · {{completed}} completed",
+        "percent": "{{enrolled}} enrolled · {{completed}} completed ({{percent}}%)"
       },
       "updatedAt": "Updated {{date}}",
       "author": "Author: {{name}}",

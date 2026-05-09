@@ -7153,3 +7153,112 @@
   cursor: pointer;
   font-size: 12px;
 }
+
+/* ============================================================
+ * KS-2620 / ADR-052 §3.3 #1 — MyCoursesPage (/lessons/my).
+ * Каркас page-обёртки (breadcrumb + header). Карточки/grid/empty
+ * переиспользуют `.my-courses-block__*` классы (KS-1840) — визуал
+ * идентичен компактному блоку на /lessons.
+ * ============================================================ */
+.my-courses-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.my-courses-page__breadcrumb {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.my-courses-page__breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.my-courses-page__breadcrumb a:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.my-courses-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.my-courses-page__title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.my-courses-page__header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.my-courses-page__subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Truncate описания до 2 строк (ADR §3.3.2). */
+.my-courses-page__card-description--clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* На /lessons/my на mobile — НЕ горизонтальная лента (как у
+ * компактного блока на /lessons), а одна колонка карточек. На планшете
+ * — две. Override применяется только в контексте page, чтобы блок на
+ * /lessons не менял раскладку. Перебивает `.my-courses-block__grid`
+ * из lessons-lobby.css, который при max-width:640 включает flex+
+ * scroll-snap (горизонтальная карусель). */
+@media (max-width: 720px) {
+  .my-courses-page .my-courses-block__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: visible;
+    scroll-snap-type: none;
+    padding: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .my-courses-page .my-courses-block__grid > * {
+    flex: initial;
+    max-width: none;
+    scroll-snap-align: none;
+  }
+
+  .my-courses-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .my-courses-page__header h1 {
+    font-size: 22px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 960px) {
+  .my-courses-page .my-courses-block__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

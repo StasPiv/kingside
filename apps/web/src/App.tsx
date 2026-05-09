@@ -39,6 +39,7 @@ import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { LessonsPage } from './pages/LessonsPage';
 import { CoursePage } from './pages/CoursePage';
 import { MyActiveCoursesPage } from './pages/MyActiveCoursesPage';
+import { MyCoursesPage } from './pages/MyCoursesPage';
 import { LessonPage } from './pages/LessonPage';
 // KS-1928 / ADR-032: Дневник ошибок переехал в /puzzles namespace.
 import { PuzzleMistakesPage } from './pages/PuzzleMistakesPage';
@@ -337,6 +338,15 @@ export function App() {
             {/* KS-1923 / ADR-031 §3: Discover-страница, без auth (каталог открыт гостям). */}
             <Route path="/lessons/discover" element={<DiscoverCoursesPage />} />
             <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
+            {/* KS-2620 / ADR-052 §3.3 Tier 1 #1: страница «Мои курсы» —
+                полный список собственных курсов автора. Должна стоять
+                ВЫШЕ wildcard'а `/lessons/:courseSlug` ниже, иначе тот
+                перехватит `/lessons/my` и уведёт пользователя на
+                CoursePage с slug='my' (404). */}
+            <Route
+              path="/lessons/my"
+              element={<ProtectedRoute><MyCoursesPage /></ProtectedRoute>}
+            />
             <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditor /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
             <Route path="/lessons/my/:slug/:lessonId" element={<ProtectedRoute><UserLessonPage /></ProtectedRoute>} />
