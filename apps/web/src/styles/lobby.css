@@ -404,7 +404,7 @@
 
 .time-controls {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   justify-content: center;
   margin-bottom: 16px;
   flex-wrap: wrap;
@@ -831,3 +831,42 @@
 .lobby-feedback-teaser__text strong { font-size: 13px; text-decoration: none; }
 .lobby-feedback-teaser__text span { font-size: 12px; color: var(--c-94a3b8); text-decoration: none; }
 .lobby-feedback-teaser__arrow { font-size: 18px; color: var(--c-64748b); }
+
+/* KS-2185: блок «No opponents online» в matchmaking-flow (Fv2). */
+.no-opponents-block {
+  background: var(--c-16213e);
+  border: 1px solid var(--c-334155);
+  border-radius: 12px;
+  padding: 20px 16px;
+  margin-top: 16px;
+  text-align: center;
+}
+.no-opponents-block__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-e0e0e0);
+  margin: 0 0 6px;
+}
+.no-opponents-block__subtitle {
+  font-size: 14px;
+  color: var(--c-94a3b8);
+  margin: 0 0 16px;
+}
+.no-opponents-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.no-opponents-block__btn {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+.play-btn.play-btn--secondary {
+  background: transparent;
+  border: 1px solid var(--c-334155);
+  color: var(--c-e0e0e0);
+}
+.play-btn.play-btn--secondary:hover:not(:disabled) {
+  border-color: var(--c-7c83ff);
+}

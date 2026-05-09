@@ -592,6 +592,9 @@
   .time-controls {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
+    /* KS-2676: явный gap (на mobile flex → grid, гэп от родителя
+       не наследуется автоматически с разным display'ом). */
+    gap: 12px;
   }
 
   .tc-btn {

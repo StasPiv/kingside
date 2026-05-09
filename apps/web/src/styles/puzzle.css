@@ -280,6 +280,10 @@ body:has(.puzzle-rush-board) {
 .rush-leaderboard-link {
   display: inline-block;
   margin-top: 16px;
+  /* KS-2676: «Начать» и «Таблица лидеров» рендерятся inline в шапке
+     стартового экрана (text-align: center на `.puzzle-rush-page`).
+     Между ними был только whitespace из JSX — выглядело впритык. */
+  margin-left: 20px;
   color: var(--c-7c83ff);
   font-size: 15px;
   font-weight: 600;
