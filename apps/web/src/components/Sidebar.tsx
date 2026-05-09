@@ -78,31 +78,21 @@ const NAV_ITEMS: NavItem[] = [
     match: ['/precision'],
     featureFlag: 'puzzlesEnabled',
   },
-  // KS-2550: 📚 → 🎓 (академическая шляпа = «учусь, прохожу курс»),
-  // 📚 переезжает в /archive.
+  // KS-2550: 📚 → 🎓 (академическая шляпа = «учусь, прохожу курс»).
+  // KS-2650: до этой задачи рядом был отдельный пункт 🎒 «Мои курсы»
+  // (`/lessons/my`), но после слияния моделей system + user в Phase D
+  // ADR-054 (KS-2645) держать второй пункт перестало иметь смысл —
+  // выбор «Все / Мои» теперь делает таб на самой странице `/lessons`.
+  // Match покрывает все подмаршруты `/lessons*` (включая редирект
+  // `/lessons/my` → `/lessons?tab=mine`).
   {
     path: '/lessons',
     icon: '🎓',
     i18nKey: 'nav.lessons',
-    // `/lessons/my` (см. ниже) ловится отдельным пунктом — здесь его
-    // активной подсветки быть не должно. Поэтому match — точное
-    // совпадение `/lessons` и любые подразделы КРОМЕ `/lessons/my*`.
     match: ['/lessons'],
     // KS-2105: раздел скрывается, когда админ выключил
     // `lessonsEnabled` через PATCH /admin/feature-flags/lessonsEnabled.
     featureFlag: 'lessonsEnabled',
-  },
-  // KS-2622 / ADR-052 §3.3.1 #3: точка входа «Мои курсы» под пунктом
-  // «🎓 Lessons». Sidebar строится из иконок без вложенных подменю,
-  // поэтому делаем отдельный пункт с собственной иконкой 🎒 (студент
-  // со своим набором курсов). Видим только залогиненному.
-  {
-    path: '/lessons/my',
-    icon: '🎒',
-    i18nKey: 'lessons.my.pageTitle',
-    match: ['/lessons/my'],
-    featureFlag: 'lessonsEnabled',
-    authOnly: true,
   },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
@@ -144,18 +134,11 @@ export function Sidebar() {
   // KS-2622: «Мои курсы» только для залогиненных.
   const { user } = useAuth();
 
-  // KS-2622: чтобы пункт «Lessons» (path `/lessons`) не светился
-  // активным на /lessons/my (там уже есть свой пункт), исключаем
-  // `/lessons/my*` из его isActive-проверки. Делается через path: при
-  // path === '/lessons' и pathname.startsWith('/lessons/my') — игнор.
-  const isActive = (path: string, match: string[]) =>
-    match.some((p) => {
-      if (!location.pathname.startsWith(p)) return false;
-      if (path === '/lessons' && location.pathname.startsWith('/lessons/my')) {
-        return false;
-      }
-      return true;
-    });
+  // KS-2650: пункт «Lessons» теперь покрывает все подмаршруты
+  // `/lessons*` без исключений (включая `/lessons/my` который
+  // редиректит на `/lessons?tab=mine`).
+  const isActive = (_path: string, match: string[]) =>
+    match.some((p) => location.pathname.startsWith(p));
 
   const visibleItems = NAV_ITEMS.filter((it) => {
     if (it.featureFlag && !flags[it.featureFlag]) return false;

@@ -673,12 +673,11 @@ test.describe('KS-2594 Tier1 — Сценарий 3: edge cases', () => {
     await expect(page.getByTestId('quiz-question-prompt-1')).toHaveValue('Q1');
 
     // Дополнительно сверяем, что серверный payload получил
-    // переставленный порядок — `GET /lessons/user-lessons/:id` отдаёт
+    // переставленный порядок — `GET /lessons/lessons/:id` отдаёт
     // урок со steps. Это устойчивее к асинхронной гидрации после reload.
-    // KS-2645 Phase D исключение: GET-роут пользовательского урока на
-    // unified пути (`/lessons/lessons/:id`) пока 404; остаёмся на legacy.
+    // KS-2646 закрыл блокер Phase D, unified GET работает для user.
     const lessonRes = await fetch(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}`,
       { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
     );
     expect(lessonRes.ok, `GET lesson: ${lessonRes.status}`).toBe(true);

@@ -121,25 +121,19 @@ function shotPath(name: string): string {
  */
 async function openMyCoursesViaEntryPoint(
   page: Page,
-  isMobile: boolean,
+  _isMobile: boolean,
 ): Promise<void> {
+  // KS-2650: после объединения отдельный пункт 🎒 в Sidebar и
+  // CTA-кнопка `my-courses-entry-cta` удалены. Точка входа на «Мои
+  // курсы» теперь — таб «Мои» в шапке страницы `/lessons`. Тест
+  // открывает его кликом по `lessons-tab-mine` (всегда доступен на
+  // desktop и mobile у залогиненного пользователя).
   await page.goto('/lessons');
-  if (isMobile) {
-    // На /lessons виден компонент MyCoursesEntryCta (KS-2622).
-    await expect(page.getByTestId('my-courses-entry-cta')).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByTestId('my-courses-entry-cta').click();
-  } else {
-    // Sidebar строится из иконок без подменю; пункт «Мои курсы» —
-    // отдельная иконка 🎒 со ссылкой на /lessons/my. Локатор —
-    // первый <a> с href /lessons/my (других в Sidebar нет).
-    await expect(page.locator('aside.sidebar a[href="/lessons/my"]')).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.locator('aside.sidebar a[href="/lessons/my"]').click();
-  }
-  await expect(page).toHaveURL(/\/lessons\/my$/, { timeout: 15_000 });
+  await expect(page.getByTestId('lessons-tab-mine')).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByTestId('lessons-tab-mine').click();
+  await expect(page).toHaveURL(/\?tab=mine$/, { timeout: 15_000 });
   await expect(page.getByTestId('my-courses-page')).toBeVisible({
     timeout: 15_000,
   });
@@ -262,7 +256,9 @@ test.describe('KS-2627 — MyCoursesPage e2e', () => {
     await expect(page.getByTestId('my-courses-toast')).toContainText(
       /Link copied/i,
     );
-    const expectedUrl = `http://localhost:5173/lessons/my/${created.slug}`;
+    // KS-2650: Copy link даёт унифицированный URL без `/my/` —
+    // CoursePage сам отрендерит UserCourseView по `course.ownerId`.
+    const expectedUrl = `http://localhost:5173/lessons/${created.slug}`;
     const clipboardText = await page.evaluate(async () => {
       try {
         return await navigator.clipboard.readText();
@@ -350,8 +346,9 @@ test.describe('KS-2627 — MyCoursesPage e2e', () => {
         return null;
       }
     });
+    // KS-2650: унифицированный URL без `/my/`.
     expect(clipboardText).toBe(
-      `http://localhost:5173/lessons/my/${created.slug}`,
+      `http://localhost:5173/lessons/${created.slug}`,
     );
 
     // 4. Toggle visibility (Make public). Открываем меню заново — оно

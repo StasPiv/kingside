@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   CourseListItem,
@@ -13,23 +14,50 @@ import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
 import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
 import { RecommendedCoursesBlock } from '../components/lessons/RecommendedCoursesBlock';
 import { CreateCourseCta } from '../components/lessons/CreateCourseCta';
-import { MyCoursesEntryCta } from '../components/lessons/MyCoursesEntryCta';
+import { MyCoursesView } from '../components/lessons/views/MyCoursesView';
 import { LazySection } from '../components/lessons/LazySection';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
  *
  * Показывает все опубликованные курсы, сгруппированные по уровню. Если API
  * вернул `recommendedLevel` — курсы этого уровня получают бейдж «Рекомендуем».
- * Полноценный рекомендатор — в L-12; здесь заглушка: бейдж выводится, но
- * `recommendedLevel` может отсутствовать в ответе.
+ *
+ * # KS-2650 — объединение `/lessons` и `/lessons/my`
+ *
+ * После Phase D ADR-054 (KS-2645) системные и пользовательские курсы —
+ * единая модель. Держать второй пункт «Мои курсы» в Sidebar (🎒) и
+ * отдельную страницу `/lessons/my` стало артефактом — KS-2650 объединяет
+ * это в один пункт «🎓 Курсы» (`/lessons`) с табом-переключателем
+ * «Все / Мои» через query-параметр `?tab=all|mine`.
+ *
+ * Маршрут `/lessons/my` редиректится на `/lessons?tab=mine` через
+ * `<Navigate>` в App.tsx — старые ссылки сохраняются.
+ *
+ * Для гостей таб «Мои» скрыт (нечего показывать без авторизации).
  */
 
 const LEVEL_ORDER: CourseLevel[] = ['beginner', 'intermediate', 'advanced'];
 
+type LessonsTab = 'all' | 'mine';
+
+function parseTab(value: string | null): LessonsTab {
+  return value === 'mine' ? 'mine' : 'all';
+}
+
 export function LessonsPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // KS-2650: таб берём из URL `?tab=all|mine`. Default — `all`.
+  // Гостям таб `mine` не доступен — если в URL пришёл `mine` без auth,
+  // схлопываем на `all` (login-fallback внутри MyCoursesView тоже
+  // сработает, но лучше не показывать кнопку «Мои» гостям вовсе).
+  const requestedTab = parseTab(searchParams.get('tab'));
+  const tab: LessonsTab = !user && requestedTab === 'mine' ? 'all' : requestedTab;
+
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [recommendedLevel, setRecommendedLevel] = useState<CourseLevel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,14 +126,64 @@ export function LessonsPage() {
       .sort((a, b) => a.order - b.order),
   })).filter((g) => g.items.length > 0);
 
+  const setTab = (next: LessonsTab) => {
+    const sp = new URLSearchParams(searchParams);
+    if (next === 'all') sp.delete('tab');
+    else sp.set('tab', next);
+    setSearchParams(sp, { replace: false });
+  };
+
   return (
-    <div className="lessons-page" data-testid="lessons-page">
+    <div
+      className="lessons-page"
+      data-testid="lessons-page"
+      data-tab={tab}
+    >
       <header className="lessons-header">
         <h1>{t('lessons.title', 'Lessons')}</h1>
         <p className="lessons-subtitle">
           {t('lessons.subtitle', 'Structured chess curriculum')}
         </p>
+        {/* KS-2650: табы «Все / Мои» — простое переключение источника
+            списка курсов. Гостям таб «Мои» не показываем — нечего там
+            показывать без авторизации. */}
+        {user && (
+          <nav
+            className="lessons-tabs"
+            data-testid="lessons-tabs"
+            aria-label={t('lessons.tabs.label', 'Course list filter')}
+            role="tablist"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'all'}
+              className={`lessons-tab${tab === 'all' ? ' lessons-tab--active' : ''}`}
+              data-testid="lessons-tab-all"
+              onClick={() => setTab('all')}
+            >
+              {t('lessons.tabs.all', 'All')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'mine'}
+              className={`lessons-tab${tab === 'mine' ? ' lessons-tab--active' : ''}`}
+              data-testid="lessons-tab-mine"
+              onClick={() => setTab('mine')}
+            >
+              {t('lessons.tabs.mine', 'My courses')}
+            </button>
+          </nav>
+        )}
       </header>
+
+      {/* KS-2650: на табе «Мои» рендерим MyCoursesView (бывшая
+          MyCoursesPage без breadcrumb/H1) и больше ничего. Hero,
+          curriculum, community-strip и т.п. — только на табе «Все». */}
+      {tab === 'mine' && <MyCoursesView />}
+      {tab === 'all' && (
+      <>
 
       {/* KS-1922 / ADR-031 §4.1: контекстный hero — 5 вариантов
           (continue / author / start / guest / loading) в зависимости
@@ -174,13 +252,10 @@ export function LessonsPage() {
       {/* KS-1940 (F-3): CTA «+ Создать свой курс» одной строкой над
           секцией «Сообщество». Гостям не показываем (внутри сам
           возвращает null).
-          KS-2622 (ADR-052 #3): рядом — «Мои курсы (N) →» как точка
-          входа на /lessons/my. Оба компонента сами скрываются для
-          гостей; обёртка `lessons-author-cta-row` строит их в одну
-          строку с переносом на mobile. */}
+          KS-2650: убрали `<MyCoursesEntryCta>` — переход на «Мои»
+          теперь делает таб в шапке. */}
       <div className="lessons-author-cta-row" data-testid="lessons-author-cta-row">
         <CreateCourseCta />
-        <MyCoursesEntryCta />
       </div>
 
       {/* KS-1923 / ADR-031 §3: L4 Discovery — компактная полоса
@@ -215,6 +290,8 @@ export function LessonsPage() {
       >
         <CommunityStripBlock />
       </LazySection>
+      </>
+      )}
     </div>
   );
 }

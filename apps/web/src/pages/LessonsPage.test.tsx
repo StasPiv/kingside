@@ -32,11 +32,37 @@ vi.mock('../components/lessons/CreateCourseCta', () => ({
   CreateCourseCta: () => <div data-testid="create-course-cta-mock" />,
 }));
 
-// KS-2622: MyCoursesEntryCta тянет `useAuth` и `userCoursesApi.list` —
-// для тестов LessonsPage это лишний шум. Собственные тесты — в
-// `components/lessons/MyCoursesEntryCta.test.tsx` (если будут).
-vi.mock('../components/lessons/MyCoursesEntryCta', () => ({
-  MyCoursesEntryCta: () => <div data-testid="my-courses-entry-cta-mock" />,
+// KS-2650: AuthContext нужен для табов «Все / Мои» (показываются только
+// залогиненным). Тесты LessonsPage не оборачиваются в AuthProvider,
+// поэтому мокаем хук `useAuth` сразу — тесты гоняют гостевой режим
+// (user=null), таб «Мои» не виден; для проверки таба «Мои» добавили
+// отдельные кейсы ниже с переопределённым моком.
+const { authMock } = vi.hoisted(() => ({
+  authMock: { user: null as { id: string; username: string } | null },
+}));
+
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: authMock.user
+      ? {
+          ...authMock.user,
+          email: 'x@x',
+          ratingBullet: 1500,
+          ratingBlitz: 1500,
+          ratingRapid: 1500,
+          ratingClassical: 1500,
+          createdAt: '2026-01-01',
+        }
+      : null,
+    loading: false,
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+// KS-2650: MyCoursesView тянет useAuth + lessonsApi.list — мокаем
+// заглушкой, отдельные тесты в `components/lessons/MyCoursesView.test.tsx`.
+vi.mock('../components/lessons/views/MyCoursesView', () => ({
+  MyCoursesView: () => <div data-testid="my-courses-view-mock" />,
 }));
 
 // KS-1923: блоки «New from community» (compact strip) тянут `useAuth` и api —

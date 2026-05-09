@@ -81,25 +81,25 @@ test('KS-2629: desktop screenshots — один шаг = один экран', a
   const tokens = await devBypass(username);
   await seedAuth(page, tokens);
 
-  // 1. Создать курс через UI-эндпоинт (POST /lessons/user-courses).
+  // 1. Создать курс через UI-эндпоинт (POST /lessons/courses).
   const course = await api<{ id: string; slug: string }>(
     tokens,
     'POST',
-    '/lessons/user-courses',
+    '/lessons/courses',
     { title: 'KS-2629 reader screenshot' },
   );
 
-  // 2. Создать урок (POST /lessons/user-courses/:id/lessons).
+  // 2. Создать урок (POST /lessons/courses/:id/lessons).
   const lesson = await api<{ id: string }>(
     tokens,
     'POST',
-    `/lessons/user-courses/${course.id}/lessons`,
+    `/lessons/courses/${course.id}/lessons`,
     { title: 'Step pagination demo' },
   );
 
   // 3. Добавить три text-шага.
   for (let i = 1; i <= 3; i++) {
-    await api(tokens, 'POST', `/lessons/user-lessons/${lesson.id}/steps`, {
+    await api(tokens, 'POST', `/lessons/lessons/${lesson.id}/steps`, {
       type: 'text',
       payload: {
         type: 'text',
@@ -109,20 +109,20 @@ test('KS-2629: desktop screenshots — один шаг = один экран', a
     });
   }
 
-  // 4. Открываем reader без ?step=.
-  await page.goto(`/lessons/my/${course.slug}/${lesson.id}`);
+  // 4. Открываем reader без ?step= (унифицированный URL после KS-2645).
+  await page.goto(`/lessons/${course.slug}/${lesson.id}`);
   await page.getByTestId('user-lesson-page').waitFor({ timeout: 15_000 });
   // Дожидаемся редиректа на ?step=1.
   await page.waitForURL(/\?step=1$/, { timeout: 5_000 });
   await page.screenshot({ path: `${DIR}/desktop-step-1.png`, fullPage: true });
 
   // 5. Открываем ?step=2 явно.
-  await page.goto(`/lessons/my/${course.slug}/${lesson.id}?step=2`);
+  await page.goto(`/lessons/${course.slug}/${lesson.id}?step=2`);
   await page.getByTestId('user-lesson-page').waitFor({ timeout: 15_000 });
   await page.screenshot({ path: `${DIR}/desktop-step-2.png`, fullPage: true });
 
   // Cleanup.
-  await fetch(`${API_URL}/lessons/user-courses/${course.id}`, {
+  await fetch(`${API_URL}/lessons/courses/${course.id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
   }).catch(() => {});

@@ -3,15 +3,19 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { UserCourseDto } from '@kingside/shared';
 
-import { lessonsApi } from '../api/lessonsApi';
-import { useAuth } from '../context/AuthContext';
-import { useDelayedFlag } from '../hooks/useDelayedFlag';
-import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
-import { formatRelativeActivity } from '../utils/relativeTime';
+import { lessonsApi } from '../../../api/lessonsApi';
+import { useAuth } from '../../../context/AuthContext';
+import { useDelayedFlag } from '../../../hooks/useDelayedFlag';
+import { useCopyToClipboard } from '../../../hooks/useCopyToClipboard';
+import { formatRelativeActivity } from '../../../utils/relativeTime';
 
 /**
- * `MyCoursesPage` — страница `/lessons/my` (ADR-052 §3.3, KS-2620 +
- * KS-2621).
+ * `MyCoursesView` — содержимое таба «Мои» на `/lessons?tab=mine`
+ * (KS-2650). До KS-2650 это была отдельная страница `MyCoursesPage`
+ * на `/lessons/my` (ADR-052 §3.3, KS-2620 + KS-2621). После слияния
+ * моделей system + user в Phase D ADR-054 (KS-2645) держать второй
+ * пункт в Sidebar и отдельную страницу перестало иметь смысл —
+ * рендерится прямо на `/lessons` под табом.
  *
  * Полный список собственных курсов автора: Public/Private бейдж, title,
  * meta «N lessons · updated <relative>», stats для владельца
@@ -55,7 +59,7 @@ interface ToastState {
 
 const TOAST_AUTO_HIDE_MS = 3000;
 
-export function MyCoursesPage() {
+export function MyCoursesView() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -152,7 +156,10 @@ export function MyCoursesPage() {
 
   const handleOpen = useCallback(
     (course: UserCourseDto) => {
-      navigate(`/lessons/my/${course.slug}`);
+      // KS-2650 (после Phase D ADR-054): Open ведёт на унифицированный
+      // маршрут `/lessons/:slug`. CoursePage сам определит, что курс
+      // пользовательский, по `course.ownerId`.
+      navigate(`/lessons/${course.slug}`);
     },
     [navigate],
   );
@@ -168,7 +175,8 @@ export function MyCoursesPage() {
     async (course: UserCourseDto) => {
       const origin =
         typeof window !== 'undefined' ? window.location.origin : '';
-      const url = `${origin}/lessons/my/${course.slug}`;
+      // KS-2650: shareable URL — унифицированный.
+      const url = `${origin}/lessons/${course.slug}`;
       const ok = await copyToClipboard(url);
       if (!ok) {
         showToast(
@@ -284,28 +292,11 @@ export function MyCoursesPage() {
         isLoading ? 'loading' : errored ? 'error' : isEmpty ? 'empty' : 'ready'
       }
     >
-      <nav
-        aria-label={t('lessons.my.breadcrumbLabel', 'breadcrumb')}
-        className="my-courses-page__breadcrumb"
-        data-testid="my-courses-breadcrumb"
-      >
-        <Link to="/lessons">{t('lessons.title', 'Lessons')}</Link>
-        <span aria-hidden="true"> / </span>
-        <span aria-current="page">
-          {t('lessons.my.pageTitle', 'My courses')}
-        </span>
-      </nav>
-
-      <header className="my-courses-page__header">
-        <div className="my-courses-page__title-block">
-          <h1>{t('lessons.my.pageTitle', 'My courses')}</h1>
-          <p className="my-courses-page__subtitle">
-            {t(
-              'lessons.my.subtitle',
-              'Manage your custom courses',
-            )}
-          </p>
-        </div>
+      {/* KS-2650: breadcrumb и H1 убраны — заголовок страницы и
+          табы рендерит родительский LessonsPage. Здесь — только
+          header с CTA «+ Create» (на mobile он скрыт CSS, доступ
+          через sticky-кнопку внизу). */}
+      <header className="my-courses-page__header my-courses-page__header--embedded">
         {/* KS-2623: на mobile (<560px) header-кнопка «+ Create»
             скрывается, вместо неё внизу экрана видна sticky-CTA. */}
         <button
@@ -416,7 +407,7 @@ export function MyCoursesPage() {
                     Кнопки действий вынесены в footer, чтобы их клики
                     не пробрасывались на ссылку. */}
                 <Link
-                  to={`/lessons/my/${c.slug}`}
+                  to={`/lessons/${c.slug}`}
                   className="my-courses-block__link"
                 >
                   <header className="my-courses-block__card-header">
