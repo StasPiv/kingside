@@ -157,7 +157,7 @@ afterEach(() => {
 });
 
 describe('<UserLessonPage>', () => {
-  it('loading → ready: рендерит breadcrumbs, title, шаги', async () => {
+  it('KS-2629: loading → ready рендерит ТОЛЬКО текущий шаг (?step=1 по умолчанию)', async () => {
     mockCourse({
       course: mkCourse(),
       lessons: [mkLesson({ id: 'l1' })],
@@ -176,8 +176,66 @@ describe('<UserLessonPage>', () => {
       expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('user-lesson-title').textContent).toBe('Lesson One');
+    // ADR-053 #1: один шаг = один экран. По умолчанию (без ?step=) —
+    // первый pending. Прогресса нет → шаг 1 (s1).
     expect(screen.getByTestId('step-renderer-s1')).toBeInTheDocument();
+    expect(screen.queryByTestId('step-renderer-s2')).not.toBeInTheDocument();
+  });
+
+  it('KS-2629: ?step=2 → рендерится второй шаг (1-based)', async () => {
+    mockCourse({
+      course: mkCourse(),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [mkStep({ id: 's1' }), mkStep({ id: 's2', order: 1 })],
+      progress: null,
+    });
+
+    renderRouter({ initialPath: '/lessons/my/my-course/l1?step=2' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
     expect(screen.getByTestId('step-renderer-s2')).toBeInTheDocument();
+    expect(screen.queryByTestId('step-renderer-s1')).not.toBeInTheDocument();
+  });
+
+  it('KS-2629: без ?step= и при наличии серверного прогресса → первый pending', async () => {
+    mockCourse({
+      course: mkCourse(),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [
+        mkStep({ id: 's1' }),
+        mkStep({ id: 's2', order: 1 }),
+        mkStep({ id: 's3', order: 2 }),
+      ],
+      progress: {
+        userCourseId: 'c1',
+        userLessonId: 'l1',
+        startedAt: 'x',
+        lastActivityAt: 'x',
+        completedAt: null,
+        score: 0.33,
+        // s1 уже done → реадер открывается на s2.
+        stepsState: { s1: 'done' },
+      },
+    });
+
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('step-renderer-s2')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('step-renderer-s1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('step-renderer-s3')).not.toBeInTheDocument();
   });
 
   it('4xx при загрузке курса → 404', async () => {

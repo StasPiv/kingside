@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   LessonStep,
@@ -75,6 +80,7 @@ export function UserLessonPage() {
   const { slug, lessonId } = useParams<{ slug: string; lessonId: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [completeMessage, setCompleteMessage] = useState<string | null>(null);
@@ -163,6 +169,80 @@ export function UserLessonPage() {
   );
   useStockfish({ prefetch: hasEndgameDrill });
 
+  // KS-2629 (ADR-053 #1): «один шаг — одна страница» в user-reader,
+  // полностью симметрично системной `LessonPage` (KS-2041). На странице
+  // рендерится только активный шаг; индекс хранится в URL `?step=N`
+  // (1-based, удобно для пользователя и для копии ссылки).
+  //
+  // Инициализация при первом монтировании урока:
+  //   1. URL уже содержит `?step=N` → используем его (с зажимом в
+  //      допустимый диапазон). Покрывает back/forward и копию ссылки.
+  //   2. URL без `?step=N` → берём первый pending по серверному
+  //      `lesson.progress.stepsState` (продолжаем с того места, где
+  //      пользователь остановился). Если все done — первый шаг.
+  //
+  // Источник истины для seed'а — серверный stepsState из ответа
+  // `getLesson` (он же `state.initialStepsState`), а не оптимистичные
+  // обновления хука прогресса — иначе при клике «Готово» на шаге
+  // позиция дёргалась бы.
+  const sortedSteps = useMemo(
+    () => (state.kind === 'ready' ? state.steps : []),
+    [state],
+  );
+  const initialStepRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (state.kind !== 'ready') return;
+    if (sortedSteps.length === 0) return;
+    if (initialStepRef.current === state.lesson.id) return;
+    initialStepRef.current = state.lesson.id;
+
+    const urlStep = searchParams.get('step');
+    if (urlStep !== null) {
+      const n = parseInt(urlStep, 10);
+      if (!Number.isFinite(n) || n < 1 || n > sortedSteps.length) {
+        const next = new URLSearchParams(searchParams);
+        next.set('step', '1');
+        setSearchParams(next, { replace: true });
+      }
+      return;
+    }
+
+    const serverState = state.initialStepsState ?? {};
+    const idx = sortedSteps.findIndex((s) => serverState[s.id] !== 'done');
+    const firstPendingIdx = idx >= 0 ? idx : 0;
+
+    const next = new URLSearchParams(searchParams);
+    next.set('step', String(firstPendingIdx + 1));
+    setSearchParams(next, { replace: true });
+  }, [state, sortedSteps, searchParams, setSearchParams]);
+
+  // Текущий активный шаг — производный от URL. Зажимаем в
+  // `[0, sortedSteps.length - 1]`, чтобы не получить undefined-шаг
+  // на крайних значениях (например, ?step=0 или ?step=999).
+  const currentStepIndex = useMemo(() => {
+    if (sortedSteps.length === 0) return 0;
+    const raw = parseInt(searchParams.get('step') ?? '1', 10);
+    const oneBased = Number.isFinite(raw) ? raw : 1;
+    const clamped = Math.min(Math.max(oneBased, 1), sortedSteps.length);
+    return clamped - 1;
+  }, [searchParams, sortedSteps.length]);
+
+  // Переход на конкретный шаг — пока используется только при отметке
+  // «done» (см. handleStepDone ниже). Кнопки Prev/Next и клавиатура —
+  // отдельный тикет KS-2630 (ADR-053 #2).
+  const goToStep = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= sortedSteps.length) return;
+      const next = new URLSearchParams(searchParams);
+      next.set('step', String(idx + 1));
+      setSearchParams(next);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    },
+    [searchParams, setSearchParams, sortedSteps.length],
+  );
+
   const canComplete = progress.score >= progress.threshold;
 
   const nextLessonId = useMemo(() => {
@@ -247,11 +327,18 @@ export function UserLessonPage() {
             className="user-lesson-page__progress"
             data-testid="user-lesson-progress"
           >
-            {t('lessons.progressFull', {
-              completed: progress.doneCount,
+            {/* KS-2629: добавили номер текущего шага — симметрично
+                системной LessonPage (KS-2041), чтобы при «один шаг = один
+                экран» пользователь видел свою позицию в уроке. Старый
+                ключ `lessons.progressFull` оставляем как fallback на
+                случай отсутствия нового перевода. */}
+            {t('lessons.lessonProgressWithStep', {
+              current: currentStepIndex + 1,
               total: progress.totalSteps,
+              done: progress.doneCount,
               percent: donePercent,
-              defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
+              defaultValue:
+                'Step {{current}}/{{total}} — {{done}}/{{total}} done ({{percent}}%)',
             })}
           </div>
         </div>
@@ -292,34 +379,50 @@ export function UserLessonPage() {
           </Link>
         </div>
       ) : (
+        // KS-2629 (ADR-053 #1): один шаг = один экран. Контейнер
+        // `lesson-step-list` (testid сохранён для совместимости с
+        // существующими e2e/тестами) держит ровно ОДИН активный <li> —
+        // выбранный по `?step=N` в URL. Кнопки Prev/Next, footer
+        // Complete-rework, overlay — отдельные тикеты ADR-053 (#2/#4/#5).
         <ol className="lesson-step-list" data-testid="user-lesson-step-list">
-          {steps.map((step) => (
-            <li
-              key={step.id}
-              className={`lesson-step lesson-step--${step.type}`}
-              data-testid={`user-lesson-step-${step.order}`}
-              data-step-state={progress.stepsState[step.id] ?? 'pending'}
-            >
-              <header className="lesson-step__header">
-                <span className="lesson-step-order">#{step.order}</span>
-                <span className="lesson-step-type">
-                  {t(`lessons.stepType.${step.type}`, step.type)}
-                </span>
-              </header>
-              {/* KS-1990: `hideNext` для последнего шага больше не
-                  передаём — без автомаркера TextStep пользователю
-                  нужен явный способ отметить шаг done. */}
-              <StepRenderer
-                step={step}
-                onStepDone={() => progress.markStep(step.id, 'done')}
-                // KS-1891: передаём текущее состояние шага, чтобы
-                // TextStep показал «Пройдено ✓» при повторном
-                // открытии завершённого урока (KS-1880 восстанавливает
-                // stepsState с сервера).
-                stepState={progress.stepsState[step.id]}
-              />
-            </li>
-          ))}
+          {(() => {
+            const step = steps[currentStepIndex];
+            if (!step) return null;
+            const isLast = currentStepIndex === steps.length - 1;
+            const handleStepDone = () => {
+              progress.markStep(step.id, 'done');
+              // На последнем шаге не переключаемся автоматически —
+              // пользователь должен увидеть итог и нажать «Complete»
+              // (footer-кнопка остаётся как была). На промежуточных
+              // шагах сразу ведём вперёд — это поведение симметрично
+              // системной LessonPage.
+              if (!isLast) goToStep(currentStepIndex + 1);
+            };
+            return (
+              <li
+                key={step.id}
+                id={`step-${step.id}`}
+                className={`lesson-step lesson-step--${step.type}`}
+                data-testid={`user-lesson-step-${step.order}`}
+                data-step-state={progress.stepsState[step.id] ?? 'pending'}
+              >
+                <header className="lesson-step__header">
+                  <span className="lesson-step-order">#{step.order}</span>
+                  <span className="lesson-step-type">
+                    {t(`lessons.stepType.${step.type}`, step.type)}
+                  </span>
+                </header>
+                <StepRenderer
+                  step={step}
+                  onStepDone={handleStepDone}
+                  // KS-1891: текущее состояние шага — для отрисовки
+                  // «Пройдено ✓» при повторном открытии завершённого
+                  // урока (KS-1880 восстанавливает stepsState с сервера).
+                  stepState={progress.stepsState[step.id]}
+                />
+              </li>
+            );
+          })()}
         </ol>
       )}
 
