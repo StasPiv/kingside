@@ -88,13 +88,18 @@
    это `text-decoration: underline` от user-agent на `<a>` для
    `:visited`/`:focus`/`:active` (Chromium перебивает наше
    `text-decoration: none` для этих псевдо-состояний). Явно сбрасываем
-   подчёркивание на каждом состоянии плюс на самом label. Hover уже даёт
-   достаточное визуальное выделение карточки (фон + бордер + transform). */
+   подчёркивание на каждом состоянии плюс на самом label.
+   KS-2611: добавлен `:hover` (и для самой ссылки, и для `__label`)
+   — глобальное `a:hover { text-decoration: underline }` из base.css
+   подчёркивало подпись внутри карточки тизера на публичной главной. */
+.features-quick-link,
 .features-quick-link:visited,
+.features-quick-link:hover,
 .features-quick-link:focus,
 .features-quick-link:focus-visible,
 .features-quick-link:active,
-.features-quick-link__label {
+.features-quick-link__label,
+.features-quick-link:hover .features-quick-link__label {
   text-decoration: none;
 }
 
