@@ -3462,3 +3462,119 @@ body:has(.puzzle-rush-board) {
     transition: none;
   }
 }
+
+/* ============================================================
+ * KS-2670 — иконочные action-кнопки на карточках /precision My
+ * puzzles. Структура повторяет `.my-courses-page__action--icon`
+ * (KS-2654): квадратная кнопка с центрированной SVG-иконкой и
+ * CSS-tooltip из `aria-label`. На mobile — touch-target 44×44.
+ * ============================================================ */
+.precision-card__icon-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.precision-card__icon-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated, var(--bg-surface));
+  border-color: var(--text-secondary);
+}
+
+.precision-card__icon-action:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+  color: var(--text-primary);
+}
+
+.precision-card__icon-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.precision-card__icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* Solve — primary-вариант: синяя заливка, белая иконка. Это main CTA
+   карточки, поэтому заметно выделяется. */
+.precision-card__icon-action--solve {
+  background: var(--accent-primary, #7c83ff);
+  border-color: var(--accent-primary, #7c83ff);
+  color: var(--text-on-accent, #fff);
+}
+
+.precision-card__icon-action--solve:hover:not(:disabled) {
+  background: var(--accent-hover, #6b72e6);
+  border-color: var(--accent-hover, #6b72e6);
+  color: var(--text-on-accent, #fff);
+}
+
+/* Delete — danger-цвет иконки (для контраста), hover усиливает фон. */
+.precision-card__icon-action--delete {
+  color: var(--danger, #dc2626);
+}
+
+.precision-card__icon-action--delete:hover:not(:disabled) {
+  color: var(--danger, #dc2626);
+  background: var(--danger-soft, rgba(220, 38, 38, 0.12));
+  border-color: var(--danger, #dc2626);
+}
+
+/* CSS-tooltip над иконочной кнопкой: подпись из `aria-label`, появляется
+   на hover/focus-visible. Дополняет нативный `title`. */
+.precision-card__icon-action::after {
+  content: attr(aria-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-on-accent, #fff);
+  background: var(--c-1e293b, #1e293b);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 5;
+}
+
+.precision-card__icon-action:hover::after,
+.precision-card__icon-action:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* На mobile иконки увеличиваем до 44×44 (минимальный touch-target).
+   На <600px карточки уже узкие — Solve остаётся primary, остальные
+   действия идут справа в одну строку. */
+@media (max-width: 600px) {
+  .precision-card__icon-action {
+    width: 44px;
+    height: 44px;
+  }
+  .precision-card__icon {
+    width: 22px;
+    height: 22px;
+  }
+}
