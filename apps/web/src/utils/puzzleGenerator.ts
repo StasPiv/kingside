@@ -544,24 +544,61 @@ export async function generatePuzzlesFromPgn(
   return puzzles;
 }
 
-// ─── PGN-парсер (без изменений из старой версии) ───
+// ─── PGN-парсер ───
 
-/** Strip comments {…}, variations (…), NAG ($1 etc), extra whitespace from PGN movetext */
+/**
+ * KS-2683: убрать комментарии `{…}`, варианты `(…)` (с поддержкой
+ * вложенности), NAG-аннотации `$N`, лишние пробелы из movetext.
+ *
+ * Раньше использовались regex'ы `\{[^}]*\}` и `\([^)]*\)` — оба
+ * нерекурсивные, на вложенных вариантах `((...))` (или комментарии,
+ * содержащем `}`) ломались. Реальные PGN из chess.com / lichess
+ * обычно линейные, но защититься от вложенности дёшево —
+ * character-pass со счётчиком скобок надёжнее regex'ов.
+ *
+ * Header tags (`[Event ...]`) пропускаем — там скобки/комментарии
+ * не имеют отдельного смысла.
+ */
 function stripPgnAnnotations(pgn: string): string {
   const lines = pgn.split('\n');
   const result: string[] = [];
   for (const line of lines) {
     if (line.trimStart().startsWith('[')) {
       result.push(line);
-    } else {
-      const cleaned = line
-        .replace(/\{[^}]*\}/g, '')
-        .replace(/\([^)]*\)/g, '')
-        .replace(/\$\d+/g, '')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-      result.push(cleaned);
+      continue;
     }
+    // Character-pass: balanced { } и ( ) с поддержкой вложенности.
+    // {…} — комментарии (не вкладываются по PGN-стандарту, но
+    // обрабатываем единичный уровень). (…) — варианты, могут быть
+    // вложены.
+    let cleaned = '';
+    let inComment = false;
+    let parenDepth = 0;
+    for (const ch of line) {
+      if (inComment) {
+        if (ch === '}') inComment = false;
+        continue;
+      }
+      if (ch === '{') {
+        inComment = true;
+        continue;
+      }
+      if (ch === '(') {
+        parenDepth++;
+        continue;
+      }
+      if (ch === ')') {
+        if (parenDepth > 0) parenDepth--;
+        continue;
+      }
+      if (parenDepth > 0) continue;
+      cleaned += ch;
+    }
+    cleaned = cleaned
+      .replace(/\$\d+/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    result.push(cleaned);
   }
   return result.join('\n');
 }

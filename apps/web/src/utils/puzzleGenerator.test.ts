@@ -454,4 +454,54 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     });
     expect(puzzles).toHaveLength(0);
   });
+
+  // ── KS-2683 ─────────────────────────────────────────────────────────
+  it('KS-2683: PGN из chess.com с {clk}/{csl}/{cal}/NAG/вариантами/* парсится без ошибок', async () => {
+    const chesscomPgn = `[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.05.09"]
+[Round "-"]
+[White "RafaellDiamante"]
+[Black "PozitiFF_Chess"]
+[Result "0-1"]
+[WhiteElo "2387"]
+[BlackElo "2467"]
+
+1. e4 {[%clk 0:02:59.5]} c5 {[%clk 0:03:00.6]} 2. Nf3 {[%clk 0:03:00.2]} Nc6 {[%clk 0:03:02]} 3. Bb5 {[%clk 0:03:00.9]} g6 $1 {По рекомендации чешских мастеров [%clk 0:03:02.6]} (3... e6 $6 {Сомнительно, белые получают игровую позицию с давлением [%csl Rd6] [%cal Ge4e5]}) 4. O-O {[%clk 0:03:01.2]} Bg7 {[%clk 0:03:03.8]} 5. Re1 {[%clk 0:03:02.4]} Nf6 {[%clk 0:03:05]} 6. e5 {[%clk 0:03:03.2]} Nd5 {[%clk 0:03:04.4]} 7. Nc3 {[%clk 0:03:04.4]} Nxc3 {[%clk 0:02:57.4]} 8. bxc3 {[%clk 0:03:06.3]} O-O {[%clk 0:02:57.7]} 9. d4 {[%clk 0:03:07]} cxd4 {[%clk 0:02:58.1]} 10. cxd4 {[%clk 0:03:08.4]} d5 {[%clk 0:02:58.9]} 11. a4 {[%clk 0:03:03.9]} Bg4 {[%clk 0:02:59.1]} 12. Bxc6 {[%clk 0:02:57.7]} bxc6 {[%clk 0:02:58.9]} 13. Ba3 {[%clk 0:02:59.1]} Re8 {[%clk 0:02:51.9]} 14. h3 {[%clk 0:02:59.2]} Bf5 {[%clk 0:02:45.3]} 15. Nd2 {[%clk 0:02:57.8]} f6 {[%clk 0:02:17.3]} 16. f4 {[%clk 0:02:55.8]} fxe5 {[%clk 0:02:13.3]} 17. fxe5 {[%clk 0:02:56]} e6 {[%clk 0:01:51.5]} 18. Nb3 {[%clk 0:02:55.1]} Qh4 {[%clk 0:01:44.8]} 19. Qd2 {[%clk 0:02:39.4]} Bh6 {[%clk 0:01:39.6]} 20. Qc3 {[%clk 0:02:27.6]} Be4 {[%clk 0:01:28.3]} 21. Nc5 {[%clk 0:02:21.3]} Bf5 {[%clk 0:00:46.3]} 22. g4 {[%clk 0:02:08.1]} Bxg4 {[%clk 0:00:41.9]} 23. hxg4 {[%clk 0:02:10]} Qxg4+ {[%clk 0:00:41.3]} 24. Kh1 {[%clk 0:01:57]} Rf8 {[%clk 0:00:39.2]} 25. Rf1 {[%clk 0:01:04.6]} Bf4 {[%clk 0:00:39.5]} 26. Rf2 {[%clk 0:00:42.9]} Rf5 {[%clk 0:00:38.4]} 27. Rg2 {[%clk 0:00:40.4]} Rh5+ {[%clk 0:00:34.2]} 28. Kg1 {[%clk 0:00:41.4]} Bh2+ {[%clk 0:00:35.1]} 29. Kf1 {[%clk 0:00:42.1]} Rf8+ {[%clk 0:00:36.1]} 30. Rf2 {[%clk 0:00:43.2]} Qg1+ {[%clk 0:00:35.5] [%csl Rf1]} *`;
+    let analyzeCalls = 0;
+    const { engine } = makeMockEngine(() => {
+      analyzeCalls++;
+      // «Нет blunder» — нулевая дельта, ни один пазл не пройдёт.
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+    // Без exception — это главный acceptance из задачи.
+    const puzzles = await generatePuzzlesFromPgn(chesscomPgn, vi.fn(), {
+      engineFactory: () => engine,
+    });
+    // Genераtор должен дойти до анализа (analyzeCalls > 0) — это
+    // подтверждает, что history успешно прошлась mid-game и engine.analyze
+    // вызывался. Конкретное число пазлов не валидируем — без
+    // реального Stockfish blunder-сценарий невоспроизводим.
+    expect(analyzeCalls).toBeGreaterThan(0);
+    expect(puzzles).toEqual([]);
+  });
+
+  it('KS-2683: вложенные варианты ((…)) корректно вырезаются', async () => {
+    // Чисто вложенный вариант. Базовый PGN с длинным main line, чтобы
+    // дойти до startPly=20.
+    const pgnWithNestedVar = `[Event "Test"]
+[White "A"]
+[Black "B"]
+[Result "*"]
+
+1. e4 (1. d4 (1. c4 d5) Nf6) e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6 8. c3 O-O 9. h3 Nb8 10. d4 Nbd7 11. Nbd2 Bb7 12. Bc2 Re8 *`;
+    const { engine } = makeMockEngine(() => {
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+    // Без exception → strip отработал корректно даже с вложенным `(())`.
+    const puzzles = await generatePuzzlesFromPgn(pgnWithNestedVar, vi.fn(), {
+      engineFactory: () => engine,
+    });
+    expect(puzzles).toEqual([]);
+  });
 });
