@@ -808,7 +808,9 @@
         "wrong": "{{san}} не создаёт вилку."
       },
       "findUndefendedAttack": {
-        "correct": "{{san}}: атака на {{piece}} ({{square}}), защитников нет.",
+        "correctDirect": "{{san}}: атакует {{piece}} ({{square}}), защитников нет.",
+        "correctRemoveDefender": "{{san}}: убирает защитника, теперь {{piece}} ({{square}}) под боем без защиты.",
+        "correctDiscovered": "{{san}}: уходит с линии — {{attackerPiece}} ({{attackerSq}}) бьёт {{piece}} ({{square}}); защитников нет.",
         "correctMulti": "{{san}}: новых висящих фигур — {{count}} ({{squares}}).",
         "correctFreeWin": "{{san}}: выигрывает {{piece}} ({{square}}) без размена.",
         "wrong": "{{san}} не создаёт новой угрозы."

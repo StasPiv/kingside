@@ -201,7 +201,13 @@ describe('KS-2459 — drills.explanation все ключи присутству�
     'findFork.correct',
     'findFork.correctWithCheck',
     'findFork.wrong',
-    'findUndefendedAttack.correct',
+    // KS-2618: ключ `correct` разделён на три мотива (direct /
+    // removeDefender / discovered) — explanation-движок выбирает один
+    // из трёх. `correctFreeWin` остаётся для legacy use-case (выигрыш
+    // без размена), `correctMulti` — для нескольких новых висящих.
+    'findUndefendedAttack.correctDirect',
+    'findUndefendedAttack.correctRemoveDefender',
+    'findUndefendedAttack.correctDiscovered',
     'findUndefendedAttack.correctMulti',
     'findUndefendedAttack.correctFreeWin',
     'findUndefendedAttack.wrong',

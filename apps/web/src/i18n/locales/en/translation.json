@@ -800,7 +800,9 @@
         "wrong": "{{san}} doesn't create a fork."
       },
       "findUndefendedAttack": {
-        "correct": "{{san}}: attacks {{piece}} ({{square}}), no defenders.",
+        "correctDirect": "{{san}}: attacks {{piece}} ({{square}}), no defenders.",
+        "correctRemoveDefender": "{{san}}: removes the defender — {{piece}} ({{square}}) is now hanging.",
+        "correctDiscovered": "{{san}}: clears the line — {{attackerPiece}} ({{attackerSq}}) hits {{piece}} ({{square}}); no defenders.",
         "correctMulti": "{{san}}: creates {{count}} hanging pieces — {{squares}}.",
         "correctFreeWin": "{{san}}: wins {{piece}} ({{square}}) without trade.",
         "wrong": "{{san}} doesn't create a new threat."

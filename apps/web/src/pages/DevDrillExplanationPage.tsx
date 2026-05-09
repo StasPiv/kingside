@@ -206,6 +206,30 @@ const SCENARIOS: Scenario[] = [
     userAnswer: { shape: 'move', from: 'c1', to: 'a3' },
     solved: false,
   },
+  // KS-2618 regression: вскрытая атака. Конь f6 закрывает диагональ
+  // d8–h4 для чёрного ферзя; Nf6→g8 открывает атаку Q d8 → B g5.
+  // FEN из жалобы пользователя 2026-05-09 (Telegram), минимизирован
+  // backend в KS-2617.
+  {
+    key: 'find-undefended-attack-discovered',
+    label: 'find-undefended-attack · ВСКРЫТАЯ Nf6→g8 (Q d8 → B g5)',
+    drillType: 'find-undefended-attack',
+    fen: 'k2q4/8/5n2/6B1/8/8/8/4K3 b - - 0 1',
+    correctAnswer: { shape: 'move', from: 'f6', to: 'g8' },
+    userAnswer: { shape: 'move', from: 'f6', to: 'g8' },
+    solved: true,
+  },
+  // KS-2618: снятие защитника. Ладья d1 атакует пешку d7, защитник —
+  // слон c8. Ход Rxc8 убирает защитника — d7 повисла.
+  {
+    key: 'find-undefended-attack-remove-defender',
+    label: 'find-undefended-attack · СНЯТИЕ ЗАЩИТНИКА Rxc8 (d7 без защиты)',
+    drillType: 'find-undefended-attack',
+    fen: '2b2k2/3p4/8/8/8/8/8/2RRK3 w - - 0 1',
+    correctAnswer: { shape: 'move', from: 'c1', to: 'c8' },
+    userAnswer: { shape: 'move', from: 'c1', to: 'c8' },
+    solved: true,
+  },
 ];
 
 function arrowRoleColor(role: ArrowRole): string {
