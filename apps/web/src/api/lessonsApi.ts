@@ -13,6 +13,7 @@ import type {
   PuzzleDto,
   PuzzleStepPayload,
   ReviewsDueResponse,
+  UserCourseListResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -47,10 +48,69 @@ const FALLBACK_RECOMMENDATION: CourseRecommendationResponse = {
  * серверной локали.
  */
 
+/** KS-2645 (ADR-054 Phase D): параметры унифицированного `list`. */
+export interface ListLessonsCoursesParams {
+  /**
+   * `true` — мои user-courses (любой видимости). `false` — публичные
+   * user-courses других авторов. `undefined` (по умолчанию) — системные
+   * курсы (legacy `listCourses` поведение).
+   */
+  mine?: boolean;
+  /** Лимит для публичной витрины (актуально при `mine=false`). */
+  limit?: number;
+}
+
+function listQueryString(params?: Record<string, string | undefined>): string {
+  if (!params) return '';
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== '',
+  );
+  if (entries.length === 0) return '';
+  const qs = new URLSearchParams();
+  for (const [k, v] of entries) qs.set(k, v as string);
+  return `?${qs.toString()}`;
+}
+
+/**
+ * KS-2645 (ADR-054 Phase D): унифицированный список курсов.
+ *
+ *   `list()`              — системные курсы (CourseListResponse).
+ *   `list({mine: true})`  — мои user-courses (UserCourseListResponse).
+ *   `list({mine: false})` — публичные user-courses других авторов.
+ *
+ * DTO различаются: системные ответ — `CourseListResponse`, user-courses —
+ * `UserCourseListResponse` с `ownerId/isPublic/lessonCount/stats`.
+ * Различение на стороне вызывающего по `course.ownerId` (null/undefined
+ * → системный).
+ *
+ * Перегрузки заданы через interface (object-literal'ы overload-сигнатуры
+ * напрямую не поддерживают).
+ */
+interface ListFn {
+  (params: ListLessonsCoursesParams & { mine: boolean }): Promise<UserCourseListResponse>;
+  (params?: undefined): Promise<CourseListResponse>;
+}
+
+const list: ListFn = ((
+  params?: ListLessonsCoursesParams,
+): Promise<CourseListResponse | UserCourseListResponse> => {
+  if (params?.mine !== undefined) {
+    const qs = listQueryString({
+      mine: params.mine ? '1' : '0',
+      limit: params.limit !== undefined ? String(params.limit) : undefined,
+    });
+    return api.get<UserCourseListResponse>(`/lessons/courses${qs}`);
+  }
+  return api.get<CourseListResponse>('/lessons/courses');
+}) as ListFn;
+
 export const lessonsApi = {
   listCourses(): Promise<CourseListResponse> {
     return api.get<CourseListResponse>('/lessons/courses');
   },
+
+  /** См. `ListFn` выше. */
+  list,
 
   /**
    * KS-1937 (B-5): агрегат активных курсов пользователя — system + enrolled,

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { UserCourseDto } from '@kingside/shared';
 
+import { lessonsApi } from '../api/lessonsApi';
 import { userCoursesApi } from '../api/userCoursesApi';
 import { useAuth } from '../context/AuthContext';
 import { useDelayedFlag } from '../hooks/useDelayedFlag';
@@ -34,7 +35,12 @@ import { formatRelativeActivity } from '../utils/relativeTime';
  * Toast — простой floating-блок в правом нижнем углу страницы
  * (success/error tone), авто-скрывается через ~3 сек.
  *
- * Источник данных — `userCoursesApi.list({ scope: 'own' })`.
+ * Источник данных — `lessonsApi.list({ mine: true })` (ADR-054 unified
+ * API, KS-2645). Метод возвращает `UserCourseListResponse` с `data:
+ * UserCourseDto[]` — карточки и действия не меняются. До закрытия
+ * KS-2646 мутации (create/update/delete) идут через `userCoursesApi.*`,
+ * который сам ходит на тот же unified URL.
+ *
  * Маршрут под `<ProtectedRoute>` (см. App.tsx).
  */
 
@@ -73,8 +79,8 @@ export function MyCoursesPage() {
     let cancelled = false;
     setErrored(false);
     setCourses(null);
-    userCoursesApi
-      .list({ scope: 'own' })
+    lessonsApi
+      .list({ mine: true })
       .then((res) => {
         if (cancelled) return;
         setCourses(res.data ?? []);
