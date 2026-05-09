@@ -111,30 +111,46 @@ export class UserCourseOwnerGuard implements CanActivate {
     kind: UserCourseResourceKind,
     idOrSlug: string,
   ): Promise<{ ownerId: string; isPublic: boolean } | null> {
+    // KS-2649 / Phase E3. Все запросы переключены на единые таблицы
+    // (`courses`/`lessons`/`lesson_steps`). Guard работает только с
+    // пользовательскими ресурсами — `ownerId IS NULL` (системный)
+    // не должен сюда попадать через unified-роуты, но защитный
+    // фильтр гарантирует это: системный → null → 404.
     switch (kind) {
       case 'course': {
-        const row = await this.prisma.userCourse.findUnique({
+        const row = await this.prisma.course.findUnique({
           where: { id: idOrSlug },
           select: { ownerId: true, isPublic: true },
         });
-        return row;
+        if (!row || row.ownerId === null) return null;
+        return { ownerId: row.ownerId, isPublic: row.isPublic };
       }
       case 'course-slug': {
-        const row = await this.prisma.userCourse.findUnique({
-          where: { slug: idOrSlug },
+        // partial-unique `(owner_id, slug) WHERE owner_id IS NOT NULL`
+        // допускает несколько строк с одним slug у разных авторов;
+        // используем `findFirst`. Если slug коллизионный (теоретически
+        // невозможно, потому что slug → guard вызывается уже после
+        // resolved-ownerId в контексте) — берём первый match.
+        const row = await this.prisma.course.findFirst({
+          where: { slug: idOrSlug, ownerId: { not: null } },
           select: { ownerId: true, isPublic: true },
         });
-        return row;
+        if (!row || row.ownerId === null) return null;
+        return { ownerId: row.ownerId, isPublic: row.isPublic };
       }
       case 'lesson': {
-        const row = await this.prisma.userLesson.findUnique({
+        const row = await this.prisma.lesson.findUnique({
           where: { id: idOrSlug },
           select: { course: { select: { ownerId: true, isPublic: true } } },
         });
-        return row ? row.course : null;
+        if (!row?.course || row.course.ownerId === null) return null;
+        return {
+          ownerId: row.course.ownerId,
+          isPublic: row.course.isPublic,
+        };
       }
       case 'step': {
-        const row = await this.prisma.userLessonStep.findUnique({
+        const row = await this.prisma.lessonStep.findUnique({
           where: { id: idOrSlug },
           select: {
             lesson: {
@@ -142,7 +158,13 @@ export class UserCourseOwnerGuard implements CanActivate {
             },
           },
         });
-        return row ? row.lesson.course : null;
+        if (!row?.lesson?.course || row.lesson.course.ownerId === null) {
+          return null;
+        }
+        return {
+          ownerId: row.lesson.course.ownerId,
+          isPublic: row.lesson.course.isPublic,
+        };
       }
     }
   }

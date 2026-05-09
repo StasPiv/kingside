@@ -34,9 +34,9 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
   beforeEach(() => {
     prisma = {
-      userCourse: { findUnique: jest.fn() },
-      userLesson: { findUnique: jest.fn() },
-      userLessonStep: { findUnique: jest.fn() },
+      course: { findUnique: jest.fn(), findFirst: jest.fn() },
+      lesson: { findUnique: jest.fn() },
+      lessonStep: { findUnique: jest.fn() },
     };
     reflector = { getAllAndOverride: jest.fn() };
     guard = new UserCourseOwnerGuard(prisma, reflector as any);
@@ -73,7 +73,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
   describe('resource=course', () => {
     it('owner видит свой приватный курс', async () => {
       useKind('course');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      prisma.course.findUnique.mockResolvedValue({
         ownerId: OWNER,
         isPublic: false,
       });
@@ -86,7 +86,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('чужой на приватный курс — 404', async () => {
       useKind('course');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      prisma.course.findUnique.mockResolvedValue({
         ownerId: OWNER,
         isPublic: false,
       });
@@ -99,7 +99,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('чужой на GET публичный курс — 200', async () => {
       useKind('course');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      prisma.course.findUnique.mockResolvedValue({
         ownerId: OWNER,
         isPublic: true,
       });
@@ -116,7 +116,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('чужой на POST/PATCH/DELETE публичный курс — всё равно 404', async () => {
       useKind('course');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      prisma.course.findUnique.mockResolvedValue({
         ownerId: OWNER,
         isPublic: true,
       });
@@ -135,7 +135,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('несуществующий курс — 404 (не 500)', async () => {
       useKind('course');
-      prisma.userCourse.findUnique.mockResolvedValue(null);
+      prisma.course.findUnique.mockResolvedValue(null);
       await expect(
         guard.canActivate(
           mockContext({ userId: OWNER, params: { id: COURSE_ID } }),
@@ -149,7 +149,9 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
   describe('resource=course-slug', () => {
     it('owner по slug — ok', async () => {
       useKind('course-slug');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      // KS-2649: guard теперь использует findFirst (partial-unique
+      // namespace `WHERE ownerId IS NOT NULL`).
+      prisma.course.findFirst.mockResolvedValue({
         ownerId: OWNER,
         isPublic: false,
       });
@@ -158,15 +160,15 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
           mockContext({ userId: OWNER, params: { slug: 'abc-my' } }),
         ),
       ).resolves.toBe(true);
-      expect(prisma.userCourse.findUnique).toHaveBeenCalledWith({
-        where: { slug: 'abc-my' },
+      expect(prisma.course.findFirst).toHaveBeenCalledWith({
+        where: { slug: 'abc-my', ownerId: { not: null } },
         select: { ownerId: true, isPublic: true },
       });
     });
 
     it('чужой по slug на публичный — GET разрешён', async () => {
       useKind('course-slug');
-      prisma.userCourse.findUnique.mockResolvedValue({
+      prisma.course.findFirst.mockResolvedValue({
         ownerId: OWNER,
         isPublic: true,
       });
@@ -187,7 +189,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
   describe('resource=lesson', () => {
     it('owner урока (через course.ownerId) — ok', async () => {
       useKind('lesson');
-      prisma.userLesson.findUnique.mockResolvedValue({
+      prisma.lesson.findUnique.mockResolvedValue({
         course: { ownerId: OWNER, isPublic: false },
       });
       await expect(
@@ -199,7 +201,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('чужой на приватный урок — 404', async () => {
       useKind('lesson');
-      prisma.userLesson.findUnique.mockResolvedValue({
+      prisma.lesson.findUnique.mockResolvedValue({
         course: { ownerId: OWNER, isPublic: false },
       });
       await expect(
@@ -215,7 +217,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
   describe('resource=step', () => {
     it('owner шага (через lesson.course.ownerId) — ok', async () => {
       useKind('step');
-      prisma.userLessonStep.findUnique.mockResolvedValue({
+      prisma.lessonStep.findUnique.mockResolvedValue({
         lesson: { course: { ownerId: OWNER, isPublic: false } },
       });
       await expect(
@@ -227,7 +229,7 @@ describe('UserCourseOwnerGuard (KS-1829)', () => {
 
     it('чужой на шаг — 404', async () => {
       useKind('step');
-      prisma.userLessonStep.findUnique.mockResolvedValue({
+      prisma.lessonStep.findUnique.mockResolvedValue({
         lesson: { course: { ownerId: OWNER, isPublic: false } },
       });
       await expect(

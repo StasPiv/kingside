@@ -7,8 +7,8 @@ describe('SlugService (KS-1832)', () => {
 
   beforeEach(() => {
     prisma = {
-      userCourse: {
-        findUnique: jest.fn(),
+      course: {
+        findFirst: jest.fn(),
       },
     };
     service = new SlugService(prisma);
@@ -109,26 +109,26 @@ describe('SlugService (KS-1832)', () => {
 
   describe('generateUnique', () => {
     it('первая попытка уникальна → возвращает сразу', async () => {
-      prisma.userCourse.findUnique.mockResolvedValue(null);
+      prisma.course.findFirst.mockResolvedValue(null);
       const s = await service.generateUnique('Hi');
       expect(s).toMatch(/-hi$/);
-      expect(prisma.userCourse.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.course.findFirst).toHaveBeenCalledTimes(1);
     });
 
     it('при коллизии первых N-1 попыток — возвращает последний уникальный', async () => {
-      prisma.userCourse.findUnique
+      prisma.course.findFirst
         .mockResolvedValueOnce({ id: 'x' })   // 1-я занята
         .mockResolvedValueOnce({ id: 'y' })   // 2-я занята
         .mockResolvedValueOnce(null);          // 3-я свободна
       const s = await service.generateUnique('Hi');
       expect(s).toMatch(/-hi$/);
-      expect(prisma.userCourse.findUnique).toHaveBeenCalledTimes(3);
+      expect(prisma.course.findFirst).toHaveBeenCalledTimes(3);
     });
 
     it('превышение MAX_ATTEMPTS → 400', async () => {
-      prisma.userCourse.findUnique.mockResolvedValue({ id: 'busy' });
+      prisma.course.findFirst.mockResolvedValue({ id: 'busy' });
       await expect(service.generateUnique('Hi')).rejects.toThrow(BadRequestException);
-      expect(prisma.userCourse.findUnique).toHaveBeenCalledTimes(
+      expect(prisma.course.findFirst).toHaveBeenCalledTimes(
         SlugService.MAX_ATTEMPTS,
       );
     });

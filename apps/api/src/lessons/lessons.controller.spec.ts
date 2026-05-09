@@ -9,7 +9,7 @@ describe('LessonsController', () => {
   let controller: LessonsController;
   let lessonsService: jest.Mocked<LessonsService>;
   let userLessonsService: jest.Mocked<UserLessonsService>;
-  let prisma: { userLesson: { findUnique: jest.Mock } };
+  let prisma: { lesson: { findUnique: jest.Mock } };
 
   const req = {
     user: { id: 'user-1', username: 'u1' },
@@ -22,7 +22,7 @@ describe('LessonsController', () => {
     userLessonsService = {
       getWithSteps: jest.fn(),
     } as unknown as jest.Mocked<UserLessonsService>;
-    prisma = { userLesson: { findUnique: jest.fn() } };
+    prisma = { lesson: { findUnique: jest.fn() } };
     controller = new LessonsController(
       lessonsService,
       userLessonsService,
@@ -48,9 +48,9 @@ describe('LessonsController', () => {
     lessonsService.getLessonWithSteps.mockRejectedValue(
       new NotFoundException('not found'),
     );
-    prisma.userLesson.findUnique.mockResolvedValue({
+    prisma.lesson.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000002',
-      course: { ownerId: 'user-1', isPublic: false },
+      ownerId: 'user-1', course: { ownerId: 'user-1', isPublic: false },
     });
     const expected = { lesson: { id: 'L1' } as any };
     userLessonsService.getWithSteps.mockResolvedValue(expected as any);
@@ -70,9 +70,9 @@ describe('LessonsController', () => {
     lessonsService.getLessonWithSteps.mockRejectedValue(
       new NotFoundException('not found'),
     );
-    prisma.userLesson.findUnique.mockResolvedValue({
+    prisma.lesson.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000003',
-      course: { ownerId: 'other-user', isPublic: true },
+      ownerId: 'other-user', course: { ownerId: 'other-user', isPublic: true },
     });
     userLessonsService.getWithSteps.mockResolvedValue({} as any);
 
@@ -84,9 +84,9 @@ describe('LessonsController', () => {
     lessonsService.getLessonWithSteps.mockRejectedValue(
       new NotFoundException('not found'),
     );
-    prisma.userLesson.findUnique.mockResolvedValue({
+    prisma.lesson.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000004',
-      course: { ownerId: 'other-user', isPublic: false },
+      ownerId: 'other-user', course: { ownerId: 'other-user', isPublic: false },
     });
 
     await expect(
@@ -99,7 +99,7 @@ describe('LessonsController', () => {
     lessonsService.getLessonWithSteps.mockRejectedValue(
       new NotFoundException('not found'),
     );
-    prisma.userLesson.findUnique.mockResolvedValue(null);
+    prisma.lesson.findUnique.mockResolvedValue(null);
 
     await expect(
       controller.getOne(req, '00000000-0000-0000-0000-000000000005'),
@@ -115,7 +115,7 @@ describe('LessonsController', () => {
     await expect(
       controller.getOne(anonReq, '00000000-0000-0000-0000-000000000006'),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prisma.userLesson.findUnique).not.toHaveBeenCalled();
+    expect(prisma.lesson.findUnique).not.toHaveBeenCalled();
     expect(userLessonsService.getWithSteps).not.toHaveBeenCalled();
   });
 
@@ -126,6 +126,6 @@ describe('LessonsController', () => {
     await expect(
       controller.getOne(req, '00000000-0000-0000-0000-000000000007'),
     ).rejects.toThrow('database down');
-    expect(prisma.userLesson.findUnique).not.toHaveBeenCalled();
+    expect(prisma.lesson.findUnique).not.toHaveBeenCalled();
   });
 });

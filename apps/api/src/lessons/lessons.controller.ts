@@ -48,18 +48,20 @@ export class LessonsController {
       if (!(e instanceof NotFoundException) || userId === null) {
         throw e;
       }
-      // Fallback: пользовательский урок. inline access-check, чтобы не
-      // вытаскивать ещё один сервис: достаточно одного `findUnique` с
-      // include course для owner_id/is_public.
-      const userLesson = await this.prisma.userLesson.findUnique({
+      // KS-2649 / Phase E3: fallback ищет в единой `lessons` (с
+      // `ownerId IS NOT NULL`); legacy `user_lessons` дропнута. inline
+      // access-check, чтобы не тянуть ещё один сервис.
+      const userLesson = await this.prisma.lesson.findUnique({
         where: { id },
         select: {
           id: true,
+          ownerId: true,
           course: { select: { ownerId: true, isPublic: true } },
         },
       });
       if (
         !userLesson ||
+        userLesson.ownerId === null || // системный — обрабатывается основным путём
         (userLesson.course.ownerId !== userId && !userLesson.course.isPublic)
       ) {
         // Не раскрываем «существует, но недоступен».

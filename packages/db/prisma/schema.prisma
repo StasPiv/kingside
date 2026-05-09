@@ -97,13 +97,12 @@ model User {
   lessonProgress         UserLessonProgress[]
   lessonReviews          LessonReview[]
   mistakes               UserMistake[]
-  userCourses            UserCourse[]
-  userCoursePlayProgress UserCoursePlayProgress[]
-  userLessonPlayProgress UserLessonPlayProgress[]
   // KS-2639 / ADR-054 §3.2 Phase A. Курсы, у которых User —
   // владелец (Course.ownerId). Системные курсы остаются с
   // ownerId=NULL и в этой связи не участвуют. onDelete Cascade —
   // удаление пользователя сносит его авторские курсы.
+  // KS-2649 / Phase E3: legacy `userCourses`, `userCoursePlayProgress`,
+  // `userLessonPlayProgress` relations удалены вместе с моделями.
   ownedCourses           Course[]                 @relation("OwnedCourses")
   // KS-2226 (ADR-035 §4): Drills attempt'ы и sprint-скоры юзера.
   tacticDrillAttempts    TacticDrillAttempt[]
@@ -1079,115 +1078,21 @@ model LessonReview {
   @@map("lesson_reviews")
 }
 
-// ─── User Courses (ADR-026, KS-1827 / KS-1828) ───────────────────────
+// ─── User Courses (ADR-026 → ADR-054 Phase E3 / KS-2649) ─────────────
 //
-// Пользовательские курсы — параллельное дерево моделям Course/Lesson/
-// LessonStep. Цели и мотивация — в docs/adr/026-user-courses.md §2.1.
-// Контент — plain-text (без i18n), шеринг через `isPublic` + слаг-ссылку.
+// KS-2649: legacy-таблицы `user_courses` / `user_lessons` /
+// `user_lesson_steps` / `user_course_play_progress` /
+// `user_lesson_play_progress` дропнуты миграцией
+// `20260509150000_adr054_phase_e3_drop_user_tables`. Их функциональность
+// поглощена едиными таблицами `courses`/`lessons`/`lesson_steps` (с
+// `owner_id` денормализованным из `Course.ownerId`) и системными
+// `user_course_progress` / `user_lesson_progress`.
 //
-// Каскад удаления на уровне БД:
-//   User.delete  → UserCourse[]               (owner)
-//                → UserCoursePlayProgress[]   (playing)
-//                → UserLessonPlayProgress[]   (playing)
-//   UserCourse.delete → UserLesson[] → UserLessonStep[]
-//                     → UserCoursePlayProgress[]
-//   UserLesson.delete → UserLessonStep[]
-//                     → UserLessonPlayProgress[]
-//
-// `type` в UserLessonStep — строка (не Prisma enum), потому что whitelist
-// «какие типы разрешены в user-courses» держится на API-уровне
-// (ADR-026 §2.4). Добавление 4-го типа не должно тянуть миграцию.
-
-model UserCourse {
-  id          String   @id @default(uuid()) @db.Uuid
-  ownerId     String   @map("owner_id") @db.Uuid
-  slug        String   @unique
-  title       String
-  description String?
-  isPublic    Boolean  @default(false) @map("is_public")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  owner    User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  lessons  UserLesson[]
-  progress UserCoursePlayProgress[]
-
-  @@index([ownerId, isPublic])
-  @@map("user_courses")
-}
-
-model UserLesson {
-  id           String   @id @default(uuid()) @db.Uuid
-  userCourseId String   @map("user_course_id") @db.Uuid
-  order        Int      @default(0)
-  title        String
-  estMinutes   Int?     @map("est_minutes")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  course   UserCourse               @relation(fields: [userCourseId], references: [id], onDelete: Cascade)
-  steps    UserLessonStep[]
-  progress UserLessonPlayProgress[]
-
-  @@index([userCourseId, order])
-  @@map("user_lessons")
-}
-
-model UserLessonStep {
-  id           String   @id @default(uuid()) @db.Uuid
-  userLessonId String   @map("user_lesson_id") @db.Uuid
-  order        Int      @default(0)
-  type         String // 'text' | 'puzzle' | 'endgame_drill' (MVP, ADR-026 §2.4)
-  payload      Json
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  lesson UserLesson @relation(fields: [userLessonId], references: [id], onDelete: Cascade)
-
-  @@index([userLessonId, order])
-  @@map("user_lesson_steps")
-}
-
-model UserCoursePlayProgress {
-  id                    String    @id @default(uuid()) @db.Uuid
-  userId                String    @map("user_id") @db.Uuid
-  userCourseId          String    @map("user_course_id") @db.Uuid
-  completedLessonsCount Int       @default(0) @map("completed_lessons_count")
-  startedAt             DateTime  @default(now()) @map("started_at")
-  lastActivityAt        DateTime  @default(now()) @map("last_activity_at")
-  completedAt           DateTime? @map("completed_at")
-
-  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course UserCourse @relation(fields: [userCourseId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, userCourseId])
-  @@map("user_course_play_progress")
-}
-
-model UserLessonPlayProgress {
-  id                  String    @id @default(uuid()) @db.Uuid
-  userId              String    @map("user_id") @db.Uuid
-  userLessonId        String    @map("user_lesson_id") @db.Uuid
-  completedStepsCount Int       @default(0) @map("completed_steps_count")
-  totalSteps          Int       @default(0) @map("total_steps")
-  // Поштучное состояние шагов урока:
-  // `{ [stepId]: 'pending' | 'done' | 'failed' | 'skipped' }` (KS-1879).
-  // Источник правды для идемпотентности `updateStepProgress` по `stepId`
-  // и восстановления прогресса при повторном открытии урока. Поле
-  // `completedStepsCount` — это count('done') из этого объекта, а не
-  // отдельный инкремент. `default("{}")` обеспечивает backward-compat
-  // для записей, созданных до миграции.
-  stepsState          Json      @default("{}") @map("steps_state")
-  startedAt           DateTime  @default(now()) @map("started_at")
-  lastActivityAt      DateTime  @default(now()) @map("last_activity_at")
-  completedAt         DateTime? @map("completed_at")
-
-  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lesson UserLesson @relation(fields: [userLessonId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, userLessonId])
-  @@map("user_lesson_play_progress")
-}
-
+// CHECK constraints (см. миграцию E3):
+//   * `courses_visibility_owner_check` — взаимоисключение
+//     `is_published` (system) и `is_public` (user).
+//   * `lessons_published_user_check` — пользовательский урок не
+//     может быть `is_published=true`.
 
 // ─── Feature flags (KS-2104) ──────────────────────────────────────────
 //

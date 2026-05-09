@@ -70,8 +70,13 @@ export class SlugService {
   async generateUnique(title: string): Promise<string> {
     for (let attempt = 0; attempt < SlugService.MAX_ATTEMPTS; attempt++) {
       const slug = this.generate(title);
-      const exists = await this.prisma.userCourse.findUnique({
-        where: { slug },
+      // KS-2649 / Phase E3: проверяем уникальность в единой `courses`
+      // (legacy `user_courses` дропнута). Slug-namespace
+      // пользовательских — `WHERE owner_id IS NOT NULL` (partial-unique
+      // из Phase A). `findFirst` — потому что compound уникальность
+      // partial, не выражается в `findUnique`.
+      const exists = await this.prisma.course.findFirst({
+        where: { slug, ownerId: { not: null } },
         select: { id: true },
       });
       if (!exists) return slug;

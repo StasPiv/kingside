@@ -160,17 +160,27 @@ export class ActiveCoursesService {
   private async collectActiveEnrolled(
     userId: string,
   ): Promise<ActiveEnrolledCourseDto[]> {
-    const progresses = await this.prisma.userCoursePlayProgress.findMany({
+    // KS-2649 / Phase E3. Переключено на единую `userCourseProgress`
+    // (системная таблица; покрывает и системные, и пользовательские
+    // курсы). Фильтр `course.ownerId IS NOT NULL AND ownerId != userId`
+    // отсекает системные и собственные курсы автора.
+    const progresses = await this.prisma.userCourseProgress.findMany({
       where: {
         userId,
         completedAt: null,
-        course: { ownerId: { not: userId } },
+        course: {
+          AND: [
+            { ownerId: { not: null } },
+            { ownerId: { not: userId } },
+          ],
+        },
       },
       include: {
         course: {
           include: {
             _count: { select: { lessons: true } },
             lessons: {
+              where: { ownerId: { not: null } },
               orderBy: { order: 'asc' },
               select: { id: true, order: true, title: true },
             },
@@ -180,16 +190,17 @@ export class ActiveCoursesService {
     });
     if (progresses.length === 0) return [];
 
-    // Один батч-запрос UserLessonPlayProgress для определения current.
-    const allLessonIds = progresses.flatMap((p) => p.course.lessons.map((l) => l.id));
+    const allLessonIds = progresses.flatMap((p) =>
+      p.course.lessons.map((l) => l.id),
+    );
     const completedSet = new Set<string>();
     if (allLessonIds.length > 0) {
-      const rows = await this.prisma.userLessonPlayProgress.findMany({
-        where: { userId, userLessonId: { in: allLessonIds } },
-        select: { userLessonId: true, completedAt: true },
+      const rows = await this.prisma.userLessonProgress.findMany({
+        where: { userId, lessonId: { in: allLessonIds } },
+        select: { lessonId: true, completedAt: true },
       });
       for (const r of rows) {
-        if (r.completedAt != null) completedSet.add(r.userLessonId);
+        if (r.completedAt != null) completedSet.add(r.lessonId);
       }
     }
 
@@ -200,17 +211,23 @@ export class ActiveCoursesService {
       const currentIdx = lessons.findIndex((l) => !completedSet.has(l.id));
       const currentLesson = currentIdx >= 0 ? lessons[currentIdx] : null;
 
+      // KS-2649: completedLessonsCount теперь считаем on-demand из
+      // `completedSet` — counter в системной таблице не хранится.
+      const lessonsCompleted = lessons.filter((l) =>
+        completedSet.has(l.id),
+      ).length;
+
       return {
         kind: 'enrolled',
         id: c.id,
         slug: c.slug,
-        title: c.title,
+        title: c.title ?? '',
         description: c.description,
-        ownerId: c.ownerId,
+        ownerId: c.ownerId ?? '',
         lessonCount: c._count.lessons,
-        lessonsCompleted: p.completedLessonsCount,
-        lastActivityAt: p.lastActivityAt.toISOString(),
-        // У UserLesson нет slug — фронт строит URL по id.
+        lessonsCompleted,
+        // `lastActivityAt` ↔ `updatedAt` системного прогресса.
+        lastActivityAt: p.updatedAt.toISOString(),
         currentLessonSlug: currentLesson?.id ?? null,
         currentLessonTitle: currentLesson?.title ?? null,
         currentLessonOrder: currentLesson ? currentIdx + 1 : null,
