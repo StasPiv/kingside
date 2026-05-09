@@ -26,6 +26,16 @@ import { LessonsAdminService } from './admin/lessons-admin.service';
 import { LessonsAdminImportService } from './admin/lessons-admin-import.service';
 // KS-2642 / ADR-054 Phase C — единый guard доступа.
 import { LessonsAccessGuard } from './lessons-access.guard';
+// KS-2643 / ADR-054 Phase C2 — унифицированные роуты `/lessons/*`.
+// Делегируют на User*Service из `UserCoursesModule`, который мы
+// импортируем ниже для DI экспортируемых сервисов.
+import { UserCoursesModule } from './user-courses/user-courses.module';
+import {
+  Adr054UnifiedCoursesController,
+  Adr054UnifiedLessonsController,
+  Adr054UnifiedLessonStepsController,
+  Adr054UnifiedProgressController,
+} from './adr054-unified.controller';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -43,7 +53,16 @@ import { LessonsAccessGuard } from './lessons-access.guard';
   // KS-1962: AuthModule импортируем ради DI-резолва AdminEmailGuard
   // в LessonsAdminController (JwtAuthGuard ходит через passport
   // и DI не требует, но AdminEmailGuard — Injectable с PrismaService).
-  imports: [PrismaModule, RedisModule, PuzzleModule, AuthModule],
+  // KS-2643: UserCoursesModule даёт `UserCoursesService` etc. для
+  // делегации в унифицированных роутах + расширённого
+  // `CoursesController.list/getBySlug`.
+  imports: [
+    PrismaModule,
+    RedisModule,
+    PuzzleModule,
+    AuthModule,
+    UserCoursesModule,
+  ],
   controllers: [
     CoursesController,
     LessonsController,
@@ -56,6 +75,11 @@ import { LessonsAccessGuard } from './lessons-access.guard';
     LessonsAdminLessonsController,
     LessonsAdminStepsController,
     LessonsAdminImportController,
+    // KS-2643 unified controllers.
+    Adr054UnifiedCoursesController,
+    Adr054UnifiedLessonsController,
+    Adr054UnifiedLessonStepsController,
+    Adr054UnifiedProgressController,
   ],
   providers: [
     CoursesService,
