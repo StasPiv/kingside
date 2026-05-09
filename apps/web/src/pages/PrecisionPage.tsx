@@ -500,8 +500,16 @@ export function PrecisionPage() {
         <div className="play-vs-engine-puzzles__list">
           {puzzles.map((p: BrowsePuzzleDto) => {
             const orientation = sideFromFen(p.fen);
+            // KS-2668: backend кладёт владельца в `createdBy`
+            // (а не `userId`, как ожидал старый код KS-2663). Из-за
+            // несоответствия `isMine` всегда был `false`, owner-кнопки
+            // никогда не отображались. После выравнивания — кнопки
+            // появляются на действительно своих пазлах. Бэкенд-фильтр
+            // `?mine=1` пока не отбрасывает чужие (отдельная задача),
+            // но фронт корректно скрывает owner-actions на чужих.
+            const ownerId = p.createdBy ?? p.userId ?? null;
             const isMine =
-              user !== null && p.userId !== undefined && p.userId === user.id;
+              user !== null && ownerId != null && ownerId === user.id;
             const isDraft = p.isPublic === false;
             const justPublished = recentlyPublishedId === p.id;
             const onClick = () =>

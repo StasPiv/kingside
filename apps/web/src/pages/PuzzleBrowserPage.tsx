@@ -396,7 +396,14 @@ export function PuzzleBrowserPage() {
             <PuzzleDiagramCard
               key={p.id}
               puzzle={p}
-              ownedByMe={p.userId != null && p.userId === user?.id}
+              ownedByMe={(() => {
+                // KS-2668: бэкенд возвращает владельца в `createdBy`
+                // (поле `userId` в DTO не приходит). Старая проверка
+                // `p.userId === user.id` всегда была false — owner-флаг
+                // не выставлялся.
+                const ownerId = p.createdBy ?? p.userId ?? null;
+                return ownerId != null && ownerId === user?.id;
+              })()}
               onOpen={() => navigate(`/puzzle/${p.id}`)}
               onTogglePublic={async () => {
                 try {

@@ -25,6 +25,16 @@ export interface BrowsePuzzleDto {
   sourceMoveNum: number | null;
   sourceMetadata: { white?: string; black?: string; event?: string } | null;
   isPublic?: boolean;
+  /**
+   * KS-2668: backend возвращает поле владельца под именем `createdBy`
+   * (`User.id` или `null` для lichess-пазлов). До KS-2668 фронт читал
+   * `userId`, которого в DTO нет — owner-кнопки на /precision никогда
+   * не появлялись. Имя выровнено по DTO; для обратной совместимости
+   * `userId` оставлен как deprecated alias (его всё равно не было в
+   * ответе, но если где-то осталось чтение — TS укажет).
+   */
+  createdBy?: string | null;
+  /** @deprecated KS-2668: используйте `createdBy`. */
   userId?: string;
   createdAt: string;
   solvedStatus?: 'solved' | 'failed' | null;

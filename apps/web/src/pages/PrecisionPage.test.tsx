@@ -292,6 +292,52 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
     ).not.toBeInTheDocument();
   });
 
+  // KS-2668: backend кладёт владельца в `createdBy` (не `userId`).
+  // Этот тест ловит регрессию старого имени поля.
+  it("KS-2668: owned draft по `createdBy` (имя поля DTO) → Publish + Copy link + Delete", async () => {
+    const draft = {
+      ...SAMPLE[0],
+      isPublic: false,
+      createdBy: 'u1',
+    };
+    apiGet.mockResolvedValueOnce(wrap([draft]));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('precision-card-publish'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('precision-card-copy-link'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('precision-card-delete'),
+    ).toBeInTheDocument();
+  });
+
+  it('KS-2668: чужой пазл по `createdBy` → owner-кнопок нет', async () => {
+    const otherPuzzle = {
+      ...SAMPLE[0],
+      isPublic: true,
+      createdBy: 'u-someone-else',
+    };
+    apiGet.mockResolvedValueOnce(wrap([otherPuzzle]));
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('precision-card-copy-link'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('precision-card-make-private'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('precision-card-delete'),
+    ).not.toBeInTheDocument();
+  });
+
   it('Publish click → PATCH /puzzles/:id { isPublic: true } + оптимистичный апдейт (badge исчезает)', async () => {
     const draft = {
       ...SAMPLE[0],
