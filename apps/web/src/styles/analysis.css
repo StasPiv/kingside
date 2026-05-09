@@ -2654,19 +2654,72 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   display: inline-block;
 }
 
+/* KS-2671: trigger — иконочный, стиль icon-action из KS-2654/KS-2670.
+   32×32 desktop, 44×44 mobile, hover-tooltip через CSS-::after из
+   `aria-label`. */
 .analysis-share__trigger {
-  cursor: pointer;
-  border: 1px solid var(--border-color, #e5e7eb);
-  background: var(--bg-secondary, #f9fafb);
-  color: var(--text-color, inherit);
-  padding: 6px 14px;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-subtle, #e5e7eb);
   border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  background: var(--bg-surface, #f9fafb);
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .analysis-share__trigger:hover {
-  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-primary, #111827);
+  background: var(--bg-elevated, var(--bg-tertiary, #f3f4f6));
+  border-color: var(--text-secondary, #6b7280);
+}
+
+.analysis-share__trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary, #7c83ff);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+  color: var(--text-primary, #111827);
+}
+
+.analysis-share__icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* CSS-tooltip из aria-label — появляется на hover/focus-visible. */
+.analysis-share__trigger::after {
+  content: attr(aria-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-on-accent, #fff);
+  background: var(--c-1e293b, #1e293b);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 5;
+}
+
+.analysis-share__trigger:hover::after,
+.analysis-share__trigger:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .analysis-share__popup {
@@ -2795,6 +2848,15 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 @media (max-width: 768px) {
   .analysis-share-host {
     padding: 4px 8px 0;
+  }
+  /* KS-2671: на mobile увеличиваем touch-target до 44×44. */
+  .analysis-share__trigger {
+    width: 44px;
+    height: 44px;
+  }
+  .analysis-share__icon {
+    width: 22px;
+    height: 22px;
   }
   .analysis-share__popup {
     right: 8px;

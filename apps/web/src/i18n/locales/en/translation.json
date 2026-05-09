@@ -656,7 +656,30 @@
     "editTitle": "Click to edit title",
     "report": "Report",
     "boardSize": "Board size",
-    "flipBoard": "Flip board"
+    "flipBoard": "Flip board",
+    "share": {
+      "button": "Share",
+      "popupLabel": "Share analysis",
+      "statusPublic": "Public",
+      "statusPrivate": "Private",
+      "hintPublic": "Anyone with the link can view this analysis (read-only).",
+      "hintPrivate": "Only you can see this analysis. Make it public to share.",
+      "urlLabel": "Public link",
+      "copy": "Copy link",
+      "makePublic": "Make public",
+      "makePrivate": "Make private",
+      "updating": "Updating…",
+      "toastMadePublic": "Analysis is now public",
+      "toastMadePrivate": "Analysis is now private",
+      "toastError": "Could not update visibility",
+      "toastLinkCopied": "Link copied",
+      "toastLinkCopiedPrivate": "Link copied. Make public to share with others.",
+      "toastCopyError": "Could not copy link"
+    },
+    "public": {
+      "notFound": "Analysis not found or is private",
+      "readOnlyHint": "Read-only public view. Sign in to create your own analyses."
+    }
   },
   "drills": {
     "title": "Tactical drills",
