@@ -660,6 +660,7 @@
     "clear": "Clear Board"
   },
   "analysis": {
+    "openError": "Could not open analysis. Please try again.",
     "depth": "Depth",
     "backToLobby": "Back to lobby",
     "stop": "Stop",

@@ -1,30 +1,26 @@
 import type { NavigateFunction } from 'react-router-dom';
-import { api } from '../api';
+
+import { openAnalysis } from './openAnalysis';
 
 /**
- * KS-2403 follow-up: единая точка перехода в `/analysis/<id>` из мест,
- * где у пользователя есть готовый PGN партии (архив, трансляции,
- * мастерская PGN-файлов).
+ * KS-2403 follow-up + KS-2603 (ADR-051 §4 B1): обёртка над общим
+ * `openAnalysis` для legacy-вызовов из Archive/Broadcast (5 callsite'ов
+ * по состоянию на KS-2603 — `BroadcastGamePage`, `BroadcastRoundPage`,
+ * `BroadcastLiveGamePage`, `BroadcastStandings`, `LegacyStandings`).
  *
- * # Зачем helper
+ * Подпись `(navigate, { pgn, title, state?, replace? })` сохранена как
+ * было — не правим 5 мест. Новые callsite'ы (Workshop/Puzzle/Lobby —
+ * B2..B5) идут напрямую в `openAnalysis` с поддержкой `existingId` и
+ * пустого PGN.
  *
- * Раньше каждое такое место делало `navigate('/analysis', { state })`
- * без id. `AnalysisPage` сам создавал запись на mount и подменял URL
- * через `window.history.replaceState('/analysis/<id>')`. React Router
- * об этой подмене не знал, второй клик из той же сессии приходил на
- * тот же `/analysis` (для роутера), компонент не пересоздавался,
- * `localIdRef.current` оставался равен первому id, и внутренний autosave
- * перезаписывал PGN первой партии телом второй. Симптом — «одна и та
- * же партия везде» (двух разных id с одинаковыми ходами, headers
- * рассинхронизированы с moves).
+ * # Изменение поведения KS-2603
  *
- * Решение: создаём analysis-запись через `POST /analyses` ДО navigate,
- * сразу идём на `/analysis/<id>`. URL содержит уникальный id, обёртка
- * `<AnalysisPageInner key={id} />` (KS-2403) пересоздаёт компонент при
- * каждом клике, autosave пишет в правильную запись.
- *
- * Если POST /analyses падает (offline/auth) — fallback на старый путь
- * `navigate('/analysis', state)`, чтобы переход не блокировался.
+ * До KS-2603 при ошибке POST `/analyses` обёртка делала fallback
+ * `navigate('/analysis', state)` без id — это симптом из KS-2403,
+ * который и чинит ADR-051. Теперь error-path: `alert(message)` (по
+ * умолчанию) и НЕ navigate без id. Если backend временно недоступен,
+ * пользователь остаётся на текущей странице с явным сообщением вместо
+ * безымянного `/analysis`-URL'а с риском потери данных.
  */
 export async function openAnalysisFromPgn(
   navigate: NavigateFunction,
@@ -38,19 +34,10 @@ export async function openAnalysisFromPgn(
     replace?: boolean;
   },
 ): Promise<void> {
-  const navState = { pgn: args.pgn, title: args.title, ...(args.state ?? {}) };
-  const navOpts: { state: Record<string, unknown>; replace?: true } = {
-    state: navState,
-  };
-  if (args.replace) navOpts.replace = true;
-  try {
-    const created = await api.post<{ id: string }>('/analyses', {
-      pgn: args.pgn,
-      title: args.title,
-      category: 'analysis',
-    });
-    navigate(`/analysis/${created.id}`, navOpts);
-  } catch {
-    navigate('/analysis', navOpts);
-  }
+  await openAnalysis(navigate, {
+    pgn: args.pgn,
+    title: args.title,
+    state: args.state,
+    replace: args.replace,
+  });
 }
