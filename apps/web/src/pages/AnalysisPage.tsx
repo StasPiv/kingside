@@ -1422,71 +1422,22 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
               </span>
             )}
             <span className="analysis-controls-spacer" />
-            {/* Desktop: FEN, Game Info, PGN buttons */}
-            <span className="analysis-desktop-only">
-              {!gameId && (
-                <>
-                  <button
-                    className="analysis-export-btn"
-                    onClick={() => setShowSetPosition(true)}
-                    title={t('position.title', 'Set Position')}
-                  >
-                    FEN
-                  </button>
-                  <button
-                    className="analysis-export-btn"
-                    onClick={() => setShowPgnHeaders(true)}
-                    title={t('analysis.gameInfo', 'Game Info')}
-                  >
-                    Info
-                  </button>
-                </>
-              )}
-              <button
-                className="analysis-export-btn"
-                onClick={handleExportPgn}
-                disabled={history.length === 0}
-                title={t('review.exportPgn', 'Export PGN')}
+            {/* KS-2678: на desktop под доской раньше дублировались
+                отдельные кнопки FEN/Info/PGN/iPGN/Share — слишком
+                много элементов смешивалось с навигацией по ходам.
+                Все вспомогательные действия теперь живут в overflow-
+                меню («…»), которое отображается одинаково на desktop
+                и mobile. KS-2220 inline-«PGN скопирован» сохраняем — он
+                по-прежнему появляется при копировании из меню. */}
+            {pgnCopyMsg && (
+              <span
+                className="analysis-copy-msg"
+                role="status"
+                data-testid="analysis-copy-pgn-msg"
               >
-                &#x2B07; PGN
-              </button>
-              {/* KS-2220: «Copy PGN» рядом с «↓ PGN». */}
-              <button
-                className="analysis-export-btn"
-                onClick={handleCopyPgn}
-                disabled={history.length === 0}
-                title={t('review.copyPgn', 'Copy PGN to clipboard')}
-                data-testid="analysis-copy-pgn"
-              >
-                &#x1F4CB; PGN
-              </button>
-              {pgnCopyMsg && (
-                <span
-                  className="analysis-copy-msg"
-                  role="status"
-                  data-testid="analysis-copy-pgn-msg"
-                >
-                  {pgnCopyMsg}
-                </span>
-              )}
-            </span>
-            {/* KS-2674: Share-кнопка переехала в action-bar (была
-                в шапке). На desktop — отдельная кнопка между PGN и
-                overflow-меню; на mobile сам триггер скрыт CSS, но
-                компонент остаётся в DOM, чтобы popup мог открываться
-                из пункта overflow-меню через ref. */}
-            {!publicMode &&
-              user &&
-              localIdRef.current &&
-              savedOwnerId === user.id && (
-                <ShareAnalysisButton
-                  ref={shareButtonRef}
-                  analysisId={localIdRef.current}
-                  initialIsPublic={savedIsPublic}
-                  onPublicChanged={setSavedIsPublic}
-                />
-              )}
-            {/* Mobile: overflow menu */}
+                {pgnCopyMsg}
+              </span>
+            )}
             <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
               <button
                 className="analysis-overflow-btn"
@@ -1495,6 +1446,21 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
               >
                 &#x22EF;
               </button>
+              {/* KS-2678: ShareAnalysisButton живёт ВНУТРИ overflow-
+                  wrapper'а, чтобы popup рендерился absolute relative
+                  именно к меню. Сам trigger скрыт CSS на всех
+                  разрешениях (видно только из пункта меню «Share»). */}
+              {!publicMode &&
+                user &&
+                localIdRef.current &&
+                savedOwnerId === user.id && (
+                  <ShareAnalysisButton
+                    ref={shareButtonRef}
+                    analysisId={localIdRef.current}
+                    initialIsPublic={savedIsPublic}
+                    onPublicChanged={setSavedIsPublic}
+                  />
+                )}
               {showOverflowMenu && (
                 <div className="analysis-overflow-menu">
                   {!gameId && (

@@ -88,12 +88,16 @@ test('KS-2672: public analysis рендерит ту же AnalysisPage без Sh
     isPublic: true,
   });
 
-  // 1. Автор: на /analysis/<id> Share виден.
+  // 1. Автор: на /analysis/<id> Share доступен через overflow-меню (KS-2678).
   await seedAuth(page, authorTokens);
   await page.goto(`/analysis/${analysis.id}`);
-  await expect(page.getByTestId('analysis-share-trigger')).toBeVisible({
+  await expect(page.locator('.analysis-overflow-btn')).toBeVisible({
     timeout: 15_000,
   });
+  await page.locator('.analysis-overflow-btn').click();
+  await expect(page.getByTestId('analysis-share-overflow')).toBeVisible();
+  // Закроем меню обратно для скриншота «обычного режима».
+  await page.keyboard.press('Escape');
   await page.screenshot({
     path: `${DIR}/desktop-author-mode.png`,
     fullPage: true,
@@ -111,10 +115,16 @@ test('KS-2672: public analysis рендерит ту же AnalysisPage без Sh
     .locator('.analysis-breadcrumbs__current-text, h1')
     .first()
     .waitFor({ timeout: 20_000 });
-  // Share-кнопка ОТСУТСТВУЕТ.
+  // Share-trigger / share-overflow-пункт отсутствуют у не-владельца.
   await expect(
     otherPage.getByTestId('analysis-share-trigger'),
   ).toHaveCount(0);
+  // Открываем меню — пункта Share там нет.
+  await otherPage.locator('.analysis-overflow-btn').click();
+  await expect(
+    otherPage.getByTestId('analysis-share-overflow'),
+  ).toHaveCount(0);
+  await otherPage.keyboard.press('Escape');
   await otherPage.screenshot({
     path: `${DIR}/desktop-non-owner-mode.png`,
     fullPage: true,

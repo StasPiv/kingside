@@ -366,9 +366,66 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   display: none;
 }
 
-/* Overflow menu - hidden on desktop */
+/* KS-2678: overflow menu виден и на desktop, и на mobile (пользователь
+   просил вынести FEN/Info/PGN/Share в одно меню). Базовое состояние —
+   inline-block с relative-якорем. Mobile-специфика (выглядит как
+   обычная кнопка action-bar) описана в `@media (max-width:768px)`. */
 .analysis-overflow-wrapper {
-  display: none;
+  display: inline-block;
+  position: relative;
+}
+
+.analysis-overflow-btn {
+  background: var(--c-fff, #fff);
+  color: var(--text-secondary, #6b7280);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 16px;
+  line-height: 18px;
+  cursor: pointer;
+  height: 28px;
+}
+
+.analysis-overflow-btn:hover {
+  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.analysis-overflow-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 200;
+  min-width: 200px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  margin-top: 4px;
+}
+
+.analysis-overflow-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.analysis-overflow-menu button:hover:not(:disabled) {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.analysis-overflow-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* Gap between board area and sidebar */
@@ -1826,58 +1883,29 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
     display: none !important;
   }
 
-  /* Overflow menu */
-  .analysis-overflow-wrapper {
-    display: inline-block;
-    position: relative;
-  }
-
+  /* KS-2678: на mobile overflow-menu использует тёмную палитру
+     основного mobile-action-bar (соответствует существующему UI).
+     Базовые стили (display, position, layout) — в десктопном блоке
+     (см. `.analysis-overflow-wrapper` / `.analysis-overflow-btn`
+     /`.analysis-overflow-menu` без media-query). */
   .analysis-overflow-btn {
     background: var(--c-2a2a4e);
     color: var(--c-a0a0ff);
     border: 1px solid var(--c-4a4a7e);
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 16px;
-    cursor: pointer;
-    height: 28px;
-    line-height: 18px;
   }
 
   .analysis-overflow-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
     background: var(--c-1e1e3e);
     border: 1px solid var(--c-4a4a7e);
-    border-radius: 6px;
-    padding: 4px 0;
-    z-index: 200;
-    min-width: 160px;
     box-shadow: 0 4px 12px var(--ov-black-40);
-    margin-top: 4px;
   }
 
   .analysis-overflow-menu button {
-    display: block;
-    width: 100%;
-    padding: 8px 14px;
-    background: transparent;
-    border: none;
     color: var(--c-ccc);
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-    white-space: nowrap;
   }
 
   .analysis-overflow-menu button:hover {
     background: var(--c-2a2a5e);
-  }
-
-  .analysis-overflow-menu button:disabled {
-    opacity: 0.4;
-    cursor: default;
   }
 
   /* Show single mobile panel with tabs */
@@ -2644,21 +2672,20 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
  * обычная action-bar кнопка (стиль `.analysis-export-btn` + иконка),
  * popup рендерится absolute поверх action-bar.
  */
+/* KS-2678: контейнер ShareAnalysisButton — невидимый якорь. Сам
+   trigger скрыт (`display:none`), popup открывается как fixed
+   bottom-sheet (на любом разрешении), поэтому контейнер просто
+   не должен влиять на layout. */
 .analysis-share {
-  position: relative;
-  display: inline-flex;
+  display: contents;
 }
 
-/* KS-2674: trigger в action-bar — компактная кнопка с иконкой и
-   текстом «Share». На mobile скрыт через media-query (там есть пункт
-   в overflow-меню), но сам компонент остаётся в DOM, чтобы popup
-   мог открываться. */
+/* KS-2674 / KS-2678: trigger ShareAnalysisButton всегда скрыт.
+   Компонент остаётся в DOM ради popup'а (анкер для absolute-
+   позиционирования и держатель state). Открывается из пункта
+   overflow-меню через ref на компонент. */
 .analysis-share__trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  position: relative;
+  display: none;
 }
 
 .analysis-share__icon {
@@ -2672,18 +2699,21 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   line-height: inherit;
 }
 
+/* KS-2678: popup всегда fixed bottom-sheet (на любом разрешении).
+   На desktop — bottom-right панель, на mobile — full-width sheet
+   над MobileBottomBar (см. mobile-override ниже). */
 .analysis-share__popup {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
+  position: fixed;
+  right: 16px;
+  bottom: 24px;
   min-width: 320px;
   max-width: calc(100vw - 32px);
   background: var(--bg, #fff);
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   padding: 12px 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
   font-size: 14px;
   display: flex;
   flex-direction: column;

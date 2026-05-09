@@ -85,14 +85,16 @@ test('KS-2666: автор делает анализ публичным и коп
   await seedAuth(page, tokens);
   await grantClipboard(page);
 
-  // 1. Автор открывает страницу анализа — кнопка Share видна.
+  // 1. Автор открывает страницу анализа — кнопка Share УБРАНА из шапки
+  //    и action-bar (KS-2678), доступна только из overflow-меню «…».
   await page.goto(`/analysis/${analysis.id}`);
-  await expect(page.getByTestId('analysis-share-trigger')).toBeVisible({
+  await expect(page.locator('.analysis-overflow-btn')).toBeVisible({
     timeout: 15_000,
   });
 
-  // 2. Открываем popup — состояние Private.
-  await page.getByTestId('analysis-share-trigger').click();
+  // 2. Открываем overflow-меню → пункт Share → popup с состоянием Private.
+  await page.locator('.analysis-overflow-btn').click();
+  await page.getByTestId('analysis-share-overflow').click();
   await expect(page.getByTestId('analysis-share-popup')).toBeVisible();
   await expect(page.getByTestId('analysis-share-state')).toContainText(
     /Private/i,

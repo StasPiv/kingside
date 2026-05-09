@@ -63,7 +63,7 @@ async function createAnalysis(
 
 test.describe.configure({ mode: 'serial' });
 
-test('KS-2674: на desktop Share в action-bar, в шапке нет', async ({
+test('KS-2674/KS-2678: на desktop Share открывается из overflow-меню', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -78,30 +78,34 @@ test('KS-2674: на desktop Share в action-bar, в шапке нет', async ({
   await seedAuth(page, tokens);
   await page.goto(`/analysis/${analysis.id}`);
 
-  // 1. Share-trigger существует, но в action-bar (`.analysis-board-controls`),
-  //    а НЕ в шапке (`.analysis-share-host` удалён).
-  await expect(page.getByTestId('analysis-share-trigger')).toBeVisible({
+  // 1. KS-2678: на desktop отдельных FEN/Info/PGN/iPGN/Share-кнопок
+  //    больше нет — все в overflow-меню «…».
+  await expect(page.locator('.analysis-overflow-btn')).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.locator('.analysis-share-host')).toHaveCount(0);
-  // Trigger находится внутри action-bar.
-  const triggerInActionBar = page.locator(
-    '.analysis-board-controls [data-testid="analysis-share-trigger"]',
-  );
-  await expect(triggerInActionBar).toBeVisible();
 
-  // 2. Клик открывает popup.
-  await page.getByTestId('analysis-share-trigger').click();
+  // 2. Открываем overflow-меню → виден пункт Share + остальные действия.
+  await page.locator('.analysis-overflow-btn').click();
+  const shareItem = page.getByTestId('analysis-share-overflow');
+  await expect(shareItem).toBeVisible();
+  await page.screenshot({
+    path: `${DIR}/desktop-overflow-open.png`,
+    fullPage: true,
+  });
+
+  // 3. Клик по пункту → popup с состоянием Private.
+  await shareItem.click();
   await expect(page.getByTestId('analysis-share-popup')).toBeVisible();
   await expect(page.getByTestId('analysis-share-state')).toContainText(
     /Private/i,
   );
   await page.screenshot({
-    path: `${DIR}/desktop-share-from-actionbar.png`,
+    path: `${DIR}/desktop-share-popup.png`,
     fullPage: true,
   });
 
-  // 3. Make public работает как раньше.
+  // 4. Make public работает как раньше.
   await page.getByTestId('analysis-share-toggle').click();
   await expect(page.getByTestId('analysis-share-state')).toContainText(
     /Public/i,
