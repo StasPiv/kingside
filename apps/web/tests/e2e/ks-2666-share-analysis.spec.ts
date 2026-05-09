@@ -131,18 +131,22 @@ test('KS-2666: автор делает анализ публичным и коп
   });
 
   // 5. Аноним (без auth) открывает публичную ссылку — read-only.
+  // KS-2672: вместо отдельной PublicAnalysisPage теперь тот же
+  // AnalysisPage с `publicMode=true` — рендерит доску, ходы,
+  // навигацию. Owner-actions скрыты (нет Share-кнопки).
   const anonContext = await browser.newContext();
   const anonPage = await anonContext.newPage();
   await anonPage.goto(expectedUrl);
+  // Анонимная страница загружается с задержкой (Stockfish init), но
+  // breadcrumb/title должен прийти быстро.
+  await anonPage
+    .locator('.analysis-breadcrumbs__current-text, h1')
+    .first()
+    .waitFor({ timeout: 20_000 });
+  // Share-кнопка анониму НЕ видна.
   await expect(
-    anonPage.getByTestId('public-analysis-page'),
-  ).toBeVisible({ timeout: 15_000 });
-  await expect(anonPage.getByTestId('public-analysis-title')).toContainText(
-    'KS-2666 share probe',
-  );
-  await expect(anonPage.getByTestId('public-analysis-pgn')).toContainText(
-    '1. e4',
-  );
+    anonPage.getByTestId('analysis-share-trigger'),
+  ).toHaveCount(0);
   await anonPage.screenshot({
     path: `${DIR}/desktop-public-readonly.png`,
     fullPage: true,

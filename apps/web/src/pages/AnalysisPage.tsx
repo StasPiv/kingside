@@ -101,13 +101,30 @@ type MoveData = {
  * Для роута `/analysis` (без id) — fallback `'__none__'`, чтобы при
  * переходе с `/analysis/UUID` на `/analysis` тоже произошёл remount.
  */
-export function AnalysisPage() {
-  const params = useParams<{ id?: string; gameId?: string }>();
-  const key = params.id ?? params.gameId ?? '__none__';
-  return <AnalysisPageInner key={key} />;
+/**
+ * KS-2672: один компонент рендерит три режима:
+ *  - owner (auth) — полная фукнциональность (Share, Edit, autosave).
+ *  - viewer (auth, не-owner) — read-only по `isPublic=true`.
+ *  - anonymous (без auth) — read-only по public-эндпоинту.
+ *
+ * Маршрут `/analysis/public/:id` передаёт `publicMode=true`, тогда
+ * данные грузятся через `GET /analyses/public/:id` (без auth) и
+ * мутации (autosave, title-edit, position update) выключены. Для
+ * залогиненного владельца, открывшего public-URL своего же анализа,
+ * UI остаётся read-only — это упрощает логику; чтобы редактировать,
+ * автор должен зайти на обычный `/analysis/:id`.
+ */
+interface AnalysisPageProps {
+  publicMode?: boolean;
 }
 
-function AnalysisPageInner() {
+export function AnalysisPage({ publicMode = false }: AnalysisPageProps = {}) {
+  const params = useParams<{ id?: string; gameId?: string }>();
+  const key = params.id ?? params.gameId ?? '__none__';
+  return <AnalysisPageInner key={key} publicMode={publicMode} />;
+}
+
+function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     document.body.classList.add('has-analysis-page');
@@ -156,7 +173,12 @@ function AnalysisPageInner() {
   const [savedIsPublic, setSavedIsPublic] = useState<boolean>(false);
 
   // Standalone analysis state
-  const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
+  const {
+    create: createAnalysis,
+    update: updateAnalysis,
+    getById,
+    getPublicById,
+  } = useSavedAnalyses();
   const localIdRef = useRef<string | undefined>(
     (location.state as { localId?: string } | null)?.localId ?? analysisId,
   );
@@ -291,18 +313,22 @@ function AnalysisPageInner() {
 
   const handleTitleClick = useCallback(() => {
     if (gameId) return;
+    // KS-2672: в publicMode не-владелец не редактирует title.
+    if (publicMode) return;
     setTitleInput(analysisTitle);
     setIsEditingTitle(true);
-  }, [gameId, analysisTitle]);
+  }, [gameId, analysisTitle, publicMode]);
 
   const handleTitleSave = useCallback(() => {
     const trimmed = titleInput.trim() || getDefaultTitle();
     setAnalysisTitle(trimmed);
     setIsEditingTitle(false);
+    // KS-2672: в publicMode мутация title запрещена.
+    if (publicMode) return;
     if (localIdRef.current) {
       updateAnalysis(localIdRef.current, { title: trimmed }).catch(() => {});
     }
-  }, [titleInput, updateAnalysis]);
+  }, [titleInput, updateAnalysis, publicMode]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -381,7 +407,7 @@ function AnalysisPageInner() {
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
         const id = localIdRef.current;
-        getById(id).then((saved) => {
+        (publicMode ? getPublicById(id) : getById(id)).then((saved) => {
           if (saved?.pgn) {
             try {
               // Restore custom starting position if FEN header present
@@ -496,6 +522,8 @@ function AnalysisPageInner() {
 
   useEffect(() => {
     if (suppressPositionSaveRef.current) return;
+    // KS-2672: в publicMode не сохраняем currentPosition — read-only.
+    if (publicMode) return;
     if (positionSaveRef.current) clearTimeout(positionSaveRef.current);
     positionSaveRef.current = setTimeout(() => {
       const id = localIdRef.current;
@@ -513,7 +541,7 @@ function AnalysisPageInner() {
       updateAnalysis(id, { currentPosition: position }).catch(() => {});
     }, 1000);
     return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
-  }, [currentGlobalIndex, updateAnalysis, history]);
+  }, [currentGlobalIndex, updateAnalysis, history, publicMode]);
 
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -522,6 +550,11 @@ function AnalysisPageInner() {
   useEffect(() => {
     if (!user) return;
     if (gameId) return;
+    // KS-2672: в publicMode autosave полностью выключен — не-владелец
+    // не должен случайно мутировать чужой анализ. Авторизованный
+    // владелец, открывший public-URL своего анализа, тоже read-only —
+    // для редактирования пусть перейдёт на /analysis/:id.
+    if (publicMode) return;
     if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
     if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
@@ -571,6 +604,8 @@ function AnalysisPageInner() {
   const flushSaveOnHide = useCallback(() => {
     if (!user) return;
     if (gameId) return;
+    // KS-2672: в publicMode не сохраняем PGN на unload — read-only.
+    if (publicMode) return;
     if (!localIdRef.current) return;
     if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
     if (localSaveTimerRef.current) {
@@ -593,7 +628,7 @@ function AnalysisPageInner() {
     } catch {
       updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
     }
-  }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis]);
+  }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis, publicMode]);
 
   useEffect(() => {
     const onHide = () => {
@@ -1290,7 +1325,12 @@ function AnalysisPageInner() {
               через `display:none`, и Share вместе с ним. Свой
               отдельный host-контейнер с собственными mobile-стилями
               (`.analysis-share-host`) — отображается на всех breakpoint'ах. */}
-          {user &&
+          {/* KS-2672: в publicMode (URL `/analysis/public/:id`) Share-
+              кнопка всегда скрыта — даже если автор открыл свой же
+              public-URL. Чтобы редактировать, ему нужно перейти на
+              приватный `/analysis/:id`. */}
+          {!publicMode &&
+            user &&
             localIdRef.current &&
             savedOwnerId === user.id && (
               <div

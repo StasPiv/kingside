@@ -52,6 +52,22 @@ export function useSavedAnalyses() {
   }, []);
 
   /**
+   * KS-2672: публичный read-only анализ. Эндпоинт без auth, отвечает
+   * 404 для приватных. Используется на маршруте `/analysis/public/:id`
+   * для не-владельцев и анонимов.
+   */
+  const getPublicById = useCallback(
+    async (id: string): Promise<AnalysisResponse | null> => {
+      try {
+        return await api.get<AnalysisResponse>(`/analyses/public/${id}`);
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  /**
    * KS-2666 / ADR-051 §3 share-2: toggle публичности анализа.
    * Backend (KS-2601) возвращает обновлённый AnalysisResponse с
    * актуальным `isPublic`; UI ловит ответ для оптимистичного апдейта.
@@ -65,5 +81,5 @@ export function useSavedAnalyses() {
     [],
   );
 
-  return { create, update, remove, getById, share };
+  return { create, update, remove, getById, getPublicById, share };
 }
