@@ -165,17 +165,16 @@ export const ShareAnalysisButton = forwardRef<
     }
   }, [analysisId, isPublic, onPublicChanged, pending, share, showToast, t]);
 
+  // KS-2682: handleCopy вызывается только при isPublic=true
+  // (кнопка скрыта при приватном). Tост-вариант
+  // `toastLinkCopiedPrivate` стал недостижим, оставлен в i18n
+  // для совместимости с переводчиками; новые места не используют.
   const handleCopy = useCallback(async () => {
     const ok = await copyToClipboard(publicUrl);
     if (ok) {
       showToast(
         'success',
-        isPublic
-          ? t('analysis.share.toastLinkCopied', 'Link copied')
-          : t(
-              'analysis.share.toastLinkCopiedPrivate',
-              'Link copied. Make public to share with others.',
-            ),
+        t('analysis.share.toastLinkCopied', 'Link copied'),
       );
     } else {
       showToast(
@@ -183,7 +182,7 @@ export const ShareAnalysisButton = forwardRef<
         t('analysis.share.toastCopyError', 'Could not copy link'),
       );
     }
-  }, [copyToClipboard, isPublic, publicUrl, showToast, t]);
+  }, [copyToClipboard, publicUrl, showToast, t]);
 
   return (
     <div
@@ -250,28 +249,36 @@ export const ShareAnalysisButton = forwardRef<
                   )}
             </p>
           </div>
-          <label className="analysis-share__url-row">
-            <span className="analysis-share__url-label">
-              {t('analysis.share.urlLabel', 'Public link')}
-            </span>
-            <input
-              type="text"
-              readOnly
-              value={publicUrl}
-              className="analysis-share__url"
-              data-testid="analysis-share-url"
-              onFocus={(e) => e.currentTarget.select()}
-            />
-          </label>
+          {/* KS-2682: при приватном анализе ни URL, ни «Скопировать»
+              не показываем — ссылка-копия бессмысленна, пока isPublic=false
+              (отдаст 404 не-владельцу). После «Сделать публичным» блок
+              появляется без перезагрузки. */}
+          {isPublic && (
+            <label className="analysis-share__url-row">
+              <span className="analysis-share__url-label">
+                {t('analysis.share.urlLabel', 'Public link')}
+              </span>
+              <input
+                type="text"
+                readOnly
+                value={publicUrl}
+                className="analysis-share__url"
+                data-testid="analysis-share-url"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </label>
+          )}
           <div className="analysis-share__actions">
-            <button
-              type="button"
-              className="analysis-share__copy"
-              data-testid="analysis-share-copy"
-              onClick={() => void handleCopy()}
-            >
-              {t('analysis.share.copy', 'Copy link')}
-            </button>
+            {isPublic && (
+              <button
+                type="button"
+                className="analysis-share__copy"
+                data-testid="analysis-share-copy"
+                onClick={() => void handleCopy()}
+              >
+                {t('analysis.share.copy', 'Copy link')}
+              </button>
+            )}
             <button
               type="button"
               className="analysis-share__toggle"
