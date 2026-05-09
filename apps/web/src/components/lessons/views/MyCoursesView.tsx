@@ -471,21 +471,59 @@ export function MyCoursesView() {
                   className="my-courses-page__actions"
                   data-testid={`my-courses-actions-${c.id}`}
                 >
+                  {/* KS-2654: текстовые кнопки заменены на иконки.
+                      Текст действия остаётся в `aria-label` (а11y) и
+                      `title` (нативный tooltip на hover). */}
                   <button
                     type="button"
-                    className="my-courses-page__action"
+                    className="my-courses-page__action my-courses-page__action--icon my-courses-page__action--open"
                     onClick={() => handleOpen(c)}
+                    aria-label={t('lessons.my.actions.open', 'Open')}
+                    title={t('lessons.my.actions.open', 'Open')}
                     data-testid={`my-courses-action-open-${c.id}`}
                   >
-                    {t('lessons.my.actions.open', 'Open')}
+                    <svg
+                      className="my-courses-page__action-icon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M14 3h7v7" />
+                      <path d="M21 3l-9 9" />
+                      <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                    </svg>
                   </button>
                   <button
                     type="button"
-                    className="my-courses-page__action"
+                    className="my-courses-page__action my-courses-page__action--icon my-courses-page__action--edit"
                     onClick={() => handleEdit(c)}
+                    aria-label={t('lessons.my.actions.edit', 'Edit')}
+                    title={t('lessons.my.actions.edit', 'Edit')}
                     data-testid={`my-courses-action-edit-${c.id}`}
                   >
-                    {t('lessons.my.actions.edit', 'Edit')}
+                    <svg
+                      className="my-courses-page__action-icon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                    </svg>
                   </button>
                   {/* KS-2623: Copy link на desktop остаётся в строке;
                       на <560px скрыт CSS'ом и доступен из меню «⋮ Ещё»
@@ -493,11 +531,28 @@ export function MyCoursesView() {
                       параллельные деревья под media-query). */}
                   <button
                     type="button"
-                    className="my-courses-page__action my-courses-page__action--copy"
+                    className="my-courses-page__action my-courses-page__action--icon my-courses-page__action--copy"
                     onClick={() => handleCopyLink(c)}
+                    aria-label={t('lessons.my.actions.copyLink', 'Copy link')}
+                    title={t('lessons.my.actions.copyLink', 'Copy link')}
                     data-testid={`my-courses-action-copy-${c.id}`}
                   >
-                    {t('lessons.my.actions.copyLink', 'Copy link')}
+                    <svg
+                      className="my-courses-page__action-icon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                      <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+                    </svg>
                   </button>
                   <div
                     className="my-courses-page__menu-root"
@@ -505,15 +560,29 @@ export function MyCoursesView() {
                   >
                     <button
                       type="button"
-                      className="my-courses-page__action my-courses-page__action--more"
+                      className="my-courses-page__action my-courses-page__action--icon my-courses-page__action--more"
                       onClick={() =>
                         setOpenMenuId((cur) => (cur === c.id ? null : c.id))
                       }
                       aria-haspopup="menu"
                       aria-expanded={menuOpen}
+                      aria-label={t('lessons.my.actions.more', 'More')}
+                      title={t('lessons.my.actions.more', 'More')}
                       data-testid={`my-courses-action-more-${c.id}`}
                     >
-                      {t('lessons.my.actions.more', '⋮ More')}
+                      <svg
+                        className="my-courses-page__action-icon"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <circle cx="12" cy="5" r="1.7" />
+                        <circle cx="12" cy="12" r="1.7" />
+                        <circle cx="12" cy="19" r="1.7" />
+                      </svg>
                     </button>
                     {menuOpen && (
                       <div

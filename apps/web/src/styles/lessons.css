@@ -7380,6 +7380,82 @@
   font-weight: 600;
 }
 
+/* KS-2654: иконочные action-кнопки на карточке. Компактные квадратные
+   кнопки с одной SVG-иконкой внутри и нативным `title`-tooltip. */
+.my-courses-page__action--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 0;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.my-courses-page__action--icon:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated, var(--bg-surface));
+  border-color: var(--text-secondary);
+}
+
+.my-courses-page__action--icon:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+  color: var(--text-primary);
+}
+
+.my-courses-page__action-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* `--more` теперь тоже иконочная кнопка (⋮). Сохраняем `margin-left: auto`,
+   чтобы её, как и раньше, прижимало к правому краю строки действий. */
+.my-courses-page__action--icon.my-courses-page__action--more {
+  padding: 0;
+}
+
+/* CSS-tooltip над иконочной кнопкой: подпись из `aria-label` появляется
+   на hover/focus-visible. Дополняет нативный `title`, чтобы tooltip
+   гарантированно появлялся быстро (native title идёт с задержкой ~500мс
+   и не во всех браузерах надёжен). На mobile (нет hover) работает
+   только через focus, что и нужно. */
+.my-courses-page__action--icon {
+  position: relative;
+}
+
+.my-courses-page__action--icon::after {
+  content: attr(aria-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-on-accent, #fff);
+  background: var(--c-1e293b, #1e293b);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 5;
+}
+
+.my-courses-page__action--icon:hover::after,
+.my-courses-page__action--icon:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 .my-courses-page__menu-root {
   position: relative;
   margin-left: auto;
@@ -7562,6 +7638,18 @@
    *    пункт. */
   .my-courses-page__action--copy {
     display: none;
+  }
+
+  /* KS-2654: на mobile иконочные action-кнопки увеличиваем до 44×44
+   *    (минимальный touch-target по WCAG / Apple HIG). */
+  .my-courses-page__action--icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .my-courses-page__action-icon {
+    width: 22px;
+    height: 22px;
   }
 
   .my-courses-page__menu-item--mobile-only {
