@@ -394,7 +394,11 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
 .analysis-overflow-menu {
   position: absolute;
-  top: 100%;
+  /* KS-2678 follow-up: меню раскрывается ВВЕРХ от кнопки «…», т.к.
+     action-bar находится у нижнего края окна — раньше при `top:100%`
+     длинный список пунктов обрезался viewport'ом снизу. */
+  bottom: 100%;
+  top: auto;
   right: 0;
   background: var(--bg, #fff);
   border: 1px solid var(--border-color, #e5e7eb);
@@ -402,8 +406,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   padding: 4px 0;
   z-index: 200;
   min-width: 200px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  margin-top: 4px;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12);
+  margin-bottom: 4px;
 }
 
 .analysis-overflow-menu button {
