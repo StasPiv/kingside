@@ -1,4 +1,9 @@
 import type { ReactNode } from 'react';
+import {
+  PuzzleMiniBoard,
+  type MiniBoardArrow,
+  type MiniBoardSquare,
+} from '../puzzle/PuzzleMiniBoard';
 
 /**
  * KS-2234 (ADR-035 §7.3, E3) — карточка drill-типа в лобби `/drills`.
@@ -24,6 +29,18 @@ import type { ReactNode } from 'react';
  * action для screen reader. `aria-label` собирается из title + description
  * (если есть), чтобы скринридер озвучивал суть, а не только заголовок.
  */
+/**
+ * KS-2685: иллюстративная мини-доска (FEN + arrows + squares) внутри
+ * карточки тренажёра. Если не передана — карточка остаётся как раньше
+ * (только текст), без регрессии для неpenpicked типов.
+ */
+export interface DrillTypeCardPreview {
+  fen: string;
+  arrows?: MiniBoardArrow[];
+  squares?: MiniBoardSquare[];
+  orientation?: 'white' | 'black';
+}
+
 export interface DrillTypeCardProps {
   title: string;
   description?: string;
@@ -31,6 +48,7 @@ export interface DrillTypeCardProps {
   badge?: ReactNode;
   disabled?: boolean;
   onClick?: () => void;
+  preview?: DrillTypeCardPreview;
 }
 
 export function DrillTypeCard({
@@ -40,6 +58,7 @@ export function DrillTypeCard({
   badge,
   disabled = false,
   onClick,
+  preview,
 }: DrillTypeCardProps) {
   const ariaLabel = description ? `${title}. ${description}` : title;
   return (
@@ -48,10 +67,25 @@ export function DrillTypeCard({
       className="drill-type-card"
       data-testid="drill-type-card"
       data-disabled={disabled ? 'true' : 'false'}
+      data-has-preview={preview ? 'true' : 'false'}
       disabled={disabled}
       onClick={onClick}
       aria-label={ariaLabel}
     >
+      {preview && (
+        <span
+          className="drill-type-card__preview"
+          aria-hidden="true"
+          data-testid="drill-type-card-preview"
+        >
+          <PuzzleMiniBoard
+            fen={preview.fen}
+            arrows={preview.arrows}
+            squares={preview.squares}
+            orientation={preview.orientation ?? 'white'}
+          />
+        </span>
+      )}
       {icon && (
         <span className="drill-type-card__icon" aria-hidden="true">
           {icon}

@@ -144,6 +144,38 @@ html[data-theme="light"] {
   flex-shrink: 0;
 }
 
+/* KS-2685: иллюстративная мини-доска внутри карточки. На desktop —
+   квадрат ~140px по центру вверху карточки; на mobile (см. media-
+   query ниже) шириной во весь контейнер с aspect-ratio 1:1. */
+.drill-type-card__preview {
+  display: block;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-surface, #f9fafb);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.drill-type-card__preview .puzzle-mini-board {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.drill-type-card[data-has-preview="true"] {
+  align-items: center;
+  text-align: center;
+}
+
+.drill-type-card[data-has-preview="true"] .drill-type-card__title,
+.drill-type-card[data-has-preview="true"] .drill-type-card__desc {
+  width: 100%;
+  text-align: center;
+}
+
 .drill-type-card__title {
   font-size: 16px;
   font-weight: 600;
@@ -737,6 +769,30 @@ html[data-theme="light"] {
 .drills-lobby__sprint-cta-card--primary {
   background: var(--accent-soft);
   border-color: var(--accent-primary);
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* KS-2685: иллюстративная мини-доска в CTA «Спринт». */
+.drills-lobby__sprint-cta-preview {
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.drills-lobby__sprint-cta-preview .puzzle-mini-board {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.drills-lobby__sprint-cta-card--primary .drills-lobby__sprint-cta-text {
+  flex: 1 1 auto;
+  min-width: 200px;
 }
 
 .drills-lobby__sprint-cta-text {
@@ -878,6 +934,15 @@ html[data-theme="light"] {
 
   .drill-type-card__desc {
     font-size: 13px;
+  }
+
+  /* KS-2685: на mobile карточка с preview занимает всю ширину, доска
+     — половина ширины (≤180px), сверху. text — по центру под доской. */
+  .drill-type-card__preview {
+    width: min(140px, 50%);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    max-width: 180px;
   }
 
   /* DrillPage: portrait — доска сверху, ответ + инструкция снизу. */

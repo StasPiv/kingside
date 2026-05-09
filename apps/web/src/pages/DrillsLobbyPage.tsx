@@ -9,6 +9,11 @@ import type {
 
 import { api } from '../api';
 import { DrillTypeCard } from '../components/drills';
+import {
+  DRILL_PREVIEWS,
+  SPRINT_PREVIEW,
+} from '../components/drills/drillPreviews';
+import { PuzzleMiniBoard } from '../components/puzzle/PuzzleMiniBoard';
 
 /**
  * KS-2232 (ADR-035 §7, E3) — лобби тренажёров `/drills`.
@@ -149,13 +154,26 @@ export function DrillsLobbyPage() {
 
       {/* KS-2332: CTA-блок «Спринт» + ссылка на лидерборд. До этого
           тикета попасть в спринт-режим можно было только зная URL —
-          в лобби не было ни одной ссылки. */}
+          в лобби не было ни одной ссылки.
+          KS-2685: добавлена иллюстративная мини-доска (find-fork). */}
       <section
         className="drills-lobby__sprint-cta"
         data-testid="drills-lobby-sprint-cta"
         aria-label={t('drills.lobby.sprintCtaTitle', 'Sprint')}
       >
         <div className="drills-lobby__sprint-cta-card drills-lobby__sprint-cta-card--primary">
+          <div
+            className="drills-lobby__sprint-cta-preview"
+            aria-hidden="true"
+            data-testid="drills-lobby-sprint-preview"
+          >
+            <PuzzleMiniBoard
+              fen={SPRINT_PREVIEW.fen}
+              arrows={SPRINT_PREVIEW.arrows}
+              squares={SPRINT_PREVIEW.squares}
+              orientation={SPRINT_PREVIEW.orientation}
+            />
+          </div>
           <div className="drills-lobby__sprint-cta-text">
             <h2 className="drills-lobby__sprint-cta-title">
               {t('drills.lobby.sprintCtaTitle', 'Sprint')}
@@ -220,6 +238,7 @@ export function DrillsLobbyPage() {
                 const key = kebabToCamel(item.id);
                 const title = t(`drills.types.${key}`);
                 const description = t(`drills.typeDescriptions.${key}`);
+                const preview = DRILL_PREVIEWS[item.id];
                 return (
                   <DrillTypeCard
                     key={item.id}
@@ -231,6 +250,7 @@ export function DrillsLobbyPage() {
                         ? t('drills.lobby.lockedHint', 'Locked')
                         : undefined
                     }
+                    preview={preview}
                     onClick={() => navigate(`/drills/${item.id}`)}
                   />
                 );
