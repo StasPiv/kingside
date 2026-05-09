@@ -2352,6 +2352,31 @@
       "makePrivate": "Сделать приватным",
       "visibilityPending": "Обновляю видимость…",
       "visibilityError": "Не удалось обновить видимость курса",
+      "actions": {
+        "open": "Открыть",
+        "edit": "Редактировать",
+        "copyLink": "Копировать ссылку",
+        "more": "⋮ Ещё",
+        "makePublic": "Сделать публичным",
+        "makePrivate": "Сделать приватным",
+        "delete": "Удалить"
+      },
+      "deleteConfirm": {
+        "body_one": "Удалить курс «{{title}}»? {{count}} ученик потеряет прогресс.",
+        "body_few": "Удалить курс «{{title}}»? {{count}} ученика потеряют прогресс.",
+        "body_many": "Удалить курс «{{title}}»? {{count}} учеников потеряют прогресс.",
+        "body_other": "Удалить курс «{{title}}»? {{count}} учеников потеряют прогресс."
+      },
+      "toasts": {
+        "linkCopied": "Ссылка скопирована",
+        "linkCopiedPrivate": "Ссылка скопирована. Опубликуйте курс, чтобы делиться им.",
+        "linkCopyError": "Не удалось скопировать ссылку",
+        "coursePublished": "Курс опубликован",
+        "courseHidden": "Курс скрыт",
+        "visibilityError": "Не удалось обновить видимость",
+        "courseDeleted": "Курс удалён",
+        "deleteError": "Не удалось удалить курс"
+      },
       "publicBadge": "Публичный",
       "privateBadge": "Приватный",
       "draftBadge": "Черновик",

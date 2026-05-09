@@ -2330,6 +2330,29 @@
       "makePrivate": "Make private",
       "visibilityPending": "Updating visibility…",
       "visibilityError": "Failed to update course visibility",
+      "actions": {
+        "open": "Open",
+        "edit": "Edit",
+        "copyLink": "Copy link",
+        "more": "⋮ More",
+        "makePublic": "Make public",
+        "makePrivate": "Make private",
+        "delete": "Delete"
+      },
+      "deleteConfirm": {
+        "body_one": "Delete course \"{{title}}\"? {{count}} student will lose progress.",
+        "body_other": "Delete course \"{{title}}\"? {{count}} students will lose progress."
+      },
+      "toasts": {
+        "linkCopied": "Link copied",
+        "linkCopiedPrivate": "Link copied. Publish to share with others.",
+        "linkCopyError": "Failed to copy link",
+        "coursePublished": "Course published",
+        "courseHidden": "Course hidden",
+        "visibilityError": "Failed to update visibility",
+        "courseDeleted": "Course deleted",
+        "deleteError": "Failed to delete the course"
+      },
       "publicBadge": "Public",
       "privateBadge": "Private",
       "draftBadge": "Draft",
