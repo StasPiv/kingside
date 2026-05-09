@@ -36,6 +36,7 @@ import {
   Adr054UnifiedLessonStepsController,
   Adr054UnifiedProgressController,
 } from './adr054-unified.controller';
+import { Adr054UnifiedCoursesPublicController } from './adr054-unified-public.controller';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -64,6 +65,11 @@ import {
     UserCoursesModule,
   ],
   controllers: [
+    // KS-2646: публичный controller `/lessons/courses/authors` — ПЕРЕД
+    // `CoursesController`, чтобы `/authors` не упирался в `:slug` (под
+    // auth). Без `JwtAuthGuard` — лобби-витрина авторов доступна
+    // анонимам.
+    Adr054UnifiedCoursesPublicController,
     CoursesController,
     LessonsController,
     ProgressController,

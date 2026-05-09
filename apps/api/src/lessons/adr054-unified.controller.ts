@@ -85,11 +85,11 @@ import { UserProgressService } from './user-courses/user-progress.service';
 export class Adr054UnifiedCoursesController {
   constructor(private readonly service: UserCoursesService) {}
 
-  /** GET /lessons/courses/enrolled — «курсы, которые я прохожу». */
-  @Get('enrolled')
-  listEnrolled(@Request() req: AuthenticatedRequest) {
-    return this.service.listEnrolled(req.user.id);
-  }
+  // KS-2646 / ADR-054 Phase D fix. `GET /lessons/courses/enrolled`
+  // переехал в `CoursesController` — там он объявлен ДО `@Get(':slug')`,
+  // иначе Express ловит `enrolled` как параметр slug. Здесь оставлять
+  // дубликат нельзя: route-конфликт между двумя контроллерами на одном
+  // path даст ошибку при init Nest.
 
   /**
    * POST /lessons/courses — создать пользовательский курс.
@@ -246,36 +246,17 @@ export class Adr054UnifiedLessonStepsController {
   }
 }
 
-// ─── /lessons/progress — пользовательский прогресс ─────────────────────
+// ─── /lessons/progress — GET-роуты пользовательского прогресса ────────
 //
-// Базовый префикс совпадает с системным `ProgressController`, но методы
-// /пути отличаются (системный: POST `step` / `lesson/complete`;
-// пользовательский: POST `lessons/:id/{step,complete}`, GET `courses/:id`,
-// GET `lessons/:id`). Nest-конфликта нет.
+// KS-2646: POST `lessons/:id/{step,complete}` переехали в системный
+// `ProgressController` с детектом lesson-типа (системный → системный
+// сервис, пользовательский → UserProgressService). Здесь остаются
+// только GET'ы — они без write-побочек, и системного аналога у них
+// нет (системный progress читается через getCourseBySlug/get-lesson).
 @UseGuards(JwtAuthGuard)
 @Controller('lessons/progress')
 export class Adr054UnifiedProgressController {
   constructor(private readonly service: UserProgressService) {}
-
-  /** POST /lessons/progress/lessons/:id/step. */
-  @Post('lessons/:id/step')
-  updateStep(
-    @Request() req: AuthenticatedRequest,
-    @Param('id') id: string,
-    @Body() body: UpdateUserStepProgressDto,
-  ) {
-    return this.service.updateStepProgress(req.user.id, id, body.stepId, body.state);
-  }
-
-  /** POST /lessons/progress/lessons/:id/complete. */
-  @Post('lessons/:id/complete')
-  completeLesson(
-    @Request() req: AuthenticatedRequest,
-    @Param('id') id: string,
-    @Body() body: CompleteUserLessonDto,
-  ) {
-    return this.service.completeLesson(req.user.id, id, body.score);
-  }
 
   /** GET /lessons/progress/courses/:id. */
   @Get('courses/:id')

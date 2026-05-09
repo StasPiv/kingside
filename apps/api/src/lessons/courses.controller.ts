@@ -68,6 +68,17 @@ export class CoursesController {
   }
 
   /**
+   * GET /api/lessons/courses/enrolled — KS-2646 / ADR-054 Phase D fix.
+   * «Курсы, которые я прохожу» — чужие пользовательские курсы, по
+   * которым у меня есть прогресс. Объявлен **до** `@Get(':slug')` —
+   * иначе Express матчит `enrolled` как параметр slug.
+   */
+  @Get('enrolled')
+  listEnrolled(@Request() req: AuthenticatedRequest) {
+    return this.userCoursesService.listEnrolled(req.user.id);
+  }
+
+  /**
    * GET /api/lessons/courses/:slug — курс с блоками/уроками.
    * Сначала ищет системный, при отсутствии — пользовательский (для
    * залогиненных).

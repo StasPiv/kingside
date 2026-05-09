@@ -24,6 +24,7 @@ describe('CoursesController', () => {
     userCoursesService = {
       list: jest.fn(),
       getBySlug: jest.fn(),
+      listEnrolled: jest.fn(),
     } as unknown as jest.Mocked<UserCoursesService>;
     controller = new CoursesController(coursesService, userCoursesService);
   });
@@ -108,5 +109,17 @@ describe('CoursesController', () => {
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(userCoursesService.getBySlug).not.toHaveBeenCalled();
+  });
+
+  // ─── KS-2646 / ADR-054 Phase D fix ───────────────────────────────────
+
+  it('GET /lessons/courses/enrolled → userCoursesService.listEnrolled(userId)', async () => {
+    userCoursesService.listEnrolled.mockResolvedValue({ data: [] } as any);
+    const res = await controller.listEnrolled(req);
+    expect(userCoursesService.listEnrolled).toHaveBeenCalledWith('user-1');
+    expect(res).toEqual({ data: [] });
+    // KS-2646: не должно проходить через getBySlug или listCourses.
+    expect(coursesService.getCourseBySlug).not.toHaveBeenCalled();
+    expect(coursesService.listCourses).not.toHaveBeenCalled();
   });
 });
