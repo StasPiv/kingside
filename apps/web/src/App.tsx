@@ -46,8 +46,12 @@ import { PuzzleMistakesPage } from './pages/PuzzleMistakesPage';
 import { PuzzleMistakesPracticePage } from './pages/PuzzleMistakesPracticePage';
 import { LessonEditorPage } from './pages/LessonEditorPage';
 import { UserCourseEditor } from './components/lessons/editor/user/UserCourseEditor';
-import { UserCoursePage } from './pages/UserCoursePage';
-import { UserLessonPage } from './pages/UserLessonPage';
+// KS-2645 (ADR-054 Phase D): UserCoursePage и UserLessonPage удалены —
+// CoursePage / LessonPage теперь работают для обоих типов курсов
+// (различение по `course.ownerId`). Старые маршруты `/lessons/my/:slug`
+// и `/lessons/my/:slug/:lessonId` редиректят на унифицированные пути
+// через `<RedirectMyCourse />` / `<RedirectMyLesson />` ниже —
+// сохраняем входящие ссылки.
 // KS-2066 (F0/ADR-033 §2): namespace архива — заглушки.
 // ArchiveLobbyPage удалён — /archive теперь напрямую показывает ArchiveGamesPage (KS-2210)
 import { ArchiveGamesPage } from './pages/ArchiveGamesPage';
@@ -173,6 +177,32 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 function RedirectWithQuery({ to }: { to: string }) {
   const location = useLocation();
   const target = location.search ? `${to}${location.search}` : to;
+  return <Navigate to={target} replace />;
+}
+
+/**
+ * KS-2645 (ADR-054 Phase D): редирект `/lessons/my/:slug` →
+ * `/lessons/:slug`. CoursePage сам решит, что курс пользовательский,
+ * по `course.ownerId`. Search-параметры сохраняем (хотя у этого URL'а
+ * их обычно нет).
+ */
+function RedirectMyCourse() {
+  const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
+  const target = `/lessons/${slug ?? ''}${location.search}`;
+  return <Navigate to={target} replace />;
+}
+
+/**
+ * KS-2645 (ADR-054 Phase D): редирект `/lessons/my/:slug/:lessonId` →
+ * `/lessons/:slug/:lessonId`. LessonPage найдёт урок по UUID
+ * (а не по slug, как в системных курсах) — этот случай явно поддержан
+ * в `LessonPage.useEffect` lookup'е.
+ */
+function RedirectMyLesson() {
+  const { slug, lessonId } = useParams<{ slug: string; lessonId: string }>();
+  const location = useLocation();
+  const target = `/lessons/${slug ?? ''}/${lessonId ?? ''}${location.search}`;
   return <Navigate to={target} replace />;
 }
 
@@ -348,8 +378,20 @@ export function App() {
               element={<ProtectedRoute><MyCoursesPage /></ProtectedRoute>}
             />
             <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditor /></ProtectedRoute>} />
-            <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
-            <Route path="/lessons/my/:slug/:lessonId" element={<ProtectedRoute><UserLessonPage /></ProtectedRoute>} />
+            {/* KS-2645: старые маршруты `/lessons/my/:slug[/:lessonId]`
+                редиректят на унифицированные `/lessons/:slug[/:lessonId]`.
+                CoursePage и LessonPage сами решают по `course.ownerId`,
+                какой UI рисовать. Сохраняем replace=true, чтобы
+                back-кнопка не возвращала на legacy URL. */}
+            <Route path="/lessons/my/:slug" element={<RedirectMyCourse />} />
+            <Route
+              path="/lessons/my/:slug/:lessonId"
+              element={
+                <ProtectedRoute>
+                  <RedirectMyLesson />
+                </ProtectedRoute>
+              }
+            />
             {/* KS-1928 / ADR-032: 301-redirect старого расположения дневника
                 ошибок в /puzzles namespace. Сохраняем query (например ?theme=pin)
                 через `useLocation().search`. */}

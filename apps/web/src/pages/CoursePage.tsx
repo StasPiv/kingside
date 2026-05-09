@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { CourseWithLessonsResponse } from '@kingside/shared';
+import type {
+  CourseWithLessonsResponse,
+  UserCourseDto,
+  UserCourseWithLessonsResponse,
+} from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { ApiError } from '../ApiError';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
 import { CourseActiveLessonHero } from '../components/lessons/CourseActiveLessonHero';
+import { UserCourseView } from '../components/lessons/views/UserCourseView';
 import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
@@ -16,14 +21,38 @@ import { resolveInlineText } from '../utils/inlineI18nText';
  * Уроки сгруппированы по «блокам» через `groupLessonsByBlock` (см.
  * `components/lessons/courseBlocks.ts`). До появления `blockKey` в
  * API используется slug-fallback для курса beginner.
+ *
+ * # KS-2645 (ADR-054 Phase D) — единая страница для system + user
+ *
+ * Один маршрут `/lessons/:courseSlug` теперь отдаёт оба типа курсов.
+ * Различение по `course.ownerId`:
+ *   - `null` / отсутствует → системный курс (текущий UI с blocks/hero/
+ *     SM-2 mastered/due бейджами);
+ *   - UUID → пользовательский курс — рендерится `<UserCourseView>`.
+ *
+ * Старый маршрут `/lessons/my/:slug` (UserCoursePage) удалён;
+ * App.tsx редиректит его на `/lessons/:slug` (см. `Navigate replace`).
  */
+
+/** Type-guard: `course.ownerId` есть → пользовательский курс. */
+function isUserCourseResponse(
+  data: CourseWithLessonsResponse | UserCourseWithLessonsResponse,
+): data is UserCourseWithLessonsResponse {
+  return (
+    'ownerId' in data.course &&
+    (data.course as UserCourseDto).ownerId != null
+  );
+}
 
 export function CoursePage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { courseSlug } = useParams<{ courseSlug: string }>();
+  const navigate = useNavigate();
 
-  const [data, setData] = useState<CourseWithLessonsResponse | null>(null);
+  const [data, setData] = useState<
+    CourseWithLessonsResponse | UserCourseWithLessonsResponse | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // KS-2099: при отсутствии перевода курса на текущем языке backend
@@ -44,7 +73,7 @@ export function CoursePage() {
     setUnavailableInLang(false);
     lessonsApi
       .getCourse(courseSlug)
-      .then((res) => {
+      .then((res: CourseWithLessonsResponse | UserCourseWithLessonsResponse) => {
         if (cancelled) return;
         setData(res);
       })
@@ -151,6 +180,28 @@ export function CoursePage() {
       <div className="lessons-empty" data-testid="course-empty">
         {t('lessons.courseNotFound', 'Course not found')}
       </div>
+    );
+  }
+
+  // KS-2645: пользовательский курс — отдельный UI (бейджи Public/Private,
+  // owner-actions, плоский lesson-список без blocks). После всех
+  // глобальных guards (loading/error/empty/unavailableInLang) переключаем
+  // ветку рендера.
+  if (isUserCourseResponse(data)) {
+    return (
+      <UserCourseView
+        course={data.course}
+        lessons={data.lessons}
+        progress={data.progress}
+        onCourseUpdated={(next) =>
+          setData((prev) =>
+            prev && isUserCourseResponse(prev)
+              ? { ...prev, course: next }
+              : prev,
+          )
+        }
+        onCourseDeleted={() => navigate('/lessons', { replace: true })}
+      />
     );
   }
 

@@ -2,20 +2,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLessonProgress, PASS_THRESHOLD } from './useLessonProgress';
 
+// KS-2645: после слияния хуков прогресса (KS-2646 unified API)
+// `useLessonProgress` зовёт `lessonsApi.markStep` (не `updateStep`).
+// `updateStepAlias` оставлен как алиас на `markStep`, чтобы
+// не переписывать существующие assertions.
 const mockLessonsApi = {
-  updateStep: vi.fn(),
+  markStep: vi.fn(),
   completeLesson: vi.fn(),
 };
+const updateStepAlias = mockLessonsApi.markStep;
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
-    updateStep: (...args: unknown[]) => mockLessonsApi.updateStep(...args),
+    markStep: (...args: unknown[]) => mockLessonsApi.markStep(...args),
     completeLesson: (...args: unknown[]) => mockLessonsApi.completeLesson(...args),
   },
 }));
 
 beforeEach(() => {
-  mockLessonsApi.updateStep.mockReset();
+  mockLessonsApi.markStep.mockReset();
   mockLessonsApi.completeLesson.mockReset();
   vi.useFakeTimers();
 });
@@ -26,7 +31,7 @@ afterEach(() => {
 
 describe('useLessonProgress', () => {
   it('markStep оптимистично обновляет stepsState и шлёт debounce-апдейт через 400мс', async () => {
-    mockLessonsApi.updateStep.mockResolvedValue({});
+    updateStepAlias.mockResolvedValue({});
     const { result } = renderHook(() =>
       useLessonProgress({ lessonId: 'l1', totalSteps: 1 }),
     );
@@ -36,13 +41,13 @@ describe('useLessonProgress', () => {
     });
     expect(result.current.stepsState).toEqual({ s1: 'done' });
     // до 400мс — API не дёрнут
-    expect(mockLessonsApi.updateStep).not.toHaveBeenCalled();
+    expect(updateStepAlias).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(mockLessonsApi.updateStep).toHaveBeenCalledTimes(1);
-    expect(mockLessonsApi.updateStep).toHaveBeenCalledWith('l1', {
+    expect(updateStepAlias).toHaveBeenCalledTimes(1);
+    expect(updateStepAlias).toHaveBeenCalledWith('l1', {
       stepId: 's1',
       state: 'done',
       score: undefined,
@@ -50,7 +55,7 @@ describe('useLessonProgress', () => {
   });
 
   it('debounce: серия markStep по одному id отправляет ТОЛЬКО последний', async () => {
-    mockLessonsApi.updateStep.mockResolvedValue({});
+    updateStepAlias.mockResolvedValue({});
     const { result } = renderHook(() =>
       useLessonProgress({ lessonId: 'l1', totalSteps: 1 }),
     );
@@ -63,8 +68,8 @@ describe('useLessonProgress', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(mockLessonsApi.updateStep).toHaveBeenCalledTimes(1);
-    expect(mockLessonsApi.updateStep).toHaveBeenLastCalledWith('l1', {
+    expect(updateStepAlias).toHaveBeenCalledTimes(1);
+    expect(updateStepAlias).toHaveBeenLastCalledWith('l1', {
       stepId: 's1',
       state: 'done',
       score: 0.9,
@@ -72,7 +77,7 @@ describe('useLessonProgress', () => {
   });
 
   it('сценарий «прошёл»: 3 из 3 done → completeLesson дёргает API, ok=true', async () => {
-    mockLessonsApi.updateStep.mockResolvedValue({});
+    updateStepAlias.mockResolvedValue({});
     mockLessonsApi.completeLesson.mockResolvedValue({
       userId: 'u1',
       lessonId: 'l1',
@@ -103,11 +108,11 @@ describe('useLessonProgress', () => {
     });
     expect(outcome?.ok).toBe(true);
     expect(outcome?.ratio).toBe(1);
-    expect(mockLessonsApi.completeLesson).toHaveBeenCalledWith('l1', { score: 1 });
+    expect(mockLessonsApi.completeLesson).toHaveBeenCalledWith('l1', { lessonId: 'l1', score: 1 });
   });
 
   it('сценарий «не хватило процента»: 1 из 3 done (33%) → completeLesson НЕ дёргает API, ok=false', async () => {
-    mockLessonsApi.updateStep.mockResolvedValue({});
+    updateStepAlias.mockResolvedValue({});
     const { result } = renderHook(() =>
       useLessonProgress({ lessonId: 'l1', totalSteps: 3 }),
     );
@@ -127,7 +132,7 @@ describe('useLessonProgress', () => {
   });
 
   it('сценарий «вернулся и добил»: после первого fail → отметить ещё шаги → второй completeLesson проходит', async () => {
-    mockLessonsApi.updateStep.mockResolvedValue({});
+    updateStepAlias.mockResolvedValue({});
     mockLessonsApi.completeLesson.mockResolvedValue({});
 
     const { result } = renderHook(() =>
@@ -167,11 +172,11 @@ describe('useLessonProgress', () => {
     });
     expect(third?.ok).toBe(true);
     expect(mockLessonsApi.completeLesson).toHaveBeenCalledTimes(1);
-    expect(mockLessonsApi.completeLesson).toHaveBeenCalledWith('l1', { score: 1 });
+    expect(mockLessonsApi.completeLesson).toHaveBeenCalledWith('l1', { lessonId: 'l1', score: 1 });
   });
 
   it('lastSyncError выставляется при сетевом сбое updateStep', async () => {
-    mockLessonsApi.updateStep.mockRejectedValueOnce(new Error('boom'));
+    updateStepAlias.mockRejectedValueOnce(new Error('boom'));
 
     const { result } = renderHook(() =>
       useLessonProgress({ lessonId: 'l1', totalSteps: 1 }),

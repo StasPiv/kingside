@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   UserCourseDto,
@@ -7,90 +7,43 @@ import type {
   UserLessonDto,
 } from '@kingside/shared';
 
-import { lessonsApi } from '../api/lessonsApi';
-import { useAuth } from '../context/AuthContext';
+import { lessonsApi } from '../../../api/lessonsApi';
+import { useAuth } from '../../../context/AuthContext';
 
 /**
- * `UserCoursePage` — просмотр пользовательского курса с его уроками
- * (ADR-026 §2.6, KS-1838 / FE-4).
+ * `UserCourseView` — UI пользовательского курса (ADR-026 §2.6).
  *
- * Маршрут: `/lessons/my/:slug` (в `App.tsx`, без `<ProtectedRoute>` —
- * публичный курс доступен без auth; для owner-actions проверяем
- * `user?.id === course.ownerId` на клиенте, backend всё равно проверит).
+ * KS-2645 (ADR-054 Phase D): раньше был отдельной страницей
+ * `UserCoursePage` на маршруте `/lessons/my/:slug`. Теперь — внутренний
+ * компонент-вид, рендерится из `CoursePage`, когда тот по ownerId курса
+ * понимает что курс пользовательский. Маршрут `/lessons/my/:slug`
+ * редиректит на `/lessons/:slug` (см. App.tsx).
  *
- * Загрузка: `userCoursesApi.getBySlug(slug)` отдаёт `{course, lessons,
- * progress}`. Backend:
- *  - публичный курс: 200 любому;
- *  - приватный: 200 только владельцу, 403/404 остальным — клиент
- *    маппит обе ветки в одинаковый `<NotFound>` (приватность → не
- *    выдаём факт существования курса, ADR §2.5).
+ * Загрузка данных делается родителем (`CoursePage`) — здесь только UI.
+ * Owner-actions (publish toggle, delete) ходят на бэк через
+ * `lessonsApi.updateCourse` / `deleteCourse`; родитель синхронизируется
+ * через колбэки `onCourseUpdated` / `onCourseDeleted`.
  */
 
-type LoadState =
-  | { kind: 'loading' }
-  | { kind: 'not_found' }
-  | { kind: 'ready'; course: UserCourseDto; lessons: UserLessonDto[]; progress: UserCoursePlayProgressDto | null };
+interface UserCourseViewProps {
+  course: UserCourseDto;
+  lessons: UserLessonDto[];
+  progress: UserCoursePlayProgressDto | null;
+  onCourseUpdated: (next: UserCourseDto) => void;
+  onCourseDeleted: () => void;
+}
 
-export function UserCoursePage() {
-  const { slug } = useParams<{ slug: string }>();
+export function UserCourseView({
+  course,
+  lessons,
+  progress,
+  onCourseUpdated,
+  onCourseDeleted,
+}: UserCourseViewProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const [state, setState] = useState<LoadState>({ kind: 'loading' });
-
-  useEffect(() => {
-    if (!slug) return;
-    let cancelled = false;
-    setState({ kind: 'loading' });
-    lessonsApi
-      .getUserCourse(slug)
-      .then((res) => {
-        if (cancelled) return;
-        setState({
-          kind: 'ready',
-          course: res.course,
-          lessons: res.lessons,
-          progress: res.progress,
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setState({ kind: 'not_found' });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
-
-  if (state.kind === 'loading') {
-    return (
-      <div className="loading" data-testid="user-course-loading">
-        {t('common.loading')}
-      </div>
-    );
-  }
-
-  if (state.kind === 'not_found') {
-    // 404 — и «курс не существует», и «приватный чужой». Не раскрываем
-    // факт существования приватного курса третьим лицам (ADR §2.5).
-    return (
-      <div className="user-course-404" data-testid="user-course-404">
-        <h1>{t('lessons.my.notFoundTitle', 'Course not found')}</h1>
-        <p>
-          {t(
-            'lessons.my.notFoundBody',
-            'The course does not exist or is not available.',
-          )}
-        </p>
-        <Link to="/lessons" data-testid="user-course-404-back">
-          {t('lessons.backToList', 'Back to lessons')}
-        </Link>
-      </div>
-    );
-  }
-
-  const { course, lessons, progress } = state;
   const isOwner = Boolean(user && user.id === course.ownerId);
 
   return (
@@ -210,12 +163,8 @@ export function UserCoursePage() {
       {isOwner && (
         <OwnerActions
           course={course}
-          onVisibilityChanged={(next) =>
-            setState((prev) =>
-              prev.kind === 'ready' ? { ...prev, course: next } : prev,
-            )
-          }
-          onDeleted={() => navigate('/lessons', { replace: true })}
+          onVisibilityChanged={onCourseUpdated}
+          onDeleted={onCourseDeleted}
           onEdit={() => navigate(`/lessons/my/${course.slug}/edit`)}
         />
       )}
@@ -262,7 +211,7 @@ export function UserCoursePage() {
                   </span>
                 </div>
                 <Link
-                  to={`/lessons/my/${course.slug}/${lesson.id}`}
+                  to={`/lessons/${course.slug}/${lesson.id}`}
                   className="user-course-page__lesson-cta"
                   data-testid={`user-course-lesson-play-${lesson.id}`}
                 >
@@ -376,4 +325,3 @@ function OwnerActions({
     </div>
   );
 }
-

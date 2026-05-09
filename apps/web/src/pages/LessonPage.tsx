@@ -5,10 +5,14 @@ import type {
   CompleteLessonResponse,
   CourseWithLessonsResponse,
   LessonWithStepsResponse,
+  UserCourseDto,
+  UserCourseWithLessonsResponse,
+  UserLessonWithStepsResponse,
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
+import { UserLessonView } from '../components/lessons/views/UserLessonView';
 import { useLessonProgress } from '../hooks/useLessonProgress';
 import { resolveInlineText } from '../utils/inlineI18nText';
 
@@ -59,8 +63,15 @@ export function LessonPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isReviewMode = searchParams.get('mode') === 'review';
 
-  const [course, setCourse] = useState<CourseWithLessonsResponse | null>(null);
-  const [lesson, setLesson] = useState<LessonWithStepsResponse | null>(null);
+  // KS-2645: единый маршрут `/lessons/:courseSlug/:lessonSlug` отдаёт
+  // оба типа курсов; ветка `userCourse` ↔ `course` определяет, какой
+  // UI рендерится. См. логику `isUserCourseResponse` ниже.
+  const [course, setCourse] = useState<
+    CourseWithLessonsResponse | UserCourseWithLessonsResponse | null
+  >(null);
+  const [lesson, setLesson] = useState<
+    LessonWithStepsResponse | UserLessonWithStepsResponse | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completeMessage, setCompleteMessage] = useState<string | null>(null);
@@ -100,17 +111,30 @@ export function LessonPage() {
 
     lessonsApi
       .getCourse(courseSlug)
-      .then(async (courseRes) => {
-        if (cancelled) return;
-        setCourse(courseRes);
-        const summary = courseRes.lessons.find((l) => l.slug === lessonSlug);
-        if (!summary) {
-          throw new Error('lesson_not_found');
-        }
-        const lessonRes = await lessonsApi.getLesson(summary.id);
-        if (cancelled) return;
-        setLesson(lessonRes);
-      })
+      .then(
+        async (
+          courseRes: CourseWithLessonsResponse | UserCourseWithLessonsResponse,
+        ) => {
+          if (cancelled) return;
+          setCourse(courseRes);
+          // KS-2645: для системных курсов lesson ищется по `slug`,
+          // для user — по `id` (URL-параметр `:lessonSlug` несёт UUID,
+          // у user-уроков нет поля slug). Поддерживаем оба варианта,
+          // чтобы единый маршрут работал для обоих типов.
+          const summary =
+            courseRes.lessons.find(
+              (l: { id: string; slug?: string | null }) =>
+                ('slug' in l && l.slug === lessonSlug) ||
+                l.id === lessonSlug,
+            ) ?? null;
+          if (!summary) {
+            throw new Error('lesson_not_found');
+          }
+          const lessonRes = await lessonsApi.getLesson(summary.id);
+          if (cancelled) return;
+          setLesson(lessonRes);
+        },
+      )
       .catch((err: Error) => {
         if (cancelled) return;
         if (err?.message === 'lesson_not_found') {
@@ -305,6 +329,43 @@ export function LessonPage() {
       </div>
     );
   }
+
+  // KS-2645: пользовательский урок — отдельный UI (без SM-2/review,
+  // без completion-overlay; breadcrumbs и flat step-list, как было в
+  // UserLessonPage). Различение по `course.ownerId` (UUID) — system
+  // курс этого поля не имеет. После всех глобальных guards переключаем
+  // ветку рендера. Хук `useLessonProgress` ниже ещё инициализирован
+  // под system-режим — для user-ветки рендер уйдёт в `UserLessonView`,
+  // который держит свой собственный `useLessonProgress`. Двойная
+  // инициализация безвредна: оба обращаются к unified прогресс-API,
+  // и при unmount system-инстанс gracefully сбросится.
+  const isUserCourseRoute =
+    course != null &&
+    'ownerId' in course.course &&
+    (course.course as UserCourseDto).ownerId != null;
+  if (isUserCourseRoute) {
+    const userCourse = course as UserCourseWithLessonsResponse;
+    const userLesson = lesson as UserLessonWithStepsResponse;
+    // Серверный seed stepsState (KS-1880).
+    const serverStepsState = userLesson.progress?.stepsState;
+    const initialStepsState =
+      serverStepsState && Object.keys(serverStepsState).length > 0
+        ? serverStepsState
+        : undefined;
+    return (
+      <UserLessonView
+        courseSlug={userCourse.course.slug}
+        lesson={userLesson.lesson}
+        steps={userLesson.steps}
+        courseLessons={userCourse.lessons}
+        initialStepsState={initialStepsState}
+      />
+    );
+  }
+
+  // Дальше — системный режим (review-mode, SM-2, completion-overlay).
+  const systemLesson = lesson as LessonWithStepsResponse;
+  const systemCourse = course as CourseWithLessonsResponse | null;
 
   const handleComplete = async () => {
     setCompleteMessage(null);
