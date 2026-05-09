@@ -27,7 +27,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { summary: { type: 'string' }, description: { type: 'string' }, assignee: { type: 'string' }, labels: { type: 'array', items: { type: 'string' } } }, required: ['summary', 'labels'] } },
   { name: 'issue_update', description: 'Обновить поля задачи (summary, description, assignee, status, labels).',
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, summary: { type: 'string' }, description: { type: 'string' }, assignee: { type: 'string' }, status: { type: 'string' }, labels: { type: 'array', items: { type: 'string' } } }, required: ['key'] } },
-  { name: 'issue_transition', description: 'Сменить статус задачи. 11=To Do, 21=In Progress, 41=Done.',
+  { name: 'issue_transition', description: 'Сменить статус задачи. 11=To Do, 21=In Progress, 41=Done. Ролевые ограничения: 21 — только assignee задачи; 11 и 41 — только coordinator. actor подставляется автоматически из AGENT_NAME.',
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, id: { type: 'number' } }, required: ['key', 'id'] } },
   { name: 'issue_comments', description: 'Получить список комментариев задачи.',
     inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } },
@@ -193,7 +193,7 @@ async function call(name, args) {
     }
     case 'issue_transition':
       return http(`${TRACKER}/api/issues/${args.key}/transitions`, {
-        method: 'POST', body: { id: args.id },
+        method: 'POST', body: { id: args.id, actor: AGENT },
       });
     case 'issue_comments':
       return http(`${TRACKER}/api/issues/${args.key}/comments`);

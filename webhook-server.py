@@ -1387,45 +1387,52 @@ def _md_escape(text: str) -> str:
 
 
 def format_telegram_issue(event_type, payload):
-    """Форматирует событие трекера в Markdown для Telegram."""
+    """Форматирует событие трекера в HTML для Telegram.
+    Возвращает tuple (text, parse_mode) или None.
+    HTML вместо Markdown v1: устойчивее к спецсимволам в summary/comment_body —
+    Markdown v1 валит парсинг на `[`/`]` и др. (HTTP 400 от Telegram API)."""
     issue = payload.get("issue", {})
-    key = issue.get("key", payload.get("issue_key", "?"))
-    summary = _md_escape(issue.get("summary", ""))
-    status = issue.get("status", "")
-    assignee = issue.get("assignee", "не назначен") or "не назначен"
+    key = _escape_html(issue.get("key", payload.get("issue_key", "?")))
+    summary = _escape_html(issue.get("summary", ""))
+    status = _escape_html(issue.get("status", ""))
+    assignee = _escape_html(issue.get("assignee", "не назначен") or "не назначен")
 
     if event_type == "issue_created":
         return (
-            f"🆕 *Создана задача*\n"
+            f"🆕 <b>Создана задача</b>\n"
             f"{key}: {summary}\n"
             f"Статус: {status}\n"
-            f"Исполнитель: {assignee}"
+            f"Исполнитель: {assignee}",
+            "HTML",
         )
 
     if event_type == "issue_updated":
         return (
-            f"✏️ *Обновлена задача*\n"
+            f"✏️ <b>Обновлена задача</b>\n"
             f"{key}: {summary}\n"
             f"Статус: {status}\n"
-            f"Исполнитель: {assignee}"
+            f"Исполнитель: {assignee}",
+            "HTML",
         )
 
     if event_type == "issue_transitioned":
         return (
-            f"🔄 *Смена статуса*\n"
+            f"🔄 <b>Смена статуса</b>\n"
             f"{key}: {summary}\n"
-            f"Статус: {status}"
+            f"Статус: {status}",
+            "HTML",
         )
 
     if event_type == "comment_added":
         comment = payload.get("comment", {})
-        comment_author = comment.get("author", "")
-        comment_body = comment.get("body", "")
+        comment_author = _escape_html(comment.get("author", ""))
+        comment_body = _escape_html(comment.get("body", ""))
         return (
-            f"💬 *Новый комментарий*\n"
+            f"💬 <b>Новый комментарий</b>\n"
             f"{key}: {summary}\n"
             f"Автор: {comment_author}\n"
-            f"{_wrap_markdown_tables(comment_body)}"
+            f"{comment_body}",
+            "HTML",
         )
 
     return None
@@ -3248,9 +3255,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
             # Telegram: только комментарии от coordinator
             if comment.get("author", "").lower() == "coordinator":
-                tg_text = format_telegram_issue(event, payload)
-                if tg_text:
-                    send_telegram(tg_text)
+                tg = format_telegram_issue(event, payload)
+                if tg:
+                    send_telegram(tg[0], parse_mode=tg[1])
 
             if status_category == "done":
                 log(f"Пропуск {key}: задача в статусе Done")
@@ -3316,11 +3323,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
                         f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
-                        f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
+                        f"1. Переведи задачу в статус 'In Progress' (transitionId: 21) — это можешь только ты как assignee.\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"3. Коммитни изменения через /commit endpoint\n"
-                        f"4. Добавь комментарий с результатом\n"
-                        f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
+                        f"4. Добавь комментарий с результатом и тегни @coordinator\n"
+                        f"5. Закрытие задачи (transitionId: 41) делает только координатор. Ты НЕ переводишь в Done — получишь 403."
                     )
                 else:
                     prompt = (
@@ -3346,9 +3353,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if transition_id == 31 and key:
                 log(f"Задача {key}: transition_id=31 (in_review), пока не обрабатывается")
 
-            tg_text = format_telegram_issue(event, payload)
-            if tg_text:
-                send_telegram(tg_text)
+            tg = format_telegram_issue(event, payload)
+            if tg:
+                send_telegram(tg[0], parse_mode=tg[1])
 
             log(f"Событие {event}: {key} -> {issue_status}")
             self.send_response(200)
@@ -3357,9 +3364,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if event in ("issue_created", "issue_updated"):
-            tg_text = format_telegram_issue(event, payload)
-            if tg_text:
-                send_telegram(tg_text)
+            tg = format_telegram_issue(event, payload)
+            if tg:
+                send_telegram(tg[0], parse_mode=tg[1])
             log(f"Событие {event}: {key} — уведомление отправлено")
             self.send_response(200)
             self.end_headers()

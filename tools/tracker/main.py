@@ -164,7 +164,8 @@ class IssueUpdate(BaseModel):
     labels: Optional[list] = None
 
 class TransitionRequest(BaseModel):
-    id: int  # 21=in_progress, 41=done
+    id: int  # 11=todo (reopen), 21=in_progress, 41=done
+    actor: str = ""  # имя агента-инициатора; пусто = UI/системный вызов (без проверки ролей)
 
 class CommentCreate(BaseModel):
     author: str = ""
@@ -310,6 +311,24 @@ def transition_issue(key: str, data: TransitionRequest):
     row = conn.execute("SELECT * FROM issues WHERE key = ?", (key,)).fetchone()
     if not row:
         raise HTTPException(404, f"Issue {key} not found")
+    # Ролевая проверка (только если actor задан — UI/системные вызовы пропускаем).
+    # 21 (In Progress) — только assignee задачи.
+    # 11 (To Do, reopen) и 41 (Done) — только coordinator.
+    if data.actor:
+        if data.id == 21:
+            if data.actor != row["assignee"]:
+                raise HTTPException(
+                    403,
+                    f"Only assignee '{row['assignee']}' can transition {key} to In Progress; "
+                    f"actor='{data.actor}'",
+                )
+        elif data.id in (11, 41):
+            if data.actor != "coordinator":
+                raise HTTPException(
+                    403,
+                    f"Only coordinator can transition {key} to '{new_status}'; "
+                    f"actor='{data.actor}'",
+                )
     with db() as c:
         c.execute("UPDATE issues SET status = ?, updated_at = ? WHERE key = ?", (new_status, now_iso(), key))
     issue = row_to_dict(conn.execute("SELECT * FROM issues WHERE key = ?", (key,)).fetchone())
