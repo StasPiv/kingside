@@ -2636,3 +2636,169 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   }
 }
 
+/*
+ * KS-2666 / KS-2669 — Share-кнопка автора анализа.
+ *
+ * Вынесена из `.analysis-breadcrumbs` (KS-1175 скрывает breadcrumbs
+ * на mobile через display:none). Host-контейнер `.analysis-share-host`
+ * — отдельный, видим на всех breakpoint'ах. Внутри popup и trigger.
+ */
+.analysis-share-host {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px 0;
+}
+
+.analysis-share {
+  position: relative;
+  display: inline-block;
+}
+
+.analysis-share__trigger {
+  cursor: pointer;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+  color: var(--text-color, inherit);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.analysis-share__trigger:hover {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.analysis-share__popup {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 320px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 50;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.analysis-share__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analysis-share__badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.analysis-share__badge--public {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.analysis-share__badge--private {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.analysis-share__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  flex-basis: 100%;
+}
+
+.analysis-share__url-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analysis-share__url-label {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.analysis-share__url {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: var(--bg-secondary, #f9fafb);
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.analysis-share__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.analysis-share__copy,
+.analysis-share__toggle {
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+  color: inherit;
+}
+
+.analysis-share__copy:hover,
+.analysis-share__toggle:hover:not(:disabled) {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.analysis-share__toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analysis-share__toast {
+  margin: 0;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.analysis-share__toast--success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.analysis-share__toast--error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.analysis-share__toast--info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+@media (max-width: 768px) {
+  .analysis-share-host {
+    padding: 4px 8px 0;
+  }
+  .analysis-share__popup {
+    right: 8px;
+    min-width: auto;
+    max-width: calc(100vw - 32px);
+  }
+}

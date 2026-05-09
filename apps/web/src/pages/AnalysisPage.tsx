@@ -536,6 +536,14 @@ function AnalysisPageInner() {
           const entry = await createAnalysis(pgn, analysisTitle, category);
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
+          // KS-2669: только что создали анализ — мы автор. Установим
+          // savedOwnerId сразу, чтобы Share-кнопка появилась без
+          // ожидания дополнительного getById. savedIsPublic=false
+          // по умолчанию у новых анализов.
+          if (entry.userId) setSavedOwnerId(entry.userId);
+          setSavedIsPublic(
+            Boolean((entry as { isPublic?: boolean }).isPublic),
+          );
         } catch { /* ignore */ }
       } else {
         let savedPosition: number | null = null;
@@ -1274,20 +1282,28 @@ function AnalysisPageInner() {
                 <span className="analysis-title__edit-icon">✎</span>
               </span>
             )}
-            {/* KS-2666 / ADR-051 §3: «Поделиться» — только автору
-                сохранённого анализа. Видна когда analysis загружен
-                с сервера (есть `localIdRef.current` и `savedOwnerId`)
-                и `user.id === savedOwnerId`. */}
-            {user &&
-              localIdRef.current &&
-              savedOwnerId === user.id && (
+          </nav>
+          {/* KS-2666 / ADR-051 §3: «Поделиться» — только автору
+              сохранённого анализа.
+              KS-2669: вынесена ИЗ `<nav class="analysis-breadcrumbs">`,
+              т.к. на mobile (KS-1175) breadcrumb-блок скрыт целиком
+              через `display:none`, и Share вместе с ним. Свой
+              отдельный host-контейнер с собственными mobile-стилями
+              (`.analysis-share-host`) — отображается на всех breakpoint'ах. */}
+          {user &&
+            localIdRef.current &&
+            savedOwnerId === user.id && (
+              <div
+                className="analysis-share-host"
+                data-testid="analysis-share-host"
+              >
                 <ShareAnalysisButton
                   analysisId={localIdRef.current}
                   initialIsPublic={savedIsPublic}
                   onPublicChanged={setSavedIsPublic}
                 />
-              )}
-          </nav>
+              </div>
+            )}
           </>
         )}
         <div className="analysis-board-wrapper">
