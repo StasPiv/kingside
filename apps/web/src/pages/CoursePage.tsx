@@ -1,42 +1,71 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
+  CourseLessonSummary,
   CourseWithLessonsResponse,
   UserCourseDto,
   UserCourseWithLessonsResponse,
+  UserLessonDto,
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { ApiError } from '../ApiError';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
 import { CourseActiveLessonHero } from '../components/lessons/CourseActiveLessonHero';
-import { UserCourseView } from '../components/lessons/views/UserCourseView';
+import { UserCourseOwnerActions } from '../components/lessons/UserCourseOwnerActions';
+import { useAuth } from '../context/AuthContext';
 import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
  * Страница `/lessons/:courseSlug` — курс с перечнем уроков и прогрессом
  * пользователя (L-07 + KS-1785).
  *
- * Уроки сгруппированы по «блокам» через `groupLessonsByBlock` (см.
- * `components/lessons/courseBlocks.ts`). До появления `blockKey` в
- * API используется slug-fallback для курса beginner.
- *
  * # KS-2645 (ADR-054 Phase D) — единая страница для system + user
  *
- * Один маршрут `/lessons/:courseSlug` теперь отдаёт оба типа курсов.
- * Различение по `course.ownerId`:
- *   - `null` / отсутствует → системный курс (текущий UI с blocks/hero/
- *     SM-2 mastered/due бейджами);
- *   - UUID → пользовательский курс — рендерится `<UserCourseView>`.
+ * Один маршрут `/lessons/:courseSlug` отдаёт оба типа курсов.
+ * Различение — по `course.ownerId`: null/отсутствует → системный,
+ * UUID → пользовательский.
  *
- * Старый маршрут `/lessons/my/:slug` (UserCoursePage) удалён;
- * App.tsx редиректит его на `/lessons/:slug` (см. `Navigate replace`).
+ * # KS-2653 — единый визуальный шаблон system + user
+ *
+ * До KS-2653 пользовательский курс рендерился отдельным компонентом
+ * (UserCourseView) с минималистичным UI без breadcrumb / hero /
+ * прогресс-бара / lesson-cards. Жалоба пользователя (Telegram,
+ * 2026-05-09) показала, что студент чужого пользовательского курса
+ * получал «голый» список без точки входа на следующий урок.
+ *
+ * Теперь оба типа отрисованы по единому шаблону:
+ *   1. breadcrumb «← All courses».
+ *   2. header: title + (для user) Public/Private бейдж + description.
+ *   3. progress-bar (если есть прогресс пользователя).
+ *   4. owner-block (только владельцу user-курса): Statistics +
+ *      Edit / Preview / Visibility / Delete (см. `UserCourseOwnerActions`).
+ *   5. preview-bar (KS-2652) если автор включил preview-режим.
+ *   6. CourseActiveLessonHero — банер «Continue / Start learning» с
+ *      первым/следующим непройденным уроком.
+ *   7. lesson-list — карточки уроков со статусом, шагами, бейджами
+ *      Mastered/Due (только system).
+ *
+ * Адаптация DTO к общему shape выполняется через `adaptLessons` —
+ * для user-уроков progressState и SM-2 поля недоступны, они
+ * вычисляются эвристически по агрегатному `progress.completedLessons
+ * Count` (первые N уроков в курсе считаются `completed`, остальные —
+ * `not_started`).
  */
+
+type CourseLoadData =
+  | CourseWithLessonsResponse
+  | UserCourseWithLessonsResponse;
 
 /** Type-guard: `course.ownerId` есть → пользовательский курс. */
 function isUserCourseResponse(
-  data: CourseWithLessonsResponse | UserCourseWithLessonsResponse,
+  data: CourseLoadData,
 ): data is UserCourseWithLessonsResponse {
   return (
     'ownerId' in data.course &&
@@ -44,27 +73,64 @@ function isUserCourseResponse(
   );
 }
 
+/**
+ * Адаптирует `UserLessonDto[]` к shape'у `CourseLessonSummary[]`,
+ * который ждут `CourseActiveLessonHero` и lesson-cards. Часть полей
+ * у user-уроков не существует (slug, blockKey, kind, masteredAt, dueAt),
+ * заполняем нейтральными дефолтами; progressState — эвристика по
+ * `progress.completedLessonsCount`.
+ */
+function adaptUserLessons(
+  lessons: UserLessonDto[],
+  completedLessonsCount: number,
+): CourseLessonSummary[] {
+  return lessons.map((l, idx) => {
+    let progressState: CourseLessonSummary['progressState'];
+    if (idx < completedLessonsCount) progressState = 'completed';
+    else if (idx === completedLessonsCount) progressState = 'in_progress';
+    else progressState = 'not_started';
+    return {
+      id: l.id,
+      // У user-уроков нет slug — используем UUID; LessonPage умеет
+      // искать урок по slug ИЛИ id (см. KS-2645 lookup в LessonPage).
+      slug: l.id,
+      order: l.order,
+      blockKey: '__user__',
+      kind: 'theory',
+      title: l.title,
+      titleI18nKey: '',
+      summary: null,
+      summaryI18nKey: '',
+      stepCount: l.stepCount,
+      // У user-DTO нет per-lesson stepsState на уровне списка курса —
+      // показываем «N steps» в карточке (без прогресс-бара).
+      completedStepsCount: 0,
+      progressState,
+      // SM-2 не подключён к user-курсам (ADR-026 §2.1).
+      masteredAt: null,
+      dueAt: null,
+    };
+  });
+}
+
 export function CoursePage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { courseSlug } = useParams<{ courseSlug: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [data, setData] = useState<
-    CourseWithLessonsResponse | UserCourseWithLessonsResponse | null
-  >(null);
+  const [data, setData] = useState<CourseLoadData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // KS-2099: при отсутствии перевода курса на текущем языке backend
-  // возвращает 404. На фронте это отдельный экран «Курс недоступен на
-  // этом языке» с предложением переключить язык — фолбэка на ru нет
-  // (поведение Acceptance из задачи).
+  // возвращает 404 → отдельный экран «Курс недоступен на этом языке».
   const [unavailableInLang, setUnavailableInLang] = useState(false);
 
   // KS-2102: API больше НЕ принимает `?lang=` — backend читает
   // `User.locale` сам. `lang` в deps оставлен как триггер рефетча
-  // после смены языка интерфейса (см. MainLayout — там
-  // PATCH /users/me/settings + i18n.changeLanguage).
+  // после смены языка интерфейса.
   useEffect(() => {
     if (!courseSlug) return;
     let cancelled = false;
@@ -73,7 +139,7 @@ export function CoursePage() {
     setUnavailableInLang(false);
     lessonsApi
       .getCourse(courseSlug)
-      .then((res: CourseWithLessonsResponse | UserCourseWithLessonsResponse) => {
+      .then((res: CourseLoadData) => {
         if (cancelled) return;
         setData(res);
       })
@@ -95,14 +161,36 @@ export function CoursePage() {
   }, [courseSlug, t, lang]);
 
   // KS-2099: переключение языка из экрана «недоступно на этом языке».
-  // `i18n.changeLanguage` подхватит rerender списочной страницы и
-  // эффекта здесь — getCourse уйдёт повторно с новым lang.
   const switchTo = useCallback(
     (target: 'ru' | 'en') => {
       void i18n.changeLanguage(target);
     },
     [i18n],
   );
+
+  // KS-2652: preview-режим для автора. Хранится в `?preview=1`.
+  const isUserCourse = data != null && isUserCourseResponse(data);
+  const userCourseDto = isUserCourse
+    ? (data as UserCourseWithLessonsResponse).course
+    : null;
+  const isOwner = Boolean(
+    user && userCourseDto && user.id === userCourseDto.ownerId,
+  );
+  const previewActive =
+    isOwner && searchParams.get('preview') === '1';
+  const showOwnerUi = isOwner && !previewActive;
+
+  const enterPreview = useCallback(() => {
+    const sp = new URLSearchParams(searchParams);
+    sp.set('preview', '1');
+    setSearchParams(sp, { replace: false });
+  }, [searchParams, setSearchParams]);
+
+  const exitPreview = useCallback(() => {
+    const sp = new URLSearchParams(searchParams);
+    sp.delete('preview');
+    setSearchParams(sp, { replace: false });
+  }, [searchParams, setSearchParams]);
 
   if (!courseSlug) {
     return (
@@ -129,9 +217,6 @@ export function CoursePage() {
   }
 
   if (unavailableInLang) {
-    // KS-2099: на текущем UI-языке курс недоступен. Предлагаем
-    // переключить язык на «противоположный» — у нас всего две
-    // локали (ru/en), поэтому фолбэк всегда однозначен.
     const isEn = lang.toLowerCase().startsWith('en');
     const altLang: 'ru' | 'en' = isEn ? 'ru' : 'en';
     return (
@@ -183,50 +268,106 @@ export function CoursePage() {
     );
   }
 
-  // KS-2645: пользовательский курс — отдельный UI (бейджи Public/Private,
-  // owner-actions, плоский lesson-список без blocks). После всех
-  // глобальных guards (loading/error/empty/unavailableInLang) переключаем
-  // ветку рендера.
-  if (isUserCourseResponse(data)) {
-    return (
-      <UserCourseView
-        course={data.course}
-        lessons={data.lessons}
-        progress={data.progress}
-        onCourseUpdated={(next) =>
-          setData((prev) =>
-            prev && isUserCourseResponse(prev)
-              ? { ...prev, course: next }
-              : prev,
-          )
-        }
-        onCourseDeleted={() => navigate('/lessons', { replace: true })}
-      />
-    );
-  }
-
+  // ── Адаптация к общему шаблону ─────────────────────────────────────
   const { course, lessons, progress } = data;
-  const sortedLessons = [...lessons].sort((a, b) => a.order - b.order);
-  // KS-2038: порядок блоков теперь приходит с бэка в `course.blockOrder`
-  // (см. KS-2037). Если поле пустое/отсутствует — `groupLessonsByBlock`
-  // упорядочит блоки по первому появлению в `lessons`.
-  const blocks = groupLessonsByBlock(sortedLessons, course.blockOrder ?? []);
+  const isUser = isUserCourseResponse(data);
+
+  const courseTitle = isUser
+    ? (course as UserCourseDto).title
+    : resolveInlineText(
+        (course as CourseWithLessonsResponse['course']).title,
+        (course as CourseWithLessonsResponse['course']).titleI18nKey,
+        t,
+        course.slug,
+      );
+  const courseDescription = isUser
+    ? (course as UserCourseDto).description ?? ''
+    : resolveInlineText(
+        (course as CourseWithLessonsResponse['course']).description,
+        (course as CourseWithLessonsResponse['course']).descriptionI18nKey,
+        t,
+        '',
+      );
+
+  // Уроки в общем shape `CourseLessonSummary[]`, отсортированные по order.
+  const sortedLessons: CourseLessonSummary[] = isUser
+    ? adaptUserLessons(
+        [...(lessons as UserLessonDto[])].sort((a, b) => a.order - b.order),
+        (data as UserCourseWithLessonsResponse).progress
+          ?.completedLessonsCount ?? 0,
+      )
+    : [...(lessons as CourseLessonSummary[])].sort(
+        (a, b) => a.order - b.order,
+      );
+
+  // Прогресс курса: для system — `progress.lessonsCompleted`,
+  // для user — `progress.completedLessonsCount`. Унифицируем в `done`.
   const total = sortedLessons.length;
-  const completed = progress?.lessonsCompleted ?? 0;
-  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const done = isUser
+    ? (data as UserCourseWithLessonsResponse).progress
+        ?.completedLessonsCount ?? 0
+    : (data as CourseWithLessonsResponse).progress?.lessonsCompleted ?? 0;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  // Группировка по блокам — только для system (у user blockOrder нет).
+  // Для user всё в один блок.
+  const blocks = isUser
+    ? [{ key: '__user__', lessons: sortedLessons }]
+    : groupLessonsByBlock(
+        sortedLessons,
+        (course as CourseWithLessonsResponse['course']).blockOrder ?? [],
+      );
+
+  // KS-2652: на preview/обычно lesson-links для user сохраняют
+  // `?preview=1` — UserLessonView/LessonPage потом учтёт.
+  const previewSuffix = previewActive ? '?preview=1' : '';
+  const lessonHref = (lesson: CourseLessonSummary) =>
+    `/lessons/${course.slug}/${lesson.slug}${previewSuffix}`;
 
   return (
-    <div className="course-page" data-testid="course-page">
+    <div
+      className="course-page"
+      data-testid="course-page"
+      data-course-type={isUser ? 'user' : 'system'}
+      data-preview={previewActive ? 'true' : undefined}
+    >
       <header className="course-header">
-        <Link to="/lessons" className="course-back-link" data-testid="course-back-link">
+        <Link
+          to="/lessons"
+          className="course-back-link"
+          data-testid="course-back-link"
+        >
           ← {t('lessons.backToList', 'All courses')}
         </Link>
-        <h1>
-          {resolveInlineText(course.title, course.titleI18nKey, t, course.slug)}
-        </h1>
-        <p className="course-description">
-          {resolveInlineText(course.description, course.descriptionI18nKey, t, '')}
-        </p>
+        <div className="course-header__title-row">
+          <h1 data-testid="course-title">{courseTitle}</h1>
+          {/* KS-2653: бейдж видимости — только для пользовательского
+              курса. У системных публичность подразумевается. */}
+          {isUser && (
+            <div className="course-header__badges">
+              {(course as UserCourseDto).isPublic ? (
+                <span
+                  className="user-course-page__badge user-course-page__badge--public"
+                  data-testid="user-course-public-badge"
+                >
+                  {t('lessons.my.publicBadge', 'Public')}
+                </span>
+              ) : (
+                <span
+                  className="user-course-page__badge user-course-page__badge--private"
+                  data-testid="user-course-private-badge"
+                >
+                  {t('lessons.my.privateBadge', 'Private')}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {courseDescription && (
+          <p className="course-description">{courseDescription}</p>
+        )}
+        {/* Прогресс курса — общий для system+user. На user это
+            эвристика по completedLessonsCount (см. adaptUserLessons). */}
         <div
           className="course-progress"
           data-testid="course-progress"
@@ -241,7 +382,7 @@ export function CoursePage() {
           </div>
           <span className="course-progress-text">
             {t('lessons.progressFull', {
-              completed,
+              completed: done,
               total,
               percent,
               defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
@@ -250,136 +391,176 @@ export function CoursePage() {
         </div>
       </header>
 
+      {/* Owner-блок: Statistics + Edit/Preview/Visibility/Delete.
+          Только в обычном (не-preview) режиме у владельца user-курса. */}
+      {showOwnerUi && userCourseDto && (
+        <UserCourseOwnerActions
+          course={userCourseDto}
+          onCourseUpdated={(next) =>
+            setData((prev) =>
+              prev && isUserCourseResponse(prev)
+                ? { ...prev, course: next }
+                : prev,
+            )
+          }
+          onCourseDeleted={() => navigate('/lessons', { replace: true })}
+          onEdit={() =>
+            navigate(`/lessons/my/${userCourseDto.slug}/edit`)
+          }
+          onEnterPreview={enterPreview}
+        />
+      )}
+
+      {/* KS-2652: preview-bar — только в preview-режиме. */}
+      {previewActive && (
+        <div
+          className="user-course-page__preview-bar"
+          data-testid="user-course-preview-bar"
+          role="status"
+        >
+          <span className="user-course-page__preview-label">
+            {t('lessons.my.preview.banner', 'Preview as student')}
+          </span>
+          <button
+            type="button"
+            className="user-course-page__preview-exit"
+            data-testid="user-course-preview-exit"
+            onClick={exitPreview}
+          >
+            {t('lessons.my.preview.exit', 'Exit preview')}
+          </button>
+        </div>
+      )}
+
       {sortedLessons.length === 0 ? (
         <div className="lessons-empty" data-testid="course-no-lessons">
           {t('lessons.noLessons', 'No lessons in this course yet')}
         </div>
       ) : (
         <>
-          {/* KS-2079: hero-плашка активного урока. Сама компонента решает
-              три кейса (continue / start / completed). На пустом курсе
-              возвращает null — поэтому ничего не рисует. */}
+          {/* KS-2079 / KS-2653: hero «Continue / Start learning».
+              Унифицирован для обоих типов курсов через адаптацию
+              user-lessons → CourseLessonSummary с progressState
+              эвристикой. CTA-ссылка строится `${course.slug}/${lesson.slug}`,
+              где для user `lesson.slug = lesson.id` (UUID). */}
           <CourseActiveLessonHero
             courseSlug={course.slug}
             lessons={sortedLessons}
+            previewSuffix={previewSuffix}
           />
-          {/* KS-2039: единый плоский список уроков. Раньше уроки
-              группировались в `<section>`-блоки с заголовками
-              («Правила и фигуры», «Базовые маты», …) — каждый title
-              урока уже несёт свой раздел (§N), заголовок-секция
-              дублировал контекст. Теперь визуально это сплошной список
-              сверху вниз; порядок задаёт `course.blockOrder` через
-              `groupLessonsByBlock(...).flatMap(...)` — внутри блока
-              сортировка по `lesson.order`. */}
           <ol
             className="course-lesson-list"
             data-testid="course-lesson-list"
           >
-          {blocks
-            .flatMap((b) => b.lessons)
-            .map((lesson) => {
-              const isMastered = Boolean(lesson.masteredAt);
-              const isDue =
-                Boolean(lesson.dueAt) &&
-                new Date(lesson.dueAt as string).getTime() <= Date.now();
-              return (
-                <li
-                  key={lesson.id}
-                  className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
-                  data-mastered={isMastered ? 'true' : 'false'}
-                  data-due={isDue ? 'true' : 'false'}
-                >
-                  <Link
-                    to={`/lessons/${course.slug}/${lesson.slug}`}
-                    data-testid={`lesson-link-${lesson.slug}`}
-                    className="course-lesson-link"
+            {blocks
+              .flatMap((b) => b.lessons)
+              .map((lesson) => {
+                const isMastered = Boolean(lesson.masteredAt);
+                const isDue =
+                  Boolean(lesson.dueAt) &&
+                  new Date(lesson.dueAt as string).getTime() <= Date.now();
+                return (
+                  <li
+                    key={lesson.id}
+                    className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
+                    data-mastered={isMastered ? 'true' : 'false'}
+                    data-due={isDue ? 'true' : 'false'}
                   >
-                    {/* KS-1991: индекс убран — был рудимент.
-                        Заголовки уроков несут собственную нумерацию
-                        («Глава 1. …»), внешний индекс дублировал. */}
-                    <span className="course-lesson-title">
-                      {resolveInlineText(
-                        lesson.title,
-                        lesson.titleI18nKey,
-                        t,
-                        lesson.slug,
-                      )}
-                    </span>
-                    <span
-                      className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
+                    <Link
+                      to={lessonHref(lesson)}
+                      data-testid={`lesson-link-${lesson.slug}`}
+                      className="course-lesson-link"
                     >
-                      {t(
-                        `lessons.state.${lesson.progressState}`,
-                        lesson.progressState,
-                      )}
-                    </span>
-                    {isMastered && (
-                      <span
-                        className="course-lesson-badge course-lesson-badge--mastered"
-                        data-testid={`course-lesson-mastered-${lesson.slug}`}
-                      >
-                        {t('lessons.badge.mastered', 'Mastered')}
+                      <span className="course-lesson-title">
+                        {isUser
+                          ? lesson.title
+                          : resolveInlineText(
+                              lesson.title,
+                              lesson.titleI18nKey,
+                              t,
+                              lesson.slug,
+                            )}
                       </span>
-                    )}
-                    {isDue && (
                       <span
-                        className="course-lesson-badge course-lesson-badge--due"
-                        data-testid={`course-lesson-due-${lesson.slug}`}
+                        className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
                       >
-                        {t('lessons.badge.dueForReview', 'Due for review')}
+                        {t(
+                          `lessons.state.${lesson.progressState}`,
+                          lesson.progressState,
+                        )}
                       </span>
-                    )}
-                    {/* KS-1992: прогресс по шагам в карточке урока —
-                        визуальный bar + текст. Полоска заполняется
-                        пропорционально `completedStepsCount/stepCount`;
-                        если ничего не сделано, bar пустой, рядом
-                        общий счётчик «M шагов». */}
-                    {(() => {
-                      const total = lesson.stepCount || 0;
-                      const done = lesson.completedStepsCount ?? 0;
-                      const pct =
-                        total > 0
-                          ? Math.min(100, Math.round((done / total) * 100))
-                          : 0;
-                      return (
+                      {isMastered && (
                         <span
-                          className="course-lesson-progress"
-                          data-testid={`course-lesson-progress-${lesson.slug}`}
-                          aria-label={t(
-                            'lessons.progressLabel',
-                            'Course progress',
-                          )}
+                          className="course-lesson-badge course-lesson-badge--mastered"
+                          data-testid={`course-lesson-mastered-${lesson.slug}`}
                         >
-                          <span className="course-lesson-progress-bar">
-                            <span
-                              className="course-lesson-progress-fill"
-                              data-testid={`course-lesson-progress-fill-${lesson.slug}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </span>
-                          <span
-                            className="course-lesson-step-count"
-                            data-testid={`course-lesson-step-count-${lesson.slug}`}
-                          >
-                            {done > 0
-                              ? t('lessons.stepProgress', {
-                                  done,
-                                  total,
-                                  defaultValue: '{{done}}/{{total}} steps',
-                                })
-                              : t('lessons.stepCount', {
-                                  count: total,
-                                  defaultValue: '{{count}} steps',
-                                })}
-                          </span>
+                          {t('lessons.badge.mastered', 'Mastered')}
                         </span>
-                      );
-                    })()}
-                  </Link>
-                </li>
-              );
-            })}
-        </ol>
+                      )}
+                      {isDue && (
+                        <span
+                          className="course-lesson-badge course-lesson-badge--due"
+                          data-testid={`course-lesson-due-${lesson.slug}`}
+                        >
+                          {t('lessons.badge.dueForReview', 'Due for review')}
+                        </span>
+                      )}
+                      {/* KS-1992: прогресс по шагам в карточке урока.
+                          Для user `completedStepsCount` всегда 0
+                          (BE не отдаёт per-lesson на уровне списка),
+                          поэтому показывается просто «N steps». */}
+                      {(() => {
+                        const lessonTotal = lesson.stepCount || 0;
+                        const lessonDone = lesson.completedStepsCount ?? 0;
+                        const pct =
+                          lessonTotal > 0
+                            ? Math.min(
+                                100,
+                                Math.round(
+                                  (lessonDone / lessonTotal) * 100,
+                                ),
+                              )
+                            : 0;
+                        return (
+                          <span
+                            className="course-lesson-progress"
+                            data-testid={`course-lesson-progress-${lesson.slug}`}
+                            aria-label={t(
+                              'lessons.progressLabel',
+                              'Course progress',
+                            )}
+                          >
+                            <span className="course-lesson-progress-bar">
+                              <span
+                                className="course-lesson-progress-fill"
+                                data-testid={`course-lesson-progress-fill-${lesson.slug}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </span>
+                            <span
+                              className="course-lesson-step-count"
+                              data-testid={`course-lesson-step-count-${lesson.slug}`}
+                            >
+                              {lessonDone > 0
+                                ? t('lessons.stepProgress', {
+                                    done: lessonDone,
+                                    total: lessonTotal,
+                                    defaultValue:
+                                      '{{done}}/{{total}} steps',
+                                  })
+                                : t('lessons.stepCount', {
+                                    count: lessonTotal,
+                                    defaultValue: '{{count}} steps',
+                                  })}
+                            </span>
+                          </span>
+                        );
+                      })()}
+                    </Link>
+                  </li>
+                );
+              })}
+          </ol>
         </>
       )}
     </div>

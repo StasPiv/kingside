@@ -25,6 +25,11 @@ interface CourseActiveLessonHeroProps {
   courseSlug: string;
   /** Все уроки курса, отсортированные по `order` (родитель уже сортирует). */
   lessons: CourseLessonSummary[];
+  /**
+   * KS-2652: суффикс query (`?preview=1`), пробрасываемый в CTA-ссылку
+   * для preview-режима автора. Пустая строка по умолчанию.
+   */
+  previewSuffix?: string;
 }
 
 type Mode = 'continue' | 'start' | 'completed';
@@ -66,6 +71,7 @@ export function resolveActiveLesson(
 export function CourseActiveLessonHero({
   courseSlug,
   lessons,
+  previewSuffix = '',
 }: CourseActiveLessonHeroProps) {
   const { t } = useTranslation();
   const total = lessons.length;
@@ -190,7 +196,7 @@ export function CourseActiveLessonHero({
         </div>
       )}
       <Link
-        to={`/lessons/${courseSlug}/${lesson.slug}`}
+        to={`/lessons/${courseSlug}/${lesson.slug}${previewSuffix}`}
         className="course-active-hero__cta"
         data-testid="course-active-hero-cta"
       >

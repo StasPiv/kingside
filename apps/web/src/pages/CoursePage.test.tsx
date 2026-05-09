@@ -25,6 +25,14 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// KS-2653: после унификации CoursePage тянет `useAuth` (для определения
+// owner'а пользовательского курса). Мокаем гостем — все тесты ниже
+// рассчитаны на системный курс без owner-блока.
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: null, loading: false }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 beforeEach(() => {
   mockLessonsApi.getCourse.mockReset();
 });

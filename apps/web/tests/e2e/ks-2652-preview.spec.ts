@@ -113,7 +113,7 @@ test('KS-2652: preview-режим автора курса (toggle, lesson, exit)
 
   // 1. Открываем курс — owner-mode.
   await page.goto(`/lessons/${fixture.slug}`);
-  await expect(page.getByTestId('user-course-page')).toBeVisible({
+  await expect(page.getByTestId('course-page')).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.getByTestId('user-course-edit')).toBeVisible();
@@ -146,9 +146,9 @@ test('KS-2652: preview-режим автора курса (toggle, lesson, exit)
   });
 
   // 3. Клик по уроку — preview флаг проброшен.
-  await page
-    .getByTestId(`user-course-lesson-play-${fixture.lessonId}`)
-    .click();
+  // KS-2653: после унификации lesson-link имеет общий testid
+  // `lesson-link-<slug>`, где slug для user = lesson.id (UUID).
+  await page.getByTestId(`lesson-link-${fixture.lessonId}`).click();
   await page.waitForURL(
     new RegExp(
       `/lessons/${fixture.slug}/${fixture.lessonId}\\?(?=.*preview=1)(?=.*step=1)`,

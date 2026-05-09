@@ -141,10 +141,10 @@ test('KS-2645/KS-2636: /lessons/my/:slug → редирект на /lessons/:slu
   });
 
   // 3. Виден user-course UI (data-testid сохранён из старой страницы).
-  await expect(page.getByTestId('user-course-page')).toBeVisible({
+  await expect(page.getByTestId('course-page')).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByTestId('user-course-title')).toContainText(
+  await expect(page.getByTestId('course-title')).toContainText(
     'KS-2645 unified course',
   );
   // Public/Private бейдж виден.
@@ -263,7 +263,7 @@ test('KS-2645/KS-2636: полный цикл прохождения на уни�
   await page.waitForURL(new RegExp(`/lessons/${fixture.slug}$`), {
     timeout: 10_000,
   });
-  await expect(page.getByTestId('user-course-page')).toBeVisible({
+  await expect(page.getByTestId('course-page')).toBeVisible({
     timeout: 15_000,
   });
 
