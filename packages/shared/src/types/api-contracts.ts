@@ -1036,6 +1036,12 @@ export type AnalysisResponse = {
   fen: string | null;
   opening: string | null;
   currentPosition: number | null;
+  /**
+   * KS-2667 (ADR-051 §3 share-2). Признак публичности анализа.
+   * Backend (KS-2601) уже возвращает поле, фронт «Поделиться» (KS-2666)
+   * читал его cast'ом — теперь явная часть контракта.
+   */
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
 };
