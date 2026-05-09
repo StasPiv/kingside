@@ -14,27 +14,25 @@ import { renderWithProviders, screen, waitFor } from '../test/test-utils';
  * KS-1839 (FE-5): `UserLessonPage`.
  */
 
-const { apiMock, lessonsApiMock } = vi.hoisted(() => ({
-  // KS-2645: после слияния `useUserLessonProgress` с `useLessonProgress`
-  // прогресс идёт через `lessonsApi.markStep`/`completeLesson`. Course
-  // и lesson грузятся через `userCoursesApi.getBySlug/getLesson` —
-  // оставлены здесь, потому что UserLessonPage пока ещё ходит через них
-  // (полное удаление файла userCoursesApi планируется отдельным коммитом).
-  apiMock: {
-    getBySlug: vi.fn(),
-    getLesson: vi.fn(),
-    updateStepProgress: vi.fn(),
-    completeLesson: vi.fn(),
-  },
+// KS-2645: после слияния `useUserLessonProgress` с `useLessonProgress`
+// и переключения load-методов на `lessonsApi.getUserCourse/getUserLesson`
+// весь UserLessonPage-флоу идёт через единый `lessonsApi` namespace.
+// `apiMock` — алиас на тот же объект, чтобы не переписывать существующие
+// `apiMock.getLesson(...).mockResolvedValue(...)` вызовы по всему файлу.
+const { lessonsApiMock } = vi.hoisted(() => ({
   lessonsApiMock: {
+    getUserCourse: vi.fn(),
+    getUserLesson: vi.fn(),
     markStep: vi.fn().mockResolvedValue({}),
     completeLesson: vi.fn(),
   },
 }));
-
-vi.mock('../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
-}));
+const apiMock = {
+  getBySlug: lessonsApiMock.getUserCourse,
+  getLesson: lessonsApiMock.getUserLesson,
+  updateStepProgress: lessonsApiMock.markStep,
+  completeLesson: lessonsApiMock.completeLesson,
+};
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: lessonsApiMock,

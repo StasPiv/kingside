@@ -312,9 +312,13 @@ export function LessonPage() {
     const outcome = await progress.completeLesson({ quality });
     if (outcome.ok) {
       if (isReviewMode) {
+        // KS-2645: outcome.progress теперь union (CompleteLessonResponse |
+        // UserCoursePlayProgressDto). В review-режиме мы открыты только
+        // на системных курсах (review/SM-2 для user-курсов отключён),
+        // поэтому cast'им к системному типу.
         setReviewOutcome({
           score: outcome.ratio,
-          response: outcome.progress ?? null,
+          response: (outcome.progress as CompleteLessonResponse | undefined) ?? null,
         });
       } else {
         // KS-2057: вместо короткого тоста «Lesson completed!» показываем

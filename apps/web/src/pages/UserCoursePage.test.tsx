@@ -22,21 +22,26 @@ import { renderWithProviders, screen, waitFor } from '../test/test-utils';
  *  - Ссылка «Open» на урок ведёт на `/lessons/my/:slug/:lessonId`
  */
 
-const { apiMock, authMock } = vi.hoisted(() => {
+// KS-2645: UserCoursePage переключён на `lessonsApi`. Чтобы не переписывать
+// все ссылки в тесте, `apiMock` стал тонким алиасом на единый mock'ed
+// `lessonsApi` (имена методов мапятся: `getBySlug` → `getUserCourse`,
+// `update` → `updateCourse`, `delete` → `deleteCourse`).
+const { lessonsApiMock, authMock } = vi.hoisted(() => {
   return {
-    apiMock: {
-      getBySlug: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
+    lessonsApiMock: {
+      getUserCourse: vi.fn(),
+      updateCourse: vi.fn(),
+      deleteCourse: vi.fn(),
       createLesson: vi.fn(),
       updateLesson: vi.fn(),
       deleteLesson: vi.fn(),
+      getUserLesson: vi.fn(),
       getLesson: vi.fn(),
       createStep: vi.fn(),
-      updateStep: vi.fn(),
+      updateStepPayload: vi.fn(),
       deleteStep: vi.fn(),
       reorderSteps: vi.fn(),
-      updateStepProgress: vi.fn(),
+      markStep: vi.fn(),
       completeLesson: vi.fn(),
       list: vi.fn(),
     },
@@ -45,9 +50,25 @@ const { apiMock, authMock } = vi.hoisted(() => {
     },
   };
 });
+const apiMock = {
+  getBySlug: lessonsApiMock.getUserCourse,
+  update: lessonsApiMock.updateCourse,
+  delete: lessonsApiMock.deleteCourse,
+  createLesson: lessonsApiMock.createLesson,
+  updateLesson: lessonsApiMock.updateLesson,
+  deleteLesson: lessonsApiMock.deleteLesson,
+  getLesson: lessonsApiMock.getUserLesson,
+  createStep: lessonsApiMock.createStep,
+  updateStep: lessonsApiMock.updateStepPayload,
+  deleteStep: lessonsApiMock.deleteStep,
+  reorderSteps: lessonsApiMock.reorderSteps,
+  updateStepProgress: lessonsApiMock.markStep,
+  completeLesson: lessonsApiMock.completeLesson,
+  list: lessonsApiMock.list,
+};
 
-vi.mock('../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+vi.mock('../api/lessonsApi', () => ({
+  lessonsApi: lessonsApiMock,
 }));
 
 vi.mock('../context/AuthContext', () => ({

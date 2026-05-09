@@ -16,7 +16,6 @@ import type {
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { userCoursesApi } from '../api/userCoursesApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
 import { useStockfish } from '../hooks/useStockfish';
 import { useLessonProgress } from '../hooks/useLessonProgress';
@@ -92,8 +91,8 @@ export function UserLessonPage() {
     let cancelled = false;
     setState({ kind: 'loading' });
     Promise.all([
-      userCoursesApi.getBySlug(slug),
-      userCoursesApi.getLesson(lessonId),
+      lessonsApi.getUserCourse(slug),
+      lessonsApi.getUserLesson(lessonId),
     ])
       .then(
         ([

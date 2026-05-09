@@ -7,7 +7,7 @@ import type {
   UserLessonDto,
 } from '@kingside/shared';
 
-import { userCoursesApi } from '../api/userCoursesApi';
+import { lessonsApi } from '../api/lessonsApi';
 import { useAuth } from '../context/AuthContext';
 
 /**
@@ -43,8 +43,8 @@ export function UserCoursePage() {
     if (!slug) return;
     let cancelled = false;
     setState({ kind: 'loading' });
-    userCoursesApi
-      .getBySlug(slug)
+    lessonsApi
+      .getUserCourse(slug)
       .then((res) => {
         if (cancelled) return;
         setState({
@@ -299,7 +299,7 @@ function OwnerActions({
     setBusy('visibility');
     setError(null);
     try {
-      const next = await userCoursesApi.update(course.id, {
+      const next = await lessonsApi.updateCourse(course.id, {
         isPublic: !course.isPublic,
       });
       onVisibilityChanged(next);
@@ -321,7 +321,7 @@ function OwnerActions({
     setBusy('delete');
     setError(null);
     try {
-      await userCoursesApi.delete(course.id);
+      await lessonsApi.deleteCourse(course.id);
       onDeleted();
     } catch {
       setError(t('lessons.my.deleteError', 'Failed to delete course'));
