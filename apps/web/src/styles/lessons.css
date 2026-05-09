@@ -4165,6 +4165,102 @@
 }
 
 /* ============================================================
+ * LessonOverview — header (title + estMinutes + delete-кнопка)
+ * KS-2595: до этого тикета у блока вообще не было собственного
+ * CSS — браузер рендерил `<label><span>…</span><input/></label>`
+ * inline, и на mobile (≤768px) лейбл «Текст урока» / «Estimated
+ * minutes» съедал половину ширины контейнера, инпуты сжимались.
+ * Скриншот пользователя в KS-2595.
+ *
+ * Desktop (≥769px): три блока в одну строку через flex-wrap, лейбл
+ * над инпутом вертикально (как в большинстве современных форм
+ * проекта). Кнопка «Удалить урок» прижата к правому краю.
+ *
+ * Mobile (≤768px): flex-direction:column, label-text над input на
+ * полную ширину, кнопка «Удалить урок» отдельным блоком слева
+ * без неконтекстного отступа.
+ * ============================================================ */
+.lesson-overview__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.lesson-overview__title-label,
+.lesson-overview__est-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lesson-overview__title-label {
+  /* Поле названия — приоритет над ширине, занимает оставшееся место. */
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.lesson-overview__est-label {
+  /* Расчётное время — узкое поле, не растягиваем. */
+  flex: 0 0 auto;
+  width: 180px;
+}
+
+.lesson-overview__title-label-text,
+.lesson-overview__est-label-text {
+  font-size: 0.85em;
+  color: var(--text-secondary, #666);
+  font-weight: 500;
+}
+
+.lesson-overview__title-input,
+.lesson-overview__est-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #d0d0d8);
+  border-radius: 6px;
+  background: var(--input-bg, #f5f6fa);
+  color: var(--text-primary);
+  font-size: 0.95em;
+}
+
+.lesson-overview__title-input:focus,
+.lesson-overview__est-input:focus {
+  outline: 2px solid var(--accent, #4d6fff);
+  outline-offset: 1px;
+}
+
+.lesson-overview__delete {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .lesson-overview__header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .lesson-overview__title-label,
+  .lesson-overview__est-label {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* На mobile кнопка «Удалить урок» — отдельный блок слева,
+     не прижата к краю и без авто-отступа сверху. */
+  .lesson-overview__delete {
+    align-self: flex-start;
+    margin-left: 0;
+  }
+}
+
+/* ============================================================
  * UserCoursePage / UserLessonPage — просмотр пользовательских
  * курсов и уроков (L-3, KS-1846). ADR-026 §6 Этап 3 / FE-4, FE-5.
  *

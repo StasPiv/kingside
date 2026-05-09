@@ -99,10 +99,12 @@ export function LessonOverview({
       <header className="lesson-overview__header">
         <label className="lesson-overview__title-label">
           <span className="lesson-overview__title-label-text">
-            {t(
-              'lessons.my.editor.fields.text.body',
-              'Lesson title',
-            )}
+            {/* KS-2595: правильный i18n-ключ для лейбла НАЗВАНИЯ урока.
+                До этого использовался `lessons.my.editor.fields.text.body`
+                («Текст урока» / «Markdown body») — это про markdown-body
+                шага типа `text`, не про название урока. На скриншоте
+                пользователя из Telegram это сбивало с толку. */}
+            {t('lessons.my.editor.lessonTitle', 'Lesson title')}
           </span>
           <input
             type="text"
@@ -137,7 +139,10 @@ export function LessonOverview({
           disabled={busy}
           data-testid={`lesson-overview-delete-${lesson.id}`}
         >
-          {t('lessons.my.delete', 'Delete')}
+          {/* KS-2595: явный контекст «Удалить урок» вместо просто «Удалить»
+              — на скриншоте пользователя кнопка «Удалить» висела без
+              пояснения что именно удаляет. */}
+          {t('lessons.my.editor.deleteLesson', 'Delete lesson')}
         </button>
       </header>
 

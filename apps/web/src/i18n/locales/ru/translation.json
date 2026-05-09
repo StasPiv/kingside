@@ -2428,6 +2428,8 @@
         "visibilityPublicHint": "Курс виден всем в разделе «Уроки»",
         "defaultLessonTitle": "Новый урок",
         "defaultStepTitle": "Новый шаг",
+        "lessonTitle": "Название урока",
+        "deleteLesson": "Удалить урок",
         "estMinutes": "Расчётное время, мин.",
         "lessonsTitle": "Уроки",
         "lessonsEmpty": "У курса ещё нет уроков",

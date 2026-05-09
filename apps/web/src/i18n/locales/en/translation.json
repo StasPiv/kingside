@@ -2402,6 +2402,8 @@
         "visibilityPublicHint": "The course is visible to everyone in Lessons",
         "defaultLessonTitle": "New lesson",
         "defaultStepTitle": "New step",
+        "lessonTitle": "Lesson title",
+        "deleteLesson": "Delete lesson",
         "estMinutes": "Estimated minutes",
         "lessonsTitle": "Lessons",
         "lessonsEmpty": "No lessons yet",
