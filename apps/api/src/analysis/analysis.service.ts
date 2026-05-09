@@ -249,6 +249,28 @@ export class AnalysisService implements OnModuleInit {
     };
   }
 
+  /**
+   * KS-2601 (ADR-051 §3 share-2). Read-only публичная проекция анализа.
+   *
+   * Возврат:
+   *  - 404 (NotFoundException) если запись не найдена ИЛИ `isPublic=false`.
+   *    Не светим существование непубличной записи — это контракт acceptance.
+   *  - 200 + тело без `userId` (не отдаём автора анонимам — расширим
+   *    отдельной задачей, если потребуется показывать username).
+   */
+  async findPublic(id: string) {
+    const analysis = await this.prisma.analysis.findUnique({ where: { id } });
+    if (!analysis || !analysis.isPublic) {
+      throw new NotFoundException('Analysis not found');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { userId: _userId, ...publicProjection } = analysis;
+    return {
+      ...publicProjection,
+      tags: analysis.tags ? analysis.tags.split(' ').filter(Boolean) : [],
+    };
+  }
+
   async update(userId: string, id: string, dto: UpdateAnalysisDto) {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');

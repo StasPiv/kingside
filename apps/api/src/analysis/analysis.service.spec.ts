@@ -231,6 +231,62 @@ describe('AnalysisService', () => {
     });
   });
 
+  describe('findPublic (KS-2601)', () => {
+    // ── KS-2601 (ADR-051 §3 share-2): публичный read-only доступ.
+    //  - isPublic=true  → 200 + проекция без userId.
+    //  - isPublic=false → 404 (не светим существование непубличной).
+    //  - не найдено     → 404.
+
+    it('KS-2601: возвращает запись без userId, если isPublic=true', async () => {
+      const publicAnalysis = {
+        ...mockAnalysis,
+        id: 'pub-1',
+        isPublic: true,
+        pgn: '1. e4 c5 *',
+        tags: 'sicilian opening',
+      };
+      prisma.analysis.findUnique.mockResolvedValue(publicAnalysis);
+
+      const result = await service.findPublic('pub-1');
+
+      expect(result.id).toBe('pub-1');
+      expect(result.pgn).toBe('1. e4 c5 *');
+      expect(result.isPublic).toBe(true);
+      expect(result.tags).toEqual(['sicilian', 'opening']);
+      // Анонимам не отдаём автора
+      expect(result).not.toHaveProperty('userId');
+    });
+
+    it('KS-2601: 404 если запись не найдена', async () => {
+      prisma.analysis.findUnique.mockResolvedValue(null);
+
+      await expect(service.findPublic('missing')).rejects.toThrow(NotFoundException);
+    });
+
+    it('KS-2601: 404 если isPublic=false (не светим непубличную запись)', async () => {
+      const privateAnalysis = { ...mockAnalysis, isPublic: false };
+      prisma.analysis.findUnique.mockResolvedValue(privateAnalysis);
+
+      await expect(service.findPublic('analysis-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('KS-2601: НЕ проверяет userId — анонимный доступ (нет ForbiddenException)', async () => {
+      // запись принадлежит другому пользователю, но isPublic=true
+      // → должна отдаться без проверки авторства
+      const publicAnalysis = {
+        ...mockAnalysis,
+        userId: 'other-user',
+        isPublic: true,
+      };
+      prisma.analysis.findUnique.mockResolvedValue(publicAnalysis);
+
+      const result = await service.findPublic('analysis-1');
+
+      expect(result.id).toBe('analysis-1');
+      // нет проверки прав → не падает на ForbiddenException
+    });
+  });
+
   describe('update', () => {
     it('should update title', async () => {
       prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
