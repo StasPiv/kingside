@@ -2339,6 +2339,9 @@
         "makePrivate": "Make private",
         "delete": "Delete"
       },
+      "entryCta": {
+        "title": "My courses"
+      },
       "deleteConfirm": {
         "body_one": "Delete course \"{{title}}\"? {{count}} student will lose progress.",
         "body_other": "Delete course \"{{title}}\"? {{count}} students will lose progress."

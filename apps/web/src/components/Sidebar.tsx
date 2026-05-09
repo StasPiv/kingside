@@ -5,6 +5,7 @@ import type { FeatureFlags } from '@kingside/shared';
 import { FeedbackModal } from './FeedbackModal';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { useAdminStatus } from '../hooks/useAdminStatus';
+import { useAuth } from '../context/AuthContext';
 
 interface NavItem {
   path: string;
@@ -22,6 +23,12 @@ interface NavItem {
    * Авторизация на бэке независима — это эстетика sidebar.
    */
   adminOnly?: boolean;
+  /**
+   * KS-2622 / ADR-052 §3.3.1: пункт виден только залогиненному
+   * пользователю. У гостя своих курсов нет — ссылка теряет смысл, а
+   * `userCoursesApi.list({scope:'own'})` всё равно вернёт 401.
+   */
+  authOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -77,10 +84,25 @@ const NAV_ITEMS: NavItem[] = [
     path: '/lessons',
     icon: '🎓',
     i18nKey: 'nav.lessons',
+    // `/lessons/my` (см. ниже) ловится отдельным пунктом — здесь его
+    // активной подсветки быть не должно. Поэтому match — точное
+    // совпадение `/lessons` и любые подразделы КРОМЕ `/lessons/my*`.
     match: ['/lessons'],
     // KS-2105: раздел скрывается, когда админ выключил
     // `lessonsEnabled` через PATCH /admin/feature-flags/lessonsEnabled.
     featureFlag: 'lessonsEnabled',
+  },
+  // KS-2622 / ADR-052 §3.3.1 #3: точка входа «Мои курсы» под пунктом
+  // «🎓 Lessons». Sidebar строится из иконок без вложенных подменю,
+  // поэтому делаем отдельный пункт с собственной иконкой 🎒 (студент
+  // со своим набором курсов). Видим только залогиненному.
+  {
+    path: '/lessons/my',
+    icon: '🎒',
+    i18nKey: 'lessons.my.pageTitle',
+    match: ['/lessons/my'],
+    featureFlag: 'lessonsEnabled',
+    authOnly: true,
   },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
@@ -119,12 +141,26 @@ export function Sidebar() {
   const { flags } = useFeatureFlags();
   // KS-2109: статус админа (`GET /profile/me/admin-status`).
   const { isAdmin } = useAdminStatus();
+  // KS-2622: «Мои курсы» только для залогиненных.
+  const { user } = useAuth();
 
-  const isActive = (match: string[]) => match.some((p) => location.pathname.startsWith(p));
+  // KS-2622: чтобы пункт «Lessons» (path `/lessons`) не светился
+  // активным на /lessons/my (там уже есть свой пункт), исключаем
+  // `/lessons/my*` из его isActive-проверки. Делается через path: при
+  // path === '/lessons' и pathname.startsWith('/lessons/my') — игнор.
+  const isActive = (path: string, match: string[]) =>
+    match.some((p) => {
+      if (!location.pathname.startsWith(p)) return false;
+      if (path === '/lessons' && location.pathname.startsWith('/lessons/my')) {
+        return false;
+      }
+      return true;
+    });
 
   const visibleItems = NAV_ITEMS.filter((it) => {
     if (it.featureFlag && !flags[it.featureFlag]) return false;
     if (it.adminOnly && !isAdmin) return false;
+    if (it.authOnly && !user) return false;
     return true;
   });
 
@@ -139,7 +175,7 @@ export function Sidebar() {
             <Link
               key={item.path}
               to={item.path}
-              className={`sidebar-item${isActive(item.match) ? ' sidebar-item--active' : ''}`}
+              className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
               title={t(item.i18nKey)}
             >
               <span className="sidebar-icon">{item.icon}</span>

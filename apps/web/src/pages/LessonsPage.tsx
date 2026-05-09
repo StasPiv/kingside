@@ -13,6 +13,7 @@ import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
 import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
 import { RecommendedCoursesBlock } from '../components/lessons/RecommendedCoursesBlock';
 import { CreateCourseCta } from '../components/lessons/CreateCourseCta';
+import { MyCoursesEntryCta } from '../components/lessons/MyCoursesEntryCta';
 import { LazySection } from '../components/lessons/LazySection';
 
 /**
@@ -172,8 +173,15 @@ export function LessonsPage() {
 
       {/* KS-1940 (F-3): CTA «+ Создать свой курс» одной строкой над
           секцией «Сообщество». Гостям не показываем (внутри сам
-          возвращает null). */}
-      <CreateCourseCta />
+          возвращает null).
+          KS-2622 (ADR-052 #3): рядом — «Мои курсы (N) →» как точка
+          входа на /lessons/my. Оба компонента сами скрываются для
+          гостей; обёртка `lessons-author-cta-row` строит их в одну
+          строку с переносом на mobile. */}
+      <div className="lessons-author-cta-row" data-testid="lessons-author-cta-row">
+        <CreateCourseCta />
+        <MyCoursesEntryCta />
+      </div>
 
       {/* KS-1923 / ADR-031 §3: L4 Discovery — компактная полоса
           последних public курсов с CTA «Все курсы и авторы»

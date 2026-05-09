@@ -32,6 +32,13 @@ vi.mock('../components/lessons/CreateCourseCta', () => ({
   CreateCourseCta: () => <div data-testid="create-course-cta-mock" />,
 }));
 
+// KS-2622: MyCoursesEntryCta тянет `useAuth` и `userCoursesApi.list` —
+// для тестов LessonsPage это лишний шум. Собственные тесты — в
+// `components/lessons/MyCoursesEntryCta.test.tsx` (если будут).
+vi.mock('../components/lessons/MyCoursesEntryCta', () => ({
+  MyCoursesEntryCta: () => <div data-testid="my-courses-entry-cta-mock" />,
+}));
+
 // KS-1923: блоки «New from community» (compact strip) тянут `useAuth` и api —
 // для тестов LessonsPage это лишний шум. Собственный тест в
 // `components/lessons/CommunityStripBlock.test.tsx`.
