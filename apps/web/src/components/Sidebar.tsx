@@ -42,7 +42,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/puzzles',
     icon: '🧩',
     i18nKey: 'nav.puzzles',
-    match: ['/puzzles', '/puzzle', '/daily'],
+    match: ['/puzzles', '/puzzle'],
     featureFlag: 'puzzlesEnabled',
   },
   { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },

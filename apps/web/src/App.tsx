@@ -10,7 +10,6 @@ import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
-import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 // KS-2484 (ADR-044): отдельный список play-vs-engine пазлов.
 import { PrecisionPage } from './pages/PrecisionPage';
@@ -298,9 +297,15 @@ export function App() {
             wildcard поглотил бы путь и увёл в /lobby. Само наполнение
             раздела `/precision` ниже под флагом. */}
         <Route path="/puzzles/play-vs-engine" element={<RedirectWithQuery to="/precision" />} />
+        {/* KS-2613: маршрут /daily («Задача дня») удалён по требованию
+            пользователя. Старые ссылки/закладки/SEO-индексы редиректим
+            на /puzzles, чтобы не возвращать 404 — редирект работает
+            одинаково при любом значении puzzlesEnabled (если фича
+            выключена, /puzzles ниже под guard'ом сам уйдёт в /lobby). */}
+        <Route path="/daily" element={<Navigate to="/puzzles" replace />} />
+        <Route path="/daily/*" element={<Navigate to="/puzzles" replace />} />
         {puzzlesEnabled ? (
           <>
-            <Route path="/daily" element={<DailyPuzzlePage />} />
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
             <Route path="/precision" element={<PrecisionPage />} />
@@ -314,8 +319,8 @@ export function App() {
         ) : (
           // KS-2218: при выключенном флаге раздел «Задачи» полностью
           // недоступен — старые ссылки уводят пользователя в лобби.
+          // KS-2613: `/daily` обрабатывается выше, тут уже не нужен.
           <>
-            <Route path="/daily/*" element={<Navigate to="/lobby" replace />} />
             <Route path="/puzzles/*" element={<Navigate to="/lobby" replace />} />
             <Route path="/puzzle/*" element={<Navigate to="/lobby" replace />} />
           </>

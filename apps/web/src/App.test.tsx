@@ -68,10 +68,6 @@ vi.mock('./pages/SettingsPage', () => ({
   SettingsPage: () => <div>Settings</div>,
 }));
 
-vi.mock('./pages/DailyPuzzlePage', () => ({
-  DailyPuzzlePage: () => <div>Daily Puzzle</div>,
-}));
-
 vi.mock('./pages/PuzzleBrowserPage', () => ({
   PuzzleBrowserPage: () => <div>Puzzle Browser</div>,
 }));

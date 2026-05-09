@@ -117,9 +117,6 @@ vi.mock('./pages/LobbyPage', () => ({
 vi.mock('./pages/PuzzleBrowserPage', () => ({
   PuzzleBrowserPage: () => <div data-testid="page-puzzles" />,
 }));
-vi.mock('./pages/DailyPuzzlePage', () => ({
-  DailyPuzzlePage: () => <div data-testid="page-daily" />,
-}));
 vi.mock('./pages/PuzzlePage', () => ({
   PuzzlePage: () => <div data-testid="page-puzzle" />,
 }));
@@ -235,13 +232,16 @@ describe('App routing: KS-2218 puzzles/broadcasts/tournaments feature flags', ()
     expect(screen.queryByTestId('page-puzzles')).not.toBeInTheDocument();
   });
 
-  it('puzzlesEnabled=false → /daily редиректит на /lobby', async () => {
-    flags.puzzles = false;
+  // KS-2613: маршрут /daily удалён — теперь это безусловный редирект
+  // на /puzzles, поэтому отдельная проверка под puzzlesEnabled=false
+  // потеряла смысл. /puzzles при выключенном флаге уйдёт в /lobby —
+  // отдельный тест ниже это покрывает.
+  it('/daily безусловно редиректит на /puzzles', async () => {
+    flags.puzzles = true;
     renderWithProviders(<App />, { route: '/daily' });
     await waitFor(() =>
-      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+      expect(screen.getByTestId('page-puzzles')).toBeInTheDocument(),
     );
-    expect(screen.queryByTestId('page-daily')).not.toBeInTheDocument();
   });
 
   it('puzzlesEnabled=false → /puzzle/:id тоже редирект', async () => {

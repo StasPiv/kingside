@@ -79,7 +79,9 @@ describe('resolveNavRoute (KS-2373)', () => {
     expect(resolveNavRoute('/archive/games/abc')).toBe('archive');
     expect(resolveNavRoute('/profile')).toBe('profile');
     expect(resolveNavRoute('/player/tester')).toBe('profile');
-    expect(resolveNavRoute('/daily')).toBe('puzzles');
+    // KS-2613: `/daily` больше не входит в matches (страница удалена,
+    // /daily теперь редиректит на /puzzles).
+    expect(resolveNavRoute('/daily')).toBeNull();
     expect(resolveNavRoute('/puzzles')).toBe('puzzles');
     expect(resolveNavRoute('/puzzle-rush')).toBe('puzzles');
     expect(resolveNavRoute('/puzzle/abc')).toBe('puzzles');

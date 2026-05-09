@@ -45,7 +45,6 @@
     "puzzleRush": "Puzzle Rush",
     "rushLeaderboard": "Leaderboard",
     "train": "Train",
-    "dailyPuzzle": "Daily Puzzle",
     "profile": "Profile",
     "players": "Players",
     "messages": "Messages",
@@ -123,7 +122,6 @@
     "allTournaments": "All Tournaments",
     "customGameDesc": "Set your own time control",
     "liveGamesDesc": "Watch games in progress",
-    "dailyDesc": "New puzzle every day",
     "rushDesc": "Solve as many as you can",
     "myPuzzlesDesc": "Browse your collection",
     "analysesDesc": "Review your games",
@@ -382,7 +380,6 @@
     "blitz": "Blitz (5 min)",
     "rapid": "Rapid (10 min)",
     "classical": "Classical (30 min)",
-    "dailyPuzzle": "Daily Puzzle",
     "puzzleRush": "Puzzle Rush",
     "recentGames": "Recent Games",
     "myRecord": "Best",
@@ -400,11 +397,6 @@
         "title": "Play vs Bot",
         "description": "Practice against the computer. Adjust the difficulty from beginner to grandmaster level.",
         "cta": "Play vs Bot"
-      },
-      "daily": {
-        "title": "Daily Puzzle",
-        "description": "Solve today's hand-picked chess puzzle. A new challenge awaits you every day.",
-        "cta": "Solve Puzzle"
       },
       "puzzles": {
         "title": "Puzzles",
@@ -1110,12 +1102,6 @@
         "themeNotInRecs": "This theme is not in your top problem areas for the last 30 days. Nice!"
       }
     },
-    "daily": {
-      "title": "Daily Puzzle",
-      "completed": "Today's puzzle completed!",
-      "comeBack": "Come back tomorrow for a new puzzle",
-      "streakDays": "Day streak: {{count}}"
-    },
     "rush": {
       "title": "Puzzle Rush",
       "start": "Start",
@@ -1692,8 +1678,8 @@
     },
     "puzzles": {
       "title": "Puzzles & Training",
-      "description": "Solve the daily puzzle. Race against the clock in Puzzle Rush. Generate custom puzzles from any PGN — train on your own mistakes. Filter by theme: forks, pins, mates, sacrifices.",
-      "guide": "Solve chess puzzles to improve your tactical vision.\n\nDaily Puzzle:\nA new puzzle every day. Find it on the home page or go to Daily Puzzle in the menu.\n\nPuzzle Rush:\n1. Go to Puzzle Rush in the menu\n2. Choose time limit: 3 minutes or 5 minutes\n3. Solve as many puzzles as possible before time runs out\n4. Your best scores appear on the leaderboard\n\nGenerate Puzzles from Games:\n1. Go to Puzzles (menu)\n2. Click \"Generate from PGN\" at the top\n3. Upload a .pgn file or paste PGN text\n4. Open \"Advanced Settings\" to tune generation:\n   - Depth (8-22): analysis depth, higher = better but slower\n   - Lines (2-5): number of engine lines to compare\n   - Gap (cp): minimum difference between best and second-best move\n   - Max 2nd line (cp): skip positions where the alternative is already strong\n   - Skip hanging captures: filter out trivial free-piece captures\n   - Skip attacked by lesser: filter moves where the piece lands on a square attacked by a cheaper piece\n   - Skip undefended after move: filter moves leaving the piece undefended\n5. Click \"Generate Puzzles\" and wait for analysis\n6. Review generated puzzles and click \"Save to Server\"\n\nSolving:\nThe board shows the position — find the best move. After solving or failing, click \"Next\" for the next puzzle. Click \"Analysis\" to open the position in the analysis board."
+      "description": "Solve puzzles matched to your rating. Race against the clock in Puzzle Rush. Generate custom puzzles from any PGN — train on your own mistakes. Filter by theme: forks, pins, mates, sacrifices.",
+      "guide": "Solve chess puzzles to improve your tactical vision.\n\nPuzzles:\nGo to Puzzles in the menu — the next puzzle is matched to your rating, with filters by theme and difficulty.\n\nPuzzle Rush:\n1. Go to Puzzle Rush in the menu\n2. Choose time limit: 3 minutes or 5 minutes\n3. Solve as many puzzles as possible before time runs out\n4. Your best scores appear on the leaderboard\n\nGenerate Puzzles from Games:\n1. Go to Puzzles (menu)\n2. Click \"Generate from PGN\" at the top\n3. Upload a .pgn file or paste PGN text\n4. Open \"Advanced Settings\" to tune generation:\n   - Depth (8-22): analysis depth, higher = better but slower\n   - Lines (2-5): number of engine lines to compare\n   - Gap (cp): minimum difference between best and second-best move\n   - Max 2nd line (cp): skip positions where the alternative is already strong\n   - Skip hanging captures: filter out trivial free-piece captures\n   - Skip attacked by lesser: filter moves where the piece lands on a square attacked by a cheaper piece\n   - Skip undefended after move: filter moves leaving the piece undefended\n5. Click \"Generate Puzzles\" and wait for analysis\n6. Review generated puzzles and click \"Save to Server\"\n\nSolving:\nThe board shows the position — find the best move. After solving or failing, click \"Next\" for the next puzzle. Click \"Analysis\" to open the position in the analysis board."
     },
     "workshop": {
       "title": "Workshop",

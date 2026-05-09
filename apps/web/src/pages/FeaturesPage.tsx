@@ -42,10 +42,6 @@ export function FeaturesPage() {
             <span className="features-quick-link__icon">🧩</span>
             <span className="features-quick-link__label">{t('features.puzzles.title', 'Puzzles')}</span>
           </Link>
-          <Link to="/daily" className="features-quick-link">
-            <span className="features-quick-link__icon">📅</span>
-            <span className="features-quick-link__label">{t('lobby.dailyPuzzle', 'Daily Puzzle')}</span>
-          </Link>
           <Link to="/analysis/new" className="features-quick-link">
             <span className="features-quick-link__icon">🔍</span>
             <span className="features-quick-link__label">{t('features.analyze.title', 'Analysis')}</span>

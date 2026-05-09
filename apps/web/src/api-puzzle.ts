@@ -32,11 +32,6 @@ export type PuzzleAttemptRequest = {
   reason?: PlayVsEnginePuzzleReason;
 };
 
-export type DailyPuzzleResponse = {
-  puzzle: PuzzleDto;
-  date: string;
-};
-
 export type PuzzleRushStartRequest = {
   timeMode: '3' | '5';
 };
@@ -98,10 +93,6 @@ export const puzzleApi = {
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
     api.post<PuzzleAttemptResponse>(`/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
-
-  /** Get today's daily puzzle */
-  getDaily: () =>
-    api.get<DailyPuzzleResponse>('/puzzles/daily'),
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>

@@ -83,13 +83,6 @@ export function DashboardPage() {
           <div className="dashboard-card">
             <h2>{t('dashboard.puzzles', 'Puzzles')}</h2>
             <div className="dashboard-action-cards">
-              <Link to="/daily" className="dash-action-card">
-                <span className="dash-action-icon">&#9733;</span>
-                <div className="dash-action-text">
-                  <span className="dash-action-title">{t('nav.dailyPuzzle', 'Daily Puzzle')}</span>
-                  <span className="dash-action-desc">{t('dashboard.dailyDesc', 'New puzzle every day')}</span>
-                </div>
-              </Link>
               <Link to="/puzzle-rush" className="dash-action-card">
                 <span className="dash-action-icon">&#9889;</span>
                 <div className="dash-action-text">
