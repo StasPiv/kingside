@@ -145,6 +145,12 @@ export function UserLessonView({
     return courseLessons[idx + 1].id;
   }, [courseLessons, lesson.id]);
 
+  // KS-2652: при переходах между уроками / возврате на курс сохраняем
+  // `?preview=1`, если автор сейчас в preview-режиме. Иначе — на курсе
+  // его сбрасывает обычный URL.
+  const previewActive = searchParams.get('preview') === '1';
+  const previewSuffix = previewActive ? '?preview=1' : '';
+
   const handleComplete = async () => {
     setCompleteMessage(null);
     const outcome = await progress.completeLesson();
@@ -163,10 +169,11 @@ export function UserLessonView({
       return;
     }
     // Успех — навигация к следующему уроку, если есть; иначе — к курсу.
+    // Сохраняем preview-флаг (см. KS-2652).
     if (nextLessonId) {
-      navigate(`/lessons/${courseSlug}/${nextLessonId}`);
+      navigate(`/lessons/${courseSlug}/${nextLessonId}${previewSuffix}`);
     } else {
-      navigate(`/lessons/${courseSlug}`);
+      navigate(`/lessons/${courseSlug}${previewSuffix}`);
     }
   };
 
@@ -177,7 +184,7 @@ export function UserLessonView({
       <nav className="user-lesson-page__breadcrumbs">
         <Link to="/lessons">{t('lessons.title')}</Link>
         <span className="user-lesson-page__sep">/</span>
-        <Link to={`/lessons/${courseSlug}`}>
+        <Link to={`/lessons/${courseSlug}${previewSuffix}`}>
           {t('lessons.backToList', 'Back to course')}
         </Link>
       </nav>
@@ -228,7 +235,7 @@ export function UserLessonView({
             )}
           </p>
           <Link
-            to={`/lessons/${courseSlug}`}
+            to={`/lessons/${courseSlug}${previewSuffix}`}
             className="user-lesson-empty__back"
             data-testid="user-lesson-empty-back"
           >

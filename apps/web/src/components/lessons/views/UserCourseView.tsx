@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useCallback, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   UserCourseDto,
@@ -23,6 +23,31 @@ import { useAuth } from '../../../context/AuthContext';
  * Owner-actions (publish toggle, delete) ходят на бэк через
  * `lessonsApi.updateCourse` / `deleteCourse`; родитель синхронизируется
  * через колбэки `onCourseUpdated` / `onCourseDeleted`.
+ *
+ * # KS-2652 — Preview-режим автора («Посмотреть как студент»)
+ *
+ * Автор может посмотреть свой курс глазами читателя без релогина под
+ * другим аккаунтом. Активируется кнопкой в шапке курса; состояние
+ * хранится в URL (`?preview=1`) — чтобы пережило reload и копию ссылки
+ * на другой девайс.
+ *
+ * В preview:
+ *   - owner-actions скрыты (Edit/Visibility/Delete);
+ *   - блок Statistics скрыт (его и так backend отдаёт только owner'у,
+ *     но в preview мы дополнительно скрываем на фронте — UX);
+ *   - вместо owner-actions — кнопка «Вернуться к управлению» (Exit
+ *     preview), снимает `?preview=1` из URL.
+ *
+ * Решение по прогрессу: в preview прогресс шагов сохраняется как
+ * обычно (`useLessonProgress` бьёт в backend). Это проще, и не плодит
+ * расхождения между «как у студента» и «реальное состояние автора».
+ * Минус — автор «обнуляет» свой собственный прогресс, переходя в
+ * preview, но у автора своих enrollment'ов на собственный курс
+ * обычно нет.
+ *
+ * Линки на уроки из preview-режима пробрасывают `?preview=1` через
+ * URL — чтобы reader тоже знал, что в preview, и (в будущем) скрывал
+ * автор-специфичные подсказки.
  */
 
 interface UserCourseViewProps {
@@ -43,11 +68,44 @@ export function UserCourseView({
   const { user } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  // KS-2652: preview-режим только для владельца. Если в URL
+  // `?preview=1` пришёл случайно (или скопирован с автор-сессии),
+  // для НЕ-owner'а флаг игнорируем — у них и так UI без owner-actions.
   const isOwner = Boolean(user && user.id === course.ownerId);
+  const previewActive = isOwner && searchParams.get('preview') === '1';
+  const showOwnerUi = isOwner && !previewActive;
+
+  const enterPreview = useCallback(() => {
+    const sp = new URLSearchParams(searchParams);
+    sp.set('preview', '1');
+    setSearchParams(sp, { replace: false });
+  }, [searchParams, setSearchParams]);
+
+  const exitPreview = useCallback(() => {
+    const sp = new URLSearchParams(searchParams);
+    sp.delete('preview');
+    setSearchParams(sp, { replace: false });
+  }, [searchParams, setSearchParams]);
+
+  // Хелпер: построить `to` для `<Link>` к уроку с пробросом
+  // `?preview=1`, если активно. Чтобы preview-флаг не терялся при
+  // переходе автор → reader.
+  const lessonTo = useCallback(
+    (lessonId: string) => {
+      const base = `/lessons/${course.slug}/${lessonId}`;
+      return previewActive ? `${base}?preview=1` : base;
+    },
+    [course.slug, previewActive],
+  );
 
   return (
-    <div className="user-course-page" data-testid="user-course-page">
+    <div
+      className="user-course-page"
+      data-testid="user-course-page"
+      data-preview={previewActive ? 'true' : undefined}
+    >
       <header className="user-course-page__header">
         <div className="user-course-page__meta">
           <h1 data-testid="user-course-title">{course.title}</h1>
@@ -114,10 +172,10 @@ export function UserCourseView({
         )}
       </header>
 
-      {/* KS-1886: блок Statistics — виден только владельцу. BE
-          отдаёт `course.stats` исключительно owner'у; дополнительно
-          проверяем `isOwner` чтобы не показывать при гонке кеша. */}
-      {isOwner && course.stats && (
+      {/* KS-1886: блок Statistics — виден только владельцу.
+          KS-2652: в preview-режиме автор смотрит «как студент» —
+          стат-блок тоже скрыт, иначе UI не похож на читательский. */}
+      {showOwnerUi && course.stats && (
         <section
           className="user-course-page__stats"
           data-testid="user-course-stats"
@@ -160,13 +218,37 @@ export function UserCourseView({
         </section>
       )}
 
-      {isOwner && (
+      {/* KS-2652: для owner'а вместо owner-actions в preview-режиме
+          показываем кнопку «Вернуться к управлению» (Exit preview).
+          В обычном режиме — все три кнопки + новая «Посмотреть как
+          студент» (Enter preview). */}
+      {showOwnerUi && (
         <OwnerActions
           course={course}
           onVisibilityChanged={onCourseUpdated}
           onDeleted={onCourseDeleted}
           onEdit={() => navigate(`/lessons/my/${course.slug}/edit`)}
+          onEnterPreview={enterPreview}
         />
+      )}
+      {previewActive && (
+        <div
+          className="user-course-page__preview-bar"
+          data-testid="user-course-preview-bar"
+          role="status"
+        >
+          <span className="user-course-page__preview-label">
+            {t('lessons.my.preview.banner', 'Preview as student')}
+          </span>
+          <button
+            type="button"
+            className="user-course-page__preview-exit"
+            data-testid="user-course-preview-exit"
+            onClick={exitPreview}
+          >
+            {t('lessons.my.preview.exit', 'Exit preview')}
+          </button>
+        </div>
       )}
 
       <section
@@ -211,7 +293,7 @@ export function UserCourseView({
                   </span>
                 </div>
                 <Link
-                  to={`/lessons/${course.slug}/${lesson.id}`}
+                  to={lessonTo(lesson.id)}
                   className="user-course-page__lesson-cta"
                   data-testid={`user-course-lesson-play-${lesson.id}`}
                 >
@@ -232,6 +314,7 @@ interface OwnerActionsProps {
   onVisibilityChanged: (next: UserCourseDto) => void;
   onDeleted: () => void;
   onEdit: () => void;
+  onEnterPreview: () => void;
 }
 
 function OwnerActions({
@@ -239,6 +322,7 @@ function OwnerActions({
   onVisibilityChanged,
   onDeleted,
   onEdit,
+  onEnterPreview,
 }: OwnerActionsProps) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState<false | 'visibility' | 'delete'>(false);
@@ -289,6 +373,17 @@ function OwnerActions({
         data-testid="user-course-edit"
       >
         {t('lessons.my.edit', 'Edit')}
+      </button>
+      {/* KS-2652: «Посмотреть как студент» — переключает курс в
+          preview-режим (owner-actions и stats скрываются, lesson-links
+          пробрасывают `?preview=1`). Расположена рядом с другими
+          owner-actions, доступна тому же owner'у. */}
+      <button
+        type="button"
+        onClick={onEnterPreview}
+        data-testid="user-course-preview-enter"
+      >
+        {t('lessons.my.preview.enter', 'Preview as student')}
       </button>
       <button
         type="button"
