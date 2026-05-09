@@ -46,109 +46,130 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('userCoursesApi — courses', () => {
-  it('list() без параметров → GET /user-courses', async () => {
+describe('userCoursesApi — courses (KS-2645 unified URLs)', () => {
+  it('list() без параметров → GET /courses?mine=1', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
     await userCoursesApi.list();
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses`);
+    expect(url).toBe(`${BASE}/courses?mine=1`);
     expect(init.method).toBeUndefined(); // GET — default
   });
 
-  it('list({ scope: "public" }) → GET /user-courses?scope=public', async () => {
+  it('list({ scope: "public" }) → GET /courses?mine=0', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
     await userCoursesApi.list({ scope: 'public' });
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses?scope=public`);
+    expect(url).toBe(`${BASE}/courses?mine=0`);
   });
 
-  it('list({ scope: "own" }) → GET /user-courses?scope=own', async () => {
+  it('list({ scope: "own" }) → GET /courses?mine=1', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
     await userCoursesApi.list({ scope: 'own' });
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses?scope=own`);
+    expect(url).toBe(`${BASE}/courses?mine=1`);
   });
 
-  it('getBySlug() → GET /user-courses/:slug с URL-escape', async () => {
+  it('listLatest({ limit: 5 }) → GET /courses?mine=0&limit=5', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
+    await userCoursesApi.listLatest({ limit: 5 });
+    const [url] = lastCallArgs();
+    expect(url).toBe(`${BASE}/courses?mine=0&limit=5`);
+  });
+
+  it('getBySlug() → GET /courses/:slug с URL-escape', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ course: {}, lessons: [], progress: null }));
     await userCoursesApi.getBySlug('my course/1');
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses/my%20course%2F1`);
+    expect(url).toBe(`${BASE}/courses/my%20course%2F1`);
   });
 
-  it('create() → POST /user-courses с телом', async () => {
+  it('create() → POST /courses с телом', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 'c1' }));
     await userCoursesApi.create({ title: 'My course', description: 'test' });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses`);
+    expect(url).toBe(`${BASE}/courses`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ title: 'My course', description: 'test' });
     expect(init.headers['Content-Type']).toBe('application/json');
   });
 
-  it('update() → PATCH /user-courses/:id', async () => {
+  it('update() → PATCH /courses/:id', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 'c1' }));
     await userCoursesApi.update('c1', { isPublic: true });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses/c1`);
+    expect(url).toBe(`${BASE}/courses/c1`);
     expect(init.method).toBe('PATCH');
     expect(JSON.parse(init.body)).toEqual({ isPublic: true });
   });
 
-  it('delete() → DELETE /user-courses/:id, 204 → undefined', async () => {
+  it('delete() → DELETE /courses/:id, 204 → undefined', async () => {
     mockFetch.mockResolvedValueOnce(okEmpty());
     const res = await userCoursesApi.delete('c1');
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses/c1`);
+    expect(url).toBe(`${BASE}/courses/c1`);
     expect(init.method).toBe('DELETE');
     expect(res).toBeUndefined();
   });
+
+  it('listAuthors() остаётся на legacy /user-courses/authors (Phase D исключение)', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ data: [], total: 0 }));
+    await userCoursesApi.listAuthors({ sort: 'recent', limit: 10 });
+    const [url] = lastCallArgs();
+    expect(url).toBe(`${BASE}/user-courses/authors?sort=recent&limit=10`);
+  });
+
+  it('listEnrolled() остаётся на legacy /user-courses/enrolled (Phase D исключение)', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
+    await userCoursesApi.listEnrolled();
+    const [url] = lastCallArgs();
+    expect(url).toBe(`${BASE}/user-courses/enrolled`);
+  });
 });
 
-describe('userCoursesApi — lessons', () => {
-  it('createLesson() → POST /user-courses/:id/lessons', async () => {
+describe('userCoursesApi — lessons (KS-2645 unified URLs)', () => {
+  it('createLesson() → POST /courses/:id/lessons', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 'l1' }));
     await userCoursesApi.createLesson('c1', { title: 'L1', estMinutes: 10 });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-courses/c1/lessons`);
+    expect(url).toBe(`${BASE}/courses/c1/lessons`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ title: 'L1', estMinutes: 10 });
   });
 
-  it('getLesson() → GET /user-lessons/:id', async () => {
+  it('getLesson() → GET /user-lessons/:id (Phase D исключение, GET unified не реализован на бэке)', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ lesson: {}, steps: [], progress: null }));
     await userCoursesApi.getLesson('l1');
     const [url] = lastCallArgs();
     expect(url).toBe(`${BASE}/user-lessons/l1`);
   });
 
-  it('updateLesson() → PATCH /user-lessons/:id', async () => {
+  it('updateLesson() → PATCH /lessons/:id', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 'l1' }));
     await userCoursesApi.updateLesson('l1', { order: 3 });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lessons/l1`);
+    expect(url).toBe(`${BASE}/lessons/l1`);
     expect(init.method).toBe('PATCH');
     expect(JSON.parse(init.body)).toEqual({ order: 3 });
   });
 
-  it('deleteLesson() → DELETE /user-lessons/:id', async () => {
+  it('deleteLesson() → DELETE /lessons/:id', async () => {
     mockFetch.mockResolvedValueOnce(okEmpty());
     await userCoursesApi.deleteLesson('l1');
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lessons/l1`);
+    expect(url).toBe(`${BASE}/lessons/l1`);
     expect(init.method).toBe('DELETE');
   });
 });
 
-describe('userCoursesApi — steps', () => {
-  it('createStep() → POST /user-lessons/:id/steps', async () => {
+describe('userCoursesApi — steps (KS-2645 unified URLs)', () => {
+  it('createStep() → POST /lessons/:id/steps', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 's1' }));
     await userCoursesApi.createStep('l1', {
       type: 'text',
       payload: { type: 'text', bodyMarkdown: 'hi', diagrams: [] },
     });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lessons/l1/steps`);
+    expect(url).toBe(`${BASE}/lessons/l1/steps`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({
       type: 'text',
@@ -156,35 +177,35 @@ describe('userCoursesApi — steps', () => {
     });
   });
 
-  it('updateStep() → PATCH /user-lesson-steps/:id', async () => {
+  it('updateStep() → PATCH /steps/:id', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ id: 's1' }));
     await userCoursesApi.updateStep('s1', { order: 2 });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lesson-steps/s1`);
+    expect(url).toBe(`${BASE}/steps/s1`);
     expect(init.method).toBe('PATCH');
     expect(JSON.parse(init.body)).toEqual({ order: 2 });
   });
 
-  it('deleteStep() → DELETE /user-lesson-steps/:id', async () => {
+  it('deleteStep() → DELETE /steps/:id', async () => {
     mockFetch.mockResolvedValueOnce(okEmpty());
     await userCoursesApi.deleteStep('s1');
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lesson-steps/s1`);
+    expect(url).toBe(`${BASE}/steps/s1`);
     expect(init.method).toBe('DELETE');
   });
 
-  it('reorderSteps() → POST /user-lessons/:id/steps/reorder', async () => {
+  it('reorderSteps() → POST /lessons/:id/steps/reorder', async () => {
     mockFetch.mockResolvedValueOnce(okEmpty());
     await userCoursesApi.reorderSteps('l1', { ids: ['s2', 's1', 's3'] });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-lessons/l1/steps/reorder`);
+    expect(url).toBe(`${BASE}/lessons/l1/steps/reorder`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ ids: ['s2', 's1', 's3'] });
   });
 });
 
-describe('userCoursesApi — progress (BE-4)', () => {
-  it('updateStepProgress() → POST /user-progress/lessons/:id/step', async () => {
+describe('userCoursesApi — progress (KS-2645 unified URLs)', () => {
+  it('updateStepProgress() → POST /progress/lessons/:id/step', async () => {
     mockFetch.mockResolvedValueOnce(
       okJson({
         userLessonId: 'l1',
@@ -200,12 +221,12 @@ describe('userCoursesApi — progress (BE-4)', () => {
       state: 'done',
     });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/lessons/l1/step`);
+    expect(url).toBe(`${BASE}/progress/lessons/l1/step`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ stepId: 's1', state: 'done' });
   });
 
-  it('completeLesson() → POST /user-progress/lessons/:id/complete', async () => {
+  it('completeLesson() → POST /progress/lessons/:id/complete', async () => {
     mockFetch.mockResolvedValueOnce(
       okJson({
         userCourseId: 'c1',
@@ -217,23 +238,23 @@ describe('userCoursesApi — progress (BE-4)', () => {
     );
     await userCoursesApi.completeLesson('l1', { score: 0.85 });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/lessons/l1/complete`);
+    expect(url).toBe(`${BASE}/progress/lessons/l1/complete`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ score: 0.85 });
   });
 
-  it('getCourseProgress() → GET /user-progress/courses/:id', async () => {
+  it('getCourseProgress() → GET /progress/courses/:id', async () => {
     mockFetch.mockResolvedValueOnce(okJson(null));
     await userCoursesApi.getCourseProgress('c1');
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/courses/c1`);
+    expect(url).toBe(`${BASE}/progress/courses/c1`);
   });
 
-  it('getLessonProgress() → GET /user-progress/lessons/:id', async () => {
+  it('getLessonProgress() → GET /progress/lessons/:id', async () => {
     mockFetch.mockResolvedValueOnce(okJson(null));
     await userCoursesApi.getLessonProgress('l1');
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/lessons/l1`);
+    expect(url).toBe(`${BASE}/progress/lessons/l1`);
   });
 });
 

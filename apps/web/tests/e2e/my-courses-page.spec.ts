@@ -83,14 +83,16 @@ async function cleanupCoursesByTitle(
   // содержит `needle`. Тест-юзер у нас уникальный по timestamp, так
   // что чистка не трогает чужое.
   try {
-    const res = await fetch(`${API_URL}/lessons/user-courses?scope=own`, {
+    // KS-2645 (ADR-054 Phase D): фронт переключён на unified URLs
+    // `/lessons/courses?mine=1`. Cleanup тоже идёт через unified.
+    const res = await fetch(`${API_URL}/lessons/courses?mine=1`, {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     });
     if (!res.ok) return;
     const body = (await res.json()) as { data: { id: string; title: string }[] };
     for (const c of body.data ?? []) {
       if (c.title && c.title.includes(needle)) {
-        await fetch(`${API_URL}/lessons/user-courses/${c.id}`, {
+        await fetch(`${API_URL}/lessons/courses/${c.id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
         }).catch(() => {});
@@ -146,7 +148,7 @@ async function openMyCoursesViaEntryPoint(
 /**
  * Создать новый курс через UI — кнопкой «+ Create my course».
  * Возвращает slug + id, прочитанные из URL после редиректа в редактор
- * + из ответа POST /lessons/user-courses (через `waitForResponse`).
+ * + из ответа POST /lessons/courses (через `waitForResponse`).
  *
  * На mobile header-кнопка скрыта (KS-2623), используем sticky-CTA.
  */
@@ -166,12 +168,12 @@ async function createCourseViaUi(
     page.waitForResponse(
       (r) =>
         r.request().method() === 'POST' &&
-        /\/lessons\/user-courses$/.test(r.url()),
+        /\/lessons\/courses$/.test(r.url()),
       { timeout: 15_000 },
     ),
     button.click(),
   ]);
-  expect(createRes.ok(), `POST /user-courses: ${createRes.status()}`).toBe(
+  expect(createRes.ok(), `POST /courses: ${createRes.status()}`).toBe(
     true,
   );
   const created = (await createRes.json()) as { id: string; slug: string };
@@ -241,7 +243,7 @@ test.describe('KS-2627 — MyCoursesPage e2e', () => {
       page.waitForResponse(
         (r) =>
           r.request().method() === 'PATCH' &&
-          new RegExp(`/lessons/user-courses/${created.id}$`).test(r.url()),
+          new RegExp(`/lessons/courses/${created.id}$`).test(r.url()),
         { timeout: 15_000 },
       ),
       page
@@ -281,7 +283,7 @@ test.describe('KS-2627 — MyCoursesPage e2e', () => {
       page.waitForResponse(
         (r) =>
           r.request().method() === 'DELETE' &&
-          new RegExp(`/lessons/user-courses/${created.id}$`).test(r.url()),
+          new RegExp(`/lessons/courses/${created.id}$`).test(r.url()),
         { timeout: 15_000 },
       ),
       page.getByTestId(`my-courses-menu-delete-${created.id}`).click(),
@@ -359,7 +361,7 @@ test.describe('KS-2627 — MyCoursesPage e2e', () => {
       page.waitForResponse(
         (r) =>
           r.request().method() === 'PATCH' &&
-          new RegExp(`/lessons/user-courses/${created.id}$`).test(r.url()),
+          new RegExp(`/lessons/courses/${created.id}$`).test(r.url()),
         { timeout: 15_000 },
       ),
       page

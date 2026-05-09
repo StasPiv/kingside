@@ -55,7 +55,7 @@ async function createCourse(
   // подождать и повторить проще, чем отключать лимит под тесты.
   const MAX_ATTEMPTS = 6;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const res = await fetch(`${API_URL}/lessons/user-courses`, {
+    const res = await fetch(`${API_URL}/lessons/courses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -152,7 +152,7 @@ test.describe('UserCourseEditor happy-path', () => {
     const stepPatchPromise = page.waitForResponse(
       (r) =>
         r.request().method() === 'PATCH' &&
-        /\/lessons\/user-lesson-steps\//.test(r.url()),
+        /\/lessons\/steps\//.test(r.url()),
       { timeout: 15_000 },
     );
     const body = page.getByTestId('editor-step-text-body').first();
@@ -262,7 +262,7 @@ test.describe('UserCourseEditor happy-path', () => {
     });
 
     // Cleanup: удаляем созданный курс через API.
-    await fetch(`${API_URL}/lessons/user-courses/${course.id}`, {
+    await fetch(`${API_URL}/lessons/courses/${course.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     }).catch(() => {});

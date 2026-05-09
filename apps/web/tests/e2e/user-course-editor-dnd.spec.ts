@@ -58,7 +58,7 @@ async function createCourseWithSteps(
   // Ретрай из-за 429 — лимитер create-course срабатывает при частом прогоне.
   let course: { id: string; slug: string } | null = null;
   for (let i = 0; i < 6; i += 1) {
-    const r = await fetch(`${API_URL}/lessons/user-courses`, {
+    const r = await fetch(`${API_URL}/lessons/courses`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ title }),
@@ -73,7 +73,7 @@ async function createCourseWithSteps(
   if (!course) throw new Error('create-course failed: 429 max retries');
 
   const lessonRes = await fetch(
-    `${API_URL}/lessons/user-courses/${course.id}/lessons`,
+    `${API_URL}/lessons/courses/${course.id}/lessons`,
     {
       method: 'POST',
       headers,
@@ -86,7 +86,7 @@ async function createCourseWithSteps(
   const stepIds: string[] = [];
   for (let i = 0; i < 3; i += 1) {
     const stepRes = await fetch(
-      `${API_URL}/lessons/user-lessons/${lesson.id}/steps`,
+      `${API_URL}/lessons/lessons/${lesson.id}/steps`,
       {
         method: 'POST',
         headers,
@@ -131,7 +131,7 @@ async function cleanupCourse(
   tokens: AuthTokens,
   courseId: string,
 ): Promise<void> {
-  await fetch(`${API_URL}/lessons/user-courses/${courseId}`, {
+  await fetch(`${API_URL}/lessons/courses/${courseId}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
   }).catch(() => {});
@@ -209,7 +209,7 @@ test.describe('UserCourseEditor DnD (dnd-kit)', () => {
     const reorderReq = page.waitForResponse(
       (r) =>
         r.request().method() === 'POST' &&
-        /\/user-lessons\/[^/]+\/steps\/reorder$/.test(r.url()),
+        /\/lessons\/lessons\/[^/]+\/steps\/reorder$/.test(r.url()),
       { timeout: 10_000 },
     );
     await page.mouse.up();

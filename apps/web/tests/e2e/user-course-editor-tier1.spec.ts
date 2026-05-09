@@ -73,7 +73,7 @@ async function createCourseWithLesson(
   // ретрай с backoff'ом, как в существующих spec'ах KS-1871/KS-1861.
   let course: { id: string; slug: string } | null = null;
   for (let i = 0; i < 6; i += 1) {
-    const r = await fetch(`${API_URL}/lessons/user-courses`, {
+    const r = await fetch(`${API_URL}/lessons/courses`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ title }),
@@ -88,7 +88,7 @@ async function createCourseWithLesson(
   if (!course) throw new Error('create-course failed: 429 max retries');
 
   const lessonRes = await fetch(
-    `${API_URL}/lessons/user-courses/${course.id}/lessons`,
+    `${API_URL}/lessons/courses/${course.id}/lessons`,
     {
       method: 'POST',
       headers,
@@ -123,7 +123,7 @@ async function cleanupCourse(
   tokens: AuthTokens,
   courseId: string,
 ): Promise<void> {
-  await fetch(`${API_URL}/lessons/user-courses/${courseId}`, {
+  await fetch(`${API_URL}/lessons/courses/${courseId}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
   }).catch(() => {});
@@ -157,7 +157,7 @@ function waitStepPatch(page: Page) {
   return page.waitForResponse(
     (r) =>
       r.request().method() === 'PATCH' &&
-      /\/lessons\/user-lesson-steps\//.test(r.url()),
+      /\/lessons\/steps\//.test(r.url()),
     { timeout: 15_000 },
   );
 }
@@ -205,7 +205,7 @@ test.describe('KS-2594 Tier1 — Сценарий 1: quiz autosave + reader', ()
       page.waitForResponse(
         (r) =>
           r.request().method() === 'POST' &&
-          /\/lessons\/user-lessons\/[^/]+\/steps$/.test(r.url()),
+          /\/lessons\/lessons\/[^/]+\/steps$/.test(r.url()),
         { timeout: 15_000 },
       ),
       page.getByTestId('add-step-empty-cta').click(),
@@ -333,7 +333,7 @@ test.describe('KS-2594 Tier1 — Сценарий 2: diagram arrow + highlight',
       page.waitForResponse(
         (r) =>
           r.request().method() === 'POST' &&
-          /\/lessons\/user-lessons\/[^/]+\/steps$/.test(r.url()),
+          /\/lessons\/lessons\/[^/]+\/steps$/.test(r.url()),
         { timeout: 15_000 },
       ),
       page.getByTestId('add-step-empty-cta').click(),
@@ -476,7 +476,7 @@ test.describe('KS-2594 Tier1 — Сценарий 3: edge cases', () => {
       page.waitForResponse(
         (r) =>
           r.request().method() === 'POST' &&
-          /\/lessons\/user-lessons\/[^/]+\/steps$/.test(r.url()),
+          /\/lessons\/lessons\/[^/]+\/steps$/.test(r.url()),
         { timeout: 15_000 },
       ),
       page.getByTestId('add-step-empty-cta').click(),
@@ -536,7 +536,7 @@ test.describe('KS-2594 Tier1 — Сценарий 3: edge cases', () => {
       page.waitForResponse(
         (r) =>
           r.request().method() === 'POST' &&
-          /\/lessons\/user-lessons\/[^/]+\/steps$/.test(r.url()),
+          /\/lessons\/lessons\/[^/]+\/steps$/.test(r.url()),
         { timeout: 15_000 },
       ),
       page.getByTestId('add-step-empty-cta').click(),
@@ -589,7 +589,7 @@ test.describe('KS-2594 Tier1 — Сценарий 3: edge cases', () => {
       Authorization: `Bearer ${tokens.accessToken}`,
     };
     const stepRes = await fetch(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}/steps`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}/steps`,
       {
         method: 'POST',
         headers: seedHeaders,
@@ -675,6 +675,8 @@ test.describe('KS-2594 Tier1 — Сценарий 3: edge cases', () => {
     // Дополнительно сверяем, что серверный payload получил
     // переставленный порядок — `GET /lessons/user-lessons/:id` отдаёт
     // урок со steps. Это устойчивее к асинхронной гидрации после reload.
+    // KS-2645 Phase D исключение: GET-роут пользовательского урока на
+    // unified пути (`/lessons/lessons/:id`) пока 404; остаёмся на legacy.
     const lessonRes = await fetch(
       `${API_URL}/lessons/user-lessons/${fixture.lessonId}`,
       { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
@@ -721,7 +723,7 @@ test.describe('KS-2594 Tier1 — Сценарий 4: backend whitelist', () => {
 
     // 4a. opening_drill → 400 (не в UserStepType whitelist'е).
     const r400 = await request.post(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}/steps`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}/steps`,
       {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
         data: {
@@ -745,7 +747,7 @@ test.describe('KS-2594 Tier1 — Сценарий 4: backend whitelist', () => {
     // 4b. quiz → 201, шаг создан (questions может быть пустым — UI-валидация
     // лишь подсвечивает, а не блокирует POST).
     const r201 = await request.post(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}/steps`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}/steps`,
       {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
         data: {
@@ -786,7 +788,7 @@ test.describe('KS-2594 Tier1 — Сценарий 5: i18n RU/EN editor', () => {
       Authorization: `Bearer ${tokens.accessToken}`,
     };
     const quizSeedRes = await fetch(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}/steps`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}/steps`,
       {
         method: 'POST',
         headers: seedHeaders,
@@ -815,7 +817,7 @@ test.describe('KS-2594 Tier1 — Сценарий 5: i18n RU/EN editor', () => {
     const quizStepId = ((await quizSeedRes.json()) as { id: string }).id;
 
     const textSeedRes = await fetch(
-      `${API_URL}/lessons/user-lessons/${fixture.lessonId}/steps`,
+      `${API_URL}/lessons/lessons/${fixture.lessonId}/steps`,
       {
         method: 'POST',
         headers: seedHeaders,
