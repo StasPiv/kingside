@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 // Логично держать её рядом с результатом — generated пазлы попадают
 // именно в `/precision`.
 import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import {
   useInfinitePuzzles,
   type BrowsePuzzleDto,
@@ -75,11 +76,20 @@ function isVisibility(v: string | null): v is 'draft' | 'public' | 'all' {
   return v === 'draft' || v === 'public' || v === 'all';
 }
 
+type ToastTone = 'success' | 'error' | 'info';
+interface ToastState {
+  id: number;
+  message: string;
+  tone: ToastTone;
+}
+const TOAST_AUTO_HIDE_MS = 3000;
+
 export function PrecisionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const copyToClipboard = useCopyToClipboard();
 
   // KS-2586: URL-state read.
   const mineParam = searchParams.get('mine') === 'true';
@@ -119,6 +129,35 @@ export function PrecisionPage() {
     null,
   );
   const [publishError, setPublishError] = useState<string | null>(null);
+
+  // KS-2663: per-card pending state для toggle visibility / delete.
+  // Локальный «id, по которому идёт мутация» гарантирует disable
+  // соответствующих кнопок и блокирует двойные клики.
+  const [pendingActionId, setPendingActionId] = useState<{
+    id: string;
+    action: 'visibility' | 'delete';
+  } | null>(null);
+
+  // KS-2663: floating toast — образец взят из MyCoursesView (KS-2621).
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastIdRef = useRef(0);
+
+  const showToast = useCallback((message: string, tone: ToastTone) => {
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
+    setToast({ id, message, tone });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => (prev && prev.id === id ? null : prev));
+    }, TOAST_AUTO_HIDE_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
   // KS-2661: модалка генератора пазлов из PGN. Открывается из шапки,
   // closeflow без изменений — после генерации `useInfinitePuzzles`
   // сам перезагрузится при следующем открытии страницы / смене
@@ -148,6 +187,106 @@ export function PrecisionPage() {
       }
     },
     [publishingId, patchLocally],
+  );
+
+  // KS-2663: per-card актйоны автора своих пазлов на вкладке «Мои».
+  const handleCopyLink = useCallback(
+    async (puzzle: BrowsePuzzleDto) => {
+      const origin =
+        typeof window !== 'undefined' ? window.location.origin : '';
+      // Унифицированный URL solve (без `?source=precision`, чтобы
+      // ссылка вне Kingside открыла обычный SolutionRunner для lichess
+      // или PVE для generated по `solutionMode` — KS-2657).
+      const url = `${origin}/puzzle/${puzzle.id}`;
+      const ok = await copyToClipboard(url);
+      if (!ok) {
+        showToast(
+          t('precision.toasts.linkCopyError', 'Failed to copy link'),
+          'error',
+        );
+        return;
+      }
+      const message =
+        puzzle.isPublic === false
+          ? t(
+              'precision.toasts.linkCopiedPrivate',
+              'Link copied. Publish to share with others.',
+            )
+          : t('precision.toasts.linkCopied', 'Link copied');
+      showToast(message, puzzle.isPublic === false ? 'info' : 'success');
+    },
+    [copyToClipboard, showToast, t],
+  );
+
+  const handleToggleVisibility = useCallback(
+    async (puzzle: BrowsePuzzleDto) => {
+      if (pendingActionId?.id === puzzle.id) return;
+      setPendingActionId({ id: puzzle.id, action: 'visibility' });
+      const next = puzzle.isPublic === false;
+      try {
+        await api.patch(`/puzzles/${puzzle.id}`, { isPublic: next });
+        patchLocally(puzzle.id, { isPublic: next });
+        showToast(
+          next
+            ? t('precision.toasts.published', 'Puzzle published')
+            : t('precision.toasts.unpublished', 'Puzzle made private'),
+          'success',
+        );
+      } catch {
+        showToast(
+          t(
+            'precision.toasts.visibilityError',
+            'Failed to update visibility',
+          ),
+          'error',
+        );
+      } finally {
+        setPendingActionId((cur) =>
+          cur && cur.id === puzzle.id ? null : cur,
+        );
+      }
+    },
+    [pendingActionId, patchLocally, showToast, t],
+  );
+
+  const handleDelete = useCallback(
+    async (puzzle: BrowsePuzzleDto) => {
+      if (pendingActionId?.id === puzzle.id) return;
+      const confirmText = t(
+        'precision.deleteConfirm',
+        'Delete this puzzle? This cannot be undone.',
+      );
+      if (typeof window !== 'undefined' && !window.confirm(confirmText)) {
+        return;
+      }
+      setPendingActionId({ id: puzzle.id, action: 'delete' });
+      try {
+        await api.delete(`/puzzles/${puzzle.id}`);
+        // Хук `useInfinitePuzzles` не имеет removeLocally; флагнём
+        // через `patchLocally` несуществующее поле — вместо этого
+        // делаем оптимистичный re-render через setSearchParams (или
+        // просто переход на «All» / refresh). Простой путь — reload
+        // страницы; для UX тосты + refresh.
+        showToast(
+          t('precision.toasts.deleted', 'Puzzle deleted'),
+          'success',
+        );
+        // Перезагружаем список через смену query (toggle 'mine' off-on).
+        // Простой re-fetch: window.location.reload().
+        if (typeof window !== 'undefined') {
+          window.location.reload();
+        }
+      } catch {
+        showToast(
+          t('precision.toasts.deleteError', 'Failed to delete puzzle'),
+          'error',
+        );
+        setPendingActionId((cur) =>
+          cur && cur.id === puzzle.id ? null : cur,
+        );
+      }
+    },
+    [pendingActionId, showToast, t],
   );
 
   // Stats — без изменений после KS-2545. Переезжать на хук смысла нет:
@@ -463,6 +602,58 @@ export function PrecisionPage() {
                           : t('precision.publish', 'Publish')}
                       </button>
                     )}
+                    {/* KS-2663: админка автора — Copy link / Visibility
+                        toggle / Delete. По образцу карточек «Мои курсы»
+                        (KS-2654, ADR-052). Видны только владельцу. */}
+                    {isMine && (
+                      <button
+                        type="button"
+                        className="precision-card__action precision-card__action--copy"
+                        data-testid="precision-card-copy-link"
+                        onClick={() => void handleCopyLink(p)}
+                      >
+                        {t('precision.actions.copyLink', 'Copy link')}
+                      </button>
+                    )}
+                    {/* Make private — для public; Make public-кнопка
+                        отдельная (Publish выше). */}
+                    {isMine && p.isPublic !== false && (
+                      <button
+                        type="button"
+                        className="precision-card__action precision-card__action--visibility"
+                        data-testid="precision-card-make-private"
+                        onClick={() => void handleToggleVisibility(p)}
+                        disabled={
+                          pendingActionId?.id === p.id &&
+                          pendingActionId.action === 'visibility'
+                        }
+                      >
+                        {pendingActionId?.id === p.id &&
+                        pendingActionId.action === 'visibility'
+                          ? t('precision.actions.updating', 'Updating…')
+                          : t(
+                              'precision.actions.makePrivate',
+                              'Make private',
+                            )}
+                      </button>
+                    )}
+                    {isMine && (
+                      <button
+                        type="button"
+                        className="precision-card__action precision-card__action--delete"
+                        data-testid="precision-card-delete"
+                        onClick={() => void handleDelete(p)}
+                        disabled={
+                          pendingActionId?.id === p.id &&
+                          pendingActionId.action === 'delete'
+                        }
+                      >
+                        {pendingActionId?.id === p.id &&
+                        pendingActionId.action === 'delete'
+                          ? t('precision.actions.deleting', 'Deleting…')
+                          : t('precision.actions.delete', 'Delete')}
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
@@ -477,6 +668,20 @@ export function PrecisionPage() {
             setShowGenerator(false);
           }}
         />
+      )}
+
+      {/* KS-2663: floating toast для действий автора (copy link /
+          visibility / delete). Образец из MyCoursesView (KS-2621). */}
+      {toast && (
+        <div
+          className={`precision-toast precision-toast--${toast.tone}`}
+          role="status"
+          aria-live="polite"
+          data-testid="precision-toast"
+          data-tone={toast.tone}
+        >
+          {toast.message}
+        </div>
       )}
     </div>
   );
