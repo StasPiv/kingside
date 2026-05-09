@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { FeatureFlags } from '@kingside/shared';
@@ -8,21 +8,10 @@ import { api } from '../api';
 import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
-import { openAnalysis } from '../utils/openAnalysis';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { HelpButton } from '../components/HelpButton';
 import { ServerBusyBanner } from '../components/ServerBusyBanner';
 import { NoOpponentsBlock } from '../components/NoOpponentsBlock';
-
-type WorkshopGame = {
-  id: string;
-  playerColor: 'white' | 'black';
-  playerResult: 'win' | 'loss' | 'draw';
-  opponent: { username: string };
-  result: string;
-  timeControl: string;
-  createdAt: string;
-};
 
 type PuzzleRushStats = {
   best3: number;
@@ -34,7 +23,12 @@ type PuzzleRushStats = {
 // модального контента у них нет (навигация по клику). Удалены из ModalId,
 // чтобы статически отсечь случайные `openModal('puzzles' | 'broadcasts')`
 // при выключенных feature-flags.
-type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | 'players' | 'liveGames' | null;
+// KS-2609: `workshop` — тоже teaser с `to: '/workshop'`, модалка
+// `workshopModalContent` была удалена как мёртвый код (UI недостижим
+// — тизер с `to` идёт через `navigate(teaser.to)` минуя `openModal`).
+// Реальные «Свободная партия» / «Загрузка PGN» — в /workshop
+// (WorkshopAnalysisList, WorkshopPgnList) после ADR-051 §4 B2/B3/B5.
+type ModalId = 'human' | 'bot' | 'rush' | 'players' | 'liveGames' | null;
 
 export function LobbyPage() {
   const { t } = useTranslation();
@@ -54,10 +48,6 @@ export function LobbyPage() {
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [widgetsLoading, setWidgetsLoading] = useState(true);
 
-  const [workshopGames, setWorkshopGames] = useState<WorkshopGame[]>([]);
-  const [workshopGamesLoading, setWorkshopGamesLoading] = useState(false);
-  const pgnInputRef = useRef<HTMLInputElement>(null);
-
   const [activeModal, setActiveModal] = useState<ModalId>(null);
 
   useEffect(() => {
@@ -72,46 +62,10 @@ export function LobbyPage() {
       }).finally(() => setWidgetsLoading(false));
   }, [user]);
 
-  const loadWorkshopGames = useCallback(async () => {
-    if (!user) return;
-    setWorkshopGamesLoading(true);
-    try {
-      const data = await api.get<{ data: WorkshopGame[] }>(`/users/${user.id}/games?take=5`);
-      setWorkshopGames(data.data);
-    } catch {
-      setWorkshopGames([]);
-    } finally {
-      setWorkshopGamesLoading(false);
-    }
-  }, [user]);
-
-  const handlePgnFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const pgn = ev.target?.result as string;
-      if (pgn) {
-        // KS-2607 (ADR-051 §4 B5): загрузка PGN через openAnalysis — POST
-        // /analyses {pgn} → navigate('/analysis/<id>'). PGN через router
-        // state больше НЕ передаём (id в URL уникальный, AnalysisPage
-        // подгружает по id; см. KS-2403 / ADR-051).
-        const fileName = file.name.replace(/\.pgn$/i, '');
-        void openAnalysis(navigate, { pgn, title: fileName, t });
-        closeModal();
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
   const closeModal = () => setActiveModal(null);
 
   const openModal = (id: NonNullable<ModalId>) => {
     setActiveModal(id);
-    if (id === 'workshop') {
-      loadWorkshopGames();
-    }
   };
 
   const {
@@ -456,87 +410,12 @@ export function LobbyPage() {
     </div>
   );
 
-  const workshopModalContent = (
-    <div className="lobby-panel">
-      <h2 className="lobby-panel__title">&#9812; {t('lobby.teasers.workshop.title')}</h2>
-
-      <div className="workshop-section">
-        <button
-          className="play-btn"
-          onClick={() => {
-            // KS-2607 (ADR-051 §4 B5): «Свободная партия» — пустой анализ
-            // через openAnalysis({ pgn: '' }) → POST /analyses {pgn:''} →
-            // navigate('/analysis/<id>'). Без передачи state/query.
-            void openAnalysis(navigate, { pgn: '', t });
-            closeModal();
-          }}
-        >
-          {t('lobby.workshop.newGame')}
-        </button>
-      </div>
-
-      <div className="workshop-section">
-        <p className="workshop-section__label">{t('lobby.workshop.uploadPgn')}</p>
-        <input
-          ref={pgnInputRef}
-          type="file"
-          accept=".pgn"
-          style={{ display: 'none' }}
-          onChange={handlePgnFileChange}
-        />
-        <button
-          className="lobby-widget__btn lobby-widget__btn--secondary"
-          onClick={() => pgnInputRef.current?.click()}
-        >
-          {t('lobby.workshop.uploadPgnBtn')}
-        </button>
-      </div>
-
-      <div className="workshop-section">
-        <p className="workshop-section__label">{t('lobby.workshop.recentGames')}</p>
-        {workshopGamesLoading ? (
-          <p className="lobby-widget__loading">{t('common.loading')}</p>
-        ) : workshopGames.length > 0 ? (
-          <ul className="workshop-games-list">
-            {workshopGames.map((g) => (
-              <li key={g.id} className="workshop-game-item">
-                <Link
-                  to={`/game/${g.id}/review`}
-                  className="workshop-game-link"
-                  onClick={closeModal}
-                >
-                  <span className={`workshop-game-result workshop-game-result--${g.playerResult}`}>
-                    {g.playerResult === 'win' ? '▲' : g.playerResult === 'loss' ? '▼' : '='}
-                  </span>
-                  <span className="workshop-game-opponent">vs {g.opponent.username}</span>
-                  <span className="workshop-game-tc">{g.timeControl}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="lobby-widget__loading">{t('lobby.workshop.noGames')}</p>
-        )}
-      </div>
-
-      <div className="workshop-section">
-        <p className="workshop-section__label">{t('lobby.workshop.tournaments')}</p>
-        <p className="workshop-section__stub">{t('lobby.workshop.tournamentsComingSoon')}</p>
-      </div>
-
-      <div className="lobby-widget__actions">
-        <Link to="/workshop" className="lobby-widget__btn" onClick={closeModal}>
-          {t('lobby.workshop.openWorkshop')} →
-        </Link>
-      </div>
-    </div>
-  );
-
   // KS-2218: тизеры разделов под feature-flags. Если флаг выключен —
   // карточка не рендерится, а CTA-навигация на закрытый роут не появляется.
   // Список ниже фильтруется через `teasers.filter(...)` сразу после декларации.
   type Teaser = {
-    id: NonNullable<ModalId> | 'puzzles' | 'broadcasts';
+    // KS-2609: `workshop` — teaser с `to: '/workshop'`, без модалки.
+    id: NonNullable<ModalId> | 'puzzles' | 'broadcasts' | 'workshop';
     icon: string;
     titleKey: string;
     descKey: string;
@@ -619,12 +498,11 @@ export function LobbyPage() {
   );
 
   // Модалки только для тех id, у которых реально есть контент.
-  // `puzzles`/`broadcasts` навигируют через `to`, модалок не имеют.
+  // `puzzles`/`broadcasts`/`workshop` навигируют через `to`, модалок не имеют.
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
     human: onlineModalContent,
     bot: botModalContent,
     rush: rushModalContent,
-    workshop: workshopModalContent,
     players: null,
     liveGames: null,
   };
