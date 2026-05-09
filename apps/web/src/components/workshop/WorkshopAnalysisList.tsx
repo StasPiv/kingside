@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { AnalysisListItem } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
+import { openAnalysis } from '../../utils/openAnalysis';
 
 const PAGE_SIZE = 20;
 const LS_SAVED_FILTERS_KEY = 'workshopSavedFilters';
@@ -401,7 +402,25 @@ export function WorkshopAnalysisList() {
       )}
 
       <div className="workshop-analyses-toolbar">
-        <button className="workshop-analyses-new-btn" onClick={() => navigate('/analysis')}>
+        <button
+          className="workshop-analyses-new-btn"
+          onClick={() => {
+            // KS-2604 (ADR-051 §4 B2): создаём пустой анализ через
+            // helper из B1 — он сделает POST /analyses {pgn:''} и
+            // navigate(/analysis/<id>) с уникальным id. До этого
+            // тикета здесь был navigate('/analysis') без id, и из-за
+            // ad-hoc autosave AnalysisPage'а на mount открывалась
+            // прошлая партия (KS-2403 / симптом «прошлая партия в
+            // Мастерской»). C-этап удалит ad-hoc autosave полностью;
+            // здесь же достаточно того, что новая запись получает
+            // уникальный id и пользователь начинает с чистой доски.
+            void openAnalysis(navigate, {
+              pgn: '',
+              title: t('workshop.myAnalyses.newAnalysis', 'New Analysis'),
+              t,
+            });
+          }}
+        >
           + {t('workshop.myAnalyses.newAnalysis', 'New Analysis')}
         </button>
         <span className="workshop-analyses-toolbar__spacer" />
