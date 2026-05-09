@@ -24,6 +24,8 @@ import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 import { ActiveCoursesService } from './active-courses.service';
 import { LessonsAdminService } from './admin/lessons-admin.service';
 import { LessonsAdminImportService } from './admin/lessons-admin-import.service';
+// KS-2642 / ADR-054 Phase C — единый guard доступа.
+import { LessonsAccessGuard } from './lessons-access.guard';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -66,6 +68,11 @@ import { LessonsAdminImportService } from './admin/lessons-admin-import.service'
     ActiveCoursesService,
     LessonsAdminService,
     LessonsAdminImportService,
+    // KS-2642 / ADR-054 Phase C. Регистрируем guard в provider'ах,
+    // чтобы Nest резолвил его DI (Reflector + PrismaService) при
+    // навешивании `@UseGuards(LessonsAccessGuard)` на унифицированных
+    // роутах, которые добавляются в следующих подзадачах Phase C.
+    LessonsAccessGuard,
   ],
   exports: [
     CoursesService,
@@ -77,6 +84,7 @@ import { LessonsAdminImportService } from './admin/lessons-admin-import.service'
     ActiveCoursesService,
     LessonsAdminService,
     LessonsAdminImportService,
+    LessonsAccessGuard,
   ],
 })
 export class LessonsModule {}
