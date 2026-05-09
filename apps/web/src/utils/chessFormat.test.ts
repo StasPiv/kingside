@@ -50,6 +50,43 @@ describe('wdlSignedToWinChancePercent KS-2521', () => {
   });
 });
 
+/**
+ * KS-2677 — acceptance: для проигранной стороны win-chance ≤ 20%.
+ *
+ * Сценарий из задачи: eval = -1.86 (POV white, side-to-move=white).
+ * Lichess-сигмоида: `winning_chances = 2/(1+exp(-0.004 * cp)) - 1`.
+ * При cp=-186 это ≈ -0.55 (приблизительная аппроксимация без эндшпильных
+ * поправок). Итог через wdlSignedToWinChancePercent должен быть ≤ 20%.
+ *
+ * Тест НЕ покрывает разворот POV в генераторе пазлов (этим занимается
+ * `puzzleGenerator.test.ts`); проверяет только конвертацию signed-WDL
+ * → win% работает корректно для отрицательных значений (т.е. для
+ * стороны, чьи шансы на победу действительно низкие).
+ */
+describe('wdlSignedToWinChancePercent KS-2677 — для проигрывающей стороны', () => {
+  it('Stockfish-WDL POV проигрывающего (типично для cp ≈ -186): w=50, d=200, l=750 → ≤ 20%', () => {
+    // Реальный Stockfish 15.1 на позициях с cp ≈ -186 (POV side-to-move)
+    // отдаёт распределение около (W=50, D=200, L=750). wdl_signed =
+    // (50 - 750) / 1000 = -0.7. Это «у проигрывающей стороны 15% шансов».
+    const wdlSigned = (50 - 750) / 1000;
+    const pct = wdlSignedToWinChancePercent(wdlSigned);
+    expect(pct).toBeLessThanOrEqual(20);
+    expect(pct).toBe(15); // ((-0.7 + 1) / 2) * 100 = 15
+  });
+
+  it('Симметрия: POV выигрывающего (зеркало) → ≥ 80%', () => {
+    // Если у проигрывающего ≤ 20%, то у выигрывающего (с противоположным
+    // знаком signed-WDL) должно быть ≥ 80%. Это критерий «обе стороны
+    // в одной системе координат» из KS-2677 #3.
+    const wdlLoser = -0.7;
+    const wdlWinner = -wdlLoser;
+    const loserPct = wdlSignedToWinChancePercent(wdlLoser);
+    const winnerPct = wdlSignedToWinChancePercent(wdlWinner);
+    expect(loserPct + winnerPct).toBe(100);
+    expect(winnerPct).toBeGreaterThanOrEqual(80);
+  });
+});
+
 describe('permilleToPercent KS-2528', () => {
   it('1000 → 100', () => {
     expect(permilleToPercent(1000)).toBe(100);

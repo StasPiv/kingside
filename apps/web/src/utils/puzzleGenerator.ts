@@ -432,7 +432,9 @@ export async function generatePuzzlesFromPgn(
         continue;
       }
 
-      // Анализ after (POV соперника сходившего).
+      // Анализ after. Side-to-move на fenAfter = РЕШАТЕЛЬ (соперник
+      // сходившего). По UCI стандарту Stockfish отдаёт WDL POV
+      // side-to-move → wdlSignedFromInfo возвращает signed POV решателя.
       let afterRes;
       try {
         afterRes = await engine.analyze(fenAfter, depth, MULTI_PV);
@@ -450,8 +452,19 @@ export async function generatePuzzlesFromPgn(
         console.log(`${logBase} SKIP:noWdlAfter`);
         continue;
       }
-      const wdlAfterForSolver = -wdlAfter;
-      const blunderΔ = wdlBefore + wdlAfterForSolver;
+      // KS-2677: `wdlAfter` УЖЕ POV решателя (side-to-move на fenAfter
+      // = решатель). Раньше код инвертировал знак (`= -wdlAfter`) и
+      // записывал в DB значение POV блaндера — UI потом отображал его
+      // через `wdlSignedToWinChancePercent` как чем-меньше-тем-меньше%
+      // («89% → 39%» при -1.86 eval — артефакт). Согласно
+      // `packages/shared/src/types/puzzle.ts`: `wdlAfterBlunder` =
+      // «WDL_signed для решающей сразу после зевка (от лица решателя)».
+      // Теперь оба `wdlBefore` (POV блaндера до зевка) и
+      // `wdlAfterForSolver` (POV решателя после) — каждый в POV
+      // соответствующей стороны на ходу; их сумма — корректная мера
+      // переворота шансов.
+      const wdlAfterForSolver = wdlAfter;
+      const blunderΔ = wdlBefore + wdlAfter;
 
       if (blunderΔ < blunderDelta) {
         console.log(
@@ -468,11 +481,14 @@ export async function generatePuzzlesFromPgn(
 
       // Mate check (для тагов).
       if (lineAfter.score.type === 'mate') {
-        // mate value на fenAfter — POV соперника. Если он отрицательный —
-        // mate в пользу решающего (нам нужен этот случай).
-        if (lineAfter.score.value < 0) {
+        // KS-2677: mate value на fenAfter — POV side-to-move = POV
+        // РЕШАТЕЛЯ. Положительное значение = mate в пользу решателя
+        // (нам нужен этот случай для мат-пазла). Раньше тут проверялось
+        // `< 0` под ошибочным предположением, что score POV блaндера —
+        // в результате `mateInN` ставился НЕ для тех пазлов.
+        if (lineAfter.score.value > 0) {
           isMate = true;
-          mateDist = Math.abs(lineAfter.score.value);
+          mateDist = lineAfter.score.value;
         }
       }
 

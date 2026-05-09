@@ -108,22 +108,24 @@ beforeEach(() => {
 });
 
 describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
-  it('детектирует blunder при wdlBefore=+0.7 / wdlAfter (POV соперника)=-0.7 → blunderΔ=1.4 ≥ 0.6 → принять', async () => {
+  it('детектирует blunder при wdlBefore=+0.7 (POV блaндера) / wdlAfter=+0.7 (POV решателя) → blunderΔ=1.4 ≥ 0.6 → принять', async () => {
     let beforeAnalyzed = 0;
     let afterAnalyzed = 0;
     const { engine } = makeMockEngine((call, _idx) => {
-      // Чтобы тест был детерминирован для одной позиции, отвечаем по
-      // шаблону: первая пара (before/after) триггерит accept, остальные
-      // позиции возвращают «нет блaндера» (wdlBefore=0.5, wdlAfter=0.5).
+      // KS-2677: входные wdl каждый POV side-to-move (UCI стандарт):
+      //   - на fenBefore side-to-move = блaндер; wdl POV блaндера.
+      //   - на fenAfter side-to-move = решатель; wdl POV решателя.
+      // Корректный blunder-сценарий: блaндер был в выгоде (+0.7), после
+      // зевка решатель тоже в выгоде (+0.7) → blunderΔ = 1.4.
       if (beforeAnalyzed === 0 && afterAnalyzed === 0) {
         beforeAnalyzed = 1;
-        // wdlBefore = +0.7 (W=850, L=150), pv[0]='a1a8' (не совпадает с playedUci)
+        // wdlBefore (POV блaндера) = +0.7 (W=850, L=150)
         return res([line(['a1a8'], { w: 850, d: 0, l: 150 })]);
       }
       if (beforeAnalyzed === 1 && afterAnalyzed === 0) {
         afterAnalyzed = 1;
-        // wdlAfter (POV соперника) = -0.7 (W=150, L=850) ⇒ wdlAfterForSolver = +0.7
-        return res([line(['b1b8'], { w: 150, d: 0, l: 850 })]);
+        // wdlAfter (POV решателя) = +0.7 (W=850, L=150) ⇒ wdlAfterForSolver = +0.7
+        return res([line(['b1b8'], { w: 850, d: 0, l: 150 })]);
       }
       // Остальные позиции — «нет блaндера»: wdlBefore = 0.0, wdlAfter = 0.0.
       void call;
@@ -224,14 +226,14 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) {
-        // wdlBefore = +0.4 (не decided)
+        // wdlBefore (POV блaндера) = +0.4 (не decided)
         return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]);
       }
       if (n === 2) {
-        // wdlAfter (POV соперника) = -0.3 ⇒ wdlAfterForSolver = +0.3
+        // KS-2677: wdlAfter (POV решателя) = +0.3 ⇒ wdlAfterForSolver = +0.3
         // blunderΔ = 0.4 + 0.3 = 0.7 ≥ 0.6 — проходит blunderDelta,
         // но 0.3 < minWdlAfterBlunder (0.5) — drop.
-        return res([line(['b1b8'], { w: 350, d: 0, l: 650 })]);
+        return res([line(['b1b8'], { w: 650, d: 0, l: 350 })]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -247,7 +249,7 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]); // +0.2
-      if (n === 2) return res([line(['b1b8'], { w: 400, d: 0, l: 600 })]); // wdlAfterForSolver = +0.2
+      if (n === 2) return res([line(['b1b8'], { w: 600, d: 0, l: 400 })]); // wdlAfterForSolver = +0.2
       // blunderΔ = 0.4 < 0.6
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -266,10 +268,11 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
         return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4
       }
       if (n === 2) {
-        // mate value < 0 на fenAfter (POV соперника) → mate против него,
-        // в пользу решающего. wdlAfter = -1 ⇒ wdlAfterForSolver = +1.
+        // KS-2677: mate value > 0 на fenAfter (POV side-to-move =
+        // решатель) — mate в пользу решающего ✓. wdl=null здесь, но
+        // wdlSignedFromInfo даёт +1 fallback. wdlAfterForSolver = +1.
         return res([
-          line(['b1b8'], null, { type: 'mate', value: -3 }),
+          line(['b1b8'], null, { type: 'mate', value: 3 }),
         ]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
@@ -289,13 +292,13 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     let solvCallIdx = 0;
     const { engine } = makeMockEngine(() => {
       analyzeCallIdx++;
-      // 1: before — accept
+      // 1: before — accept (wdlBefore POV блaндера = +0.7)
       if (analyzeCallIdx === 1) {
         return res([line(['a1a8'], { w: 850, d: 0, l: 150 })]);
       }
-      // 2: after — accept
+      // 2: after — accept (wdlAfter POV решателя = +0.7)
       if (analyzeCallIdx === 2) {
-        return res([line(['b1b8'], { w: 150, d: 0, l: 850 })]);
+        return res([line(['b1b8'], { w: 850, d: 0, l: 150 })]);
       }
       // 3..N: solvability passes — на N=3 wdl выше failThreshold,
       // на N=4 (полуход 1) роняем → wdlForSolver < 0.0 → fail.
@@ -331,8 +334,9 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
+      // KS-2677: оба wdl POV side-to-move (UCI). Блaндер +0.7 → решатель +0.7.
       if (n === 1) return res([line(['a1a8'], { w: 850, d: 0, l: 150 })]);
-      if (n === 2) return res([line(['b1b8'], { w: 150, d: 0, l: 850 })]);
+      if (n === 2) return res([line(['b1b8'], { w: 850, d: 0, l: 150 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
@@ -357,14 +361,11 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
-      // Маленькая дельта — `blunderΔ = 0.3` пройдёт при blunderDelta=0.2,
-      // но не при дефолтных 0.6.
-      if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]); // +0.2
+      if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]); // +0.2 POV блaндера
       if (n === 2) {
-        // POV соперника = -0.5 ⇒ wdlAfterForSolver=+0.5; blunderΔ=0.7
-        // (проходит default), но wdlAfterForSolver = +0.5 ровно на
-        // границе. Делаем чуть больше чтобы пройти minWdlAfterBlunder.
-        return res([line(['b1b8'], { w: 200, d: 0, l: 800 })]); // -0.6
+        // KS-2677: wdlAfter POV решателя = +0.6. blunderΔ = 0.2 + 0.6 = 0.8
+        // ≥ 0.7 (override). minWdlAfterBlunder = 0.5 — проходит (0.6 ≥ 0.5).
+        return res([line(['b1b8'], { w: 800, d: 0, l: 200 })]); // +0.6
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -381,8 +382,9 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
-      if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4
-      if (n === 2) return res([line(['b1b8'], { w: 0, d: 30, l: 970 })]); // POV соперника = -0.97
+      if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4 POV блaндера
+      // KS-2677: wdl POV решателя = +0.97 ⇒ wdlAfterForSolver = +0.97 ≥ 0.95.
+      if (n === 2) return res([line(['b1b8'], { w: 970, d: 30, l: 0 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
@@ -398,7 +400,8 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4
-      if (n === 2) return res([line(['b1b8'], { w: 50, d: 50, l: 900 })]); // POV соперника = -0.85
+      // KS-2677: wdl POV решателя = +0.85. wdlAfterForSolver = +0.85.
+      if (n === 2) return res([line(['b1b8'], { w: 900, d: 50, l: 50 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
@@ -415,7 +418,8 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]);
-      if (n === 2) return res([line(['b1b8'], { w: 0, d: 50, l: 950 })]);
+      // KS-2677: wdl POV решателя = +0.95.
+      if (n === 2) return res([line(['b1b8'], { w: 950, d: 50, l: 0 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
