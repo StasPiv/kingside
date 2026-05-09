@@ -257,24 +257,20 @@ export function PuzzleBrowserPage() {
         <HelpButton section="puzzles" />
       </h1>
 
-      {/* Tabs */}
+      {/* Tabs.
+          KS-2662: вкладка «My puzzles» удалена — после KS-2661
+          генерация переехала в `/precision`, и `/puzzles` остался
+          каталогом lichess-пазлов, у которых нет понятия «моих».
+          Filter `mine` в FilterState/URL оставлен — старые ссылки
+          с `?mine=true` продолжают работать (просто давая пустой
+          результат), но активного UI-переключателя нет. */}
       <div className="puzzle-browser-tabs">
-        <button
-          type="button"
-          className={`puzzle-browser-tab${!filters.mine ? ' active' : ''}`}
-          onClick={() => updateFilters({ mine: false })}
+        <span
+          className="puzzle-browser-tab puzzle-browser-tab--current"
+          aria-current="page"
         >
           {t('puzzleBrowser.allPuzzles', 'All puzzles')}
-        </button>
-        {user && (
-          <button
-            type="button"
-            className={`puzzle-browser-tab${filters.mine ? ' active' : ''}`}
-            onClick={() => updateFilters({ mine: true })}
-          >
-            {t('puzzleBrowser.myPuzzles', 'My puzzles')}
-          </button>
-        )}
+        </span>
         {user && (
           <Link to="/puzzles/stats" className="puzzle-browser-tab">
             {t('puzzleStats.title', 'Statistics')}
