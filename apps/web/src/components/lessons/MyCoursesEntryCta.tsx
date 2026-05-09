@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -27,8 +27,8 @@ export function MyCoursesEntryCta() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    userCoursesApi
-      .list({ scope: 'own' })
+    lessonsApi
+      .list({ mine: true })
       .then((res) => {
         if (cancelled) return;
         setCount(res.data?.length ?? 0);

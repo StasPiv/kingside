@@ -14,12 +14,14 @@ import { renderHook, waitFor } from '@testing-library/react';
  *   guest → loading → multi → continue → author → start
  */
 
-const { lessonsApiMock, userCoursesApiMock, authMock } = vi.hoisted(() => ({
+// KS-2645: после слияния userCoursesApi в lessonsApi, hook вызывает
+// `lessonsApi.list({mine:true})`. `userCoursesApiMock` оставлен как
+// тонкий алиас на `lessonsApi.list` — чтобы не переписывать существующие
+// `userCoursesApiMock.list.mockResolvedValue(...)` вызовы по всему файлу.
+const { lessonsApiMock, authMock } = vi.hoisted(() => ({
   lessonsApiMock: {
     listCourses: vi.fn(),
     listActiveCourses: vi.fn(),
-  },
-  userCoursesApiMock: {
     list: vi.fn(),
   },
   authMock: {
@@ -27,13 +29,10 @@ const { lessonsApiMock, userCoursesApiMock, authMock } = vi.hoisted(() => ({
     loading: false,
   },
 }));
+const userCoursesApiMock = { list: lessonsApiMock.list };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: lessonsApiMock,
-}));
-
-vi.mock('../api/userCoursesApi', () => ({
-  userCoursesApi: userCoursesApiMock,
 }));
 
 vi.mock('../context/AuthContext', () => ({

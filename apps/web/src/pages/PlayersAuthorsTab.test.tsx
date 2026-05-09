@@ -15,8 +15,9 @@ const { apiMock } = vi.hoisted(() => ({
   apiMock: { listAuthors: vi.fn() },
 }));
 
-vi.mock('../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+// KS-2645: переключено на lessonsApi.listAuthors.
+vi.mock('../api/lessonsApi', () => ({
+  lessonsApi: apiMock,
 }));
 
 class MockIntersectionObserver {

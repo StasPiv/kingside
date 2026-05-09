@@ -8,7 +8,6 @@ import type {
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { userCoursesApi } from '../api/userCoursesApi';
 import { useAuth } from '../context/AuthContext';
 import { mapActiveCourses } from '../utils/activeCourseSummary';
 
@@ -176,8 +175,8 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
         setSystem([]);
       });
 
-    userCoursesApi
-      .list({ scope: 'own' })
+    lessonsApi
+      .list({ mine: true })
       .then((res) => {
         if (cancelled) return;
         setOwn(res.data ?? []);

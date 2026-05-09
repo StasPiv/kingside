@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { UserCourseDto } from '@kingside/shared';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -56,7 +56,7 @@ export function LatestCoursesBlock() {
   useEffect(() => {
     let cancelled = false;
     setErrored(false);
-    userCoursesApi
+    lessonsApi
       .listLatest({ limit: FETCH_LIMIT })
       .then((res) => {
         if (cancelled) return;

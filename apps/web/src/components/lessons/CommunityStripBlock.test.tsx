@@ -16,8 +16,9 @@ const { apiMock, authMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+// KS-2645: переключено на lessonsApi.listLatest.
+vi.mock('../../api/lessonsApi', () => ({
+  lessonsApi: apiMock,
 }));
 
 vi.mock('../../context/AuthContext', () => ({

@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import type { UserCourseDto } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { userCoursesApi } from '../api/userCoursesApi';
 import { useAuth } from '../context/AuthContext';
 import { useDelayedFlag } from '../hooks/useDelayedFlag';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
@@ -136,7 +135,7 @@ export function MyCoursesPage() {
     setCreateError(null);
     setCreating(true);
     try {
-      const created = await userCoursesApi.create({
+      const created = await lessonsApi.createCourse({
         title: t('lessons.my.editor.defaultCourseTitle', 'New course'),
       });
       navigate(`/lessons/my/${created.slug}/edit`);
@@ -210,7 +209,7 @@ export function MyCoursesPage() {
           : cur,
       );
       try {
-        await userCoursesApi.update(course.id, { isPublic: next });
+        await lessonsApi.updateCourse(course.id, { isPublic: next });
         showToast(
           next
             ? t('lessons.my.toasts.coursePublished', 'Course published')
@@ -250,7 +249,7 @@ export function MyCoursesPage() {
       }
       setPendingId(course.id);
       try {
-        await userCoursesApi.delete(course.id);
+        await lessonsApi.deleteCourse(course.id);
         setCourses((cur) =>
           cur ? cur.filter((c) => c.id !== course.id) : cur,
         );

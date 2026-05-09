@@ -6,7 +6,7 @@ import type {
   UserCoursePlayProgressDto,
 } from '@kingside/shared';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 
@@ -44,8 +44,8 @@ export function MyCoursesBlock() {
     if (!user) return;
     let cancelled = false;
     setErrored(false);
-    userCoursesApi
-      .list({ scope: 'own' })
+    lessonsApi
+      .list({ mine: true })
       .then((res) => {
         if (cancelled) return;
         setCourses(res.data ?? []);
@@ -71,7 +71,7 @@ export function MyCoursesBlock() {
     let cancelled = false;
     Promise.all(
       courses.map((c) =>
-        userCoursesApi
+        lessonsApi
           .getCourseProgress(c.id)
           .then((p) => [c.id, p] as const)
           .catch(() => [c.id, null] as const),
@@ -91,7 +91,7 @@ export function MyCoursesBlock() {
     setCreateError(null);
     setCreating(true);
     try {
-      const created = await userCoursesApi.create({
+      const created = await lessonsApi.createCourse({
         title: t(
           'lessons.my.editor.defaultCourseTitle',
           'New course',

@@ -2,16 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { renderWithProviders, screen, waitFor, userEvent } from '../../test/test-utils';
 
-const { apiMock, authMock, navigateMock } = vi.hoisted(() => ({
-  apiMock: { create: vi.fn() },
+// KS-2645: переключено на lessonsApi.createCourse.
+const { lessonsApiMock, authMock, navigateMock } = vi.hoisted(() => ({
+  lessonsApiMock: { createCourse: vi.fn() },
   authMock: {
     user: null as { id: string; username: string } | null,
   },
   navigateMock: vi.fn(),
 }));
+const apiMock = { create: lessonsApiMock.createCourse };
 
-vi.mock('../../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+vi.mock('../../api/lessonsApi', () => ({
+  lessonsApi: lessonsApiMock,
 }));
 
 vi.mock('../../context/AuthContext', () => ({

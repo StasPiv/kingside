@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -34,7 +34,7 @@ export function CreateCourseCta() {
     setError(null);
     setCreating(true);
     try {
-      const created = await userCoursesApi.create({
+      const created = await lessonsApi.createCourse({
         title: t('lessons.my.editor.defaultCourseTitle', 'New course'),
       });
       navigate(`/lessons/my/${created.slug}/edit`);

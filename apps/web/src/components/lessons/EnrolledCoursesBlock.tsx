@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { UserEnrolledCourseDto } from '@kingside/shared';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 
@@ -50,7 +50,7 @@ export function EnrolledCoursesBlock() {
     if (!user) return;
     let cancelled = false;
     setErrored(false);
-    userCoursesApi
+    lessonsApi
       .listEnrolled()
       .then((res) => {
         if (cancelled) return;

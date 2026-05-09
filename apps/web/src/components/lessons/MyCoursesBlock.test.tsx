@@ -16,13 +16,13 @@ import { renderWithProviders, screen, waitFor } from '../../test/test-utils';
  *  - ошибка `create` → сообщение об ошибке, без navigate
  */
 
-const { apiMock, authMock } = vi.hoisted(() => ({
-  apiMock: {
+// KS-2645: MyCoursesBlock переключён с userCoursesApi на lessonsApi.
+// `apiMock` — тонкий алиас на lessonsApi-mock, чтобы не переписывать
+// существующие assertions с `apiMock.list/create/getCourseProgress`.
+const { lessonsApiMock, authMock } = vi.hoisted(() => ({
+  lessonsApiMock: {
     list: vi.fn(),
-    create: vi.fn(),
-    // KS-1882: MyCoursesBlock теперь подгружает прогресс по
-    // каждому курсу (для completion-индикатора). Дефолт — null,
-    // отдельные тесты на completion переопределяют.
+    createCourse: vi.fn(),
     getCourseProgress: vi.fn().mockResolvedValue(null),
   },
   authMock: {
@@ -31,9 +31,14 @@ const { apiMock, authMock } = vi.hoisted(() => ({
       | null,
   },
 }));
+const apiMock = {
+  list: lessonsApiMock.list,
+  create: lessonsApiMock.createCourse,
+  getCourseProgress: lessonsApiMock.getCourseProgress,
+};
 
-vi.mock('../../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+vi.mock('../../api/lessonsApi', () => ({
+  lessonsApi: lessonsApiMock,
 }));
 
 vi.mock('../../context/AuthContext', () => ({
@@ -112,7 +117,7 @@ describe('<MyCoursesBlock>', () => {
       expect(screen.getByTestId('my-courses-empty')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('my-courses-create')).toBeInTheDocument();
-    expect(apiMock.list).toHaveBeenCalledWith({ scope: 'own' });
+    expect(apiMock.list).toHaveBeenCalledWith({ mine: true });
   });
 
   it('список не пуст → карточки с title / isPublic бейджем', async () => {

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CourseAuthorDto } from '@kingside/shared';
 
-import { userCoursesApi } from '../api/userCoursesApi';
+import { lessonsApi } from '../api/lessonsApi';
 
 /**
  * `PlayersAuthorsTab` — четвёртый таб «Authors» на `/players`
@@ -65,7 +65,7 @@ export function PlayersAuthorsTab() {
       offset: number,
     ): Promise<{ data: CourseAuthorDto[]; total: number } | null> => {
       try {
-        const res = await userCoursesApi.listAuthors({
+        const res = await lessonsApi.listAuthors({
           sort: currentSort,
           limit: PAGE_SIZE,
           offset,

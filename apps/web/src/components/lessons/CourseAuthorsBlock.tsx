@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CourseAuthorDto } from '@kingside/shared';
 
-import { userCoursesApi } from '../../api/userCoursesApi';
+import { lessonsApi } from '../../api/lessonsApi';
 
 /**
  * `CourseAuthorsBlock` — топ-12 авторов курсов на `/lessons`
@@ -37,7 +37,7 @@ export function CourseAuthorsBlock() {
   useEffect(() => {
     let cancelled = false;
     setErrored(false);
-    userCoursesApi
+    lessonsApi
       .listAuthors({ sort: 'courses', limit: FETCH_LIMIT })
       .then((res) => {
         if (cancelled) return;

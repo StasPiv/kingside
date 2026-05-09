@@ -13,7 +13,7 @@ import type {
   UserStepType,
 } from '@kingside/shared';
 
-import { userCoursesApi } from '../../../../api/userCoursesApi';
+import { lessonsApi } from '../../../../api/lessonsApi';
 import { useAuth } from '../../../../context/AuthContext';
 import { useAutoSave } from '../../../../hooks/useAutoSave';
 import { useUserCourseState } from '../../../../hooks/useUserCourseState';
@@ -127,8 +127,8 @@ export function UserCourseEditor() {
     if (!slug || !user) return;
     let cancelled = false;
     setLoad({ kind: 'loading' });
-    userCoursesApi
-      .getBySlug(slug)
+    lessonsApi
+      .getUserCourse(slug)
       .then((res) => {
         if (cancelled) return;
         if (res.course.ownerId !== user.id) {
@@ -184,8 +184,8 @@ export function UserCourseEditor() {
     if (loadedStepsRef.current.has(activeLessonId)) return;
     loadedStepsRef.current.add(activeLessonId);
     let cancelled = false;
-    userCoursesApi
-      .getLesson(activeLessonId)
+    lessonsApi
+      .getUserLesson(activeLessonId)
       .then((res: UserLessonWithStepsResponse) => {
         if (cancelled) return;
         actions.setSteps(activeLessonId, res.steps);
@@ -204,7 +204,7 @@ export function UserCourseEditor() {
   const saveCourse = useCallback(
     async (patch: Partial<UserCourseDto>) => {
       if (!state.course) return;
-      await userCoursesApi.update(state.course.id, {
+      await lessonsApi.updateCourse(state.course.id, {
         title: patch.title,
         description: patch.description,
         isPublic: patch.isPublic,
@@ -220,7 +220,7 @@ export function UserCourseEditor() {
   // ── Lesson actions ────────────────────────────────────────────────
   const addLesson = async () => {
     if (!state.course) return;
-    const created = await userCoursesApi.createLesson(state.course.id, {
+    const created = await lessonsApi.createLesson(state.course.id, {
       title: t('lessons.my.editor.defaultLessonTitle', 'New lesson'),
     });
     actions.addLesson(created);
@@ -236,7 +236,7 @@ export function UserCourseEditor() {
         : null;
     actions.deleteLesson(id);
     try {
-      await userCoursesApi.deleteLesson(id);
+      await lessonsApi.deleteLesson(id);
     } catch {
       /* best-effort: если падает — на следующем refresh восстановится */
     }
@@ -246,7 +246,7 @@ export function UserCourseEditor() {
   const patchLesson = useCallback(
     (lessonId: string, patch: { title?: string; estMinutes?: number | null }) => {
       actions.updateLesson(lessonId, patch);
-      userCoursesApi.updateLesson(lessonId, patch).catch(() => {
+      lessonsApi.updateLesson(lessonId, patch).catch(() => {
         /* ignore — обычно автосейв; глобальный статус показывает ошибку */
       });
     },
@@ -269,7 +269,7 @@ export function UserCourseEditor() {
     (orderedIds: string[]) => {
       actions.reorderLessons(orderedIds);
       orderedIds.forEach((id, order) => {
-        userCoursesApi.updateLesson(id, { order }).catch(() => {});
+        lessonsApi.updateLesson(id, { order }).catch(() => {});
       });
     },
     [actions],
@@ -283,7 +283,7 @@ export function UserCourseEditor() {
   const reorderStepsByIds = useCallback(
     (lessonId: string, orderedIds: string[]) => {
       actions.reorderSteps(lessonId, orderedIds);
-      userCoursesApi
+      lessonsApi
         .reorderSteps(lessonId, { ids: orderedIds })
         .catch(() => {});
     },
@@ -293,7 +293,7 @@ export function UserCourseEditor() {
   // ── Step actions ──────────────────────────────────────────────────
   const addStep = async (lessonId: string, type: UserStepType) => {
     const payload = emptyStepPayload(type) as StepPayload;
-    const created = await userCoursesApi.createStep(lessonId, {
+    const created = await lessonsApi.createStep(lessonId, {
       type,
       payload,
     });
@@ -307,13 +307,13 @@ export function UserCourseEditor() {
 
   const deleteStep = async (lessonId: string, stepId: string) => {
     actions.deleteStep(lessonId, stepId);
-    userCoursesApi.deleteStep(stepId).catch(() => {});
+    lessonsApi.deleteStep(stepId).catch(() => {});
   };
 
   const duplicateStep = async (lessonId: string, stepId: string) => {
     const src = state.stepsByLesson[lessonId]?.find((s) => s.id === stepId);
     if (!src) return;
-    const created = await userCoursesApi.createStep(lessonId, {
+    const created = await lessonsApi.createStep(lessonId, {
       type: src.type,
       payload: src.payload,
     });
@@ -327,7 +327,7 @@ export function UserCourseEditor() {
   ) => {
     actions.updateStep(lessonId, stepId, { payload });
     setStepSaveError(null);
-    userCoursesApi.updateStep(stepId, { payload }).catch((err: unknown) => {
+    lessonsApi.updateStepPayload(stepId, { payload }).catch((err: unknown) => {
       // KS-1912: показываем ошибку, не редиректим. До фикса
       // promise-rejection здесь приводил к «пустой странице» через
       // глобальный fail-path; теперь UI остаётся в редакторе и
@@ -355,7 +355,7 @@ export function UserCourseEditor() {
     if (target < 0 || target >= steps.length) return;
     const orderedIds = swapAt(steps.map((s) => s.id), idx, target);
     actions.reorderSteps(lessonId, orderedIds);
-    userCoursesApi.reorderSteps(lessonId, { ids: orderedIds }).catch(() => {});
+    lessonsApi.reorderSteps(lessonId, { ids: orderedIds }).catch(() => {});
   };
 
   const toggleStepExpand = (stepId: string) => {
@@ -375,8 +375,8 @@ export function UserCourseEditor() {
       // При раскрытии — триггерим lazy-load шагов (useEffect сделает это
       // только для activeLessonId, поэтому руками).
       if (!prev.has(lessonId) && !state.stepsByLesson[lessonId]) {
-        userCoursesApi
-          .getLesson(lessonId)
+        lessonsApi
+          .getUserLesson(lessonId)
           .then((res) => actions.setSteps(lessonId, res.steps))
           .catch(() => {});
       }
@@ -412,7 +412,7 @@ export function UserCourseEditor() {
     if (!state.course) return;
     setDeleteOpen(false);
     try {
-      await userCoursesApi.delete(state.course.id);
+      await lessonsApi.deleteCourse(state.course.id);
       navigate('/lessons', { replace: true });
     } catch {
       /* если упал — модалка уже закрылась; можно показать toast */
