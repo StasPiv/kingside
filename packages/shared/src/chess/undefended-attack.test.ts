@@ -44,4 +44,34 @@ describe('computeNewThreatsAfterMove', () => {
     const r = computeNewThreatsAfterMove('garbage', { from: 'a1', to: 'a2' });
     expect(r.newThreats).toEqual([]);
   });
+
+  // ─── KS-2617: вскрытая атака после ухода блокирующей фигуры ────────
+  it('KS-2617: Nf6→g8 вскрывает атаку чёрного ферзя d8 на белого слона g5', () => {
+    // Минимальная позиция discovered attack:
+    //   Чёрные: K a8, Q d8, n f6.
+    //   Белые: K e1, B g5.
+    // Диагональ d8-h4 проходит через d8, e7, f6, g5, h4. Конь на f6
+    // блокирует. После Nf6→g8 диагональ открывается → ферзь атакует
+    // g5; защитников у g5 нет (ни одной белой фигуры рядом). Helper
+    // обязан добавить g5 в newThreats — это ключевая семантика
+    // тренажёра «найди ход, создающий угрозу» (KS-2227): угроза
+    // считается «новой», даже если её источник — другая фигура,
+    // открытая ходом (вскрытая атака).
+    const fen = 'k2q4/8/5n2/6B1/8/8/8/4K3 b - - 0 1';
+    const r = computeNewThreatsAfterMove(fen, { from: 'f6', to: 'g8' });
+    expect(r.newThreats).toContain('g5');
+  });
+
+  it('KS-2617: любой уход коня f6 с диагонали d8-h4 вскрывает ту же атаку', () => {
+    // Та же позиция: с диагонали уходит даже Nf6→d5 (любой knight-
+    // move). Поведение helper'а должно быть симметричным — для
+    // тренажёра это означает «несколько ходов создают одну и ту же
+    // угрозу», и predicate уровня выше отбраковывает позицию как
+    // неоднозначную (тут это OK).
+    const fen = 'k2q4/8/5n2/6B1/8/8/8/4K3 b - - 0 1';
+    const r1 = computeNewThreatsAfterMove(fen, { from: 'f6', to: 'd5' });
+    const r2 = computeNewThreatsAfterMove(fen, { from: 'f6', to: 'h7' });
+    expect(r1.newThreats).toContain('g5');
+    expect(r2.newThreats).toContain('g5');
+  });
 });
