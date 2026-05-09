@@ -3537,37 +3537,63 @@ body:has(.puzzle-rush-board) {
   border-color: var(--danger, #dc2626);
 }
 
-/* CSS-tooltip над иконочной кнопкой: подпись из `aria-label`, появляется
-   на hover/focus-visible. Дополняет нативный `title`. */
-.precision-card__icon-action::after {
-  content: attr(aria-label);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%) translateY(2px);
-  padding: 4px 8px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--text-on-accent, #fff);
-  background: var(--c-1e293b, #1e293b);
-  border-radius: 4px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  z-index: 5;
+/* KS-2673: Publish — success-акцент (зелёный), как раньше у текстовой
+   кнопки `.precision-card__publish-btn`. Это явный CTA — выделяем
+   из остальных action-icon'ов. */
+.precision-card__icon-action--publish {
+  background: var(--c-4ade80, #4ade80);
+  border-color: var(--c-4ade80, #4ade80);
+  color: var(--c-111, #111);
 }
 
-.precision-card__icon-action:hover::after,
-.precision-card__icon-action:focus-visible::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+.precision-card__icon-action--publish:hover:not(:disabled) {
+  filter: brightness(0.95);
+  background: var(--c-4ade80, #4ade80);
+  border-color: var(--c-4ade80, #4ade80);
+  color: var(--c-111, #111);
+}
+
+/* CSS-tooltip над иконочной кнопкой: подпись из `aria-label`, появляется
+   на hover/focus-visible. Дополняет нативный `title`.
+   KS-2673: tooltip только на устройствах с настоящим hover (desktop).
+   На touch-устройствах первый tap имитировал бы hover и показывал
+   tooltip, блокируя реальный click — это ловушка для Delete и
+   подобных destructive-actions. На mobile полагаемся на нативный
+   `title` (показывается через long-press) + сам контекст иконки. */
+@media (hover: hover) {
+  .precision-card__icon-action::after {
+    content: attr(aria-label);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) translateY(2px);
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--text-on-accent, #fff);
+    background: var(--c-1e293b, #1e293b);
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    z-index: 5;
+  }
+
+  .precision-card__icon-action:hover::after,
+  .precision-card__icon-action:focus-visible::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* На mobile иконки увеличиваем до 44×44 (минимальный touch-target).
    На <600px карточки уже узкие — Solve остаётся primary, остальные
-   действия идут справа в одну строку. */
+   действия идут справа в одну строку.
+   KS-2673: actions-row форсируем в один ряд (`nowrap`) и при острой
+   нехватке ширины разрешаем горизонтальный scroll — лучше чем
+   перенос на 2 ряда (он съедает вертикальный воздух на mobile). */
 @media (max-width: 600px) {
   .precision-card__icon-action {
     width: 44px;
@@ -3576,5 +3602,17 @@ body:has(.puzzle-rush-board) {
   .precision-card__icon {
     width: 22px;
     height: 22px;
+  }
+  .play-vs-engine-card__actions {
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    /* iOS Safari: плавная инерция при scroll'e. */
+    -webkit-overflow-scrolling: touch;
+    /* Скрываем scrollbar — действия и так в видимой области. */
+    scrollbar-width: none;
+  }
+  .play-vs-engine-card__actions::-webkit-scrollbar {
+    display: none;
   }
 }

@@ -1291,10 +1291,34 @@
     "publishedBadge": "Опубликовано",
     "publish": "Опубликовать",
     "publishing": "Публикуем…",
+    "deleteConfirm": "Удалить этот пазл? Это нельзя отменить.",
     "stats": {
       "totalAttempted": "Попыток",
       "totalSolved": "Решено",
       "lastAttempt": "Последняя"
+    },
+    "tabs": {
+      "label": "Фильтр пазлов",
+      "all": "Все",
+      "mine": "Мои пазлы"
+    },
+    "actions": {
+      "copyLink": "Скопировать ссылку",
+      "makePublic": "Сделать публичным",
+      "makePrivate": "Сделать приватным",
+      "delete": "Удалить",
+      "deleting": "Удаляем…",
+      "updating": "Обновляем…"
+    },
+    "toasts": {
+      "linkCopied": "Ссылка скопирована",
+      "linkCopiedPrivate": "Ссылка скопирована. Опубликуйте, чтобы делиться.",
+      "linkCopyError": "Не удалось скопировать ссылку",
+      "published": "Пазл опубликован",
+      "unpublished": "Пазл стал приватным",
+      "visibilityError": "Не удалось обновить видимость",
+      "deleted": "Пазл удалён",
+      "deleteError": "Не удалось удалить пазл"
     }
   },
   "puzzleStats": {

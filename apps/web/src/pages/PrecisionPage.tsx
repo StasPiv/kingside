@@ -118,6 +118,7 @@ export function PrecisionPage() {
     loading,
     error,
     patchLocally,
+    removeLocally,
   } = useInfinitePuzzles(filters);
 
   const [stats, setStats] = useState<PrecisionStatsState | null>(null);
@@ -128,7 +129,8 @@ export function PrecisionPage() {
   const [recentlyPublishedId, setRecentlyPublishedId] = useState<string | null>(
     null,
   );
-  const [publishError, setPublishError] = useState<string | null>(null);
+  // KS-2673: убрали `publishError`-state и inline-блок «Failed to
+  // publish» — все ошибки идут через локализованный `showToast`.
 
   // KS-2663: per-card pending state для toggle visibility / delete.
   // Локальный «id, по которому идёт мутация» гарантирует disable
@@ -169,7 +171,6 @@ export function PrecisionPage() {
     async (puzzleId: string) => {
       if (publishingId) return;
       setPublishingId(puzzleId);
-      setPublishError(null);
       try {
         await api.patch(`/puzzles/${puzzleId}`, { isPublic: true });
         // Оптимистичный апдейт через hook'овский patchLocally —
@@ -180,13 +181,24 @@ export function PrecisionPage() {
         window.setTimeout(() => {
           setRecentlyPublishedId((prev) => (prev === puzzleId ? null : prev));
         }, 2000);
-      } catch (e) {
-        setPublishError(e instanceof Error ? e.message : 'Publish failed');
+        // KS-2673: успешный publish — локализованный toast
+        // (раньше показывался только Published-badge на 2с).
+        showToast(
+          t('precision.toasts.published', 'Puzzle published'),
+          'success',
+        );
+      } catch {
+        // KS-2673: ошибка через локализованный toast вместо inline-
+        // строки с сырым `e.message`.
+        showToast(
+          t('precision.toasts.visibilityError', 'Failed to update visibility'),
+          'error',
+        );
       } finally {
         setPublishingId(null);
       }
     },
-    [publishingId, patchLocally],
+    [publishingId, patchLocally, showToast, t],
   );
 
   // KS-2663: per-card актйоны автора своих пазлов на вкладке «Мои».
@@ -262,31 +274,27 @@ export function PrecisionPage() {
       setPendingActionId({ id: puzzle.id, action: 'delete' });
       try {
         await api.delete(`/puzzles/${puzzle.id}`);
-        // Хук `useInfinitePuzzles` не имеет removeLocally; флагнём
-        // через `patchLocally` несуществующее поле — вместо этого
-        // делаем оптимистичный re-render через setSearchParams (или
-        // просто переход на «All» / refresh). Простой путь — reload
-        // страницы; для UX тосты + refresh.
+        // KS-2673: вместо `window.location.reload()` (убогий UX —
+        // моргание, потеря скролла и фильтров) делаем локальную
+        // мутацию через `removeLocally`. Карточка моментально
+        // пропадает из списка без нового сетевого запроса.
+        removeLocally(puzzle.id);
         showToast(
           t('precision.toasts.deleted', 'Puzzle deleted'),
           'success',
         );
-        // Перезагружаем список через смену query (toggle 'mine' off-on).
-        // Простой re-fetch: window.location.reload().
-        if (typeof window !== 'undefined') {
-          window.location.reload();
-        }
       } catch {
         showToast(
           t('precision.toasts.deleteError', 'Failed to delete puzzle'),
           'error',
         );
+      } finally {
         setPendingActionId((cur) =>
           cur && cur.id === puzzle.id ? null : cur,
         );
       }
     },
-    [pendingActionId, showToast, t],
+    [pendingActionId, removeLocally, showToast, t],
   );
 
   // Stats — без изменений после KS-2545. Переезжать на хук смысла нет:
@@ -487,14 +495,8 @@ export function PrecisionPage() {
         </p>
       )}
 
-      {publishError && (
-        <p
-          className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
-          data-testid="precision-publish-error"
-        >
-          {publishError}
-        </p>
-      )}
+      {/* KS-2673: inline-блок publishError удалён — ошибки идут через
+          локализованный `showToast` (см. handlePublish/handleDelete). */}
 
       {pageState === 'ready' && (
         <div className="play-vs-engine-puzzles__list">
@@ -608,23 +610,49 @@ export function PrecisionPage() {
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     </button>
-                    {/* KS-2586: индивидуальный publish — только владельцу
-                        + только для draft (`isPublic=false`). После клика
-                        — оптимистичный апдейт через `patchLocally`,
-                        кнопка исчезает (т.к. isPublic=true), на 2с
-                        показывается «Published» badge. Оставляем как
-                        primary-text кнопку (явный CTA). */}
+                    {/* KS-2586/KS-2670/KS-2673: индивидуальный publish —
+                        только владельцу + только для draft. С KS-2673
+                        переведена на icon-action с зелёным акцентом —
+                        чтобы все кнопки строки одинакового размера и
+                        умещались в одну строку на mobile.
+                        Текст в `aria-label`/`title`, локализован. */}
                     {isMine && isDraft && (
                       <button
                         type="button"
-                        className="precision-card__publish-btn"
+                        className="precision-card__icon-action precision-card__icon-action--publish"
                         data-testid="precision-card-publish"
                         onClick={() => void handlePublish(p.id)}
                         disabled={publishingId === p.id}
+                        aria-label={
+                          publishingId === p.id
+                            ? t('precision.publishing', 'Publishing…')
+                            : t(
+                                'precision.actions.makePublic',
+                                'Make public',
+                              )
+                        }
+                        title={t(
+                          'precision.actions.makePublic',
+                          'Make public',
+                        )}
                       >
-                        {publishingId === p.id
-                          ? t('precision.publishing', 'Publishing…')
-                          : t('precision.publish', 'Publish')}
+                        <svg
+                          className="precision-card__icon"
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          {/* eye-open: для public (toggle make-public) */}
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
                       </button>
                     )}
                     {/* KS-2663/KS-2670: админка автора — Copy link /

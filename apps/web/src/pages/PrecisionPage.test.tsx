@@ -385,11 +385,13 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       expect(screen.getByTestId('precision-card-publish')).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByTestId('precision-card-publish'));
-    await waitFor(() =>
-      expect(screen.getByTestId('precision-publish-error').textContent).toMatch(
-        /publish boom/,
-      ),
-    );
+    // KS-2673: ошибка показывается через локализованный toast
+    // (раньше — inline `precision-publish-error`).
+    await waitFor(() => {
+      const toast = screen.getByTestId('precision-toast');
+      expect(toast).toBeInTheDocument();
+      expect(toast.getAttribute('data-tone')).toBe('error');
+    });
     // badge всё ещё там (оптимистик не применился, так как api упал).
     expect(
       screen.getByTestId('precision-card-draft-badge'),
@@ -420,9 +422,13 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
           .disabled,
       ).toBe(true),
     );
-    expect(screen.getByTestId('precision-card-publish').textContent).toMatch(
-      /Publishing|Публикуем/,
-    );
+    // KS-2673: после перевода на icon-action текст «Publishing…» теперь
+    // в aria-label (иконка без видимого текста).
+    expect(
+      screen
+        .getByTestId('precision-card-publish')
+        .getAttribute('aria-label'),
+    ).toMatch(/Publishing|Публикуем/);
     resolvePatch({ ok: true });
   });
 });

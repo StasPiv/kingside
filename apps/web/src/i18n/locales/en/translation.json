@@ -1277,10 +1277,34 @@
     "publishedBadge": "Published",
     "publish": "Publish",
     "publishing": "Publishing…",
+    "deleteConfirm": "Delete this puzzle? This cannot be undone.",
     "stats": {
       "totalAttempted": "Attempts",
       "totalSolved": "Solved",
       "lastAttempt": "Last attempt"
+    },
+    "tabs": {
+      "label": "Puzzle filter",
+      "all": "All",
+      "mine": "My puzzles"
+    },
+    "actions": {
+      "copyLink": "Copy link",
+      "makePublic": "Make public",
+      "makePrivate": "Make private",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "updating": "Updating…"
+    },
+    "toasts": {
+      "linkCopied": "Link copied",
+      "linkCopiedPrivate": "Link copied. Publish to share with others.",
+      "linkCopyError": "Failed to copy link",
+      "published": "Puzzle published",
+      "unpublished": "Puzzle made private",
+      "visibilityError": "Failed to update visibility",
+      "deleted": "Puzzle deleted",
+      "deleteError": "Failed to delete puzzle"
     }
   },
   "puzzleStats": {
