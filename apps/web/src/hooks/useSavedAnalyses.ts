@@ -51,5 +51,19 @@ export function useSavedAnalyses() {
     }
   }, []);
 
-  return { create, update, remove, getById };
+  /**
+   * KS-2666 / ADR-051 §3 share-2: toggle публичности анализа.
+   * Backend (KS-2601) возвращает обновлённый AnalysisResponse с
+   * актуальным `isPublic`; UI ловит ответ для оптимистичного апдейта.
+   */
+  const share = useCallback(
+    async (id: string, isPublic: boolean): Promise<AnalysisResponse> => {
+      return api.patch<AnalysisResponse>(`/analyses/${id}/share`, {
+        isPublic,
+      });
+    },
+    [],
+  );
+
+  return { create, update, remove, getById, share };
 }

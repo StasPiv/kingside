@@ -26,6 +26,7 @@ import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { ShareAnalysisButton } from '../components/analysis/ShareAnalysisButton';
 import { useReviewState } from '../review/useReviewState';
 import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 // KS-2281 (E5 deferred): localStorage autosave для ad-hoc /analysis,
@@ -146,6 +147,13 @@ function AnalysisPageInner() {
   const [pgnCopyMsg, setPgnCopyMsg] = useState<string | null>(null);
   const pgnCopyTimerRef = useRef<number | null>(null);
   const pendingPositionRef = useRef<number | null>(null);
+
+  // KS-2666: для кнопки «Поделиться» нам нужны `userId` (определить
+  // owner'а) и `isPublic` (текущее состояние) из загруженного анализа.
+  // Backend возвращает оба поля в `AnalysisResponse`. Локальные
+  // state'ы — обновляются после `getById`.
+  const [savedOwnerId, setSavedOwnerId] = useState<string | null>(null);
+  const [savedIsPublic, setSavedIsPublic] = useState<boolean>(false);
 
   // Standalone analysis state
   const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
@@ -387,6 +395,11 @@ function AnalysisPageInner() {
             setPgnHeaders(parsePgnHeaders(saved.pgn));
           }
           if (saved?.title) { setAnalysisTitle(saved.title); setTitleInput(saved.title); }
+          // KS-2666: захватываем owner + публичность для share-кнопки.
+          if (saved?.userId) setSavedOwnerId(saved.userId);
+          if (saved && 'isPublic' in saved) {
+            setSavedIsPublic(Boolean((saved as { isPublic?: boolean }).isPublic));
+          }
           setLoading(false);
         });
         return;
@@ -1261,6 +1274,19 @@ function AnalysisPageInner() {
                 <span className="analysis-title__edit-icon">✎</span>
               </span>
             )}
+            {/* KS-2666 / ADR-051 §3: «Поделиться» — только автору
+                сохранённого анализа. Видна когда analysis загружен
+                с сервера (есть `localIdRef.current` и `savedOwnerId`)
+                и `user.id === savedOwnerId`. */}
+            {user &&
+              localIdRef.current &&
+              savedOwnerId === user.id && (
+                <ShareAnalysisButton
+                  analysisId={localIdRef.current}
+                  initialIsPublic={savedIsPublic}
+                  onPublicChanged={setSavedIsPublic}
+                />
+              )}
           </nav>
           </>
         )}

@@ -87,6 +87,7 @@ import {
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
+import { PublicAnalysisPage } from './pages/PublicAnalysisPage';
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
@@ -461,6 +462,10 @@ export function App() {
             чтобы при `puzzlesEnabled=false` редирект на /lobby сработал. */}
         <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
+        {/* KS-2666 / ADR-051 §3: публичный read-only анализ — без auth.
+            Должно стоять ВЫШЕ `/analysis/:id`, иначе AnalysisPage
+            попытается загрузить `public` как обычный id. */}
+        <Route path="/analysis/public/:id" element={<PublicAnalysisPage />} />
         <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
