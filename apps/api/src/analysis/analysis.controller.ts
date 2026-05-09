@@ -21,6 +21,7 @@ import { AnalysisService } from './analysis.service';
 import { SavedFilterService } from './saved-filter.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
+import { ShareAnalysisDto } from './dto/share-analysis.dto';
 import { CreateSavedFilterDto } from './dto/create-saved-filter.dto';
 import { UpdateSavedFilterDto } from './dto/update-saved-filter.dto';
 
@@ -114,6 +115,20 @@ export class AnalysisController {
     @Body() dto: UpdateAnalysisDto,
   ) {
     return this.analysisService.update(req.user.id, id, dto);
+  }
+
+  // KS-2602 (ADR-051 §3 share-3): toggle публичности анализа автором.
+  // Объявлен ДО `@Patch(':id')`, чтобы статический сегмент `share`
+  // матчился раньше параметрического `:id` (на всякий случай — Nest
+  // и так предпочитает статические сегменты, но порядок объявления
+  // делает поведение детерминированным).
+  @Patch(':id/share')
+  share(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ShareAnalysisDto,
+  ) {
+    return this.analysisService.share(req.user.id, id, dto.isPublic);
   }
 
   @Patch(':id')

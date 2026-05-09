@@ -352,6 +352,62 @@ describe('AnalysisService', () => {
     });
   });
 
+  describe('share (KS-2602)', () => {
+    // ── KS-2602 (ADR-051 §3 share-3): автор toggle isPublic.
+    //  - автор off→on / on→off,
+    //  - чужой → 403,
+    //  - не найдено → 404.
+
+    it('KS-2602: автор включает публичность (false → true)', async () => {
+      const before = { ...mockAnalysis, isPublic: false };
+      const after = { ...mockAnalysis, isPublic: true };
+      prisma.analysis.findUnique.mockResolvedValue(before);
+      prisma.analysis.update.mockResolvedValue(after);
+
+      const result = await service.share(userId, 'analysis-1', true);
+
+      expect(prisma.analysis.update).toHaveBeenCalledWith({
+        where: { id: 'analysis-1' },
+        data: { isPublic: true },
+      });
+      expect(result.isPublic).toBe(true);
+      expect(result.tags).toEqual([]);
+    });
+
+    it('KS-2602: автор выключает публичность (true → false)', async () => {
+      const before = { ...mockAnalysis, isPublic: true };
+      const after = { ...mockAnalysis, isPublic: false };
+      prisma.analysis.findUnique.mockResolvedValue(before);
+      prisma.analysis.update.mockResolvedValue(after);
+
+      const result = await service.share(userId, 'analysis-1', false);
+
+      expect(prisma.analysis.update).toHaveBeenCalledWith({
+        where: { id: 'analysis-1' },
+        data: { isPublic: false },
+      });
+      expect(result.isPublic).toBe(false);
+    });
+
+    it('KS-2602: чужой пользователь получает ForbiddenException (403)', async () => {
+      prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
+
+      await expect(service.share(otherId, 'analysis-1', true)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.analysis.update).not.toHaveBeenCalled();
+    });
+
+    it('KS-2602: несуществующая запись — NotFoundException (404)', async () => {
+      prisma.analysis.findUnique.mockResolvedValue(null);
+
+      await expect(service.share(userId, 'missing', true)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.analysis.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('remove', () => {
     it('should delete analysis and return { deleted: true }', async () => {
       prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);

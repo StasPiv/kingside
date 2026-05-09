@@ -339,6 +339,29 @@ export class AnalysisService implements OnModuleInit {
     });
   }
 
+  /**
+   * KS-2602 (ADR-051 §3 share-3). Toggle `isPublic` автором анализа.
+   *
+   * Возврат:
+   *  - 404 (NotFoundException) если запись не найдена.
+   *  - 403 (ForbiddenException) если запрос делает не автор.
+   *  - 200 + обновлённая запись (с tags split) при успехе.
+   */
+  async share(userId: string, id: string, isPublic: boolean) {
+    const analysis = await this.prisma.analysis.findUnique({ where: { id } });
+    if (!analysis) throw new NotFoundException('Analysis not found');
+    if (analysis.userId !== userId) throw new ForbiddenException();
+
+    const updated = await this.prisma.analysis.update({
+      where: { id },
+      data: { isPublic },
+    });
+    return {
+      ...updated,
+      tags: updated.tags ? updated.tags.split(' ').filter(Boolean) : [],
+    };
+  }
+
   async exportPgn(userId: string, ids: string[]): Promise<string> {
     const analyses = await this.prisma.analysis.findMany({
       where: { id: { in: ids }, userId },
