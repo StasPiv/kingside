@@ -476,14 +476,21 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 });
 
 /**
- * KS-2580: per-puzzle isPublic + solutionMode в POST /puzzles/batch.
+ * KS-2580 / KS-2659: per-puzzle isPublic + server-side инвариант
+ * `solutionMode='play-vs-engine'` для batch endpoint'а.
  *
- * До KS-2580: isPublic всегда true, solutionMode не передавался.
- * После: дефолт isPublic=false (draft), solutionMode='forced-line'
- * (backward-compat для CLI/seed). Клиентский WDL-генератор (KS-2584)
- * шлёт solutionMode='play-vs-engine' и isPublic=false.
+ * История:
+ *   * KS-2580: дефолт `solutionMode='forced-line'`, фронт мог
+ *     переопределить.
+ *   * KS-2659: до фикса фронт не всегда передавал
+ *     `'play-vs-engine'` — generated-пазлы попадали в БД с
+ *     `'forced-line'`, что ломало `/precision`-runner. После фикса
+ *     batch endpoint **жёстко** ставит `'play-vs-engine'` (любое
+ *     значение от клиента игнорируется), потому что batch создаёт
+ *     только generated-пазлы (`source='generated'`), для которых
+ *     ADR-050 §3 #1 требует PVE-runner.
  */
-describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
+describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', () => {
   function makeBatchPrisma() {
     return {
       puzzle: {
@@ -505,7 +512,7 @@ describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
     sourceType: 'pgn_import',
   };
 
-  it('default: isPublic=false (draft), solutionMode="forced-line"', async () => {
+  it('KS-2659: без явного solutionMode → "play-vs-engine" (server invariant)', async () => {
     const prisma = makeBatchPrisma();
     const controller = new PuzzleController({} as PuzzleService, prisma);
 
@@ -516,7 +523,8 @@ describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
 
     const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
     expect(args.data[0].isPublic).toBe(false);
-    expect(args.data[0].solutionMode).toBe('forced-line');
+    // KS-2659: batch endpoint всегда ставит PVE — `source='generated'`.
+    expect(args.data[0].solutionMode).toBe('play-vs-engine');
   });
 
   it('explicit isPublic=true → пишется true', async () => {
@@ -558,7 +566,10 @@ describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
     expect(args.data[0].acceptedMoves).toBe('e4d5,d2d4');
   });
 
-  it('per-puzzle конфигурация: разные isPublic/solutionMode в одном batch', async () => {
+  it('KS-2659: solutionMode="forced-line" от клиента игнорируется → принудительно "play-vs-engine"', async () => {
+    // Регрессионный кейс: до KS-2659 batch уважал клиентское значение,
+    // и недописанный фронт сохранял generated-пазлы как `forced-line`.
+    // Теперь сервер форсирует PVE независимо от тела запроса.
     const prisma = makeBatchPrisma();
     (prisma.puzzle.createMany as jest.Mock).mockResolvedValueOnce({ count: 2 });
     const controller = new PuzzleController({} as PuzzleService, prisma);
@@ -574,10 +585,15 @@ describe('PuzzleController.batch — KS-2580 isPublic + solutionMode', () => {
     );
 
     const args = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    // isPublic — per-puzzle, его уважаем.
     expect(args.data[0].isPublic).toBe(true);
-    expect(args.data[0].solutionMode).toBe('forced-line');
     expect(args.data[1].isPublic).toBe(false);
+    // solutionMode — server invariant: оба = 'play-vs-engine'.
+    expect(args.data[0].solutionMode).toBe('play-vs-engine');
     expect(args.data[1].solutionMode).toBe('play-vs-engine');
+    // source тоже фиксированный — все generated.
+    expect(args.data[0].source).toBe('generated');
+    expect(args.data[1].source).toBe('generated');
   });
 
   it('пустой puzzles[] → count=0, createMany не вызывается', async () => {

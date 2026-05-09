@@ -340,10 +340,17 @@ export class PuzzleController {
   /**
    * POST /puzzles/batch — save generated puzzles.
    *
-   * KS-2580 (ADR-050 §3 #1): per-puzzle опц. поля `isPublic` (default
-   * `false` — draft) и `solutionMode` (default `'forced-line'`).
-   * Клиентский WDL-генератор (KS-2584) сохраняет в draft и публикует
-   * после ревью; серверный pipeline передаёт `solutionMode='play-vs-engine'`.
+   * KS-2580 (ADR-050 §3 #1): per-puzzle опц. поле `isPublic` (default
+   * `false` — draft). `solutionMode` теперь фиксирован для всех
+   * generated-пазлов (`'play-vs-engine'`) — KS-2659.
+   *
+   * KS-2659: до фикса дефолтное `solutionMode='forced-line'` оставлось
+   * в БД, если фронт не передавал явное значение (KS-2584 клиентский
+   * WDL-генератор иногда не выставлял поле). Это давало data-mismatch
+   * на `/precision` (frontend ожидал PVE-runner). Серверный инвариант:
+   * любой пазл, попадающий через `POST /puzzles/batch`, имеет
+   * `source='generated'` (см. ниже) и поэтому ОБЯЗАН быть PVE.
+   * Игнорируем `p.solutionMode` от клиента — авторитет серверный.
    */
   @UseGuards(JwtAuthGuard)
   @Post('batch')
@@ -367,9 +374,11 @@ export class PuzzleController {
         // KS-2580: default false (draft); фронт передаёт `true` для
         // immediate-publish.
         isPublic: p.isPublic ?? false,
-        // KS-2580: default 'forced-line' (для backward-compat с CLI/seed).
-        // Серверный WDL-pipeline передаёт 'play-vs-engine'.
-        solutionMode: p.solutionMode ?? 'forced-line',
+        // KS-2659: server-side инвариант. `source='generated'` ⇒
+        // `solutionMode='play-vs-engine'` (ADR-050 §3 #1). Любое
+        // значение от клиента игнорируем — это закрывает источник
+        // `forced-line`-записей в БД для generated.
+        solutionMode: 'play-vs-engine',
       })),
       skipDuplicates: true,
     });
