@@ -7262,3 +7262,219 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ============================================================
+ * KS-2624 / ADR-052 §3.3 #5 — стилевые добавки к overflow-menu
+ * (поверх каркаса KS-2621). По требованиям ADR-052 §3.3.2 #5:
+ *   • визуальный разделитель ПЕРЕД пунктом Delete (отделяет
+ *     деструктивное действие от прочих);
+ *   • focus-visible-обводка пунктов меню для клавиатурной навигации;
+ *   • явная focus-обводка триггера `[⋮ More]`;
+ *   • снять `overflow: hidden` у карточек в контексте `/lessons/my`
+ *     — иначе всплывающий dropdown подрезается.
+ * Остальные правила (раскладка, цвета пунктов, danger-цвет) — KS-2621.
+ * ============================================================ */
+
+/* Карточка `MyCoursesPage`: dropdown overflow-menu должен выходить за
+   её границы. Контекст ограничен `.my-courses-page` — компактный блок
+   на /lessons (`.my-courses-block__card`) продолжает использовать
+   `overflow: hidden`. */
+.my-courses-page .my-courses-block__card {
+  overflow: visible;
+}
+
+/* Карточка с открытым меню должна быть над соседними по DOM (иначе
+   следующая по сетке перекрывает dropdown, у которого `z-index: 20`
+   срабатывает только относительно собственного `.my-courses-page__menu-root`).
+   `:has()` срабатывает только когда `.my-courses-page__menu` фактически
+   рендерится (KS-2621 рендерит его условно, по `openMenuId`). */
+.my-courses-page__card:has(.my-courses-page__menu) {
+  z-index: 25;
+}
+
+/* Разделитель перед Delete: реализуем через `border-top` на самом
+   `--danger`-пункте, чтобы не править разметку в KS-2621. Отступ
+   сверху, чтобы линия не липла к тексту предыдущего пункта. */
+.my-courses-page__menu-item--danger {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0 0 6px 6px;
+}
+
+/* Focus-обводка пункта меню — клавиатурная навигация. */
+.my-courses-page__menu-item:focus-visible {
+  outline: none;
+  background: var(--bg-elevated, var(--accent-soft, rgba(99, 102, 241, 0.12)));
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.my-courses-page__menu-item--danger:focus-visible {
+  background: var(--danger-soft, rgba(220, 38, 38, 0.12));
+  box-shadow: 0 0 0 2px var(--danger, #dc2626);
+}
+
+/* Focus-обводка триггера `[⋮ More]` — синхронно с другими кнопками
+   действий. */
+.my-courses-page__action:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+/* ============================================================
+ * KS-2621 / ADR-052 §3.3.2 #2 — per-card actions: Open / Edit /
+ * Copy link / overflow-menu (Make public/private, Delete) + toast.
+ * ============================================================ */
+.my-courses-page__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* `.my-courses-block__card` режет переполнение через overflow:hidden,
+   * но на /lessons/my dropdown «Ещё» вылетает ниже футера карточки —
+   * иначе обрезается. Сбрасываем здесь. */
+  overflow: visible;
+}
+
+/* Поднимаем карточку с открытым меню над соседними по grid'у — иначе
+ * dropdown перекрывается следующей карточкой в DOM (одинаковый
+ * stacking context, paint order по DOM-позиции). */
+.my-courses-page__card--menu-open {
+  z-index: 25;
+}
+
+.my-courses-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.my-courses-page__action {
+  appearance: none;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.my-courses-page__action:hover:not(:disabled) {
+  background: var(--bg-elevated, var(--bg-surface));
+  border-color: var(--text-secondary);
+}
+
+.my-courses-page__action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.my-courses-page__action--more {
+  margin-left: auto;
+  padding: 6px 8px;
+  font-weight: 600;
+}
+
+.my-courses-page__menu-root {
+  position: relative;
+  margin-left: auto;
+}
+
+.my-courses-page__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 180px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  z-index: 20;
+}
+
+.my-courses-page__menu-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.my-courses-page__menu-item:hover:not(:disabled) {
+  background: var(--bg-elevated, var(--accent-soft, rgba(99, 102, 241, 0.12)));
+}
+
+.my-courses-page__menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.my-courses-page__menu-item--danger {
+  color: var(--danger);
+}
+
+.my-courses-page__menu-item--danger:hover:not(:disabled) {
+  background: var(--danger-soft, rgba(220, 38, 38, 0.12));
+}
+
+/* Floating toast — правый нижний угол страницы. */
+.my-courses-page__toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  max-width: 320px;
+  z-index: 30;
+  animation: my-courses-toast-in 0.18s ease-out;
+}
+
+.my-courses-page__toast--success {
+  border-color: var(--success, #16a34a);
+  background: var(--success-soft, rgba(22, 163, 74, 0.12));
+}
+
+.my-courses-page__toast--error {
+  border-color: var(--danger, #dc2626);
+  background: var(--danger-soft, rgba(220, 38, 38, 0.12));
+}
+
+.my-courses-page__toast--info {
+  border-color: var(--info, #2563eb);
+  background: var(--info-soft, rgba(37, 99, 235, 0.12));
+}
+
+@keyframes my-courses-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 720px) {
+  .my-courses-page__actions {
+    padding: 10px 12px 12px;
+  }
+  .my-courses-page__toast {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-width: none;
+  }
+}
