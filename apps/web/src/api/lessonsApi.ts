@@ -1,52 +1,77 @@
 import type {
   ActiveCourseDto,
   ActiveCoursesResponse,
-  CourseListResponse,
-  CourseWithLessonsResponse,
-  LessonWithStepsResponse,
-  UpdateLessonStepRequest,
-  UpdateLessonStepResponse,
   CompleteLessonRequest,
   CompleteLessonResponse,
-  CourseRecommendationResponse,
+  CompleteUserLessonRequest,
+  CourseAuthorListResponse,
   CourseLevel,
+  CourseListResponse,
+  CourseRecommendationResponse,
+  CourseWithLessonsResponse,
+  CreateUserCourseRequest,
+  CreateUserLessonRequest,
+  CreateUserLessonStepRequest,
+  LessonStepState,
+  LessonWithStepsResponse,
   PuzzleDto,
   PuzzleStepPayload,
+  ReorderUserStepsRequest,
   ReviewsDueResponse,
+  UpdateLessonStepRequest,
+  UpdateUserCourseRequest,
+  UpdateUserLessonRequest,
+  UpdateUserLessonStepRequest,
+  UserCourseDto,
   UserCourseListResponse,
+  UserCoursePlayProgressDto,
+  UserCourseWithLessonsResponse,
+  UserEnrolledCoursesListResponse,
+  UserLessonDto,
+  UserLessonPlayProgressDto,
+  UserLessonStepDto,
+  UserLessonWithStepsResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
 
 /**
- * HTTP-клиент LessonsModule (apps/api/src/lessons, тикет L-04 / KS-1759).
+ * HTTP-клиент модуля lessons (apps/api/src/lessons).
  *
- * Реальные пути контроллера (проверены `curl http://localhost:3001/lessons/courses`)
- * монтируются без префикса `/api`. Документация (lessons-roadmap.md §1) местами
- * пишет `/api/lessons/...` — это логический путь, фактический Nest controller
- * висит на `/lessons/...`.
+ * # ADR-054 Phase D — единый клиент system + user курсов
+ *
+ * До Phase D были две параллельные обёртки:
+ *   - `lessonsApi` — системные курсы (контроллер на `/lessons/*`),
+ *   - `userCoursesApi` — пользовательские курсы (`/lessons/user-*`).
+ *
+ * KS-2645 + KS-2646 свели всё к единому набору unified URL'ов:
+ *   /lessons/courses[?mine=1|0]                — list (system / user)
+ *   /lessons/courses/:slug                     — getCourse (оба типа)
+ *   /lessons/courses (POST/PATCH/DELETE)       — CRUD user-курса
+ *   /lessons/courses/:id/lessons               — createLesson
+ *   /lessons/lessons/:id (GET/PATCH/DELETE)    — урок (оба типа на чтение,
+ *                                               изменения — только user)
+ *   /lessons/lessons/:id/steps                 — createStep
+ *   /lessons/lessons/:id/steps/reorder         — reorderSteps
+ *   /lessons/steps/:id (PATCH/DELETE)          — обновление/удаление шага
+ *   /lessons/progress/lessons/:id/step         — markStep (оба типа)
+ *   /lessons/progress/lessons/:id/complete     — completeLesson (оба типа)
+ *   /lessons/progress/{courses,lessons}/:id    — read прогресса (оба типа)
+ *   /lessons/courses/authors                   — публичная витрина авторов
+ *   /lessons/courses/enrolled                  — записавшиеся курсы
+ *
+ * Различение system vs user — по `course.ownerId`: null/undefined →
+ * системный, uuid → пользовательский. UI-различия (метрики автора,
+ * Public/Private бейджи) проверяют это поле.
  *
  * Эндпоинт `/lessons/recommendation` появится в L-12 (KS-1767). До тех пор
- * `getRecommendation` возвращает дефолт «beginner» — соответствует условию
- * Gherkin задачи L-07: «заглушка рекомендатора».
+ * `getRecommendation` возвращает дефолт «beginner».
  */
 
 const FALLBACK_RECOMMENDATION: CourseRecommendationResponse = {
   level: 'beginner' as CourseLevel,
   reason: 'default',
 };
-
-/**
- * KS-2102: убрана передача `?lang=` в API. Backend (KS-2101) теперь
- * читает язык из `User.locale` (anonymous → ru fallback). Query
- * `?lang=` бэкенд молча игнорирует. Источник истины — настройка
- * профиля; смена через `PATCH /users/me/settings { locale }`
- * (см. `MainLayout` language switcher).
- *
- * Сигнатуры функций упрощены: lang-аргумент удалён, чтобы
- * случайно не передавать «локальный» i18next.language вместо
- * серверной локали.
- */
 
 /** KS-2645 (ADR-054 Phase D): параметры унифицированного `list`. */
 export interface ListLessonsCoursesParams {
@@ -78,11 +103,6 @@ function listQueryString(params?: Record<string, string | undefined>): string {
  *   `list({mine: true})`  — мои user-courses (UserCourseListResponse).
  *   `list({mine: false})` — публичные user-courses других авторов.
  *
- * DTO различаются: системные ответ — `CourseListResponse`, user-courses —
- * `UserCourseListResponse` с `ownerId/isPublic/lessonCount/stats`.
- * Различение на стороне вызывающего по `course.ownerId` (null/undefined
- * → системный).
- *
  * Перегрузки заданы через interface (object-literal'ы overload-сигнатуры
  * напрямую не поддерживают).
  */
@@ -104,7 +124,15 @@ const list: ListFn = ((
   return api.get<CourseListResponse>('/lessons/courses');
 }) as ListFn;
 
+/**
+ * Параметры body для отметки шага через unified эндпоинт. Совместим
+ * с обеими исторически разными формами (system/user) — KS-2646
+ * привёл их к одной.
+ */
+type MarkStepBody = Pick<UpdateLessonStepRequest, 'stepId' | 'state' | 'score'>;
+
 export const lessonsApi = {
+  /** Системные курсы (legacy alias, использует `list()` за капотом). */
   listCourses(): Promise<CourseListResponse> {
     return api.get<CourseListResponse>('/lessons/courses');
   },
@@ -114,13 +142,7 @@ export const lessonsApi = {
 
   /**
    * KS-1937 (B-5): агрегат активных курсов пользователя — system + enrolled,
-   * отсортированный по `lastActivityAt` DESC. Сервер фильтрует по
-   * `progress != null && completedAt == null`, фронт получает уже готовый
-   * список и НЕ дублирует фильтрацию.
-   *
-   * Используется в `useLessonsHeroContext` (KS-1938) и
-   * `MyActiveCoursesPage` (KS-1941) — заменяет пару
-   * `listCourses + listEnrolled` (KS-1957 / F-12).
+   * отсортированный по `lastActivityAt` DESC.
    */
   listActiveCourses(): Promise<ActiveCourseDto[]> {
     return api
@@ -128,12 +150,112 @@ export const lessonsApi = {
       .then((r) => r.data ?? []);
   },
 
+  /**
+   * GET /lessons/courses?mine=0&limit=N — последние публичные
+   * user-courses (KS-1918 / KS-1919). Sort `updatedAt DESC` на BE.
+   */
+  listLatest(opts: { limit: number }): Promise<UserCourseListResponse> {
+    const qs = listQueryString({
+      mine: '0',
+      limit: String(opts.limit),
+    });
+    return api.get<UserCourseListResponse>(`/lessons/courses${qs}`);
+  },
+
+  /**
+   * GET /lessons/courses/authors — авторы с публичными
+   * user-courses (KS-1918 / KS-1919 + KS-1920). Кэш 5 минут на BE с
+   * инвалидацией при publish/unpublish.
+   *
+   * - `sort: 'courses'` → publicCoursesCount DESC, lastCourseUpdatedAt DESC.
+   * - `sort: 'recent'`  → lastCourseUpdatedAt DESC.
+   * - `limit` 1..50 (default 50), `offset` 0..1000 (default 0).
+   */
+  listAuthors(opts: {
+    sort?: 'courses' | 'recent';
+    limit?: number;
+    offset?: number;
+  }): Promise<CourseAuthorListResponse> {
+    const qs = listQueryString({
+      sort: opts.sort,
+      limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+      offset: opts.offset !== undefined ? String(opts.offset) : undefined,
+    });
+    return api.get<CourseAuthorListResponse>(
+      `/lessons/courses/authors${qs}`,
+    );
+  },
+
+  /**
+   * GET /lessons/courses/enrolled — курсы, которые юзер
+   * проходит (или прошёл), но НЕ владеет ими (KS-1889 / KS-1890).
+   * DTO включает `progress` сразу, без N+1.
+   */
+  listEnrolled(): Promise<UserEnrolledCoursesListResponse> {
+    return api.get<UserEnrolledCoursesListResponse>(
+      '/lessons/courses/enrolled',
+    );
+  },
+
+  /**
+   * GET /lessons/courses/:slug — курс + уроки + (для user) прогресс.
+   *
+   * Возвращает union-DTO: для системных — `CourseWithLessonsResponse`
+   * с `level/titleI18nKey/...`; для user — `UserCourseWithLessonsResponse`
+   * с `ownerId/isPublic/stats`. Различение по `course.ownerId`.
+   */
   getCourse(slug: string): Promise<CourseWithLessonsResponse> {
     return api.get<CourseWithLessonsResponse>(
       `/lessons/courses/${encodeURIComponent(slug)}`,
     );
   },
 
+  /**
+   * KS-2645: GET /lessons/courses/:slug для пользовательского курса.
+   * Тонкий typed-alias `getCourse` чтобы сразу получить
+   * `UserCourseWithLessonsResponse` без явного cast'а.
+   */
+  getUserCourse(slug: string): Promise<UserCourseWithLessonsResponse> {
+    return api.get<UserCourseWithLessonsResponse>(
+      `/lessons/courses/${encodeURIComponent(slug)}`,
+    );
+  },
+
+  /** POST /lessons/courses — создать пользовательский курс. */
+  createCourse(body: CreateUserCourseRequest): Promise<UserCourseDto> {
+    return api.post<UserCourseDto>('/lessons/courses', body);
+  },
+
+  /** PATCH /lessons/courses/:id — обновить пользовательский курс. */
+  updateCourse(
+    id: string,
+    body: UpdateUserCourseRequest,
+  ): Promise<UserCourseDto> {
+    return api.patch<UserCourseDto>(
+      `/lessons/courses/${encodeURIComponent(id)}`,
+      body,
+    );
+  },
+
+  /**
+   * DELETE /lessons/courses/:id — удалить пользовательский курс
+   * со всеми уроками/шагами.
+   */
+  deleteCourse(id: string): Promise<void> {
+    return api.delete<void>(
+      `/lessons/courses/${encodeURIComponent(id)}`,
+    );
+  },
+
+  /**
+   * GET /lessons/lessons/:id — урок + шаги + прогресс.
+   *
+   * После KS-2646: работает для обоих типов курсов. Возвращаемый DTO —
+   * `LessonWithStepsResponse` для системных, `UserLessonWithStepsResponse`
+   * для пользовательских. Отличия в полях `lesson` (titleI18nKey vs title,
+   * userCourseId vs courseId), но общая структура (lesson, steps, progress)
+   * совпадает.
+   */
   getLesson(lessonId: string): Promise<LessonWithStepsResponse> {
     return api.get<LessonWithStepsResponse>(
       `/lessons/lessons/${encodeURIComponent(lessonId)}`,
@@ -141,65 +263,160 @@ export const lessonsApi = {
   },
 
   /**
-   * Отметка прогресса шага (KS-1784).
-   *
-   * Реальный backend (apps/api) ждёт `lessonId` в body класс-валидатором
-   * (`POST /lessons/progress/step` → 400 «lessonId must be a UUID» без него).
-   * shared-тип `UpdateLessonStepRequest` lessonId не объявляет — это
-   * расхождение между shared и backend DTO; пока shared не обновили,
-   * передаём lessonId отдельным аргументом и подмешиваем в body.
+   * KS-2645: typed-alias `getLesson` для пользовательского урока.
    */
-  updateStep(
+  getUserLesson(lessonId: string): Promise<UserLessonWithStepsResponse> {
+    return api.get<UserLessonWithStepsResponse>(
+      `/lessons/lessons/${encodeURIComponent(lessonId)}`,
+    );
+  },
+
+  /** POST /lessons/courses/:id/lessons — создать урок в курсе. */
+  createLesson(
+    courseId: string,
+    body: CreateUserLessonRequest,
+  ): Promise<UserLessonDto> {
+    return api.post<UserLessonDto>(
+      `/lessons/courses/${encodeURIComponent(courseId)}/lessons`,
+      body,
+    );
+  },
+
+  /** PATCH /lessons/lessons/:id — переименовать / переставить урок. */
+  updateLesson(
+    id: string,
+    body: UpdateUserLessonRequest,
+  ): Promise<UserLessonDto> {
+    return api.patch<UserLessonDto>(
+      `/lessons/lessons/${encodeURIComponent(id)}`,
+      body,
+    );
+  },
+
+  /** DELETE /lessons/lessons/:id — удалить урок. */
+  deleteLesson(id: string): Promise<void> {
+    return api.delete<void>(
+      `/lessons/lessons/${encodeURIComponent(id)}`,
+    );
+  },
+
+  /** POST /lessons/lessons/:id/steps — создать шаг. */
+  createStep(
     lessonId: string,
-    payload: UpdateLessonStepRequest,
-  ): Promise<UpdateLessonStepResponse> {
-    return api.post<UpdateLessonStepResponse>('/lessons/progress/step', {
-      lessonId,
-      ...payload,
-    });
+    body: CreateUserLessonStepRequest,
+  ): Promise<UserLessonStepDto> {
+    return api.post<UserLessonStepDto>(
+      `/lessons/lessons/${encodeURIComponent(lessonId)}/steps`,
+      body,
+    );
   },
 
   /**
-   * Завершение урока (KS-1784).
+   * PATCH /lessons/steps/:id — обновить payload / order шага в редакторе
+   * пользовательского курса.
    *
-   * Реальный путь — `POST /lessons/progress/lesson/complete` (без id в URL),
-   * lessonId передаётся в body вместе со score. Это соответствует L-04
-   * (KS-1759) и `apps/api/src/lessons/progress.controller.ts`. Изначально
-   * (L-11) фронт стучал на `/lessons/progress/lesson/<id>/complete` — 404.
+   * Отличается от прогресс-метода `markStep` (отметка пользователем
+   * прохождения шага) — тут редактируется сам шаг автором курса.
+   */
+  updateStepPayload(
+    id: string,
+    body: UpdateUserLessonStepRequest,
+  ): Promise<UserLessonStepDto> {
+    return api.patch<UserLessonStepDto>(
+      `/lessons/steps/${encodeURIComponent(id)}`,
+      body,
+    );
+  },
+
+  /** DELETE /lessons/steps/:id — удалить шаг. */
+  deleteStep(id: string): Promise<void> {
+    return api.delete<void>(
+      `/lessons/steps/${encodeURIComponent(id)}`,
+    );
+  },
+
+  /**
+   * POST /lessons/lessons/:id/steps/reorder — массовая перестановка
+   * порядка шагов в одной транзакции (ADR-026 §2.5).
+   */
+  reorderSteps(
+    lessonId: string,
+    body: ReorderUserStepsRequest,
+  ): Promise<void> {
+    return api.post<void>(
+      `/lessons/lessons/${encodeURIComponent(lessonId)}/steps/reorder`,
+      body,
+    );
+  },
+
+  /**
+   * KS-2646: единый POST /lessons/progress/lessons/:lessonId/step —
+   * отметка состояния шага пользователем. Работает для обоих типов курсов;
+   * различение по lessonId (бэк сам маршрутизирует в LessonProgress vs
+   * UserLessonProgress).
+   *
+   * `lessonId` — URL-параметр, тело — `{stepId, state, score?}`.
+   * `score` опционален и предоставляется задачами/drill'ами; для текстовых
+   * шагов остаётся undefined.
+   */
+  markStep(
+    lessonId: string,
+    body: MarkStepBody,
+  ): Promise<UserLessonPlayProgressDto> {
+    return api.post<UserLessonPlayProgressDto>(
+      `/lessons/progress/lessons/${encodeURIComponent(lessonId)}/step`,
+      body,
+    );
+  },
+
+  /**
+   * KS-2646: единый POST /lessons/progress/lessons/:lessonId/complete —
+   * финальное завершение урока. Работает для обоих типов курсов.
+   *
+   * Возвращает union-DTO:
+   *   - системные → `CompleteLessonResponse` (с SM-2 полями).
+   *   - user → `UserCoursePlayProgressDto` (без SM-2; ADR-026 §2.1).
+   * Caller'ы (`useLessonProgress` после слияния KS-2645) различают по
+   * флагу того, был ли урок системным.
    */
   completeLesson(
     lessonId: string,
-    payload: CompleteLessonRequest,
-  ): Promise<CompleteLessonResponse> {
-    return api.post<CompleteLessonResponse>('/lessons/progress/lesson/complete', {
-      lessonId,
-      ...payload,
-    });
+    body: CompleteLessonRequest | Pick<CompleteUserLessonRequest, 'score'>,
+  ): Promise<CompleteLessonResponse | UserCoursePlayProgressDto> {
+    return api.post<CompleteLessonResponse | UserCoursePlayProgressDto>(
+      `/lessons/progress/lessons/${encodeURIComponent(lessonId)}/complete`,
+      body,
+    );
+  },
+
+  /** GET /lessons/progress/courses/:userCourseId. */
+  getCourseProgress(
+    courseId: string,
+  ): Promise<UserCoursePlayProgressDto | null> {
+    return api.get<UserCoursePlayProgressDto | null>(
+      `/lessons/progress/courses/${encodeURIComponent(courseId)}`,
+    );
+  },
+
+  /** GET /lessons/progress/lessons/:userLessonId. */
+  getLessonProgress(
+    lessonId: string,
+  ): Promise<UserLessonPlayProgressDto | null> {
+    return api.get<UserLessonPlayProgressDto | null>(
+      `/lessons/progress/lessons/${encodeURIComponent(lessonId)}`,
+    );
   },
 
   /**
-   * KS-1928 / ADR-032: методы дневника ошибок (`getMistakeAggregates`,
-   * `getMistakeRecommendations`) переехали в `puzzleMistakesApi.ts`.
-   * BE-эндпоинты — `/puzzle/mistakes/*`.
-   */
-
-  /**
    * SM-2 «К повторению сегодня» (L-22 / KS-1799). Бэк — KS-1798.
-   *
    * Отдаёт только уроки текущего пользователя, у которых `dueAt <= now`.
-   * Пустой список — нормальная ситуация (нечего повторять).
    */
   getReviewsDue(): Promise<ReviewsDueResponse> {
     return api.get<ReviewsDueResponse>('/lessons/reviews/due');
   },
 
   /**
-   * Батч-резолвер задач для PuzzleStep (KS-1777 / KS-1780). Принимает
-   * полный `PuzzleStepPayload` (`{ type:'puzzle', selection, ... }`),
-   * возвращает массив задач — для `mode='ids'` сохраняет порядок,
-   * для `mode='filter'` отдаёт уникальные задачи в количестве ≤ `limit`.
-   *
-   * Заменяет N-кратный `puzzleApi.getNext()` fallback из L-09.
+   * Батч-резолвер задач для PuzzleStep (KS-1777 / KS-1780).
    */
   resolvePuzzleStep(payload: PuzzleStepPayload): Promise<PuzzleDto[]> {
     return api.post<PuzzleDto[]>('/lessons/puzzle-step/resolve', payload);
@@ -217,3 +434,5 @@ export const lessonsApi = {
     }
   },
 };
+
+export type { LessonStepState };

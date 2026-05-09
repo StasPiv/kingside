@@ -15,10 +15,11 @@ import type {
   UserLessonWithStepsResponse,
 } from '@kingside/shared';
 
+import { lessonsApi } from '../api/lessonsApi';
 import { userCoursesApi } from '../api/userCoursesApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
 import { useStockfish } from '../hooks/useStockfish';
-import { useUserLessonProgress } from '../hooks/useUserLessonProgress';
+import { useLessonProgress } from '../hooks/useLessonProgress';
 
 /**
  * `UserLessonPage` — прохождение одного урока пользовательского курса
@@ -142,15 +143,16 @@ export function UserLessonPage() {
   }, [slug, lessonId]);
 
   // Hook работает с текущим lessonId — даже до ready-state.
-  // `userLessonId` в hook'е — string|null, поэтому ok.
+  // `lessonId` в hook'е — string|null, поэтому ok.
   const totalSteps = state.kind === 'ready' ? state.steps.length : 0;
   // KS-1880: при ready подаём серверный seed (если есть). Передаётся
-  // ровно один раз вместе с userLessonId — хук применит его в эффекте
-  // смены lesson'а.
+  // ровно один раз вместе с lessonId — хук применит его в эффекте
+  // смены lesson'а. KS-2645: useUserLessonProgress слит с
+  // `useLessonProgress` через unified прогресс-API (KS-2646).
   const initialStepsState =
     state.kind === 'ready' ? state.initialStepsState : undefined;
-  const progress = useUserLessonProgress({
-    userLessonId: state.kind === 'ready' ? state.lesson.id : null,
+  const progress = useLessonProgress({
+    lessonId: state.kind === 'ready' ? state.lesson.id : null,
     totalSteps,
     initialStepsState,
   });

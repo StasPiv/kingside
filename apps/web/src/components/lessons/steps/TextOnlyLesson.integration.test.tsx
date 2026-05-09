@@ -14,32 +14,35 @@ import { TextStep } from './TextStep';
  * шага больше не передаётся (см. `LessonPage` / `UserLessonPage`).
  */
 
+// KS-2645: после слияния хуков (ADR-054 Phase D) прогресс шага идёт
+// через `lessonsApi.markStep` (unified POST). Мокаем только этот метод —
+// для теста достаточно проверить что состояние шагов меняется.
 const { apiMock } = vi.hoisted(() => ({
   apiMock: {
-    updateStepProgress: vi.fn().mockResolvedValue({}),
+    markStep: vi.fn().mockResolvedValue({}),
     completeLesson: vi.fn().mockResolvedValue({}),
   },
 }));
 
-vi.mock('../../../api/userCoursesApi', () => ({
-  userCoursesApi: apiMock,
+vi.mock('../../../api/lessonsApi', () => ({
+  lessonsApi: apiMock,
 }));
 
 vi.mock('react-chessboard', () => ({
   Chessboard: () => <div data-testid="chessboard" />,
 }));
 
-import { useUserLessonProgress } from '../../../hooks/useUserLessonProgress';
+import { useLessonProgress } from '../../../hooks/useLessonProgress';
 
 beforeEach(() => {
-  apiMock.updateStepProgress.mockClear();
+  apiMock.markStep.mockClear();
   apiMock.completeLesson.mockClear();
 });
 
 describe('text-only lesson flow (KS-1990)', () => {
   it('два text-шага: оба помечаются done только по клику «Далее»', async () => {
     const { result } = renderHook(() =>
-      useUserLessonProgress({ userLessonId: 'lesson-1', totalSteps: 2 }),
+      useLessonProgress({ lessonId: 'lesson-1', totalSteps: 2 }),
     );
 
     // Рендерим два TextStep'а — у обоих кнопка «Далее» (KS-1990 убрал
@@ -82,7 +85,7 @@ describe('text-only lesson flow (KS-1990)', () => {
 
   it('без клика — text-шаг остаётся pending (KS-1990 — нет автомаркера)', async () => {
     const { result } = renderHook(() =>
-      useUserLessonProgress({ userLessonId: 'lesson-2', totalSteps: 1 }),
+      useLessonProgress({ lessonId: 'lesson-2', totalSteps: 1 }),
     );
 
     renderWithProviders(

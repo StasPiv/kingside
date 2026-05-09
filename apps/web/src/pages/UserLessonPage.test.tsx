@@ -14,17 +14,30 @@ import { renderWithProviders, screen, waitFor } from '../test/test-utils';
  * KS-1839 (FE-5): `UserLessonPage`.
  */
 
-const { apiMock } = vi.hoisted(() => ({
+const { apiMock, lessonsApiMock } = vi.hoisted(() => ({
+  // KS-2645: после слияния `useUserLessonProgress` с `useLessonProgress`
+  // прогресс идёт через `lessonsApi.markStep`/`completeLesson`. Course
+  // и lesson грузятся через `userCoursesApi.getBySlug/getLesson` —
+  // оставлены здесь, потому что UserLessonPage пока ещё ходит через них
+  // (полное удаление файла userCoursesApi планируется отдельным коммитом).
   apiMock: {
     getBySlug: vi.fn(),
     getLesson: vi.fn(),
     updateStepProgress: vi.fn(),
     completeLesson: vi.fn(),
   },
+  lessonsApiMock: {
+    markStep: vi.fn().mockResolvedValue({}),
+    completeLesson: vi.fn(),
+  },
 }));
 
 vi.mock('../api/userCoursesApi', () => ({
   userCoursesApi: apiMock,
+}));
+
+vi.mock('../api/lessonsApi', () => ({
+  lessonsApi: lessonsApiMock,
 }));
 
 // StepRenderer зависит от всех шахматных компонентов — заменяем тонкой
@@ -149,6 +162,10 @@ function renderRouter({ initialPath, stubNext, stubCourse }: RouterOpts) {
 
 beforeEach(() => {
   for (const fn of Object.values(apiMock)) fn.mockReset();
+  for (const fn of Object.values(lessonsApiMock)) fn.mockReset();
+  // markStep по умолчанию резолвится — иначе useLessonProgress
+  // выкинет sync-error и тест увидит баннер.
+  lessonsApiMock.markStep.mockResolvedValue({});
   stockfishMock.prefetchArg = null;
 });
 
@@ -216,12 +233,12 @@ describe('<UserLessonPage>', () => {
         mkStep({ id: 's3', order: 2 }),
       ],
       progress: {
-        userCourseId: 'c1',
         userLessonId: 'l1',
+        completedStepsCount: 1,
+        totalSteps: 3,
         startedAt: 'x',
         lastActivityAt: 'x',
         completedAt: null,
-        score: 0.33,
         // s1 уже done → реадер открывается на s2.
         stepsState: { s1: 'done' },
       },
@@ -425,8 +442,9 @@ describe('<UserLessonPage>', () => {
       steps: [mkStep({ id: 's1' })],
       progress: null,
     });
-    apiMock.updateStepProgress.mockResolvedValue({});
-    apiMock.completeLesson.mockResolvedValue({
+    // KS-2645: completeLesson теперь идёт через unified `lessonsApi`.
+    lessonsApiMock.markStep.mockResolvedValue({});
+    lessonsApiMock.completeLesson.mockResolvedValue({
       userCourseId: 'c1',
       completedLessonsCount: 1,
       startedAt: 'x',
@@ -467,7 +485,10 @@ describe('<UserLessonPage>', () => {
 
     fireEvent.click(btn);
     await waitFor(() =>
-      expect(apiMock.completeLesson).toHaveBeenCalledWith('l1', { score: 1 }),
+      expect(lessonsApiMock.completeLesson).toHaveBeenCalledWith(
+        'l1',
+        expect.objectContaining({ score: 1 }),
+      ),
     );
     // После успешного complete — URL сменился на /lessons/my/my-course/l2.
     // Проверяем через getLesson('l2'): если навигация прошла, новый lesson-id
@@ -487,8 +508,8 @@ describe('<UserLessonPage>', () => {
       steps: [mkStep({ id: 's1' })],
       progress: null,
     });
-    apiMock.updateStepProgress.mockResolvedValue({});
-    apiMock.completeLesson.mockResolvedValue({
+    lessonsApiMock.markStep.mockResolvedValue({});
+    lessonsApiMock.completeLesson.mockResolvedValue({
       userCourseId: 'c1',
       completedLessonsCount: 1,
       startedAt: 'x',
@@ -513,7 +534,10 @@ describe('<UserLessonPage>', () => {
     fireEvent.click(btn);
 
     await waitFor(() =>
-      expect(apiMock.completeLesson).toHaveBeenCalledWith('l1', { score: 1 }),
+      expect(lessonsApiMock.completeLesson).toHaveBeenCalledWith(
+        'l1',
+        expect.objectContaining({ score: 1 }),
+      ),
     );
     await waitFor(() =>
       expect(screen.getByTestId('course-page')).toBeInTheDocument(),
