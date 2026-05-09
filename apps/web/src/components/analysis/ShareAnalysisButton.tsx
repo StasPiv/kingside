@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSavedAnalyses } from '../../hooks/useSavedAnalyses';
@@ -17,8 +24,12 @@ import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
  *
  * Backend: `PATCH /analyses/:id/share { isPublic }` — KS-2601.
  *
- * Тосты — отдельный inline-блок внутри popup'а (не плодим сторонний
- * toaster). Auto-hide через 2.5с.
+ * KS-2674: переехала из шапки в action-bar под доской (desktop) и в
+ * overflow-меню (mobile). Чтобы открыть popup из mobile-меню — родитель
+ * получает ref на компонент и вызывает `ref.current?.open()`. Trigger
+ * сам остаётся видимым на desktop, на mobile скрыт через CSS — popup
+ * рендерится из `display:flex` родителя `.analysis-share`, поэтому
+ * остаётся visible даже когда сам триггер `display:none`.
  */
 
 interface ShareAnalysisButtonProps {
@@ -33,17 +44,25 @@ interface ShareAnalysisButtonProps {
   onPublicChanged?: (next: boolean) => void;
 }
 
+export interface ShareAnalysisButtonHandle {
+  open: () => void;
+  close: () => void;
+  toggle: () => void;
+}
+
 type ToastTone = 'success' | 'error' | 'info';
 interface ToastState {
   message: string;
   tone: ToastTone;
 }
 
-export function ShareAnalysisButton({
-  analysisId,
-  initialIsPublic,
-  onPublicChanged,
-}: ShareAnalysisButtonProps) {
+export const ShareAnalysisButton = forwardRef<
+  ShareAnalysisButtonHandle,
+  ShareAnalysisButtonProps
+>(function ShareAnalysisButton(
+  { analysisId, initialIsPublic, onPublicChanged },
+  handleRef,
+) {
   const { t } = useTranslation();
   const { share } = useSavedAnalyses();
   const copyToClipboard = useCopyToClipboard();
@@ -53,6 +72,19 @@ export function ShareAnalysisButton({
   const [pending, setPending] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+
+  // KS-2674: даём родителю программное управление popup'ом — нужно
+  // чтобы пункт «Share» в overflow-меню (mobile) открывал тот же popup,
+  // не дублируя триггер.
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      open: () => setOpen(true),
+      close: () => setOpen(false),
+      toggle: () => setOpen((cur) => !cur),
+    }),
+    [],
+  );
 
   // Синхронизация: если родитель прислал новый initialIsPublic
   // (например, после reload), берём его — нужно чтобы popup был
@@ -161,7 +193,7 @@ export function ShareAnalysisButton({
     >
       <button
         type="button"
-        className="analysis-share__trigger"
+        className="analysis-share__trigger analysis-export-btn"
         data-testid="analysis-share-trigger"
         onClick={() => setOpen((cur) => !cur)}
         aria-expanded={open}
@@ -178,11 +210,14 @@ export function ShareAnalysisButton({
           aria-hidden="true"
           viewBox="0 0 24 24"
           fill="currentColor"
-          width="18"
-          height="18"
+          width="14"
+          height="14"
         >
           <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
         </svg>
+        <span className="analysis-share__trigger-text">
+          {t('analysis.share.button', 'Share')}
+        </span>
       </button>
       {open && (
         <div
@@ -267,4 +302,4 @@ export function ShareAnalysisButton({
       )}
     </div>
   );
-}
+});

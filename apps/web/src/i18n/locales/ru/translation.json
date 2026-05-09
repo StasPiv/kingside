@@ -661,6 +661,7 @@
     "flipBoard": "Перевернуть доску",
     "share": {
       "button": "Поделиться",
+      "menuItem": "Поделиться",
       "popupLabel": "Поделиться анализом",
       "statusPublic": "Публичный",
       "statusPrivate": "Приватный",

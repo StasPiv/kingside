@@ -26,7 +26,10 @@ import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { ShareAnalysisButton } from '../components/analysis/ShareAnalysisButton';
+import {
+  ShareAnalysisButton,
+  type ShareAnalysisButtonHandle,
+} from '../components/analysis/ShareAnalysisButton';
 import { useReviewState } from '../review/useReviewState';
 import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 // KS-2281 (E5 deferred): localStorage autosave для ad-hoc /analysis,
@@ -158,6 +161,10 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
+  // KS-2674: ref на ShareAnalysisButton — нужен чтобы пункт «Share»
+  // в overflow-меню (mobile) мог открыть тот же popup, что и trigger
+  // в action-bar (desktop), без дублирования логики.
+  const shareButtonRef = useRef<ShareAnalysisButtonHandle | null>(null);
   // KS-2220: inline-сообщение возле кнопок «PGN» после копирования.
   // Глобального toast-сервиса в проекте нет (см. ArchiveGamePage —
   // тот же паттерн state + setTimeout).
@@ -1318,32 +1325,11 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
               </span>
             )}
           </nav>
-          {/* KS-2666 / ADR-051 §3: «Поделиться» — только автору
-              сохранённого анализа.
-              KS-2669: вынесена ИЗ `<nav class="analysis-breadcrumbs">`,
-              т.к. на mobile (KS-1175) breadcrumb-блок скрыт целиком
-              через `display:none`, и Share вместе с ним. Свой
-              отдельный host-контейнер с собственными mobile-стилями
-              (`.analysis-share-host`) — отображается на всех breakpoint'ах. */}
-          {/* KS-2672: в publicMode (URL `/analysis/public/:id`) Share-
-              кнопка всегда скрыта — даже если автор открыл свой же
-              public-URL. Чтобы редактировать, ему нужно перейти на
-              приватный `/analysis/:id`. */}
-          {!publicMode &&
-            user &&
-            localIdRef.current &&
-            savedOwnerId === user.id && (
-              <div
-                className="analysis-share-host"
-                data-testid="analysis-share-host"
-              >
-                <ShareAnalysisButton
-                  analysisId={localIdRef.current}
-                  initialIsPublic={savedIsPublic}
-                  onPublicChanged={setSavedIsPublic}
-                />
-              </div>
-            )}
+          {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт
+              в action-bar под доской (desktop) и в overflow-menu
+              (mobile). См. ShareAnalysisButton ниже + handler в
+              overflow-menu. Шапка освободилась — особенно над доской
+              на mobile. */}
           </>
         )}
         <div className="analysis-board-wrapper">
@@ -1484,6 +1470,22 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
                 </span>
               )}
             </span>
+            {/* KS-2674: Share-кнопка переехала в action-bar (была
+                в шапке). На desktop — отдельная кнопка между PGN и
+                overflow-меню; на mobile сам триггер скрыт CSS, но
+                компонент остаётся в DOM, чтобы popup мог открываться
+                из пункта overflow-меню через ref. */}
+            {!publicMode &&
+              user &&
+              localIdRef.current &&
+              savedOwnerId === user.id && (
+                <ShareAnalysisButton
+                  ref={shareButtonRef}
+                  analysisId={localIdRef.current}
+                  initialIsPublic={savedIsPublic}
+                  onPublicChanged={setSavedIsPublic}
+                />
+              )}
             {/* Mobile: overflow menu */}
             <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
               <button
@@ -1519,6 +1521,28 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
                   >
                     {t('review.copyPgn', 'Copy PGN to clipboard')}
                   </button>
+                  {/* KS-2674: «Поделиться» — пункт меню для mobile.
+                      Клик открывает тот же popup, что Share-кнопка на
+                      desktop, через ref на ShareAnalysisButton. Виден
+                      только владельцу сохранённого анализа. */}
+                  {!publicMode &&
+                    user &&
+                    localIdRef.current &&
+                    savedOwnerId === user.id && (
+                      <button
+                        onClick={() => {
+                          setShowOverflowMenu(false);
+                          // Open в следующем тике — даём overflow-меню
+                          // закрыться прежде чем popup откроется.
+                          window.setTimeout(() => {
+                            shareButtonRef.current?.open();
+                          }, 0);
+                        }}
+                        data-testid="analysis-share-overflow"
+                      >
+                        {t('analysis.share.menuItem', 'Share')}
+                      </button>
+                    )}
                 </div>
               )}
             </div>

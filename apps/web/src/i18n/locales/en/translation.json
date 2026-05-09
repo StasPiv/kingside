@@ -659,6 +659,7 @@
     "flipBoard": "Flip board",
     "share": {
       "button": "Share",
+      "menuItem": "Share",
       "popupLabel": "Share analysis",
       "statusPublic": "Public",
       "statusPrivate": "Private",
