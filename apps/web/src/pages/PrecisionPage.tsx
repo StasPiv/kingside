@@ -5,6 +5,10 @@ import { Chessboard } from 'react-chessboard';
 import type { PuzzleStatsByMode } from '@kingside/shared';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+// KS-2661: «Generate from PGN» переехала сюда из `PuzzleBrowserPage`.
+// Логично держать её рядом с результатом — generated пазлы попадают
+// именно в `/precision`.
+import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
 import {
   useInfinitePuzzles,
   type BrowsePuzzleDto,
@@ -75,7 +79,7 @@ export function PrecisionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // KS-2586: URL-state read.
   const mineParam = searchParams.get('mine') === 'true';
@@ -115,6 +119,12 @@ export function PrecisionPage() {
     null,
   );
   const [publishError, setPublishError] = useState<string | null>(null);
+  // KS-2661: модалка генератора пазлов из PGN. Открывается из шапки,
+  // closeflow без изменений — после генерации `useInfinitePuzzles`
+  // сам перезагрузится при следующем открытии страницы / смене
+  // фильтров (в текущем сеансе показ свежесгенерированных идёт через
+  // отдельный success-screen внутри модалки → KS-2585/86).
+  const [showGenerator, setShowGenerator] = useState(false);
 
   const handlePublish = useCallback(
     async (puzzleId: string) => {
@@ -202,7 +212,58 @@ export function PrecisionPage() {
           <Link to="/puzzles" className="play-vs-engine-puzzles__back-link">
             ← {t('precision.backToAll', 'All puzzles')}
           </Link>
+          {/* KS-2661: «Generate from PGN» теперь живёт здесь —
+              рядом с результатом (generated → /precision). */}
+          {user && (
+            <button
+              type="button"
+              className="generate-puzzles-btn"
+              data-testid="precision-generate-btn"
+              onClick={() => setShowGenerator(true)}
+            >
+              {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
+            </button>
+          )}
         </div>
+        {/* KS-2661: табы «Все / Мои» — фильтр по `?mine=true|`.
+            Гостям не показываем — без авторизации «Мои» пусто. */}
+        {user && (
+          <nav
+            className="precision-tabs"
+            data-testid="precision-tabs"
+            aria-label={t('precision.tabs.label', 'Puzzle filter')}
+            role="tablist"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!mineParam}
+              className={`precision-tab${!mineParam ? ' precision-tab--active' : ''}`}
+              data-testid="precision-tab-all"
+              onClick={() => {
+                const sp = new URLSearchParams(searchParams);
+                sp.delete('mine');
+                setSearchParams(sp, { replace: false });
+              }}
+            >
+              {t('precision.tabs.all', 'All')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mineParam}
+              className={`precision-tab${mineParam ? ' precision-tab--active' : ''}`}
+              data-testid="precision-tab-mine"
+              onClick={() => {
+                const sp = new URLSearchParams(searchParams);
+                sp.set('mine', 'true');
+                setSearchParams(sp, { replace: false });
+              }}
+            >
+              {t('precision.tabs.mine', 'My puzzles')}
+            </button>
+          </nav>
+        )}
         {/* KS-2545 / ADR-048 §6: top-блок stats. Видим только
             аутентифицированному юзеру (gate `user`) — гостям API
             возвращает 401 и stats будет null. */}
@@ -408,6 +469,14 @@ export function PrecisionPage() {
             );
           })}
         </div>
+      )}
+
+      {showGenerator && (
+        <PuzzleGeneratorModal
+          onClose={() => {
+            setShowGenerator(false);
+          }}
+        />
       )}
     </div>
   );

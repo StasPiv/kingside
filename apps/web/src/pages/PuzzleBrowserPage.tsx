@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
+// KS-2661: «Generate from PGN» переехала в `/precision` (рядом с
+// результатом генерации). Импорт `PuzzleGeneratorModal` отсюда удалён.
 import { HelpButton } from '../components/HelpButton';
 import { PuzzleMiniBoard } from '../components/puzzle/PuzzleMiniBoard';
 import {
@@ -213,8 +214,6 @@ export function PuzzleBrowserPage() {
     }
   }, [loading, loadingMore, hasMore, puzzles.length]);
 
-  const [showGenerator, setShowGenerator] = useState(false);
-
   const updateFilters = useCallback(
     (patch: Partial<FilterState>) => {
       setFilters((prev) => ({ ...prev, ...patch }));
@@ -352,13 +351,8 @@ export function PuzzleBrowserPage() {
           >
             {t('puzzleBrowser.resetFilters', 'Reset')}
           </button>
-          <button
-            type="button"
-            className="generate-puzzles-btn"
-            onClick={() => setShowGenerator(true)}
-          >
-            {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
-          </button>
+          {/* KS-2661: кнопка «Generate from PGN» переехала в `/precision`
+              (там же показывается результат — generated пазлы). */}
         </div>
         <div
           className="puzzle-filters__themes"
@@ -456,13 +450,6 @@ export function PuzzleBrowserPage() {
         </div>
       )}
 
-      {showGenerator && (
-        <PuzzleGeneratorModal
-          onClose={() => {
-            setShowGenerator(false);
-          }}
-        />
-      )}
     </div>
   );
 }
