@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
@@ -27,6 +32,16 @@ export function PuzzlePage() {
   const { playSound } = useSounds();
   const { user } = useAuth();
   const { id: puzzleId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  // KS-2657: ссылки из `/precision` всегда несут `?source=precision` —
+  // это раздел «Тренировка точности», где ожидается PlayVsEngineRunner.
+  // Используем как defensive-сигнал на случай, если backend в DTO
+  // конкретного пазла отдал `solutionMode: 'forced-line'` (расхождение
+  // данных в БД для generated пазлов). Фронт не должен подсовывать
+  // студенту обычный SolutionRunner, если он явно зашёл за play-vs-
+  // engine. Backend-фикс несоответствия `solution_mode` оформлен
+  // отдельной задачей.
+  const fromPrecision = searchParams.get('source') === 'precision';
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const isGenerated = (puzzle as unknown as { source?: string })?.source === 'generated';
   const [game, setGame] = useState<Chess | null>(null);
@@ -454,7 +469,14 @@ export function PuzzlePage() {
 
   // KS-2466: ветка play-vs-engine. Compose: общий header (back-link, title)
   // + специальный runner вместо forced-line UI.
-  if (puzzle && puzzle.solutionMode === 'play-vs-engine') {
+  // KS-2657: дополнительный триггер — `?source=precision` (ссылка из
+  // PrecisionPage). Защитная мера на случай data-mismatch'а в БД,
+  // когда backend для generated-пазла возвращает `solutionMode:
+  // 'forced-line'` вместо ожидаемого 'play-vs-engine'.
+  if (
+    puzzle &&
+    (puzzle.solutionMode === 'play-vs-engine' || fromPrecision)
+  ) {
     return (
       <div className="puzzle-page" data-testid="puzzle-page-play-vs-engine">
         <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
