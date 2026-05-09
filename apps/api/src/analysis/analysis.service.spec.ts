@@ -114,6 +114,47 @@ describe('AnalysisService', () => {
         data: expect.objectContaining({ pgn }),
       });
     });
+
+    // ── KS-2598 (ADR-051 §4 этап A1): POST /analyses с пустым pgn=''
+    // должен создавать запись и сохранять PGN как пустую строку (а не
+    // null и не подставлять DEFAULT_FEN). Точки входа «+Новый анализ»,
+    // «Анализ из пазла», «Свободная партия» дёргают единый helper
+    // openAnalysisFromPgn — backend обязан принять пустой PGN без
+    // ошибок валидации.
+
+    it('KS-2598: POST с pgn="" сохраняет запись с пустой строкой', async () => {
+      prisma.analysis.create.mockResolvedValue({ ...mockAnalysis, pgn: '' });
+
+      await service.create(userId, { pgn: '' });
+
+      const data = prisma.analysis.create.mock.calls[0][0].data;
+      expect(data.pgn).toBe('');
+      // никаких автоматических подстановок DEFAULT_FEN в тело
+      expect(data.fen).toBeNull();
+      expect(data.userId).toBe(userId);
+      expect(data.title).toEqual(expect.stringContaining('New analysis'));
+    });
+
+    it('KS-2598: POST без pgn (undefined) сохраняет запись с null', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+
+      await service.create(userId, {});
+
+      const data = prisma.analysis.create.mock.calls[0][0].data;
+      expect(data.pgn).toBeNull();
+    });
+
+    it('KS-2598 регрессия: непустой PGN сохраняется без изменений', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+      const pgn = '[White "Carlsen"]\n[Black "Nepo"]\n\n1. e4 c5 *';
+
+      await service.create(userId, { pgn });
+
+      const data = prisma.analysis.create.mock.calls[0][0].data;
+      expect(data.pgn).toBe(pgn);
+      expect(data.white).toBe('Carlsen');
+      expect(data.black).toBe('Nepo');
+    });
   });
 
   describe('findAll', () => {
@@ -151,6 +192,28 @@ describe('AnalysisService', () => {
       prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
 
       await expect(service.findOne(otherId, 'analysis-1')).rejects.toThrow(ForbiddenException);
+    });
+
+    // ── KS-2599 (ADR-051 §4 этап A2): GET /analyses/:id корректно
+    // отдаёт запись с пустым PGN. После A1 в БД появятся записи с
+    // pgn=''; их сериализация должна возвращать pgn:"" (а не null,
+    // не подставлять DEFAULT_FEN, не падать на split tags).
+    it('KS-2599: findOne возвращает запись с pgn="" без искажений', async () => {
+      const empty = {
+        ...mockAnalysis,
+        id: 'empty-1',
+        pgn: '',
+        fen: null,
+        tags: '',
+      };
+      prisma.analysis.findUnique.mockResolvedValue(empty);
+
+      const result = await service.findOne(userId, 'empty-1');
+
+      expect(result.pgn).toBe('');
+      expect(result.fen).toBeNull();
+      expect(result.id).toBe('empty-1');
+      expect(result.tags).toEqual([]);
     });
   });
 
