@@ -334,7 +334,10 @@ model PuzzleAttempt {
   hintsUsed          Int      @default(0) @map("hints_used")
   createdAt          DateTime @default(now()) @map("created_at")
 
-  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  // KS-2675: Cascade при удалении пазла — иначе DELETE /puzzles/:id
+  // падает на FK при наличии хоть одной попытки. Семантически
+  // attempt-история конкретного пазла теряет смысл без него.
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id])
 
   @@index([userId])
@@ -369,7 +372,8 @@ model PuzzleRushSessionPuzzle {
   position Int
 
   score  PuzzleRushScore @relation(fields: [scoreId], references: [id])
-  puzzle Puzzle          @relation(fields: [puzzleId], references: [id])
+  // KS-2675: Cascade — без пазла session-ссылка не имеет смысла.
+  puzzle Puzzle          @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
 
   @@index([scoreId])
   @@map("puzzle_rush_session_puzzles")
@@ -381,7 +385,8 @@ model DailyPuzzle {
   date      DateTime @unique @db.Date
   createdAt DateTime @default(now()) @map("created_at")
 
-  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  // KS-2675: Cascade — daily-привязка пропадает вместе с пазлом.
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
 
   @@map("daily_puzzles")
 }
@@ -517,7 +522,11 @@ model UserMistake {
   occurredAt DateTime @default(now()) @map("occurred_at")
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  puzzle Puzzle? @relation(fields: [puzzleId], references: [id])
+  // KS-2675: SetNull (не Cascade), чтобы при удалении пазла сохранить
+  // mistake-row пользователя (она про момент партии и остаётся
+  // валидной даже без ссылки на источник). Поле `puzzleId` уже
+  // nullable.
+  puzzle Puzzle? @relation(fields: [puzzleId], references: [id], onDelete: SetNull)
   game   Game?   @relation(fields: [gameId], references: [id])
 
   @@index([userId, occurredAt])

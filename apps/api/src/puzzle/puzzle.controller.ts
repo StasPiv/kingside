@@ -421,19 +421,16 @@ export class PuzzleController {
 
   /**
    * DELETE /puzzles/all — delete all own generated puzzles.
+   *
+   * KS-2675: явный pre-delete `puzzle_attempts` больше не нужен — FK
+   * `puzzle_attempts.puzzle_id_fkey` теперь ON DELETE CASCADE
+   * (миграция `20260509190000_ks2675_puzzle_cascade`). Аналогично
+   * каскадятся `puzzle_rush_session_puzzles` и `daily_puzzles`;
+   * `user_mistakes.puzzle_id` обнуляется (SET NULL).
    */
   @UseGuards(JwtAuthGuard)
   @Delete('all')
   async deleteAll(@Request() req: AuthenticatedRequest) {
-    // Delete attempts first (no cascade), then puzzles
-    const puzzles = await this.prisma.puzzle.findMany({
-      where: { createdBy: req.user.id, source: 'generated' },
-      select: { id: true },
-    });
-    const ids = puzzles.map((p) => p.id);
-    if (ids.length > 0) {
-      await this.prisma.puzzleAttempt.deleteMany({ where: { puzzleId: { in: ids } } });
-    }
     const result = await this.prisma.puzzle.deleteMany({
       where: { createdBy: req.user.id, source: 'generated' },
     });

@@ -665,3 +665,85 @@ describe('BatchPuzzlesDto — class-validator (KS-2580)', () => {
     expect(errors).toHaveLength(0);
   });
 });
+
+/**
+ * KS-2675: DELETE /puzzles/:id и /puzzles/all больше не падают на
+ * FK `puzzle_attempts_puzzle_id_fkey`. Cascade теперь на уровне БД
+ * (миграция `20260509190000_ks2675_puzzle_cascade`); код контроллера
+ * полагается на каскад и явно `puzzleAttempt.deleteMany` больше не
+ * вызывает.
+ */
+describe('PuzzleController.delete — KS-2675 (cascade)', () => {
+  function makeDeletePrisma() {
+    return {
+      puzzle: {
+        findUnique: jest.fn<Promise<{ id: string; createdBy: string } | null>, [unknown]>(),
+        delete: jest.fn<Promise<unknown>, [unknown]>().mockResolvedValue({}),
+        deleteMany: jest
+          .fn<Promise<{ count: number }>, [unknown]>()
+          .mockResolvedValue({ count: 0 }),
+        findMany: jest
+          .fn<Promise<unknown[]>, [unknown]>()
+          .mockResolvedValue([]),
+      },
+      puzzleAttempt: {
+        deleteMany: jest.fn<Promise<{ count: number }>, [unknown]>(),
+      },
+    } as unknown as PrismaService & {
+      puzzle: {
+        findUnique: jest.Mock;
+        delete: jest.Mock;
+        deleteMany: jest.Mock;
+        findMany: jest.Mock;
+      };
+      puzzleAttempt: { deleteMany: jest.Mock };
+    };
+  }
+
+  it('DELETE /:id — owner: вызывает только puzzle.delete (cascade на FK)', async () => {
+    const prisma = makeDeletePrisma();
+    (prisma.puzzle.findUnique as jest.Mock).mockResolvedValue({
+      id: 'P1',
+      createdBy: 'user-1',
+    });
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const res = await controller.deleteOne('P1', loginReq('user-1'));
+
+    expect(res).toEqual({ deleted: 1 });
+    expect(prisma.puzzle.delete).toHaveBeenCalledWith({ where: { id: 'P1' } });
+    // KS-2675: ручной cleanup attempts больше не делается.
+    expect(prisma.puzzleAttempt.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /:id — не owner: deleted=0, puzzle.delete не вызывается', async () => {
+    const prisma = makeDeletePrisma();
+    (prisma.puzzle.findUnique as jest.Mock).mockResolvedValue({
+      id: 'P1',
+      createdBy: 'other-user',
+    });
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const res = await controller.deleteOne('P1', loginReq('user-1'));
+
+    expect(res).toEqual({ deleted: 0 });
+    expect(prisma.puzzle.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /all — owner: вызывает только puzzle.deleteMany (cascade на FK)', async () => {
+    const prisma = makeDeletePrisma();
+    (prisma.puzzle.deleteMany as jest.Mock).mockResolvedValueOnce({ count: 3 });
+    const controller = new PuzzleController({} as PuzzleService, prisma);
+
+    const res = await controller.deleteAll(loginReq('user-1'));
+
+    expect(res).toEqual({ deleted: 3 });
+    expect(prisma.puzzle.deleteMany).toHaveBeenCalledWith({
+      where: { createdBy: 'user-1', source: 'generated' },
+    });
+    // KS-2675: предварительная выборка id и `puzzleAttempt.deleteMany`
+    // больше не нужна — FK CASCADE делает это в БД.
+    expect(prisma.puzzleAttempt.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.puzzle.findMany).not.toHaveBeenCalled();
+  });
+});
