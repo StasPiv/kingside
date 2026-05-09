@@ -2803,13 +2803,23 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   .analysis-share__trigger {
     display: none;
   }
+  /* KS-2679: popup перекрывался MobileBottomBar (высота 56px + iOS
+     safe-area-inset-bottom). Поднимаем его над тулбаром и
+     ограничиваем max-height, чтобы при длинном контенте popup
+     скроллился внутри, а не уезжал за tabbar. z-index выше .mobile-
+     bottom-bar (там z-index: 90 в layout.css). */
   .analysis-share__popup {
     position: fixed;
     right: 8px;
     left: 8px;
-    bottom: 16px;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
     top: auto;
     min-width: auto;
     max-width: calc(100vw - 16px);
+    max-height: calc(
+      100dvh - 56px - env(safe-area-inset-bottom, 0px) - 80px
+    );
+    overflow-y: auto;
+    z-index: 100;
   }
 }
