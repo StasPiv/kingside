@@ -7693,3 +7693,62 @@
     padding-bottom: 80px;
   }
 }
+
+/* ============================================================
+ * KS-2656 — табы «All / My courses» в шапке /lessons (KS-2650).
+ * Без явных стилей кнопки слипались (default `<button>` без gap),
+ * визуально выглядит как один склеенный блок. Здесь даём контейнеру
+ * `gap`, кнопкам — единый стиль вкладки и `--active`-состояние.
+ * ============================================================ */
+.lessons-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.lessons-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.lessons-tab:hover:not(.lessons-tab--active) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.lessons-tab:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.lessons-tab--active {
+  color: var(--text-on-accent, #fff);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+@media (max-width: 480px) {
+  .lessons-tabs {
+    width: 100%;
+    display: flex;
+  }
+  .lessons-tab {
+    flex: 1 1 0;
+    text-align: center;
+  }
+}
