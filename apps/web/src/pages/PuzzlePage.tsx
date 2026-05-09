@@ -16,6 +16,8 @@ import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useAuth } from '../context/AuthContext';
 import type { PuzzleDto } from '@kingside/shared';
 import { WasmEngineAdapter } from '../utils/engineAdapter';
+import { openAnalysis } from '../utils/openAnalysis';
+import { buildPuzzleAnalysisPgn } from '../utils/buildPuzzleAnalysisPgn';
 
 type PuzzleStatus = 'thinking' | 'checking' | 'correct' | 'incorrect';
 
@@ -578,30 +580,18 @@ export function PuzzlePage() {
             style={{ visibility: status === 'thinking' ? 'hidden' : 'visible' }}
             onClick={() => {
               if (!puzzle) return;
-              const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
-              const c = new Chess(puzzle.fen);
-              const fenParts = puzzle.fen.split(' ');
-              let isWhiteTurn = fenParts[1] === 'w';
-              let moveNum = parseInt(fenParts[5] || '1', 10);
-              const pgnParts: string[] = [];
-              for (const uci of moves) {
-                try {
-                  const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-                  if (!mv) break;
-                  if (isWhiteTurn) {
-                    pgnParts.push(`${moveNum}. ${mv.san}`);
-                  } else if (pgnParts.length === 0) {
-                    pgnParts.push(`${moveNum}... ${mv.san}`);
-                  } else {
-                    pgnParts.push(mv.san);
-                  }
-                  if (!isWhiteTurn) moveNum++;
-                  isWhiteTurn = !isWhiteTurn;
-                } catch { break; }
-              }
-              const movesText = pgnParts.join(' ');
-              const fullPgn = `[FEN "${puzzle.fen}"]\n\n${movesText}`;
-              navigate('/analysis', { state: { pgn: fullPgn, title: `Puzzle #${puzzle.id.slice(0, 6)}` } });
+              // KS-2606 (ADR-051 §4 B4): собираем PGN текущей позиции пазла
+              // (FEN-header) + ходов решения и идём в анализ через
+              // helper openAnalysis. Helper делает POST /analyses {pgn} →
+              // navigate('/analysis/<id>'); puzzleFen/puzzlePgn через
+              // router state больше НЕ передаём — id в URL уникальный,
+              // AnalysisPage подгружает запись по id (см. KS-2403).
+              const fullPgn = buildPuzzleAnalysisPgn(puzzle.fen, puzzle.moves);
+              void openAnalysis(navigate, {
+                pgn: fullPgn,
+                title: `Puzzle #${puzzle.id.slice(0, 6)}`,
+                t,
+              });
             }}
           >
             {t('puzzle.analyze', 'Analyze')}
