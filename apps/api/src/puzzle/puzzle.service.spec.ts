@@ -494,6 +494,65 @@ describe('PuzzleService', () => {
       expect((result as { playVsEngine?: typeof meta }).playVsEngine).toEqual(meta);
     });
 
+    it('KS-2665: sourceMetadata только с blunderMove + wdlAfterBlunder → пороги из PUZZLE_GEN_DEFAULTS', async () => {
+      // ADR-050 §3 #5: фронт-генератор (KS-2584) НЕ передаёт
+      // winThreshold/failThreshold/halfMovesN — это серверные дефолты.
+      // До KS-2665 resolver требовал их в meta и при отсутствии
+      // откидывал весь блок → фронт на /precision показывал
+      // «Соперник зевнул ходом ?». После фикса — пороги берутся из
+      // shared PUZZLE_GEN_DEFAULTS, блок собирается корректно.
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        // halfMovesN/winThreshold/failThreshold намеренно отсутствуют.
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-frontend-gen',
+        fen: 'fen-after-blunder',
+        moves: '',
+        rating: 1700,
+        themes: 'sacrifice playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-frontend-gen');
+
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as { playVsEngine?: Record<string, unknown> }).playVsEngine;
+      expect(pve).toBeDefined();
+      expect(pve!.blunderMove).toBe('e2e4');
+      expect(pve!.wdlAfterBlunder).toBe(0.78);
+      // Сервер подставил дефолты.
+      expect(pve!.halfMovesN).toBe(6);
+      expect(pve!.winThreshold).toBe(0.5);
+      expect(pve!.failThreshold).toBe(0.0);
+    });
+
+    it('KS-2665: sourceMetadata без blunderMove → fallback forced-line', async () => {
+      // Если blunderMove отсутствует — нечего показать UI на
+      // /precision, fallback на forced-line.
+      const meta = {
+        // blunderMove отсутствует
+        wdlAfterBlunder: 0.78,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-no-blunder',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: '',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-no-blunder');
+      expect(result.solutionMode).toBe('forced-line');
+      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeUndefined();
+    });
+
     it('KS-2465: play-vs-engine с битым JSON → fallback forced-line + warn', async () => {
       const warnSpy = jest
         .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
@@ -800,10 +859,11 @@ describe('PuzzleService', () => {
       expect(result.sourceGame).toEqual({ pgnUrl: 'https://lichess.org/yyy' });
     });
 
-    it('KS-2465: play-vs-engine без обязательных полей метаданных → fallback forced-line', async () => {
-      const warnSpy = jest
-        .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
-        .mockImplementation(() => undefined);
+    it('KS-2665: play-vs-engine без halfMovesN — берётся серверный default 6', async () => {
+      // KS-2465 раньше требовал halfMovesN в meta и при отсутствии
+      // делал fallback forced-line. KS-2665: ADR-050 §3 #5 явно
+      // оговаривает halfMovesN как server-default — фронт-генератор
+      // его НЕ передаёт. Теперь resolver подставляет PUZZLE_GEN_DEFAULTS.
       prisma.puzzle.findUnique.mockResolvedValue({
         id: 'pve-partial',
         fen: 'fen',
@@ -812,7 +872,7 @@ describe('PuzzleService', () => {
         themes: '',
         source: 'generated',
         solutionMode: 'play-vs-engine',
-        // halfMovesN отсутствует
+        // halfMovesN отсутствует — теперь это нормально.
         sourceMetadata: JSON.stringify({
           blunderMove: 'e2e4',
           wdlAfterBlunder: 0.7,
@@ -823,10 +883,11 @@ describe('PuzzleService', () => {
 
       const result = await service.getPuzzle('pve-partial');
 
-      expect(result.solutionMode).toBe('forced-line');
-      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeUndefined();
-      expect(warnSpy).toHaveBeenCalled();
-      warnSpy.mockRestore();
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as { playVsEngine?: { halfMovesN: number; blunderMove: string } }).playVsEngine;
+      expect(pve).toBeDefined();
+      expect(pve!.halfMovesN).toBe(6);
+      expect(pve!.blunderMove).toBe('e2e4');
     });
   });
 

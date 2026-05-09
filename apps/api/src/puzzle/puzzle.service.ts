@@ -8,6 +8,10 @@ import type {
   PuzzleStatsByMode,
   PuzzleStatsByModeEntry,
 } from '@kingside/shared';
+// KS-2665: серверные дефолты порогов PVE (ADR-050 §3 #5) — фронт-
+// генератор их не передаёт в sourceMetadata, поэтому подхватываем тут
+// при сборке `playVsEngine` блока из row.
+import { PUZZLE_GEN_DEFAULTS } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
@@ -783,10 +787,21 @@ export class PuzzleService {
    * KS-2465 / ADR-044 §5.5. Резолвим solutionMode + playVsEngine для DTO.
    *
    * Если в БД лежит `solutionMode='play-vs-engine'` — парсим
-   * `sourceMetadata` как JSON и собираем блок. При сломанном JSON или
-   * отсутствии обязательных полей — логируем warning и возвращаем
-   * fallback `forced-line` (никогда не отдаём `play-vs-engine` без
-   * валидного блока, чтобы клиент не упал).
+   * `sourceMetadata` как JSON и собираем блок.
+   *
+   * KS-2665: пороги `winThreshold` / `failThreshold` / `halfMovesN`
+   * по ADR-050 §3 #5 — **серверные дефолты**, фронт-генератор
+   * (KS-2584) их не передаёт. Раньше resolver требовал их в
+   * sourceMetadata и при отсутствии валидного значения откидывал
+   * весь блок → фронт на /precision не получал `blunderMove` и
+   * показывал «Соперник зевнул ходом ?». Теперь обязательны только
+   * `blunderMove` (без него UI нечего показать) и `wdlAfterBlunder`
+   * (используется для отрисовки шкалы преимущества); недостающие
+   * пороги берутся из `PUZZLE_GEN_DEFAULTS`.
+   *
+   * Сломанный JSON или отсутствие `blunderMove`/`wdlAfterBlunder` —
+   * по-прежнему fallback на `forced-line` (никогда не отдаём
+   * `play-vs-engine` без валидного блока, чтобы клиент не упал).
    */
   private resolveSolutionMode(
     puzzleId: string,
@@ -806,21 +821,31 @@ export class PuzzleService {
       const meta = JSON.parse(sourceMetadata) as Record<string, unknown>;
       const blunderMove = meta.blunderMove;
       const wdlAfterBlunder = meta.wdlAfterBlunder;
-      const winThreshold = meta.winThreshold;
-      const failThreshold = meta.failThreshold;
-      const halfMovesN = meta.halfMovesN;
+      // KS-2665: только `blunderMove` + `wdlAfterBlunder` обязательны.
       if (
         typeof blunderMove !== 'string' ||
-        typeof wdlAfterBlunder !== 'number' ||
-        typeof winThreshold !== 'number' ||
-        typeof failThreshold !== 'number' ||
-        typeof halfMovesN !== 'number'
+        blunderMove.length === 0 ||
+        typeof wdlAfterBlunder !== 'number'
       ) {
         this.logger.warn(
-          `Puzzle ${puzzleId}: sourceMetadata не содержит полного play-vs-engine блока — fallback на forced-line`,
+          `Puzzle ${puzzleId}: sourceMetadata без blunderMove/wdlAfterBlunder — fallback на forced-line`,
         );
         return { solutionMode: 'forced-line' };
       }
+      // KS-2665: пороги — из meta если переданы, иначе из shared
+      // дефолтов. Стандартный путь по ADR-050: фронт не передаёт.
+      const winThreshold =
+        typeof meta.winThreshold === 'number'
+          ? meta.winThreshold
+          : PUZZLE_GEN_DEFAULTS.winThreshold;
+      const failThreshold =
+        typeof meta.failThreshold === 'number'
+          ? meta.failThreshold
+          : PUZZLE_GEN_DEFAULTS.failThreshold;
+      const halfMovesN =
+        typeof meta.halfMovesN === 'number'
+          ? meta.halfMovesN
+          : PUZZLE_GEN_DEFAULTS.halfMovesN;
       // KS-2524: опциональные `{w,d,l}` объекты per-mille от Stockfish.
       // Legacy-пазлы (до KS-2523) их не имеют — поля undefined,
       // фронт fallback'ом смотрит на `wdlAfterBlunder` (signed).
