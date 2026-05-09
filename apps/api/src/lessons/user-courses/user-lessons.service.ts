@@ -25,12 +25,22 @@ import {
  * UserLessonsService — CRUD уроков пользовательского курса + добавление
  * шагов + прогресс (ADR-026 §2.5, KS-1829).
  *
- * Прогресс-эндпоинты (`POST /lessons/user-progress/step`,
- * `POST /lessons/user-progress/lesson/complete`) в MVP обслуживаем
- * здесь упрощённо: достаточно happy-path, чтобы BE-4 (UserProgressService)
- * развернул полноценную логику завершения урока/курса. Детальный
- * `stepsState` в этой таблице не храним — только счётчики
- * `completedStepsCount`/`totalSteps` из схемы (ADR-026 уточнил §2.1).
+ * KS-2648 / ADR-054 Phase E2. Сервис переключён на единые таблицы:
+ *   * `lessons` (вместо `user_lessons`) — урок принадлежит
+ *     пользовательскому курсу, если `lesson.ownerId IS NOT NULL`
+ *     (денормализация из Phase A).
+ *   * `lesson_steps` (вместо `user_lesson_steps`).
+ *   * `user_lesson_progress` (вместо `user_lesson_play_progress`) —
+ *     системный progress-агрегат, в Phase E3 будет переименован в
+ *     `lesson_progress`.
+ *
+ * Внешний контракт DTO `UserLessonDto` / `UserLessonStepDto` /
+ * `UserLessonPlayProgressDto` сохранён 1:1 — фронту не нужно ничего
+ * менять. Под капотом: `userCourseId` маппится из `courseId`,
+ * `userLessonId` — из `lessonId`, `lastActivityAt` — из `updatedAt`,
+ * `completedStepsCount/totalSteps` — вычисляются on-demand из
+ * `stepsState` и кол-ва шагов урока (системная таблица не хранит
+ * эти счётчики).
  */
 @Injectable()
 export class UserLessonsService {
@@ -42,7 +52,7 @@ export class UserLessonsService {
     userId: string,
     lessonId: string,
   ): Promise<UserLessonWithStepsResponse> {
-    const lesson = await this.prisma.userLesson.findUnique({
+    const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
       include: {
         _count: { select: { steps: true } },
@@ -51,14 +61,16 @@ export class UserLessonsService {
     });
     if (!lesson) throw new NotFoundException('Resource not found');
 
-    const progress = await this.prisma.userLessonPlayProgress.findUnique({
-      where: { userId_userLessonId: { userId, userLessonId: lessonId } },
+    const progress = await this.prisma.userLessonProgress.findUnique({
+      where: { userId_lessonId: { userId, lessonId } },
     });
 
     return {
       lesson: toLessonDto(lesson),
       steps: lesson.steps.map((s) => toStepDto(s)),
-      progress: progress ? toLessonPlayProgressDto(progress) : null,
+      progress: progress
+        ? toLessonPlayProgressDto(progress, lesson._count.steps)
+        : null,
     };
   }
 
@@ -68,12 +80,14 @@ export class UserLessonsService {
     lessonId: string,
     body: UpdateUserLessonRequest,
   ): Promise<UserLessonDto> {
-    const updated = await this.prisma.userLesson.update({
+    const updated = await this.prisma.lesson.update({
       where: { id: lessonId },
       data: {
         ...(body.title !== undefined ? { title: body.title } : {}),
+        // KS-2648: системная `Lesson.estMinutes` — Int NOT NULL,
+        // default 10. Если в DTO пришёл null — нормализуем в 10.
         ...(body.estMinutes !== undefined
-          ? { estMinutes: body.estMinutes }
+          ? { estMinutes: body.estMinutes ?? 10 }
           : {}),
         ...(body.order !== undefined ? { order: body.order } : {}),
       },
@@ -83,13 +97,16 @@ export class UserLessonsService {
   }
 
   async delete(lessonId: string): Promise<void> {
-    await this.prisma.userLesson.delete({ where: { id: lessonId } });
+    await this.prisma.lesson.delete({ where: { id: lessonId } });
   }
 
   /**
    * Добавить шаг в урок. Валидация `type` (whitelist MVP) и формы
    * `payload` — задача BE-3; здесь принимаем payload как `StepPayload`
    * из shared и не валидируем содержимое.
+   *
+   * KS-2648: пишем в `lesson_steps` с денормализованным `ownerId`
+   * (наследуется от lesson.ownerId). Без него Phase E3 CHECK не пройдёт.
    */
   async addStep(
     lessonId: string,
@@ -110,8 +127,8 @@ export class UserLessonsService {
     return this.prisma.$transaction(async (tx) => {
       // Лимит 50 шагов/урок (ADR-026 §2.2). Проверка в транзакции —
       // как и для уроков выше.
-      const stepCount = await tx.userLessonStep.count({
-        where: { userLessonId: lessonId },
+      const stepCount = await tx.lessonStep.count({
+        where: { lessonId },
       });
       if (stepCount >= USER_COURSES_LIMITS.stepsPerLesson) {
         throw new BadRequestException(
@@ -119,15 +136,23 @@ export class UserLessonsService {
         );
       }
 
-      const last = await tx.userLessonStep.findFirst({
-        where: { userLessonId: lessonId },
+      // KS-2648: достаём `lesson.ownerId` для денормализации.
+      const lesson = await tx.lesson.findUnique({
+        where: { id: lessonId },
+        select: { ownerId: true },
+      });
+      if (!lesson) throw new NotFoundException('Resource not found');
+
+      const last = await tx.lessonStep.findFirst({
+        where: { lessonId },
         orderBy: { order: 'desc' },
         select: { order: true },
       });
       const next = (last?.order ?? -1) + 1;
-      const created = await tx.userLessonStep.create({
+      const created = await tx.lessonStep.create({
         data: {
-          userLessonId: lessonId,
+          lessonId,
+          ownerId: lesson.ownerId,
           order: next,
           type: body.type,
           payload: body.payload as any,
@@ -152,8 +177,8 @@ export class UserLessonsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const steps = await tx.userLessonStep.findMany({
-        where: { userLessonId: lessonId },
+      const steps = await tx.lessonStep.findMany({
+        where: { lessonId },
         select: { id: true },
       });
       const allowed = new Set(steps.map((s) => s.id));
@@ -170,11 +195,11 @@ export class UserLessonsService {
 
       // Две фазы: сначала сдвигаем в «безопасный» offset (+1_000_000), потом
       // в целевые значения. Это обход unique-constraint'ов, которых на
-      // (userLessonId, order) нет, но практика защищает на случай будущего
+      // (lessonId, order) нет, но практика защищает на случай будущего
       // ужесточения схемы.
       await Promise.all(
         body.ids.map((id, idx) =>
-          tx.userLessonStep.update({
+          tx.lessonStep.update({
             where: { id },
             data: { order: 1_000_000 + idx },
           }),
@@ -182,7 +207,7 @@ export class UserLessonsService {
       );
       await Promise.all(
         body.ids.map((id, idx) =>
-          tx.userLessonStep.update({
+          tx.lessonStep.update({
             where: { id },
             data: { order: idx },
           }),
@@ -200,25 +225,34 @@ export class UserLessonsService {
 
 // ─── DTO mapper ──────────────────────────────────────────────────────
 
-export function toLessonPlayProgressDto(row: {
-  userLessonId: string;
-  completedStepsCount: number;
-  totalSteps: number;
-  // Postgres JSONB → Prisma `JsonValue`. На уровне сервиса мы пишем
-  // только Record<string, LessonStepState>, поэтому нормализуем сюда.
-  // Принимаем `unknown` чтобы не тянуть `Prisma.JsonValue` в shared.
-  stepsState?: unknown;
-  startedAt: Date;
-  lastActivityAt: Date;
-  completedAt: Date | null;
-}): UserLessonPlayProgressDto {
+/**
+ * KS-2648: row теперь из `user_lesson_progress` (системная таблица).
+ * Маппинг под legacy `UserLessonPlayProgressDto`:
+ *   * `userLessonId` ← `lessonId`;
+ *   * `lastActivityAt` ← `updatedAt`;
+ *   * `completedStepsCount` ← count('done') в `stepsState`;
+ *   * `totalSteps` принимаем параметром — вызывающий уже знает кол-во
+ *     шагов (через `_count.steps` в include или отдельным `count`).
+ */
+export function toLessonPlayProgressDto(
+  row: {
+    lessonId: string;
+    stepsState?: unknown;
+    startedAt: Date;
+    updatedAt: Date;
+    completedAt: Date | null;
+  },
+  totalSteps: number,
+): UserLessonPlayProgressDto {
+  const stepsState = normalizeStepsState(row.stepsState);
+  const doneCount = Object.values(stepsState).filter((s) => s === 'done').length;
   return {
-    userLessonId: row.userLessonId,
-    completedStepsCount: row.completedStepsCount,
-    totalSteps: row.totalSteps,
-    stepsState: normalizeStepsState(row.stepsState),
+    userLessonId: row.lessonId,
+    completedStepsCount: Math.min(doneCount, totalSteps),
+    totalSteps,
+    stepsState,
     startedAt: row.startedAt.toISOString(),
-    lastActivityAt: row.lastActivityAt.toISOString(),
+    lastActivityAt: row.updatedAt.toISOString(),
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
   };
 }
@@ -249,4 +283,3 @@ export function normalizeStepsState(
   }
   return out;
 }
-
