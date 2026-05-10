@@ -1295,7 +1295,7 @@ model UserNavStat {
   count     Int      @default(0)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([userId, route])
   @@index([userId, count(sort: Desc)])
