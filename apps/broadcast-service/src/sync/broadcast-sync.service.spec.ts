@@ -123,6 +123,53 @@ describe('extractClocksFromPgn — KS-2699', () => {
     expect(r.whiteMs).toBe(7_200_000);
     expect(r.blackMs).toBe(7_199_000);
   });
+
+  // ── KS-2720: robust parsing по dots-pattern ────────────────────────
+
+  it('KS-2720: явный `1...` маркер чёрных без хода белых → blackMs', () => {
+    // Lichess может прислать инкремент только с ходом чёрных — формат
+    // `1... e5 {...}` без предшествующего `1.` в этом блоке.
+    const pgn = '1... e5 { [%eval 0.0] [%clk 1:30:00] } *';
+    const r = extractClocksFromPgn(pgn);
+    expect(r.whiteMs).toBeNull();
+    expect(r.blackMs).toBe(5_400_000);
+  });
+
+  it('KS-2720: PGN с %eval перед %clk (lichess стандарт) парсится корректно', () => {
+    const pgn =
+      '1. c4 { [%eval 0.11] [%clk 1:30:53] } 1... c5 { [%eval 0.19] [%clk 1:30:55] } *';
+    const r = extractClocksFromPgn(pgn);
+    expect(r.whiteMs).toBe(5_453_000); // 1:30:53
+    expect(r.blackMs).toBe(5_455_000); // 1:30:55
+  });
+
+  it('KS-2720: %clk только у чёрных ходов (старая чётность сломалась бы)', () => {
+    // Гипотеза А из задачи: Lichess в каком-то snapshot отдал %clk
+    // только для чёрных. Старый парсер записал бы первое значение
+    // как whiteMs (i=0). Новый — корректно опознал бы по `1...`.
+    const pgn = '1. c4 1... c5 { [%clk 1:30:55] } 2. Nf3 2... Nc6 { [%clk 1:29:18] } *';
+    const r = extractClocksFromPgn(pgn);
+    expect(r.whiteMs).toBeNull();
+    expect(r.blackMs).toBe(5_358_000); // 1:29:18 (последний %clk чёрных)
+  });
+
+  it('KS-2720: %clk только у белых ходов', () => {
+    const pgn = '1. c4 { [%clk 1:30:53] } 1... c5 2. Nf3 { [%clk 1:30:07] } 2... Nc6 *';
+    const r = extractClocksFromPgn(pgn);
+    expect(r.whiteMs).toBe(5_407_000); // 1:30:07
+    expect(r.blackMs).toBeNull();
+  });
+
+  it('KS-2720: starting FEN side=b — первый ход чёрные, не сбивается на whiteMs', () => {
+    // PGN с `[FEN "...b ..."]` (Chess960 / задачи / эндшпиль). Старый
+    // парсер записал бы первый %clk как whiteMs (всё равно — он шёл
+    // по чётности). Новый правильно ставит как black по `1...`.
+    const pgn =
+      '[FEN "8/8/8/8/8/8/8/8 b - - 0 1"]\n[SetUp "1"]\n\n1... Kf6 { [%clk 0:05:00] } 2. Kd5 { [%clk 0:04:50] } *';
+    const r = extractClocksFromPgn(pgn);
+    expect(r.blackMs).toBe(300_000); // 5:00 — ход чёрных первым
+    expect(r.whiteMs).toBe(290_000); // 4:50 — ход белых после
+  });
 });
 
 /**

@@ -137,46 +137,105 @@ interface ParsedGame {
 }
 
 /**
- * KS-2699: извлечь оставшееся время игроков из PGN-комментариев.
+ * KS-2699 / KS-2720: извлечь оставшееся время игроков из PGN-комментариев.
  *
  * Lichess broadcast PGN после каждого хода вставляет
- * `{ [%clk H:MM:SS] }` (или `{[%clk H:MM:SS.fff]}` без пробелов) —
- * остаток времени стороны, СДЕЛАВШЕЙ ход. Порядок чередуется:
- * 1-й `%clk` — белые после своего 1-го хода, 2-й `%clk` — чёрные
- * после своего 1-го хода, и т.д.
+ * `{ [%eval ...] [%clk H:MM:SS] }` (формат стандартный, lichess
+ * порядок eval→clk). До KS-2720 определяли цвет хода по чётности
+ * индекса %clk (0=белые, 1=чёрные, …) — это ломается:
+ *  - на стартовых FEN side=b (Chess960 / задачи / эндшпиль-турниры);
+ *  - на инкрементальных stream-блоках, где видна только часть ходов;
+ *  - если у одной стороны %clk пропущен (Lichess иногда не отдаёт).
  *
- * Берём ПОСЛЕДНИЙ `%clk` каждой стороны (он соответствует значению
- * оставшегося времени на момент последнего хода игрока).
+ * Сейчас идём по PGN body последовательно, для каждого хода читаем
+ * перед ним номер `n.` (белые) или `n...` (чёрные) — этот маркер
+ * Lichess пишет ВСЕГДА, даже когда отдаёт не все ходы. Цвет определяем
+ * по числу точек: ровно 1 → белые, ≥3 → чёрные. После хода смотрим
+ * опциональный `{ ... %clk H:MM:SS ... }`. Берём ПОСЛЕДНИЙ %clk каждой
+ * стороны (= актуальный остаток на момент последнего хода игрока).
  *
- * Возвращает `{ null, null }` если ни одного `%clk` нет — клиент
- * увидит `clockUpdatedAt=null` и не будет рисовать таймеры.
+ * Возвращает `{ null, null }` если ни одного %clk нет — клиент увидит
+ * `clockUpdatedAt=null` и не будет рисовать таймеры.
  */
 export function extractClocksFromPgn(pgnSection: string): {
   whiteMs: number | null;
   blackMs: number | null;
 } {
-  const re = /\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/g;
+  // State-machine: идём по токенам PGN body, отслеживаем текущий
+  // цвет на ходу. `n.` / `n...` явно фиксирует цвет, обычный
+  // SAN-ход — toggle от предыдущего. Между ходом и комментарием
+  // `{ ... }` берём %clk и привязываем к стороне, СДЕЛАВШЕЙ ход.
+  //
+  // Поддерживаемые формы:
+  //   `1. e4 e5`             — стандартный сокращённый PGN;
+  //   `1. e4 1... e5`        — Lichess broadcast (полная форма);
+  //   `1... e5`              — инкремент / стартовый FEN side=b;
+  //   `1. e4 {...} 1... e5 {...}` — Lichess с %eval/%clk-комментариями.
+  //
+  // Стартовая сторона: white по умолчанию (стандартный шахматы).
+  // Если первый встретившийся номер — `n...`, переключаемся на black
+  // (стартовая сторона b).
+
+  // Удаляем headers — всё до первой пустой строки. PGN body может
+  // содержать `[`-токены (например, в эскейпированных комментариях),
+  // но в стандартном Lichess PGN — нет.
+  const bodyStart = pgnSection.indexOf('\n\n');
+  const body =
+    bodyStart >= 0 ? pgnSection.slice(bodyStart + 2) : pgnSection;
+
+  const tokenRe =
+    /(\d+\.+)|(\{[^}]*\})|(\*|1-0|0-1|1\/2-1\/2)|(\$\d+)|(\S+)/g;
+  const clkRe = /\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/;
+
+  let side: 'w' | 'b' = 'w';
   let whiteMs: number | null = null;
   let blackMs: number | null = null;
-  let i = 0;
+  let lastSideJustMoved: 'w' | 'b' | null = null;
+
   let m: RegExpExecArray | null;
-  while ((m = re.exec(pgnSection)) !== null) {
-    const h = parseInt(m[1], 10);
-    const min = parseInt(m[2], 10);
-    const s = parseFloat(m[3]);
-    if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) {
-      i++;
+  while ((m = tokenRe.exec(body)) !== null) {
+    const numToken = m[1];
+    const commentToken = m[2];
+    const resultToken = m[3];
+    const nagToken = m[4];
+    const moveToken = m[5];
+
+    if (resultToken) break;
+
+    if (numToken) {
+      // `1.` → white; `1...` (или больше точек) → black.
+      const dots = numToken.replace(/\d/g, '').length;
+      side = dots >= 3 ? 'b' : 'w';
       continue;
     }
-    const ms = Math.round((h * 3600 + min * 60 + s) * 1000);
-    // 0-й clock → белые (после 1-го хода белых), 1-й → чёрные, ...
-    if (i % 2 === 0) {
-      whiteMs = ms;
-    } else {
-      blackMs = ms;
+
+    if (commentToken) {
+      // Привязываем %clk к стороне, СДЕЛАВШЕЙ предыдущий ход.
+      if (lastSideJustMoved == null) continue;
+      const c = clkRe.exec(commentToken);
+      if (!c) continue;
+      const h = parseInt(c[1], 10);
+      const min = parseInt(c[2], 10);
+      const s = parseFloat(c[3]);
+      if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) continue;
+      const ms = Math.round((h * 3600 + min * 60 + s) * 1000);
+      if (lastSideJustMoved === 'w') whiteMs = ms;
+      else blackMs = ms;
+      continue;
     }
-    i++;
+
+    if (nagToken) {
+      // NAG ($1, $2, ...) — пропускаем.
+      continue;
+    }
+
+    if (moveToken) {
+      // SAN-ход: фиксируем сторону, после хода toggle.
+      lastSideJustMoved = side;
+      side = side === 'w' ? 'b' : 'w';
+    }
   }
+
   return { whiteMs, blackMs };
 }
 
@@ -1092,24 +1151,35 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (game.lichessGameId) {
-        // KS-2699: clock_updated_at пишем только когда в текущем PGN
-        // хотя бы одна сторона имеет свежий %clk. Если %clk нет
-        // (партия не началась / источник без clocks) — оба ms-поля
-        // остаются null и clock_updated_at не трогаем (старые
-        // ненулевые значения предыдущего обновления сохраняются).
-        const hasFreshClocks =
-          game.whiteClockMs !== null || game.blackClockMs !== null;
-        const clockUpdatedAt = hasFreshClocks ? new Date() : null;
-        if (hasFreshClocks) {
-          this.logger.debug?.(
-            `[broadcast-sync] clocks game=${game.lichessGameId.slice(0, 8)} ` +
-              `white=${game.whiteClockMs}ms black=${game.blackClockMs}ms`,
-          );
-        }
-
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
         });
+
+        // KS-2699 / KS-2720: clocks обновляются только когда хотя бы
+        // одна сторона имеет НОВОЕ значение (отличное от уже
+        // сохранённого). При совпадении значения с БД timestamp
+        // остаётся прежним — иначе при последующем %clk-only-белых
+        // обновлении для активной чёрной стороны фронтовый отсчёт
+        // сбрасывается, и таймер чёрного «прыгает» (KS-2720 баг).
+        const newWhiteBig =
+          game.whiteClockMs !== null ? BigInt(game.whiteClockMs) : null;
+        const newBlackBig =
+          game.blackClockMs !== null ? BigInt(game.blackClockMs) : null;
+        const whiteChanged =
+          newWhiteBig !== null &&
+          existing?.whiteClockMs !== newWhiteBig;
+        const blackChanged =
+          newBlackBig !== null &&
+          existing?.blackClockMs !== newBlackBig;
+        const anyChanged = whiteChanged || blackChanged;
+        if (anyChanged) {
+          this.logger.debug?.(
+            `[broadcast-sync] clocks game=${game.lichessGameId.slice(0, 8)} ` +
+              `white=${game.whiteClockMs}ms (changed=${whiteChanged}) ` +
+              `black=${game.blackClockMs}ms (changed=${blackChanged})`,
+          );
+        }
+
         if (existing) {
           const wouldRegress =
             game.fen === STARTING_FEN &&
@@ -1126,19 +1196,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               result: game.result || null,
               pgn: game.pgn,
               currentFen: newFen,
-              // KS-2699: пишем только при наличии свежих clocks; иначе
-              // не перетираем существующие ненулевые значения null'ом.
-              ...(hasFreshClocks
+              // KS-2720: clocks пишем только при изменении хотя бы у
+              // одной стороны. Каждое поле обновляется индивидуально
+              // (whiteClockMs только если whiteChanged), чтобы не
+              // затирать чужое значение null'ом или одним и тем же.
+              ...(anyChanged
                 ? {
-                    whiteClockMs:
-                      game.whiteClockMs !== null
-                        ? BigInt(game.whiteClockMs)
-                        : existing.whiteClockMs,
-                    blackClockMs:
-                      game.blackClockMs !== null
-                        ? BigInt(game.blackClockMs)
-                        : existing.blackClockMs,
-                    clockUpdatedAt,
+                    ...(whiteChanged ? { whiteClockMs: newWhiteBig } : {}),
+                    ...(blackChanged ? { blackClockMs: newBlackBig } : {}),
+                    clockUpdatedAt: new Date(),
                   }
                 : {}),
             },
@@ -1155,15 +1221,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               result: game.result || null,
               pgn: game.pgn,
               currentFen: game.fen,
-              whiteClockMs:
-                game.whiteClockMs !== null
-                  ? BigInt(game.whiteClockMs)
+              whiteClockMs: newWhiteBig,
+              blackClockMs: newBlackBig,
+              // Свежее значение хотя бы у одной стороны → ставим
+              // текущий timestamp; иначе оставляем null.
+              clockUpdatedAt:
+                newWhiteBig !== null || newBlackBig !== null
+                  ? new Date()
                   : null,
-              blackClockMs:
-                game.blackClockMs !== null
-                  ? BigInt(game.blackClockMs)
-                  : null,
-              clockUpdatedAt,
             },
           });
         }
