@@ -118,6 +118,11 @@ model User {
   /// быстрее scan'а (особенно для scheduler'а из KS-2164, который делает
   /// `findMany WHERE is_synthetic=true LIMIT N`).
   @@index([isSynthetic])
+  /// KS-2311 (Drills E6, Glicko leaderboard): индекс для быстрой
+  /// сортировки по drill rating в leaderboard'е. Создан миграцией
+  /// `20260503170000_drill_rating`. Имя `users_rating_drill_idx`
+  /// зафиксировано для совпадения с БД (KS-2608: drift fix).
+  @@index([ratingDrill(sort: Desc)], name: "users_rating_drill_idx")
   @@map("users")
 }
 
@@ -1132,7 +1137,7 @@ model FeatureFlag {
 // sprint-сессий (3-/5-минутный микс).
 
 model TacticDrill {
-  id         String   @id @default(uuid()) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Один из 8 типов из methodology §2. Хранится строкой, чтобы
   /// расширяться без миграции enum'а; на уровне backend whitelist.
   type       String
@@ -1200,7 +1205,7 @@ model TacticDrill {
  * который использовался в daily (иначе теряем историю показов).
  */
 model DailyTacticDrill {
-  id           String   @id @default(uuid()) @db.Uuid
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   date         DateTime @unique @map("date") @db.Date
   drillId      String   @map("drill_id") @db.Uuid
   drillType    String   @map("drill_type")
@@ -1219,7 +1224,7 @@ model DailyTacticDrill {
 }
 
 model TacticDrillAttempt {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// nullable — для гостей запись не пишется, поле зарезервировано на
   /// случай, если в v2 решим логировать гостевые попытки анонимно.
   userId      String?  @map("user_id") @db.Uuid
@@ -1248,7 +1253,7 @@ model TacticDrillAttempt {
 }
 
 model TacticDrillSprintScore {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String   @map("user_id") @db.Uuid
   /// Кол-во правильно решённых задач в sprint'е.
   score       Int
@@ -1290,7 +1295,7 @@ model UserNavStat {
   count     Int      @default(0)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([userId, route])
   @@index([userId, count(sort: Desc)])
