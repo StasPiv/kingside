@@ -124,3 +124,51 @@ describe('extractClocksFromPgn — KS-2699', () => {
     expect(r.blackMs).toBe(7_199_000);
   });
 });
+
+/**
+ * KS-2722: Round не считается finished, если все партии партии активны
+ * (даже если Lichess по календарю закрыл). И обратное: round_status
+ * перейдёт в `finished` только когда все игры завершены.
+ *
+ * Ниже — поведенческие unit-тесты на хелпер `shouldCloseRoundAsFinished`
+ * и сценарий «Lichess finished + БД ongoing».
+ */
+describe('shouldCloseRoundAsFinished — KS-2722', () => {
+  it('round.status=ongoing + все 3 партии финальные → закрыть', () => {
+    expect(
+      shouldCloseRoundAsFinished(
+        [{ result: '1-0' }, { result: '0-1' }, { result: '1/2-1/2' }],
+        'ongoing',
+      ),
+    ).toBe(true);
+  });
+
+  it('round.status=ongoing + 1 партия незакрыта → НЕ закрывать', () => {
+    expect(
+      shouldCloseRoundAsFinished(
+        [{ result: '1-0' }, { result: '*' }, { result: '1-0' }],
+        'ongoing',
+      ),
+    ).toBe(false);
+  });
+
+  it('round.status=finished — no-op (уже закрыт)', () => {
+    expect(
+      shouldCloseRoundAsFinished([{ result: '1-0' }], 'finished'),
+    ).toBe(false);
+  });
+
+  it('пустой games массив (между турами) → НЕ закрывать', () => {
+    expect(shouldCloseRoundAsFinished([], 'ongoing')).toBe(false);
+  });
+
+  it('result=null → НЕ закрывать', () => {
+    expect(
+      shouldCloseRoundAsFinished(
+        // @ts-expect-error — спец-кейс null
+        [{ result: '1-0' }, { result: null }],
+        'ongoing',
+      ),
+    ).toBe(false);
+  });
+});

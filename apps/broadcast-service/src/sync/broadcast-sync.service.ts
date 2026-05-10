@@ -482,15 +482,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         }
         for (const round of bc.rounds) {
           const isActive = round.ongoing === true;
+          let upserted: { status: string } | null = null;
           try {
-            await this.upsertRound(bc.tour.id, round, isActive);
+            upserted = await this.upsertRound(bc.tour.id, round, isActive);
           } catch (e: unknown) {
             this.logger.error(
               `[broadcast-sync] upsertRound FAILED ${round.id}: ${(e as Error).message}`,
             );
             continue;
           }
-          if (isActive) {
+          // KS-2722: эффективный статус — после override (round может
+          // быть `ongoing` локально, даже если Lichess пометил
+          // `finished=true` по календарю).
+          const effectiveActive =
+            isActive || upserted?.status === 'ongoing';
+          if (effectiveActive) {
             if (!this.activeStreams.has(round.id)) {
               if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
                 this.startStream(round.id);
@@ -514,10 +520,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      // KS-2722: используем БД-статус (после override), а не Lichess-флаг,
+      // чтобы локально-active round'ы не отабортились зря.
+      const activeRoundsInDb = await this.prisma.broadcastRound.findMany({
+        where: { status: 'ongoing' },
+        select: { lichessRoundId: true },
+      });
       const activeRoundIds = new Set(
-        broadcasts.flatMap((b) =>
-          b.rounds.filter((r) => r.ongoing).map((r) => r.id),
-        ),
+        activeRoundsInDb.map((r) => r.lichessRoundId),
       );
       for (const [roundId, ctrl] of this.activeStreams) {
         if (!activeRoundIds.has(roundId)) {
@@ -706,38 +716,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       /* proceed */
     }
 
+    // KS-2722: publishSync теперь живёт внутри `processPgnUpdate`,
+    // чтобы streaming-канал тоже доставлял обновлённый snapshot.
+    // Здесь дополнительный вызов не нужен.
     await this.processPgnUpdate(lichessRoundId, pgn);
-
-    // Publish full sync via Redis pub/sub
-    const round = await this.prisma.broadcastRound.findUnique({
-      where: { lichessRoundId },
-      include: { games: true },
-    });
-    if (round) {
-      this.publishSync(round.id, {
-        roundId: round.id,
-        games: round.games.map((g, idx) => ({
-          gameIndex: idx,
-          fen: g.currentFen ?? STARTING_FEN,
-          whitePlayer: g.whitePlayer ?? 'Unknown',
-          blackPlayer: g.blackPlayer ?? 'Unknown',
-          result: g.result ?? null,
-          pgn: g.pgn ?? null,
-          // KS-2699: clocks для live-таймера на фронте.
-          whiteClockMs:
-            g.whiteClockMs !== null && g.whiteClockMs !== undefined
-              ? Number(g.whiteClockMs)
-              : null,
-          blackClockMs:
-            g.blackClockMs !== null && g.blackClockMs !== undefined
-              ? Number(g.blackClockMs)
-              : null,
-          clockUpdatedAt: g.clockUpdatedAt
-            ? g.clockUpdatedAt.toISOString()
-            : null,
-        })),
-      });
-    }
   }
 
   private async fetchActiveBroadcasts(): Promise<LichessBroadcast[]> {
@@ -857,16 +839,46 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     broadcastLichessId: string,
     round: LichessRound,
     isActive: boolean,
-  ): Promise<void> {
+  ): Promise<{ status: string } | null> {
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { lichessId: broadcastLichessId },
     });
-    if (!broadcast) return;
-    const status = round.finished
+    if (!broadcast) return null;
+    let status = round.finished
       ? 'finished'
       : isActive
         ? 'ongoing'
         : 'pending';
+
+    // KS-2722: Lichess иногда отдаёт `round.finished=true` по
+    // календарной дате, при этом партии ещё идут. Если локально у
+    // round'а есть незакрытые партии (`result NULL` или `result='*'`),
+    // override status на `ongoing` — round завершён только когда все
+    // партии получили финальный результат.
+    if (round.finished) {
+      const existing = await this.prisma.broadcastRound.findUnique({
+        where: { lichessRoundId: round.id },
+        select: { id: true },
+      });
+      if (existing) {
+        const [totalGames, liveGames] = await Promise.all([
+          this.prisma.broadcastGame.count({ where: { roundId: existing.id } }),
+          this.prisma.broadcastGame.count({
+            where: {
+              roundId: existing.id,
+              OR: [{ result: null }, { result: '*' }],
+            },
+          }),
+        ]);
+        if (totalGames > 0 && liveGames > 0) {
+          this.logger.log(
+            `[broadcast-sync] round ${round.id} Lichess says finished but ` +
+              `${liveGames}/${totalGames} games still active — keeping ongoing`,
+          );
+          status = 'ongoing';
+        }
+      }
+    }
     // KS-1813: предварительный детект типа турнира по name + format (без
     // структуры пар — они появятся только после processPgnUpdate).
     // Окончательный вердикт перезаписывает `classifyRoundBrackets` после
@@ -929,6 +941,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         `[broadcast-sync] applyBracketLinks(upsertRound) failed for broadcast=${broadcast.id.slice(0, 8)}: ${(e as Error).message}`,
       );
     }
+
+    return { status };
   }
 
   /** Returns true if an actual Lichess fetch was performed */
@@ -1205,6 +1219,50 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       });
       this.logger.log(
         `[broadcast-sync] processPgnUpdate: round=${roundId} closed (all ${games.length} games final)`,
+      );
+    }
+
+    // KS-2722: после каждого PGN-update публикуем full snapshot
+    // games через Redis pub/sub. Раньше publishSync вызывался только
+    // из `fetchAndProcessRoundPgn` (pinned-poll), а в streaming-режиме
+    // (`runStream → processPgnUpdate`) фронт получал только
+    // `broadcast:move` без обновлённого `result`. Из-за этого
+    // изменение `[Result "1-0"]` после партии не докатывалось до
+    // шапки live до следующего sync-цикла.
+    try {
+      const refreshed = await this.prisma.broadcastRound.findUnique({
+        where: { id: round.id },
+        include: { games: { orderBy: { updatedAt: 'asc' } } },
+      });
+      if (refreshed) {
+        this.publishSync(refreshed.id, {
+          roundId: refreshed.id,
+          status: refreshed.status,
+          games: refreshed.games.map((g, idx) => ({
+            gameIndex: idx,
+            fen: g.currentFen ?? STARTING_FEN,
+            whitePlayer: g.whitePlayer ?? 'Unknown',
+            blackPlayer: g.blackPlayer ?? 'Unknown',
+            result: g.result ?? null,
+            pgn: g.pgn ?? null,
+            // KS-2699: clocks для live-таймера на фронте.
+            whiteClockMs:
+              g.whiteClockMs !== null && g.whiteClockMs !== undefined
+                ? Number(g.whiteClockMs)
+                : null,
+            blackClockMs:
+              g.blackClockMs !== null && g.blackClockMs !== undefined
+                ? Number(g.blackClockMs)
+                : null,
+            clockUpdatedAt: g.clockUpdatedAt
+              ? g.clockUpdatedAt.toISOString()
+              : null,
+          })),
+        });
+      }
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] publishSync(processPgnUpdate) failed for round=${round.id.slice(0, 8)}: ${(e as Error).message}`,
       );
     }
   }
