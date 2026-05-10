@@ -35,15 +35,38 @@ export function sortGamesByWhite<
 }
 
 /**
- * Стабильный fingerprint списка партий по `id:pgnLen` независимо от порядка
- * массива. Используется в polling-циклах, чтобы `setGames` не дёргался при
- * перестановке порядка от backend (только при реальном изменении пар).
+ * Стабильный fingerprint списка партий независимо от порядка массива.
+ * Триггерит `setGames` при любом значимом изменении: PGN-длины
+ * (новый ход), `result` (партия завершилась — KS-2715), `currentFen`
+ * (board-state без роста PGN, например chess960-castling), и
+ * `clockUpdatedAt` (KS-2700, обновление часов без хода — например
+ * шахматные часы добавили инкремент в комментарий PGN).
+ *
+ * Поле `id` опционально: WS-payload иногда без него (см. KS-2710);
+ * fallback по парам игроков для стабильного ключа.
  */
 export function gamesFingerprint(
-  games: readonly { id: string; pgn?: string | null }[],
+  games: readonly {
+    id?: string;
+    whitePlayer?: string | null;
+    blackPlayer?: string | null;
+    pgn?: string | null;
+    result?: string | null;
+    currentFen?: string | null;
+    clockUpdatedAt?: string | null;
+  }[],
 ): string {
   return games
-    .map((g) => `${g.id}:${g.pgn?.length ?? 0}`)
+    .map((g) => {
+      const key = g.id ?? `${g.whitePlayer ?? '?'}|${g.blackPlayer ?? '?'}`;
+      return [
+        key,
+        g.pgn?.length ?? 0,
+        g.result ?? '*',
+        g.currentFen ?? '',
+        g.clockUpdatedAt ?? '',
+      ].join('::');
+    })
     .sort()
     .join('|');
 }
