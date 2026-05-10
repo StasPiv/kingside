@@ -72,23 +72,10 @@ function writeTheme(theme: SoundTheme): void {
 
 function getAudioContext(): AudioContext | null {
   try {
-    const ctx = new AudioContext();
-    // KS-2704: диагностические логи + экспозиция в window для ручной
-    // проверки в DevTools (`__kingsideAudioCtx.state`,
-    // `__kingsideAudioCtx.currentTime`). Будут удалены вместе с фиксом
-    // в следующем тикете, когда мы поймём по логам реальную причину.
-    // eslint-disable-next-line no-console
-    console.log(
-      `[useSounds] ctx created state=${ctx.state} sampleRate=${ctx.sampleRate}`,
-    );
-    if (typeof window !== 'undefined') {
-      (window as unknown as { __kingsideAudioCtx?: AudioContext }).__kingsideAudioCtx =
-        ctx;
-    }
-    return ctx;
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error('[useSounds] ctx creation failed', e);
+    return new AudioContext();
+  } catch {
+    // Старые браузеры без AudioContext / iOS lockdown — звуков просто
+    // не будет, остальной UI работает.
     return null;
   }
 }
@@ -517,10 +504,6 @@ export function useSounds() {
       const created = ctxRef.current;
       if (created) {
         created.addEventListener('statechange', () => {
-          // KS-2704: лог состояния — ловим момент перехода
-          // suspended→running (и обратно).
-          // eslint-disable-next-line no-console
-          console.log(`[useSounds] state→${created.state}`);
           setUnlocked(created.state === 'running');
         });
         setUnlocked(created.state === 'running');
@@ -529,10 +512,7 @@ export function useSounds() {
     const ctx = ctxRef.current;
     if (!ctx) return null;
     if (ctx.state === 'suspended') {
-      ctx.resume().catch((err) => {
-        // eslint-disable-next-line no-console
-        console.warn('[useSounds] auto-resume rejected', err);
-      });
+      ctx.resume().catch(() => undefined);
     }
     return ctx;
   }, []);
@@ -573,27 +553,12 @@ export function useSounds() {
    */
   const unlockSounds = useCallback(() => {
     const ctx = ensureContext();
-    // eslint-disable-next-line no-console
-    console.log(
-      `[useSounds] unlockSounds called, ctx=${ctx ? ctx.state : 'null'} currentTime=${ctx?.currentTime ?? 'n/a'}`,
-    );
     if (!ctx) return;
     if (ctx.state === 'suspended') {
       // Chrome требует resume именно из gesture handler'а; promise
       // можем не ждать — listener'у statechange он всё равно прокинет
       // 'running' асинхронно.
-      ctx
-        .resume()
-        .then(() => {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[useSounds] resume resolved, ctx.state=${ctx.state} currentTime=${ctx.currentTime}`,
-          );
-        })
-        .catch((err) => {
-          // eslint-disable-next-line no-console
-          console.warn('[useSounds] resume rejected', err);
-        });
+      ctx.resume().catch(() => undefined);
     } else {
       setUnlocked(true);
     }
@@ -601,29 +566,12 @@ export function useSounds() {
 
   const playSound = useCallback(
     (event: SoundEvent) => {
-      if (muted) {
-        // eslint-disable-next-line no-console
-        console.log(`[useSounds] playSound("${event}") skipped: muted`);
-        return;
-      }
+      if (muted) return;
       const ctx = ensureContext();
-      // eslint-disable-next-line no-console
-      console.log(
-        `[useSounds] playSound("${event}") ctx=${ctx ? ctx.state : 'null'} currentTime=${ctx?.currentTime ?? 'n/a'} theme=${theme}`,
-      );
       if (!ctx) return;
       const handler = THEMES[theme]?.[event];
       if (handler) {
         handler(ctx);
-        // eslint-disable-next-line no-console
-        console.log(
-          `[useSounds] playSound("${event}") handler invoked at currentTime=${ctx.currentTime}`,
-        );
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[useSounds] playSound("${event}") no handler for theme=${theme}`,
-        );
       }
     },
     [muted, ensureContext, theme],

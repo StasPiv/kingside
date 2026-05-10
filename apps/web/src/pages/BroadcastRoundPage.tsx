@@ -151,7 +151,6 @@ function uciToFeedSan(
     /* fall through */
   }
 
-  // eslint-disable-next-line no-console
   console.warn(
     `[feed-debug] uciToFeedSan failed all 3 attempts: uci=${uci} preFen=${preFen} postFen=${postFen}`,
   );
@@ -338,27 +337,11 @@ export function BroadcastRoundPage() {
           }
         }
       }
-      // KS-2704: диагностика звука. Логируем полное состояние,
-      // которое предшествует вызову playSound — чтобы по console-логу
-      // пользователя можно было точно увидеть, дошли ли мы до WS-
-      // обработчика, есть ли advancedSan, не выкошен ли звук флагом
-      // shouldPlaySound. Логи будут удалены вместе с финальным фиксом.
-      // eslint-disable-next-line no-console
-      console.log(
-        `[broadcast-sound] applyFreshGames advancedSan=${advancedSan ?? 'null'} shouldPlaySound=${shouldPlaySound} prev.length=${prev.length}`,
-      );
       if (shouldPlaySound && advancedSan) {
         const sinceMove = Date.now() - lastSoundAtRef.current;
-        if (sinceMove < 1500) {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[broadcast-sound] sync sound suppressed (handleMove already played ${sinceMove}ms ago)`,
-          );
-        } else {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[broadcast-sound] calling playSound for san=${advancedSan}`,
-          );
+        // KS-2704: ≥1500мс защита от двойного воспроизведения, когда и
+        // sync-апдейт, и broadcast:move прилетают почти одновременно.
+        if (sinceMove >= 1500) {
           playSound(soundEventFromSan(advancedSan));
           lastSoundAtRef.current = Date.now();
         }
