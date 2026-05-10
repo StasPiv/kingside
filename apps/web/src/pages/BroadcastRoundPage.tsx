@@ -77,14 +77,14 @@ export function BroadcastRoundPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   /**
-   * KS-2702. ID партии, которая последней получила ход среди всех в
-   * раунде. Используется чтобы отрисовать last-move-highlight ровно в
-   * одной мини-доске. Обновляется в `applyFreshGames` по diff PGN-длин
-   * между prev и fresh. На initial-sync (prev пуст) — не выставляем,
-   * чтобы при заходе на страницу подсветки не было ни в одной партии
-   * (по acceptance KS-2702 «Initial state без подсветки» — допустимо).
+   * Ключ партии (whitePlayer + blackPlayer + sourceId-fallback), которая
+   * последней получила ход среди всех в раунде. До прежней версии
+   * сравнение шло по `game.id`, но WS-payload broadcast:sync иногда
+   * приходит без `id` → undefined === undefined → подсветка на всех.
+   * Сейчас ключ всегда строится из имён игроков — они есть в любом
+   * формате payload'а, что даёт стабильное сравнение.
    */
-  const [lastMoveGameId, setLastMoveGameId] = useState<string | null>(null);
+  const [lastMoveKey, setLastMoveKey] = useState<string | null>(null);
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -122,6 +122,12 @@ export function BroadcastRoundPage() {
   //   - fallback-polling ниже — только когда `connected=false`.
   const prevGamesRef = useRef<LichessGame[]>([]);
 
+  // Ключ партии для сравнения «эта ли получила ход последней».
+  // Имена игроков стабильны между WS и REST, в отличие от `id` который
+  // в WS-payload иногда отсутствует.
+  const gameKey = (g: LichessGame): string =>
+    `${g.whitePlayer ?? ''}|${g.blackPlayer ?? ''}`;
+
   const applyFreshGames = useCallback(
     (fresh: LichessGame[], shouldPlaySound: boolean) => {
       const prev = prevGamesRef.current;
@@ -130,15 +136,16 @@ export function BroadcastRoundPage() {
       // апдейте». Берём ПЕРВУЮ найденную для звука и подсветки. Если
       // prev пуст (initial-sync) — пропускаем оба эффекта, чтобы при
       // заходе не было ложного звука и подсветка стартовала чистой.
-      let advancedGameId: string | null = null;
+      let advancedKey: string | null = null;
       let advancedSan: string | null = null;
       if (prev.length > 0) {
         for (const g of fresh) {
-          const prevGame = prev.find((p) => p.id === g.id);
+          const k = gameKey(g);
+          const prevGame = prev.find((p) => gameKey(p) === k);
           const prevPgnLen = prevGame?.pgn?.length ?? 0;
           const curPgnLen = g.pgn?.length ?? 0;
           if (curPgnLen > prevPgnLen && g.pgn) {
-            advancedGameId = g.id;
+            advancedKey = k;
             advancedSan = computeLastMoveSan(g.pgn);
             break;
           }
@@ -160,21 +167,14 @@ export function BroadcastRoundPage() {
         );
         playSound(soundEventFromSan(advancedSan));
       }
-      // KS-2702 → KS-2705: highlight last-move только в одной партии.
-      // На diff'е — ставим id партии, у которой PGN вырос.
-      // На initial-sync (prev пуст) — вычисляем «самую свежую» партию
-      // по `clockUpdatedAt` (KS-2699: он обновляется на каждом ходе)
-      // или fallback по самой длинной PGN. Это обеспечивает что
-      // пользователь сразу видит, где случился последний ход в раунде,
-      // а не пустоту до следующего обновления.
-      // На «тихих» апдейтах (advancedGameId === null, prev не пуст)
-      // оставляем предыдущее значение — последний известный ход
-      // продолжает гореть до следующего реального хода.
-      if (advancedGameId !== null) {
-        setLastMoveGameId(advancedGameId);
+      // На diff'е ставим key партии, у которой PGN вырос.
+      // На initial-sync (prev пуст) — выбираем партию по самому свежему
+      // clockUpdatedAt (fallback: самая длинная PGN). На тихих апдейтах
+      // оставляем предыдущее значение.
+      if (advancedKey !== null) {
+        setLastMoveKey(advancedKey);
       } else if (prev.length === 0) {
-        // Initial-sync: найти партию с самым свежим clockUpdatedAt.
-        let latestId: string | null = null;
+        let latestKey: string | null = null;
         let latestTs = -Infinity;
         for (const g of fresh) {
           const ts = g.clockUpdatedAt
@@ -182,24 +182,20 @@ export function BroadcastRoundPage() {
             : NaN;
           if (Number.isFinite(ts) && ts > latestTs) {
             latestTs = ts;
-            latestId = g.id;
+            latestKey = gameKey(g);
           }
         }
-        // Fallback: если ни у одной партии нет clockUpdatedAt —
-        // берём ту, у которой самый длинный PGN (это эвристика
-        // «больше всего сыграно ходов»; для одинаковой длины первая
-        // встретившаяся выигрывает).
-        if (latestId === null) {
+        if (latestKey === null) {
           let maxLen = -1;
           for (const g of fresh) {
             const len = g.pgn?.length ?? 0;
             if (len > maxLen) {
               maxLen = len;
-              latestId = g.id;
+              latestKey = gameKey(g);
             }
           }
         }
-        setLastMoveGameId(latestId);
+        setLastMoveKey(latestKey);
       }
       const fingerprint = gamesFingerprint(fresh);
       const prevFingerprint = gamesFingerprint(prev);
@@ -245,9 +241,10 @@ export function BroadcastRoundPage() {
         const next = prev.slice();
         const g = next[target];
         next[target] = { ...g, currentFen: payload.fen };
-        // Запоминаем ID для подсветки. setState внутри setState запрещён —
-        // делаем через микротаску.
-        Promise.resolve().then(() => setLastMoveGameId(g.id));
+        // Запоминаем ключ партии для подсветки. setState внутри setState
+        // запрещён — делаем через микротаску.
+        const k = gameKey(g);
+        Promise.resolve().then(() => setLastMoveKey(k));
         return next;
       });
     },
@@ -374,7 +371,9 @@ export function BroadcastRoundPage() {
                 key={game.id}
                 game={game}
                 onGameClick={handleGameClick}
-                showLastMoveHighlight={game.id === lastMoveGameId}
+                showLastMoveHighlight={
+                  lastMoveKey !== null && gameKey(game) === lastMoveKey
+                }
               />
             ))}
           </div>
