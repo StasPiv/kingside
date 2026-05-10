@@ -5,6 +5,8 @@ import {
   formatBroadcastClock,
   useBroadcastClock,
 } from '../../hooks/useBroadcastClock';
+import type { EvalSnapshot } from '../../hooks/useBroadcastEvalQueue';
+import { BroadcastEvalBar } from './BroadcastEvalBar';
 
 /**
  * Карточка партии трансляции с мини-доской.
@@ -44,6 +46,11 @@ interface BroadcastBoardCardProps {
    * чтобы не подсвечивать «два разных хода» при пропуске snapshot'а.
    */
   lastMoveUci?: string | null;
+  /**
+   * KS-2708. Снимок оценки от shared eval-queue. Если undefined —
+   * анализ ещё не выполнен; bar рисует серый плейсхолдер.
+   */
+  evalSnap?: EvalSnapshot | null;
 }
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -136,6 +143,7 @@ export function BroadcastBoardCard({
   clickable,
   showLastMoveHighlight = false,
   lastMoveUci,
+  evalSnap,
 }: BroadcastBoardCardProps) {
   const isClickable = clickable ?? Boolean(game.pgn);
   const fen = resolveFen(game.currentFen, game.pgn ?? '');
@@ -210,15 +218,28 @@ export function BroadcastBoardCard({
         )}
       </div>
       <div className="broadcast-board-wrap">
-        <Chessboard
-          options={{
-            position: fen,
-            allowDragging: false,
-            showNotation: false,
-            animationDurationInMs: 0,
-            squareStyles,
-          }}
+        {/* KS-2708: eval-bar слева от мини-доски. Если родитель не
+            передал evalSnap — bar рисует серый плейсхолдер. На
+            завершившейся партии передаём `finalResult`. */}
+        <BroadcastEvalBar
+          evalSnap={evalSnap ?? null}
+          finalResult={
+            isFinished && (game.result === '1-0' || game.result === '0-1' || game.result === '1/2-1/2')
+              ? (game.result as '1-0' | '0-1' | '1/2-1/2')
+              : null
+          }
         />
+        <div className="broadcast-board-wrap__board">
+          <Chessboard
+            options={{
+              position: fen,
+              allowDragging: false,
+              showNotation: false,
+              animationDurationInMs: 0,
+              squareStyles,
+            }}
+          />
+        </div>
       </div>
       <div className="broadcast-board-players">
         <span className="broadcast-player broadcast-player--white">

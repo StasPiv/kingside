@@ -16,6 +16,7 @@ import {
 } from '../components/broadcast/BroadcastLiveFeed';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
+import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
 // регрессией (вкладка Rounds всегда должна показывать доски партий).
 // Компонент остаётся в репо — он будет использован на вкладке
@@ -125,6 +126,9 @@ export function BroadcastRoundPage() {
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** KS-2707. ref'ы карточек по `gameKey` для scrollIntoView. */
   const cardRefsRef = useRef<Record<string, HTMLElement | null>>({});
+
+  // KS-2708: один shared WASM Stockfish + FIFO очередь анализа.
+  const { evals: evalsByKey, enqueue: enqueueEval } = useBroadcastEvalQueue();
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -256,6 +260,25 @@ export function BroadcastRoundPage() {
       }
       setLastMoveUciMap(uciNext);
 
+      // KS-2708: при initial-sync ставим в очередь оценку текущей
+      // позиции каждой live-партии. На последующих syncn'ах добавляем
+      // только те, где PGN вырос (учитывает diff PGN-длин выше).
+      // Завершённые партии (result !== '*') пропускаем.
+      const isInitial = prev.length === 0;
+      for (const g of fresh) {
+        if (g.result && g.result !== '*') continue;
+        const fenForEval = g.currentFen;
+        if (!fenForEval) continue;
+        if (isInitial) {
+          enqueueEval(gameKey(g), fenForEval);
+        } else {
+          const prevG = prev.find((p) => gameKey(p) === gameKey(g));
+          if ((prevG?.pgn?.length ?? 0) < (g.pgn?.length ?? 0)) {
+            enqueueEval(gameKey(g), fenForEval);
+          }
+        }
+      }
+
       const fingerprint = gamesFingerprint(fresh);
       const prevFingerprint = gamesFingerprint(prev);
       if (prev.length === 0 || fingerprint !== prevFingerprint) {
@@ -263,7 +286,7 @@ export function BroadcastRoundPage() {
       }
       prevGamesRef.current = fresh;
     },
-    [playSound],
+    [playSound, enqueueEval],
   );
 
   const handleSync = useCallback(
@@ -324,6 +347,13 @@ export function BroadcastRoundPage() {
         });
         return next;
       });
+      // KS-2708: новый ход → enqueue анализа (replace-by-key).
+      if (pre && (pre as { fen: string | null }).fen) {
+        enqueueEval(
+          `${(pre as { whitePlayer: string; blackPlayer: string }).whitePlayer}|${(pre as { whitePlayer: string; blackPlayer: string }).blackPlayer}`,
+          payload.fen,
+        );
+      }
       // KS-2707: добавляем строку в ленту. SAN считаем из pre-FEN'а
       // через chess.js; если конверт не удался — fallback на UCI.
       if (pre && payload.uci) {
@@ -367,7 +397,7 @@ export function BroadcastRoundPage() {
       // eslint-disable-next-line no-console
       console.log('[broadcast-sound] handleMove → playSound("move")');
     },
-    [playSound],
+    [playSound, enqueueEval],
   );
 
   const { connected } = useBroadcastSocket({
@@ -521,6 +551,7 @@ export function BroadcastRoundPage() {
                       lastMoveKey !== null && k === lastMoveKey
                     }
                     lastMoveUci={lastMoveUciMap[k] ?? null}
+                    evalSnap={evalsByKey[k] ?? null}
                   />
                 </div>
               );
