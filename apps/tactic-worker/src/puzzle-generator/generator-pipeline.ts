@@ -134,6 +134,20 @@ function passesGameFilters(
   if (tc && tc !== 'classical' && tc !== 'rapid' && tc !== 'blitz') {
     return false;
   }
+  // KS-2697: ENV-узкий список time-control категорий (CSV).
+  // По умолчанию pipeline принимает classical/rapid/blitz — но для
+  // /precision генератора нужно ограничить classical-only без
+  // изменений алгоритма. Пример: PUZZLE_GEN_TIME_CONTROL=classical.
+  const allowedTcEnv = process.env.PUZZLE_GEN_TIME_CONTROL;
+  if (allowedTcEnv) {
+    const allowed = allowedTcEnv
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowed.length > 0 && (!tc || !allowed.includes(tc))) {
+      return false;
+    }
+  }
   if (row.ply_count != null && row.ply_count < options.minPly) return false;
   if (
     row.white_elo != null &&
