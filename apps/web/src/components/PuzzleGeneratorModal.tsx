@@ -388,7 +388,14 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                 <div className="puzzle-generator-result-list">
                   {result.slice(0, 10).map((p, i) => (
                     <div key={i} className="puzzle-generator-result-item">
-                      <span className="puzzle-rating">{p.rating}</span>
+                      {/* KS-2692 (продолжение KS-2689): рейтинг
+                          сгенерированных пазлов рассчитывается по
+                          упрощённой формуле (ADR-044 §3.5) и в UX
+                          путает пользователя. Скрываем span до тех
+                          пор, пока формула не будет доработана.
+                          Поле `p.rating` остаётся в payload save'а
+                          (POST /puzzles/batch) — backend получает
+                          рейтинг как и раньше. */}
                       <span className="puzzle-gap">gap: {p.gap}</span>
                       <span className="puzzle-themes-inline">{p.themes}</span>
                     </div>
