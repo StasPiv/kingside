@@ -346,6 +346,31 @@
   font-size: 14px;
 }
 
+/* KS-2703: видимый CTA для разблокировки звука. AudioContext по
+   autoplay-policy не может resume без user-gesture'а. До тикета
+   мы пытались разблокировать через one-time pointer/key listener
+   (KS-2702), но юзер на live-трансляции часто просто смотрит и не
+   кликает — звук молча не работал. Теперь — видимая кнопка, которая
+   исчезает после клика (state `unlocked` → false). */
+.broadcast-sound-unlock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 12px;
+  padding: 6px 12px;
+  background: var(--ov-success-20, rgba(76, 175, 80, 0.18));
+  border: 1px solid var(--c-4caf50, #4caf50);
+  border-radius: 6px;
+  color: var(--c-e0e0e0);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.broadcast-sound-unlock:hover {
+  background: var(--ov-success-30, rgba(76, 175, 80, 0.28));
+}
+
 .broadcast-breadcrumbs {
   display: flex;
   align-items: center;

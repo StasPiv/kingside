@@ -241,6 +241,8 @@
     "roundsError": "Failed to load rounds",
     "syncError": "Connection error",
     "close": "Close",
+    "enableSound": "🔔 Enable move sound",
+    "soundEnabled": "🔔 Sound enabled",
     "playoff": {
       "title": "Playoff",
       "winners": "Winners bracket",

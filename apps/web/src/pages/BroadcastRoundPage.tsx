@@ -69,7 +69,7 @@ export function BroadcastRoundPage() {
   const { tournamentId, roundId } = useParams<{ tournamentId: string; roundId: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { playSound } = useSounds();
+  const { playSound, unlocked: soundUnlocked, unlockSounds } = useSounds();
 
   const [broadcast, setBroadcast] = useState<LichessBroadcastMeta | null>(null);
   const [rounds, setRounds] = useState<LichessRoundInfo[]>([]);
@@ -288,6 +288,22 @@ export function BroadcastRoundPage() {
         <span className="broadcast-breadcrumb-sep">/</span>
         <span>{currentRound?.name ?? ''}</span>
       </nav>
+
+      {/* KS-2703: явный CTA для разблокировки звука. AudioContext'у
+          в новой вкладке нужен user-gesture для запуска (autoplay-policy);
+          без видимой кнопки юзер не догадывается, что нужно тыкнуть на
+          страницу. Баннер уходит когда `unlocked=true` (Chrome перевёл
+          ctx в `running` — звук теперь играет). */}
+      {!soundUnlocked && (
+        <button
+          type="button"
+          className="broadcast-sound-unlock"
+          onClick={unlockSounds}
+          data-testid="broadcast-sound-unlock"
+        >
+          {t('broadcastRound.enableSound', '🔔 Enable move sound')}
+        </button>
+      )}
 
       {/* Round tabs */}
       <div className="broadcast-rounds-row">

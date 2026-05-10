@@ -94,7 +94,7 @@ export function BroadcastLiveGamePage() {
   }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { playSound } = useSounds();
+  const { playSound, unlocked: soundUnlocked, unlockSounds } = useSounds();
 
   const [broadcast, setBroadcast] = useState<BroadcastMeta | null>(null);
   const [round, setRound] = useState<LichessRound | null>(null);
@@ -329,6 +329,18 @@ export function BroadcastLiveGamePage() {
           {game.whitePlayer ?? '—'} vs {game.blackPlayer ?? '—'}
         </span>
       </nav>
+
+      {/* KS-2703: см. комментарий в BroadcastRoundPage. */}
+      {!soundUnlocked && (
+        <button
+          type="button"
+          className="broadcast-sound-unlock"
+          onClick={unlockSounds}
+          data-testid="broadcast-sound-unlock"
+        >
+          {t('broadcastRound.enableSound', '🔔 Enable move sound')}
+        </button>
+      )}
 
       <div className="broadcast-live-game">
         <div className="broadcast-live-game__board-col">

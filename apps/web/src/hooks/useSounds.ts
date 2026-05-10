@@ -452,6 +452,23 @@ export function useSounds() {
     }
   });
   const [theme, setTheme] = useState<SoundTheme>(() => readTheme());
+  /**
+   * KS-2703. Реальное состояние AudioContext'а — `true` пока он
+   * `running`. Используется UI-баннером «🔔 Включить звук» на страницах
+   * трансляций. До этого тикета:
+   *   - KS-2702 ставил one-time pointer/key/touch-listener, но без
+   *     user-gesture'а (юзер открыл live-страницу и просто смотрит)
+   *     listener не срабатывал, AudioContext'у создавался в suspended,
+   *     handler темы делал `osc.start(ctx.currentTime)` — currentTime
+   *     застывает на suspended-ctx, тоны не играли.
+   *   - В фоновой вкладке Chrome иногда сам делает resume по
+   *     visibilitychange, и звук проявлялся (отсюда жалоба «в фоновой
+   *     играет, в активной молчит»).
+   * Теперь публикуем `unlocked`-флаг, по которому страницы трансляций
+   * показывают явный CTA. Слушаем `ctx.statechange`, чтобы флаг
+   * корректно сбрасывался при auto-suspend.
+   */
+  const [unlocked, setUnlocked] = useState(false);
 
   // KS-2172: подписываемся на смену темы — и для текущей вкладки
   // (custom event), и для других вкладок (storage event).
@@ -479,6 +496,16 @@ export function useSounds() {
   const ensureContext = useCallback((): AudioContext | null => {
     if (!ctxRef.current) {
       ctxRef.current = getAudioContext();
+      // KS-2703: сразу подписываемся на statechange, чтобы UI знал
+      // когда ctx стал running/suspended (Chrome автоматически
+      // suspendит в фоновой вкладке, при возврате может resume).
+      const created = ctxRef.current;
+      if (created) {
+        created.addEventListener('statechange', () => {
+          setUnlocked(created.state === 'running');
+        });
+        setUnlocked(created.state === 'running');
+      }
     }
     const ctx = ctxRef.current;
     if (!ctx) return null;
@@ -488,15 +515,11 @@ export function useSounds() {
     return ctx;
   }, []);
 
-  // KS-2702: autoplay policy. Если первое срабатывание `playSound`
-  // приходит не из user-gesture (например, по WebSocket-сообщению от
-  // backend'а на странице, куда юзер только что зашёл и пока не
-  // взаимодействовал) — браузер не разрешит воспроизведение даже после
-  // `ctx.resume()`. Регистрируем one-time listener на любой
-  // pointer/key/touch-event и насильно «прогреваем» AudioContext в
-  // user-gesture handler'e — после этого все последующие playSound'ы
-  // (хоть из таймера, хоть из WS) уже срабатывают штатно. Idempotent:
-  // если ctx уже running — listener просто снимется без эффекта.
+  // KS-2702 → KS-2703. Best-effort one-time listener — пробует
+  // прогреть ctx когда юзер тыкнет где-то на странице. Если он этого
+  // не делает (типичный сценарий live-трансляции — открыл и смотрит),
+  // страница показывает явный «🔔 Включить звук» CTA через
+  // `unlocked` + `unlockSounds()`.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const unlock = () => {
@@ -505,8 +528,6 @@ export function useSounds() {
       window.removeEventListener('keydown', unlock);
       window.removeEventListener('touchstart', unlock);
       if (!ctx) return;
-      // resume() возвращает promise; ошибки нам не интересны — следующий
-      // playSound разбудит контекст ещё раз через тот же путь.
       if (ctx.state === 'suspended') {
         ctx.resume().catch(() => undefined);
       }
@@ -519,6 +540,26 @@ export function useSounds() {
       window.removeEventListener('keydown', unlock);
       window.removeEventListener('touchstart', unlock);
     };
+  }, [ensureContext]);
+
+  /**
+   * KS-2703: явная разблокировка звука. Вызывается ИЗ user-gesture
+   * handler'а (например, `onClick` баннера «Включить звук» на странице
+   * трансляции). Создаёт AudioContext если не создан и резюмирует его.
+   * После успеха `unlocked` через `statechange`-listener станет true,
+   * UI скрывает CTA.
+   */
+  const unlockSounds = useCallback(() => {
+    const ctx = ensureContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      // Chrome требует resume именно из gesture handler'а; promise
+      // можем не ждать — listener'у statechange он всё равно прокинет
+      // 'running' асинхронно.
+      ctx.resume().catch(() => undefined);
+    } else {
+      setUnlocked(true);
+    }
   }, [ensureContext]);
 
   const playSound = useCallback(
@@ -549,7 +590,17 @@ export function useSounds() {
     writeTheme(next);
   }, []);
 
-  return { playSound, muted, toggleMute, theme, setTheme: changeTheme };
+  return {
+    playSound,
+    muted,
+    toggleMute,
+    theme,
+    setTheme: changeTheme,
+    /** KS-2703. true когда AudioContext в `running` (звук точно сыграет). */
+    unlocked,
+    /** KS-2703. Зови из user-gesture handler'а, чтобы разблокировать звук. */
+    unlockSounds,
+  };
 }
 
 /** Определяет тип звука по SAN нотации хода */
