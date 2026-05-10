@@ -437,42 +437,19 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
   });
 });
 
-describe('<PrecisionPage> KS-2545 — stats-блок', () => {
-  it('рендерит totalAttempted/totalSolved/lastAttemptAt из API', async () => {
+describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () => {
+  it('рендерит 4 карточки из /precision/stats/me', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
-      if (url === '/puzzles/stats/me') {
+      if (url === '/precision/stats/me') {
         return Promise.resolve({
-          byMode: {
-            'forced-line': {
-              attempts: 30,
-              solved: 20,
-              accuracy: 67,
-              avgRating: 1500,
-              avgTimeMs: 12000,
-            },
-            'play-vs-engine': {
-              attempts: 12,
-              solved: 7,
-              accuracy: 58,
-              avgRating: 1980,
-              avgTimeMs: 32000,
-            },
-          },
+          totalAttempts: 12,
+          preservedCount: 7,
+          avgAccuracyPercent: 76.5,
+          avgWdlLeakPerMove: 0.034,
+          avgHalfMovesUntilFirstMistake: 4.2,
         });
-      }
-      if (url === '/puzzles/attempts?take=20&skip=0') {
-        return Promise.resolve([
-          {
-            createdAt: '2026-05-06T10:00:00Z',
-            puzzle: { solutionMode: 'forced-line' },
-          },
-          {
-            createdAt: '2026-05-05T15:00:00Z',
-            puzzle: { solutionMode: 'play-vs-engine' },
-          },
-        ]);
       }
       return Promise.resolve([]);
     });
@@ -482,49 +459,35 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
       if (!el) throw new Error('stats not yet rendered');
       return el;
     });
+    expect(block.getAttribute('data-state')).toBe('ready');
     expect(block.getAttribute('data-attempts')).toBe('12');
-    expect(block.getAttribute('data-solved')).toBe('7');
+    expect(block.getAttribute('data-preserved')).toBe('7');
     expect(
-      screen.getByTestId('precision-stats-attempted').textContent,
-    ).toMatch(/12/);
-    expect(screen.getByTestId('precision-stats-solved').textContent).toMatch(
-      /7/,
-    );
-    const lastEl = screen.getByTestId('precision-stats-last-attempt');
-    expect(lastEl.textContent).not.toMatch(/—/);
+      screen.getByTestId('precision-stats-accuracy').textContent,
+    ).toMatch(/77%|76%/);
+    expect(
+      screen.getByTestId('precision-stats-preserved').textContent,
+    ).toMatch(/7/);
+    expect(
+      screen.getByTestId('precision-stats-leak').textContent,
+    ).toMatch(/3\.4%/);
+    expect(
+      screen.getByTestId('precision-stats-first-mistake').textContent,
+    ).toMatch(/4\.2/);
   });
 
-  it('user без play-vs-engine attempts → lastAttemptAt = «—»', async () => {
+  it('totalAttempts=0 → показывает placeholder', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap([]));
-      if (url === '/puzzles/stats/me') {
+      if (url === '/precision/stats/me') {
         return Promise.resolve({
-          byMode: {
-            'forced-line': {
-              attempts: 5,
-              solved: 4,
-              accuracy: 80,
-              avgRating: 1500,
-              avgTimeMs: 10000,
-            },
-            'play-vs-engine': {
-              attempts: 0,
-              solved: 0,
-              accuracy: 0,
-              avgRating: null,
-              avgTimeMs: 0,
-            },
-          },
+          totalAttempts: 0,
+          preservedCount: 0,
+          avgAccuracyPercent: null,
+          avgWdlLeakPerMove: null,
+          avgHalfMovesUntilFirstMistake: null,
         });
-      }
-      if (url === '/puzzles/attempts?take=20&skip=0') {
-        return Promise.resolve([
-          {
-            createdAt: '2026-05-06T10:00:00Z',
-            puzzle: { solutionMode: 'forced-line' },
-          },
-        ]);
       }
       return Promise.resolve([]);
     });
@@ -534,20 +497,17 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
       if (!el) throw new Error('stats not yet rendered');
       return el;
     });
-    expect(block.getAttribute('data-attempts')).toBe('0');
-    expect(block.getAttribute('data-solved')).toBe('0');
+    expect(block.getAttribute('data-state')).toBe('empty');
     expect(
-      screen.getByTestId('precision-stats-last-attempt').textContent,
-    ).toMatch(/—/);
+      screen.getByTestId('precision-stats-placeholder'),
+    ).toBeTruthy();
   });
 
-  it('stats/me падает → блок рендерится с нулями (graceful)', async () => {
+  it('endpoint падает → placeholder (graceful)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
-      if (url === '/puzzles/stats/me') return Promise.reject(new Error('500'));
-      if (url === '/puzzles/attempts?take=20&skip=0')
-        return Promise.reject(new Error('500'));
+      if (url === '/precision/stats/me') return Promise.reject(new Error('500'));
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);
@@ -556,10 +516,35 @@ describe('<PrecisionPage> KS-2545 — stats-блок', () => {
       if (!el) throw new Error('stats not yet rendered');
       return el;
     });
-    expect(block.getAttribute('data-attempts')).toBe('0');
-    expect(block.getAttribute('data-solved')).toBe('0');
+    expect(block.getAttribute('data-state')).toBe('empty');
     expect(
-      screen.getByTestId('precision-stats-last-attempt').textContent,
-    ).toMatch(/—/);
+      screen.getByTestId('precision-stats-placeholder'),
+    ).toBeTruthy();
+  });
+});
+
+describe('<PrecisionPage> KS-2719 F3 — toggle Скрыть удержанные', () => {
+  it('рендерит toggle и пробрасывает hideSolved=true в URL', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
+      if (url === '/precision/stats/me') {
+        return Promise.resolve({
+          totalAttempts: 5,
+          preservedCount: 3,
+          avgAccuracyPercent: 80,
+          avgWdlLeakPerMove: 0.02,
+          avgHalfMovesUntilFirstMistake: 5,
+        });
+      }
+      return Promise.resolve([]);
+    });
+    renderWithProviders(<PrecisionPage />);
+    const toggle = await waitFor(() => {
+      const el = screen.queryByTestId('precision-hide-preserved-input');
+      if (!el) throw new Error('toggle not rendered');
+      return el as HTMLInputElement;
+    });
+    expect(toggle.checked).toBe(false);
   });
 });

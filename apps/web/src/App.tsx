@@ -13,6 +13,8 @@ import { SettingsPage } from './pages/SettingsPage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 // KS-2484 (ADR-044): отдельный список play-vs-engine пазлов.
 import { PrecisionPage } from './pages/PrecisionPage';
+// KS-2719 F4 / ADR-056 §5: detail-страница одной precision-попытки.
+import { PrecisionAttemptPage } from './pages/PrecisionAttemptPage';
 import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
@@ -346,6 +348,11 @@ export function App() {
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
             <Route path="/precision" element={<PrecisionPage />} />
+            {/* KS-2719 F4 / ADR-056 §5: detail-страница попытки. */}
+            <Route
+              path="/precision/attempts/:id"
+              element={<PrecisionAttemptPage />}
+            />
             <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
             {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
             <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />

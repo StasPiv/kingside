@@ -1313,8 +1313,19 @@
     "stats": {
       "totalAttempted": "Попыток",
       "totalSolved": "Решено",
-      "lastAttempt": "Последняя"
+      "lastAttempt": "Последняя",
+      "avgAccuracy": "Точность ходов",
+      "avgAccuracyHint": "Средний % точности по всем попыткам",
+      "preservedRatio": "Удержано / Упущено",
+      "preservedRatioHint": "Сколько раз удержано преимущество",
+      "wdlLeak": "Утечка WDL за ход",
+      "wdlLeakHint": "Среднее снижение шансов на победу за полуход",
+      "untilFirstMistake": "До первой ошибки",
+      "untilFirstMistakeHint": "Среднее число точных ходов до первой неточности",
+      "placeholder": "Сыграй первую попытку",
+      "noData": "—"
     },
+    "hidePreserved": "Скрыть удержанные",
     "tabs": {
       "label": "Фильтр пазлов",
       "all": "Все",
@@ -1337,6 +1348,33 @@
       "visibilityError": "Не удалось обновить видимость",
       "deleted": "Пазл удалён",
       "deleteError": "Не удалось удалить пазл"
+    }
+  },
+  "precisionAttempt": {
+    "title": "Попытка #{{id}}",
+    "notFound": "Попытка не найдена или больше недоступна.",
+    "summary": {
+      "result": "Результат",
+      "halfMoves": "Полуходы",
+      "accuracy": "Точность",
+      "wdlLeakSum": "Утечка WDL"
+    },
+    "result": {
+      "preserved": "Удержано",
+      "lost": "Упущено",
+      "aborted": "Прервано"
+    },
+    "sparkline": {
+      "title": "Динамика WDL",
+      "aria": "Динамика WDL по полуходам"
+    },
+    "classifications": {
+      "title": "Классификация ходов",
+      "best": "Лучший",
+      "good": "Хороший",
+      "inaccuracy": "Неточность",
+      "mistake": "Ошибка",
+      "blunder": "Зевок"
     }
   },
   "puzzleStats": {

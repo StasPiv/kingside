@@ -46,6 +46,16 @@ export type PlayVsEngineSubmit = {
   finalWdl: number;
   reason: PlayVsEnginePuzzleReason;
   timeMs: number;
+  /**
+   * KS-2719 / ADR-056 §4 F1. Полный лог snapshot'ов user-ходов
+   * (`UserBestSnapshot[]`), накопленный во время попытки. Отправляется
+   * на backend как `moves` в `submitAttempt` payload — там пересчитают
+   * accuracy/classification по server-trust (ADR-055).
+   *
+   * На каждый user-ход содержит: ply, fenBefore, playedUci, bestUci,
+   * cpBefore, cpAfter, wdlBefore, wdlAfter, depth (см. UserBestSnapshot).
+   */
+  moves: UserBestSnapshot[];
 };
 
 export interface PlayVsEngineRunnerProps {
@@ -412,10 +422,17 @@ export function PlayVsEngineRunner({
         finalWdl,
         reason: finishReason,
         timeMs: Date.now() - startTimeRef.current,
+        // KS-2719 F1: передаём полный лог user-ходов родителю. Он
+        // прицепит к `submitAttempt`. Локальная копия — снимок
+        // userBestLog на момент завершения партии (KS-2508 fallback-
+        // effect мог дописать cpAfter уже после finishWin/finishLose,
+        // тогда родителю придёт неполный лог; в KS-2719 это нормально
+        // — backend сделает classification по тому, что есть).
+        moves: userBestLog,
       };
       void onSubmit?.(data);
     },
-    [onSubmit],
+    [onSubmit, userBestLog],
   );
 
   // ── Win / lose helpers ───────────────────────────────────────────────

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
-import type { PuzzleStatsByMode } from '@kingside/shared';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 // KS-2661: «Generate from PGN» переехала сюда из `PuzzleBrowserPage`.
@@ -58,19 +57,22 @@ function sideFromFen(fen: string): 'white' | 'black' {
   return parts[1] === 'b' ? 'black' : 'white';
 }
 
-interface PrecisionStatsState {
-  totalAttempted: number;
-  totalSolved: number;
-  lastAttemptAt: string | null;
-}
-
-interface PuzzleStatsMeResponse {
-  byMode?: PuzzleStatsByMode;
-}
-
-interface AttemptListItem {
-  createdAt: string;
-  puzzle?: { solutionMode?: 'forced-line' | 'play-vs-engine' };
+/**
+ * KS-2719 / ADR-056 §3.4 + §2.1. Контракт ответа `GET /precision/stats/me`.
+ * Backend задача (KS-2718) ещё не выкатилась — до выкатки делаем
+ * graceful fallback (404/4xx → null → placeholder «Сыграй первую попытку»).
+ *
+ * Все поля «average» — null когда attempts=0. `preservedCount` всегда
+ * число (0 если пусто). `avgWdlLeakPerMove` хранится в долях (0..1),
+ * на UI преобразуем в проценты. `avgHalfMovesUntilFirstMistake` — null
+ * если ни в одной попытке не было ошибки (всё «лучшие» ходы).
+ */
+interface PrecisionStatsResponse {
+  totalAttempts: number;
+  preservedCount: number;
+  avgAccuracyPercent: number | null;
+  avgWdlLeakPerMove: number | null;
+  avgHalfMovesUntilFirstMistake: number | null;
 }
 
 function isVisibility(v: string | null): v is 'draft' | 'public' | 'all' {
@@ -100,6 +102,12 @@ export function PrecisionPage() {
   )
     ? visibilityParam
     : undefined;
+  // KS-2719 F3 / ADR-055 §F1. URL-флаг «Скрыть удержанные»: тот же
+  // backend-фильтр `hideSolved=true` (бэкенд отбрасывает попытки, где
+  // юзер удержал преимущество). На UI копия отличается от /puzzles —
+  // там «Скрыть решённые», здесь «Скрыть удержанные» (precision-
+  // лексика: preserved/lost вместо solved/failed).
+  const hideSolvedParam = searchParams.get('hideSolved') === 'true';
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -109,9 +117,10 @@ export function PrecisionPage() {
       source: 'generated',
       mine: mineParam ? true : undefined,
       visibility,
+      hideSolved: hideSolvedParam ? true : undefined,
       limit: LIMIT,
     }),
-    [mineParam, visibility],
+    [mineParam, visibility, hideSolvedParam],
   );
 
   const {
@@ -122,7 +131,7 @@ export function PrecisionPage() {
     removeLocally,
   } = useInfinitePuzzles(filters);
 
-  const [stats, setStats] = useState<PrecisionStatsState | null>(null);
+  const [stats, setStats] = useState<PrecisionStatsResponse | null>(null);
 
   /** id пазла, который сейчас публикуется (для disable + spinner). */
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -298,31 +307,23 @@ export function PrecisionPage() {
     [pendingActionId, removeLocally, showToast, t],
   );
 
-  // Stats — без изменений после KS-2545. Переезжать на хук смысла нет:
-  // источник `/puzzles/stats/me` отдельный.
+  // KS-2719 F2 / ADR-056 §3.4. Источник top-блока — отдельный
+  // endpoint `/precision/stats/me` (precision-aggregates: accuracy,
+  // preserved/lost ratio, wdl-leak, до первой ошибки). Старый блок
+  // c `attempts/solved/lastAttempt` из `/puzzles/stats/me` удалён —
+  // его заменили 4 карточки. До выкатки KS-2718 endpoint вернёт 404,
+  // мы грейсфолим в null → UI показывает placeholder «Сыграй первую
+  // попытку».
   const fetchStats = useCallback(async () => {
     if (!user) {
       setStats(null);
       return;
     }
     try {
-      const [statsRes, attemptsRes] = await Promise.all([
-        api.get<PuzzleStatsMeResponse>('/puzzles/stats/me').catch(() => null),
-        api
-          .get<AttemptListItem[]>('/puzzles/attempts?take=20&skip=0')
-          .catch(() => [] as AttemptListItem[]),
-      ]);
-      const mode = statsRes?.byMode?.['play-vs-engine'];
-      const attempts = Array.isArray(attemptsRes) ? attemptsRes : [];
-      const lastPve =
-        attempts.find(
-          (a) => a.puzzle?.solutionMode === 'play-vs-engine',
-        ) ?? null;
-      setStats({
-        totalAttempted: mode?.attempts ?? 0,
-        totalSolved: mode?.solved ?? 0,
-        lastAttemptAt: lastPve ? lastPve.createdAt : null,
-      });
+      const data = await api
+        .get<PrecisionStatsResponse>('/precision/stats/me')
+        .catch(() => null);
+      setStats(data);
     } catch {
       setStats(null);
     }
@@ -412,52 +413,143 @@ export function PrecisionPage() {
             </button>
           </nav>
         )}
-        {/* KS-2545 / ADR-048 §6: top-блок stats. Видим только
-            аутентифицированному юзеру (gate `user`) — гостям API
-            возвращает 401 и stats будет null. */}
-        {user && stats && (
-          <div
-            className="precision-stats"
-            data-testid="precision-stats"
-            data-attempts={String(stats.totalAttempted)}
-            data-solved={String(stats.totalSolved)}
+        {/* KS-2719 F2 / ADR-056 §2.1: 4-карточечный top-блок precision.
+            Видим только аутентифицированному юзеру (gate `user`).
+            Если backend ещё не вернул данные / у юзера 0 попыток —
+            показываем placeholder «Сыграй первую попытку», а не
+            пустые карточки. */}
+        {user && (() => {
+          const hasData = stats != null && stats.totalAttempts > 0;
+          const fmtAccuracy = (p: number | null) =>
+            p == null ? t('precision.stats.noData', '—') : `${Math.round(p)}%`;
+          const fmtLeak = (l: number | null) => {
+            if (l == null) return t('precision.stats.noData', '—');
+            // ADR-056 §2.1: avgWdlLeakPerMove — доли (0..1) среднего
+            // снижения WDL_user за полуход. На UI крупная цифра в %
+            // (понятнее «4%» чем «0.04»).
+            return `${(l * 100).toFixed(1)}%`;
+          };
+          const fmtFirstMistake = (n: number | null) =>
+            n == null ? t('precision.stats.noData', '—') : n.toFixed(1);
+          return (
+            <div
+              className="precision-stats"
+              data-testid="precision-stats"
+              data-state={hasData ? 'ready' : 'empty'}
+              data-attempts={String(stats?.totalAttempts ?? 0)}
+              data-preserved={String(stats?.preservedCount ?? 0)}
+            >
+              {!hasData && (
+                <p
+                  className="precision-stats__placeholder"
+                  data-testid="precision-stats-placeholder"
+                >
+                  {t('precision.stats.placeholder', 'Play your first attempt')}
+                </p>
+              )}
+              {hasData && stats && (
+                <>
+                  <div
+                    className="precision-stats__cell"
+                    data-testid="precision-stats-accuracy"
+                  >
+                    <div className="precision-stats__value">
+                      {fmtAccuracy(stats.avgAccuracyPercent)}
+                    </div>
+                    <div className="precision-stats__label">
+                      {t('precision.stats.avgAccuracy', 'Move accuracy')}
+                    </div>
+                    <div className="precision-stats__hint">
+                      {t(
+                        'precision.stats.avgAccuracyHint',
+                        'Average accuracy across all attempts',
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className="precision-stats__cell"
+                    data-testid="precision-stats-preserved"
+                  >
+                    <div className="precision-stats__value">
+                      {stats.preservedCount} / {Math.max(0, stats.totalAttempts - stats.preservedCount)}
+                    </div>
+                    <div className="precision-stats__label">
+                      {t(
+                        'precision.stats.preservedRatio',
+                        'Preserved / Lost',
+                      )}
+                    </div>
+                    <div className="precision-stats__hint">
+                      {stats.totalAttempts > 0
+                        ? `${Math.round((stats.preservedCount / stats.totalAttempts) * 100)}%`
+                        : t('precision.stats.noData', '—')}
+                    </div>
+                  </div>
+                  <div
+                    className="precision-stats__cell"
+                    data-testid="precision-stats-leak"
+                  >
+                    <div className="precision-stats__value">
+                      {fmtLeak(stats.avgWdlLeakPerMove)}
+                    </div>
+                    <div className="precision-stats__label">
+                      {t('precision.stats.wdlLeak', 'WDL leak per move')}
+                    </div>
+                    <div className="precision-stats__hint">
+                      {t(
+                        'precision.stats.wdlLeakHint',
+                        'Average drop in winning chances per half-move',
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className="precision-stats__cell"
+                    data-testid="precision-stats-first-mistake"
+                  >
+                    <div className="precision-stats__value">
+                      {fmtFirstMistake(stats.avgHalfMovesUntilFirstMistake)}
+                    </div>
+                    <div className="precision-stats__label">
+                      {t(
+                        'precision.stats.untilFirstMistake',
+                        'Until first mistake',
+                      )}
+                    </div>
+                    <div className="precision-stats__hint">
+                      {t(
+                        'precision.stats.untilFirstMistakeHint',
+                        'Average number of accurate moves before the first inaccuracy',
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
+        {/* KS-2719 F3 / ADR-055 §F1. Toggle «Скрыть удержанные» —
+            переиспользует backend-фильтр `hideSolved=true`. На /puzzles
+            копия «Скрыть решённые», здесь — «Скрыть удержанные»
+            (precision-лексика). Видим только аутентифицированному
+            юзеру: гостям /precision/attempts JOIN не делает. */}
+        {user && (
+          <label
+            className="precision-hide-preserved"
+            data-testid="precision-hide-preserved"
           >
-            <div
-              className="precision-stats__cell"
-              data-testid="precision-stats-attempted"
-            >
-              <div className="precision-stats__value">
-                {stats.totalAttempted}
-              </div>
-              <div className="precision-stats__label">
-                {t('precision.stats.totalAttempted', 'Attempts')}
-              </div>
-            </div>
-            <div
-              className="precision-stats__cell"
-              data-testid="precision-stats-solved"
-            >
-              <div className="precision-stats__value">
-                {stats.totalSolved}
-              </div>
-              <div className="precision-stats__label">
-                {t('precision.stats.totalSolved', 'Solved')}
-              </div>
-            </div>
-            <div
-              className="precision-stats__cell"
-              data-testid="precision-stats-last-attempt"
-            >
-              <div className="precision-stats__value">
-                {stats.lastAttemptAt
-                  ? new Date(stats.lastAttemptAt).toLocaleDateString()
-                  : '—'}
-              </div>
-              <div className="precision-stats__label">
-                {t('precision.stats.lastAttempt', 'Last attempt')}
-              </div>
-            </div>
-          </div>
+            <input
+              type="checkbox"
+              checked={hideSolvedParam}
+              onChange={(e) => {
+                const sp = new URLSearchParams(searchParams);
+                if (e.target.checked) sp.set('hideSolved', 'true');
+                else sp.delete('hideSolved');
+                setSearchParams(sp, { replace: false });
+              }}
+              data-testid="precision-hide-preserved-input"
+            />
+            {t('precision.hidePreserved', 'Hide preserved')}
+          </label>
         )}
       </header>
 

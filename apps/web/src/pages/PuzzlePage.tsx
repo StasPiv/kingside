@@ -442,12 +442,27 @@ export function PuzzlePage() {
       if (!puzzle) return;
       if (!user) return;
       try {
+        // KS-2719 F1: пробрасываем полный лог user-ходов (UserBestSnapshot[])
+        // на backend для server-trust accuracy. Маппинг halfMove → ply
+        // (backend ожидает 1-based ply). До выкатки KS-2717 поле просто
+        // игнорируется сервером.
         await puzzleApi.submitAttempt(puzzle.id, {
           result: data.solved ? 'solved' : 'failed',
           timeMs: data.timeMs,
           halfMovesPlayed: data.halfMovesPlayed,
           finalWdl: data.finalWdl,
           reason: data.reason,
+          moves: data.moves.map((s) => ({
+            ply: s.halfMove,
+            fenBefore: s.fenBefore,
+            playedUci: s.playedUci,
+            bestUci: s.bestUci,
+            cpBefore: s.cpBefore,
+            cpAfter: s.cpAfter,
+            wdlBefore: s.wdlBefore,
+            wdlAfter: s.wdlAfter,
+            depth: s.depth,
+          })),
         });
       } catch {
         /* MVP: молча игнорируем сетевые ошибки submit'а. */

@@ -1299,8 +1299,19 @@
     "stats": {
       "totalAttempted": "Attempts",
       "totalSolved": "Solved",
-      "lastAttempt": "Last attempt"
+      "lastAttempt": "Last attempt",
+      "avgAccuracy": "Move accuracy",
+      "avgAccuracyHint": "Average accuracy across all attempts",
+      "preservedRatio": "Preserved / Lost",
+      "preservedRatioHint": "How often you held the advantage",
+      "wdlLeak": "WDL leak per move",
+      "wdlLeakHint": "Average drop in winning chances per half-move",
+      "untilFirstMistake": "Until first mistake",
+      "untilFirstMistakeHint": "Average number of accurate moves before the first inaccuracy",
+      "placeholder": "Play your first attempt",
+      "noData": "—"
     },
+    "hidePreserved": "Hide preserved",
     "tabs": {
       "label": "Puzzle filter",
       "all": "All",
@@ -1323,6 +1334,33 @@
       "visibilityError": "Failed to update visibility",
       "deleted": "Puzzle deleted",
       "deleteError": "Failed to delete puzzle"
+    }
+  },
+  "precisionAttempt": {
+    "title": "Attempt #{{id}}",
+    "notFound": "Attempt not found or no longer available.",
+    "summary": {
+      "result": "Result",
+      "halfMoves": "Half-moves",
+      "accuracy": "Accuracy",
+      "wdlLeakSum": "WDL leak total"
+    },
+    "result": {
+      "preserved": "Preserved",
+      "lost": "Lost",
+      "aborted": "Aborted"
+    },
+    "sparkline": {
+      "title": "WDL trajectory",
+      "aria": "WDL trajectory across half-moves"
+    },
+    "classifications": {
+      "title": "Move classifications",
+      "best": "Best",
+      "good": "Good",
+      "inaccuracy": "Inaccuracy",
+      "mistake": "Mistake",
+      "blunder": "Blunder"
     }
   },
   "puzzleStats": {
