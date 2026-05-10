@@ -101,7 +101,7 @@ export function GamePage() {
         return;
       } catch (err: any) {
         const msg = err?.message ?? String(err);
-        sendClientLog('bot-error', `triggerBotMove attempt ${attempt}/${maxAttempts} failed: ${msg}`);
+        sendClientLog('error', `[bot] triggerBotMove attempt ${attempt}/${maxAttempts} failed: ${msg}`);
         if (attempt === maxAttempts) {
           console.error('[bot] all retries failed, server fallback will take over', err);
           return;

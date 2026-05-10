@@ -37,7 +37,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
 
   useEffect(() => {
     if (!isActive || botLevel == null) return;
-    sendClientLog('bot', `worker start: game=${gameId?.slice(0, 8)} level=${botLevel}`);
+    sendClientLog('info', `[bot] worker start: game=${gameId?.slice(0, 8)} level=${botLevel}`);
 
     const worker = new Worker('/stockfish/stockfish-18-single.js');
     workerRef.current = worker;
@@ -51,7 +51,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
 
     const readyTimeout = setTimeout(() => {
       if (!readyRef.current) {
-        sendClientLog('bot-error', `worker ready timeout after ${READY_TIMEOUT_MS}ms`);
+        sendClientLog('error', `[bot] worker ready timeout after ${READY_TIMEOUT_MS}ms`);
         readyRejectRef.current?.(new Error('Engine init timeout'));
       }
     }, READY_TIMEOUT_MS);
@@ -67,13 +67,13 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
         if (!readyRef.current) {
           readyRef.current = true;
           clearTimeout(readyTimeout);
-          sendClientLog('bot', `worker ready: game=${gameId?.slice(0, 8)}`);
+          sendClientLog('info', `[bot] worker ready: game=${gameId?.slice(0, 8)}`);
           readyResolveRef.current?.();
         }
       }
     };
     const onError = (ev: ErrorEvent) => {
-      sendClientLog('bot-error', `worker error: game=${gameId?.slice(0, 8)} msg=${ev.message ?? 'unknown'}`);
+      sendClientLog('error', `[bot] worker error: game=${gameId?.slice(0, 8)} msg=${ev.message ?? 'unknown'}`);
       readyRejectRef.current?.(new Error(`Worker error: ${ev.message ?? 'unknown'}`));
     };
     worker.addEventListener('message', onMessage);
@@ -114,20 +114,20 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
 
   const getBotMove = useCallback(async (fen: string): Promise<string> => {
     const fenShort = fen.split(' ')[0].slice(0, 20);
-    sendClientLog('bot', `getBotMove: fen=${fenShort}`);
+    sendClientLog('info', `[bot] getBotMove: fen=${fenShort}`);
 
     // Wait for engine to be fully initialized before requesting a move.
     try {
       await waitForReady();
     } catch (err: any) {
-      sendClientLog('bot-error', `getBotMove: engine not ready — ${err?.message ?? 'unknown'}`);
+      sendClientLog('error', `[bot] getBotMove: engine not ready — ${err?.message ?? 'unknown'}`);
       throw err;
     }
 
     return new Promise((resolve, reject) => {
       const worker = workerRef.current;
       if (!worker) {
-        sendClientLog('bot-error', `getBotMove: worker gone after ready`);
+        sendClientLog('error', `[bot] getBotMove: worker gone after ready`);
         reject(new Error('Engine worker missing'));
         return;
       }
@@ -136,7 +136,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
       const s = levelToSettings(level);
       const timer = setTimeout(() => {
         worker.removeEventListener('message', handler);
-        sendClientLog('bot-error', `getBotMove: timeout after ${s.movetime + 5000}ms`);
+        sendClientLog('error', `[bot] getBotMove: timeout after ${s.movetime + 5000}ms`);
         reject(new Error('Engine timeout'));
       }, s.movetime + 5000);
 
@@ -146,7 +146,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
         if (match) {
           clearTimeout(timer);
           worker.removeEventListener('message', handler);
-          sendClientLog('bot', `getBotMove: result=${match[1]}`);
+          sendClientLog('info', `[bot] getBotMove: result=${match[1]}`);
           resolve(match[1]);
         }
       };

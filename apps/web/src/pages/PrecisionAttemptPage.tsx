@@ -2,8 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import type { PlayVsEnginePuzzleReason } from '@kingside/shared';
+import type {
+  PrecisionAttemptDetail,
+  PrecisionMoveDto,
+  PuzzleDto,
+} from '@kingside/shared';
 import { api } from '../api';
+import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import {
   PostGameReview,
@@ -13,64 +18,32 @@ import type { UserBestSnapshot } from '../components/puzzle/PlayVsEngineRunner';
 import type { MoveClass } from '../utils/moveClassification';
 
 /**
- * KS-2719 F4 / ADR-056 §3.4 + §5. Detail-страница одной precision-
- * попытки. Источник — `GET /precision/attempts/:attemptId` (бэкенд
- * KS-2718). Фронт ничего не пересчитывает: моuves[] и агрегаты
- * приходят уже посчитанными (server-trust из ADR-055).
+ * KS-2719 F4 / KS-2741 / ADR-056 §3.4 + §5. Detail-страница одной
+ * precision-попытки.
  *
- * # Layout
- *   - summary: result (preserved/lost), halfMoves, accuracy%, wdlLeakSum
- *   - sparkline по wdl_user поплу полходов (Уровень Б ADR-056 §2.2)
- *   - bar-chart распределения classifications
- *   - PostGameReview — переиспользует компонент из KS-2686, но получает
- *     данные не из runtime-state PlayVsEngineRunner, а из API. Маппинг
- *     `moves[]` → `userBestLog: UserBestSnapshot[]` тривиальный.
- *   - доска для подсветки выбранного хода (через onSelectMove → fenBefore).
+ * Источник:
+ *  - `GET /precision/attempts/:attemptId` — основной snapshot
+ *    (KS-2718, контракт `PrecisionAttemptDetail` из @kingside/shared).
+ *  - `GET /puzzles/:id` — дополнительно тянем стартовый `fen` пазла:
+ *    backend KS-2718 НЕ возвращает `initialFen` в детали попытки, а
+ *    `PostGameReview` от него зависит. KS-2741: до фикса фронт ожидал
+ *    `data.initialFen/playedSans/userSide` и падал на `data.playedSans
+ *    is undefined` в `useMemo finalFen` после `setData(res)`.
  *
- * # Graceful fallback
- *   До выкатки backend (KS-2718) endpoint вернёт 404. Показываем
- *   `data-state="error"` + кнопку «Назад в /precision». При reload
- *   данные восстанавливаются из БД, на клиенте ничего не кешируем.
+ * # Реконструкция playedSans / userSide
+ *  - `userSide` — берём из FEN'а пазла (side-to-move на старте после
+ *    blunder'а соперника = решатель).
+ *  - `playedSans` — реконструируем из `moves[].playedUci` (только
+ *    user-ходы; engine-ходы не приходят, поэтому SAN-нотация показывает
+ *    только полуходы решающего, без ответных). Это ОК для PostGameReview
+ *    в режиме detail-страницы — основная цель видеть свои ходы и их
+ *    оценки. Лучше иметь частичный список, чем краш.
+ *
+ * # Состояния
+ *  - loading: skeleton (спиннер).
+ *  - error: 404/401/5xx → блок «попытка не найдена».
+ *  - ready: summary + sparkline + bar-chart classifications + PostGameReview.
  */
-
-interface PrecisionMove {
-  ply: number;
-  fenBefore: string;
-  playedUci: string;
-  bestUci: string;
-  cpBefore: number | null;
-  cpAfter: number | null;
-  wdlBefore: { w: number; d: number; l: number } | null;
-  wdlAfter: { w: number; d: number; l: number } | null;
-  depth: number | null;
-  /** Backend-расчёт server-trust. */
-  classification: MoveClass | null;
-  /** WDL_user после фактически сыгранного хода (POV user, доли 0..1). */
-  wdlUserAfter: number | null;
-}
-
-interface PrecisionAttemptResponse {
-  id: string;
-  puzzleId: string;
-  /** Стартовая позиция пазла. */
-  initialFen: string;
-  /** Чьим цветом играл юзер. */
-  userSide: 'w' | 'b';
-  /** preserved | lost | aborted. */
-  result: 'preserved' | 'lost' | 'aborted';
-  reason: PlayVsEnginePuzzleReason | null;
-  halfMovesPlayed: number;
-  /** Все полуходы партии (user + engine) в SAN. */
-  playedSans: string[];
-  /** Только user-ходы со снапшотами + классификацией. */
-  moves: PrecisionMove[];
-  /** Агрегаты по попытке. */
-  accuracyPercent: number | null;
-  wdlLeakSum: number | null;
-  /** Распределение classifications. */
-  classificationCounts: Record<MoveClass, number>;
-  createdAt: string;
-}
 
 type PageState = 'loading' | 'ready' | 'error';
 
@@ -90,36 +63,78 @@ const CLASS_ORDER: MoveClass[] = [
   'blunder',
 ];
 
+/**
+ * KS-2741. Реконструкция SAN-последовательности из user-only `moves[]`.
+ * Backend в `PrecisionAttemptDetail` НЕ присылает движковые ответы, но
+ * каждый user-ход содержит `fenBefore` и `playedUci`. Применяем UCI к
+ * `fenBefore` через chess.js — получаем SAN. Engine-полуходы между
+ * user-ходами реконструировать без бэка нельзя (`fenBefore` следующего
+ * user-хода уже после ответа движка), поэтому пропускаем.
+ *
+ * Возвращает только user-SAN'ы — этого достаточно для PostGameReview,
+ * который работает по индексам user-ходов.
+ */
+function reconstructUserSans(moves: PrecisionMoveDto[]): string[] {
+  const sans: string[] = [];
+  for (const m of moves) {
+    try {
+      const c = new Chess(m.fenBefore);
+      const move = c.move({
+        from: m.playedUci.slice(0, 2),
+        to: m.playedUci.slice(2, 4),
+        promotion: m.playedUci.length > 4 ? m.playedUci[4] : undefined,
+      });
+      sans.push(move?.san ?? m.playedUci);
+    } catch {
+      sans.push(m.playedUci);
+    }
+  }
+  return sans;
+}
+
+function sideFromFen(fen: string): 'w' | 'b' {
+  const parts = fen.split(' ');
+  return parts[1] === 'b' ? 'b' : 'w';
+}
+
 export function PrecisionAttemptPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
 
   const [state, setState] = useState<PageState>('loading');
-  const [data, setData] = useState<PrecisionAttemptResponse | null>(null);
+  const [data, setData] = useState<PrecisionAttemptDetail | null>(null);
+  const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [reviewFen, setReviewFen] = useState<string | null>(null);
 
-  const fetchAttempt = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!id) {
       setState('error');
       return;
     }
     setState('loading');
     try {
-      const res = await api.get<PrecisionAttemptResponse>(
+      const detail = await api.get<PrecisionAttemptDetail>(
         `/precision/attempts/${encodeURIComponent(id)}`,
       );
-      setData(res);
+      // Дальше тянем puzzle для FEN/userSide. Если 404/5xx — деградируем
+      // до error-state. Запрос отдельный, ошибка не должна валить весь
+      // экран если detail успел.
+      const pz = await puzzleApi
+        .getById(detail.puzzleId)
+        .catch(() => null as PuzzleDto | null);
+      setData(detail);
+      setPuzzle(pz);
       setState('ready');
     } catch {
-      // 404/401/5xx — все одинаково: показать error-блок с кнопкой.
       setData(null);
+      setPuzzle(null);
       setState('error');
     }
   }, [id]);
 
   useEffect(() => {
-    void fetchAttempt();
-  }, [fetchAttempt]);
+    void fetchAll();
+  }, [fetchAll]);
 
   /** Маппинг `moves[]` → `UserBestSnapshot[]` для PostGameReview. */
   const userBestLog = useMemo<UserBestSnapshot[]>(() => {
@@ -129,28 +144,50 @@ export function PrecisionAttemptPage() {
       fenBefore: m.fenBefore,
       playedUci: m.playedUci,
       bestUci: m.bestUci,
-      cpBefore: m.cpBefore,
-      cpAfter: m.cpAfter,
-      wdlBefore: m.wdlBefore,
-      wdlAfter: m.wdlAfter,
-      depth: m.depth,
+      cpBefore: m.cpBefore ?? null,
+      cpAfter: m.cpAfter ?? null,
+      // KS-2741: backend хранит wdl как signed scalar (−1..+1), а
+      // PostGameReview ожидает `WdlDistribution {w,d,l}` per-mille.
+      // Без распределения `w/d/l` индивидуально его не воссоздать
+      // (потерянная информация в server-trust пересчёте). Передаём null
+      // — PostGameReview грейсфолит и не показывает W/D/L строки, но
+      // SAN/cp-классификацию рисует нормально.
+      wdlBefore: null,
+      wdlAfter: null,
+      depth: m.depth ?? null,
     }));
   }, [data]);
 
-  // Доска: при выбранном reviewFen показываем его, иначе финальную позицию
-  // (проигрываем playedSans от initialFen). chess.js парсит SAN сам.
+  // playedSans (только user) реконструируем из UCI'шек.
+  const playedSans = useMemo<string[]>(() => {
+    if (!data) return [];
+    return reconstructUserSans(data.moves);
+  }, [data]);
+
+  const initialFen = puzzle?.fen ?? '';
+  const userSide: 'w' | 'b' = puzzle ? sideFromFen(puzzle.fen) : 'w';
+
+  // Доска: при выбранном reviewFen — он, иначе финальная позиция
+  // (играем user-SAN'ы от стартовой позиции; промежуточные ходы движка
+  // в snapshot'е лежат в `fenBefore` следующего user-хода — мы их не
+  // воспроизводим, но финальная позиция = последний `fenBefore + last
+  // user move`).
   const finalFen = useMemo<string>(() => {
-    if (!data) return '';
+    if (!data || data.moves.length === 0) return initialFen;
+    const last = data.moves[data.moves.length - 1];
     try {
-      const c = new Chess(data.initialFen);
-      for (const san of data.playedSans) {
-        c.move(san);
-      }
+      const c = new Chess(last.fenBefore);
+      c.move({
+        from: last.playedUci.slice(0, 2),
+        to: last.playedUci.slice(2, 4),
+        promotion:
+          last.playedUci.length > 4 ? last.playedUci[4] : undefined,
+      });
       return c.fen();
     } catch {
-      return data.initialFen;
+      return last.fenBefore;
     }
-  }, [data]);
+  }, [data, initialFen]);
 
   if (state === 'loading') {
     return (
@@ -184,29 +221,37 @@ export function PrecisionAttemptPage() {
     );
   }
 
-  const orientation: 'white' | 'black' =
-    data.userSide === 'w' ? 'white' : 'black';
-  const accuracyText =
-    data.accuracyPercent != null
-      ? `${Math.round(data.accuracyPercent)}%`
-      : t('precision.stats.noData', '—');
-  const wdlLeakText =
-    data.wdlLeakSum != null
-      ? data.wdlLeakSum.toFixed(2)
-      : t('precision.stats.noData', '—');
+  const orientation: 'white' | 'black' = userSide === 'w' ? 'white' : 'black';
+  const accuracyText = `${Math.round(data.accuracyPercent)}%`;
+  const wdlLeakText = data.wdlLeakSum.toFixed(2);
 
-  // Sparkline точек: wdl_user после каждого user-хода (доли 0..1).
-  // null = пропуск (не проводим линию через дыры). Виза сама нормализует
-  // координаты, поэтому достаточно массива {x, y|null}.
+  // KS-2741: верстаем result-чип из shared-контракта `solved + endReason`.
+  // Старый код использовал собственный `result: 'preserved'|'lost'|'aborted'`
+  // — этого поля backend не присылает. Маппим:
+  //   solved=true            → preserved
+  //   solved=false           → lost
+  //   endReason='aborted'    → aborted (даже если solved=false)
+  const resultKey: 'preserved' | 'lost' | 'aborted' =
+    data.endReason === 'aborted'
+      ? 'aborted'
+      : data.solved
+        ? 'preserved'
+        : 'lost';
+
+  // Sparkline точек: wdl_user после каждого user-хода.
+  // Backend хранит signed −1..+1; нормируем в [0..1] для отображения
+  // «сверху=победа, снизу=поражение».
   const sparkPoints = data.moves.map((m, idx) => ({
     x: idx + 1,
-    y: m.wdlUserAfter,
+    y:
+      typeof m.wdlAfter === 'number'
+        ? Math.max(0, Math.min(1, (m.wdlAfter + 1) / 2))
+        : null,
   }));
 
-  // Bar-chart distribution: для каждой категории — кол-во ходов.
-  // Если `classificationCounts` отсутствует/частичный — defauлт 0.
+  // Bar-chart distribution: shared-контракт = `classCounts`.
   const totalClassified = CLASS_ORDER.reduce(
-    (sum, c) => sum + (data.classificationCounts[c] ?? 0),
+    (sum, c) => sum + (data.classCounts[c] ?? 0),
     0,
   );
 
@@ -218,7 +263,7 @@ export function PrecisionAttemptPage() {
       className="precision-attempt-page"
       data-testid="precision-attempt-page"
       data-state="ready"
-      data-result={data.result}
+      data-result={resultKey}
       data-half-moves={String(data.halfMovesPlayed)}
     >
       <header className="precision-attempt-page__header">
@@ -231,12 +276,11 @@ export function PrecisionAttemptPage() {
         </Link>
         <h1>
           {t('precisionAttempt.title', 'Attempt #{{id}}', {
-            id: data.id.slice(0, 8),
+            id: data.attemptId.slice(0, 8),
           })}
         </h1>
       </header>
 
-      {/* Сводка: 4 inline-метрики. */}
       <section
         className="precision-attempt-page__summary"
         data-testid="precision-attempt-summary"
@@ -246,11 +290,11 @@ export function PrecisionAttemptPage() {
             {t('precisionAttempt.summary.result', 'Result')}
           </div>
           <div
-            className={`precision-attempt-page__summary-value precision-attempt-page__summary-value--${data.result}`}
+            className={`precision-attempt-page__summary-value precision-attempt-page__summary-value--${resultKey}`}
           >
-            {data.result === 'preserved'
+            {resultKey === 'preserved'
               ? t('precisionAttempt.result.preserved', 'Preserved')
-              : data.result === 'lost'
+              : resultKey === 'lost'
                 ? t('precisionAttempt.result.lost', 'Lost')
                 : t('precisionAttempt.result.aborted', 'Aborted')}
           </div>
@@ -281,9 +325,6 @@ export function PrecisionAttemptPage() {
         </div>
       </section>
 
-      {/* Sparkline WDL_user по полуходам (Уровень Б ADR-056 §2.2).
-          ViewBox 100×40 — масштабируется через CSS. y_norm = 1 - y
-          (сверху 100%, снизу 0%). null-точки разбивают линию. */}
       {sparkPoints.length > 0 && (
         <section
           className="precision-attempt-page__chart"
@@ -302,7 +343,6 @@ export function PrecisionAttemptPage() {
               'WDL trajectory across half-moves',
             )}
           >
-            {/* baseline 50% */}
             <line
               x1="0"
               y1="20"
@@ -323,7 +363,9 @@ export function PrecisionAttemptPage() {
                 }
                 const x = (i / (n - 1 || 1)) * 100;
                 const y = 40 - p.y * 40;
-                path += path ? ` L ${x.toFixed(2)} ${y.toFixed(2)}` : `M ${x.toFixed(2)} ${y.toFixed(2)}`;
+                path += path
+                  ? ` L ${x.toFixed(2)} ${y.toFixed(2)}`
+                  : `M ${x.toFixed(2)} ${y.toFixed(2)}`;
               });
               if (path) segs.push(path);
               return segs.map((d, i) => (
@@ -341,7 +383,6 @@ export function PrecisionAttemptPage() {
         </section>
       )}
 
-      {/* Bar-chart distribution по 5 классам ходов. */}
       {totalClassified > 0 && (
         <section
           className="precision-attempt-page__chart"
@@ -355,7 +396,7 @@ export function PrecisionAttemptPage() {
           </h2>
           <ul className="precision-attempt-page__bars">
             {CLASS_ORDER.map((cls) => {
-              const count = data.classificationCounts[cls] ?? 0;
+              const count = data.classCounts[cls] ?? 0;
               const pct = (count / totalClassified) * 100;
               return (
                 <li
@@ -389,25 +430,27 @@ export function PrecisionAttemptPage() {
         </section>
       )}
 
-      {/* Доска + PostGameReview из KS-2686 (тот же компонент, что в
-          PlayVsEngineRunner). Источник — moves[] из endpoint, ничего
-          не пересчитываем. Клик по ходу подсвечивает позицию. */}
       <section className="precision-attempt-page__review">
         <PuzzleBoard
-          game={new Chess(reviewFen ?? finalFen)}
+          game={new Chess(reviewFen ?? finalFen ?? initialFen)}
           boardOrientation={orientation}
           enabled={false}
           onPieceDrop={() => false}
           lastMoveUci={null}
-          status={data.result === 'preserved' ? 'correct' : 'incorrect'}
+          status={resultKey === 'preserved' ? 'correct' : 'incorrect'}
         />
-        <PostGameReview
-          initialFen={data.initialFen}
-          playedSans={data.playedSans}
-          userBestLog={userBestLog}
-          userSide={data.userSide}
-          onSelectMove={handleSelect}
-        />
+        {/* PostGameReview работает только когда есть initialFen
+            (получили из puzzleApi.getById). Без него скрываем — не
+            падаем. */}
+        {initialFen && playedSans.length > 0 && (
+          <PostGameReview
+            initialFen={initialFen}
+            playedSans={playedSans}
+            userBestLog={userBestLog}
+            userSide={userSide}
+            onSelectMove={handleSelect}
+          />
+        )}
       </section>
     </div>
   );
