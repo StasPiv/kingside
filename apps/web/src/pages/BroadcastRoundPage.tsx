@@ -323,13 +323,27 @@ export function BroadcastRoundPage() {
           (prevG?.pgn?.length ?? 0) < (g.pgn?.length ?? 0);
         if (isInitial) {
           enqueueEval(gameKey(g), fenForEval);
+          // На initial-sync кладём last move каждой live-партии
+          // в feed (источник: PGN.history.at(-1)). Это устраняет
+          // задержку 30-60 сек до первого нового sync'а — пользователь
+          // сразу видит активность раунда.
+          const last = extractLastMoveFromPgn(g.pgn ?? '');
+          if (last) {
+            newFeedItems.push({
+              gameKey: gameKey(g),
+              whitePlayer: g.whitePlayer ?? '?',
+              blackPlayer: g.blackPlayer ?? '?',
+              side: last.side,
+              moveNumber: last.moveNumber,
+              notation: last.san,
+              ts: g.clockUpdatedAt
+                ? new Date(g.clockUpdatedAt).getTime()
+                : Date.now() - 60_000, // initial-batch — не «сейчас»
+            });
+          }
         } else if (grew) {
           enqueueEval(gameKey(g), fenForEval);
           const last = extractLastMoveFromPgn(g.pgn ?? '');
-          // eslint-disable-next-line no-console
-          console.log(
-            `[broadcast-feed] grew=${grew} key=${gameKey(g)} prevLen=${prevG?.pgn?.length ?? 0} curLen=${g.pgn?.length ?? 0} extracted=${last ? `${last.moveNumber}${last.side === 'white' ? '.' : '...'} ${last.san}` : 'null'}`,
-          );
           if (last) {
             newFeedItems.push({
               gameKey: gameKey(g),
@@ -344,11 +358,25 @@ export function BroadcastRoundPage() {
         }
       }
       if (newFeedItems.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(`[broadcast-feed] adding ${newFeedItems.length} items to feed`);
-        setLiveFeed((prevFeed) =>
-          [...newFeedItems, ...prevFeed].slice(0, 50),
-        );
+        // Сортируем по ts (новые сверху). Для initial-batch это будет
+        // порядок свежести clockUpdatedAt.
+        newFeedItems.sort((a, b) => b.ts - a.ts);
+        setLiveFeed((prevFeed) => {
+          // dedup: отфильтровываем те newFeedItems, чей (gameKey,
+          // moveNumber, side) уже есть в первых 10 строках ленты —
+          // защита от дубля «move уже добавил, sync пытается ещё раз».
+          const recentKeys = new Set(
+            prevFeed.slice(0, 10).map(
+              (i) => `${i.gameKey}|${i.moveNumber}|${i.side}`,
+            ),
+          );
+          const filtered = newFeedItems.filter(
+            (i) =>
+              !recentKeys.has(`${i.gameKey}|${i.moveNumber}|${i.side}`),
+          );
+          if (filtered.length === 0) return prevFeed;
+          return [...filtered, ...prevFeed].slice(0, 50);
+        });
       }
 
       const fingerprint = gamesFingerprint(fresh);
@@ -426,19 +454,70 @@ export function BroadcastRoundPage() {
           payload.fen,
         );
       }
-      // KS-2709: запись в ленту строится в applyFreshGames (когда
-      // приходит broadcast:sync с обновлённым PGN), там можно надёжно
-      // вытащить SAN из chess.history и moveNumber из FEN fullmove
-      // counter. Здесь только UCI без PGN — конверсия в SAN была
-      // ненадёжна (preFen мог быть INITIAL/неактуальным).
       // Играем звук сразу — даже если sync не догонит с PGN, юзер
       // услышит ход. soundEventFromSan нам недоступен (нет san), берём
       // обычный 'move'. Capture/check тут не различаем — backend в move
       // payload san не отдаёт.
       playSound('move');
       lastSoundAtRef.current = Date.now();
-      // eslint-disable-next-line no-console
-      console.log('[broadcast-sound] handleMove → playSound("move")');
+
+      // Добавляем в ленту прямо здесь — sync может прийти с
+      // задержкой 30+ сек. Конверсия UCI→SAN на pre-FEN'е, который
+      // был у партии в state до этого хода. moveNumber и side берём
+      // из pre-FEN (fullmove counter + side-to-move).
+      if (pre && payload.uci) {
+        const preCast = pre as {
+          fen: string | null;
+          whitePlayer: string;
+          blackPlayer: string;
+        };
+        let san = payload.uci;
+        let side: 'white' | 'black' = 'white';
+        let moveNumber = 1;
+        if (preCast.fen) {
+          try {
+            const c = new Chess(preCast.fen);
+            const parts = preCast.fen.split(' ');
+            side = parts[1] === 'b' ? 'black' : 'white';
+            moveNumber = parseInt(parts[5] ?? '1', 10) || 1;
+            const m = c.move({
+              from: payload.uci.slice(0, 2),
+              to: payload.uci.slice(2, 4),
+              promotion:
+                payload.uci.length > 4 ? payload.uci[4] : undefined,
+            });
+            if (m) san = m.san;
+          } catch {
+            /* fallback на UCI */
+          }
+        }
+        const item: BroadcastFeedItem = {
+          gameKey: `${preCast.whitePlayer}|${preCast.blackPlayer}`,
+          whitePlayer:
+            preCast.whitePlayer || (payload.whitePlayer ?? '?'),
+          blackPlayer:
+            preCast.blackPlayer || (payload.blackPlayer ?? '?'),
+          side,
+          moveNumber,
+          notation: san,
+          ts: Date.now(),
+        };
+        setLiveFeed((prevFeed) => {
+          // dedup: если такая же запись уже на верху ленты (move
+          // продублировался следующим sync'ом или повторился), не
+          // добавляем повторно.
+          const top = prevFeed[0];
+          if (
+            top &&
+            top.gameKey === item.gameKey &&
+            top.moveNumber === item.moveNumber &&
+            top.side === item.side
+          ) {
+            return prevFeed;
+          }
+          return [item, ...prevFeed].slice(0, 50);
+        });
+      }
     },
     [playSound, enqueueEval],
   );
