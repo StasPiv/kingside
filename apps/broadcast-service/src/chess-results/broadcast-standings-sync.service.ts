@@ -445,28 +445,13 @@ export class BroadcastStandingsSyncService {
     const N = ranking.data.players.length;
     const R = ranking.data.roundCount;
 
-    // KS-2723: chess-results может отставать от Lichess broadcast — у
-    // Ostrava 2026 (FIDE Open A) на момент завершения турнира chess-
-    // results вернул только 8 туров, хотя в БД (и у Lichess) есть Round 9
-    // с финальными результатами. Если в нашей БД больше «классических»
-    // round'ов с финальными partіями, чем chess-results показывает —
-    // отказываемся от chess-results и fallback'имся на internal-fallback
-    // (он строит pairings из `broadcast_games` всем известным round'ам).
-    const dbRoundsWithFinalGames = broadcast.rounds
-      .filter(isCrosstableRound)
-      .filter((rd) =>
-        rd.games.some((g) => g.result && g.result !== '*'),
-      ).length;
-    if (dbRoundsWithFinalGames > R) {
-      this.logger.warn(
-        `swiss chess-results stale for tid=${tid}: ` +
-          `chess-results.roundCount=${R}, db.roundsWithFinalGames=${dbRoundsWithFinalGames}. ` +
-          `Falling back to internal pairings.`,
-      );
-      throw new Error(
-        `chess-results stale: roundCount=${R} < db=${dbRoundsWithFinalGames}`,
-      );
-    }
+    // KS-2723 (откат rev 54): не переключаемся на internal-fallback по
+    // признаку `db.rounds > R`. Lichess транслирует не весь турнир (часто
+    // только топ-доски), наша БД partial и не подходит как источник
+    // standings. Реальная причина «отсутствует Round 9» в Ostrava была в
+    // 24-часовом кэше chess-results-fetcher'а — он держал старый HTML.
+    // Сейчас fetcher TTL=10min для finished, кэш сам обновится. Doверять
+    // chess-results всегда — это полный источник по всем игрокам.
 
     // 2. Pairings per-round (KS-2206): fetching art=2 without `rd` returns
     //    only the current + next round. To get all played rounds we request

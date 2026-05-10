@@ -258,7 +258,7 @@ describe('ChessResultsFetcher', () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 
-    it('TTL зависит от lifecycle: upcoming=1ч, finished=24ч', async () => {
+    it('TTL зависит от lifecycle: upcoming=1ч, finished=10мин (KS-2723)', async () => {
       const fetchImpl = mockFetchOk();
       const { fetcher, advance } = setup({ fetchImpl });
 
@@ -271,15 +271,16 @@ describe('ChessResultsFetcher', () => {
       advance(31 * 60 * 1000); // суммарно 61 мин
       await fetcher.fetchPage(2, 1, 'upcoming'); // OK
 
-      // finished: после 12 ч ещё rate-limit
+      // KS-2723: finished снижен с 24h до 10min — после 5 мин ещё
+      // rate-limit, после 11 мин уже OK.
       const fetchImpl2 = mockFetchOk();
       const { fetcher: f2, advance: adv2 } = setup({ fetchImpl: fetchImpl2 });
       await f2.fetchPage(3, 1, 'finished');
-      adv2(12 * 60 * 60 * 1000);
+      adv2(5 * 60 * 1000);
       await expect(f2.fetchPage(3, 1, 'finished')).rejects.toBeInstanceOf(
         RateLimitedLocalError,
       );
-      adv2(13 * 60 * 60 * 1000); // суммарно 25 ч
+      adv2(6 * 60 * 1000); // суммарно 11 мин
       await f2.fetchPage(3, 1, 'finished'); // OK
     });
 

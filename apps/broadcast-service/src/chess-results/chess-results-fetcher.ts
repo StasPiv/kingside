@@ -49,11 +49,18 @@ import { MetricsService } from '../metrics/metrics.service';
 export type Art = 0 | 1 | 2 | 4 | 5;
 export type Lifecycle = 'live' | 'upcoming' | 'finished';
 
-/** Per-tournament rate-limit window per lifecycle (ADR-023 §2.4). */
+/**
+ * Per-tournament rate-limit window per lifecycle (ADR-023 §2.4).
+ *
+ * KS-2723: для `finished` снижено с 24h → 10min. Раньше: при первом
+ * fetch'е chess-results после завершения турнира мы кэшировали HTML
+ * на сутки. Когда chess-results догружал последний тур через час — мы
+ * этого не видели до истечения 24-часового кэша.
+ */
 const TTL_MS_BY_LIFECYCLE: Record<Lifecycle, number> = {
   live: 5 * 60 * 1000,
   upcoming: 60 * 60 * 1000,
-  finished: 24 * 60 * 60 * 1000,
+  finished: 10 * 60 * 1000,
 };
 
 /** Circuit-breaker threshold (ADR-023 §5.5). */
