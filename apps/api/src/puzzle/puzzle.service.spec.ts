@@ -1401,6 +1401,200 @@ describe('PuzzleService', () => {
       expect(tx.moves![0].classification).toBe('blunder');
     });
 
+    // ── KS-2740: sparse ply (user-only ходы) ────────────────────────
+
+    it('KS-2740: sparse ply 1,3,5,... принимается (user-moves в PVE)', async () => {
+      const tx = setupPveMocks();
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+        {
+          ply: 3, // engine сходил между; пропуск ply=2 нормален
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          playedUci: 'g1f3',
+          bestUci: 'b1c3',
+          cpBefore: 35,
+          cpAfter: 25,
+          depth: 14,
+        },
+        {
+          ply: 5,
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 3',
+          playedUci: 'f1c4',
+          bestUci: 'f1c4',
+          cpBefore: 25,
+          cpAfter: 30,
+          depth: 14,
+        },
+      ];
+
+      const result = await service.submitAttempt(
+        'user-1',
+        'pve-2',
+        true,
+        7000,
+        undefined,
+        0,
+        {
+          halfMovesPlayed: 3,
+          finalWdl: 0.6,
+          initialWdl: 0.5,
+          reason: 'win',
+          moves,
+        } as any,
+      );
+
+      expect(result.solved).toBe(true);
+      expect(prisma.$transaction).toHaveBeenCalled();
+      // Все 3 user-хода сохранены с их sparse ply.
+      expect(tx.moves).toHaveLength(3);
+      expect(tx.moves!.map((m: any) => m.ply)).toEqual([1, 3, 5]);
+      // halfMovesPlayed считается по числу moves, не по max(ply).
+      expect(tx.precision).toMatchObject({ halfMovesPlayed: 3 });
+    });
+
+    it('KS-2740: ply убывает → 400 (не должно происходить с фронта)', async () => {
+      setupPveMocks();
+      const moves = [
+        {
+          ply: 3,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+        {
+          ply: 1, // убывание
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          playedUci: 'g1f3',
+          bestUci: 'g1f3',
+          cpBefore: 30,
+          cpAfter: 30,
+          depth: 14,
+        },
+      ];
+
+      await expect(
+        service.submitAttempt('user-1', 'pve-2', true, 7000, undefined, 0, {
+          halfMovesPlayed: 2,
+          reason: 'win',
+          moves,
+        } as any),
+      ).rejects.toThrow(/strictly increase/);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('KS-2740: дубликат ply → 400', async () => {
+      setupPveMocks();
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+        {
+          ply: 1, // дубликат
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          playedUci: 'g1f3',
+          bestUci: 'g1f3',
+          cpBefore: 30,
+          cpAfter: 30,
+          depth: 14,
+        },
+      ];
+
+      await expect(
+        service.submitAttempt('user-1', 'pve-2', true, 7000, undefined, 0, {
+          halfMovesPlayed: 2,
+          reason: 'win',
+          moves,
+        } as any),
+      ).rejects.toThrow(/strictly increase/);
+    });
+
+    it('KS-2740: ply=0 → 400 (must be ≥ 1)', async () => {
+      setupPveMocks();
+      const moves = [
+        {
+          ply: 0,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+      ];
+
+      await expect(
+        service.submitAttempt('user-1', 'pve-2', true, 7000, undefined, 0, {
+          halfMovesPlayed: 1,
+          reason: 'win',
+          moves,
+        } as any),
+      ).rejects.toThrow(/invalid ply/);
+    });
+
+    it('KS-2740: sequential ply 1,2,3 (старый формат) — тоже принимается', async () => {
+      const tx = setupPveMocks();
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+        {
+          ply: 2,
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          playedUci: 'g1f3',
+          bestUci: 'g1f3',
+          cpBefore: 30,
+          cpAfter: 30,
+          depth: 14,
+        },
+      ];
+
+      await service.submitAttempt(
+        'user-1',
+        'pve-2',
+        true,
+        7000,
+        undefined,
+        0,
+        { halfMovesPlayed: 2, reason: 'win', moves } as any,
+      );
+
+      expect(tx.moves).toHaveLength(2);
+      expect(tx.moves!.map((m: any) => m.ply)).toEqual([1, 2]);
+    });
+
     it('нелегальный UCI → 400, ничего не пишется', async () => {
       setupPveMocks();
       const moves = [

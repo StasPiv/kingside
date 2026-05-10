@@ -661,11 +661,31 @@ export class PuzzleService {
   }): Promise<void> {
     const moves = args.playVsEngine.moves ?? [];
 
-    // 1. Sanity / order check: ply должны идти подряд начиная с 1.
+    // KS-2740: sparse ply нормально в PVE-attempt. Frontend шлёт
+    // только user-ходы, между ними engine-ход в реальной партии —
+    // ply фактически идут как 1,3,5,... (или 2,4,6,... если первый
+    // ход engine'а). Раньше валидатор требовал «1,2,3,...» и валил
+    // 400 → транзакция rollback → puzzle_attempts И precision_attempts
+    // не создавались. История пустая, accuracy не считается.
+    //
+    // По ADR-056 §3.3 точность считается ТОЛЬКО для user-ходов —
+    // movefes.length = halfMovesPlayed (фактическое число user-moves),
+    // ply внутри каждого move — порядковый номер хода в партии (1,3,5...
+    // или любая монотонно возрастающая последовательность).
+    //
+    // Контракт валидатора:
+    //   - ply >= 1
+    //   - монотонно возрастает (нет дубликатов, нет убывания)
     for (let i = 0; i < moves.length; i++) {
-      if (moves[i].ply !== i + 1) {
+      const m = moves[i];
+      if (!Number.isInteger(m.ply) || m.ply < 1) {
         throw new BadRequestException(
-          `precision moves: ply mismatch at index ${i} (expected ${i + 1}, got ${moves[i].ply})`,
+          `precision moves: invalid ply at index ${i} (must be integer ≥ 1, got ${m.ply})`,
+        );
+      }
+      if (i > 0 && m.ply <= moves[i - 1].ply) {
+        throw new BadRequestException(
+          `precision moves: ply must strictly increase (index ${i} ply=${m.ply} ≤ previous ${moves[i - 1].ply})`,
         );
       }
     }
