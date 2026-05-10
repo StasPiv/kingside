@@ -233,6 +233,38 @@ export type PlayVsEnginePuzzleReason =
   | 'lose-wdl'
   | 'lose-mate';
 
+/**
+ * KS-2717 / ADR-056 §3.3. Снимок одного полухода игрока (PVE-attempt).
+ * Клиент собирает массив этих структур в течение попытки и передаёт
+ * на бэк в `PuzzleAttemptRequest.moves`. Backend пересчитывает
+ * `classification` сам (server-trust), клиентскому полю не верит.
+ *
+ * Все WDL-поля в шкале per-mille (0..1000), POV side-to-move
+ * соответствующего FEN — формат, в котором их отдаёт Stockfish с
+ * `UCI_ShowWDL`. Если у клиента не было WDL (старые версии при mate
+ * или fallback-движок) — поле пропускается.
+ */
+export interface PrecisionMoveSnapshot {
+  /** 1-based ply решающего в попытке. */
+  ply: number;
+  /** FEN ДО хода игрока. */
+  fenBefore: string;
+  /** UCI хода, который сделал игрок (например `e2e4`, `e7e8q`). */
+  playedUci: string;
+  /** UCI PV1-хода движка для `fenBefore` (best-move). */
+  bestUci: string;
+  /** cp-оценка `fenBefore` (POV игрока). null/undefined — фолбек. */
+  cpBefore?: number | null;
+  /** cp-оценка после хода (POV игрока). */
+  cpAfter?: number | null;
+  /** WDL `fenBefore` raw (POV игрока). */
+  wdlBefore?: { w: number; d: number; l: number } | null;
+  /** WDL после хода raw (POV игрока). */
+  wdlAfter?: { w: number; d: number; l: number } | null;
+  /** Глубина анализа Stockfish (фактическая). */
+  depth?: number | null;
+}
+
 export type PuzzleAttemptRequest = {
   result: PuzzleAttemptResult;
   timeMs: number;
@@ -240,13 +272,22 @@ export type PuzzleAttemptRequest = {
   hintsUsed?: number;
   /**
    * KS-2465 / ADR-044 §5.4. Поля режима `play-vs-engine`. Опциональны
-   * (не передаются для `forced-line`). На MVP сервер только логирует
-   * их, в БД не пишет (PuzzleAttempt.metadata — v2).
+   * (не передаются для `forced-line`).
    */
   halfMovesPlayed?: number;
   /** Финальный WDL_signed решателя в диапазоне [-1..+1]. */
   finalWdl?: number;
+  /** Стартовый WDL_signed (на момент начала попытки), [-1..+1]. */
+  initialWdl?: number;
   reason?: PlayVsEnginePuzzleReason;
+  /**
+   * KS-2717 / ADR-056 §3.3. Per-move детали PVE-попытки. Сервер
+   * валидирует длину (≤ halfMovesN), legality каждого хода через
+   * chess.js и пересчитывает classification из cpBefore/cpAfter.
+   *
+   * Игнорируется для `solutionMode='forced-line'` пазлов.
+   */
+  moves?: PrecisionMoveSnapshot[];
 };
 
 export type PuzzleAttemptResponse = {

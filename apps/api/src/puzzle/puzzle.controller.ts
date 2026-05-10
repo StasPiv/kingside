@@ -474,7 +474,9 @@ export class PuzzleController {
       {
         halfMovesPlayed: dto.halfMovesPlayed,
         finalWdl: dto.finalWdl,
+        initialWdl: dto.initialWdl,
         reason: dto.reason,
+        moves: dto.moves,
       },
     );
   }
@@ -496,7 +498,9 @@ export class PuzzleController {
       {
         halfMovesPlayed: dto.halfMovesPlayed,
         finalWdl: dto.finalWdl,
+        initialWdl: dto.initialWdl,
         reason: dto.reason,
+        moves: dto.moves,
       },
     );
   }

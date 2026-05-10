@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -6,9 +7,12 @@ import {
   IsString,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type {
   PlayVsEnginePuzzleReason,
+  PrecisionMoveSnapshot,
   PuzzleAttemptRequest,
   PuzzleAttemptResult,
 } from '@kingside/shared';
@@ -20,6 +24,72 @@ const PLAY_VS_ENGINE_REASONS: PlayVsEnginePuzzleReason[] = [
   'lose-wdl',
   'lose-mate',
 ];
+
+/**
+ * KS-2717 / ADR-056 §3.3. Тройка W/D/L per-mille (как отдаёт
+ * Stockfish с UCI_ShowWDL).
+ */
+export class WdlTripleDto {
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  w!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  d!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  l!: number;
+}
+
+/**
+ * KS-2717 / ADR-056 §3.3. Снимок одного полухода игрока в PVE-attempt.
+ * Серверная валидация (legality, classification) внутри сервиса —
+ * клиентский `classification` если придёт, не используется.
+ */
+export class PrecisionMoveSnapshotDto implements PrecisionMoveSnapshot {
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  ply!: number;
+
+  @IsString()
+  fenBefore!: string;
+
+  @IsString()
+  playedUci!: string;
+
+  @IsString()
+  bestUci!: string;
+
+  @IsOptional()
+  @IsInt()
+  cpBefore?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  cpAfter?: number | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WdlTripleDto)
+  wdlBefore?: { w: number; d: number; l: number } | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WdlTripleDto)
+  wdlAfter?: { w: number; d: number; l: number } | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  depth?: number | null;
+}
 
 export class SubmitAttemptDto implements PuzzleAttemptRequest {
   @IsIn(['solved', 'failed'])
@@ -39,8 +109,6 @@ export class SubmitAttemptDto implements PuzzleAttemptRequest {
   hintsUsed?: number;
 
   // ── KS-2465 / ADR-044 §5.4. Поля play-vs-engine (опц.) ───────────
-  // На MVP сервер только логирует, в БД не пишет (PuzzleAttempt.metadata
-  // JSONB — v2). См. описание в `PuzzleAttemptRequest`.
 
   @IsOptional()
   @IsInt()
@@ -55,6 +123,24 @@ export class SubmitAttemptDto implements PuzzleAttemptRequest {
   finalWdl?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(-1)
+  @Max(1)
+  initialWdl?: number;
+
+  @IsOptional()
   @IsIn(PLAY_VS_ENGINE_REASONS)
   reason?: PlayVsEnginePuzzleReason;
+
+  // ── KS-2717 / ADR-056 §3.3. Per-move snapshot для PVE-attempts ───
+  // Игнорируется для forced-line; для PVE — сервер валидирует длину,
+  // legality каждого хода через chess.js, и пересчитывает
+  // classification из (cpBefore, cpAfter) сам — клиентскому полю
+  // не верим (server-trust).
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PrecisionMoveSnapshotDto)
+  moves?: PrecisionMoveSnapshotDto[];
 }

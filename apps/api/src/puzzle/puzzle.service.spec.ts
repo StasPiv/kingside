@@ -998,6 +998,293 @@ describe('PuzzleService', () => {
     });
   });
 
+  // ── KS-2717 / ADR-056. Server-trust submitAttempt с moves[] ──────
+
+  describe('KS-2717: submitAttempt PVE с per-move snapshot', () => {
+    const pvePuzzle = {
+      id: 'pve-2',
+      // Лёгкая позиция: ход белых, e2-e4 / e2-e3 — оба легальны.
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      moves: '',
+      rating: 1700,
+      themes: 'playVsEngine',
+      source: 'generated',
+      solutionMode: 'play-vs-engine',
+      sourceMetadata: JSON.stringify({
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      }),
+    };
+
+    function setupPveMocks() {
+      prisma.puzzle.findUnique.mockResolvedValue(pvePuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1500,
+        puzzleRatingBefore: 1700,
+        puzzleRatingAfter: 1700,
+      });
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ratingPuzzle: 1500,
+        ratingPuzzleDev: 80,
+        puzzleStreak: 0,
+      });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      // Транзакция: имитируем tx через объект с теми же методами.
+      const txState: {
+        attempt?: any;
+        precision?: any;
+        moves?: any[];
+      } = {};
+      prisma.$transaction = jest.fn(
+        async (cb: (tx: any) => Promise<unknown>) => {
+          const tx = {
+            puzzleAttempt: {
+              create: jest.fn(async ({ data }: any) => {
+                txState.attempt = { id: 'attempt-uuid', ...data };
+                return { id: 'attempt-uuid' };
+              }),
+            },
+            precisionAttempt: {
+              create: jest.fn(async ({ data }: any) => {
+                txState.precision = data;
+                return data;
+              }),
+            },
+            precisionAttemptMove: {
+              createMany: jest.fn(async ({ data }: any) => {
+                txState.moves = data;
+                return { count: data.length };
+              }),
+            },
+          };
+          return cb(tx).then(() => undefined);
+        },
+      );
+      return txState;
+    }
+
+    it('создаёт PrecisionAttempt + PrecisionAttemptMove[] для PVE с moves', async () => {
+      const tx = setupPveMocks();
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'e2e4', // best — best
+          cpBefore: 30,
+          cpAfter: 35,
+          depth: 14,
+        },
+        {
+          ply: 2,
+          fenBefore:
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          playedUci: 'g1f3',
+          bestUci: 'b1c3', // не best
+          cpBefore: 35,
+          cpAfter: 25, // cpLoss=10 → good
+          depth: 14,
+        },
+      ];
+
+      const result = await service.submitAttempt(
+        'user-1',
+        'pve-2',
+        true,
+        7000,
+        undefined,
+        0,
+        {
+          halfMovesPlayed: 2,
+          finalWdl: 0.6,
+          initialWdl: 0.5,
+          reason: 'win',
+          moves,
+        } as any,
+      );
+
+      expect(result.solved).toBe(true);
+      // Транзакция вызвана.
+      expect(prisma.$transaction).toHaveBeenCalled();
+      // PrecisionAttempt: правильные агрегаты (1 best + 1 good = 2/2 = 100%).
+      expect(tx.precision).toMatchObject({
+        attemptId: 'attempt-uuid',
+        bestMovesCount: 1,
+        goodMovesCount: 1,
+        inaccuraciesCount: 0,
+        mistakesCount: 0,
+        blundersCount: 0,
+        firstMistakePly: null,
+        accuracyPercent: 100,
+        wdlAtStartSigned: 0.5,
+        wdlAtEndSigned: 0.6,
+        endReason: 'win',
+        halfMovesPlayed: 2,
+      });
+      // 2 записи в moves.
+      expect(tx.moves).toHaveLength(2);
+      expect(tx.moves![0]).toMatchObject({
+        attemptId: 'attempt-uuid',
+        ply: 1,
+        playedUci: 'e2e4',
+        classification: 'best',
+      });
+      expect(tx.moves![1]).toMatchObject({
+        ply: 2,
+        playedUci: 'g1f3',
+        classification: 'good',
+      });
+    });
+
+    it('игнорирует клиентский accuracy: serverside пересчёт', async () => {
+      const tx = setupPveMocks();
+      // Клиент пытается передать клиентский accuracy через добавочное
+      // поле (имитация манипуляции). Серверный расчёт: 1 blunder = 0%.
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          playedUci: 'e2e4',
+          bestUci: 'd2d4',
+          cpBefore: 100,
+          cpAfter: -200, // cpLoss=300 → blunder
+          depth: 14,
+          // потенциально подделанные клиентом поля — игнорируются.
+          accuracyPercent: 100,
+          classification: 'best',
+        },
+      ];
+
+      await service.submitAttempt(
+        'user-1',
+        'pve-2',
+        false,
+        4000,
+        undefined,
+        0,
+        {
+          halfMovesPlayed: 1,
+          finalWdl: -0.5,
+          initialWdl: 0.4,
+          reason: 'lose-wdl',
+          moves,
+        } as any,
+      );
+
+      expect(tx.precision).toMatchObject({
+        bestMovesCount: 0,
+        blundersCount: 1,
+        accuracyPercent: 0,
+        firstMistakePly: 1,
+      });
+      expect(tx.moves![0].classification).toBe('blunder');
+    });
+
+    it('нелегальный UCI → 400, ничего не пишется', async () => {
+      setupPveMocks();
+      const moves = [
+        {
+          ply: 1,
+          fenBefore:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          // Нелегальный ход с пустой клетки.
+          playedUci: 'e5e6',
+          bestUci: 'e2e4',
+          cpBefore: 0,
+          cpAfter: 0,
+          depth: 14,
+        },
+      ];
+
+      await expect(
+        service.submitAttempt('user-1', 'pve-2', true, 7000, undefined, 0, {
+          halfMovesPlayed: 1,
+          reason: 'win',
+          moves,
+        } as any),
+      ).rejects.toThrow(/illegal move/);
+
+      // PrecisionAttempt НЕ создан (транзакция не достигла create).
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('PVE без moves[] → старый путь, PrecisionAttempt не создаётся', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(pvePuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1500,
+        puzzleRatingBefore: 1700,
+        puzzleRatingAfter: 1700,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+      prisma.$transaction = jest.fn();
+
+      await service.submitAttempt(
+        'user-1',
+        'pve-2',
+        true,
+        7000,
+        undefined,
+        0,
+        { halfMovesPlayed: 6, finalWdl: 0.6, reason: 'win' },
+      );
+
+      // Транзакция не вызывается (нет moves).
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      // Обычный create (без precision).
+      expect(prisma.puzzleAttempt.create).toHaveBeenCalled();
+    });
+
+    it('forced-line attempt с (ошибочно переданными) moves[] → moves игнорируются, старый путь', async () => {
+      const flPuzzle = {
+        ...pvePuzzle,
+        id: 'fl-1',
+        solutionMode: 'forced-line',
+        moves: 'e2e4 e7e5',
+      };
+      prisma.puzzle.findUnique.mockResolvedValue(flPuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1500,
+        userRatingAfter: 1510,
+        puzzleRatingBefore: 1500,
+        puzzleRatingAfter: 1490,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1510 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+      prisma.$transaction = jest.fn();
+
+      await service.submitAttempt('user-1', 'fl-1', true, 5000, undefined, 0, {
+        moves: [
+          {
+            ply: 1,
+            fenBefore:
+              'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            playedUci: 'e2e4',
+            bestUci: 'e2e4',
+            cpBefore: 30,
+            cpAfter: 35,
+            depth: 14,
+          },
+        ],
+      } as any);
+
+      // forced-line → не идёт в персистенс PVE (даже с moves).
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.puzzleAttempt.create).toHaveBeenCalled();
+    });
+  });
+
   describe('KS-299: no repeated attempted puzzles', () => {
     describe('getNextPuzzle — excludes already-solved attempts', () => {
       // getNextPuzzle uses $queryRawUnsafe with a NOT EXISTS clause that filters on

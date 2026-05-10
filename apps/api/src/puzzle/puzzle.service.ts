@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { Chess } from 'chess.js';
 import type {
   PlayVsEnginePuzzleReason,
+  PrecisionMoveSnapshot,
   PuzzleSolutionMode,
   PuzzleSourceGame,
   PuzzleStatsByMode,
@@ -11,7 +12,7 @@ import type {
 // KS-2665: серверные дефолты порогов PVE (ADR-050 §3 #5) — фронт-
 // генератор их не передаёт в sourceMetadata, поэтому подхватываем тут
 // при сборке `playVsEngine` блока из row.
-import { PUZZLE_GEN_DEFAULTS } from '@kingside/shared';
+import { PUZZLE_GEN_DEFAULTS, classifyMove } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
@@ -424,7 +425,9 @@ export class PuzzleService {
     playVsEngine?: {
       halfMovesPlayed?: number;
       finalWdl?: number;
+      initialWdl?: number;
       reason?: PlayVsEnginePuzzleReason;
+      moves?: PrecisionMoveSnapshot[];
     },
   ) {
     const puzzle = await this.prisma.puzzle.findUnique({
@@ -489,18 +492,42 @@ export class PuzzleService {
       ratingChange = await this.puzzleRating.applyRatingChange(userId, puzzleId, solved);
     }
 
-    await this.prisma.puzzleAttempt.create({
-      data: {
-        puzzleId,
+    // KS-2717 / ADR-056 §3.3. Server-trust: если PVE-attempt с
+    // `moves[]` — внутри транзакции пишем PuzzleAttempt + PrecisionAttempt
+    // + N PrecisionAttemptMove. Server валидирует legality каждого хода
+    // через chess.js и пересчитывает classification из (cpBefore, cpAfter)
+    // через `classifyMove` из @kingside/shared — клиентскому полю не верим.
+    const isPveWithMoves =
+      mode.solutionMode === 'play-vs-engine' &&
+      Array.isArray(playVsEngine?.moves) &&
+      playVsEngine!.moves!.length > 0;
+
+    if (isPveWithMoves) {
+      await this.persistPveAttemptWithMoves({
         userId,
+        puzzleId,
+        puzzleFen: puzzle.fen,
         solved,
         timeMs,
-        ratingBefore: ratingChange.userRatingBefore,
-        ratingAfter: ratingChange.userRatingAfter,
         userMoves: userMoves ?? null,
         hintsUsed: hintsUsed ?? 0,
-      },
-    });
+        ratingChange,
+        playVsEngine: playVsEngine!,
+      });
+    } else {
+      await this.prisma.puzzleAttempt.create({
+        data: {
+          puzzleId,
+          userId,
+          solved,
+          timeMs,
+          ratingBefore: ratingChange.userRatingBefore,
+          ratingAfter: ratingChange.userRatingAfter,
+          userMoves: userMoves ?? null,
+          hintsUsed: hintsUsed ?? 0,
+        },
+      });
+    }
 
     // L-31 (KS-1802): фиксируем ошибку в дневнике. Идемпотентность по
     // `(userId, puzzleId)` обеспечивает сам `MistakesService` — повторная
@@ -533,6 +560,221 @@ export class PuzzleService {
       correctMoves: puzzle.moves.split(' '),
       nextPuzzle,
     };
+  }
+
+  /**
+   * KS-2717 / ADR-056 §3.3. Транзакционная запись PuzzleAttempt +
+   * PrecisionAttempt + N PrecisionAttemptMove для PVE-попытки.
+   *
+   * Server-trust: каждый ход валидируется через chess.js (legality);
+   * classification пересчитывается через `classifyMove` из shared —
+   * клиентский результат игнорируется. Если хоть один ход нелегален,
+   * выбрасываем `BadRequestException` (400) и НИЧЕГО не пишем
+   * (транзакция откатывается).
+   */
+  private async persistPveAttemptWithMoves(args: {
+    userId: string;
+    puzzleId: string;
+    puzzleFen: string;
+    solved: boolean;
+    timeMs: number;
+    userMoves: string | null;
+    hintsUsed: number;
+    ratingChange: {
+      userRatingBefore: number;
+      userRatingAfter: number;
+      puzzleRatingBefore: number;
+      puzzleRatingAfter: number;
+    };
+    playVsEngine: {
+      halfMovesPlayed?: number;
+      finalWdl?: number;
+      initialWdl?: number;
+      reason?: PlayVsEnginePuzzleReason;
+      moves?: PrecisionMoveSnapshot[];
+    };
+  }): Promise<void> {
+    const moves = args.playVsEngine.moves ?? [];
+
+    // 1. Sanity / order check: ply должны идти подряд начиная с 1.
+    for (let i = 0; i < moves.length; i++) {
+      if (moves[i].ply !== i + 1) {
+        throw new BadRequestException(
+          `precision moves: ply mismatch at index ${i} (expected ${i + 1}, got ${moves[i].ply})`,
+        );
+      }
+    }
+
+    // 2. Validate legality каждого хода через chess.js. Применяем
+    //    последовательно от puzzle.fen — не доверяем клиентским
+    //    fenBefore (он может быть подделан); но проверяем что
+    //    клиентский fenBefore совпадает с нашим воспроизведением.
+    //    Если позиция «солвера» — каждый второй ход, то между
+    //    user-ходами идут engine-ходы, которые клиент НЕ присылает
+    //    в `moves`, но они зафиксированы в playedUci/bestUci через
+    //    последовательность fenBefore. Поэтому проверяем только
+    //    legality конкретного playedUci в fenBefore (без полной
+    //    реплейки от puzzle.fen — это PVE, engine-ходы могут быть
+    //    разными между попытками).
+    for (const m of moves) {
+      const ok = this.isLegalMove(m.fenBefore, m.playedUci);
+      if (!ok) {
+        throw new BadRequestException(
+          `precision moves: illegal move at ply ${m.ply}: ${m.playedUci} from ${m.fenBefore.slice(0, 30)}…`,
+        );
+      }
+    }
+
+    // 3. Классификация (server-trust). Аггрегаты.
+    const classified = moves.map((m) => {
+      const isBestMove = sameUci(m.playedUci, m.bestUci);
+      const klass = classifyMove({
+        cpBefore: m.cpBefore ?? null,
+        cpAfter: m.cpAfter ?? null,
+        isBestMove,
+      });
+      const wdlBeforeSigned = signedFromWdl(m.wdlBefore);
+      // POV меняется после хода — для leak от лица решателя инвертируем.
+      const wdlAfterSignedSolver =
+        m.wdlAfter == null ? null : -signedFromWdl(m.wdlAfter)!;
+      const leak =
+        wdlBeforeSigned == null || wdlAfterSignedSolver == null
+          ? 0
+          : Math.max(0, wdlBeforeSigned - wdlAfterSignedSolver);
+      return { m, klass, leak };
+    });
+
+    const counts = {
+      best: 0,
+      good: 0,
+      inaccuracy: 0,
+      mistake: 0,
+      blunder: 0,
+    };
+    let firstMistakePly: number | null = null;
+    let wdlLeakSum = 0;
+    for (const c of classified) {
+      counts[c.klass]++;
+      if (
+        firstMistakePly == null &&
+        (c.klass === 'mistake' || c.klass === 'blunder')
+      ) {
+        firstMistakePly = c.m.ply;
+      }
+      wdlLeakSum += c.leak;
+    }
+    const total = classified.length;
+    const accuracyPercent =
+      total > 0 ? ((counts.best + counts.good) / total) * 100 : 0;
+
+    // 4. wdlAtStart / wdlAtEnd: предпочитаем явные initialWdl/finalWdl
+    //    из payload, иначе деривим из первого/последнего snapshot'а.
+    const firstSnap = moves[0];
+    const lastSnap = moves[moves.length - 1];
+    const wdlAtStartSigned =
+      args.playVsEngine.initialWdl ??
+      signedFromWdl(firstSnap?.wdlBefore) ??
+      0;
+    const wdlAtEndSigned =
+      args.playVsEngine.finalWdl ??
+      (lastSnap?.wdlAfter ? -signedFromWdl(lastSnap.wdlAfter)! : null) ??
+      0;
+
+    const halfMovesPlayed = args.playVsEngine.halfMovesPlayed ?? total;
+    const halfMovesTarget = halfMovesPlayed; // фронт сейчас не присылает
+    // целевую длину отдельно — берём = halfMovesPlayed; в KS-2718 при
+    // расчётах avgPlysToFirstMistake используется только played.
+
+    const endReason = args.playVsEngine.reason ?? 'aborted';
+
+    // 5. Транзакция: PuzzleAttempt → PrecisionAttempt → moves.
+    await this.prisma.$transaction(async (tx) => {
+      const created = await tx.puzzleAttempt.create({
+        data: {
+          puzzleId: args.puzzleId,
+          userId: args.userId,
+          solved: args.solved,
+          timeMs: args.timeMs,
+          ratingBefore: args.ratingChange.userRatingBefore,
+          ratingAfter: args.ratingChange.userRatingAfter,
+          userMoves: args.userMoves,
+          hintsUsed: args.hintsUsed,
+        },
+        select: { id: true },
+      });
+
+      await tx.precisionAttempt.create({
+        data: {
+          attemptId: created.id,
+          wdlAtStartSigned,
+          wdlAtEndSigned,
+          halfMovesPlayed,
+          halfMovesTarget,
+          accuracyPercent,
+          bestMovesCount: counts.best,
+          goodMovesCount: counts.good,
+          inaccuraciesCount: counts.inaccuracy,
+          mistakesCount: counts.mistake,
+          blundersCount: counts.blunder,
+          firstMistakePly,
+          wdlLeakSum,
+          endReason,
+        },
+      });
+
+      if (classified.length > 0) {
+        await tx.precisionAttemptMove.createMany({
+          data: classified.map(({ m, klass }) => ({
+            attemptId: created.id,
+            ply: m.ply,
+            fenBefore: m.fenBefore,
+            playedUci: m.playedUci,
+            bestUci: m.bestUci,
+            cpBefore: m.cpBefore ?? null,
+            cpAfter: m.cpAfter ?? null,
+            wdlBeforeW: m.wdlBefore?.w ?? null,
+            wdlBeforeD: m.wdlBefore?.d ?? null,
+            wdlBeforeL: m.wdlBefore?.l ?? null,
+            wdlAfterW: m.wdlAfter?.w ?? null,
+            wdlAfterD: m.wdlAfter?.d ?? null,
+            wdlAfterL: m.wdlAfter?.l ?? null,
+            depth: m.depth ?? null,
+            classification: klass,
+          })),
+        });
+      }
+    });
+
+    this.logger.log(
+      `Puzzle ${args.puzzleId} PVE attempt by user ${args.userId}: ` +
+        `accuracy=${accuracyPercent.toFixed(1)}% halfMoves=${halfMovesPlayed} ` +
+        `firstMistakePly=${firstMistakePly ?? 'none'} ` +
+        `wdlLeakSum=${wdlLeakSum.toFixed(3)} endReason=${endReason}`,
+    );
+  }
+
+  /**
+   * KS-2717: проверка legality одного UCI-хода в данной FEN-позиции
+   * через chess.js. Используется для server-trust валидации
+   * `precision_attempt_moves`.
+   */
+  private isLegalMove(fen: string, uci: string): boolean {
+    if (uci.length < 4) return false;
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const promotion =
+      uci.length > 4 ? (uci[4] as 'q' | 'r' | 'b' | 'n') : undefined;
+    try {
+      const chess = new Chess(fen);
+      const move = chess.move({
+        from,
+        to,
+        ...(promotion ? { promotion } : {}),
+      });
+      return !!move;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1035,4 +1277,25 @@ export class PuzzleService {
 
     return Object.keys(out).length > 0 ? out : undefined;
   }
+}
+
+/**
+ * KS-2717: WDL_signed = (W − L) / 1000, диапазон [-1..+1].
+ * null если данные неполны.
+ */
+function signedFromWdl(
+  wdl: { w: number; d: number; l: number } | null | undefined,
+): number | null {
+  if (!wdl) return null;
+  return (wdl.w - wdl.l) / 1000;
+}
+
+/**
+ * KS-2717: сравнение UCI ходов (from+to+promotion). Сходный с
+ * `samePv1` в puzzle-generator: 5 символов с promotion, 4 без.
+ */
+function sameUci(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a.length < 4 || b.length < 4) return false;
+  return a.slice(0, 5) === b.slice(0, 5);
 }

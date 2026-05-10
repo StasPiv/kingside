@@ -344,12 +344,91 @@ model PuzzleAttempt {
   // attempt-история конкретного пазла теряет смысл без него.
   puzzle Puzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id])
+  /// KS-2717 / ADR-056 §3. 1:1 — для PVE-attempts здесь живут
+  /// доменные precision-метрики (для forced-line отсутствует).
+  precisionAttempt PrecisionAttempt?
 
   @@index([userId])
   @@index([puzzleId])
   @@index([userId, createdAt])
   @@index([userId, puzzleId, solved])
   @@map("puzzle_attempts")
+}
+
+/// KS-2717 / ADR-056 §3.2. Доменная сводка одной play-vs-engine
+/// попытки. 1:1 с `puzzle_attempts` (PK = FK = `attempt_id`); для
+/// forced-line попыток записи нет.
+model PrecisionAttempt {
+  attemptId String @id @map("attempt_id") @db.Uuid
+
+  /// Стартовый и финальный WDL_signed [-1..+1] от лица решающего.
+  /// Snapshot — на момент попытки (пазл может быть отредактирован/
+  /// перегенерирован позже, оригинальное значение не пересчитываем).
+  wdlAtStartSigned Float @map("wdl_at_start_signed")
+  wdlAtEndSigned   Float @map("wdl_at_end_signed")
+  /// Сколько полуходов решающего сыграно. ≤ halfMovesTarget.
+  halfMovesPlayed  Int   @map("half_moves_played")
+  /// Целевая длина (halfMovesN из puzzle params).
+  halfMovesTarget  Int   @map("half_moves_target")
+
+  /// Серверный пересчёт; клиентскому полю не верим (ADR-056 §3.3).
+  accuracyPercent     Float @map("accuracy_percent")
+  bestMovesCount      Int   @map("best_moves_count")
+  goodMovesCount      Int   @map("good_moves_count")
+  inaccuraciesCount   Int   @map("inaccuracies_count")
+  mistakesCount       Int   @map("mistakes_count")
+  blundersCount       Int   @map("blunders_count")
+  /// 1-based ply первого `mistake|blunder`. null — ошибок не было.
+  firstMistakePly     Int?  @map("first_mistake_ply")
+  /// Σ(wdlBefore − wdlAfter) по ходам решающего, [0..N].
+  wdlLeakSum          Float @map("wdl_leak_sum")
+
+  /// `'win' | 'win-mate' | 'win-engine-resign' | 'lose-wdl' |
+  /// 'lose-mate' | 'timeout' | 'aborted'`.
+  endReason String @map("end_reason")
+
+  attempt PuzzleAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  moves   PrecisionAttemptMove[]
+
+  @@map("precision_attempts")
+  @@index([accuracyPercent])
+  @@index([endReason])
+}
+
+/// KS-2717 / ADR-056 §3.2. Per-move детализация — для PostGameReview
+/// (Уровень Б) и SQL-агрегатов «top типов ошибок» (Уровень В).
+model PrecisionAttemptMove {
+  attemptId    String  @map("attempt_id") @db.Uuid
+  /// 1-based по полуходам пользователя в попытке.
+  ply          Int
+  fenBefore    String  @map("fen_before")
+  playedUci    String  @map("played_uci")
+  /// PV1 движка для `fenBefore` (best). NULL не допускается — без
+  /// best-хода classification невозможна; принудительный отбой
+  /// на уровне сервиса.
+  bestUci      String  @map("best_uci")
+  /// Stockfish cp; NULL если post-analyze не вернул score (mate
+  /// энкодится через MATE_CP_ENCODING из shared, KS-2505).
+  cpBefore     Int?    @map("cp_before")
+  cpAfter      Int?    @map("cp_after")
+  /// WDL per-mille (0..1000) raw от Stockfish, POV side-to-move
+  /// в `fenBefore` (для wdlBefore) и в позиции после хода (wdlAfter).
+  wdlBeforeW   Int?    @map("wdl_before_w")
+  wdlBeforeD   Int?    @map("wdl_before_d")
+  wdlBeforeL   Int?    @map("wdl_before_l")
+  wdlAfterW    Int?    @map("wdl_after_w")
+  wdlAfterD    Int?    @map("wdl_after_d")
+  wdlAfterL    Int?    @map("wdl_after_l")
+  depth        Int?
+  /// `'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder'` —
+  /// серверный пересчёт через `classifyMove` из @kingside/shared.
+  classification String @map("classification")
+
+  attempt PrecisionAttempt @relation(fields: [attemptId], references: [attemptId], onDelete: Cascade)
+
+  @@id([attemptId, ply])
+  @@map("precision_attempt_moves")
+  @@index([classification])
 }
 
 model PuzzleRushScore {
