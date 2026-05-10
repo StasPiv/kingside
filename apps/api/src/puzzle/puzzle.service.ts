@@ -216,11 +216,13 @@ export class PuzzleService {
         i++;
       }
       const whereClause = conds.length > 0 ? conds.join(' AND ') : 'true';
-      const orderBy =
-        rangeMode === 'strict' ? '' : 'ORDER BY p.rating ASC';
-      const limit = rangeMode === 'strict' ? 10 : 1;
+      // KS-2736: для всех уровней каскада берём LIMIT 10 без ORDER BY
+      // — потом случайный выбор. Раньше relaxed-уровни делали
+      // `ORDER BY rating ASC LIMIT 1` и всегда возвращали один и тот
+      // же пазл с минимальным рейтингом (вызвало повтор `e1b13c8b` на
+      // /precision несмотря на 1000 PVE-пазлов в БД).
       return this.prisma.$queryRawUnsafe(
-        `SELECT * FROM puzzles p WHERE ${whereClause} ${orderBy} LIMIT ${limit}`,
+        `SELECT * FROM puzzles p WHERE ${whereClause} LIMIT 10`,
         ...ps,
       );
     };
