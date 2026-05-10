@@ -313,9 +313,6 @@ export function BroadcastRoundPage() {
       // только те, где PGN вырос (учитывает diff PGN-длин выше).
       // Завершённые партии (result !== '*') пропускаем.
       const isInitial = prev.length === 0;
-      // KS-2709: собираем feed-items партий, у которых PGN вырос
-      // (это надёжный способ получить SAN+moveNumber из PGN-history,
-      // в отличие от broadcast:move где есть только UCI).
       const newFeedItems: BroadcastFeedItem[] = [];
       for (const g of fresh) {
         if (g.result && g.result !== '*') continue;
@@ -328,11 +325,11 @@ export function BroadcastRoundPage() {
           enqueueEval(gameKey(g), fenForEval);
         } else if (grew) {
           enqueueEval(gameKey(g), fenForEval);
-          // KS-2709: лента строится из PGN-history последнего хода,
-          // не из broadcast:move payload (там только UCI и иногда
-          // невалидный для конверсии preFen). PGN всегда даёт правильный
-          // SAN и moveNumber из FEN fullmove counter.
           const last = extractLastMoveFromPgn(g.pgn ?? '');
+          // eslint-disable-next-line no-console
+          console.log(
+            `[broadcast-feed] grew=${grew} key=${gameKey(g)} prevLen=${prevG?.pgn?.length ?? 0} curLen=${g.pgn?.length ?? 0} extracted=${last ? `${last.moveNumber}${last.side === 'white' ? '.' : '...'} ${last.san}` : 'null'}`,
+          );
           if (last) {
             newFeedItems.push({
               gameKey: gameKey(g),
@@ -347,8 +344,10 @@ export function BroadcastRoundPage() {
         }
       }
       if (newFeedItems.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[broadcast-feed] adding ${newFeedItems.length} items to feed`);
         setLiveFeed((prevFeed) =>
-          [...newFeedItems.reverse(), ...prevFeed].slice(0, 50),
+          [...newFeedItems, ...prevFeed].slice(0, 50),
         );
       }
 
