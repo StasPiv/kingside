@@ -160,13 +160,46 @@ export function BroadcastRoundPage() {
         );
         playSound(soundEventFromSan(advancedSan));
       }
-      // KS-2702: highlight last-move только в одной партии. На
-      // initial-sync (prev пуст) и на «тихих» апдейтах без новых
-      // ходов — выключаем подсветку через null.
+      // KS-2702 → KS-2705: highlight last-move только в одной партии.
+      // На diff'е — ставим id партии, у которой PGN вырос.
+      // На initial-sync (prev пуст) — вычисляем «самую свежую» партию
+      // по `clockUpdatedAt` (KS-2699: он обновляется на каждом ходе)
+      // или fallback по самой длинной PGN. Это обеспечивает что
+      // пользователь сразу видит, где случился последний ход в раунде,
+      // а не пустоту до следующего обновления.
+      // На «тихих» апдейтах (advancedGameId === null, prev не пуст)
+      // оставляем предыдущее значение — последний известный ход
+      // продолжает гореть до следующего реального хода.
       if (advancedGameId !== null) {
         setLastMoveGameId(advancedGameId);
       } else if (prev.length === 0) {
-        setLastMoveGameId(null);
+        // Initial-sync: найти партию с самым свежим clockUpdatedAt.
+        let latestId: string | null = null;
+        let latestTs = -Infinity;
+        for (const g of fresh) {
+          const ts = g.clockUpdatedAt
+            ? new Date(g.clockUpdatedAt).getTime()
+            : NaN;
+          if (Number.isFinite(ts) && ts > latestTs) {
+            latestTs = ts;
+            latestId = g.id;
+          }
+        }
+        // Fallback: если ни у одной партии нет clockUpdatedAt —
+        // берём ту, у которой самый длинный PGN (это эвристика
+        // «больше всего сыграно ходов»; для одинаковой длины первая
+        // встретившаяся выигрывает).
+        if (latestId === null) {
+          let maxLen = -1;
+          for (const g of fresh) {
+            const len = g.pgn?.length ?? 0;
+            if (len > maxLen) {
+              maxLen = len;
+              latestId = g.id;
+            }
+          }
+        }
+        setLastMoveGameId(latestId);
       }
       const fingerprint = gamesFingerprint(fresh);
       const prevFingerprint = gamesFingerprint(prev);
