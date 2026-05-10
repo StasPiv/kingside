@@ -189,7 +189,10 @@ export function GamePage() {
   });
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // KS-2695: block: 'nearest' предотвращает scroll outer-контейнеров
+    // (main / html / body) при появлении новых сообщений — иначе
+    // scrollIntoView сдвигал доску и opponent-info за viewport.
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [messages]);
 
   useEffect(() => {
