@@ -1350,6 +1350,27 @@
       "deleteError": "Не удалось удалить пазл"
     }
   },
+  "precisionAttempts": {
+    "title": "История попыток",
+    "filterLabel": "Фильтр попыток",
+    "filter": {
+      "all": "Все",
+      "preserved": "Удержано",
+      "lost": "Упущено"
+    },
+    "result": {
+      "preserved": "Удержано",
+      "lost": "Упущено"
+    },
+    "accuracy": "Точность: {{value}}",
+    "halfMoves": "{{count}} полуходов",
+    "review": "Разбор",
+    "openReview": "Открыть разбор",
+    "loadMore": "Загрузить ещё",
+    "empty": "У тебя пока нет попыток.",
+    "filterEmpty": "Под фильтр ничего не попало.",
+    "loadError": "Не удалось загрузить историю попыток."
+  },
   "precisionAttempt": {
     "title": "Попытка #{{id}}",
     "notFound": "Попытка не найдена или больше недоступна.",

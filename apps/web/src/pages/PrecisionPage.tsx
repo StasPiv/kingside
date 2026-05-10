@@ -15,6 +15,9 @@ import {
   type InfinitePuzzleFilters,
 } from '../hooks/useInfinitePuzzles';
 import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
+// KS-2724 / ADR-056 §2.2: блок «История попыток» — entry-point на
+// /precision/attempts/:id. Раньше detail-страница была недостижима из UI.
+import { PrecisionAttemptsList } from '../components/precision/PrecisionAttemptsList';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -552,6 +555,12 @@ export function PrecisionPage() {
           </label>
         )}
       </header>
+
+      {/* KS-2724 / ADR-056 §2.2: история попыток. Только для
+          залогиненного юзера — гостям endpoint вернёт 401. Гости видят
+          сразу сетку пазлов. Блок сам управляет своим loading/error/
+          empty-состоянием. */}
+      {user && <PrecisionAttemptsList />}
 
       {pageState === 'loading' && (
         <p

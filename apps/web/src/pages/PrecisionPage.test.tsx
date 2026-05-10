@@ -86,6 +86,25 @@ const SAMPLE = [
 
 const wrap = (data: unknown[]) => ({ data, nextCursor: null });
 
+/**
+ * KS-2724: PrecisionPage параллельно дёргает несколько endpoint'ов
+ * (`/puzzles/browse?...` через `useInfinitePuzzles`, `/precision/stats/me`,
+ * `/precision/attempts/me`). Старые тесты использовали
+ * `apiGet.mockResolvedValueOnce(wrap(SAMPLE))` — это эмулировало ОДИН вызов.
+ * После KS-2724 вызовов несколько и FIFO-очередь mockOnce может вернуть
+ * SAMPLE не на тот endpoint. Хелпер ставит url-aware mockImplementation
+ * с дефолтами для остальных endpoint'ов (пустой список / null stats).
+ */
+const mockBrowseOnce = (data: unknown[]) => {
+  apiGet.mockImplementation((url: string) => {
+    if (url.startsWith('/puzzles/browse')) return Promise.resolve(wrap(data));
+    if (url.startsWith('/precision/attempts/me'))
+      return Promise.resolve({ items: [], total: 0 });
+    if (url === '/precision/stats/me') return Promise.resolve(null);
+    return Promise.resolve(undefined);
+  });
+};
+
 beforeEach(() => {
   apiGet.mockReset();
   apiPatch.mockReset();
@@ -95,6 +114,17 @@ beforeEach(() => {
   for (const key of Array.from(mockSearchParams.keys())) {
     mockSearchParams.delete(key);
   }
+  // KS-2724: PrecisionPage теперь рендерит `<PrecisionAttemptsList>` для
+  // залогиненного юзера, который зовёт `GET /precision/attempts/me`. В
+  // тестах, не сетающих свой mockImplementation, отдаём пустой список,
+  // чтобы render не падал в network undefined.
+  apiGet.mockImplementation((url: string) => {
+    if (url === '/precision/attempts/me?limit=20&offset=0') {
+      return Promise.resolve({ items: [], total: 0 });
+    }
+    if (url === '/precision/stats/me') return Promise.resolve(null);
+    return Promise.resolve(undefined);
+  });
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -108,7 +138,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () => {
   it('fetch /puzzles/browse с source=generated и limit=20 при mount', async () => {
-    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
+    mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
@@ -120,7 +150,7 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
   });
 
   it('рендерит карточки на каждый пазл с FEN; рейтинг скрыт (KS-2689)', async () => {
-    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
+    mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -142,7 +172,7 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
   });
 
   it('KS-2547: клик по «Solve» → /puzzle/:id?source=precision', async () => {
-    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
+    mockBrowseOnce(SAMPLE);
     const user = userEvent.setup();
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -157,7 +187,7 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
   });
 
   it('пустой ответ → empty state', async () => {
-    apiGet.mockResolvedValueOnce(wrap([]));
+    mockBrowseOnce([]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -182,7 +212,7 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
   });
 
   it('гость → stats-блок НЕ рендерится', async () => {
-    apiGet.mockResolvedValueOnce(wrap(SAMPLE));
+    mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
@@ -245,7 +275,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       userId: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([draft]));
+    mockBrowseOnce([draft]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
@@ -264,7 +294,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: true,
       userId: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([pub]));
+    mockBrowseOnce([pub]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
@@ -283,7 +313,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       userId: 'u-someone-else',
     };
-    apiGet.mockResolvedValueOnce(wrap([otherDraft]));
+    mockBrowseOnce([otherDraft]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
@@ -304,7 +334,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       createdBy: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([draft]));
+    mockBrowseOnce([draft]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
@@ -326,7 +356,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: true,
       createdBy: 'u-someone-else',
     };
-    apiGet.mockResolvedValueOnce(wrap([otherPuzzle]));
+    mockBrowseOnce([otherPuzzle]);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(screen.getByTestId('play-vs-engine-card')).toBeInTheDocument(),
@@ -348,7 +378,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       userId: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([draft]));
+    mockBrowseOnce([draft]);
     apiPatch.mockResolvedValueOnce({ ok: true });
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -382,7 +412,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       userId: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([draft]));
+    mockBrowseOnce([draft]);
     apiPatch.mockRejectedValueOnce(new Error('publish boom'));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -408,7 +438,7 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
       isPublic: false,
       userId: 'u1',
     };
-    apiGet.mockResolvedValueOnce(wrap([draft]));
+    mockBrowseOnce([draft]);
     let resolvePatch: (v: unknown) => void = () => {};
     apiPatch.mockReturnValueOnce(
       new Promise((res) => {

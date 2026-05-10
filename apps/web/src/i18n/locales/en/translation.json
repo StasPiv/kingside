@@ -1336,6 +1336,27 @@
       "deleteError": "Failed to delete puzzle"
     }
   },
+  "precisionAttempts": {
+    "title": "Attempt history",
+    "filterLabel": "Filter attempts",
+    "filter": {
+      "all": "All",
+      "preserved": "Preserved",
+      "lost": "Lost"
+    },
+    "result": {
+      "preserved": "Preserved",
+      "lost": "Lost"
+    },
+    "accuracy": "Accuracy: {{value}}",
+    "halfMoves": "{{count}} half-moves",
+    "review": "Review",
+    "openReview": "Open review",
+    "loadMore": "Load more",
+    "empty": "You don't have any attempts yet.",
+    "filterEmpty": "No attempts match this filter.",
+    "loadError": "Could not load attempt history."
+  },
   "precisionAttempt": {
     "title": "Attempt #{{id}}",
     "notFound": "Attempt not found or no longer available.",

@@ -2726,6 +2726,179 @@ body:has(.puzzle-rush-board) {
 }
 .precision-hide-preserved input { cursor: pointer; }
 
+/* KS-2724: блок «История попыток» на /precision. */
+.precision-attempts {
+  margin: 0 0 24px 0;
+  color: var(--c-e2e8f0);
+}
+.precision-attempts__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.precision-attempts__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.precision-attempts__filters {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--c-1e293b);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 6px;
+  padding: 2px;
+}
+.precision-attempts__filter {
+  background: transparent;
+  border: 0;
+  color: var(--c-94a3b8);
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.precision-attempts__filter--active {
+  background: var(--c-2a2a4e, #2a2a4e);
+  color: var(--c-e2e8f0);
+}
+.precision-attempts__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.precision-attempts__row {
+  background: var(--c-1e293b);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.precision-attempts__row--skeleton {
+  height: 88px;
+  opacity: 0.5;
+  animation: precision-skeleton 1.2s ease-in-out infinite alternate;
+}
+@keyframes precision-skeleton {
+  from { opacity: 0.35; }
+  to { opacity: 0.65; }
+}
+.precision-attempts__row--preserved { border-left: 3px solid #4ade80; }
+.precision-attempts__row--lost { border-left: 3px solid #f87171; }
+.precision-attempts__row-btn {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.precision-attempts__row-btn:hover {
+  background: var(--c-2a2a4e, #2a2a4e);
+}
+.precision-attempts__preview {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+.precision-attempts__main {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  gap: 8px 14px;
+  align-items: center;
+  font-size: 13px;
+}
+.precision-attempts__verdict {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 12px;
+}
+.precision-attempts__verdict--preserved { color: #4ade80; }
+.precision-attempts__verdict--lost { color: #f87171; }
+.precision-attempts__accuracy {
+  font-variant-numeric: tabular-nums;
+}
+.precision-attempts__halfmoves {
+  color: var(--c-94a3b8);
+  font-size: 12px;
+}
+.precision-attempts__date {
+  color: var(--c-94a3b8);
+  font-size: 11px;
+  text-align: right;
+}
+.precision-attempts__badges {
+  display: inline-flex;
+  gap: 4px;
+}
+.precision-attempts__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0b1220;
+}
+.precision-attempts__badge--best { background: #27ae60; }
+.precision-attempts__badge--good { background: #7fbf7f; }
+.precision-attempts__badge--inaccuracy { background: #f1c40f; }
+.precision-attempts__badge--mistake { background: #e67e22; }
+.precision-attempts__badge--blunder { background: #c0392b; color: #fef2f2; }
+.precision-attempts__cta {
+  color: var(--accent-primary, #7c83ff);
+  font-size: 13px;
+  font-weight: 600;
+}
+.precision-attempts__more {
+  margin: 12px auto 0 auto;
+  display: block;
+  background: var(--c-1e293b);
+  color: var(--c-e2e8f0);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.precision-attempts__more:disabled { opacity: 0.5; cursor: default; }
+.precision-attempts__empty,
+.precision-attempts__error {
+  margin: 8px 0 0 0;
+  color: var(--c-94a3b8);
+  font-size: 13px;
+}
+.precision-attempts__retry {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--accent-primary, #7c83ff);
+  border: 1px solid var(--accent-primary, #7c83ff);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .precision-attempts__main {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .precision-attempts__date { text-align: left; }
+}
+
 /* KS-2719 F4: detail-страница попытки. */
 .precision-attempt-page {
   max-width: 920px;
