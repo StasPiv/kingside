@@ -64,6 +64,101 @@ function computeLastMoveUci(pgn: string): string | null {
 }
 
 /**
+ * KS-2712: робастная конверсия `uci → san` с тремя попытками. Возвращает
+ * `{san, side, moveNumber}` если хотя бы одна сработала, иначе `null`
+ * — вызывающий должен использовать UCI-fallback. Из всех источников
+ * наиболее надёжный — pre-FEN до хода (там UCI легален и `chess.move`
+ * сразу даёт SAN). Когда pre-FEN рассинхронизирован (race-condition
+ * между двумя `broadcast:move`) — пробуем инвертировать side-to-move,
+ * либо реверснуть post-FEN через chess.put/remove (chess.js не имеет
+ * встроенного `undo` от FEN). Все ветки логируются.
+ */
+function uciToFeedSan(
+  preFen: string | null,
+  postFen: string,
+  uci: string,
+): { san: string; side: 'white' | 'black'; moveNumber: number } | null {
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion = uci.length > 4 ? uci[4] : undefined;
+
+  // Попытка 1: канонический pre-FEN.
+  if (preFen) {
+    try {
+      const c = new Chess(preFen);
+      const m = c.move({ from, to, promotion });
+      if (m) {
+        const parts = preFen.split(' ');
+        const side: 'white' | 'black' = parts[1] === 'b' ? 'black' : 'white';
+        const moveNumber = parseInt(parts[5] ?? '1', 10) || 1;
+        return { san: m.san, side, moveNumber };
+      }
+    } catch {
+      /* try next */
+    }
+    // Попытка 2: pre-FEN с инвертированной стороной — на случай
+    // рассинхрона state.currentFen с реальной side-to-move (race
+    // между broadcast:move'ами или sync пропустил полуход).
+    try {
+      const parts = preFen.split(' ');
+      const flippedSide = parts[1] === 'b' ? 'w' : 'b';
+      parts[1] = flippedSide;
+      const flippedFen = parts.join(' ');
+      const c = new Chess(flippedFen);
+      const m = c.move({ from, to, promotion });
+      if (m) {
+        const side: 'white' | 'black' =
+          flippedSide === 'b' ? 'black' : 'white';
+        const moveNumber = parseInt(parts[5] ?? '1', 10) || 1;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[feed-debug] uciToFeedSan recovered via inverted side: ${uci} → ${m.san}`,
+        );
+        return { san: m.san, side, moveNumber };
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  // Попытка 3: восстановить pre-FEN из post-FEN'а (отменить ход).
+  // chess.js не умеет грузить позицию + сделать undo одной операцией,
+  // но можно перенести фигуру с `to` обратно на `from` и инвертировать
+  // side-to-move. Capture'и нельзя восстановить (мы не знаем какую
+  // фигуру сняли), но для определения SAN это и не нужно — chess.js
+  // не повторно снимет «уже отсутствующую» фигуру.
+  try {
+    const c = new Chess(postFen);
+    const piece = c.get(to as Parameters<typeof c.get>[0]);
+    if (!piece) return null;
+    c.remove(to as Parameters<typeof c.remove>[0]);
+    c.put(piece, from as Parameters<typeof c.put>[0]);
+    const parts = c.fen().split(' ');
+    parts[1] = parts[1] === 'w' ? 'b' : 'w';
+    const reconstructed = parts.join(' ');
+    const c2 = new Chess(reconstructed);
+    const m = c2.move({ from, to, promotion });
+    if (m) {
+      const side: 'white' | 'black' = parts[1] === 'b' ? 'black' : 'white';
+      const moveNumber = parseInt(parts[5] ?? '1', 10) || 1;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[feed-debug] uciToFeedSan recovered via postFen reconstruction: ${uci} → ${m.san}`,
+      );
+      return { san: m.san, side, moveNumber };
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[feed-debug] uciToFeedSan failed all 3 attempts: uci=${uci} preFen=${preFen} postFen=${postFen}`,
+  );
+  return null;
+}
+
+/**
  * KS-2709: извлечь последний ход партии в виде {san, side, moveNumber}
  * из PGN. SAN — стандартная нотация (Bxd5, O-O, e4, Qxe7+ и т.п.).
  * moveNumber берём из FEN fullmove counter после применения хода:
@@ -462,34 +557,39 @@ export function BroadcastRoundPage() {
       lastSoundAtRef.current = Date.now();
 
       // Добавляем в ленту прямо здесь — sync может прийти с
-      // задержкой 30+ сек. Конверсия UCI→SAN на pre-FEN'е, который
-      // был у партии в state до этого хода. moveNumber и side берём
-      // из pre-FEN (fullmove counter + side-to-move).
+      // задержкой 30+ сек. KS-2712: робастная конверсия UCI→SAN
+      // через `uciToFeedSan` (3 попытки). Если все провалились —
+      // печатаем UCI и считаем moveNumber/side из postFen (после
+      // payload.fen применён — side инвертирован, moveNumber возможно
+      // вырос).
       if (pre && payload.uci) {
         const preCast = pre as {
           fen: string | null;
           whitePlayer: string;
           blackPlayer: string;
         };
+        const conv = uciToFeedSan(
+          preCast.fen,
+          payload.fen,
+          payload.uci,
+        );
         let san = payload.uci;
         let side: 'white' | 'black' = 'white';
         let moveNumber = 1;
-        if (preCast.fen) {
-          try {
-            const c = new Chess(preCast.fen);
-            const parts = preCast.fen.split(' ');
-            side = parts[1] === 'b' ? 'black' : 'white';
-            moveNumber = parseInt(parts[5] ?? '1', 10) || 1;
-            const m = c.move({
-              from: payload.uci.slice(0, 2),
-              to: payload.uci.slice(2, 4),
-              promotion:
-                payload.uci.length > 4 ? payload.uci[4] : undefined,
-            });
-            if (m) san = m.san;
-          } catch {
-            /* fallback на UCI */
-          }
+        if (conv) {
+          san = conv.san;
+          side = conv.side;
+          moveNumber = conv.moveNumber;
+        } else if (payload.fen) {
+          // Все три попытки провалились — пытаемся хотя бы вытащить
+          // moveNumber/side из postFEN (side инвертируем обратно).
+          const parts = payload.fen.split(' ');
+          const postSide: 'white' | 'black' =
+            parts[1] === 'b' ? 'black' : 'white';
+          side = postSide === 'white' ? 'black' : 'white';
+          const postFullmove = parseInt(parts[5] ?? '1', 10) || 1;
+          moveNumber =
+            side === 'black' ? postFullmove - 1 : postFullmove;
         }
         const item: BroadcastFeedItem = {
           gameKey: `${preCast.whitePlayer}|${preCast.blackPlayer}`,
