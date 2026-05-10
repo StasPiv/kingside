@@ -44,8 +44,8 @@ type WsBroadcastMovePayload = {
  * KS-1702: namespace убран (subdomain `broadcasts.kingside.site` уже выражает
  * домен) — используется default `/`. transports=['websocket']. Клиент
  * подписывается на `broadcast:{roundId}` room через event `broadcast:subscribe`.
- * Источник обновлений — Redis pub/sub каналы, которые пишет
- * `apps/broadcast-worker`.
+ * Источник обновлений — Redis pub/sub каналы, которые пишет sync-loop
+ * (`BroadcastSyncService`) в том же процессе.
  *
  * Multi-instance safe: socket.io настроен с `RedisIoAdapter`
  * (см. `apps/broadcast-service/src/redis/redis-io.adapter.ts`), так что
@@ -157,6 +157,18 @@ export class BroadcastGateway
         blackPlayer: g.blackPlayer ?? 'Unknown',
         result: g.result ?? null,
         pgn: g.pgn ?? null,
+        // KS-2699: clocks для live-таймера на фронте.
+        whiteClockMs:
+          g.whiteClockMs !== null && g.whiteClockMs !== undefined
+            ? Number(g.whiteClockMs)
+            : null,
+        blackClockMs:
+          g.blackClockMs !== null && g.blackClockMs !== undefined
+            ? Number(g.blackClockMs)
+            : null,
+        clockUpdatedAt: g.clockUpdatedAt
+          ? g.clockUpdatedAt.toISOString()
+          : null,
       })),
     };
 
@@ -173,14 +185,14 @@ export class BroadcastGateway
     this.logger.log(`Client ${client.id} unsubscribed from round ${roundId}`);
   }
 
-  /** @deprecated Используй Redis pub/sub из broadcast-worker'а. */
+  /** @deprecated Используй Redis pub/sub из `BroadcastSyncService`. */
   emitMove(roundId: string, payload: WsBroadcastMovePayload): void {
     this.server
       .to(`broadcast:${roundId}`)
       .emit(BroadcastEvents.MOVE, payload);
   }
 
-  /** @deprecated Используй Redis pub/sub из broadcast-worker'а. */
+  /** @deprecated Используй Redis pub/sub из `BroadcastSyncService`. */
   emitSync(
     roundId: string,
     payload: {
@@ -192,6 +204,9 @@ export class BroadcastGateway
         blackPlayer: string;
         result: string | null;
         pgn: string | null;
+        whiteClockMs?: number | null;
+        blackClockMs?: number | null;
+        clockUpdatedAt?: string | null;
       }>;
     },
   ): void {

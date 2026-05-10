@@ -107,6 +107,19 @@ model BroadcastGame {
   /// ПРОИГРАВШИЙ winners-матча. null для losers-сетки, одиночных сеток
   /// и не-playoff.
   loserToPairId   String? @map("loser_to_pair_id")
+  /// KS-2699: оставшееся время белых на момент `clockUpdatedAt`,
+  /// миллисекунды. Извлекается из `%clk H:MM:SS` комментариев
+  /// в PGN от Lichess broadcast (PGN-comment стандарт). null
+  /// если в источнике clocks отсутствуют (старые партии,
+  /// доска до старта).
+  whiteClockMs    BigInt? @map("white_clock_ms")
+  /// KS-2699: оставшееся время чёрных, миллисекунды.
+  blackClockMs    BigInt? @map("black_clock_ms")
+  /// KS-2699: момент последнего обновления clocks (= когда мы
+  /// получили PGN-update с свежим %clk). Фронт отсчитывает
+  /// текущее значение активного игрока локально как
+  /// `<clockMs> - (now - clockUpdatedAt)`.
+  clockUpdatedAt  DateTime? @map("clock_updated_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   round BroadcastRound @relation(fields: [roundId], references: [id])

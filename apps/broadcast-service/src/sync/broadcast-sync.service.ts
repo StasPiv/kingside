@@ -125,6 +125,59 @@ interface ParsedGame {
   uci: string;
   pgn: string;
   lichessGameId: string | null;
+  /**
+   * KS-2699: оставшееся время белых на момент последнего хода, мс.
+   * Извлечено из `%clk H:MM:SS` PGN-комментариев (Lichess broadcast стандарт).
+   * `null` если в текущем PGN нет ни одного `%clk` для белых
+   * (партия до старта / источник без clocks).
+   */
+  whiteClockMs: number | null;
+  /** KS-2699: то же для чёрных. */
+  blackClockMs: number | null;
+}
+
+/**
+ * KS-2699: извлечь оставшееся время игроков из PGN-комментариев.
+ *
+ * Lichess broadcast PGN после каждого хода вставляет
+ * `{ [%clk H:MM:SS] }` (или `{[%clk H:MM:SS.fff]}` без пробелов) —
+ * остаток времени стороны, СДЕЛАВШЕЙ ход. Порядок чередуется:
+ * 1-й `%clk` — белые после своего 1-го хода, 2-й `%clk` — чёрные
+ * после своего 1-го хода, и т.д.
+ *
+ * Берём ПОСЛЕДНИЙ `%clk` каждой стороны (он соответствует значению
+ * оставшегося времени на момент последнего хода игрока).
+ *
+ * Возвращает `{ null, null }` если ни одного `%clk` нет — клиент
+ * увидит `clockUpdatedAt=null` и не будет рисовать таймеры.
+ */
+export function extractClocksFromPgn(pgnSection: string): {
+  whiteMs: number | null;
+  blackMs: number | null;
+} {
+  const re = /\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/g;
+  let whiteMs: number | null = null;
+  let blackMs: number | null = null;
+  let i = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(pgnSection)) !== null) {
+    const h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const s = parseFloat(m[3]);
+    if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) {
+      i++;
+      continue;
+    }
+    const ms = Math.round((h * 3600 + min * 60 + s) * 1000);
+    // 0-й clock → белые (после 1-го хода белых), 1-й → чёрные, ...
+    if (i % 2 === 0) {
+      whiteMs = ms;
+    } else {
+      blackMs = ms;
+    }
+    i++;
+  }
+  return { whiteMs, blackMs };
 }
 
 /**
@@ -670,6 +723,18 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           blackPlayer: g.blackPlayer ?? 'Unknown',
           result: g.result ?? null,
           pgn: g.pgn ?? null,
+          // KS-2699: clocks для live-таймера на фронте.
+          whiteClockMs:
+            g.whiteClockMs !== null && g.whiteClockMs !== undefined
+              ? Number(g.whiteClockMs)
+              : null,
+          blackClockMs:
+            g.blackClockMs !== null && g.blackClockMs !== undefined
+              ? Number(g.blackClockMs)
+              : null,
+          clockUpdatedAt: g.clockUpdatedAt
+            ? g.clockUpdatedAt.toISOString()
+            : null,
         })),
       });
     }
@@ -1013,6 +1078,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (game.lichessGameId) {
+        // KS-2699: clock_updated_at пишем только когда в текущем PGN
+        // хотя бы одна сторона имеет свежий %clk. Если %clk нет
+        // (партия не началась / источник без clocks) — оба ms-поля
+        // остаются null и clock_updated_at не трогаем (старые
+        // ненулевые значения предыдущего обновления сохраняются).
+        const hasFreshClocks =
+          game.whiteClockMs !== null || game.blackClockMs !== null;
+        const clockUpdatedAt = hasFreshClocks ? new Date() : null;
+        if (hasFreshClocks) {
+          this.logger.debug?.(
+            `[broadcast-sync] clocks game=${game.lichessGameId.slice(0, 8)} ` +
+              `white=${game.whiteClockMs}ms black=${game.blackClockMs}ms`,
+          );
+        }
+
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
         });
@@ -1032,6 +1112,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               result: game.result || null,
               pgn: game.pgn,
               currentFen: newFen,
+              // KS-2699: пишем только при наличии свежих clocks; иначе
+              // не перетираем существующие ненулевые значения null'ом.
+              ...(hasFreshClocks
+                ? {
+                    whiteClockMs:
+                      game.whiteClockMs !== null
+                        ? BigInt(game.whiteClockMs)
+                        : existing.whiteClockMs,
+                    blackClockMs:
+                      game.blackClockMs !== null
+                        ? BigInt(game.blackClockMs)
+                        : existing.blackClockMs,
+                    clockUpdatedAt,
+                  }
+                : {}),
             },
           });
         } else {
@@ -1046,6 +1141,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               result: game.result || null,
               pgn: game.pgn,
               currentFen: game.fen,
+              whiteClockMs:
+                game.whiteClockMs !== null
+                  ? BigInt(game.whiteClockMs)
+                  : null,
+              blackClockMs:
+                game.blackClockMs !== null
+                  ? BigInt(game.blackClockMs)
+                  : null,
+              clockUpdatedAt,
             },
           });
         }
@@ -1151,6 +1255,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const fen = fenValue || computedFen || STARTING_FEN;
       const uci = lastMove || lastUci;
 
+      // KS-2699: clocks извлекаются из %clk-комментариев PGN-секции.
+      const { whiteMs, blackMs } = extractClocksFromPgn(section);
+
       games.push({
         index,
         white,
@@ -1162,6 +1269,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         uci,
         pgn: section.trim(),
         lichessGameId: lichessGameId || null,
+        whiteClockMs: whiteMs,
+        blackClockMs: blackMs,
       });
       index++;
     }

@@ -861,6 +861,20 @@ export class BroadcastController {
       bracketStage: g.bracketStage,
       bracketPairId: g.bracketPairId,
       matchScore: g.matchScore,
+      // KS-2699: clocks игроков (BigInt из БД → number для JSON;
+      // safe up to 2^53-1 ≈ 285 млн лет в мс — для шахматных
+      // часов запас на порядки).
+      whiteClockMs:
+        g.whiteClockMs !== null && g.whiteClockMs !== undefined
+          ? Number(g.whiteClockMs)
+          : null,
+      blackClockMs:
+        g.blackClockMs !== null && g.blackClockMs !== undefined
+          ? Number(g.blackClockMs)
+          : null,
+      clockUpdatedAt: g.clockUpdatedAt
+        ? g.clockUpdatedAt.toISOString()
+        : null,
     }));
 
     return { data };
@@ -937,6 +951,18 @@ export class BroadcastController {
           matchScore: g.matchScore,
           advanceToPairId: g.advanceToPairId,
           loserToPairId: g.loserToPairId,
+          // KS-2699
+          whiteClockMs:
+            g.whiteClockMs !== null && g.whiteClockMs !== undefined
+              ? Number(g.whiteClockMs)
+              : null,
+          blackClockMs:
+            g.blackClockMs !== null && g.blackClockMs !== undefined
+              ? Number(g.blackClockMs)
+              : null,
+          clockUpdatedAt: g.clockUpdatedAt
+            ? g.clockUpdatedAt.toISOString()
+            : null,
         }),
       );
 

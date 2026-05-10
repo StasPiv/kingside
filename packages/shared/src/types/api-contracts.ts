@@ -720,6 +720,21 @@ export type BroadcastGameSummary = {
    * одиночных сеток и не-playoff.
    */
   loserToPairId?: string | null;
+  /**
+   * KS-2699: оставшееся время белых на момент `clockUpdatedAt`,
+   * миллисекунды. Извлечено из `%clk H:MM:SS` PGN-комментариев.
+   * `null` если в источнике clocks отсутствуют (старая партия,
+   * до старта, источник без clocks).
+   */
+  whiteClockMs?: number | null;
+  /** KS-2699: то же для чёрных. */
+  blackClockMs?: number | null;
+  /**
+   * KS-2699: ISO-8601 момент применения свежих `%clk`. Фронт
+   * отсчитывает текущее значение активной стороны как
+   * `<clockMs> - (now - clockUpdatedAt)`.
+   */
+  clockUpdatedAt?: string | null;
 };
 
 export type BroadcastListResponse = {
