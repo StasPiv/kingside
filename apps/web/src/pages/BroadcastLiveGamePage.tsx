@@ -157,16 +157,30 @@ export function BroadcastLiveGamePage() {
     (fresh: LiveGame) => {
       const prevLen = prevPgnRef.current.length;
       const curLen = fresh.pgn?.length ?? 0;
+      // KS-2704: диагностика звука. Лог состояния PGN перед звуковым
+      // решением. Удалить вместе с финальным фиксом.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[broadcast-sound] live handleGameUpdate prevLen=${prevLen} curLen=${curLen} grew=${curLen > prevLen}`,
+      );
       if (curLen > prevLen && fresh.pgn) {
         try {
           const chess = new Chess();
           if (loadPgnSafe(chess, fresh.pgn)) {
             const hist = chess.history();
             const lastSan = hist.length ? hist[hist.length - 1] : null;
+            // eslint-disable-next-line no-console
+            console.log(
+              `[broadcast-sound] live calling playSound san=${lastSan ?? 'null'}`,
+            );
             if (lastSan) playSound(soundEventFromSan(lastSan));
+          } else {
+            // eslint-disable-next-line no-console
+            console.warn('[broadcast-sound] live loadPgnSafe failed');
           }
-        } catch {
-          /* ignore sound errors */
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('[broadcast-sound] live sound branch threw', e);
         }
       }
       prevPgnRef.current = fresh.pgn ?? '';

@@ -144,7 +144,20 @@ export function BroadcastRoundPage() {
           }
         }
       }
+      // KS-2704: диагностика звука. Логируем полное состояние,
+      // которое предшествует вызову playSound — чтобы по console-логу
+      // пользователя можно было точно увидеть, дошли ли мы до WS-
+      // обработчика, есть ли advancedSan, не выкошен ли звук флагом
+      // shouldPlaySound. Логи будут удалены вместе с финальным фиксом.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[broadcast-sound] applyFreshGames advancedSan=${advancedSan ?? 'null'} shouldPlaySound=${shouldPlaySound} prev.length=${prev.length}`,
+      );
       if (shouldPlaySound && advancedSan) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[broadcast-sound] calling playSound for san=${advancedSan}`,
+        );
         playSound(soundEventFromSan(advancedSan));
       }
       // KS-2702: highlight last-move только в одной партии. На
