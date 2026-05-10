@@ -390,6 +390,29 @@ export class BroadcastStandingsSyncService {
     const N = ranking.data.players.length;
     const R = ranking.data.roundCount;
 
+    // KS-2723: chess-results может отставать от Lichess broadcast — у
+    // Ostrava 2026 (FIDE Open A) на момент завершения турнира chess-
+    // results вернул только 8 туров, хотя в БД (и у Lichess) есть Round 9
+    // с финальными результатами. Если в нашей БД больше «классических»
+    // round'ов с финальными partіями, чем chess-results показывает —
+    // отказываемся от chess-results и fallback'имся на internal-fallback
+    // (он строит pairings из `broadcast_games` всем известным round'ам).
+    const dbRoundsWithFinalGames = broadcast.rounds
+      .filter(isCrosstableRound)
+      .filter((rd) =>
+        rd.games.some((g) => g.result && g.result !== '*'),
+      ).length;
+    if (dbRoundsWithFinalGames > R) {
+      this.logger.warn(
+        `swiss chess-results stale for tid=${tid}: ` +
+          `chess-results.roundCount=${R}, db.roundsWithFinalGames=${dbRoundsWithFinalGames}. ` +
+          `Falling back to internal pairings.`,
+      );
+      throw new Error(
+        `chess-results stale: roundCount=${R} < db=${dbRoundsWithFinalGames}`,
+      );
+    }
+
     // 2. Pairings per-round (KS-2206): fetching art=2 without `rd` returns
     //    only the current + next round. To get all played rounds we request
     //    art=2&rd=K for each K=1..R separately (ADR-023 §2.5).
