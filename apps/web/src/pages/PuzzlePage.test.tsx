@@ -25,12 +25,57 @@ vi.mock('../api-puzzle', () => ({
   puzzleApi: mockPuzzleApi,
 }));
 
-// Заглушка PlayVsEngineRunner — нам важно проверить, что рендерится
-// именно он, без полной инициализации Stockfish-движка.
+/**
+ * KS-2739: mock PlayVsEngineRunner с возможностью эмулировать
+ * автоматический вызов `onSubmit` с заранее заготовленным payload.
+ * Тест проставляет `mockAutoSubmit` ДО рендера; mock читает её при
+ * mount и зовёт onSubmit. Так проверяется передача moves[] в
+ * `puzzleApi.submitAttempt` без необходимости запускать ScriptedEngine.
+ */
+type AutoSubmitPayload = {
+  solved: boolean;
+  moves: Array<{
+    halfMove: number;
+    fenBefore: string;
+    playedUci: string;
+    bestUci: string;
+    cpBefore: number | null;
+    cpAfter: number | null;
+    wdlBefore: { w: number; d: number; l: number } | null;
+    wdlAfter: { w: number; d: number; l: number } | null;
+    depth: number | null;
+  }>;
+};
+const { mockAutoSubmit } = vi.hoisted(() => ({
+  mockAutoSubmit: { current: null as AutoSubmitPayload | null },
+}));
 vi.mock('../components/puzzle/PlayVsEngineRunner', () => ({
-  PlayVsEngineRunner: () => (
-    <div data-testid="play-vs-engine-runner-mock" />
-  ),
+  PlayVsEngineRunner: (props: {
+    onSubmit?: (data: {
+      solved: boolean;
+      halfMovesPlayed: number;
+      finalWdl: number;
+      reason: string;
+      timeMs: number;
+      moves: AutoSubmitPayload['moves'];
+    }) => void | Promise<void>;
+  }) => {
+    if (mockAutoSubmit.current && props.onSubmit) {
+      const payload = mockAutoSubmit.current;
+      // microtask — даём React успеть смонтироваться.
+      Promise.resolve().then(() => {
+        props.onSubmit?.({
+          solved: payload.solved,
+          halfMovesPlayed: payload.moves.length,
+          finalWdl: payload.solved ? 0.7 : -0.5,
+          reason: payload.solved ? 'win' : 'lose-wdl',
+          timeMs: 5000,
+          moves: payload.moves,
+        });
+      });
+    }
+    return <div data-testid="play-vs-engine-runner-mock" />;
+  },
 }));
 
 vi.mock('../components/PuzzleBoard', () => ({
@@ -54,8 +99,9 @@ vi.mock('../hooks/useSounds', () => ({
   soundEventFromSan: () => null,
 }));
 
+const authValue: { user: { id: string } | null } = { user: null };
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: null, loading: false }),
+  useAuth: () => ({ user: authValue.user, loading: false }),
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -69,6 +115,8 @@ beforeEach(() => {
   mockPuzzleApi.getById.mockReset();
   mockPuzzleApi.getNext.mockReset();
   mockPuzzleApi.submitAttempt.mockReset();
+  mockAutoSubmit.current = null;
+  authValue.user = null;
 });
 
 function renderAt(route: string) {
@@ -190,6 +238,109 @@ describe('<PuzzlePage> KS-2657', () => {
     expect(mockPuzzleApi.getNext).toHaveBeenNthCalledWith(2, {
       solutionMode: 'play-vs-engine',
     });
+  });
+
+  /**
+   * KS-2739: интеграция submit-payload. Проверяет, что когда
+   * `PlayVsEngineRunner` зовёт `onSubmit({moves: [...]})`,
+   * `PuzzlePage.handlePlayVsEngineSubmit` пробрасывает массив в
+   * `puzzleApi.submitAttempt` body как `moves: [...]` (с маппингом
+   * halfMove → ply).
+   */
+  it('KS-2739: submitAttempt получает moves[] из PlayVsEngineRunner.onSubmit', async () => {
+    authValue.user = { id: 'u1' };
+    mockPuzzleApi.getById.mockResolvedValue({
+      id: 'pve-1',
+      fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+      moves: [],
+      rating: 1500,
+      themes: [],
+      source: 'generated',
+      solutionMode: 'play-vs-engine',
+    });
+    mockPuzzleApi.submitAttempt.mockResolvedValue({});
+    mockAutoSubmit.current = {
+      solved: true,
+      moves: [
+        {
+          halfMove: 1,
+          fenBefore: 'fen1',
+          playedUci: 'e2e4',
+          bestUci: 'd2d4',
+          cpBefore: 50,
+          cpAfter: 30,
+          wdlBefore: { w: 600, d: 200, l: 200 },
+          wdlAfter: { w: 550, d: 250, l: 200 },
+          depth: 12,
+        },
+        {
+          halfMove: 2,
+          fenBefore: 'fen2',
+          playedUci: 'g1f3',
+          bestUci: 'g1f3',
+          cpBefore: 40,
+          cpAfter: 40,
+          wdlBefore: { w: 580, d: 220, l: 200 },
+          wdlAfter: { w: 580, d: 220, l: 200 },
+          depth: 12,
+        },
+      ],
+    };
+    renderAt('/puzzle/pve-1?source=precision');
+    await waitFor(() =>
+      expect(mockPuzzleApi.submitAttempt).toHaveBeenCalled(),
+    );
+    const [puzzleId, body] = mockPuzzleApi.submitAttempt.mock.calls[0];
+    expect(puzzleId).toBe('pve-1');
+    expect(body.result).toBe('solved');
+    expect(body.moves).toHaveLength(2);
+    expect(body.moves[0].ply).toBe(1);
+    expect(body.moves[0].playedUci).toBe('e2e4');
+    expect(body.moves[0].bestUci).toBe('d2d4');
+    expect(body.moves[0].cpBefore).toBe(50);
+    expect(body.moves[0].cpAfter).toBe(30);
+    expect(body.moves[0].wdlBefore).toEqual({ w: 600, d: 200, l: 200 });
+    expect(body.moves[0].depth).toBe(12);
+    expect(body.moves[1].ply).toBe(2);
+    expect(body.moves[1].playedUci).toBe('g1f3');
+  });
+
+  it('KS-2739: гость → submitAttempt не вызывается (включая moves)', async () => {
+    authValue.user = null;
+    mockPuzzleApi.getById.mockResolvedValue({
+      id: 'pve-2',
+      fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+      moves: [],
+      rating: 1500,
+      themes: [],
+      source: 'generated',
+      solutionMode: 'play-vs-engine',
+    });
+    mockAutoSubmit.current = {
+      solved: false,
+      moves: [
+        {
+          halfMove: 1,
+          fenBefore: 'fen1',
+          playedUci: 'e2e4',
+          bestUci: 'd2d4',
+          cpBefore: 50,
+          cpAfter: 30,
+          wdlBefore: null,
+          wdlAfter: null,
+          depth: 12,
+        },
+      ],
+    };
+    renderAt('/puzzle/pve-2?source=precision');
+    // Дожидаемся mount + microtask
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('play-vs-engine-runner-mock'),
+      ).toBeInTheDocument(),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockPuzzleApi.submitAttempt).not.toHaveBeenCalled();
   });
 
   it('обычный пазл без source-параметра + forced-line → PlayVsEngineRunner НЕ рендерится', async () => {

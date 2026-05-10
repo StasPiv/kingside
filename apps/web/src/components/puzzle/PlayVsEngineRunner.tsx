@@ -344,6 +344,54 @@ export function PlayVsEngineRunner({
    */
   const [userBestLog, setUserBestLog] = useState<UserBestSnapshot[]>([]);
   /**
+   * KS-2739: race condition фикс. `submitOnce` собирает `moves` для
+   * backend payload через захват `userBestLog` в `useCallback`-
+   * замыкании. Pre-analyze пишет в state через `setUserBestLog(prev =>
+   * [...prev, snap])` — это асинхронный update, react-state не
+   * обновляется синхронно. К моменту, когда `runEngineCycle` доходит до
+   * `finishWin/finishLose → submitOnce`, цепочка callbacks захватывает
+   * `userBestLog` ИЗ TOГO RENDER, в котором был зарегистрирован
+   * `onPieceDrop` — то есть пустой `[]`.
+   *
+   * Раньше у us был только state. После KS-2719 это привело к тому, что
+   * `submitAttempt` шёл с `moves: []`, и backend (KS-2717) не создавал
+   * `precision_attempts`. KS-2738 девопс заметил precision_attempts=0
+   * после 3 PVE-попыток, диагноз — KS-2739.
+   *
+   * Лечим параллельным `useRef`. Все места, где `setUserBestLog`
+   * вызывается, теперь синхронно обновляют и ref. `submitOnce` читает
+   * `userBestLogRef.current` — гарантированно актуальное значение.
+   * State остаётся для UI (PostGameReview подписан на state).
+   */
+  const userBestLogRef = useRef<UserBestSnapshot[]>([]);
+  /**
+   * KS-2739: helper, который синхронно обновляет и ref, и state. Все
+   * места, которые раньше звали `setUserBestLog(...)`, теперь зовут
+   * `updateUserBestLog(...)` чтобы ref гарантированно был свежим к
+   * моменту submit'а. Принимает либо новое значение, либо updater-
+   * функцию (как обычный setState).
+   */
+  const updateUserBestLog = useCallback(
+    (
+      updater:
+        | UserBestSnapshot[]
+        | ((prev: UserBestSnapshot[]) => UserBestSnapshot[]),
+    ) => {
+      // KS-2739: ref пишем СНАРУЖИ setState — иначе writer внутри
+      // `setUserBestLog((prev) => ...)` исполняется только в фазе
+      // commit React'а, а submitOnce может прочитать ref до этого
+      // момента (микротаски post-analyze идут раньше commit'а).
+      // Writer-функция должна срабатывать прямо сейчас, синхронно.
+      const next =
+        typeof updater === 'function'
+          ? updater(userBestLogRef.current)
+          : updater;
+      userBestLogRef.current = next;
+      setUserBestLog(next);
+    },
+    [],
+  );
+  /**
    * KS-2510 / ADR-047 §3 #7. Когда юзер кликает строку в PostGameReview,
    * на доске показываем `fenBefore` выбранного хода. Доска по-прежнему
    * disabled (state ∈ win|lose), фигуры не двигаются. Сбрасывается на
@@ -422,17 +470,25 @@ export function PlayVsEngineRunner({
         finalWdl,
         reason: finishReason,
         timeMs: Date.now() - startTimeRef.current,
-        // KS-2719 F1: передаём полный лог user-ходов родителю. Он
-        // прицепит к `submitAttempt`. Локальная копия — снимок
-        // userBestLog на момент завершения партии (KS-2508 fallback-
-        // effect мог дописать cpAfter уже после finishWin/finishLose,
-        // тогда родителю придёт неполный лог; в KS-2719 это нормально
-        // — backend сделает classification по тому, что есть).
-        moves: userBestLog,
+        // KS-2719 F1 → KS-2739 fix: читаем ref, а не state. State-
+        // версия `userBestLog` захватывается замыканием `useCallback` в
+        // момент создания `submitOnce`, и из-за асинхронного
+        // обновления state pre-analyze'ом цепочка `onPieceDrop →
+        // runEngineCycle → finishWin → submitOnce` всегда видела
+        // прежнюю (пустую) версию. KS-2738 девопс заметил
+        // precision_attempts=0 на проде — следствие того, что moves
+        // приходило `[]`. Через `userBestLogRef.current` гарантированно
+        // последняя версия.
+        //
+        // KS-2508 fallback-effect мог ещё допечатать cpAfter уже после
+        // finishWin/finishLose; такой post-submit апдейт всё ещё не
+        // попадает в payload (submit одноразовый), но это редкий хвост,
+        // backend грейсфолит на null cpAfter.
+        moves: userBestLogRef.current,
       };
       void onSubmit?.(data);
     },
-    [onSubmit, userBestLog],
+    [onSubmit],
   );
 
   // ── Win / lose helpers ───────────────────────────────────────────────
@@ -509,7 +565,7 @@ export function PlayVsEngineRunner({
       // KS-2686: wdl POV user после фактически сыгранного user-хода.
       // На post-analyze FEN'е ходит соперник → POV соперника, инвертируем.
       const wdlAfterUser = best.wdl ? flipWdl(best.wdl) : null;
-      setUserBestLog((prev) =>
+      updateUserBestLog((prev) =>
         prev.map((s) =>
           s.halfMove === halfAfterUser
             ? {
@@ -617,6 +673,7 @@ export function PlayVsEngineRunner({
       finishLose,
       finishWin,
       playSound,
+      updateUserBestLog,
     ],
   );
 
@@ -664,7 +721,7 @@ export function PlayVsEngineRunner({
             // KS-2686: wdl на `fenBefore` POV user (юзер — side-to-move).
             // PV1 ведёт через bestUci → это и есть «WDL после лучшего хода».
             const wdlBefore = preBest.wdl ?? null;
-            setUserBestLog((prev) => [
+            updateUserBestLog((prev) => [
               ...prev,
               {
                 halfMove: halfAfterUser,
@@ -750,6 +807,7 @@ export function PlayVsEngineRunner({
       queueAnalyze,
       finishLose,
       finishWin,
+      updateUserBestLog,
     ],
   );
 
@@ -769,6 +827,10 @@ export function PlayVsEngineRunner({
     // настоящее значение из движка (если UCI_ShowWDL поддерживается).
     setLatestWdl(null);
     setReason(null);
+    // KS-2739: ref сбрасываем тут же чтобы не утащить лог прошлого пазла
+    // в submit нового. updateUserBestLog тоже работал бы, но reset-эффект
+    // не должен зависеть от useCallback — пишем напрямую.
+    userBestLogRef.current = [];
     setUserBestLog([]);
     // KS-2510: при новом пазле выкл review-snapshot, чтобы доска
     // показывала актуальную позицию для нового решения.
@@ -854,7 +916,7 @@ export function PlayVsEngineRunner({
           const cpAfter = -cpFromScore(b.score);
           // KS-2686: на FEN'е после хода юзера ходит соперник → flipWdl.
           const wdlAfter = b.wdl ? flipWdl(b.wdl) : null;
-          setUserBestLog((prev) =>
+          updateUserBestLog((prev) =>
             prev.map((x) =>
               x.halfMove === s.halfMove
                 ? {
@@ -874,7 +936,7 @@ export function PlayVsEngineRunner({
     return () => {
       cancelled = true;
     };
-  }, [state, userBestLog, ensureEngine, queueAnalyze]);
+  }, [state, userBestLog, ensureEngine, queueAnalyze, updateUserBestLog]);
 
   // ── UI helpers ───────────────────────────────────────────────────────
   const halfMovesLeft = Math.max(0, params.halfMovesN - halfMovesPlayed);

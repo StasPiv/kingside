@@ -194,6 +194,13 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.solved).toBe(true);
     expect(arg.reason).toBe('win-engine-resign');
     expect(arg.halfMovesPlayed).toBe(1);
+    // KS-2739: проверка что moves[] передан и содержит pre-analyze
+    // snapshot первого user-хода. Раньше submitOnce захватывал
+    // userBestLog через `useCallback([userBestLog])`, и при race с
+    // pre-analyze (которая делает `setUserBestLog(prev => [...prev, ...])`)
+    // в submitOnce попадало старое значение `[]`.
+    expect(arg.moves).toHaveLength(1);
+    expect(arg.moves[0].playedUci).toBe('e2e4');
   });
 
   it('lose-wdl: после первого хода wdl_user падает ниже failThreshold → lose', async () => {
@@ -231,6 +238,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.solved).toBe(false);
     expect(arg.reason).toBe('lose-wdl');
     expect(arg.finalWdl).toBeLessThan(0.1);
+    // KS-2739: lose-wdl тоже должен везти moves[]
+    expect(arg.moves).toHaveLength(1);
+    expect(arg.moves[0].playedUci).toBe('e2e4');
   });
 
   it('win по итогу N полуходов: финальный wdl_user >= winThreshold → win', async () => {
@@ -269,6 +279,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.solved).toBe(true);
     expect(arg.halfMovesPlayed).toBe(2);
     expect(arg.finalWdl).toBeGreaterThanOrEqual(0.5);
+    // KS-2739: win-сценарий после N полуходов — moves[] передан
+    expect(arg.moves).toHaveLength(1);
+    expect(arg.moves[0].playedUci).toBe('e2e4');
   });
 
   it('win-mate: ход игрока ставит мат соперника', async () => {
