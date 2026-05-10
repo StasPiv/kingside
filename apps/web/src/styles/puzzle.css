@@ -2806,9 +2806,9 @@ body:has(.puzzle-rush-board) {
   justify-content: space-between;
 }
 
-.play-vs-engine-card__rating {
-  font-variant-numeric: tabular-nums;
-}
+/* KS-2689: .play-vs-engine-card__rating удалён вместе с
+   соответствующим span'ом — рейтинг сгенерированных пазлов
+   рассчитывается некорректно и в UX путал пользователя. */
 
 .play-vs-engine-card__side {
   font-size: 11px;

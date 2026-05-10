@@ -119,7 +119,7 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
     expect(url).not.toMatch(/mine=/); // mine не задан
   });
 
-  it('рендерит карточки на каждый пазл с FEN, рейтингом', async () => {
+  it('рендерит карточки на каждый пазл с FEN; рейтинг скрыт (KS-2689)', async () => {
     apiGet.mockResolvedValueOnce(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
@@ -133,8 +133,12 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
     const boards = screen.getAllByTestId('mock-chessboard');
     expect(boards[0].getAttribute('data-position')).toBe(SAMPLE[0].fen);
     expect(boards[1].getAttribute('data-orientation')).toBe('black');
-    const ratings = screen.getAllByTestId('play-vs-engine-card-rating');
-    expect(ratings[0].textContent).toMatch(/1973/);
+    // KS-2689: рейтинг сгенерированных пазлов скрыт (формула MVP даёт
+    // некорректные значения — пользователь жаловался). Поле `rating`
+    // продолжает приходить в DTO.
+    expect(
+      screen.queryAllByTestId('play-vs-engine-card-rating'),
+    ).toHaveLength(0);
   });
 
   it('KS-2547: клик по «Solve» → /puzzle/:id?source=precision', async () => {

@@ -574,14 +574,12 @@ export function PrecisionPage() {
                     )}
                   </div>
                   <div className="play-vs-engine-card__meta">
-                    <span
-                      className="play-vs-engine-card__rating"
-                      data-testid="play-vs-engine-card-rating"
-                    >
-                      {t('puzzleBrowser.yourRating', 'Puzzle rating: {{rating}}', {
-                        rating: p.rating,
-                      })}
-                    </span>
+                    {/* KS-2689: рейтинг сгенерированных пазлов
+                        рассчитывается по упрощённой MVP-формуле
+                        (ADR-044 §3.5) и в UX путает пользователя.
+                        Скрываем span до тех пор, пока формула не
+                        будет доработана. Поле `p.rating` остаётся
+                        в DTO/БД и используется backend'ом. */}
                     <span
                       className="play-vs-engine-card__side"
                       data-side={orientation}
