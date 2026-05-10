@@ -2191,6 +2191,35 @@ details[open] .broadcast-feed__summary::before { content: "▾ "; }
   font-variant-numeric: tabular-nums;
 }
 
+/* KS-2709: контрастный индикатор стороны хода. Заменяет
+   маловидные unicode-кружки ○/●. Кружок 10px:
+   - white: светлый фон + тёмная обводка (контраст и на тёмном, и
+     на светлом фоне ленты)
+   - black: тёмный фон без обводки
+   Текстовая метка W/B рядом — для accessibility и доп.различимости. */
+.broadcast-feed__row-dot {
+  grid-row: 1; grid-column: 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.broadcast-feed__row-dot--white {
+  background: var(--c-f5f5f5, #f5f5f5);
+  border: 1px solid var(--c-1a1a1a, #1a1a1a);
+}
+
+.broadcast-feed__row-dot--black {
+  background: var(--c-1a1a1a, #1a1a1a);
+  border: 1px solid var(--c-606078, #606078);
+}
+
+.broadcast-feed__row-side-label {
+  display: none; /* визуально не нужен, оставлен в DOM для screen-reader'ов */
+}
+
+/* Старый класс остался ради back-compat теста. */
 .broadcast-feed__row-side {
   grid-row: 1; grid-column: 2;
   font-size: 12px;

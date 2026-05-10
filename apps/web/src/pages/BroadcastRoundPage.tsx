@@ -63,6 +63,44 @@ function computeLastMoveUci(pgn: string): string | null {
   }
 }
 
+/**
+ * KS-2709: извлечь последний ход партии в виде {san, side, moveNumber}
+ * из PGN. SAN — стандартная нотация (Bxd5, O-O, e4, Qxe7+ и т.п.).
+ * moveNumber берём из FEN fullmove counter после применения хода:
+ *  - если ход сделали чёрные → fullmove already incremented (next white move).
+ *    moveNumber для строки ленты = postFullmove - 1.
+ *  - если ход сделали белые → fullmove оставался прежним, инкрементится
+ *    после хода чёрных. moveNumber = postFullmove.
+ * Side вычисляем: после хода стороны меняются, side ходившего =
+ *   opposite of postFen.side.
+ */
+function extractLastMoveFromPgn(
+  pgn: string,
+): { san: string; side: 'white' | 'black'; moveNumber: number } | null {
+  try {
+    const chess = new Chess();
+    if (!loadPgnSafe(chess, pgn)) return null;
+    const hist = chess.history({ verbose: true });
+    if (hist.length === 0) return null;
+    const last = hist[hist.length - 1];
+    const postFen = chess.fen();
+    const parts = postFen.split(' ');
+    const postFullmove = parseInt(parts[5] ?? '1', 10) || 1;
+    const postSide = parts[1] === 'b' ? 'black' : 'white';
+    const playedSide: 'white' | 'black' =
+      postSide === 'white' ? 'black' : 'white';
+    const moveNumber =
+      playedSide === 'black' ? postFullmove - 1 : postFullmove;
+    return {
+      san: last.san ?? `${last.from}${last.to}${last.promotion ?? ''}`,
+      side: playedSide,
+      moveNumber,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Strip clock/eval comments that may cause chess.js loadPgn to fail */
 function stripPgnComments(pgn: string): string {
   return pgn.replace(/\{[^}]*\}/g, '');
@@ -173,7 +211,17 @@ export function BroadcastRoundPage() {
     `${g.whitePlayer ?? ''}|${g.blackPlayer ?? ''}`;
 
   const applyFreshGames = useCallback(
-    (fresh: LichessGame[], shouldPlaySound: boolean) => {
+    (rawFresh: LichessGame[], shouldPlaySound: boolean) => {
+      // KS-2710: WS broadcast:sync шлёт игры с полем `fen`, REST API
+      // даёт `currentFen`. Нормализуем shape ДО любой обработки —
+      // иначе после первого WS-sync пропадают clocks (KS-2700),
+      // last-move highlight (KS-2705) и eval-bar (KS-2708), потому
+      // что они ожидают `currentFen`.
+      const fresh: LichessGame[] = rawFresh.map((g) => {
+        if (g.currentFen) return g;
+        const fenAlt = (g as unknown as { fen?: string }).fen;
+        return fenAlt ? { ...g, currentFen: fenAlt } : g;
+      });
       const prev = prevGamesRef.current;
       // KS-2702: ищем партию(-ии) в которых увеличилась PGN-длина
       // относительно prev — это и есть «получили новый ход в этом
@@ -265,18 +313,43 @@ export function BroadcastRoundPage() {
       // только те, где PGN вырос (учитывает diff PGN-длин выше).
       // Завершённые партии (result !== '*') пропускаем.
       const isInitial = prev.length === 0;
+      // KS-2709: собираем feed-items партий, у которых PGN вырос
+      // (это надёжный способ получить SAN+moveNumber из PGN-history,
+      // в отличие от broadcast:move где есть только UCI).
+      const newFeedItems: BroadcastFeedItem[] = [];
       for (const g of fresh) {
         if (g.result && g.result !== '*') continue;
         const fenForEval = g.currentFen;
         if (!fenForEval) continue;
+        const prevG = prev.find((p) => gameKey(p) === gameKey(g));
+        const grew =
+          (prevG?.pgn?.length ?? 0) < (g.pgn?.length ?? 0);
         if (isInitial) {
           enqueueEval(gameKey(g), fenForEval);
-        } else {
-          const prevG = prev.find((p) => gameKey(p) === gameKey(g));
-          if ((prevG?.pgn?.length ?? 0) < (g.pgn?.length ?? 0)) {
-            enqueueEval(gameKey(g), fenForEval);
+        } else if (grew) {
+          enqueueEval(gameKey(g), fenForEval);
+          // KS-2709: лента строится из PGN-history последнего хода,
+          // не из broadcast:move payload (там только UCI и иногда
+          // невалидный для конверсии preFen). PGN всегда даёт правильный
+          // SAN и moveNumber из FEN fullmove counter.
+          const last = extractLastMoveFromPgn(g.pgn ?? '');
+          if (last) {
+            newFeedItems.push({
+              gameKey: gameKey(g),
+              whitePlayer: g.whitePlayer ?? '?',
+              blackPlayer: g.blackPlayer ?? '?',
+              side: last.side,
+              moveNumber: last.moveNumber,
+              notation: last.san,
+              ts: Date.now(),
+            });
           }
         }
+      }
+      if (newFeedItems.length > 0) {
+        setLiveFeed((prevFeed) =>
+          [...newFeedItems.reverse(), ...prevFeed].slice(0, 50),
+        );
       }
 
       const fingerprint = gamesFingerprint(fresh);
@@ -354,40 +427,11 @@ export function BroadcastRoundPage() {
           payload.fen,
         );
       }
-      // KS-2707: добавляем строку в ленту. SAN считаем из pre-FEN'а
-      // через chess.js; если конверт не удался — fallback на UCI.
-      if (pre && payload.uci) {
-        const preCast = pre as { fen: string | null; whitePlayer: string; blackPlayer: string };
-        let san = payload.uci;
-        let side: 'white' | 'black' = 'white';
-        let moveNumber = 1;
-        if (preCast.fen) {
-          try {
-            const c = new Chess(preCast.fen);
-            const [, turnBefore, , , , fullmoveStr] = preCast.fen.split(' ');
-            side = turnBefore === 'b' ? 'black' : 'white';
-            moveNumber = parseInt(fullmoveStr ?? '1', 10) || 1;
-            const m = c.move({
-              from: payload.uci.slice(0, 2),
-              to: payload.uci.slice(2, 4),
-              promotion: payload.uci.length > 4 ? payload.uci[4] : undefined,
-            });
-            if (m) san = m.san;
-          } catch {
-            /* ignore — fallback на UCI */
-          }
-        }
-        const item: BroadcastFeedItem = {
-          gameKey: `${preCast.whitePlayer}|${preCast.blackPlayer}`,
-          whitePlayer: preCast.whitePlayer || (payload.whitePlayer ?? '?'),
-          blackPlayer: preCast.blackPlayer || (payload.blackPlayer ?? '?'),
-          side,
-          moveNumber,
-          notation: san,
-          ts: Date.now(),
-        };
-        setLiveFeed((prevFeed) => [item, ...prevFeed].slice(0, 50));
-      }
+      // KS-2709: запись в ленту строится в applyFreshGames (когда
+      // приходит broadcast:sync с обновлённым PGN), там можно надёжно
+      // вытащить SAN из chess.history и moveNumber из FEN fullmove
+      // counter. Здесь только UCI без PGN — конверсия в SAN была
+      // ненадёжна (preFen мог быть INITIAL/неактуальным).
       // Играем звук сразу — даже если sync не догонит с PGN, юзер
       // услышит ход. soundEventFromSan нам недоступен (нет san), берём
       // обычный 'move'. Capture/check тут не различаем — backend в move

@@ -54,7 +54,6 @@ export function BroadcastLiveFeed({ items, onItemClick }: BroadcastLiveFeedProps
   const { t } = useTranslation();
 
   const renderRow = (item: BroadcastFeedItem, idx: number) => {
-    const dot = item.side === 'white' ? '○' : '●';
     const moveLabel =
       item.side === 'white'
         ? `${item.moveNumber}. ${item.notation}`
@@ -73,8 +72,12 @@ export function BroadcastLiveFeed({ items, onItemClick }: BroadcastLiveFeedProps
           title={`${players} — ${moveLabel}`}
         >
           <span className="broadcast-feed__row-time">{formatTime(item.ts)}</span>
-          <span className="broadcast-feed__row-side" aria-hidden="true">
-            {dot}
+          <span
+            className={`broadcast-feed__row-dot broadcast-feed__row-dot--${item.side}`}
+            aria-hidden="true"
+          />
+          <span className="broadcast-feed__row-side-label" aria-hidden="true">
+            {item.side === 'white' ? 'W' : 'B'}
           </span>
           <span className="broadcast-feed__row-move">{moveLabel}</span>
           <span className="broadcast-feed__row-players">{players}</span>
