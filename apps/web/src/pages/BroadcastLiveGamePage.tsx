@@ -7,6 +7,10 @@ import type { BroadcastGameSummary } from '@kingside/shared';
 import { broadcastApi } from '../api/broadcastApi';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+import {
+  formatBroadcastClock,
+  useBroadcastClock,
+} from '../hooks/useBroadcastClock';
 
 /**
  * KS-2448: live-режим просмотра партии трансляции.
@@ -190,6 +194,24 @@ export function BroadcastLiveGamePage() {
     return { [parsed.lastMove.from]: hl, [parsed.lastMove.to]: hl };
   }, [parsed.lastMove]);
 
+  // KS-2700: side-to-move определяется по текущему FEN. Если parsed.fen
+  // невалиден (теоретически — всегда возвращается какой-то FEN, но
+  // на всякий случай fallback на 'w') — считаем что ход белых.
+  const isBlackTurn = useMemo(() => {
+    const parts = parsed.fen.split(' ');
+    return parts[1] === 'b';
+  }, [parsed.fen]);
+  const isFinished = Boolean(game?.result && game.result !== '*');
+  const clock = useBroadcastClock({
+    whiteClockMs: game?.whiteClockMs ?? null,
+    blackClockMs: game?.blackClockMs ?? null,
+    clockUpdatedAt: game?.clockUpdatedAt ?? null,
+    isBlackTurn,
+    isFinished,
+  });
+  const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
+  const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
+
   const handleOpenInAnalysis = () => {
     if (!game?.pgn) return;
     void openAnalysisFromPgn(navigate, {
@@ -233,11 +255,31 @@ export function BroadcastLiveGamePage() {
 
       <div className="broadcast-live-game">
         <div className="broadcast-live-game__board-col">
-          <div className="broadcast-live-game__player broadcast-live-game__player--top">
-            &#9823; {game.blackPlayer ?? '—'}
-            {result === '0-1' && <span className="broadcast-live-game__result"> 1</span>}
-            {result === '1-0' && <span className="broadcast-live-game__result"> 0</span>}
-            {result === '1/2-1/2' && <span className="broadcast-live-game__result"> ½</span>}
+          {/* KS-2700: player-row с pill-таймером справа. Над доской —
+              чёрные, под доской — белые (доска ориентирована стандартно
+              для зрителя — белые внизу). Таймер рендерится только если
+              у партии есть `clockUpdatedAt` (источник с %clk + после
+              старта). Активная сторона тикает раз в секунду. */}
+          <div
+            className="broadcast-live-game__player broadcast-live-game__player--top"
+            data-testid="broadcast-live-player-black"
+            data-active={isBlackTurn && !isFinished ? 'true' : 'false'}
+          >
+            <span className="broadcast-live-game__player-name">
+              <span className="broadcast-live-game__player-piece">&#9823;</span>
+              {game.blackPlayer ?? '—'}
+            </span>
+            {result === '0-1' && <span className="broadcast-live-game__result">1</span>}
+            {result === '1-0' && <span className="broadcast-live-game__result">0</span>}
+            {result === '1/2-1/2' && <span className="broadcast-live-game__result">½</span>}
+            {clock.hasClocks && blackClockText !== null && (
+              <span
+                className={`broadcast-live-game__clock${isBlackTurn && !isFinished ? ' broadcast-live-game__clock--active' : ''}`}
+                data-testid="broadcast-live-clock-black"
+              >
+                {blackClockText}
+              </span>
+            )}
           </div>
           <div className="broadcast-live-game__board">
             <Chessboard
@@ -250,11 +292,26 @@ export function BroadcastLiveGamePage() {
               }}
             />
           </div>
-          <div className="broadcast-live-game__player broadcast-live-game__player--bottom">
-            &#9817; {game.whitePlayer ?? '—'}
-            {result === '1-0' && <span className="broadcast-live-game__result"> 1</span>}
-            {result === '0-1' && <span className="broadcast-live-game__result"> 0</span>}
-            {result === '1/2-1/2' && <span className="broadcast-live-game__result"> ½</span>}
+          <div
+            className="broadcast-live-game__player broadcast-live-game__player--bottom"
+            data-testid="broadcast-live-player-white"
+            data-active={!isBlackTurn && !isFinished ? 'true' : 'false'}
+          >
+            <span className="broadcast-live-game__player-name">
+              <span className="broadcast-live-game__player-piece">&#9817;</span>
+              {game.whitePlayer ?? '—'}
+            </span>
+            {result === '1-0' && <span className="broadcast-live-game__result">1</span>}
+            {result === '0-1' && <span className="broadcast-live-game__result">0</span>}
+            {result === '1/2-1/2' && <span className="broadcast-live-game__result">½</span>}
+            {clock.hasClocks && whiteClockText !== null && (
+              <span
+                className={`broadcast-live-game__clock${!isBlackTurn && !isFinished ? ' broadcast-live-game__clock--active' : ''}`}
+                data-testid="broadcast-live-clock-white"
+              >
+                {whiteClockText}
+              </span>
+            )}
           </div>
           {result === null && (
             <div className="broadcast-live-game__live-pill">
