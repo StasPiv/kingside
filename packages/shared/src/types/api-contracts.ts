@@ -341,6 +341,39 @@ export interface PrecisionMoveDto {
 }
 
 /**
+ * KS-2724: элемент списка `GET /precision/attempts/me`.
+ * Достаточно для рендера списка с мини-превью и accuracy-меткой;
+ * детали (per-move) тянутся отдельно через `/precision/attempts/:id`.
+ */
+export interface PrecisionAttemptListItem {
+  attemptId: string;
+  puzzleId: string;
+  /** FEN стартовой позиции пазла — для мини-доски-превью. */
+  puzzleFen: string;
+  attemptedAt: string;
+  solved: boolean;
+  endReason: string;
+  halfMovesPlayed: number;
+  accuracyPercent: number;
+  classCounts: {
+    best: number;
+    good: number;
+    inaccuracy: number;
+    mistake: number;
+    blunder: number;
+  };
+}
+
+/**
+ * Ответ `GET /precision/attempts/me?limit=&offset=`.
+ */
+export interface PrecisionAttemptsListResponse {
+  items: PrecisionAttemptListItem[];
+  /** Общее число PVE-attempts пользователя (для пагинации/«загрузить ещё»). */
+  total: number;
+}
+
+/**
  * Ответ `GET /precision/attempts/:attemptId` (Уровень Б, ADR-056 §2.2).
  */
 export interface PrecisionAttemptDetail {

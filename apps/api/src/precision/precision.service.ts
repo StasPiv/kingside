@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import type {
   PrecisionAttemptDetail,
+  PrecisionAttemptsListResponse,
   PrecisionStatsResponse,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -145,6 +146,65 @@ export class PrecisionService {
       todayAttempts,
       todayPreserved,
     };
+  }
+
+  /**
+   * KS-2724: список PVE-попыток текущего пользователя для блока
+   * «История попыток» на /precision. Возвращает агрегаты Уровня А
+   * каждой попытки (accuracyPercent, classCounts, endReason); per-move
+   * детали тянутся отдельно через `getAttemptDetail`.
+   *
+   * Сортировка — последние первыми (`createdAt DESC`).
+   */
+  async listAttemptsForUser(
+    userId: string,
+    limit: number,
+    offset: number,
+  ): Promise<PrecisionAttemptsListResponse> {
+    const baseFilter = {
+      userId,
+      puzzle: { is: { solutionMode: 'play-vs-engine' as const } },
+      precisionAttempt: { isNot: null },
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.puzzleAttempt.findMany({
+        where: baseFilter,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          puzzle: { select: { id: true, fen: true } },
+          precisionAttempt: true,
+        },
+      }),
+      this.prisma.puzzleAttempt.count({ where: baseFilter }),
+    ]);
+
+    const items = rows
+      .filter((r) => r.precisionAttempt !== null)
+      .map((r) => {
+        const pa = r.precisionAttempt!;
+        return {
+          attemptId: r.id,
+          puzzleId: r.puzzleId,
+          puzzleFen: r.puzzle.fen,
+          attemptedAt: r.createdAt.toISOString(),
+          solved: r.solved,
+          endReason: pa.endReason,
+          halfMovesPlayed: pa.halfMovesPlayed,
+          accuracyPercent: pa.accuracyPercent,
+          classCounts: {
+            best: pa.bestMovesCount,
+            good: pa.goodMovesCount,
+            inaccuracy: pa.inaccuraciesCount,
+            mistake: pa.mistakesCount,
+            blunder: pa.blundersCount,
+          },
+        };
+      });
+
+    return { items, total };
   }
 
   /**

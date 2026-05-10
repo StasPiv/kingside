@@ -14,6 +14,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       puzzleAttempt: {
         count: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn(),
       },
       precisionAttempt: {
         aggregate: jest.fn(),
@@ -108,6 +109,112 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         userId: 'user-1',
         createdAt: { gte: since },
       });
+    });
+  });
+
+  // ─── listAttemptsForUser (KS-2724) ─────────────────────────────────
+
+  describe('listAttemptsForUser', () => {
+    it('возвращает items + total для PVE-attempts', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([
+        {
+          id: 'attempt-1',
+          puzzleId: 'p1',
+          createdAt: new Date('2026-05-10T10:00:00Z'),
+          solved: true,
+          puzzle: { id: 'p1', fen: 'fen-1' },
+          precisionAttempt: {
+            attemptId: 'attempt-1',
+            endReason: 'win',
+            halfMovesPlayed: 6,
+            accuracyPercent: 83.3,
+            bestMovesCount: 4,
+            goodMovesCount: 1,
+            inaccuraciesCount: 1,
+            mistakesCount: 0,
+            blundersCount: 0,
+          },
+        },
+        {
+          id: 'attempt-2',
+          puzzleId: 'p2',
+          createdAt: new Date('2026-05-09T10:00:00Z'),
+          solved: false,
+          puzzle: { id: 'p2', fen: 'fen-2' },
+          precisionAttempt: {
+            attemptId: 'attempt-2',
+            endReason: 'lose-wdl',
+            halfMovesPlayed: 4,
+            accuracyPercent: 25,
+            bestMovesCount: 0,
+            goodMovesCount: 1,
+            inaccuraciesCount: 1,
+            mistakesCount: 1,
+            blundersCount: 1,
+          },
+        },
+      ]);
+      prisma.puzzleAttempt.count.mockResolvedValue(7);
+
+      const r = await service.listAttemptsForUser('user-1', 20, 0);
+
+      expect(r.total).toBe(7);
+      expect(r.items).toHaveLength(2);
+      expect(r.items[0]).toEqual({
+        attemptId: 'attempt-1',
+        puzzleId: 'p1',
+        puzzleFen: 'fen-1',
+        attemptedAt: '2026-05-10T10:00:00.000Z',
+        solved: true,
+        endReason: 'win',
+        halfMovesPlayed: 6,
+        accuracyPercent: 83.3,
+        classCounts: {
+          best: 4,
+          good: 1,
+          inaccuracy: 1,
+          mistake: 0,
+          blunder: 0,
+        },
+      });
+      expect(r.items[1].endReason).toBe('lose-wdl');
+      expect(r.items[1].classCounts.blunder).toBe(1);
+    });
+
+    it('фильтр PVE через relation + precisionAttempt is not null', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+      prisma.puzzleAttempt.count.mockResolvedValue(0);
+
+      await service.listAttemptsForUser('user-1', 20, 0);
+
+      const findArg = prisma.puzzleAttempt.findMany.mock.calls[0][0];
+      expect(findArg.where).toMatchObject({
+        userId: 'user-1',
+        puzzle: { is: { solutionMode: 'play-vs-engine' } },
+        precisionAttempt: { isNot: null },
+      });
+      expect(findArg.orderBy).toEqual({ createdAt: 'desc' });
+      expect(findArg.take).toBe(20);
+      expect(findArg.skip).toBe(0);
+    });
+
+    it('пустой список → items=[], total=0', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+      prisma.puzzleAttempt.count.mockResolvedValue(0);
+
+      const r = await service.listAttemptsForUser('user-1', 20, 0);
+      expect(r).toEqual({ items: [], total: 0 });
+    });
+
+    it('limit + offset прокидываются в take/skip', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+      prisma.puzzleAttempt.count.mockResolvedValue(0);
+
+      await service.listAttemptsForUser('user-1', 5, 10);
+
+      const findArg = prisma.puzzleAttempt.findMany.mock.calls[0][0];
+      expect(findArg.take).toBe(5);
+      expect(findArg.skip).toBe(10);
     });
   });
 
