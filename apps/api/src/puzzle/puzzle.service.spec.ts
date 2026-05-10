@@ -531,7 +531,9 @@ describe('PuzzleService', () => {
       expect(r.id).toBe('p-last');
       // 5 вызовов соответствуют 5 уровням каскада.
       expect(prisma.$queryRawUnsafe.mock.calls.length).toBe(5);
-      const sqls = prisma.$queryRawUnsafe.mock.calls.map((c) => c[0] as string);
+      const sqls = prisma.$queryRawUnsafe.mock.calls.map(
+        (c: unknown[]) => c[0] as string,
+      );
       expect(sqls[0]).toContain("INTERVAL '7 days'");
       expect(sqls[1]).toContain("INTERVAL '1 day'");
       expect(sqls[2]).toContain('solved = true');
