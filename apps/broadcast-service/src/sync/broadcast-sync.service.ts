@@ -10,6 +10,7 @@ import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SyncMetricsService } from './sync-metrics';
+import { BroadcastStandingsSyncService } from '../chess-results/broadcast-standings-sync.service';
 import {
   BROADCAST_MOVE_CHANNEL,
   BROADCAST_SYNC_CHANNEL,
@@ -296,6 +297,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly metrics: SyncMetricsService,
+    // KS-2723: для event-driven инвалидации кэша standings при
+    // изменении result или появлении новой partii.
+    private readonly standingsSync: BroadcastStandingsSyncService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1134,6 +1138,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       `[broadcast-sync] processPgnUpdate: round=${roundId.slice(0, 8)} games=${games.length} withUci=${games.filter((g) => g.uci).length}`,
     );
 
+    // KS-2723: флаг для event-driven инвалидации кэша standings.
+    // Поднимается при появлении нового финального result или новой
+    // partии (новый round / новая пара). В конце функции, если флаг
+    // взведён — DELETE'аем `broadcast_standings` для broadcast'а
+    // round'а; следующий /crosstable пересоберётся с актуальными
+    // данными.
+    let standingsCacheNeedsInvalidate = false;
+
     for (const game of games) {
       const isStarting = game.fen === STARTING_FEN;
       this.logger.log(
@@ -1154,6 +1166,22 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
         });
+
+        // KS-2723: трекаем «значимые» изменения, требующие
+        // инвалидации кэша standings. Финальный result партии или
+        // создание новой partii (новый round-record на фронте) —
+        // меняют crosstable, кэш не валиден.
+        const isNewFinalResult =
+          !!game.result &&
+          game.result !== '*' &&
+          (!existing ||
+            !existing.result ||
+            existing.result === '*' ||
+            existing.result !== game.result);
+        const isNewGame = !existing;
+        if (isNewFinalResult || isNewGame) {
+          standingsCacheNeedsInvalidate = true;
+        }
 
         // KS-2699 / KS-2720: clocks обновляются только когда хотя бы
         // одна сторона имеет НОВОЕ значение (отличное от уже
@@ -1329,6 +1357,18 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `[broadcast-sync] publishSync(processPgnUpdate) failed for round=${round.id.slice(0, 8)}: ${(e as Error).message}`,
       );
+    }
+
+    // KS-2723: event-driven инвалидация кэша standings. Если в этом
+    // PGN-update появилась новая partia (новый round-record на фронте)
+    // или изменился финальный result — DELETE'аем `broadcast_standings`
+    // для этого broadcast'а; следующий /crosstable пересоберёт.
+    if (standingsCacheNeedsInvalidate) {
+      void this.standingsSync.invalidate(round.broadcastId).catch((e) => {
+        this.logger.warn(
+          `[broadcast-sync] standings.invalidate failed for broadcast=${round.broadcastId.slice(0, 8)}: ${(e as Error).message}`,
+        );
+      });
     }
   }
 

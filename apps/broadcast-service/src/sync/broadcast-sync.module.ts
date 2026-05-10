@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BroadcastSyncService } from './broadcast-sync.service';
 import { SyncMetricsService } from './sync-metrics';
 import { BroadcastWatchdogService } from './broadcast-watchdog.service';
+import { ChessResultsModule } from '../chess-results/chess-results.module';
 
 /**
  * Sync-модуль broadcast-service (ADR-022 §2.2).
@@ -19,6 +20,10 @@ import { BroadcastWatchdogService } from './broadcast-watchdog.service';
  * Опт-ин через env `BROADCAST_WATCHDOG_ENABLED=true`.
  */
 @Module({
+  // KS-2723: импортируем `ChessResultsModule` чтобы получить
+  // `BroadcastStandingsSyncService` для event-driven инвалидации
+  // кэша из `BroadcastSyncService.processPgnUpdate`.
+  imports: [ChessResultsModule],
   providers: [SyncMetricsService, BroadcastSyncService, BroadcastWatchdogService],
   exports: [BroadcastSyncService, BroadcastWatchdogService],
 })

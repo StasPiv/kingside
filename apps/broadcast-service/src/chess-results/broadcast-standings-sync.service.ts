@@ -77,10 +77,26 @@ import type {
  * если её нет — отдаём legacy + reason).
  */
 
+// KS-2723: TTL для `finished` был 24h. Это означало что турнир мог
+// сутки висеть без последнего тура, если chess-results не успел
+// загрузить CSV финального round'а к моменту первого refresh'а.
+// Снижаем до 10 минут — нагрузка на chess-results минимальная (старые
+// турниры почти никто не смотрит), а нужный кейс «chess-results
+// догрузил тур через 30 мин» покрывается.
+//
+// Дополнительные слои свежести (KS-2723):
+//   1. `getFresh` пересчитывает effectiveStaleAt при чтении из
+//      `fetchedAt + currentTTL`, а не использует сохранённый в БД
+//      `staleAt`. Это применяет смену TTL ко всем существующим
+//      записям без миграции.
+//   2. `BroadcastSyncService.processPgnUpdate` инвалидирует кэш
+//      события — когда приходит новый финальный result или новая
+//      partia в новом round'е, мы DELETE'аем broadcast_standings,
+//      и следующий /crosstable пересоберётся.
 const TTL_MS_BY_LIFECYCLE: Record<Lifecycle, number> = {
   live: 5 * 60 * 1000,
   upcoming: 60 * 60 * 1000,
-  finished: 24 * 60 * 60 * 1000,
+  finished: 10 * 60 * 1000,
 };
 
 const REFRESH_LOCK_KEY_PREFIX = 'broadcast:standings:lock';
@@ -157,7 +173,19 @@ export class BroadcastStandingsSyncService {
     const nowMs = this.now();
 
     if (cached) {
-      const isFresh = cached.staleAt.getTime() > nowMs;
+      // KS-2723: effectiveStaleAt пересчитываем из текущего TTL +
+      // фактической fetchedAt, а не используем сохранённый в БД
+      // `staleAt` (он мог быть рассчитан по старому TTL — например
+      // 24h для finished до KS-2723 — и заморозил кэш на сутки).
+      // Минимум из двух — берём более «свежую» границу.
+      const lifecycle = await this.computeLifecycle(broadcastId);
+      const ttlMs = TTL_MS_BY_LIFECYCLE[lifecycle];
+      const fetchedMs = cached.fetchedAt.getTime();
+      const effectiveStaleMs = Math.min(
+        cached.staleAt.getTime(),
+        fetchedMs + ttlMs,
+      );
+      const isFresh = effectiveStaleMs > nowMs;
       if (isFresh) {
         return this.materialize(cached);
       }
@@ -172,6 +200,33 @@ export class BroadcastStandingsSyncService {
 
     // Записи нет — synchronous refresh под lock.
     return this.refreshUnderLock(broadcastId);
+  }
+
+  /**
+   * KS-2723: event-driven инвалидация кэша. Вызывается из
+   * `BroadcastSyncService.processPgnUpdate` когда приходит
+   * PGN-обновление с новым финальным result или новой partіей в
+   * новом round'е. Пересоберётся при следующем `/crosstable`.
+   *
+   * Идемпотентно: если записи нет — no-op без ошибки.
+   */
+  async invalidate(broadcastId: string): Promise<void> {
+    try {
+      await this.prisma.broadcastStandings.delete({
+        where: { broadcastId },
+      });
+      this.logger.log(
+        `[standings] invalidated cache for ${broadcastId}`,
+      );
+    } catch (e: unknown) {
+      // Prisma бросает P2025 если записи нет — это норма.
+      const code = (e as { code?: string } | null)?.code;
+      if (code !== 'P2025') {
+        this.logger.warn(
+          `[standings] invalidate ${broadcastId} failed: ${(e as Error).message}`,
+        );
+      }
+    }
   }
 
   /**

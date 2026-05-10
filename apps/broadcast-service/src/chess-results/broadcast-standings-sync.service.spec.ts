@@ -227,7 +227,8 @@ describe('BroadcastStandingsSyncService — KS-2479 TTL для internal-fallback
 
   it('internal-fallback unknown (CrosstableLegacy) → TTL по lifecycle (старое поведение)', async () => {
     // Knockout без detect — единственный legit-кейс для unknown.
-    // Здесь TTL должен оставаться по lifecycle: для finished = 24h.
+    // KS-2723: для finished TTL снижен с 24h до 10min (раньше было
+    // 24h). Тест поддерживает обновлённый порог.
     const broadcast = {
       ...baseBroadcast,
       format: 'Knockout',
@@ -244,12 +245,13 @@ describe('BroadcastStandingsSyncService — KS-2479 TTL для internal-fallback
     const fetchedAt = upsert.create.fetchedAt as Date;
     const staleAt = upsert.create.staleAt as Date;
     const ttl = staleAt.getTime() - fetchedAt.getTime();
-    // Старое поведение: finished → 24h.
-    expect(ttl).toBeGreaterThan(12 * 60 * 60 * 1000);
+    // KS-2723: finished → 10min (было 24h).
+    expect(ttl).toBe(10 * 60 * 1000);
   });
 
-  it('chess-results round-robin (sourceType=chess-results) → TTL по lifecycle (без изменений)', async () => {
-    // Для типизированных chess-results-ответов TTL по lifecycle.
+  it('chess-results round-robin (sourceType=chess-results) → TTL по lifecycle', async () => {
+    // KS-2723: для типизированных chess-results-ответов TTL по
+    // lifecycle, finished = 10min (было 24h).
     const html = readFileSync(
       join(FIXTURES_DIR, 'rr-art5-crosstable.html'),
       'utf8',
@@ -267,8 +269,8 @@ describe('BroadcastStandingsSyncService — KS-2479 TTL для internal-fallback
     const fetchedAt = upsert.create.fetchedAt as Date;
     const staleAt = upsert.create.staleAt as Date;
     const ttl = staleAt.getTime() - fetchedAt.getTime();
-    // chess-results на finished — 24h по lifecycle.
-    expect(ttl).toBeGreaterThan(12 * 60 * 60 * 1000);
+    // KS-2723: chess-results на finished — 10min.
+    expect(ttl).toBe(10 * 60 * 1000);
   });
 });
 
