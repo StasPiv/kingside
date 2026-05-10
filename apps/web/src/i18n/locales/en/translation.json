@@ -1336,6 +1336,32 @@
       "deleteError": "Failed to delete puzzle"
     }
   },
+  "precisionTrends": {
+    "title": "Accuracy trend",
+    "toggleLabel": "Bucket size",
+    "week": "Week",
+    "month": "Month",
+    "aria": "Accuracy across time buckets",
+    "loadError": "Could not load trend.",
+    "empty": "Play your first attempts to see the trend.",
+    "tooltip": "{{date}} · {{attempts}} attempts · {{preserved}} preserved · acc {{acc}}% · leak {{leak}}"
+  },
+  "precisionBreakdowns": {
+    "title": "Breakdowns",
+    "loadError": "Could not load breakdowns.",
+    "empty": "Play more attempts to see breakdowns by phase and theme.",
+    "phase": {
+      "title": "By game phase",
+      "empty": "No data yet.",
+      "opening": "Opening",
+      "middlegame": "Middlegame",
+      "endgame": "Endgame"
+    },
+    "themes": {
+      "title": "Weakest themes",
+      "empty": "No data yet."
+    }
+  },
   "precisionAttempts": {
     "title": "Attempt history",
     "filterLabel": "Filter attempts",

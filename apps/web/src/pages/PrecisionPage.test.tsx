@@ -100,9 +100,28 @@ const mockBrowseOnce = (data: unknown[]) => {
     if (url.startsWith('/puzzles/browse')) return Promise.resolve(wrap(data));
     if (url.startsWith('/precision/attempts/me'))
       return Promise.resolve({ items: [], total: 0 });
+    if (url.startsWith('/precision/trends/me'))
+      return Promise.resolve({ bucket: 'week', points: [] });
+    if (url.startsWith('/precision/breakdowns/me'))
+      return Promise.resolve({ byPhase: [], byTheme: [] });
     if (url === '/precision/stats/me') return Promise.resolve(null);
     return Promise.resolve(undefined);
   });
+};
+
+/**
+ * KS-2728: общий fallback для precision/* endpoint'ов в тестах,
+ * которые сетают свой mockImplementation. Возвращает «пустые»
+ * валидные shape ответы, чтобы новые компоненты не падали.
+ */
+const precisionFallback = (url: string): unknown | null => {
+  if (url.startsWith('/precision/attempts/me'))
+    return { items: [], total: 0 };
+  if (url.startsWith('/precision/trends/me'))
+    return { bucket: 'week', points: [] };
+  if (url.startsWith('/precision/breakdowns/me'))
+    return { byPhase: [], byTheme: [] };
+  return null;
 };
 
 beforeEach(() => {
@@ -121,6 +140,12 @@ beforeEach(() => {
   apiGet.mockImplementation((url: string) => {
     if (url === '/precision/attempts/me?limit=20&offset=0') {
       return Promise.resolve({ items: [], total: 0 });
+    }
+    if (url.startsWith('/precision/trends/me')) {
+      return Promise.resolve({ bucket: 'week', points: [] });
+    }
+    if (url.startsWith('/precision/breakdowns/me')) {
+      return Promise.resolve({ byPhase: [], byTheme: [] });
     }
     if (url === '/precision/stats/me') return Promise.resolve(null);
     return Promise.resolve(undefined);
@@ -481,6 +506,8 @@ describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () 
           avgHalfMovesUntilFirstMistake: 4.2,
         });
       }
+      const fallback = precisionFallback(url);
+      if (fallback) return Promise.resolve(fallback);
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);
@@ -519,6 +546,8 @@ describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () 
           avgHalfMovesUntilFirstMistake: null,
         });
       }
+      const fallback = precisionFallback(url);
+      if (fallback) return Promise.resolve(fallback);
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);
@@ -538,6 +567,8 @@ describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () 
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
       if (url === '/precision/stats/me') return Promise.reject(new Error('500'));
+      const fallback = precisionFallback(url);
+      if (fallback) return Promise.resolve(fallback);
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);
@@ -567,6 +598,8 @@ describe('<PrecisionPage> KS-2719 F3 — toggle Скрыть удержанны�
           avgHalfMovesUntilFirstMistake: 5,
         });
       }
+      const fallback = precisionFallback(url);
+      if (fallback) return Promise.resolve(fallback);
       return Promise.resolve([]);
     });
     renderWithProviders(<PrecisionPage />);

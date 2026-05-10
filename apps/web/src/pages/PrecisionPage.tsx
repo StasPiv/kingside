@@ -18,6 +18,9 @@ import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
 // KS-2724 / ADR-056 §2.2: блок «История попыток» — entry-point на
 // /precision/attempts/:id. Раньше detail-страница была недостижима из UI.
 import { PrecisionAttemptsList } from '../components/precision/PrecisionAttemptsList';
+// KS-2728 / ADR-056 §2.3 (Уровень В): тренд accuracy + breakdowns.
+import { PrecisionTrendsChart } from '../components/precision/PrecisionTrendsChart';
+import { PrecisionBreakdowns } from '../components/precision/PrecisionBreakdowns';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -561,6 +564,13 @@ export function PrecisionPage() {
           сразу сетку пазлов. Блок сам управляет своим loading/error/
           empty-состоянием. */}
       {user && <PrecisionAttemptsList />}
+
+      {/* KS-2728 / ADR-056 §2.3 (Уровень В): тренд accuracy + breakdowns.
+          Только аутентифицированному юзеру. Каждый блок сам тянет свой
+          endpoint (`/precision/trends/me?bucket=`, `/precision/breakdowns/me`)
+          и грейсфолит независимо. */}
+      {user && <PrecisionTrendsChart />}
+      {user && <PrecisionBreakdowns />}
 
       {pageState === 'loading' && (
         <p

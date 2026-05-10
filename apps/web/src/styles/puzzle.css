@@ -2726,6 +2726,155 @@ body:has(.puzzle-rush-board) {
 }
 .precision-hide-preserved input { cursor: pointer; }
 
+/* KS-2728 / ADR-056 §2.3: тренд accuracy + breakdowns. */
+.precision-trends,
+.precision-breakdowns {
+  margin: 0 0 24px 0;
+  padding: 12px 16px;
+  background: var(--c-1e293b);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 8px;
+  color: var(--c-e2e8f0);
+}
+.precision-trends__header,
+.precision-breakdowns__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.precision-trends__title,
+.precision-breakdowns__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.precision-trends__toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--c-2a2a4e, #2a2a4e);
+  border-radius: 6px;
+  padding: 2px;
+}
+.precision-trends__toggle-btn {
+  background: transparent;
+  border: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  color: var(--c-94a3b8);
+  cursor: pointer;
+}
+.precision-trends__toggle-btn--active {
+  background: var(--c-1e293b);
+  color: var(--c-e2e8f0);
+}
+.precision-trends__svg {
+  width: 100%;
+  height: 140px;
+  display: block;
+}
+.precision-trends__skeleton,
+.precision-breakdowns__skeleton {
+  height: 140px;
+  border-radius: 6px;
+  background: var(--c-2a2a4e, #2a2a4e);
+  opacity: 0.5;
+  animation: precision-skeleton 1.2s ease-in-out infinite alternate;
+}
+.precision-trends__msg,
+.precision-breakdowns__msg {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-94a3b8);
+}
+.precision-trends__retry,
+.precision-breakdowns__retry {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--accent-primary, #7c83ff);
+  border: 1px solid var(--accent-primary, #7c83ff);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.precision-breakdowns__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 768px) {
+  .precision-breakdowns__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.precision-breakdowns__card {
+  background: var(--c-0f1729, #0f1729);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.precision-breakdowns__card-title {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.precision-breakdowns__bars,
+.precision-breakdowns__themes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.precision-breakdowns__bars-row,
+.precision-breakdowns__themes-row {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.precision-breakdowns__themes-row {
+  grid-template-columns: 1fr 1fr auto;
+}
+.precision-breakdowns__bars-track,
+.precision-breakdowns__themes-track {
+  height: 10px;
+  background: var(--c-2a2a4e, #2a2a4e);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.precision-breakdowns__bars-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+.precision-breakdowns__bars-fill--opening { background: #4ea1f7; }
+.precision-breakdowns__bars-fill--middlegame { background: #a78bfa; }
+.precision-breakdowns__bars-fill--endgame { background: #34d399; }
+.precision-breakdowns__themes-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #c0392b);
+  border-radius: 4px;
+}
+.precision-breakdowns__bars-meta,
+.precision-breakdowns__themes-meta {
+  font-variant-numeric: tabular-nums;
+  color: var(--c-94a3b8);
+  font-size: 12px;
+}
+.precision-breakdowns__themes-label {
+  color: var(--c-e2e8f0);
+}
+
 /* KS-2724: блок «История попыток» на /precision. */
 .precision-attempts {
   margin: 0 0 24px 0;
