@@ -554,38 +554,51 @@ html[data-theme="light"] {
 }
 
 /* ===========================================================
- * KS-2333 — индикатор стороны на ходу в DrillRunner.
+ * KS-2333 / KS-2693 — индикатор стороны на ходу в drill-компонентах.
  * Цветной кружок (белый/чёрный) + подпись «Ход белых/чёрных».
  * Заметный сразу — фигуру какого цвета искать.
+ *
+ * KS-2693: распространили базовый стиль на `.find-all-checks-runner__side`
+ * (раньше класс существовал в TSX, но не имел CSS — выглядел как
+ * «голый» текст под подсказкой), а также добавили min-height для
+ * touch-комфорта на mobile (≥ 32px) и нижний отступ перед доской.
  * =========================================================== */
 
-.drill-runner__side {
+.drill-runner__side,
+.find-all-checks-runner__side {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  padding: 4px 12px 4px 10px;
+  min-height: 32px;
+  margin: 0 0 8px 0;
+  padding: 6px 14px 6px 12px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-mid);
   border-radius: 999px;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1.2;
   color: var(--text-primary);
   text-transform: none;
   letter-spacing: 0;
+  box-sizing: border-box;
 }
 
-.drill-runner__side::before {
+.drill-runner__side::before,
+.find-all-checks-runner__side::before {
   content: "";
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   border: 1px solid var(--border-strong);
   background: #ffffff;
+  flex-shrink: 0;
 }
 
-.drill-runner__side[data-side="b"]::before {
+.drill-runner__side[data-side="b"]::before,
+.find-all-checks-runner__side[data-side="b"]::before {
   background: #1a1a1a;
 }
 
