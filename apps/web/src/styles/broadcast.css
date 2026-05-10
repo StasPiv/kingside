@@ -378,22 +378,24 @@
   min-width: 0;
 }
 
-/* KS-2708: eval-bar слева от мини-доски. */
+/* KS-2708 → KS-2710: eval-bar слева от мини-доски.
+   Шире и контрастнее, чтобы был сразу заметен — даже в pending-state. */
 .broadcast-eval-bar {
   position: relative;
-  width: 8px;
+  width: 12px;
   flex: 0 0 auto;
   align-self: stretch;
+  border: 1px solid var(--c-606078, #606078);
+  border-radius: 3px;
 }
 
 @media (max-width: 700px) {
-  .broadcast-eval-bar { width: 12px; }
+  .broadcast-eval-bar { width: 14px; }
 }
 
 .broadcast-eval-bar__track {
   position: absolute;
   inset: 0;
-  border: 1px solid var(--c-2a2a3e, #2a2a3e);
   border-radius: 2px;
   overflow: hidden;
   background: var(--c-1a1a1a, #1a1a1a);
@@ -435,10 +437,16 @@
 }
 
 .broadcast-eval-bar--pending {
-  background: var(--c-2a2a3e, #2a2a3e);
-  border: 1px solid var(--c-2a2a3e, #2a2a3e);
-  border-radius: 2px;
-  opacity: 0.4;
+  /* Полосатый «загружается» вид, чтобы было видно что bar есть, но
+     анализа ещё нет. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--c-606078, #606078) 0,
+    var(--c-606078, #606078) 3px,
+    var(--c-2a2a3e, #2a2a3e) 3px,
+    var(--c-2a2a3e, #2a2a3e) 6px
+  );
+  opacity: 0.7;
 }
 
 .broadcast-eval-bar--final {
