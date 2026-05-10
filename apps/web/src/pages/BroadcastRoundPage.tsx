@@ -161,11 +161,20 @@ export function BroadcastRoundPage() {
         `[broadcast-sound] applyFreshGames advancedSan=${advancedSan ?? 'null'} shouldPlaySound=${shouldPlaySound} prev.length=${prev.length}`,
       );
       if (shouldPlaySound && advancedSan) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[broadcast-sound] calling playSound for san=${advancedSan}`,
-        );
-        playSound(soundEventFromSan(advancedSan));
+        const sinceMove = Date.now() - lastSoundAtRef.current;
+        if (sinceMove < 1500) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[broadcast-sound] sync sound suppressed (handleMove already played ${sinceMove}ms ago)`,
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[broadcast-sound] calling playSound for san=${advancedSan}`,
+          );
+          playSound(soundEventFromSan(advancedSan));
+          lastSoundAtRef.current = Date.now();
+        }
       }
       // На diff'е ставим key партии, у которой PGN вырос.
       // На initial-sync (prev пуст) — выбираем партию по самому свежему
@@ -219,6 +228,13 @@ export function BroadcastRoundPage() {
   // и патчим её `currentFen` для перерисовки доски без ожидания PGN.
   // Звук тут НЕ играем — следующий sync обязательно догонит с обновлёнными
   // PGN/clocks (KS-2701) и проиграет звук там, иначе будет дубль.
+  // Защита от дубля звука: при `broadcast:move` играем сразу, при
+  // последующем `broadcast:sync` (если он прилетит с обновлённым PGN)
+  // diff увидит рост → попытается сыграть второй раз. Запоминаем
+  // момент последнего звука и в applyFreshGames пропускаем sound-call
+  // если прошло меньше 1500мс.
+  const lastSoundAtRef = useRef<number>(0);
+
   const handleMove = useCallback(
     (payload: {
       gameIndex: number;
@@ -229,8 +245,6 @@ export function BroadcastRoundPage() {
     }) => {
       setGames((prev) => {
         if (prev.length === 0) return prev;
-        // Идентификация: сначала по парам игроков (стабильно при любой
-        // сортировке), fallback по `gameIndex` (порядок backend).
         const idx = prev.findIndex(
           (g) =>
             (payload.whitePlayer && payload.whitePlayer === g.whitePlayer) ||
@@ -241,14 +255,20 @@ export function BroadcastRoundPage() {
         const next = prev.slice();
         const g = next[target];
         next[target] = { ...g, currentFen: payload.fen };
-        // Запоминаем ключ партии для подсветки. setState внутри setState
-        // запрещён — делаем через микротаску.
         const k = gameKey(g);
         Promise.resolve().then(() => setLastMoveKey(k));
         return next;
       });
+      // Играем звук сразу — даже если sync не догонит с PGN, юзер
+      // услышит ход. soundEventFromSan нам недоступен (нет san), берём
+      // обычный 'move'. Capture/check тут не различаем — backend в move
+      // payload san не отдаёт.
+      playSound('move');
+      lastSoundAtRef.current = Date.now();
+      // eslint-disable-next-line no-console
+      console.log('[broadcast-sound] handleMove → playSound("move")');
     },
-    [],
+    [playSound],
   );
 
   const { connected } = useBroadcastSocket({
