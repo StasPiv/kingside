@@ -243,6 +243,11 @@
     "close": "Close",
     "enableSound": "🔔 Enable move sound",
     "soundEnabled": "🔔 Sound enabled",
+    "feed": {
+      "title": "Live moves",
+      "empty": "Waiting for the first move…",
+      "summaryWithCount": "Live moves ({{count}})"
+    },
     "playoff": {
       "title": "Playoff",
       "winners": "Winners bracket",

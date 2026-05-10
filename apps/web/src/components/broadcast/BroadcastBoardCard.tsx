@@ -1,6 +1,10 @@
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { BroadcastGameSummary } from '@kingside/shared';
+import {
+  formatBroadcastClock,
+  useBroadcastClock,
+} from '../../hooks/useBroadcastClock';
 
 /**
  * Карточка партии трансляции с мини-доской.
@@ -164,6 +168,21 @@ export function BroadcastBoardCard({
   const whiteScore = resultToScore(game.result, 'white');
   const blackScore = resultToScore(game.result, 'black');
 
+  // KS-2706. Таймеры обоих игроков. Side-to-move берём из текущего FEN.
+  // `useBroadcastClock` сам вернёт `hasClocks=false` если у партии нет
+  // полей KS-2699 — тогда pill не рендерим (без placeholder'ов).
+  const isBlackTurn = fen.split(' ')[1] === 'b';
+  const isFinished = Boolean(game.result && game.result !== '*');
+  const clock = useBroadcastClock({
+    whiteClockMs: game.whiteClockMs ?? null,
+    blackClockMs: game.blackClockMs ?? null,
+    clockUpdatedAt: game.clockUpdatedAt ?? null,
+    isBlackTurn,
+    isFinished,
+  });
+  const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
+  const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
+
   return (
     <div
       className={`broadcast-board-card${isClickable ? ' broadcast-board-card--clickable' : ''}`}
@@ -180,6 +199,14 @@ export function BroadcastBoardCard({
         </span>
         {blackScore && (
           <span className="broadcast-player-result">{blackScore}</span>
+        )}
+        {clock.hasClocks && blackClockText !== null && (
+          <span
+            className={`broadcast-card-clock${isBlackTurn && !isFinished ? ' broadcast-card-clock--active' : ''}`}
+            data-testid="broadcast-card-clock-black"
+          >
+            {blackClockText}
+          </span>
         )}
       </div>
       <div className="broadcast-board-wrap">
@@ -199,6 +226,14 @@ export function BroadcastBoardCard({
         </span>
         {whiteScore && (
           <span className="broadcast-player-result">{whiteScore}</span>
+        )}
+        {clock.hasClocks && whiteClockText !== null && (
+          <span
+            className={`broadcast-card-clock${!isBlackTurn && !isFinished ? ' broadcast-card-clock--active' : ''}`}
+            data-testid="broadcast-card-clock-white"
+          >
+            {whiteClockText}
+          </span>
         )}
       </div>
     </div>

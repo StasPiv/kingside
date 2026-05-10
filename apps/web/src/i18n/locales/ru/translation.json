@@ -243,6 +243,11 @@
     "close": "Закрыть",
     "enableSound": "🔔 Включить звук ходов",
     "soundEnabled": "🔔 Звук включён",
+    "feed": {
+      "title": "Лента ходов",
+      "empty": "Жду первый ход…",
+      "summaryWithCount": "Лента ходов ({{count}})"
+    },
     "playoff": {
       "title": "Плей-офф",
       "winners": "Сетка победителей",

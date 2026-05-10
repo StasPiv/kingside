@@ -10,6 +10,10 @@ import { broadcastApi } from '../api/broadcastApi';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
+import {
+  BroadcastLiveFeed,
+  type BroadcastFeedItem,
+} from '../components/broadcast/BroadcastLiveFeed';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
@@ -111,6 +115,16 @@ export function BroadcastRoundPage() {
   const [lastMoveUciMap, setLastMoveUciMap] = useState<Record<string, string>>(
     () => ({}),
   );
+  /** KS-2707. Feed последних ходов раунда (max 50, новые сверху). */
+  const [liveFeed, setLiveFeed] = useState<BroadcastFeedItem[]>([]);
+  /**
+   * KS-2707. Карточка, кратковременно подсвеченная после клика по
+   * строке ленты (≠ `lastMoveKey` — это про last-move highlight доски).
+   */
+  const [flashedKey, setFlashedKey] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** KS-2707. ref'ы карточек по `gameKey` для scrollIntoView. */
+  const cardRefsRef = useRef<Record<string, HTMLElement | null>>({});
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -279,6 +293,7 @@ export function BroadcastRoundPage() {
       whitePlayer?: string | null;
       blackPlayer?: string | null;
     }) => {
+      let pre: { fen: string | null; whitePlayer: string; blackPlayer: string } | null = null;
       setGames((prev) => {
         if (prev.length === 0) return prev;
         const idx = prev.findIndex(
@@ -290,6 +305,13 @@ export function BroadcastRoundPage() {
         if (target < 0 || target >= prev.length) return prev;
         const next = prev.slice();
         const g = next[target];
+        // KS-2707: сохраняем pre-FEN партии — он нужен для конвертации
+        // payload.uci → SAN внутри ленты.
+        pre = {
+          fen: g.currentFen ?? null,
+          whitePlayer: g.whitePlayer ?? '',
+          blackPlayer: g.blackPlayer ?? '',
+        };
         next[target] = { ...g, currentFen: payload.fen };
         const k = gameKey(g);
         // KS-2705: сохраняем точный UCI хода, чтобы подсветка в карточке
@@ -302,6 +324,40 @@ export function BroadcastRoundPage() {
         });
         return next;
       });
+      // KS-2707: добавляем строку в ленту. SAN считаем из pre-FEN'а
+      // через chess.js; если конверт не удался — fallback на UCI.
+      if (pre && payload.uci) {
+        const preCast = pre as { fen: string | null; whitePlayer: string; blackPlayer: string };
+        let san = payload.uci;
+        let side: 'white' | 'black' = 'white';
+        let moveNumber = 1;
+        if (preCast.fen) {
+          try {
+            const c = new Chess(preCast.fen);
+            const [, turnBefore, , , , fullmoveStr] = preCast.fen.split(' ');
+            side = turnBefore === 'b' ? 'black' : 'white';
+            moveNumber = parseInt(fullmoveStr ?? '1', 10) || 1;
+            const m = c.move({
+              from: payload.uci.slice(0, 2),
+              to: payload.uci.slice(2, 4),
+              promotion: payload.uci.length > 4 ? payload.uci[4] : undefined,
+            });
+            if (m) san = m.san;
+          } catch {
+            /* ignore — fallback на UCI */
+          }
+        }
+        const item: BroadcastFeedItem = {
+          gameKey: `${preCast.whitePlayer}|${preCast.blackPlayer}`,
+          whitePlayer: preCast.whitePlayer || (payload.whitePlayer ?? '?'),
+          blackPlayer: preCast.blackPlayer || (payload.blackPlayer ?? '?'),
+          side,
+          moveNumber,
+          notation: san,
+          ts: Date.now(),
+        };
+        setLiveFeed((prevFeed) => [item, ...prevFeed].slice(0, 50));
+      }
       // Играем звук сразу — даже если sync не догонит с PGN, юзер
       // услышит ход. soundEventFromSan нам недоступен (нет san), берём
       // обычный 'move'. Capture/check тут не различаем — backend в move
@@ -319,6 +375,23 @@ export function BroadcastRoundPage() {
     onSync: handleSync,
     onMove: handleMove,
   });
+
+  // KS-2707: scroll + flash highlight при клике по строке ленты.
+  const handleFeedClick = useCallback((gKey: string) => {
+    const node = cardRefsRef.current[gKey];
+    if (node) {
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setFlashedKey(gKey);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashedKey(null), 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
 
   // KS-2701: REST-polling fallback. Запускается только если WS НЕ
   // подключён (или ещё не подключился). Период 30с — без WS обновления
@@ -427,20 +500,33 @@ export function BroadcastRoundPage() {
       {games.length === 0 ? (
         <div className="broadcasts-empty">{t('broadcastRound.noGames', 'No games in this round')}</div>
       ) : (
-        <div className="broadcast-games-section">
+        // KS-2707: layout двух-колоночный: сетка партий слева, лента
+        // ходов справа. На mobile feed уезжает в accordion внизу.
+        <div className="broadcast-games-section broadcast-games-section--with-feed">
           <div className="broadcast-boards-grid">
-            {games.map((game) => (
-              <BroadcastBoardCard
-                key={game.id}
-                game={game}
-                onGameClick={handleGameClick}
-                showLastMoveHighlight={
-                  lastMoveKey !== null && gameKey(game) === lastMoveKey
-                }
-                lastMoveUci={lastMoveUciMap[gameKey(game)] ?? null}
-              />
-            ))}
+            {games.map((game) => {
+              const k = gameKey(game);
+              return (
+                <div
+                  key={game.id}
+                  ref={(el) => {
+                    cardRefsRef.current[k] = el;
+                  }}
+                  className={`broadcast-board-card-wrap${flashedKey === k ? ' broadcast-board-card-wrap--flash' : ''}`}
+                >
+                  <BroadcastBoardCard
+                    game={game}
+                    onGameClick={handleGameClick}
+                    showLastMoveHighlight={
+                      lastMoveKey !== null && k === lastMoveKey
+                    }
+                    lastMoveUci={lastMoveUciMap[k] ?? null}
+                  />
+                </div>
+              );
+            })}
           </div>
+          <BroadcastLiveFeed items={liveFeed} onItemClick={handleFeedClick} />
         </div>
       )}
     </div>
