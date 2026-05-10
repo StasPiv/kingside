@@ -114,6 +114,53 @@ describe('DailyPuzzleService', () => {
       );
     });
 
+    // ── KS-2716 / ADR-055 B5. Filter solution_mode='forced-line' ─────
+
+    it('KS-2716: фильтрует solution_mode=forced-line при выборе пазла', async () => {
+      prisma.dailyPuzzle.findUnique.mockResolvedValue(null);
+      prisma.dailyPuzzle.findMany.mockResolvedValue([]);
+      prisma.puzzle.count.mockResolvedValue(7);
+      prisma.puzzle.findFirst.mockResolvedValue(mockPuzzle);
+      prisma.dailyPuzzle.create.mockResolvedValue(mockDaily);
+
+      await service.getDailyPuzzle(new Date('2026-03-08'));
+
+      expect(prisma.puzzle.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            solutionMode: 'forced-line',
+          }),
+        }),
+      );
+      expect(prisma.puzzle.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            solutionMode: 'forced-line',
+          }),
+        }),
+      );
+    });
+
+    it('KS-2716: fallback (totalAvailable=0) тоже фильтрует forced-line', async () => {
+      prisma.dailyPuzzle.findUnique.mockResolvedValue(null);
+      prisma.dailyPuzzle.findMany.mockResolvedValue([]);
+      prisma.puzzle.count.mockResolvedValue(0);
+      prisma.puzzle.findFirst.mockResolvedValue(mockPuzzle);
+      prisma.dailyPuzzle.create.mockResolvedValue(mockDaily);
+
+      await service.getDailyPuzzle(new Date('2026-03-08'));
+
+      // Fallback ветка: findFirst без excludeIds, всё равно с
+      // solutionMode='forced-line'.
+      expect(prisma.puzzle.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            solutionMode: 'forced-line',
+          }),
+        }),
+      );
+    });
+
     it('should produce deterministic puzzle selection for same date', async () => {
       // Same date should always produce the same skip offset
       prisma.dailyPuzzle.findUnique.mockResolvedValue(null);

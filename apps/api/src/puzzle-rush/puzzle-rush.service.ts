@@ -625,10 +625,15 @@ export class PuzzleRushService {
     const minRating = user.ratingPuzzle - ratingRange;
     const maxRating = user.ratingPuzzle + ratingRange;
 
-    // Use raw query for random selection with exclusion
+    // KS-2716 / ADR-055 B4. Явный фильтр `solution_mode='forced-line'`
+    // — устойчивость к будущим источникам (если когда-нибудь появятся
+    // PVE-пазлы с `source='lichess'`). Сейчас `source='lichess'` де-факто
+    // безопасен (Lichess не отдаёт play-vs-engine), но оставлять
+    // невидимое предположение не хочется.
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
         source: 'lichess',
+        solutionMode: 'forced-line',
         rating: { gte: minRating, lte: maxRating },
         id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
       },
@@ -641,6 +646,7 @@ export class PuzzleRushService {
       const fallback = await this.prisma.puzzle.findMany({
         where: {
           source: 'lichess',
+          solutionMode: 'forced-line',
           id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
         },
         take: 1,

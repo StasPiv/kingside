@@ -68,10 +68,17 @@ export class MistakesService {
   async recordPuzzleMistake(userId: string, puzzleId: string): Promise<void> {
     const puzzle = await this.prisma.puzzle.findUnique({
       where: { id: puzzleId },
-      select: { themes: true },
+      select: { themes: true, solutionMode: true },
     });
     if (!puzzle) {
       this.logger.warn(`recordPuzzleMistake: puzzle ${puzzleId} not found`);
+      return;
+    }
+    // KS-2716 / ADR-055 B3. Mistakes-diary — только для классических
+    // forced-line пазлов. Provoке для PVE (Тренировка точности): сам
+    // факт неудержания позиции туда не попадает; там у нас отдельная
+    // доменная модель (ADR-056, `precision_attempts`).
+    if (puzzle.solutionMode === 'play-vs-engine') {
       return;
     }
     // KS-2491 / ADR-046 §5.1. Из `puzzle.themes` отфильтровываем

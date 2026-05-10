@@ -1358,5 +1358,34 @@ describe('PuzzleService', () => {
       expect(r.byMode['play-vs-engine'].avgTimeMs).toBe(0);
       expect(r.byMode['play-vs-engine'].accuracy).toBe(0);
     });
+
+    // ── KS-2716 / ADR-055 B1. Top-level forced-line filter ───────────
+
+    it('KS-2716: top-level totalAttempted/totalSolved/avgTime фильтруют solution_mode=forced-line', async () => {
+      setupStatsMocks([]);
+
+      await service.getStats('user-1');
+
+      // Первый puzzleAttempt.count — totalAttempted; второй — totalSolved.
+      const countCalls = prisma.puzzleAttempt.count.mock.calls;
+      expect(countCalls.length).toBe(2);
+      // Каждый count должен иметь relation-фильтр puzzle.solutionMode.
+      for (const [arg] of countCalls) {
+        expect(arg.where).toMatchObject({
+          userId: 'user-1',
+          puzzle: { is: { solutionMode: 'forced-line' } },
+        });
+      }
+      // aggregate (avg timeMs) — то же самое.
+      expect(prisma.puzzleAttempt.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-1',
+            puzzle: { is: { solutionMode: 'forced-line' } },
+          },
+          _avg: { timeMs: true },
+        }),
+      );
+    });
   });
 });

@@ -621,6 +621,66 @@ describe('PuzzleRushService', () => {
     });
   });
 
+  // ── KS-2716 / ADR-055 B4. Filter solution_mode='forced-line' ───────
+
+  describe('KS-2716: PuzzleRush filters solution_mode=forced-line', () => {
+    it('включает явный фильтр solutionMode=forced-line в where', async () => {
+      prisma.puzzleAttempt = {
+        ...prisma.puzzleAttempt,
+        findMany: jest.fn().mockResolvedValue([]),
+      };
+      const newPuzzle = {
+        id: 'puzzle-new',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        moves: 'e2e4 e7e5',
+        rating: 1400,
+        ratingDeviation: 100,
+      };
+      prisma.puzzle.findMany.mockResolvedValue([newPuzzle]);
+
+      await service.startSession(userId, '3');
+
+      // Все вызовы puzzle.findMany должны содержать solutionMode='forced-line'.
+      const calls = prisma.puzzle.findMany.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call[0].where).toMatchObject({
+          source: 'lichess',
+          solutionMode: 'forced-line',
+        });
+      }
+    });
+
+    it('fallback (без rating range) тоже фильтрует solutionMode=forced-line', async () => {
+      prisma.puzzleAttempt = {
+        ...prisma.puzzleAttempt,
+        findMany: jest.fn().mockResolvedValue([]),
+      };
+      // Первый вызов findMany (с rating) → пусто, fallback ветка.
+      prisma.puzzle.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'fallback',
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            moves: 'e2e4',
+            rating: 1500,
+            ratingDeviation: 100,
+          },
+        ]);
+
+      await service.startSession(userId, '3');
+
+      const calls = prisma.puzzle.findMany.mock.calls;
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of calls) {
+        expect(call[0].where).toMatchObject({
+          solutionMode: 'forced-line',
+        });
+      }
+    });
+  });
+
   describe('KS-299: Puzzle Rush excludes all attempted puzzles', () => {
     it('should exclude previously attempted puzzles from getRandomPuzzle during session', async () => {
       // User has previously attempted puzzle-old-1 and puzzle-old-2

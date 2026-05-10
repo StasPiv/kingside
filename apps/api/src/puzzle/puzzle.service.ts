@@ -553,6 +553,16 @@ export class PuzzleService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // KS-2716 / ADR-055 B1. Top-level счётчики `totalAttempted` /
+    // `totalSolved` / `avgTimeMs` фильтруем по `solution_mode='forced-line'`
+    // — PVE-attempts (Тренировка точности, /precision) живут в `byMode
+    // ['play-vs-engine']` и не должны протекать в classical-метрики.
+    // `currentStreak` / `todaySnapshot` уже не загрязняются, потому что
+    // `applyRatingChange` для PVE делает early-return (B2 ниже).
+    const forcedLineFilter = {
+      userId,
+      puzzle: { is: { solutionMode: 'forced-line' as const } },
+    };
     const [
       totalAttempted,
       totalSolved,
@@ -561,15 +571,17 @@ export class PuzzleService {
       todaySnapshot,
       byModeRows,
     ] = await Promise.all([
-      this.prisma.puzzleAttempt.count({ where: { userId } }),
-      this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
+      this.prisma.puzzleAttempt.count({ where: forcedLineFilter }),
+      this.prisma.puzzleAttempt.count({
+        where: { ...forcedLineFilter, solved: true },
+      }),
       this.prisma.puzzleRushScore.findFirst({
         where: { userId },
         orderBy: { score: 'desc' },
         select: { score: true },
       }),
       this.prisma.puzzleAttempt.aggregate({
-        where: { userId },
+        where: forcedLineFilter,
         _avg: { timeMs: true },
       }),
       this.prisma.puzzleRatingSnapshot.findUnique({

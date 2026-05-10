@@ -52,16 +52,24 @@ export class DailyPuzzleService {
     // long tactical sequences — not puzzle-rush level.
     const DAILY_MIN_RATING = 2000;
 
+    // KS-2716 / ADR-055 B5. Daily-puzzle — только forced-line. PVE
+    // (Тренировка точности) живёт в отдельном разделе /precision и
+    // не должен случайно подменять «задачу дня».
+    const baseFilter = {
+      solutionMode: 'forced-line',
+      rating: { gte: DAILY_MIN_RATING },
+    } as const;
+
     const totalAvailable = await this.prisma.puzzle.count({
       where: {
+        ...baseFilter,
         id: { notIn: excludeIds },
-        rating: { gte: DAILY_MIN_RATING },
       },
     });
 
     if (totalAvailable === 0) {
       return this.prisma.puzzle.findFirst({
-        where: { rating: { gte: DAILY_MIN_RATING } },
+        where: baseFilter,
         orderBy: { rating: 'asc' },
       });
     }
@@ -70,8 +78,8 @@ export class DailyPuzzleService {
 
     return this.prisma.puzzle.findFirst({
       where: {
+        ...baseFilter,
         id: { notIn: excludeIds },
-        rating: { gte: DAILY_MIN_RATING },
       },
       orderBy: { rating: 'asc' },
       skip,

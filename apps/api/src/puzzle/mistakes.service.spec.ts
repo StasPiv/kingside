@@ -150,6 +150,42 @@ describe('MistakesService (L-31, KS-1802)', () => {
         }),
       });
     });
+
+    // ── KS-2716 / ADR-055 B3. Skip PVE ───────────────────────────────
+
+    it('KS-2716: для play-vs-engine puzzle ничего не создаёт и не обновляет', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        themes: 'crushing pin',
+        solutionMode: 'play-vs-engine',
+      });
+      prisma.userMistake.findFirst.mockResolvedValue(null);
+
+      await service.recordPuzzleMistake('u1', 'pve-puzzle');
+
+      expect(prisma.userMistake.create).not.toHaveBeenCalled();
+      expect(prisma.userMistake.update).not.toHaveBeenCalled();
+      // findFirst тоже не должно вызваться (early return до него).
+      expect(prisma.userMistake.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('KS-2716: для forced-line puzzle (явный solutionMode) пишет как обычно', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        themes: 'fork',
+        solutionMode: 'forced-line',
+      });
+      prisma.userMistake.findFirst.mockResolvedValue(null);
+
+      await service.recordPuzzleMistake('u1', 'fl-puzzle');
+
+      expect(prisma.userMistake.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          source: 'puzzle',
+          puzzleId: 'fl-puzzle',
+          themes: ['fork'],
+        },
+      });
+    });
   });
 
   // ─── recordGameMistake ────────────────────────────────────────────

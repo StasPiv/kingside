@@ -92,4 +92,42 @@ describe('PuzzleRatingService', () => {
 
     expect(prisma.puzzleRatingSnapshot.upsert).toHaveBeenCalled();
   });
+
+  // ── KS-2716 / ADR-055 B2. Skip PVE ─────────────────────────────────
+
+  describe('play-vs-engine: skip rating/streak/snapshot', () => {
+    beforeEach(() => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ratingPuzzle: 1500,
+        ratingPuzzleDev: 350,
+        puzzleStreak: 7,
+      });
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
+        rating: 1800,
+        ratingDev: 200,
+        solutionMode: 'play-vs-engine',
+      });
+    });
+
+    it('возвращает «нулевую дельту» — rating до = после', async () => {
+      const result = await service.applyRatingChange(userId, puzzleId, true);
+      expect(result.userRatingBefore).toBe(1500);
+      expect(result.userRatingAfter).toBe(1500);
+      expect(result.puzzleRatingBefore).toBe(1800);
+      expect(result.puzzleRatingAfter).toBe(1800);
+    });
+
+    it('не пишет user.update / puzzle.update / snapshot.upsert', async () => {
+      await service.applyRatingChange(userId, puzzleId, true);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.puzzle.update).not.toHaveBeenCalled();
+      expect(prisma.puzzleRatingSnapshot.upsert).not.toHaveBeenCalled();
+    });
+
+    it('streak не обнуляется при PVE-fail', async () => {
+      await service.applyRatingChange(userId, puzzleId, false);
+      // user.update не вызывался — значит puzzleStreak в БД остался 7.
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
 });

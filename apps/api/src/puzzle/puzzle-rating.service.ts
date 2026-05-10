@@ -34,9 +34,22 @@ export class PuzzleRatingService {
       }),
       this.prisma.puzzle.findUniqueOrThrow({
         where: { id: puzzleId },
-        select: { rating: true, ratingDev: true },
+        select: { rating: true, ratingDev: true, solutionMode: true },
       }),
     ]);
+
+    // KS-2716 / ADR-055 B2. Для play-vs-engine attempts рейтинг и стрик
+    // не обновляются, snapshot не пишется. Возвращаем «нулевую дельту»,
+    // чтобы submitAttempt мог продолжить запись `puzzle_attempts` с теми
+    // же значениями rating до/после.
+    if (puzzle.solutionMode === 'play-vs-engine') {
+      return {
+        userRatingBefore: user.ratingPuzzle,
+        userRatingAfter: user.ratingPuzzle,
+        puzzleRatingBefore: puzzle.rating,
+        puzzleRatingAfter: puzzle.rating,
+      };
+    }
 
     const userRating = user.ratingPuzzle;
     const userRD = user.ratingPuzzleDev;
