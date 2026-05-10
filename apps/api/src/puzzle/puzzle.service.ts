@@ -173,12 +173,41 @@ export class PuzzleService {
     );
 
     if (puzzles.length === 0) {
-      // Fallback: убираем rating + popularity, берём самый низкорейтинговый.
-      const fbConditions = conditions.filter(
-        (c) => !c.includes('rating') && !c.includes('popularity'),
-      );
-      const fbWhere = fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
-      const fbParams = params.slice(2);
+      // Fallback: убираем rating + popularity, перестраиваем индексы
+      // параметров заново. KS-2733: до фикса условия после rating/
+      // popularity ссылались на $3/$4, но в `fbParams = slice(2)`
+      // оставались только параметры с этих позиций — SQL получал
+      // несуществующие placeholder'ы и падал с 500.
+      const fbConditions: string[] = [];
+      const fbParams: (string | number)[] = [];
+      let fbIdx = 1;
+      if (excludeId) {
+        fbConditions.push(`p.id != $${fbIdx}`);
+        fbParams.push(excludeId);
+        fbIdx++;
+      }
+      if (userId) {
+        fbConditions.push(`NOT EXISTS (
+          SELECT 1 FROM puzzle_attempts pa
+          WHERE pa.puzzle_id = p.id AND pa.user_id = $${fbIdx}::uuid AND pa.solved = true
+        )`);
+        fbParams.push(userId);
+        fbIdx++;
+      }
+      if (filters?.themes && filters.themes.length > 0) {
+        for (const theme of filters.themes) {
+          fbConditions.push(`p.themes LIKE $${fbIdx}`);
+          fbParams.push(`%${theme}%`);
+          fbIdx++;
+        }
+      }
+      if (filters?.solutionMode) {
+        fbConditions.push(`p.solution_mode = $${fbIdx}`);
+        fbParams.push(filters.solutionMode);
+        fbIdx++;
+      }
+      const fbWhere =
+        fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
       const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
         `SELECT * FROM puzzles p WHERE ${fbWhere} ORDER BY p.rating ASC LIMIT 1`,
         ...fbParams,

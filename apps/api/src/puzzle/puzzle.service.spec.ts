@@ -354,6 +354,124 @@ describe('PuzzleService', () => {
     });
   });
 
+  describe('getNextPuzzle (KS-2733)', () => {
+    it('solutionMode=play-vs-engine → SQL содержит фильтр solution_mode', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      const fakePve = {
+        id: 'pve-1',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solution_mode: 'play-vs-engine',
+        source_metadata: '{}',
+        game_url: null,
+        opening_tags: null,
+      };
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([fakePve]);
+
+      await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'play-vs-engine',
+      });
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      const params = prisma.$queryRawUnsafe.mock.calls[0].slice(1);
+      expect(sql).toContain('p.solution_mode =');
+      // Параметр solutionMode должен быть в списке.
+      expect(params).toContain('play-vs-engine');
+    });
+
+    it('solutionMode=forced-line → фильтр forced-line', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'fl-1',
+          fen: 'fen',
+          moves: 'e2e4 e7e5',
+          rating: 1500,
+          themes: 'fork',
+          source: 'lichess',
+          solution_mode: 'forced-line',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'forced-line',
+      });
+
+      const params = prisma.$queryRawUnsafe.mock.calls[0].slice(1);
+      expect(params).toContain('forced-line');
+    });
+
+    it('без solutionMode → SQL не имеет фильтра по solution_mode', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'p1',
+          fen: 'fen',
+          moves: 'e2e4',
+          rating: 1500,
+          themes: 'fork',
+          source: 'lichess',
+          solution_mode: 'forced-line',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle('user-1', undefined, {});
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).not.toContain('p.solution_mode');
+    });
+
+    it('KS-2733: fallback при пустом основном результате не падает с SQL placeholder error', async () => {
+      // Раньше fallback делал params.slice(2) и оставлял условия со
+      // ссылками на $3/$4 — SQL получал «несуществующие placeholder'ы»
+      // и возвращал 500. После KS-2733-фикса fallback пересчитывает
+      // индексы заново начиная с $1.
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      // Первый запрос (основной) пуст; второй (fallback) что-то вернёт.
+      prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'pve-fb',
+            fen: 'fen',
+            moves: '',
+            rating: 800,
+            themes: 'playVsEngine',
+            source: 'generated',
+            solution_mode: 'play-vs-engine',
+            source_metadata: '{}',
+            game_url: null,
+            opening_tags: null,
+          },
+        ]);
+
+      const r = await service.getNextPuzzle('user-1', 'exclude-id', {
+        solutionMode: 'play-vs-engine',
+      });
+
+      expect(r.id).toBe('pve-fb');
+      // Проверим что fallback-SQL начинается с $1 (нет $3/$4 без $1/$2).
+      const fbCall = prisma.$queryRawUnsafe.mock.calls[1];
+      const fbSql = fbCall[0] as string;
+      const fbParams = fbCall.slice(1);
+      // В SQL должны быть только $1, $2, $3 (excludeId, userId, solutionMode).
+      const placeholders = fbSql.match(/\$\d+/g) ?? [];
+      const maxPh = Math.max(...placeholders.map((p) => parseInt(p.slice(1))));
+      expect(maxPh).toBe(fbParams.length);
+      expect(fbParams).toContain('play-vs-engine');
+      expect(fbParams).toContain('exclude-id');
+    });
+  });
+
   describe('submitAttempt', () => {
     const mockPuzzle = { id: 'p1', fen: 'fen', moves: 'e2e4 e7e5', rating: 1500, themes: 'fork' };
 
