@@ -182,7 +182,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.items[1].classCounts.blunder).toBe(1);
     });
 
-    it('фильтр PVE через relation + precisionAttempt is not null', async () => {
+    it('фильтр PVE через relation puzzle.solutionMode (KS-2737: без precisionAttempt:isNot:null)', async () => {
       prisma.puzzleAttempt.findMany.mockResolvedValue([]);
       prisma.puzzleAttempt.count.mockResolvedValue(0);
 
@@ -192,11 +192,71 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(findArg.where).toMatchObject({
         userId: 'user-1',
         puzzle: { is: { solutionMode: 'play-vs-engine' } },
-        precisionAttempt: { isNot: null },
       });
+      // KS-2737: фильтр precisionAttempt НЕ применяется — legacy attempts
+      // (без moves[]-snapshot) тоже должны попадать в список.
+      expect(findArg.where).not.toHaveProperty('precisionAttempt');
       expect(findArg.orderBy).toEqual({ createdAt: 'desc' });
       expect(findArg.take).toBe(20);
       expect(findArg.skip).toBe(0);
+    });
+
+    it('KS-2737: attempt без precisionAttempt → дефолтные агрегаты', async () => {
+      prisma.puzzleAttempt.findMany.mockResolvedValue([
+        {
+          id: 'legacy-1',
+          puzzleId: 'p-legacy',
+          createdAt: new Date('2026-05-10T08:00:00Z'),
+          solved: true,
+          puzzle: { id: 'p-legacy', fen: 'fen-legacy' },
+          precisionAttempt: null, // legacy без snapshot
+        },
+        {
+          id: 'modern-1',
+          puzzleId: 'p-modern',
+          createdAt: new Date('2026-05-10T09:00:00Z'),
+          solved: false,
+          puzzle: { id: 'p-modern', fen: 'fen-modern' },
+          precisionAttempt: {
+            attemptId: 'modern-1',
+            endReason: 'lose-wdl',
+            halfMovesPlayed: 4,
+            accuracyPercent: 50,
+            bestMovesCount: 1,
+            goodMovesCount: 1,
+            inaccuraciesCount: 1,
+            mistakesCount: 1,
+            blundersCount: 0,
+          },
+        },
+      ]);
+      prisma.puzzleAttempt.count.mockResolvedValue(2);
+
+      const r = await service.listAttemptsForUser('user-1', 20, 0);
+
+      expect(r.total).toBe(2);
+      expect(r.items).toHaveLength(2);
+      // legacy attempt → дефолты
+      expect(r.items[0]).toMatchObject({
+        attemptId: 'legacy-1',
+        endReason: 'legacy',
+        halfMovesPlayed: 0,
+        accuracyPercent: 0,
+        classCounts: {
+          best: 0,
+          good: 0,
+          inaccuracy: 0,
+          mistake: 0,
+          blunder: 0,
+        },
+      });
+      // modern → реальные значения
+      expect(r.items[1]).toMatchObject({
+        attemptId: 'modern-1',
+        endReason: 'lose-wdl',
+        halfMovesPlayed: 4,
+        accuracyPercent: 50,
+      });
     });
 
     it('пустой список → items=[], total=0', async () => {

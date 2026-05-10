@@ -163,10 +163,17 @@ export class PrecisionService {
     limit: number,
     offset: number,
   ): Promise<PrecisionAttemptsListResponse> {
+    // KS-2737: убрали фильтр `precisionAttempt: isNot: null`. Раньше
+    // attempts без записи в `precision_attempts` (legacy/PVE без
+    // moves[]-snapshot из фронта) не попадали в список — пользователь
+    // видел пустую историю даже при наличии puzzle_attempts. Теперь
+    // показываем все PVE-attempts; если нет precisionAttempt-snapshot,
+    // возвращаем дефолтные агрегаты (accuracy=0, classCounts=0,
+    // endReason='legacy'). Фронт может отрендерить такой item с
+    // меткой «без детального разбора».
     const baseFilter = {
       userId,
       puzzle: { is: { solutionMode: 'play-vs-engine' as const } },
-      precisionAttempt: { isNot: null },
     };
 
     const [rows, total] = await Promise.all([
@@ -183,10 +190,9 @@ export class PrecisionService {
       this.prisma.puzzleAttempt.count({ where: baseFilter }),
     ]);
 
-    const items = rows
-      .filter((r) => r.precisionAttempt !== null)
-      .map((r) => {
-        const pa = r.precisionAttempt!;
+    const items = rows.map((r) => {
+      const pa = r.precisionAttempt;
+      if (pa) {
         return {
           attemptId: r.id,
           puzzleId: r.puzzleId,
@@ -204,7 +210,26 @@ export class PrecisionService {
             blunder: pa.blundersCount,
           },
         };
-      });
+      }
+      // Legacy/без moves[]-snapshot — дефолтные агрегаты.
+      return {
+        attemptId: r.id,
+        puzzleId: r.puzzleId,
+        puzzleFen: r.puzzle.fen,
+        attemptedAt: r.createdAt.toISOString(),
+        solved: r.solved,
+        endReason: 'legacy',
+        halfMovesPlayed: 0,
+        accuracyPercent: 0,
+        classCounts: {
+          best: 0,
+          good: 0,
+          inaccuracy: 0,
+          mistake: 0,
+          blunder: 0,
+        },
+      };
+    });
 
     return { items, total };
   }
