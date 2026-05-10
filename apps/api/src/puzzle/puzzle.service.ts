@@ -122,100 +122,134 @@ export class PuzzleService {
     const minRating = filters?.ratingMin ?? userRating - range;
     const maxRating = filters?.ratingMax ?? userRating + range;
 
-    // KS-2562: popularity >= 50 — minimum quality threshold (top-10%
-    // lichess-пазлов). Покрывается partial-индексом
-    // `puzzles_rating_popularity_partial_idx`.
-    const POPULARITY_THRESHOLD = 50;
+    // KS-2735: anti-repeat ladder для PVE/forced-line. Каскад из 4
+    // попыток сужения exclude-окна:
+    //   1) recent-7d   — исключаем все попытки последней недели
+    //                    (главный сигнал «не повторять прямо сейчас»);
+    //   2) recent-1d   — исключаем только последний день
+    //                    (если за неделю юзер прошёл всё);
+    //   3) solved-only — исключаем только успешно решённые
+    //                    (старое поведение до KS-2735);
+    //   4) no-user-exclude — отдаём что есть.
+    //
+    // Между уровнями (1)→(2)→(3) держим rating+popularity; на финальном
+    // (4) дополнительно ослабляем range/popularity. Все 4 пути дают
+    // согласованный SQL с переиндексацией параметров (KS-2733-фикс).
 
-    const conditions: string[] = [
-      'p.rating >= $1',
-      'p.rating <= $2',
-      `p.popularity >= ${POPULARITY_THRESHOLD}`,
-    ];
-    const params: (string | number)[] = [minRating, maxRating];
-    let paramIdx = 3;
+    type ExcludeStrategy = 'recent-7d' | 'recent-1d' | 'solved-only' | 'none';
+    type RangeMode = 'strict' | 'relaxed';
 
-    if (excludeId) {
-      conditions.push(`p.id != $${paramIdx}`);
-      params.push(excludeId);
-      paramIdx++;
-    }
-
-    if (userId) {
-      conditions.push(`NOT EXISTS (
-        SELECT 1 FROM puzzle_attempts pa
-        WHERE pa.puzzle_id = p.id AND pa.user_id = $${paramIdx}::uuid AND pa.solved = true
-      )`);
-      params.push(userId);
-      paramIdx++;
-    }
-
-    if (filters?.themes && filters.themes.length > 0) {
-      for (const theme of filters.themes) {
-        conditions.push(`p.themes LIKE $${paramIdx}`);
-        params.push(`%${theme}%`);
-        paramIdx++;
+    const tryQuery = async (
+      excludeStrategy: ExcludeStrategy,
+      rangeMode: RangeMode,
+    ): Promise<
+      Array<{
+        id: string;
+        fen: string;
+        moves: string;
+        rating: number;
+        themes: string;
+        game_url: string | null;
+        opening_tags: string | null;
+        source: string;
+        solution_mode: string | null;
+        source_metadata: string | null;
+      }>
+    > => {
+      const conds: string[] = [];
+      const ps: (string | number)[] = [];
+      let i = 1;
+      if (rangeMode === 'strict') {
+        conds.push(`p.rating >= $${i}`);
+        ps.push(minRating);
+        i++;
+        conds.push(`p.rating <= $${i}`);
+        ps.push(maxRating);
+        i++;
+        // popularity >= 50 — partial-индекс KS-2562.
+        conds.push('p.popularity >= 50');
       }
-    }
-
-    if (filters?.solutionMode) {
-      conditions.push(`p.solution_mode = $${paramIdx}`);
-      params.push(filters.solutionMode);
-      paramIdx++;
-    }
-
-    const whereClause = conditions.join(' AND ');
-    // KS-2562: БЕЗ ORDER BY. Index Scan по partial-индексу + early
-    // stop на LIMIT 10. Cost не зависит от ширины range.
-    const puzzles = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
-      `SELECT * FROM puzzles p WHERE ${whereClause} LIMIT 10`,
-      ...params,
-    );
-
-    if (puzzles.length === 0) {
-      // Fallback: убираем rating + popularity, перестраиваем индексы
-      // параметров заново. KS-2733: до фикса условия после rating/
-      // popularity ссылались на $3/$4, но в `fbParams = slice(2)`
-      // оставались только параметры с этих позиций — SQL получал
-      // несуществующие placeholder'ы и падал с 500.
-      const fbConditions: string[] = [];
-      const fbParams: (string | number)[] = [];
-      let fbIdx = 1;
       if (excludeId) {
-        fbConditions.push(`p.id != $${fbIdx}`);
-        fbParams.push(excludeId);
-        fbIdx++;
+        conds.push(`p.id != $${i}`);
+        ps.push(excludeId);
+        i++;
       }
-      if (userId) {
-        fbConditions.push(`NOT EXISTS (
-          SELECT 1 FROM puzzle_attempts pa
-          WHERE pa.puzzle_id = p.id AND pa.user_id = $${fbIdx}::uuid AND pa.solved = true
-        )`);
-        fbParams.push(userId);
-        fbIdx++;
+      if (userId && excludeStrategy !== 'none') {
+        let exclusion: string;
+        if (excludeStrategy === 'recent-7d') {
+          exclusion = `NOT EXISTS (
+            SELECT 1 FROM puzzle_attempts pa
+            WHERE pa.puzzle_id = p.id
+              AND pa.user_id = $${i}::uuid
+              AND pa.created_at > NOW() - INTERVAL '7 days'
+          )`;
+        } else if (excludeStrategy === 'recent-1d') {
+          exclusion = `NOT EXISTS (
+            SELECT 1 FROM puzzle_attempts pa
+            WHERE pa.puzzle_id = p.id
+              AND pa.user_id = $${i}::uuid
+              AND pa.created_at > NOW() - INTERVAL '1 day'
+          )`;
+        } else {
+          // solved-only — старое поведение до KS-2735.
+          exclusion = `NOT EXISTS (
+            SELECT 1 FROM puzzle_attempts pa
+            WHERE pa.puzzle_id = p.id
+              AND pa.user_id = $${i}::uuid
+              AND pa.solved = true
+          )`;
+        }
+        conds.push(exclusion);
+        ps.push(userId);
+        i++;
       }
       if (filters?.themes && filters.themes.length > 0) {
         for (const theme of filters.themes) {
-          fbConditions.push(`p.themes LIKE $${fbIdx}`);
-          fbParams.push(`%${theme}%`);
-          fbIdx++;
+          conds.push(`p.themes LIKE $${i}`);
+          ps.push(`%${theme}%`);
+          i++;
         }
       }
       if (filters?.solutionMode) {
-        fbConditions.push(`p.solution_mode = $${fbIdx}`);
-        fbParams.push(filters.solutionMode);
-        fbIdx++;
+        conds.push(`p.solution_mode = $${i}`);
+        ps.push(filters.solutionMode);
+        i++;
       }
-      const fbWhere =
-        fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
-      const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string; solution_mode: string | null; source_metadata: string | null }>>(
-        `SELECT * FROM puzzles p WHERE ${fbWhere} ORDER BY p.rating ASC LIMIT 1`,
-        ...fbParams,
+      const whereClause = conds.length > 0 ? conds.join(' AND ') : 'true';
+      const orderBy =
+        rangeMode === 'strict' ? '' : 'ORDER BY p.rating ASC';
+      const limit = rangeMode === 'strict' ? 10 : 1;
+      return this.prisma.$queryRawUnsafe(
+        `SELECT * FROM puzzles p WHERE ${whereClause} ${orderBy} LIMIT ${limit}`,
+        ...ps,
       );
-      if (fallbackArr.length === 0) {
-        throw new NotFoundException(this.i18n.t('messages.puzzle.noPuzzlesAvailable'));
-      }
-      return this.formatRawPuzzle(fallbackArr[0]);
+    };
+
+    // Primary: strict range + 7-дневное окно.
+    let puzzles = await tryQuery('recent-7d', 'strict');
+    if (puzzles.length === 0) {
+      // 1-day fallback в strict-range — пользователь решил всю выборку
+      // за неделю, но за сутки могли остаться непосещённые.
+      puzzles = await tryQuery('recent-1d', 'strict');
+    }
+    if (puzzles.length === 0) {
+      // Старое поведение: только solved исключаем (KS-2735 fallback 3).
+      puzzles = await tryQuery('solved-only', 'strict');
+    }
+    if (puzzles.length === 0) {
+      // Relaxed range + solved-only — последний шанс.
+      puzzles = await tryQuery('solved-only', 'relaxed');
+    }
+    if (puzzles.length === 0) {
+      // Совсем без user-exclude — пускай повторится, но дадим
+      // что-нибудь. Это сигнал «PVE-контента мало».
+      puzzles = await tryQuery('none', 'relaxed');
+    }
+
+    if (puzzles.length === 0) {
+      throw new NotFoundException(
+        this.i18n.t('messages.puzzle.noPuzzlesAvailable'),
+      );
     }
 
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];

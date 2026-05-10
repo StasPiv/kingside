@@ -433,11 +433,14 @@ describe('PuzzleService', () => {
     it('KS-2733: fallback при пустом основном результате не падает с SQL placeholder error', async () => {
       // Раньше fallback делал params.slice(2) и оставлял условия со
       // ссылками на $3/$4 — SQL получал «несуществующие placeholder'ы»
-      // и возвращал 500. После KS-2733-фикса fallback пересчитывает
-      // индексы заново начиная с $1.
+      // и возвращал 500. После KS-2733/2735-фикса каждый шаг каскада
+      // строится с индексами параметров начиная с $1.
       prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
-      // Первый запрос (основной) пуст; второй (fallback) что-то вернёт.
+      // Все шаги strict (recent-7d, recent-1d, solved-only) пусты,
+      // на 4-м шаге (relaxed + solved-only) возвращаем пазл.
       prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           {
@@ -459,16 +462,106 @@ describe('PuzzleService', () => {
       });
 
       expect(r.id).toBe('pve-fb');
-      // Проверим что fallback-SQL начинается с $1 (нет $3/$4 без $1/$2).
-      const fbCall = prisma.$queryRawUnsafe.mock.calls[1];
-      const fbSql = fbCall[0] as string;
-      const fbParams = fbCall.slice(1);
-      // В SQL должны быть только $1, $2, $3 (excludeId, userId, solutionMode).
-      const placeholders = fbSql.match(/\$\d+/g) ?? [];
-      const maxPh = Math.max(...placeholders.map((p) => parseInt(p.slice(1))));
-      expect(maxPh).toBe(fbParams.length);
-      expect(fbParams).toContain('play-vs-engine');
-      expect(fbParams).toContain('exclude-id');
+      // Проверим что для каждого вызова SQL placeholder'ы соответствуют
+      // числу параметров — нет ссылок на несуществующие $N.
+      for (const call of prisma.$queryRawUnsafe.mock.calls) {
+        const sql = call[0] as string;
+        const ps = call.slice(1);
+        const placeholders = sql.match(/\$\d+/g) ?? [];
+        const maxPh = placeholders.length
+          ? Math.max(...placeholders.map((p) => parseInt(p.slice(1))))
+          : 0;
+        expect(maxPh).toBe(ps.length);
+      }
+    });
+
+    // ── KS-2735: anti-repeat 7d-окно + каскад fallback'ов ─────────
+
+    it('KS-2735: primary запрос исключает попытки за 7 дней', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'p1',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: '',
+          source: 'lichess',
+          solution_mode: 'forced-line',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle('user-1');
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      // Primary должен быть с recent-7d window.
+      expect(sql).toContain("INTERVAL '7 days'");
+      expect(sql).toContain('NOT EXISTS');
+      expect(sql).not.toContain('solved = true'); // не old-style на primary
+    });
+
+    it('KS-2735: каскад при последовательных пустых ответах — 7d → 1d → solved → relaxed → none', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      // Все 4 уровня пустые, 5-й (none + relaxed) возвращает.
+      prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'p-last',
+            fen: 'fen',
+            moves: '',
+            rating: 800,
+            themes: '',
+            source: 'lichess',
+            solution_mode: 'forced-line',
+            source_metadata: null,
+            game_url: null,
+            opening_tags: null,
+          },
+        ]);
+
+      const r = await service.getNextPuzzle('user-1');
+
+      expect(r.id).toBe('p-last');
+      // 5 вызовов соответствуют 5 уровням каскада.
+      expect(prisma.$queryRawUnsafe.mock.calls.length).toBe(5);
+      const sqls = prisma.$queryRawUnsafe.mock.calls.map((c) => c[0] as string);
+      expect(sqls[0]).toContain("INTERVAL '7 days'");
+      expect(sqls[1]).toContain("INTERVAL '1 day'");
+      expect(sqls[2]).toContain('solved = true');
+      expect(sqls[3]).toContain('solved = true'); // relaxed + solved-only
+      // 5-й — none, без NOT EXISTS на user_attempts (только excludeId/themes/etc).
+      // Проверим что нет NOT EXISTS user_id.
+      expect(sqls[4]).not.toContain('user_id');
+    });
+
+    it('KS-2735: anonymous (userId=null) → нет user-exclude вообще', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'p-anon',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: '',
+          source: 'lichess',
+          solution_mode: 'forced-line',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle(null);
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).not.toContain('user_id');
+      expect(sql).not.toContain("INTERVAL");
     });
   });
 
@@ -1405,10 +1498,10 @@ describe('PuzzleService', () => {
 
   describe('KS-299: no repeated attempted puzzles', () => {
     describe('getNextPuzzle — excludes already-solved attempts', () => {
-      // getNextPuzzle uses $queryRawUnsafe with a NOT EXISTS clause that filters on
-      // pa.solved = true. We verify the userId is passed as a SQL parameter so the
-      // NOT EXISTS condition is applied for the current user.
-      it('should pass userId to NOT EXISTS clause (solved filter) via raw SQL', async () => {
+      // KS-2735 (was KS-299): primary запрос теперь исключает попытки
+      // за 7 дней (recent-7d window), а не «solved=true» (старое
+      // поведение лежит в 3-м уровне fallback'а каскада).
+      it('should pass userId to NOT EXISTS clause (recent-7d window) via raw SQL', async () => {
         prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1200 });
         prisma.$queryRawUnsafe.mockResolvedValue([
           { id: 'p3', fen: 'fen', moves: 'e2e4', rating: 1200, themes: 'fork', source: 'lichess', game_url: null, opening_tags: null },
@@ -1420,7 +1513,8 @@ describe('PuzzleService', () => {
         expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
         const [sql, ...params] = prisma.$queryRawUnsafe.mock.calls[0];
         expect(sql).toContain('NOT EXISTS');
-        expect(sql).toContain('pa.solved = true');
+        // KS-2735: primary имеет 7-дневное окно, не solved-only.
+        expect(sql).toContain("INTERVAL '7 days'");
         expect(params).toEqual(expect.arrayContaining(['user-1']));
       });
 
