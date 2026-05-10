@@ -374,6 +374,41 @@ export interface PrecisionAttemptsListResponse {
 }
 
 /**
+ * KS-2727: Уровень В — тренд по времени.
+ * `GET /precision/trends/me?bucket=day|week|month&since=&until=`.
+ */
+export interface PrecisionTrendsResponse {
+  bucket: 'day' | 'week' | 'month';
+  points: Array<{
+    /** ISO-date начала бакета (понедельник week / 1-е число month / день day). */
+    bucketStart: string;
+    attempts: number;
+    preserved: number;
+    avgAccuracyPercent: number;
+    avgWdlLeakPerMove: number;
+  }>;
+}
+
+/**
+ * KS-2727: Уровень В — разбивка по фазе игры и темам.
+ * `GET /precision/breakdowns/me?since=`.
+ */
+export interface PrecisionBreakdownsResponse {
+  byPhase: Array<{
+    phase: 'opening' | 'middlegame' | 'endgame';
+    attempts: number;
+    avgAccuracyPercent: number;
+  }>;
+  byTheme: Array<{
+    theme: string;
+    attempts: number;
+    avgAccuracyPercent: number;
+    /** 100 − avgAccuracyPercent — для сортировки «где упускаешь». */
+    weakness: number;
+  }>;
+}
+
+/**
  * Ответ `GET /precision/attempts/:attemptId` (Уровень Б, ADR-056 §2.2).
  */
 export interface PrecisionAttemptDetail {

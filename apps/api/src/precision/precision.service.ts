@@ -16,7 +16,9 @@ import {
 import type {
   PrecisionAttemptDetail,
   PrecisionAttemptsListResponse,
+  PrecisionBreakdownsResponse,
   PrecisionStatsResponse,
+  PrecisionTrendsResponse,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -277,6 +279,193 @@ export class PrecisionService {
       })),
     };
   }
+
+  // ── KS-2727: Уровень В — trends + breakdowns ────────────────────
+
+  /**
+   * KS-2727 B7.1. Тренд точности и удержания по бакетам времени.
+   * Группировка по `date_trunc(bucket, created_at)`. Пустые бакеты
+   * не возвращаются — фронт сам нарисует «дни без попыток».
+   */
+  async getTrendsForUser(
+    userId: string,
+    options: {
+      bucket: 'day' | 'week' | 'month';
+      since?: Date;
+      until?: Date;
+    },
+  ): Promise<PrecisionTrendsResponse> {
+    const bucket = options.bucket;
+    const sinceMs = options.since?.toISOString() ?? null;
+    const untilMs = options.until?.toISOString() ?? null;
+
+    // Прямой SQL: date_trunc + JOIN. Параметризованные значения
+    // подставляются через Prisma.sql — защита от SQL-injection.
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        bucket_start: Date;
+        attempts: bigint;
+        preserved: bigint;
+        avg_accuracy: number | null;
+        sum_leak: number | null;
+        sum_half_moves: bigint;
+      }>
+    >(
+      `
+      SELECT
+        date_trunc($2::text, pa.created_at) AS bucket_start,
+        COUNT(*)::bigint                   AS attempts,
+        SUM(CASE WHEN pa.solved THEN 1 ELSE 0 END)::bigint AS preserved,
+        AVG(prec.accuracy_percent)::float  AS avg_accuracy,
+        SUM(prec.wdl_leak_sum)::float      AS sum_leak,
+        SUM(prec.half_moves_played)::bigint AS sum_half_moves
+      FROM puzzle_attempts pa
+      JOIN puzzles p ON p.id = pa.puzzle_id
+      JOIN precision_attempts prec ON prec.attempt_id = pa.id
+      WHERE pa.user_id = $1::uuid
+        AND p.solution_mode = 'play-vs-engine'
+        ${sinceMs ? 'AND pa.created_at >= $3::timestamp' : ''}
+        ${untilMs ? `AND pa.created_at <= $${sinceMs ? 4 : 3}::timestamp` : ''}
+      GROUP BY bucket_start
+      ORDER BY bucket_start ASC
+      `,
+      ...[userId, bucket, sinceMs, untilMs].filter((v) => v !== null),
+    );
+
+    return {
+      bucket,
+      points: rows.map((r) => ({
+        bucketStart: r.bucket_start.toISOString(),
+        attempts: Number(r.attempts),
+        preserved: Number(r.preserved),
+        avgAccuracyPercent: r.avg_accuracy ?? 0,
+        avgWdlLeakPerMove:
+          Number(r.sum_half_moves) > 0
+            ? (r.sum_leak ?? 0) / Number(r.sum_half_moves)
+            : 0,
+      })),
+    };
+  }
+
+  /**
+   * KS-2727 B7.2. Разбивка по фазе игры (по числу фигур в FEN
+   * первого хода попытки) и по темам пазла.
+   */
+  async getBreakdownsForUser(
+    userId: string,
+    since?: Date,
+  ): Promise<PrecisionBreakdownsResponse> {
+    const sinceMs = since?.toISOString() ?? null;
+
+    // ── byPhase: считаем фазу по FEN первого хода каждой попытки ───
+    // Грузим (attemptId, fen первого ply, accuracyPercent). PG SQL не
+    // парсит FEN, поэтому делаем JS-группировку на пачке.
+    const movesRows = await this.prisma.$queryRawUnsafe<
+      Array<{ accuracy: number; first_fen: string }>
+    >(
+      `
+      SELECT
+        prec.accuracy_percent::float AS accuracy,
+        first_move.fen_before        AS first_fen
+      FROM puzzle_attempts pa
+      JOIN puzzles p ON p.id = pa.puzzle_id
+      JOIN precision_attempts prec ON prec.attempt_id = pa.id
+      JOIN LATERAL (
+        SELECT fen_before
+        FROM precision_attempt_moves m
+        WHERE m.attempt_id = pa.id
+        ORDER BY m.ply ASC
+        LIMIT 1
+      ) AS first_move ON TRUE
+      WHERE pa.user_id = $1::uuid
+        AND p.solution_mode = 'play-vs-engine'
+        ${sinceMs ? 'AND pa.created_at >= $2::timestamp' : ''}
+      `,
+      ...[userId, sinceMs].filter((v) => v !== null),
+    );
+
+    const phaseAcc = new Map<
+      'opening' | 'middlegame' | 'endgame',
+      { sum: number; n: number }
+    >();
+    for (const r of movesRows) {
+      const phase = classifyPhaseByFen(r.first_fen);
+      if (!phase) continue;
+      const acc = phaseAcc.get(phase) ?? { sum: 0, n: 0 };
+      acc.sum += r.accuracy;
+      acc.n += 1;
+      phaseAcc.set(phase, acc);
+    }
+    const byPhase: PrecisionBreakdownsResponse['byPhase'] = (
+      ['opening', 'middlegame', 'endgame'] as const
+    ).map((phase) => {
+      const a = phaseAcc.get(phase) ?? { sum: 0, n: 0 };
+      return {
+        phase,
+        attempts: a.n,
+        avgAccuracyPercent: a.n > 0 ? a.sum / a.n : 0,
+      };
+    });
+
+    // ── byTheme: UNNEST string_to_array(themes, ' ') ───────────────
+    const themeRows = await this.prisma.$queryRawUnsafe<
+      Array<{ theme: string; attempts: bigint; avg_accuracy: number | null }>
+    >(
+      `
+      SELECT
+        theme,
+        COUNT(*)::bigint           AS attempts,
+        AVG(prec.accuracy_percent)::float AS avg_accuracy
+      FROM puzzle_attempts pa
+      JOIN puzzles p ON p.id = pa.puzzle_id
+      JOIN precision_attempts prec ON prec.attempt_id = pa.id,
+           UNNEST(string_to_array(p.themes, ' ')) AS theme
+      WHERE pa.user_id = $1::uuid
+        AND p.solution_mode = 'play-vs-engine'
+        AND theme <> ''
+        AND theme NOT IN ('playVsEngine')
+        ${sinceMs ? 'AND pa.created_at >= $2::timestamp' : ''}
+      GROUP BY theme
+      ORDER BY (100 - COALESCE(AVG(prec.accuracy_percent)::float, 0)) DESC,
+               COUNT(*) DESC
+      LIMIT 10
+      `,
+      ...[userId, sinceMs].filter((v) => v !== null),
+    );
+
+    const byTheme: PrecisionBreakdownsResponse['byTheme'] = themeRows.map(
+      (r) => ({
+        theme: r.theme,
+        attempts: Number(r.attempts),
+        avgAccuracyPercent: r.avg_accuracy ?? 0,
+        weakness: 100 - (r.avg_accuracy ?? 0),
+      }),
+    );
+
+    return { byPhase, byTheme };
+  }
+}
+
+/**
+ * KS-2727: эвристика фазы по FEN. По числу не-королевских фигур
+ * (всех major/minor/pawn у обеих сторон):
+ *   ≥28 → opening; 14..27 → middlegame; ≤13 → endgame.
+ *
+ * Эталонная начальная позиция = 32 фигуры; чем меньше материала,
+ * тем дальше игра. Король не считаем (всегда есть).
+ */
+export function classifyPhaseByFen(
+  fen: string,
+): 'opening' | 'middlegame' | 'endgame' | null {
+  const board = fen.split(/\s+/)[0];
+  if (!board) return null;
+  let count = 0;
+  for (const ch of board) {
+    if (/[prnbqPRNBQ]/.test(ch)) count++;
+  }
+  if (count >= 28) return 'opening';
+  if (count >= 14) return 'middlegame';
+  return 'endgame';
 }
 
 function signedFromTriple(

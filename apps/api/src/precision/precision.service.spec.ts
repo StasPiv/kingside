@@ -3,7 +3,7 @@ jest.mock('../prisma/prisma.service', () => ({
 }));
 
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { PrecisionService } from './precision.service';
+import { classifyPhaseByFen, PrecisionService } from './precision.service';
 
 describe('PrecisionService (KS-2718 / ADR-056)', () => {
   let service: PrecisionService;
@@ -20,6 +20,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         aggregate: jest.fn(),
         findMany: jest.fn(),
       },
+      $queryRawUnsafe: jest.fn(),
     };
     service = new PrecisionService(prisma);
   });
@@ -379,6 +380,156 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.moves[0].wdlBefore).toBeNull();
       expect(r.moves[0].wdlAfter).toBeNull();
       expect(r.moves[0].depth).toBeNull();
+    });
+  });
+
+  // ─── KS-2727: trends + breakdowns ──────────────────────────────────
+
+  describe('classifyPhaseByFen (KS-2727)', () => {
+    it('стартовая позиция → opening (32 фигуры)', () => {
+      expect(
+        classifyPhaseByFen(
+          'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        ),
+      ).toBe('opening');
+    });
+
+    it('середина игры (~20 фигур) → middlegame', () => {
+      // Простая позиция с урезанным составом.
+      expect(
+        classifyPhaseByFen('r3k2r/pp3ppp/8/8/8/8/PP3PPP/R3K2R w KQkq - 0 1'),
+      ).toBe('middlegame');
+    });
+
+    it('эндшпиль (≤13 фигур, например ладейный) → endgame', () => {
+      expect(classifyPhaseByFen('4k3/4p3/8/8/8/8/4P3/4K3 w - - 0 1')).toBe(
+        'endgame',
+      );
+    });
+
+    it('пустой/невалидный FEN → null', () => {
+      expect(classifyPhaseByFen('')).toBeNull();
+    });
+  });
+
+  describe('getTrendsForUser (KS-2727 B7.1)', () => {
+    it('возвращает points с агрегатами и считает avgWdlLeakPerMove из sum/sum', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          bucket_start: new Date('2026-05-04T00:00:00Z'), // понедельник
+          attempts: BigInt(5),
+          preserved: BigInt(3),
+          avg_accuracy: 75.5,
+          sum_leak: 0.4,
+          sum_half_moves: BigInt(20),
+        },
+        {
+          bucket_start: new Date('2026-05-11T00:00:00Z'),
+          attempts: BigInt(2),
+          preserved: BigInt(2),
+          avg_accuracy: 92.0,
+          sum_leak: 0.0,
+          sum_half_moves: BigInt(8),
+        },
+      ]);
+
+      const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+
+      expect(r.bucket).toBe('week');
+      expect(r.points).toHaveLength(2);
+      expect(r.points[0]).toEqual({
+        bucketStart: '2026-05-04T00:00:00.000Z',
+        attempts: 5,
+        preserved: 3,
+        avgAccuracyPercent: 75.5,
+        avgWdlLeakPerMove: 0.02, // 0.4 / 20
+      });
+      expect(r.points[1].avgWdlLeakPerMove).toBe(0); // 0 leak / 8 = 0
+    });
+
+    it('пустые данные → points=[]', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+      const r = await service.getTrendsForUser('user-1', { bucket: 'day' });
+      expect(r).toEqual({ bucket: 'day', points: [] });
+    });
+
+    it('bucket прокидывается в SQL date_trunc параметром', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+      await service.getTrendsForUser('user-1', { bucket: 'month' });
+
+      const args = prisma.$queryRawUnsafe.mock.calls[0];
+      // args[0] — SQL, args[1] — userId, args[2] — bucket
+      expect(args[1]).toBe('user-1');
+      expect(args[2]).toBe('month');
+    });
+  });
+
+  describe('getBreakdownsForUser (KS-2727 B7.2)', () => {
+    it('считает byPhase по числу фигур в FEN первого хода', async () => {
+      // Первый запрос — phase rows.
+      prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([
+          // 32 фигуры — opening
+          {
+            accuracy: 90,
+            first_fen:
+              'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          },
+          // 20 фигур — middlegame
+          {
+            accuracy: 70,
+            first_fen: 'r3k2r/pp3ppp/8/8/8/8/PP3PPP/R3K2R w KQkq - 0 1',
+          },
+          // 6 фигур — endgame
+          {
+            accuracy: 50,
+            first_fen: '4k3/4p3/8/8/8/8/4P3/4K3 w - - 0 1',
+          },
+        ])
+        // theme rows (empty)
+        .mockResolvedValueOnce([]);
+
+      const r = await service.getBreakdownsForUser('user-1');
+
+      expect(r.byPhase).toEqual([
+        { phase: 'opening', attempts: 1, avgAccuracyPercent: 90 },
+        { phase: 'middlegame', attempts: 1, avgAccuracyPercent: 70 },
+        { phase: 'endgame', attempts: 1, avgAccuracyPercent: 50 },
+      ]);
+    });
+
+    it('byTheme — корректные счётчики и weakness=100-accuracy', async () => {
+      prisma.$queryRawUnsafe
+        // empty phase rows
+        .mockResolvedValueOnce([])
+        // theme rows
+        .mockResolvedValueOnce([
+          { theme: 'pin', attempts: BigInt(8), avg_accuracy: 60 },
+          { theme: 'fork', attempts: BigInt(4), avg_accuracy: 80 },
+          { theme: 'mate', attempts: BigInt(2), avg_accuracy: 95 },
+        ]);
+
+      const r = await service.getBreakdownsForUser('user-1');
+
+      expect(r.byTheme).toEqual([
+        { theme: 'pin', attempts: 8, avgAccuracyPercent: 60, weakness: 40 },
+        { theme: 'fork', attempts: 4, avgAccuracyPercent: 80, weakness: 20 },
+        { theme: 'mate', attempts: 2, avgAccuracyPercent: 95, weakness: 5 },
+      ]);
+    });
+
+    it('пустые данные → byPhase нулевыми, byTheme=[]', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+      const r = await service.getBreakdownsForUser('user-1');
+      expect(r.byPhase).toEqual([
+        { phase: 'opening', attempts: 0, avgAccuracyPercent: 0 },
+        { phase: 'middlegame', attempts: 0, avgAccuracyPercent: 0 },
+        { phase: 'endgame', attempts: 0, avgAccuracyPercent: 0 },
+      ]);
+      expect(r.byTheme).toEqual([]);
     });
   });
 });

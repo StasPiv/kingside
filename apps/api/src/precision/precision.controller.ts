@@ -42,17 +42,48 @@ export class PrecisionController {
     @Request() req: AuthenticatedRequest,
     @Query('since') since?: string,
   ) {
-    let sinceDate: Date | undefined;
-    if (since) {
-      const d = new Date(since);
-      if (Number.isNaN(d.getTime())) {
-        throw new BadRequestException(
-          `Invalid 'since' query parameter: ${since}`,
-        );
-      }
-      sinceDate = d;
-    }
+    const sinceDate = parseIsoOrThrow(since, 'since');
     return this.precision.getStatsForUser(req.user.id, sinceDate);
+  }
+
+  /**
+   * KS-2727 B7.1. GET /precision/trends/me?bucket=&since=&until= —
+   * тренд точности и удержания по бакетам времени.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('trends/me')
+  async getTrends(
+    @Request() req: AuthenticatedRequest,
+    @Query('bucket') bucket?: string,
+    @Query('since') since?: string,
+    @Query('until') until?: string,
+  ) {
+    const allowed = ['day', 'week', 'month'] as const;
+    const safeBucket: 'day' | 'week' | 'month' =
+      bucket && (allowed as readonly string[]).includes(bucket)
+        ? (bucket as 'day' | 'week' | 'month')
+        : 'week';
+    const sinceDate = parseIsoOrThrow(since, 'since');
+    const untilDate = parseIsoOrThrow(until, 'until');
+    return this.precision.getTrendsForUser(req.user.id, {
+      bucket: safeBucket,
+      since: sinceDate,
+      until: untilDate,
+    });
+  }
+
+  /**
+   * KS-2727 B7.2. GET /precision/breakdowns/me?since= — разбивка по
+   * фазе игры и темам пазла (top-10 по «слабости»).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('breakdowns/me')
+  async getBreakdowns(
+    @Request() req: AuthenticatedRequest,
+    @Query('since') since?: string,
+  ) {
+    const sinceDate = parseIsoOrThrow(since, 'since');
+    return this.precision.getBreakdownsForUser(req.user.id, sinceDate);
   }
 
   /**
@@ -92,4 +123,17 @@ export class PrecisionController {
     const isAdmin = await this.adminCheck.isAdmin(req.user.id);
     return this.precision.getAttemptDetail(attemptId, req.user.id, isAdmin);
   }
+}
+
+/**
+ * KS-2727: парсинг опц. ISO-date query параметра. `undefined` → undefined,
+ * непарсимая строка → 400.
+ */
+function parseIsoOrThrow(raw: string | undefined, name: string): Date | undefined {
+  if (!raw) return undefined;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException(`Invalid '${name}' query parameter: ${raw}`);
+  }
+  return d;
 }
