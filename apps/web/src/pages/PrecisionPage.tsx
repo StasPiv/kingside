@@ -15,6 +15,7 @@ import {
   type BrowsePuzzleDto,
   type InfinitePuzzleFilters,
 } from '../hooks/useInfinitePuzzles';
+import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -516,7 +517,12 @@ export function PrecisionPage() {
             const justPublished = recentlyPublishedId === p.id;
             const onClick = () =>
               // KS-2547 / ADR-048 §5: новый канон `?source=precision`.
-              navigate(`/puzzle/${p.id}?source=precision`);
+              // KS-2688: + сохраняем mine/visibility в query, чтобы при
+              // возврате со страницы пазла вернуться в тот же фильтр
+              // (например, /precision?mine=true&visibility=draft).
+              navigate(
+                `/puzzle/${p.id}${buildPrecisionPuzzleQuery(searchParams)}`,
+              );
             return (
               <article
                 key={p.id}

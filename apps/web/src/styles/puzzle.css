@@ -1002,6 +1002,36 @@ body:has(.puzzle-rush-board) {
   width: 100%;
 }
 
+/* KS-2688: хлебные крошки на странице пазла. Дизайн заимствован из
+   .broadcast-breadcrumbs, чтобы стилистика навигации внутри платформы
+   была единой (gh-issue/Глав/Trans / Round). */
+.puzzle-breadcrumbs {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.puzzle-breadcrumbs__link {
+  color: var(--c-7c83ff);
+  text-decoration: none;
+}
+
+.puzzle-breadcrumbs__link:hover {
+  text-decoration: underline;
+}
+
+.puzzle-breadcrumbs__current {
+  color: var(--c-a0a0c0);
+}
+
+.puzzle-breadcrumbs__sep {
+  color: var(--c-4a4a6e);
+}
+
 /* KS-1008: increased vh offset from 310 to 345 to account for turn indicator (~35px) */
 .puzzle-page .board-container {
   width: min(calc(100vh - 310px), calc(100vw - 32px));

@@ -23,6 +23,7 @@ import type { PuzzleDto } from '@kingside/shared';
 import { WasmEngineAdapter } from '../utils/engineAdapter';
 import { openAnalysis } from '../utils/openAnalysis';
 import { buildPuzzleAnalysisPgn } from '../utils/buildPuzzleAnalysisPgn';
+import { buildBackUrl, detectPuzzleSection } from '../utils/puzzleNav';
 
 type PuzzleStatus = 'thinking' | 'checking' | 'correct' | 'incorrect';
 
@@ -41,7 +42,21 @@ export function PuzzlePage() {
   // студенту обычный SolutionRunner, если он явно зашёл за play-vs-
   // engine. Backend-фикс несоответствия `solution_mode` оформлен
   // отдельной задачей.
-  const fromPrecision = searchParams.get('source') === 'precision';
+  // KS-2688: secition / backUrl используются для динамического заголовка,
+  // хлебных крошек и кнопок возврата (раньше всё хардкодилось на
+  // `/puzzles`, что уводило юзера со draft-фильтра precision).
+  const section = detectPuzzleSection(searchParams);
+  const fromPrecision = section === 'precision';
+  const backUrl = useMemo(() => buildBackUrl(searchParams), [searchParams]);
+  const sectionTitle = fromPrecision
+    ? t('precision.title', 'Precision training')
+    : t('puzzle.title', 'Puzzles');
+  const sectionBackLabel = fromPrecision
+    ? t('puzzle.backToPrecision', '← Back to Precision')
+    : t('puzzle.backToPuzzles');
+  const sectionBackButtonLabel = fromPrecision
+    ? t('puzzle.backToPrecisionShort', 'Back to Precision')
+    : t('puzzle.backToPuzzles');
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const isGenerated = (puzzle as unknown as { source?: string })?.source === 'generated';
   const [game, setGame] = useState<Chess | null>(null);
@@ -441,6 +456,61 @@ export function PuzzlePage() {
     [puzzle, user],
   );
 
+  // KS-2688: единый header c хлебными крошками, back-link'ом и заголовком.
+  // До тикета все три состояния ниже (allSolved / play-vs-engine /
+  // обычный fallback) рендерили один и тот же header inline; KS-2688
+  // переезжает на динамический section + dynamic backUrl, поэтому
+  // выносим в один renderable блок, чтобы не дублировать логику и
+  // случайно не разъехаться по тексту/ссылкам.
+  const puzzleShortId = puzzle ? puzzle.id.slice(0, 8) : '';
+  const renderHeader = (helpSection: 'puzzles') => (
+    <>
+      <nav
+        className="puzzle-breadcrumbs"
+        data-testid="puzzle-breadcrumbs"
+        aria-label={t('breadcrumbs.label', 'Breadcrumbs')}
+      >
+        <Link to="/" className="puzzle-breadcrumbs__link">
+          {t('breadcrumbs.home', 'Home')}
+        </Link>
+        <span className="puzzle-breadcrumbs__sep" aria-hidden="true">
+          /
+        </span>
+        <Link
+          to={backUrl}
+          className="puzzle-breadcrumbs__link"
+          data-testid="puzzle-breadcrumbs-section"
+        >
+          {sectionTitle}
+        </Link>
+        {puzzleShortId && (
+          <>
+            <span className="puzzle-breadcrumbs__sep" aria-hidden="true">
+              /
+            </span>
+            <span
+              className="puzzle-breadcrumbs__current"
+              data-testid="puzzle-breadcrumbs-current"
+            >
+              {t('breadcrumbs.puzzleN', 'Puzzle #{{id}}', { id: puzzleShortId })}
+            </span>
+          </>
+        )}
+      </nav>
+      <Link
+        to={backUrl}
+        className="back-nav-link"
+        data-testid="puzzle-back-link"
+      >
+        &larr; {sectionBackLabel}
+      </Link>
+      <h1>
+        {sectionTitle}
+        <HelpButton section={helpSection} />
+      </h1>
+    </>
+  );
+
   if (loading) {
     return <div className="loading">{t('common.loading')}</div>;
   }
@@ -448,11 +518,12 @@ export function PuzzlePage() {
   if (allSolved) {
     return (
       <div className="puzzle-page">
-        <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
-        <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
+        {renderHeader('puzzles')}
         <div className="puzzle-all-solved">
           <p>{t('puzzle.allSolved', 'All puzzles solved! Generate new ones from PGN.')}</p>
-          <Link to="/puzzles" className="play-btn">{t('puzzle.backToPuzzles')}</Link>
+          <Link to={backUrl} className="play-btn" data-testid="puzzle-back-cta">
+            {sectionBackButtonLabel}
+          </Link>
         </div>
       </div>
     );
@@ -479,8 +550,7 @@ export function PuzzlePage() {
   ) {
     return (
       <div className="puzzle-page" data-testid="puzzle-page-play-vs-engine">
-        <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
-        <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
+        {renderHeader('puzzles')}
         {!user && (
           <div className="guest-banner">
             <Link to="/login">{t('auth.loginToSaveProgress', 'Sign in to save your progress')}</Link>
@@ -502,8 +572,7 @@ export function PuzzlePage() {
 
   return (
     <div className="puzzle-page">
-      <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
-      <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
+      {renderHeader('puzzles')}
 
       {!user && (
         <div className="guest-banner">

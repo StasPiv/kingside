@@ -36,6 +36,11 @@
       "body": "For questions about these terms, contact us via the support form on the website."
     }
   },
+  "breadcrumbs": {
+    "label": "Breadcrumbs",
+    "home": "Home",
+    "puzzleN": "Puzzle #{{id}}"
+  },
   "nav": {
     "settings": "Settings",
     "logout": "Logout",
@@ -1064,6 +1069,8 @@
     "tryAgain": "Try Again",
     "loadError": "Failed to load puzzle",
     "backToPuzzles": "Back to Puzzles",
+    "backToPrecision": "Back to Precision",
+    "backToPrecisionShort": "Back to Precision",
     "engine": {
       "win": "You held the advantage",
       "winMate": "Checkmate!",
