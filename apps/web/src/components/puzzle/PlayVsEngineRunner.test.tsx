@@ -662,9 +662,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     ).toBe('b');
   });
 
-  it('KS-2518/2528: legacy-пазл (без wdlAfter) lose → fallback summary winning chances', async () => {
-    // wdlAfterBlunder=0.6 (старт = +80%), final wdlUser ≈ -0.88 → +6%.
-    // delta_pct = 80 − 6 = 74 → header «Advantage lost».
+  it('KS-2686: legacy-пазл (без wdlAfter) lose → summary не рендерится, остаётся только reasonLabel', async () => {
+    // KS-2686: sigmoid-fallback из cp удалён. Если у пазла нет wdlAfter
+    // или движок не отдал wdl — карточка с тремя строками не рендерится,
+    // внешний reasonLabel («Advantage lost») остаётся единственным.
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -689,23 +690,16 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
       ).toBe('lose');
     });
-    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
-    // Legacy → mode='signed', preserved=false, есть pct-атрибуты.
-    expect(summary.getAttribute('data-mode')).toBe('signed');
-    expect(summary.getAttribute('data-preserved')).toBe('false');
-    expect(summary.getAttribute('data-start-pct')).toBe('80'); // +0.6 → 80%
-    const finalPct = Number(summary.getAttribute('data-final-pct'));
-    expect(finalPct).toBeLessThan(80);
-    const deltaPct = Number(summary.getAttribute('data-delta-pct'));
-    expect(deltaPct).toBeGreaterThan(0);
-    expect(summary.textContent).toMatch(/Advantage lost|Преимущество потеряно/);
-    const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
-    // Fallback-формат «Winning chances X% → Y% (−Z%)» с U+2212 минусом.
-    expect(lineEl.textContent).toMatch(/Winning chances|Шансы на победу/);
-    expect(lineEl.textContent).toMatch(/−\d+%/);
+    // Карточки нет (нет wdlAfter у пазла).
+    expect(
+      screen.queryByTestId('puzzle-engine-wdl-summary'),
+    ).toBeNull();
+    // Внешний reasonLabel показывает «You lost the advantage» один раз.
+    const resultEl = screen.getByTestId('puzzle-engine-result');
+    expect(resultEl.textContent).toMatch(/lost the advantage|потеряли преимущество/);
   });
 
-  it('KS-2518/2528: legacy preserved → fallback без «(−X%)»', async () => {
+  it('KS-2686: legacy preserved (без wdlAfter) → summary не рендерится, reasonLabel «Advantage preserved»', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -731,16 +725,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
       ).toBe('win');
     });
-    const summary = screen.getByTestId('puzzle-engine-wdl-summary');
-    expect(summary.getAttribute('data-mode')).toBe('signed');
-    expect(summary.getAttribute('data-preserved')).toBe('true');
-    expect(summary.textContent).toMatch(
-      /Advantage preserved|Преимущество удержано/,
-    );
-    const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
-    // На preserved «(−X%)» не выводится.
-    expect(lineEl.textContent).not.toMatch(/−\d+%/);
-    expect(lineEl.textContent).toMatch(/Winning chances|Шансы на победу/);
+    expect(
+      screen.queryByTestId('puzzle-engine-wdl-summary'),
+    ).toBeNull();
+    const resultEl = screen.getByTestId('puzzle-engine-result');
+    expect(resultEl.textContent).toMatch(/held the advantage|удержали преимущество/);
   });
 
   it('KS-2528: primary path — три строки Win/Draw/Loss с per-mille→% и сigned-дельтой', async () => {
@@ -797,6 +786,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(summary.getAttribute('data-final-w')).toBe('2');
     expect(summary.getAttribute('data-final-d')).toBe('20');
     expect(summary.getAttribute('data-final-l')).toBe('78');
+    // KS-2686: внутренний lostHeader удалён, заголовок только во внешнем
+    // result-label (reasonLabel).
+    const resultLabel = screen.getByTestId('puzzle-engine-result');
+    expect(resultLabel.textContent).toMatch(
+      /lost the advantage|потеряли преимущество/,
+    );
 
     // Каждая строка Win/Draw/Loss есть в DOM.
     const winRow = screen.getByTestId('puzzle-engine-wdl-row-win');
@@ -896,21 +891,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       ).toBe('win');
     });
     const summary = screen.getByTestId('puzzle-engine-wdl-summary');
-    // Header «удержано», даже если deltaPct>0 в fallback.
-    expect(summary.getAttribute('data-preserved')).toBe('true');
-    expect(summary.textContent).toMatch(
-      /Advantage preserved|Преимущество удержано/,
+    // KS-2686: header перенесён в внешний reasonLabel; в самой карточке
+    // его больше нет. Проверим reasonLabel для «удержано».
+    const resultLabel = screen.getByTestId('puzzle-engine-result');
+    expect(resultLabel.textContent).toMatch(
+      /held the advantage|удержали преимущество/,
     );
-    // Если режим fallback (signed) — линия должна показать «(−Z%)»
-    // именно из-за дельты. Если режим primary — три строки.
-    const mode = summary.getAttribute('data-mode');
-    if (mode === 'signed') {
-      const deltaPct = Number(summary.getAttribute('data-delta-pct'));
-      const lineEl = screen.getByTestId('puzzle-engine-wdl-summary-line');
-      if (deltaPct > 0) {
-        expect(lineEl.textContent).toMatch(/−\d+%/);
-      }
-    }
+    expect(summary.getAttribute('data-preserved')).toBe('true');
+    // KS-2686: режим только permille (sigmoid-fallback удалён).
+    expect(summary.getAttribute('data-mode')).toBe('permille');
   });
 
   it('KS-2533: при идеальной игре с WDL POV user {1000,0,0} в финале → state=win (а не lose-wdl)', async () => {
@@ -1020,8 +1009,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     const summary = screen.getByTestId('puzzle-engine-wdl-summary');
     expect(summary.getAttribute('data-preserved')).toBe('true');
-    expect(summary.textContent).toMatch(
-      /Advantage preserved|Преимущество удержано/,
+    // KS-2686: header теперь только во внешнем reasonLabel.
+    const resultLabel = screen.getByTestId('puzzle-engine-result');
+    expect(resultLabel.textContent).toMatch(
+      /held the advantage|удержали преимущество/,
     );
     // Все три строки, дельты — `(0%)` без знака.
     expect(

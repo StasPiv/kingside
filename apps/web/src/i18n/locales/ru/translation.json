@@ -1098,6 +1098,9 @@
       "review": {
         "headerLabel": "Разбор партии",
         "bestWas": "Лучше было: {{san}}",
+        "playedWdl": "Сыграно {{wdl}}",
+        "bestWdl": "Лучший {{wdl}}",
+        "depthShort": "г={{depth}}",
         "class": {
           "best": "Лучший",
           "good": "Хороший",

@@ -14,11 +14,6 @@ exports[`PlayVsEngineRunner KS-2466 state-machine > KS-2529: snapshot primary-su
   data-testid="puzzle-engine-wdl-summary"
 >
   <div
-    class="puzzle-engine-runner__wdl-summary-header"
-  >
-    Advantage lost
-  </div>
-  <div
     class="puzzle-engine-runner__wdl-summary-line"
     data-testid="puzzle-engine-wdl-summary-line"
   >

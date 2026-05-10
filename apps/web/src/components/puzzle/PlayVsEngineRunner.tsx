@@ -15,10 +15,7 @@ import { PuzzleBoard } from '../PuzzleBoard';
 import { EvalBar } from '../EvalBar';
 import { PostGameReview } from './PostGameReview';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
-import {
-  wdlSignedToWinChancePercent,
-  permilleToPercent,
-} from '../../utils/chessFormat';
+import { permilleToPercent } from '../../utils/chessFormat';
 import {
   WasmEngineAdapter,
   type EngineAdapter,
@@ -103,6 +100,28 @@ export type UserBestSnapshot = {
    * pre-analyze, и оба идут через тот же queueAnalyze).
    */
   cpAfter: number | null;
+  /**
+   * KS-2686. WDL POV user в позиции ДО хода юзера (на `fenBefore`).
+   * Pre-analyze идёт на FEN'е, где ходит сам юзер → WDL уже POV user
+   * без инверсии. Используется в PostGameReview для отображения
+   * «WDL после лучшего хода» (best UCI ведёт к этому распределению,
+   * т.к. это PV1 от движка).
+   */
+  wdlBefore: WdlDistribution | null;
+  /**
+   * KS-2686. WDL POV user в позиции ПОСЛЕ фактически сыгранного хода.
+   * Post-analyze на FEN'е, где ходит соперник → wdl POV соперника,
+   * инвертируется через `flipWdl`. Показывается в PostGameReview как
+   * «WDL после хода студента».
+   */
+  wdlAfter: WdlDistribution | null;
+  /**
+   * KS-2686. Глубина анализа Stockfish — берётся из info-строки PV1
+   * pre-analyze (depth post-analyze совпадает в пределах ±1, т.к.
+   * `analyzeDepth` фиксирован). Показывается рядом с вариантом в
+   * PostGameReview как «оба значения сняты на depth=N».
+   */
+  depth: number | null;
 };
 
 /**
@@ -293,7 +312,11 @@ export function PlayVsEngineRunner({
   const [evalSide, setEvalSide] = useState<'w' | 'b'>(() =>
     sideFromFen(puzzle.fen),
   );
-  const [latestWdlUser, setLatestWdlUser] = useState<number>(params.wdlAfterBlunder);
+  // KS-2686: state `latestWdlUser` (sigmoid POV user) удалён вместе с
+  // sigmoid-fallback в summary. Локальная переменная wdlUser в
+  // runEngineCycle остаётся — используется для effectiveSignedWdl
+  // win/lose-решения (когда движок не отдаёт wdl).
+  const [, setLatestWdlUser] = useState<number>(params.wdlAfterBlunder);
   /**
    * KS-2527 / KS-2521: «настоящий» WDL Stockfish'а (UCI_ShowWDL +
    * KS-2526 парсер). Объект `{w,d,l}` в промилле, POV user. null —
@@ -466,9 +489,21 @@ export function PlayVsEngineRunner({
       // snapshot отсутствует — просто молча пропускаем (cpAfter останется
       // вне лога; downstream-классификатор грейсфолит на null).
       const cpAfterUser = -cpFromScore(best.score);
+      // KS-2686: wdl POV user после фактически сыгранного user-хода.
+      // На post-analyze FEN'е ходит соперник → POV соперника, инвертируем.
+      const wdlAfterUser = best.wdl ? flipWdl(best.wdl) : null;
       setUserBestLog((prev) =>
         prev.map((s) =>
-          s.halfMove === halfAfterUser ? { ...s, cpAfter: cpAfterUser } : s,
+          s.halfMove === halfAfterUser
+            ? {
+                ...s,
+                cpAfter: cpAfterUser,
+                wdlAfter: wdlAfterUser,
+                // depth берём максимум из pre/post — в pre-analyze
+                // обычно записан, тут только если пред-snapshot отсутствует.
+                depth: s.depth ?? best.depth,
+              }
+            : s,
         ),
       );
 
@@ -609,6 +644,9 @@ export function PlayVsEngineRunner({
             // KS-2505: на `fenBefore` ходит юзер → score POV user без
             // инверсии. Mate нормализован cpFromScore до ±100000.
             const cpBefore = cpFromScore(preBest.score);
+            // KS-2686: wdl на `fenBefore` POV user (юзер — side-to-move).
+            // PV1 ведёт через bestUci → это и есть «WDL после лучшего хода».
+            const wdlBefore = preBest.wdl ?? null;
             setUserBestLog((prev) => [
               ...prev,
               {
@@ -620,6 +658,9 @@ export function PlayVsEngineRunner({
                 // KS-2506: cpAfter дописывается из runEngineCycle после
                 // post-analyze; до этого момента — null.
                 cpAfter: null,
+                wdlBefore,
+                wdlAfter: null,
+                depth: preBest.depth,
               },
             ]);
           }
@@ -794,9 +835,18 @@ export function PlayVsEngineRunner({
           const b = pickBestLine(r);
           if (!b) continue;
           const cpAfter = -cpFromScore(b.score);
+          // KS-2686: на FEN'е после хода юзера ходит соперник → flipWdl.
+          const wdlAfter = b.wdl ? flipWdl(b.wdl) : null;
           setUserBestLog((prev) =>
             prev.map((x) =>
-              x.halfMove === s.halfMove ? { ...x, cpAfter } : x,
+              x.halfMove === s.halfMove
+                ? {
+                    ...x,
+                    cpAfter,
+                    wdlAfter,
+                    depth: x.depth ?? b.depth,
+                  }
+                : x,
             ),
           );
         } catch {
@@ -812,7 +862,9 @@ export function PlayVsEngineRunner({
   // ── UI helpers ───────────────────────────────────────────────────────
   const halfMovesLeft = Math.max(0, params.halfMovesN - halfMovesPlayed);
   const progressPercent = Math.min(100, Math.round((halfMovesPlayed / params.halfMovesN) * 100));
-  const isBlackOriented = orientation === 'black';
+  // KS-2519: `isBlackOriented` больше не нужен — EvalBar получает
+  // isBlackTurn={evalSide === 'b'}. Локальная константа удалена,
+  // чтобы lint не ругался на unused.
 
   // Подсветка blunderMove на стартовой позиции (KS-2466 §4).
   const blunderHighlight = useMemo(() => {
@@ -964,178 +1016,99 @@ export function PlayVsEngineRunner({
               <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
                 {reasonLabel(reason)}
               </div>
-              {/* KS-2518 → KS-2522 → KS-2528: финальный summary блок.
-                  Primary path: если у пазла есть `puzzle.playVsEngine.wdlAfter`
-                  (per-mille POV решающего, KS-2524) И движок прислал
-                  `latestWdl` (per-mille POV user, KS-2527) — рендерим три
-                  строки Win/Draw/Loss с before → after и signed-дельтой.
-                  Header удержано/потеряно по `(start.w − final.w) − (start.l − final.l)`.
-                  Fallback (legacy/без UCI_ShowWDL): одна строка «Шансы
-                  на победу X% → Y% (−Z%)» через wdlSignedToWinChancePercent. */}
+              {/* KS-2686: финальный summary блок.
+                  Только реальные WDL Stockfish (UCI_ShowWDL=true) +
+                  WDL пазла (puzzle.playVsEngine.wdlAfter, KS-2524).
+                  Если хотя бы одного нет — блок не рендерится; внешний
+                  reasonLabel выше остаётся единственным заголовком.
+                  Sigmoid-fallback из cp удалён по требованию: при
+                  отсутствии вероятностных данных от движка показывать
+                  одну цифру некорректно (см. комментарии пользователя
+                  в задаче).
+                  Внутренний lost/preserved-header УБРАН — он дублировал
+                  внешний reasonLabel. */}
               {(() => {
                 const wdlAfter = puzzle.playVsEngine?.wdlAfter;
-                const start = wdlAfter
-                  ? {
-                      w: permilleToPercent(wdlAfter.w),
-                      d: permilleToPercent(wdlAfter.d),
-                      l: permilleToPercent(wdlAfter.l),
-                    }
-                  : null;
-                const final = latestWdl
-                  ? {
-                      w: permilleToPercent(latestWdl.w),
-                      d: permilleToPercent(latestWdl.d),
-                      l: permilleToPercent(latestWdl.l),
-                    }
-                  : null;
+                if (!wdlAfter || !latestWdl) return null;
 
-                if (start && final) {
-                  // Primary: 3 строки.
-                  // signedFmt: «−65», «+47» (ноль без знака).
-                  const signedFmt = (n: number): string => {
-                    if (n === 0) return '0';
-                    return `${n > 0 ? '+' : '−'}${Math.abs(n)}`;
-                  };
-                  const dW = final.w - start.w;
-                  const dD = final.d - start.d;
-                  const dL = final.l - start.l;
-                  // KS-2535: header берётся из runner state, а не из
-                  // локальной дельты. До тикета внутренний header мог
-                  // не совпадать с внешним reasonLabel'ом (KS-2533 был
-                  // про обратный случай). Один источник истины — state.
-                  const preserved = state === 'win';
-                  return (
-                    <div
-                      className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
-                      data-testid="puzzle-engine-wdl-summary"
-                      data-preserved={preserved ? 'true' : 'false'}
-                      data-mode="permille"
-                      data-start-w={String(start.w)}
-                      data-start-d={String(start.d)}
-                      data-start-l={String(start.l)}
-                      data-final-w={String(final.w)}
-                      data-final-d={String(final.d)}
-                      data-final-l={String(final.l)}
-                    >
-                      <div className="puzzle-engine-runner__wdl-summary-header">
-                        {preserved
-                          ? t(
-                              'puzzle.engine.summary.preservedHeader',
-                              'Advantage preserved',
-                            )
-                          : t(
-                              'puzzle.engine.summary.lostHeader',
-                              'Advantage lost',
-                            )}
-                      </div>
-                      <div
-                        className="puzzle-engine-runner__wdl-summary-line"
-                        data-testid="puzzle-engine-wdl-summary-line"
-                      >
-                        <div data-testid="puzzle-engine-wdl-row-win">
-                          {t(
-                            'puzzle.engine.summary.lineWdl',
-                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
-                            {
-                              label: t('puzzle.engine.summary.win', 'Win'),
-                              start: start.w,
-                              final: final.w,
-                              delta: `${signedFmt(dW)}%`,
-                            },
-                          )}
-                        </div>
-                        <div data-testid="puzzle-engine-wdl-row-draw">
-                          {t(
-                            'puzzle.engine.summary.lineWdl',
-                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
-                            {
-                              label: t(
-                                'puzzle.engine.summary.draw',
-                                'Draw',
-                              ),
-                              start: start.d,
-                              final: final.d,
-                              delta: `${signedFmt(dD)}%`,
-                            },
-                          )}
-                        </div>
-                        <div data-testid="puzzle-engine-wdl-row-loss">
-                          {t(
-                            'puzzle.engine.summary.lineWdl',
-                            '{{label}}: {{start}}% → {{final}}% ({{delta}})',
-                            {
-                              label: t(
-                                'puzzle.engine.summary.loss',
-                                'Loss',
-                              ),
-                              start: start.l,
-                              final: final.l,
-                              delta: `${signedFmt(dL)}%`,
-                            },
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Fallback (legacy / engine без UCI_ShowWDL).
-                const startPct = wdlSignedToWinChancePercent(
-                  params.wdlAfterBlunder,
-                );
-                const finalPct = wdlSignedToWinChancePercent(latestWdlUser);
-                const deltaPct = startPct - finalPct;
-                // KS-2535: header — из runner state, а не из локальной
-                // дельты cp. Цифры (98% → 57%) остаются как информация,
-                // но «удержано/потеряно» определяется тем, прошёл ли
-                // юзер winThreshold по effectiveSignedWdl (см. KS-2533).
+                const start = {
+                  w: permilleToPercent(wdlAfter.w),
+                  d: permilleToPercent(wdlAfter.d),
+                  l: permilleToPercent(wdlAfter.l),
+                };
+                const final = {
+                  w: permilleToPercent(latestWdl.w),
+                  d: permilleToPercent(latestWdl.d),
+                  l: permilleToPercent(latestWdl.l),
+                };
+                // signedFmt: «−65», «+47» (ноль без знака).
+                const signedFmt = (n: number): string => {
+                  if (n === 0) return '0';
+                  return `${n > 0 ? '+' : '−'}${Math.abs(n)}`;
+                };
+                const dW = final.w - start.w;
+                const dD = final.d - start.d;
+                const dL = final.l - start.l;
                 const preserved = state === 'win';
                 return (
                   <div
                     className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
                     data-testid="puzzle-engine-wdl-summary"
                     data-preserved={preserved ? 'true' : 'false'}
-                    data-mode="signed"
-                    data-start-pct={String(startPct)}
-                    data-final-pct={String(finalPct)}
-                    data-delta-pct={String(deltaPct)}
+                    data-mode="permille"
+                    data-start-w={String(start.w)}
+                    data-start-d={String(start.d)}
+                    data-start-l={String(start.l)}
+                    data-final-w={String(final.w)}
+                    data-final-d={String(final.d)}
+                    data-final-l={String(final.l)}
                   >
-                    <div className="puzzle-engine-runner__wdl-summary-header">
-                      {preserved
-                        ? t(
-                            'puzzle.engine.summary.preservedHeader',
-                            'Advantage preserved',
-                          )
-                        : t(
-                            'puzzle.engine.summary.lostHeader',
-                            'Advantage lost',
-                          )}
-                    </div>
                     <div
                       className="puzzle-engine-runner__wdl-summary-line"
                       data-testid="puzzle-engine-wdl-summary-line"
                     >
-                      {/* KS-2535: line decoupled from header — формат
-                          с «(−Z%)» зависит от фактической дельты, а
-                          не от win/lose state. Это позволяет показать
-                          «Winning chances 98% → 57% (−41%)» при
-                          state=win (юзер прошёл по WDL-объекту, но
-                          в сигмоиде шансы упали). */}
-                      {deltaPct > 0
-                        ? t(
-                            'puzzle.engine.summary.lineLost',
-                            'Winning chances: {{start}}% → {{final}}% (−{{delta}}%)',
-                            {
-                              start: startPct,
-                              final: finalPct,
-                              delta: deltaPct,
-                            },
-                          )
-                        : t(
-                            'puzzle.engine.summary.linePreserved',
-                            'Winning chances: {{start}}% → {{final}}%',
-                            { start: startPct, final: finalPct },
-                          )}
+                      <div data-testid="puzzle-engine-wdl-row-win">
+                        {t(
+                          'puzzle.engine.summary.lineWdl',
+                          '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                          {
+                            label: t('puzzle.engine.summary.win', 'Win'),
+                            start: start.w,
+                            final: final.w,
+                            delta: `${signedFmt(dW)}%`,
+                          },
+                        )}
+                      </div>
+                      <div data-testid="puzzle-engine-wdl-row-draw">
+                        {t(
+                          'puzzle.engine.summary.lineWdl',
+                          '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                          {
+                            label: t(
+                              'puzzle.engine.summary.draw',
+                              'Draw',
+                            ),
+                            start: start.d,
+                            final: final.d,
+                            delta: `${signedFmt(dD)}%`,
+                          },
+                        )}
+                      </div>
+                      <div data-testid="puzzle-engine-wdl-row-loss">
+                        {t(
+                          'puzzle.engine.summary.lineWdl',
+                          '{{label}}: {{start}}% → {{final}}% ({{delta}})',
+                          {
+                            label: t(
+                              'puzzle.engine.summary.loss',
+                              'Loss',
+                            ),
+                            start: start.l,
+                            final: final.l,
+                            delta: `${signedFmt(dL)}%`,
+                          },
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

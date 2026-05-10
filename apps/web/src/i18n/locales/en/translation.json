@@ -1088,6 +1088,9 @@
       "review": {
         "headerLabel": "Game review",
         "bestWas": "Best was: {{san}}",
+        "playedWdl": "Played {{wdl}}",
+        "bestWdl": "Best {{wdl}}",
+        "depthShort": "d={{depth}}",
         "class": {
           "best": "Best",
           "good": "Good",

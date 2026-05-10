@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { classifyMove, type MoveClass } from '../../utils/moveClassification';
+import { permilleToPercent } from '../../utils/chessFormat';
+import type { WdlDistribution } from '../../utils/engineAdapter';
 import type { UserBestSnapshot } from './PlayVsEngineRunner';
 
 /**
@@ -23,6 +25,22 @@ const NAG_BY_CLASS: Record<MoveClass, string> = {
   blunder: '??',
 };
 
+/**
+ * KS-2686. Метаданные оценки, отображаемые рядом с user-ходом и его
+ * вариантом: WDL после фактически сыгранного user-хода, WDL после
+ * лучшего хода (по pre-analyze) и глубина анализа. Все поля
+ * опциональные — если данных нет (старый движок без UCI_ShowWDL,
+ * pre/post-analyze упал), просто не рендерим этот фрагмент.
+ */
+export type ReviewEvalMeta = {
+  /** Глубина анализа Stockfish (одинаковая в pre и post-analyze). */
+  depth: number | null;
+  /** WDL POV user после сыгранного user-хода (per-mille). */
+  wdlPlayed: WdlDistribution | null;
+  /** WDL POV user после лучшего хода (PV1 от движка, per-mille). */
+  wdlBest: WdlDistribution | null;
+};
+
 type Token =
   | { kind: 'movenum'; text: string }
   | {
@@ -33,12 +51,16 @@ type Token =
       cls: MoveClass | null;
       fenBefore: string;
       halfIndex: number;
+      /** KS-2686: meta показывается только для inaccuracy/mistake/blunder. */
+      meta: ReviewEvalMeta | null;
     }
   | {
       kind: 'variation';
       text: string;
       fenBefore: string;
       halfIndex: number;
+      /** KS-2686: meta варианта (best WDL + depth). */
+      meta: ReviewEvalMeta | null;
     };
 
 interface BuildArgs {
@@ -81,6 +103,8 @@ export function buildPgnReviewTokens({
     let nag = '';
     let cls: MoveClass | null = null;
     let variationText: string | null = null;
+    let moveMeta: ReviewEvalMeta | null = null;
+    let variationMeta: ReviewEvalMeta | null = null;
 
     if (isUser) {
       const log = userBestLog[userIdx];
@@ -113,6 +137,14 @@ export function buildPgnReviewTokens({
           } catch {
             /* ignore — невалидный bestUci, вариант не показываем */
           }
+          // KS-2686: meta для плохого хода и его варианта. wdlBest и
+          // wdlPlayed — POV user, depth — общий.
+          moveMeta = {
+            depth: log.depth,
+            wdlPlayed: log.wdlAfter,
+            wdlBest: log.wdlBefore,
+          };
+          variationMeta = moveMeta;
         }
       } else if (log && log.playedUci === log.bestUci) {
         // нет cp-данных но played==best → !
@@ -130,6 +162,7 @@ export function buildPgnReviewTokens({
       cls,
       fenBefore,
       halfIndex: i,
+      meta: moveMeta,
     });
     if (variationText) {
       tokens.push({
@@ -137,6 +170,7 @@ export function buildPgnReviewTokens({
         text: variationText,
         fenBefore,
         halfIndex: i,
+        meta: variationMeta,
       });
     }
 
@@ -192,6 +226,26 @@ export function PostGameReview({
     if (onSelectMove) onSelectMove({ fenBefore });
   };
 
+  /**
+   * KS-2686. Компактный inline-формат WDL — три числа через `/`,
+   * например «12/40/48%». null-пол поля → возвращаем null (вызывающий
+   * скрывает фрагмент целиком).
+   */
+  const fmtWdl = (wdl: WdlDistribution | null): string | null => {
+    if (!wdl) return null;
+    return `${permilleToPercent(wdl.w)}/${permilleToPercent(wdl.d)}/${permilleToPercent(wdl.l)}%`;
+  };
+
+  /**
+   * KS-2686. Тултип с расшифровкой «W/D/L%» — на hover показывается
+   * длинный текст «Win X% · Draw Y% · Loss Z%». Браузерный native
+   * title — без лишнего JS.
+   */
+  const titleWdl = (wdl: WdlDistribution | null): string | undefined => {
+    if (!wdl) return undefined;
+    return `${t('puzzle.engine.summary.win', 'Win')} ${permilleToPercent(wdl.w)}% · ${t('puzzle.engine.summary.draw', 'Draw')} ${permilleToPercent(wdl.d)}% · ${t('puzzle.engine.summary.loss', 'Loss')} ${permilleToPercent(wdl.l)}%`;
+  };
+
   return (
     <div className="post-game-review" data-testid="post-game-review">
       <h3 className="post-game-review__title">
@@ -213,6 +267,49 @@ export function PostGameReview({
             const cb = onSelectMove
               ? () => handleSelect(tok.fenBefore)
               : undefined;
+            // KS-2686: к варианту с лучшим ходом добавляем оценку:
+            //   «(35... Nf4!) [Best W/D/L% · d=14]»
+            const wdlBestText = fmtWdl(tok.meta?.wdlBest ?? null);
+            const depthText =
+              tok.meta?.depth != null
+                ? t('puzzle.engine.review.depthShort', 'd={{depth}}', {
+                    depth: tok.meta.depth,
+                  })
+                : null;
+            const metaParts = [
+              wdlBestText
+                ? t(
+                    'puzzle.engine.review.bestWdl',
+                    'Best {{wdl}}',
+                    { wdl: wdlBestText },
+                  )
+                : null,
+              depthText,
+            ].filter(Boolean) as string[];
+            const metaText = metaParts.length
+              ? ` [${metaParts.join(' · ')}]`
+              : '';
+            const metaTitle = titleWdl(tok.meta?.wdlBest ?? null);
+            const variationContent = (
+              <>
+                {tok.text}
+                {metaText && (
+                  <span
+                    className="post-game-review__eval-meta"
+                    data-testid={`post-game-review-variation-meta-${tok.halfIndex}`}
+                    data-depth={tok.meta?.depth ?? ''}
+                    data-wdl-best={
+                      tok.meta?.wdlBest
+                        ? `${tok.meta.wdlBest.w},${tok.meta.wdlBest.d},${tok.meta.wdlBest.l}`
+                        : ''
+                    }
+                    title={metaTitle}
+                  >
+                    {metaText}
+                  </span>
+                )}{' '}
+              </>
+            );
             return cb ? (
               <button
                 key={`var-${i}`}
@@ -221,7 +318,7 @@ export function PostGameReview({
                 data-testid={`post-game-review-variation-${tok.halfIndex}`}
                 onClick={cb}
               >
-                {tok.text}{' '}
+                {variationContent}
               </button>
             ) : (
               <span
@@ -229,7 +326,7 @@ export function PostGameReview({
                 className="post-game-review__variation"
                 data-testid={`post-game-review-variation-${tok.halfIndex}`}
               >
-                {tok.text}{' '}
+                {variationContent}
               </span>
             );
           }
@@ -239,11 +336,36 @@ export function PostGameReview({
           const cb = onSelectMove
             ? () => handleSelect(tok.fenBefore)
             : undefined;
+          // KS-2686: для user-хода с meta показываем WDL после
+          // фактически сыгранного хода: «d3? [Played W/D/L%]».
+          const wdlPlayedText = fmtWdl(tok.meta?.wdlPlayed ?? null);
+          const playedMetaText = wdlPlayedText
+            ? ` [${t(
+                'puzzle.engine.review.playedWdl',
+                'Played {{wdl}}',
+                { wdl: wdlPlayedText },
+              )}]`
+            : '';
+          const playedMetaTitle = titleWdl(tok.meta?.wdlPlayed ?? null);
           const content = (
             <>
               {tok.san}
               {tok.nag && (
                 <span className="post-game-review__nag">{tok.nag}</span>
+              )}
+              {playedMetaText && (
+                <span
+                  className="post-game-review__eval-meta"
+                  data-testid={`post-game-review-move-meta-${tok.halfIndex}`}
+                  data-wdl-played={
+                    tok.meta?.wdlPlayed
+                      ? `${tok.meta.wdlPlayed.w},${tok.meta.wdlPlayed.d},${tok.meta.wdlPlayed.l}`
+                      : ''
+                  }
+                  title={playedMetaTitle}
+                >
+                  {playedMetaText}
+                </span>
               )}
               {' '}
             </>

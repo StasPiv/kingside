@@ -24,6 +24,11 @@ function snap(over: Partial<UserBestSnapshot> = {}): UserBestSnapshot {
     bestUci: 'e2e4',
     cpBefore: 30,
     cpAfter: 30,
+    // KS-2686: новые WDL/depth-поля с null по умолчанию — большинство
+    // тестов проверяют логику классификации/NAG и WDL им не нужен.
+    wdlBefore: null,
+    wdlAfter: null,
+    depth: null,
     ...over,
   };
 }
