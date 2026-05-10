@@ -99,6 +99,30 @@ run_diff() {
   fi
 }
 
+run_dump_db() {
+  # Дамп фактической DDL текущей БД (только для main scope; используется
+  # при разборе расхождений на уровне constraint-опций). Эквивалент
+  # `pg_dump --schema-only` в формате, который Prisma бы сгенерировал.
+  local label="$1" schema="$2" url_var="$3" filter="${4:-}"
+  local url="${!url_var:-}"
+  if [[ -z "$url" || ! -f "$schema" ]]; then
+    echo "[prisma:dump-db] skip $label"
+    return 0
+  fi
+  echo "[prisma:dump-db] $label (filter='$filter')"
+  local out
+  out="$( ( cd apps/api && DATABASE_URL="$url" \
+    npx --no-install prisma migrate diff \
+      --from-empty \
+      --to-url "$url" \
+      --script ) 2>/dev/null )"
+  if [[ -n "$filter" ]]; then
+    grep -iE "$filter" <<<"$out" || echo "(нет совпадений по '$filter')"
+  else
+    echo "$out"
+  fi
+}
+
 run_resolve() {
   local label="$1" schema="$2" url_var="$3" mode="$4" name="$5"
   local url="${!url_var:-}"
@@ -193,6 +217,10 @@ dispatch_for_scope() {
         deploy) run_migrate "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" ;;
         status) run_status "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" ;;
         diff)   run_diff   "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" ;;
+        dump-db:*)
+          run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" "${action#dump-db:}" ;;
+        dump-db)
+          run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" ;;
         resolve-applied:*|resolve-rolled-back:*)
           run_resolve "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" "$mode" "$name" ;;
         *) echo "[prisma:migrate] неизвестный ACTION='$action'"; exit 2 ;;
@@ -234,6 +262,12 @@ dispatch_for_scope() {
           run_diff "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           run_diff "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           run_diff "broadcasts" "packages/broadcasts-db/prisma/schema.prisma" "BROADCASTS_DATABASE_URL"
+          ;;
+        dump-db:*)
+          run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" "${action#dump-db:}"
+          ;;
+        dump-db)
+          run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           ;;
         resolve-applied:*|resolve-rolled-back:*)
           # Resolve действует только на main — для других scope нужно явно
