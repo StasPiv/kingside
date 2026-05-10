@@ -2546,11 +2546,19 @@ body:has(.puzzle-rush-board) {
   .puzzle-engine-runner__layout {
     flex-direction: row;
     gap: 8px;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 
   .puzzle-engine-runner .eval-bar-container,
   .puzzle-engine-runner .eval-bar {
-    width: 24px;
+    /* KS-2731: фиксированный flex-basis (а не просто width) — без
+       flex-shrink:0 контейнер мог сжиматься/растягиваться вместе
+       с доской и доска переполняла grid-cell справа. */
+    flex: 0 0 20px;
+    width: 20px;
+    min-width: 0;
     /* Override глобального `.eval-bar-container { display: none }` из
        responsive.css — здесь EvalBar нужна. */
     display: flex;
@@ -2563,17 +2571,42 @@ body:has(.puzzle-rush-board) {
   .puzzle-engine-runner__progress-label {
     font-size: 11px;
   }
+
+  /* KS-2731: board-col должен схлопываться до доступной ширины (viewport
+     − padding − eval-bar − gap), а доска внутри — занимать ровно эту
+     ширину, не наследуя расчётный inline-width из useContainerWidth
+     до того, как ResizeObserver пересчитает.
+
+     Без этого правила inline `style={{width: boardWidth}}` на
+     MemoChessboard оставлял доску шире чем grid-cell, и столбец `a`
+     уходил за overflow:hidden у board-container справа. */
+  .puzzle-engine-runner__board-col {
+    flex: 1 1 0;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .puzzle-engine-runner__board-col > .board-container,
+  .puzzle-engine-runner .board-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    box-sizing: border-box;
+  }
 }
 
 @media (max-width: 360px) {
-  /* Очень узкие экраны: EvalBar до 18px, gap минимальный. Доска
+  /* Очень узкие экраны: EvalBar до 16px, gap минимальный. Доска
      остаётся квадратной благодаря board__col flex: 1, min-width: 0. */
   .puzzle-engine-runner__layout {
     gap: 6px;
   }
   .puzzle-engine-runner .eval-bar-container,
   .puzzle-engine-runner .eval-bar {
-    width: 18px;
+    flex: 0 0 16px;
+    width: 16px;
   }
   .puzzle-engine-runner .eval-bar-label {
     font-size: 10px;
