@@ -14,6 +14,7 @@ import {
   detectTournamentType,
   type DetectInput,
 } from '../crosstable/detect-tournament-type';
+import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
 import {
   composeGameRefs,
   normalizePlayerName,
@@ -284,6 +285,14 @@ export class BroadcastStandingsSyncService {
     if (!broadcast) {
       throw new Error(`broadcast ${broadcastId} not found`);
     }
+
+    // KS-2730: self-heal round.tournamentType. Детектор обновлялся в
+    // KS-1813/KS-1847/KS-2474/KS-2730 — старые round'ы могли
+    // классифицироваться по устаревшим правилам и зависнуть с
+    // неправильным `tournamentType`. Переклассифицируем тут, до того
+    // как `isCrosstableRound` отфильтрует partii. Не трогаем round'ы,
+    // у которых детектор подтверждает текущее значение.
+    await this.reclassifyRoundsIfNeeded(broadcast);
 
     const lifecycle = await this.computeLifecycle(broadcastId);
     const tournamentType = detectTournamentType({
@@ -1186,6 +1195,72 @@ export class BroadcastStandingsSyncService {
    * только для CrosstableLegacy с unknown). Это сохраняет аудит-trail
    * «почему данные неполные», даже когда discriminator-тип распознан.
    */
+
+  /**
+   * KS-2730: self-heal round.tournamentType. Детектор `detectRoundTournamentType`
+   * обновлялся несколько раз (KS-1813/KS-1847/KS-2474/KS-2730 — mixed
+   * format). Round'ы, классифицированные старой версией детектора и
+   * больше не получающие upsertRound (broadcast выпал из Lichess top-100
+   * после завершения), могут зависнуть с устаревшим типом. Это блокирует
+   * `isCrosstableRound`-фильтр в internal-fallback.
+   *
+   * Здесь идём по round'ам броадкаста, переклассифицируем по текущему
+   * детектору и UPDATE'аем только тех, у кого результат отличается.
+   * Идемпотентно и не дёргает БД, если всё согласовано.
+   */
+  private async reclassifyRoundsIfNeeded(broadcast: {
+    id: string;
+    format: string | null;
+    teamTable: boolean;
+    rounds: Array<{
+      id: string;
+      name: string;
+      tournamentType: string | null;
+      games: Array<{ whitePlayer: string | null; blackPlayer: string | null }>;
+    }>;
+  }): Promise<void> {
+    const updates: Array<{ id: string; old: string | null; next: string }> = [];
+    for (const r of broadcast.rounds) {
+      const next = detectRoundTournamentType({
+        roundName: r.name,
+        broadcastFormat: broadcast.format,
+        tournamentFormat: broadcast.format,
+        isTeamTournament: broadcast.teamTable,
+        games: r.games.map((g) => ({
+          whitePlayer: g.whitePlayer,
+          blackPlayer: g.blackPlayer,
+        })),
+      });
+      if (r.tournamentType !== next) {
+        updates.push({ id: r.id, old: r.tournamentType, next });
+      }
+    }
+    if (updates.length === 0) return;
+    for (const u of updates) {
+      try {
+        await this.prisma.broadcastRound.update({
+          where: { id: u.id },
+          data: { tournamentType: u.next },
+        });
+        // Также обновляем in-memory объект, чтобы остальная часть
+        // refresh использовала свежий тип (для isCrosstableRound).
+        const r = broadcast.rounds.find((rr) => rr.id === u.id);
+        if (r) r.tournamentType = u.next;
+      } catch (e: unknown) {
+        this.logger.warn(
+          `reclassify round ${u.id.slice(0, 8)} failed: ${(e as Error).message}`,
+        );
+      }
+    }
+    this.logger.log(
+      `[standings] reclassified ${updates.length} round(s) for ` +
+        `broadcast=${broadcast.id.slice(0, 8)}: ` +
+        updates
+          .map((u) => `${u.id.slice(0, 8)} ${u.old}→${u.next}`)
+          .join(', '),
+    );
+  }
+
   private async persist(
     broadcastId: string,
     response: CrosstableResponse,

@@ -719,3 +719,90 @@ describe('KS-2212: round-robin format отключает structureSaysMatch', ()
     ).toBe('playoff');
   });
 });
+
+// ── KS-2730: mixed format (swiss + knockout) ─────────────────────────
+
+describe('detectRoundTournamentType — mixed format (KS-2730)', () => {
+  // 2e Championnat de France parties rapides:
+  //   format = "9 rounds swiss + knockout stage semi final and final"
+  //   Round 1..9 = swiss, Demi-finale + Finale = playoff.
+  const MIXED_FORMAT =
+    '9 rounds swiss + knockout stage semi final and final';
+
+  it('Round 1 в mixed-формате → swiss', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 1',
+        broadcastFormat: MIXED_FORMAT,
+        games: [],
+      }),
+    ).toBe('swiss');
+  });
+
+  it('Round 9 в mixed-формате → swiss (не playoff из-за слова "knockout" в format)', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 9',
+        broadcastFormat: MIXED_FORMAT,
+        games: [],
+      }),
+    ).toBe('swiss');
+  });
+
+  it('Demi-finale (фр.) → playoff в mixed-формате', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Demi-finale',
+        broadcastFormat: MIXED_FORMAT,
+        games: [],
+      }),
+    ).toBe('playoff');
+  });
+
+  it('Finale (фр.) → playoff в mixed-формате', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Finale',
+        broadcastFormat: MIXED_FORMAT,
+        games: [],
+      }),
+    ).toBe('playoff');
+  });
+
+  it('Demi-finale без формата → playoff (strict whitelist)', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Demi-finale',
+        broadcastFormat: null,
+        games: [],
+      }),
+    ).toBe('playoff');
+  });
+
+  it('чистый Knockout формат → playoff для всех round-имён', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 1',
+        broadcastFormat: 'Knockout',
+        games: [],
+      }),
+    ).toBe('playoff');
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Final',
+        broadcastFormat: 'Single-elimination',
+        games: [],
+      }),
+    ).toBe('playoff');
+  });
+
+  it('«Final Round» в чистой швейцарке остаётся swiss (KS-2474, не регрессия)', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Final Round',
+        broadcastFormat: '9-round Swiss',
+        games: [],
+      }),
+    ).toBe('swiss');
+  });
+});

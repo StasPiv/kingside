@@ -71,10 +71,15 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
   /\bgrand\s+final\b/i,
   // «Final» само по себе в «Round 5 / Final day» бывает неоднозначным —
   // матчим только как слово, не в составе «Final round».
-  /\bfinals?\b/i,
+  // KS-2730: добавлен `finale` (фр./итал. вариант) — `2e Championnat
+  // de France parties rapides` использует `Finale` для последнего
+  // round'а knockout-стадии.
+  /\bfinale?s?\b/i,
   /\bchampionship\b/i,
   /\bsemi[- ]?final(?:s)?\b/i,
   /\bquarter[- ]?final(?:s)?\b/i,
+  // KS-2730: фр. `Demi-finale` / `Demi-final` — semi-final по-французски.
+  /\bdemi[- ]?finale?\b/i,
   /\bround\s+of\s+\d+\b/i,
   // Сокращения: `R16 Armageddon`, `R32`, `R8` — Chess.com-стайл именования
   // раундов knockout-сетки. Матч — на границе слова / с разделителями.
@@ -126,6 +131,9 @@ const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
   /\bbracket\b/i,
   /\bsemi[- ]?final(?:s)?\b/i,
   /\bquarter[- ]?final(?:s)?\b/i,
+  // KS-2730: фр. `Demi-finale` — однозначный playoff-маркер,
+  // не встречается как часть team-регламента или швейцарки.
+  /\bdemi[- ]?finale?\b/i,
   /\bround\s+of\s+\d+\b/i,
   /(?:^|[\s(|/-])R\d{1,3}(?=[\s)|/-]|$)/,
   /(?:^|[\s(|/])(?:QF|SF)(?:[\s)|/]|$)/,
@@ -271,12 +279,34 @@ export function detectRoundTournamentType(
   const games = input.games ?? [];
   const isTeam = input.isTeamTournament === true;
 
-  // 1. Явный knockout-формат имеет высший приоритет.
-  if (KNOCKOUT_FORMAT_PATTERN.test(format)) return 'playoff';
+  // KS-2730: detect mixed format (например `9 rounds swiss + knockout
+  // stage semi final and final`). При наличии и Swiss/RR, и knockout-
+  // маркеров в format'е НЕ применяем шаг 1 (он бы пометил все round'ы
+  // как playoff). Вместо этого классифицируем round-by-round по
+  // имени: `Round 1` → swiss, `Demi-finale`/`Finale` → playoff.
+  const formatHasKnockout = KNOCKOUT_FORMAT_PATTERN.test(format);
+  const formatHasSwissOrRR =
+    SWISS_PATTERN.test(format) || ROUND_ROBIN_PATTERN.test(format);
+  const isMixedFormat = formatHasKnockout && formatHasSwissOrRR;
+
+  // 1. Явный knockout-формат имеет высший приоритет — но только если
+  // нет swiss/RR в том же format'е (иначе это mixed-турнир, см. выше).
+  if (formatHasKnockout && !isMixedFormat) return 'playoff';
 
   // 2. Strict knockout-маркеры в имени перебивают любой формат
   // (смешанные турниры: Swiss + knockout-финал, Chess.com Open).
   if (roundNameLooksLikePlayoffStrict(name)) return 'playoff';
+
+  // KS-2730: для mixed format'а — широкий whitelist в имени (включая
+  // `Final`, `Finale`, `Championship`, `Winners`, `Losers`, `Grand
+  // Final`) ДО шага 4 (явный Swiss/RR). Для mixed-турнира `Final` в
+  // имени round'а действительно playoff-стадия, а Swiss-формат
+  // относится только к ранним round'ам. Для не-mixed турниров
+  // `roundNameLooksLikePlayoff` остаётся в шаге 5 (после явного Swiss/RR
+  // — KS-2474 требует не перебивать Swiss словами `Final Round`).
+  if (isMixedFormat && !isTeam && roundNameLooksLikePlayoff(name)) {
+    return 'playoff';
+  }
 
   // 3. Структурный сигнал. Отключён для team (KS-1847) и для явного
   // round-robin (KS-2212) или Swiss формата (KS-2474 hotfix).
