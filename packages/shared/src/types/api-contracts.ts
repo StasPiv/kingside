@@ -290,6 +290,86 @@ export type PuzzleAttemptRequest = {
   moves?: PrecisionMoveSnapshot[];
 };
 
+// ─── KS-2718 / ADR-056 §5 B5–B6: /precision endpoints ──────────────
+
+/**
+ * Ответ `GET /precision/stats/me` (Уровень А, ADR-056 §2.1).
+ * Все агрегаты по PVE-attempts текущего пользователя.
+ */
+export interface PrecisionStatsResponse {
+  /** count(puzzle_attempts WHERE solution_mode='play-vs-engine'). */
+  totalAttempts: number;
+  /** count attempts с solved=true («удержано»). */
+  preservedCount: number;
+  /** count attempts с solved=false («упущено»). */
+  lostCount: number;
+  /** preservedCount / totalAttempts, [0..1]; 0 если нет attempts. */
+  preservedRate: number;
+  /** AVG(precision_attempts.accuracyPercent), [0..100]. */
+  avgAccuracyPercent: number;
+  /**
+   * Σ(wdlBefore − wdlAfter) / totalUserMoves, в пунктах WDL [-1..+1]
+   * (для метрики «утечка/ход»). 0 если нет attempts с halfMoves>0.
+   */
+  avgWdlLeakPerMove: number;
+  /**
+   * AVG(firstMistakePly) среди attempts с firstMistakePly!==null.
+   * `null` если ни одной попытки с ошибкой.
+   */
+  avgHalfMovesUntilFirstMistake: number | null;
+  /** Сегодня — count attempts (для today-блока). */
+  todayAttempts: number;
+  todayPreserved: number;
+}
+
+/**
+ * Per-move строка в `PrecisionAttemptDetail.moves`.
+ */
+export interface PrecisionMoveDto {
+  ply: number;
+  fenBefore: string;
+  playedUci: string;
+  bestUci: string;
+  cpBefore: number | null;
+  cpAfter: number | null;
+  /** WDL_signed [-1..+1] от лица сделавшего ход. */
+  wdlBefore: number | null;
+  /** WDL_signed [-1..+1] после хода (POV сходившего сохранён). */
+  wdlAfter: number | null;
+  depth: number | null;
+  classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+}
+
+/**
+ * Ответ `GET /precision/attempts/:attemptId` (Уровень Б, ADR-056 §2.2).
+ */
+export interface PrecisionAttemptDetail {
+  attemptId: string;
+  puzzleId: string;
+  attemptedAt: string;
+  solved: boolean;
+  endReason: string;
+  halfMovesPlayed: number;
+  halfMovesTarget: number;
+  accuracyPercent: number;
+  classCounts: {
+    best: number;
+    good: number;
+    inaccuracy: number;
+    mistake: number;
+    blunder: number;
+  };
+  /** WDL_signed [-1..+1] на момент старта попытки. */
+  wdlAtStart: number;
+  /** WDL_signed [-1..+1] на момент завершения попытки. */
+  wdlAtEnd: number;
+  /** Σ(wdlBefore − wdlAfter) по ходам решающего, кумулятивно. */
+  wdlLeakSum: number;
+  /** 1-based ply первого `mistake|blunder`; `null` — ошибок не было. */
+  firstMistakePly: number | null;
+  moves: PrecisionMoveDto[];
+}
+
 export type PuzzleAttemptResponse = {
   solved: boolean;
   puzzleRating: number;

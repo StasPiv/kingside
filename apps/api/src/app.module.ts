@@ -13,6 +13,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
+import { PrecisionModule } from './precision/precision.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
@@ -64,6 +65,7 @@ import { HealthController } from './health.controller';
     PuzzleRushModule,
     ArenaModule,
     PuzzleModule,
+    PrecisionModule,
     TournamentModule,
     AnalysisModule,
     WorkshopModule,
