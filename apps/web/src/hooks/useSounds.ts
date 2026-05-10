@@ -488,6 +488,39 @@ export function useSounds() {
     return ctx;
   }, []);
 
+  // KS-2702: autoplay policy. Если первое срабатывание `playSound`
+  // приходит не из user-gesture (например, по WebSocket-сообщению от
+  // backend'а на странице, куда юзер только что зашёл и пока не
+  // взаимодействовал) — браузер не разрешит воспроизведение даже после
+  // `ctx.resume()`. Регистрируем one-time listener на любой
+  // pointer/key/touch-event и насильно «прогреваем» AudioContext в
+  // user-gesture handler'e — после этого все последующие playSound'ы
+  // (хоть из таймера, хоть из WS) уже срабатывают штатно. Idempotent:
+  // если ctx уже running — listener просто снимется без эффекта.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const unlock = () => {
+      const ctx = ensureContext();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('touchstart', unlock);
+      if (!ctx) return;
+      // resume() возвращает promise; ошибки нам не интересны — следующий
+      // playSound разбудит контекст ещё раз через тот же путь.
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => undefined);
+      }
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('touchstart', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+  }, [ensureContext]);
+
   const playSound = useCallback(
     (event: SoundEvent) => {
       if (muted) return;

@@ -76,6 +76,15 @@ export function BroadcastRoundPage() {
   const [games, setGames] = useState<LichessGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /**
+   * KS-2702. ID партии, которая последней получила ход среди всех в
+   * раунде. Используется чтобы отрисовать last-move-highlight ровно в
+   * одной мини-доске. Обновляется в `applyFreshGames` по diff PGN-длин
+   * между prev и fresh. На initial-sync (prev пуст) — не выставляем,
+   * чтобы при заходе на страницу подсветки не было ни в одной партии
+   * (по acceptance KS-2702 «Initial state без подсветки» — допустимо).
+   */
+  const [lastMoveGameId, setLastMoveGameId] = useState<string | null>(null);
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -116,17 +125,35 @@ export function BroadcastRoundPage() {
   const applyFreshGames = useCallback(
     (fresh: LichessGame[], shouldPlaySound: boolean) => {
       const prev = prevGamesRef.current;
-      if (shouldPlaySound && prev.length > 0) {
+      // KS-2702: ищем партию(-ии) в которых увеличилась PGN-длина
+      // относительно prev — это и есть «получили новый ход в этом
+      // апдейте». Берём ПЕРВУЮ найденную для звука и подсветки. Если
+      // prev пуст (initial-sync) — пропускаем оба эффекта, чтобы при
+      // заходе не было ложного звука и подсветка стартовала чистой.
+      let advancedGameId: string | null = null;
+      let advancedSan: string | null = null;
+      if (prev.length > 0) {
         for (const g of fresh) {
           const prevGame = prev.find((p) => p.id === g.id);
           const prevPgnLen = prevGame?.pgn?.length ?? 0;
           const curPgnLen = g.pgn?.length ?? 0;
           if (curPgnLen > prevPgnLen && g.pgn) {
-            const lastMove = computeLastMoveSan(g.pgn);
-            if (lastMove) playSound(soundEventFromSan(lastMove));
-            break; // один звук на одно обновление
+            advancedGameId = g.id;
+            advancedSan = computeLastMoveSan(g.pgn);
+            break;
           }
         }
+      }
+      if (shouldPlaySound && advancedSan) {
+        playSound(soundEventFromSan(advancedSan));
+      }
+      // KS-2702: highlight last-move только в одной партии. На
+      // initial-sync (prev пуст) и на «тихих» апдейтах без новых
+      // ходов — выключаем подсветку через null.
+      if (advancedGameId !== null) {
+        setLastMoveGameId(advancedGameId);
+      } else if (prev.length === 0) {
+        setLastMoveGameId(null);
       }
       const fingerprint = gamesFingerprint(fresh);
       const prevFingerprint = gamesFingerprint(prev);
@@ -145,9 +172,46 @@ export function BroadcastRoundPage() {
     [applyFreshGames],
   );
 
+  // KS-2702: `broadcast:move` — короткий апдейт, прилетает раньше
+  // следующего `sync`. Поднимаем highlight на этой партии немедленно
+  // и патчим её `currentFen` для перерисовки доски без ожидания PGN.
+  // Звук тут НЕ играем — следующий sync обязательно догонит с обновлёнными
+  // PGN/clocks (KS-2701) и проиграет звук там, иначе будет дубль.
+  const handleMove = useCallback(
+    (payload: {
+      gameIndex: number;
+      uci: string;
+      fen: string;
+      whitePlayer?: string | null;
+      blackPlayer?: string | null;
+    }) => {
+      setGames((prev) => {
+        if (prev.length === 0) return prev;
+        // Идентификация: сначала по парам игроков (стабильно при любой
+        // сортировке), fallback по `gameIndex` (порядок backend).
+        const idx = prev.findIndex(
+          (g) =>
+            (payload.whitePlayer && payload.whitePlayer === g.whitePlayer) ||
+            (payload.blackPlayer && payload.blackPlayer === g.blackPlayer),
+        );
+        const target = idx >= 0 ? idx : payload.gameIndex;
+        if (target < 0 || target >= prev.length) return prev;
+        const next = prev.slice();
+        const g = next[target];
+        next[target] = { ...g, currentFen: payload.fen };
+        // Запоминаем ID для подсветки. setState внутри setState запрещён —
+        // делаем через микротаску.
+        Promise.resolve().then(() => setLastMoveGameId(g.id));
+        return next;
+      });
+    },
+    [],
+  );
+
   const { connected } = useBroadcastSocket({
     roundId: roundId ?? null,
     onSync: handleSync,
+    onMove: handleMove,
   });
 
   // KS-2701: REST-polling fallback. Запускается только если WS НЕ
@@ -248,6 +312,7 @@ export function BroadcastRoundPage() {
                 key={game.id}
                 game={game}
                 onGameClick={handleGameClick}
+                showLastMoveHighlight={game.id === lastMoveGameId}
               />
             ))}
           </div>

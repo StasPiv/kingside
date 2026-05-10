@@ -22,6 +22,15 @@ interface BroadcastBoardCardProps {
    * передавать всегда-true для демо.
    */
   clickable?: boolean;
+  /**
+   * KS-2702. Подсветка last-move клеток. До тикета highlight рисовался
+   * на каждой мини-доске, что захламляло страницу и не давало понять,
+   * где случился свежий ход. Теперь родитель (`BroadcastRoundPage`)
+   * передаёт `true` только в одну партию — ту, которая последней
+   * получила ход среди всех в раунде. Default `false` — обратная
+   * совместимость для остальных потребителей (PlayoffBracket etc.).
+   */
+  showLastMoveHighlight?: boolean;
 }
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -95,10 +104,15 @@ export function BroadcastBoardCard({
   game,
   onGameClick,
   clickable,
+  showLastMoveHighlight = false,
 }: BroadcastBoardCardProps) {
   const isClickable = clickable ?? Boolean(game.pgn);
   const fen = resolveFen(game.currentFen, game.pgn ?? '');
-  const lastMove = computeLastMove(game.pgn ?? '');
+  // KS-2702: highlight рисуем только если родитель явно разрешил
+  // (одна доска на страницу — последняя получившая ход).
+  const lastMove = showLastMoveHighlight
+    ? computeLastMove(game.pgn ?? '')
+    : null;
   const squareStyles: Record<string, React.CSSProperties> = {};
   if (lastMove) {
     const hl = { backgroundColor: 'rgba(255, 255, 0, 0.4)' };
