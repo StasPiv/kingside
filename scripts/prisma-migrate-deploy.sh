@@ -263,6 +263,9 @@ dispatch_for_scope() {
           run_diff "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           run_diff "broadcasts" "packages/broadcasts-db/prisma/schema.prisma" "BROADCASTS_DATABASE_URL"
           ;;
+        diff-main)
+          run_diff "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
+          ;;
         dump-db:*)
           run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" "${action#dump-db:}"
           ;;
