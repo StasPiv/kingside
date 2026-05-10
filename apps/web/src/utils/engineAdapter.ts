@@ -253,6 +253,16 @@ export class BridgeEngineAdapter implements EngineAdapter {
         clearTimeout(timer);
         this.ws = ws;
         console.log('[BridgeEngine] Connected');
+        // KS-2690: симметрично WasmEngineAdapter (KS-2521 / KS-2525) —
+        // включаем UCI_ShowWDL сразу после connect, чтобы info-строки
+        // содержали поле `wdl W D L`. Без этого клиентский генератор
+        // пазлов (puzzleGenerator.ts) на алгоритме KS-2584 получает
+        // `info.wdl=undefined`, `wdlSignedFromInfo` возвращает null и
+        // все позиции отбраковываются → «Сгенерировано задач: 0».
+        // Если конкретный движок за bridge не знает опцию, он
+        // ответит «No such option» — analyze продолжается без wdl,
+        // дополнительный warn делается в puzzleGenerator.
+        this.setOption('UCI_ShowWDL', 'true');
         resolve();
       };
 

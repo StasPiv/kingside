@@ -284,6 +284,23 @@ export async function generatePuzzlesFromPgn(
     pgn.length,
   );
   const puzzles: GeneratedPuzzleData[] = [];
+  // KS-2690: single-shot warn для DevTools, чтобы пользователь увидел
+  // причину «0 пазлов», если bridge стоит за движком без UCI_ShowWDL
+  // (старый Stockfish, другой движок). После первой записи о noWdl за
+  // прогон больше не повторяем — лог не спамится.
+  let wdlMissingWarned = false;
+  const warnNoWdlOnce = () => {
+    if (wdlMissingWarned) return;
+    wdlMissingWarned = true;
+    console.warn(
+      '[PuzzleGen] info-строка от движка не содержит wdl ' +
+        '(UCI_ShowWDL=true). На WASM это включается автоматически; ' +
+        'для Bridge — после connect (KS-2690). Если предупреждение ' +
+        'остаётся — движок за bridge не поддерживает UCI_ShowWDL и ' +
+        'все позиции будут пропущены. Замените движок на современный ' +
+        'Stockfish (≥15) или включите опцию вручную.',
+    );
+  };
 
   let engine: EngineAdapter;
   if (engineFactory) {
@@ -416,6 +433,10 @@ export async function generatePuzzlesFromPgn(
       const lineBefore = beforeRes.lines[0];
       const wdlBefore = extractWdlSigned(lineBefore);
       if (wdlBefore === null) {
+        // KS-2690: explicit warn про UCI_ShowWDL — single-shot per
+        // session, чтобы пользователь увидел в DevTools реальную
+        // причину 0 пазлов на bridge без поддержки опции.
+        if (lineBefore.wdl === undefined) warnNoWdlOnce();
         console.log(`${logBase} SKIP:noWdlBefore`);
         continue;
       }
@@ -449,6 +470,7 @@ export async function generatePuzzlesFromPgn(
       const lineAfter = afterRes.lines[0];
       const wdlAfter = extractWdlSigned(lineAfter);
       if (wdlAfter === null) {
+        if (lineAfter.wdl === undefined) warnNoWdlOnce();
         console.log(`${logBase} SKIP:noWdlAfter`);
         continue;
       }

@@ -9,7 +9,11 @@
  * все последующие postMessage в `sent[]` для ассертов теста.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WasmEngineAdapter, parseInfoLine } from './engineAdapter';
+import {
+  WasmEngineAdapter,
+  BridgeEngineAdapter,
+  parseInfoLine,
+} from './engineAdapter';
 
 class MockWorker {
   static sent: string[] = [];
@@ -130,5 +134,133 @@ describe('parseInfoLine KS-2526', () => {
       'info depth 800 150 50 multipv 1 score cp 0 pv e2e4',
     );
     expect(info!.wdl).toBeUndefined();
+  });
+});
+
+/**
+ * KS-2690 — `BridgeEngineAdapter.init()` должен симметрично с WASM
+ * (KS-2521 / KS-2525) включать `UCI_ShowWDL` сразу после connect, иначе
+ * клиентский генератор пазлов на WDL-алгоритме (KS-2584) выдаёт «0
+ * пазлов» (info-строки без wdl, `wdlSignedFromInfo` возвращает null).
+ */
+class MockWebSocket {
+  static OPEN = 1 as const;
+  static CLOSED = 3 as const;
+  static instances: MockWebSocket[] = [];
+
+  readyState = 0;
+  sent: string[] = [];
+  url: string;
+  onopen: ((ev: Event) => void) | null = null;
+  onerror: ((ev: Event) => void) | null = null;
+  onclose: ((ev: CloseEvent) => void) | null = null;
+  private listeners = new Map<string, Set<(ev: MessageEvent) => void>>();
+
+  constructor(url: string) {
+    this.url = url;
+    MockWebSocket.instances.push(this);
+    queueMicrotask(() => {
+      this.readyState = MockWebSocket.OPEN;
+      this.onopen?.(new Event('open'));
+    });
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent('close'));
+  }
+
+  addEventListener(type: string, listener: (ev: MessageEvent) => void): void {
+    let set = this.listeners.get(type);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(type, set);
+    }
+    set.add(listener);
+  }
+
+  removeEventListener(
+    type: string,
+    listener: (ev: MessageEvent) => void,
+  ): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+}
+
+describe('BridgeEngineAdapter KS-2690', () => {
+  let originalWebSocket: typeof WebSocket;
+
+  beforeEach(() => {
+    originalWebSocket = global.WebSocket;
+    MockWebSocket.instances = [];
+    (global as unknown as { WebSocket: unknown }).WebSocket =
+      MockWebSocket as unknown as typeof WebSocket;
+  });
+
+  afterEach(() => {
+    (global as unknown as { WebSocket: typeof WebSocket }).WebSocket =
+      originalWebSocket;
+  });
+
+  it('после init() отправляет setoption UCI_ShowWDL=true', async () => {
+    const adapter = new BridgeEngineAdapter({
+      wsUrl: 'ws://localhost:9000',
+      secretKey: '',
+    });
+    await adapter.init();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const ws = MockWebSocket.instances[0];
+    const setoptions = ws.sent
+      .map((s) => {
+        try {
+          return JSON.parse(s) as {
+            type?: string;
+            name?: string;
+            value?: string;
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (m): m is { type: string; name: string; value: string } =>
+          m !== null && m.type === 'setoption',
+      );
+    expect(setoptions).toHaveLength(1);
+    expect(setoptions[0]).toEqual({
+      type: 'setoption',
+      name: 'UCI_ShowWDL',
+      value: 'true',
+    });
+  });
+
+  it('последующие setOption (например MultiPV) не override\'ят UCI_ShowWDL', async () => {
+    const adapter = new BridgeEngineAdapter({
+      wsUrl: 'ws://localhost:9000',
+      secretKey: '',
+    });
+    await adapter.init();
+    adapter.setOption('MultiPV', '2');
+
+    const ws = MockWebSocket.instances[0];
+    const names = ws.sent
+      .map((s) => {
+        try {
+          return JSON.parse(s) as { type?: string; name?: string };
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (m): m is { type: string; name: string } =>
+          m !== null && m.type === 'setoption',
+      )
+      .map((m) => m.name);
+    expect(names).toEqual(['UCI_ShowWDL', 'MultiPV']);
   });
 });
