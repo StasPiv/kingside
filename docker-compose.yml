@@ -166,6 +166,30 @@ services:
     profiles:
       - init
 
+  puzzle-import:
+    image: kingside-api
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
+      IMPORT_BATCH_SIZE: "5000"
+    volumes:
+      - ./scripts/.tmp/lichess.csv.zst:/tmp/lichess.csv.zst:ro
+    working_dir: /app/apps/api
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "=== ls dist/puzzle ==="
+        ls /app/apps/api/dist/puzzle 2>&1 || true
+        echo "=== ls dist (top) ==="
+        ls /app/apps/api/dist 2>&1 || true
+        echo "=== find import-puzzles ==="
+        find /app -name 'import-puzzles*' 2>/dev/null || true
+    restart: "no"
+    profiles:
+      - puzzle-import
+
   # KS-1918: одноразовая миграция broadcasts_kingside для локали.
   # Запуск: docker compose --profile migrate up broadcasts-migrate
   broadcasts-migrate:
@@ -240,13 +264,21 @@ services:
       context: .
       dockerfile: apps/archive-service/Dockerfile
     image: kingside-archive-service:latest
-    command: ["node", "dist/importer-main.js"]
+    # KS-2698: --max-old-space-size=768 — поднимаем V8 heap до 768 МБ.
+    # 256 МБ дефолта не хватает на парсинг TWIC zip (~10–30 МБ архив,
+    # десятки тысяч PGN-партий + индексация позиций) — падало с
+    # FatalProcessOutOfMemory. В проде importer-once запускается на
+    # Fargate с 2 ГБ памяти, локально хватит 1 ГБ.
+    command: ["node", "--max-old-space-size=768", "dist/importer-main.js"]
     restart: unless-stopped
-    mem_limit: 256m
+    mem_limit: 1024m
     profiles:
       - archive
-    ports:
-      - "${ARCHIVE_IMPORTER_PORT:-3004}:3004"
+    # KS-2698: ports маппинг убран, чтобы локально не конфликтовать с
+    # broadcast-service (тоже на 3004). Внутри docker-network healthcheck
+    # на localhost:3004 работает; наружу импортер прикладной интерфейс
+    # не публикует — он наполняет БД, потребители читают через
+    # ARCHIVE_DATABASE_URL.
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const h=require('http');h.get('http://localhost:3004/_/health',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
@@ -260,7 +292,11 @@ services:
         max-file: "3"
         tag: "kingside-archive-importer"
     environment:
-      ARCHIVE_DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
+      # KS-2698: importer пишет в отдельную БД kingside_archive (как в проде —
+      # `archive_kingside`, ADR-018 §2.2). Раньше указывало на `${POSTGRES_DB}`
+      # (kingside) — но это конфликтовало с _prisma_migrations основной БД и
+      # создавало drift. Теперь archive-таблицы изолированы.
+      ARCHIVE_DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${ARCHIVE_POSTGRES_DB:-kingside_archive}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379

@@ -24,6 +24,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.3",
     "globals": "^17.4.0",
+    "pg": "^8.13.0",
     "turbo": "^2.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.57.1"

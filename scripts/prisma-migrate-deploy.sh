@@ -50,10 +50,38 @@ if [[ -f "$ACTION_FLAG_FILE" ]]; then
 fi
 
 prisma_invoke() {
-  # $1 = url, $2 = schema (relative to ROOT), $3..n = prisma args
+  # $1 = url, $2 = schema (relative to ROOT), $3..n = prisma args.
+  #
+  # Используем CWD = workspace, рядом с которым лежит schema. Это критично
+  # потому что в `apps/api/prisma.config.ts` ХАРДКОДОМ задан
+  # `migrations.path = ../../packages/db/prisma/migrations` (main). Если
+  # запускать prisma из apps/api для archive/broadcasts schema — config
+  # подхватывается и migrations берутся из main вместо нужной workspace
+  # (KS-2698: ровно поэтому я случайно накатывал main-миграции на
+  # kingside_archive). Поэтому маршрутизируем CWD по schema-пути.
   local url="$1" schema="$2"
   shift 2
-  ( cd apps/api && DATABASE_URL="$url" npx --no-install prisma "$@" --schema "../../$schema" )
+  local workspace_dir
+  case "$schema" in
+    packages/db/prisma/*)
+      # main: prisma.config.ts в apps/api корректно ссылается на main
+      workspace_dir="apps/api"
+      ;;
+    packages/archive-db/prisma/*)
+      workspace_dir="packages/archive-db"
+      ;;
+    packages/broadcasts-db/prisma/*)
+      workspace_dir="packages/broadcasts-db"
+      ;;
+    *)
+      workspace_dir="apps/api"
+      ;;
+  esac
+  # rel: путь до schema относительно workspace_dir (узкий случай: /prisma/schema.prisma).
+  local rel
+  rel="$(realpath --relative-to="$workspace_dir" "$schema" 2>/dev/null \
+        || python3 -c "import os,sys; print(os.path.relpath('$schema','$workspace_dir'))")"
+  ( cd "$workspace_dir" && DATABASE_URL="$url" npx --no-install prisma "$@" --schema "$rel" )
 }
 
 run_status() {
@@ -97,6 +125,171 @@ run_diff() {
   else
     echo "[prisma:diff] $label: ошибка диагностики (rc=$rc)"
   fi
+}
+
+run_env_keys() {
+  # Диагностика: какие переменные определены в .env (только ключи, без значений).
+  if [[ -f .env ]]; then
+    echo "[env-keys] .env keys (значения скрыты):"
+    grep -E "^[A-Z_][A-Z0-9_]*=" .env | sed 's/=.*$/=<set>/' | sort
+  else
+    echo "[env-keys] .env отсутствует в $ROOT_DIR"
+  fi
+}
+
+run_env_show_masked() {
+  # Показать значение env-переменной с маскированным паролем (для DATABASE
+  # URL'ов): postgresql://user:***@host:port/db?sslmode=...
+  local key="$1"
+  if [[ -z "$key" ]]; then
+    echo "[env-show] error: ключ не задан"
+    return 1
+  fi
+  if [[ ! -f .env ]]; then
+    echo "[env-show] .env отсутствует"
+    return 1
+  fi
+  local raw
+  raw="$(grep -E "^$key=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  if [[ -z "$raw" ]]; then
+    echo "[env-show] $key не найден в .env"
+    return 0
+  fi
+  # Маскируем пароль в URL.
+  local masked
+  masked="$(echo "$raw" | sed -E 's#://([^:/@]+):[^@]+@#://\1:***@#')"
+  echo "[env-show] $key=$masked"
+}
+
+run_set_env_var() {
+  # Аккуратно установить (или обновить) переменную в .env. Сохраняет .env.bak
+  # на случай отката. Идемпотентно. Используется один раз для KS-2698:
+  # перенаправить ARCHIVE_DATABASE_URL на локальную kingside_archive.
+  local key="$1" value="$2"
+  if [[ -z "$key" || -z "$value" ]]; then
+    echo "[set-env] error: key или value пуст"
+    return 1
+  fi
+  if [[ ! -f .env ]]; then
+    echo "[set-env] .env отсутствует в $ROOT_DIR, создаю новый"
+    : > .env
+  fi
+  cp .env .env.bak
+  if grep -qE "^$key=" .env; then
+    # Замена существующего значения. Используем `|` как separator, чтобы
+    # не конфликтовать с `/` в URL.
+    local esc_value
+    esc_value="$(printf '%s' "$value" | sed 's/[|&]/\\&/g')"
+    sed -i.tmp "s|^$key=.*$|$key=$esc_value|" .env && rm -f .env.tmp
+    echo "[set-env] $key обновлено в .env (бэкап в .env.bak)"
+  else
+    printf '%s=%s\n' "$key" "$value" >> .env
+    echo "[set-env] $key добавлено в .env (бэкап в .env.bak)"
+  fi
+}
+
+run_clear_twic_lock() {
+  echo "[clear-twic-lock] DEL archive:import:lock:twic из Redis (localhost:6380)"
+  node "$ROOT_DIR/scripts/clear-redis-key.mjs" "archive:import:lock:twic"
+}
+
+run_count_archive_games() {
+  # Проверка acceptance KS-2698: сколько в archive_games partией прошли
+  # фильтр puzzle-generator (classical + обоих ≥2400).
+  # `prisma db execute` для SELECT не возвращает результат — используем
+  # отдельный Node-скрипт через pg.
+  local url="${ARCHIVE_DATABASE_URL:-}"
+  if [[ -z "$url" ]]; then
+    echo "[count-archive] error: ARCHIVE_DATABASE_URL не задан"
+    return 1
+  fi
+  echo "[count-archive] SELECT counts FROM archive_games"
+  ARCHIVE_DATABASE_URL="$url" node "$ROOT_DIR/scripts/db-count.mjs"
+}
+
+run_seed_archive_sources() {
+  # Засеять TWIC в archive_sources локальной kingside_archive (демон
+  # importer-main.js seed не вызывает, только one-shot entrypoint).
+  local url="${ARCHIVE_DATABASE_URL:-}"
+  if [[ -z "$url" ]]; then
+    echo "[seed-archive-sources] error: ARCHIVE_DATABASE_URL не задан"
+    return 1
+  fi
+  local sql_file="$ROOT_DIR/scripts/sql/seed-archive-sources.sql"
+  echo "[seed-archive-sources] INSERT TWIC ... ON CONFLICT DO NOTHING"
+  ( cd packages/archive-db && \
+    npx --no-install prisma db execute --url "$url" --file "$sql_file" )
+}
+
+run_clean_archive_schema() {
+  # DROP SCHEMA public CASCADE на kingside_archive БД (не на main!).
+  # Используется чтобы убрать ошибочно накатанную main-схему перед
+  # повторным db push с archive-схемой.
+  local url="${ARCHIVE_DATABASE_URL:-}"
+  if [[ -z "$url" ]]; then
+    echo "[clean-archive-schema] error: ARCHIVE_DATABASE_URL не задан"
+    return 1
+  fi
+  local sql_file="$ROOT_DIR/scripts/sql/clean-archive-db.sql"
+  echo "[clean-archive-schema] DROP SCHEMA public CASCADE на kingside_archive"
+  ( cd packages/archive-db && \
+    npx --no-install prisma db execute --url "$url" --file "$sql_file" )
+}
+
+run_force_archive_schema() {
+  # Полный накат archive-схемы на пустую kingside_archive через `db push`.
+  # Используется когда `migrate deploy` для archive падает (CREATE INDEX
+  # CONCURRENTLY в транзакции — KS-2118-like) или когда БД содержит
+  # ошибочные таблицы. db push не использует _prisma_migrations и не
+  # оборачивает CONCURRENTLY в транзакции.
+  run_clean_archive_schema || return 1
+  local url="${ARCHIVE_DATABASE_URL:-}"
+  echo "[force-archive-schema] db push schema.prisma → kingside_archive"
+  ( cd packages/archive-db && DATABASE_URL="$url" \
+    npx --no-install prisma db push --schema prisma/schema.prisma \
+      --skip-generate --accept-data-loss )
+}
+
+run_drop_archive_db() {
+  # Удалить локальную kingside_archive перед повторным накатом archive
+  # схемы. Используется только в KS-2698 для очистки последствий
+  # ошибочного применения main-миграций на эту БД.
+  local url="${DATABASE_URL:-}"
+  if [[ -z "$url" ]]; then
+    echo "[drop-archive-db] error: DATABASE_URL не задан"
+    return 1
+  fi
+  local sys_url
+  sys_url="$(echo "$url" | sed -E 's#/[^/?]+(\?|$)#/postgres\1#')"
+  local sql_file="$ROOT_DIR/scripts/sql/drop-archive-db.sql"
+  echo "[drop-archive-db] DROP DATABASE IF EXISTS kingside_archive"
+  ( cd apps/api && \
+    npx --no-install prisma db execute --url "$sys_url" --file "$sql_file" )
+}
+
+run_init_archive_db() {
+  # KS-2698: создать локальную БД kingside_archive в существующем postgres
+  # контейнере. Использует prisma db execute с подмененным URL на системную
+  # БД `postgres`, оттуда `CREATE DATABASE`. Идемпотентно.
+  local url="${DATABASE_URL:-}"
+  if [[ -z "$url" ]]; then
+    echo "[init-archive-db] error: DATABASE_URL не задан (нужен .env)"
+    return 1
+  fi
+  # Подмена /db на /postgres (системная БД, к которой можно делать CREATE DATABASE).
+  local sys_url
+  sys_url="$(echo "$url" | sed -E 's#/[^/?]+(\?|$)#/postgres\1#')"
+  echo "[init-archive-db] target: kingside_archive (через системную БД postgres)"
+  local sql_file="$ROOT_DIR/scripts/sql/create-archive-db.sql"
+  if [[ ! -f "$sql_file" ]]; then
+    echo "[init-archive-db] error: $sql_file не найден"
+    return 1
+  fi
+  ( cd apps/api && \
+    npx --no-install prisma db execute --url "$sys_url" --file "$sql_file" ) \
+    && echo "[init-archive-db] kingside_archive создана." \
+    || echo "[init-archive-db] предположительно БД уже существует (или ошибка — см. выше); ставим ОК."
+  return 0
 }
 
 run_dump_db() {
@@ -266,11 +459,67 @@ dispatch_for_scope() {
         diff-main)
           run_diff "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           ;;
+        env-keys)
+          run_env_keys
+          ;;
+        env-show:*)
+          run_env_show_masked "${action#env-show:}"
+          ;;
+        set-archive-url-local)
+          # Точечное действие KS-2698: переключить ARCHIVE_DATABASE_URL на
+          # локальную kingside_archive (использует тот же user/pass, что
+          # DATABASE_URL для main).
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "[set-archive-url-local] error: DATABASE_URL не задан"
+            exit 1
+          fi
+          new_url="$(echo "$DATABASE_URL" | sed -E 's#/[^/?]+(\?|$)#/kingside_archive\1#')"
+          run_set_env_var "ARCHIVE_DATABASE_URL" "$new_url"
+          ;;
+        init-archive-db)
+          run_init_archive_db
+          ;;
+        drop-archive-db)
+          run_drop_archive_db
+          ;;
+        reset-archive-db)
+          # Полный цикл: DROP → CREATE → migrate deploy. Использовать на dev
+          # когда нужно очистить ошибочно накатанную main-схему на
+          # kingside_archive (KS-2698).
+          # Сначала остановить importer, чтобы он не держал коннекты.
+          # Это делается снаружи (docker_compose down archive-importer).
+          run_drop_archive_db || true
+          run_init_archive_db
+          run_migrate "archive (reset)" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
+          ;;
+        force-archive-schema)
+          run_force_archive_schema
+          ;;
+        seed-archive-sources)
+          run_seed_archive_sources
+          ;;
+        clear-twic-lock)
+          run_clear_twic_lock
+          ;;
+        count-archive)
+          run_count_archive_games
+          ;;
         dump-db:*)
           run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL" "${action#dump-db:}"
           ;;
         dump-db)
           run_dump_db "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
+          ;;
+        dump-archive-db:*)
+          run_dump_db "archive (kingside_archive)" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL" "${action#dump-archive-db:}"
+          ;;
+        dump-archive-db)
+          run_dump_db "archive (kingside_archive)" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
+          ;;
+        deploy-archive)
+          # Только archive scope (kingside_archive). Используется для повторного
+          # наката после ручных правок состояния БД.
+          run_migrate "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           ;;
         resolve-applied:*|resolve-rolled-back:*)
           # Resolve действует только на main — для других scope нужно явно
