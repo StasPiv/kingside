@@ -94,6 +94,41 @@ function localizeQuizSaveError(
   return raw;
 }
 
+/**
+ * KS-2696. Pre-validation шага перед отправкой PATCH /lessons/steps/:id.
+ *
+ * Цель — не дёргать сервер на очевидно неполном payload'е, чтобы
+ * backend не возвращал 400 на каждый keystroke и красный banner-toast
+ * не мерцал. Сейчас покрывает один реальный сценарий жалобы пользователя:
+ *  - puzzle-шаг в режиме filter с пустым `selection.themes`. Backend
+ *    ругается `payload.selection.themes should not be empty` (см.
+ *    скриншот KS-2696). Все остальные поля (rating/limit) при пустых
+ *    themes пропускаем, ждём пока юзер заполнит хотя бы одну тему.
+ *
+ * Возвращает `true` если PATCH можно слать. Любой неизвестный тип
+ * шага считается валидным — лучше отдать backend'у и показать его
+ * сообщение, чем глушить запрос на FE по ошибке.
+ */
+function isStepPayloadAutoSavable(payload: StepPayload): boolean {
+  if (payload.type === 'puzzle') {
+    if (
+      payload.selection.mode === 'filter' &&
+      payload.selection.themes.length === 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * KS-2696. Debounce-окно autosave PATCH /lessons/steps/:id.
+ * 600ms — пользователь успевает добить число/слово до отправки;
+ * меньше — bursty PATCH'ей при наборе цифр; больше — заметная
+ * задержка save-pill'а.
+ */
+const STEP_AUTOSAVE_DEBOUNCE_MS = 600;
+
 export function UserCourseEditor() {
   const { slug } = useParams<{ slug: string }>();
   const { user } = useAuth();
@@ -320,31 +355,88 @@ export function UserCourseEditor() {
     actions.addStep(lessonId, created, stepId);
   };
 
+  /**
+   * KS-2696: debounced таймеры PATCH'ей по stepId. Каждый keystroke
+   * планирует таймер; следующий keystroke сбрасывает старый. Это
+   * убирает burst-PATCH'и при наборе цифр в number-полях (Rating
+   * min/max/Limit/Min solved) — основная причина layout-shift'а
+   * по жалобе пользователя.
+   *
+   * Локальное состояние (state в reducer'е) обновляем сразу — UX
+   * остаётся отзывчивым.
+   */
+  const patchTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+  // Cleanup всех pending таймеров при unmount, чтобы не стрельнуло
+  // PATCH'ом после ухода со страницы.
+  useEffect(() => {
+    const timers = patchTimersRef.current;
+    return () => {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
+
   const patchStepPayload = (
     lessonId: string,
     stepId: string,
     payload: StepPayload,
   ) => {
     actions.updateStep(lessonId, stepId, { payload });
-    setStepSaveError(null);
-    lessonsApi.updateStepPayload(stepId, { payload }).catch((err: unknown) => {
-      // KS-1912: показываем ошибку, не редиректим. До фикса
-      // promise-rejection здесь приводил к «пустой странице» через
-      // глобальный fail-path; теперь UI остаётся в редакторе и
-      // отображает alert-bar с возможностью dismiss.
-      const rawMessage =
-        err instanceof Error
-          ? err.message
-          : typeof err === 'string'
-            ? err
-            : t('lessons.my.editor.saveError', 'Could not save step');
-      // KS-2596: backend (NestJS ValidationPipe) возвращает сырое
-      // class-validator сообщение вида `payload.questions.0.correctOptionIds
-      // should not be empty`. Для quiz-валидаций перекрываем человекочитаемым
-      // текстом из i18n. Если паттерн не распознан — показываем raw как было.
-      const message = localizeQuizSaveError(t, rawMessage);
-      setStepSaveError(message);
-    });
+
+    // KS-2696: pre-validation. Если payload очевидно неполный
+    // (puzzle-filter без themes — частый сценарий: автор сначала
+    // выставил mode=filter, начал крутить rating, темы добить
+    // позже), не шлём PATCH вообще. Без этого backend на каждый
+    // keystroke возвращает 400 → красный banner мигает → форма
+    // прыгает. Inline-валидация в `PuzzleFields` (data-invalid
+    // на пустых themes) уже подсвечивает поле — backend нам не нужен.
+    if (!isStepPayloadAutoSavable(payload)) {
+      // Сбрасываем pending таймер: если был запланирован старый
+      // (валидный) PATCH — он теперь устарел.
+      const pending = patchTimersRef.current.get(stepId);
+      if (pending) {
+        clearTimeout(pending);
+        patchTimersRef.current.delete(stepId);
+      }
+      // Чистим прошлую ошибку: повторный ввод после неудачного
+      // PATCH'а не должен оставлять «висящий» banner-toast.
+      setStepSaveError(null);
+      return;
+    }
+
+    // Сбрасываем старый pending PATCH для этого шага и планируем
+    // новый. Это и есть debounce-окно (STEP_AUTOSAVE_DEBOUNCE_MS).
+    const existing = patchTimersRef.current.get(stepId);
+    if (existing) clearTimeout(existing);
+
+    const timerId = setTimeout(() => {
+      patchTimersRef.current.delete(stepId);
+      setStepSaveError(null);
+      lessonsApi
+        .updateStepPayload(stepId, { payload })
+        .catch((err: unknown) => {
+          // KS-1912: показываем ошибку, не редиректим. До фикса
+          // promise-rejection здесь приводил к «пустой странице» через
+          // глобальный fail-path; теперь UI остаётся в редакторе и
+          // отображает toast с возможностью dismiss (KS-2696 — было
+          // alert-bar в потоке, что вызывало layout-shift).
+          const rawMessage =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+                ? err
+                : t('lessons.my.editor.saveError', 'Could not save step');
+          // KS-2596: backend (NestJS ValidationPipe) возвращает сырое
+          // class-validator сообщение. Для quiz-валидаций перекрываем
+          // человекочитаемым текстом из i18n. Если паттерн не распознан
+          // — показываем raw.
+          const message = localizeQuizSaveError(t, rawMessage);
+          setStepSaveError(message);
+        });
+    }, STEP_AUTOSAVE_DEBOUNCE_MS);
+    patchTimersRef.current.set(stepId, timerId);
   };
 
   const moveStep = (lessonId: string, stepId: string, direction: -1 | 1) => {
@@ -463,6 +555,13 @@ export function UserCourseEditor() {
         onDelete={() => setDeleteOpen(true)}
       />
 
+      {/* KS-2696: ошибка автосейва теперь — floating toast снизу страницы
+          (`position:fixed`), а не алерт в потоке формы. До этого тикета
+          появление/исчезновение баннера на каждый failed PATCH (а они
+          летели на каждый keystroke в number-полях, см. KS-2696 жалобу)
+          двигало форму вертикально. Toast не влияет на flow → форма не
+          прыгает. data-testid сохранён для backward-compat с e2e/unit
+          тестами KS-1912 / KS-2596. */}
       {stepSaveError && (
         <div
           className="user-course-editor__save-error"

@@ -1628,19 +1628,30 @@
   }
 }
 
-/* KS-1912: видимая ошибка автосейва шага в верху редактора курса. */
+/* KS-1912 (initial) → KS-2696: ошибка автосейва шага. До KS-2696 это
+   был in-flow alert между header'ом и формой; каждое появление/
+   исчезновение двигало всё ниже редактора и при наборе цифр в number-
+   полях (Rating min/max/Limit/Min solved) форма «прыгала». Теперь —
+   floating toast (`position:fixed` снизу по центру), который не влияет
+   на flow, и форма стабильна. data-testid сохраняем (KS-1912/KS-2596). */
 .user-course-editor__save-error {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  max-width: min(640px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 8px 0;
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: var(--danger-soft, rgba(202, 52, 49, 0.1));
   border: 1px solid var(--danger, #ca3431);
   border-radius: 6px;
   color: var(--danger, #ca3431);
   font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 
 .user-course-editor__save-error button {
