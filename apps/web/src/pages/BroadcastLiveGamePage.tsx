@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -11,6 +11,7 @@ import {
   formatBroadcastClock,
   useBroadcastClock,
 } from '../hooks/useBroadcastClock';
+import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 
 /**
  * KS-2448: live-режим просмотра партии трансляции.
@@ -135,14 +136,101 @@ export function BroadcastLiveGamePage() {
     };
   }, [tournamentId, roundId, gameId, t]);
 
-  // Polling 15s. Останавливается, как только результат партии перестал быть `*`
-  // (партия завершилась) или если round не `ongoing`. Это экономит запросы — у
-  // завершившейся партии новых ходов уже не будет.
+  // KS-2701: live-обновления через WebSocket. До тикета — только REST
+  // polling 15s, что давало задержку до 15с между ходом и его появлением.
+  // Backend (KS-2699 + gateway) шлёт `broadcast:sync` (полный snapshot
+  // раунда) и `broadcast:move` (короткий апдейт) по socket.io комнате
+  // `broadcast:<roundId>`. Здесь подписываемся для current roundId,
+  // ловим события в `setGame(fresh)` и проигрываем звук на каждый
+  // новый ход.
+  //
+  // REST остаётся:
+  //   1. initial-fetch выше (`useEffect` на load) — нам нужны данные
+  //      ДО подключения сокета, иначе экран загрузки висит.
+  //   2. fallback-polling ниже — включается только пока WS НЕ подключён
+  //      (потеря интернета, рестарт backend). Когда `connected=true`
+  //      polling выключается.
   const prevPgnRef = useRef<string>('');
+  // Одинаковая логика проигрывания звука для WS и REST: считаем что
+  // хост-аутор знает свой PGN, а нам важен факт «история удлинилась».
+  const handleGameUpdate = useCallback(
+    (fresh: LiveGame) => {
+      const prevLen = prevPgnRef.current.length;
+      const curLen = fresh.pgn?.length ?? 0;
+      if (curLen > prevLen && fresh.pgn) {
+        try {
+          const chess = new Chess();
+          if (loadPgnSafe(chess, fresh.pgn)) {
+            const hist = chess.history();
+            const lastSan = hist.length ? hist[hist.length - 1] : null;
+            if (lastSan) playSound(soundEventFromSan(lastSan));
+          }
+        } catch {
+          /* ignore sound errors */
+        }
+      }
+      prevPgnRef.current = fresh.pgn ?? '';
+      setGame(fresh);
+    },
+    [playSound],
+  );
+
+  const handleSync = useCallback(
+    (payload: { games: LiveGame[] }) => {
+      const fresh = payload.games?.find((g) => g.id === gameId);
+      if (fresh) handleGameUpdate(fresh);
+    },
+    [gameId, handleGameUpdate],
+  );
+
+  // KS-2701: `broadcast:move` короткий — содержит только новый
+  // currentFen. PGN/clocks дотянутся следующим `sync`. Чтобы не ждать
+  // — обновляем `currentFen` (для немедленной перерисовки доски), а
+  // звук тут не играем (ждём sync с PGN, иначе будет двойной звук
+  // из-за parsePgn'а PGN'а в parsed.fen).
+  const handleMove = useCallback(
+    (payload: {
+      gameIndex: number;
+      uci: string;
+      fen: string;
+      whitePlayer?: string | null;
+      blackPlayer?: string | null;
+    }) => {
+      // gameIndex — позиция игры в раунде у backend'а; ID нам приходит
+      // только в sync. Поэтому считаем: если `whitePlayer/blackPlayer`
+      // в move совпадают с текущим игроком — это наша игра. Иначе
+      // ждём sync (он точно adresует игру по id).
+      setGame((prev) => {
+        if (!prev) return prev;
+        if (
+          (payload.whitePlayer && payload.whitePlayer !== prev.whitePlayer) ||
+          (payload.blackPlayer && payload.blackPlayer !== prev.blackPlayer)
+        ) {
+          return prev;
+        }
+        return { ...prev, currentFen: payload.fen };
+      });
+    },
+    [],
+  );
+
+  const { connected } = useBroadcastSocket({
+    roundId: roundId ?? null,
+    onSync: handleSync,
+    onMove: handleMove,
+  });
+
+  // KS-2701: REST-polling как fallback. Запускается только если:
+  //   - партия в активном раунде (round.ongoing) и не финиширована;
+  //   - WS НЕ подключён (или мы только что зашли и ещё не получили
+  //     `connect`-event).
+  // Период 30с вместо прежних 15с: WS закрывает основную нагрузку,
+  // polling нужен только на короткие просветы между connect/reconnect.
   useEffect(() => {
     if (!tournamentId || !roundId || !gameId) return;
     if (round && round.status && round.status !== 'ongoing') return;
     if (game && game.result && game.result !== '*') return;
+    if (connected) return;
 
     let cancelled = false;
     const fetchOnce = () => {
@@ -152,36 +240,25 @@ export function BroadcastLiveGamePage() {
           if (cancelled) return;
           const games = Array.isArray(res?.data) ? res.data : [];
           const fresh = games.find((g) => g.id === gameId);
-          if (!fresh) return;
-          const prevLen = prevPgnRef.current.length;
-          const curLen = fresh.pgn?.length ?? 0;
-          if (curLen > prevLen && fresh.pgn) {
-            // Звук на новый ход (как на странице тура).
-            try {
-              const chess = new Chess();
-              if (loadPgnSafe(chess, fresh.pgn)) {
-                const hist = chess.history();
-                const lastSan = hist.length ? hist[hist.length - 1] : null;
-                if (lastSan) playSound(soundEventFromSan(lastSan));
-              }
-            } catch {
-              /* ignore sound errors */
-            }
-          }
-          prevPgnRef.current = fresh.pgn ?? '';
-          setGame(fresh);
+          if (fresh) handleGameUpdate(fresh);
         })
         .catch(() => {});
     };
 
-    const intervalId = setInterval(fetchOnce, 15_000);
+    const intervalId = setInterval(fetchOnce, 30_000);
     return () => {
       cancelled = true;
       clearInterval(intervalId);
     };
-    // round.status и game.result меняются изредка — перезапуск интервала на их
-    // изменение приемлем (cleanup отрабатывает корректно).
-  }, [tournamentId, roundId, gameId, round, game, playSound]);
+  }, [
+    tournamentId,
+    roundId,
+    gameId,
+    round,
+    game,
+    connected,
+    handleGameUpdate,
+  ]);
 
   const parsed = useMemo<ParsedPgn>(
     () => parsePgn(game?.pgn ?? '', game?.currentFen),

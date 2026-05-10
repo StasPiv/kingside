@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,7 @@ import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
+import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
 // регрессией (вкладка Rounds всегда должна показывать доски партий).
 // Компонент остаётся в репо — он будет использован на вкладке
@@ -103,48 +104,83 @@ export function BroadcastRoundPage() {
     return () => { cancelled = true; };
   }, [tournamentId, roundId, t]);
 
-  // Poll games every 15s + play sound on new move
+  // KS-2701: live-обновления через WebSocket. До тикета — REST polling
+  // 15s. Backend публикует `broadcast:sync` при каждом изменении
+  // раунда (включая обновления `whiteClockMs`/etc по KS-2699). Здесь
+  // подписываемся, ловим snapshot, проигрываем звук и обновляем `games`.
+  // REST остаётся:
+  //   - initial-fetch (выше) — нам нужны данные ДО connect'а сокета;
+  //   - fallback-polling ниже — только когда `connected=false`.
   const prevGamesRef = useRef<LichessGame[]>([]);
+
+  const applyFreshGames = useCallback(
+    (fresh: LichessGame[], shouldPlaySound: boolean) => {
+      const prev = prevGamesRef.current;
+      if (shouldPlaySound && prev.length > 0) {
+        for (const g of fresh) {
+          const prevGame = prev.find((p) => p.id === g.id);
+          const prevPgnLen = prevGame?.pgn?.length ?? 0;
+          const curPgnLen = g.pgn?.length ?? 0;
+          if (curPgnLen > prevPgnLen && g.pgn) {
+            const lastMove = computeLastMoveSan(g.pgn);
+            if (lastMove) playSound(soundEventFromSan(lastMove));
+            break; // один звук на одно обновление
+          }
+        }
+      }
+      const fingerprint = gamesFingerprint(fresh);
+      const prevFingerprint = gamesFingerprint(prev);
+      if (prev.length === 0 || fingerprint !== prevFingerprint) {
+        setGames(sortGamesByWhite(fresh));
+      }
+      prevGamesRef.current = fresh;
+    },
+    [playSound],
+  );
+
+  const handleSync = useCallback(
+    (payload: { games: LichessGame[] }) => {
+      applyFreshGames(payload.games ?? [], true);
+    },
+    [applyFreshGames],
+  );
+
+  const { connected } = useBroadcastSocket({
+    roundId: roundId ?? null,
+    onSync: handleSync,
+  });
+
+  // KS-2701: REST-polling fallback. Запускается только если WS НЕ
+  // подключён (или ещё не подключился). Период 30с — без WS обновления
+  // раунда нечастые (партия классическая, ходы раз в минуту), 15→30с
+  // снижает нагрузку без потери UX.
   useEffect(() => {
     if (!tournamentId || !roundId) return;
+    if (connected) return;
+
     let cancelled = false;
     let isFirstFetch = true;
 
     const fetchGames = () => {
-      broadcastApi.get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`)
+      broadcastApi
+        .get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
           if (cancelled) return;
           const fresh = Array.isArray(res?.data) ? res.data : [];
-          const prev = prevGamesRef.current;
-          if (!isFirstFetch && prev.length > 0) {
-            for (const game of fresh) {
-              const prevGame = prev.find((g) => g.id === game.id);
-              const prevPgnLen = prevGame?.pgn?.length ?? 0;
-              const curPgnLen = game.pgn?.length ?? 0;
-              if (curPgnLen > prevPgnLen && game.pgn) {
-                const lastMove = computeLastMoveSan(game.pgn);
-                if (lastMove) playSound(soundEventFromSan(lastMove));
-                break; // one sound per poll
-              }
-            }
-          }
-          // KS-2446: fingerprint считаем по id+pgnLen независимо от
-          // порядка backend, чтобы перерендер триггерился именно
-          // изменением хода, а не перестановкой массива.
-          const fingerprint = gamesFingerprint(fresh);
-          const prevFingerprint = gamesFingerprint(prev);
-          if (isFirstFetch || fingerprint !== prevFingerprint) {
-            setGames(sortGamesByWhite(fresh));
-          }
-          prevGamesRef.current = fresh;
+          // На первом fetch'е (после disconnect/initial) звук не играем
+          // — это «догоняющая» синхронизация, а не новый ход.
+          applyFreshGames(fresh, !isFirstFetch);
           isFirstFetch = false;
         })
         .catch(() => {});
     };
 
-    const intervalId = setInterval(fetchGames, 15_000);
-    return () => { cancelled = true; clearInterval(intervalId); };
-  }, [tournamentId, roundId, playSound]);
+    const intervalId = setInterval(fetchGames, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [tournamentId, roundId, connected, applyFreshGames]);
 
   const currentRound = rounds.find((r) => r.id === roundId);
 
