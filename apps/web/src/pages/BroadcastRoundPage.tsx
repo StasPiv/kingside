@@ -43,6 +43,21 @@ function computeLastMoveSan(pgn: string): string | null {
   }
 }
 
+/** KS-2705: достаём UCI последнего хода из PGN — это надёжнее
+ *  diff'а FEN'ов и используется как fallback к `broadcast:move.uci`. */
+function computeLastMoveUci(pgn: string): string | null {
+  try {
+    const chess = new Chess();
+    if (!loadPgnSafe(chess, pgn)) return null;
+    const hist = chess.history({ verbose: true });
+    if (hist.length === 0) return null;
+    const last = hist[hist.length - 1];
+    return `${last.from}${last.to}${last.promotion ?? ''}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Strip clock/eval comments that may cause chess.js loadPgn to fail */
 function stripPgnComments(pgn: string): string {
   return pgn.replace(/\{[^}]*\}/g, '');
@@ -85,6 +100,17 @@ export function BroadcastRoundPage() {
    * формате payload'а, что даёт стабильное сравнение.
    */
   const [lastMoveKey, setLastMoveKey] = useState<string | null>(null);
+  /**
+   * KS-2705. Карта `gameKey → lastMoveUci` (`e2e4`). Заполняется в
+   * `handleMove` (приходит uci сразу) и в `applyFreshGames` (берём
+   * последний ход из PGN). Передаём в `BroadcastBoardCard` как `lastMoveUci`,
+   * чтобы подсветка рисовалась по реальному ходу одного игрока, а не
+   * по diff FEN'ов (который ловил две разные фигуры разных цветов
+   * при пропуске snapshot'а — см. жалобу).
+   */
+  const [lastMoveUciMap, setLastMoveUciMap] = useState<Record<string, string>>(
+    () => ({}),
+  );
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -206,6 +232,16 @@ export function BroadcastRoundPage() {
         }
         setLastMoveKey(latestKey);
       }
+      // KS-2705: пересчитываем lastMoveUci для каждой партии по PGN'у
+      // — это даёт точный from→to ровно одной фигуры, даже если diff
+      // FEN'ов выглядит как два разных хода.
+      const uciNext: Record<string, string> = {};
+      for (const g of fresh) {
+        const u = computeLastMoveUci(g.pgn ?? '');
+        if (u) uciNext[gameKey(g)] = u;
+      }
+      setLastMoveUciMap(uciNext);
+
       const fingerprint = gamesFingerprint(fresh);
       const prevFingerprint = gamesFingerprint(prev);
       if (prev.length === 0 || fingerprint !== prevFingerprint) {
@@ -256,7 +292,14 @@ export function BroadcastRoundPage() {
         const g = next[target];
         next[target] = { ...g, currentFen: payload.fen };
         const k = gameKey(g);
-        Promise.resolve().then(() => setLastMoveKey(k));
+        // KS-2705: сохраняем точный UCI хода, чтобы подсветка в карточке
+        // рисовалась по нему, а не по diff FEN'ов.
+        Promise.resolve().then(() => {
+          setLastMoveKey(k);
+          if (payload.uci) {
+            setLastMoveUciMap((prev2) => ({ ...prev2, [k]: payload.uci }));
+          }
+        });
         return next;
       });
       // Играем звук сразу — даже если sync не догонит с PGN, юзер
@@ -394,6 +437,7 @@ export function BroadcastRoundPage() {
                 showLastMoveHighlight={
                   lastMoveKey !== null && gameKey(game) === lastMoveKey
                 }
+                lastMoveUci={lastMoveUciMap[gameKey(game)] ?? null}
               />
             ))}
           </div>

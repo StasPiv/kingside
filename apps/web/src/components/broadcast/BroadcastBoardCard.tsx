@@ -31,6 +31,15 @@ interface BroadcastBoardCardProps {
    * совместимость для остальных потребителей (PlayoffBracket etc.).
    */
   showLastMoveHighlight?: boolean;
+  /**
+   * KS-2705. Точный last-move из backend (`broadcast:move.uci`) или
+   * из последнего верифицированного PGN-history. Формат `e2e4`. Если
+   * передан — подсветка рисуется по нему (одна фигура, одна пара
+   * клеток). Если не передан и `showLastMoveHighlight=true`, то
+   * fallback на PGN-history; diff FEN'ов больше не используется,
+   * чтобы не подсвечивать «два разных хода» при пропуске snapshot'а.
+   */
+  lastMoveUci?: string | null;
 }
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -74,6 +83,23 @@ export function resolveFen(
   return computed;
 }
 
+/**
+ * KS-2705: парсим last-move в порядке надёжности:
+ *   1. `uci` (e2e4) — самый надёжный, приходит явно от backend.
+ *   2. PGN history последнего хода — `chess.history({verbose:true})`.
+ * Diff FEN'ов больше НЕ используется: при пропуске snapshot'а он мог
+ * вернуть две клетки от двух разных ходов разных игроков (см. жалобу).
+ */
+function squaresFromUci(
+  uci: string | null | undefined,
+): { from: string; to: string } | null {
+  if (!uci || uci.length < 4) return null;
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) return null;
+  return { from, to };
+}
+
 function computeLastMove(pgn: string): { from: string; to: string } | null {
   if (!pgn) return null;
   const chess = new Chess();
@@ -105,13 +131,15 @@ export function BroadcastBoardCard({
   onGameClick,
   clickable,
   showLastMoveHighlight = false,
+  lastMoveUci,
 }: BroadcastBoardCardProps) {
   const isClickable = clickable ?? Boolean(game.pgn);
   const fen = resolveFen(game.currentFen, game.pgn ?? '');
-  // KS-2702: highlight рисуем только если родитель явно разрешил
-  // (одна доска на страницу — последняя получившая ход).
+  // KS-2702 → KS-2705: highlight рисуем только если родитель разрешил.
+  // Источник прямого хода: сначала `lastMoveUci` (от backend
+  // `broadcast:move.uci`), fallback — последний ход PGN-истории.
   const lastMove = showLastMoveHighlight
-    ? computeLastMove(game.pgn ?? '')
+    ? squaresFromUci(lastMoveUci) ?? computeLastMove(game.pgn ?? '')
     : null;
   const squareStyles: Record<string, React.CSSProperties> = {};
   if (lastMove) {
