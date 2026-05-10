@@ -1087,6 +1087,7 @@
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
       "blunderHint": "Opponent blundered ({{move}}). Hold the advantage for {{n}} half-moves against the engine.",
+      "blunderHintGeneric": "Hold the advantage against the engine for {{n}} half-moves.",
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop",
       "summary": {

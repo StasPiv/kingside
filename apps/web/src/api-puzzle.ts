@@ -15,6 +15,14 @@ export type PuzzleNextParams = {
   themes?: string[];
   ratingMin?: number;
   ratingMax?: number;
+  /**
+   * KS-2732: фильтр по режиму решения. На /precision «Next» обязан
+   * подсунуть только `play-vs-engine` пазл — иначе попадёт forced-line
+   * без `blunderMove`, и текст «Соперник зевнул ходом X» вырождается
+   * в «зевнул ходом ?». Backend (KS-2732 backend-задача, если ещё не
+   * сделана) обязан учитывать этот query-параметр.
+   */
+  solutionMode?: 'forced-line' | 'play-vs-engine';
 };
 
 /**
@@ -126,6 +134,9 @@ export const puzzleApi = {
     if (params?.themes?.length) q.set('themes', params.themes.join(','));
     if (params?.ratingMin != null) q.set('ratingMin', String(params.ratingMin));
     if (params?.ratingMax != null) q.set('ratingMax', String(params.ratingMax));
+    // KS-2732: solutionMode передаём как query, чтобы /precision Next не
+    // подгружал forced-line пазлы. Backend должен учитывать.
+    if (params?.solutionMode) q.set('solutionMode', params.solutionMode);
     const qs = q.toString();
     return api.get<PuzzleDto>(`/puzzles/next${qs ? `?${qs}` : ''}`);
   },

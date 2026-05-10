@@ -171,7 +171,36 @@ export function PuzzlePage() {
       if (specificId) {
         data = await puzzleApi.getById(specificId);
       } else {
-        data = await puzzleApi.getNext();
+        // KS-2732: на /precision «Next» обязан загружать только
+        // play-vs-engine пазлы. Без этого фильтра backend `/puzzles/next`
+        // возвращал любой пазл (включая forced-line без blunderMove), и
+        // PVE-runner показывал «Соперник зевнул ходом ?».
+        data = await puzzleApi.getNext(
+          fromPrecision ? { solutionMode: 'play-vs-engine' } : undefined,
+        );
+        // KS-2732 defensive: если backend проигнорировал фильтр и всё
+        // равно вернул forced-line пазл (mismatch данных в БД, или
+        // backend ещё не выкатил поддержку query) — попробуем ещё раз
+        // дёрнуть один-единственный раз, чтобы хотя бы шанс получить
+        // правильный пазл. После второй неудачи покажем как есть, а
+        // защитный fallback в `PlayVsEngineRunner` заменит «?» на общий
+        // текст без UCI.
+        if (
+          fromPrecision &&
+          data &&
+          data.solutionMode !== 'play-vs-engine'
+        ) {
+          try {
+            const retry = await puzzleApi.getNext({
+              solutionMode: 'play-vs-engine',
+            });
+            if (retry && retry.solutionMode === 'play-vs-engine') {
+              data = retry;
+            }
+          } catch {
+            /* ignore — оставим первый ответ */
+          }
+        }
       }
       initPuzzle(data);
     } catch {
@@ -179,7 +208,7 @@ export function PuzzlePage() {
     } finally {
       setLoading(false);
     }
-  }, [initPuzzle]);
+  }, [fromPrecision, initPuzzle]);
 
   useEffect(() => {
     loadPuzzle(puzzleId);

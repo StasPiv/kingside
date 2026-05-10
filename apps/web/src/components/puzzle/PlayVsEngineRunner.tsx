@@ -971,11 +971,28 @@ export function PlayVsEngineRunner({
             <p
               className="puzzle-engine-runner__hint"
               data-testid="puzzle-engine-blunder-hint"
+              data-blunder-known={blunderSan ? 'true' : 'false'}
             >
-              {t('puzzle.engine.blunderHint', 'Opponent just blundered ({{move}}). Hold the advantage for {{n}} half-moves.', {
-                move: blunderSan || '?',
-                n: params.halfMovesN,
-              })}
+              {/*
+                KS-2732: если в DTO нет blunderMove (backend mismatch или
+                forced-line пазл попал в PVE-runner) — рендерим
+                generic-текст без «зевнул ходом ?». Раньше шаблон был
+                fallback'ом на '?', что выглядело как баг для юзера.
+              */}
+              {blunderSan
+                ? t(
+                    'puzzle.engine.blunderHint',
+                    'Opponent just blundered ({{move}}). Hold the advantage for {{n}} half-moves.',
+                    {
+                      move: blunderSan,
+                      n: params.halfMovesN,
+                    },
+                  )
+                : t(
+                    'puzzle.engine.blunderHintGeneric',
+                    'Hold the advantage against the engine for {{n}} half-moves.',
+                    { n: params.halfMovesN },
+                  )}
             </p>
           )}
 

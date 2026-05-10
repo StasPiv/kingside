@@ -473,8 +473,37 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
-    expect(screen.getByTestId('puzzle-engine-blunder-hint')).toBeInTheDocument();
+    const hint = screen.getByTestId('puzzle-engine-blunder-hint');
+    expect(hint).toBeInTheDocument();
+    expect(hint.getAttribute('data-blunder-known')).toBe('true');
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
+  });
+
+  /**
+   * KS-2732: если blunderMove отсутствует (forced-line пазл попал в
+   * PVE-runner через защитный fromPrecision-override), не показываем
+   * «зевнул ходом ?». Рендерим generic-текст без UCI.
+   */
+  it('KS-2732: пазл без blunderMove → generic-hint без «?»', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: '', // пусто — backend не дал
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      result(line({ type: 'cp', value: 30 }, ['e2e4'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    const hint = screen.getByTestId('puzzle-engine-blunder-hint');
+    expect(hint).toBeInTheDocument();
+    expect(hint.getAttribute('data-blunder-known')).toBe('false');
+    expect(hint.textContent).not.toMatch(/\?/);
   });
 
   it('KS-2527: initial analyze c wdl → latestWdl POV user без flip (data-latest-wdl)', async () => {

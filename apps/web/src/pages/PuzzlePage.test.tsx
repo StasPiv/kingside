@@ -75,6 +75,7 @@ function renderAt(route: string) {
   return renderWithProviders(
     <Routes>
       <Route path="/puzzle/:id" element={<PuzzlePage />} />
+      <Route path="/puzzle" element={<PuzzlePage />} />
     </Routes>,
     { route },
   );
@@ -117,6 +118,78 @@ describe('<PuzzlePage> KS-2657', () => {
         screen.getByTestId('play-vs-engine-runner-mock'),
       ).toBeInTheDocument(),
     );
+  });
+
+  /**
+   * KS-2732: на /precision «Next» обязан слать `solutionMode=play-vs-engine`
+   * в `/puzzles/next`, иначе backend подсунет forced-line пазл и в PVE-
+   * runner попадёт пазл без `blunderMove` → текст «зевнул ходом ?».
+   */
+  it('KS-2732: getNext БЕЗ source=precision не передаёт solutionMode', async () => {
+    mockPuzzleApi.getNext.mockResolvedValue({
+      id: 'p-next',
+      fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+      moves: ['f3e5'],
+      rating: 1500,
+      themes: ['middlegame'],
+      source: 'lichess',
+      solutionMode: 'forced-line',
+    });
+    renderAt('/puzzle');
+    await waitFor(() => expect(mockPuzzleApi.getNext).toHaveBeenCalled());
+    // первый вызов — с undefined params
+    expect(mockPuzzleApi.getNext).toHaveBeenCalledWith(undefined);
+  });
+
+  it('KS-2732: getNext ПРИ source=precision передаёт solutionMode=play-vs-engine', async () => {
+    mockPuzzleApi.getNext.mockResolvedValue({
+      id: 'pve-1',
+      fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+      moves: [],
+      rating: 1500,
+      themes: ['middlegame'],
+      source: 'generated',
+      solutionMode: 'play-vs-engine',
+    });
+    renderAt('/puzzle?source=precision');
+    await waitFor(() => expect(mockPuzzleApi.getNext).toHaveBeenCalled());
+    expect(mockPuzzleApi.getNext).toHaveBeenCalledWith({
+      solutionMode: 'play-vs-engine',
+    });
+  });
+
+  it('KS-2732: backend вернул forced-line при precision-фильтре → retry, замена на PVE', async () => {
+    // 1-й getNext: forced-line (backend mismatch)
+    // 2-й getNext (retry): play-vs-engine
+    mockPuzzleApi.getNext
+      .mockResolvedValueOnce({
+        id: 'wrong-1',
+        fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+        moves: ['f3e5'],
+        rating: 1500,
+        themes: ['middlegame'],
+        source: 'lichess',
+        solutionMode: 'forced-line',
+      })
+      .mockResolvedValueOnce({
+        id: 'pve-correct',
+        fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+        moves: [],
+        rating: 1500,
+        themes: ['middlegame'],
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+      });
+    renderAt('/puzzle?source=precision');
+    await waitFor(() =>
+      expect(mockPuzzleApi.getNext).toHaveBeenCalledTimes(2),
+    );
+    expect(mockPuzzleApi.getNext).toHaveBeenNthCalledWith(1, {
+      solutionMode: 'play-vs-engine',
+    });
+    expect(mockPuzzleApi.getNext).toHaveBeenNthCalledWith(2, {
+      solutionMode: 'play-vs-engine',
+    });
   });
 
   it('обычный пазл без source-параметра + forced-line → PlayVsEngineRunner НЕ рендерится', async () => {
