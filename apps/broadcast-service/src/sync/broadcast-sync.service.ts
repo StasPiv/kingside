@@ -1344,6 +1344,12 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           roundId: refreshed.id,
           status: refreshed.status,
           games: refreshed.games.map((g, idx) => ({
+            // KS-2772/2774. UUID партии — единственный надёжный ключ
+            // для матчинга на фронте между sync-snapshot'ом и move-патчем.
+            // `gameIndex` теперь информативный (позиция в массиве sync,
+            // отсортированном по updatedAt) и НЕ совпадает с `gameIndex`
+            // в `broadcast:move` (где это позиция в LCC-update).
+            id: g.id,
             gameIndex: idx,
             fen: g.currentFen ?? STARTING_FEN,
             whitePlayer: g.whitePlayer ?? 'Unknown',
