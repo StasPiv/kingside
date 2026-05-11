@@ -99,6 +99,10 @@ export function BroadcastLiveGamePage() {
   const [broadcast, setBroadcast] = useState<BroadcastMeta | null>(null);
   const [round, setRound] = useState<LichessRound | null>(null);
   const [game, setGame] = useState<LiveGame | null>(null);
+  // KS-2772: gameIndex — позиция партии в массиве round.games из
+  // initial sync. Backend `broadcast:move` payload содержит только
+  // `gameIndex` (без `gameId`), фильтруем входящие events по нему.
+  const [gameIndex, setGameIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -116,13 +120,17 @@ export function BroadcastLiveGamePage() {
         if (cancelled) return;
         const rounds = Array.isArray(roundsRes?.data) ? roundsRes.data : [];
         const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
-        const found = games.find((g) => g.id === gameId) ?? null;
+        const foundIdx = games.findIndex((g) => g.id === gameId);
+        const found = foundIdx >= 0 ? games[foundIdx] : null;
         setBroadcast(meta);
         setRound(rounds.find((r) => r.id === roundId) ?? null);
         if (!found) {
           setError(t('broadcastLive.notFound', 'Game not found'));
         } else {
           setGame(found);
+          // KS-2772: запоминаем позицию текущей партии в массиве —
+          // backend шлёт `broadcast:move` с этим индексом.
+          setGameIndex(foundIdx);
         }
         setLoading(false);
       })
@@ -183,11 +191,12 @@ export function BroadcastLiveGamePage() {
     [gameId, handleGameUpdate],
   );
 
-  // KS-2701: `broadcast:move` короткий — содержит только новый
-  // currentFen. PGN/clocks дотянутся следующим `sync`. Чтобы не ждать
-  // — обновляем `currentFen` (для немедленной перерисовки доски), а
-  // звук тут не играем (ждём sync с PGN, иначе будет двойной звук
-  // из-за parsePgn'а PGN'а в parsed.fen).
+  // KS-2772: `broadcast:move` короткий — содержит `gameIndex/uci/fen`.
+  // Раньше фильтр был по `whitePlayer/blackPlayer` (хрупкое сравнение
+  // имён), из-за чего ходы для текущей партии иногда не доходили и
+  // позиция «замораживалась». Теперь — строгий фильтр по `gameIndex`
+  // (позиция партии в round.games из initial sync). Звук на move не
+  // проигрываем — следующий `sync` принесёт PGN и звук сыграется там.
   const handleMove = useCallback(
     (payload: {
       gameIndex: number;
@@ -196,22 +205,11 @@ export function BroadcastLiveGamePage() {
       whitePlayer?: string | null;
       blackPlayer?: string | null;
     }) => {
-      // gameIndex — позиция игры в раунде у backend'а; ID нам приходит
-      // только в sync. Поэтому считаем: если `whitePlayer/blackPlayer`
-      // в move совпадают с текущим игроком — это наша игра. Иначе
-      // ждём sync (он точно adresует игру по id).
-      setGame((prev) => {
-        if (!prev) return prev;
-        if (
-          (payload.whitePlayer && payload.whitePlayer !== prev.whitePlayer) ||
-          (payload.blackPlayer && payload.blackPlayer !== prev.blackPlayer)
-        ) {
-          return prev;
-        }
-        return { ...prev, currentFen: payload.fen };
-      });
+      if (gameIndex == null) return;
+      if (payload.gameIndex !== gameIndex) return;
+      setGame((prev) => (prev ? { ...prev, currentFen: payload.fen } : prev));
     },
-    [],
+    [gameIndex],
   );
 
   const { connected } = useBroadcastSocket({
@@ -402,10 +400,24 @@ export function BroadcastLiveGamePage() {
               </span>
             )}
           </div>
+          {/* KS-2772: «LIVE» горит только когда мы реально подписаны
+              на WS-канал раунда. При отсутствии подключения показываем
+              «Reconnecting…» с серой точкой, чтобы пользователь видел
+              что новые ходы могут запаздывать (REST-fallback опросом
+              30s). */}
           {result === null && (
-            <div className="broadcast-live-game__live-pill">
+            <div
+              className={`broadcast-live-game__live-pill${connected ? '' : ' broadcast-live-game__live-pill--offline'}`}
+              data-testid="broadcast-live-pill"
+              data-connected={connected ? 'true' : 'false'}
+            >
               <span className="broadcast-live-game__live-dot" />
-              {t('broadcastLive.live', 'LIVE — ходы приходят автоматически')}
+              {connected
+                ? t('broadcastLive.live', 'LIVE — ходы приходят автоматически')
+                : t(
+                    'broadcastLive.reconnecting',
+                    'Переподключение… ходы догрузим через 30 секунд',
+                  )}
             </div>
           )}
         </div>
