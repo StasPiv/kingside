@@ -1416,6 +1416,7 @@
   "precisionAttempt": {
     "title": "Attempt #{{id}}",
     "notFound": "Attempt not found or no longer available.",
+    "openInWorkshop": "Open in workshop →",
     "summary": {
       "result": "Result",
       "halfMoves": "Half-moves",

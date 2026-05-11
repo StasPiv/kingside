@@ -1430,6 +1430,7 @@
   "precisionAttempt": {
     "title": "Попытка #{{id}}",
     "notFound": "Попытка не найдена или больше недоступна.",
+    "openInWorkshop": "Открыть в мастерской →",
     "summary": {
       "result": "Результат",
       "halfMoves": "Полуходы",

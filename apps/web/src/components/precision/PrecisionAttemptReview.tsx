@@ -248,6 +248,11 @@ export function PrecisionAttemptReview({
               </span>
             );
           }
+          // KS-2754 follow-up: ходы — обычным inline-текстом, без кнопок
+          // с рамкой; NAG (! ?! ? ??) рядом с SAN несёт классификацию.
+          // Оценка хода и «Лучше: …» убраны — оценка живёт на sparkline
+          // вверху страницы (KS-2754 «Динамика WDL»). Клик по ходу
+          // по-прежнему показывает позицию на доске.
           const classModifier = tok.classification
             ? ` precision-attempt-review__move--${tok.classification}`
             : '';
@@ -257,34 +262,29 @@ export function PrecisionAttemptReview({
           return (
             <span
               key={`mv-${i}`}
+              role={tok.isUser ? 'button' : undefined}
+              tabIndex={tok.isUser ? 0 : undefined}
+              onClick={
+                tok.isUser ? () => handleClick(tok.fenBefore) : undefined
+              }
+              onKeyDown={
+                tok.isUser
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleClick(tok.fenBefore);
+                      }
+                    }
+                  : undefined
+              }
               className={`precision-attempt-review__move${userModifier}${classModifier}`}
+              data-testid={`precision-attempt-review-move-${tok.halfIndex}`}
+              data-user={tok.isUser ? 'true' : 'false'}
+              data-classification={tok.classification ?? ''}
+              style={tok.isUser ? { cursor: 'pointer' } : undefined}
             >
-              <button
-                type="button"
-                className="precision-attempt-review__move-btn"
-                onClick={() => handleClick(tok.fenBefore)}
-                data-testid={`precision-attempt-review-move-${tok.halfIndex}`}
-                data-user={tok.isUser ? 'true' : 'false'}
-                data-classification={tok.classification ?? ''}
-              >
-                {tok.san}
-                {tok.nag}
-              </button>
-              {tok.best && (
-                <span
-                  className="precision-attempt-review__best"
-                  data-testid={`precision-attempt-review-best-${tok.halfIndex}`}
-                >
-                  {' '}
-                  (
-                  {t(
-                    'precisionAttempt.review.bestWas',
-                    'Best: {{san}}, {{eval}}',
-                    { san: tok.best.san, eval: tok.best.evalText },
-                  )}
-                  )
-                </span>
-              )}{' '}
+              {tok.san}
+              {tok.nag}{' '}
             </span>
           );
         })}

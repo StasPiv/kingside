@@ -88,16 +88,17 @@ describe('<PrecisionAttemptReview>', () => {
 
     // SAN — 5 ходов (3 user + 2 engine; третий engineUci=null). User
     // ходы с classification='best' идут с NAG=`!`, engine ходы без NAG.
+    // KS-2754 follow-up: после NAG ставим пробел для inline-flow.
     expect(screen.getByTestId('precision-attempt-review-move-0').textContent)
-      .toBe('e4!');
+      .toBe('e4! ');
     expect(screen.getByTestId('precision-attempt-review-move-1').textContent)
-      .toBe('e5');
+      .toBe('e5 ');
     expect(screen.getByTestId('precision-attempt-review-move-2').textContent)
-      .toBe('Nf3!');
+      .toBe('Nf3! ');
     expect(screen.getByTestId('precision-attempt-review-move-3').textContent)
-      .toBe('Nc6');
+      .toBe('Nc6 ');
     expect(screen.getByTestId('precision-attempt-review-move-4').textContent)
-      .toBe('Bc4!');
+      .toBe('Bc4! ');
     // Пятого хода (engine на третий user) нет — engineUci=null.
     expect(screen.queryByTestId('precision-attempt-review-move-5')).toBeNull();
 
@@ -108,7 +109,7 @@ describe('<PrecisionAttemptReview>', () => {
     expect(pgn).toMatch(/3\.\s*Bc4!/);
   });
 
-  it('не-best user-ход → рендерит «Лучше: <SAN>, W/D/L%»', () => {
+  it('не-best user-ход → NAG ?, блок «Лучше» НЕ рендерится (оценка на sparkline)', () => {
     const fen0 = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const moves: PrecisionMoveDto[] = [
       move({
@@ -125,13 +126,15 @@ describe('<PrecisionAttemptReview>', () => {
       <PrecisionAttemptReview initialFen={fen0} moves={moves} userSide="w" />,
     );
 
-    const best = screen.getByTestId('precision-attempt-review-best-0');
-    expect(best).toBeTruthy();
-    expect(best.textContent).toContain('e4');
-    expect(best.textContent).toContain('73/20/7%');
+    // KS-2754 follow-up: «Лучше: …» удалён — оценка перенесена на
+    // sparkline вверху страницы. NAG `?` остался рядом с SAN.
+    expect(screen.queryByTestId('precision-attempt-review-best-0')).toBeNull();
+    expect(
+      screen.getByTestId('precision-attempt-review-move-0').textContent,
+    ).toBe('a3? ');
   });
 
-  it('best user-ход → блок «Лучше» НЕ рендерится', () => {
+  it('best user-ход → нет блока «Лучше», NAG `!` рядом с SAN', () => {
     const fen0 = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const moves: PrecisionMoveDto[] = [
       move({
@@ -148,6 +151,9 @@ describe('<PrecisionAttemptReview>', () => {
     );
 
     expect(screen.queryByTestId('precision-attempt-review-best-0')).toBeNull();
+    expect(
+      screen.getByTestId('precision-attempt-review-move-0').textContent,
+    ).toBe('e4! ');
   });
 
   it('engineUci=null в середине партии → engine-полуход НЕ рисуется', () => {
@@ -180,9 +186,9 @@ describe('<PrecisionAttemptReview>', () => {
 
     // Только 2 user-хода. Engine-полуходов нет.
     expect(screen.getByTestId('precision-attempt-review-move-0').textContent)
-      .toBe('e4!');
+      .toBe('e4! ');
     expect(screen.getByTestId('precision-attempt-review-move-1').textContent)
-      .toBe('Nf3!');
+      .toBe('Nf3! ');
     expect(screen.queryByTestId('precision-attempt-review-move-2')).toBeNull();
   });
 

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type {
   PrecisionAttemptDetail,
+  PrecisionMoveDto,
   PuzzleDto,
 } from '@kingside/shared';
 import { api } from '../api';
@@ -61,6 +62,77 @@ const CLASS_ORDER: MoveClass[] = [
   'blunder',
 ];
 
+/**
+ * KS-2754 follow-up: собираем PGN-строку попытки для открытия в
+ * мастерской / `/analysis/:id`. Старт = `puzzle.fen` через
+ * `[SetUp "1"][FEN "..."]`. Полуходы — пара user playedUci + engineUci
+ * (engineUci может быть null на последнем user-ходе или legacy-попытке;
+ * тогда engine-полуход не добавляется).
+ */
+function buildAttemptPgn(
+  initialFen: string,
+  moves: PrecisionMoveDto[],
+  meta: { event: string; site: string; attemptId: string },
+): string {
+  const c = new Chess(initialFen);
+  const sans: string[] = [];
+  for (const m of moves) {
+    try {
+      const userMv = c.move({
+        from: m.playedUci.slice(0, 2),
+        to: m.playedUci.slice(2, 4),
+        promotion: m.playedUci.length > 4 ? m.playedUci[4] : undefined,
+      });
+      if (!userMv) break;
+      sans.push(userMv.san);
+      if (m.engineUci) {
+        const engineMv = c.move({
+          from: m.engineUci.slice(0, 2),
+          to: m.engineUci.slice(2, 4),
+          promotion:
+            m.engineUci.length > 4 ? m.engineUci[4] : undefined,
+        });
+        if (engineMv) sans.push(engineMv.san);
+      }
+    } catch {
+      break;
+    }
+  }
+  // movetext с нумерацией от исходной позиции (chess.js знает счётчик
+  // полных ходов из FEN-стартового состояния и подставит правильный
+  // префикс через `pgn()`).
+  const headers = [
+    `[Event "${meta.event}"]`,
+    `[Site "${meta.site}"]`,
+    `[Round "${meta.attemptId.slice(0, 8)}"]`,
+    `[Result "*"]`,
+    `[SetUp "1"]`,
+    `[FEN "${initialFen}"]`,
+  ].join('\n');
+  // Chess.js может сам отдать PGN, но он завязан на внутреннее состояние;
+  // здесь нам важна стабильность с initial-FEN, поэтому собираем вручную.
+  // Move-numbering на парсере /analysis восстанавливается из FEN+SAN.
+  const startParts = initialFen.split(' ');
+  const startMvNum = parseInt(startParts[5] || '1', 10);
+  const startIsWhite = startParts[1] === 'w';
+  const movetext: string[] = [];
+  for (let i = 0; i < sans.length; i++) {
+    // Полуход относительно стартовой позиции.
+    const halfFromStart = i; // 0-based
+    const totalHalf = halfFromStart + (startIsWhite ? 0 : 1);
+    const fullMv = startMvNum + Math.floor(totalHalf / 2);
+    const isWhiteHalf = totalHalf % 2 === 0;
+    if (i === 0 && !startIsWhite) {
+      movetext.push(`${fullMv}...`);
+    } else if (isWhiteHalf) {
+      movetext.push(`${fullMv}.`);
+    }
+    movetext.push(sans[i]);
+  }
+  movetext.push('*');
+  return `${headers}\n\n${movetext.join(' ')}`;
+}
+
 function sideFromFen(fen: string): 'w' | 'b' {
   const parts = fen.split(' ');
   return parts[1] === 'b' ? 'b' : 'w';
@@ -71,6 +143,7 @@ export function PrecisionAttemptPage() {
   const { id } = useParams<{ id: string }>();
 
   const [state, setState] = useState<PageState>('loading');
+  const [openingAnalysis, setOpeningAnalysis] = useState(false);
   const [data, setData] = useState<PrecisionAttemptDetail | null>(null);
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [reviewFen, setReviewFen] = useState<string | null>(null);
@@ -180,21 +253,66 @@ export function PrecisionAttemptPage() {
         ? 'preserved'
         : 'lost';
 
-  // Sparkline точек: wdl_user после каждого user-хода.
-  // Backend хранит signed −1..+1; нормируем в [0..1] для отображения
-  // «сверху=победа, снизу=поражение».
-  // KS-2754 follow-up: `wdlAfter` теперь distribution {w,d,l} per-mille
-  // (POV user) после backend-коммита 36a2d0f7 (раньше было signed scalar
-  // [-1..+1]). Превращаем в win-chance [0..1] = w / 1000. Если поле
-  // null (legacy/fallback-движок) — точка пропускается, sparkline
-  // разрывается.
-  const sparkPoints = data.moves.map((m, idx) => ({
-    x: idx + 1,
-    y:
-      m.wdlAfter && typeof m.wdlAfter === 'object'
-        ? Math.max(0, Math.min(1, m.wdlAfter.w / 1000))
-        : null,
-  }));
+  // Sparkline:
+  // - Первая точка = СТАРТ (wdlBefore первого user-хода) — позиция,
+  //   которую дала задача. По ней пользователь видит цель: «удержать
+  //   выигрыш» (если W>>L), «удержать ничью» (D доминирует) и т.п.
+  // - Последующие точки = wdlAfter каждого user-хода (POV user).
+  // Подпись точки = PGN-нотация + W/D/L% (для старта — «Старт»).
+  const firstMove = data.moves[0];
+  type SparkPoint = {
+    label: string;
+    /** y в [0..1] (win-chance), либо null если данных нет — точка
+     *  не рисуется, линия рвётся. */
+    y: number | null;
+  };
+  const startPoint: SparkPoint = (() => {
+    const startWdl =
+      firstMove?.wdlBefore && typeof firstMove.wdlBefore === 'object'
+        ? firstMove.wdlBefore
+        : null;
+    const y = startWdl
+      ? Math.max(0, Math.min(1, startWdl.w / 1000))
+      : null;
+    const wdlText = startWdl
+      ? `${Math.round(startWdl.w / 10)}/${Math.round(startWdl.d / 10)}/${Math.round(startWdl.l / 10)}%`
+      : null;
+    const moveLabel = t('precisionAttempt.sparkline.start', 'Start');
+    return {
+      label: wdlText ? `${moveLabel} — ${wdlText}` : moveLabel,
+      y,
+    };
+  })();
+  const movePoints: SparkPoint[] = data.moves.map((m) => {
+    let san: string = m.playedUci;
+    try {
+      const c = new Chess(m.fenBefore);
+      const mv = c.move({
+        from: m.playedUci.slice(0, 2),
+        to: m.playedUci.slice(2, 4),
+        promotion: m.playedUci.length > 4 ? m.playedUci[4] : undefined,
+      });
+      if (mv) san = mv.san;
+    } catch {
+      /* fallback: показываем UCI */
+    }
+    // KS-2754 follow-up: подпись точки = стандартная PGN-нотация +
+    // полная WDL-тройка из wdlAfter (W/D/L%). Белые: `N. SAN — W/D/L%`,
+    // чёрные: `N... SAN — W/D/L%`. movenum и сторона из FEN.
+    const parts = m.fenBefore.split(' ');
+    const mvNum = parseInt(parts[5] || '1', 10);
+    const isWhite = parts[1] === 'w';
+    const moveLabel = isWhite ? `${mvNum}. ${san}` : `${mvNum}... ${san}`;
+    const wdl = m.wdlAfter && typeof m.wdlAfter === 'object' ? m.wdlAfter : null;
+    // Линия sparkline по win-chance — главная компонента из W/D/L.
+    const y = wdl ? Math.max(0, Math.min(1, wdl.w / 1000)) : null;
+    const wdlText = wdl
+      ? `${Math.round(wdl.w / 10)}/${Math.round(wdl.d / 10)}/${Math.round(wdl.l / 10)}%`
+      : null;
+    const label = wdlText ? `${moveLabel} — ${wdlText}` : moveLabel;
+    return { label, y };
+  });
+  const sparkPoints: SparkPoint[] = [startPoint, ...movePoints];
 
   // Bar-chart distribution: shared-контракт = `classCounts`.
   const totalClassified = CLASS_ORDER.reduce(
@@ -226,6 +344,53 @@ export function PrecisionAttemptPage() {
             id: data.attemptId.slice(0, 8),
           })}
         </h1>
+        {/* KS-2754 follow-up: переход в мастерскую для глубокого
+            анализа разобранной попытки В НОВОЙ ВКЛАДКЕ. Сначала
+            POST /analyses создаёт запись с PGN, затем window.open
+            на /analysis/:id. Кнопка скрыта пока initialFen не пришёл
+            (puzzleApi.getById ещё в полёте) — без него PGN неполный. */}
+        {initialFen && data.moves.length > 0 && (
+          <button
+            type="button"
+            className="precision-attempt-page__open-workshop"
+            data-testid="precision-attempt-open-workshop"
+            disabled={openingAnalysis}
+            onClick={async () => {
+              if (openingAnalysis) return;
+              setOpeningAnalysis(true);
+              const pgn = buildAttemptPgn(initialFen, data.moves, {
+                event: t('precisionAttempt.title', 'Attempt #{{id}}', {
+                  id: data.attemptId.slice(0, 8),
+                }),
+                site: 'kingside.site',
+                attemptId: data.attemptId,
+              });
+              const title = t(
+                'precisionAttempt.title',
+                'Attempt #{{id}}',
+                { id: data.attemptId.slice(0, 8) },
+              );
+              try {
+                const created = await api.post<{ id: string }>(
+                  '/analyses',
+                  { pgn, title, category: 'analysis' },
+                );
+                window.open(`/analysis/${created.id}`, '_blank');
+              } catch {
+                /* ignore — UI не упадёт */
+              } finally {
+                setOpeningAnalysis(false);
+              }
+            }}
+          >
+            {openingAnalysis
+              ? t('common.loading', 'Loading…')
+              : t(
+                  'precisionAttempt.openInWorkshop',
+                  'Open in workshop →',
+                )}
+          </button>
+        )}
       </header>
 
       <section
@@ -280,16 +445,39 @@ export function PrecisionAttemptPage() {
           <h2 className="precision-attempt-page__chart-title">
             {t('precisionAttempt.sparkline.title', 'WDL trajectory')}
           </h2>
-          <svg
-            className="precision-attempt-page__sparkline"
-            viewBox="0 0 100 40"
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={t(
-              'precisionAttempt.sparkline.aria',
-              'WDL trajectory across half-moves',
-            )}
+          {/* Лейаут: подписи оси Y слева, график справа. flex-row. */}
+          <div
+            className="precision-attempt-page__sparkline-wrap"
+            style={{ display: 'flex', alignItems: 'stretch', gap: '0.5rem' }}
           >
+            <div
+              className="precision-attempt-page__sparkline-yaxis"
+              data-testid="precision-attempt-sparkline-yaxis"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                fontSize: '0.7rem',
+                opacity: 0.7,
+                minWidth: '2.5em',
+                textAlign: 'right',
+              }}
+            >
+              <span>100%</span>
+              <span>50%</span>
+              <span>0%</span>
+            </div>
+            <svg
+              className="precision-attempt-page__sparkline"
+              viewBox="0 0 100 40"
+              preserveAspectRatio="none"
+              role="img"
+              style={{ flex: 1 }}
+              aria-label={t(
+                'precisionAttempt.sparkline.aria',
+                'WDL trajectory across half-moves',
+              )}
+            >
             <line
               x1="0"
               y1="20"
@@ -326,7 +514,64 @@ export function PrecisionAttemptPage() {
                 />
               ));
             })()}
-          </svg>
+            {/* KS-2754 follow-up: дискретные точки в каждом полуходе, чтобы
+                на короткой линии (2-4 ходов) было видно где какой ход
+                сидит. preserveAspectRatio="none" растягивает SVG —
+                поэтому рисуем эллипсами, чтобы кружки не сплющивались
+                по X. */}
+            {sparkPoints.map((p, i) => {
+              if (p.y == null) return null;
+              const n = Math.max(1, sparkPoints.length);
+              const x = (i / (n - 1 || 1)) * 100;
+              const y = 40 - p.y * 40;
+              return (
+                <ellipse
+                  key={`pt-${i}`}
+                  cx={x}
+                  cy={y}
+                  rx={1.5}
+                  ry={3}
+                  fill="#4ea1f7"
+                  stroke="#0b1623"
+                  strokeWidth={0.4}
+                  data-testid={`precision-attempt-sparkline-point-${i}`}
+                />
+              );
+            })}
+            </svg>
+          </div>
+          {/* Подписи под точками. Слева оставляем margin под Y-axis. */}
+          <div
+            className="precision-attempt-page__sparkline-labels"
+            data-testid="precision-attempt-sparkline-labels"
+            style={{
+              position: 'relative',
+              height: '1.6em',
+              marginTop: '0.25rem',
+              marginLeft: '3em',
+              fontSize: '0.75rem',
+            }}
+          >
+            {sparkPoints.map((p, i) => {
+              const n = Math.max(1, sparkPoints.length);
+              const left = (i / (n - 1 || 1)) * 100;
+              return (
+                <span
+                  key={`lbl-${i}`}
+                  className="precision-attempt-page__sparkline-label"
+                  data-testid={`precision-attempt-sparkline-label-${i}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${left}%`,
+                    transform: 'translateX(-50%)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {p.label}
+                </span>
+              );
+            })}
+          </div>
         </section>
       )}
 
