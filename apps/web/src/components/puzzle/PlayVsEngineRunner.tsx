@@ -605,15 +605,6 @@ export function PlayVsEngineRunner({
         finishWin('win-engine-resign', effWdlUser, halfAfterUser);
         return;
       }
-      // KS-2754 follow-up: если user-ход уже привёл к WDL ≥ winThreshold —
-      // задача решена ИМЕННО этим ходом, engine-ответ нам уже не нужен
-      // (мы не показываем его в разборе и не сохраняем engineUci в
-      // snapshot последнего user-хода). DTO попытки получает N user + N-1
-      // engine полуходов вместо N+N, как было до фикса.
-      if (effWdlUser >= params.winThreshold) {
-        finishWin('win', effWdlUser, halfAfterUser);
-        return;
-      }
 
       // 3) Применяем engine bestmove.
       setState('engine');
