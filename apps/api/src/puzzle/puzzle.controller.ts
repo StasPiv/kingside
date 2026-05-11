@@ -162,13 +162,16 @@ export class PuzzleController {
     @Query('hideSolved') hideSolved?: string,
     @Query('source') sourceParam?: string,
     @Query('visibility') visibilityParam?: string,
-    // KS-2759. Фильтр сложности через рейтинг игроков партии-источника.
-    // Live JOIN на `archive_games_remote` (FDW из kingside_archive).
-    // Учитывается `max(white_elo, black_elo)` — партия игралась
-    // игроком уровня X+. Lichess/legacy пазлы без `source_id` к этому
-    // фильтру не подходят и при любом значении отсеиваются (INNER JOIN).
-    @Query('playerEloMin') playerEloMinStr?: string,
-    @Query('playerEloMax') playerEloMaxStr?: string,
+    // KS-2761. Фильтр сложности через ELO зевнувшего игрока.
+    // Зевнувшая сторона = side-to-move в `source_metadata.fenBeforeBlunder`
+    // ('w' → whiteElo, 'b' → blackElo). Источник рейтингов — live JOIN
+    // на `archive_games_remote` (postgres_fdw, см. KS-2760).
+    //
+    // Legacy пазлы без `fenBeforeBlunder` или без `source_id` в archive:
+    // `blundererElo = NULL`. При заданном фильтре такие пазлы
+    // отсеиваются автоматически (NULL >= N = false).
+    @Query('blundererEloMin') blundererEloMinStr?: string,
+    @Query('blundererEloMax') blundererEloMaxStr?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -250,29 +253,27 @@ export class PuzzleController {
       params.push(parseInt(ratingMaxStr, 10));
     }
 
-    // KS-2759. Фильтр по рейтингу игроков партии-источника через FDW.
-    // `archive_games_remote` — foreign-table на `kingside_archive.archive_games`
-    // (postgres_fdw, server `archive_srv`, см. KS-2760). Условие
-    // `GREATEST(ag.white_elo, ag.black_elo)` = «партия игралась хотя
-    // бы одним игроком уровня X+». LEFT JOIN — чтобы lichess/legacy
-    // пазлы без `source_id` и без записи в archive_games попадали в
-    // выдачу когда фильтр не задан; при заданном фильтре `AND`
-    // автоматически отсеет NULL.
-    let needFdwJoin = false;
-    if (playerEloMinStr) {
-      const v = parseInt(playerEloMinStr, 10);
+    // KS-2761. Фильтр по ELO зевнувшего: CASE по side-to-move из
+    // `source_metadata.fenBeforeBlunder` ('w'→whiteElo, 'b'→blackElo).
+    // Выражение `blunderer_elo_expr` ниже используется и в SELECT
+    // (response.blundererElo), и при наличии фильтра — в WHERE.
+    const blundererEloExpr = `CASE
+      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'w' THEN ag.white_elo
+      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'b' THEN ag.black_elo
+      ELSE NULL
+    END`;
+    if (blundererEloMinStr) {
+      const v = parseInt(blundererEloMinStr, 10);
       if (Number.isFinite(v)) {
-        conditions.push(`GREATEST(ag.white_elo, ag.black_elo) >= ${next()}`);
+        conditions.push(`${blundererEloExpr} >= ${next()}`);
         params.push(v);
-        needFdwJoin = true;
       }
     }
-    if (playerEloMaxStr) {
-      const v = parseInt(playerEloMaxStr, 10);
+    if (blundererEloMaxStr) {
+      const v = parseInt(blundererEloMaxStr, 10);
       if (Number.isFinite(v)) {
-        conditions.push(`GREATEST(ag.white_elo, ag.black_elo) <= ${next()}`);
+        conditions.push(`${blundererEloExpr} <= ${next()}`);
         params.push(v);
-        needFdwJoin = true;
       }
     }
 
@@ -320,13 +321,14 @@ export class PuzzleController {
     // (white/black/event). Парсинг и сборка — через
     // PuzzleService.buildBrowseEnrichments на этапе маппинга.
     //
-    // KS-2759. JOIN на `archive_games_remote` (FDW) добавляется только
-    // если задан playerElo фильтр — иначе зря дёргать remote-сервер.
-    const fdwJoinClause = needFdwJoin
-      ? 'JOIN archive_games_remote ag ON ag.id::text = p.source_id'
-      : '';
-    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
-      FROM puzzles p ${fdwJoinClause} WHERE ${whereClause}
+    // KS-2761. LEFT JOIN на `archive_games_remote` (postgres_fdw)
+    // всегда: фронту нужен `blundererElo` в карточке каждого PVE-пазла,
+    // не только при заданном фильтре. Для lichess-пазлов
+    // `source_id` не совпадает с UUID `archive_games.id` → JOIN
+    // возвращает NULL → `blundererElo=null` (фронт грейсфолит).
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at, ${blundererEloExpr} AS blunderer_elo${solvedStatusSelect}
+      FROM puzzles p LEFT JOIN archive_games_remote ag ON ag.id::text = p.source_id
+      WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT ${limitPh}`;
 
@@ -347,6 +349,7 @@ export class PuzzleController {
         is_public: boolean;
         created_by: string | null;
         created_at: Date | string;
+        blunderer_elo: number | null;
         solved_status: string | null;
       }>
     >(dataQuery, ...params);
@@ -381,6 +384,10 @@ export class PuzzleController {
             ? p.created_at.toISOString()
             : new Date(p.created_at).toISOString(),
         solvedStatus: p.solved_status ?? null,
+        // KS-2761. ELO зевнувшего из FDW JOIN на archive_games.
+        // null для lichess/legacy (нет source_id в archive_games) и для
+        // пазлов без fenBeforeBlunder.
+        blundererElo: p.blunderer_elo,
         // KS-2754. playVsEngine.blunderMove = UCI зевка; sourceGame =
         // {white, black, event, date, ...}; sourceMoveNum = номер хода
         // в исходной партии. Все три поля опциональны — отсутствуют
