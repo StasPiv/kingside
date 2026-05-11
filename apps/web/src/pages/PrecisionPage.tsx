@@ -132,52 +132,49 @@ export function PrecisionPage() {
       ? Number(playerEloMaxRaw)
       : undefined;
 
-  // KS-2758 follow-up: дебаунс ввода рейтинга. Без него ввод одной
-  // цифры (`2`) сразу триггерит запрос — пользователь не успевает
-  // докончить число (например 2350). Держим draft-state, синкаемся с
-  // URL через setTimeout 400ms. Внешние изменения URL (back/forward
-  // или ссылка) подтягиваются в draft через useEffect синхронно.
-  const [eloMinDraft, setEloMinDraft] = useState<string>(
-    playerEloMinRaw ?? '',
-  );
-  const [eloMaxDraft, setEloMaxDraft] = useState<string>(
-    playerEloMaxRaw ?? '',
-  );
+  // KS-2758 follow-up: uncontrolled-инпуты рейтинга. Если делать
+  // controlled (value=state), setState от каждой набираемой цифры
+  // триггерит re-render всей PrecisionPage (включая 13 досок) — на
+  // глаз это «инпут зависает 1-2 секунды, цифра появляется не сразу».
+  // Ref на DOM-инпут + setTimeout 400ms → URL — никаких React-
+  // рендеров от ввода, инпут отвечает мгновенно. URL-side изменения
+  // (back/forward, шара ссылкой) подтягиваем обратно в input через
+  // useEffect, сравнивая `.value` чтобы не сбить курсор пользователя.
+  const eloMinInputRef = useRef<HTMLInputElement | null>(null);
+  const eloMaxInputRef = useRef<HTMLInputElement | null>(null);
+  const eloMinTimerRef = useRef<number | null>(null);
+  const eloMaxTimerRef = useRef<number | null>(null);
   useEffect(() => {
-    setEloMinDraft(playerEloMinRaw ?? '');
+    const el = eloMinInputRef.current;
+    if (el && el.value !== (playerEloMinRaw ?? '')) {
+      el.value = playerEloMinRaw ?? '';
+    }
   }, [playerEloMinRaw]);
   useEffect(() => {
-    setEloMaxDraft(playerEloMaxRaw ?? '');
+    const el = eloMaxInputRef.current;
+    if (el && el.value !== (playerEloMaxRaw ?? '')) {
+      el.value = playerEloMaxRaw ?? '';
+    }
   }, [playerEloMaxRaw]);
-  // KS-2758 follow-up: дебаунс — синкаем draft в URL через 400ms
-  // после последнего ввода. Невалидные значения (буквы) удаляют
-  // соответствующий параметр; пустая строка тоже удаляет.
+  // Глобальный cleanup таймеров при размонтировании.
   useEffect(() => {
-    const id = window.setTimeout(() => {
+    return () => {
+      if (eloMinTimerRef.current) window.clearTimeout(eloMinTimerRef.current);
+      if (eloMaxTimerRef.current) window.clearTimeout(eloMaxTimerRef.current);
+    };
+  }, []);
+  const debouncedSetElo = useCallback(
+    (param: 'playerEloMin' | 'playerEloMax', raw: string) => {
       const sp = new URLSearchParams(searchParams);
-      const v = eloMinDraft.trim();
-      if (v && /^\d+$/.test(v)) sp.set('playerEloMin', v);
-      else sp.delete('playerEloMin');
+      const v = raw.trim();
+      if (v && /^\d+$/.test(v)) sp.set(param, v);
+      else sp.delete(param);
       if (sp.toString() !== searchParams.toString()) {
         setSearchParams(sp, { replace: true });
       }
-    }, 400);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eloMinDraft]);
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      const sp = new URLSearchParams(searchParams);
-      const v = eloMaxDraft.trim();
-      if (v && /^\d+$/.test(v)) sp.set('playerEloMax', v);
-      else sp.delete('playerEloMax');
-      if (sp.toString() !== searchParams.toString()) {
-        setSearchParams(sp, { replace: true });
-      }
-    }, 400);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eloMaxDraft]);
+    },
+    [searchParams, setSearchParams],
+  );
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -546,31 +543,49 @@ export function PrecisionPage() {
             {t('precision.eloFilter.label', 'Players rating')}
           </span>
           <input
+            ref={eloMinInputRef}
             type="number"
             inputMode="numeric"
             min={0}
             max={4000}
             step={50}
-            value={eloMinDraft}
+            defaultValue={playerEloMinRaw ?? ''}
             placeholder={t('precision.eloFilter.minPlaceholder', 'Min')}
             aria-label={t('precision.eloFilter.minAria', 'Minimum players rating')}
             data-testid="precision-elo-filter-min"
             className="precision-elo-filter__input"
-            onChange={(e) => setEloMinDraft(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (eloMinTimerRef.current) {
+                window.clearTimeout(eloMinTimerRef.current);
+              }
+              eloMinTimerRef.current = window.setTimeout(() => {
+                debouncedSetElo('playerEloMin', v);
+              }, 400);
+            }}
           />
           <span aria-hidden="true">—</span>
           <input
+            ref={eloMaxInputRef}
             type="number"
             inputMode="numeric"
             min={0}
             max={4000}
             step={50}
-            value={eloMaxDraft}
+            defaultValue={playerEloMaxRaw ?? ''}
             placeholder={t('precision.eloFilter.maxPlaceholder', 'Max')}
             aria-label={t('precision.eloFilter.maxAria', 'Maximum players rating')}
             data-testid="precision-elo-filter-max"
             className="precision-elo-filter__input"
-            onChange={(e) => setEloMaxDraft(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (eloMaxTimerRef.current) {
+                window.clearTimeout(eloMaxTimerRef.current);
+              }
+              eloMaxTimerRef.current = window.setTimeout(() => {
+                debouncedSetElo('playerEloMax', v);
+              }, 400);
+            }}
           />
         </div>
         {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
