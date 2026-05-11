@@ -243,8 +243,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.moves[0].playedUci).toBe('e2e4');
   });
 
-  it('win по итогу N полуходов: финальный wdl_user >= winThreshold → win', async () => {
-    // halfMovesN=2: user ход → engine ход → break → final analyze.
+  it('win по итогу N user-ходов: финал ПОСЛЕ N-го user-хода, без engine reply', async () => {
+    // KS-2754 follow-up: новое правило — после N user-ходов финиш без
+    // engine reply (где N = ceil(halfMovesN/2)). halfMovesN=2 → N=1
+    // user-ход. После него: финиш по effWdlUser (≥winThreshold → win).
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -254,16 +256,14 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 2,
       },
     });
-    // 1) После user move: POV engine cp=-300 → wdl_engine≈-0.37, wdl_user≈+0.37 (≥0.0=failThreshold)
-    //    → state=engine, apply bestmove e7e5.
-    // 2) Final analyze (halfMovesPlayed=2 == N): POV user (white) cp=+600 → wdl_user≈+0.64
-    //    → win.
-    // KS-2473: pre-analyze запускается параллельно с post-analyze, FIFO.
+    // 1) Pre-analyze user move 1 — не финал.
+    // 2) Post-analyze позиции после user-хода: POV engine cp=-800
+    //    → wdl_user POV ≈ +0.92 ≥ winThreshold(0.5) → win.
+    //    Engine bestmove НЕ применяется, final analyze не нужен.
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 100 }, ['e2e4'])), // pre-analyze user move 1
-      result(line({ type: 'cp', value: -300 }, ['e7e5'])), // post-analyze 1
-      result(line({ type: 'cp', value: 600 }, ['d2d4'])), // final analyze
+      result(line({ type: 'cp', value: -800 }, ['e7e5'])), // post-analyze 1
     ]);
     const onSubmit = vi.fn();
     const { container } = renderWithProviders(
@@ -277,11 +277,14 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(container.querySelector('[data-testid="puzzle-engine-runner"]')?.getAttribute('data-reason')).toBe('win');
     const arg = onSubmit.mock.calls[0][0];
     expect(arg.solved).toBe(true);
-    expect(arg.halfMovesPlayed).toBe(2);
+    // halfMovesPlayed==1 (только user-ход, без engine reply).
+    expect(arg.halfMovesPlayed).toBe(1);
     expect(arg.finalWdl).toBeGreaterThanOrEqual(0.5);
-    // KS-2739: win-сценарий после N полуходов — moves[] передан
     expect(arg.moves).toHaveLength(1);
     expect(arg.moves[0].playedUci).toBe('e2e4');
+    // KS-2754: engineUci последнего user-хода остаётся null (движок
+    // не отвечал) — задача засчитывается user-ходом.
+    expect(arg.moves[0].engineUci).toBeNull();
   });
 
   it('win-mate: ход игрока ставит мат соперника', async () => {
@@ -751,11 +754,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 2,
       },
     });
+    // KS-2754 follow-up: post-analyze cp=-800 → wdl_user≥winThreshold,
+    // финиш после первого user-хода (target=ceil(2/2)=1) без engine reply.
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
       result(line({ type: 'cp', value: 100 }, ['e2e4'])),
-      result(line({ type: 'cp', value: -300 }, ['e7e5'])),
-      result(line({ type: 'cp', value: 600 }, ['d2d4'])),
+      result(line({ type: 'cp', value: -800 }, ['e7e5'])),
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,

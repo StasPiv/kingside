@@ -605,6 +605,21 @@ export function PlayVsEngineRunner({
         finishWin('win-engine-resign', effWdlUser, halfAfterUser);
         return;
       }
+      // KS-2754 follow-up: задача завершается после N правильных
+      // user-ходов; движок не должен отвечать на последний user-ход.
+      // Источник N: `Math.ceil(params.halfMovesN / 2)` — у дефолтной
+      // PVE-задачи `halfMovesN=6`, что даёт N=3 (3 user + 2 engine).
+      // Backend меняет требование на 4 user-хода → ставит halfMovesN=8
+      // → N=4 (4 user + 3 engine).
+      const userMovesTarget = Math.ceil(params.halfMovesN / 2);
+      if (userBestLogRef.current.length >= userMovesTarget) {
+        if (effWdlUser >= params.winThreshold) {
+          finishWin('win', effWdlUser, halfAfterUser);
+        } else {
+          finishLose('lose-wdl', effWdlUser, halfAfterUser);
+        }
+        return;
+      }
 
       // 3) Применяем engine bestmove.
       setState('engine');
