@@ -109,20 +109,10 @@ const mockBrowseOnce = (data: unknown[]) => {
   });
 };
 
-/**
- * KS-2728: общий fallback для precision/* endpoint'ов в тестах,
- * которые сетают свой mockImplementation. Возвращает «пустые»
- * валидные shape ответы, чтобы новые компоненты не падали.
- */
-const precisionFallback = (url: string): unknown | null => {
-  if (url.startsWith('/precision/attempts/me'))
-    return { items: [], total: 0 };
-  if (url.startsWith('/precision/trends/me'))
-    return { bucket: 'week', points: [] };
-  if (url.startsWith('/precision/breakdowns/me'))
-    return { byPhase: [], byTheme: [] };
-  return null;
-};
+// KS-2746 / ADR-057 F4: precisionFallback (для /precision/attempts/me,
+// /trends/me, /breakdowns/me) удалён вместе с переездом этих блоков
+// в /precision/stats и /precision/history. PrecisionPage эти эндпоинты
+// больше не дёргает.
 
 beforeEach(() => {
   apiGet.mockReset();
@@ -492,8 +482,48 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
   });
 });
 
-describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () => {
-  it('рендерит 4 карточки из /precision/stats/me', async () => {
+/**
+ * KS-2746 / ADR-057 F4. Подробный 4-карточечный блок и toggle
+ * «Скрыть удержанные» удалены с главной /precision:
+ *   - 4 карточки → /precision/stats (KS-2744, тесты PrecisionStatsCards).
+ *   - PrecisionAttemptsList → /precision/history (KS-2745).
+ *   - PrecisionTrendsChart / PrecisionBreakdowns → /precision/stats.
+ *   - toggle hideSolved → встроенные фильтры списка /history.
+ * На главной живут только compact-bar + empty-CTA. Эти тесты ниже.
+ */
+
+describe('<PrecisionPage> KS-2746 F4 — SubNav сверху', () => {
+  it('SubNav рендерится для гостя и для авторизованного, active=«Тренировка»', async () => {
+    mockBrowseOnce(SAMPLE);
+    // Guest.
+    authValue.user = null;
+    const { unmount } = renderWithProviders(<PrecisionPage />, {
+      route: '/precision',
+    });
+    expect(screen.getByTestId('precision-subnav')).toBeTruthy();
+    expect(
+      screen.getByTestId('precision-subnav-training').getAttribute('data-active'),
+    ).toBe('true');
+    // Гостям «Прогресс»/«История» скрыты — это spec PrecisionSubNav.
+    expect(screen.queryByTestId('precision-subnav-progress')).toBeNull();
+    unmount();
+
+    // Auth.
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />, { route: '/precision' });
+    expect(screen.getByTestId('precision-subnav')).toBeTruthy();
+    expect(
+      screen.getByTestId('precision-subnav-progress'),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId('precision-subnav-training').getAttribute('data-active'),
+    ).toBe('true');
+  });
+});
+
+describe('<PrecisionPage> KS-2746 F4 — compact top-bar', () => {
+  it('рендерит 2 метрики + ссылку «Полная статистика →» при totalAttempts > 0', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
@@ -506,37 +536,56 @@ describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () 
           avgHalfMovesUntilFirstMistake: 4.2,
         });
       }
-      const fallback = precisionFallback(url);
-      if (fallback) return Promise.resolve(fallback);
-      return Promise.resolve([]);
+      return Promise.resolve(undefined);
     });
     renderWithProviders(<PrecisionPage />);
-    const block = await waitFor(() => {
-      const el = screen.queryByTestId('precision-stats');
-      if (!el) throw new Error('stats not yet rendered');
+
+    const bar = await waitFor(() => {
+      const el = screen.queryByTestId('precision-compact-stats');
+      if (!el) throw new Error('compact-stats not yet rendered');
       return el;
     });
-    expect(block.getAttribute('data-state')).toBe('ready');
-    expect(block.getAttribute('data-attempts')).toBe('12');
-    expect(block.getAttribute('data-preserved')).toBe('7');
+    expect(bar.getAttribute('data-attempts')).toBe('12');
+    expect(bar.getAttribute('data-preserved')).toBe('7');
+
+    // 2 метрики: точность ~77% и preserved/lost = 7 / 5.
     expect(
-      screen.getByTestId('precision-stats-accuracy').textContent,
+      screen.getByTestId('precision-compact-stats-accuracy').textContent,
     ).toMatch(/77%|76%/);
     expect(
-      screen.getByTestId('precision-stats-preserved').textContent,
-    ).toMatch(/7/);
-    expect(
-      screen.getByTestId('precision-stats-leak').textContent,
-    ).toMatch(/3\.4%/);
-    expect(
-      screen.getByTestId('precision-stats-first-mistake').textContent,
-    ).toMatch(/4\.2/);
+      screen.getByTestId('precision-compact-stats-retained').textContent,
+    ).toContain('7 / 5');
+
+    // Ссылка «Полная статистика →» ведёт на /precision/stats.
+    const link = screen.getByTestId('precision-compact-stats-full-link');
+    expect(link.getAttribute('href')).toBe('/precision/stats');
+
+    // Развёрнутые блоки больше не на главной.
+    expect(screen.queryByTestId('precision-stats')).toBeNull();
+    expect(screen.queryByTestId('precision-attempts')).toBeNull();
+    expect(screen.queryByTestId('precision-trends')).toBeNull();
+    expect(screen.queryByTestId('precision-breakdowns')).toBeNull();
   });
 
-  it('totalAttempts=0 → показывает placeholder', async () => {
+  it('гость → compact-bar и empty-CTA НЕ рендерятся (только сетка)', async () => {
+    authValue.user = null;
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
+      ).toBe('ready'),
+    );
+    expect(screen.queryByTestId('precision-compact-stats')).toBeNull();
+    expect(screen.queryByTestId('precision-empty')).toBeNull();
+  });
+});
+
+describe('<PrecisionPage> KS-2746 F4 — empty-CTA при 0 попыток', () => {
+  it('totalAttempts=0 → empty-CTA с кнопкой «Начать тренировку», compact-bar скрыт', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap([]));
+      if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
       if (url === '/precision/stats/me') {
         return Promise.resolve({
           totalAttempts: 0,
@@ -546,68 +595,77 @@ describe('<PrecisionPage> KS-2719 F2 — top-блок (4 карточки)', () 
           avgHalfMovesUntilFirstMistake: null,
         });
       }
-      const fallback = precisionFallback(url);
-      if (fallback) return Promise.resolve(fallback);
-      return Promise.resolve([]);
+      return Promise.resolve(undefined);
     });
     renderWithProviders(<PrecisionPage />);
-    const block = await waitFor(() => {
-      const el = screen.queryByTestId('precision-stats');
-      if (!el) throw new Error('stats not yet rendered');
+
+    const empty = await waitFor(() => {
+      const el = screen.queryByTestId('precision-empty');
+      if (!el) throw new Error('empty CTA not yet rendered');
       return el;
     });
-    expect(block.getAttribute('data-state')).toBe('empty');
-    expect(
-      screen.getByTestId('precision-stats-placeholder'),
-    ).toBeTruthy();
+    expect(empty).toBeTruthy();
+    expect(screen.queryByTestId('precision-compact-stats')).toBeNull();
+
+    const cta = screen.getByTestId('precision-empty-cta');
+    expect(cta).toBeTruthy();
+    expect(cta.tagName).toBe('BUTTON');
   });
 
-  it('endpoint падает → placeholder (graceful)', async () => {
+  it('endpoint /precision/stats/me падает (graceful) → empty-CTA', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
       if (url === '/precision/stats/me') return Promise.reject(new Error('500'));
-      const fallback = precisionFallback(url);
-      if (fallback) return Promise.resolve(fallback);
-      return Promise.resolve([]);
+      return Promise.resolve(undefined);
     });
     renderWithProviders(<PrecisionPage />);
-    const block = await waitFor(() => {
-      const el = screen.queryByTestId('precision-stats');
-      if (!el) throw new Error('stats not yet rendered');
-      return el;
+    await waitFor(() => {
+      expect(screen.queryByTestId('precision-empty')).toBeTruthy();
     });
-    expect(block.getAttribute('data-state')).toBe('empty');
-    expect(
-      screen.getByTestId('precision-stats-placeholder'),
-    ).toBeTruthy();
   });
-});
 
-describe('<PrecisionPage> KS-2719 F3 — toggle Скрыть удержанные', () => {
-  it('рендерит toggle и пробрасывает hideSolved=true в URL', async () => {
+  it('клик по «Начать тренировку» прокручивает к первой карточке (scrollIntoView)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
       if (url === '/precision/stats/me') {
         return Promise.resolve({
-          totalAttempts: 5,
-          preservedCount: 3,
-          avgAccuracyPercent: 80,
-          avgWdlLeakPerMove: 0.02,
-          avgHalfMovesUntilFirstMistake: 5,
+          totalAttempts: 0,
+          preservedCount: 0,
+          avgAccuracyPercent: null,
+          avgWdlLeakPerMove: null,
+          avgHalfMovesUntilFirstMistake: null,
         });
       }
-      const fallback = precisionFallback(url);
-      if (fallback) return Promise.resolve(fallback);
-      return Promise.resolve([]);
+      return Promise.resolve(undefined);
     });
-    renderWithProviders(<PrecisionPage />);
-    const toggle = await waitFor(() => {
-      const el = screen.queryByTestId('precision-hide-preserved-input');
-      if (!el) throw new Error('toggle not rendered');
-      return el as HTMLInputElement;
-    });
-    expect(toggle.checked).toBe(false);
+
+    // happy-dom: scrollIntoView отсутствует, focus — getter. Используем
+    // vi.spyOn для обоих, он работает поверх обоих случаев.
+    const scrollSpy = vi
+      .spyOn(HTMLElement.prototype, 'scrollIntoView')
+      .mockImplementation(() => {});
+    const focusSpy = vi
+      .spyOn(HTMLElement.prototype, 'focus')
+      .mockImplementation(() => {});
+
+    try {
+      renderWithProviders(<PrecisionPage />);
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
+        ).toBe('ready'),
+      );
+      const cta = await waitFor(() =>
+        screen.getByTestId('precision-empty-cta'),
+      );
+      fireEvent.click(cta);
+      expect(scrollSpy).toHaveBeenCalled();
+      expect(focusSpy).toHaveBeenCalled();
+    } finally {
+      scrollSpy.mockRestore();
+      focusSpy.mockRestore();
+    }
   });
 });

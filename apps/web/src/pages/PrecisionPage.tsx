@@ -15,12 +15,13 @@ import {
   type InfinitePuzzleFilters,
 } from '../hooks/useInfinitePuzzles';
 import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
-// KS-2724 / ADR-056 §2.2: блок «История попыток» — entry-point на
-// /precision/attempts/:id. Раньше detail-страница была недостижима из UI.
-import { PrecisionAttemptsList } from '../components/precision/PrecisionAttemptsList';
-// KS-2728 / ADR-056 §2.3 (Уровень В): тренд accuracy + breakdowns.
-import { PrecisionTrendsChart } from '../components/precision/PrecisionTrendsChart';
-import { PrecisionBreakdowns } from '../components/precision/PrecisionBreakdowns';
+// KS-2746 / ADR-057 §3: общий sub-nav «Тренировка / Прогресс / История»
+// сверху каждой precision-страницы. Подробные блоки статистики
+// (PrecisionAttemptsList / PrecisionTrendsChart / PrecisionBreakdowns)
+// переехали на /precision/stats (KS-2744) и /precision/history (KS-2745)
+// — на главной их больше нет, чтобы сетка позиций была видна на первом
+// экране без скролла.
+import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -108,12 +109,10 @@ export function PrecisionPage() {
   )
     ? visibilityParam
     : undefined;
-  // KS-2719 F3 / ADR-055 §F1. URL-флаг «Скрыть удержанные»: тот же
-  // backend-фильтр `hideSolved=true` (бэкенд отбрасывает попытки, где
-  // юзер удержал преимущество). На UI копия отличается от /puzzles —
-  // там «Скрыть решённые», здесь «Скрыть удержанные» (precision-
-  // лексика: preserved/lost вместо solved/failed).
-  const hideSolvedParam = searchParams.get('hideSolved') === 'true';
+  // KS-2746 / ADR-057 §4: URL-флаг `hideSolved` («Скрыть удержанные»)
+  // переехал в раздел истории — на /precision/history встроенные
+  // фильтры списка «Все / Удержано / Упущено» уже покрывают функционал.
+  // На главной /precision он избыточен и удалён.
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -123,10 +122,9 @@ export function PrecisionPage() {
       source: 'generated',
       mine: mineParam ? true : undefined,
       visibility,
-      hideSolved: hideSolvedParam ? true : undefined,
       limit: LIMIT,
     }),
-    [mineParam, visibility, hideSolvedParam],
+    [mineParam, visibility],
   );
 
   const {
@@ -347,6 +345,24 @@ export function PrecisionPage() {
         ? 'empty'
         : 'ready';
 
+  // KS-2746 / ADR-057 §3.3. CTA «Начать тренировку» в empty-state ведёт
+  // фокус и скролл к первой карточке сетки. Если сетка пустая —
+  // фоллбэк на скролл к самому контейнеру сетки.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const scrollToFirstCard = useCallback(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const firstCard = grid.querySelector<HTMLElement>(
+      '[data-testid="play-vs-engine-card"] [data-testid="play-vs-engine-card-solve"]',
+    );
+    if (firstCard) {
+      firstCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      firstCard.focus();
+    } else {
+      grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
   return (
     <div
       className="play-vs-engine-puzzles"
@@ -355,6 +371,10 @@ export function PrecisionPage() {
       data-mine={mineParam ? 'true' : 'false'}
       data-visibility={visibility ?? 'all'}
     >
+      {/* KS-2746 / ADR-057 §3: SubNav сверху для всех 3 precision-страниц.
+          Активный пункт «Тренировка» вычисляется внутри SubNav по
+          useLocation. */}
+      <PrecisionSubNav />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('precision.title', 'Precision training')}</h1>
         <p className="play-vs-engine-puzzles__intro">
@@ -419,158 +439,90 @@ export function PrecisionPage() {
             </button>
           </nav>
         )}
-        {/* KS-2719 F2 / ADR-056 §2.1: 4-карточечный top-блок precision.
-            Видим только аутентифицированному юзеру (gate `user`).
-            Если backend ещё не вернул данные / у юзера 0 попыток —
-            показываем placeholder «Сыграй первую попытку», а не
-            пустые карточки. */}
+        {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
+            «Полная статистика →» на /precision/stats. Заменяет старый
+            4-карточечный блок, который теперь живёт на /precision/stats
+            (KS-2744). На 1280×800 сетка позиций видна без скролла —
+            ради чего весь рефакторинг.
+            При totalAttempts=0 рендерим empty-CTA «Начать тренировку»
+            (скролл/фокус на первую карточку сетки) вместо нулевых
+            метрик. */}
         {user && (() => {
           const hasData = stats != null && stats.totalAttempts > 0;
-          const fmtAccuracy = (p: number | null) =>
-            p == null ? t('precision.stats.noData', '—') : `${Math.round(p)}%`;
-          const fmtLeak = (l: number | null) => {
-            if (l == null) return t('precision.stats.noData', '—');
-            // ADR-056 §2.1: avgWdlLeakPerMove — доли (0..1) среднего
-            // снижения WDL_user за полуход. На UI крупная цифра в %
-            // (понятнее «4%» чем «0.04»).
-            return `${(l * 100).toFixed(1)}%`;
-          };
-          const fmtFirstMistake = (n: number | null) =>
-            n == null ? t('precision.stats.noData', '—') : n.toFixed(1);
+          if (!hasData) {
+            return (
+              <div
+                className="precision-empty"
+                data-testid="precision-empty"
+              >
+                <p className="precision-empty__title">
+                  {t('precision.empty.title', "You don't have any attempts yet.")}
+                </p>
+                <button
+                  type="button"
+                  className="precision-empty__cta"
+                  data-testid="precision-empty-cta"
+                  onClick={scrollToFirstCard}
+                >
+                  {t('precision.empty.cta', 'Start training')}
+                </button>
+              </div>
+            );
+          }
+          const accuracyText =
+            stats!.avgAccuracyPercent == null
+              ? t('precision.stats.noData', '—')
+              : `${Math.round(stats!.avgAccuracyPercent)}%`;
+          const lostCount = Math.max(
+            0,
+            stats!.totalAttempts - stats!.preservedCount,
+          );
           return (
             <div
-              className="precision-stats"
-              data-testid="precision-stats"
-              data-state={hasData ? 'ready' : 'empty'}
-              data-attempts={String(stats?.totalAttempts ?? 0)}
-              data-preserved={String(stats?.preservedCount ?? 0)}
+              className="precision-compact-stats"
+              data-testid="precision-compact-stats"
+              data-attempts={String(stats!.totalAttempts)}
+              data-preserved={String(stats!.preservedCount)}
             >
-              {!hasData && (
-                <p
-                  className="precision-stats__placeholder"
-                  data-testid="precision-stats-placeholder"
-                >
-                  {t('precision.stats.placeholder', 'Play your first attempt')}
-                </p>
-              )}
-              {hasData && stats && (
-                <>
-                  <div
-                    className="precision-stats__cell"
-                    data-testid="precision-stats-accuracy"
-                  >
-                    <div className="precision-stats__value">
-                      {fmtAccuracy(stats.avgAccuracyPercent)}
-                    </div>
-                    <div className="precision-stats__label">
-                      {t('precision.stats.avgAccuracy', 'Move accuracy')}
-                    </div>
-                    <div className="precision-stats__hint">
-                      {t(
-                        'precision.stats.avgAccuracyHint',
-                        'Average accuracy across all attempts',
-                      )}
-                    </div>
-                  </div>
-                  <div
-                    className="precision-stats__cell"
-                    data-testid="precision-stats-preserved"
-                  >
-                    <div className="precision-stats__value">
-                      {stats.preservedCount} / {Math.max(0, stats.totalAttempts - stats.preservedCount)}
-                    </div>
-                    <div className="precision-stats__label">
-                      {t(
-                        'precision.stats.preservedRatio',
-                        'Preserved / Lost',
-                      )}
-                    </div>
-                    <div className="precision-stats__hint">
-                      {stats.totalAttempts > 0
-                        ? `${Math.round((stats.preservedCount / stats.totalAttempts) * 100)}%`
-                        : t('precision.stats.noData', '—')}
-                    </div>
-                  </div>
-                  <div
-                    className="precision-stats__cell"
-                    data-testid="precision-stats-leak"
-                  >
-                    <div className="precision-stats__value">
-                      {fmtLeak(stats.avgWdlLeakPerMove)}
-                    </div>
-                    <div className="precision-stats__label">
-                      {t('precision.stats.wdlLeak', 'WDL leak per move')}
-                    </div>
-                    <div className="precision-stats__hint">
-                      {t(
-                        'precision.stats.wdlLeakHint',
-                        'Average drop in winning chances per half-move',
-                      )}
-                    </div>
-                  </div>
-                  <div
-                    className="precision-stats__cell"
-                    data-testid="precision-stats-first-mistake"
-                  >
-                    <div className="precision-stats__value">
-                      {fmtFirstMistake(stats.avgHalfMovesUntilFirstMistake)}
-                    </div>
-                    <div className="precision-stats__label">
-                      {t(
-                        'precision.stats.untilFirstMistake',
-                        'Until first mistake',
-                      )}
-                    </div>
-                    <div className="precision-stats__hint">
-                      {t(
-                        'precision.stats.untilFirstMistakeHint',
-                        'Average number of accurate moves before the first inaccuracy',
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
+              <div
+                className="precision-compact-stats__cell"
+                data-testid="precision-compact-stats-accuracy"
+              >
+                <span className="precision-compact-stats__value">
+                  {accuracyText}
+                </span>
+                <span className="precision-compact-stats__label">
+                  {t('precision.compactStats.accuracy', 'Move accuracy')}
+                </span>
+              </div>
+              <div
+                className="precision-compact-stats__cell"
+                data-testid="precision-compact-stats-retained"
+              >
+                <span className="precision-compact-stats__value">
+                  {stats!.preservedCount} / {lostCount}
+                </span>
+                <span className="precision-compact-stats__label">
+                  {t(
+                    'precision.compactStats.retainedLost',
+                    'Preserved / Lost',
+                  )}
+                </span>
+              </div>
+              <Link
+                to="/precision/stats"
+                className="precision-compact-stats__full-link"
+                data-testid="precision-compact-stats-full-link"
+              >
+                {t(
+                  'precision.compactStats.fullStatsLink',
+                  'Full statistics →',
+                )}
+              </Link>
             </div>
           );
         })()}
-        {/* KS-2719 F3 / ADR-055 §F1. Toggle «Скрыть удержанные» —
-            переиспользует backend-фильтр `hideSolved=true`. На /puzzles
-            копия «Скрыть решённые», здесь — «Скрыть удержанные»
-            (precision-лексика). Видим только аутентифицированному
-            юзеру: гостям /precision/attempts JOIN не делает. */}
-        {user && (
-          <label
-            className="precision-hide-preserved"
-            data-testid="precision-hide-preserved"
-          >
-            <input
-              type="checkbox"
-              checked={hideSolvedParam}
-              onChange={(e) => {
-                const sp = new URLSearchParams(searchParams);
-                if (e.target.checked) sp.set('hideSolved', 'true');
-                else sp.delete('hideSolved');
-                setSearchParams(sp, { replace: false });
-              }}
-              data-testid="precision-hide-preserved-input"
-            />
-            {t('precision.hidePreserved', 'Hide preserved')}
-          </label>
-        )}
       </header>
-
-      {/* KS-2724 / ADR-056 §2.2: история попыток. Только для
-          залогиненного юзера — гостям endpoint вернёт 401. Гости видят
-          сразу сетку пазлов. Блок сам управляет своим loading/error/
-          empty-состоянием. */}
-      {user && <PrecisionAttemptsList />}
-
-      {/* KS-2728 / ADR-056 §2.3 (Уровень В): тренд accuracy + breakdowns.
-          Только аутентифицированному юзеру. Каждый блок сам тянет свой
-          endpoint (`/precision/trends/me?bucket=`, `/precision/breakdowns/me`)
-          и грейсфолит независимо. */}
-      {user && <PrecisionTrendsChart />}
-      {user && <PrecisionBreakdowns />}
 
       {pageState === 'loading' && (
         <p
@@ -601,7 +553,7 @@ export function PrecisionPage() {
           data-testid="play-vs-engine-empty"
         >
           {t(
-            'precision.empty',
+            'precision.gridEmpty',
             'No play-vs-engine puzzles yet — the generator is still filling the bank. Check back soon.',
           )}
         </p>
@@ -611,7 +563,11 @@ export function PrecisionPage() {
           локализованный `showToast` (см. handlePublish/handleDelete). */}
 
       {pageState === 'ready' && (
-        <div className="play-vs-engine-puzzles__list">
+        <div
+          className="play-vs-engine-puzzles__list"
+          ref={gridRef}
+          data-testid="play-vs-engine-puzzles-list"
+        >
           {puzzles.map((p: BrowsePuzzleDto) => {
             const orientation = sideFromFen(p.fen);
             // KS-2668: backend кладёт владельца в `createdBy`
