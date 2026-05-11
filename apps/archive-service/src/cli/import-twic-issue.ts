@@ -41,6 +41,7 @@ import {
   buildLockValue,
   resolveLockTimings,
 } from '../archive-import/archive-import-lock';
+import { triggerPveGeneration } from '../archive-import/trigger-pve-generation';
 import { randomUUID } from 'node:crypto';
 
 const PROGRESS_TAG = '[cli:import-twic-issue]';
@@ -257,6 +258,22 @@ export async function runImportTwicIssue(
           `${PROGRESS_TAG} redis publish failed (cache will TTL-expire): ${msg}`,
         );
       }
+    }
+
+    // KS-2775. Авто-триггер PVE-генерации после успешного импорта.
+    // Условия: status='ok'|'partial', есть importId, gamesAdded>0
+    // (без новых партий пазлы делать не на чем), feature-flag
+    // `AUTO_TRIGGER_PVE_GEN=true`. Сбой триггера НЕ блокирует импорт
+    // (best-effort, см. trigger-pve-generation.ts).
+    if (
+      (result.status === 'ok' || result.status === 'partial') &&
+      result.importId &&
+      result.gamesAdded > 0
+    ) {
+      await triggerPveGeneration({
+        importId: result.importId,
+        logger,
+      });
     }
 
     return result;
