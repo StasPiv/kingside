@@ -134,11 +134,17 @@ export function Sidebar() {
   // KS-2622: «Мои курсы» только для залогиненных.
   const { user } = useAuth();
 
-  // KS-2650: пункт «Lessons» теперь покрывает все подмаршруты
-  // `/lessons*` без исключений (включая `/lessons/my` который
-  // редиректит на `/lessons?tab=mine`).
+  // KS-2790: строгое path-segment совпадение. Прежний `startsWith`
+  // ловил `/puzzle-rush` как match для `/puzzle` → на странице
+  // /puzzle-rush подсвечивались сразу два пункта (Puzzles + Puzzle
+  // Rush). Теперь префикс считается совпадением только если
+  // pathname либо ровно равен ему, либо начинается с `<prefix>/`
+  // (т.е. след. символ — `/`, разделитель segment'а). MobileBottomBar
+  // уже использует тот же приём.
   const isActive = (_path: string, match: string[]) =>
-    match.some((p) => location.pathname.startsWith(p));
+    match.some(
+      (p) => location.pathname === p || location.pathname.startsWith(p + '/'),
+    );
 
   const visibleItems = NAV_ITEMS.filter((it) => {
     if (it.featureFlag && !flags[it.featureFlag]) return false;

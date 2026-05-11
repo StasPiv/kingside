@@ -58,6 +58,17 @@ vi.mock('../hooks/useAdminStatus', () => ({
   useAdminStatus: () => ({ isAdmin: adminControls.isAdmin, loading: false }),
 }));
 
+// KS-2790: Sidebar читает `useAuth().user` для authOnly-пунктов.
+// Без мока useAuth() бросает «must be used within AuthProvider», и
+// весь suite падает (часть pre-existing tech-debt KS-2773).
+const authControls: { user: { id: string; username: string } | null } = {
+  user: { id: 'u1', username: 'tester' },
+};
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: authControls.user, loading: false }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 import { Sidebar } from './Sidebar';
 
 beforeEach(() => {
@@ -168,6 +179,31 @@ describe('<Sidebar>', () => {
     // Дополнительно: 💬 нигде не должно быть в Sidebar (ChatWidget — отдельный
     // компонент в MainLayout, и под `assistantEnabled=false` он null).
     expect(btn).not.toHaveTextContent('💬');
+  });
+
+  it('KS-2790: на /puzzle-rush подсвечен только Puzzle Rush, не Puzzles', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
+    const rush = screen.getByTitle(/puzzle rush|paid rush/i);
+    expect(rush.className).toContain('sidebar-item--active');
+    const puzzles = screen.getByTitle(/^puzzles$|задачи/i);
+    expect(puzzles.className).not.toContain('sidebar-item--active');
+  });
+
+  it('KS-2790: на /puzzle/abc подсвечен Puzzles (single-puzzle страница)', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/puzzle/abc-123' });
+    const puzzles = screen.getByTitle(/^puzzles$|задачи/i);
+    expect(puzzles.className).toContain('sidebar-item--active');
+    const rush = screen.getByTitle(/puzzle rush|paid rush/i);
+    expect(rush.className).not.toContain('sidebar-item--active');
+  });
+
+  it('KS-2790: на /precision/stats подсвечен Precision (вложенный путь)', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/precision/stats' });
+    const precision = screen.getByTitle(/precision|тренировка точности/i);
+    expect(precision.className).toContain('sidebar-item--active');
   });
 
   it('KS-2109: пункт «Админка» виден ТОЛЬКО админам', () => {
