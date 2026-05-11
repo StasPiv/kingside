@@ -410,6 +410,11 @@ async function processGame(
       solutionMode: options.solutionMode,
       sourceMetadata: JSON.stringify({
         blunderMove: sc.task.playedUci,
+        // KS-2754. FEN позиции ДО зевка — нужен фронту чтобы собрать
+        // SAN зевка (`apply(blunderMove, fenBeforeBlunder)` через
+        // chess.js → SAN). На puzzle.fen (= fenAfter зевка) ход уже
+        // применён, undo без истории невозможен.
+        fenBeforeBlunder: sc.task.fenBefore,
         wdlBeforeBlunder: round3(sc.wdlBefore),
         wdlAfterBlunder: round3(sc.wdlAfterForSolver),
         blunderDelta: round3(sc.blunderDelta),

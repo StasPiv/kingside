@@ -31,6 +31,12 @@ export interface PlayVsEngineDto {
   /** KS-2524: полные WDL-объекты per-mille. Опциональные (legacy). */
   wdlBefore?: { w: number; d: number; l: number };
   wdlAfter?: { w: number; d: number; l: number };
+  /**
+   * KS-2754. FEN позиции ДО зевка. Нужен фронту, чтобы собрать
+   * SAN зевка через chess.js (`apply(blunderMove, fenBeforeBlunder)`).
+   * Отсутствует у legacy-пазлов до KS-2754 — фронт грейсфолит.
+   */
+  fenBeforeBlunder?: string;
 }
 
 /**
@@ -1196,6 +1202,14 @@ export class PuzzleService {
       // фронт fallback'ом смотрит на `wdlAfterBlunder` (signed).
       const wdlBefore = parseWdlObject(meta.wdlBefore);
       const wdlAfter = parseWdlObject(meta.wdlAfter);
+      // KS-2754. FEN позиции до зевка для рендера SAN зевка на фронте.
+      // Legacy-пазлы до KS-2754 поле не имеют — undefined, фронт
+      // показывает только UCI/символ.
+      const fenBeforeBlunder =
+        typeof meta.fenBeforeBlunder === 'string' &&
+        meta.fenBeforeBlunder.length > 0
+          ? meta.fenBeforeBlunder
+          : undefined;
       return {
         solutionMode: 'play-vs-engine',
         playVsEngine: {
@@ -1206,6 +1220,7 @@ export class PuzzleService {
           halfMovesN,
           ...(wdlBefore ? { wdlBefore } : {}),
           ...(wdlAfter ? { wdlAfter } : {}),
+          ...(fenBeforeBlunder ? { fenBeforeBlunder } : {}),
         },
       };
     } catch (e) {
