@@ -112,24 +112,13 @@ export function BroadcastLiveGamePage() {
 
   const [broadcast, setBroadcast] = useState<BroadcastMeta | null>(null);
   const [round, setRound] = useState<LichessRound | null>(null);
-  // KS-2772 follow-up: храним весь массив games (а не только current).
-  // gameIndex считается из него через useMemo — при изменении games
-  // (через WS sync, например порядок переехал) индекс пересчитается.
-  // Раньше gameIndex был setState один раз в initial fetch, и при
-  // gameId=undefined ловил -1 навсегда → handleMove всё отбрасывал.
-  const [games, setGames] = useState<LiveGame[]>([]);
+  // KS-2772 follow-up²: вернулись к single-game state. Попытка с games[]
+  // + useMemo gameIndex (f145bdc9) ломалась на реальном prod-payload —
+  // в `broadcast:sync` нет поля `id` у game'ов, find по id давал null
+  // и render падал в fallback «Не удалось загрузить трансляции».
+  const [game, setGame] = useState<LiveGame | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  // Текущая партия + её index — реактивно из games.
-  const game = useMemo<LiveGame | null>(
-    () => games.find((g) => g.id === gameId) ?? null,
-    [games, gameId],
-  );
-  const gameIndex = useMemo<number>(
-    () => games.findIndex((g) => g.id === gameId),
-    [games, gameId],
-  );
 
   // Initial fetch: meta + round + games (нужен round.name для breadcrumb).
   useEffect(() => {
@@ -152,12 +141,13 @@ export function BroadcastLiveGamePage() {
         if (cancelled) return;
         const rounds = Array.isArray(roundsRes?.data) ? roundsRes.data : [];
         const freshGames = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
-        const found = freshGames.some((g) => g.id === gameId);
+        const found = freshGames.find((g) => g.id === gameId) ?? null;
         setBroadcast(meta);
         setRound(rounds.find((r) => r.id === roundId) ?? null);
-        setGames(freshGames);
         if (!found) {
           setError(t('broadcastLive.notFound', 'Game not found'));
+        } else {
+          setGame(found);
         }
         setLoading(false);
       })
@@ -186,57 +176,57 @@ export function BroadcastLiveGamePage() {
   //      (потеря интернета, рестарт backend). Когда `connected=true`
   //      polling выключается.
   const prevPgnRef = useRef<string>('');
-  // KS-2772 follow-up: при sync полностью заменяем games массив. Так
-  // gameIndex (useMemo по games+gameId) реактивно подцепляется, даже
-  // если backend поменял порядок партий в раунде. Звук играем по факту
-  // удлинения PGN текущей партии.
-  const handleSync = useCallback(
-    (payload: { games: LiveGame[] }) => {
-      const list = Array.isArray(payload.games) ? payload.games : [];
-      const fresh = list.find((g) => g.id === gameId);
-      if (fresh) {
-        const prevLen = prevPgnRef.current.length;
-        const curLen = fresh.pgn?.length ?? 0;
-        if (curLen > prevLen && fresh.pgn) {
-          try {
-            const chess = new Chess();
-            if (loadPgnSafe(chess, fresh.pgn)) {
-              const hist = chess.history();
-              const lastSan = hist.length ? hist[hist.length - 1] : null;
-              if (lastSan) playSound(soundEventFromSan(lastSan));
-            }
-          } catch {
-            /* звук не критичен */
+
+  /**
+   * KS-2772 (backend `:2211b569`): теперь `id` приходит во ВСЕХ payload —
+   * и `broadcast:sync.games[]`, и `broadcast:move`. Матчинг строго по
+   * `id`, `gameIndex` информативный (разные счётчики в sync и move).
+   */
+  const updateCurrentGame = useCallback(
+    (fresh: LiveGame) => {
+      const prevLen = prevPgnRef.current.length;
+      const curLen = fresh.pgn?.length ?? 0;
+      if (curLen > prevLen && fresh.pgn) {
+        try {
+          const chess = new Chess();
+          if (loadPgnSafe(chess, fresh.pgn)) {
+            const hist = chess.history();
+            const lastSan = hist.length ? hist[hist.length - 1] : null;
+            if (lastSan) playSound(soundEventFromSan(lastSan));
           }
+        } catch {
+          /* звук не критичен */
         }
-        prevPgnRef.current = fresh.pgn ?? '';
       }
-      setGames(list);
+      prevPgnRef.current = fresh.pgn ?? '';
+      setGame(fresh);
     },
-    [gameId, playSound],
+    [playSound],
   );
 
-  // KS-2772: фильтр broadcast:move по gameIndex (позиция в games[]).
-  // gameIndex вычисляется реактивно через useMemo — пересчитается
-  // на любое обновление games. Обновляем currentFen внутри games,
-  // useMemo `game` подхватит.
+  const handleSync = useCallback(
+    (payload: { games?: LiveGame[] } | null | undefined) => {
+      const list = Array.isArray(payload?.games) ? payload!.games : [];
+      if (list.length === 0) return; // пустой sync — игнор, не валим state
+      const fresh = list.find((g) => g.id === gameId);
+      if (fresh) updateCurrentGame(fresh);
+    },
+    [gameId, updateCurrentGame],
+  );
+
   const handleMove = useCallback(
     (payload: {
       gameIndex: number;
+      id?: string | null;
       uci: string;
       fen: string;
       whitePlayer?: string | null;
       blackPlayer?: string | null;
     }) => {
-      if (gameIndex < 0) return;
-      if (payload.gameIndex !== gameIndex) return;
-      setGames((prev) =>
-        prev.map((g, i) =>
-          i === payload.gameIndex ? { ...g, currentFen: payload.fen } : g,
-        ),
-      );
+      if (payload.id !== gameId) return;
+      setGame((prev) => (prev ? { ...prev, currentFen: payload.fen } : prev));
     },
-    [gameIndex],
+    [gameId],
   );
 
   const { connected } = useBroadcastSocket({
@@ -264,29 +254,9 @@ export function BroadcastLiveGamePage() {
         .then((res) => {
           if (cancelled) return;
           const list = Array.isArray(res?.data) ? res.data : [];
-          // KS-2772 follow-up: REST-fallback тоже обновляет полный
-          // массив games — gameIndex (useMemo) пересчитается, если
-          // что-то сдвинулось. Звук — по факту удлинения PGN своей
-          // партии.
+          // REST полный: id есть, ищем по нему.
           const fresh = list.find((g) => g.id === gameId);
-          if (fresh) {
-            const prevLen = prevPgnRef.current.length;
-            const curLen = fresh.pgn?.length ?? 0;
-            if (curLen > prevLen && fresh.pgn) {
-              try {
-                const chess = new Chess();
-                if (loadPgnSafe(chess, fresh.pgn)) {
-                  const hist = chess.history();
-                  const lastSan = hist.length ? hist[hist.length - 1] : null;
-                  if (lastSan) playSound(soundEventFromSan(lastSan));
-                }
-              } catch {
-                /* звук не критичен */
-              }
-            }
-            prevPgnRef.current = fresh.pgn ?? '';
-          }
-          setGames(list);
+          if (fresh) updateCurrentGame(fresh);
         })
         .catch(() => {});
     };
@@ -303,7 +273,7 @@ export function BroadcastLiveGamePage() {
     round,
     game,
     connected,
-    playSound,
+    updateCurrentGame,
   ]);
 
   const parsed = useMemo<ParsedPgn>(
@@ -350,10 +320,25 @@ export function BroadcastLiveGamePage() {
   };
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (error || !broadcast || !game) {
+  // KS-2772 follow-up²: реальная ошибка (`error`) или отсутствующий
+  // broadcast (initial-fetch упал) — показываем error-fallback. А вот
+  // `!game` при загруженном broadcast — это transient state (sync
+  // прилетел без нашей партии, очередной sync через пару секунд её
+  // вернёт). Не глобальный error, а skeleton.
+  if (error || !broadcast) {
     return (
       <div className="error">
         {error || t('broadcasts.error', 'Failed to load broadcast')}
+      </div>
+    );
+  }
+  if (!game) {
+    return (
+      <div
+        className="loading"
+        data-testid="broadcast-live-game-skeleton"
+      >
+        {t('common.loading', 'Loading…')}
       </div>
     );
   }

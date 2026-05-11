@@ -160,16 +160,16 @@ describe('<BroadcastLiveGamePage> KS-2772', () => {
     expect(socketState.captured?.roundId).toBe(RID);
   });
 
-  it('broadcast:move с правильным gameIndex обновляет currentFen', async () => {
+  it('broadcast:move с нашим id → обновляет currentFen', async () => {
     renderWithProviders(<BroadcastLiveGamePage />);
     await waitFor(() => {
       expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
     });
-    // gameId='g2' → index=1.
     const newFen = '8/8/8/4k3/4K3/8/8/8 w - - 0 50';
     socketState.captured?.onMove?.({
-      roundId: 'r1',
-      gameIndex: 1,
+      roundId: RID,
+      id: G2,
+      gameIndex: 0,
       uci: 'e2e4',
       fen: newFen,
     });
@@ -182,7 +182,7 @@ describe('<BroadcastLiveGamePage> KS-2772', () => {
     });
   });
 
-  it('broadcast:move с чужим gameIndex игнорируется', async () => {
+  it('broadcast:move с чужим id игнорируется', async () => {
     renderWithProviders(<BroadcastLiveGamePage />);
     await waitFor(() => {
       expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
@@ -191,13 +191,94 @@ describe('<BroadcastLiveGamePage> KS-2772', () => {
       .getByTestId('chessboard-mock')
       .getAttribute('data-position');
     socketState.captured?.onMove?.({
-      roundId: 'r1',
-      gameIndex: 0, // чужой
+      roundId: RID,
+      id: G1,
+      gameIndex: 0,
       uci: 'e2e4',
       fen: 'foreign-fen-should-be-ignored',
     });
-    // Спустя короткое время позиция НЕ должна поменяться.
     await new Promise((r) => setTimeout(r, 50));
+    expect(
+      screen
+        .getByTestId('chessboard-mock')
+        .getAttribute('data-position'),
+    ).toBe(before);
+  });
+
+  it('broadcast:sync с нашим id обновляет currentFen', async () => {
+    renderWithProviders(<BroadcastLiveGamePage />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
+    });
+    // chess.js нормализует en-passant поле в `-` если ход недоступен.
+    const syncFen =
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    socketState.captured?.onSync?.({
+      games: [
+        {
+          id: G1,
+          whitePlayer: 'A',
+          blackPlayer: 'B',
+          pgn: '1. e4',
+          currentFen: 'fen-A',
+        } as unknown as BroadcastGameSummary,
+        {
+          id: G2,
+          whitePlayer: 'C',
+          blackPlayer: 'D',
+          pgn: '1. e4',
+          currentFen: syncFen,
+        } as unknown as BroadcastGameSummary,
+      ],
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('chessboard-mock')
+          .getAttribute('data-position'),
+      ).toBe(syncFen);
+    });
+  });
+
+  it('broadcast:sync с пустым games не валит state', async () => {
+    renderWithProviders(<BroadcastLiveGamePage />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
+    });
+    const before = screen
+      .getByTestId('chessboard-mock')
+      .getAttribute('data-position');
+    socketState.captured?.onSync?.({ games: [] });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
+    expect(
+      screen
+        .getByTestId('chessboard-mock')
+        .getAttribute('data-position'),
+    ).toBe(before);
+  });
+
+  it('broadcast:sync без нашего id (partial) не валит state', async () => {
+    renderWithProviders(<BroadcastLiveGamePage />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
+    });
+    const before = screen
+      .getByTestId('chessboard-mock')
+      .getAttribute('data-position');
+    socketState.captured?.onSync?.({
+      games: [
+        {
+          id: G1,
+          whitePlayer: 'A',
+          blackPlayer: 'B',
+          pgn: '',
+          currentFen: 'foreign',
+        } as unknown as BroadcastGameSummary,
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
     expect(
       screen
         .getByTestId('chessboard-mock')
