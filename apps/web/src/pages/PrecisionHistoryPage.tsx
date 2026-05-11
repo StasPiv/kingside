@@ -105,7 +105,7 @@ export function PrecisionHistoryPage() {
         </section>
       )}
 
-      {!isGuest && <PrecisionAttemptsList />}
+      {!isGuest && <PrecisionAttemptsList hideTitle />}
     </div>
   );
 }

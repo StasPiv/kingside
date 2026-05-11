@@ -44,9 +44,21 @@ export interface PrecisionAttemptsListProps {
   fetcher?: (
     url: string,
   ) => Promise<PrecisionAttemptsListResponse>;
+  /**
+   * KS-2745 follow-up: на `/precision/history` страница рендерит свой
+   * `<h1>` («История попыток»), и внутренний `<h2>` списка с тем же
+   * текстом превращается в дубль. Опциональный флаг прячет внутренний
+   * заголовок без потери `data-state`-aware DOM (loading/error/empty
+   * остаются на месте). По умолчанию `false` — там, где список
+   * стоит сам по себе, заголовок остаётся.
+   */
+  hideTitle?: boolean;
 }
 
-export function PrecisionAttemptsList({ fetcher }: PrecisionAttemptsListProps = {}) {
+export function PrecisionAttemptsList({
+  fetcher,
+  hideTitle = false,
+}: PrecisionAttemptsListProps = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -115,9 +127,11 @@ export function PrecisionAttemptsList({ fetcher }: PrecisionAttemptsListProps = 
         data-testid="precision-attempts"
         data-state="loading"
       >
-        <h2 className="precision-attempts__title">
-          {t('precisionAttempts.title', 'Attempt history')}
-        </h2>
+        {!hideTitle && (
+          <h2 className="precision-attempts__title">
+            {t('precisionAttempts.title', 'Attempt history')}
+          </h2>
+        )}
         <ul className="precision-attempts__list">
           {[0, 1, 2].map((i) => (
             <li
@@ -138,9 +152,11 @@ export function PrecisionAttemptsList({ fetcher }: PrecisionAttemptsListProps = 
         data-testid="precision-attempts"
         data-state="error"
       >
-        <h2 className="precision-attempts__title">
-          {t('precisionAttempts.title', 'Attempt history')}
-        </h2>
+        {!hideTitle && (
+          <h2 className="precision-attempts__title">
+            {t('precisionAttempts.title', 'Attempt history')}
+          </h2>
+        )}
         <p className="precision-attempts__error">
           {t(
             'precisionAttempts.loadError',
@@ -166,9 +182,11 @@ export function PrecisionAttemptsList({ fetcher }: PrecisionAttemptsListProps = 
         data-testid="precision-attempts"
         data-state="empty"
       >
-        <h2 className="precision-attempts__title">
-          {t('precisionAttempts.title', 'Attempt history')}
-        </h2>
+        {!hideTitle && (
+          <h2 className="precision-attempts__title">
+            {t('precisionAttempts.title', 'Attempt history')}
+          </h2>
+        )}
         <p
           className="precision-attempts__empty"
           data-testid="precision-attempts-empty"
@@ -190,9 +208,11 @@ export function PrecisionAttemptsList({ fetcher }: PrecisionAttemptsListProps = 
       data-loaded={String(items.length)}
     >
       <header className="precision-attempts__header">
-        <h2 className="precision-attempts__title">
-          {t('precisionAttempts.title', 'Attempt history')}
-        </h2>
+        {!hideTitle && (
+          <h2 className="precision-attempts__title">
+            {t('precisionAttempts.title', 'Attempt history')}
+          </h2>
+        )}
         <nav
           className="precision-attempts__filters"
           role="tablist"
