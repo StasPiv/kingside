@@ -187,10 +187,61 @@ export function PrecisionPage() {
   const {
     puzzles,
     loading,
+    loadingMore,
     error,
+    hasMore,
+    loadMore,
     patchLocally,
     removeLocally,
   } = useInfinitePuzzles(filters);
+
+  // KS-2769: IntersectionObserver-based infinite scroll. Образец из
+  // PuzzleBrowserPage (KS-2563). Sentinel в конце сетки рендерится
+  // ниже; observer переподписывается на каждое его пере-маунтинг
+  // (после смены вкладки/фильтра/перерисовки). Когда sentinel в
+  // viewport — дергает loadMore.
+  // Fallback-effect: если sentinel остался в viewport после первого
+  // fetch'а (грид короче экрана на большом мониторе), повторно
+  // триггерим loadMore, потому что IntersectionObserver сам не
+  // переотобьётся.
+  const sentinelInViewRef = useRef(false);
+  const sentinelObserverRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  const setSentinelEl = useCallback((el: HTMLDivElement | null) => {
+    if (sentinelObserverRef.current) {
+      sentinelObserverRef.current.disconnect();
+      sentinelObserverRef.current = null;
+    }
+    if (!el) {
+      sentinelInViewRef.current = false;
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const isVis = entries[0]?.isIntersecting ?? false;
+        sentinelInViewRef.current = isVis;
+        if (isVis) loadMoreRef.current();
+      },
+      { rootMargin: '600px' },
+    );
+    obs.observe(el);
+    sentinelObserverRef.current = obs;
+  }, []);
+  useEffect(
+    () => () => {
+      sentinelObserverRef.current?.disconnect();
+      sentinelObserverRef.current = null;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (loading || loadingMore) return;
+    if (!hasMore) return;
+    if (sentinelInViewRef.current) {
+      loadMoreRef.current();
+    }
+  }, [loading, loadingMore, hasMore, puzzles.length]);
 
   const [stats, setStats] = useState<PrecisionStatsResponse | null>(null);
 
@@ -546,12 +597,17 @@ export function PrecisionPage() {
               {
                 // KS-2767: доли 0..1 для accent-сегмента между thumb'ами
                 // (CSS dual-range из KS-2766). 0 = левый край, 1 = правый.
-                '--p-min':
+                // React требует string для custom properties — number
+                // не доходит до element.style.setProperty (вызывало
+                // `accent-сегмент идёт от 0 до --p-max`).
+                '--p-min': String(
                   (eloMinValue - ELO_BOUNDS.min) /
-                  (ELO_BOUNDS.max - ELO_BOUNDS.min),
-                '--p-max':
+                    (ELO_BOUNDS.max - ELO_BOUNDS.min),
+                ),
+                '--p-max': String(
                   (eloMaxValue - ELO_BOUNDS.min) /
-                  (ELO_BOUNDS.max - ELO_BOUNDS.min),
+                    (ELO_BOUNDS.max - ELO_BOUNDS.min),
+                ),
               } as React.CSSProperties
             }
           >
@@ -1087,6 +1143,27 @@ export function PrecisionPage() {
             );
           })}
         </div>
+      )}
+
+      {/* KS-2769: sentinel для IntersectionObserver — рисуется ниже
+          сетки только когда есть страница после загруженной. Когда
+          элемент попадает в viewport (rootMargin=600px), наш callback-
+          ref дёргает loadMore — улетает следующий cursor-запрос. */}
+      {pageState === 'ready' && hasMore && (
+        <div
+          ref={setSentinelEl}
+          data-testid="precision-load-more-sentinel"
+          aria-hidden="true"
+          style={{ height: 1 }}
+        />
+      )}
+      {loadingMore && (
+        <p
+          className="play-vs-engine-puzzles__status"
+          data-testid="play-vs-engine-load-more"
+        >
+          {t('common.loading', 'Loading…')}
+        </p>
       )}
 
       {showGenerator && (
