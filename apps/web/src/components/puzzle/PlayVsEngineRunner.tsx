@@ -132,6 +132,14 @@ export type UserBestSnapshot = {
    * PostGameReview как «оба значения сняты на depth=N».
    */
   depth: number | null;
+  /**
+   * KS-2754. UCI хода, которым движок ответил на этот user-ход.
+   * Заполняется в `runEngineCycle` после применения engine bestmove.
+   * `null` — движок не ответил (последний полуход партии: мат/abort/
+   * достигнут halfMovesN). Используется в `PrecisionAttemptReview` для
+   * полной аннотации партии без реконструкции через chess.js diff.
+   */
+  engineUci: string | null;
 };
 
 /**
@@ -622,6 +630,16 @@ export function PlayVsEngineRunner({
       setGame(next);
       // KS-2486 reopen: ход движка тоже идёт в общий лог SAN.
       setPlayedSans((prev) => [...prev, applied!.san]);
+      // KS-2754: дописываем engineUci в snapshot user-хода, на который
+      // движок только что ответил. submitOnce читает userBestLogRef и
+      // пробрасывает поле в payload submitAttempt → backend кладёт в
+      // precision_attempt_moves.engine_uci → отдаёт обратно в
+      // PrecisionMoveDto.engineUci для разбора партии без реконструкции.
+      updateUserBestLog((prev) =>
+        prev.map((s) =>
+          s.halfMove === halfAfterUser ? { ...s, engineUci: uci } : s,
+        ),
+      );
       const halfAfterEngine = halfAfterUser + 1;
       setHalfMovesPlayed(halfAfterEngine);
 
@@ -735,6 +753,10 @@ export function PlayVsEngineRunner({
                 wdlBefore,
                 wdlAfter: null,
                 depth: preBest.depth,
+                // KS-2754: engineUci допишется из runEngineCycle после
+                // применения bestmove; для последнего полухода партии
+                // (мат / достигнут halfMovesN / abort) останется null.
+                engineUci: null,
               },
             ]);
           }

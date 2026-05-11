@@ -1437,6 +1437,10 @@
       "inaccuracy": "Inaccuracy",
       "mistake": "Mistake",
       "blunder": "Blunder"
+    },
+    "review": {
+      "title": "Game review",
+      "bestWas": "Best: {{san}}, {{eval}}"
     }
   },
   "puzzleStats": {

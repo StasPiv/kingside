@@ -1,20 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type {
   PrecisionAttemptDetail,
-  PrecisionMoveDto,
   PuzzleDto,
 } from '@kingside/shared';
 import { api } from '../api';
 import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
-import {
-  PostGameReview,
-  type PostGameReviewProps,
-} from '../components/puzzle/PostGameReview';
-import type { UserBestSnapshot } from '../components/puzzle/PlayVsEngineRunner';
+// KS-2754: вместо PostGameReview (требует WDL distribution, которой
+// у PrecisionMoveDto нет) — собственный компонент с полной аннотацией
+// партии (user + engine), классификацией и сильнейшими ходами.
+import { PrecisionAttemptReview } from '../components/precision/PrecisionAttemptReview';
 import type { MoveClass } from '../utils/moveClassification';
 
 /**
@@ -63,35 +61,6 @@ const CLASS_ORDER: MoveClass[] = [
   'blunder',
 ];
 
-/**
- * KS-2741. Реконструкция SAN-последовательности из user-only `moves[]`.
- * Backend в `PrecisionAttemptDetail` НЕ присылает движковые ответы, но
- * каждый user-ход содержит `fenBefore` и `playedUci`. Применяем UCI к
- * `fenBefore` через chess.js — получаем SAN. Engine-полуходы между
- * user-ходами реконструировать без бэка нельзя (`fenBefore` следующего
- * user-хода уже после ответа движка), поэтому пропускаем.
- *
- * Возвращает только user-SAN'ы — этого достаточно для PostGameReview,
- * который работает по индексам user-ходов.
- */
-function reconstructUserSans(moves: PrecisionMoveDto[]): string[] {
-  const sans: string[] = [];
-  for (const m of moves) {
-    try {
-      const c = new Chess(m.fenBefore);
-      const move = c.move({
-        from: m.playedUci.slice(0, 2),
-        to: m.playedUci.slice(2, 4),
-        promotion: m.playedUci.length > 4 ? m.playedUci[4] : undefined,
-      });
-      sans.push(move?.san ?? m.playedUci);
-    } catch {
-      sans.push(m.playedUci);
-    }
-  }
-  return sans;
-}
-
 function sideFromFen(fen: string): 'w' | 'b' {
   const parts = fen.split(' ');
   return parts[1] === 'b' ? 'b' : 'w';
@@ -136,43 +105,13 @@ export function PrecisionAttemptPage() {
     void fetchAll();
   }, [fetchAll]);
 
-  /** Маппинг `moves[]` → `UserBestSnapshot[]` для PostGameReview. */
-  const userBestLog = useMemo<UserBestSnapshot[]>(() => {
-    if (!data) return [];
-    return data.moves.map((m) => ({
-      halfMove: m.ply,
-      fenBefore: m.fenBefore,
-      playedUci: m.playedUci,
-      bestUci: m.bestUci,
-      cpBefore: m.cpBefore ?? null,
-      cpAfter: m.cpAfter ?? null,
-      // KS-2741: backend хранит wdl как signed scalar (−1..+1), а
-      // PostGameReview ожидает `WdlDistribution {w,d,l}` per-mille.
-      // Без распределения `w/d/l` индивидуально его не воссоздать
-      // (потерянная информация в server-trust пересчёте). Передаём null
-      // — PostGameReview грейсфолит и не показывает W/D/L строки, но
-      // SAN/cp-классификацию рисует нормально.
-      wdlBefore: null,
-      wdlAfter: null,
-      depth: m.depth ?? null,
-    }));
-  }, [data]);
-
-  // playedSans (только user) реконструируем из UCI'шек.
-  const playedSans = useMemo<string[]>(() => {
-    if (!data) return [];
-    return reconstructUserSans(data.moves);
-  }, [data]);
-
   const initialFen = puzzle?.fen ?? '';
   const userSide: 'w' | 'b' = puzzle ? sideFromFen(puzzle.fen) : 'w';
 
   // Доска: при выбранном reviewFen — он, иначе финальная позиция
-  // (играем user-SAN'ы от стартовой позиции; промежуточные ходы движка
-  // в snapshot'е лежат в `fenBefore` следующего user-хода — мы их не
-  // воспроизводим, но финальная позиция = последний `fenBefore + last
-  // user move`).
-  const finalFen = useMemo<string>(() => {
+  // (играем user-ход с последнего fenBefore — promежуточный engine-ход
+  // не нужен на этом представлении, итоговая доска приблизительна).
+  const finalFen = (() => {
     if (!data || data.moves.length === 0) return initialFen;
     const last = data.moves[data.moves.length - 1];
     try {
@@ -187,7 +126,7 @@ export function PrecisionAttemptPage() {
     } catch {
       return last.fenBefore;
     }
-  }, [data, initialFen]);
+  })();
 
   if (state === 'loading') {
     return (
@@ -255,7 +194,7 @@ export function PrecisionAttemptPage() {
     0,
   );
 
-  const handleSelect: PostGameReviewProps['onSelectMove'] = ({ fenBefore }) =>
+  const handleSelect = ({ fenBefore }: { fenBefore: string }) =>
     setReviewFen(fenBefore);
 
   return (
@@ -439,14 +378,14 @@ export function PrecisionAttemptPage() {
           lastMoveUci={null}
           status={resultKey === 'preserved' ? 'correct' : 'incorrect'}
         />
-        {/* PostGameReview работает только когда есть initialFen
-            (получили из puzzleApi.getById). Без него скрываем — не
-            падаем. */}
-        {initialFen && playedSans.length > 0 && (
-          <PostGameReview
+        {/* KS-2754: «Разбор партии» — полная аннотация партии (user
+            + engine) c классификацией и сильнейшими ходами. Работает
+            только когда есть initialFen (получили из puzzleApi.getById).
+            Без него скрываем — не падаем. */}
+        {initialFen && data.moves.length > 0 && (
+          <PrecisionAttemptReview
             initialFen={initialFen}
-            playedSans={playedSans}
-            userBestLog={userBestLog}
+            moves={data.moves}
             userSide={userSide}
             onSelectMove={handleSelect}
           />

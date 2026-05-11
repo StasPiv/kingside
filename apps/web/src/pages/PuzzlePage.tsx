@@ -491,6 +491,8 @@ export function PuzzlePage() {
             wdlBefore: s.wdlBefore,
             wdlAfter: s.wdlAfter,
             depth: s.depth,
+            // KS-2754: UCI ответа движка (null для последнего полухода).
+            engineUci: s.engineUci,
           })),
         });
       } catch {
