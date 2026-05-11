@@ -142,6 +142,38 @@ services:
     profiles:
       - deploy
 
+  # KS-2760: одноразовая настройка postgres_fdw для локальной main БД `kingside`
+  # с foreign table `archive_games_remote` в `kingside_archive`, плюс индексы
+  # (white_elo)/(black_elo) на archive-стороне. Идемпотентно.
+  # Запуск:
+  #   docker compose --profile fdw-setup up fdw-setup-local
+  fdw-setup-local:
+    image: postgres:16-alpine
+    depends_on:
+      - postgres
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-kingside}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-kingside}
+    volumes:
+      - ./scripts/sql:/sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        until pg_isready -q; do sleep 1; done
+        echo "=== applying setup-fdw-local.sql on ${POSTGRES_DB:-kingside} ==="
+        psql -d "${POSTGRES_DB:-kingside}" -v ON_ERROR_STOP=1 -f /sql/setup-fdw-local.sql
+        echo "=== applying setup-fdw-archive-indexes.sql on kingside_archive ==="
+        psql -d kingside_archive -v ON_ERROR_STOP=1 -f /sql/setup-fdw-archive-indexes.sql
+        echo "=== verify pushdown on ${POSTGRES_DB:-kingside} ==="
+        psql -d "${POSTGRES_DB:-kingside}" -v ON_ERROR_STOP=1 -f /sql/verify-fdw-local.sql
+        echo "=== fdw-setup-local done ==="
+    restart: "no"
+    profiles:
+      - fdw-setup
+
   # KS-1744: одноразовая инициализация broadcasts_kingside для случаев, когда
   # postgres volume уже существует (init-скрипт /docker-entrypoint-initdb.d
   # не выполняется повторно). Вызывается вручную:
