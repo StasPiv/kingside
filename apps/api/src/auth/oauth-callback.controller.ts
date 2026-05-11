@@ -5,7 +5,6 @@ import {
   Logger,
   Request,
   Res,
-  UseFilters,
   UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -15,7 +14,6 @@ import {
   FacebookAuthGuard,
   GoogleAuthGuard,
 } from './oauth-auth.guard';
-import { OAuthCallbackErrorFilter } from './oauth-callback-error.filter';
 
 /**
  * KS-2111: после ADR-018 (снятие глобального префикса `/api` в API) основные
@@ -27,11 +25,6 @@ import { OAuthCallbackErrorFilter } from './oauth-callback-error.filter';
  * `api/auth`. Initiation-маршруты (`/auth/google`, `/auth/facebook`) остаются
  * в основном `AuthController`.
  */
-// KS-2784. UseFilters покрывает оба callback'а (Google и Facebook).
-// Перехватывает ошибки из passport-guard'а (включая `TokenError:
-// Bad Request` при повторном hit'е с уже использованным code) и
-// делает 302 на `/login?oauthError=1` вместо 500-JSON.
-@UseFilters(OAuthCallbackErrorFilter)
 @Controller('api/auth')
 export class OAuthCallbackController {
   private readonly logger = new Logger(OAuthCallbackController.name);
