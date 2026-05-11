@@ -54,6 +54,13 @@ export interface BrowsePuzzleDto {
     fenBeforeBlunder?: string;
     wdlAfterBlunder?: number;
   } | null;
+  /**
+   * KS-2761: ELO ЗЕВНУВШЕГО игрока — конкретно той стороны, что
+   * сыграла `blunderMove`. Backend подбирает между `whiteElo`/`blackElo`
+   * по side-to-move в `fenBeforeBlunder`. `null` если у партии не
+   * проставлены рейтинги в PGN-tags.
+   */
+  blundererElo?: number | null;
   isPublic?: boolean;
   /**
    * KS-2668: backend возвращает поле владельца под именем `createdBy`
@@ -98,13 +105,13 @@ export interface InfinitePuzzleFilters {
    */
   visibility?: 'draft' | 'public' | 'all';
   /**
-   * KS-2758 / backend 363216cf: фильтр пазлов по рейтингу сыгравших
-   * игроков через JOIN с `archive_games`. Бэк смотрит на
-   * `GREATEST(white_elo, black_elo)` — партия попадает, если хотя бы
-   * один из игроков уровня в этом диапазоне.
+   * KS-2758 / backend KS-2761: фильтр по рейтингу ЗЕВНУВШЕГО игрока
+   * (того, кто сыграл `blunderMove`). Backend смотрит на сторону
+   * side-to-move в `fenBeforeBlunder` и берёт соответствующий ELO
+   * (`whiteElo` если ходили белые, иначе `blackElo`).
    */
-  playerEloMin?: number;
-  playerEloMax?: number;
+  blundererEloMin?: number;
+  blundererEloMax?: number;
   /** Размер страницы. По умолчанию 30. */
   limit?: number;
 }
@@ -141,10 +148,10 @@ function buildQuery(
   if (filters.hideSolved) params.set('hideSolved', 'true');
   if (filters.source) params.set('source', filters.source);
   if (filters.visibility) params.set('visibility', filters.visibility);
-  if (filters.playerEloMin != null)
-    params.set('playerEloMin', String(filters.playerEloMin));
-  if (filters.playerEloMax != null)
-    params.set('playerEloMax', String(filters.playerEloMax));
+  if (filters.blundererEloMin != null)
+    params.set('blundererEloMin', String(filters.blundererEloMin));
+  if (filters.blundererEloMax != null)
+    params.set('blundererEloMax', String(filters.blundererEloMax));
   return params.toString();
 }
 
@@ -184,8 +191,8 @@ export function useInfinitePuzzles(
     hideSolved: filters.hideSolved,
     source: filters.source,
     visibility: filters.visibility,
-    playerEloMin: filters.playerEloMin,
-    playerEloMax: filters.playerEloMax,
+    blundererEloMin: filters.blundererEloMin,
+    blundererEloMax: filters.blundererEloMax,
     limit: filters.limit,
   });
 

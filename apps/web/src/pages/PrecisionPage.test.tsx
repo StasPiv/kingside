@@ -483,16 +483,16 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
 });
 
 describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игроков', () => {
-  it('?playerEloMin=2300&playerEloMax=2500 → запрос содержит оба параметра', async () => {
+  it('?blundererEloMin=2300&blundererEloMax=2500 → запрос содержит оба параметра', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
-    mockSearchParams.set('playerEloMin', '2300');
-    mockSearchParams.set('playerEloMax', '2500');
+    mockSearchParams.set('blundererEloMin', '2300');
+    mockSearchParams.set('blundererEloMax', '2500');
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
-    expect(url).toMatch(/playerEloMin=2300/);
-    expect(url).toMatch(/playerEloMax=2500/);
+    expect(url).toMatch(/blundererEloMin=2300/);
+    expect(url).toMatch(/blundererEloMax=2500/);
     const minInput = screen.getByTestId(
       'precision-elo-filter-min',
     ) as HTMLInputElement;
@@ -503,14 +503,14 @@ describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игр�
     expect(maxInput.value).toBe('2500');
   });
 
-  it('без параметров → запрос БЕЗ playerElo*, инпуты пустые', async () => {
+  it('без параметров → запрос БЕЗ blundererElo*, инпуты пустые', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
-    expect(url).not.toMatch(/playerEloMin=/);
-    expect(url).not.toMatch(/playerEloMax=/);
+    expect(url).not.toMatch(/blundererEloMin=/);
+    expect(url).not.toMatch(/blundererEloMax=/);
     const minInput = screen.getByTestId(
       'precision-elo-filter-min',
     ) as HTMLInputElement;
@@ -519,12 +519,12 @@ describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игр�
 
   it('некорректное значение (буквы) в URL → игнорируется, запрос без фильтра', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
-    mockSearchParams.set('playerEloMin', 'abc');
+    mockSearchParams.set('blundererEloMin', 'abc');
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
-    expect(url).not.toMatch(/playerEloMin=/);
+    expect(url).not.toMatch(/blundererEloMin=/);
   });
 });
 

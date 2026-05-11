@@ -121,15 +121,15 @@ export function PrecisionPage() {
   // KS-2758 / backend 363216cf: фильтр по рейтингу сыгравших игроков.
   // Backend смотрит `GREATEST(white_elo, black_elo)` — партия попадает
   // если хотя бы один игрок в диапазоне. Невалидные/пустые — undefined.
-  const playerEloMinRaw = searchParams.get('playerEloMin');
-  const playerEloMaxRaw = searchParams.get('playerEloMax');
-  const playerEloMin =
-    playerEloMinRaw && /^\d+$/.test(playerEloMinRaw)
-      ? Number(playerEloMinRaw)
+  const blundererEloMinRaw = searchParams.get('blundererEloMin');
+  const blundererEloMaxRaw = searchParams.get('blundererEloMax');
+  const blundererEloMin =
+    blundererEloMinRaw && /^\d+$/.test(blundererEloMinRaw)
+      ? Number(blundererEloMinRaw)
       : undefined;
-  const playerEloMax =
-    playerEloMaxRaw && /^\d+$/.test(playerEloMaxRaw)
-      ? Number(playerEloMaxRaw)
+  const blundererEloMax =
+    blundererEloMaxRaw && /^\d+$/.test(blundererEloMaxRaw)
+      ? Number(blundererEloMaxRaw)
       : undefined;
 
   // KS-2758 follow-up: uncontrolled-инпуты рейтинга. Если делать
@@ -146,16 +146,16 @@ export function PrecisionPage() {
   const eloMaxTimerRef = useRef<number | null>(null);
   useEffect(() => {
     const el = eloMinInputRef.current;
-    if (el && el.value !== (playerEloMinRaw ?? '')) {
-      el.value = playerEloMinRaw ?? '';
+    if (el && el.value !== (blundererEloMinRaw ?? '')) {
+      el.value = blundererEloMinRaw ?? '';
     }
-  }, [playerEloMinRaw]);
+  }, [blundererEloMinRaw]);
   useEffect(() => {
     const el = eloMaxInputRef.current;
-    if (el && el.value !== (playerEloMaxRaw ?? '')) {
-      el.value = playerEloMaxRaw ?? '';
+    if (el && el.value !== (blundererEloMaxRaw ?? '')) {
+      el.value = blundererEloMaxRaw ?? '';
     }
-  }, [playerEloMaxRaw]);
+  }, [blundererEloMaxRaw]);
   // Глобальный cleanup таймеров при размонтировании.
   useEffect(() => {
     return () => {
@@ -164,7 +164,7 @@ export function PrecisionPage() {
     };
   }, []);
   const debouncedSetElo = useCallback(
-    (param: 'playerEloMin' | 'playerEloMax', raw: string) => {
+    (param: 'blundererEloMin' | 'blundererEloMax', raw: string) => {
       const sp = new URLSearchParams(searchParams);
       const v = raw.trim();
       if (v && /^\d+$/.test(v)) sp.set(param, v);
@@ -185,11 +185,11 @@ export function PrecisionPage() {
       mine: mineParam ? true : undefined,
       visibility,
       hideSolved: hideSolved ? true : undefined,
-      playerEloMin,
-      playerEloMax,
+      blundererEloMin,
+      blundererEloMax,
       limit: LIMIT,
     }),
-    [mineParam, visibility, hideSolved, playerEloMin, playerEloMax],
+    [mineParam, visibility, hideSolved, blundererEloMin, blundererEloMax],
   );
 
   const {
@@ -530,11 +530,10 @@ export function PrecisionPage() {
             {t('precision.showSolved', 'Show solved')}
           </label>
         )}
-        {/* KS-2758 / backend 363216cf: фильтр по рейтингу сыгравших
-            игроков. Бэкенд жоинит archive_games и фильтрует по
-            `GREATEST(white_elo, black_elo)`. URL: `playerEloMin` /
-            `playerEloMax`. Виден всем (auth+guest), фильтрует выдачу
-            по обеим табам Все/Мои. */}
+        {/* KS-2758 / backend KS-2761: фильтр по рейтингу ЗЕВНУВШЕГО
+            игрока. Бэкенд жоинит archive_games и берёт ELO той стороны,
+            что сыграла `blunderMove` (по side-to-move в fenBeforeBlunder).
+            URL: `blundererEloMin` / `blundererEloMax`. */}
         <div
           className="precision-elo-filter"
           data-testid="precision-elo-filter"
@@ -549,9 +548,9 @@ export function PrecisionPage() {
             min={0}
             max={4000}
             step={50}
-            defaultValue={playerEloMinRaw ?? ''}
+            defaultValue={blundererEloMinRaw ?? ''}
             placeholder={t('precision.eloFilter.minPlaceholder', 'Min')}
-            aria-label={t('precision.eloFilter.minAria', 'Minimum players rating')}
+            aria-label={t('precision.eloFilter.minAria', 'Minimum rating')}
             data-testid="precision-elo-filter-min"
             className="precision-elo-filter__input"
             onChange={(e) => {
@@ -560,7 +559,7 @@ export function PrecisionPage() {
                 window.clearTimeout(eloMinTimerRef.current);
               }
               eloMinTimerRef.current = window.setTimeout(() => {
-                debouncedSetElo('playerEloMin', v);
+                debouncedSetElo('blundererEloMin', v);
               }, 400);
             }}
           />
@@ -572,9 +571,9 @@ export function PrecisionPage() {
             min={0}
             max={4000}
             step={50}
-            defaultValue={playerEloMaxRaw ?? ''}
+            defaultValue={blundererEloMaxRaw ?? ''}
             placeholder={t('precision.eloFilter.maxPlaceholder', 'Max')}
-            aria-label={t('precision.eloFilter.maxAria', 'Maximum players rating')}
+            aria-label={t('precision.eloFilter.maxAria', 'Maximum rating')}
             data-testid="precision-elo-filter-max"
             className="precision-elo-filter__input"
             onChange={(e) => {
@@ -583,7 +582,7 @@ export function PrecisionPage() {
                 window.clearTimeout(eloMaxTimerRef.current);
               }
               eloMaxTimerRef.current = window.setTimeout(() => {
-                debouncedSetElo('playerEloMax', v);
+                debouncedSetElo('blundererEloMax', v);
               }, 400);
             }}
           />

@@ -1307,11 +1307,11 @@
       "blunder": "Blunder"
     },
     "eloFilter": {
-      "label": "Players rating",
+      "label": "Rating",
       "minPlaceholder": "Min",
       "maxPlaceholder": "Max",
-      "minAria": "Minimum players rating",
-      "maxAria": "Maximum players rating"
+      "minAria": "Minimum rating",
+      "maxAria": "Maximum rating"
     },
     "history": {
       "title": "Attempt history",
