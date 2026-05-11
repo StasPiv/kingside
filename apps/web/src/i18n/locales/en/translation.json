@@ -1303,6 +1303,14 @@
       "progress": "Progress",
       "history": "History"
     },
+    "history": {
+      "title": "Attempt history",
+      "startTraining": "Start training →",
+      "guest": {
+        "message": "Sign in to see the history of your precision attempts.",
+        "cta": "Sign in and start training"
+      }
+    },
     "stats": {
       "title": "Precision progress",
       "guest": {
