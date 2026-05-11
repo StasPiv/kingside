@@ -407,6 +407,10 @@ model PrecisionAttemptMove {
   /// best-хода classification невозможна; принудительный отбой
   /// на уровне сервиса.
   bestUci      String  @map("best_uci")
+  /// KS-2754. UCI ответного хода движка на user-ход (например `e7e5`).
+  /// NULL если движок не успел ответить (последний user-полуход
+  /// партии: мат, пат, abort) или для legacy-attempt'ов до KS-2754.
+  engineUci    String? @map("engine_uci")
   /// Stockfish cp; NULL если post-analyze не вернул score (mate
   /// энкодится через MATE_CP_ENCODING из shared, KS-2505).
   cpBefore     Int?    @map("cp_before")

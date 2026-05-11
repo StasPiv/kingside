@@ -815,6 +815,9 @@ export class PuzzleService {
             fenBefore: m.fenBefore,
             playedUci: m.playedUci,
             bestUci: m.bestUci,
+            // KS-2754. UCI engine-ответа, как прислал фронт.
+            // `null`/undefined → null в БД (последний user-полуход).
+            engineUci: m.engineUci ?? null,
             cpBefore: m.cpBefore ?? null,
             cpAfter: m.cpAfter ?? null,
             wdlBeforeW: m.wdlBefore?.w ?? null,

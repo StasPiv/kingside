@@ -406,6 +406,58 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('KS-2754: engineUci из БД пробрасывается в response', async () => {
+      const attemptWithEngine = {
+        ...baseAttempt,
+        precisionAttempt: {
+          ...baseAttempt.precisionAttempt,
+          moves: [
+            {
+              ply: 1,
+              fenBefore: 'fen-before-1',
+              playedUci: 'e2e4',
+              bestUci: 'e2e4',
+              engineUci: 'e7e5',
+              cpBefore: 30,
+              cpAfter: 25,
+              wdlBeforeW: 500,
+              wdlBeforeD: 400,
+              wdlBeforeL: 100,
+              wdlAfterW: 500,
+              wdlAfterD: 400,
+              wdlAfterL: 100,
+              depth: 14,
+              classification: 'best',
+            },
+            {
+              ply: 2,
+              fenBefore: 'fen-before-2',
+              playedUci: 'g1f3',
+              bestUci: 'g1f3',
+              engineUci: null,
+              cpBefore: 25,
+              cpAfter: 20,
+              wdlBeforeW: 500,
+              wdlBeforeD: 400,
+              wdlBeforeL: 100,
+              wdlAfterW: 500,
+              wdlAfterD: 400,
+              wdlAfterL: 100,
+              depth: 14,
+              classification: 'best',
+            },
+          ],
+        },
+      };
+      prisma.puzzleAttempt.findUnique.mockResolvedValue(attemptWithEngine);
+
+      const r = await service.getAttemptDetail('attempt-1', 'owner-1', false);
+
+      expect(r.moves).toHaveLength(2);
+      expect(r.moves[0].engineUci).toBe('e7e5');
+      expect(r.moves[1].engineUci).toBeNull();
+    });
+
     it('null cp/wdl у move корректно проходят в response', async () => {
       const attemptWithNulls = {
         ...baseAttempt,

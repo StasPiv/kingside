@@ -253,6 +253,14 @@ export interface PrecisionMoveSnapshot {
   playedUci: string;
   /** UCI PV1-хода движка для `fenBefore` (best-move). */
   bestUci: string;
+  /**
+   * KS-2754. UCI ответного хода движка на user-ход (`playedUci`).
+   * Передаётся фронтом: после `playedUci` фронт получает от
+   * game-runner'а ход движка и кладёт его сюда.
+   * `null`/опускается — движок не ответил (последний user-полуход
+   * партии: мат, пат, abort).
+   */
+  engineUci?: string | null;
   /** cp-оценка `fenBefore` (POV игрока). null/undefined — фолбек. */
   cpBefore?: number | null;
   /** cp-оценка после хода (POV игрока). */
@@ -338,6 +346,17 @@ export interface PrecisionMoveDto {
   wdlAfter: number | null;
   depth: number | null;
   classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+  /**
+   * KS-2754. UCI ответного хода движка на этот user-ход. Поле кладёт
+   * фронт при сохранении attempt'а (`PrecisionMoveSnapshot.engineUci`);
+   * бэк хранит его в `precision_attempt_moves.engine_uci` и отдаёт
+   * как есть.
+   *
+   * `null` — движок не ответил (последний user-полуход партии: мат,
+   * пат, abort) ИЛИ это legacy-attempt до KS-2754. Фронт должен быть
+   * готов к `null` (для последнего полухода и старых записей).
+   */
+  engineUci?: string | null;
 }
 
 /**

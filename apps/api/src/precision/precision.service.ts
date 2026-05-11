@@ -301,6 +301,10 @@ export class PrecisionService {
         wdlAfter: signedFromTriple(m.wdlAfterW, m.wdlAfterL),
         depth: m.depth,
         classification: m.classification as PrecisionAttemptDetail['moves'][number]['classification'],
+        // KS-2754. UCI engine-ответа на этот user-ход; кладёт фронт
+        // при сохранении attempt'а. null для последнего user-полухода
+        // партии и для legacy-attempt'ов (до KS-2754).
+        engineUci: m.engineUci,
       })),
     };
   }
