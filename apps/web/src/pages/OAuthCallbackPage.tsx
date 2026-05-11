@@ -12,6 +12,10 @@ export function OAuthCallbackPage() {
   const { t } = useTranslation();
   const [initialized, setInitialized] = useState(false);
   const [requiresUsernameSetup, setRequiresUsernameSetup] = useState(false);
+  // KS-2785 (v2): сохраняем accessToken в state. После того как
+  // useLayoutEffect очистит query через replaceState, `searchParams`
+  // станет пустым — модалка UsernameSetupModal достанет токен отсюда.
+  const [oauthAccessToken, setOauthAccessToken] = useState<string | null>(null);
 
   // Eagerly persist OAuth tokens to localStorage during the layout phase,
   // before any useEffect (including AuthContext's token effect) can read it.
@@ -28,12 +32,37 @@ export function OAuthCallbackPage() {
         accessTokenPreview: accessToken.slice(0, 20) + '...',
       });
     }
+    // KS-2785 (v2): сразу чистим query из текущей записи в history.
+    // На /oauth/callback больше нет accessToken/refreshToken в URL —
+    // F5 не запускает обработку повторно (searchParams.get() даст null).
+    // Это не убирает ПРЕДЫДУЩУЮ запись /api/auth/google/callback?code=…
+    // из истории (её нельзя стереть через replaceState), но опт-аут
+    // bfcache ниже не даёт mobile Chrome восстановить страницу
+    // api-callback из кеша при Back-button.
+    try {
+      window.history.replaceState({}, '', '/oauth/callback');
+    } catch {
+      /* старые webview без history API */
+    }
     // KS-2034: запускаем один раз при mount — токены из URL сохраняем
     // ДО того как любой эффект-зависимость по `searchParams` сменится.
     // Включение `searchParams` в deps приведёт к повторной записи в
     // localStorage и потенциальной перезаписи только что обновлённого
     // refresh token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // KS-2785 (v2): опт-аут /oauth/callback из bfcache. Chrome (mobile)
+  // не кэширует страницы с активным `beforeunload`-listener, поэтому
+  // при Back-button браузер делает полноценный navigation вместо
+  // восстановления из памяти. ALB-логи (devops) показали что повтор
+  // /api/auth/google/callback идёт от того же Chrome 147 на Android
+  // с тем же UA/client:port через 1 секунду — типичный паттерн
+  // bfcache restore. beforeunload — самый надёжный опт-аут.
+  useEffect(() => {
+    const noop = () => {};
+    window.addEventListener('beforeunload', noop);
+    return () => window.removeEventListener('beforeunload', noop);
   }, []);
 
   useEffect(() => {
@@ -65,6 +94,7 @@ export function OAuthCallbackPage() {
     }
 
     console.log('[OAuthCallback] calling loginWithTokens');
+    setOauthAccessToken(accessToken);
     loginWithTokens(accessToken, refreshToken);
     setInitialized(true);
   // KS-2034: одноразовый init по содержимому URL. `loginWithTokens`,
@@ -107,7 +137,7 @@ export function OAuthCallbackPage() {
       <div className="auth-page">
         <UsernameSetupModal
           onSuccess={handleUsernameSetupSuccess}
-          accessToken={searchParams.get('accessToken') ?? undefined}
+          accessToken={oauthAccessToken ?? undefined}
         />
       </div>
     );
