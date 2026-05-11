@@ -340,10 +340,18 @@ export interface PrecisionMoveDto {
   bestUci: string;
   cpBefore: number | null;
   cpAfter: number | null;
-  /** WDL_signed [-1..+1] от лица сделавшего ход. */
-  wdlBefore: number | null;
-  /** WDL_signed [-1..+1] после хода (POV сходившего сохранён). */
-  wdlAfter: number | null;
+  /**
+   * KS-2754. WDL-распределение `fenBefore` в шкале per-mille (0..1000),
+   * POV side-to-move в `fenBefore` (т.е. POV сделавшего этот ход).
+   * `null` — distribution не сохранено (legacy attempt'ы до KS-2754
+   * либо fallback-движок без UCI_ShowWDL).
+   */
+  wdlBefore: { w: number; d: number; l: number } | null;
+  /**
+   * KS-2754. WDL-распределение позиции ПОСЛЕ хода, в шкале per-mille,
+   * POV того же игрока (что и в `wdlBefore`). `null` синхронно.
+   */
+  wdlAfter: { w: number; d: number; l: number } | null;
   depth: number | null;
   classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
   /**

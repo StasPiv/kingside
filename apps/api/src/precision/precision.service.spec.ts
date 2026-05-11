@@ -349,10 +349,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.firstMistakePly).toBeNull();
       expect(r.moves).toHaveLength(1);
       expect(r.moves[0].playedUci).toBe('e2e4');
-      // signed WDL: (600-200)/1000 = 0.4
-      expect(r.moves[0].wdlBefore).toBeCloseTo(0.4, 5);
-      // (620-200)/1000 = 0.42
-      expect(r.moves[0].wdlAfter).toBeCloseTo(0.42, 5);
+      // KS-2754: WDL отдаётся как {w,d,l} per-mille, не скаляр.
+      expect(r.moves[0].wdlBefore).toEqual({ w: 600, d: 200, l: 200 });
+      expect(r.moves[0].wdlAfter).toEqual({ w: 620, d: 180, l: 200 });
       expect(r.moves[0].classification).toBe('best');
     });
 

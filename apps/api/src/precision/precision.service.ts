@@ -295,10 +295,12 @@ export class PrecisionService {
         bestUci: m.bestUci,
         cpBefore: m.cpBefore,
         cpAfter: m.cpAfter,
-        // Преобразуем W/D/L per-mille → signed [-1..+1] от лица
-        // решающего/предыдущего хода. Это удобнее для фронта.
-        wdlBefore: signedFromTriple(m.wdlBeforeW, m.wdlBeforeL),
-        wdlAfter: signedFromTriple(m.wdlAfterW, m.wdlAfterL),
+        // KS-2754. Отдаём полное W/D/L distribution per-mille (как
+        // лежит в БД), а не свёрнутый скаляр — фронт показывает W/D/L%.
+        // null если хотя бы одна компонента не записана (legacy /
+        // fallback-движок без UCI_ShowWDL).
+        wdlBefore: wdlTripleOrNull(m.wdlBeforeW, m.wdlBeforeD, m.wdlBeforeL),
+        wdlAfter: wdlTripleOrNull(m.wdlAfterW, m.wdlAfterD, m.wdlAfterL),
         depth: m.depth,
         classification: m.classification as PrecisionAttemptDetail['moves'][number]['classification'],
         // KS-2754. UCI engine-ответа на этот user-ход; кладёт фронт
@@ -497,10 +499,16 @@ export function classifyPhaseByFen(
   return 'endgame';
 }
 
-function signedFromTriple(
+/**
+ * KS-2754. Собирает W/D/L per-mille distribution из трёх колонок БД.
+ * Возвращает `null`, если хотя бы одна компонента не записана
+ * (legacy attempt'ы либо attempt с fallback-движком без UCI_ShowWDL).
+ */
+function wdlTripleOrNull(
   w: number | null,
+  d: number | null,
   l: number | null,
-): number | null {
-  if (w == null || l == null) return null;
-  return (w - l) / 1000;
+): { w: number; d: number; l: number } | null {
+  if (w == null || d == null || l == null) return null;
+  return { w, d, l };
 }
