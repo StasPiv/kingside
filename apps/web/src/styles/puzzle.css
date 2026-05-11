@@ -3650,6 +3650,75 @@ body:has(.puzzle-rush-board) {
   color: var(--text-secondary, #94a3b8);
 }
 
+/* ============================================================
+ * KS-2754 follow-up — блок «контекст партии» на карточке /precision.
+ * Источник — sourceGame (players, event) + playVsEngine.blunderMove
+ * (SAN зевка через chess.js). DOM от F (PrecisionPage.tsx):
+ *
+ *   <div class="play-vs-engine-card__source"
+ *        data-testid="play-vs-engine-card-source">
+ *     <div class="play-vs-engine-card__source-players">
+ *       Pham Le Thao Nguyen — Sreyas,Payyappat · 3rd 3-0 Thu …
+ *     </div>
+ *     <div class="play-vs-engine-card__source-blunder">
+ *       42... Rxe4?
+ *     </div>
+ *   </div>
+ *
+ * Стилистика:
+ *   - players + event — приглушённо (secondary, 11–12px), одна
+ *     строка с ellipsis. Не отвлекает от заголовка/мета.
+ *   - blunder — danger-цвет + warning-иконка ⚠ в `::before`. Без
+ *     ellipsis (SAN короткий). Бросается в глаза среди приглушённой
+ *     карточки — сразу видно «это зевок, найди как наказать».
+ * ============================================================ */
+.play-vs-engine-card__source {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.play-vs-engine-card__source-players {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.play-vs-engine-card__source-blunder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.play-vs-engine-card__source-blunder::before {
+  content: '⚠';
+  font-size: 12px;
+  line-height: 1;
+  color: var(--warning);
+}
+
+@media (max-width: 640px) {
+  .play-vs-engine-card__source-players {
+    font-size: 10px;
+  }
+  .play-vs-engine-card__source-blunder {
+    font-size: 12px;
+  }
+  .play-vs-engine-card__source-blunder::before {
+    font-size: 11px;
+  }
+}
+
 .play-vs-engine-card__solve-btn {
   margin-top: 4px;
   padding: 8px 12px;
