@@ -235,7 +235,32 @@ function resolveStartFen(rawPgn: string): string | undefined {
  * (`position-row-builder` и т.п.), которые работают с FEN'ами вне
  * парсера.
  */
+/**
+ * KS-2781. Источник правды для variant — PGN-header `[Variant "..."]`
+ * (стандарт PGN). Возвращает true если партия NOT standard chess —
+ * её нужно skip'нуть при импорте в `archive_games`.
+ *
+ * NB: `[SetUp "1"]` + non-standard `[FEN]` НЕ считаем вариантом по
+ * умолчанию — это могут быть этюды и тренировочные позиции, которые
+ * downstream-консьюмеры обрабатывают через `startFen`. Если они тоже
+ * мешают — добавим вторым проходом отдельной задачей.
+ */
+export function isNonStandardVariantPgn(rawPgn: string): boolean {
+  const variant = extractHeader(rawPgn, 'Variant');
+  if (variant === null) return false;
+  const v = variant.trim().toLowerCase();
+  if (v === '' || v === 'standard' || v === 'chess' || v === 'classical') {
+    return false;
+  }
+  return true;
+}
+
 export function parseGame(rawPgn: string): ParsedGame | null {
+  // KS-2781. Skip Chess960 / FischerRandom / прочие варианты —
+  // наш просмотрщик и tactic-worker (Stockfish без `UCI_Chess960`)
+  // их не поддерживают, пазлы из таких партий некорректны.
+  if (isNonStandardVariantPgn(rawPgn)) return null;
+
   let chess: Chess;
   let history: Array<{
     from: string;

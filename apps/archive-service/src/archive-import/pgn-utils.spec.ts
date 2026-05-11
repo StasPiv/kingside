@@ -1,4 +1,4 @@
-import { parseGame } from './pgn-utils';
+import { parseGame, isNonStandardVariantPgn } from './pgn-utils';
 
 const STANDARD_START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -200,5 +200,104 @@ ${tcLine}
       }),
     );
     expect(parsed?.timeControlCategory).toBe('rapid');
+  });
+});
+
+/**
+ * KS-2781. Фильтр partition'ов non-standard variant (Chess960 etc.)
+ * — наш просмотрщик и tactic-worker (Stockfish без `UCI_Chess960`)
+ * их не поддерживают, поэтому partition отбрасывается на этапе
+ * парсинга PGN.
+ */
+describe('parseGame — variant filter (KS-2781)', () => {
+  it('Variant=Chess960 → isNonStandardVariantPgn=true, parseGame=null', () => {
+    const pgn = `[Event "TCEC FRC"]
+[White "Engine A"]
+[Black "Engine B"]
+[Result "1-0"]
+[Variant "Chess960"]
+[FEN "brknnbqr/pppppppp/8/8/8/8/PPPPPPPP/BRKNNBQR w KQkq - 0 1"]
+[SetUp "1"]
+
+1. e4 e5 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(true);
+    expect(parseGame(pgn)).toBeNull();
+  });
+
+  it('Variant=FischerRandom → отбрасывается', () => {
+    const pgn = `[Event "X"]
+[Variant "FischerRandom"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(true);
+    expect(parseGame(pgn)).toBeNull();
+  });
+
+  it('Variant=Crazyhouse → отбрасывается', () => {
+    const pgn = `[Event "X"]
+[Variant "Crazyhouse"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 e5 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(true);
+    expect(parseGame(pgn)).toBeNull();
+  });
+
+  it('Variant=Standard → пропускается (false), parseGame нормальный', () => {
+    const pgn = `[Event "X"]
+[Variant "Standard"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 e5 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(false);
+    const p = parseGame(pgn);
+    expect(p).not.toBeNull();
+    expect(p?.moves.length).toBeGreaterThan(0);
+  });
+
+  it('Variant отсутствует → пропускается (false)', () => {
+    const pgn = `[Event "X"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 e5 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(false);
+  });
+
+  it('Variant case-insensitive ("STANDARD")', () => {
+    const pgn = `[Event "X"]
+[Variant "STANDARD"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(false);
+  });
+
+  it('Variant=chess (Lichess alias для standard) → false', () => {
+    const pgn = `[Event "X"]
+[Variant "chess"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+
+1. e4 1-0
+`;
+    expect(isNonStandardVariantPgn(pgn)).toBe(false);
   });
 });
