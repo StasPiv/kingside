@@ -1304,6 +1304,11 @@
       "history": "History"
     },
     "stats": {
+      "title": "Precision progress",
+      "guest": {
+        "message": "Sign in to track your accuracy, trends and weak themes.",
+        "cta": "Sign in and start training"
+      },
       "totalAttempted": "Attempts",
       "totalSolved": "Solved",
       "lastAttempt": "Last attempt",
