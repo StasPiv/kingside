@@ -34,13 +34,15 @@ export class OAuthCallbackController {
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
   async googleCallback(
-    @Request() req: { user: OAuthProfile },
+    @Request()
+    req: {
+      user: OAuthProfile;
+      headers: Record<string, string | string[] | undefined>;
+    },
     @Res() res: Response,
   ) {
     const profile = req.user;
-    this.logger.log(
-      `[Google OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`,
-    );
+    this.logCallbackEntry('Google', profile, req.headers);
     try {
       const tokens = await this.authService.findOrCreateOAuthUser(profile);
       this.logger.log(`[Google OAuth] tokens generated, redirecting to frontend`);
@@ -51,6 +53,7 @@ export class OAuthCallbackController {
       );
       const url = new URL('/login', this.resolveFrontendOrigin());
       url.searchParams.set('oauthError', '1');
+      this.setNoStoreHeaders(res);
       return res.redirect(url.toString());
     }
   }
@@ -58,13 +61,15 @@ export class OAuthCallbackController {
   @UseGuards(FacebookAuthGuard)
   @Get('facebook/callback')
   async facebookCallback(
-    @Request() req: { user: OAuthProfile },
+    @Request()
+    req: {
+      user: OAuthProfile;
+      headers: Record<string, string | string[] | undefined>;
+    },
     @Res() res: Response,
   ) {
     const profile = req.user;
-    this.logger.log(
-      `[Facebook OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`,
-    );
+    this.logCallbackEntry('Facebook', profile, req.headers);
     try {
       const tokens = await this.authService.findOrCreateOAuthUser(profile);
       this.logger.log(`[Facebook OAuth] tokens generated, redirecting to frontend`);
@@ -75,8 +80,52 @@ export class OAuthCallbackController {
       );
       const url = new URL('/login', this.resolveFrontendOrigin());
       url.searchParams.set('oauthError', '1');
+      this.setNoStoreHeaders(res);
       return res.redirect(url.toString());
     }
+  }
+
+  /**
+   * KS-2788. Лог входа в callback с маркерами prefetch / bfcache /
+   * service-worker. Помогает различать сценарии (mobile Chrome
+   * Back-button с bfcache, browser prefetch, link rel=prerender).
+   */
+  private logCallbackEntry(
+    provider: 'Google' | 'Facebook',
+    profile: OAuthProfile,
+    headers: Record<string, string | string[] | undefined>,
+  ): void {
+    const identity = profile?.email ?? profile?.providerId ?? 'unknown';
+    const purpose = headers['sec-purpose'] ?? headers['purpose'];
+    const mode = headers['sec-fetch-mode'];
+    const dest = headers['sec-fetch-dest'];
+    const site = headers['sec-fetch-site'];
+    const user = headers['sec-fetch-user'];
+    const flags = [
+      purpose ? `sec-purpose=${purpose}` : null,
+      mode ? `sec-fetch-mode=${mode}` : null,
+      dest ? `sec-fetch-dest=${dest}` : null,
+      site ? `sec-fetch-site=${site}` : null,
+      user ? `sec-fetch-user=${user}` : null,
+    ].filter(Boolean);
+    this.logger.log(
+      `[${provider} OAuth] callback received for ${identity}${flags.length ? ` ${flags.join(' ')}` : ''}`,
+    );
+  }
+
+  /**
+   * KS-2788. На 302 ответе callback'а блокируем bfcache самой
+   * api-страницы: Chrome mobile при Back-button иначе возвращает
+   * пользователя на старый URL с одноразовым `code`. Симметрично
+   * meta `Cache-Control: no-store` на /oauth/callback HTML (frontend
+   * KS-2785).
+   */
+  private setNoStoreHeaders(res: Response): void {
+    res.setHeader(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate, max-age=0',
+    );
+    res.setHeader('Pragma', 'no-cache');
   }
 
   private redirectWithTokens(
@@ -96,6 +145,7 @@ export class OAuthCallbackController {
     this.logger.log(
       `[OAuth] redirect to ${url.origin}/oauth/callback?accessToken=...`,
     );
+    this.setNoStoreHeaders(res);
     return res.redirect(url.toString());
   }
 
