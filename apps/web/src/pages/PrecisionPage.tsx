@@ -109,10 +109,14 @@ export function PrecisionPage() {
   )
     ? visibilityParam
     : undefined;
-  // KS-2746 / ADR-057 §4: URL-флаг `hideSolved` («Скрыть удержанные»)
-  // переехал в раздел истории — на /precision/history встроенные
-  // фильтры списка «Все / Удержано / Упущено» уже покрывают функционал.
-  // На главной /precision он избыточен и удалён.
+  // KS-2719 F3 / KS-2753: URL-флаг «Скрыть удержанные» — backend-фильтр
+  // `hideSolved=true` (бэкенд отбрасывает позиции, которые юзер уже
+  // удержал в play-vs-engine attempts). Жил здесь до ADR-057 / KS-2746,
+  // потом был ошибочно удалён под предлогом «фильтры на /history
+  // покрывают», но это разные сущности: /history фильтрует ИСТОРИЮ
+  // попыток, а тут — СЕТКУ позиций для тренировки (useInfinitePuzzles).
+  // KS-2753 вернул toggle на место.
+  const hideSolvedParam = searchParams.get('hideSolved') === 'true';
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -122,9 +126,10 @@ export function PrecisionPage() {
       source: 'generated',
       mine: mineParam ? true : undefined,
       visibility,
+      hideSolved: hideSolvedParam ? true : undefined,
       limit: LIMIT,
     }),
-    [mineParam, visibility],
+    [mineParam, visibility, hideSolvedParam],
   );
 
   const {
@@ -438,6 +443,31 @@ export function PrecisionPage() {
               {t('precision.tabs.mine', 'My puzzles')}
             </button>
           </nav>
+        )}
+        {/* KS-2719 F3 / KS-2753: toggle «Скрыть удержанные» — фильтр
+            сетки позиций, передаётся как ?hideSolved=true в
+            useInfinitePuzzles. После backend-фильтрации в сетке
+            остаются позиции, на которых юзер ещё не удерживал
+            преимущество в PVE-режиме. URL-state синхронизируется,
+            чтобы ссылку можно было шарить с включённым фильтром. */}
+        {user && (
+          <label
+            className="precision-hide-preserved"
+            data-testid="precision-hide-preserved"
+          >
+            <input
+              type="checkbox"
+              checked={hideSolvedParam}
+              onChange={(e) => {
+                const sp = new URLSearchParams(searchParams);
+                if (e.target.checked) sp.set('hideSolved', 'true');
+                else sp.delete('hideSolved');
+                setSearchParams(sp, { replace: false });
+              }}
+              data-testid="precision-hide-preserved-input"
+            />
+            {t('precision.hidePreserved', 'Hide preserved')}
+          </label>
         )}
         {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
             «Полная статистика →» на /precision/stats. Заменяет старый

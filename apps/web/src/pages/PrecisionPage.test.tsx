@@ -482,14 +482,59 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
   });
 });
 
+describe('<PrecisionPage> KS-2753 — toggle «Скрыть удержанные»', () => {
+  it('toggle ON → ?hideSolved=true улетает в /puzzles/browse', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockSearchParams.set('hideSolved', 'true');
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/hideSolved=true/);
+    const toggle = screen.getByTestId(
+      'precision-hide-preserved-input',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('toggle OFF (по умолчанию) → запрос без hideSolved', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).not.toMatch(/hideSolved=/);
+    const toggle = screen.getByTestId(
+      'precision-hide-preserved-input',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+  });
+
+  it('гость → toggle не рендерится (auth-only фильтр)', async () => {
+    authValue.user = null;
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
+      ).toBe('ready'),
+    );
+    expect(screen.queryByTestId('precision-hide-preserved')).toBeNull();
+  });
+});
+
 /**
- * KS-2746 / ADR-057 F4. Подробный 4-карточечный блок и toggle
- * «Скрыть удержанные» удалены с главной /precision:
+ * KS-2746 / ADR-057 F4. Подробные блоки переехали с главной:
  *   - 4 карточки → /precision/stats (KS-2744, тесты PrecisionStatsCards).
  *   - PrecisionAttemptsList → /precision/history (KS-2745).
  *   - PrecisionTrendsChart / PrecisionBreakdowns → /precision/stats.
- *   - toggle hideSolved → встроенные фильтры списка /history.
- * На главной живут только compact-bar + empty-CTA. Эти тесты ниже.
+ *
+ * KS-2753: toggle «Скрыть удержанные» (фильтр СЕТКИ позиций через
+ * useInfinitePuzzles) был ошибочно удалён в F4 — вернулся обратно;
+ * тесты на него выше в `describe('KS-2753 …')`.
+ *
+ * На главной живут: SubNav, toolbar, фильтр Все/Мои, toggle Скрыть
+ * удержанные, compact-bar (или empty-CTA) и сетка позиций.
  */
 
 describe('<PrecisionPage> KS-2746 F4 — SubNav сверху', () => {
