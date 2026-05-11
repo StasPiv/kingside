@@ -180,8 +180,6 @@ export async function runGeneratePuzzles(
         acceptedMoves: puzzle.acceptedMoves,
         sourceMetadata: puzzle.sourceMetadata,
         solutionMode: puzzle.solutionMode,
-        // KS-2757. ELO зевнувшего — для фильтра сложности на /precision.
-        blundererElo: puzzle.blundererElo,
       };
       const r = await prisma.puzzle.createMany({
         data: [data],

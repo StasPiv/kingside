@@ -144,11 +144,6 @@ export interface PuzzleRecord {
   sourceMetadata: string;
   /** KS-2462/2463/2464 — режим решения пазла. */
   solutionMode: PuzzleSolutionMode;
-  /**
-   * KS-2757. ELO зевнувшего игрока (side-to-move в `fenBefore`).
-   * `null` если в `archive_games` нет рейтинга соответствующей стороны.
-   */
-  blundererElo: number | null;
 }
 
 export interface GeneratorStats {
