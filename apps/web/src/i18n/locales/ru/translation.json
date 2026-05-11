@@ -1433,7 +1433,7 @@
       "result": "Результат",
       "halfMoves": "Полуходы",
       "accuracy": "Точность",
-      "wdlLeakSum": "Утечка WDL"
+      "wdlLeakSum": "Потери преимущества"
     },
     "result": {
       "preserved": "Удержано",

@@ -1419,7 +1419,7 @@
       "result": "Result",
       "halfMoves": "Half-moves",
       "accuracy": "Accuracy",
-      "wdlLeakSum": "WDL leak total"
+      "wdlLeakSum": "Advantage lost"
     },
     "result": {
       "preserved": "Preserved",

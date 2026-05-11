@@ -162,7 +162,10 @@ export function PrecisionAttemptPage() {
 
   const orientation: 'white' | 'black' = userSide === 'w' ? 'white' : 'black';
   const accuracyText = `${Math.round(data.accuracyPercent)}%`;
-  const wdlLeakText = data.wdlLeakSum.toFixed(2);
+  // KS-2754 / backend e35f72e7: `wdlLeakSum` — кумулятивная просадка
+  // вероятности победы в signed-шкале [0..N]; per-move clamp ≥ 0 на
+  // бэке. На UI показываем в процентных пунктах: 0.12 → «12%».
+  const wdlLeakText = `${Math.round(data.wdlLeakSum * 100)}%`;
 
   // KS-2741: верстаем result-чип из shared-контракта `solved + endReason`.
   // Старый код использовал собственный `result: 'preserved'|'lost'|'aborted'`
