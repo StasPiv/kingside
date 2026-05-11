@@ -14,6 +14,7 @@
     "cli:rebuild-position-stats": "node dist/cli/rebuild-position-stats.js",
     "cli:import-twic-issue": "node dist/cli/import-twic-issue.js",
     "cli:backfill-players-events": "node dist/cli/backfill-players-events.js",
+    "cli:backfill-variant-cleanup": "node dist/cli/backfill-variant-cleanup.js",
     "test": "jest"
   },
   "dependencies": {
