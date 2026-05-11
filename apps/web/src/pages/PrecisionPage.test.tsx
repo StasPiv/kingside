@@ -482,8 +482,8 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
   });
 });
 
-describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игроков', () => {
-  it('?blundererEloMin=2300&blundererEloMax=2500 → запрос содержит оба параметра', async () => {
+describe('<PrecisionPage> KS-2758/KS-2763 — двойной range-slider «Рейтинг»', () => {
+  it('?blundererEloMin=2300&blundererEloMax=2500 → слайдеры выставлены, запрос содержит оба параметра', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     mockSearchParams.set('blundererEloMin', '2300');
     mockSearchParams.set('blundererEloMax', '2500');
@@ -493,17 +493,23 @@ describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игр�
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).toMatch(/blundererEloMin=2300/);
     expect(url).toMatch(/blundererEloMax=2500/);
-    const minInput = screen.getByTestId(
+    const minSlider = screen.getByTestId(
       'precision-elo-filter-min',
     ) as HTMLInputElement;
-    const maxInput = screen.getByTestId(
+    const maxSlider = screen.getByTestId(
       'precision-elo-filter-max',
     ) as HTMLInputElement;
-    expect(minInput.value).toBe('2300');
-    expect(maxInput.value).toBe('2500');
+    expect(minSlider.value).toBe('2300');
+    expect(maxSlider.value).toBe('2500');
+    expect(
+      screen.getByTestId('precision-elo-filter-value').textContent,
+    ).toContain('2300');
+    expect(
+      screen.getByTestId('precision-elo-filter-value').textContent,
+    ).toContain('2500');
   });
 
-  it('без параметров → запрос БЕЗ blundererElo*, инпуты пустые', async () => {
+  it('без параметров → слайдеры в крайних позициях (800/3000), запрос без фильтра', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
@@ -511,13 +517,17 @@ describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игр�
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).not.toMatch(/blundererEloMin=/);
     expect(url).not.toMatch(/blundererEloMax=/);
-    const minInput = screen.getByTestId(
+    const minSlider = screen.getByTestId(
       'precision-elo-filter-min',
     ) as HTMLInputElement;
-    expect(minInput.value).toBe('');
+    const maxSlider = screen.getByTestId(
+      'precision-elo-filter-max',
+    ) as HTMLInputElement;
+    expect(minSlider.value).toBe('800');
+    expect(maxSlider.value).toBe('3000');
   });
 
-  it('некорректное значение (буквы) в URL → игнорируется, запрос без фильтра', async () => {
+  it('некорректное значение (буквы) в URL → игнорируется, слайдеры в дефолтах', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     mockSearchParams.set('blundererEloMin', 'abc');
     mockBrowseOnce(SAMPLE);
@@ -525,6 +535,10 @@ describe('<PrecisionPage> KS-2758 — фильтр по рейтингу игр�
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).not.toMatch(/blundererEloMin=/);
+    const minSlider = screen.getByTestId(
+      'precision-elo-filter-min',
+    ) as HTMLInputElement;
+    expect(minSlider.value).toBe('800');
   });
 });
 

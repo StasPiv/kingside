@@ -1308,8 +1308,6 @@
     },
     "eloFilter": {
       "label": "Rating",
-      "minPlaceholder": "Min",
-      "maxPlaceholder": "Max",
       "minAria": "Minimum rating",
       "maxAria": "Maximum rating"
     },

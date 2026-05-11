@@ -60,6 +60,12 @@ import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
 
 const LIMIT = 20;
 
+/**
+ * KS-2763: границы рейтинга для двухстороннего слайдера. Шаг 50.
+ * Крайние значения = «нет фильтра», параметр удаляется из URL.
+ */
+const ELO_BOUNDS = { min: 800, max: 3000, step: 50 } as const;
+
 function sideFromFen(fen: string): 'white' | 'black' {
   const parts = fen.split(' ');
   return parts[1] === 'b' ? 'black' : 'white';
@@ -132,46 +138,32 @@ export function PrecisionPage() {
       ? Number(blundererEloMaxRaw)
       : undefined;
 
-  // KS-2758 follow-up: uncontrolled-инпуты рейтинга. Если делать
-  // controlled (value=state), setState от каждой набираемой цифры
-  // триггерит re-render всей PrecisionPage (включая 13 досок) — на
-  // глаз это «инпут зависает 1-2 секунды, цифра появляется не сразу».
-  // Ref на DOM-инпут + setTimeout 400ms → URL — никаких React-
-  // рендеров от ввода, инпут отвечает мгновенно. URL-side изменения
-  // (back/forward, шара ссылкой) подтягиваем обратно в input через
-  // useEffect, сравнивая `.value` чтобы не сбить курсор пользователя.
-  const eloMinInputRef = useRef<HTMLInputElement | null>(null);
-  const eloMaxInputRef = useRef<HTMLInputElement | null>(null);
-  const eloMinTimerRef = useRef<number | null>(null);
-  const eloMaxTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    const el = eloMinInputRef.current;
-    if (el && el.value !== (blundererEloMinRaw ?? '')) {
-      el.value = blundererEloMinRaw ?? '';
-    }
-  }, [blundererEloMinRaw]);
-  useEffect(() => {
-    const el = eloMaxInputRef.current;
-    if (el && el.value !== (blundererEloMaxRaw ?? '')) {
-      el.value = blundererEloMaxRaw ?? '';
-    }
-  }, [blundererEloMaxRaw]);
-  // Глобальный cleanup таймеров при размонтировании.
+  // KS-2763: двухсторонний range-slider для фильтра «Рейтинг».
+  // Диапазон 800..3000 (типичный шахматный), шаг 50. URL-state
+  // прежний: `blundererEloMin/Max`. Крайние позиции (800 / 3000) =
+  // нет фильтра — параметр в URL удаляется. API-запрос дёргается
+  // через debounce 300ms, чтобы drag не флудил сеть.
+  const eloMinValue = blundererEloMin ?? ELO_BOUNDS.min;
+  const eloMaxValue = blundererEloMax ?? ELO_BOUNDS.max;
+  const sliderTimerRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
-      if (eloMinTimerRef.current) window.clearTimeout(eloMinTimerRef.current);
-      if (eloMaxTimerRef.current) window.clearTimeout(eloMaxTimerRef.current);
+      if (sliderTimerRef.current) window.clearTimeout(sliderTimerRef.current);
     };
   }, []);
-  const debouncedSetElo = useCallback(
-    (param: 'blundererEloMin' | 'blundererEloMax', raw: string) => {
-      const sp = new URLSearchParams(searchParams);
-      const v = raw.trim();
-      if (v && /^\d+$/.test(v)) sp.set(param, v);
-      else sp.delete(param);
-      if (sp.toString() !== searchParams.toString()) {
-        setSearchParams(sp, { replace: true });
-      }
+  const debouncedSyncSliders = useCallback(
+    (newMin: number, newMax: number) => {
+      if (sliderTimerRef.current) window.clearTimeout(sliderTimerRef.current);
+      sliderTimerRef.current = window.setTimeout(() => {
+        const sp = new URLSearchParams(searchParams);
+        if (newMin <= ELO_BOUNDS.min) sp.delete('blundererEloMin');
+        else sp.set('blundererEloMin', String(newMin));
+        if (newMax >= ELO_BOUNDS.max) sp.delete('blundererEloMax');
+        else sp.set('blundererEloMax', String(newMax));
+        if (sp.toString() !== searchParams.toString()) {
+          setSearchParams(sp, { replace: true });
+        }
+      }, 300);
     },
     [searchParams, setSearchParams],
   );
@@ -530,62 +522,62 @@ export function PrecisionPage() {
             {t('precision.showSolved', 'Show solved')}
           </label>
         )}
-        {/* KS-2758 / backend KS-2761: фильтр по рейтингу ЗЕВНУВШЕГО
-            игрока. Бэкенд жоинит archive_games и берёт ELO той стороны,
-            что сыграла `blunderMove` (по side-to-move в fenBeforeBlunder).
-            URL: `blundererEloMin` / `blundererEloMax`. */}
+        {/* KS-2763: двухсторонний range-slider. Два <input type=range>
+            на одной track (накладываются через CSS). При перетаскивании
+            обновляется local state + дебаунс 300ms → URL. Крайние
+            значения (800/3000) удаляют параметр (нет фильтра). */}
         <div
           className="precision-elo-filter"
           data-testid="precision-elo-filter"
         >
           <span className="precision-elo-filter__label">
-            {t('precision.eloFilter.label', 'Players rating')}
+            {t('precision.eloFilter.label', 'Rating')}
           </span>
-          <input
-            ref={eloMinInputRef}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={4000}
-            step={50}
-            defaultValue={blundererEloMinRaw ?? ''}
-            placeholder={t('precision.eloFilter.minPlaceholder', 'Min')}
-            aria-label={t('precision.eloFilter.minAria', 'Minimum rating')}
-            data-testid="precision-elo-filter-min"
-            className="precision-elo-filter__input"
-            onChange={(e) => {
-              const v = e.target.value;
-              if (eloMinTimerRef.current) {
-                window.clearTimeout(eloMinTimerRef.current);
-              }
-              eloMinTimerRef.current = window.setTimeout(() => {
-                debouncedSetElo('blundererEloMin', v);
-              }, 400);
-            }}
-          />
-          <span aria-hidden="true">—</span>
-          <input
-            ref={eloMaxInputRef}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={4000}
-            step={50}
-            defaultValue={blundererEloMaxRaw ?? ''}
-            placeholder={t('precision.eloFilter.maxPlaceholder', 'Max')}
-            aria-label={t('precision.eloFilter.maxAria', 'Maximum rating')}
-            data-testid="precision-elo-filter-max"
-            className="precision-elo-filter__input"
-            onChange={(e) => {
-              const v = e.target.value;
-              if (eloMaxTimerRef.current) {
-                window.clearTimeout(eloMaxTimerRef.current);
-              }
-              eloMaxTimerRef.current = window.setTimeout(() => {
-                debouncedSetElo('blundererEloMax', v);
-              }, 400);
-            }}
-          />
+          <span
+            className="precision-elo-filter__value"
+            data-testid="precision-elo-filter-value"
+          >
+            {eloMinValue} — {eloMaxValue}
+          </span>
+          <div
+            className="precision-elo-filter__slider"
+            data-testid="precision-elo-filter-slider"
+          >
+            <input
+              type="range"
+              min={ELO_BOUNDS.min}
+              max={ELO_BOUNDS.max}
+              step={ELO_BOUNDS.step}
+              value={eloMinValue}
+              aria-label={t('precision.eloFilter.minAria', 'Minimum rating')}
+              data-testid="precision-elo-filter-min"
+              className="precision-elo-filter__range precision-elo-filter__range--min"
+              onChange={(e) => {
+                const v = Math.min(
+                  Number(e.target.value),
+                  eloMaxValue - ELO_BOUNDS.step,
+                );
+                debouncedSyncSliders(v, eloMaxValue);
+              }}
+            />
+            <input
+              type="range"
+              min={ELO_BOUNDS.min}
+              max={ELO_BOUNDS.max}
+              step={ELO_BOUNDS.step}
+              value={eloMaxValue}
+              aria-label={t('precision.eloFilter.maxAria', 'Maximum rating')}
+              data-testid="precision-elo-filter-max"
+              className="precision-elo-filter__range precision-elo-filter__range--max"
+              onChange={(e) => {
+                const v = Math.max(
+                  Number(e.target.value),
+                  eloMinValue + ELO_BOUNDS.step,
+                );
+                debouncedSyncSliders(eloMinValue, v);
+              }}
+            />
+          </div>
         </div>
         {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
             «Полная статистика →» на /precision/stats. Заменяет старый
