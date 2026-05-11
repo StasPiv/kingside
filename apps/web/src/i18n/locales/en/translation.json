@@ -1341,6 +1341,7 @@
       "noData": "—"
     },
     "hidePreserved": "Hide preserved",
+    "showSolved": "Show solved",
     "tabs": {
       "label": "Puzzle filter",
       "all": "All",

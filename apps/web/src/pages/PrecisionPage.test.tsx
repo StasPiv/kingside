@@ -482,32 +482,32 @@ describe('<PrecisionPage> KS-2586 — Draft badge + Publish button', () => {
   });
 });
 
-describe('<PrecisionPage> KS-2753 — toggle «Скрыть удержанные»', () => {
-  it('toggle ON → ?hideSolved=true улетает в /puzzles/browse', async () => {
+describe('<PrecisionPage> KS-2753/KS-2754 — toggle «Показать решённые» (инверсия)', () => {
+  it('по умолчанию (toggle OFF) → запрос с hideSolved=true (видим только новые)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
-    mockSearchParams.set('hideSolved', 'true');
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).toMatch(/hideSolved=true/);
     const toggle = screen.getByTestId(
-      'precision-hide-preserved-input',
+      'precision-show-solved-input',
     ) as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    expect(toggle.checked).toBe(false);
   });
 
-  it('toggle OFF (по умолчанию) → запрос без hideSolved', async () => {
+  it('toggle ON (?showSolved=true) → запрос без hideSolved (видим всё)', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
+    mockSearchParams.set('showSolved', 'true');
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).not.toMatch(/hideSolved=/);
     const toggle = screen.getByTestId(
-      'precision-hide-preserved-input',
+      'precision-show-solved-input',
     ) as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
+    expect(toggle.checked).toBe(true);
   });
 
   it('гость → toggle не рендерится (auth-only фильтр)', async () => {
@@ -519,7 +519,7 @@ describe('<PrecisionPage> KS-2753 — toggle «Скрыть удержанные
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
       ).toBe('ready'),
     );
-    expect(screen.queryByTestId('precision-hide-preserved')).toBeNull();
+    expect(screen.queryByTestId('precision-show-solved')).toBeNull();
   });
 });
 

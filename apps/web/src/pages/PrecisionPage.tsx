@@ -109,14 +109,14 @@ export function PrecisionPage() {
   )
     ? visibilityParam
     : undefined;
-  // KS-2719 F3 / KS-2753: URL-флаг «Скрыть удержанные» — backend-фильтр
-  // `hideSolved=true` (бэкенд отбрасывает позиции, которые юзер уже
-  // удержал в play-vs-engine attempts). Жил здесь до ADR-057 / KS-2746,
-  // потом был ошибочно удалён под предлогом «фильтры на /history
-  // покрывают», но это разные сущности: /history фильтрует ИСТОРИЮ
-  // попыток, а тут — СЕТКУ позиций для тренировки (useInfinitePuzzles).
-  // KS-2753 вернул toggle на место.
-  const hideSolvedParam = searchParams.get('hideSolved') === 'true';
+  // KS-2719 F3 / KS-2753 / KS-2754 follow-up: фильтр сетки PUZZLES.
+  // ИНВЕРСИЯ ПО УМОЛЧАНИЮ: по дефолту скрываем удержанные позиции,
+  // пользователь видит только новые задачи для тренировки. Чтобы
+  // показать уже решённые — выставляет чекбокс «Показать решённые»,
+  // в URL появляется `?showSolved=true`. Backend-фильтр прежний
+  // (`hideSolved=true` → выкидывает удержанные позиции из выдачи).
+  const showSolvedParam = searchParams.get('showSolved') === 'true';
+  const hideSolved = !showSolvedParam;
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -126,10 +126,10 @@ export function PrecisionPage() {
       source: 'generated',
       mine: mineParam ? true : undefined,
       visibility,
-      hideSolved: hideSolvedParam ? true : undefined,
+      hideSolved: hideSolved ? true : undefined,
       limit: LIMIT,
     }),
-    [mineParam, visibility, hideSolvedParam],
+    [mineParam, visibility, hideSolved],
   );
 
   const {
@@ -444,29 +444,30 @@ export function PrecisionPage() {
             </button>
           </nav>
         )}
-        {/* KS-2719 F3 / KS-2753: toggle «Скрыть удержанные» — фильтр
-            сетки позиций, передаётся как ?hideSolved=true в
-            useInfinitePuzzles. После backend-фильтрации в сетке
-            остаются позиции, на которых юзер ещё не удерживал
-            преимущество в PVE-режиме. URL-state синхронизируется,
-            чтобы ссылку можно было шарить с включённым фильтром. */}
+        {/* KS-2754 follow-up: toggle «Показать решённые» — инверсия
+            предыдущего «Скрыть удержанные». По умолчанию скрываем
+            удержанные позиции (пользователь видит только новые
+            задачи); галочка `Показать решённые` → URL `?showSolved=true`
+            → бэкенд возвращает все позиции, включая ранее решённые.
+            Backend-параметр остался `hideSolved=true`, инверсию делаем
+            на фронте (см. `hideSolved = !showSolvedParam`). */}
         {user && (
           <label
-            className="precision-hide-preserved"
-            data-testid="precision-hide-preserved"
+            className="precision-show-solved"
+            data-testid="precision-show-solved"
           >
             <input
               type="checkbox"
-              checked={hideSolvedParam}
+              checked={showSolvedParam}
               onChange={(e) => {
                 const sp = new URLSearchParams(searchParams);
-                if (e.target.checked) sp.set('hideSolved', 'true');
-                else sp.delete('hideSolved');
+                if (e.target.checked) sp.set('showSolved', 'true');
+                else sp.delete('showSolved');
                 setSearchParams(sp, { replace: false });
               }}
-              data-testid="precision-hide-preserved-input"
+              data-testid="precision-show-solved-input"
             />
-            {t('precision.hidePreserved', 'Hide preserved')}
+            {t('precision.showSolved', 'Show solved')}
           </label>
         )}
         {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
