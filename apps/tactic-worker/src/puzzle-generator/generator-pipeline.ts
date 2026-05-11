@@ -392,6 +392,12 @@ async function processGame(
     tags.push('playVsEngine');
 
     const rating = computeStartingRating(row, sc.wdlAfterForSolver);
+    // KS-2757. Зевнувший = side-to-move в позиции до зевка
+    // (`fenBefore`). FEN-поле 2 ('w' | 'b'). Берём соответствующий
+    // ELO из archive_games-row; null если у этой стороны рейтинга нет.
+    const blundererSide = sc.task.fenBefore.split(/\s+/)[1] as 'w' | 'b';
+    const blundererElo =
+      blundererSide === 'w' ? row.white_elo : row.black_elo;
     const puzzle: PuzzleRecord = {
       id: randomUUID(),
       fen: sc.task.fenAfter,
@@ -408,6 +414,7 @@ async function processGame(
       isPublic: true,
       acceptedMoves: null,
       solutionMode: options.solutionMode,
+      blundererElo,
       sourceMetadata: JSON.stringify({
         blunderMove: sc.task.playedUci,
         // KS-2754. FEN позиции ДО зевка — нужен фронту чтобы собрать

@@ -295,6 +295,11 @@ model Puzzle {
   isPublic       Boolean @default(true) @map("is_public")
   sourceMetadata String? @map("source_metadata") @db.Text
   acceptedMoves  String? @map("accepted_moves")
+  /// KS-2757. ELO зевнувшего игрока (side-to-move в позиции до зевка).
+  /// Заполняется генератором tactic-worker при insert PVE-пазла.
+  /// Используется для фильтрации сложности на /precision —
+  /// зевок сильного игрока = более тонкая тактика.
+  blundererElo   Int?    @map("blunderer_elo")
 
   // KS-2463 / ADR-044 §3.2. Режим решения пазла:
   //   - 'forced-line' — классический пазл с фиксированной линией;
@@ -316,6 +321,9 @@ model Puzzle {
   // KS-2557: ORDER BY created_at DESC LIMIT 20 для /puzzles/browse —
   // на 6M lichess строк без индекса делал full scan + sort.
   @@index([createdAt])
+  // KS-2757. Фильтрация на /precision по диапазону рейтинга
+  // зевнувшего; обычный b-tree, partial не нужен (NULL минимум).
+  @@index([blundererElo])
   // KS-2562: getNextPuzzle делает range scan по rating + ORDER BY
   // popularity DESC LIMIT 10. Полный composite на 6M строк не вмещается
   // в shared_buffers t3.micro — partial WHERE popularity >= 50

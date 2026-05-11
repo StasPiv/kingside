@@ -162,6 +162,12 @@ export class PuzzleController {
     @Query('hideSolved') hideSolved?: string,
     @Query('source') sourceParam?: string,
     @Query('visibility') visibilityParam?: string,
+    // KS-2757. Фильтр по рейтингу зевнувшего (зевок сильного игрока =
+    // сложнее задача). Применяется только к пазлам с непустым
+    // `blunderer_elo` — legacy/lichess пазлы (NULL) автоматически
+    // отсеиваются при любом заданном фильтре.
+    @Query('blundererEloMin') blundererEloMinStr?: string,
+    @Query('blundererEloMax') blundererEloMaxStr?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -243,6 +249,23 @@ export class PuzzleController {
       params.push(parseInt(ratingMaxStr, 10));
     }
 
+    // KS-2757. Любое из условий blunderer_elo автоматически отсеивает
+    // NULL'ы (`>= N` / `<= N` для NULL = NULL = false).
+    if (blundererEloMinStr) {
+      const v = parseInt(blundererEloMinStr, 10);
+      if (Number.isFinite(v)) {
+        conditions.push(`p.blunderer_elo >= ${next()}`);
+        params.push(v);
+      }
+    }
+    if (blundererEloMaxStr) {
+      const v = parseInt(blundererEloMaxStr, 10);
+      if (Number.isFinite(v)) {
+        conditions.push(`p.blunderer_elo <= ${next()}`);
+        params.push(v);
+      }
+    }
+
     if (hideSolved === 'true' && userId) {
       const ph = next();
       conditions.push(
@@ -286,7 +309,7 @@ export class PuzzleController {
     // blunderUci (из playVsEngine.blunderMove) и sourceGame
     // (white/black/event). Парсинг и сборка — через
     // PuzzleService.buildBrowseEnrichments на этапе маппинга.
-    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.blunderer_elo, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
       FROM puzzles p WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT ${limitPh}`;
@@ -305,6 +328,7 @@ export class PuzzleController {
         source_move_num: number | null;
         game_url: string | null;
         solution_mode: string | null;
+        blunderer_elo: number | null;
         is_public: boolean;
         created_by: string | null;
         created_at: Date | string;
@@ -342,6 +366,8 @@ export class PuzzleController {
             ? p.created_at.toISOString()
             : new Date(p.created_at).toISOString(),
         solvedStatus: p.solved_status ?? null,
+        // KS-2757. ELO зевнувшего (для UI карточки и фильтра).
+        blundererElo: p.blunderer_elo,
         // KS-2754. playVsEngine.blunderMove = UCI зевка; sourceGame =
         // {white, black, event, date, ...}; sourceMoveNum = номер хода
         // в исходной партии. Все три поля опциональны — отсутствуют

@@ -172,6 +172,8 @@ async function main(): Promise<void> {
       acceptedMoves: puzzle.acceptedMoves,
       sourceMetadata: puzzle.sourceMetadata,
       solutionMode: puzzle.solutionMode,
+      // KS-2757
+      blundererElo: puzzle.blundererElo,
     };
     await prisma.puzzle.create({ data });
   };
