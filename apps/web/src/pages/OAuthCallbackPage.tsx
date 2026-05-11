@@ -12,6 +12,10 @@ export function OAuthCallbackPage() {
   const { t } = useTranslation();
   const [initialized, setInitialized] = useState(false);
   const [requiresUsernameSetup, setRequiresUsernameSetup] = useState(false);
+  // KS-2785: сохраняем accessToken в state, потому что сразу после
+  // mount чистим query через replaceState — `searchParams.get` после
+  // этого будет давать null.
+  const [oauthAccessToken, setOauthAccessToken] = useState<string | null>(null);
 
   // Eagerly persist OAuth tokens to localStorage during the layout phase,
   // before any useEffect (including AuthContext's token effect) can read it.
@@ -27,6 +31,19 @@ export function OAuthCallbackPage() {
       console.log('[OAuthCallback] useLayoutEffect: tokens pre-saved to localStorage', {
         accessTokenPreview: accessToken.slice(0, 20) + '...',
       });
+    }
+    // KS-2785: сразу убираем токены из URL, чтобы при F5 / Back-button
+    // браузер не вернул пользователя в `/oauth/callback?accessToken=…`
+    // (где `searchParams` запускают callback-логику повторно). Меняем
+    // ТЕКУЩУЮ запись в history (replaceState — не вставляет новую),
+    // потому что предыдущая запись `/api/auth/google/callback?code=…`
+    // уже не должна быть достижима из браузера (backend делает 302
+    // вместо `window.location` поп-апа). Если query очистили — повтор
+    // вызова с тем же `code` исключён со стороны фронта.
+    try {
+      window.history.replaceState({}, '', '/oauth/callback');
+    } catch {
+      /* ignore — старые webview без history API */
     }
     // KS-2034: запускаем один раз при mount — токены из URL сохраняем
     // ДО того как любой эффект-зависимость по `searchParams` сменится.
@@ -65,6 +82,7 @@ export function OAuthCallbackPage() {
     }
 
     console.log('[OAuthCallback] calling loginWithTokens');
+    setOauthAccessToken(accessToken);
     loginWithTokens(accessToken, refreshToken);
     setInitialized(true);
   // KS-2034: одноразовый init по содержимому URL. `loginWithTokens`,
@@ -107,7 +125,7 @@ export function OAuthCallbackPage() {
       <div className="auth-page">
         <UsernameSetupModal
           onSuccess={handleUsernameSetupSuccess}
-          accessToken={searchParams.get('accessToken') ?? undefined}
+          accessToken={oauthAccessToken ?? undefined}
         />
       </div>
     );
