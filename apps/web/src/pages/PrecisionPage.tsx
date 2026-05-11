@@ -542,6 +542,18 @@ export function PrecisionPage() {
           <div
             className="precision-elo-filter__slider"
             data-testid="precision-elo-filter-slider"
+            style={
+              {
+                // KS-2767: доли 0..1 для accent-сегмента между thumb'ами
+                // (CSS dual-range из KS-2766). 0 = левый край, 1 = правый.
+                '--p-min':
+                  (eloMinValue - ELO_BOUNDS.min) /
+                  (ELO_BOUNDS.max - ELO_BOUNDS.min),
+                '--p-max':
+                  (eloMaxValue - ELO_BOUNDS.min) /
+                  (ELO_BOUNDS.max - ELO_BOUNDS.min),
+              } as React.CSSProperties
+            }
           >
             <input
               type="range"
