@@ -664,11 +664,10 @@ export function BroadcastRoundPage() {
 
   const handleGameClick = (game: LichessGame) => {
     if (!game.pgn) return;
-    // KS-2774 follow-up: откатил `if (!game.id) return` — у части
-    // продовских партий поле id приходит пустым, защита блокировала
-    // ВСЕ переходы. Битый URL отсеется в BroadcastLiveGamePage через
-    // UUID-валидацию, пользователь увидит «not found» вместо «ничего
-    // не происходит».
+    // KS-2774: backend `:9754d58b` теперь шлёт `id` в REST и WS payload.
+    // Если поле всё-таки пустое (нет lichessGameId / partial sync) —
+    // не строим URL `/broadcasts/.../undefined/live`, игнорируем клик.
+    if (!game.id) return;
     // KS-2448: для live-партий (текущий тур ongoing, результат ещё не
     // определён) уходим на live-страницу с подпиской на обновления, а не
     // в Мастерскую (она замораживала позицию). Для завершённых партий

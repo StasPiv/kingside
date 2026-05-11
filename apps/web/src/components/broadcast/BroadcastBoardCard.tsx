@@ -145,11 +145,12 @@ export function BroadcastBoardCard({
   lastMoveUci,
   evalSnap,
 }: BroadcastBoardCardProps) {
-  // KS-2774 follow-up: откатил Boolean(game.id) — в проде поле id у
-  // партий приходит пустым из backend DTO, моя «защита» блокировала
-  // абсолютно все клики. UUID-валидация на странице /live осталась
-  // как safety-net.
-  const isClickable = clickable ?? Boolean(game.pgn);
+  // KS-2774: карточка кликабельна только если у партии есть `id` —
+  // иначе click уведёт на `/broadcasts/.../undefined/live`. Backend
+  // `:9754d58b` теперь шлёт `id` и в REST, и в `broadcast:sync` /
+  // `broadcast:move`. Edge-case: если у партии нет `lichessGameId`,
+  // `id` приходит `null` — карточка не кликабельна, грейсфол ок.
+  const isClickable = (clickable ?? Boolean(game.pgn)) && Boolean(game.id);
   const fen = resolveFen(game.currentFen, game.pgn ?? '');
   // KS-2702 → KS-2705: highlight рисуем только если родитель разрешил.
   // Источник прямого хода: сначала `lastMoveUci` (от backend
