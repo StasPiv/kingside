@@ -88,6 +88,20 @@ import {
 } from './utils/authReturnUrl';
 
 // Lazy-loaded heavy pages
+// KS-2747 / ADR-057 §2.1: /precision/stats и /precision/history содержат
+// тяжёлые блоки (PrecisionTrendsChart, PrecisionBreakdowns,
+// PrecisionAttemptsList с превью досок) — выносим в отдельные чанки,
+// чтобы вход на главную /precision не тянул их.
+const PrecisionStatsPage = lazy(() =>
+  import('./pages/PrecisionStatsPage').then((m) => ({
+    default: m.PrecisionStatsPage,
+  })),
+);
+const PrecisionHistoryPage = lazy(() =>
+  import('./pages/PrecisionHistoryPage').then((m) => ({
+    default: m.PrecisionHistoryPage,
+  })),
+);
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 // KS-2672: для публичной ссылки используем тот же AnalysisPage с
 // `publicMode=true` (читает через `GET /analyses/public/:id`,
@@ -348,6 +362,26 @@ export function App() {
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
             <Route path="/precision" element={<PrecisionPage />} />
+            {/* KS-2747 / ADR-057 §2.2: вынос статистики и истории
+                на отдельные страницы (KS-2744 / KS-2745). Обе через
+                lazy() — отдельные чанки, не тянем при заходе на главную
+                /precision (там сразу сетка позиций для тренировки). */}
+            <Route
+              path="/precision/stats"
+              element={
+                <Suspense fallback={<LazyFallback />}>
+                  <PrecisionStatsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/precision/history"
+              element={
+                <Suspense fallback={<LazyFallback />}>
+                  <PrecisionHistoryPage />
+                </Suspense>
+              }
+            />
             {/* KS-2719 F4 / ADR-056 §5: detail-страница попытки. */}
             <Route
               path="/precision/attempts/:id"

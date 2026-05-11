@@ -99,6 +99,16 @@ vi.mock('./pages/PuzzleRushPage', () => ({
   PuzzleRushPage: () => <div>Puzzle Rush</div>,
 }));
 
+// KS-2747 / ADR-057 §2.2: новые роуты /precision/stats и /precision/history.
+// Обе страницы импортируются через lazy() → нужны моки чтобы не тянуть
+// real-сетевой код в smoke-тесты.
+vi.mock('./pages/PrecisionStatsPage', () => ({
+  PrecisionStatsPage: () => <div>Precision Stats Page</div>,
+}));
+vi.mock('./pages/PrecisionHistoryPage', () => ({
+  PrecisionHistoryPage: () => <div>Precision History Page</div>,
+}));
+
 vi.mock('./pages/PuzzleRushLeaderboardPage', () => ({
   PuzzleRushLeaderboardPage: () => <div>Rush Leaderboard</div>,
 }));
@@ -307,6 +317,24 @@ describe('App routing', () => {
     renderApp('/lobby'); // redirected to /login
     fireEvent.click(screen.getByText('Leaderboard Nav'));
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  // KS-2747 / ADR-057 F5: deep-link рендерит /precision/stats и
+  // /precision/history (обе lazy(), ждём Suspense через findByText).
+  describe('KS-2747 precision split routes', () => {
+    it('renders /precision/stats via deep-link', async () => {
+      renderApp('/precision/stats');
+      expect(
+        await screen.findByText('Precision Stats Page'),
+      ).toBeInTheDocument();
+    });
+
+    it('renders /precision/history via deep-link', async () => {
+      renderApp('/precision/history');
+      expect(
+        await screen.findByText('Precision History Page'),
+      ).toBeInTheDocument();
+    });
   });
 
   // KS-1928 / ADR-032: 301-redirect /lessons/mistakes* → /puzzles/mistakes*
