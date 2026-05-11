@@ -704,9 +704,19 @@ export function PrecisionPage() {
                   {(() => {
                     const sg = p.sourceGame ?? null;
                     const pve = p.playVsEngine ?? null;
+                    // KS-2754 follow-up: показываем ELO рядом с фамилиями
+                    // («никто фамилии не знает, рейтинги важнее» — user).
+                    // Если ELO нет — выводим только имя.
+                    const formatPlayer = (
+                      name?: string,
+                      elo?: number,
+                    ): string => {
+                      const safeName = name && name.trim() ? name : '?';
+                      return elo ? `${safeName} (${elo})` : safeName;
+                    };
                     const players =
                       sg && (sg.white || sg.black)
-                        ? `${sg.white ?? '?'} — ${sg.black ?? '?'}`
+                        ? `${formatPlayer(sg.white, sg.whiteElo)} — ${formatPlayer(sg.black, sg.blackElo)}`
                         : null;
                     // KS-2754 follow-up: SAN зевка + полная PGN-нотация
                     // номера хода из fenBeforeBlunder (5-е поле FEN =

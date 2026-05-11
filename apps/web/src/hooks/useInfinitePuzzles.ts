@@ -33,6 +33,10 @@ export interface BrowsePuzzleDto {
   sourceGame?: {
     white?: string;
     black?: string;
+    /** KS-2754 backend 807e9bd2: ELO белых из PGN-tag `WhiteElo`. */
+    whiteElo?: number;
+    /** KS-2754 backend 807e9bd2: ELO чёрных из PGN-tag `BlackElo`. */
+    blackElo?: number;
     event?: string;
     date?: string;
     result?: string;
