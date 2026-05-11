@@ -532,6 +532,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         `[broadcast-sync] Processing ${broadcasts.length} broadcasts...`,
       );
       let fetchCount = 0;
+      // KS-2779. Собираем lichessRoundId, которые увидели в top-20 fetch —
+      // их статус уже обновлён через upsertRound. Остальные наши раунды
+      // (не-top-20 broadcast'ы) обновим отдельным fetcher'ом ниже,
+      // чтобы у них тоже status зеркалил Lichess.
+      const upsertedRoundIds = new Set<string>();
       for (let idx = 0; idx < broadcasts.length; idx++) {
         const bc = broadcasts[idx];
         this.logger.log(
@@ -550,17 +555,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           let upserted: { status: string } | null = null;
           try {
             upserted = await this.upsertRound(bc.tour.id, round, isActive);
+            upsertedRoundIds.add(round.id);
           } catch (e: unknown) {
             this.logger.error(
               `[broadcast-sync] upsertRound FAILED ${round.id}: ${(e as Error).message}`,
             );
             continue;
           }
-          // KS-2722: эффективный статус — после override (round может
-          // быть `ongoing` локально, даже если Lichess пометил
-          // `finished=true` по календарю).
-          const effectiveActive =
-            isActive || upserted?.status === 'ongoing';
+          const effectiveActive = upserted?.status === 'ongoing';
           if (effectiveActive) {
             if (!this.activeStreams.has(round.id)) {
               if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
@@ -583,6 +585,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             }
           }
         }
+      }
+
+      // KS-2779. Зеркало Lichess для не-top-20 broadcast'ов: дёргаем
+      // round-metadata индивидуально для наших раундов, статус которых
+      // не был обновлён в основном цикле (broadcast вне top-20).
+      // Это и закрывает раунды (если Lichess решил так), и переоткрывает
+      // (если Lichess вернул ongoing после finished).
+      try {
+        await this.refreshNonTop20RoundStatuses(upsertedRoundIds);
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] refreshNonTop20RoundStatuses failed: ${(e as Error).message}`,
+        );
       }
 
       // KS-2722: используем БД-статус (после override), а не Lichess-флаг,
@@ -909,41 +924,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       where: { lichessId: broadcastLichessId },
     });
     if (!broadcast) return null;
-    let status = round.finished
+    // KS-2779. Зеркалим Lichess 1-в-1. Удалён override KS-2722 «если
+    // Lichess finished но локально есть partition '*' → ongoing»: это
+    // тоже была наша эвристика. Если Lichess решает что раунд finished
+    // — у нас тоже finished. Когда Lichess вернёт ongoing — мы тоже
+    // переоткроем (симметрично, без застревания).
+    const status = round.finished
       ? 'finished'
       : isActive
         ? 'ongoing'
         : 'pending';
-
-    // KS-2722: Lichess иногда отдаёт `round.finished=true` по
-    // календарной дате, при этом партии ещё идут. Если локально у
-    // round'а есть незакрытые партии (`result NULL` или `result='*'`),
-    // override status на `ongoing` — round завершён только когда все
-    // партии получили финальный результат.
-    if (round.finished) {
-      const existing = await this.prisma.broadcastRound.findUnique({
-        where: { lichessRoundId: round.id },
-        select: { id: true },
-      });
-      if (existing) {
-        const [totalGames, liveGames] = await Promise.all([
-          this.prisma.broadcastGame.count({ where: { roundId: existing.id } }),
-          this.prisma.broadcastGame.count({
-            where: {
-              roundId: existing.id,
-              OR: [{ result: null }, { result: '*' }],
-            },
-          }),
-        ]);
-        if (totalGames > 0 && liveGames > 0) {
-          this.logger.log(
-            `[broadcast-sync] round ${round.id} Lichess says finished but ` +
-              `${liveGames}/${totalGames} games still active — keeping ongoing`,
-          );
-          status = 'ongoing';
-        }
-      }
-    }
     // KS-1813: предварительный детект типа турнира по name + format (без
     // структуры пар — они появятся только после processPgnUpdate).
     // Окончательный вердикт перезаписывает `classifyRoundBrackets` после
@@ -1008,6 +998,90 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { status };
+  }
+
+  /**
+   * KS-2779. Зеркало Lichess для раундов, которые НЕ были обновлены
+   * через `upsertRound` (broadcast вне top-20). Для каждого такого
+   * раунда дёргаем `/api/broadcast/-/-/{lichessRoundId}`, читаем
+   * `round.finished`/`round.ongoing` и проставляем у нас 1-в-1.
+   *
+   * Обрабатывает раунды в `status IN (ongoing, pending)` и
+   * `finished` за последние 7 дней (на случай если Lichess
+   * переоткрыл уже-закрытый раунд).
+   *
+   * Rate-limit: каждый запрос идёт через `lichessFetch` с rate-limit
+   * backoff'ом, плюс `rateLimitDelay` между запросами.
+   */
+  private async refreshNonTop20RoundStatuses(
+    upsertedRoundIds: Set<string>,
+  ): Promise<void> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const candidates = await this.prisma.broadcastRound.findMany({
+      where: {
+        OR: [
+          { status: 'ongoing' },
+          { status: 'pending' },
+          { status: 'finished', updatedAt: { gte: sevenDaysAgo } },
+        ],
+      },
+      select: { id: true, lichessRoundId: true, status: true },
+    });
+
+    const toFetch = candidates.filter(
+      (r) => !upsertedRoundIds.has(r.lichessRoundId),
+    );
+    if (toFetch.length === 0) return;
+
+    this.logger.log(
+      `[broadcast-sync] refreshNonTop20RoundStatuses: ${toFetch.length} rounds to check`,
+    );
+
+    for (const r of toFetch) {
+      try {
+        await this.rateLimitDelay();
+        const url = `${LICHESS_API}/broadcast/-/-/${r.lichessRoundId}`;
+        const res = await this.lichessFetch(url, {
+          headers: {
+            'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          if (res.status === 404) {
+            // Lichess удалил round — оставляем как есть, но логируем.
+            this.logger.warn(
+              `[broadcast-sync] round ${r.lichessRoundId} not found on Lichess (404)`,
+            );
+          } else {
+            this.logger.warn(
+              `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} failed: HTTP ${res.status}`,
+            );
+          }
+          continue;
+        }
+        const body = (await res.json()) as {
+          round?: { finished?: boolean; ongoing?: boolean };
+        };
+        const finished = body.round?.finished === true;
+        const ongoing = body.round?.ongoing === true;
+        const newStatus = finished ? 'finished' : ongoing ? 'ongoing' : 'pending';
+        if (newStatus !== r.status) {
+          this.logger.log(
+            `[broadcast-sync] round ${r.lichessRoundId} status mirror: ${r.status} → ${newStatus}`,
+          );
+          await this.prisma.broadcastRound.update({
+            where: { id: r.id },
+            data: { status: newStatus },
+          });
+        }
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} threw: ${(e as Error).message}`,
+        );
+      }
+    }
   }
 
   /** Returns true if an actual Lichess fetch was performed */
@@ -1309,23 +1383,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    // KS-2591: второй ремень безопасности рядом с watchdog'ом — если
-    // все распарсенные партии финальные, а раунд ещё `ongoing`,
-    // закрываем его прямо сейчас, не дожидаясь watchdog-tick'а
-    // (watchdog default-stale=30 мин, плюс fail-counter — может
-    // суммарно тянуть час). Это ловит TePe-Sigeman-кейс: broadcast
-    // выпал из Lichess top-20 (`upsertRound` больше не вызывается),
-    // PGN-poll продолжает писать партии, и единственный способ
-    // закрыть последний раунд — это здесь.
-    if (shouldCloseRoundAsFinished(games, round.status)) {
-      await this.prisma.broadcastRound.update({
-        where: { id: round.id },
-        data: { status: 'finished' },
-      });
-      this.logger.log(
-        `[broadcast-sync] processPgnUpdate: round=${roundId} closed (all ${games.length} games final)`,
-      );
-    }
+    // KS-2779. Удалено локальное закрытие через `shouldCloseRoundAsFinished`
+    // (KS-2591). Принцип: Lichess — единственный источник правды для
+    // `round.status`. Закрытие/переоткрытие происходит в `upsertRound`
+    // и в `refreshRoundStatusFromLichess` строго по `round.finished` /
+    // `round.ongoing` от upstream. Локальные эвристики «все partition'ы
+    // в БД финальные» удалены — они приводили к преждевременному
+    // закрытию когда Lichess добавляет partition'ы постепенно (KS-2777).
 
     // KS-2722: после каждого PGN-update публикуем full snapshot
     // games через Redis pub/sub. Раньше publishSync вызывался только

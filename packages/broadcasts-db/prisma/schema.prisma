@@ -61,6 +61,11 @@ model BroadcastRound {
   name           String
   startsAt       DateTime? @map("starts_at")
   status         String    @default("pending")
+  /// KS-2779. Авто-обновление при любом update. Используется
+  /// `refreshNonTop20RoundStatuses` для фильтра «недавно finished
+  /// раунды» — чтобы переоткрытия Lichess'ом подхватывались,
+  /// но не пинговать вечно тысячи старых раундов.
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
   /// KS-1813: тип турнира для раунда — `round_robin | swiss | playoff | unknown`.
   /// Определяется при upsert'е раунда `detectRoundTournamentType` по названию
   /// раунда + `Broadcast.format` + структуре пар в `games`. Для старых
@@ -71,6 +76,7 @@ model BroadcastRound {
   games     BroadcastGame[]
 
   @@index([broadcastId])
+  @@index([status, updatedAt])
   @@map("broadcast_rounds")
 }
 
