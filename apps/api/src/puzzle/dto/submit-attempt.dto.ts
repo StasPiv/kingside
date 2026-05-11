@@ -66,6 +66,14 @@ export class PrecisionMoveSnapshotDto implements PrecisionMoveSnapshot {
   @IsString()
   bestUci!: string;
 
+  /**
+   * KS-2754. UCI ответного хода движка на user-ход. Опционально:
+   * `null`/пропуск — последний user-полуход партии (мат, пат, abort).
+   */
+  @IsOptional()
+  @IsString()
+  engineUci?: string | null;
+
   @IsOptional()
   @IsInt()
   cpBefore?: number | null;
