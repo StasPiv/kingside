@@ -2927,6 +2927,121 @@ body:has(.puzzle-rush-board) {
   }
 }
 
+/* ============================================================
+ * KS-2750 / ADR-057 §5 — контейнеры для /precision/stats и
+ * /precision/history. До этого классы `.precision-stats-page` и
+ * `.precision-history-page` (KS-2744/KS-2745) не имели стилей —
+ * sub-nav с `margin: -24px -16px` уезжал за верх viewport,
+ * заголовок прилипал к самому краю.
+ *
+ * Контейнер выравниваем с `.play-vs-engine-puzzles`:
+ *   max-width 1100px, центр, padding 24px 16px 48px. Шапки
+ *   страниц — h1 24px (как на главной), история ещё имеет CTA
+ *   «Начать тренировку →» справа.
+ * ============================================================ */
+.precision-stats-page,
+.precision-history-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  color: var(--text-primary);
+}
+
+.precision-stats-page__header,
+.precision-history-page__header {
+  margin: 0 0 16px;
+}
+
+.precision-history-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.precision-stats-page__title,
+.precision-history-page__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.precision-history-page__start-cta {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.12s ease;
+}
+
+.precision-history-page__start-cta:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.precision-history-page__start-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+  border-radius: 4px;
+}
+
+/* Guest CTA на /precision/stats и /precision/history — мягкая
+ * карточка с кнопкой «Войти и начать тренироваться». */
+.precision-stats-page__guest,
+.precision-history-page__guest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 20px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.precision-stats-page__guest-message,
+.precision-history-page__guest-message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.precision-stats-page__guest-cta,
+.precision-history-page__guest-cta {
+  display: inline-block;
+  padding: 8px 16px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.precision-stats-page__guest-cta:hover,
+.precision-history-page__guest-cta:hover {
+  background: var(--accent-hover);
+}
+
+.precision-stats-page__guest-cta:focus-visible,
+.precision-history-page__guest-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+}
+
+@media (max-width: 640px) {
+  .precision-stats-page__title,
+  .precision-history-page__title {
+    font-size: 20px;
+  }
+}
+
 /* KS-2545 / ADR-048 §6: top-блок stats на /precision. Минимальная
    разметка — финал в KS-2548 (layout). */
 .precision-stats {
