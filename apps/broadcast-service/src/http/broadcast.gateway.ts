@@ -149,6 +149,10 @@ export class BroadcastGateway
     const syncPayload = {
       roundId,
       games: round.games.map((g, idx) => ({
+        // KS-2774. UUID партии — фронт использует для кликабельных
+        // карточек на странице тура (Boolean(game.id) check). Без
+        // этого поля sync затирает id из REST-выборки.
+        id: g.id,
         gameIndex: idx,
         fen:
           g.currentFen ??

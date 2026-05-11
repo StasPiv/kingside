@@ -485,6 +485,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     _roundId: string,
     payload: {
       roundId: string;
+      /** KS-2774. UUID партии. null если запись в БД не создана. */
+      id: string | null;
       gameIndex: number;
       uci: string;
       fen: string;
@@ -1162,6 +1164,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           .catch(() => {});
       }
 
+      // KS-2774. Будем форвардить gameId (UUID) в publishMove —
+      // фронту нужно для определения кликабельной партии. Сохраняем id
+      // существующей записи либо новой созданной.
+      let dbGameId: string | null = null;
       if (game.lichessGameId) {
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
@@ -1209,6 +1215,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (existing) {
+          dbGameId = existing.id;
           const wouldRegress =
             game.fen === STARTING_FEN &&
             existing.currentFen &&
@@ -1238,7 +1245,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             },
           });
         } else {
-          await this.prisma.broadcastGame.create({
+          const created = await this.prisma.broadcastGame.create({
             data: {
               roundId: round.id,
               lichessGameId: game.lichessGameId,
@@ -1259,6 +1266,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
                   : null,
             },
           });
+          dbGameId = created.id;
         }
       }
 
@@ -1266,6 +1274,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       if (game.uci) {
         this.publishMove(round.id, {
           roundId: round.id,
+          // KS-2774. UUID партии — для фронта (кликабельные карточки).
+          // null если у game нет lichessGameId и записи в БД (редкий
+          // edge-case); фронт грейсфолит как ранее (Boolean(game.id)).
+          id: dbGameId,
           gameIndex: game.index,
           uci: game.uci,
           fen: game.fen,
