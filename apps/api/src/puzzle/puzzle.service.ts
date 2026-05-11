@@ -1253,6 +1253,47 @@ export class PuzzleService {
     };
   }
 
+  /**
+   * KS-2754. Минимальный набор полей-обогащений для UI-карточки
+   * пазла в списке `/precision` (и любой другой страницы, где есть
+   * только browse-row). Возвращает `playVsEngine` (с blunderMove —
+   * UCI зевка), `sourceGame` (white/black/event/...) и
+   * `sourceMoveNum`. Для legacy-пазлов любое поле может быть
+   * `undefined` — фронт грейсфолит.
+   */
+  buildBrowseEnrichments(p: {
+    id: string;
+    solution_mode: string | null;
+    source_metadata: string | null;
+    source_type: string | null;
+    source_id: string | null;
+    game_url: string | null;
+    source_move_num: number | null;
+  }): {
+    playVsEngine?: PlayVsEngineDto;
+    sourceGame?: PuzzleSourceGame;
+    sourceMoveNum?: number;
+  } {
+    const mode = this.resolveSolutionMode(
+      p.id,
+      p.solution_mode,
+      p.source_metadata,
+    );
+    const sourceGame = this.resolveSourceGame({
+      gameUrl: p.game_url,
+      sourceType: p.source_type,
+      sourceId: p.source_id,
+      sourceMetadata: p.source_metadata,
+    });
+    return {
+      ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
+      ...(sourceGame ? { sourceGame } : {}),
+      ...(p.source_move_num != null
+        ? { sourceMoveNum: p.source_move_num }
+        : {}),
+    };
+  }
+
   private formatRawPuzzle(p: {
     id: string;
     fen: string;

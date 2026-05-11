@@ -281,7 +281,12 @@ export class PuzzleController {
     const limitPh = next();
     params.push(take + 1);
 
-    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
+    // KS-2754. Добавлены поля sourceMetadata/sourceMoveNum/sourceId/
+    // gameUrl/solutionMode — UI карточки на /precision нужно показать
+    // blunderUci (из playVsEngine.blunderMove) и sourceGame
+    // (white/black/event). Парсинг и сборка — через
+    // PuzzleService.buildBrowseEnrichments на этапе маппинга.
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
       FROM puzzles p WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT ${limitPh}`;
@@ -295,6 +300,11 @@ export class PuzzleController {
         themes: string;
         source: string;
         source_type: string | null;
+        source_id: string | null;
+        source_metadata: string | null;
+        source_move_num: number | null;
+        game_url: string | null;
+        solution_mode: string | null;
         is_public: boolean;
         created_by: string | null;
         created_at: Date | string;
@@ -332,6 +342,19 @@ export class PuzzleController {
             ? p.created_at.toISOString()
             : new Date(p.created_at).toISOString(),
         solvedStatus: p.solved_status ?? null,
+        // KS-2754. playVsEngine.blunderMove = UCI зевка; sourceGame =
+        // {white, black, event, date, ...}; sourceMoveNum = номер хода
+        // в исходной партии. Все три поля опциональны — отсутствуют
+        // для legacy-пазлов или forced-line.
+        ...this.puzzleService.buildBrowseEnrichments({
+          id: p.id,
+          solution_mode: p.solution_mode,
+          source_metadata: p.source_metadata,
+          source_type: p.source_type,
+          source_id: p.source_id,
+          game_url: p.game_url,
+          source_move_num: p.source_move_num,
+        }),
       })),
       nextCursor,
     };
