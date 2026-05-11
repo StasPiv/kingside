@@ -2844,30 +2844,38 @@ body:has(.puzzle-rush-board) {
   pointer-events: none;
 }
 
-.precision-elo-filter__range {
+input[type='range'].precision-elo-filter__range {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   margin: 0;
+  padding: 0;
+  border: 0;
   background: transparent;
+  /* KS-2768: предотвращаем нативный trail-fill — `accent-color`
+   * наследуется и WebKit/Firefox используют его для заливки track.
+   * Делаем track полностью прозрачным; цвет рисуем через ::after
+   * парента. */
+  accent-color: transparent;
   pointer-events: none;
   -webkit-appearance: none;
+  -moz-appearance: none;
   appearance: none;
 }
 
-.precision-elo-filter__range:focus {
+input[type='range'].precision-elo-filter__range:focus {
   outline: none;
 }
 
 /* Webkit (Chrome/Safari) */
-.precision-elo-filter__range::-webkit-slider-runnable-track {
+input[type='range'].precision-elo-filter__range::-webkit-slider-runnable-track {
   background: transparent;
   height: 4px;
   border-radius: 999px;
 }
 
-.precision-elo-filter__range::-webkit-slider-thumb {
+input[type='range'].precision-elo-filter__range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   pointer-events: auto;
@@ -2882,27 +2890,36 @@ body:has(.puzzle-rush-board) {
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.precision-elo-filter__range::-webkit-slider-thumb:hover {
+input[type='range'].precision-elo-filter__range::-webkit-slider-thumb:hover {
   transform: scale(1.08);
 }
 
-.precision-elo-filter__range::-webkit-slider-thumb:active {
+input[type='range'].precision-elo-filter__range::-webkit-slider-thumb:active {
   cursor: grabbing;
   transform: scale(1.12);
 }
 
-.precision-elo-filter__range:focus-visible::-webkit-slider-thumb {
+input[type='range'].precision-elo-filter__range:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
 }
 
 /* Firefox */
-.precision-elo-filter__range::-moz-range-track {
+input[type='range'].precision-elo-filter__range::-moz-range-track {
   background: transparent;
+  border: 0;
   height: 4px;
   border-radius: 999px;
 }
 
-.precision-elo-filter__range::-moz-range-thumb {
+/* KS-2768: Firefox рисует «progress» (trail от 0 до value) поверх
+ * track — на dual-range это даёт ту же лишнюю полосу, что и
+ * WebKit-fill. Прячем. */
+input[type='range'].precision-elo-filter__range::-moz-range-progress {
+  background: transparent;
+  height: 4px;
+}
+
+input[type='range'].precision-elo-filter__range::-moz-range-thumb {
   pointer-events: auto;
   width: 16px;
   height: 16px;
@@ -2914,16 +2931,16 @@ body:has(.puzzle-rush-board) {
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.precision-elo-filter__range::-moz-range-thumb:hover {
+input[type='range'].precision-elo-filter__range::-moz-range-thumb:hover {
   transform: scale(1.08);
 }
 
-.precision-elo-filter__range::-moz-range-thumb:active {
+input[type='range'].precision-elo-filter__range::-moz-range-thumb:active {
   cursor: grabbing;
   transform: scale(1.12);
 }
 
-.precision-elo-filter__range:focus-visible::-moz-range-thumb {
+input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 4px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
 }
 
@@ -2936,12 +2953,12 @@ body:has(.puzzle-rush-board) {
     max-width: none;
     height: 32px;
   }
-  .precision-elo-filter__range::-webkit-slider-thumb {
+  input[type='range'].precision-elo-filter__range::-webkit-slider-thumb {
     width: 22px;
     height: 22px;
     margin-top: -9px;
   }
-  .precision-elo-filter__range::-moz-range-thumb {
+  input[type='range'].precision-elo-filter__range::-moz-range-thumb {
     width: 22px;
     height: 22px;
   }
