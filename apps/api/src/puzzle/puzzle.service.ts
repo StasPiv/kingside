@@ -1397,8 +1397,21 @@ export class PuzzleService {
         const event = pick('event') ?? pick('Event');
         const date = pick('date') ?? pick('Date');
         const resultRaw = pick('result') ?? pick('Result');
+        // KS-2754. ELO из PGN-tags `WhiteElo`/`BlackElo` (хранятся
+        // как строки в headers). Парсим в число, отбрасываем нечисловые.
+        const whiteEloRaw = pick('whiteElo') ?? pick('WhiteElo');
+        const blackEloRaw = pick('blackElo') ?? pick('BlackElo');
+        const parseElo = (s: string | undefined): number | undefined => {
+          if (!s) return undefined;
+          const n = parseInt(s, 10);
+          return Number.isFinite(n) && n > 0 ? n : undefined;
+        };
+        const whiteElo = parseElo(whiteEloRaw);
+        const blackElo = parseElo(blackEloRaw);
         if (white) out.white = white;
         if (black) out.black = black;
+        if (whiteElo !== undefined) out.whiteElo = whiteElo;
+        if (blackElo !== undefined) out.blackElo = blackElo;
         if (event) out.event = event;
         if (date) out.date = date;
         if (

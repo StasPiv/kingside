@@ -159,6 +159,10 @@ export type PuzzleDto = {
 export interface PuzzleSourceGame {
   white?: string;
   black?: string;
+  /** KS-2754. ELO белых на момент партии (PGN-tag `WhiteElo`). */
+  whiteElo?: number;
+  /** KS-2754. ELO чёрных на момент партии (PGN-tag `BlackElo`). */
+  blackElo?: number;
   event?: string;
   /** ISO-строка или PGN-формат «YYYY.MM.DD». */
   date?: string;
