@@ -664,6 +664,12 @@ export function BroadcastRoundPage() {
 
   const handleGameClick = (game: LichessGame) => {
     if (!game.pgn) return;
+    // KS-2774: защита от race — пока broadcast:sync не положил настоящий
+    // game.id (legacy/частичный snapshot, миграция данных), клик собирал
+    // URL вида `/broadcasts/.../undefined/live` → «Game not found».
+    // Игнорируем клик с пустым id; «реальный» live откроется после
+    // следующего sync, когда id появится.
+    if (!game.id) return;
     // KS-2448: для live-партий (текущий тур ongoing, результат ещё не
     // определён) уходим на live-страницу с подпиской на обновления, а не
     // в Мастерскую (она замораживала позицию). Для завершённых партий

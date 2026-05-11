@@ -86,6 +86,15 @@ type LichessRound = {
 
 type LiveGame = BroadcastGameSummary;
 
+/**
+ * KS-2774: валидация gameId из URL. На странице тура race до загрузки
+ * games иногда даёт ссылку `…/undefined/live`. Если сюда попал такой
+ * URL (либо ручной вход с мусором) — не дёргаем backend, сразу
+ * показываем error-state с back-link на тур.
+ */
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function BroadcastLiveGamePage() {
   const { tournamentId, roundId, gameId } = useParams<{
     tournamentId: string;
@@ -95,20 +104,43 @@ export function BroadcastLiveGamePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { playSound, unlocked: soundUnlocked, unlockSounds } = useSounds();
+  // KS-2774: невалидный gameId (literal "undefined" / не-UUID) — это
+  // битая ссылка из бага race на странице тура. До исправлений в
+  // BroadcastRoundPage URL мог выглядеть как
+  // `/broadcasts/<tid>/<rid>/undefined/live`.
+  const gameIdValid = Boolean(gameId) && UUID_REGEX.test(gameId ?? '');
 
   const [broadcast, setBroadcast] = useState<BroadcastMeta | null>(null);
   const [round, setRound] = useState<LichessRound | null>(null);
-  const [game, setGame] = useState<LiveGame | null>(null);
-  // KS-2772: gameIndex — позиция партии в массиве round.games из
-  // initial sync. Backend `broadcast:move` payload содержит только
-  // `gameIndex` (без `gameId`), фильтруем входящие events по нему.
-  const [gameIndex, setGameIndex] = useState<number | null>(null);
+  // KS-2772 follow-up: храним весь массив games (а не только current).
+  // gameIndex считается из него через useMemo — при изменении games
+  // (через WS sync, например порядок переехал) индекс пересчитается.
+  // Раньше gameIndex был setState один раз в initial fetch, и при
+  // gameId=undefined ловил -1 навсегда → handleMove всё отбрасывал.
+  const [games, setGames] = useState<LiveGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Текущая партия + её index — реактивно из games.
+  const game = useMemo<LiveGame | null>(
+    () => games.find((g) => g.id === gameId) ?? null,
+    [games, gameId],
+  );
+  const gameIndex = useMemo<number>(
+    () => games.findIndex((g) => g.id === gameId),
+    [games, gameId],
+  );
 
   // Initial fetch: meta + round + games (нужен round.name для breadcrumb).
   useEffect(() => {
     if (!tournamentId || !roundId || !gameId) return;
+    // KS-2774: для битого URL (gameId=`undefined`/не-UUID) не идём в
+    // backend — это бесполезный запрос, который вернёт пустой результат.
+    if (!gameIdValid) {
+      setLoading(false);
+      setError(t('broadcastLive.notFound', 'Game not found'));
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     Promise.all([
@@ -119,18 +151,13 @@ export function BroadcastLiveGamePage() {
       .then(([meta, roundsRes, gamesRes]) => {
         if (cancelled) return;
         const rounds = Array.isArray(roundsRes?.data) ? roundsRes.data : [];
-        const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
-        const foundIdx = games.findIndex((g) => g.id === gameId);
-        const found = foundIdx >= 0 ? games[foundIdx] : null;
+        const freshGames = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
+        const found = freshGames.some((g) => g.id === gameId);
         setBroadcast(meta);
         setRound(rounds.find((r) => r.id === roundId) ?? null);
+        setGames(freshGames);
         if (!found) {
           setError(t('broadcastLive.notFound', 'Game not found'));
-        } else {
-          setGame(found);
-          // KS-2772: запоминаем позицию текущей партии в массиве —
-          // backend шлёт `broadcast:move` с этим индексом.
-          setGameIndex(foundIdx);
         }
         setLoading(false);
       })
@@ -142,7 +169,7 @@ export function BroadcastLiveGamePage() {
     return () => {
       cancelled = true;
     };
-  }, [tournamentId, roundId, gameId, t]);
+  }, [tournamentId, roundId, gameId, gameIdValid, t]);
 
   // KS-2701: live-обновления через WebSocket. До тикета — только REST
   // polling 15s, что давало задержку до 15с между ходом и его появлением.
@@ -159,44 +186,40 @@ export function BroadcastLiveGamePage() {
   //      (потеря интернета, рестарт backend). Когда `connected=true`
   //      polling выключается.
   const prevPgnRef = useRef<string>('');
-  // Одинаковая логика проигрывания звука для WS и REST: считаем что
-  // хост-аутор знает свой PGN, а нам важен факт «история удлинилась».
-  const handleGameUpdate = useCallback(
-    (fresh: LiveGame) => {
-      const prevLen = prevPgnRef.current.length;
-      const curLen = fresh.pgn?.length ?? 0;
-      if (curLen > prevLen && fresh.pgn) {
-        try {
-          const chess = new Chess();
-          if (loadPgnSafe(chess, fresh.pgn)) {
-            const hist = chess.history();
-            const lastSan = hist.length ? hist[hist.length - 1] : null;
-            if (lastSan) playSound(soundEventFromSan(lastSan));
-          }
-        } catch {
-          // Звук не критичен — молча проглатываем кривой PGN.
-        }
-      }
-      prevPgnRef.current = fresh.pgn ?? '';
-      setGame(fresh);
-    },
-    [playSound],
-  );
-
+  // KS-2772 follow-up: при sync полностью заменяем games массив. Так
+  // gameIndex (useMemo по games+gameId) реактивно подцепляется, даже
+  // если backend поменял порядок партий в раунде. Звук играем по факту
+  // удлинения PGN текущей партии.
   const handleSync = useCallback(
     (payload: { games: LiveGame[] }) => {
-      const fresh = payload.games?.find((g) => g.id === gameId);
-      if (fresh) handleGameUpdate(fresh);
+      const list = Array.isArray(payload.games) ? payload.games : [];
+      const fresh = list.find((g) => g.id === gameId);
+      if (fresh) {
+        const prevLen = prevPgnRef.current.length;
+        const curLen = fresh.pgn?.length ?? 0;
+        if (curLen > prevLen && fresh.pgn) {
+          try {
+            const chess = new Chess();
+            if (loadPgnSafe(chess, fresh.pgn)) {
+              const hist = chess.history();
+              const lastSan = hist.length ? hist[hist.length - 1] : null;
+              if (lastSan) playSound(soundEventFromSan(lastSan));
+            }
+          } catch {
+            /* звук не критичен */
+          }
+        }
+        prevPgnRef.current = fresh.pgn ?? '';
+      }
+      setGames(list);
     },
-    [gameId, handleGameUpdate],
+    [gameId, playSound],
   );
 
-  // KS-2772: `broadcast:move` короткий — содержит `gameIndex/uci/fen`.
-  // Раньше фильтр был по `whitePlayer/blackPlayer` (хрупкое сравнение
-  // имён), из-за чего ходы для текущей партии иногда не доходили и
-  // позиция «замораживалась». Теперь — строгий фильтр по `gameIndex`
-  // (позиция партии в round.games из initial sync). Звук на move не
-  // проигрываем — следующий `sync` принесёт PGN и звук сыграется там.
+  // KS-2772: фильтр broadcast:move по gameIndex (позиция в games[]).
+  // gameIndex вычисляется реактивно через useMemo — пересчитается
+  // на любое обновление games. Обновляем currentFen внутри games,
+  // useMemo `game` подхватит.
   const handleMove = useCallback(
     (payload: {
       gameIndex: number;
@@ -205,9 +228,13 @@ export function BroadcastLiveGamePage() {
       whitePlayer?: string | null;
       blackPlayer?: string | null;
     }) => {
-      if (gameIndex == null) return;
+      if (gameIndex < 0) return;
       if (payload.gameIndex !== gameIndex) return;
-      setGame((prev) => (prev ? { ...prev, currentFen: payload.fen } : prev));
+      setGames((prev) =>
+        prev.map((g, i) =>
+          i === payload.gameIndex ? { ...g, currentFen: payload.fen } : g,
+        ),
+      );
     },
     [gameIndex],
   );
@@ -236,9 +263,30 @@ export function BroadcastLiveGamePage() {
         .get<{ data: LiveGame[] }>(`/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
           if (cancelled) return;
-          const games = Array.isArray(res?.data) ? res.data : [];
-          const fresh = games.find((g) => g.id === gameId);
-          if (fresh) handleGameUpdate(fresh);
+          const list = Array.isArray(res?.data) ? res.data : [];
+          // KS-2772 follow-up: REST-fallback тоже обновляет полный
+          // массив games — gameIndex (useMemo) пересчитается, если
+          // что-то сдвинулось. Звук — по факту удлинения PGN своей
+          // партии.
+          const fresh = list.find((g) => g.id === gameId);
+          if (fresh) {
+            const prevLen = prevPgnRef.current.length;
+            const curLen = fresh.pgn?.length ?? 0;
+            if (curLen > prevLen && fresh.pgn) {
+              try {
+                const chess = new Chess();
+                if (loadPgnSafe(chess, fresh.pgn)) {
+                  const hist = chess.history();
+                  const lastSan = hist.length ? hist[hist.length - 1] : null;
+                  if (lastSan) playSound(soundEventFromSan(lastSan));
+                }
+              } catch {
+                /* звук не критичен */
+              }
+            }
+            prevPgnRef.current = fresh.pgn ?? '';
+          }
+          setGames(list);
         })
         .catch(() => {});
     };
@@ -255,7 +303,7 @@ export function BroadcastLiveGamePage() {
     round,
     game,
     connected,
-    handleGameUpdate,
+    playSound,
   ]);
 
   const parsed = useMemo<ParsedPgn>(

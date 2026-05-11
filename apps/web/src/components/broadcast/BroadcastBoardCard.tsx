@@ -145,7 +145,9 @@ export function BroadcastBoardCard({
   lastMoveUci,
   evalSnap,
 }: BroadcastBoardCardProps) {
-  const isClickable = clickable ?? Boolean(game.pgn);
+  // KS-2774: пока у партии нет id (race до sync) — карточка не
+  // кликабельна; иначе click уведёт на `/broadcasts/.../undefined/live`.
+  const isClickable = (clickable ?? Boolean(game.pgn)) && Boolean(game.id);
   const fen = resolveFen(game.currentFen, game.pgn ?? '');
   // KS-2702 → KS-2705: highlight рисуем только если родитель разрешил.
   // Источник прямого хода: сначала `lastMoveUci` (от backend

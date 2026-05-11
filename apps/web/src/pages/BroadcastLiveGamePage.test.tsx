@@ -66,17 +66,24 @@ vi.mock('../hooks/useBroadcastSocket', () => ({
   },
 }));
 
+// Controlled useParams: tests assign `routerParams.gameId` before render
+// to verify both happy path и invalid-id guard (KS-2774).
+const routerParams: {
+  tournamentId: string;
+  roundId: string;
+  gameId: string;
+} = {
+  tournamentId: '00e9a4d0-4844-4b07-a113-ea0d8f49cf7a',
+  roundId: '8343a66a-bb90-4e78-ba9a-93a93ca7cff9',
+  gameId: 'bbd9e9c7-0f4f-4261-86f1-847f57d64cd1',
+};
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',
   );
   return {
     ...actual,
-    useParams: () => ({
-      tournamentId: 't1',
-      roundId: 'r1',
-      gameId: 'g2',
-    }),
+    useParams: () => routerParams,
     useNavigate: () => vi.fn(),
   };
 });
@@ -105,24 +112,34 @@ function makeGame(
   };
 }
 
+const TID = '00e9a4d0-4844-4b07-a113-ea0d8f49cf7a';
+const RID = '8343a66a-bb90-4e78-ba9a-93a93ca7cff9';
+const G1 = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+const G2 = 'bbd9e9c7-0f4f-4261-86f1-847f57d64cd1';
+const G3 = 'cccccccc-cccc-4ccc-cccc-cccccccccccc';
+
 beforeEach(() => {
   broadcastApiMock.get.mockReset();
   socketState.captured = null;
   socketState.connected = false;
+  // Reset router params to happy-path values.
+  routerParams.tournamentId = TID;
+  routerParams.roundId = RID;
+  routerParams.gameId = G2;
 
-  // Initial fetch: meta + rounds + games. gameId='g2' будет на index=1.
+  // Initial fetch: meta + rounds + games. gameId=G2 будет на index=1.
   broadcastApiMock.get.mockImplementation((path: string) => {
-    if (path === '/t1') return Promise.resolve({ id: 't1', title: 'T' });
-    if (path === '/t1/rounds')
+    if (path === `/${TID}`) return Promise.resolve({ id: TID, title: 'T' });
+    if (path === `/${TID}/rounds`)
       return Promise.resolve({
-        data: [{ id: 'r1', name: 'R1', status: 'ongoing' }],
+        data: [{ id: RID, name: 'R1', status: 'ongoing' }],
       });
-    if (path === '/t1/rounds/r1/games')
+    if (path === `/${TID}/rounds/${RID}/games`)
       return Promise.resolve({
         data: [
-          makeGame('g1', 'A', 'B'),
-          makeGame('g2', 'C', 'D'),
-          makeGame('g3', 'E', 'F'),
+          makeGame(G1, 'A', 'B'),
+          makeGame(G2, 'C', 'D'),
+          makeGame(G3, 'E', 'F'),
         ],
       });
     return Promise.reject(new Error(`unexpected path ${path}`));
@@ -140,7 +157,7 @@ describe('<BroadcastLiveGamePage> KS-2772', () => {
       expect(screen.queryByTestId('chessboard-mock')).toBeTruthy();
     });
     // useBroadcastSocket получил `roundId` из URL params.
-    expect(socketState.captured?.roundId).toBe('r1');
+    expect(socketState.captured?.roundId).toBe(RID);
   });
 
   it('broadcast:move с правильным gameIndex обновляет currentFen', async () => {
@@ -186,6 +203,26 @@ describe('<BroadcastLiveGamePage> KS-2772', () => {
         .getByTestId('chessboard-mock')
         .getAttribute('data-position'),
     ).toBe(before);
+  });
+
+  it('KS-2774: gameId="undefined" в URL → error без запросов к backend', async () => {
+    routerParams.gameId = 'undefined';
+    renderWithProviders(<BroadcastLiveGamePage />);
+    await waitFor(() => {
+      // Должно отрисоваться сообщение «not found».
+      expect(document.querySelector('.error')).toBeTruthy();
+    });
+    // Backend НЕ должен быть дёрнут с мусорным gameId.
+    expect(broadcastApiMock.get).not.toHaveBeenCalled();
+  });
+
+  it('KS-2774: gameId не UUID → error без запросов', async () => {
+    routerParams.gameId = 'not-a-uuid';
+    renderWithProviders(<BroadcastLiveGamePage />);
+    await waitFor(() => {
+      expect(document.querySelector('.error')).toBeTruthy();
+    });
+    expect(broadcastApiMock.get).not.toHaveBeenCalled();
   });
 
   it('LIVE-pill: connected=true → «LIVE…», connected=false → «Переподключение…»', async () => {
