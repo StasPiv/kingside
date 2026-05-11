@@ -1311,6 +1311,12 @@
     "publish": "Опубликовать",
     "publishing": "Публикуем…",
     "deleteConfirm": "Удалить этот пазл? Это нельзя отменить.",
+    "subnav": {
+      "label": "Разделы тренировки точности",
+      "training": "Тренировка",
+      "progress": "Прогресс",
+      "history": "История"
+    },
     "stats": {
       "totalAttempted": "Попыток",
       "totalSolved": "Решено",

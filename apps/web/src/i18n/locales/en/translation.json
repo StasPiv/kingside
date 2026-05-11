@@ -1297,6 +1297,12 @@
     "publish": "Publish",
     "publishing": "Publishing…",
     "deleteConfirm": "Delete this puzzle? This cannot be undone.",
+    "subnav": {
+      "label": "Precision sections",
+      "training": "Training",
+      "progress": "Progress",
+      "history": "History"
+    },
     "stats": {
       "totalAttempted": "Attempts",
       "totalSolved": "Solved",
