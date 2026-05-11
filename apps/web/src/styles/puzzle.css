@@ -3684,9 +3684,14 @@ body:has(.puzzle-rush-board) {
   font-size: 11px;
   line-height: 1.35;
   color: var(--text-secondary);
-  white-space: nowrap;
+  /* До 2 строк — фамилии игроков + event обычно длиннее ширины
+   * карточки. Если 3-я строка нужна — текст обрезается ellipsis'ом. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .play-vs-engine-card__source-blunder {
