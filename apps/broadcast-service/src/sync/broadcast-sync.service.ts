@@ -280,6 +280,37 @@ export function shouldCloseRoundAsFinished(
   return true;
 }
 
+/**
+ * KS-2780. Извлекает значение PGN-header `[Variant "..."]` из строки
+ * PGN. Стандарт PGN: variant отсутствует или `Standard` — обычные
+ * шахматы; `Chess960` / `Fischer Random` / `Crazyhouse` / etc. —
+ * варианты, которые наш просмотрщик не поддерживает.
+ *
+ * Возвращает значение в нижнем регистре или `null` если header нет.
+ * Это источник правды от Lichess (партии в их PGN-стриме приходят
+ * с этим header'ом).
+ */
+export function extractVariantFromPgn(pgn: string): string | null {
+  // PGN-header формата `[Variant "..."]`. Берём первое вхождение в
+  // первой партии — variant у всех partition'ов одного раунда
+  // одинаковый.
+  const m = pgn.match(/^\s*\[Variant\s+"([^"]+)"\s*\]/m);
+  if (!m) return null;
+  return m[1].toLowerCase();
+}
+
+/**
+ * KS-2780. Проверяет, поддерживаем ли мы данный variant. `null` /
+ * `'standard'` / `'chess'` / `'classical'` — стандартные шахматы.
+ * Остальное (chess960, fischerandom, crazyhouse, antichess, ...) —
+ * варианты, broadcast скрываем.
+ */
+export function isStandardVariant(variant: string | null): boolean {
+  if (variant === null) return true;
+  const v = variant.trim().toLowerCase();
+  return v === '' || v === 'standard' || v === 'chess' || v === 'classical';
+}
+
 @Injectable()
 export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcastSyncService.name);
@@ -1213,6 +1244,28 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `[broadcast-sync] processPgnUpdate: round=${roundId.slice(0, 8)} games=${games.length} withUci=${games.filter((g) => g.uci).length}`,
     );
+
+    // KS-2780. Извлекаем PGN-header [Variant "..."] — источник правды
+    // от Lichess. Если variant non-standard (Chess960, FischerRandom,
+    // etc.) — сохраняем у broadcast'а. API guard фильтрует эти
+    // broadcast'ы из списка.
+    const variant = extractVariantFromPgn(pgn);
+    if (variant !== null) {
+      const broadcast = await this.prisma.broadcast.findUnique({
+        where: { id: round.broadcastId },
+        select: { variant: true },
+      });
+      const normalized = isStandardVariant(variant) ? null : variant;
+      if (broadcast && broadcast.variant !== normalized) {
+        await this.prisma.broadcast.update({
+          where: { id: round.broadcastId },
+          data: { variant: normalized },
+        });
+        this.logger.log(
+          `[broadcast-sync] broadcast ${round.broadcastId.slice(0, 8)} variant set: ${normalized ?? 'standard'}`,
+        );
+      }
+    }
 
     // KS-2723: флаг для event-driven инвалидации кэша standings.
     // Поднимается при появлении нового финального result или новой

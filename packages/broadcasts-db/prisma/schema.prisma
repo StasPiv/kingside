@@ -27,6 +27,12 @@ model Broadcast {
   website       String?
   standingsUrl  String?  @map("standings_url")
   imageUrl      String?  @map("image_url")
+  /// KS-2780. PGN-header `[Variant "..."]` из первой partition'и
+  /// раунда (источник правды от Lichess). `null` — стандартные
+  /// шахматы (большинство broadcast'ов). Non-null → Chess960 /
+  /// Fischer Random / etc. — наш просмотрщик их не поддерживает,
+  /// поэтому API guard фильтрует.
+  variant       String?
   startDate     DateTime? @map("start_date")
   endDate       DateTime? @map("end_date")
   streams       Json?
@@ -49,6 +55,7 @@ model Broadcast {
   standings BroadcastStandings?
 
   @@index([isActive])
+  @@index([variant])
   @@map("broadcasts")
 }
 

@@ -276,9 +276,13 @@ export class BroadcastController {
     // видны в категории finished.
     // KS-2207: скрываем трансляции с суммарно 0 партий — они засоряют раздел
     // (пустые страницы без игр).
+    // KS-2780: скрываем non-standard варианты (Chess960, FischerRandom,
+    // etc.) — наш просмотрщик их не поддерживает. Поле variant
+    // апдейтится в processPgnUpdate из PGN-header [Variant "..."].
     const broadcasts = await this.prisma.broadcast.findMany({
       where: {
         rounds: { some: { games: { some: {} } } },
+        variant: null,
       },
       select: {
         id: true,
@@ -612,6 +616,14 @@ export class BroadcastController {
     });
     if (!broadcast) {
       throw new NotFoundException(`Broadcast ${id} not found`);
+    }
+    // KS-2780. Non-standard варианты скрываем (наш просмотрщик не
+    // поддерживает). variant апдейтится из PGN-header [Variant "..."]
+    // при processPgnUpdate. Отдаём 404 для консистентности с list.
+    if (broadcast.variant !== null) {
+      throw new NotFoundException(
+        `Broadcast ${id} not found (variant: ${broadcast.variant})`,
+      );
     }
     return {
       id: broadcast.id,
