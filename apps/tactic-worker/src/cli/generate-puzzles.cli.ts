@@ -47,11 +47,14 @@ import { runPuzzleGenerator } from '../puzzle-generator/generator-pipeline';
 interface CliFlags {
   options: Omit<GeneratorOptions, 'insertPuzzle'>;
   dumpFile: string | null;
+  /** KS-2776. true → перед циклом выгрузить source_id'шки из puzzles main БД. */
+  excludeUsed: boolean;
 }
 
 export function parseArgs(argv: string[]): CliFlags {
   const opts = defaultGeneratorOptions();
   let dumpFile: string | null = null;
+  let excludeUsed = false;
   for (const arg of argv) {
     const [k, v] = arg.replace(/^--/, '').split('=');
     switch (k) {
@@ -123,11 +126,23 @@ export function parseArgs(argv: string[]): CliFlags {
       case 'min-wdl-after-blunder':
         opts.minWdlAfterBlunder = parseFloat(v);
         break;
+      case 'import-id':
+        // KS-2776. Фильтр по archive_games.import_id.
+        opts.importId = v;
+        break;
+      case 'exclude-used':
+        // KS-2776. Boolean-флаг (`--exclude-used` без значения = true).
+        excludeUsed = v === undefined || v === '' || v === 'true';
+        break;
       default:
         throw new Error(`unknown CLI option: ${arg}`);
     }
   }
-  return { options: opts as Omit<GeneratorOptions, 'insertPuzzle'>, dumpFile };
+  return {
+    options: opts as Omit<GeneratorOptions, 'insertPuzzle'>,
+    dumpFile,
+    excludeUsed,
+  };
 }
 
 export async function runGeneratePuzzles(
@@ -135,7 +150,7 @@ export async function runGeneratePuzzles(
   argv: string[],
 ): Promise<void> {
   const logger = new Logger('cli:generate-puzzles');
-  const { options: parsed, dumpFile } = parseArgs(argv);
+  const { options: parsed, dumpFile, excludeUsed } = parseArgs(argv);
 
   process.stdout.write(
     `[puzzle-gen] starting solutionMode=${parsed.solutionMode} ` +
@@ -147,6 +162,8 @@ export async function runGeneratePuzzles(
       `limit={depth=${parsed.engineLimit.depth},time=${parsed.engineLimit.timeMs}ms,nodes=${parsed.engineLimit.nodes}} ` +
       `minRating=${parsed.minRating} ` +
       `cursor=${parsed.cursor ?? 'none'} ` +
+      `importId=${parsed.importId ?? 'none'} ` +
+      `excludeUsed=${excludeUsed} ` +
       `maxGames=${parsed.maxGames === Infinity ? 'inf' : parsed.maxGames}\n`,
   );
 
@@ -159,6 +176,24 @@ export async function runGeneratePuzzles(
 
   const prisma = app.get(PrismaService);
   const engine = app.get(StockfishService);
+
+  // KS-2776. Если --exclude-used — выгрузим source_id всех PVE-пазлов
+  // из main `puzzles` и передадим в pipeline для исключения из выборки
+  // archive_games. Тем самым на одной партии-источнике не плодим
+  // дубль-пазлы при повторном прогоне.
+  let excludeGameIds: string[] = [];
+  if (excludeUsed) {
+    const rows = await prisma.puzzle.findMany({
+      where: { solutionMode: 'play-vs-engine', sourceId: { not: null } },
+      select: { sourceId: true },
+    });
+    excludeGameIds = rows
+      .map((r) => r.sourceId)
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    process.stdout.write(
+      `[puzzle-gen] excludeUsed: loaded ${excludeGameIds.length} source_id from puzzles\n`,
+    );
+  }
 
   const dumpBuffer: PuzzleRecord[] = [];
   const insertPuzzle = async (puzzle: PuzzleRecord): Promise<boolean> => {
@@ -212,7 +247,7 @@ export async function runGeneratePuzzles(
     const stats = await runPuzzleGenerator({
       pg,
       engine,
-      options: { ...parsed, insertPuzzle },
+      options: { ...parsed, insertPuzzle, excludeGameIds },
     });
     process.stdout.write(
       `[puzzle-gen] done. games=${stats.gamesProcessed} ` +

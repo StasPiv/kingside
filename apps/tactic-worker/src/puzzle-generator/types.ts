@@ -108,6 +108,18 @@ export interface GeneratorOptions {
   gameBatchSize: number;
   /** UUID-cursor: брать партии с id > cursor. */
   cursor?: string | null;
+  /**
+   * KS-2776. Фильтр по `archive_games.import_id` — берём партии только
+   * из конкретного PGN-импорта (например, последнего TWIC).
+   */
+  importId?: string | null;
+  /**
+   * KS-2776. Список `archive_games.id` для исключения (UUID-строки).
+   * Используется когда на этих партиях уже сгенерены PVE-пазлы и
+   * повтор не нужен. SQL добавит `AND id <> ALL($N::uuid[])`.
+   * Пустой массив — без исключения.
+   */
+  excludeGameIds?: string[];
   /** Insert-callback: true если запись вставилась (новый FEN), false если конфликт. */
   insertPuzzle: (puzzle: PuzzleRecord) => Promise<boolean>;
   /** Логгер. */

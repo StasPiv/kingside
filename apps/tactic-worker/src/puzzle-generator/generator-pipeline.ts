@@ -71,19 +71,32 @@ export async function runPuzzleGenerator(
     Number(process.env.GAME_CONCURRENCY ?? 8) || 8,
   );
 
+  // KS-2776. Динамическая сборка WHERE: cursor, import_id, exclude-list.
+  const excludeGameIds = options.excludeGameIds ?? [];
   while (stats.gamesProcessed < options.maxGames) {
-    const sql: string = cursor
-      ? `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
-                time_control_category
-         FROM archive_games WHERE id > $1
-         ORDER BY id ASC LIMIT $2`
-      : `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
-                time_control_category
-         FROM archive_games
-         ORDER BY id ASC LIMIT $1`;
-    const params: (string | number)[] = cursor
-      ? [cursor, options.gameBatchSize]
-      : [options.gameBatchSize];
+    const conds: string[] = [];
+    const params: (string | number | string[])[] = [];
+    let idx = 1;
+    if (cursor) {
+      conds.push(`id > $${idx++}`);
+      params.push(cursor);
+    }
+    if (options.importId) {
+      conds.push(`import_id = $${idx++}`);
+      params.push(options.importId);
+    }
+    if (excludeGameIds.length > 0) {
+      conds.push(`NOT (id = ANY($${idx++}::uuid[]))`);
+      params.push(excludeGameIds);
+    }
+    const whereClause = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+    const limitParam = idx++;
+    params.push(options.gameBatchSize);
+    const sql = `SELECT id::text AS id, pgn, white_elo, black_elo, ply_count,
+                        time_control_category
+                 FROM archive_games
+                 ${whereClause}
+                 ORDER BY id ASC LIMIT $${limitParam}`;
     const res = await pg.query<ArchiveGameRow>(sql, params);
     const rows = res.rows;
     if (rows.length === 0) break;
