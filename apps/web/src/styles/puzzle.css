@@ -293,6 +293,157 @@ body:has(.puzzle-rush-board) {
   text-decoration: underline;
 }
 
+/* ============================================================
+ * KS-2789 — оживление стартового экрана Puzzle Rush.
+ * Стартовый экран определяется наличием `.puzzle-rush-time-select`
+ * — этот класс есть только в `screen === 'start'` (а во время игры
+ * рендерится `.puzzle-rush-board`, на result — `.puzzle-rush-result`).
+ *
+ * Превращаем плоский placeholder в карточку: gradient-полоса под
+ * заголовком + иконка ⚡, центрированная панель с бордером и
+ * тенью, усиленная CTA с play-glyph. DOM не трогаем.
+ *
+ * Использован селектор `:has()` — поддержка Chrome 105+, Safari
+ * 15.4+, Firefox 121+. На старых браузерах содержимое отрендерится
+ * как раньше (без карточки/иконки), без визуального слома.
+ * ============================================================ */
+.puzzle-rush-page:has(.puzzle-rush-time-select) {
+  max-width: 560px;
+  margin: 40px auto;
+  padding: 32px 32px 40px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Декоративная gradient-полоса сверху карточки (accent → purple). */
+.puzzle-rush-page:has(.puzzle-rush-time-select)::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-primary),
+    var(--c-8b5cf6)
+  );
+}
+
+/* Иконка ⚡ перед заголовком на старт-экране. Только декоративная —
+ * Unicode-эмодзи, без зависимости от шрифт-айконок. */
+.puzzle-rush-page:has(.puzzle-rush-time-select) h1 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 28px;
+  margin: 8px 0 8px;
+  color: var(--text-primary);
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) h1::before {
+  content: '⚡';
+  font-size: 28px;
+  /* На emoji-фоллбеках цвет не применяется — но если рендерится
+   * текст-стиль (Linux/Win sans-emoji), даём accent. */
+  color: var(--accent-primary);
+  line-height: 1;
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .puzzle-rush-description {
+  max-width: 380px;
+  margin: 0 auto 28px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .puzzle-rush-time-select {
+  margin-bottom: 28px;
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .puzzle-rush-time-select h3 {
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+
+/* CTA «Начать» — усиленная, с play-иконкой. Селектор повышен
+ * специфичностью (`.puzzle-rush-page:has(...) .play-btn`) чтобы
+ * перекрыть базовые `.play-btn`-стили из lobby.css. */
+.puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  padding: 14px 40px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    var(--accent-primary),
+    var(--accent-active)
+  );
+  border: 0;
+  color: var(--text-on-accent);
+  box-shadow: 0 8px 24px var(--ov-accent-30);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn::before {
+  content: '▶';
+  font-size: 13px;
+  line-height: 1;
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px var(--ov-accent-35);
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 6px 18px var(--ov-accent-25);
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--ov-accent-25, rgba(124, 131, 255, 0.35)),
+    0 8px 24px var(--ov-accent-30);
+}
+
+.puzzle-rush-page:has(.puzzle-rush-time-select) .rush-leaderboard-link {
+  margin-top: 20px;
+}
+
+@media (max-width: 640px) {
+  .puzzle-rush-page:has(.puzzle-rush-time-select) {
+    margin: 24px 16px;
+    padding: 24px 20px 32px;
+    border-radius: 12px;
+  }
+  .puzzle-rush-page:has(.puzzle-rush-time-select) h1 {
+    font-size: 24px;
+  }
+  .puzzle-rush-page:has(.puzzle-rush-time-select) h1::before {
+    font-size: 24px;
+  }
+  .puzzle-rush-page:has(.puzzle-rush-time-select) .play-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .puzzle-rush-page:has(.puzzle-rush-time-select) .rush-leaderboard-link {
+    display: block;
+    margin-left: 0;
+    margin-top: 16px;
+  }
+}
+
 /* Puzzle Rush Leaderboard */
 .rush-leaderboard-page {
   text-align: center;
