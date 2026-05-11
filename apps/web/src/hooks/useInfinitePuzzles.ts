@@ -97,6 +97,14 @@ export interface InfinitePuzzleFilters {
    * (или undefined) = без фильтра. Backend whitelist'ит значения.
    */
   visibility?: 'draft' | 'public' | 'all';
+  /**
+   * KS-2758 / backend 363216cf: фильтр пазлов по рейтингу сыгравших
+   * игроков через JOIN с `archive_games`. Бэк смотрит на
+   * `GREATEST(white_elo, black_elo)` — партия попадает, если хотя бы
+   * один из игроков уровня в этом диапазоне.
+   */
+  playerEloMin?: number;
+  playerEloMax?: number;
   /** Размер страницы. По умолчанию 30. */
   limit?: number;
 }
@@ -133,6 +141,10 @@ function buildQuery(
   if (filters.hideSolved) params.set('hideSolved', 'true');
   if (filters.source) params.set('source', filters.source);
   if (filters.visibility) params.set('visibility', filters.visibility);
+  if (filters.playerEloMin != null)
+    params.set('playerEloMin', String(filters.playerEloMin));
+  if (filters.playerEloMax != null)
+    params.set('playerEloMax', String(filters.playerEloMax));
   return params.toString();
 }
 
@@ -172,6 +184,8 @@ export function useInfinitePuzzles(
     hideSolved: filters.hideSolved,
     source: filters.source,
     visibility: filters.visibility,
+    playerEloMin: filters.playerEloMin,
+    playerEloMax: filters.playerEloMax,
     limit: filters.limit,
   });
 

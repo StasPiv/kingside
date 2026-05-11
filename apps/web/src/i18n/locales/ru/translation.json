@@ -1320,6 +1320,13 @@
     "card": {
       "blunder": "Зевок"
     },
+    "eloFilter": {
+      "label": "Рейтинг игроков",
+      "minPlaceholder": "Мин",
+      "maxPlaceholder": "Макс",
+      "minAria": "Минимальный рейтинг игроков",
+      "maxAria": "Максимальный рейтинг игроков"
+    },
     "history": {
       "title": "История попыток",
       "startTraining": "Начать тренировку →",

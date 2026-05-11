@@ -118,6 +118,66 @@ export function PrecisionPage() {
   // (`hideSolved=true` → выкидывает удержанные позиции из выдачи).
   const showSolvedParam = searchParams.get('showSolved') === 'true';
   const hideSolved = !showSolvedParam;
+  // KS-2758 / backend 363216cf: фильтр по рейтингу сыгравших игроков.
+  // Backend смотрит `GREATEST(white_elo, black_elo)` — партия попадает
+  // если хотя бы один игрок в диапазоне. Невалидные/пустые — undefined.
+  const playerEloMinRaw = searchParams.get('playerEloMin');
+  const playerEloMaxRaw = searchParams.get('playerEloMax');
+  const playerEloMin =
+    playerEloMinRaw && /^\d+$/.test(playerEloMinRaw)
+      ? Number(playerEloMinRaw)
+      : undefined;
+  const playerEloMax =
+    playerEloMaxRaw && /^\d+$/.test(playerEloMaxRaw)
+      ? Number(playerEloMaxRaw)
+      : undefined;
+
+  // KS-2758 follow-up: дебаунс ввода рейтинга. Без него ввод одной
+  // цифры (`2`) сразу триггерит запрос — пользователь не успевает
+  // докончить число (например 2350). Держим draft-state, синкаемся с
+  // URL через setTimeout 400ms. Внешние изменения URL (back/forward
+  // или ссылка) подтягиваются в draft через useEffect синхронно.
+  const [eloMinDraft, setEloMinDraft] = useState<string>(
+    playerEloMinRaw ?? '',
+  );
+  const [eloMaxDraft, setEloMaxDraft] = useState<string>(
+    playerEloMaxRaw ?? '',
+  );
+  useEffect(() => {
+    setEloMinDraft(playerEloMinRaw ?? '');
+  }, [playerEloMinRaw]);
+  useEffect(() => {
+    setEloMaxDraft(playerEloMaxRaw ?? '');
+  }, [playerEloMaxRaw]);
+  // KS-2758 follow-up: дебаунс — синкаем draft в URL через 400ms
+  // после последнего ввода. Невалидные значения (буквы) удаляют
+  // соответствующий параметр; пустая строка тоже удаляет.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const sp = new URLSearchParams(searchParams);
+      const v = eloMinDraft.trim();
+      if (v && /^\d+$/.test(v)) sp.set('playerEloMin', v);
+      else sp.delete('playerEloMin');
+      if (sp.toString() !== searchParams.toString()) {
+        setSearchParams(sp, { replace: true });
+      }
+    }, 400);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eloMinDraft]);
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const sp = new URLSearchParams(searchParams);
+      const v = eloMaxDraft.trim();
+      if (v && /^\d+$/.test(v)) sp.set('playerEloMax', v);
+      else sp.delete('playerEloMax');
+      if (sp.toString() !== searchParams.toString()) {
+        setSearchParams(sp, { replace: true });
+      }
+    }, 400);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eloMaxDraft]);
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
@@ -128,9 +188,11 @@ export function PrecisionPage() {
       mine: mineParam ? true : undefined,
       visibility,
       hideSolved: hideSolved ? true : undefined,
+      playerEloMin,
+      playerEloMax,
       limit: LIMIT,
     }),
-    [mineParam, visibility, hideSolved],
+    [mineParam, visibility, hideSolved, playerEloMin, playerEloMax],
   );
 
   const {
@@ -471,6 +533,46 @@ export function PrecisionPage() {
             {t('precision.showSolved', 'Show solved')}
           </label>
         )}
+        {/* KS-2758 / backend 363216cf: фильтр по рейтингу сыгравших
+            игроков. Бэкенд жоинит archive_games и фильтрует по
+            `GREATEST(white_elo, black_elo)`. URL: `playerEloMin` /
+            `playerEloMax`. Виден всем (auth+guest), фильтрует выдачу
+            по обеим табам Все/Мои. */}
+        <div
+          className="precision-elo-filter"
+          data-testid="precision-elo-filter"
+        >
+          <span className="precision-elo-filter__label">
+            {t('precision.eloFilter.label', 'Players rating')}
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={4000}
+            step={50}
+            value={eloMinDraft}
+            placeholder={t('precision.eloFilter.minPlaceholder', 'Min')}
+            aria-label={t('precision.eloFilter.minAria', 'Minimum players rating')}
+            data-testid="precision-elo-filter-min"
+            className="precision-elo-filter__input"
+            onChange={(e) => setEloMinDraft(e.target.value)}
+          />
+          <span aria-hidden="true">—</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={4000}
+            step={50}
+            value={eloMaxDraft}
+            placeholder={t('precision.eloFilter.maxPlaceholder', 'Max')}
+            aria-label={t('precision.eloFilter.maxAria', 'Maximum players rating')}
+            data-testid="precision-elo-filter-max"
+            className="precision-elo-filter__input"
+            onChange={(e) => setEloMaxDraft(e.target.value)}
+          />
+        </div>
         {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
             «Полная статистика →» на /precision/stats. Заменяет старый
             4-карточечный блок, который теперь живёт на /precision/stats
