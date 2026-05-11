@@ -718,14 +718,16 @@ export class PuzzleService {
         cpAfter: m.cpAfter ?? null,
         isBestMove,
       });
+      // KS-2754. Контракт PrecisionMoveSnapshot: оба wdlBefore/wdlAfter
+      // приходят в POV игрока-решателя (фронт уже инвертировал
+      // Stockfish-raw в PlayVsEngineRunner). Инверсии на бэке быть не
+      // должно — leak = max(0, before − after) напрямую.
       const wdlBeforeSigned = signedFromWdl(m.wdlBefore);
-      // POV меняется после хода — для leak от лица решателя инвертируем.
-      const wdlAfterSignedSolver =
-        m.wdlAfter == null ? null : -signedFromWdl(m.wdlAfter)!;
+      const wdlAfterSigned = signedFromWdl(m.wdlAfter);
       const leak =
-        wdlBeforeSigned == null || wdlAfterSignedSolver == null
+        wdlBeforeSigned == null || wdlAfterSigned == null
           ? 0
-          : Math.max(0, wdlBeforeSigned - wdlAfterSignedSolver);
+          : Math.max(0, wdlBeforeSigned - wdlAfterSigned);
       return { m, klass, leak };
     });
 
@@ -760,9 +762,10 @@ export class PuzzleService {
       args.playVsEngine.initialWdl ??
       signedFromWdl(firstSnap?.wdlBefore) ??
       0;
+    // KS-2754. lastSnap.wdlAfter уже в POV игрока — без инверсии.
     const wdlAtEndSigned =
       args.playVsEngine.finalWdl ??
-      (lastSnap?.wdlAfter ? -signedFromWdl(lastSnap.wdlAfter)! : null) ??
+      (lastSnap?.wdlAfter ? signedFromWdl(lastSnap.wdlAfter) : null) ??
       0;
 
     const halfMovesPlayed = args.playVsEngine.halfMovesPlayed ?? total;
