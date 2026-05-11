@@ -408,6 +408,10 @@ async function processGame(
       isPublic: true,
       acceptedMoves: null,
       solutionMode: options.solutionMode,
+      // KS-2762. Денормализованные ELO для фильтра на /precision —
+      // чтобы /puzzles/browse не делал FDW JOIN на archive_games.
+      sourceWhiteElo: row.white_elo,
+      sourceBlackElo: row.black_elo,
       sourceMetadata: JSON.stringify({
         blunderMove: sc.task.playedUci,
         // KS-2754. FEN позиции ДО зевка — нужен фронту чтобы собрать

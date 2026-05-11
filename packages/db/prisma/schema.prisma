@@ -295,6 +295,13 @@ model Puzzle {
   isPublic       Boolean @default(true) @map("is_public")
   sourceMetadata String? @map("source_metadata") @db.Text
   acceptedMoves  String? @map("accepted_moves")
+  /// KS-2762. ELO белых/чёрных в партии-источнике (денормализованная
+  /// копия из `archive_games.white_elo` / `black_elo`). Используется
+  /// фильтром /puzzles/browse по рейтингу зевнувшего: CASE по
+  /// side-to-move из `source_metadata.fenBeforeBlunder`.
+  /// Заполняется генератором tactic-worker; для lichess/legacy = NULL.
+  sourceWhiteElo Int?    @map("source_white_elo")
+  sourceBlackElo Int?    @map("source_black_elo")
 
   // KS-2463 / ADR-044 §3.2. Режим решения пазла:
   //   - 'forced-line' — классический пазл с фиксированной линией;
@@ -316,6 +323,10 @@ model Puzzle {
   // KS-2557: ORDER BY created_at DESC LIMIT 20 для /puzzles/browse —
   // на 6M lichess строк без индекса делал full scan + sort.
   @@index([createdAt])
+  // KS-2762. Фильтрация на /precision по рейтингу зевнувшего —
+  // запрос пробегает по source_*_elo (CASE по side-to-move).
+  @@index([sourceWhiteElo])
+  @@index([sourceBlackElo])
   // KS-2562: getNextPuzzle делает range scan по rating + ORDER BY
   // popularity DESC LIMIT 10. Полный composite на 6M строк не вмещается
   // в shared_buffers t3.micro — partial WHERE popularity >= 50

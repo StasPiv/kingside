@@ -144,6 +144,13 @@ export interface PuzzleRecord {
   sourceMetadata: string;
   /** KS-2462/2463/2464 — режим решения пазла. */
   solutionMode: PuzzleSolutionMode;
+  /**
+   * KS-2762. Денормализованные ELO игроков партии-источника
+   * (из `archive_games.white_elo` / `black_elo`). NULL если у партии
+   * нет рейтинга соответствующей стороны.
+   */
+  sourceWhiteElo: number | null;
+  sourceBlackElo: number | null;
 }
 
 export interface GeneratorStats {

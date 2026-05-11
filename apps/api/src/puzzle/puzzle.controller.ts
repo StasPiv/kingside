@@ -253,13 +253,15 @@ export class PuzzleController {
       params.push(parseInt(ratingMaxStr, 10));
     }
 
-    // KS-2761. Фильтр по ELO зевнувшего: CASE по side-to-move из
-    // `source_metadata.fenBeforeBlunder` ('w'→whiteElo, 'b'→blackElo).
-    // Выражение `blunderer_elo_expr` ниже используется и в SELECT
-    // (response.blundererElo), и при наличии фильтра — в WHERE.
+    // KS-2762. Фильтр по ELO зевнувшего: CASE по side-to-move из
+    // `source_metadata.fenBeforeBlunder` ('w'→source_white_elo,
+    // 'b'→source_black_elo). Денормализованные `source_*_elo` в
+    // `puzzles` (заполняет tactic-worker) — без FDW JOIN, локальные
+    // колонки. Выражение используется и в SELECT (response.blundererElo),
+    // и при наличии фильтра — в WHERE.
     const blundererEloExpr = `CASE
-      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'w' THEN ag.white_elo
-      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'b' THEN ag.black_elo
+      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'w' THEN p.source_white_elo
+      WHEN split_part((p.source_metadata::jsonb)->>'fenBeforeBlunder', ' ', 2) = 'b' THEN p.source_black_elo
       ELSE NULL
     END`;
     if (blundererEloMinStr) {
@@ -315,19 +317,15 @@ export class PuzzleController {
     const limitPh = next();
     params.push(take + 1);
 
-    // KS-2754. Добавлены поля sourceMetadata/sourceMoveNum/sourceId/
-    // gameUrl/solutionMode — UI карточки на /precision нужно показать
-    // blunderUci (из playVsEngine.blunderMove) и sourceGame
-    // (white/black/event). Парсинг и сборка — через
-    // PuzzleService.buildBrowseEnrichments на этапе маппинга.
+    // KS-2754. sourceMetadata/sourceMoveNum/sourceId/gameUrl/solutionMode
+    // — UI карточки на /precision нужно показать blunderUci и sourceGame.
     //
-    // KS-2761. LEFT JOIN на `archive_games_remote` (postgres_fdw)
-    // всегда: фронту нужен `blundererElo` в карточке каждого PVE-пазла,
-    // не только при заданном фильтре. Для lichess-пазлов
-    // `source_id` не совпадает с UUID `archive_games.id` → JOIN
-    // возвращает NULL → `blundererElo=null` (фронт грейсфолит).
+    // KS-2762. FDW LEFT JOIN на archive_games_remote убран — рейтинги
+    // живут локально в `puzzles.source_white_elo` / `source_black_elo`
+    // (заполняет tactic-worker). Это снимает ~8 сек на проде (см.
+    // devops EXPLAIN ANALYZE 2026-05-11 на KS-2761).
     const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at, ${blundererEloExpr} AS blunderer_elo${solvedStatusSelect}
-      FROM puzzles p LEFT JOIN archive_games_remote ag ON ag.id::text = p.source_id
+      FROM puzzles p
       WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT ${limitPh}`;

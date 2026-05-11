@@ -180,6 +180,9 @@ export async function runGeneratePuzzles(
         acceptedMoves: puzzle.acceptedMoves,
         sourceMetadata: puzzle.sourceMetadata,
         solutionMode: puzzle.solutionMode,
+        // KS-2762. Денормализованные ELO для фильтра /precision.
+        sourceWhiteElo: puzzle.sourceWhiteElo,
+        sourceBlackElo: puzzle.sourceBlackElo,
       };
       const r = await prisma.puzzle.createMany({
         data: [data],

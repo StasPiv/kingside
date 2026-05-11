@@ -172,6 +172,9 @@ async function main(): Promise<void> {
       acceptedMoves: puzzle.acceptedMoves,
       sourceMetadata: puzzle.sourceMetadata,
       solutionMode: puzzle.solutionMode,
+      // KS-2762
+      sourceWhiteElo: puzzle.sourceWhiteElo,
+      sourceBlackElo: puzzle.sourceBlackElo,
     };
     await prisma.puzzle.create({ data });
   };
