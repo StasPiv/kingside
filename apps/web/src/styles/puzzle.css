@@ -2705,6 +2705,119 @@ body:has(.puzzle-rush-board) {
 }
 
 /* ============================================================
+ * KS-2756 — чекбокс «Показать решённые» (KS-2754 follow-up).
+ * Раньше label без стилей жался к табам выше. Делаем компактный
+ * pill-toggle: своя полоса под табами, лёгкий бордер и hover,
+ * чтобы было ясно, что это отдельный фильтр.
+ * DOM: <label class="precision-show-solved"><input/>текст</label>
+ * ============================================================ */
+.precision-show-solved {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 16px;
+  padding: 6px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.precision-show-solved:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.precision-show-solved input[type='checkbox'] {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.precision-show-solved:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .precision-show-solved {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 8px;
+  }
+}
+
+/* ============================================================
+ * KS-2756 — empty-state «У тебя пока нет попыток / Начать тренировку».
+ * Раньше plain `<p>` + кнопка стандартного размера, без воздуха,
+ * сетка позиций прилипала снизу. Делаем светлую панель с центровкой
+ * и якорной CTA, отделяем от сетки margin'ом.
+ * DOM:
+ *   <div class="precision-empty">
+ *     <p class="precision-empty__title">…</p>
+ *     <button class="precision-empty__cta">…</button>
+ *   </div>
+ * ============================================================ */
+.precision-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 24px 20px;
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-mid);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.precision-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.precision-empty__cta {
+  appearance: none;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.precision-empty__cta:hover {
+  background: var(--accent-hover);
+}
+
+.precision-empty__cta:active {
+  transform: translateY(1px);
+}
+
+.precision-empty__cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+}
+
+@media (max-width: 640px) {
+  .precision-empty {
+    padding: 20px 16px;
+  }
+}
+
+/* ============================================================
  * KS-2748 / ADR-057 §3.1, §5 — sub-nav «Тренировка / Прогресс /
  * История». Общая лента вкладок сверху для /precision,
  * /precision/stats, /precision/history. Активный пункт
@@ -3534,14 +3647,37 @@ body:has(.puzzle-rush-board) {
   }
 }
 
+/* KS-2756: back-link выровнен по визуальному весу с
+ * `.generate-puzzles-btn` рядом — раньше текстовая ссылка против
+ * фиолетовой primary-кнопки выглядела дисбалансом. Делаем ghost-
+ * кнопку с такой же высотой/радиусом, цвет — accent. */
 .play-vs-engine-puzzles__back-link {
-  color: var(--accent-primary, #7c83ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-primary);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.12s ease, border-color 0.12s ease,
+    color 0.12s ease;
 }
 
 .play-vs-engine-puzzles__back-link:hover {
-  text-decoration: underline;
+  background: var(--ov-accent-08);
+  border-color: var(--accent-primary);
+  color: var(--accent-hover);
+  text-decoration: none;
+}
+
+.play-vs-engine-puzzles__back-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
 }
 
 .play-vs-engine-puzzles__status {
