@@ -183,11 +183,16 @@ export function PrecisionAttemptPage() {
   // Sparkline точек: wdl_user после каждого user-хода.
   // Backend хранит signed −1..+1; нормируем в [0..1] для отображения
   // «сверху=победа, снизу=поражение».
+  // KS-2754 follow-up: `wdlAfter` теперь distribution {w,d,l} per-mille
+  // (POV user) после backend-коммита 36a2d0f7 (раньше было signed scalar
+  // [-1..+1]). Превращаем в win-chance [0..1] = w / 1000. Если поле
+  // null (legacy/fallback-движок) — точка пропускается, sparkline
+  // разрывается.
   const sparkPoints = data.moves.map((m, idx) => ({
     x: idx + 1,
     y:
-      typeof m.wdlAfter === 'number'
-        ? Math.max(0, Math.min(1, (m.wdlAfter + 1) / 2))
+      m.wdlAfter && typeof m.wdlAfter === 'object'
+        ? Math.max(0, Math.min(1, m.wdlAfter.w / 1000))
         : null,
   }));
 
