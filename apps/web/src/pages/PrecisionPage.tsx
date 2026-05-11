@@ -639,7 +639,13 @@ export function PrecisionPage() {
                 >
                   <Chessboard
                     options={{
-                      position: p.fen,
+                      // KS-2754 follow-up: показываем позицию ДО зевка
+                      // (`fenBeforeBlunder`), чтобы было видно «что
+                      // было — и каким ходом всё испортили». Если поля
+                      // нет (legacy/lichess-пазлы) — fallback на
+                      // puzzle.fen (позиция уже после зевка, как было).
+                      // Ориентация остаётся по user-стороне.
+                      position: p.playVsEngine?.fenBeforeBlunder ?? p.fen,
                       boardOrientation: orientation,
                       animationDurationInMs: 0,
                       allowDragging: false,
@@ -648,30 +654,31 @@ export function PrecisionPage() {
                   />
                 </button>
                 <div className="play-vs-engine-card__body">
-                  <div className="play-vs-engine-card__title">
-                    {t('precision.cardTitle', '#{{id}}', {
-                      id: p.id.slice(0, 8),
-                    })}
-                    {/* KS-2586: badge «Draft» рядом с заголовком — виден
-                        пользователю-владельцу, чтобы он знал что пазл
-                        пока приватный. После publish исчезает. */}
-                    {isMine && isDraft && (
-                      <span
-                        className="precision-card__badge precision-card__badge--draft"
-                        data-testid="precision-card-draft-badge"
-                      >
-                        {t('precision.draftBadge', 'Draft')}
-                      </span>
-                    )}
-                    {isMine && justPublished && (
-                      <span
-                        className="precision-card__badge precision-card__badge--published"
-                        data-testid="precision-card-published-toast"
-                      >
-                        {t('precision.publishedBadge', 'Published')}
-                      </span>
-                    )}
-                  </div>
+                  {/* KS-2754 follow-up: убрали `#cardTitle` (короткий
+                      puzzle-id) — контекст партии (игроки/событие/ход
+                      зевка) информативнее и заменяет ID. Draft/Published
+                      бейджи поднимаем над meta, чтобы владелец видел
+                      статус сразу. */}
+                  {(isMine && (isDraft || justPublished)) && (
+                    <div className="play-vs-engine-card__badges">
+                      {isMine && isDraft && (
+                        <span
+                          className="precision-card__badge precision-card__badge--draft"
+                          data-testid="precision-card-draft-badge"
+                        >
+                          {t('precision.draftBadge', 'Draft')}
+                        </span>
+                      )}
+                      {isMine && justPublished && (
+                        <span
+                          className="precision-card__badge precision-card__badge--published"
+                          data-testid="precision-card-published-toast"
+                        >
+                          {t('precision.publishedBadge', 'Published')}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="play-vs-engine-card__meta">
                     {/* KS-2689: рейтинг сгенерированных пазлов
                         рассчитывается по упрощённой MVP-формуле
@@ -701,7 +708,13 @@ export function PrecisionPage() {
                       sg && (sg.white || sg.black)
                         ? `${sg.white ?? '?'} — ${sg.black ?? '?'}`
                         : null;
-                    let blunderSan: string | null = null;
+                    // KS-2754 follow-up: SAN зевка + полная PGN-нотация
+                    // номера хода из fenBeforeBlunder (5-е поле FEN =
+                    // полный ход, 2-е = side-to-move). `sourceMoveNum`
+                    // от backend — это ply (полуход), а в нотации нужен
+                    // полный номер: `42. Rxe4?` (белые) или
+                    // `42... Rxe4?` (чёрные).
+                    let blunderText: string | null = null;
                     if (pve?.blunderMove && pve.fenBeforeBlunder) {
                       try {
                         const c = new Chess(pve.fenBeforeBlunder);
@@ -713,13 +726,19 @@ export function PrecisionPage() {
                               ? pve.blunderMove[4]
                               : undefined,
                         });
-                        if (mv) blunderSan = mv.san;
+                        if (mv) {
+                          const parts = pve.fenBeforeBlunder.split(' ');
+                          const mvNum = parseInt(parts[5] || '1', 10);
+                          const isWhite = parts[1] === 'w';
+                          const prefix = isWhite ? `${mvNum}.` : `${mvNum}...`;
+                          blunderText = `${prefix} ${mv.san}?`;
+                        }
                       } catch {
-                        /* fallback: показываем UCI как SAN */
-                        blunderSan = pve.blunderMove;
+                        /* fallback: только UCI */
+                        blunderText = `${pve.blunderMove}?`;
                       }
                     }
-                    if (!players && !blunderSan && p.sourceMoveNum == null) {
+                    if (!players && !blunderText) {
                       return null;
                     }
                     return (
@@ -736,19 +755,12 @@ export function PrecisionPage() {
                             {sg?.event ? ` · ${sg.event}` : ''}
                           </div>
                         )}
-                        {(blunderSan || p.sourceMoveNum != null) && (
+                        {blunderText && (
                           <div
                             className="play-vs-engine-card__source-blunder"
                             data-testid="play-vs-engine-card-source-blunder"
                           >
-                            {p.sourceMoveNum != null
-                              ? t(
-                                  'precision.card.blunderAt',
-                                  'Blunder at move {{n}}',
-                                  { n: p.sourceMoveNum },
-                                )
-                              : t('precision.card.blunderLabel', 'Blunder')}
-                            {blunderSan ? `: ${blunderSan}?` : ''}
+                            {blunderText}
                           </div>
                         )}
                       </div>

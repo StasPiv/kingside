@@ -1318,8 +1318,7 @@
       "history": "История"
     },
     "card": {
-      "blunderAt": "Зевок на ходу {{n}}",
-      "blunderLabel": "Зевок"
+      "blunder": "Зевок"
     },
     "history": {
       "title": "История попыток",

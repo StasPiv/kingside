@@ -1304,8 +1304,7 @@
       "history": "History"
     },
     "card": {
-      "blunderAt": "Blunder at move {{n}}",
-      "blunderLabel": "Blunder"
+      "blunder": "Blunder"
     },
     "history": {
       "title": "Attempt history",
