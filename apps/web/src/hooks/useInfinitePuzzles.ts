@@ -24,6 +24,32 @@ export interface BrowsePuzzleDto {
   sourceId: string | null;
   sourceMoveNum: number | null;
   sourceMetadata: { white?: string; black?: string; event?: string } | null;
+  /**
+   * KS-2754 follow-up: метаданные исходной партии (расширенно). Когда
+   * пазл сгенерирован из реальной партии — `event`/`white`/`black`/
+   * `date`/`result`/`archiveGameId`/`pgnUrl`. Для legacy/lichess —
+   * `null`/`undefined`.
+   */
+  sourceGame?: {
+    white?: string;
+    black?: string;
+    event?: string;
+    date?: string;
+    result?: string;
+    pgnUrl?: string;
+    archiveGameId?: string;
+  } | null;
+  /**
+   * KS-2754 follow-up: данные play-vs-engine — UCI зевка и FEN ДО
+   * зевка. По ним фронт собирает SAN зевка через chess.js, чтобы
+   * показать на карточке `/precision` «партия X-Y, ход N… Nxe4?».
+   * Опционально (legacy/lichess пазлы → undefined).
+   */
+  playVsEngine?: {
+    blunderMove?: string;
+    fenBeforeBlunder?: string;
+    wdlAfterBlunder?: number;
+  } | null;
   isPublic?: boolean;
   /**
    * KS-2668: backend возвращает поле владельца под именем `createdBy`

@@ -1303,6 +1303,10 @@
       "progress": "Progress",
       "history": "History"
     },
+    "card": {
+      "blunderAt": "Blunder at move {{n}}",
+      "blunderLabel": "Blunder"
+    },
     "history": {
       "title": "Attempt history",
       "startTraining": "Start training →",

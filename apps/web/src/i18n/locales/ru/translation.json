@@ -1317,6 +1317,10 @@
       "progress": "Прогресс",
       "history": "История"
     },
+    "card": {
+      "blunderAt": "Зевок на ходу {{n}}",
+      "blunderLabel": "Зевок"
+    },
     "history": {
       "title": "История попыток",
       "startTraining": "Начать тренировку →",

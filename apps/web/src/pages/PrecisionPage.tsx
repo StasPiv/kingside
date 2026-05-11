@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
+import { Chess } from 'chess.js';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 // KS-2661: «Generate from PGN» переехала сюда из `PuzzleBrowserPage`.
@@ -687,6 +688,72 @@ export function PrecisionPage() {
                         : t('drills.side.blackToMove', 'Black to move')}
                     </span>
                   </div>
+                  {/* KS-2754 follow-up: контекст исходной партии и
+                      ход-зевок. Источник — `sourceGame` + sourceMoveNum
+                      + playVsEngine.{blunderMove, fenBeforeBlunder} из
+                      backend 96eb4acd. SAN зевка собираем chess.js'ом
+                      из fenBeforeBlunder+blunderMove. Аннотация `?`
+                      рядом с SAN — это и есть «зевок». */}
+                  {(() => {
+                    const sg = p.sourceGame ?? null;
+                    const pve = p.playVsEngine ?? null;
+                    const players =
+                      sg && (sg.white || sg.black)
+                        ? `${sg.white ?? '?'} — ${sg.black ?? '?'}`
+                        : null;
+                    let blunderSan: string | null = null;
+                    if (pve?.blunderMove && pve.fenBeforeBlunder) {
+                      try {
+                        const c = new Chess(pve.fenBeforeBlunder);
+                        const mv = c.move({
+                          from: pve.blunderMove.slice(0, 2),
+                          to: pve.blunderMove.slice(2, 4),
+                          promotion:
+                            pve.blunderMove.length > 4
+                              ? pve.blunderMove[4]
+                              : undefined,
+                        });
+                        if (mv) blunderSan = mv.san;
+                      } catch {
+                        /* fallback: показываем UCI как SAN */
+                        blunderSan = pve.blunderMove;
+                      }
+                    }
+                    if (!players && !blunderSan && p.sourceMoveNum == null) {
+                      return null;
+                    }
+                    return (
+                      <div
+                        className="play-vs-engine-card__source"
+                        data-testid="play-vs-engine-card-source"
+                      >
+                        {players && (
+                          <div
+                            className="play-vs-engine-card__source-players"
+                            data-testid="play-vs-engine-card-source-players"
+                          >
+                            {players}
+                            {sg?.event ? ` · ${sg.event}` : ''}
+                          </div>
+                        )}
+                        {(blunderSan || p.sourceMoveNum != null) && (
+                          <div
+                            className="play-vs-engine-card__source-blunder"
+                            data-testid="play-vs-engine-card-source-blunder"
+                          >
+                            {p.sourceMoveNum != null
+                              ? t(
+                                  'precision.card.blunderAt',
+                                  'Blunder at move {{n}}',
+                                  { n: p.sourceMoveNum },
+                                )
+                              : t('precision.card.blunderLabel', 'Blunder')}
+                            {blunderSan ? `: ${blunderSan}?` : ''}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {/* KS-2670: текстовые кнопки заменены на иконки
                       (по образцу .my-courses-page__action--icon, KS-2654).
                       Текст действия → `aria-label` + `title` (нативный
