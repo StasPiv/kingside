@@ -563,6 +563,216 @@
   }
 }
 
+/* ============================================================
+ * KS-2771 — стили блока «Статистика тренажёров»
+ * (DrillStatsPanel.tsx, KS-2236). До этого классы
+ * `.drill-stats-panel*` не имели CSS — выходило сырое HTML без
+ * типографики, цифры слипались с метками, таблица — нативный
+ * browser-default. Стилизуем под единый ритм с соседними блоками
+ * «PUZZLE RUSH» и «СТАТИСТИКА» (см. `.player-profile-rating-card`).
+ *
+ * DOM (см. DrillStatsPanel.tsx):
+ *   <section class="drill-stats-panel">
+ *     <h2 class="drill-stats-panel__heading">…</h2>
+ *     <div class="drill-stats-panel__summary">
+ *       <div class="drill-stats-panel__summary-card">
+ *         <span class="drill-stats-panel__summary-label">Попыток</span>
+ *         <span class="drill-stats-panel__summary-value">1105</span>
+ *       </div>
+ *       … (Решено, Точность)
+ *     </div>
+ *     <table class="drill-stats-panel__table">
+ *       <thead>…</thead>
+ *       <tbody>
+ *         <tr class="drill-stats-panel__row drill-stats-panel__row--unlocked">
+ *           <td class="drill-stats-panel__cell-type">
+ *             Счёт атакующих
+ *             <span class="drill-stats-panel__badge --unlocked">Открыт</span>
+ *           </td>
+ *           <td>77</td><td>67</td><td>87%</td>… </tr>
+ *         …
+ *       </tbody>
+ *     </table>
+ *   </section>
+ * ============================================================ */
+.drill-stats-panel {
+  margin: 0 0 24px;
+}
+
+.drill-stats-panel__heading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Top-метрики (Попыток / Решено / Точность) — флекс-ряд карточек,
+ * визуально совпадают с PUZZLE RUSH блоком сверху. */
+.drill-stats-panel__summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.drill-stats-panel__summary-card {
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
+  border-radius: 8px;
+  padding: 12px 20px;
+  text-align: center;
+  min-width: 120px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drill-stats-panel__summary-label {
+  font-size: 13px;
+  color: var(--c-808098);
+}
+
+.drill-stats-panel__summary-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-e0e0ff);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Drill-разбивка по типам — table со своими стилями. */
+.drill-stats-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--c-e0e0ff);
+}
+
+.drill-stats-panel__table thead th {
+  padding: 10px 12px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--c-808098);
+  border-bottom: 1px solid var(--c-2a2a4e);
+  white-space: nowrap;
+}
+
+.drill-stats-panel__table thead th:first-child {
+  text-align: left;
+}
+
+.drill-stats-panel__table tbody td {
+  padding: 10px 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--c-2a2a4e);
+}
+
+.drill-stats-panel__table tbody td:first-child {
+  text-align: left;
+  white-space: normal;
+  font-variant-numeric: normal;
+}
+
+/* Зебра — чётные строки чуть подсвечены для читаемости. */
+.drill-stats-panel__table tbody tr:nth-child(even) td {
+  background: var(--ov-white-03);
+}
+
+.drill-stats-panel__table tbody tr:hover td {
+  background: var(--ov-white-05);
+}
+
+.drill-stats-panel__row--locked td {
+  opacity: 0.65;
+}
+
+/* Колонка «Тип» содержит название drill + бейдж статуса. Раздвигаем
+ * флексом, чтобы бейдж не прилипал к названию. */
+.drill-stats-panel__cell-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drill-stats-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.drill-stats-panel__badge--unlocked {
+  background: var(--ov-success-15-alt);
+  color: var(--c-22c55e);
+}
+
+.drill-stats-panel__badge--locked {
+  background: var(--ov-neutral-15);
+  color: var(--c-808098);
+}
+
+/* CTA «Открыть тренажёр» и empty/error-варианты — мягкий текст
+ * + accent-link, без визуального шума. */
+.drill-stats-panel__empty,
+.drill-stats-panel__error {
+  margin: 0 0 12px;
+  color: var(--c-a0a0c0);
+  font-size: 14px;
+}
+
+.drill-stats-panel__cta {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 8px 16px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+
+.drill-stats-panel__cta:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
+.drill-stats-panel__cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+}
+
+/* Mobile: горизонтальный скролл таблицы при ширине меньше нужной.
+ * Section получает overflow-x, таблица — min-width. Карточки сверху
+ * переходят в столбец. */
+@media (max-width: 640px) {
+  .drill-stats-panel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .drill-stats-panel__table {
+    min-width: 560px;
+  }
+  .drill-stats-panel__summary {
+    flex-direction: column;
+  }
+}
+
 /* Nav messages icon */
 .nav-messages-link {
   position: relative;
