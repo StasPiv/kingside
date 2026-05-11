@@ -5,6 +5,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Подкачка prisma engine-бинарников под openssl-3, если системный openssl 3.x,
+# а в node_modules лежит только сборка под openssl-1.1.x. См. ensure-prisma-engines.sh.
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/ensure-prisma-engines.sh"
+ensure_prisma_engines "$ROOT_DIR"
+
 run_generate() {
   local label="$1" schema="$2"
   if [[ ! -f "$schema" ]]; then

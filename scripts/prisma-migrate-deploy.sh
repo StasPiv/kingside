@@ -35,6 +35,12 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+# Подкачка prisma engine-бинарников под openssl-3, если системный openssl 3.x,
+# а в node_modules лежит только сборка под openssl-1.1.x. См. ensure-prisma-engines.sh.
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/ensure-prisma-engines.sh"
+ensure_prisma_engines "$ROOT_DIR"
+
 SCOPE="${PRISMA_SCOPE:-all}"
 
 # KS-2608: альтернативное действие для локальной диагностики. Не ENV — потому
