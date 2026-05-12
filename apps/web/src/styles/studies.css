@@ -407,3 +407,108 @@
   max-height: 70vh;
   overflow-y: auto;
 }
+
+/* ─── ImportPgnDialog (KS-2830) ─────────────────────────────── */
+
+.import-pgn-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.import-pgn-dialog {
+  width: 100%;
+  max-width: 600px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.import-pgn-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.import-pgn-dialog__header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.import-pgn-dialog__close {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 0;
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.import-pgn-dialog__close:hover {
+  background: var(--c-2a2a4a, #2a2a4a);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.import-pgn-dialog__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.import-pgn-dialog__file-row input[type='file'] {
+  font-size: 13px;
+  color: var(--c-b0b0c8, #b0b0c8);
+}
+
+.import-pgn-dialog__textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--c-141422, #141422);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 160px;
+}
+
+.import-pgn-dialog__textarea:focus {
+  outline: none;
+  border-color: var(--c-7c83ff, #7c83ff);
+}
+
+.import-pgn-dialog__meta {
+  font-size: 12px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.import-pgn-dialog__error {
+  padding: 8px 10px;
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  border: 1px solid var(--c-e88c8c, #e88c8c);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--c-e88c8c, #e88c8c);
+}
+
+.import-pgn-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

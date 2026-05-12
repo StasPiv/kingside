@@ -8,6 +8,7 @@ import {
   type StudyDto,
   type StudyChapterSummaryDto,
 } from '../api/studiesApi';
+import { ImportPgnDialog } from '../components/studies/ImportPgnDialog';
 
 /**
  * KS-2826 (KS-2815 §B.5) — детальная страница студии `/studies/:slug`.
@@ -38,6 +39,8 @@ export function StudyPage() {
   const [busyAction, setBusyAction] = useState<
     null | 'create' | 'share' | 'delete'
   >(null);
+  // KS-2830: модалка импорта multi-PGN.
+  const [importOpen, setImportOpen] = useState<boolean>(false);
 
   const reload = useCallback(async () => {
     if (!slug) return;
@@ -190,21 +193,13 @@ export function StudyPage() {
           >
             {t('studies.action.createChapter', '+ New chapter')}
           </button>
-          {/* KS-2830 (TODO): кнопка «Импорт PGN» откроет ImportPgnDialog.
-              Пока заглушка — кликабельна, но открывает alert (компонент
-              появится в следующем тикете). */}
+          {/* KS-2830: модалка multi-PGN импорта. После закрытия с
+              успехом — `reload()` подтянет новые главы. */}
           <button
             type="button"
             className="study-page__action"
             data-testid="study-action-import-pgn"
-            onClick={() =>
-              window.alert(
-                t(
-                  'studies.action.importPgnPending',
-                  'PGN import is being implemented (KS-2830).',
-                ),
-              )
-            }
+            onClick={() => setImportOpen(true)}
           >
             {t('studies.action.importPgn', 'Import PGN')}
           </button>
@@ -256,6 +251,17 @@ export function StudyPage() {
             </li>
           ))}
         </ol>
+      )}
+
+      {importOpen && (
+        <ImportPgnDialog
+          slug={study.slug}
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            // После импорта подтягиваем обновлённый список глав.
+            void reload();
+          }}
+        />
       )}
     </div>
   );

@@ -72,7 +72,18 @@
       "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
       "deleteChapter": "Delete this chapter? This cannot be undone."
     },
-    "backToCatalog": "Back to studies"
+    "backToCatalog": "Back to studies",
+    "import": {
+      "title": "Import PGN",
+      "hint": "Paste PGN below or upload a .pgn file. Each game becomes a separate chapter.",
+      "placeholder": "Paste PGN here. Multiple games separated by [Event ...] headers are supported.",
+      "submit": "Import",
+      "foundGames_one": "{{count}} game found",
+      "foundGames_other": "{{count}} games found",
+      "errorEmpty": "PGN cannot be empty.",
+      "errorReadFile": "Could not read file. Please try copy-pasting the PGN text directly.",
+      "errorGeneric": "PGN import failed. Check the syntax and the chapter limit."
+    }
   },
   "navOnboarding": {
     "title": "Menu reorganized",
