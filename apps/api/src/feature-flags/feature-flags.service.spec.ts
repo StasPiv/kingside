@@ -8,6 +8,8 @@
  * KS-2222 — добавлен ключ `assistantEnabled` (default false).
  *
  * KS-2231 — добавлен ключ `drillsEnabled` (default false).
+ *
+ * KS-2815 / KS-2823 — добавлен ключ `studiesEnabled` (default false).
  */
 import { BadRequestException } from '@nestjs/common';
 import {
@@ -77,6 +79,8 @@ describe('FeatureFlagsService — KS-2104', () => {
     expect(rows.find((r) => r.key === 'assistantEnabled')?.value).toBe(false);
     // KS-2231: новый флаг тренажёров — default false.
     expect(rows.find((r) => r.key === 'drillsEnabled')?.value).toBe(false);
+    // KS-2823: новый флаг студий — default false (фича в MVP).
+    expect(rows.find((r) => r.key === 'studiesEnabled')?.value).toBe(false);
     // Кэш горячий: следующий getFlags не делает SELECT.
     (prisma.featureFlag.findMany as jest.Mock).mockClear();
     const flags = await svc.getFlags();

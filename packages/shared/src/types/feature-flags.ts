@@ -49,6 +49,13 @@ export interface FeatureFlags {
    * разработке; включается админом через PATCH без redeploy фронта.
    */
   drillsEnabled: boolean;
+  /**
+   * KS-2815 / ADR-059 (KS-2823 T8): показывать раздел «Студии» в UI
+   * и пускать на `/studies*`. Default `false` — фича в MVP, включается
+   * админом через PATCH когда раздел готов. Sidebar-пункт «🧪 Студии»
+   * (KS-2832) рендерится только при `true`.
+   */
+  studiesEnabled: boolean;
 }
 
 export interface ConfigResponse {
