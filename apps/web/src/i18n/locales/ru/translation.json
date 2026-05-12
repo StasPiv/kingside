@@ -75,6 +75,14 @@
       "concealAfterPly": "Скрыть после хода №",
       "editGamebook": "Редактировать сценарий"
     },
+    "practice": {
+      "yourTurn": "Найдите ход.",
+      "wrongMove": "Попробуйте другой ход.",
+      "errors_one": "Ошибок: {{count}}",
+      "errors_few": "Ошибок: {{count}}",
+      "errors_many": "Ошибок: {{count}}",
+      "errors_other": "Ошибок: {{count}}"
+    },
     "confirm": {
       "delete": "Удалить эту студию? Главы будут потеряны. Это действие необратимо.",
       "deleteChapter": "Удалить эту главу? Это действие необратимо."

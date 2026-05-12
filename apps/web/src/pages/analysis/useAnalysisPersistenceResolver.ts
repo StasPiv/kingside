@@ -32,10 +32,17 @@ export function useAnalysisPersistenceResolver(
   history: ChessMove[],
   initialAnnotations?: NodeAnnotations,
   annotationsByIndex?: Record<number, NodeAnnotations>,
+  /**
+   * KS-2871 (FM2): для chapter.mode in {practice, conceal, gamebook}
+   * пользователь «играет» — попытки не сохраняются. AnalysisPage
+   * передаёт `true` когда studyChapter.mode не === 'analysis'.
+   * Применяется ВЫШЕ ctx.readOnly: даже в editor-роуте.
+   */
+  disabled = false,
 ): void {
-  // review: gameId передаётся только если ctx.kind === 'review' и не readOnly.
+  // review: gameId передаётся только если ctx.kind === 'review', не readOnly и не disabled.
   const reviewGameId =
-    ctx.kind === 'review' && !ctx.readOnly ? ctx.gameId : undefined;
+    ctx.kind === 'review' && !ctx.readOnly && !disabled ? ctx.gameId : undefined;
   useAnalysisPersistence(
     reviewGameId,
     history,
@@ -43,11 +50,13 @@ export function useAnalysisPersistenceResolver(
     annotationsByIndex,
   );
 
-  // study: slug+chapterId только в editor-режиме (readOnly выключает запись).
+  // study: slug+chapterId только в editor-режиме (readOnly/disabled выключает запись).
   const studySlug =
-    ctx.kind === 'study' && !ctx.readOnly ? ctx.slug : undefined;
+    ctx.kind === 'study' && !ctx.readOnly && !disabled ? ctx.slug : undefined;
   const studyChapterId =
-    ctx.kind === 'study' && !ctx.readOnly ? ctx.chapterId : undefined;
+    ctx.kind === 'study' && !ctx.readOnly && !disabled
+      ? ctx.chapterId
+      : undefined;
   useStudyChapterPersistence(
     studySlug,
     studyChapterId,

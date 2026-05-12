@@ -297,6 +297,10 @@ function AnalysisPageInner({
   const [variationChooser, setVariationChooser] = useState<
     { mainLine: ChessMove; variations: ChessMove[][] } | null
   >(null);
+  // KS-2871 (FM2): практика — hint после ошибочного хода и счётчик ошибок.
+  const [practiceHint, setPracticeHint] = useState<string | null>(null);
+  const [practiceErrors, setPracticeErrors] = useState<number>(0);
+  const practiceHintTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
@@ -725,8 +729,19 @@ function AnalysisPageInner({
   }, [ctx.kind, studyChapter, studyData]);
 
   // KS-2867 (FR4): резолвер выбирает persistence-хук по ctx.kind.
-  // review → PUT /games/:id/analysis; study → PATCH chapter; analysis/puzzle — no-op здесь.
-  useAnalysisPersistenceResolver(ctx, history, initialAnnotations, annotationsByIndex);
+  // KS-2871/2872/2874 (FM2/FM3/FM5): для chapter.mode не === 'analysis'
+  // пользователь «играет» — попытки не сохраняются в PGN главы.
+  const disablePersistence =
+    ctx.kind === 'study' &&
+    studyChapter != null &&
+    studyChapter.mode !== 'analysis';
+  useAnalysisPersistenceResolver(
+    ctx,
+    history,
+    initialAnnotations,
+    annotationsByIndex,
+    disablePersistence,
+  );
 
   // KS-2281: ad-hoc autosave (localStorage). Активен только когда нет
   // gameId и нет сохранённого analysisId — для review (gameId) работает
@@ -1406,9 +1421,72 @@ function AnalysisPageInner({
   // `handleFastDragDrop` (быстрый drop без анимации). Если потребуется
   // вернуть «классический» drop — восстановить из истории git.
 
+  // KS-2871 (FM2): в practice-режиме ход валидируется против expected-list
+  // (mainLine + variations) и при совпадении гото-ит на эту ноду вместо
+  // создания нового варианта. При несовпадении — ход откатывается, hint.
+  const isPracticeMode =
+    ctx.kind === 'study' && studyChapter?.mode === 'practice';
+
+  const findExpectedMove = useCallback(
+    (from: string, to: string): ChessMove | null => {
+      // Какие ходы ожидаются на текущей позиции:
+      // - currentMove === null: первый ход (history[0]) + его варианты.
+      // - currentMove !== null: currentMove.next + currentMove.next.variations.
+      let mainLine: ChessMove | null = null;
+      if (currentMove === null) {
+        if (history.length === 0) return null;
+        mainLine = history[0] as ChessMove;
+      } else {
+        mainLine = (currentMove.next as ChessMove | null | undefined) ?? null;
+      }
+      if (!mainLine) return null;
+      if (mainLine.from === from && mainLine.to === to) return mainLine;
+      const variations = (mainLine.variations ?? []) as ChessMove[][];
+      for (const branch of variations) {
+        const head = branch[0];
+        if (head && head.from === from && head.to === to) return head;
+      }
+      return null;
+    },
+    [currentMove, history],
+  );
+
+  const showPracticeHint = useCallback((text: string) => {
+    setPracticeHint(text);
+    setPracticeErrors((n) => n + 1);
+    if (practiceHintTimerRef.current) {
+      window.clearTimeout(practiceHintTimerRef.current);
+    }
+    practiceHintTimerRef.current = window.setTimeout(() => {
+      setPracticeHint(null);
+      practiceHintTimerRef.current = null;
+    }, 3000);
+  }, []);
+
   const handleFastDragDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
+
+      // KS-2871: practice mode — fail-fast если ход не соответствует expected.
+      if (isPracticeMode) {
+        const expected = findExpectedMove(sourceSquare, targetSquare);
+        if (!expected) {
+          showPracticeHint(
+            t('studies.practice.wrongMove', 'Try a different move.'),
+          );
+          return false;
+        }
+        // Совпадает с одной из ожидаемых линий → гото-им на эту ноду.
+        // PGN не меняется, auto-save отключён через disablePersistence.
+        gotoMove(expected);
+        // Авто-ход «соперника» через 250мс — main-line continuation от expected.
+        const opponentNext = expected.next as ChessMove | null | undefined;
+        if (opponentNext) {
+          window.setTimeout(() => gotoMove(opponentNext), 250);
+        }
+        return true;
+      }
+
       if (isPromotionMove(sourceSquare, targetSquare)) {
         const testGame = new Chess(currentFen);
         const testMove = testGame.move({ from: sourceSquare as Square, to: targetSquare as Square, promotion: 'q' });
@@ -1418,7 +1496,7 @@ function AnalysisPageInner({
       }
       return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeVariantMove, isPromotionMove, currentFen],
+    [makeVariantMove, isPromotionMove, currentFen, isPracticeMode, findExpectedMove, gotoMove, showPracticeHint, t],
   );
 
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
@@ -1595,6 +1673,32 @@ function AnalysisPageInner({
             overflow-menu. Шапка освободилась — особенно над доской
             на mobile. */}
         <div className="analysis-board-wrapper">
+          {/* KS-2871 (FM2): practice-режим — баннер с подсказкой после
+              ошибочного хода. Появляется ~3с, потом исчезает. */}
+          {isPracticeMode && (
+            <div
+              className="analysis-practice-bar"
+              data-testid="analysis-practice-bar"
+              data-errors={practiceErrors}
+            >
+              {practiceHint ? (
+                <span className="analysis-practice-bar__hint" role="alert">
+                  {practiceHint}
+                </span>
+              ) : (
+                <span className="analysis-practice-bar__status">
+                  {t('studies.practice.yourTurn', 'Find the move.')}
+                </span>
+              )}
+              {practiceErrors > 0 && (
+                <span className="analysis-practice-bar__errors">
+                  {t('studies.practice.errors', 'Errors: {{count}}', {
+                    count: practiceErrors,
+                  })}
+                </span>
+              )}
+            </div>
+          )}
           <AnalysisBoard
             gameInfo={gameInfo}
             boardContainerRef={boardContainerRef}

@@ -79,6 +79,12 @@
       "concealAfterPly": "Hide after move #",
       "editGamebook": "Edit script"
     },
+    "practice": {
+      "yourTurn": "Find the move.",
+      "wrongMove": "Try a different move.",
+      "errors_one": "Errors: {{count}}",
+      "errors_other": "Errors: {{count}}"
+    },
     "confirm": {
       "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
       "deleteChapter": "Delete this chapter? This cannot be undone."
