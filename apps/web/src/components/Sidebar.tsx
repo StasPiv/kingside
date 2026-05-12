@@ -29,78 +29,65 @@ interface NavItem {
    * `userCoursesApi.list({scope:'own'})` всё равно вернёт 401.
    */
   authOnly?: boolean;
+  /**
+   * KS-2800 (ADR-058 §4.1): кастомный gate для групповых пунктов —
+   * `Тренировка` (`/train`) виден если хотя бы один из четырёх
+   * подразделов разрешён (`puzzlesEnabled || drillsEnabled` —
+   * Puzzle Rush открыт всегда, поэтому в этой версии условие всегда
+   * истинно; оставляем хук на будущее, когда Rush получит свой
+   * feature-flag). Если задан — `featureFlag` игнорируется.
+   */
+  customGate?: (flags: FeatureFlags) => boolean;
 }
 
+/**
+ * KS-2800 (ADR-058 §4.1, §6.2 T4) — новые групповые контентные пункты
+ * sidebar'а. Тренировочные и аналитические подразделы съехали внутрь
+ * лобби-страниц `/train` и `/analyze` (KS-2796 / KS-2797), на топ-уровне
+ * остаются только 5 крупных групп.
+ *
+ * Список (порядок сверху вниз):
+ *   1. ♟ Играть       → `/play`
+ *   2. 🧠 Тренировка  → `/train`   (gated: Rush открыт всегда → виден всегда)
+ *   3. 🎓 Уроки       → `/lessons` (gated: `lessonsEnabled`)
+ *   4. 📺 Трансляции  → `/broadcasts` (gated: `broadcastsEnabled`)
+ *   5. 🔬 Анализ      → `/analyze` (без gating — Workshop + Archive открыты)
+ *
+ * Пункты `/lobby`, `/tournaments`, `/puzzles`, `/puzzle-rush`, `/drills`,
+ * `/precision`, `/workshop`, `/archive` из топ-уровня удалены — доступ
+ * к ним через лобби-страницы.
+ *
+ * Турниры (`/tournaments`) — переезжают в drawer «Ещё» на мобильном
+ * (KS-2807) и в подгруппу «Соревнования» внутри `/play` на десктопе
+ * (вне scope этого тикета; временно остаются только через прямой URL).
+ *
+ * Футер (Профиль / Друзья / Настройки / Feedback / Admin) — KS-2801.
+ * В текущем коммите эта секция остаётся в нижней половине Sidebar'а
+ * как есть; T5 разделит её на отдельный блок.
+ */
 const NAV_ITEMS: NavItem[] = [
-  { path: '/lobby', icon: '🏠', i18nKey: 'nav.home', match: ['/lobby'] },
   { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play'] },
-  // KS-2218: «Турниры» — runtime feature-flag `tournamentsEnabled`.
+  // KS-2800: групповая «Тренировка». Виден если puzzlesEnabled ИЛИ
+  // drillsEnabled — иначе подразделы пусты (Rush всегда есть, но он
+  // один не делает группу осмысленной для пользователя; всё же оставлю
+  // group-гейтом visible if any of {puzzlesEnabled, drillsEnabled, true(Rush)}).
   {
-    path: '/tournaments',
-    icon: '🏆',
-    i18nKey: 'nav.tournaments',
-    match: ['/tournaments'],
-    featureFlag: 'tournamentsEnabled',
-  },
-  // KS-2218: «Задачи» — runtime feature-flag `puzzlesEnabled`.
-  // Default `false` — раздел временно скрыт у всех; включается админом
-  // через PATCH /admin/feature-flags/puzzlesEnabled.
-  {
-    path: '/puzzles',
-    icon: '🧩',
-    i18nKey: 'nav.puzzles',
-    match: ['/puzzles', '/puzzle'],
-    featureFlag: 'puzzlesEnabled',
-  },
-  { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },
-  // KS-2235 (ADR-035 §7.2): «Тренажёры» — runtime feature-flag
-  // `drillsEnabled` (KS-2231). Default `false` — фича в разработке;
-  // включается админом через PATCH /admin/feature-flags/drillsEnabled
-  // без redeploy фронта.
-  // KS-2550: иконка 🧠 (тактическая «накачка мозга») — освобождает 🎯
-  // для /precision (точность), не пересекается с /puzzles (🧩).
-  {
-    path: '/drills',
+    path: '/train',
     icon: '🧠',
-    i18nKey: 'nav.drills',
-    match: ['/drills'],
-    featureFlag: 'drillsEnabled',
+    i18nKey: 'nav.train',
+    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision'],
+    customGate: (flags) =>
+      // Rush открыт всегда → группа всегда видна. Хук для будущего
+      // gating'а Rush'а: если все 4 подраздела закрыты — скрыть группу.
+      flags.puzzlesEnabled || flags.drillsEnabled || true,
   },
-  // KS-2539 / ADR-048 §3 #3: «Тренировка точности» — раздел play-vs-engine
-  // (бывший /puzzles/play-vs-engine). Gate за `puzzlesEnabled` — общий с
-  // основным разделом «Задачи».
-  // KS-2550: иконка 🎯 (мишень — точность/прицел). Освобождает 🎓
-  // для /lessons (академическая шапочка → курсы).
-  {
-    path: '/precision',
-    icon: '🎯',
-    i18nKey: 'nav.precision',
-    match: ['/precision'],
-    featureFlag: 'puzzlesEnabled',
-  },
-  // KS-2550: 📚 → 🎓 (академическая шляпа = «учусь, прохожу курс»).
-  // KS-2650: до этой задачи рядом был отдельный пункт 🎒 «Мои курсы»
-  // (`/lessons/my`), но после слияния моделей system + user в Phase D
-  // ADR-054 (KS-2645) держать второй пункт перестало иметь смысл —
-  // выбор «Все / Мои» теперь делает таб на самой странице `/lessons`.
-  // Match покрывает все подмаршруты `/lessons*` (включая редирект
-  // `/lessons/my` → `/lessons?tab=mine`).
   {
     path: '/lessons',
     icon: '🎓',
     i18nKey: 'nav.lessons',
     match: ['/lessons'],
-    // KS-2105: раздел скрывается, когда админ выключил
-    // `lessonsEnabled` через PATCH /admin/feature-flags/lessonsEnabled.
     featureFlag: 'lessonsEnabled',
   },
-  { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
-  // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
-  // i18n-ключ — отдельный namespace `archive` (`archive.menuTitle`),
-  // см. `apps/web/src/i18n/locales/{ru,en}/archive.json`.
-  // KS-2550: 🗂 → 📚 (книги/собрание партий — лучше передаёт «архив»).
-  { path: '/archive', icon: '📚', i18nKey: 'archive:menuTitle', match: ['/archive'] },
-  // KS-2218: «Трансляции» — runtime feature-flag `broadcastsEnabled`.
   {
     path: '/broadcasts',
     icon: '📺',
@@ -108,6 +95,18 @@ const NAV_ITEMS: NavItem[] = [
     match: ['/broadcasts'],
     featureFlag: 'broadcastsEnabled',
   },
+  // KS-2800: групповой «Анализ». Workshop + Archive — без gating'а.
+  // Match покрывает все подмаршруты обоих, чтобы при заходе на
+  // /workshop, /analysis, /archive подсветка стояла на этом пункте.
+  {
+    path: '/analyze',
+    icon: '🔬',
+    i18nKey: 'nav.analyze',
+    match: ['/analyze', '/workshop', '/analysis', '/archive'],
+  },
+  // KS-2801: ниже — футер (Профиль / Друзья / Настройки / Feedback /
+  // Admin). Текущий divider + список остаются в коде до отдельного
+  // разделения; разметка переедет в KS-2801 (T5).
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
   { path: '/feedback', icon: '📋', i18nKey: 'nav.feedback', match: ['/feedback'] },
   { path: '/features', icon: '✨', i18nKey: 'nav.features', match: ['/features'] },
@@ -147,7 +146,14 @@ export function Sidebar() {
     );
 
   const visibleItems = NAV_ITEMS.filter((it) => {
-    if (it.featureFlag && !flags[it.featureFlag]) return false;
+    // KS-2800: customGate имеет приоритет над featureFlag — для
+    // групповых пунктов (`/train`, `/analyze`) условие может быть
+    // составным («хотя бы один подраздел открыт»).
+    if (it.customGate) {
+      if (!it.customGate(flags)) return false;
+    } else if (it.featureFlag && !flags[it.featureFlag]) {
+      return false;
+    }
     if (it.adminOnly && !isAdmin) return false;
     if (it.authOnly && !user) return false;
     return true;

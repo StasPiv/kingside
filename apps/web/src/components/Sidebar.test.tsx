@@ -2,16 +2,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { renderWithProviders, screen } from '../test/test-utils';
 
-// KS-2105/KS-2218: Sidebar читает флаги из FeatureFlagsContext (runtime,
-// backend `GET /config`). Мокаем сам контекст-хук — это позволяет
-// переключать флаги в тестах без рендера Provider'а и без сетевого мока.
+/**
+ * KS-2800 (ADR-058 §4.1, §6.2 T4): Sidebar теперь содержит 5 групповых
+ * контентных пунктов:
+ *   1. ♟ Играть      → /play
+ *   2. 🧠 Тренировка → /train  (customGate: видим всегда — Rush открыт)
+ *   3. 🎓 Уроки      → /lessons (gated: lessonsEnabled)
+ *   4. 📺 Трансляции → /broadcasts (gated: broadcastsEnabled)
+ *   5. 🔬 Анализ     → /analyze (без gating)
+ *
+ * Подразделы (puzzles/drills/precision/workshop/archive/tournaments)
+ * удалены с топ-уровня — доступ через лобби-страницы.
+ *
+ * Тесты на футер (Профиль/Друзья/Настройки/Feedback/Admin) — в KS-2801.
+ */
+
 const flagControls = {
   lessons: true,
-  // KS-2218: дефолты совпадают с серверным whitelist.
   puzzles: false,
   broadcasts: true,
   tournaments: true,
-  // KS-2235 (KS-2231): default `false` — фича в разработке.
   drills: false,
 };
 vi.mock('../context/FeatureFlagsContext', () => ({
@@ -47,20 +57,15 @@ vi.mock('../context/FeatureFlagsContext', () => ({
   },
 }));
 
-// FeedbackModal зависит от api-запроса, для теста сайдбара не нужен.
 vi.mock('./FeedbackModal', () => ({
   FeedbackModal: () => <div data-testid="feedback-modal-mock" />,
 }));
 
-// KS-2109: пункт «Админка» зависит от useAdminStatus.
 const adminControls = { isAdmin: false };
 vi.mock('../hooks/useAdminStatus', () => ({
   useAdminStatus: () => ({ isAdmin: adminControls.isAdmin, loading: false }),
 }));
 
-// KS-2790: Sidebar читает `useAuth().user` для authOnly-пунктов.
-// Без мока useAuth() бросает «must be used within AuthProvider», и
-// весь suite падает (часть pre-existing tech-debt KS-2773).
 const authControls: { user: { id: string; username: string } | null } = {
   user: { id: 'u1', username: 'tester' },
 };
@@ -84,138 +89,120 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('<Sidebar>', () => {
-  it('флаг on → пункт «Уроки» виден в меню', () => {
-    flagControls.lessons = true;
+describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
+  it('дефолтные флаги: видны 5 группового пункта (play, train, lessons, broadcasts, analyze)', () => {
     renderWithProviders(<Sidebar />);
-    expect(screen.getByTitle(/lessons|уроки/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^play$|^играть$/i).getAttribute('href')).toBe('/play');
+    expect(screen.getByTitle(/^train$|^тренировка$/i).getAttribute('href')).toBe('/train');
+    expect(screen.getByTitle(/^lessons$|^уроки$/i).getAttribute('href')).toBe('/lessons');
+    expect(screen.getByTitle(/^tv$|^трансляции$/i).getAttribute('href')).toBe('/broadcasts');
+    expect(screen.getByTitle(/^analyze$|^анализ$/i).getAttribute('href')).toBe('/analyze');
   });
 
-  it('флаг off → пункт «Уроки» скрыт', () => {
-    flagControls.lessons = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/lessons|уроки/i)).not.toBeInTheDocument();
-  });
-
-  it('остальные пункты меню на месте при флаге off', () => {
-    flagControls.lessons = false;
-    renderWithProviders(<Sidebar />);
-    // Несколько непересекающихся пунктов — они никак не зависят от флага.
-    expect(screen.getByTitle(/play/i)).toBeInTheDocument();
-    expect(screen.getByTitle(/workshop|мастерская/i)).toBeInTheDocument();
-    expect(screen.getByTitle(/settings|настройки/i)).toBeInTheDocument();
-  });
-
-  it('KS-2218: puzzlesEnabled=false (default) → пункт «Задачи» скрыт', () => {
-    flagControls.puzzles = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/puzzles|задачи/i)).not.toBeInTheDocument();
-  });
-
-  it('KS-2218: puzzlesEnabled=true → пункт «Задачи» виден', () => {
+  it('старые подразделы (puzzles/drills/precision/workshop/archive/tournaments) скрыты с топ-уровня', () => {
     flagControls.puzzles = true;
-    renderWithProviders(<Sidebar />);
-    expect(screen.getByTitle(/puzzles|задачи/i)).toBeInTheDocument();
-  });
-
-  it('KS-2218: broadcastsEnabled=false → пункт «Трансляции» скрыт', () => {
-    flagControls.broadcasts = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/tv|трансляц/i)).not.toBeInTheDocument();
-  });
-
-  it('KS-2218: broadcastsEnabled=true → пункт «Трансляции» виден', () => {
-    flagControls.broadcasts = true;
-    renderWithProviders(<Sidebar />);
-    expect(screen.getByTitle(/tv|трансляц/i)).toBeInTheDocument();
-  });
-
-  it('KS-2218: tournamentsEnabled=false → пункт «Турниры» скрыт', () => {
-    flagControls.tournaments = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/tournaments|турнир/i)).not.toBeInTheDocument();
-  });
-
-  it('KS-2218: tournamentsEnabled=true → пункт «Турниры» виден', () => {
-    flagControls.tournaments = true;
-    renderWithProviders(<Sidebar />);
-    expect(screen.getByTitle(/tournaments|турнир/i)).toBeInTheDocument();
-  });
-
-  it('KS-2235: drillsEnabled=false (default) → пункт «Тренажёры» скрыт', () => {
-    flagControls.drills = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/drills|тренажёр/i)).not.toBeInTheDocument();
-  });
-
-  it('KS-2235: drillsEnabled=true → пункт «Тренажёры» виден и ведёт на /drills', () => {
     flagControls.drills = true;
     renderWithProviders(<Sidebar />);
-    const link = screen.getByTitle(/drills|тренажёр/i);
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/drills');
+    // Прямых ссылок на под-разделы нет: они доступны через /train и /analyze.
+    expect(screen.queryByTitle(/^puzzles$|^задачи$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/puzzle rush/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^drills$|^тренажёры$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/тренировка точности|^precision$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^workshop$|^мастерская$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^archive$|^архив$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^tournaments$|^турниры$/i)).not.toBeInTheDocument();
   });
 
-  it('KS-2539: puzzlesEnabled=false → пункт «Тренировка точности» скрыт', () => {
+  it('lessonsEnabled=false → пункт «Уроки» скрыт, остальные 4 на месте', () => {
+    flagControls.lessons = false;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^lessons$|^уроки$/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle(/^play$|^играть$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^tv$|^трансляции$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^analyze$|^анализ$/i)).toBeInTheDocument();
+  });
+
+  it('broadcastsEnabled=false → пункт «Трансляции» скрыт', () => {
+    flagControls.broadcasts = false;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^tv$|^трансляции$/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
+  });
+
+  it('пункт «Тренировка» виден всегда (Puzzle Rush открыт) — даже при puzzlesEnabled=false && drillsEnabled=false', () => {
     flagControls.puzzles = false;
+    flagControls.drills = false;
     renderWithProviders(<Sidebar />);
-    expect(
-      screen.queryByTitle(/precision|тренировка точности/i),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
   });
 
-  it('KS-2539: puzzlesEnabled=true → пункт «Тренировка точности» виден и ведёт на /precision', () => {
-    flagControls.puzzles = true;
+  it('пункт «Анализ» виден всегда (без gating)', () => {
     renderWithProviders(<Sidebar />);
-    const link = screen.getByTitle(/precision|тренировка точности/i);
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/precision');
+    expect(screen.getByTitle(/^analyze$|^анализ$/i)).toBeInTheDocument();
   });
 
-  it('KS-2252: иконка кнопки обратной связи — 📝 (НЕ 💬, чтобы не путалась с ChatWidget)', () => {
+  it('KS-2252: иконка кнопки обратной связи — 📝 (не 💬)', () => {
     renderWithProviders(<Sidebar />);
     const btn = screen.getByTestId('sidebar-feedback-btn');
     expect(btn).toHaveTextContent('📝');
-    // Дополнительно: 💬 нигде не должно быть в Sidebar (ChatWidget — отдельный
-    // компонент в MainLayout, и под `assistantEnabled=false` он null).
     expect(btn).not.toHaveTextContent('💬');
   });
 
-  it('KS-2790: на /puzzle-rush подсвечен только Puzzle Rush, не Puzzles', () => {
-    flagControls.puzzles = true;
-    renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
-    const rush = screen.getByTitle(/puzzle rush|paid rush/i);
-    expect(rush.className).toContain('sidebar-item--active');
-    const puzzles = screen.getByTitle(/^puzzles$|задачи/i);
-    expect(puzzles.className).not.toContain('sidebar-item--active');
-  });
-
-  it('KS-2790: на /puzzle/abc подсвечен Puzzles (single-puzzle страница)', () => {
-    flagControls.puzzles = true;
-    renderWithProviders(<Sidebar />, { route: '/puzzle/abc-123' });
-    const puzzles = screen.getByTitle(/^puzzles$|задачи/i);
-    expect(puzzles.className).toContain('sidebar-item--active');
-    const rush = screen.getByTitle(/puzzle rush|paid rush/i);
-    expect(rush.className).not.toContain('sidebar-item--active');
-  });
-
-  it('KS-2790: на /precision/stats подсвечен Precision (вложенный путь)', () => {
-    flagControls.puzzles = true;
-    renderWithProviders(<Sidebar />, { route: '/precision/stats' });
-    const precision = screen.getByTitle(/precision|тренировка точности/i);
-    expect(precision.className).toContain('sidebar-item--active');
-  });
-
-  it('KS-2109: пункт «Админка» виден ТОЛЬКО админам', () => {
+  it('KS-2109: пункт «Админка» виден только админам', () => {
     adminControls.isAdmin = false;
     const { unmount } = renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/admin|админка/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^admin$|^админка$/i)).not.toBeInTheDocument();
     unmount();
 
     adminControls.isAdmin = true;
     renderWithProviders(<Sidebar />);
-    const adminLink = screen.getByTitle(/admin|админка/i);
-    expect(adminLink).toBeInTheDocument();
+    const adminLink = screen.getByTitle(/^admin$|^админка$/i);
     expect(adminLink.getAttribute('href')).toBe('/admin/feature-flags');
+  });
+});
+
+/**
+ * KS-2803 (T6, плановый отдельный тикет): подсветка групповых пунктов
+ * по подразделам. Эти тесты живут здесь — match-список уже задан в
+ * NAV_ITEMS (KS-2800), они отрабатывают сразу.
+ */
+describe('<Sidebar> KS-2800/KS-2803 — active highlight для group-пунктов', () => {
+  it('на /puzzles подсвечен «Тренировка» (group match: /train, /puzzles, /puzzle, /puzzle-rush, /drills, /precision)', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/puzzles' });
+    const train = screen.getByTitle(/^train$|^тренировка$/i);
+    expect(train.className).toContain('sidebar-item--active');
+  });
+
+  it('на /puzzle-rush подсвечен «Тренировка»', () => {
+    renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
+    const train = screen.getByTitle(/^train$|^тренировка$/i);
+    expect(train.className).toContain('sidebar-item--active');
+  });
+
+  it('на /precision/stats подсвечен «Тренировка»', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/precision/stats' });
+    const train = screen.getByTitle(/^train$|^тренировка$/i);
+    expect(train.className).toContain('sidebar-item--active');
+  });
+
+  it('на /workshop подсвечен «Анализ»', () => {
+    renderWithProviders(<Sidebar />, { route: '/workshop' });
+    const analyze = screen.getByTitle(/^analyze$|^анализ$/i);
+    expect(analyze.className).toContain('sidebar-item--active');
+  });
+
+  it('на /archive/games подсвечен «Анализ»', () => {
+    renderWithProviders(<Sidebar />, { route: '/archive/games' });
+    const analyze = screen.getByTitle(/^analyze$|^анализ$/i);
+    expect(analyze.className).toContain('sidebar-item--active');
+  });
+
+  it('на /analysis/<uuid> подсвечен «Анализ» (legacy URL)', () => {
+    renderWithProviders(<Sidebar />, { route: '/analysis/abc' });
+    const analyze = screen.getByTitle(/^analyze$|^анализ$/i);
+    expect(analyze.className).toContain('sidebar-item--active');
   });
 });
