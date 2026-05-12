@@ -659,6 +659,147 @@ button.sidebar-item {
   .sidebar { display: none; }
 }
 
+/* ============================================================
+ * KS-2840/KS-2843 (ADR-058 §11.1, §11.7) — двухуровневое меню
+ * sidebar. Parent-кнопка живёт внутри `.sidebar-main` как
+ * `<button class="sidebar-item sidebar-submenu__parent">` —
+ * визуально полностью наследует стили `.sidebar-item`. Поверх
+ * добавляются: chevron «›» в правом нижнем углу parent'а и
+ * popover-карточка справа от sidebar'а (позиция через JS,
+ * `position: fixed` + inline `top/left`).
+ * ============================================================ */
+
+.sidebar-submenu {
+  /* Корневая обёртка — занимает ту же ширину, что соседние
+     `.sidebar-item` в `.sidebar-main` (через flex-центрирование).
+     Сам по себе ничего не рендерит — только контейнер для parent
+     и для popover'а (последний всё равно `position: fixed`). */
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* Parent наследует `.sidebar-item` стили; здесь только то, что
+   ему специфично — relative-контекст под chevron. */
+.sidebar-submenu__parent {
+  position: relative;
+}
+
+/* Chevron «›» — индикатор «у пункта есть подменю». Рисуется в
+   правом нижнем углу parent'а. */
+.sidebar-submenu__chevron {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--c-9e9e9e);
+  transition: transform 0.15s ease, color 0.15s;
+  pointer-events: none;
+}
+
+.sidebar-submenu__parent:hover .sidebar-submenu__chevron,
+.sidebar-submenu__parent--open .sidebar-submenu__chevron {
+  color: var(--c-7c83ff);
+}
+
+/* При открытии — поворот на 90° (горизонтальный «›» становится
+   вертикальным указателем вниз). */
+.sidebar-submenu__parent--open .sidebar-submenu__chevron {
+  transform: rotate(90deg);
+}
+
+/* Popover. `position: fixed` и `top`/`left` приходят inline из JS
+   (рассчитываются от `getBoundingClientRect` parent'а), поэтому
+   здесь их НЕ задаём — иначе перебьём inline-style. z-index выше
+   header'а (50) и большинства модальных overlay'ев. */
+.sidebar-submenu__popover {
+  z-index: 150;
+  min-width: 200px;
+  /* Сдвиг от рамки sidebar'а (`left` = rect.right parent'а,
+     парент центрирован в 88-px sidebar'е → правый край parent'а
+     = 74px от лев. кромки viewport'а; добавляем 8px воздуха). */
+  margin-left: 8px;
+  padding: 6px 0;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--ov-black-40);
+  /* Появление: fade + slide-in. Закрытие мгновенное (React
+     размонтирует popover по isOpen=false; transition на exit
+     не сработает). */
+  animation: sidebar-submenu__popover-enter 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sidebar-submenu__popover-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Подпункт — flex c иконкой + меткой. Border-left под active. */
+.sidebar-submenu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  color: var(--c-e0e0e0);
+  font-size: 14px;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sidebar-submenu__item:hover,
+.sidebar-submenu__item:focus,
+.sidebar-submenu__item:focus-visible {
+  background: var(--ov-accent-10);
+  color: var(--c-fff);
+  outline: none;
+}
+
+/* KS-2843: snять underline во всех состояниях. Тот же приём,
+   что у `.lobby-card` (KS-2837) и `.sidebar-item` (KS-1572). */
+.sidebar-submenu__item,
+.sidebar-submenu__item:hover,
+.sidebar-submenu__item:focus,
+.sidebar-submenu__item:focus-visible,
+.sidebar-submenu__item:active,
+.sidebar-submenu__item:visited {
+  text-decoration: none;
+}
+
+/* Активный подпункт (KS-2842): фон + цвет + border-left. */
+.sidebar-submenu__item--active {
+  color: var(--c-7c83ff);
+  background: var(--ov-accent-12);
+  border-left-color: var(--c-7c83ff);
+}
+
+.sidebar-submenu__item-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+}
+
+.sidebar-submenu__item-label {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+/* На mobile (≤768px) `.sidebar` уже `display: none` — submenu/popover
+   не отрисовываются, дополнительных правил не требуется (родитель
+   `Sidebar` всё равно рендерит Link вместо submenu по `useIsMobile`). */
+
 /* Nav menu (KS-1107) — kept for reference but hidden */
 .header-nav-menu {
   display: flex;
