@@ -94,7 +94,13 @@
       "failure": "Failure (after wrong)",
       "selectMove": "Select a move to edit its hint / success / failure.",
       "nodeCount": "{{count}}/{{max}}",
-      "atLimit": "Node limit reached ({{max}}). Remove fields from other nodes to add new ones."
+      "atLimit": "Node limit reached ({{max}}). Remove fields from other nodes to add new ones.",
+      "play": "Play",
+      "start": "Start",
+      "yourMove": "Your move.",
+      "correct": "Correct!",
+      "finished": "You completed the chapter!",
+      "notGamebook": "This chapter is not a gamebook."
     },
     "confirm": {
       "delete": "Delete this study? Chapters will be lost. This cannot be undone.",

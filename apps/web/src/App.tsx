@@ -131,6 +131,12 @@ const StudyPage = lazy(() =>
 // studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
 // StudyChapterEditorPage / StudyChapterPublicPage удалены вместе с
 // файлами компонентов.
+// KS-2874 (FM5): отдельная страница чтения gamebook'а — /studies/:slug/:chapterId/play.
+const GamebookReaderPage = lazy(() =>
+  import('./pages/GamebookReaderPage').then((m) => ({
+    default: m.GamebookReaderPage,
+  })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -411,6 +417,24 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <AnalysisPage studyMode="public-readonly" />
+            </Suspense>
+          }
+        />
+        {/* KS-2874 (FM5): gamebook reader. Open via «Play gamebook» из
+            study/chapter-страницы или прямой ссылке. */}
+        <Route
+          path="/studies/:slug/:chapterId/play"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <GamebookReaderPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/studies/c/:chapterId/play"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <GamebookReaderPage />
             </Suspense>
           }
         />
