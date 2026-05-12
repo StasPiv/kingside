@@ -497,22 +497,31 @@ body.has-analysis-page .main {
 }
 
 
-/* App body layout (KS-1111) */
+/* App body layout (KS-1111 / KS-2865 / KS-2901) */
 .app-body {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
+/* KS-2901 (fix регресса KS-2865): sidebar теперь `position: fixed`
+   (выпал из потока) — основной контент сдвигаем влево на ширину
+   sidebar'а через padding на `.app-body`. Раньше padding жил на
+   `.app-body > .main`, но страницы вроде `.main:has(.analysis-page)`
+   и `body.has-analysis-page .main` (layout.css §«Game/Analysis»)
+   делают `padding: 0` на `.main` — это перебивало мой
+   `padding-left: 88px` → доска заходила под sidebar.
+   `.app-body` никто не трогает + `:has(> .sidebar)` применяет
+   отступ только когда sidebar реально отрисован в DOM (для гостей
+   `<Sidebar />` не рендерится — отступ обнуляется автоматически). */
+.app-body:has(> .sidebar) {
+  padding-left: 88px;
+}
+
 .app-body > .main {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  /* KS-2865: sidebar теперь `position: fixed` (выпал из потока) —
-     основной контент сдвигаем влево на ширину sidebar'а, иначе
-     заходит под него. На mobile sidebar скрыт (`display: none`) —
-     отступ обнуляется в `@media (max-width: 768px)` ниже. */
-  padding-left: 88px;
 }
 
 /* Sidebar (KS-1111/KS-1487/KS-1572/KS-2800/KS-2801/KS-2804/KS-2865)
@@ -682,8 +691,8 @@ button.sidebar-item {
 
 @media (max-width: 768px) {
   .sidebar { display: none; }
-  /* KS-2865: на mobile sidebar скрыт — обнуляем padding-left у main. */
-  .app-body > .main { padding-left: 0; }
+  /* KS-2901: на mobile sidebar скрыт — обнуляем padding-left у .app-body. */
+  .app-body:has(> .sidebar) { padding-left: 0; }
 }
 
 /* ============================================================
