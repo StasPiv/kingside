@@ -133,6 +133,14 @@ model BroadcastGame {
   /// текущее значение активного игрока локально как
   /// `<clockMs> - (now - clockUpdatedAt)`.
   clockUpdatedAt  DateTime? @map("clock_updated_at")
+  /// KS-2798: wall-clock момента последнего хода в основной линии
+  /// партии. Обновляется при ЛЮБОМ изменении PGN, в котором
+  /// фактически появился новый полуход (детектится по смене
+  /// `currentFen`), независимо от наличия `%clk` в источнике.
+  /// `clockUpdatedAt` обновляется только когда пришёл свежий `%clk`,
+  /// а у некоторых broadcast'ов источник clocks не отдаёт — для
+  /// «X минут назад» под карточкой партии нужно отдельное поле.
+  lastMoveAt    DateTime? @map("last_move_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   round BroadcastRound @relation(fields: [roundId], references: [id])

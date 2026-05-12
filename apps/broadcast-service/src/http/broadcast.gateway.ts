@@ -36,6 +36,8 @@ type WsBroadcastMovePayload = {
   fen: string;
   whitePlayer: string;
   blackPlayer: string;
+  /** KS-2798. ISO wall-clock этого хода; null если ход не новый. */
+  lastMoveAt?: string | null;
 };
 
 /**
@@ -173,6 +175,8 @@ export class BroadcastGateway
         clockUpdatedAt: g.clockUpdatedAt
           ? g.clockUpdatedAt.toISOString()
           : null,
+        // KS-2798: wall-clock последнего хода (см. schema-comment).
+        lastMoveAt: g.lastMoveAt ? g.lastMoveAt.toISOString() : null,
       })),
     };
 
@@ -211,6 +215,8 @@ export class BroadcastGateway
         whiteClockMs?: number | null;
         blackClockMs?: number | null;
         clockUpdatedAt?: string | null;
+        /** KS-2798. ISO wall-clock последнего хода в партии. */
+        lastMoveAt?: string | null;
       }>;
     },
   ): void {

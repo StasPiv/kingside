@@ -281,6 +281,43 @@ export function shouldCloseRoundAsFinished(
 }
 
 /**
+ * KS-2798. Определяет, появился ли в текущей итерации `processPgnUpdate`
+ * НОВЫЙ полуход (нужно ли обновить `lastMoveAt`). Логика — независимо
+ * от наличия `%clk` в PGN: смотрим на изменение FEN.
+ *
+ * Возвращает `true` когда:
+ *  - партия новая в БД и в pgn уже есть хотя бы один полуход
+ *    (FEN ≠ стартовая) → выставим текущий timestamp;
+ *  - партия уже существует и `currentFen` изменился на новую позицию.
+ *
+ * Возвращает `false` когда:
+ *  - партия новая, но PGN до старта (FEN = стартовая);
+ *  - повторная отдача того же PGN-snapshot'а (FEN не изменился);
+ *  - `wouldRegress` (короткий FEN-сброс от Lichess: новый pgn короче и
+ *    с stating FEN, но БД хранит позднее состояние — берём существующий
+ *    FEN, реального движения нет).
+ *
+ * Чистая функция, не зависит от prisma/redis. Используется в
+ * `processPgnUpdate` и покрыта unit-тестами.
+ */
+export function detectLastMoveAt(params: {
+  existingFen: string | null | undefined;
+  newFen: string;
+  startingFen: string;
+}): boolean {
+  const { existingFen, newFen, startingFen } = params;
+  // Новая партия (нет существующей записи): фиксируем только когда
+  // ходы уже сделаны (FEN ≠ стартовая).
+  if (existingFen === null || existingFen === undefined) {
+    return newFen !== startingFen;
+  }
+  // Существующая запись: фиксируем при любом изменении FEN. Регресс к
+  // стартовой позиции (короткий PGN от Lichess) обрабатывается уровнем
+  // выше — туда передаётся `newFen = existingFen` после wouldRegress.
+  return existingFen !== newFen;
+}
+
+/**
  * KS-2780. Извлекает значение PGN-header `[Variant "..."]` из строки
  * PGN. Стандарт PGN: variant отсутствует или `Standard` — обычные
  * шахматы; `Chess960` / `Fischer Random` / `Crazyhouse` / etc. —
@@ -523,6 +560,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       fen: string;
       whitePlayer: string;
       blackPlayer: string;
+      /** KS-2798. ISO wall-clock этого хода; null если ход не новый. */
+      lastMoveAt: string | null;
     },
   ): void {
     if (!this.pubRedis) return;
@@ -1295,6 +1334,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       // фронту нужно для определения кликабельной партии. Сохраняем id
       // существующей записи либо новой созданной.
       let dbGameId: string | null = null;
+      // KS-2798: ISO-8601 момент свежего хода — для payload publishMove,
+      // если в этой итерации он реально появился. null означает «нет
+      // нового хода в этом update» (повторный PGN-snapshot без новых
+      // полуходов).
+      let lastMoveAtIsoForPublish: string | null = null;
       if (game.lichessGameId) {
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
@@ -1348,6 +1392,22 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             existing.currentFen &&
             existing.currentFen !== STARTING_FEN;
           const newFen = wouldRegress ? existing.currentFen! : game.fen;
+          // KS-2798: wall-clock последнего хода. Обновляется когда
+          // фактически появился новый полуход — детектится сменой
+          // `currentFen` относительно сохранённого значения. Не
+          // привязываемся к `%clk`: некоторые источники broadcast'ов
+          // его не отдают, а «X минут назад» должно работать всегда.
+          // wouldRegress (короткий FEN-сброс от Lichess) — не движение,
+          // поэтому ветка под if (!wouldRegress).
+          const hasNewMove =
+            !wouldRegress &&
+            detectLastMoveAt({
+              existingFen: existing.currentFen,
+              newFen,
+              startingFen: STARTING_FEN,
+            });
+          const lastMoveAt = hasNewMove ? new Date() : null;
+          if (lastMoveAt) lastMoveAtIsoForPublish = lastMoveAt.toISOString();
           await this.prisma.broadcastGame.update({
             where: { id: existing.id },
             data: {
@@ -1369,9 +1429,22 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
                     clockUpdatedAt: new Date(),
                   }
                 : {}),
+              // KS-2798: lastMoveAt — независимо от clocks.
+              ...(lastMoveAt ? { lastMoveAt } : {}),
             },
           });
         } else {
+          // KS-2798: новая запись с уже сделанными ходами (FEN ≠
+          // стартовая) — выставляем lastMoveAt = now(). Если партия
+          // создаётся в стартовой позиции (ходов ещё не было), lastMoveAt
+          // остаётся null — будет проставлен на первом ходе.
+          const hasNewMove = detectLastMoveAt({
+            existingFen: null,
+            newFen: game.fen,
+            startingFen: STARTING_FEN,
+          });
+          const lastMoveAt = hasNewMove ? new Date() : null;
+          if (lastMoveAt) lastMoveAtIsoForPublish = lastMoveAt.toISOString();
           const created = await this.prisma.broadcastGame.create({
             data: {
               roundId: round.id,
@@ -1391,6 +1464,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
                 newWhiteBig !== null || newBlackBig !== null
                   ? new Date()
                   : null,
+              lastMoveAt,
             },
           });
           dbGameId = created.id;
@@ -1410,6 +1484,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           fen: game.fen,
           whitePlayer: game.white,
           blackPlayer: game.black,
+          // KS-2798: wall-clock этого хода. null когда uci пришёл,
+          // но новый полуход не детектирован (повторная отдача того
+          // же PGN-snapshot, FEN не изменился).
+          lastMoveAt: lastMoveAtIsoForPublish,
         });
       }
     }
@@ -1485,6 +1563,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             clockUpdatedAt: g.clockUpdatedAt
               ? g.clockUpdatedAt.toISOString()
               : null,
+            // KS-2798: wall-clock последнего хода (см. schema-comment).
+            lastMoveAt: g.lastMoveAt ? g.lastMoveAt.toISOString() : null,
           })),
         });
       }

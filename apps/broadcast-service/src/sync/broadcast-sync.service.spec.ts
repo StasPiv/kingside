@@ -15,6 +15,7 @@
 import {
   shouldCloseRoundAsFinished,
   extractClocksFromPgn,
+  detectLastMoveAt,
 } from './broadcast-sync.service';
 
 function game(result: string): { result: string } {
@@ -169,6 +170,77 @@ describe('extractClocksFromPgn — KS-2699', () => {
     const r = extractClocksFromPgn(pgn);
     expect(r.blackMs).toBe(300_000); // 5:00 — ход чёрных первым
     expect(r.whiteMs).toBe(290_000); // 4:50 — ход белых после
+  });
+});
+
+/**
+ * KS-2798: `detectLastMoveAt` — чистый детектор «появился новый
+ * полуход в этом PGN-update». Идея: смотрим только на смену FEN,
+ * это работает и для broadcast'ов БЕЗ `%clk` в источнике.
+ */
+describe('detectLastMoveAt — KS-2798', () => {
+  const STARTING =
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const AFTER_E4 =
+    'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+  const AFTER_E4_C5 =
+    'rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2';
+
+  it('новая партия в стартовой позиции → не выставлять lastMoveAt', () => {
+    expect(
+      detectLastMoveAt({
+        existingFen: null,
+        newFen: STARTING,
+        startingFen: STARTING,
+      }),
+    ).toBe(false);
+  });
+
+  it('новая партия с уже сделанным ходом (FEN ≠ стартовая) → выставить', () => {
+    expect(
+      detectLastMoveAt({
+        existingFen: null,
+        newFen: AFTER_E4,
+        startingFen: STARTING,
+      }),
+    ).toBe(true);
+  });
+
+  it('повтор того же PGN (FEN не изменился) → не выставлять', () => {
+    expect(
+      detectLastMoveAt({
+        existingFen: AFTER_E4,
+        newFen: AFTER_E4,
+        startingFen: STARTING,
+      }),
+    ).toBe(false);
+  });
+
+  it('появился новый ход (FEN изменился) → выставить', () => {
+    expect(
+      detectLastMoveAt({
+        existingFen: AFTER_E4,
+        newFen: AFTER_E4_C5,
+        startingFen: STARTING,
+      }),
+    ).toBe(true);
+  });
+
+  it('existing undefined трактуется как новая партия', () => {
+    expect(
+      detectLastMoveAt({
+        existingFen: undefined,
+        newFen: STARTING,
+        startingFen: STARTING,
+      }),
+    ).toBe(false);
+    expect(
+      detectLastMoveAt({
+        existingFen: undefined,
+        newFen: AFTER_E4,
+        startingFen: STARTING,
+      }),
+    ).toBe(true);
   });
 });
 

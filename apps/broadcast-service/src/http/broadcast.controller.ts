@@ -887,6 +887,8 @@ export class BroadcastController {
       clockUpdatedAt: g.clockUpdatedAt
         ? g.clockUpdatedAt.toISOString()
         : null,
+      // KS-2798: wall-clock последнего хода (см. schema-comment).
+      lastMoveAt: g.lastMoveAt ? g.lastMoveAt.toISOString() : null,
     }));
 
     return { data };
@@ -975,6 +977,8 @@ export class BroadcastController {
           clockUpdatedAt: g.clockUpdatedAt
             ? g.clockUpdatedAt.toISOString()
             : null,
+          // KS-2798
+          lastMoveAt: g.lastMoveAt ? g.lastMoveAt.toISOString() : null,
         }),
       );
 

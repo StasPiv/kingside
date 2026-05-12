@@ -951,6 +951,17 @@ export type BroadcastGameSummary = {
    * `<clockMs> - (now - clockUpdatedAt)`.
    */
   clockUpdatedAt?: string | null;
+  /**
+   * KS-2798: ISO-8601 wall-clock последнего хода в основной линии.
+   * Обновляется при любом изменении PGN, в котором фактически
+   * появился новый полуход (детектится сменой `currentFen`),
+   * независимо от наличия `%clk` в источнике. Фронт использует
+   * для «последний ход X минут назад» под карточкой партии
+   * (KS-2795). `null` для партий, ходов в которых ещё не было,
+   * либо для старых партий до миграции (приблизительно =
+   * `updatedAt`, см. backfill в миграции).
+   */
+  lastMoveAt?: string | null;
 };
 
 export type BroadcastListResponse = {
