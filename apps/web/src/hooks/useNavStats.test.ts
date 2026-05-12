@@ -4,6 +4,15 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import React from 'react';
 
+/**
+ * KS-2805 (ADR-058 §5.1, §6.3 T8): useNavStats теперь работает с
+ * 6 групповыми ключами (play/train/learn/analyze/broadcasts/profile).
+ * Тесты переписаны: legacy-ключи (puzzles/drills/precision/workshop/
+ * archive/tournaments/puzzle-rush/lessons) больше не в whitelist на
+ * фронте, но `useTopNavStats` защитно мапит их на группы если backend
+ * вдруг вернул legacy (на случай рассинхрона с KS-2809).
+ */
+
 const apiPostMock = vi.fn();
 const apiGetMock = vi.fn();
 vi.mock('../api', () => ({
@@ -46,6 +55,7 @@ import {
   useTrackNavStats,
   useTopNavStats,
   NAV_ROUTES,
+  DEFAULT_TOP,
 } from './useNavStats';
 
 beforeEach(() => {
@@ -66,28 +76,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('resolveNavRoute (KS-2373)', () => {
-  it('возвращает route для каждого whitelist префикса', () => {
-    expect(resolveNavRoute('/play')).toBe('play');
-    expect(resolveNavRoute('/play/some')).toBe('play');
-    expect(resolveNavRoute('/tournaments/abc')).toBe('tournaments');
-    expect(resolveNavRoute('/workshop')).toBe('workshop');
-    expect(resolveNavRoute('/analysis/xyz')).toBe('workshop');
-    expect(resolveNavRoute('/lessons/capablanca-primer')).toBe('lessons');
-    expect(resolveNavRoute('/drills/find-pin')).toBe('drills');
-    expect(resolveNavRoute('/broadcasts/123')).toBe('broadcasts');
-    expect(resolveNavRoute('/archive/games/abc')).toBe('archive');
-    expect(resolveNavRoute('/profile')).toBe('profile');
-    expect(resolveNavRoute('/player/tester')).toBe('profile');
-    // KS-2613: `/daily` больше не входит в matches (страница удалена,
-    // /daily теперь редиректит на /puzzles).
-    expect(resolveNavRoute('/daily')).toBeNull();
-    expect(resolveNavRoute('/puzzles')).toBe('puzzles');
-    expect(resolveNavRoute('/puzzle-rush')).toBe('puzzles');
-    expect(resolveNavRoute('/puzzle/abc')).toBe('puzzles');
+describe('resolveNavRoute KS-2805 — групповой маппинг', () => {
+  it('legacy подразделы → group `train`', () => {
+    expect(resolveNavRoute('/puzzles')).toBe('train');
+    expect(resolveNavRoute('/puzzle-rush')).toBe('train');
+    expect(resolveNavRoute('/puzzle/abc-123')).toBe('train');
+    expect(resolveNavRoute('/drills/find-pin')).toBe('train');
+    expect(resolveNavRoute('/precision/stats')).toBe('train');
+    expect(resolveNavRoute('/train')).toBe('train');
   });
 
-  it('null для путей вне whitelist', () => {
+  it('legacy подразделы → group `analyze`', () => {
+    expect(resolveNavRoute('/workshop')).toBe('analyze');
+    expect(resolveNavRoute('/analysis/xyz')).toBe('analyze');
+    expect(resolveNavRoute('/archive/123')).toBe('analyze');
+    expect(resolveNavRoute('/analyze')).toBe('analyze');
+  });
+
+  it('/play и /tournaments → group `play`', () => {
+    expect(resolveNavRoute('/play')).toBe('play');
+    expect(resolveNavRoute('/play/some')).toBe('play');
+    expect(resolveNavRoute('/tournaments/abc')).toBe('play');
+  });
+
+  it('/lessons → group `learn`', () => {
+    expect(resolveNavRoute('/lessons')).toBe('learn');
+    expect(resolveNavRoute('/lessons/capablanca')).toBe('learn');
+  });
+
+  it('/broadcasts и /profile/player', () => {
+    expect(resolveNavRoute('/broadcasts/123')).toBe('broadcasts');
+    expect(resolveNavRoute('/profile')).toBe('profile');
+    expect(resolveNavRoute('/player/tester')).toBe('profile');
+  });
+
+  it('null для не-навигационных и для /lobby (главная не в whitelist)', () => {
+    expect(resolveNavRoute('/lobby')).toBeNull();
     expect(resolveNavRoute('/')).toBeNull();
     expect(resolveNavRoute('/settings')).toBeNull();
     expect(resolveNavRoute('/game/abc')).toBeNull();
@@ -95,21 +119,20 @@ describe('resolveNavRoute (KS-2373)', () => {
     expect(resolveNavRoute('/login')).toBeNull();
   });
 
-  it('KS-2540: /precision и его подпути → precision', () => {
-    expect(resolveNavRoute('/precision')).toBe('precision');
-    expect(resolveNavRoute('/precision/abc')).toBe('precision');
+  it('NAV_ROUTES содержит ровно 6 групп', () => {
+    expect(Object.keys(NAV_ROUTES).sort()).toEqual(
+      ['analyze', 'broadcasts', 'learn', 'play', 'profile', 'train'].sort(),
+    );
   });
 
-  it('KS-2540: /precision не пересекается с другими ключами', () => {
-    // Префикс не должен совпасть с /play, /puzzles, /puzzle-rush.
-    expect(resolveNavRoute('/precision')).not.toBe('play');
-    expect(resolveNavRoute('/precision')).not.toBe('puzzles');
+  it('NAV_ROUTES.train: customGate всегда true (Rush открыт)', () => {
+    const meta = NAV_ROUTES.train;
+    expect(meta.customGate).toBeDefined();
+    expect(meta.customGate!({ ...flagsState, puzzlesEnabled: false, drillsEnabled: false })).toBe(true);
   });
 
-  it('KS-2540: NAV_ROUTES.precision имеет корректный мета', () => {
-    expect(NAV_ROUTES.precision.to).toBe('/precision');
-    expect(NAV_ROUTES.precision.flag).toBe('puzzlesEnabled');
-    expect(NAV_ROUTES.precision.matches).toEqual(['/precision']);
+  it('DEFAULT_TOP — три первые группы по ADR-058 §5.1', () => {
+    expect(DEFAULT_TOP).toEqual(['play', 'train', 'learn']);
   });
 });
 
@@ -122,17 +145,45 @@ function makeWrapper(initialPath: string) {
     );
 }
 
-describe('useTrackNavStats (KS-2373)', () => {
-  it('после 3.5с pathname → POST increment с маппингом route', async () => {
+describe('useTrackNavStats — групповой инкремент (KS-2805)', () => {
+  it('после 3.5с pathname /drills/find-pin → POST { route: "train" }', () => {
     vi.useFakeTimers();
-    renderHook(() => useTrackNavStats(), { wrapper: makeWrapper('/drills/find-pin') });
+    renderHook(() => useTrackNavStats(), {
+      wrapper: makeWrapper('/drills/find-pin'),
+    });
     expect(apiPostMock).not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(3500);
     });
     expect(apiPostMock).toHaveBeenCalledWith(
       '/user/nav-stats/increment',
-      { route: 'drills' },
+      { route: 'train' },
+    );
+  });
+
+  it('pathname /workshop → POST { route: "analyze" }', () => {
+    vi.useFakeTimers();
+    renderHook(() => useTrackNavStats(), { wrapper: makeWrapper('/workshop') });
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    expect(apiPostMock).toHaveBeenCalledWith(
+      '/user/nav-stats/increment',
+      { route: 'analyze' },
+    );
+  });
+
+  it('pathname /tournaments/abc → POST { route: "play" }', () => {
+    vi.useFakeTimers();
+    renderHook(() => useTrackNavStats(), {
+      wrapper: makeWrapper('/tournaments/abc'),
+    });
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    expect(apiPostMock).toHaveBeenCalledWith(
+      '/user/nav-stats/increment',
+      { route: 'play' },
     );
   });
 
@@ -145,7 +196,7 @@ describe('useTrackNavStats (KS-2373)', () => {
     expect(apiPostMock).not.toHaveBeenCalled();
   });
 
-  it('unauth (user=null) → POST не вызывается', () => {
+  it('unauth → POST не вызывается', () => {
     vi.useFakeTimers();
     authState.user = null;
     renderHook(() => useTrackNavStats(), { wrapper: makeWrapper('/drills') });
@@ -162,46 +213,101 @@ describe('useTrackNavStats (KS-2373)', () => {
     act(() => {
       vi.advanceTimersByTime(3500);
     });
-    // Без unhandledrejection.
     await Promise.resolve();
     expect(apiPostMock).toHaveBeenCalled();
   });
 });
 
-describe('useTopNavStats (KS-2373)', () => {
-  it('фильтрует non-whitelist routes из ответа', async () => {
+describe('useTopNavStats — групповой набор + защитный legacy-маппинг (KS-2805)', () => {
+  it('backend вернул групповые ключи → отдаём как есть', async () => {
     apiGetMock.mockResolvedValue({
       items: [
-        { route: 'drills', count: 10 },
-        { route: 'unknown-route', count: 9 }, // отбросится
-        { route: 'archive', count: 5 },
-      ],
-    });
-    const { result } = renderHook(() => useTopNavStats(3), {
-      wrapper: makeWrapper('/'),
-    });
-    await waitFor(() => expect(result.current.routes.length).toBe(2));
-    expect(result.current.routes).toEqual(['drills', 'archive']);
-  });
-
-  it('фильтрует по feature-flag (drillsEnabled=false → drills не возвращён)', async () => {
-    flagsState.drillsEnabled = false;
-    apiGetMock.mockResolvedValue({
-      items: [
-        { route: 'drills', count: 100 },
-        { route: 'play', count: 5 },
-        { route: 'workshop', count: 4 },
-        { route: 'archive', count: 3 },
+        { route: 'train', count: 10 },
+        { route: 'play', count: 7 },
+        { route: 'analyze', count: 4 },
       ],
     });
     const { result } = renderHook(() => useTopNavStats(3), {
       wrapper: makeWrapper('/'),
     });
     await waitFor(() => expect(result.current.routes.length).toBe(3));
-    expect(result.current.routes).toEqual(['play', 'workshop', 'archive']);
+    expect(result.current.routes).toEqual(['train', 'play', 'analyze']);
   });
 
-  it('запрашивает limit=limit*3 (запас на feature-flag фильтр)', async () => {
+  it('backend вернул legacy-ключи → маппим на группы (защита от рассинхрона)', async () => {
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'puzzles', count: 10 }, // → train
+        { route: 'workshop', count: 7 }, // → analyze
+        { route: 'tournaments', count: 4 }, // → play
+      ],
+    });
+    const { result } = renderHook(() => useTopNavStats(3), {
+      wrapper: makeWrapper('/'),
+    });
+    await waitFor(() => expect(result.current.routes.length).toBe(3));
+    expect(result.current.routes).toEqual(['train', 'analyze', 'play']);
+  });
+
+  it('legacy + group в одном ответе → дедупликация (первая запись побеждает)', async () => {
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'puzzles', count: 100 }, // → train (попадает первым)
+        { route: 'train', count: 50 }, // уже видели — игнор
+        { route: 'workshop', count: 30 }, // → analyze
+      ],
+    });
+    const { result } = renderHook(() => useTopNavStats(3), {
+      wrapper: makeWrapper('/'),
+    });
+    await waitFor(() => expect(result.current.routes.length).toBe(2));
+    expect(result.current.routes).toEqual(['train', 'analyze']);
+  });
+
+  it('неизвестные ключи отбрасываются', async () => {
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'unknown-key', count: 99 },
+        { route: 'train', count: 5 },
+      ],
+    });
+    const { result } = renderHook(() => useTopNavStats(3), {
+      wrapper: makeWrapper('/'),
+    });
+    await waitFor(() => expect(result.current.routes.length).toBe(1));
+    expect(result.current.routes).toEqual(['train']);
+  });
+
+  it('feature-flag gate: broadcastsEnabled=false → broadcasts отброшен', async () => {
+    flagsState.broadcastsEnabled = false;
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'broadcasts', count: 100 },
+        { route: 'play', count: 5 },
+        { route: 'analyze', count: 3 },
+      ],
+    });
+    const { result } = renderHook(() => useTopNavStats(3), {
+      wrapper: makeWrapper('/'),
+    });
+    await waitFor(() => expect(result.current.routes.length).toBe(2));
+    expect(result.current.routes).toEqual(['play', 'analyze']);
+  });
+
+  it('customGate train: всегда видна (Rush открыт без флага)', async () => {
+    flagsState.puzzlesEnabled = false;
+    flagsState.drillsEnabled = false;
+    apiGetMock.mockResolvedValue({
+      items: [{ route: 'train', count: 10 }],
+    });
+    const { result } = renderHook(() => useTopNavStats(3), {
+      wrapper: makeWrapper('/'),
+    });
+    await waitFor(() => expect(result.current.routes.length).toBe(1));
+    expect(result.current.routes).toEqual(['train']);
+  });
+
+  it('запрашивает limit*3 (запас на gating)', async () => {
     renderHook(() => useTopNavStats(3), { wrapper: makeWrapper('/') });
     await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
     expect(apiGetMock).toHaveBeenCalledWith('/user/nav-stats/top?limit=9');
@@ -214,24 +320,5 @@ describe('useTopNavStats (KS-2373)', () => {
     });
     await waitFor(() => expect(result.current.routes).toEqual([]));
     expect(apiGetMock).not.toHaveBeenCalled();
-  });
-});
-
-describe('NAV_ROUTES (KS-2373) — целостность whitelist', () => {
-  it('содержит ровно 10 routes как backend whitelist (KS-2540 +precision)', () => {
-    expect(Object.keys(NAV_ROUTES).sort()).toEqual(
-      [
-        'archive',
-        'broadcasts',
-        'drills',
-        'lessons',
-        'play',
-        'precision',
-        'profile',
-        'puzzles',
-        'tournaments',
-        'workshop',
-      ].sort(),
-    );
   });
 });

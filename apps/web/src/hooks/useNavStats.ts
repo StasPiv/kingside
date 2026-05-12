@@ -8,47 +8,42 @@ import { useAuth } from '../context/AuthContext';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
 
 /**
- * KS-2373 (mobile-bottom-bar динамические top-3 разделы).
+ * KS-2373 → KS-2805 (ADR-058 §5.1, §6.3 T8).
  *
- * Backend контракт (KS-2373 backend, коммит b72b1176):
- *   - POST /user/nav-stats/increment {route: string} → 204 (JWT,
- *     5с cooldown на стороне сервера).
- *   - GET  /user/nav-stats/top?limit=3 → {items: [{route, count}]}
- *     (JWT, max limit=20).
- *   - whitelist routes: play, tournaments, workshop, lessons, drills,
- *     broadcasts, archive, profile, puzzles.
+ * Backend контракт после KS-2809:
+ *   - POST /user/nav-stats/increment {route}: принимает и legacy-ключи
+ *     (puzzles, drills, precision, puzzle-rush, workshop, archive,
+ *     tournaments, lessons), и групповые (play, train, learn, analyze,
+ *     broadcasts, profile). Старые клиенты продолжают работать.
+ *   - GET /user/nav-stats/top: backend агрегирует legacy → group:
+ *       puzzles+drills+precision+puzzle-rush+train → 'train'
+ *       workshop+archive+analyze                  → 'analyze'
+ *       tournaments+play                          → 'play'
+ *       lessons+learn                             → 'learn'
+ *     Фронт ожидает только групповые ключи в /top.
  *
- * Здесь живёт:
- *   - `NAV_ROUTES` — единый whitelist + маппинг pathname → route +
- *     URL для перехода + i18n-ключи + emoji-иконки.
- *   - `resolveNavRoute(pathname)` — определяет, к какому из 9 routes
- *     относится текущий URL (или null).
- *   - `useTrackNavStats()` — слушатель `useLocation`, дебаунсит
- *     POST-инкремент (~3.5с после стабилизации pathname). Подключается
- *     ОДИН раз на всё приложение (в App.tsx).
- *   - `useTopNavStats(limit)` — GET top, фильтрует по feature-flags.
- *     Возвращает массив `NavRoute[]` без счётчиков (порядок —
- *     порядок ответа сервера, уже отсортированный desc).
+ * KS-2805: фронт-whitelist сужен до 6 групп:
+ *   `play` / `train` / `learn` / `analyze` / `broadcasts` / `profile`.
+ * `resolveNavRoute(pathname)` маппит вложенные маршруты на группы и
+ * `useTrackNavStats` шлёт инкремент уже групповым ключом (не legacy).
+ * `useTopNavStats` дополнительно отфильтрует возможный legacy в ответе
+ * (защита от рассинхронизации с серверной агрегацией).
  */
 
 export type NavRoute =
   | 'play'
-  | 'tournaments'
-  | 'workshop'
-  | 'lessons'
-  | 'drills'
+  | 'train'
+  | 'learn'
+  | 'analyze'
   | 'broadcasts'
-  | 'archive'
-  | 'profile'
-  | 'puzzles'
-  | 'precision';
+  | 'profile';
 
 export interface NavRouteMeta {
-  /** path, на который ведёт ссылка из bar'а. */
+  /** path, на который ведёт ссылка из bar'а / drawer'а. */
   to: string;
   /** Префиксы URL, по которым считаем кнопку активной. */
   matches: string[];
-  /** Emoji-иконка (как в текущем MobileBottomBar). */
+  /** Emoji-иконка. */
   icon: string;
   /** i18n-ключ названия. */
   labelKey: string;
@@ -56,58 +51,70 @@ export interface NavRouteMeta {
   labelFallback: string;
   /**
    * KS-2544: i18n-ключ короткого названия (для mobile bottom bar,
-   * где места меньше). Опционально — если не задан, mobile bar
-   * использует обычный `labelKey`.
+   * где места меньше). Опционально.
    */
   labelShortKey?: string;
-  /** KS-2544: fallback короткого названия. */
   labelShortFallback?: string;
-  /** Какой feature-flag должен быть `true`. `null` = всегда видим. */
+  /**
+   * KS-2805: gate группы. Если задан `flag` — группа видна когда
+   * `flags[flag] === true`. Для составных условий (train виден если
+   * хотя бы один из puzzles/drills включён) используем `customGate`.
+   * `flag === null` и нет `customGate` → группа видна всегда.
+   */
   flag: keyof FeatureFlags | null;
+  /**
+   * KS-2805: кастомное условие видимости — имеет приоритет над `flag`.
+   * Возвращает `true` если группа должна быть видна для данного набора
+   * флагов. Используется для группы `train`: видна если puzzlesEnabled
+   * ИЛИ drillsEnabled ИЛИ всегда (Puzzle Rush открыт без флага).
+   */
+  customGate?: (flags: FeatureFlags) => boolean;
 }
 
+/**
+ * KS-2805: 6 групп. Порядок в объекте — порядок проверки в
+ * `resolveNavRoute`. Более специфичные `matches` ставим раньше,
+ * чтобы `/puzzle-rush` не перепутался с `/puzzles` (оба идут в train,
+ * но если бы они мапились в разные группы — порядок имел бы значение).
+ */
 export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
   play: {
     to: '/play',
-    matches: ['/play'],
+    matches: ['/play', '/tournaments'],
     icon: '♟',
     labelKey: 'nav.play',
     labelFallback: 'Play',
     flag: null,
   },
-  tournaments: {
-    to: '/tournaments',
-    matches: ['/tournaments', '/arena', '/t/'],
-    icon: '🏆',
-    labelKey: 'nav.tournaments',
-    labelFallback: 'Tournaments',
-    flag: 'tournamentsEnabled',
-  },
-  workshop: {
-    to: '/workshop',
-    matches: ['/workshop', '/analysis'],
-    icon: '🔬',
-    labelKey: 'nav.workshop',
-    labelFallback: 'Workshop',
+  train: {
+    to: '/train',
+    matches: ['/train', '/puzzle-rush', '/puzzles', '/puzzle', '/drills', '/precision'],
+    icon: '🧠',
+    labelKey: 'nav.train',
+    labelFallback: 'Train',
+    // Rush всегда открыт → группа видна, даже если puzzlesEnabled и
+    // drillsEnabled оба false. Хук на будущий gating Rush'а — заменим
+    // на `flags.puzzlesEnabled || flags.drillsEnabled` когда Rush
+    // получит свой флаг.
     flag: null,
+    customGate: (flags) =>
+      flags.puzzlesEnabled || flags.drillsEnabled || true,
   },
-  lessons: {
+  learn: {
     to: '/lessons',
     matches: ['/lessons'],
-    /* KS-2550: 📚 → 🎓 (академическая шляпа), 📚 переехала в archive. */
     icon: '🎓',
     labelKey: 'nav.lessons',
     labelFallback: 'Lessons',
     flag: 'lessonsEnabled',
   },
-  drills: {
-    to: '/drills',
-    matches: ['/drills'],
-    /* KS-2550: 🎯 → 🧠 (тренажёр-«накачка мозга»). 🎯 переехала в precision. */
-    icon: '🧠',
-    labelKey: 'nav.drills',
-    labelFallback: 'Drills',
-    flag: 'drillsEnabled',
+  analyze: {
+    to: '/analyze',
+    matches: ['/analyze', '/workshop', '/analysis', '/archive'],
+    icon: '🔬',
+    labelKey: 'nav.analyze',
+    labelFallback: 'Analyze',
+    flag: null,
   },
   broadcasts: {
     to: '/broadcasts',
@@ -117,15 +124,6 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     labelFallback: 'TV',
     flag: 'broadcastsEnabled',
   },
-  archive: {
-    to: '/archive',
-    matches: ['/archive'],
-    /* KS-2550: 🗂 → 📚 (книги/собрание партий — лучше передаёт «архив»). */
-    icon: '📚',
-    labelKey: 'archive:menuTitle',
-    labelFallback: 'Archive',
-    flag: null,
-  },
   profile: {
     to: '/profile',
     matches: ['/profile', '/player/'],
@@ -134,51 +132,45 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     labelFallback: 'Profile',
     flag: null,
   },
-  puzzles: {
-    // KS-2613: «Задача дня» (/daily) удалена. /daily теперь редиректит
-    // на /puzzles (см. App.tsx), и в matches его держать не нужно —
-    // подсветка кнопки отрабатывает по `/puzzles*` / `/puzzle*` /
-    // `/puzzle-rush`.
-    to: '/puzzles',
-    matches: ['/puzzles', '/puzzle-rush', '/puzzle'],
-    icon: '🧩',
-    labelKey: 'nav.puzzles',
-    labelFallback: 'Puzzles',
-    flag: 'puzzlesEnabled',
-  },
-  // KS-2540 / ADR-048: «Тренировка точности» — bottom-bar учёт
-  // переходов на /precision. Backend whitelist расширен в KS-2537,
-  // POST /user/nav-stats/increment {route:'precision'} → 204. Префикс
-  // /precision не пересекается с другими ключами выше (resolveNavRoute
-  // последовательно проверяет matches; /precision !== /puzzle*, /play*).
-  precision: {
-    to: '/precision',
-    matches: ['/precision'],
-    /* KS-2550: 🎓 → 🎯 (мишень — точность/прицел). 🎓 переехала в lessons. */
-    icon: '🎯',
-    labelKey: 'nav.precision',
-    labelFallback: 'Precision training',
-    // KS-2544: для mobile bottom bar используем короткое «Precision».
-    labelShortKey: 'nav.precisionShort',
-    labelShortFallback: 'Precision',
-    flag: 'puzzlesEnabled',
-  },
 };
 
 /**
- * Сопоставить pathname одному из whitelist-routes (или вернуть null,
- * если URL вне навигации — например, /settings, /game/:id). Префиксное
- * совпадение, более специфичные ключи (/puzzle-rush) проверяются
- * ДО более общих благодаря порядку в matches.
+ * KS-2805: список legacy-ключей, которые backend KS-2809 знает на
+ * `/increment`, но в `/top` агрегирует на группы. Используем для
+ * filter'а в `useTopNavStats` — если ответ всё же пришёл с legacy,
+ * мапим на группу или отбрасываем.
+ */
+const LEGACY_TO_GROUP: Record<string, NavRoute> = {
+  puzzles: 'train',
+  drills: 'train',
+  precision: 'train',
+  'puzzle-rush': 'train',
+  workshop: 'analyze',
+  archive: 'analyze',
+  tournaments: 'play',
+  lessons: 'learn',
+};
+
+/**
+ * KS-2805: дефолтный набор top-3 групп для UI до первого ответа backend
+ * (или для гостя — авторизация даёт top-3 из API). По ADR-058 §5.1.
+ */
+export const DEFAULT_TOP: NavRoute[] = ['play', 'train', 'learn'];
+
+/**
+ * KS-2805: сопоставить pathname одной из 6 групп.
+ * Возвращает `null` для маршрутов вне навигационного whitelist'а
+ * (например `/settings`, `/game/:id`, `/lobby`, `/feedback`).
+ *
+ * Префикс-матчинг строгий: либо полное совпадение, либо начало с
+ * `<prefix>/` (как в Sidebar после KS-2790). Если паттерн заканчивается
+ * на `/` (например `'/player/'`) — startsWith.
  */
 export function resolveNavRoute(pathname: string): NavRoute | null {
   for (const key of Object.keys(NAV_ROUTES) as NavRoute[]) {
     const meta = NAV_ROUTES[key];
     if (
       meta.matches.some((p) =>
-        // Если паттерн заканчивается на '/', значит это «префикс» —
-        // достаточно startsWith. Иначе требуем либо полного совпадения,
-        // либо префикса с разделителем (`/play/foo`, не `/playoff`).
         p.endsWith('/')
           ? pathname.startsWith(p)
           : pathname === p || pathname.startsWith(p + '/'),
@@ -194,11 +186,10 @@ export function resolveNavRoute(pathname: string): NavRoute | null {
 const TRACK_DEBOUNCE_MS = 3500;
 
 /**
- * Подключается один раз в App. На каждое изменение `pathname` ставит
- * таймер на TRACK_DEBOUNCE_MS, при срабатывании — POST с маппингом
- * pathname → route. Если pathname вне whitelist — таймер просто
- * отменяется. Без auth — silent skip (backend всё равно вернёт 401,
- * избегаем лишних запросов).
+ * Подключается один раз в App.tsx. На каждое изменение `pathname`
+ * ставит таймер; при срабатывании — POST с групповым ключом
+ * (`resolveNavRoute(pathname)`). Если pathname вне whitelist —
+ * таймер отменяется. Без auth — silent skip.
  */
 export function useTrackNavStats(): void {
   const location = useLocation();
@@ -214,9 +205,6 @@ export function useTrackNavStats(): void {
     const route = resolveNavRoute(location.pathname);
     if (!route) return;
     timerRef.current = setTimeout(() => {
-      // Молча игнорируем любые ошибки — это не критичная фича,
-      // и backend сам имеет 5с cooldown (POST в течение 5с от того же
-      // пользователя возвращает 204 без записи). Никаких toast'ов.
       void api
         .post('/user/nav-stats/increment', { route })
         .catch(() => undefined);
@@ -236,15 +224,16 @@ interface NavStatsTopResponse {
 }
 
 /**
- * GET /user/nav-stats/top?limit=N. Фильтрует ответ:
- *   - оставляет только routes, которые есть в `NAV_ROUTES` (на случай
- *     если backend отдал что-то новое или whitelist разъехался);
- *   - дополнительно фильтрует по feature-flags (если у пользователя
- *     `puzzlesEnabled=false`, /puzzles в bar'е не показываем, даже
- *     если он там в топе).
+ * KS-2805: GET /user/nav-stats/top. Backend KS-2809 уже агрегирует
+ * legacy → group, но защитно делаем второй маппинг на фронте: если
+ * пришёл legacy-ключ (`puzzles`, `drills`, ...) — превращаем в группу;
+ * если ключ не из 6 групп И не из legacy — отбрасываем.
  *
- * Возвращает stable ссылку (без счётчиков, только порядок).
- * При unauth / ошибке / loading — пустой массив.
+ * После маппинга дедуплицируем (одна группа может встретиться дважды,
+ * если в одном ответе есть и legacy, и группа) и применяем
+ * feature-flag/customGate-gating.
+ *
+ * Без auth → пустой массив (UI покажет DEFAULT_TOP сам).
  */
 export function useTopNavStats(limit = 3): {
   routes: NavRoute[];
@@ -263,26 +252,37 @@ export function useTopNavStats(limit = 3): {
     setLoading(true);
     try {
       const resp = await api.get<NavStatsTopResponse>(
-        // Backend ограничивает до 20, нам нужно не больше 9 (всего routes
-        // в whitelist), отправляем как есть. Хотим limit=top-3 + запас
-        // на отфильтрованные feature-flag'ом — берём втрое.
+        // Берём с запасом — после агрегации/маппинга и gating'а
+        // нужно отдать `limit` (по умолчанию 3) групп.
         `/user/nav-stats/top?limit=${Math.max(limit * 3, limit)}`,
       );
+      const seen = new Set<NavRoute>();
       const filtered: NavRoute[] = [];
       for (const item of resp.items) {
-        if (!(item.route in NAV_ROUTES)) continue;
-        const r = item.route as NavRoute;
-        const meta = NAV_ROUTES[r];
-        if (meta.flag !== null && !flags[meta.flag]) continue;
-        filtered.push(r);
+        // 1. Маппим legacy → group если backend агрегацию пропустил.
+        const groupKey: NavRoute | undefined =
+          item.route in NAV_ROUTES
+            ? (item.route as NavRoute)
+            : LEGACY_TO_GROUP[item.route];
+        if (!groupKey) continue;
+        if (seen.has(groupKey)) continue;
+        // 2. Gating по feature-flags / customGate.
+        const meta = NAV_ROUTES[groupKey];
+        if (meta.customGate) {
+          if (!meta.customGate(flags)) continue;
+        } else if (meta.flag !== null && !flags[meta.flag]) {
+          continue;
+        }
+        seen.add(groupKey);
+        filtered.push(groupKey);
         if (filtered.length >= limit) break;
       }
       setRoutes(filtered);
     } catch (e) {
-      // 401 (unauth) — пустой массив, пусть UI покажет дефолт.
-      // Любая другая ошибка — тоже silent, фоллбек на дефолт.
+      // 401 — silent (гость / истёкший токен). Прочие — тоже silent
+      // (не критичная фича, fallback на DEFAULT_TOP).
       if (!(e instanceof ApiError) || e.status !== 401) {
-        // только для diagnose в dev — без логирования в prod-консоль.
+        // dev-only diagnose hook — без console.* в prod.
       }
       setRoutes([]);
     } finally {
