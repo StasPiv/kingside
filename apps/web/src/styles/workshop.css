@@ -1049,6 +1049,42 @@
   text-decoration: underline;
 }
 
+/* KS-2905: в study-context (наличие mode-switcher справа от breadcrumb'а,
+   т.е. `.analysis-breadcrumbs__right-slot`) — скрываем workshop-shortcut.
+   Первый сегмент самого breadcrumb'а уже даёт корректную навигацию
+   («Studies»), а отдельная строка «Workshop ?» сверху дублировала и
+   путала пользователей. */
+.analysis-board-area:has(.analysis-breadcrumbs__right-slot)
+  .analysis-workshop-shortcut {
+  display: none;
+}
+
+/* KS-2905: при наличии right-slot (mode-switcher на study-страницах)
+   разрешаем перенос — иначе right-slot забирал ширину строки и
+   `.analysis-breadcrumbs__link` (max-width:20ch) обрезался до
+   многоточий («Studi... / KS-2904 visu...»). С `flex-wrap: wrap` +
+   `flex-basis: 100%` на right-slot он уходит на следующую строку,
+   а ссылки breadcrumb'а получают полную ширину. */
+.analysis-breadcrumbs:has(.analysis-breadcrumbs__right-slot) {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.analysis-breadcrumbs__right-slot {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+/* KS-2905: в режиме wrap'а ссылки могут безопасно расширяться —
+   убираем max-width ограничение (right-slot переехал на следующую
+   строку через flex-basis:100%, не конкурирует за горизонталь). */
+.analysis-breadcrumbs:has(.analysis-breadcrumbs__right-slot)
+  .analysis-breadcrumbs__link,
+.analysis-breadcrumbs:has(.analysis-breadcrumbs__right-slot)
+  .analysis-breadcrumbs__current {
+  max-width: none;
+}
+
 /* Analysis page: editable title */
 .analysis-title {
   padding: 6px 0 8px;
