@@ -526,12 +526,16 @@ body.has-analysis-page .main {
   align-items: center;
   padding: 16px 0;
   flex-shrink: 0;
-  /* На совсем коротких экранах (например 1280×600 в браузерах с
-     открытой dev-tools) sidebar даёт скролл, а не обрезает футер.
-     Acceptance задачи «не должен скроллиться на длинном sidebar
-     (admin)» соблюдается на ≥1024px по высоте — там влезает с
-     запасом (см. расчёт в KS-2804). */
-  overflow-y: auto;
+  /* KS-2850 (fix): убран `overflow-y: auto` из KS-2804. Спец CSS
+     при `overflow-y: auto` автоматически делает `overflow-x: auto`.
+     Tooltip `.sidebar-item[title]:hover::after` (position:absolute,
+     left: calc(100% + 8px), ≈80px ширины) на hover увеличивал
+     scrollWidth с 87→137-182px → появлялся горизонтальный
+     scrollbar → spacer схлопывался → footer прыгал вверх.
+     Без `overflow-y: auto`: footer прижат к низу через flex,
+     spacer:flex-1 — стабильно. На сверхкоротких viewport'ах
+     (<700px высоты при админе) нижние пункты могут уйти за
+     viewport, но прыжка нет. */
 }
 
 /* KS-2804: контентная навигация — 5 крупных групп. */
