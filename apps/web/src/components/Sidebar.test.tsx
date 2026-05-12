@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 
 import { renderWithProviders, screen } from '../test/test-utils';
 
@@ -301,15 +302,114 @@ describe('<Sidebar> KS-2800/KS-2803 — active highlight для group-пункт
   it('KS-2803 (KS-2790 regression): ровно один топ-пункт активен на любом URL подгруппы', () => {
     flagControls.puzzles = true;
     renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
-    // /puzzle-rush — это группа Train. Проверим, что другие группы не активны.
+    // /puzzle-rush — это группа Train. Train теперь submenu-button, не Link.
     expect(
-      screen.getByTitle(/^train$|^тренировка$/i).className,
+      screen.getByTestId('sidebar-submenu-parent-train').className,
     ).toContain('sidebar-item--active');
     expect(
-      screen.getByTitle(/^analyze$|^анализ$/i).className,
+      screen.getByTestId('sidebar-submenu-parent-analyze').className,
     ).not.toContain('sidebar-item--active');
     expect(
       screen.getByTitle(/^play$|^играть$/i).className,
     ).not.toContain('sidebar-item--active');
+  });
+});
+
+/**
+ * KS-2842 (ADR-058 §11.3): двойная подсветка — группа + активный
+ * подпункт в открытом поповере. Используем строгий path-segment matcher
+ * (фикс KS-2790): `/puzzle-rush` НЕ матчится в подпункт «Задачи»
+ * (match=['/puzzles','/puzzle']), хоть `/puzzle-rush` и начинается с
+ * `/puzzle`.
+ */
+describe('<Sidebar> KS-2842 — двойная подсветка group + подпункт', () => {
+  beforeEach(() => {
+    flagControls.puzzles = true;
+    flagControls.drills = true;
+  });
+
+  it('на /puzzles: group Train + подпункт puzzles активны (после открытия поповера)', () => {
+    renderWithProviders(<Sidebar />, { route: '/puzzles' });
+    // Группа активна сразу (закрытое состояние).
+    expect(
+      screen.getByTestId('sidebar-submenu-parent-train').className,
+    ).toContain('sidebar-item--active');
+    // Откроем поповер кликом.
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-train'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzles').className,
+    ).toContain('sidebar-submenu__item--active');
+    // Остальные подпункты НЕ активны.
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzle-rush').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /puzzle-rush: подпункт puzzle-rush активен, puzzles НЕ активен (строгий path-segment)', () => {
+    renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-train'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzle-rush').className,
+    ).toContain('sidebar-submenu__item--active');
+    // `/puzzle-rush` не должен совпасть с `/puzzle` — это была регрессия
+    // KS-2790. Подпункт «Задачи» (match=['/puzzles','/puzzle']) тут не active.
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzles').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /precision/stats: подпункт precision активен (вложенный путь)', () => {
+    renderWithProviders(<Sidebar />, { route: '/precision/stats' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-train'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-precision').className,
+    ).toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /workshop: group Analyze + подпункт workshop активны', () => {
+    renderWithProviders(<Sidebar />, { route: '/workshop' });
+    expect(
+      screen.getByTestId('sidebar-submenu-parent-analyze').className,
+    ).toContain('sidebar-item--active');
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-analyze'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-workshop').className,
+    ).toContain('sidebar-submenu__item--active');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-archive').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /archive/games: подпункт archive активен (вложенный путь)', () => {
+    renderWithProviders(<Sidebar />, { route: '/archive/games' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-analyze'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-archive').className,
+    ).toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /drills: подпункт drills активен; rush НЕ активен', () => {
+    renderWithProviders(<Sidebar />, { route: '/drills' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-train'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-drills').className,
+    ).toContain('sidebar-submenu__item--active');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzle-rush').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('на /train (само лобби): group активен, но ни один подпункт не active (после открытия)', () => {
+    renderWithProviders(<Sidebar />, { route: '/train' });
+    expect(
+      screen.getByTestId('sidebar-submenu-parent-train').className,
+    ).toContain('sidebar-item--active');
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-train'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-puzzles').className,
+    ).not.toContain('sidebar-submenu__item--active');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-drills').className,
+    ).not.toContain('sidebar-submenu__item--active');
   });
 });
