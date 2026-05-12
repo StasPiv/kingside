@@ -114,6 +114,11 @@ model User {
   // фича, не связанная с Course/Lesson. onDelete Cascade — удаление
   // пользователя сносит его студии и каскадом главы.
   ownedStudies           Study[]                  @relation("OwnedStudies")
+  // KS-2856 / ADR-060 §3.2. Membership и лайки для Studies Phase 2.
+  // Owner-запись в study_members появляется автоматически на create
+  // study; remove user → каскад snyдeт его роли и лайки.
+  studyMemberships       StudyMember[]
+  studyLikes             StudyLike[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1416,9 +1421,33 @@ model Study {
   slug          String
   name          String
   description   String?  @db.Text
-  /// false = приватная (только owner); true = публичная по прямой
-  /// ссылке. Без unlisted в MVP.
+  /// DEPRECATED KS-2856 / ADR-060: оставлено для обратной совместимости
+  /// с MVP-фронтом до полной раскатки Phase 2. Источник истины —
+  /// поле `visibility` ниже. Backfill миграции выставил `is_public =
+  /// (visibility !== 'private')`. После раскатки фронта будет
+  /// удалено отдельной миграцией.
   isPublic      Boolean  @default(false) @map("is_public")
+  /// KS-2856 / ADR-060 §3.2. Тройная видимость:
+  ///   'private'  — только members;
+  ///   'unlisted' — по прямой ссылке (в каталог не попадает);
+  ///   'public'   — доступна всем, индексируется в каталоге.
+  /// Валидация whitelist'ом на API; в Prisma — string default 'private'.
+  visibility    String   @default("private")
+  /// KS-2856 / ADR-060. Темы/теги студии (свободный текст lower-case,
+  /// max 5 элементов, валидируется в DTO). Используется фильтром
+  /// `?topic=...` в каталоге.
+  topics        String[] @default([])
+  /// KS-2856 / ADR-060. Денормализованный счётчик лайков — для каталога
+  /// и страницы студии без COUNT JOIN'а. Поддерживается сервисом
+  /// `StudyLikesService` (B3) при toggle like.
+  likes         Int      @default(0)
+  /// KS-2856 / ADR-060. Источник создания студии:
+  ///   'scratch'              — создана вручную;
+  ///   'analysis:<analysisId>' — Save-to-study из AnalysisPage (B9 Wave B);
+  ///   'broadcast:<roundId>'   — зеркало раунда broadcast'а (B10/B11).
+  /// `fromRefId` — UUID соответствующей сущности (NULL для scratch).
+  fromKind      String   @default("scratch") @map("from_kind")
+  fromRefId     String?  @map("from_ref_id") @db.Uuid
   /// Денормализованный счётчик глав — для каталога без COUNT JOIN'а.
   /// Поддерживается сервисом при create/delete/import главы.
   chaptersCount Int      @default(0) @map("chapters_count")
@@ -1427,13 +1456,22 @@ model Study {
 
   owner    User           @relation("OwnedStudies", fields: [ownerId], references: [id], onDelete: Cascade)
   chapters StudyChapter[]
+  members  StudyMember[]
+  likedBy  StudyLike[]
 
   @@unique([ownerId, slug])
   /// Listing «мои студии» сортируется по `updatedAt` — индекс покрывает
   /// запрос автора.
   @@index([ownerId, updatedAt])
-  /// Каталог «публичные» — по `updatedAt` среди `isPublic = true`.
+  /// Каталог «публичные» — по `updatedAt` среди `isPublic = true`
+  /// (DEPRECATED, см. ниже @@index([visibility, ...])).
   @@index([isPublic, updatedAt])
+  /// KS-2856 / ADR-060 §3.4. Каталожные индексы для B7 (Wave B):
+  /// sort=updated / popular / new применяются среди фиксированного
+  /// `visibility` (обычно `public`).
+  @@index([visibility, updatedAt])
+  @@index([visibility, likes])
+  @@index([visibility, createdAt])
   @@map("studies")
 }
 
@@ -1455,8 +1493,20 @@ model StudyChapter {
   startFen    String?  @map("start_fen")
   /// Ориентация доски снизу: "white" | "black". Валидируется в DTO.
   orientation String   @default("white")
-  /// MVP — всегда "analysis". В будущем — "practice"/"conceal"/"gamebook".
+  /// KS-2856 / ADR-060 §2.2. Режим главы:
+  ///   'analysis' — свободное дерево (default);
+  ///   'practice' — main-line = правильные ходы, валидация UI;
+  ///   'conceal'  — узлы скрыты после `concealPly`;
+  ///   'gamebook' — интерактивный учебник с `gamebook` payload'ом.
   mode        String   @default("analysis")
+  /// KS-2856 / ADR-060 §3.3 R3. Для `mode='conceal'`: ply, после
+  /// которого ходы main-line скрыты до правильного хода игрока.
+  /// NULL для не-conceal режимов.
+  concealPly  Int?     @map("conceal_ply")
+  /// KS-2856 / ADR-060 §3.3 R4. Для `mode='gamebook'`: payload автора
+  /// `{ intro?: string, byUci?: { "<uci>": { hint?, success?, failure? } } }`.
+  /// JSON без жёсткой Prisma-схемы; валидация структуры — на API (B2).
+  gamebook    Json?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -1465,4 +1515,44 @@ model StudyChapter {
   @@unique([studyId, orderIdx])
   @@index([studyId])
   @@map("study_chapters")
+}
+
+/// KS-2856 / ADR-060 §3.2. Participant'ы студии для контроля доступа
+/// и совместного редактирования. owner-запись создаётся автоматически
+/// при `Study.create` (триггерится сервисом B3); contributors
+/// добавляются через invite-flow (B5).
+///
+/// Роли:
+///   'owner'       — полный контроль (включая delete, manage members);
+///   'contributor' — редактирование глав, без manage members.
+/// `spectator` (читатель publik-студии) — implicit, в таблице
+/// не хранится.
+model StudyMember {
+  studyId String   @map("study_id") @db.Uuid
+  userId  String   @map("user_id") @db.Uuid
+  role    String
+  addedAt DateTime @default(now()) @map("added_at")
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([studyId, userId])
+  @@index([userId])
+  @@map("study_members")
+}
+
+/// KS-2856 / ADR-060 §3.4. Лайки студий — UNIQUE per (studyId, userId).
+/// Toggle через POST /:slug/like (B5); счётчик `Study.likes`
+/// поддерживается атомарно в той же транзакции.
+model StudyLike {
+  studyId String   @map("study_id") @db.Uuid
+  userId  String   @map("user_id") @db.Uuid
+  likedAt DateTime @default(now()) @map("liked_at")
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([studyId, userId])
+  @@index([userId])
+  @@map("study_likes")
 }

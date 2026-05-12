@@ -49,6 +49,12 @@ const study = {
   name: 'S',
   description: null,
   isPublic: false,
+  // KS-2857: Phase 2 поля (ADR-060 §3.2).
+  visibility: 'private',
+  topics: [],
+  likes: 0,
+  fromKind: 'scratch',
+  fromRefId: null,
   chaptersCount: 0,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),

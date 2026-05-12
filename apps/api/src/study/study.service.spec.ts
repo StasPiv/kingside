@@ -43,6 +43,12 @@ const baseStudy = {
   name: 'My Study',
   description: null,
   isPublic: false,
+  // KS-2857: Phase 2 поля.
+  visibility: 'private',
+  topics: [],
+  likes: 0,
+  fromKind: 'scratch',
+  fromRefId: null,
   chaptersCount: 0,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),
