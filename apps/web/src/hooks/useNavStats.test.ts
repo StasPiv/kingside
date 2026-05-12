@@ -39,6 +39,8 @@ const flagsState = {
   tournamentsEnabled: true,
   drillsEnabled: true,
   assistantEnabled: false,
+  // KS-2823: studies flag добавлен в FeatureFlags. Default false (beta).
+  studiesEnabled: false,
 };
 vi.mock('../context/FeatureFlagsContext', () => ({
   useFeatureFlags: () => ({

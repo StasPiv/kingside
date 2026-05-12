@@ -71,6 +71,11 @@ export const DEFAULT_FLAGS: FeatureFlags = {
   // только ключи DEFAULT_FLAGS и теряет drillsEnabled из localStorage,
   // а первый рендер падает на дефолте → редирект /drills→/lobby.
   drillsEnabled: false,
+  // KS-2823 (KS-2815): раздел «Студии» (Studies MVP). Default false —
+  // фича в beta, включается админом через PATCH /admin/feature-flags/
+  // studiesEnabled. Ключ обязан быть здесь по той же причине, что и
+  // drillsEnabled выше (loadFromCache + первый рендер до ответа GET).
+  studiesEnabled: false,
 };
 
 interface FeatureFlagsContextValue {
