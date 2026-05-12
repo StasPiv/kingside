@@ -8,6 +8,7 @@ import { StudyAccessGuard } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { StudyController } from './study.controller';
+import { StudyPublicController } from './study-public.controller';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. NestJS-модуль для Studies.
@@ -27,7 +28,7 @@ import { StudyController } from './study.controller';
  */
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [StudyController],
+  controllers: [StudyPublicController, StudyController],
   providers: [
     StudyService,
     StudyChaptersService,
