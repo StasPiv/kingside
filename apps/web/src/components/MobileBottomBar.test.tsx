@@ -333,6 +333,44 @@ describe('<MobileBottomBar> KS-2807 — drawer группировка', () => {
     );
   });
 
+  /**
+   * KS-2919 — регрессия Stanislav. На обоих контейнерах (Sidebar +
+   * MobileBottomBar) пропадала «Админка», хотя гейты в коде корректны
+   * и тестами покрыты. Источник — runtime: `useAdminStatus` возвращал
+   * false (см. фикс в hooks/useAdminStatus.ts — добавлен whitelist
+   * по username). Защита от регрессии разметки: гарантируем, что
+   * пункт реально лежит в группе `mobile-more-group-admin` и href ведёт
+   * на `/admin/feature-flags`.
+   */
+  it('KS-2919: isAdmin=true → ссылка лежит в группе admin с правильным href', async () => {
+    const user = userEvent.setup();
+    adminControls.isAdmin = true;
+    apiGetMock.mockResolvedValue({ items: [] });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    const group = screen.getByTestId('mobile-more-group-admin');
+    const link = screen.getByTestId('mobile-more-admin');
+    expect(group.contains(link)).toBe(true);
+    expect(link.getAttribute('href')).toBe('/admin/feature-flags');
+  });
+
+  it('KS-2919: isAdmin=false → группа admin отсутствует, прочие группы drawer на месте', async () => {
+    const user = userEvent.setup();
+    adminControls.isAdmin = false;
+    apiGetMock.mockResolvedValue({ items: [] });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(
+      screen.queryByTestId('mobile-more-group-admin'),
+    ).not.toBeInTheDocument();
+    // Остальные группы drawer'а не должны пострадать.
+    expect(screen.getByTestId('mobile-more-group-help')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-group-account')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-group-social')).toBeInTheDocument();
+  });
+
   it('broadcasts в top-3 → дублируется в группе «Социум» нет, остается friends', async () => {
     apiGetMock.mockResolvedValue({
       items: [

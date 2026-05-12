@@ -243,6 +243,39 @@ describe('<Sidebar> KS-2801 — footer', () => {
     const admin = screen.getByTitle(/^admin$|^админка$/i);
     expect(footer.contains(admin)).toBe(true);
   });
+
+  /**
+   * KS-2919 — пользователь Stanislav сообщил, что пункт «Админка»
+   * пропал в обоих контейнерах (Sidebar + MobileBottomBar). Анализ
+   * показал: код-уровень гейтов корректен (FOOTER_NAV содержит
+   * `{ adminOnly: true }`-запись), но на runtime `useAdminStatus`
+   * возвращает false, потому что бэк отвечает `isAdmin: false` или
+   * упал. Защита от регрессии — явный assert, что под `isAdmin=true`
+   * пункт виден с правильным href, под `isAdmin=false` — отсутствует.
+   * Эти инварианты не должны проседать ни при каких будущих
+   * рефакторингах FOOTER_NAV / filterVisible.
+   */
+  it('KS-2919: isAdmin=true → admin-link с href=/admin/feature-flags виден в footer', () => {
+    adminControls.isAdmin = true;
+    renderWithProviders(<Sidebar />);
+    const admin = screen.getByTitle(/^admin$|^админка$/i);
+    expect(admin.getAttribute('href')).toBe('/admin/feature-flags');
+    const footer = screen.getByTestId('sidebar-footer');
+    expect(footer.contains(admin)).toBe(true);
+  });
+
+  it('KS-2919: isAdmin=false → admin-link отсутствует, остальные пункты футера на месте', () => {
+    adminControls.isAdmin = false;
+    authControls.user = { id: 'u1', username: 'tester' };
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^admin$|^админка$/i)).not.toBeInTheDocument();
+    // Остальные четыре footer-элемента (profile/friends/settings/feedback)
+    // не зависят от isAdmin и должны оставаться видимыми.
+    expect(screen.getByTitle(/^profile$|^профиль$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^friends$|^друзья$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/^settings$|^настройки$/i)).toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-feedback-btn')).toBeInTheDocument();
+  });
 });
 
 /**

@@ -18,6 +18,32 @@ import { useAuth } from '../context/AuthContext';
  *    смены пользователя (`user.id` изменился) перезапрашиваем.
  *  - Ошибка эндпоинта → `isAdmin: false` (безопасный фолбэк, скрываем).
  *
+ * # KS-2919: fallback по username
+ *
+ * Пункт «Админка» пропадал у Stanislav в обоих контейнерах (Sidebar +
+ * MobileBottomBar) при том, что код-уровень гейтов корректен и тесты
+ * зелёные. Причина — runtime: `/profile/me/admin-status` возвращал
+ * `isAdmin: false`, потому что `KS_ADMIN_USERS` на бэке указывает
+ * на конкретный username (см. `scripts/deploy-aws.sh` →
+ * `KS_ADMIN_USERS=StanislavTelegram`), а реальный логин у пользователя
+ * мог разойтись (или эндпоинт временно недоступен). На стороне UI это
+ * выглядит как «регрессия» (кнопка пропала после деплоя), хотя в коде
+ * правила видимости не менялись.
+ *
+ * Поэтому добавлен defensive-fallback: если бэк сказал «нет» (или
+ * упал), и при этом `user.username` входит в FRONTEND_ADMIN_WHITELIST
+ * (зеркало `KS_ADMIN_USERS` из deploy-скрипта) — UI всё равно показывает
+ * админ-пункт. Это влияет ТОЛЬКО на видимость кнопки. Реальные
+ * admin-эндпоинты по-прежнему защищены гардом на бэке: если фронт
+ * ошибётся и покажет кнопку не-админу, запрос вернёт 403, а не
+ * откроет доступ.
+ *
+ * Whitelist намеренно держим маленьким и явным. Когда `KS_ADMIN_USERS`
+ * на проде меняется — обновлять и здесь. Альтернатива (правильнее в
+ * долгосрочной перспективе) — отдавать `isAdmin` в `/auth/me`
+ * и убрать отдельный `/profile/me/admin-status` + этот fallback;
+ * это отдельная backend-задача.
+ *
  * # Не использовать для авторизации серверных операций
  *
  * UI скрытие — это эстетика, не security. Реальная защита — гард
@@ -29,10 +55,23 @@ export interface UseAdminStatusReturn {
   loading: boolean;
 }
 
+/**
+ * KS-2919: зеркало `KS_ADMIN_USERS` из `scripts/deploy-aws.sh`.
+ * Совпадение по строгому равенству username. Используется только как
+ * fallback для видимости UI-кнопки; backend-гард не отключаем.
+ */
+const FRONTEND_ADMIN_WHITELIST: ReadonlyArray<string> = ['StanislavTelegram'];
+
+function isWhitelistedAdmin(username: string | undefined | null): boolean {
+  if (!username) return false;
+  return FRONTEND_ADMIN_WHITELIST.includes(username);
+}
+
 export function useAdminStatus(): UseAdminStatusReturn {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [isAdmin, setIsAdmin] = useState(false);
+  const whitelistMatch = isWhitelistedAdmin(user?.username);
+  const [backendIsAdmin, setBackendIsAdmin] = useState(false);
   // `fetchedFor` хранит userId, для которого уже пришёл ответ. Пока
   // не равен текущему userId — считаем что мы ещё «загружаем». Это
   // важно, потому что между переходом authLoading=true→false и
@@ -44,7 +83,7 @@ export function useAdminStatus(): UseAdminStatusReturn {
 
   useEffect(() => {
     if (!userId) {
-      setIsAdmin(false);
+      setBackendIsAdmin(false);
       setFetchedFor(null);
       return;
     }
@@ -53,14 +92,14 @@ export function useAdminStatus(): UseAdminStatusReturn {
       .getAdminStatus()
       .then((res) => {
         if (cancelled) return;
-        setIsAdmin(Boolean(res.isAdmin));
+        setBackendIsAdmin(Boolean(res.isAdmin));
       })
       .catch(() => {
         if (cancelled) return;
         // Скрываем admin-UI если эндпоинт упал — пользователь не
         // должен видеть «Админку» из-за сетевой ошибки. Реальная
         // авторизация — на бэке.
-        setIsAdmin(false);
+        setBackendIsAdmin(false);
       })
       .finally(() => {
         if (!cancelled) setFetchedFor(userId);
@@ -73,7 +112,14 @@ export function useAdminStatus(): UseAdminStatusReturn {
   // loading=true пока:
   //  • есть userId (залогинены), и
   //  • для этого userId ещё не пришёл ответ admin-status.
-  const loading = userId !== null && fetchedFor !== userId;
+  // Если username уже в whitelist — loading=false сразу (мы уже знаем
+  // ответ, ждать бэк не нужно для UI-видимости).
+  const loading =
+    !whitelistMatch && userId !== null && fetchedFor !== userId;
+
+  // KS-2919: финальный флаг — OR между бэком и frontend-whitelist'ом.
+  // Whitelist'у достаточно, чтобы показать пункт в UI.
+  const isAdmin = backendIsAdmin || whitelistMatch;
 
   return { isAdmin, loading };
 }
