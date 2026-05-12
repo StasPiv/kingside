@@ -61,7 +61,11 @@ import {
   studiesApi,
   type StudyDto,
   type StudyChapterDto,
+  type StudyChapterMode,
 } from '../api/studiesApi';
+// KS-2870 (FM1): mode-switcher для study-роутов — analysis/practice/
+// conceal/gamebook + concealPly input.
+import { AnalysisStudyModeSwitcher } from './analysis/AnalysisStudyModeSwitcher';
 
 type GameData = {
   id: string;
@@ -462,6 +466,51 @@ function AnalysisPageInner({
     },
     [handleTitleSave],
   );
+
+  // KS-2870 (FM1): смена режима главы студии.
+  // studiesApi.updateChapter(mode). Optimistic-update studyChapter.
+  const handleChapterModeChange = useCallback(
+    (next: StudyChapterMode) => {
+      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
+        return;
+      // KS-2870: при переключении НА conceal проставим concealPly=1 если
+      // его ещё нет — backend требует значение для mode='conceal'.
+      const concealPlyForUpdate =
+        next === 'conceal' && (studyChapter.concealPly == null)
+          ? 1
+          : undefined;
+      studiesApi
+        .updateChapter(ctx.slug, studyChapter.id, {
+          mode: next,
+          ...(concealPlyForUpdate !== undefined && {
+            concealPly: concealPlyForUpdate,
+          }),
+        })
+        .then((updated) => setStudyChapter(updated))
+        .catch(() => {});
+    },
+    [ctx, studyChapter],
+  );
+
+  // KS-2870 (FM1): смена concealPly для mode='conceal'.
+  const handleConcealPlyChange = useCallback(
+    (ply: number) => {
+      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
+        return;
+      if (studyChapter.mode !== 'conceal') return;
+      studiesApi
+        .updateChapter(ctx.slug, studyChapter.id, { concealPly: ply })
+        .then((updated) => setStudyChapter(updated))
+        .catch(() => {});
+    },
+    [ctx, studyChapter],
+  );
+
+  // KS-2870 (FM1): открытие gamebook-editor (FM4-ticket).
+  // На FM1 — placeholder; полноценный editor подключается на FM4.
+  const handleEditGamebook = useCallback(() => {
+    // KS-2873 (FM4): TODO открыть gamebook editor overlay.
+  }, []);
 
   const analysisPageRef = useRef<HTMLDivElement>(null);
 
@@ -1525,6 +1574,19 @@ function AnalysisPageInner({
             onTitleSave={handleTitleSave}
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
+            rightSlot={
+              // KS-2870 (FM1): для study-роутов рисуем mode-switcher.
+              ctx.kind === 'study' && studyChapter ? (
+                <AnalysisStudyModeSwitcher
+                  chapterMode={studyChapter.mode}
+                  concealPly={studyChapter.concealPly}
+                  readOnly={ctx.readOnly}
+                  onChapterModeChange={handleChapterModeChange}
+                  onConcealPlyChange={handleConcealPlyChange}
+                  onEditGamebook={handleEditGamebook}
+                />
+              ) : undefined
+            }
           />
         )}
         {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт

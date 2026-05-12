@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -50,6 +50,12 @@ export interface AnalysisHeaderProps {
   onTitleSave: () => void;
   onTitleKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
   onTitleClick: () => void;
+  /**
+   * KS-2870 (FM1): дополнительный блок справа от breadcrumbs — обычно
+   * `<AnalysisStudyModeSwitcher />` когда AnalysisPage в study-контексте.
+   * Опциональный — для review/analysis/puzzle не рисуется.
+   */
+  rightSlot?: ReactNode;
 }
 
 export function AnalysisHeader({
@@ -61,6 +67,7 @@ export function AnalysisHeader({
   onTitleSave,
   onTitleKeyDown,
   onTitleClick,
+  rightSlot,
 }: AnalysisHeaderProps) {
   const { t } = useTranslation();
 
@@ -132,6 +139,17 @@ export function AnalysisHeader({
               {analysisTitle}
             </span>
             <span className="analysis-title__edit-icon">✎</span>
+          </span>
+        )}
+        {/* KS-2870 (FM1): rightSlot — mode-switcher (или другие
+            study-actions) справа от breadcrumb-нотации. Для
+            review/analysis/puzzle остаётся undefined. */}
+        {rightSlot && (
+          <span
+            className="analysis-breadcrumbs__right-slot"
+            data-testid="analysis-header-right-slot"
+          >
+            {rightSlot}
           </span>
         )}
       </nav>

@@ -70,6 +70,15 @@
       "white": "White",
       "black": "Black"
     },
+    "mode": {
+      "label": "Mode",
+      "analysis": "Analysis",
+      "practice": "Practice",
+      "conceal": "Conceal",
+      "gamebook": "Gamebook",
+      "concealAfterPly": "Hide after move #",
+      "editGamebook": "Edit script"
+    },
     "confirm": {
       "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
       "deleteChapter": "Delete this chapter? This cannot be undone."
