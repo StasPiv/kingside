@@ -180,7 +180,22 @@
 
 .study-page__breadcrumb a {
   color: var(--c-7c83ff, #7c83ff);
+}
+
+/* KS-2835: сброс underline во всех состояниях — иначе глобальное
+   `a:hover { text-decoration: underline }` (base.css) подчёркивает
+   хлебные крошки на hover. */
+.study-page__breadcrumb a,
+.study-page__breadcrumb a:hover,
+.study-page__breadcrumb a:focus,
+.study-page__breadcrumb a:focus-visible,
+.study-page__breadcrumb a:active,
+.study-page__breadcrumb a:visited {
   text-decoration: none;
+}
+
+.study-page__breadcrumb a:hover {
+  color: var(--c-9ca0ff, #9ca0ff);
 }
 
 .study-page__sep {
@@ -234,6 +249,20 @@
 .study-page__action:hover:not(:disabled) {
   border-color: var(--c-7c83ff, #7c83ff);
   color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
+}
+
+/* KS-2835: `study-page__action` используется и для `<button>`, и для
+   `<a>` (Link «Open in editor» на public-page). Снимаем underline
+   во всех состояниях — иначе на hover у `<a>` появится подчёркивание
+   (`button` его не получает). */
+.study-page__action,
+.study-page__action:hover,
+.study-page__action:focus,
+.study-page__action:focus-visible,
+.study-page__action:active,
+.study-page__action:visited {
+  text-decoration: none;
 }
 
 .study-page__action:disabled {
@@ -248,14 +277,28 @@
 .study-page__action--danger:hover:not(:disabled) {
   border-color: var(--c-e88c8c, #e88c8c);
   color: var(--c-e88c8c, #e88c8c);
+  background: var(--ov-danger-10, rgba(232, 140, 140, 0.1));
 }
 
 .study-page__back {
   display: inline-block;
   margin-top: 12px;
   color: var(--c-7c83ff, #7c83ff);
-  text-decoration: none;
   font-size: 13px;
+}
+
+/* KS-2835: сброс underline для `.study-page__back` (Link). */
+.study-page__back,
+.study-page__back:hover,
+.study-page__back:focus,
+.study-page__back:focus-visible,
+.study-page__back:active,
+.study-page__back:visited {
+  text-decoration: none;
+}
+
+.study-page__back:hover {
+  color: var(--c-9ca0ff, #9ca0ff);
 }
 
 .study-chapter-list {
@@ -276,6 +319,9 @@
 
 .study-chapter-item:hover {
   border-color: var(--c-7c83ff, #7c83ff);
+  /* KS-2835: light-friendly hover-фон (как у .lobby-card и .studies-card) —
+     `--c-1f1f36` в light не переопределён, дал бы чёрную карточку. */
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
 }
 
 .study-chapter-item {
@@ -313,7 +359,25 @@
   align-items: center;
   padding: 12px 16px;
   color: inherit;
+  min-width: 0;
+}
+
+/* KS-2835: сброс underline для Link во всех состояниях. */
+.study-chapter-item__link,
+.study-chapter-item__link:hover,
+.study-chapter-item__link:focus,
+.study-chapter-item__link:focus-visible,
+.study-chapter-item__link:active,
+.study-chapter-item__link:visited {
   text-decoration: none;
+}
+
+/* KS-2835: длинный заголовок главы — ellipsis (вместо разрыва grid'а). */
+.study-chapter-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .study-chapter-item__index {
@@ -365,10 +429,17 @@
 
 .study-editor-page__name--editable {
   cursor: text;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
 }
 
+/* KS-2835: hover-фон для editable заголовка — без него пользователь не
+   догадается, что кликабельно. Цвет тоже меняется на accent. */
 .study-editor-page__name--editable:hover {
   color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
 }
 
 .study-editor-page__name-input {
@@ -425,6 +496,8 @@
 
 .study-editor-page__nav button:hover {
   border-color: var(--c-7c83ff, #7c83ff);
+  color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
 }
 
 .study-editor-page__moves {
