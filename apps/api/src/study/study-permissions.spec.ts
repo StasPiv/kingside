@@ -245,6 +245,17 @@ describe('Studies — permissions matrix (KS-2822 T7)', () => {
     });
   });
 
+  // ── KS-2862 B6: visibility-эквивалент matrix через StudyAccessGuard ──
+  // accessOk в appFor выставляется как (role === 'owner' || isPublic),
+  // что эквивалентно поведению StudyAccessGuard для:
+  //   - public/unlisted → всем (isPublic=true в нашем appFor =
+  //     visibility ∈ {public, unlisted});
+  //   - private → только owner + контрибьюторы (контрибьюторы
+  //     покрываются в guard-spec'ах с реальной mocked-Prisma).
+  // Тут — высокоуровневый smoke на разрешения для двух полярных
+  // visibility-состояний. Расширенная матрица guard'ов — в
+  // `study-guards.spec.ts`.
+
   // ── PATCH /studies/:slug ──────────────────────────────────────────
   describe('PATCH /studies/:slug', () => {
     it.each<[Role, number]>([
