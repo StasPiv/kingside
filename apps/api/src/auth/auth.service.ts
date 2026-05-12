@@ -327,7 +327,16 @@ export class AuthService {
 
   private generatePendingOAuthTokens(profile: OAuthProfile) {
     const sub = `pending:${profile.provider}:${profile.providerId}`;
-    const payload = { sub, username: null, requiresUsernameSetup: true };
+    // KS-2786: email из профиля OAuth кладём в pending JWT, чтобы set-username
+    // мог сохранить его в БД при создании юзера. Без этого Google/Facebook-юзеры
+    // оставались с email=null, что ломает link-account и восстановление пароля.
+    // JWT подписан, claim'ы не могут быть подделаны — это безопасно.
+    const payload = {
+      sub,
+      username: null,
+      requiresUsernameSetup: true,
+      email: profile.email,
+    };
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
     });

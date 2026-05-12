@@ -7,6 +7,9 @@ export interface JwtPayload {
   sub: string;
   username: string | null;
   requiresUsernameSetup?: boolean;
+  // KS-2786: email кладётся в pending OAuth JWT, чтобы set-username
+  // мог сохранить его в БД при создании юзера.
+  email?: string | null;
 }
 
 @Injectable()
@@ -20,6 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: JwtPayload) {
-    return { id: payload.sub, username: payload.username };
+    return {
+      id: payload.sub,
+      username: payload.username,
+      email: payload.email ?? null,
+    };
   }
 }

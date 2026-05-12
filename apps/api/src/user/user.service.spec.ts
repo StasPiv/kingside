@@ -23,6 +23,7 @@ describe('UserService', () => {
       user: {
         update: jest.fn(),
         findUnique: jest.fn(),
+        create: jest.fn(),
       },
       game: {
         findMany: jest.fn(),
@@ -43,6 +44,134 @@ describe('UserService', () => {
     } as any;
 
     service = new UserService(prisma, i18n, ecoService);
+  });
+
+  describe('setUsername (KS-2786)', () => {
+    it('сохраняет email из pending JWT при создании OAuth-юзера', async () => {
+      prisma.user.findUnique.mockResolvedValue(null); // username свободен
+      const created = {
+        id: 'new-id',
+        username: 'newuser',
+        email: 'stas@gmail.com',
+        requiresUsernameSetup: false,
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        createdAt: new Date(),
+      };
+      prisma.user.create.mockResolvedValue(created);
+
+      const result = await service.setUsername(
+        'pending:google:1234567890',
+        'newuser',
+        'stas@gmail.com',
+      );
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            username: 'newuser',
+            oauthProvider: 'google',
+            oauthProviderId: '1234567890',
+            email: 'stas@gmail.com',
+            requiresUsernameSetup: false,
+          }),
+        }),
+      );
+      expect(result.isNewUser).toBe(true);
+      expect(result.user.email).toBe('stas@gmail.com');
+    });
+
+    it('создаёт OAuth-юзера с email=null когда pending JWT не содержит email', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 'new-id',
+        username: 'noemail',
+        email: null,
+        requiresUsernameSetup: false,
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        createdAt: new Date(),
+      });
+
+      await service.setUsername('pending:facebook:9876543210', 'noemail');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            oauthProvider: 'facebook',
+            oauthProviderId: '9876543210',
+            email: null,
+          }),
+        }),
+      );
+    });
+
+    it('Telegram pending: email игнорируется (его не должно быть в JWT)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 'tg-id',
+        username: 'tguser',
+        email: null,
+        requiresUsernameSetup: false,
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        createdAt: new Date(),
+      });
+
+      await service.setUsername('pending:111222333', 'tguser', null);
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            telegramId: '111222333',
+            email: null,
+          }),
+        }),
+      );
+    });
+
+    it('race-condition: при P2002 на email создаёт юзера без email', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      const created = {
+        id: 'new-id',
+        username: 'racer',
+        email: null,
+        requiresUsernameSetup: false,
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        createdAt: new Date(),
+      };
+      const p2002 = Object.assign(new Error('Unique constraint'), {
+        code: 'P2002',
+        meta: { target: ['email'] },
+      });
+      prisma.user.create
+        .mockRejectedValueOnce(p2002)
+        .mockResolvedValueOnce(created);
+
+      const result = await service.setUsername(
+        'pending:google:1234567890',
+        'racer',
+        'taken@gmail.com',
+      );
+
+      expect(prisma.user.create).toHaveBeenCalledTimes(2);
+      // Второй вызов — без email.
+      expect(prisma.user.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ email: null }),
+        }),
+      );
+      expect(result.isNewUser).toBe(true);
+    });
   });
 
   describe('updateSettings', () => {

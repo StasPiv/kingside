@@ -40,7 +40,13 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @Post('set-username')
   async setUsername(@Request() req: AuthenticatedRequest, @Body() dto: SetUsernameDto) {
-    const { user, isNewUser } = await this.userService.setUsername(req.user.id, dto.username);
+    // KS-2786: при pending OAuth flow в JWT лежит email, пробрасываем его
+    // в сервис, чтобы при создании юзера сохранить email в БД.
+    const { user, isNewUser } = await this.userService.setUsername(
+      req.user.id,
+      dto.username,
+      req.user.email ?? null,
+    );
     if (isNewUser) {
       const tokens = this.authService.generateTokens(user.id as string, user.username as string, false);
       return { ...user, ...tokens };

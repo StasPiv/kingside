@@ -177,6 +177,34 @@ describe('AuthService', () => {
       expect(prisma.user.create).not.toHaveBeenCalled();
       expect(result.requiresUsernameSetup).toBe(true);
     });
+
+    it('KS-2786: pending OAuth JWT содержит email из profile', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.findOrCreateOAuthUser(latinProfileWithEmail);
+
+      // Проверяем payload первого sign-вызова (accessToken).
+      expect(jwtService.sign).toHaveBeenCalled();
+      const firstPayload = (jwtService.sign as jest.Mock).mock.calls[0][0];
+      expect(firstPayload).toEqual(
+        expect.objectContaining({
+          sub: 'pending:facebook:123456789012345',
+          username: null,
+          requiresUsernameSetup: true,
+          email: 'piv1986@yandex.ru',
+        }),
+      );
+    });
+
+    it('KS-2786: pending OAuth JWT кладёт email=null когда provider не вернул email', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await service.findOrCreateOAuthUser(latinProfileNoEmail);
+
+      const firstPayload = (jwtService.sign as jest.Mock).mock.calls[0][0];
+      expect(firstPayload.email).toBeNull();
+    });
   });
 
   describe('register', () => {

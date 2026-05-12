@@ -38,7 +38,11 @@ export class UserService {
     return { available: !existing };
   }
 
-  async setUsername(userId: string, username: string): Promise<{ user: Record<string, unknown>; isNewUser: boolean }> {
+  async setUsername(
+    userId: string,
+    username: string,
+    pendingEmail: string | null = null,
+  ): Promise<{ user: Record<string, unknown>; isNewUser: boolean }> {
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
       throw new BadRequestException('Invalid username format');
     }
@@ -71,32 +75,62 @@ export class UserService {
         // OAuth: pending:provider:providerId
         const oauthProvider = withoutPrefix.slice(0, colonIndex);
         const oauthProviderId = withoutPrefix.slice(colonIndex + 1);
+        // KS-2786: pendingEmail приходит из pending JWT (см. generatePendingOAuthTokens),
+        // содержит email из Google/Facebook profile. Сохраняем его при создании user,
+        // чтобы потом сработали link-account и восстановление пароля.
         createData = {
           username,
           requiresUsernameSetup: false,
           oauthProvider,
           oauthProviderId,
-          email: null,
+          email: pendingEmail,
           passwordHash: null,
         };
       }
 
-      const user = await this.prisma.user.create({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: createData as any,
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          requiresUsernameSetup: true,
-          ratingBullet: true,
-          ratingBlitz: true,
-          ratingRapid: true,
-          ratingClassical: true,
-          createdAt: true,
-        },
-      });
-      return { user: user as Record<string, unknown>, isNewUser: true };
+      const userSelect = {
+        id: true,
+        username: true,
+        email: true,
+        requiresUsernameSetup: true,
+        ratingBullet: true,
+        ratingBlitz: true,
+        ratingRapid: true,
+        ratingClassical: true,
+        createdAt: true,
+      } as const;
+
+      try {
+        const user = await this.prisma.user.create({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: createData as any,
+          select: userSelect,
+        });
+        return { user: user as Record<string, unknown>, isNewUser: true };
+      } catch (err: unknown) {
+        // KS-2786: race-condition — между OAuth callback и set-username
+        // (TTL pending JWT до 7 дней) другой юзер мог зарегистрироваться
+        // с этим email через /auth/register. На прямой повторный OAuth
+        // он бы залинковался по email в findOrCreateOAuthUser, но pending
+        // токен этот шаг проскочил. В таком случае создаём юзера без email,
+        // чтобы не ронять signup. Email можно будет добавить вручную позже.
+        const code = (err as { code?: string })?.code;
+        const meta = (err as { meta?: { target?: string | string[] } })?.meta;
+        const target = Array.isArray(meta?.target) ? meta?.target : [meta?.target];
+        if (
+          pendingEmail &&
+          code === 'P2002' &&
+          target?.some((t) => typeof t === 'string' && t.includes('email'))
+        ) {
+          const user = await this.prisma.user.create({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...createData, email: null } as any,
+            select: userSelect,
+          });
+          return { user: user as Record<string, unknown>, isNewUser: true };
+        }
+        throw err;
+      }
     }
 
     // Existing user — update
