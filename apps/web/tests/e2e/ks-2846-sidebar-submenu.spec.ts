@@ -116,4 +116,27 @@ test.describe('KS-2846 sidebar submenu + lobby redirect', () => {
       page.getByTestId('train-lobby-card-puzzle-rush'),
     ).toBeVisible();
   });
+
+  // KS-2848: Play submenu с Турнирами
+  test('desktop: hover на Play → поповер; клик Tournaments → /tournaments', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'desktop',
+      'sidebar submenu — только desktop',
+    );
+    await login(page);
+    await page.goto('/play');
+    const parent = page.getByTestId('sidebar-submenu-parent-play');
+    await expect(parent).toBeVisible();
+    await parent.hover();
+    const popover = page.getByTestId('sidebar-submenu-popover-play');
+    await expect(popover).toBeVisible({ timeout: 2000 });
+    // Подпункт Tournaments.
+    await page.getByTestId('sidebar-submenu-item-tournaments').click();
+    await page.waitForURL(/\/tournaments$/, { timeout: 5_000 });
+    expect(page.url()).toMatch(/\/tournaments$/);
+    // Group Play подсветка остаётся.
+    await expect(parent).toHaveClass(/sidebar-item--active/);
+  });
 });

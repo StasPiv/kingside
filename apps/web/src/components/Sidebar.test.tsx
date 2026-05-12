@@ -103,9 +103,10 @@ afterEach(() => {
 describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
   it('дефолтные флаги: видны 5 группового пункта (play, train, lessons, broadcasts, analyze)', () => {
     renderWithProviders(<Sidebar />);
-    expect(screen.getByTitle(/^play$|^играть$/i).getAttribute('href')).toBe('/play');
-    // KS-2840: Train и Analyze теперь submenu-parent <button>, не <a>.
+    // KS-2848: Play теперь тоже submenu-parent <button> (children:
+    // Play + Tournaments). Train и Analyze также submenu (KS-2840).
     // jsdom (без touch) → isMobile=false → submenu активен.
+    expect(screen.getByTestId('sidebar-submenu-parent-play')).toBeInTheDocument();
     expect(screen.getByTestId('sidebar-submenu-parent-train')).toBeInTheDocument();
     expect(screen.getByTitle(/^lessons$|^уроки$/i).getAttribute('href')).toBe('/lessons');
     expect(screen.getByTitle(/^tv$|^трансляции$/i).getAttribute('href')).toBe('/broadcasts');
@@ -458,5 +459,89 @@ describe('<Sidebar> KS-2846 — mobile: submenu выключен, обычные
     renderWithProviders(<Sidebar />, { route: '/puzzles' });
     const trainLink = screen.getByTitle(/^train$|^тренировка$/i);
     expect(trainLink.className).toContain('sidebar-item--active');
+  });
+});
+
+/**
+ * KS-2848 (ADR-058 §11.1 follow-up): «Играть» теперь submenu с
+ * подпунктами «Играть» (/play) и «Турниры» (/tournaments). Mobile —
+ * обычный Link на /play.
+ */
+describe('<Sidebar> KS-2848 — Play submenu с Турнирами', () => {
+  beforeEach(() => {
+    mobileState.isMobile = false;
+    flagControls.tournaments = true;
+  });
+
+  it('desktop: Play теперь submenu-parent <button>', () => {
+    renderWithProviders(<Sidebar />, { route: '/' });
+    const parent = screen.getByTestId('sidebar-submenu-parent-play');
+    expect(parent.tagName).toBe('BUTTON');
+    expect(parent.getAttribute('aria-haspopup')).toBe('menu');
+  });
+
+  it('desktop: click parent → поповер с подпунктами Play + Tournaments', () => {
+    renderWithProviders(<Sidebar />, { route: '/' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-play'));
+    expect(screen.getByTestId('sidebar-submenu-popover-play')).toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-submenu-item-play')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('sidebar-submenu-item-tournaments'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('sidebar-submenu-item-play').getAttribute('href'),
+    ).toBe('/play');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-tournaments').getAttribute('href'),
+    ).toBe('/tournaments');
+  });
+
+  it('desktop: tournamentsEnabled=false → подпункт «Турниры» скрыт, остаётся Play', () => {
+    flagControls.tournaments = false;
+    renderWithProviders(<Sidebar />, { route: '/' });
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-play'));
+    expect(screen.getByTestId('sidebar-submenu-item-play')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('sidebar-submenu-item-tournaments'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('desktop: на /tournaments group Play + подпункт Tournaments active', () => {
+    renderWithProviders(<Sidebar />, { route: '/tournaments' });
+    expect(
+      screen.getByTestId('sidebar-submenu-parent-play').className,
+    ).toContain('sidebar-item--active');
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-play'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-tournaments').className,
+    ).toContain('sidebar-submenu__item--active');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-play').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('desktop: на /play group + подпункт Play active', () => {
+    renderWithProviders(<Sidebar />, { route: '/play' });
+    expect(
+      screen.getByTestId('sidebar-submenu-parent-play').className,
+    ).toContain('sidebar-item--active');
+    fireEvent.click(screen.getByTestId('sidebar-submenu-parent-play'));
+    expect(
+      screen.getByTestId('sidebar-submenu-item-play').className,
+    ).toContain('sidebar-submenu__item--active');
+    expect(
+      screen.getByTestId('sidebar-submenu-item-tournaments').className,
+    ).not.toContain('sidebar-submenu__item--active');
+  });
+
+  it('mobile: Play — обычный <Link> на /play, submenu не активен', () => {
+    mobileState.isMobile = true;
+    renderWithProviders(<Sidebar />, { route: '/' });
+    expect(
+      screen.queryByTestId('sidebar-submenu-parent-play'),
+    ).not.toBeInTheDocument();
+    const playLink = screen.getByTitle(/^play$|^играть$/i);
+    expect(playLink.tagName).toBe('A');
+    expect(playLink.getAttribute('href')).toBe('/play');
   });
 });

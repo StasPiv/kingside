@@ -97,7 +97,35 @@ const NAV_ITEMS: NavItem[] = [
   // удалены (KS-2800), но прямые URL остаются — подсветка должна
   // указывать на «Играть», иначе на /tournaments активна никакая
   // группа.
-  { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play', '/tournaments'] },
+  // KS-2848: добавили submenu «Турниры» внутри «Играть» (вместо
+  // выпиленного top-level пункта). По модели KS-2840 — то же самое,
+  // что Train/Analyze: parent открывает поповер, подпункты ведут на
+  // /play (быстрая партия) и /tournaments. На mobile — обычный Link
+  // на /play (см. Sidebar.tsx fallback логика для submenu без children
+  // или isMobile=true).
+  {
+    path: '/play',
+    icon: '♟',
+    i18nKey: 'nav.play',
+    match: ['/play', '/tournaments'],
+    children: [
+      {
+        path: '/play',
+        icon: '♟',
+        i18nKey: 'nav.play',
+        i18nFallback: 'Play',
+        match: ['/play'],
+      },
+      {
+        path: '/tournaments',
+        icon: '🏆',
+        i18nKey: 'nav.tournaments',
+        i18nFallback: 'Tournaments',
+        match: ['/tournaments'],
+        featureFlag: 'tournamentsEnabled',
+      },
+    ],
+  },
   // KS-2800 / KS-2811 (ADR-058 §4.1): групповая «Тренировка». Скрыта,
   // если оба контентных gate-флага off (`puzzlesEnabled=false &&
   // drillsEnabled=false`). Puzzle Rush сам по себе открыт всегда, но
