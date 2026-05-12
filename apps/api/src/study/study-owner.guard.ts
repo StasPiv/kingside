@@ -10,13 +10,15 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { STUDY_RESOURCE_KEY, StudyResourceKind } from './study-access.guard';
 
 /**
- * KS-2815 / ADR-059 / KS-2818 T3. Guard для **мутаций** ресурсов
- * Studies. Разрешает запрос только если `req.user.id === study.ownerId`.
- * Публичная студия чужому пользователю на PATCH/DELETE/POST НЕ доступна.
+ * KS-2815 / ADR-059 / KS-2818 T3 / KS-2860 (B4). Guard для **owner-only**
+ * мутаций (delete study, manage members, generate invite-links).
+ * Разрешает запрос только если `req.user.id === study.ownerId`.
  *
- * Используется в связке с `JwtAuthGuard` (анонимных тут не должно
- * быть). При нарушении прав — `404 Not Found` (единый код, без
- * enumeration; см. `UserCourseOwnerGuard`).
+ * Для contributor-level мутаций (редактирование chapter'ов, PATCH
+ * полей study кроме members) — `StudyContributorGuard`.
+ *
+ * Используется в связке с `JwtAuthGuard`. При нарушении — `404 Not
+ * Found` (единый код, без enumeration).
  *
  * Ресурс определяется тем же декоратором `@StudyResource(...)` что
  * и у `StudyAccessGuard`.

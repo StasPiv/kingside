@@ -6,6 +6,7 @@ import { StudyChaptersService } from './study-chapters.service';
 import { StudySlugService } from './study-slug.service';
 import { StudyAccessGuard } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
+import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { StudyController } from './study.controller';
 import { StudyPublicController } from './study-public.controller';
@@ -38,6 +39,7 @@ import { StudyInvitesService } from './study-invites.service';
     StudySlugService,
     StudyAccessGuard,
     StudyOwnerGuard,
+    StudyContributorGuard,
     OptionalJwtAuthGuard,
     // KS-2859 (Wave A B3): Phase 2 сервисы.
     StudyMembersService,
@@ -50,6 +52,7 @@ import { StudyInvitesService } from './study-invites.service';
     StudySlugService,
     StudyAccessGuard,
     StudyOwnerGuard,
+    StudyContributorGuard,
     OptionalJwtAuthGuard,
     StudyMembersService,
     StudyLikesService,
