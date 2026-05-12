@@ -3,9 +3,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { FeatureFlags } from '@kingside/shared';
 import { FeedbackModal } from './FeedbackModal';
+import { SidebarSubmenu, type SidebarSubmenuItem } from './SidebarSubmenu';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import { useAuth } from '../context/AuthContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface NavItem {
   path: string;
@@ -38,6 +40,30 @@ interface NavItem {
    * feature-flag). Если задан — `featureFlag` игнорируется.
    */
   customGate?: (flags: FeatureFlags) => boolean;
+  /**
+   * KS-2840 (ADR-058 §11.1): подменю для двухуровневой навигации.
+   * На desktop рендерится `SidebarSubmenu` (hover-поповер + click-toggle).
+   * На mobile (`useIsMobile()`) submenu не активен — пункт ведёт прямо
+   * на лобби-страницу (`/train`, `/analyze`).
+   *
+   * Каждый child имеет собственный gate (featureFlag) — поповер
+   * скрывает выключенные подпункты.
+   */
+  children?: SubItem[];
+}
+
+/**
+ * KS-2840: облегчённая форма подпункта (без customGate / adminOnly /
+ * authOnly — для подменю это пока не нужно). Совместима с
+ * `SidebarSubmenuItem` (id = path, match[], icon, label).
+ */
+interface SubItem {
+  path: string;
+  icon: string;
+  i18nKey: string;
+  i18nFallback: string;
+  match: string[];
+  featureFlag?: keyof FeatureFlags;
 }
 
 /**
@@ -83,6 +109,42 @@ const NAV_ITEMS: NavItem[] = [
     i18nKey: 'nav.train',
     match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision'],
     customGate: (flags) => flags.puzzlesEnabled || flags.drillsEnabled,
+    // KS-2840 (ADR-058 §11.1): подменю Train. На desktop открывается
+    // поповером по hover/click; на mobile submenu не активен — клик
+    // ведёт на лобби /train (Sidebar решает по `useIsMobile()`).
+    children: [
+      {
+        path: '/puzzles',
+        icon: '🧩',
+        i18nKey: 'nav.puzzles',
+        i18nFallback: 'Puzzles',
+        match: ['/puzzles', '/puzzle'],
+        featureFlag: 'puzzlesEnabled',
+      },
+      {
+        path: '/puzzle-rush',
+        icon: '⚡',
+        i18nKey: 'nav.puzzleRush',
+        i18nFallback: 'Puzzle Rush',
+        match: ['/puzzle-rush'],
+      },
+      {
+        path: '/drills',
+        icon: '🧠',
+        i18nKey: 'nav.drills',
+        i18nFallback: 'Drills',
+        match: ['/drills'],
+        featureFlag: 'drillsEnabled',
+      },
+      {
+        path: '/precision',
+        icon: '🎯',
+        i18nKey: 'nav.precision',
+        i18nFallback: 'Precision training',
+        match: ['/precision'],
+        featureFlag: 'puzzlesEnabled',
+      },
+    ],
   },
   {
     path: '/lessons',
@@ -106,6 +168,22 @@ const NAV_ITEMS: NavItem[] = [
     icon: '🔬',
     i18nKey: 'nav.analyze',
     match: ['/analyze', '/workshop', '/analysis', '/archive'],
+    children: [
+      {
+        path: '/workshop',
+        icon: '🔬',
+        i18nKey: 'nav.workshop',
+        i18nFallback: 'Workshop',
+        match: ['/workshop', '/analysis'],
+      },
+      {
+        path: '/archive',
+        icon: '📚',
+        i18nKey: 'archive:menuTitle',
+        i18nFallback: 'Archive',
+        match: ['/archive'],
+      },
+    ],
   },
 ];
 
@@ -160,12 +238,16 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const [showFeedback, setShowFeedback] = useState(false);
+  // KS-2840: какой submenu сейчас открыт (один за раз; null — все закрыты).
+  const [openSubmenuId, setOpenSubmenuId] = useState<string | null>(null);
   // KS-2105: runtime feature-flags из контекста (backend `GET /config`).
   const { flags } = useFeatureFlags();
   // KS-2109: статус админа (`GET /profile/me/admin-status`).
   const { isAdmin } = useAdminStatus();
   // KS-2622: «Мои курсы» только для залогиненных.
   const { user } = useAuth();
+  // KS-2840: на mobile submenu не активен — родитель ведёт прямо на лобби.
+  const isMobile = useIsMobile();
 
   // KS-2790: строгое path-segment совпадение. Прежний `startsWith`
   // ловил `/puzzle-rush` как match для `/puzzle` → на странице
@@ -196,16 +278,76 @@ export function Sidebar() {
   const mainItems = filterVisible(NAV_ITEMS);
   const footerItems = filterVisible(FOOTER_NAV);
 
-  const renderItem = (item: NavItem) => (
-    <Link
-      key={item.path}
-      to={item.path}
-      className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
-      title={t(item.i18nKey)}
-    >
-      <span className="sidebar-icon">{item.icon}</span>
-    </Link>
-  );
+  // KS-2840: фильтрация подпунктов по их featureFlag — выключенные
+  // не появляются в поповере. Если все подпункты выключены, родитель
+  // всё равно может остаться видимым (его собственный `customGate`
+  // решает на уровне MAIN_NAV — см. customGate для /train).
+  const visibleChildren = (
+    children: SubItem[] | undefined,
+  ): SidebarSubmenuItem[] => {
+    if (!children) return [];
+    return children
+      .filter((c) => !c.featureFlag || flags[c.featureFlag])
+      .map((c) => ({
+        id: c.path.replace(/^\//, '').replace(/\//g, '-'),
+        to: c.path,
+        match: c.match,
+        icon: c.icon,
+        labelKey: c.i18nKey,
+        labelFallback: c.i18nFallback,
+      }));
+  };
+
+  const renderItem = (item: NavItem) => {
+    // KS-2840: пункт с подменю — рендерим SidebarSubmenu на desktop,
+    // обычный Link на mobile (там submenu не показываем — Lobby
+    // покрывает разводку).
+    if (item.children && !isMobile) {
+      const childItems = visibleChildren(item.children);
+      // Если все подпункты выключены — fallback на обычный Link
+      // (parent уже прошёл customGate, значит хоть что-то должно быть
+      // видно; ссылка ведёт на лобби-страницу).
+      if (childItems.length === 0) {
+        return (
+          <Link
+            key={item.path}
+            to={item.path}
+            className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
+            title={t(item.i18nKey)}
+          >
+            <span className="sidebar-icon">{item.icon}</span>
+          </Link>
+        );
+      }
+      const submenuId = item.path.replace(/^\//, '');
+      return (
+        <SidebarSubmenu
+          key={item.path}
+          id={submenuId}
+          icon={item.icon}
+          titleKey={item.i18nKey}
+          titleFallback={item.i18nKey}
+          items={childItems}
+          active={isActive(item.path, item.match)}
+          isOpen={openSubmenuId === submenuId}
+          onOpen={() => setOpenSubmenuId(submenuId)}
+          onClose={() =>
+            setOpenSubmenuId((curr) => (curr === submenuId ? null : curr))
+          }
+        />
+      );
+    }
+    return (
+      <Link
+        key={item.path}
+        to={item.path}
+        className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
+        title={t(item.i18nKey)}
+      >
+        <span className="sidebar-icon">{item.icon}</span>
+      </Link>
+    );
+  };
 
   return (
     <>

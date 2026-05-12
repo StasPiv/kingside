@@ -95,10 +95,12 @@ describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
   it('дефолтные флаги: видны 5 группового пункта (play, train, lessons, broadcasts, analyze)', () => {
     renderWithProviders(<Sidebar />);
     expect(screen.getByTitle(/^play$|^играть$/i).getAttribute('href')).toBe('/play');
-    expect(screen.getByTitle(/^train$|^тренировка$/i).getAttribute('href')).toBe('/train');
+    // KS-2840: Train и Analyze теперь submenu-parent <button>, не <a>.
+    // jsdom (без touch) → isMobile=false → submenu активен.
+    expect(screen.getByTestId('sidebar-submenu-parent-train')).toBeInTheDocument();
     expect(screen.getByTitle(/^lessons$|^уроки$/i).getAttribute('href')).toBe('/lessons');
     expect(screen.getByTitle(/^tv$|^трансляции$/i).getAttribute('href')).toBe('/broadcasts');
-    expect(screen.getByTitle(/^analyze$|^анализ$/i).getAttribute('href')).toBe('/analyze');
+    expect(screen.getByTestId('sidebar-submenu-parent-analyze')).toBeInTheDocument();
   });
 
   it('старые подразделы (puzzles/drills/precision/workshop/archive/tournaments) скрыты с топ-уровня', () => {
