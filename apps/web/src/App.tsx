@@ -122,6 +122,10 @@ const AnalyzeLobbyPage = lazy(() =>
 const StudiesPage = lazy(() =>
   import('./pages/StudiesPage').then((m) => ({ default: m.StudiesPage })),
 );
+// KS-2826 (KS-2815 §B.5): детальная страница студии `/studies/:slug`.
+const StudyPage = lazy(() =>
+  import('./pages/StudyPage').then((m) => ({ default: m.StudyPage })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -372,6 +376,16 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <StudiesPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2826: детальная страница студии. Owner-actions показываются
+            только если `user.id === study.ownerId` (решает сам компонент). */}
+        <Route
+          path="/studies/:slug"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <StudyPage />
             </Suspense>
           }
         />

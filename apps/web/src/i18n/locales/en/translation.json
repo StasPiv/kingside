@@ -38,11 +38,32 @@
     },
     "empty": {
       "mine": "You don't have any studies yet. Create your first one to get started.",
-      "public": "No public studies yet. Be the first to share."
+      "public": "No public studies yet. Be the first to share.",
+      "chaptersOwner": "No chapters yet. Create your first chapter or import a PGN.",
+      "chaptersPublic": "This study has no chapters yet."
     },
     "error": {
-      "load": "Failed to load studies."
-    }
+      "load": "Failed to load study.",
+      "share": "Failed to update sharing.",
+      "createChapter": "Failed to create chapter.",
+      "delete": "Failed to delete study.",
+      "notFound": "Study not found."
+    },
+    "chapter": {
+      "defaultName": "New chapter"
+    },
+    "action": {
+      "makePublic": "Make public",
+      "makePrivate": "Make private",
+      "createChapter": "+ New chapter",
+      "importPgn": "Import PGN",
+      "importPgnPending": "PGN import is being implemented (KS-2830).",
+      "delete": "Delete study"
+    },
+    "confirm": {
+      "delete": "Delete this study? Chapters will be lost. This cannot be undone."
+    },
+    "backToCatalog": "Back to studies"
   },
   "navOnboarding": {
     "title": "Menu reorganized",
