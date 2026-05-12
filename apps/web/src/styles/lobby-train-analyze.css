@@ -89,3 +89,77 @@
   font-size: 13px;
   color: var(--c-a0a0c0, #a0a0c0);
 }
+
+/* ============================================================
+ * KS-2814 — onboarding-tooltip о ревизии навигации.
+ * Минимальный стиль для одноразового dismissible баннера; layout
+ * по желанию полирует отдельно.
+ * ============================================================ */
+
+.nav-onboarding-tooltip {
+  position: fixed;
+  right: 16px;
+  bottom: 96px; /* над MobileBottomBar (mobile) и над всем (desktop) */
+  z-index: 60;
+  max-width: 360px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  border: 1px solid var(--c-7c83ff, #7c83ff);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--ov-black-40, rgba(0, 0, 0, 0.4));
+  font-size: 13px;
+}
+
+.nav-onboarding-tooltip__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nav-onboarding-tooltip__body strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.nav-onboarding-tooltip__body p {
+  margin: 0 0 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  line-height: 1.35;
+}
+
+.nav-onboarding-tooltip__link {
+  color: var(--c-7c83ff, #7c83ff);
+  text-decoration: underline;
+}
+
+.nav-onboarding-tooltip__close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 0;
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.nav-onboarding-tooltip__close:hover {
+  background: var(--c-2a2a4a, #2a2a4a);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+@media (max-width: 600px) {
+  .nav-onboarding-tooltip {
+    right: 8px;
+    left: 8px;
+    bottom: 76px;
+    max-width: none;
+  }
+}

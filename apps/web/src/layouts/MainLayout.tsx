@@ -11,6 +11,7 @@ import { useActiveGame } from '../hooks/useActiveGame';
 import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 import { NotificationDropdown } from '../components/NotificationDropdown';
 import { MobileBottomBar } from '../components/MobileBottomBar';
+import { NavOnboardingTooltip } from '../components/NavOnboardingTooltip';
 import { Sidebar } from '../components/Sidebar';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
@@ -287,6 +288,11 @@ export function MainLayout() {
         />
       )}
       {user && !hideBottomBar && <MobileBottomBar />}
+      {/* KS-2814 (ADR-058 §6.7 T17): одноразовый dismissible баннер
+          о ревизии меню (KS-2794 пакет). Показывается только
+          авторизованным, скрывается после нажатия × или сам по
+          истечении 7-дневного окна с момента деплоя. */}
+      {user && <NavOnboardingTooltip />}
       <ChatWidget />
     </div>
   );

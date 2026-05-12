@@ -22,6 +22,12 @@
       }
     }
   },
+  "navOnboarding": {
+    "title": "Menu reorganized",
+    "body": "Puzzles, Rush, Drills and Precision are now under «Train». Workshop and Archive are under «Analyze». «Home» and «Tournaments» are still accessible by direct link.",
+    "learnMore": "Read more",
+    "dismiss": "Dismiss"
+  },
   "analyze": {
     "lobby": {
       "title": "Analyze",
@@ -1911,6 +1917,14 @@
     "orUpload": "or upload .pgn file"
   },
   "features": {
+    "navigation": {
+      "title": "Menu reorganized (May 2026)",
+      "intro": "We reorganized the sidebar into 5 main groups. Direct URLs still work — only the menu structure changed.",
+      "bullet1": "Puzzles, Puzzle Rush, Drills and Precision are now grouped under \"Train\" (/train).",
+      "bullet2": "Workshop and Archive are under \"Analyze\" (/analyze).",
+      "bullet3": "\"Home\" and \"Tournaments\" were removed from the menu but remain available by direct link (/lobby, /tournaments).",
+      "bullet4": "After login you land on /play instead of /lobby."
+    },
     "hero": {
       "title": "Play chess. Analyze. Improve.",
       "subtitle": "User Guide",

@@ -31,6 +31,54 @@ export function FeaturesPage() {
         </div>
       </section>
 
+      {/* KS-2814 (ADR-058 §6.7 T17): запись о ревизии навигации.
+          Якорь #navigation — `NavOnboardingTooltip` ведёт сюда «Read more». */}
+      <section
+        id="navigation"
+        className="features-section features-section--changelog"
+      >
+        <div className="features-section__inner">
+          <span className="features-section__icon">🧭</span>
+          <h2 className="features-section__title">
+            {t('features.navigation.title', 'Menu reorganized (May 2026)')}
+          </h2>
+          <div className="features-section__guide">
+            <p>
+              {t(
+                'features.navigation.intro',
+                'We reorganized the sidebar into 5 main groups. Direct URLs still work — only the menu structure changed.',
+              )}
+            </p>
+            <ul>
+              <li>
+                {t(
+                  'features.navigation.bullet1',
+                  'Puzzles, Puzzle Rush, Drills and Precision are now grouped under "Train" (/train).',
+                )}
+              </li>
+              <li>
+                {t(
+                  'features.navigation.bullet2',
+                  'Workshop and Archive are under "Analyze" (/analyze).',
+                )}
+              </li>
+              <li>
+                {t(
+                  'features.navigation.bullet3',
+                  '"Home" and "Tournaments" were removed from the menu but remain available by direct link (/lobby, /tournaments).',
+                )}
+              </li>
+              <li>
+                {t(
+                  'features.navigation.bullet4',
+                  'After login you land on /play instead of /lobby.',
+                )}
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       {/* Quick links for guests */}
       <section className="features-quick-links">
         <div className="features-quick-links__grid">
