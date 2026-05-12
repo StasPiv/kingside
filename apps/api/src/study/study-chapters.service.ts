@@ -7,6 +7,7 @@ import type {
   StudyModel as Study,
   StudyChapterModel as StudyChapter,
 } from '@kingside/db';
+import { Prisma } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { splitPgn } from '../workshop/pgn.parser';
 import { STUDY_LIMITS, STUDY_ORDER_STEP } from './study-limits';
@@ -14,6 +15,10 @@ import type {
   CreateChapterDto,
   UpdateChapterDto,
 } from './dto/study.dto';
+import {
+  validateGamebookPayload,
+  type GamebookPayloadDto,
+} from './dto/gamebook.dto';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. CRUD-сервис для `StudyChapter`.
@@ -52,6 +57,12 @@ export class StudyChaptersService {
   async create(study: Study, dto: CreateChapterDto): Promise<StudyChapterDto> {
     await this.assertCanAddChapter(study);
     this.assertPgnSize(dto.pgn);
+    // KS-2902: режимные поля concealPly/gamebook раньше молча отбрасывались
+    // на уровне сервиса — фронт переключал mode='conceal'/'gamebook', но
+    // в БД не попадал ни ply, ни payload. Conceal не скрывал узлы,
+    // gamebook reader не получал инструкций. Поля Prisma + миграция
+    // KS-2857 уже на месте — сервис теперь их пробрасывает.
+    const gamebookCleaned = this.normalizeGamebookForCreate(dto.gamebook);
     const nextOrderIdx = await this.computeNextOrderIdx(study.id);
     const created = await this.prisma.$transaction(async (tx) => {
       const c = await tx.studyChapter.create({
@@ -63,6 +74,10 @@ export class StudyChaptersService {
           startFen: dto.startFen ?? null,
           orientation: dto.orientation ?? 'white',
           mode: dto.mode ?? 'analysis',
+          // KS-2902: concealPly явно из dto, null если не указан.
+          concealPly: dto.concealPly ?? null,
+          // KS-2902: gamebook — валидированный payload, иначе null.
+          gamebook: gamebookCleaned,
         },
       });
       await tx.study.update({
@@ -81,6 +96,13 @@ export class StudyChaptersService {
   ): Promise<StudyChapterDto> {
     const existing = await this.requireChapter(study, chapterId);
     if (dto.pgn !== undefined) this.assertPgnSize(dto.pgn);
+    // KS-2902: см. комментарий в create. Партиальный update —
+    // включаем поле только если оно явно передано (`!== undefined`).
+    // null допустим как явный сброс (mode сменили обратно на 'analysis').
+    const gamebookField =
+      dto.gamebook === undefined
+        ? {}
+        : { gamebook: this.normalizeGamebookForUpdate(dto.gamebook) };
     const updated = await this.prisma.studyChapter.update({
       where: { id: existing.id },
       data: {
@@ -91,9 +113,45 @@ export class StudyChaptersService {
           ? { orientation: dto.orientation }
           : {}),
         ...(dto.mode !== undefined ? { mode: dto.mode } : {}),
+        // KS-2902: concealPly — null допустим как явный сброс.
+        ...(dto.concealPly !== undefined
+          ? { concealPly: dto.concealPly }
+          : {}),
+        ...gamebookField,
       },
     });
     return toChapterDto(updated);
+  }
+
+  /**
+   * KS-2902. Нормализация gamebook payload для `create`:
+   *  - `null`/`undefined` → `Prisma.DbNull` (записываем NULL в JSONB);
+   *  - объект → `validateGamebookPayload`, далее cast на InputJsonValue.
+   *
+   * BadRequestException при нарушении структуры.
+   */
+  private normalizeGamebookForCreate(
+    raw: Record<string, unknown> | null | undefined,
+  ): Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue {
+    if (raw === undefined || raw === null) return Prisma.DbNull;
+    try {
+      const cleaned = validateGamebookPayload(raw);
+      return cleaned as unknown as Prisma.InputJsonValue;
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'invalid gamebook',
+      );
+    }
+  }
+
+  /**
+   * Аналог для `update` — на null сбрасываем в DbNull, на объект
+   * валидируем и пишем.
+   */
+  private normalizeGamebookForUpdate(
+    raw: Record<string, unknown> | null,
+  ): Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue {
+    return this.normalizeGamebookForCreate(raw);
   }
 
   async delete(study: Study, chapterId: string): Promise<void> {
@@ -367,6 +425,13 @@ export interface StudyChapterDto {
   startFen: string | null;
   orientation: string;
   mode: string;
+  /** KS-2902: ply после которого main-line скрыт (mode='conceal'). */
+  concealPly: number | null;
+  /**
+   * KS-2902: payload автора для mode='gamebook'. Сериализуется как-есть
+   * (JSON-объект `{intro?, byUci?}`). null если глава не в этом режиме.
+   */
+  gamebook: unknown;
   createdAt: string;
   updatedAt: string;
 }
@@ -381,6 +446,10 @@ export function toChapterDto(c: StudyChapter): StudyChapterDto {
     startFen: c.startFen,
     orientation: c.orientation,
     mode: c.mode,
+    // KS-2902: эти поля раньше не возвращались в DTO — фронт получал
+    // `undefined` и не знал ни ply, ни gamebook payload.
+    concealPly: c.concealPly ?? null,
+    gamebook: c.gamebook ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };

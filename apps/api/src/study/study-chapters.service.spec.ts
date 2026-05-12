@@ -274,6 +274,148 @@ describe('StudyChaptersService — KS-2818 T3', () => {
     });
   });
 
+  describe('KS-2902: concealPly + gamebook сохраняются и возвращаются', () => {
+    it('create: concealPly пробрасывается в data и в DTO', async () => {
+      prisma.studyChapter.count.mockResolvedValue(0);
+      prisma.studyChapter.findFirst.mockResolvedValue(null);
+      tx.studyChapter.create.mockResolvedValue({
+        ...chapter,
+        mode: 'conceal',
+        concealPly: 3,
+      });
+      const r = await svc.create(study, {
+        name: 'C',
+        mode: 'conceal',
+        concealPly: 3,
+      });
+      const callData = tx.studyChapter.create.mock.calls[0][0].data;
+      expect(callData.concealPly).toBe(3);
+      expect(callData.mode).toBe('conceal');
+      expect(r.concealPly).toBe(3);
+    });
+
+    it('create: gamebook payload валидируется и сохраняется', async () => {
+      prisma.studyChapter.count.mockResolvedValue(0);
+      prisma.studyChapter.findFirst.mockResolvedValue(null);
+      const gamebook = {
+        intro: 'Welcome',
+        byUci: { e2e4: { hint: 'do it', success: 'good' } },
+      };
+      tx.studyChapter.create.mockResolvedValue({
+        ...chapter,
+        mode: 'gamebook',
+        gamebook,
+      });
+      const r = await svc.create(study, {
+        name: 'C',
+        mode: 'gamebook',
+        gamebook,
+      });
+      const callData = tx.studyChapter.create.mock.calls[0][0].data;
+      expect(callData.gamebook).toEqual(gamebook);
+      expect(r.gamebook).toEqual(gamebook);
+    });
+
+    it('create: без concealPly/gamebook → DbNull / null в DTO', async () => {
+      prisma.studyChapter.count.mockResolvedValue(0);
+      prisma.studyChapter.findFirst.mockResolvedValue(null);
+      tx.studyChapter.create.mockResolvedValue(chapter);
+      const r = await svc.create(study, { name: 'C' });
+      const callData = tx.studyChapter.create.mock.calls[0][0].data;
+      expect(callData.concealPly).toBeNull();
+      // gamebook = Prisma.DbNull sentinel (в моке — 'DbNull' string).
+      expect(callData.gamebook).toBeDefined();
+      expect(r.concealPly).toBeNull();
+      expect(r.gamebook).toBeNull();
+    });
+
+    it('update: concealPly явно null сбрасывает значение', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue({
+        ...chapter,
+        concealPly: 5,
+      });
+      prisma.studyChapter.update.mockResolvedValue({
+        ...chapter,
+        concealPly: null,
+      });
+      const r = await svc.update(study, chapter.id, { concealPly: null });
+      const callData = prisma.studyChapter.update.mock.calls[0][0].data;
+      expect(callData).toHaveProperty('concealPly', null);
+      expect(r.concealPly).toBeNull();
+    });
+
+    it('update: concealPly число применяется', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      prisma.studyChapter.update.mockResolvedValue({
+        ...chapter,
+        concealPly: 7,
+      });
+      const r = await svc.update(study, chapter.id, { concealPly: 7 });
+      const callData = prisma.studyChapter.update.mock.calls[0][0].data;
+      expect(callData.concealPly).toBe(7);
+      expect(r.concealPly).toBe(7);
+    });
+
+    it('update: gamebook null → DbNull в data', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      prisma.studyChapter.update.mockResolvedValue({ ...chapter, gamebook: null });
+      const r = await svc.update(study, chapter.id, { gamebook: null });
+      const callData = prisma.studyChapter.update.mock.calls[0][0].data;
+      expect(callData).toHaveProperty('gamebook');
+      expect(r.gamebook).toBeNull();
+    });
+
+    it('update: gamebook валидный объект сохраняется', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      const gb = { intro: 'i', byUci: { d2d4: { success: 'ok' } } };
+      prisma.studyChapter.update.mockResolvedValue({
+        ...chapter,
+        gamebook: gb,
+      });
+      const r = await svc.update(study, chapter.id, { gamebook: gb });
+      const callData = prisma.studyChapter.update.mock.calls[0][0].data;
+      expect(callData.gamebook).toEqual(gb);
+      expect(r.gamebook).toEqual(gb);
+    });
+
+    it('update: gamebook с битым UCI ключом → 400', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      await expect(
+        svc.update(study, chapter.id, {
+          gamebook: { byUci: { xyz: { hint: 'x' } } },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.studyChapter.update).not.toHaveBeenCalled();
+    });
+
+    it('update: поля не передавались → не попадают в data (partial)', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      prisma.studyChapter.update.mockResolvedValue(chapter);
+      await svc.update(study, chapter.id, { name: 'X' });
+      const callData = prisma.studyChapter.update.mock.calls[0][0].data;
+      expect(callData).not.toHaveProperty('concealPly');
+      expect(callData).not.toHaveProperty('gamebook');
+    });
+
+    it('toChapterDto включает concealPly и gamebook', () => {
+      // импорт через ESM — берём через require service-файла. Прямой
+      // импорт делать в этом spec'е смысла нет: проверка идёт через
+      // public API (create/update выше). Здесь — sanity-check, что
+      // даже свежий chapter из БД c заполненными полями раскрывается
+      // в DTO.
+      prisma.studyChapter.findUnique.mockResolvedValue({
+        ...chapter,
+        concealPly: 4,
+        gamebook: { intro: 'hi' },
+      });
+      // getById использует тот же toChapterDto.
+      return svc.getById(study, chapter.id).then((r) => {
+        expect(r.concealPly).toBe(4);
+        expect(r.gamebook).toEqual({ intro: 'hi' });
+      });
+    });
+  });
+
   describe('reorder', () => {
     const ch1 = { id: 'a', orderIdx: 1000 };
     const ch2 = { id: 'b', orderIdx: 2000 };
