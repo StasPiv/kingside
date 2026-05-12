@@ -77,6 +77,9 @@ function buildPgnWithFen(moves: string, fen: string, headers?: Record<string, st
     }
   }
   if (fen !== DEFAULT_FEN) {
+    // KS-2828: `[SetUp "1"]` обязательная пара к `[FEN]` по PGN-стандарту
+    // (§9.7.3). Без него внешние парсеры могут игнорировать FEN-header.
+    parts.push(`[SetUp "1"]`);
     parts.push(`[FEN "${fen}"]`);
   }
   if (parts.length > 0) {
@@ -779,7 +782,11 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     headers.push(`[Result "${pgnHeaders['Result'] || '*'}"]`);
     if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
     if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
-    if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
+    if (initialFen !== DEFAULT_FEN) {
+      // KS-2828: пара `[SetUp "1"][FEN ...]` обязательна по PGN §9.7.3.
+      headers.push(`[SetUp "1"]`);
+      headers.push(`[FEN "${initialFen}"]`);
+    }
     // KS-2152: initialAnnotations попадают в leading-комментарий, а
     // node-annotations берутся из annotationsByIndex (state useReviewState).
     const moves = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);

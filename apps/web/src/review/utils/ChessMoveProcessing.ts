@@ -59,7 +59,15 @@ function extractVariationMoves(variation: any): ChessMove[] {
 }
 
 /**
- * Форматирует отображение хода с учетом контекста
+ * Форматирует отображение хода с учетом контекста.
+ *
+ * KS-2828: учитываем случай «main-line, первый ход — чёрный» (стартовая
+ * позиция из FEN, где `... b ...` или fullmove != 1). До фикса
+ * `formatMoveDisplay` для этого случая возвращал просто `move.san` без
+ * префикса `<N>...`, и пользователь видел нумерацию белых для чёрного
+ * хода (например, `1.h6` вместо `25...h6` при ходе чёрных). PgnDeserializer
+ * уже правильно вычисляет `ply` из FEN-headers (см. startPly), но рендер
+ * этим не пользовался.
  */
 function formatMoveDisplay(
   move: ChessMove,
@@ -89,6 +97,11 @@ function formatMoveDisplay(
     } else {
       return `${moveNumber}...${move.san}`;
     }
+  } else if (level === 0 && moveIndex === 0 && !isWhiteMove) {
+    // KS-2828: main-line, первый ход — чёрный (стартовая позиция из FEN
+    // с side-to-move=b или fullmove != 1). Префикс `<N>...` обязателен,
+    // иначе нотация выглядит как ход белых с тем же номером.
+    return `${moveNumber}...${move.san}`;
   } else if (needsMoveNumberAfterVariation) {
     // Ход после завершения вариации
     return `${moveNumber}...${move.san}`;

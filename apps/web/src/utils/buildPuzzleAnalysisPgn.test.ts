@@ -16,8 +16,8 @@ describe('buildPuzzleAnalysisPgn (KS-2606)', () => {
     const moves = ['e1g1', 'e8g8', 'b1c3', 'd7d6'];
     const pgn = buildPuzzleAnalysisPgn(fen, moves);
 
-    // Header: FEN + пустая строка + ходы.
-    expect(pgn).toMatch(/^\[FEN "[^"]+"\]\n\n/);
+    // Header: SetUp + FEN + пустая строка + ходы (KS-2828: парная связка).
+    expect(pgn).toMatch(/^\[SetUp "1"\]\n\[FEN "[^"]+"\]\n\n/);
     expect(pgn).toContain('5. O-O O-O 6. Nc3 d6');
 
     // Финальная позиция совпадает с применением UCI-ходов к стартовой FEN.
@@ -51,10 +51,10 @@ describe('buildPuzzleAnalysisPgn (KS-2606)', () => {
     expect(replayPgn(pgn).fen()).toBe(applyUciMoves(fen, moves).fen());
   });
 
-  it('пустой список ходов → PGN только с FEN-header (без ходов)', () => {
+  it('пустой список ходов → PGN только с FEN/SetUp-header (без ходов)', () => {
     const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const pgn = buildPuzzleAnalysisPgn(fen, []);
-    expect(pgn).toBe(`[FEN "${fen}"]\n\n`);
+    expect(pgn).toBe(`[SetUp "1"]\n[FEN "${fen}"]\n\n`);
   });
 
   it('битый ход в середине списка — обрыв, ранее собранные ходы сохраняются', () => {

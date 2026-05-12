@@ -296,3 +296,61 @@ describe('processMoveHierarchy (KS-2288 пробрасывает variationColor)
     for (const m of blueVar) expect(m.variationColor).toBe('blue');
   });
 });
+
+/**
+ * KS-2828: рендер нотации главной линии должен учитывать стартовый
+ * side-to-move и fullmove number из FEN-header PGN. Если первый ход
+ * партии — чёрный (FEN: `... b ... 1 25`), его дисплей должен быть
+ * `25...<SAN>`, а не `25.<SAN>` (как было до фикса). PgnDeserializer
+ * правильно вычисляет `ply` через startPly, а formatMoveDisplay
+ * раньше для случая «level=0, moveIndex=0, чёрный» возвращал просто
+ * SAN без префикса — отсюда жалоба пользователя.
+ */
+describe('formatMoveDisplay main-line first move — black (KS-2828)', () => {
+  function processedMoves(items: ReturnType<typeof processMoveHierarchy>) {
+    return items.filter(isProcessedMove);
+  }
+
+  it('FEN с side-to-move=b, fullmove=1 → первый ход main-line: 1...<SAN>', () => {
+    const pgn =
+      '[SetUp "1"]\n[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]\n\n1... e5 2. Nf3 Nc6';
+    const moves = parseAnnotatedPgn(pgn) as ChessMove[];
+    const items = processMoveHierarchy(moves, null);
+    const all = processedMoves(items);
+    expect(all[0].display).toBe('1...e5');
+    expect(all[1].display).toBe('2.Nf3');
+    expect(all[2].display).toBe('Nc6');
+  });
+
+  it('FEN с side-to-move=b, fullmove=25 → первый ход main-line: 25...<SAN>', () => {
+    // Произвольная mid-game позиция, ход чёрных, fullmove=25.
+    const pgn =
+      '[SetUp "1"]\n[FEN "r1bqkb1r/pp3ppp/2n2n2/2pp4/3P4/2N1PN2/PP3PPP/R1BQKB1R b KQkq - 0 25"]\n\n25... a6 26. Bd3';
+    const moves = parseAnnotatedPgn(pgn) as ChessMove[];
+    const items = processMoveHierarchy(moves, null);
+    const all = processedMoves(items);
+    expect(all[0].display).toBe('25...a6');
+    expect(all[1].display).toBe('26.Bd3');
+  });
+
+  it('FEN с side-to-move=w, fullmove=1 (стандартный старт): первый ход — 1.<SAN>', () => {
+    // Регрессионный контроль — не сломать обычный сценарий «белые
+    // начинают» добавленной веткой.
+    const moves = parseAnnotatedPgn('1. e4 e5 2. Nf3') as ChessMove[];
+    const items = processMoveHierarchy(moves, null);
+    const all = processedMoves(items);
+    expect(all[0].display).toBe('1.e4');
+    expect(all[1].display).toBe('e5');
+    expect(all[2].display).toBe('2.Nf3');
+  });
+
+  it('FEN с side-to-move=w, fullmove=8 → первый ход — 8.<SAN>', () => {
+    const pgn =
+      '[SetUp "1"]\n[FEN "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 8"]\n\n8. O-O O-O';
+    const moves = parseAnnotatedPgn(pgn) as ChessMove[];
+    const items = processMoveHierarchy(moves, null);
+    const all = processedMoves(items);
+    expect(all[0].display).toBe('8.O-O');
+    expect(all[1].display).toBe('O-O');
+  });
+});

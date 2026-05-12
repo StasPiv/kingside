@@ -61,5 +61,11 @@ export function buildPuzzleAnalysisPgn(
   }
 
   const movesText = pgnParts.join(' ');
-  return `[FEN "${fen}"]\n\n${movesText}`;
+  // KS-2828: `[SetUp "1"]` обязательная пара к `[FEN]` по PGN-стандарту
+  // (PGN Specification §9.7.3). Без `SetUp=1` парсеры по стандарту
+  // вправе игнорировать `[FEN]` тег. Наш собственный `parseAnnotatedPgn`
+  // его регекспом всё равно ловит, но для совместимости с внешними
+  // инструментами (chess.com, lichess, любой PGN-viewer) добавляем
+  // обе пары.
+  return `[SetUp "1"]\n[FEN "${fen}"]\n\n${movesText}`;
 }
