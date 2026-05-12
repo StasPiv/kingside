@@ -138,9 +138,12 @@ const NAV_ITEMS: NavItem[] = [
       },
       {
         path: '/precision',
+        // KS-2845: используем `nav.precisionShort` («Точность») вместо
+        // длинного `nav.precision` («Тренировка точности») — в поповере
+        // компактнее, нет переноса строки на длинных языках.
         icon: '🎯',
-        i18nKey: 'nav.precision',
-        i18nFallback: 'Precision training',
+        i18nKey: 'nav.precisionShort',
+        i18nFallback: 'Precision',
         match: ['/precision'],
         featureFlag: 'puzzlesEnabled',
       },
