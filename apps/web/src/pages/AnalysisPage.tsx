@@ -786,10 +786,21 @@ function AnalysisPageInner({
   // Отключаем autosave полностью при наличии `state.pgn` или
   // `puzzleFen`/`puzzlePgn` в URL — это явный сигнал «новая ad-hoc
   // сессия с этими данными», восстанавливать чужой снимок нельзя.
+  //
+  // KS-2904: тот же баг проявлялся при создании новой главы в студии —
+  // для свежей главы с дефолтным initialFen ad-hoc autosave подгружал
+  // из localStorage чужую партию (последнюю ad-hoc-сессию пользователя
+  // на /analysis). Жёстко выключаем autosave для не-analysis контекста
+  // (review/puzzle/study). Ad-hoc-сценарий — только `ctx.kind==='analysis'`.
   const stateHasPgn = !!(location.state as { pgn?: string } | null)?.pgn;
   useAdHocAnalysisAutosave({
     enabled:
-      !gameId && !analysisId && !stateHasPgn && !puzzleFen && !puzzlePgn,
+      ctx.kind === 'analysis' &&
+      !gameId &&
+      !analysisId &&
+      !stateHasPgn &&
+      !puzzleFen &&
+      !puzzlePgn,
     initialFen,
     history,
     initialAnnotations,
