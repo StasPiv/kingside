@@ -63,7 +63,7 @@ describe('useAdminStatus', () => {
   });
 
   it('бэк сказал isAdmin=false, но username в whitelist (KS-2919) → isAdmin=true', async () => {
-    authState.user = { id: 'u-1', username: 'StanislavTelegram' };
+    authState.user = { id: 'u-1', username: 'Stanislav' };
     getAdminStatusMock.mockResolvedValue({ isAdmin: false });
     const { result } = renderHook(() => useAdminStatus());
     // Whitelist даёт мгновенный true до того как успеет приехать ответ.
@@ -78,7 +78,7 @@ describe('useAdminStatus', () => {
   });
 
   it('бэк упал, но username в whitelist → isAdmin=true', async () => {
-    authState.user = { id: 'u-1', username: 'StanislavTelegram' };
+    authState.user = { id: 'u-1', username: 'Stanislav' };
     getAdminStatusMock.mockRejectedValue(new Error('network'));
     const { result } = renderHook(() => useAdminStatus());
     expect(result.current.isAdmin).toBe(true);

@@ -56,11 +56,16 @@ export interface UseAdminStatusReturn {
 }
 
 /**
- * KS-2919: зеркало `KS_ADMIN_USERS` из `scripts/deploy-aws.sh`.
+ * KS-2919 / KS-2921: зеркало `KS_ADMIN_USERS` из `scripts/deploy-aws.sh`.
  * Совпадение по строгому равенству username. Используется только как
  * fallback для видимости UI-кнопки; backend-гард не отключаем.
+ *
+ * KS-2921: значение приведено к реальному username админа `Stanislav`
+ * (синхронно с KS-2920, где правится `KS_ADMIN_USERS` в deploy-скрипте).
+ * Раньше здесь стоял `StanislavTelegram`, потому что предыдущий env-файл
+ * содержал именно эту строку — но фактический логин админа в БД иной.
  */
-const FRONTEND_ADMIN_WHITELIST: ReadonlyArray<string> = ['StanislavTelegram'];
+const FRONTEND_ADMIN_WHITELIST: ReadonlyArray<string> = ['Stanislav'];
 
 function isWhitelistedAdmin(username: string | undefined | null): boolean {
   if (!username) return false;
