@@ -66,7 +66,12 @@ interface NavItem {
  * как есть; T5 разделит её на отдельный блок.
  */
 const NAV_ITEMS: NavItem[] = [
-  { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play'] },
+  // KS-2803: match покрывает /play* и /tournaments* — оба относятся к
+  // группе «Играть» (ADR-058 §4.3). Турниры с топ-уровня sidebar'а
+  // удалены (KS-2800), но прямые URL остаются — подсветка должна
+  // указывать на «Играть», иначе на /tournaments активна никакая
+  // группа.
+  { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play', '/tournaments'] },
   // KS-2800: групповая «Тренировка». Виден если puzzlesEnabled ИЛИ
   // drillsEnabled — иначе подразделы пусты (Rush всегда есть, но он
   // один не делает группу осмысленной для пользователя; всё же оставлю

@@ -205,4 +205,43 @@ describe('<Sidebar> KS-2800/KS-2803 — active highlight для group-пункт
     const analyze = screen.getByTitle(/^analyze$|^анализ$/i);
     expect(analyze.className).toContain('sidebar-item--active');
   });
+
+  it('KS-2803: на /tournaments подсвечен «Играть» (Турниры → группа Play)', () => {
+    renderWithProviders(<Sidebar />, { route: '/tournaments' });
+    const play = screen.getByTitle(/^play$|^играть$/i);
+    expect(play.className).toContain('sidebar-item--active');
+  });
+
+  it('KS-2803: на /tournaments/abc подсвечен «Играть» (вложенный путь)', () => {
+    renderWithProviders(<Sidebar />, { route: '/tournaments/abc' });
+    const play = screen.getByTitle(/^play$|^играть$/i);
+    expect(play.className).toContain('sidebar-item--active');
+  });
+
+  it('KS-2803: на /lessons/some-slug подсвечен «Уроки»', () => {
+    renderWithProviders(<Sidebar />, { route: '/lessons/intro' });
+    const lessons = screen.getByTitle(/^lessons$|^уроки$/i);
+    expect(lessons.className).toContain('sidebar-item--active');
+  });
+
+  it('KS-2803: на /broadcasts/tid/rid подсвечен «Трансляции»', () => {
+    renderWithProviders(<Sidebar />, { route: '/broadcasts/tid/rid' });
+    const tv = screen.getByTitle(/^tv$|^трансляции$/i);
+    expect(tv.className).toContain('sidebar-item--active');
+  });
+
+  it('KS-2803 (KS-2790 regression): ровно один топ-пункт активен на любом URL подгруппы', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<Sidebar />, { route: '/puzzle-rush' });
+    // /puzzle-rush — это группа Train. Проверим, что другие группы не активны.
+    expect(
+      screen.getByTitle(/^train$|^тренировка$/i).className,
+    ).toContain('sidebar-item--active');
+    expect(
+      screen.getByTitle(/^analyze$|^анализ$/i).className,
+    ).not.toContain('sidebar-item--active');
+    expect(
+      screen.getByTitle(/^play$|^играть$/i).className,
+    ).not.toContain('sidebar-item--active');
+  });
 });
