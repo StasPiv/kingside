@@ -72,19 +72,17 @@ const NAV_ITEMS: NavItem[] = [
   // указывать на «Играть», иначе на /tournaments активна никакая
   // группа.
   { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play', '/tournaments'] },
-  // KS-2800: групповая «Тренировка». Виден если puzzlesEnabled ИЛИ
-  // drillsEnabled — иначе подразделы пусты (Rush всегда есть, но он
-  // один не делает группу осмысленной для пользователя; всё же оставлю
-  // group-гейтом visible if any of {puzzlesEnabled, drillsEnabled, true(Rush)}).
+  // KS-2800 / KS-2811 (ADR-058 §4.1): групповая «Тренировка». Скрыта,
+  // если оба контентных gate-флага off (`puzzlesEnabled=false &&
+  // drillsEnabled=false`). Puzzle Rush сам по себе открыт всегда, но
+  // в этом edge-case Sidebar не показывает пункт «Тренировка»
+  // (Rush остаётся доступен по прямому URL `/puzzle-rush`).
   {
     path: '/train',
     icon: '🧠',
     i18nKey: 'nav.train',
     match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision'],
-    customGate: (flags) =>
-      // Rush открыт всегда → группа всегда видна. Хук для будущего
-      // gating'а Rush'а: если все 4 подраздела закрыты — скрыть группу.
-      flags.puzzlesEnabled || flags.drillsEnabled || true,
+    customGate: (flags) => flags.puzzlesEnabled || flags.drillsEnabled,
   },
   {
     path: '/lessons',

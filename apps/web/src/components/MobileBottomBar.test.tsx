@@ -170,9 +170,19 @@ describe('<MobileBottomBar> KS-2806 — групповой набор', () => {
     expect(screen.getByTestId('mobile-bar-analyze')).toBeInTheDocument();
   });
 
-  it('group `train` видна даже при puzzles+drills=false (customGate, Rush открыт)', async () => {
+  it('KS-2811: group `train` скрыта когда puzzles+drills=false (Rush через прямой URL)', async () => {
     flagControls.puzzles = false;
     flagControls.drills = false;
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mobile-bar-train')).not.toBeInTheDocument();
+  });
+
+  it('KS-2811: group `train` видна если хотя бы один из puzzles/drills включён', async () => {
+    flagControls.puzzles = false;
+    flagControls.drills = true;
     renderWithProviders(<MobileBottomBar />);
     await waitFor(() =>
       expect(screen.getByTestId('mobile-bar-train')).toBeInTheDocument(),

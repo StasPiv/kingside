@@ -78,7 +78,9 @@ import { Sidebar } from './Sidebar';
 
 beforeEach(() => {
   flagControls.lessons = true;
-  flagControls.puzzles = false;
+  // KS-2811: дефолт для тестов — `puzzlesEnabled=true`, чтобы группа
+  // «Тренировка» отображалась (customGate теперь `puzzles || drills`).
+  flagControls.puzzles = true;
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
   flagControls.drills = false;
@@ -130,8 +132,21 @@ describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
     expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
   });
 
-  it('пункт «Тренировка» виден всегда (Puzzle Rush открыт) — даже при puzzlesEnabled=false && drillsEnabled=false', () => {
+  it('KS-2811: «Тренировка» скрыта если puzzlesEnabled=false && drillsEnabled=false', () => {
     flagControls.puzzles = false;
+    flagControls.drills = false;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^train$|^тренировка$/i)).not.toBeInTheDocument();
+  });
+
+  it('KS-2811: «Тренировка» видна если хотя бы один из puzzlesEnabled/drillsEnabled = true', () => {
+    flagControls.puzzles = false;
+    flagControls.drills = true;
+    const { unmount } = renderWithProviders(<Sidebar />);
+    expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
+    unmount();
+
+    flagControls.puzzles = true;
     flagControls.drills = false;
     renderWithProviders(<Sidebar />);
     expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();

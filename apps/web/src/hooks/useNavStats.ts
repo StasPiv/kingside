@@ -92,13 +92,13 @@ export const NAV_ROUTES: Record<NavRoute, NavRouteMeta> = {
     icon: '🧠',
     labelKey: 'nav.train',
     labelFallback: 'Train',
-    // Rush всегда открыт → группа видна, даже если puzzlesEnabled и
-    // drillsEnabled оба false. Хук на будущий gating Rush'а — заменим
-    // на `flags.puzzlesEnabled || flags.drillsEnabled` когда Rush
-    // получит свой флаг.
+    // KS-2811 (ADR-058 §4.1): группа скрыта если puzzlesEnabled=false &&
+    // drillsEnabled=false. Puzzle Rush открыт всегда, но в этом edge-case
+    // в навигации Train не показываем — Rush остаётся доступен по
+    // прямому URL `/puzzle-rush`. Симметрия с Sidebar.tsx customGate.
     flag: null,
     customGate: (flags) =>
-      flags.puzzlesEnabled || flags.drillsEnabled || true,
+      flags.puzzlesEnabled || flags.drillsEnabled,
   },
   learn: {
     to: '/lessons',

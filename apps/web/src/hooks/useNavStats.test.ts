@@ -125,10 +125,32 @@ describe('resolveNavRoute KS-2805 — групповой маппинг', () => 
     );
   });
 
-  it('NAV_ROUTES.train: customGate всегда true (Rush открыт)', () => {
+  it('KS-2811: NAV_ROUTES.train.customGate = puzzlesEnabled || drillsEnabled', () => {
     const meta = NAV_ROUTES.train;
     expect(meta.customGate).toBeDefined();
-    expect(meta.customGate!({ ...flagsState, puzzlesEnabled: false, drillsEnabled: false })).toBe(true);
+    // Оба false → скрыта.
+    expect(
+      meta.customGate!({
+        ...flagsState,
+        puzzlesEnabled: false,
+        drillsEnabled: false,
+      }),
+    ).toBe(false);
+    // Хотя бы один true → видна.
+    expect(
+      meta.customGate!({
+        ...flagsState,
+        puzzlesEnabled: true,
+        drillsEnabled: false,
+      }),
+    ).toBe(true);
+    expect(
+      meta.customGate!({
+        ...flagsState,
+        puzzlesEnabled: false,
+        drillsEnabled: true,
+      }),
+    ).toBe(true);
   });
 
   it('DEFAULT_TOP — три первые группы по ADR-058 §5.1', () => {
@@ -294,17 +316,20 @@ describe('useTopNavStats — групповой набор + защитный le
     expect(result.current.routes).toEqual(['play', 'analyze']);
   });
 
-  it('customGate train: всегда видна (Rush открыт без флага)', async () => {
+  it('KS-2811: train скрыта в /top если puzzles+drills=false', async () => {
     flagsState.puzzlesEnabled = false;
     flagsState.drillsEnabled = false;
     apiGetMock.mockResolvedValue({
-      items: [{ route: 'train', count: 10 }],
+      items: [
+        { route: 'train', count: 10 },
+        { route: 'play', count: 5 },
+      ],
     });
     const { result } = renderHook(() => useTopNavStats(3), {
       wrapper: makeWrapper('/'),
     });
     await waitFor(() => expect(result.current.routes.length).toBe(1));
-    expect(result.current.routes).toEqual(['train']);
+    expect(result.current.routes).toEqual(['play']);
   });
 
   it('запрашивает limit*3 (запас на gating)', async () => {
