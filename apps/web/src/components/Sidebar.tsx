@@ -184,18 +184,18 @@ const NAV_ITEMS: NavItem[] = [
     match: ['/lessons'],
     featureFlag: 'lessonsEnabled',
   },
-  // KS-2832 (KS-2815 §B.1, §B.2): временный пункт «Студии» под flag'ом
-  // `studiesEnabled`. KS-2823 (backend `87718d2c`) добавил флаг в
-  // `FeatureFlags` (`@kingside/shared`) — переключаем customGate на
-  // обычный `featureFlag`-gate. Default off (фича в beta).
-  // Финальный плейсмент (отдельный / в группе «Анализ» / «Обучение»)
-  // решится после релиза MVP.
+  // KS-2832 / KS-2851 (KS-2815 §B.1, §B.2): пункт «Студии».
+  // На локальном dev (`import.meta.env.DEV === true`) — виден всегда,
+  // независимо от `studiesEnabled` (разработчику нужен постоянный
+  // доступ к разделу для follow-up'ов KS-2849 и тп.).
+  // На production — gating по `studiesEnabled` (default off, фича в
+  // beta; раскручиваем админом через `/admin/feature-flags`).
   {
     path: '/studies',
     icon: '🧪',
     i18nKey: 'nav.studies',
     match: ['/studies'],
-    featureFlag: 'studiesEnabled',
+    customGate: (flags) => import.meta.env.DEV || flags.studiesEnabled,
   },
   {
     path: '/broadcasts',

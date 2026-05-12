@@ -552,18 +552,36 @@ describe('<Sidebar> KS-2848 — Play submenu с Турнирами', () => {
 });
 
 /**
- * KS-2832 (KS-2815 §B.1, §B.2): временный пункт «Студии» в sidebar
- * под `studiesEnabled` (default off). Когда флаг appear в backend
- * KS-2823, customGate перестанет быть нужным — TODO в Sidebar.tsx.
+ * KS-2832 / KS-2851 (KS-2815 §B.1, §B.2): пункт «Студии» в sidebar.
+ * - На dev (`import.meta.env.DEV === true`) — виден всегда.
+ * - На prod — gating по `studiesEnabled`.
+ *
+ * vitest по умолчанию работает в DEV-режиме (`import.meta.env.DEV = true`).
+ * Для prod-кейсов используем `vi.stubEnv('DEV', false)`.
  */
-describe('<Sidebar> KS-2832 — Studies feature-flag', () => {
-  it('studiesEnabled=false (default) → пункт «Студии» скрыт', () => {
+describe('<Sidebar> KS-2832/KS-2851 — Studies feature-flag', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('dev mode + studiesEnabled=false → пункт всё равно виден (KS-2851)', () => {
+    vi.stubEnv('DEV', true);
+    flagControls.studies = false;
+    renderWithProviders(<Sidebar />);
+    const link = screen.getByTitle(/^studies$|^студии$/i);
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/studies');
+  });
+
+  it('prod mode + studiesEnabled=false → пункт «Студии» скрыт', () => {
+    vi.stubEnv('DEV', false);
     flagControls.studies = false;
     renderWithProviders(<Sidebar />);
     expect(screen.queryByTitle(/^studies$|^студии$/i)).not.toBeInTheDocument();
   });
 
-  it('studiesEnabled=true → пункт «Студии» виден и ведёт на /studies', () => {
+  it('prod mode + studiesEnabled=true → пункт «Студии» виден', () => {
+    vi.stubEnv('DEV', false);
     flagControls.studies = true;
     renderWithProviders(<Sidebar />);
     const link = screen.getByTitle(/^studies$|^студии$/i);
@@ -571,7 +589,7 @@ describe('<Sidebar> KS-2832 — Studies feature-flag', () => {
     expect(link.getAttribute('href')).toBe('/studies');
   });
 
-  it('studiesEnabled=true: на /studies/<id> пункт «Студии» активен', () => {
+  it('на /studies/<id> пункт «Студии» активен (любой режим)', () => {
     flagControls.studies = true;
     renderWithProviders(<Sidebar />, { route: '/studies/abc' });
     const link = screen.getByTitle(/^studies$|^студии$/i);
