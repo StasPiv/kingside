@@ -79,12 +79,21 @@
       "title": "Import PGN",
       "hint": "Paste PGN below or upload a .pgn file. Each game becomes a separate chapter.",
       "placeholder": "Paste PGN here. Multiple games separated by [Event ...] headers are supported.",
+      "pgnInput": "PGN",
       "submit": "Import",
+      "success_one": "Imported {{count}} chapter",
+      "success_other": "Imported {{count}} chapters",
       "foundGames_one": "{{count}} game found",
       "foundGames_other": "{{count}} games found",
       "errorEmpty": "PGN cannot be empty.",
       "errorReadFile": "Could not read file. Please try copy-pasting the PGN text directly.",
+      "errorLimit": "Chapter limit (64) exceeded for this study.",
       "errorGeneric": "PGN import failed. Check the syntax and the chapter limit."
+    },
+    "create": "Create study",
+    "notFound": "Study not found.",
+    "access": {
+      "privateGuest": "This study is private. Sign in to view if you have access."
     }
   },
   "navOnboarding": {
