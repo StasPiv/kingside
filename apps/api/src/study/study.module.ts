@@ -10,6 +10,7 @@ import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { StudyController } from './study.controller';
 import { StudyPublicController } from './study-public.controller';
+import { StudyMembersController } from './study-members.controller';
 import { StudyMembersService } from './study-members.service';
 import { StudyLikesService } from './study-likes.service';
 import { StudyInvitesService } from './study-invites.service';
@@ -32,7 +33,11 @@ import { StudyInvitesService } from './study-invites.service';
  */
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [StudyPublicController, StudyController],
+  controllers: [
+    StudyPublicController,
+    StudyMembersController,
+    StudyController,
+  ],
   providers: [
     StudyService,
     StudyChaptersService,
