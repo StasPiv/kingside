@@ -79,7 +79,12 @@ describe('StudyService — KS-2818 T3', () => {
   beforeEach(() => {
     prisma = makePrisma();
     slug = makeSlug();
-    svc = new StudyService(prisma as unknown as PrismaService, slug);
+    // KS-2911: StudyService теперь зависит от StudyMembersService.
+    // Для unit-тестов сервиса достаточно простого мока с getRole.
+    const members = {
+      getRole: jest.fn(async () => null),
+    } as any;
+    svc = new StudyService(prisma as unknown as PrismaService, slug, members);
   });
 
   describe('list', () => {
@@ -102,8 +107,10 @@ describe('StudyService — KS-2818 T3', () => {
       ]);
       const r = await svc.list(userId, { mine: false });
       expect(r.data).toHaveLength(1);
+      // KS-2910: каталог фильтрует строго по visibility='public',
+      // не по legacy isPublic (тот включает unlisted).
       expect(prisma.study.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { isPublic: true } }),
+        expect.objectContaining({ where: { visibility: 'public' } }),
       );
     });
 
@@ -123,6 +130,20 @@ describe('StudyService — KS-2818 T3', () => {
       expect(prisma.study.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 1 }),
       );
+    });
+
+    it('KS-2910: каталог (mine=false) НЕ возвращает unlisted/private', async () => {
+      // Эмулируем prisma слой: возвращаем то, что попадёт под фильтр.
+      // Достаточно проверить SQL-фильтр where = {visibility: 'public'}.
+      prisma.study.findMany.mockResolvedValue([
+        { ...baseStudy, visibility: 'public', isPublic: true },
+      ]);
+      await svc.list(null, { mine: false });
+      const callArg = prisma.study.findMany.mock.calls[0][0];
+      expect(callArg.where).toEqual({ visibility: 'public' });
+      // Сценарный sanity-check: даже если бы prisma вернул unlisted,
+      // фильтр уже на уровне where отсечёт. (toStudyListItem пробрасывает
+      // visibility, поэтому при разделении логики тест ловит регрессию).
     });
   });
 
@@ -251,18 +272,36 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('чужой пользователь не видит чужую приватную', async () => {
+      // KS-2911: 3 last вызова findFirst — mine / member-join / visible.
       prisma.study.findFirst
         .mockResolvedValueOnce(null) // mine
-        .mockResolvedValueOnce(null); // public
+        .mockResolvedValueOnce(null) // member-join (KS-2911)
+        .mockResolvedValueOnce(null); // public/unlisted
       const r = await svc.resolveBySlug(otherUserId, baseStudy.slug);
       expect(r).toBeNull();
     });
 
     it('anonymous видит публичную', async () => {
-      const pub = { ...baseStudy, isPublic: true };
-      prisma.study.findFirst.mockResolvedValueOnce(pub); // public
+      const pub = { ...baseStudy, visibility: 'public', isPublic: true };
+      prisma.study.findFirst.mockResolvedValueOnce(pub); // visible (public/unlisted)
       const r = await svc.resolveBySlug(null, pub.slug);
       expect(r).toEqual(pub);
+    });
+
+    it('KS-2911: contributor чужой private → видит', async () => {
+      const other = { ...baseStudy, ownerId: otherUserId };
+      prisma.study.findFirst
+        .mockResolvedValueOnce(null) // mine (не owner)
+        .mockResolvedValueOnce(other); // member-join возвращает студию
+      const r = await svc.resolveBySlug(userId, baseStudy.slug);
+      expect(r).toEqual(other);
+    });
+
+    it('KS-2911 / ADR-060 §2.6: unlisted anonymous → видит по ссылке', async () => {
+      const un = { ...baseStudy, visibility: 'unlisted', isPublic: true };
+      prisma.study.findFirst.mockResolvedValueOnce(un);
+      const r = await svc.resolveBySlug(null, un.slug);
+      expect(r).toEqual(un);
     });
   });
 

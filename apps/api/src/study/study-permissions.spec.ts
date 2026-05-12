@@ -29,6 +29,7 @@ import {
   StudyResource,
 } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
+import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 
 class AllowGuard implements CanActivate {
@@ -102,6 +103,7 @@ async function appFor(role: Role, isPublic: boolean): Promise<INestApplication> 
     delete: jest.fn(async () => undefined),
     resolveBySlug: jest.fn(async () => study),
     requireOwn: jest.fn(async () => study),
+    requireMember: jest.fn(async () => study),
   };
   const chaptersSvc = {
     getById: jest.fn(async () => chapterDto),
@@ -128,6 +130,8 @@ async function appFor(role: Role, isPublic: boolean): Promise<INestApplication> 
     .overrideGuard(StudyAccessGuard)
     .useValue(accessOk ? new AllowGuard() : new DenyGuard())
     .overrideGuard(StudyOwnerGuard)
+    .useValue(ownerOk ? new AllowGuard() : new DenyGuard())
+    .overrideGuard(StudyContributorGuard)
     .useValue(ownerOk ? new AllowGuard() : new DenyGuard())
     .compile();
   const app = module.createNestApplication();
@@ -178,6 +182,7 @@ describe('Studies — permissions matrix (KS-2822 T7)', () => {
               delete: jest.fn(),
               resolveBySlug: jest.fn(),
               requireOwn: jest.fn(),
+              requireMember: jest.fn(),
             },
           },
           { provide: StudyChaptersService, useValue: {} },
@@ -190,6 +195,8 @@ describe('Studies — permissions matrix (KS-2822 T7)', () => {
         .overrideGuard(StudyAccessGuard)
         .useValue(new AllowGuard())
         .overrideGuard(StudyOwnerGuard)
+        .useValue(new AllowGuard())
+        .overrideGuard(StudyContributorGuard)
         .useValue(new AllowGuard())
         .compile()
         .then(async (m) => {

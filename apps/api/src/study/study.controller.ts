@@ -33,6 +33,7 @@ import {
   StudyResource,
 } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
+import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 
 /**
@@ -131,7 +132,10 @@ export class StudyController {
 
   // ─── Chapters CRUD ───────────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard, StudyOwnerGuard)
+  // KS-2911 / ADR-060 §3.2: chapter mutations доступны для owner и
+  // contributor. Strict-owner endpoints (delete study, manage members)
+  // продолжают использовать `StudyOwnerGuard` + `requireOwn`.
+  @UseGuards(JwtAuthGuard, StudyContributorGuard)
   @StudyResource('study-slug')
   @Post(':slug/chapters')
   async createChapter(
@@ -139,7 +143,7 @@ export class StudyController {
     @Param('slug') slug: string,
     @Body() dto: CreateChapterDto,
   ): Promise<StudyChapterDto> {
-    const study = await this.study.requireOwn(req.user.id, slug);
+    const study = await this.study.requireMember(req.user.id, slug);
     return this.chapters.create(study, dto);
   }
 
@@ -166,7 +170,7 @@ export class StudyController {
     return this.chapters.getById(study, chapterId);
   }
 
-  @UseGuards(JwtAuthGuard, StudyOwnerGuard)
+  @UseGuards(JwtAuthGuard, StudyContributorGuard)
   @StudyResource('study-slug')
   @Patch(':slug/chapters/:chapterId')
   async updateChapter(
@@ -175,7 +179,7 @@ export class StudyController {
     @Param('chapterId') chapterId: string,
     @Body() dto: UpdateChapterDto,
   ): Promise<StudyChapterDto> {
-    const study = await this.study.requireOwn(req.user.id, slug);
+    const study = await this.study.requireMember(req.user.id, slug);
     return this.chapters.update(study, chapterId, dto);
   }
 
@@ -183,7 +187,7 @@ export class StudyController {
    * Drag-n-drop: `{ after: chapterId | null }`. Сервис сам вычислит
    * новый orderIdx и при необходимости сделает rebalance.
    */
-  @UseGuards(JwtAuthGuard, StudyOwnerGuard)
+  @UseGuards(JwtAuthGuard, StudyContributorGuard)
   @StudyResource('study-slug')
   @Patch(':slug/chapters/:chapterId/order')
   async reorderChapter(
@@ -192,11 +196,11 @@ export class StudyController {
     @Param('chapterId') chapterId: string,
     @Body() dto: ReorderChapterDto,
   ): Promise<StudyChapterDto> {
-    const study = await this.study.requireOwn(req.user.id, slug);
+    const study = await this.study.requireMember(req.user.id, slug);
     return this.chapters.reorder(study, chapterId, dto.after ?? null);
   }
 
-  @UseGuards(JwtAuthGuard, StudyOwnerGuard)
+  @UseGuards(JwtAuthGuard, StudyContributorGuard)
   @StudyResource('study-slug')
   @Delete(':slug/chapters/:chapterId')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -205,7 +209,7 @@ export class StudyController {
     @Param('slug') slug: string,
     @Param('chapterId') chapterId: string,
   ): Promise<void> {
-    const study = await this.study.requireOwn(req.user.id, slug);
+    const study = await this.study.requireMember(req.user.id, slug);
     await this.chapters.delete(study, chapterId);
   }
 
@@ -214,7 +218,7 @@ export class StudyController {
   // итерации — они тесно связаны со CRUD chapters.
 
   /** Multi-PGN импорт (KS-2820 T5). */
-  @UseGuards(JwtAuthGuard, StudyOwnerGuard)
+  @UseGuards(JwtAuthGuard, StudyContributorGuard)
   @StudyResource('study-slug')
   @Post(':slug/import-pgn')
   async importPgn(
@@ -222,7 +226,7 @@ export class StudyController {
     @Param('slug') slug: string,
     @Body() dto: ImportPgnDto,
   ): Promise<{ created: StudyChapterDto[] }> {
-    const study = await this.study.requireOwn(req.user.id, slug);
+    const study = await this.study.requireMember(req.user.id, slug);
     return this.chapters.importPgn(study, dto.pgn);
   }
 

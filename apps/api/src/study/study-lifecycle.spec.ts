@@ -171,8 +171,8 @@ describe('Study lifecycle E2E (KS-2862 B6)', () => {
     const slugSvc: any = {
       generateUnique: jest.fn(async () => 'slug-1'),
     };
-    const study = new StudyService(prisma, slugSvc);
     const members = new StudyMembersService(prisma);
+    const study = new StudyService(prisma, slugSvc, members);
     const invites = new StudyInvitesService(prisma, members);
     const chapters = new StudyChaptersService(prisma);
     const ownerId = 'u-owner';
@@ -221,6 +221,19 @@ describe('Study lifecycle E2E (KS-2862 B6)', () => {
       }),
     } as any;
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
+
+    // KS-2911: contributor может прочитать студию через
+    // `StudyService.resolveBySlug` — раньше это давало null (404 на GET).
+    const resolved = await study.resolveBySlug(contributorId, studyRow.slug);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.id).toBe(studyRow.id);
+
+    // KS-2911: и через `requireMember` для chapter-mutating endpoints.
+    const memberStudy = await study.requireMember(
+      contributorId,
+      studyRow.slug,
+    );
+    expect(memberStudy.id).toBe(studyRow.id);
 
     // Contributor реально может обновить главу через сервис.
     const updated = await chapters.update(studyRow, chapter.id, {

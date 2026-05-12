@@ -20,6 +20,7 @@ import {
   StudyResource,
 } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
+import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 
 class AllowGuard implements CanActivate {
@@ -84,6 +85,8 @@ async function makeApp(opts: MakeAppOpts): Promise<INestApplication> {
     delete: jest.fn(),
     resolveBySlug: jest.fn(async () => baseStudy),
     requireOwn: jest.fn(async () => baseStudy),
+    // KS-2911: requireMember используется в chapter-mutating endpoints.
+    requireMember: jest.fn(async () => baseStudy),
     ...opts.study,
   };
   const chaptersService = {
@@ -115,6 +118,11 @@ async function makeApp(opts: MakeAppOpts): Promise<INestApplication> {
     .overrideGuard(StudyAccessGuard)
     .useValue(opts.accessOk ? new AllowGuard() : new DenyGuard())
     .overrideGuard(StudyOwnerGuard)
+    .useValue(opts.ownerOk ? new AllowGuard() : new DenyGuard())
+    // KS-2911: chapter mutations переведены на StudyContributorGuard.
+    // В этих тестах "owner" покрывает и contributor — переиспользуем
+    // ownerOk флаг чтобы не плодить новый параметр.
+    .overrideGuard(StudyContributorGuard)
     .useValue(opts.ownerOk ? new AllowGuard() : new DenyGuard())
     .compile();
   const app = module.createNestApplication();

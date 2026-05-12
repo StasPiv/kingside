@@ -7,12 +7,17 @@ import {
 import type { StudyModel as Study } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudySlugService } from './study-slug.service';
-import { STUDY_LIMITS, type StudyVisibility } from './study-limits';
+import {
+  STUDY_LIMITS,
+  type StudyMemberRole,
+  type StudyVisibility,
+} from './study-limits';
 import type { CreateStudyDto, UpdateStudyDto } from './dto/study.dto';
 import {
   normalizeTopics,
   resolveVisibilityChange,
 } from './study-visibility.util';
+import { StudyMembersService } from './study-members.service';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. CRUD-сервис для `Study` (контейнер).
@@ -27,6 +32,7 @@ export class StudyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly slug: StudySlugService,
+    private readonly members: StudyMembersService,
   ) {}
 
   // ─── Listings ────────────────────────────────────────────────────
@@ -46,9 +52,14 @@ export class StudyService {
     }
     const take = clampInt(opts.limit ?? 50, 1, 50);
     const skip = clampInt(opts.offset ?? 0, 0, 1000);
+    // KS-2910 / ADR-060 §2.6: каталог `mine=false` показывает ТОЛЬКО
+    // `visibility='public'`. `unlisted` доступны исключительно по
+    // прямой ссылке / UUID; в листинг не попадают. До этого фикса
+    // фильтр `isPublic: true` подбирал и unlisted (через бэкфилл
+    // `isPublic = visibility !== 'private'` из миграции KS-2857).
     const where = opts.mine
       ? { ownerId: userId! }
-      : { isPublic: true };
+      : { visibility: 'public' };
     const rows = await this.prisma.study.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -108,12 +119,19 @@ export class StudyService {
 
   /**
    * Разрешает slug в `Study`-запись с учётом прав доступа.
-   * - owner → возвращает свою (private или public).
-   * - anonymous / другой userId → только если study.isPublic.
-   * - null если не существует или приватная чужая.
    *
-   * Возвращает `Study` объект целиком (нужен в guard'ах и chapters-
-   * сервисе как контекст), без выборки тяжёлых полей.
+   * KS-2911 / ADR-060 §3.2: contributor (member) чужой private/unlisted
+   * студии должен иметь read-доступ. До этого фикса resolveBySlug
+   * возвращал null для contributor — фронт получал 404 даже на GET.
+   *
+   * Правила:
+   * - owner → возвращает свою (любая visibility).
+   * - contributor (не owner, есть запись в `study_members`) → возвращает
+   *   студию любой visibility (read-доступ к private/unlisted/public).
+   * - anonymous / outsider → только `visibility ∈ {public, unlisted}`
+   *   (unlisted доступен по прямой ссылке — таков контракт ADR §2.6).
+   * - null если не существует либо visibility=private и пользователь
+   *   не member.
    */
   async resolveBySlug(
     userId: string | null,
@@ -126,10 +144,51 @@ export class StudyService {
       });
       if (mine) return mine;
     }
-    const pub = await this.prisma.study.findFirst({
-      where: { slug, isPublic: true },
+    // KS-2911: для аутентифицированного caller'а ищем студию, в которой
+    // он member (contributor). findFirst по slug + join на members.
+    if (userId) {
+      const asMember = await this.prisma.study.findFirst({
+        where: {
+          slug,
+          members: { some: { userId } },
+        },
+      });
+      if (asMember) return asMember;
+    }
+    // KS-2911 / ADR-060 §2.6: не-member видит только public и unlisted
+    // (анонимный доступ по прямой ссылке к unlisted допустим — в каталог
+    // он не попадает через `list()`).
+    const visible = await this.prisma.study.findFirst({
+      where: {
+        slug,
+        visibility: { in: ['public', 'unlisted'] },
+      },
     });
-    return pub;
+    return visible;
+  }
+
+  /**
+   * KS-2911 (Wave A B5+). Разрешает slug в студию с проверкой членства.
+   * Используется в chapter-mutating endpoints контроллера, где
+   * `StudyContributorGuard` уже отказал anonymous/outsider, но handler'у
+   * всё ещё нужен Study-объект как контекст для сервисов chapters.
+   *
+   * Возвращает Study если caller — owner или contributor (любой member
+   * из whitelist `roles`). Иначе 404.
+   */
+  async requireMember(
+    userId: string,
+    slug: string,
+    roles: ReadonlyArray<StudyMemberRole> = ['owner', 'contributor'],
+  ): Promise<Study> {
+    const study = await this.prisma.study.findFirst({ where: { slug } });
+    if (!study) throw new NotFoundException('Study not found');
+    if (study.ownerId === userId && roles.includes('owner')) return study;
+    const role = await this.members.getRole(study.id, userId);
+    if (!role || !roles.includes(role)) {
+      throw new NotFoundException('Study not found');
+    }
+    return study;
   }
 
   // ─── Mutations ───────────────────────────────────────────────────
