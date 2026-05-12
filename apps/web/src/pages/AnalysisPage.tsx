@@ -265,40 +265,82 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     if (puzzleFen && !gameId && !analysisId) {
       setInitialFen(puzzleFen);
       if (puzzleSide) setBoardOrientation(puzzleSide);
+      // KS-2828: ранее ходы из `?pgn=` / `?moves=` парсились вручную
+      // (`chess.move(san)` в цикле) и складывались в `ChessMove[]` БЕЗ
+      // поля `ply`. `LOAD_FROM_PGN` reducer кладёт их в history as-is,
+      // а `formatMoveDisplay` фолбэкает на `move.ply || (moveIndex + 1)`
+      // — то есть для первого хода ply=1 (трактуется как белый), даже
+      // если стартовая позиция из FEN — ход чёрных. Отсюда жалоба
+      // «`1.h6 Nh3 ...` вместо `25...h6 26.Nh3` на пазлах Точности».
+      //
+      // Лечение: собираем валидный PGN с парой `[SetUp "1"][FEN]`,
+      // в movetext вставляем номер полного хода с правильным префиксом
+      // (`<N>.` или `<N>...`), и парсим через `parseAnnotatedPgn` —
+      // он сам считает startPly из FEN-header и проставляет правильный
+      // `ply` каждому ходу.
+      const buildPgnAndLoad = (sanList: string[]) => {
+        if (sanList.length === 0) return;
+        const fenParts = puzzleFen.split(' ');
+        const startIsWhite = fenParts[1] !== 'b';
+        const startMvNum = parseInt(fenParts[5] || '1', 10) || 1;
+        const movetext: string[] = [];
+        for (let i = 0; i < sanList.length; i++) {
+          const totalHalf = i + (startIsWhite ? 0 : 1);
+          const fullMv = startMvNum + Math.floor(totalHalf / 2);
+          const isWhiteHalf = totalHalf % 2 === 0;
+          if (i === 0 && !startIsWhite) {
+            movetext.push(`${fullMv}...`);
+          } else if (isWhiteHalf) {
+            movetext.push(`${fullMv}.`);
+          }
+          movetext.push(sanList[i]);
+        }
+        const pgn =
+          `[SetUp "1"]\n[FEN "${puzzleFen}"]\n\n${movetext.join(' ')} *`;
+        try {
+          loadFromPgn(parseAnnotatedPgn(pgn));
+        } catch {
+          /* битый PGN — оставляем без ходов, FEN уже выставлен */
+        }
+      };
+
       if (puzzlePgn) {
         try {
-          // Parse SAN moves from PGN and apply with custom FEN
-          const sanMoves = puzzlePgn.replace(/\d+\.\.\./g, '').replace(/\d+\./g, '').trim().split(/\s+/).filter(Boolean);
+          // SAN-список из `?pgn=`: вырезаем move-numbers (включая
+          // `<N>...`) и result-маркеры, оставляем чистые SAN'ы.
+          const sanMoves = puzzlePgn
+            .replace(/\d+\.\.\./g, '')
+            .replace(/\d+\./g, '')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter((tok) => tok !== '*' && tok !== '1-0' && tok !== '0-1' && tok !== '1/2-1/2');
+          // Валидируем SAN'ы реплеем на puzzleFen — отбрасываем хвост,
+          // который не применяется к позиции (защита от мусора).
           const replay = new Chess(puzzleFen);
-          const chessMoves: ChessMove[] = [];
+          const valid: string[] = [];
           for (const san of sanMoves) {
-            if (san === '*' || san === '1-0' || san === '0-1' || san === '1/2-1/2') break;
             const mv = replay.move(san);
             if (!mv) break;
-            chessMoves.push({
-              san: mv.san,
-              uci: mv.from + mv.to + (mv.promotion || ''),
-              fenAfter: replay.fen(),
-            } as unknown as ChessMove);
+            valid.push(mv.san);
           }
-          loadFromPgn(chessMoves);
+          buildPgnAndLoad(valid);
         } catch { /* ignore parse errors */ }
       } else if (puzzleMovesParam) {
         try {
-          // Parse UCI moves from query param
           const uciMoves = puzzleMovesParam.split(/[\s+]+/).filter(Boolean);
           const replay = new Chess(puzzleFen);
-          const chessMoves: ChessMove[] = [];
+          const sans: string[] = [];
           for (const uci of uciMoves) {
-            const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+            const mv = replay.move({
+              from: uci.slice(0, 2),
+              to: uci.slice(2, 4),
+              promotion: uci.length > 4 ? uci[4] : undefined,
+            });
             if (!mv) break;
-            chessMoves.push({
-              san: mv.san,
-              uci: mv.from + mv.to + (mv.promotion || ''),
-              fenAfter: replay.fen(),
-            } as unknown as ChessMove);
+            sans.push(mv.san);
           }
-          if (chessMoves.length > 0) loadFromPgn(chessMoves);
+          buildPgnAndLoad(sans);
         } catch { /* ignore parse errors */ }
       }
     }
