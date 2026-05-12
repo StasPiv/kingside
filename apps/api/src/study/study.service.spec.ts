@@ -11,7 +11,15 @@ import type { PrismaService } from '../prisma/prisma.service';
 import type { StudySlugService } from './study-slug.service';
 
 function makePrisma(): any {
-  return {
+  const txContext: any = {
+    study: {
+      create: jest.fn(),
+    },
+    studyMember: {
+      create: jest.fn(),
+    },
+  };
+  const prisma: any = {
     study: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
@@ -23,7 +31,16 @@ function makePrisma(): any {
     studyChapter: {
       findMany: jest.fn(),
     },
+    studyMember: {
+      create: jest.fn(),
+    },
+    $transaction: jest.fn(async (cb: (tx: any) => Promise<unknown>) =>
+      cb(txContext),
+    ),
   };
+  // exposing tx context so tests can configure inner mocks
+  prisma.__tx = txContext;
+  return prisma;
 }
 
 function makeSlug(): jest.Mocked<StudySlugService> {
@@ -110,12 +127,12 @@ describe('StudyService — KS-2818 T3', () => {
   });
 
   describe('create', () => {
-    it('создаёт студию с slug-ом и default isPublic=false', async () => {
+    it('создаёт студию с slug-ом, default visibility=private, и owner-record в study_members', async () => {
       prisma.study.count.mockResolvedValue(0);
-      prisma.study.create.mockResolvedValue(baseStudy);
+      prisma.__tx.study.create.mockResolvedValue(baseStudy);
       const r = await svc.create(userId, { name: 'My Study' });
       expect(slug.generateUnique).toHaveBeenCalledWith(userId, 'My Study');
-      expect(prisma.study.create).toHaveBeenCalledWith(
+      expect(prisma.__tx.study.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             ownerId: userId,
@@ -123,9 +140,15 @@ describe('StudyService — KS-2818 T3', () => {
             name: 'My Study',
             description: null,
             isPublic: false,
+            visibility: 'private',
+            topics: [],
           }),
         }),
       );
+      // KS-2859: owner-запись в study_members создаётся в той же транзакции.
+      expect(prisma.__tx.studyMember.create).toHaveBeenCalledWith({
+        data: { studyId: baseStudy.id, userId, role: 'owner' },
+      });
       expect(r.slug).toBe('abc123-my-study');
     });
 
@@ -134,18 +157,58 @@ describe('StudyService — KS-2818 T3', () => {
       await expect(
         svc.create(userId, { name: 'Another' }),
       ).rejects.toBeInstanceOf(BadRequestException);
-      expect(prisma.study.create).not.toHaveBeenCalled();
+      expect(prisma.__tx.study.create).not.toHaveBeenCalled();
     });
 
-    it('isPublic=true пробрасывается', async () => {
+    it('legacy isPublic=true → visibility=public + isPublic=true', async () => {
       prisma.study.count.mockResolvedValue(0);
-      prisma.study.create.mockResolvedValue({ ...baseStudy, isPublic: true });
+      prisma.__tx.study.create.mockResolvedValue({
+        ...baseStudy,
+        isPublic: true,
+        visibility: 'public',
+      });
       await svc.create(userId, { name: 'Public', isPublic: true });
-      expect(prisma.study.create).toHaveBeenCalledWith(
+      expect(prisma.__tx.study.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ isPublic: true }),
+          data: expect.objectContaining({
+            isPublic: true,
+            visibility: 'public',
+          }),
         }),
       );
+    });
+
+    it('KS-2859: visibility=unlisted имеет приоритет над isPublic', async () => {
+      prisma.study.count.mockResolvedValue(0);
+      prisma.__tx.study.create.mockResolvedValue({
+        ...baseStudy,
+        visibility: 'unlisted',
+        isPublic: true,
+      });
+      await svc.create(userId, {
+        name: 'X',
+        visibility: 'unlisted',
+        isPublic: false, // должен быть проигнорирован
+      });
+      expect(prisma.__tx.study.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            visibility: 'unlisted',
+            isPublic: true, // = (visibility !== 'private')
+          }),
+        }),
+      );
+    });
+
+    it('KS-2859: topics нормализуются (trim+lowercase+dedupe)', async () => {
+      prisma.study.count.mockResolvedValue(0);
+      prisma.__tx.study.create.mockResolvedValue(baseStudy);
+      await svc.create(userId, {
+        name: 'X',
+        topics: ['  Opening  ', 'opening', 'ENDGAME', ''],
+      });
+      const data = prisma.__tx.study.create.mock.calls[0][0].data;
+      expect(data.topics).toEqual(['opening', 'endgame']);
     });
   });
 

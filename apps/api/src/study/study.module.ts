@@ -9,6 +9,9 @@ import { StudyOwnerGuard } from './study-owner.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { StudyController } from './study.controller';
 import { StudyPublicController } from './study-public.controller';
+import { StudyMembersService } from './study-members.service';
+import { StudyLikesService } from './study-likes.service';
+import { StudyInvitesService } from './study-invites.service';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. NestJS-модуль для Studies.
@@ -36,6 +39,10 @@ import { StudyPublicController } from './study-public.controller';
     StudyAccessGuard,
     StudyOwnerGuard,
     OptionalJwtAuthGuard,
+    // KS-2859 (Wave A B3): Phase 2 сервисы.
+    StudyMembersService,
+    StudyLikesService,
+    StudyInvitesService,
   ],
   exports: [
     StudyService,
@@ -44,6 +51,9 @@ import { StudyPublicController } from './study-public.controller';
     StudyAccessGuard,
     StudyOwnerGuard,
     OptionalJwtAuthGuard,
+    StudyMembersService,
+    StudyLikesService,
+    StudyInvitesService,
   ],
 })
 export class StudyModule {}

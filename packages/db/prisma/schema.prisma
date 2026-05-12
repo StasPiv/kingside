@@ -119,6 +119,7 @@ model User {
   // study; remove user → каскад snyдeт его роли и лайки.
   studyMemberships       StudyMember[]
   studyLikes             StudyLike[]
+  studyInvitesCreated    StudyInvite[]            @relation("StudyInvitesCreated")
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1458,6 +1459,7 @@ model Study {
   chapters StudyChapter[]
   members  StudyMember[]
   likedBy  StudyLike[]
+  invites  StudyInvite[]
 
   @@unique([ownerId, slug])
   /// Listing «мои студии» сортируется по `updatedAt` — индекс покрывает
@@ -1555,4 +1557,30 @@ model StudyLike {
   @@id([studyId, userId])
   @@index([userId])
   @@map("study_likes")
+}
+
+/// KS-2856 / ADR-060 §3.2 (KS-2859 B3). Одноразовые приглашения в
+/// студию. Token — nanoid 32 символа (URL-safe), TTL 7 дней.
+/// Принимающий пользователь становится contributor.
+///
+/// Поле `acceptedAt` — момент принятия (после успеха токен считается
+/// «использованным», повторно не принимается). Альтернатива —
+/// удалять запись при accept; оставляем для audit-следа.
+///
+/// Cleanup истёкших токенов — лениво при попытке accept (см. B3-сервис).
+model StudyInvite {
+  token       String    @id @db.VarChar(32)
+  studyId     String    @map("study_id") @db.Uuid
+  createdById String    @map("created_by_id") @db.Uuid
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  acceptedById String?  @map("accepted_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  study     Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("StudyInvitesCreated", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([studyId])
+  @@index([expiresAt])
+  @@map("study_invites")
 }

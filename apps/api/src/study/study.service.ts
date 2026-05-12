@@ -7,8 +7,12 @@ import {
 import type { StudyModel as Study } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudySlugService } from './study-slug.service';
-import { STUDY_LIMITS } from './study-limits';
+import { STUDY_LIMITS, type StudyVisibility } from './study-limits';
 import type { CreateStudyDto, UpdateStudyDto } from './dto/study.dto';
+import {
+  normalizeTopics,
+  resolveVisibilityChange,
+} from './study-visibility.util';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. CRUD-сервис для `Study` (контейнер).
@@ -133,6 +137,11 @@ export class StudyService {
   /**
    * Создать пустую студию. Проверяется лимит `studiesPerUser`.
    * Slug генерируется через `StudySlugService` per-owner.
+   *
+   * KS-2856 / ADR-060 §3.2: при create автоматически создаётся
+   * owner-запись в `study_members` (B4 StudyAccessGuard будет
+   * пускать на mutations только members). Обе записи в одной
+   * транзакции — иначе race при ошибке inner-insert'а.
    */
   async create(userId: string, dto: CreateStudyDto): Promise<StudyDto> {
     const existingCount = await this.prisma.study.count({
@@ -144,14 +153,27 @@ export class StudyService {
       );
     }
     const slug = await this.slug.generateUnique(userId, dto.name);
-    const created = await this.prisma.study.create({
-      data: {
-        ownerId: userId,
-        slug,
-        name: dto.name,
-        description: dto.description ?? null,
-        isPublic: dto.isPublic ?? false,
-      },
+    const visibilityChange = resolveVisibilityChange({
+      visibility: dto.visibility,
+      isPublic: dto.isPublic,
+    });
+    const topics = normalizeTopics(dto.topics) ?? [];
+    const created = await this.prisma.$transaction(async (tx) => {
+      const study = await tx.study.create({
+        data: {
+          ownerId: userId,
+          slug,
+          name: dto.name,
+          description: dto.description ?? null,
+          isPublic: visibilityChange?.isPublic ?? false,
+          visibility: visibilityChange?.visibility ?? 'private',
+          topics,
+        },
+      });
+      await tx.studyMember.create({
+        data: { studyId: study.id, userId, role: 'owner' },
+      });
+      return study;
     });
     return toStudyDto(created);
   }
@@ -167,6 +189,11 @@ export class StudyService {
     dto: UpdateStudyDto,
   ): Promise<StudyDto> {
     const study = await this.requireOwn(userId, slug);
+    const visibilityChange = resolveVisibilityChange({
+      visibility: dto.visibility,
+      isPublic: dto.isPublic,
+    });
+    const topics = normalizeTopics(dto.topics);
     const updated = await this.prisma.study.update({
       where: { id: study.id },
       data: {
@@ -174,7 +201,13 @@ export class StudyService {
         ...(dto.description !== undefined
           ? { description: dto.description }
           : {}),
-        ...(dto.isPublic !== undefined ? { isPublic: dto.isPublic } : {}),
+        ...(visibilityChange
+          ? {
+              visibility: visibilityChange.visibility,
+              isPublic: visibilityChange.isPublic,
+            }
+          : {}),
+        ...(topics !== undefined ? { topics } : {}),
       },
     });
     return toStudyDto(updated);
@@ -211,7 +244,13 @@ export interface StudyDto {
   slug: string;
   name: string;
   description: string | null;
+  /** DEPRECATED — см. visibility. */
   isPublic: boolean;
+  visibility: StudyVisibility;
+  topics: string[];
+  likes: number;
+  fromKind: string;
+  fromRefId: string | null;
   chaptersCount: number;
   createdAt: string;
   updatedAt: string;
@@ -243,6 +282,11 @@ export function toStudyDto(s: Study): StudyDto {
     name: s.name,
     description: s.description,
     isPublic: s.isPublic,
+    visibility: (s.visibility as StudyVisibility) ?? 'private',
+    topics: s.topics ?? [],
+    likes: s.likes ?? 0,
+    fromKind: s.fromKind ?? 'scratch',
+    fromRefId: s.fromRefId ?? null,
     chaptersCount: s.chaptersCount,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
