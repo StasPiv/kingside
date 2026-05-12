@@ -132,19 +132,36 @@ function computeLastMove(pgn: string): { from: string; to: string } | null {
 }
 
 /**
- * KS-2795: SAN последнего хода из PGN (`e4`, `Nf3`, `O-O`, `Qxd5+`).
- * Используется для подписи под мини-доской. Если PGN пустой / битый /
- * без ходов — возвращаем `null`, родитель показывает плейсхолдер.
- * Экспортируется для unit-тестов.
+ * KS-2795 → KS-2836: последний ход из PGN в виде `{ number, side, san }`.
+ *  - `number` — номер полного хода (fullmove number) последнего полухода.
+ *    Учитывает FEN-header стартовой позиции (через `loadPgn` chess.js).
+ *  - `side` — `'w'` если последний полуход сделали белые, `'b'` если чёрные.
+ *  - `san` — стандартная нотация (`e4`, `Nf3`, `O-O`, `Qxd5+`).
+ *
+ * Если PGN пустой / битый / без ходов — возвращаем `null`, родитель
+ * показывает плейсхолдер «Game not started». Экспортируется для тестов.
  */
-export function computeLastMoveSan(pgn: string): string | null {
+export function computeLastMoveLabel(
+  pgn: string,
+): { number: number; side: 'w' | 'b'; san: string } | null {
   if (!pgn) return null;
   const chess = new Chess();
   if (!loadPgnSafe(chess, pgn)) return null;
   try {
-    const hist = chess.history();
+    const hist = chess.history({ verbose: true });
     if (hist.length === 0) return null;
-    return hist[hist.length - 1];
+    const last = hist[hist.length - 1];
+    // После `chess.move(...)` fen() уже отражает состояние ПОСЛЕ хода:
+    //  - turn() — сторона, которая ходит СЛЕДУЮЩЕЙ → последний полуход
+    //    сделала противоположная.
+    //  - fullmove counter из FEN инкрементируется после хода чёрных.
+    //    Значит для хода чёрных номер полного хода = fullmove - 1,
+    //    для хода белых — fullmove текущей FEN.
+    const parts = chess.fen().split(' ');
+    const fullmoveAfter = parseInt(parts[5] ?? '1', 10) || 1;
+    const side: 'w' | 'b' = last.color === 'w' ? 'w' : 'b';
+    const number = side === 'b' ? fullmoveAfter - 1 : fullmoveAfter;
+    return { number, side, san: last.san };
   } catch {
     return null;
   }
@@ -221,16 +238,23 @@ export function BroadcastBoardCard({
   const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
   const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
 
-  // KS-2795 → KS-2798: SAN последнего хода + относительное время
-  // («3 мин. назад») под мини-доской. SAN считаем из PGN. Время — из
-  // `lastMoveAt` (backend KS-2798: ISO-8601 момент реального изменения
-  // FEN, не зависит от наличия `%clk` в источнике). Если у партии нет
-  // `lastMoveAt` (стартовая позиция, ходов не было) — показываем только
-  // SAN либо плейсхолдер «Game not started», без подписи времени.
-  // Тикер подписи — раз в 30 сек через useNow.
+  // KS-2795 → KS-2798 → KS-2836: SAN последнего хода + номер полного
+  // хода + относительное время («23... Qxd5 / 3 мин. назад») под
+  // мини-доской. Номер и сторону считаем из PGN через chess.js — он
+  // правильно учитывает FEN-header стартовой позиции (fullmove != 1).
+  // Время — из `lastMoveAt` (backend KS-2798). Если у партии нет
+  // `lastMoveAt` (стартовая позиция) — только SAN/плейсхолдер без
+  // подписи времени. Тикер подписи — раз в 30 сек через useNow.
   const { t, i18n } = useTranslation();
   const now = useNow(30_000);
-  const lastSan = computeLastMoveSan(game.pgn ?? '');
+  const lastMoveLabel = computeLastMoveLabel(game.pgn ?? '');
+  // KS-2836: текст SAN с префиксом. Белые → `13. e5`, чёрные → `23... Qxd5`.
+  // Без префикса не показываем — таков запрос пользователя.
+  const lastSanDisplay = lastMoveLabel
+    ? lastMoveLabel.side === 'w'
+      ? `${lastMoveLabel.number}. ${lastMoveLabel.san}`
+      : `${lastMoveLabel.number}... ${lastMoveLabel.san}`
+    : null;
   const lastMoveAgoText = formatMoveAgo(
     game.lastMoveAt ?? null,
     now,
@@ -314,12 +338,12 @@ export function BroadcastBoardCard({
         className="broadcast-board-last-move"
         data-testid="broadcast-board-last-move"
       >
-        {lastSan ? (
+        {lastSanDisplay ? (
           <span
             className="broadcast-board-last-move__san"
             data-testid="broadcast-board-last-move-san"
           >
-            {lastSan}
+            {lastSanDisplay}
           </span>
         ) : (
           <span
@@ -331,7 +355,7 @@ export function BroadcastBoardCard({
             })}
           </span>
         )}
-        {lastSan && lastMoveAgoText && (
+        {lastSanDisplay && lastMoveAgoText && (
           <span
             className="broadcast-board-last-move__time"
             data-testid="broadcast-board-last-move-time"
