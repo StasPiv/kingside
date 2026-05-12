@@ -57,7 +57,8 @@
       "delete": "Удалить студию",
       "deleteChapter": "Удалить главу",
       "editName": "Переименовать",
-      "flipBoard": "Перевернуть доску"
+      "flipBoard": "Перевернуть доску",
+      "openInEditor": "Открыть в редакторе"
     },
     "orientation": {
       "white": "белые",

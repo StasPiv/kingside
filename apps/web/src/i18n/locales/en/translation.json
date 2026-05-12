@@ -61,7 +61,8 @@
       "delete": "Delete study",
       "deleteChapter": "Delete chapter",
       "editName": "Rename",
-      "flipBoard": "Flip board"
+      "flipBoard": "Flip board",
+      "openInEditor": "Open in editor"
     },
     "orientation": {
       "white": "White",

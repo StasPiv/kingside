@@ -132,6 +132,12 @@ const StudyChapterEditorPage = lazy(() =>
     default: m.StudyChapterEditorPage,
   })),
 );
+// KS-2829 (KS-2815 §B.5): публичная read-only страница главы.
+const StudyChapterPublicPage = lazy(() =>
+  import('./pages/StudyChapterPublicPage').then((m) => ({
+    default: m.StudyChapterPublicPage,
+  })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -403,6 +409,17 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <StudyChapterEditorPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2829: публичный read-only просмотр главы по prefix `/c/`.
+            Без auth — anonymous могут открыть. Owner получит ссылку
+            «Открыть в редакторе» в header'е. */}
+        <Route
+          path="/studies/c/:chapterId"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <StudyChapterPublicPage />
             </Suspense>
           }
         />
