@@ -110,6 +110,10 @@ model User {
   // KS-2373: статистика посещений разделов для динамического
   // MobileBottomBar (top-3 разделы → нижняя панель, остальные в «Ещё»).
   navStats               UserNavStat[]
+  // KS-2815 / ADR-059 §B.3. Учебные студии пользователя — самостоятельная
+  // фича, не связанная с Course/Lesson. onDelete Cascade — удаление
+  // пользователя сносит его студии и каскадом главы.
+  ownedStudies           Study[]                  @relation("OwnedStudies")
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1394,4 +1398,71 @@ model UserNavStat {
   @@id([userId, route])
   @@index([userId, count(sort: Desc)])
   @@map("user_nav_stats")
+}
+
+/// KS-2815 / ADR-059. Учебная студия (по образцу Lichess studies):
+/// контейнер из глав-PGN, принадлежит пользователю, может быть
+/// приватной или публичной по прямой ссылке. Самостоятельная фича,
+/// не связана с Course/Lesson (это user-content, без SM-2/прогресса).
+///
+/// Хранение дерева вариантов — pgn-блоб в `study_chapters.pgn` (см.
+/// `StudyChapter`); фронт переиспользует `apps/web/src/review` для
+/// парсинга/рендеринга. Никакой нормализованной таблицы узлов.
+model Study {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String   @map("owner_id") @db.Uuid
+  /// `<shortId>-<title>` через `SlugService` (тот же, что у user-курсов).
+  /// Уникален per-owner.
+  slug          String
+  name          String
+  description   String?  @db.Text
+  /// false = приватная (только owner); true = публичная по прямой
+  /// ссылке. Без unlisted в MVP.
+  isPublic      Boolean  @default(false) @map("is_public")
+  /// Денормализованный счётчик глав — для каталога без COUNT JOIN'а.
+  /// Поддерживается сервисом при create/delete/import главы.
+  chaptersCount Int      @default(0) @map("chapters_count")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  owner    User           @relation("OwnedStudies", fields: [ownerId], references: [id], onDelete: Cascade)
+  chapters StudyChapter[]
+
+  @@unique([ownerId, slug])
+  /// Listing «мои студии» сортируется по `updatedAt` — индекс покрывает
+  /// запрос автора.
+  @@index([ownerId, updatedAt])
+  /// Каталог «публичные» — по `updatedAt` среди `isPublic = true`.
+  @@index([isPublic, updatedAt])
+  @@map("studies")
+}
+
+/// KS-2815 / ADR-059. Глава студии: pgn-блоб + базовые поля.
+/// Формат PGN совпадает с `Analysis.pgn` — включает макросы
+/// [%csl/%cal/%cvc] для подсветок/стрелок/цветов вариантов.
+model StudyChapter {
+  id          String   @id @default(uuid()) @db.Uuid
+  studyId     String   @map("study_id") @db.Uuid
+  name        String
+  /// Порядок главы в студии. Шаг 1000 для drag-n-drop без переписи
+  /// всех соседей (вставка между N и N+1 → новый orderIdx = (N+N+1)/2 ≈
+  /// середина; при исчерпании дробности сервис делает rebalance).
+  orderIdx    Int      @map("order_idx")
+  /// PGN дерева главы. Может быть пустой строкой для свежесозданной
+  /// главы без ходов.
+  pgn         String   @db.Text
+  /// Стартовая позиция FEN. NULL = стандартная.
+  startFen    String?  @map("start_fen")
+  /// Ориентация доски снизу: "white" | "black". Валидируется в DTO.
+  orientation String   @default("white")
+  /// MVP — всегда "analysis". В будущем — "practice"/"conceal"/"gamebook".
+  mode        String   @default("analysis")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  @@unique([studyId, orderIdx])
+  @@index([studyId])
+  @@map("study_chapters")
 }
