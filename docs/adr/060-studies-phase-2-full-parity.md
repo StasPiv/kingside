@@ -663,6 +663,63 @@ Wave A через переиспользование AnalysisPage**. Не дел
 - **T5** — e2e save-to-study + invite-flow. (frontend, M)
 - **T6** — e2e embed render. (frontend, S)
 
+### 10.3 Реальные ключи в трекере (созданы пакетом KS-2856)
+
+**Wave A (20 тикетов):**
+
+| T | KS | Assignee |
+|---|----|----------|
+| B1 | KS-2857 | backend |
+| B2 | KS-2858 | backend |
+| B3 | KS-2859 | backend |
+| B4 | KS-2860 | backend |
+| B5 | KS-2861 | backend |
+| B6 | KS-2862 | backend |
+| FR1 | KS-2863 | frontend |
+| FR2 | KS-2864 | frontend |
+| FR3 | KS-2866 | frontend |
+| FR4 | KS-2867 | frontend |
+| FS1 | KS-2868 | frontend |
+| FS2 | KS-2869 | frontend |
+| FM1 | KS-2870 | frontend |
+| FM2 | KS-2871 | frontend |
+| FM3 | KS-2872 | frontend |
+| FM4 | KS-2873 | frontend |
+| FM5 | KS-2874 | frontend |
+| L1 | KS-2875 | layout |
+| L2 | KS-2876 | layout |
+| T1 | KS-2877 | frontend |
+| T2 | KS-2878 | frontend |
+| T3 | KS-2879 | qa |
+| X1 | KS-2849 | architect (закрытие superseded — комментарий оставлен, transition делает координатор) |
+
+**Wave B (22 тикета):**
+
+| T | KS | Assignee |
+|---|----|----------|
+| B7 | KS-2880 | backend |
+| B8 | KS-2881 | backend |
+| B9 | KS-2882 | backend |
+| B10 | KS-2883 | backend |
+| B11 | KS-2884 | backend |
+| B12 | KS-2885 | backend |
+| FC1 | KS-2886 | frontend |
+| FC2 | KS-2887 | frontend |
+| FC3 | KS-2888 | frontend |
+| FC4 | KS-2889 | frontend |
+| FC5 | KS-2890 | frontend |
+| FC6 | KS-2891 | frontend |
+| FC7 | KS-2892 | frontend |
+| FC8 | KS-2893 | frontend |
+| L3 | KS-2894 | layout |
+| L4 | KS-2895 | layout |
+| D1 | KS-2896 | devops |
+| T4 | KS-2897 | frontend |
+| T5 | KS-2898 | frontend |
+| T6 | KS-2899 | frontend |
+
+**Итого создано:** 42 тикета (Wave A: 23 включая FR3 в KS-2866 и X1, Wave B: 20). Все в статусе TODO, запуск пакетами по согласованию координатора. Wave A может выйти в прод отдельно от Wave B.
+
 ---
 
 ## 11. Ссылки
