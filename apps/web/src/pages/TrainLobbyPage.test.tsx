@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Route, Routes } from 'react-router-dom';
 
 import { renderWithProviders, screen } from '../test/test-utils';
 
 /**
- * KS-2796 (ADR-058 §6.1 T1): рендер `TrainLobbyPage` при разных
- * комбинациях feature-flag'ов. Mock'аем `useFeatureFlag`, чтобы
- * не дёргать FeatureFlagsContext (он подтягивает реальный API).
+ * KS-2796 (ADR-058 §6.1 T1) + KS-2844 (ADR-058 §11.5):
+ * - На mobile рендерится грид карточек (по feature-flags).
+ * - На desktop редирект на первый разрешённый подраздел.
  */
 
 const flagsState: Record<string, boolean> = {
@@ -23,14 +24,25 @@ vi.mock('../context/FeatureFlagsContext', async () => {
   };
 });
 
+// KS-2844: для тестов лобби-страницы мокаем useIsMobile.
+const mobileState = { isMobile: true };
+vi.mock('../hooks/useIsMobile', () => ({
+  useIsMobile: () => mobileState.isMobile,
+}));
+
 import { TrainLobbyPage } from './TrainLobbyPage';
 
 beforeEach(() => {
   flagsState.puzzlesEnabled = true;
   flagsState.drillsEnabled = true;
+  mobileState.isMobile = true;
 });
 
-describe('TrainLobbyPage (KS-2796)', () => {
+/**
+ * Тестируем mobile-рендер. На mobile useIsMobile=true → лобби рендерится
+ * с гридом карточек.
+ */
+describe('TrainLobbyPage (KS-2796) — mobile render', () => {
   it('все флаги включены → 4 карточки', () => {
     renderWithProviders(<TrainLobbyPage />, { route: '/train' });
     expect(screen.getByTestId('train-lobby-page')).toBeInTheDocument();
@@ -69,10 +81,6 @@ describe('TrainLobbyPage (KS-2796)', () => {
   });
 
   it('все флаги выключены, Rush всегда видим → 1 карточка, без coming-soon', () => {
-    // KS-2796: Rush не gated; остаётся даже если puzzlesEnabled и
-    // drillsEnabled оба false. Coming-soon-fallback рендерится только
-    // если 4 из 4 модуля выключены — то есть в текущей реализации
-    // никогда (Rush всегда true). Тест зафиксирует это поведение.
     flagsState.puzzlesEnabled = false;
     flagsState.drillsEnabled = false;
     renderWithProviders(<TrainLobbyPage />, { route: '/train' });
@@ -96,5 +104,39 @@ describe('TrainLobbyPage (KS-2796)', () => {
     expect(
       screen.getByTestId('train-lobby-card-precision').getAttribute('href'),
     ).toBe('/precision');
+  });
+});
+
+/**
+ * KS-2844: desktop redirect.
+ */
+describe('TrainLobbyPage KS-2844 — desktop redirect', () => {
+  it('desktop + puzzlesEnabled=true → редирект на /puzzles', () => {
+    mobileState.isMobile = false;
+    flagsState.puzzlesEnabled = true;
+    renderWithProviders(
+      <Routes>
+        <Route path="/train" element={<TrainLobbyPage />} />
+        <Route path="/puzzles" element={<div data-testid="puzzles-stub" />} />
+      </Routes>,
+      { route: '/train' },
+    );
+    expect(screen.getByTestId('puzzles-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('train-lobby-page')).not.toBeInTheDocument();
+  });
+
+  it('desktop + puzzlesEnabled=false → редирект на /puzzle-rush', () => {
+    mobileState.isMobile = false;
+    flagsState.puzzlesEnabled = false;
+    flagsState.drillsEnabled = false;
+    renderWithProviders(
+      <Routes>
+        <Route path="/train" element={<TrainLobbyPage />} />
+        <Route path="/puzzle-rush" element={<div data-testid="rush-stub" />} />
+      </Routes>,
+      { route: '/train' },
+    );
+    expect(screen.getByTestId('rush-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('train-lobby-page')).not.toBeInTheDocument();
   });
 });

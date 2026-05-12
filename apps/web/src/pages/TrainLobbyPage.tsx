@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useFeatureFlag } from '../context/FeatureFlagsContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 /**
  * KS-2796 (ADR-058 §6.1 T1) — лобби группы «Тренировка» (`/train`).
@@ -34,6 +35,10 @@ export function TrainLobbyPage() {
   const { t } = useTranslation();
   const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
   const drillsEnabled = useFeatureFlag('drillsEnabled');
+  // KS-2844 (ADR-058 §11.5): на desktop лобби-страница — redirect на
+  // первый разрешённый подраздел (sidebar-submenu даёт прямой доступ
+  // ко всем). На mobile рендерим грид карточек как раньше.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const prevTitle = document.title;
@@ -42,6 +47,23 @@ export function TrainLobbyPage() {
       document.title = prevTitle;
     };
   }, [t]);
+
+  // Desktop redirect (порядок приоритета по ADR-058 §11.5):
+  //   puzzlesEnabled → /puzzles
+  //   иначе → /puzzle-rush (Rush открыт всегда)
+  //   фоллбек (теоретический — Rush всегда есть): drills/precision/lobby.
+  if (!isMobile) {
+    let target: string;
+    if (puzzlesEnabled) target = '/puzzles';
+    else target = '/puzzle-rush';
+    // Дальнейшие проверки оставлены для будущего gating'а Rush'а:
+    //   if (drillsEnabled) target = '/drills';
+    //   else if (puzzlesEnabled) target = '/precision';
+    //   else target = '/lobby';
+    // На момент KS-2844 Rush открыт безусловно → fallback'и не нужны.
+    void drillsEnabled; // silence unused-warn при текущей логике
+    return <Navigate to={target} replace />;
+  }
 
   const items: LobbyCardItem[] = [
     {

@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+
+import { useIsMobile } from '../hooks/useIsMobile';
 
 /**
  * KS-2797 (ADR-058 §6.1 T2) — лобби группы «Анализ» (`/analyze`).
@@ -46,6 +48,10 @@ const ITEMS: LobbyCardItem[] = [
 
 export function AnalyzeLobbyPage() {
   const { t } = useTranslation();
+  // KS-2844 (ADR-058 §11.5): на desktop /analyze → редирект на
+  // /workshop (primary). Archive доступен через sidebar-submenu или
+  // прямой URL. На mobile — рендер карточек.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const prevTitle = document.title;
@@ -54,6 +60,10 @@ export function AnalyzeLobbyPage() {
       document.title = prevTitle;
     };
   }, [t]);
+
+  if (!isMobile) {
+    return <Navigate to="/workshop" replace />;
+  }
 
   return (
     <div className="lobby-page lobby-page--analyze" data-testid="analyze-lobby-page">
