@@ -1,4 +1,27 @@
 {
+  "train": {
+    "lobby": {
+      "title": "Train",
+      "subtitle": "Sharpen tactics, patterns and precision.",
+      "comingSoon": "All training modules are temporarily disabled. Come back soon.",
+      "puzzles": {
+        "title": "Puzzles",
+        "desc": "Solve curated tactics, build your puzzle rating."
+      },
+      "puzzleRush": {
+        "title": "Puzzle Rush",
+        "desc": "Race the clock — how many tactics in 3 minutes?"
+      },
+      "drills": {
+        "title": "Drills",
+        "desc": "Pattern-focused mini-exercises (forks, pins, etc)."
+      },
+      "precision": {
+        "title": "Precision",
+        "desc": "Play out puzzles vs Stockfish — measure precision."
+      }
+    }
+  },
   "tos": {
     "title": "Terms of Service",
     "lastUpdated": "Last updated: {{date}}",
