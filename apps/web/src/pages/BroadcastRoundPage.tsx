@@ -443,8 +443,18 @@ export function BroadcastRoundPage() {
         </button>
       )}
 
-      {/* Round tabs */}
-      <div className="broadcast-rounds-row">
+      {/* Round tabs.
+          KS-2802: на mobile (<= 768px) кнопки скрываются CSS-ом, вместо
+          них показывается компактный нативный `<select>`. На desktop
+          поведение прежнее (плоская сетка кнопок) — регрессий KS-2790
+          (активная подсветка через .broadcast-round-btn--active) нет.
+          Оба варианта в DOM одновременно — переключаются media-query'ем,
+          не JS-ом: проще, без зависимости от window.matchMedia и
+          мерцания на ресайзе. */}
+      <div
+        className="broadcast-rounds-row"
+        data-testid="broadcast-rounds-row-desktop"
+      >
         {rounds.map((r) => (
           <Link
             key={r.id}
@@ -454,6 +464,36 @@ export function BroadcastRoundPage() {
             {r.name}
           </Link>
         ))}
+      </div>
+      <div
+        className="broadcast-rounds-select"
+        data-testid="broadcast-rounds-select"
+      >
+        <label
+          className="broadcast-rounds-select__label"
+          htmlFor="broadcast-rounds-select-input"
+        >
+          {t('broadcastRound.selectorLabel', 'Round')}
+        </label>
+        <select
+          id="broadcast-rounds-select-input"
+          className="broadcast-rounds-select__input"
+          value={roundId ?? ''}
+          data-testid="broadcast-rounds-select-input"
+          onChange={(e) => {
+            const next = e.target.value;
+            if (next && next !== roundId) {
+              navigate(`/broadcasts/${tournamentId}/${next}`);
+            }
+          }}
+          aria-label={t('broadcastRound.selectorLabel', 'Round')}
+        >
+          {rounds.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {games.length === 0 ? (

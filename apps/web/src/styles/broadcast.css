@@ -241,6 +241,61 @@
   cursor: not-allowed;
 }
 
+/* KS-2802: на mobile (<= 768px) плоский список кнопок Round 1..N
+   занимал почти полэкрана. Подменяем его на компактный нативный
+   `<select>` — оба варианта в DOM, переключение CSS-ом (media-query).
+   На desktop `.broadcast-rounds-select` скрыт, кнопки .broadcast-rounds-row
+   видны как и раньше; на mobile — наоборот. */
+.broadcast-rounds-select {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+
+.broadcast-rounds-select__label {
+  font-size: 13px;
+  color: var(--c-b0b0c8, #b0b0c8);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.broadcast-rounds-select__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 32px 6px 10px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--c-e0e0f0, #e0e0f0);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  /* Нативная стрелка нативного select на iOS/Android выглядит по-разному;
+     рисуем собственную через background-image для консистентности. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%237c83ff' d='M1 1.5L6 6.5L11 1.5' stroke='%237c83ff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.broadcast-rounds-select__input:focus {
+  outline: none;
+  border-color: var(--c-7c83ff, #7c83ff);
+}
+
+@media (max-width: 768px) {
+  .broadcast-rounds-row {
+    display: none;
+  }
+  .broadcast-rounds-select {
+    display: flex;
+  }
+}
+
 .broadcast-games-section {
   margin-top: 4px;
 }

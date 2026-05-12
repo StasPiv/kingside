@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BroadcastGameSummary, BroadcastRoundItem } from '@kingside/shared';
 
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithProviders, screen, waitFor, within } from '../test/test-utils';
+import userEvent from '@testing-library/user-event';
 
 /**
  * KS-1823: регрессионный тест — страница раунда всегда показывает
@@ -218,5 +219,87 @@ describe('BroadcastRoundPage KS-2446 sort by white surname', () => {
     );
     // Ожидаем порядок по фамилии белых, null — в конец.
     expect(ids).toEqual(['g4', 'g3', 'g1', 'g2', 'g5']);
+  });
+});
+
+/**
+ * KS-2802: на mobile список туров заменён компактным `<select>`.
+ * Оба варианта (кнопки и select) присутствуют в DOM одновременно,
+ * переключение — через CSS media-query. Тестируем что:
+ *  - select содержит option на каждый раунд и выбран текущий roundId;
+ *  - кнопки Round 1..N всё ещё рендерятся (desktop-вариант);
+ *  - смена value у select переводит на /broadcasts/.../<roundId>.
+ */
+describe('BroadcastRoundPage KS-2802 mobile rounds selector', () => {
+  function setupRounds(roundsCount: number, roundId: string) {
+    const rounds: BroadcastRoundItem[] = Array.from(
+      { length: roundsCount },
+      (_, i) => ({
+        id: `r${i + 1}`,
+        lichessRoundId: `lr${i + 1}`,
+        name: `Round ${i + 1}`,
+        startsAt: null,
+        status: i + 1 === roundsCount ? 'ongoing' : 'finished',
+        tournamentType: 'swiss',
+      }),
+    );
+    const game: BroadcastGameSummary = {
+      id: 'gA',
+      lichessGameId: 'lgA',
+      whitePlayer: 'Alice',
+      blackPlayer: 'Bob',
+      whiteElo: null,
+      blackElo: null,
+      result: '*',
+      pgn: '1. e4',
+      currentFen: null,
+      updatedAt: '2026-05-12T10:00:00.000Z',
+      bracketStage: null,
+      bracketPairId: null,
+      matchScore: null,
+    };
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'Kazakhstan FINAL' })
+      .mockResolvedValueOnce({ data: rounds })
+      .mockResolvedValueOnce({ data: [game] });
+    // Текущий roundId подсунем через useParams-mock в beforeEach далее.
+    return { rounds, roundId };
+  }
+
+  it('рендерит и кнопки (desktop), и select (mobile) с правильным набором options', async () => {
+    setupRounds(13, 'r13');
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument(),
+    );
+    // Desktop: 13 кнопок Round 1..13.
+    const buttons = container.querySelectorAll('.broadcast-round-btn');
+    expect(buttons).toHaveLength(13);
+    // Mobile select: 13 опций.
+    const select = screen.getByTestId('broadcast-rounds-select-input') as HTMLSelectElement;
+    expect(select).toBeInTheDocument();
+    const options = within(select).getAllByRole('option');
+    expect(options).toHaveLength(13);
+    expect(options[0]).toHaveTextContent('Round 1');
+    expect(options[12]).toHaveTextContent('Round 13');
+    // Выбран текущий roundId.
+    // useParams в этом тесте мокается на tournamentId='tx', roundId='r1'
+    // (см. global mock сверху файла) — selected value = 'r1'.
+    expect(select.value).toBe('r1');
+  });
+
+  it('изменение select → навигация на выбранный раунд', async () => {
+    setupRounds(13, 'r13');
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument(),
+    );
+    const select = screen.getByTestId('broadcast-rounds-select-input') as HTMLSelectElement;
+    await userEvent.selectOptions(select, 'r7');
+    expect(navigateMock).toHaveBeenCalledWith('/broadcasts/tx/r7');
   });
 });

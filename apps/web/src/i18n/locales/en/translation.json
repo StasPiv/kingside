@@ -238,6 +238,7 @@
     "live": "Live",
     "connecting": "Connecting...",
     "noGames": "No games in this round",
+    "selectorLabel": "Round",
     "roundsError": "Failed to load rounds",
     "syncError": "Connection error",
     "close": "Close",
