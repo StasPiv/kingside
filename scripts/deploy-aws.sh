@@ -704,7 +704,7 @@ if $DEPLOY_API; then
     # 30.04 откат synthetic-stack (KS-2159..2179): SYNTHETIC_AVATARS_*
     # удалены из API_EXTRA_ENV, чтобы deploy api не возрождал фичу.
     # Bucket/IAM/БД-миграция оставлены до решения о новой архитектуре.
-    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"StanislavTelegram"}]'
+    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"}]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
 
