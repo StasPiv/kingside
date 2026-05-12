@@ -1,0 +1,165 @@
+/* ============================================================
+ * KS-2825 (KS-2815 §B.5) — каталог Studies `/studies`. Минимально-
+ * функциональная разметка; полировка типографики/spacing — за
+ * layout-агентом по KS-2835 (CSS submenu / studies).
+ * ============================================================ */
+
+.studies-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.studies-page__header {
+  margin-bottom: 24px;
+}
+
+.studies-page__header h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.studies-page__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.studies-page__tabs {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0 18px;
+}
+
+.studies-page__tab {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--c-b0b0c8, #b0b0c8);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.studies-page__tab:hover {
+  border-color: var(--c-7c83ff, #7c83ff);
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.studies-page__tab--active {
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  border-color: var(--c-7c83ff, #7c83ff);
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.studies-page__loading,
+.studies-page__error,
+.studies-page__empty {
+  padding: 32px;
+  text-align: center;
+  font-style: italic;
+  color: var(--c-9e9e9e, #9e9e9e);
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 10px;
+}
+
+.studies-page__error {
+  color: var(--c-e88, #e88c8c);
+}
+
+.studies-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.studies-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+
+.studies-card:hover {
+  border-color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
+}
+
+.studies-card,
+.studies-card:hover,
+.studies-card:visited,
+.studies-card:focus,
+.studies-card:focus-visible,
+.studies-card:active {
+  text-decoration: none;
+}
+
+.studies-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.studies-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studies-card__badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.studies-card__badge--public {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-4caf50, #4caf50);
+}
+
+.studies-card__badge--private {
+  background: var(--ov-warning-15, rgba(255, 152, 0, 0.15));
+  color: var(--c-ff9800, #ff9800);
+}
+
+.studies-card__desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.studies-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.studies-card__chapters,
+.studies-card__updated {
+  white-space: nowrap;
+}

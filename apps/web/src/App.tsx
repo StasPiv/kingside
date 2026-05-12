@@ -118,6 +118,10 @@ const TrainLobbyPage = lazy(() =>
 const AnalyzeLobbyPage = lazy(() =>
   import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
 );
+// KS-2825 (KS-2815 §B.5): каталог студий `/studies` (Мои/Публичные).
+const StudiesPage = lazy(() =>
+  import('./pages/StudiesPage').then((m) => ({ default: m.StudiesPage })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -357,6 +361,17 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <AnalyzeLobbyPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2825 (KS-2815 §B.5): каталог Studies. Без ProtectedRoute —
+            публичные студии видны и гостям; таб «Мои» в UI рендерится
+            только для авторизованных. */}
+        <Route
+          path="/studies"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <StudiesPage />
             </Suspense>
           }
         />

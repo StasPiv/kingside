@@ -22,6 +22,28 @@
       }
     }
   },
+  "studies": {
+    "title": "Studies",
+    "subtitle": "Curate your analysis in shareable studies — your own and the community's.",
+    "tabs": {
+      "mine": "My studies",
+      "public": "Public"
+    },
+    "card": {
+      "public": "Public",
+      "private": "Private",
+      "chapters_one": "{{count}} chapter",
+      "chapters_other": "{{count}} chapters",
+      "updated": "Updated {{date}}"
+    },
+    "empty": {
+      "mine": "You don't have any studies yet. Create your first one to get started.",
+      "public": "No public studies yet. Be the first to share."
+    },
+    "error": {
+      "load": "Failed to load studies."
+    }
+  },
   "navOnboarding": {
     "title": "Menu reorganized",
     "body": "Puzzles, Rush, Drills and Precision are now under «Train». Workshop and Archive are under «Analyze». On desktop, subsections open directly from the sidebar — hover or click «Train».",
