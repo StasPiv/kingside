@@ -508,16 +508,32 @@ body.has-analysis-page .main {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  /* KS-2865: sidebar теперь `position: fixed` (выпал из потока) —
+     основной контент сдвигаем влево на ширину sidebar'а, иначе
+     заходит под него. На mobile sidebar скрыт (`display: none`) —
+     отступ обнуляется в `@media (max-width: 768px)` ниже. */
+  padding-left: 88px;
 }
 
-/* Sidebar (KS-1111/KS-1487/KS-1572/KS-2800/KS-2801/KS-2804)
-   Новая блочная разметка: .sidebar-main (контентные пункты) →
-   .sidebar-spacer (растягивается) → .sidebar-divider →
-   .sidebar-footer (утилитарные + Feedback). Раньше gap=10 жил на
-   корневом .sidebar — теперь это даёт «дырки» между секциями
-   (gap применился бы и к spacer/divider). Переносим gap внутрь
-   секций, spacer берёт на себя прижатие футера к низу. */
+/* Sidebar (KS-1111/KS-1487/KS-1572/KS-2800/KS-2801/KS-2804/KS-2865)
+   `position: fixed`, прижат под header (header — 48px height,
+   position: fixed top:0). Гарантирует, что footer виден всегда:
+   не уезжает вместе со scroll'ом контента и не обрезается на
+   страницах с длинной разметкой (Lessons/Studies/Profile).
+
+   Внутренний скролл `overflow-y: auto` со СКРЫТЫМ scrollbar'ом —
+   на сверхкоротких viewport'ах + админ контент сидбара
+   скроллится, но scrollbar браузер не рендерит, поэтому
+   tooltip'ы из `::after` не вызывают горизонтальный scrollbar
+   (регресс KS-2850).
+
+   Разметка: `.sidebar-main` → `.sidebar-spacer (flex:1)` →
+   `.sidebar-divider` → `.sidebar-footer`. */
 .sidebar {
+  position: fixed;
+  top: 48px;        /* под fixed-header'ом */
+  left: 0;
+  bottom: 0;
   width: 88px;
   background: var(--c-0f0f1e);
   border-right: 1px solid var(--c-2a2a4e);
@@ -525,17 +541,22 @@ body.has-analysis-page .main {
   flex-direction: column;
   align-items: center;
   padding: 16px 0;
-  flex-shrink: 0;
-  /* KS-2850 (fix): убран `overflow-y: auto` из KS-2804. Спец CSS
-     при `overflow-y: auto` автоматически делает `overflow-x: auto`.
-     Tooltip `.sidebar-item[title]:hover::after` (position:absolute,
-     left: calc(100% + 8px), ≈80px ширины) на hover увеличивал
-     scrollWidth с 87→137-182px → появлялся горизонтальный
-     scrollbar → spacer схлопывался → footer прыгал вверх.
-     Без `overflow-y: auto`: footer прижат к низу через flex,
-     spacer:flex-1 — стабильно. На сверхкоротких viewport'ах
-     (<700px высоты при админе) нижние пункты могут уйти за
-     viewport, но прыжка нет. */
+  z-index: 90;       /* ниже header'а (100), выше main контента */
+  box-sizing: border-box;
+  /* KS-2865: внутренний скрол без видимого scrollbar'а — чтобы
+     не было горизонтального scrollbar'а от tooltip'ов
+     (см. KS-2850). Firefox: `scrollbar-width: none`. Chrome/
+     Safari: `::-webkit-scrollbar { display: none }`. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* KS-2804: контентная навигация — 5 крупных групп. */
@@ -661,6 +682,8 @@ button.sidebar-item {
 
 @media (max-width: 768px) {
   .sidebar { display: none; }
+  /* KS-2865: на mobile sidebar скрыт — обнуляем padding-left у main. */
+  .app-body > .main { padding-left: 0; }
 }
 
 /* ============================================================
