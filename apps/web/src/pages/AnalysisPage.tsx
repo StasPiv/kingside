@@ -45,6 +45,10 @@ import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHist
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 import { HelpButton } from '../components/HelpButton';
+// KS-2863 (ADR-060 §10.1 FR1): извлечённый header — workshop-shortcut +
+// breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
+// handlers) остаётся в AnalysisPage, передаётся через props.
+import { AnalysisHeader } from './analysis/AnalysisHeader';
 import { ArchiveTreePanel } from '../components/analysis/ArchiveTreePanel';
 
 type GameData = {
@@ -1335,52 +1339,32 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     <div className="analysis-page" ref={analysisPageRef}>
       <div className="analysis-board-area">
         {!gameId && (
-          <>
-          <div className="analysis-workshop-shortcut">
-            <Link to="/workshop" className="analysis-workshop-shortcut__link">{t('workshop.title')}</Link>
-            <HelpButton section="analyze" />
-          </div>
-          <nav className="analysis-breadcrumbs">
-            <Link to={breadcrumbRootUrl ?? '/workshop'} className="analysis-breadcrumbs__link">
-              {breadcrumbRootTitle ?? t('workshop.title')}
-            </Link>
-            {breadcrumbSection && (
-              <>
-                <span className="analysis-breadcrumbs__sep"> / </span>
-                <Link to={breadcrumbBackUrl ?? '/workshop'} state={breadcrumbBackState} className="analysis-breadcrumbs__link">{breadcrumbSection}</Link>
-              </>
-            )}
-            {breadcrumbFileName && (
-              <>
-                <span className="analysis-breadcrumbs__sep"> / </span>
-                <Link to={breadcrumbFileBackUrl ?? '/workshop/pgn-files'} state={breadcrumbFileBackState} className="analysis-breadcrumbs__link">{breadcrumbFileName}</Link>
-              </>
-            )}
-            <span className="analysis-breadcrumbs__sep"> / </span>
-            {isEditingTitle ? (
-              <input
-                className="analysis-title__input analysis-breadcrumbs__input"
-                value={titleInput}
-                onChange={(e) => setTitleInput(e.target.value)}
-                onBlur={handleTitleSave}
-                onKeyDown={handleTitleKeyDown}
-                autoFocus
-                maxLength={100}
-              />
-            ) : (
-              <span className="analysis-breadcrumbs__current" onClick={handleTitleClick} title={t('analysis.editTitle', 'Click to edit title')}>
-                <span className="analysis-breadcrumbs__current-text">{analysisTitle}</span>
-                <span className="analysis-title__edit-icon">✎</span>
-              </span>
-            )}
-          </nav>
-          {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт
-              в action-bar под доской (desktop) и в overflow-menu
-              (mobile). См. ShareAnalysisButton ниже + handler в
-              overflow-menu. Шапка освободилась — особенно над доской
-              на mobile. */}
-          </>
+          <AnalysisHeader
+            context={{
+              mode: 'analysis',
+              breadcrumbRootTitle,
+              breadcrumbRootUrl,
+              breadcrumbSection,
+              breadcrumbBackUrl,
+              breadcrumbBackState,
+              breadcrumbFileName,
+              breadcrumbFileBackUrl,
+              breadcrumbFileBackState,
+            }}
+            analysisTitle={analysisTitle}
+            isEditingTitle={isEditingTitle}
+            titleInput={titleInput}
+            onTitleInputChange={setTitleInput}
+            onTitleSave={handleTitleSave}
+            onTitleKeyDown={handleTitleKeyDown}
+            onTitleClick={handleTitleClick}
+          />
         )}
+        {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт
+            в action-bar под доской (desktop) и в overflow-menu
+            (mobile). См. ShareAnalysisButton ниже + handler в
+            overflow-menu. Шапка освободилась — особенно над доской
+            на mobile. */}
         <div className="analysis-board-wrapper">
           {gameInfo ? <GameMetaBar info={gameInfo} /> : <div className="game-meta-bar"><div className="game-meta-bar__mobile" /><div className="game-meta-bar__desktop" /></div>}
 
