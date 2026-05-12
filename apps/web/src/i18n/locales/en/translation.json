@@ -22,6 +22,20 @@
       }
     }
   },
+  "analyze": {
+    "lobby": {
+      "title": "Analyze",
+      "subtitle": "Dive into your games and study positions in depth.",
+      "workshop": {
+        "title": "Workshop",
+        "desc": "Deep analysis with Stockfish, variations and annotations."
+      },
+      "archive": {
+        "title": "Archive",
+        "desc": "Browse master games and your own past games."
+      }
+    }
+  },
   "tos": {
     "title": "Terms of Service",
     "lastUpdated": "Last updated: {{date}}",
