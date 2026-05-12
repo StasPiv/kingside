@@ -9,6 +9,7 @@ import {
   type StudyChapterSummaryDto,
 } from '../api/studiesApi';
 import { ImportPgnDialog } from '../components/studies/ImportPgnDialog';
+import { ChapterList } from '../components/studies/ChapterList';
 
 /**
  * KS-2826 (KS-2815 §B.5) — детальная страница студии `/studies/:slug`.
@@ -228,29 +229,11 @@ export function StudyPage() {
               )}
         </div>
       ) : (
-        <ol
-          className="study-chapter-list"
-          data-testid="study-chapter-list"
-        >
-          {chapters.map((ch) => (
-            <li
-              key={ch.id}
-              className="study-chapter-item"
-              data-testid={`study-chapter-${ch.id}`}
-            >
-              <Link
-                to={`/studies/${encodeURIComponent(study.slug)}/${encodeURIComponent(ch.id)}`}
-                className="study-chapter-item__link"
-              >
-                <span className="study-chapter-item__index">
-                  {ch.orderIdx}
-                </span>
-                <span className="study-chapter-item__name">{ch.name}</span>
-                <span className="study-chapter-item__mode">{ch.mode}</span>
-              </Link>
-            </li>
-          ))}
-        </ol>
+        <ChapterList
+          slug={study.slug}
+          chapters={chapters}
+          canEdit={isOwner}
+        />
       )}
 
       {importOpen && (

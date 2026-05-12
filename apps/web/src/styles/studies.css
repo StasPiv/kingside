@@ -278,7 +278,35 @@
   border-color: var(--c-7c83ff, #7c83ff);
 }
 
+.study-chapter-item {
+  display: flex;
+  align-items: stretch;
+}
+
+.study-chapter-item--dragging {
+  opacity: 0.5;
+}
+
+.study-chapter-item__handle {
+  background: transparent;
+  border: 0;
+  padding: 0 12px;
+  color: var(--c-6a6a8a, #6a6a8a);
+  font-size: 18px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.study-chapter-item__handle:hover {
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.study-chapter-item__handle:active {
+  cursor: grabbing;
+}
+
 .study-chapter-item__link {
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 40px 1fr auto;
   gap: 12px;

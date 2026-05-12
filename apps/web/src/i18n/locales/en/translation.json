@@ -47,10 +47,12 @@
       "share": "Failed to update sharing.",
       "createChapter": "Failed to create chapter.",
       "delete": "Failed to delete study.",
-      "notFound": "Study not found."
+      "notFound": "Study not found.",
+      "reorder": "Failed to reorder chapters. The previous order is restored."
     },
     "chapter": {
-      "defaultName": "New chapter"
+      "defaultName": "New chapter",
+      "drag": "Drag to reorder"
     },
     "action": {
       "makePublic": "Make public",
