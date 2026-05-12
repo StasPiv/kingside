@@ -3,12 +3,14 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { useAdminStatus } from '../hooks/useAdminStatus';
+import { useAuth } from '../context/AuthContext';
 import {
   NAV_ROUTES,
   useTopNavStats,
   DEFAULT_TOP,
   type NavRoute,
 } from '../hooks/useNavStats';
+import { FeedbackModal } from './FeedbackModal';
 
 /**
  * KS-2373 → KS-2806 (ADR-058 §5.1, §6.3 T9).
@@ -34,6 +36,9 @@ export function MobileBottomBar() {
   const { t } = useTranslation();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  // KS-2807: feedback-модалка (как в Sidebar). Кнопка лежит в группе
+  // «Помощь» drawer'а, открывает тот же `<FeedbackModal>`.
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // KS-2806: gate-функция группы. Для `train` имеет смысл показывать
   // только если хотя бы один подраздел открыт (Rush, puzzles или
@@ -41,6 +46,7 @@ export function MobileBottomBar() {
   // используем его, иначе fallback на `flag`.
   const { flags } = useFeatureFlags();
   const { isAdmin } = useAdminStatus();
+  const { user } = useAuth();
   const isRouteVisible = (route: NavRoute): boolean => {
     const meta = NAV_ROUTES[route];
     if (meta.customGate) return meta.customGate(flags);
@@ -127,32 +133,169 @@ export function MobileBottomBar() {
           data-testid="mobile-more-menu"
           onClick={() => setMoreOpen(false)}
         >
-          {/* KS-2806: остальные группы из NAV_ROUTES, не попавшие в топ. */}
-          {moreRoutes.map((route) => {
-            const meta = NAV_ROUTES[route];
-            if (!meta) return null;
-            return (
-              <Link
-                key={route}
-                to={meta.to}
-                data-testid={`mobile-more-${route}`}
-              >
-                {t(meta.labelKey, meta.labelFallback)}
-              </Link>
+          {/* KS-2807 (ADR-058 §5.2): drawer группирован по семантике.
+              «Разделы» — группы из NAV_ROUTES, которые не попали в
+              top-3 (например, train/learn/analyze/play), но НЕ
+              broadcasts/profile (они переехали в группы «Социум»
+              и «Аккаунт» ниже).
+
+              Каждая видимая группа — заголовок + ссылки. Группа без
+              видимых пунктов (все элементы скрыты по auth/flag)
+              целиком не рендерится. */}
+
+          {/* — Разделы (group-routes не в top-3, кроме broadcasts/profile) — */}
+          {(() => {
+            const sectionRoutes = moreRoutes.filter(
+              (r) => r !== 'broadcasts' && r !== 'profile',
             );
-          })}
-          {/* «Технические» пункты вне whitelist nav-stats — KS-2807 (T10)
-              переделает в группировку Социум/Аккаунт/Помощь/Админ. */}
-          <Link to="/features">{t('nav.features', 'Features')}</Link>
-          <Link to="/friends">{t('nav.friends', 'Friends')}</Link>
-          <Link to="/feedback">{t('nav.feedback', 'Feedback')}</Link>
-          <Link to="/settings">{t('nav.settings', 'Settings')}</Link>
-          {isAdmin && (
-            <Link to="/admin/feature-flags" data-testid="mobile-more-admin">
-              {t('nav.admin', 'Admin')}
+            if (sectionRoutes.length === 0) return null;
+            return (
+              <div
+                className="mobile-more-group"
+                data-testid="mobile-more-group-sections"
+              >
+                <div className="mobile-more-group__title">
+                  {t('nav.moreSections', 'Sections')}
+                </div>
+                {sectionRoutes.map((route) => {
+                  const meta = NAV_ROUTES[route];
+                  if (!meta) return null;
+                  return (
+                    <Link
+                      key={route}
+                      to={meta.to}
+                      data-testid={`mobile-more-${route}`}
+                    >
+                      {t(meta.labelKey, meta.labelFallback)}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* — Социум — */}
+          {(() => {
+            const broadcastsItem =
+              moreRoutes.includes('broadcasts') ? (
+                <Link
+                  key="broadcasts"
+                  to="/broadcasts"
+                  data-testid="mobile-more-broadcasts"
+                >
+                  {t('nav.tv', 'TV')}
+                </Link>
+              ) : null;
+            const friendsItem = user ? (
+              <Link
+                key="friends"
+                to="/friends"
+                data-testid="mobile-more-friends"
+              >
+                {t('nav.friends', 'Friends')}
+              </Link>
+            ) : null;
+            if (!broadcastsItem && !friendsItem) return null;
+            return (
+              <div
+                className="mobile-more-group"
+                data-testid="mobile-more-group-social"
+              >
+                <div className="mobile-more-group__title">
+                  {t('nav.moreSocial', 'Social')}
+                </div>
+                {broadcastsItem}
+                {friendsItem}
+              </div>
+            );
+          })()}
+
+          {/* — Аккаунт — */}
+          {(() => {
+            const profileItem =
+              user && moreRoutes.includes('profile') ? (
+                <Link
+                  key="profile"
+                  to="/profile"
+                  data-testid="mobile-more-profile"
+                >
+                  {t('nav.profile', 'Profile')}
+                </Link>
+              ) : null;
+            const settingsItem = user ? (
+              <Link
+                key="settings"
+                to="/settings"
+                data-testid="mobile-more-settings"
+              >
+                {t('nav.settings', 'Settings')}
+              </Link>
+            ) : null;
+            if (!profileItem && !settingsItem) return null;
+            return (
+              <div
+                className="mobile-more-group"
+                data-testid="mobile-more-group-account"
+              >
+                <div className="mobile-more-group__title">
+                  {t('nav.moreAccount', 'Account')}
+                </div>
+                {profileItem}
+                {settingsItem}
+              </div>
+            );
+          })()}
+
+          {/* — Помощь — */}
+          <div
+            className="mobile-more-group"
+            data-testid="mobile-more-group-help"
+          >
+            <div className="mobile-more-group__title">
+              {t('nav.moreHelp', 'Help')}
+            </div>
+            <Link to="/features" data-testid="mobile-more-features">
+              {t('nav.features', 'Features')}
             </Link>
+            {/* KS-2807: Feedback — модалка, как в Sidebar (не страница).
+                Кнопка-«ссылка» внутри drawer'а; click останавливаем,
+                чтобы drawer не закрылся одновременно с открытием
+                модалки (drawer закрывает onClick на родителе). */}
+            <button
+              type="button"
+              className="mobile-more-feedback-btn"
+              data-testid="mobile-more-feedback"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFeedbackOpen(true);
+                setMoreOpen(false);
+              }}
+            >
+              {t('feedback.title', 'Feedback')}
+            </button>
+          </div>
+
+          {/* — Админ (только для админов) — */}
+          {isAdmin && (
+            <div
+              className="mobile-more-group"
+              data-testid="mobile-more-group-admin"
+            >
+              <div className="mobile-more-group__title">
+                {t('nav.moreAdmin', 'Admin')}
+              </div>
+              <Link
+                to="/admin/feature-flags"
+                data-testid="mobile-more-admin"
+              >
+                {t('nav.admin', 'Admin')}
+              </Link>
+            </div>
           )}
         </div>
+      )}
+      {feedbackOpen && (
+        <FeedbackModal onClose={() => setFeedbackOpen(false)} />
       )}
     </div>
   );

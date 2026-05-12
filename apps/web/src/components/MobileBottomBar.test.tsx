@@ -254,3 +254,125 @@ describe('<MobileBottomBar> KS-2806 — групповой набор', () => {
     expect(screen.getByTestId('mobile-bottom-bar')).toBeInTheDocument();
   });
 });
+
+/**
+ * KS-2807 (ADR-058 §5.2, §6.3 T10): drawer «Ещё» теперь сгруппирован
+ * (Разделы / Социум / Аккаунт / Помощь / Админ). Тестируем разметку
+ * групп и попадание правильных ссылок в них.
+ */
+describe('<MobileBottomBar> KS-2807 — drawer группировка', () => {
+  it('drawer содержит группу «Социум» с broadcasts и friends', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.getByTestId('mobile-more-group-social')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-broadcasts')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-friends')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('mobile-more-broadcasts').getAttribute('href'),
+    ).toBe('/broadcasts');
+    expect(
+      screen.getByTestId('mobile-more-friends').getAttribute('href'),
+    ).toBe('/friends');
+  });
+
+  it('drawer содержит группу «Аккаунт» с profile и settings', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.getByTestId('mobile-more-group-account')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-profile')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-settings')).toBeInTheDocument();
+  });
+
+  it('drawer содержит группу «Помощь» с features и feedback (кнопка-модалка)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.getByTestId('mobile-more-group-help')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-features')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-features').getAttribute('href')).toBe('/features');
+    // Feedback — кнопка-модалка, не <a>.
+    const feedbackBtn = screen.getByTestId('mobile-more-feedback');
+    expect(feedbackBtn.tagName).toBe('BUTTON');
+    expect(feedbackBtn.getAttribute('href')).toBeNull();
+  });
+
+  it('группа «Админ» видна ТОЛЬКО админу', async () => {
+    const user = userEvent.setup();
+    adminControls.isAdmin = false;
+    const { unmount } = renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(
+      screen.queryByTestId('mobile-more-group-admin'),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    adminControls.isAdmin = true;
+    apiGetMock.mockResolvedValue({ items: [] });
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.getByTestId('mobile-more-group-admin')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-admin').getAttribute('href')).toBe(
+      '/admin/feature-flags',
+    );
+  });
+
+  it('broadcasts в top-3 → дублируется в группе «Социум» нет, остается friends', async () => {
+    apiGetMock.mockResolvedValue({
+      items: [
+        { route: 'broadcasts', count: 30 },
+        { route: 'play', count: 20 },
+        { route: 'train', count: 10 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-broadcasts')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    // broadcasts уже в bar — в drawer группе «Социум» только friends.
+    expect(
+      screen.queryByTestId('mobile-more-broadcasts'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-friends')).toBeInTheDocument();
+    // Группа «Социум» всё ещё рендерится (есть friends).
+    expect(screen.getByTestId('mobile-more-group-social')).toBeInTheDocument();
+  });
+
+  it('секция «Разделы» — group-routes не из top-3 и НЕ broadcasts/profile', async () => {
+    // DEFAULT_TOP = play/train/learn → в drawer-«Разделах» только analyze.
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(
+      screen.getByTestId('mobile-more-group-sections'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-more-analyze')).toBeInTheDocument();
+    // broadcasts/profile — в своих группах, НЕ в «Разделах».
+    const sectionsGroup = screen.getByTestId('mobile-more-group-sections');
+    expect(
+      sectionsGroup.querySelector('[data-testid="mobile-more-broadcasts"]'),
+    ).toBeNull();
+    expect(
+      sectionsGroup.querySelector('[data-testid="mobile-more-profile"]'),
+    ).toBeNull();
+  });
+
+  it('Главная (/lobby) и Турниры (/tournaments) — НЕ в drawer (KS-2807)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+    await user.click(screen.getByTestId('mobile-bar-more'));
+    expect(screen.queryByText(/^Home$|^Главная$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Tournaments$|^Турниры$/i)).not.toBeInTheDocument();
+  });
+});
+
