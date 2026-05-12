@@ -221,23 +221,23 @@ export function BroadcastBoardCard({
   const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
   const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
 
-  // KS-2795: SAN последнего хода + относительное время («3 мин. назад»)
-  // под мини-доской. SAN считаем из PGN — это надёжный источник
-  // основной линии. Время — из `clockUpdatedAt` (момент применения
-  // свежего `%clk` из PGN). Если у партии нет clockUpdatedAt (источник
-  // без `%clk`) — показываем только SAN без подписи времени, без
-  // плейсхолдера «давно/сейчас» (см. согласование с координатором).
-  // Тикер обновления подписи — раз в 30 сек через useNow.
+  // KS-2795 → KS-2798: SAN последнего хода + относительное время
+  // («3 мин. назад») под мини-доской. SAN считаем из PGN. Время — из
+  // `lastMoveAt` (backend KS-2798: ISO-8601 момент реального изменения
+  // FEN, не зависит от наличия `%clk` в источнике). Если у партии нет
+  // `lastMoveAt` (стартовая позиция, ходов не было) — показываем только
+  // SAN либо плейсхолдер «Game not started», без подписи времени.
+  // Тикер подписи — раз в 30 сек через useNow.
   const { t, i18n } = useTranslation();
   const now = useNow(30_000);
   const lastSan = computeLastMoveSan(game.pgn ?? '');
   const lastMoveAgoText = formatMoveAgo(
-    game.clockUpdatedAt ?? null,
+    game.lastMoveAt ?? null,
     now,
     t,
   );
   const lastMoveExactTime = formatExactMoveTime(
-    game.clockUpdatedAt ?? null,
+    game.lastMoveAt ?? null,
     i18n.language || 'en',
   );
 

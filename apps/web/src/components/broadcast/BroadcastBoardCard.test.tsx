@@ -39,6 +39,7 @@ function makeGame(over: Partial<BroadcastGameSummary>): BroadcastGameSummary {
     bracketPairId: null,
     matchScore: null,
     clockUpdatedAt: null,
+    lastMoveAt: null,
     whiteClockMs: null,
     blackClockMs: null,
     ...over,
@@ -59,13 +60,13 @@ describe('BroadcastBoardCard — last move block (KS-2795)', () => {
   it('PGN c ходами → виден SAN последнего хода', () => {
     const game = makeGame({
       pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5',
-      clockUpdatedAt: '2026-05-12T10:03:00.000Z', // 2 минуты назад
+      lastMoveAt: '2026-05-12T10:03:00.000Z', // 2 минуты назад
     });
     renderWithProviders(<BroadcastBoardCard game={game} />);
     expect(screen.getByTestId('broadcast-board-last-move-san')).toHaveTextContent(
       'Bb5',
     );
-    // Время есть — clockUpdatedAt валиден.
+    // Время есть — lastMoveAt валиден.
     expect(screen.getByTestId('broadcast-board-last-move-time')).toBeInTheDocument();
   });
 
@@ -87,7 +88,7 @@ describe('BroadcastBoardCard — last move block (KS-2795)', () => {
   it('обновление PGN (новый ход) → SAN меняется', () => {
     const game = makeGame({
       pgn: '1. e4',
-      clockUpdatedAt: '2026-05-12T10:04:00.000Z',
+      lastMoveAt: '2026-05-12T10:04:00.000Z',
     });
     const { rerender } = renderWithProviders(<BroadcastBoardCard game={game} />);
     expect(screen.getByTestId('broadcast-board-last-move-san')).toHaveTextContent(
@@ -98,7 +99,7 @@ describe('BroadcastBoardCard — last move block (KS-2795)', () => {
         game={{
           ...game,
           pgn: '1. e4 e5 2. Nf3',
-          clockUpdatedAt: '2026-05-12T10:04:30.000Z',
+          lastMoveAt: '2026-05-12T10:04:30.000Z',
         }}
       />,
     );
@@ -107,10 +108,10 @@ describe('BroadcastBoardCard — last move block (KS-2795)', () => {
     );
   });
 
-  it('clockUpdatedAt=null → SAN есть, времени нет', () => {
+  it('lastMoveAt=null → SAN есть, времени нет', () => {
     const game = makeGame({
       pgn: '1. e4 e5',
-      clockUpdatedAt: null,
+      lastMoveAt: null,
     });
     renderWithProviders(<BroadcastBoardCard game={game} />);
     expect(screen.getByTestId('broadcast-board-last-move-san')).toHaveTextContent(
