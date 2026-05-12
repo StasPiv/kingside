@@ -6,6 +6,8 @@ import { StudyChaptersService } from './study-chapters.service';
 import { StudySlugService } from './study-slug.service';
 import { StudyAccessGuard } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
+import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
+import { StudyController } from './study.controller';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. NestJS-модуль для Studies.
@@ -25,12 +27,14 @@ import { StudyOwnerGuard } from './study-owner.guard';
  */
 @Module({
   imports: [PrismaModule, AuthModule],
+  controllers: [StudyController],
   providers: [
     StudyService,
     StudyChaptersService,
     StudySlugService,
     StudyAccessGuard,
     StudyOwnerGuard,
+    OptionalJwtAuthGuard,
   ],
   exports: [
     StudyService,
@@ -38,6 +42,7 @@ import { StudyOwnerGuard } from './study-owner.guard';
     StudySlugService,
     StudyAccessGuard,
     StudyOwnerGuard,
+    OptionalJwtAuthGuard,
   ],
 })
 export class StudyModule {}

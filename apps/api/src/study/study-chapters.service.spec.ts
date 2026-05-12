@@ -181,6 +181,93 @@ describe('StudyChaptersService — KS-2818 T3', () => {
     });
   });
 
+  describe('importPgn — KS-2820 T5', () => {
+    const multiPgn = `[Event "Game 1"]
+[White "A"]
+[Black "B"]
+1. e4 e5 *
+
+[Event "Game 2"]
+[White "C"]
+[Black "D"]
+1. d4 d5 *`;
+
+    it('режет multi-PGN на главы и инкрементит chaptersCount', async () => {
+      prisma.studyChapter.count.mockResolvedValue(0);
+      prisma.studyChapter.findFirst.mockResolvedValue(null);
+      let cnt = 0;
+      tx.studyChapter.create.mockImplementation(async (args: any) => ({
+        id: `ch${++cnt}`,
+        studyId: study.id,
+        name: args.data.name,
+        orderIdx: args.data.orderIdx,
+        pgn: args.data.pgn,
+        startFen: args.data.startFen ?? null,
+        orientation: 'white',
+        mode: 'analysis',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+      const r = await svc.importPgn(study, multiPgn);
+      expect(r.created).toHaveLength(2);
+      expect(r.created[0].name).toBe('Game 1');
+      expect(r.created[1].name).toBe('Game 2');
+      // chaptersCount увеличивается на 2 (chunk единый).
+      expect(tx.study.update).toHaveBeenCalledWith({
+        where: { id: study.id },
+        data: { chaptersCount: { increment: 2 } },
+      });
+    });
+
+    it('400 если import переполнил бы chaptersPerStudy', async () => {
+      prisma.studyChapter.count.mockResolvedValue(
+        STUDY_LIMITS.chaptersPerStudy - 1,
+      );
+      await expect(svc.importPgn(study, multiPgn)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(tx.studyChapter.create).not.toHaveBeenCalled();
+    });
+
+    it('400 если PGN пустой', async () => {
+      await expect(svc.importPgn(study, '   \n  ')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('export — KS-2820 T5', () => {
+    it('exportStudyPgn склеивает главы через \\n\\n', async () => {
+      prisma.studyChapter.findMany.mockResolvedValue([
+        { ...chapter, id: 'a', pgn: '[Event "A"]\n1. e4 *', orderIdx: 1000 },
+        { ...chapter, id: 'b', pgn: '[Event "B"]\n1. d4 *', orderIdx: 2000 },
+      ]);
+      const pgn = await svc.exportStudyPgn(study);
+      expect(pgn).toContain('[Event "A"]');
+      expect(pgn).toContain('[Event "B"]');
+      expect(pgn).toContain('\n\n');
+    });
+
+    it('exportStudyPgn добавляет [FEN] если есть startFen и не в pgn', async () => {
+      prisma.studyChapter.findMany.mockResolvedValue([
+        {
+          ...chapter,
+          startFen: 'rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          pgn: '1. Nf3 *',
+        },
+      ]);
+      const pgn = await svc.exportStudyPgn(study);
+      expect(pgn).toContain('[FEN "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"]');
+      expect(pgn).toContain('[SetUp "1"]');
+    });
+
+    it('exportChapterPgn возвращает pgn одной главы', async () => {
+      prisma.studyChapter.findUnique.mockResolvedValue(chapter);
+      const pgn = await svc.exportChapterPgn(study, chapter.id);
+      expect(pgn).toBe(chapter.pgn);
+    });
+  });
+
   describe('reorder', () => {
     const ch1 = { id: 'a', orderIdx: 1000 };
     const ch2 = { id: 'b', orderIdx: 2000 };
