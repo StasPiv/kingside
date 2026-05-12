@@ -52,6 +52,13 @@ export function StudyChapterPublicPage() {
     try {
       const resp = await studiesApi.getPublicChapter(chapterId);
       setData(resp);
+      // KS-2854: setInitialFen ДО loadFromPgn — иначе SET_INITIAL_FEN
+      // сбросит history, и MoveList покажет «No moves».
+      if (resp.chapter.startFen) {
+        review.setInitialFen(resp.chapter.startFen);
+      } else {
+        review.setInitialFen(INITIAL_FEN);
+      }
       if (resp.chapter.pgn) {
         try {
           const moves = parseAnnotatedPgn(resp.chapter.pgn);
@@ -60,11 +67,6 @@ export function StudyChapterPublicPage() {
         } catch {
           /* битый PGN — оставляем дерево пустым */
         }
-      }
-      if (resp.chapter.startFen) {
-        review.setInitialFen(resp.chapter.startFen);
-      } else {
-        review.setInitialFen(INITIAL_FEN);
       }
     } catch {
       setError(t('studies.error.notFound', 'Chapter not found.'));

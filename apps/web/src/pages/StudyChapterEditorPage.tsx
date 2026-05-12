@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +16,7 @@ import {
 } from '../review/utils/PgnDeserializer';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import { useStudyChapterPersistence } from '../hooks/useStudyChapterPersistence';
+import { useFastDrag } from '../hooks/useFastDrag';
 
 /**
  * KS-2827 (KS-2815 §B.5, §A.4) — редактор главы студии
@@ -79,7 +79,16 @@ export function StudyChapterEditorPage() {
       setStudy(studyResp.study);
       setChapter(ch);
       setNameDraft(ch.name);
-      // Загружаем дерево из PGN. Если PGN пустой — оставляем дефолт.
+      // KS-2854: ВАЖНО — порядок dispatch'ей. `SET_INITIAL_FEN`
+      // сбрасывает history (см. useReviewState reducer). Если вызвать
+      // его ПОСЛЕ `loadFromPgn`, все распарсенные ходы будут стёрты,
+      // доска останется в стартовой позиции, MoveList — «No moves».
+      // Поэтому сначала setInitialFen, потом loadFromPgn.
+      if (ch.startFen) {
+        review.setInitialFen(ch.startFen);
+      } else {
+        review.setInitialFen(INITIAL_FEN);
+      }
       if (ch.pgn) {
         try {
           const moves = parseAnnotatedPgn(ch.pgn);
@@ -88,11 +97,6 @@ export function StudyChapterEditorPage() {
         } catch {
           /* битый PGN — оставляем пусто */
         }
-      }
-      if (ch.startFen) {
-        review.setInitialFen(ch.startFen);
-      } else {
-        review.setInitialFen(INITIAL_FEN);
       }
     } catch {
       setError(t('studies.error.notFound', 'Study not found.'));
@@ -185,40 +189,45 @@ export function StudyChapterEditorPage() {
     }
   };
 
-  // Делаем ход на доске → review.makeVariantMove (он сам решит главная
-  // линия это или вариант).
+  // KS-2855: ref на board-container нужен для `useFastDrag` (он слушает
+  // pointer events напрямую на DOM, минуя сломанный @dnd-kit-based
+  // drag из react-chessboard@5). Тот же приём, что в `AnalysisPage`
+  // и `PuzzleBoard` — стандартный `options.onPieceDrop` в этой версии
+  // библиотеки не триггерится ни в Playwright, ни в браузере.
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+
+  // KS-2855: handler принимает {sourceSquare, targetSquare} от useFastDrag.
+  // `makeVariantMove(from, to, promotion?)` сам обновит дерево (главная
+  // линия / вариант / нав на существующее продолжение). Возвращает
+  // true если ход легален — это уже использует react-chessboard для
+  // анимации, и useFastDrag для решения куда вернуть фигуру.
   const handlePieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
+    ({
+      sourceSquare,
+      targetSquare,
+    }: {
+      sourceSquare: string;
+      targetSquare: string | null;
+    }): boolean => {
       if (!canEdit) return false;
       if (!targetSquare) return false;
-      try {
-        const c = new Chess(review.currentFen);
-        const mv = c.move({
-          from: sourceSquare,
-          to: targetSquare,
-          promotion: 'q',
-        });
-        if (!mv) return false;
-        review.makeVariantMove({
-          san: mv.san,
-          fen: c.fen(),
-          from: mv.from,
-          to: mv.to,
-          piece: mv.piece,
-          captured: mv.captured,
-          promotion: mv.promotion,
-          flags: mv.flags,
-          lan: mv.from + mv.to + (mv.promotion ?? ''),
-          before: review.currentFen,
-          after: c.fen(),
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      // Авто-promotion в ферзя для простоты MVP (промо-диалог — фоллоу-ап).
+      return review.makeVariantMove(sourceSquare, targetSquare, 'q');
     },
     [canEdit, review],
   );
+
+  // KS-2855: useFastDrag перехватывает pointerdown на фигурах внутри
+  // boardContainerRef, рендерит ghost-element и шлёт onPieceDrop с
+  // целевой клеткой. `allowBothColors: true` — в студии разрешаем
+  // ходить обеими цветами (analysis-mode). enabled=canEdit — на
+  // read-only viewer'ах drag не работает.
+  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
+    onPieceDrop: handlePieceDrop,
+    boardOrientation: chapter?.orientation ?? 'white',
+    allowBothColors: true,
+    enabled: canEdit,
+  });
 
   if (loading) {
     return (
@@ -310,14 +319,21 @@ export function StudyChapterEditorPage() {
       </header>
 
       <div className="study-editor-page__body">
-        <div className="study-editor-page__board" data-testid="study-editor-board">
+        <div
+          className="study-editor-page__board"
+          data-testid="study-editor-board"
+          ref={boardContainerRef}
+        >
           <Chessboard
             options={{
               position: review.currentFen,
               boardOrientation: chapter.orientation,
-              allowDragging: canEdit,
-              animationDurationInMs: 0,
-              onPieceDrop: handlePieceDrop,
+              // KS-2855: drag через useFastDrag, не через
+              // react-chessboard@5 (там API onPieceDrop не работает
+              // ни в Playwright pointer-events, ни в браузере).
+              allowDragging: false,
+              animationDurationInMs: suppressAnimationRef.current ? 0 : 150,
+              showNotation: true,
             }}
           />
           <div className="study-editor-page__nav">
