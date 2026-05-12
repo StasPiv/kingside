@@ -88,6 +88,11 @@ export interface AnalysisSidebarProps {
    * навигации остаётся.
    */
   readOnly?: boolean;
+  /**
+   * KS-2872 (FM3): conceal — порог ply, после которого SAN скрывается.
+   * null = без сокрытия.
+   */
+  concealAfterPly?: number | null;
 }
 
 export function AnalysisSidebar({
@@ -125,6 +130,7 @@ export function AnalysisSidebar({
   mobileTab,
   onMobileTabChange,
   readOnly = false,
+  concealAfterPly = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
 
@@ -331,6 +337,7 @@ export function AnalysisSidebar({
               onSetComment={onSetComment}
               onSetVariationColor={onSetVariationColor}
               readOnly={readOnly}
+              concealAfterPly={concealAfterPly}
             />
           </div>
         )}

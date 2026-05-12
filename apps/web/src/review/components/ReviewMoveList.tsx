@@ -88,6 +88,13 @@ interface ReviewMoveListProps {
    * остаётся — навигация по партии нужна и в read-only режиме.
    */
   readOnly?: boolean;
+  /**
+   * KS-2872 (FM3) — режим conceal: ходы с `ply > concealAfterPly`
+   * рендерятся как `???` (SAN скрыт). Клик по такому ходу всё ещё
+   * вызывает navigation, но текст не раскрывает позицию.
+   * `null`/`undefined` — обычный режим без сокрытия.
+   */
+  concealAfterPly?: number | null;
 }
 
 export function ReviewMoveList({
@@ -101,6 +108,7 @@ export function ReviewMoveList({
   onSetComment,
   onSetVariationColor,
   readOnly = false,
+  concealAfterPly = null,
 }: ReviewMoveListProps) {
   const editable = !readOnly && Boolean(
     onPromoteVariation ||
@@ -534,27 +542,38 @@ export function ReviewMoveList({
     return processedItems.flatMap((item, index) => {
       if (isProcessedMove(item)) {
         const move = item.originalMove;
+        // KS-2872 (FM3): conceal-режим — для ходов с ply > concealAfterPly
+        // SAN скрывается (показываем `???`); nags/comments/eval тоже
+        // не показываем чтобы не раскрыть позицию через побочные данные.
+        const isConcealed =
+          concealAfterPly != null &&
+          move != null &&
+          typeof move.ply === 'number' &&
+          move.ply > concealAfterPly;
         const elements = [
           <span
             key={`move-${item.globalIndex}-${index}`}
-            className={getMoveClasses(item)}
+            className={
+              getMoveClasses(item) + (isConcealed ? ' review-move--concealed' : '')
+            }
             data-testid={`review-move-${item.globalIndex}`}
             data-current={item.isCurrent ? 'true' : 'false'}
+            data-concealed={isConcealed ? 'true' : undefined}
             onClick={() => handleMoveClick(item)}
             onContextMenu={(e) => handleMoveContextMenu(e, item)}
             onTouchStart={(e) => handleTouchStart(e, item)}
             onTouchEnd={handleTouchEnd}
             onTouchMove={handleTouchMove}
           >
-            {item.display}
-            {move && renderNagSymbols(move)}
-            {move && renderEvalClock(move)}
+            {isConcealed ? '???' : item.display}
+            {!isConcealed && move && renderNagSymbols(move)}
+            {!isConcealed && move && renderEvalClock(move)}
           </span>,
           ' ',
         ];
 
         // Render comment block (or editor) after the move
-        if (move) {
+        if (move && !isConcealed) {
           const commentEl = renderComment(move);
           if (commentEl) {
             elements.push(commentEl, ' ');

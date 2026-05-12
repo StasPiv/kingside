@@ -301,6 +301,10 @@ function AnalysisPageInner({
   const [practiceHint, setPracticeHint] = useState<string | null>(null);
   const [practiceErrors, setPracticeErrors] = useState<number>(0);
   const practiceHintTimerRef = useRef<number | null>(null);
+  // KS-2872 (FM3): conceal — динамический порог раскрытия ходов. Стартует
+  // как chapter.concealPly и увеличивается на 1 после каждого правильного
+  // хода. nav-кнопки не откатывают (раскрытое остаётся раскрытым).
+  const [revealedPly, setRevealedPly] = useState<number | null>(null);
 
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
@@ -663,6 +667,8 @@ function AnalysisPageInner({
           setAnalysisTitle(resp.chapter.name);
           setTitleInput(resp.chapter.name);
           setBoardOrientation(resp.chapter.orientation);
+          // KS-2872 (FM3): инициализируем revealedPly из chapter.concealPly.
+          setRevealedPly(resp.chapter.concealPly ?? null);
           if (resp.chapter.pgn) {
             try {
               loadFromPgn(
@@ -692,6 +698,8 @@ function AnalysisPageInner({
           setAnalysisTitle(ch.name);
           setTitleInput(ch.name);
           setBoardOrientation(ch.orientation);
+          // KS-2872 (FM3): инициализируем revealedPly из chapter.concealPly.
+          setRevealedPly(ch.concealPly ?? null);
           if (ch.pgn) {
             try {
               loadFromPgn(
@@ -1421,11 +1429,18 @@ function AnalysisPageInner({
   // `handleFastDragDrop` (быстрый drop без анимации). Если потребуется
   // вернуть «классический» drop — восстановить из истории git.
 
-  // KS-2871 (FM2): в practice-режиме ход валидируется против expected-list
-  // (mainLine + variations) и при совпадении гото-ит на эту ноду вместо
-  // создания нового варианта. При несовпадении — ход откатывается, hint.
+  // KS-2871/2872 (FM2/FM3): в practice/conceal — ход валидируется против
+  // expected-list (mainLine + variations). При совпадении гото-им на эту
+  // ноду; при несовпадении — ход откатывается, hint.
   const isPracticeMode =
     ctx.kind === 'study' && studyChapter?.mode === 'practice';
+  // KS-2872 (FM3): conceal активен только в read-only режиме (для viewer'а).
+  // Editor (owner на /studies/:slug/:chapterId) видит без сокрытия.
+  const isConcealMode =
+    ctx.kind === 'study' &&
+    ctx.readOnly &&
+    studyChapter?.mode === 'conceal';
+  const isConstrainedPlay = isPracticeMode || isConcealMode;
 
   const findExpectedMove = useCallback(
     (from: string, to: string): ChessMove | null => {
@@ -1467,8 +1482,8 @@ function AnalysisPageInner({
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
 
-      // KS-2871: practice mode — fail-fast если ход не соответствует expected.
-      if (isPracticeMode) {
+      // KS-2871/2872: practice/conceal — fail-fast если ход не соответствует expected.
+      if (isConstrainedPlay) {
         const expected = findExpectedMove(sourceSquare, targetSquare);
         if (!expected) {
           showPracticeHint(
@@ -1479,10 +1494,26 @@ function AnalysisPageInner({
         // Совпадает с одной из ожидаемых линий → гото-им на эту ноду.
         // PGN не меняется, auto-save отключён через disablePersistence.
         gotoMove(expected);
+        // KS-2872: conceal — раскрываем ply правильного хода (если он
+        // был скрыт). Никогда не уменьшаем revealedPly.
+        if (isConcealMode && typeof expected.ply === 'number') {
+          setRevealedPly((prev) =>
+            prev == null ? expected.ply : Math.max(prev, expected.ply),
+          );
+        }
         // Авто-ход «соперника» через 250мс — main-line continuation от expected.
         const opponentNext = expected.next as ChessMove | null | undefined;
         if (opponentNext) {
-          window.setTimeout(() => gotoMove(opponentNext), 250);
+          window.setTimeout(() => {
+            gotoMove(opponentNext);
+            if (isConcealMode && typeof opponentNext.ply === 'number') {
+              setRevealedPly((prev) =>
+                prev == null
+                  ? opponentNext.ply
+                  : Math.max(prev, opponentNext.ply),
+              );
+            }
+          }, 250);
         }
         return true;
       }
@@ -1496,7 +1527,7 @@ function AnalysisPageInner({
       }
       return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeVariantMove, isPromotionMove, currentFen, isPracticeMode, findExpectedMove, gotoMove, showPracticeHint, t],
+    [makeVariantMove, isPromotionMove, currentFen, isConstrainedPlay, isConcealMode, findExpectedMove, gotoMove, showPracticeHint, t],
   );
 
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
@@ -1673,12 +1704,14 @@ function AnalysisPageInner({
             overflow-menu. Шапка освободилась — особенно над доской
             на mobile. */}
         <div className="analysis-board-wrapper">
-          {/* KS-2871 (FM2): practice-режим — баннер с подсказкой после
-              ошибочного хода. Появляется ~3с, потом исчезает. */}
-          {isPracticeMode && (
+          {/* KS-2871/2872 (FM2/FM3): practice/conceal-режим — баннер с
+              подсказкой после ошибочного хода. Появляется ~3с, потом
+              исчезает. */}
+          {isConstrainedPlay && (
             <div
               className="analysis-practice-bar"
               data-testid="analysis-practice-bar"
+              data-mode={isConcealMode ? 'conceal' : 'practice'}
               data-errors={practiceErrors}
             >
               {practiceHint ? (
@@ -1893,6 +1926,7 @@ function AnalysisPageInner({
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         readOnly={ctx.readOnly}
+        concealAfterPly={isConcealMode ? revealedPly : null}
       />
 
       {ec.showEngineModal && (
