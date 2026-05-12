@@ -71,9 +71,15 @@
   text-decoration: none;
 }
 
+/* KS-2838: hover-фон — мягкий accent-overlay. Раньше `var(--c-1f1f36)`
+   (хардкод hex без light-переопределения) давал на светлой теме
+   почти чёрный фон, на котором тёмный `--text-primary` был не читаем.
+   `--ov-accent-10` корректно инвертируется обеими темами (dark:
+   rgba(124,131,255,0.10), light: rgba(79,70,229,0.11)) — подсвечивает
+   карточку, оставляя базовый светлый/тёмный фон видимым. */
 .lobby-card:hover {
   border-color: var(--c-7c83ff, #7c83ff);
-  background: var(--c-1f1f36, #1f1f36);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
 }
 
 .lobby-card:active {
