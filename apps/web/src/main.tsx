@@ -35,6 +35,42 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
   });
 }
 
+// KS-2917: graceful-восстановление после удаления старых hash-чанков из
+// бакета. Если открытая вкладка ссылается на чанк, которого уже нет на CDN
+// (typical после серии деплоев), dynamic import падает с TypeError
+// «Failed to fetch dynamically imported module». На активной странице это
+// неустранимо без перезагрузки — index.html в памяти уже старый. Решение:
+// поймать ошибку на window.onerror / unhandledrejection и сделать
+// одноразовый location.reload() с querystring-меткой, чтобы не зациклиться.
+if (typeof window !== 'undefined' && import.meta.env.PROD) {
+  const RELOAD_MARK = 'ks2917-stale-chunk-reload';
+  const isStaleChunkError = (msg: string): boolean =>
+    /Failed to fetch dynamically imported module/i.test(msg) ||
+    /Importing a module script failed/i.test(msg) ||
+    /ChunkLoadError/i.test(msg);
+  const tryRecover = (reason: string): void => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has(RELOAD_MARK)) return; // уже перезагружались
+      url.searchParams.set(RELOAD_MARK, String(Date.now()));
+      // eslint-disable-next-line no-console
+      console.warn('[ks2917] stale chunk detected → reload:', reason);
+      window.location.replace(url.toString());
+    } catch {
+      // если URL API недоступен — fallback на простой reload
+      window.location.reload();
+    }
+  };
+  window.addEventListener('error', (event) => {
+    if (event?.message && isStaleChunkError(event.message)) tryRecover(event.message);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event?.reason;
+    const msg = typeof reason === 'string' ? reason : (reason?.message ?? '');
+    if (msg && isStaleChunkError(msg)) tryRecover(msg);
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>

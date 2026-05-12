@@ -81,13 +81,31 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        // Only precache static assets (icons, fonts). JS/CSS have content-hash
-        // in filenames and are handled via NetworkFirst to avoid stale chunks.
-        globPatterns: ['**/*.{svg,png,woff2}'],
+        // KS-2917: index.html ДОЛЖЕН быть в precache. По умолчанию vite-pwa
+        // выставляет workbox.navigateFallback = "index.html", и worbox-build
+        // в шаблоне sw.js рендерит
+        //   registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html")))
+        // createHandlerBoundToURL синхронно бросает WorkboxError
+        // `non-precached-url`, если URL не в precache (workbox-precaching
+        // PrecacheController.ts:355). Скрипт SW падает, новый Service Worker
+        // не активируется, клиент остаётся со старым manifest'ом и тянет
+        // уже удалённые из бакета чанки → CDN/S3 отдаёт 403.
+        // Поэтому index.html добавлен в globPatterns — workbox его
+        // precache'ит с revision'ом, NavigationRoute обслуживается из
+        // precache. На следующем деплое cleanupOutdatedCaches удалит
+        // старую копию, новый SW активируется, navigations берут свежий
+        // index.html, dynamic-import тянет актуальные hash-чанки.
+        // JS/CSS не precache'ятся (NetworkFirst в runtimeCaching ниже).
+        globPatterns: ['**/*.{svg,png,woff2,html}'],
         globIgnores: ['**/stockfish/**'],
-        // navigateFallback removed: index.html is not in precache (globPatterns),
-        // so referencing it as fallback causes PWA to hang on splash screen.
-        // Navigation is handled by runtimeCaching NetworkFirst below.
+        // KS-2917: явный navigateFallback (не полагаемся на default
+        // vite-pwa). Если в будущем обновится vite-plugin-pwa с другим
+        // дефолтом — поведение конфига останется предсказуемым.
+        navigateFallback: 'index.html',
+        // KS-2917: SPA-навигация перехватывает только пути приложения.
+        // Запросы к /api/, /assets/ (hash-чанки) и /sw.js должны идти
+        // в нормальный фетч без подмены на index.html.
+        navigateFallbackDenylist: [/^\/api\//, /^\/assets\//, /\/sw\.js$/],
         runtimeCaching: [
           {
             // JS and CSS: network first, fall back to cache
@@ -101,18 +119,12 @@ export default defineConfig({
               },
             },
           },
-          {
-            // index.html: always fetch fresh
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'html-cache',
-              expiration: {
-                maxEntries: 5,
-                maxAgeSeconds: 3600,
-              },
-            },
-          },
+          // KS-2917: runtimeCaching-запись для navigate-режима удалена.
+          // Она была недостижима — auto-added NavigationRoute из
+          // navigateFallback регистрируется первым и съедает все
+          // navigation-запросы. Теперь весь navigate-фетч проходит через
+          // precached index.html (всегда актуальный для активного SW).
+          //
           // KS-2402: блок NetworkFirst для `/api/(?!auth/)` удалён.
           // Причина — баг «одна и та же позиция»: на медленной сети
           // workbox отдавал из api-cache ответ от другого URL (например,
