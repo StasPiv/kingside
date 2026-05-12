@@ -116,17 +116,27 @@ function DemoSummaryCard({
         </div>
         <div
           className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
+          data-mode="permille"
         >
           <div className="puzzle-engine-runner__wdl-summary-line">
-            <div>
+            <div
+              data-testid="puzzle-engine-wdl-row-win"
+              className="puzzle-engine-runner__wdl-row--win"
+            >
               {t('puzzle.engine.summary.win', 'Win')}: {start.w}% → {final.w}% (
               {signedFmt(dW)}%)
             </div>
-            <div>
+            <div
+              data-testid="puzzle-engine-wdl-row-draw"
+              className="puzzle-engine-runner__wdl-row--draw"
+            >
               {t('puzzle.engine.summary.draw', 'Draw')}: {start.d}% → {final.d}%
               ({signedFmt(dD)}%)
             </div>
-            <div>
+            <div
+              data-testid="puzzle-engine-wdl-row-loss"
+              className="puzzle-engine-runner__wdl-row--loss"
+            >
               {t('puzzle.engine.summary.loss', 'Loss')}: {start.l}% → {final.l}%
               ({signedFmt(dL)}%)
             </div>
@@ -153,6 +163,43 @@ export function DevPostGameReviewPage() {
         Замоканные данные итогового экрана «Тренировка точности».
         Реалистичные WDL/cp в формате Stockfish (UCI_ShowWDL=true).
       </p>
+
+      {/* KS-2922: визуальная sanity-проверка прогресс-бара и кнопки
+          «Открыть в мастерской». Логика не запускается — только разметка
+          с классами/data-* нужными для CSS. */}
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ marginBottom: 12 }}>Сценарий: прогресс и действие</h2>
+        <div className="puzzle-engine-runner" data-testid="puzzle-engine-runner">
+          <div className="puzzle-engine-runner__board-col">
+            <div className="puzzle-engine-runner__progress">
+              <div className="puzzle-engine-runner__progress-bar">
+                <div
+                  className="puzzle-engine-runner__progress-fill"
+                  style={{ width: '50%' }}
+                />
+              </div>
+              <div className="puzzle-engine-runner__progress-label">
+                {t('puzzle.engine.halfMovesLeft', '{{count}} half-moves left', {
+                  count: 3,
+                })}
+              </div>
+            </div>
+            <div
+              className="puzzle-engine-runner__actions"
+              data-testid="puzzle-engine-actions"
+            >
+              <a
+                className="puzzle-engine-runner__workshop-link"
+                href="#"
+                onClick={(e) => e.preventDefault()}
+              >
+                {t('puzzle.engine.openInWorkshop', 'Open in Workshop')}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <DemoSummaryCard
         title="Сценарий: преимущество потеряно"
         reasonLabel={t('puzzle.engine.loseWdl', 'You lost the advantage')}

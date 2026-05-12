@@ -2440,32 +2440,40 @@ body:has(.puzzle-rush-board) {
   min-width: 0;
 }
 
+/* KS-2922: прогресс-блок — увеличенная высота, контрастный fill,
+   читаемая подпись справа (вместо мелкого тусклого «3 полухода
+   осталось»). Frontend позже сможет добавить отдельный JSX-заголовок
+   «Прогресс задачи» — для него зарезервирована grid-area `title`. */
 .puzzle-engine-runner__progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .puzzle-engine-runner__progress-bar {
   position: relative;
   flex: 1;
-  height: 8px;
-  background: var(--c-2a2a4e, #2a2a4e);
-  border-radius: 4px;
+  height: 10px;
+  background: var(--bg-muted, var(--c-2a2a4e, #2a2a4e));
+  border: 1px solid var(--border-mid, var(--c-334155, #334155));
+  border-radius: 999px;
   overflow: hidden;
 }
 
 .puzzle-engine-runner__progress-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--c-7c83ff, #7c83ff), var(--c-4caf50, #4caf50));
+  background: linear-gradient(90deg, var(--accent-primary, #7c83ff), var(--success, #4caf50));
   transition: width 0.2s ease;
+  border-radius: inherit;
 }
 
 .puzzle-engine-runner__progress-label {
-  font-size: 12px;
-  color: var(--c-9e9e9e, #9e9e9e);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .puzzle-engine-runner__hint {
@@ -2479,27 +2487,34 @@ body:has(.puzzle-rush-board) {
   line-height: 1.4;
 }
 
+/* KS-2922: result-блок — главный заголовок крупнее, явная карточная
+   подложка для иерархии. Внутри: заголовок «Преимущество потеряно /
+   удержано» (h2-уровень), затем wdl-summary, разбор партии, кнопки.
+   Карточный фон отделяет блок от соседних (прогресс, доска) даже без
+   доп. заголовка «Результат» — сам verdict является заголовком. */
 .puzzle-engine-runner__result {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 6px;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border: 1px solid var(--border-mid, var(--c-2a2a4e));
+  border-radius: 8px;
 }
 
 .puzzle-engine-runner__result-label {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  margin-bottom: 2px;
 }
 
 .puzzle-engine-runner__result-label--win {
-  color: var(--c-4caf50, #4caf50);
+  color: var(--success-strong, var(--c-4caf50, #4caf50));
 }
 
 .puzzle-engine-runner__result-label--lose {
-  color: var(--c-f44336, #f44336);
+  color: var(--danger-strong, var(--c-f44336, #f44336));
 }
 
 /* KS-2518: WDL-summary блок заменил одиночный «Финальный WDL». Если
@@ -2509,92 +2524,111 @@ body:has(.puzzle-rush-board) {
   color: var(--c-c0c0c0, #c0c0c0);
 }
 
+/* KS-2922: WDL-summary — повышение контраста по WCAG AA в обеих темах.
+   Раньше строки Победа/Ничья/Поражение красились только цветом текста на
+   полупрозрачном tinted-фоне всей карточки → в light-теме символы
+   практически растворялись. Теперь каждая строка получает свою tinted-
+   подложку (success/neutral/danger soft) + цветную полосу слева,
+   текст — насыщенного оттенка (в light темы → AA на белом fone).
+   Числа — моноширинные, чтобы 0%/9%/89% выровнялись по разрядам. */
 .puzzle-engine-runner__wdl-summary {
-  margin: 8px 0;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: var(--c-1e293b, #1e293b);
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-muted, var(--c-1e293b, #1e293b));
+  border: 1px solid var(--border-mid, var(--c-334155, #334155));
   text-align: left;
 }
 .puzzle-engine-runner__wdl-summary-header {
   font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-bottom: 6px;
 }
 .puzzle-engine-runner__wdl-summary--lost .puzzle-engine-runner__wdl-summary-header {
-  color: #f87171;
+  color: var(--danger, #dc2626);
 }
 .puzzle-engine-runner__wdl-summary--preserved .puzzle-engine-runner__wdl-summary-header {
-  color: #4ade80;
+  color: var(--success, #16a34a);
 }
 .puzzle-engine-runner__wdl-summary-line {
   font-size: 13px;
-  color: var(--c-cbd5e1, #cbd5e1);
+  color: var(--text-primary, var(--c-e0e0e0));
   font-variant-numeric: tabular-nums;
 }
-/* KS-2528: в primary-режиме (permille) внутри есть три отдельные
-   строки Win/Draw/Loss — компактный vertical rhythm. */
-.puzzle-engine-runner__wdl-summary[data-mode="permille"]
-  .puzzle-engine-runner__wdl-summary-line > div {
-  padding: 2px 0;
-}
 
-/* KS-2530 (layout): финальная стилизация трёх строк W/D/L.
-
-   Win = зелёный (#4ade80), Loss = красный (#f87171), Draw =
-   нейтральный (#cbd5e1). Цифры моноширинные (tabular-nums), чтобы
-   `60% → 30% (-30%)` выравнивались по разрядам в трёх соседних
-   строках.
-
-   Дельту со знаком (зелёный «+», красный «−») точечно через CSS
-   красить нельзя: TSX рендерит всю строку одной фразой через
-   i18next без отдельного span под delta. Окрашиваем строку
-   целиком — это и есть UX-сигнал «win прибавилось / loss убавилось».
-
-   Идентификация — по `data-testid` (класс
-   `.puzzle-engine-runner__wdl-row` в текущем TSX отсутствует; для
-   будущего рефакторинга frontend'а селектор по классу также
-   подключён). */
+/* Primary-режим (permille): 3 строки Win/Draw/Loss с individual фоном
+   и цветовой полосой. Каждая строка — самостоятельный «чип»: легко
+   считывается даже бок-о-бок. */
 .puzzle-engine-runner__wdl-summary[data-mode="permille"]
   .puzzle-engine-runner__wdl-summary-line {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
+.puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  .puzzle-engine-runner__wdl-summary-line > div {
+  padding: 6px 10px;
+  border-radius: 5px;
+  border-left: 3px solid currentColor;
+  font-weight: 600;
+}
 
+/* Победа = зелёный (success), AA-контраст на tinted-фоне. */
 .puzzle-engine-runner__wdl-summary[data-mode="permille"]
   [data-testid="puzzle-engine-wdl-row-win"],
 .puzzle-engine-runner__wdl-row--win {
-  color: #4ade80;
-  font-weight: 500;
+  color: var(--success-strong, #15803d);
+  background: var(--ov-success-15, rgba(34, 197, 94, 0.15));
 }
 
+/* Ничья = нейтральный slate. В light-теме это #475569 — AA на белой
+   подложке; на dark — #cbd5e1. */
 .puzzle-engine-runner__wdl-summary[data-mode="permille"]
   [data-testid="puzzle-engine-wdl-row-draw"],
 .puzzle-engine-runner__wdl-row--draw {
-  color: #cbd5e1;
-  font-weight: 400;
+  color: var(--text-secondary, var(--c-94a3b8, #94a3b8));
+  background: var(--ov-neutral-15, rgba(148, 163, 184, 0.12));
 }
 
+/* Поражение = красный (danger). */
 .puzzle-engine-runner__wdl-summary[data-mode="permille"]
   [data-testid="puzzle-engine-wdl-row-loss"],
 .puzzle-engine-runner__wdl-row--loss {
+  color: var(--danger-strong, #b91c1c);
+  background: var(--ov-danger-15, rgba(220, 38, 38, 0.15));
+}
+
+/* Dark-theme override: в dark base-цвета `--success`/`--danger` —
+   ярче (палевые #4ade80/#f87171 норм-контраст к dark-фону). */
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-win"],
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-row--win {
+  color: #4ade80;
+}
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-draw"],
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-row--draw {
+  color: #cbd5e1;
+}
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-summary[data-mode="permille"]
+  [data-testid="puzzle-engine-wdl-row-loss"],
+:root[data-theme="dark"] .puzzle-engine-runner__wdl-row--loss {
   color: #f87171;
-  font-weight: 500;
 }
 
 @media (max-width: 480px) {
   .puzzle-engine-runner__wdl-summary[data-mode="permille"]
     .puzzle-engine-runner__wdl-summary-line {
-    gap: 1px;
-    font-size: 12px;
+    gap: 3px;
+    font-size: 13px;
   }
   .puzzle-engine-runner__wdl-summary[data-mode="permille"]
     .puzzle-engine-runner__wdl-summary-line > div {
-    padding: 1px 0;
+    padding: 5px 8px;
   }
 }
 
@@ -4009,6 +4043,91 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   }
 }
 
+/* KS-2922: «Открыть в мастерской» на странице попытки — primary-визуал
+   (раньше отрисовывалась как браузерная нативная кнопка). Совпадает по
+   стилю с workshop-link на странице решения и с кнопкой «Далее». */
+.precision-attempt-page__open-workshop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-on-accent, #fff);
+  background: var(--accent-primary, #7c83ff);
+  border: 1px solid var(--accent-primary, #7c83ff);
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.05s ease;
+}
+.precision-attempt-page__open-workshop:hover {
+  background: var(--accent-hover, #6366f1);
+  border-color: var(--accent-hover, #6366f1);
+}
+.precision-attempt-page__open-workshop:active {
+  transform: translateY(1px);
+}
+.precision-attempt-page__open-workshop:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.precision-attempt-page__open-workshop:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+
+/* KS-2922: «Разбор партии» на странице попытки — те же типографические
+   правила, что у post-game-review, чтобы заголовок и ходы были
+   читаемыми в обеих темах. */
+.precision-attempt-review {
+  padding: 12px 14px;
+  background: var(--bg-muted, var(--c-1e293b));
+  border: 1px solid var(--border-mid, var(--c-2a2a4e));
+  border-radius: 8px;
+}
+.precision-attempt-review__title {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.precision-attempt-review__pgn {
+  font-size: 14px;
+  line-height: 1.75;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e2e8f0));
+  word-spacing: 2px;
+}
+.precision-attempt-review__movenum {
+  color: var(--text-secondary, var(--c-94a3b8));
+  font-weight: 700;
+}
+.precision-attempt-review__move {
+  padding: 1px 3px;
+  font-weight: 600;
+  border-radius: 3px;
+}
+.precision-attempt-review__move:hover {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.06));
+}
+.precision-attempt-review__move--user {
+  color: var(--text-primary, var(--c-e2e8f0));
+}
+.precision-attempt-review__move--engine {
+  color: var(--text-secondary, var(--c-94a3b8));
+}
+.precision-attempt-review__move--best        { color: var(--success-strong, #4ade80); }
+.precision-attempt-review__move--good        { color: var(--text-primary, var(--c-e2e8f0)); }
+.precision-attempt-review__move--inaccuracy  { color: #ca8a04; }
+.precision-attempt-review__move--mistake     { color: #c2410c; }
+.precision-attempt-review__move--blunder     { color: var(--danger-strong, #f87171); }
+:root[data-theme="dark"] .precision-attempt-review__move--inaccuracy { color: #facc15; }
+:root[data-theme="dark"] .precision-attempt-review__move--mistake    { color: #f97316; }
+:root[data-theme="dark"] .precision-attempt-review__move--blunder    { color: #f87171; }
+
 /* KS-2756: back-link выровнен по визуальному весу с
  * `.generate-puzzles-btn` рядом — раньше текстовая ссылка против
  * фиолетовой primary-кнопки выглядела дисбалансом. Делаем ghost-
@@ -4255,35 +4374,44 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 
 .puzzle-engine-runner__actions {
   display: flex;
-  justify-content: center;
+  justify-content: stretch;
   margin-top: 8px;
 }
 
+/* KS-2922: «Открыть в мастерской» — primary-визуал, равноправный с
+   кнопкой «Далее» (та же высота, jewel filled accent, бел текст).
+   Раньше — тонкий полупрозрачный chip, который терялся в общем фоне. */
 .puzzle-engine-runner__workshop-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--accent-primary, #7c83ff);
-  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
-  border: 1px solid var(--ov-accent-20, rgba(124, 131, 255, 0.20));
-  border-radius: 6px;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-on-accent, #fff);
+  background: var(--accent-primary, #7c83ff);
+  border: 1px solid var(--accent-primary, #7c83ff);
+  border-radius: 8px;
   text-decoration: none;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.05s ease;
 }
 
 .puzzle-engine-runner__workshop-link::after {
   content: "↗";
-  font-size: 11px;
-  opacity: 0.7;
+  font-size: 13px;
+  opacity: 0.9;
 }
 
 .puzzle-engine-runner__workshop-link:hover {
-  background: var(--ov-accent-20, rgba(124, 131, 255, 0.25));
-  border-color: var(--accent-primary, #7c83ff);
-  color: var(--accent-primary, #7c83ff);
+  background: var(--accent-hover, #6366f1);
+  border-color: var(--accent-hover, #6366f1);
+  color: var(--text-on-accent, #fff);
+}
+.puzzle-engine-runner__workshop-link:active {
+  transform: translateY(1px);
 }
 
 .puzzle-engine-runner__workshop-link:focus-visible {
@@ -4454,74 +4582,123 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
    адаптив. Cursor: pointer не ставим, пока в TSX нет onClick — иначе
    обманываем юзера. */
 .post-game-review {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--c-1e293b);
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 6px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  background: var(--bg-muted, var(--c-1e293b));
+  border: 1px solid var(--border-mid, var(--c-2a2a4e));
+  border-radius: 8px;
   text-align: left;
 }
+/* KS-2922: заголовок «Разбор партии» — h3-уровень, AA-контраст в обеих
+   темах. Ранее color: --c-cbd5e1 в light-теме мапился на #64748b и
+   терялся; теперь — text-primary (тёмный на светлом, светлый на тёмном). */
 .post-game-review__title {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-cbd5e1);
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--text-primary, var(--c-e0e0e0));
 }
 
-/* KS-2534: PGN-нотация в одной строке с inline-кнопками-ходами и
-   вариантами. Тонкая граница под user-ходами с NAG, варианты —
-   курсивом. */
+/* KS-2534 / KS-2922: PGN-нотация — одна строка с inline-кнопками ходов
+   и вариантами. После KS-2922: line-height ↑ для воздуха, SAN-ходы
+   жирнее (легче скользить глазами), eval-meta — компактным курсивом
+   рядом, без перекрытия. */
 .post-game-review__pgn {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.75;
   font-variant-numeric: tabular-nums;
-  color: var(--c-e2e8f0);
-  word-spacing: 1px;
+  color: var(--text-primary, var(--c-e2e8f0));
+  word-spacing: 2px;
 }
 .post-game-review__movenum {
-  color: var(--c-94a3b8);
-  font-weight: 600;
+  color: var(--text-secondary, var(--c-94a3b8));
+  font-weight: 700;
+  margin-right: 1px;
 }
 .post-game-review__move {
   display: inline;
-  padding: 0 2px;
+  padding: 1px 3px;
   background: transparent;
   border: 0;
   color: inherit;
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
   border-radius: 3px;
 }
+/* KS-2922: основная линия user-ходов — жирная; engine-ответы заметно
+   приглушены (по цвету и весу), чтобы при чтении глаз шёл по своим
+   ходам. */
+.post-game-review__move--user {
+  font-weight: 700;
+}
+.post-game-review__move:not(.post-game-review__move--user) {
+  font-weight: 400;
+  color: var(--text-secondary, var(--c-94a3b8));
+}
 .post-game-review__move:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.06));
 }
 .post-game-review__move:focus-visible {
   outline: 2px solid var(--accent-primary, #7c83ff);
   outline-offset: 1px;
 }
-.post-game-review__move--best       { color: #4ade80; }
-.post-game-review__move--good       { color: var(--c-e2e8f0); }
-.post-game-review__move--inaccuracy { color: #facc15; }
-.post-game-review__move--mistake    { color: #f97316; }
-.post-game-review__move--blunder    { color: #f87171; }
+/* KS-2922: убираем цветовое выделение классификации ходов и NAG —
+   user-фидбэк: цвета только запутывают, !? / ?? и так читаются как
+   оценка. Главная линия — жирная (font-weight 700 у user-ходов через
+   __move--user ниже), варианты — курсив (см. __variation), движковые
+   ответы — тусклее. NAG-знак — обычным цветом, чуть крупнее. */
+.post-game-review__move--best,
+.post-game-review__move--good,
+.post-game-review__move--inaccuracy,
+.post-game-review__move--mistake,
+.post-game-review__move--blunder {
+  color: inherit;
+}
+
 .post-game-review__nag {
   font-weight: 700;
+  font-size: 1.05em;
   margin-left: 1px;
+}
+/* KS-2922: eval-meta «[Сыграно W/D/L%]» и «[Лучший W/D/L% · d=N]» —
+   главная количественная информация в разборе: вероятностная оценка
+   W/D/L. Раньше — приглушённый текст; теперь — чёткий чип:
+   моноширинные цифры, tinted-подложка accent (хорошо контрастирует с
+   bold-ходом рядом), AA-контраст. */
+.post-game-review__eval-meta {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e2e8f0));
+  margin: 0 2px 0 4px;
+  padding: 1px 7px;
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  border: 1px solid var(--ov-accent-20, rgba(124, 131, 255, 0.20));
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: baseline;
 }
 .post-game-review__variation {
   display: inline;
-  padding: 0 2px;
+  padding: 1px 3px;
   margin: 0 2px;
   background: transparent;
   border: 0;
-  color: var(--c-94a3b8);
+  color: var(--text-secondary, var(--c-94a3b8));
   font: inherit;
   font-style: italic;
   cursor: pointer;
   border-radius: 3px;
 }
 .post-game-review__variation:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.06));
 }
 .post-game-review__list {
   list-style: none;
