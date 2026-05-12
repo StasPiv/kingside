@@ -1,116 +1,84 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useFeatureFlag } from '../context/FeatureFlagsContext';
+import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import {
   NAV_ROUTES,
   useTopNavStats,
+  DEFAULT_TOP,
   type NavRoute,
 } from '../hooks/useNavStats';
 
 /**
- * KS-2373: top-3 в нижнем баре больше не зашит хардкодом — он
- * подтягивается из `GET /user/nav-stats/top?limit=3`. Если
- * пользователь часто заходит в /drills, /drills будет в bar'е.
+ * KS-2373 → KS-2806 (ADR-058 §5.1, §6.3 T9).
  *
- * Дефолт (свежий аккаунт без статистики, ошибка backend, unauth):
- *   ['play', 'tournaments', 'workshop'] — повторяет «исторический»
- *   набор кнопок до KS-2373. Дефолт также фильтруется по
- *   feature-flags: если tournamentsEnabled=false, ['play','workshop',
- *   'archive'] и т. д.
+ * Mobile bottom bar: 3 динамических кнопки + «Ещё» (drawer).
+ * После KS-2805 whitelist сузился до 6 групп (`play`/`train`/`learn`/
+ * `analyze`/`broadcasts`/`profile`), легаси-ключи (puzzles, drills,
+ * tournaments, workshop, archive, precision) удалены — теперь bar
+ * показывает только групповые ссылки, под капотом ведёт на лобби-
+ * страницы `/train` и `/analyze`.
  *
- * «Ещё» (4-я кнопка) показывает все остальные whitelist-routes,
- * которые НЕ попали в top-3, плюс старые пункты вне whitelist
- * (Lessons, Friends, Settings, Feedback, Admin).
+ * Источник топа — `useTopNavStats(3)` (GET `/user/nav-stats/top`).
+ * При пустом ответе / loading / unauth → `DEFAULT_TOP = ['play','train',
+ * 'learn']`. Затем добор недостающих из `DEFAULT_TOP` и общего списка
+ * групп (extreme case — все флаги off, чтобы bar не оказался пустым).
+ *
+ * «Ещё» (drawer-разметка) — заглушка с базовыми ссылками. Полная
+ * группировка «Социум / Аккаунт / Помощь / Админ» — следующий тикет
+ * KS-2807 (T10).
  */
-
-const DEFAULT_TOP: NavRoute[] = ['play', 'tournaments', 'workshop'];
 
 export function MobileBottomBar() {
   const { t } = useTranslation();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // KS-2110: «Уроки» в mobile-навигации не было совсем — пользователю
-  // на мобильном /lessons было недоступно из меню. Возвращаем пункт
-  // в more-menu (с тем же runtime feature-flag, что и desktop sidebar).
-  const lessonsEnabled = useFeatureFlag('lessonsEnabled');
-  // KS-2218: runtime feature-flags для основных разделов.
-  const tournamentsEnabled = useFeatureFlag('tournamentsEnabled');
-  const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
-  const broadcastsEnabled = useFeatureFlag('broadcastsEnabled');
-  // KS-2235 (ADR-035 §7.2): «Тренажёры» — runtime feature-flag
-  // `drillsEnabled` (KS-2231).
-  const drillsEnabled = useFeatureFlag('drillsEnabled');
-  // Admin-пункт по аналогии с Sidebar (KS-2109).
+  // KS-2806: gate-функция группы. Для `train` имеет смысл показывать
+  // только если хотя бы один подраздел открыт (Rush, puzzles или
+  // drills). Если backend `customGate` уже определён в NAV_ROUTES —
+  // используем его, иначе fallback на `flag`.
+  const { flags } = useFeatureFlags();
   const { isAdmin } = useAdminStatus();
-
-  // KS-2373: top-3 от backend. На время загрузки и при ошибке /
-  // unauth — пустой массив, фоллбек на DEFAULT_TOP.
-  const { routes: topFromApi } = useTopNavStats(3);
-
-  // Применяем feature-flag фильтр к дефолту (на случай если
-  // tournamentsEnabled=false — не показываем «турниры» как один из
-  // дефолтных). useTopNavStats уже сам фильтрует свой ответ.
-  const flagsByRoute: Record<NavRoute, boolean> = {
-    play: true,
-    tournaments: tournamentsEnabled,
-    workshop: true,
-    lessons: lessonsEnabled,
-    drills: drillsEnabled,
-    broadcasts: broadcastsEnabled,
-    archive: true,
-    profile: true,
-    puzzles: puzzlesEnabled,
-    // KS-2552 / ADR-048: gate такой же как у `puzzles`. Без этой строки
-    // фильтр на строке `candidate.filter((r) => flagsByRoute[r])`
-    // выкидывал `precision` (undefined → falsy), даже когда backend
-    // отдавал его в top-3 — mobile bar показывал старую кнопку
-    // (`play` как добор из DEFAULT_TOP).
-    precision: puzzlesEnabled,
+  const isRouteVisible = (route: NavRoute): boolean => {
+    const meta = NAV_ROUTES[route];
+    if (meta.customGate) return meta.customGate(flags);
+    if (meta.flag === null) return true;
+    return Boolean(flags[meta.flag]);
   };
 
+  // KS-2373: top-N от backend (KS-2809 уже агрегирует legacy→group).
+  const { routes: topFromApi } = useTopNavStats(3);
+
   const topRoutes = useMemo<NavRoute[]>(() => {
+    // 1. Берём backend-топ если он непустой, иначе DEFAULT_TOP.
     const candidate = topFromApi.length > 0 ? topFromApi : DEFAULT_TOP;
-    const filtered = candidate.filter((r) => flagsByRoute[r]);
+    // 2. Фильтруем по видимости (feature-flag / customGate).
+    const filtered = candidate.filter(isRouteVisible);
     if (filtered.length >= 3) return filtered.slice(0, 3);
-    // Добиваем недостающие из дефолтного набора (если фильтр выкинул
-    // какие-то), без дубликатов.
+    // 3. Добор из DEFAULT_TOP без дубликатов.
     const result = [...filtered];
     for (const r of DEFAULT_TOP) {
       if (result.length >= 3) break;
-      if (!result.includes(r) && flagsByRoute[r]) result.push(r);
+      if (!result.includes(r) && isRouteVisible(r)) result.push(r);
     }
-    // И из остальных, если всё ещё мало (extreme: все флаги off).
+    // 4. Добор из остальных групп — на случай когда DEFAULT_TOP-группа
+    // выключена feature-flag'ом.
     for (const r of Object.keys(NAV_ROUTES) as NavRoute[]) {
       if (result.length >= 3) break;
-      if (!result.includes(r) && flagsByRoute[r]) result.push(r);
+      if (!result.includes(r) && isRouteVisible(r)) result.push(r);
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    topFromApi,
-    tournamentsEnabled,
-    puzzlesEnabled,
-    broadcastsEnabled,
-    drillsEnabled,
-    lessonsEnabled,
-  ]);
+  }, [topFromApi, flags]);
 
   const moreRoutes = useMemo<NavRoute[]>(() => {
     return (Object.keys(NAV_ROUTES) as NavRoute[]).filter(
-      (r) => !topRoutes.includes(r) && flagsByRoute[r],
+      (r) => !topRoutes.includes(r) && isRouteVisible(r),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    topRoutes,
-    tournamentsEnabled,
-    puzzlesEnabled,
-    broadcastsEnabled,
-    drillsEnabled,
-    lessonsEnabled,
-  ]);
+  }, [topRoutes, flags]);
 
   const isActive = (paths: string[]) =>
     paths.some(
@@ -121,6 +89,10 @@ export function MobileBottomBar() {
     <div className="mobile-bottom-bar" data-testid="mobile-bottom-bar">
       {topRoutes.map((route) => {
         const meta = NAV_ROUTES[route];
+        // KS-2806 (regression guard): NAV_ROUTES в принципе должен
+        // содержать все 6 групп, но если backend по какой-то причине
+        // вернёт совсем странный ключ — пропускаем, не падаем.
+        if (!meta) return null;
         const active = isActive(meta.matches);
         return (
           <Link
@@ -132,8 +104,7 @@ export function MobileBottomBar() {
           >
             <span className="mobile-bar-icon">{meta.icon}</span>
             <span className="mobile-bar-label">
-              {/* KS-2544: предпочитаем короткое название (если задано),
-                  чтобы в узкой mobile-bar колонке не обрезалось. */}
+              {/* KS-2544: предпочитаем короткое название (если задано). */}
               {meta.labelShortKey
                 ? t(meta.labelShortKey, meta.labelShortFallback ?? meta.labelFallback)
                 : t(meta.labelKey, meta.labelFallback)}
@@ -156,8 +127,10 @@ export function MobileBottomBar() {
           data-testid="mobile-more-menu"
           onClick={() => setMoreOpen(false)}
         >
+          {/* KS-2806: остальные группы из NAV_ROUTES, не попавшие в топ. */}
           {moreRoutes.map((route) => {
             const meta = NAV_ROUTES[route];
+            if (!meta) return null;
             return (
               <Link
                 key={route}
@@ -168,8 +141,8 @@ export function MobileBottomBar() {
               </Link>
             );
           })}
-          {/* Пункты, не попавшие в whitelist nav-stats — они «технические»,
-              их частота не нужна (статистика по ним игнорируется). */}
+          {/* «Технические» пункты вне whitelist nav-stats — KS-2807 (T10)
+              переделает в группировку Социум/Аккаунт/Помощь/Админ. */}
           <Link to="/features">{t('nav.features', 'Features')}</Link>
           <Link to="/friends">{t('nav.friends', 'Friends')}</Link>
           <Link to="/feedback">{t('nav.feedback', 'Feedback')}</Link>
