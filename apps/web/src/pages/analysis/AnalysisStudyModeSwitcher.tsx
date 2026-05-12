@@ -41,6 +41,12 @@ export interface AnalysisStudyModeSwitcherProps {
   onChapterModeChange: (mode: StudyChapterMode) => void;
   onConcealPlyChange: (ply: number) => void;
   onEditGamebook?: () => void;
+  /**
+   * KS-2909: handler удаления главы. Когда задан — рисуется кнопка
+   * «Delete chapter». Не рисуется в read-only режиме или если prop
+   * не передан (для viewer'а/contributor'а удаление недоступно).
+   */
+  onDeleteChapter?: () => void;
 }
 
 export function AnalysisStudyModeSwitcher({
@@ -50,6 +56,7 @@ export function AnalysisStudyModeSwitcher({
   onChapterModeChange,
   onConcealPlyChange,
   onEditGamebook,
+  onDeleteChapter,
 }: AnalysisStudyModeSwitcherProps) {
   const { t } = useTranslation();
   const [concealDraft, setConcealDraft] = useState<string>(
@@ -127,6 +134,21 @@ export function AnalysisStudyModeSwitcher({
           disabled={readOnly}
         >
           {t('studies.mode.editGamebook', 'Edit script')}
+        </button>
+      )}
+
+      {/* KS-2909: Delete chapter — owner-only (родитель не передаёт
+          handler для viewer'а / contributor'а). На read-only тоже скрыт
+          — там удаление не имеет смысла. */}
+      {onDeleteChapter && !readOnly && (
+        <button
+          type="button"
+          className="analysis-study-mode-switcher__delete"
+          data-testid="analysis-study-mode-delete-chapter"
+          onClick={onDeleteChapter}
+          title={t('studies.action.deleteChapter', 'Delete chapter')}
+        >
+          {t('studies.action.deleteChapter', 'Delete chapter')}
         </button>
       )}
     </div>

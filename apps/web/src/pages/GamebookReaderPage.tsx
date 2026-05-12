@@ -41,10 +41,13 @@ const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 export function GamebookReaderPage() {
   const { t } = useTranslation();
-  // KS-2874: slug в /studies/:slug/:chapterId/play не используется
-  // для загрузки (gamebook читается через public-endpoint по chapterId).
-  // Параметр оставлен для совместимости URL-структуры.
-  const { chapterId } = useParams<{
+  // KS-2907: slug определяет режим загрузки.
+  // - /studies/:slug/:chapterId/play (slug есть) → авторизованный путь
+  //   через getBySlug + getChapter. Owner приватной/unlisted студии
+  //   получает свою главу.
+  // - /studies/c/:chapterId/play (slug нет) → public-endpoint
+  //   getPublicChapter (анонимный доступ для public-студий).
+  const { slug, chapterId } = useParams<{
     slug?: string;
     chapterId: string;
   }>();
@@ -61,45 +64,68 @@ export function GamebookReaderPage() {
 
   const review = useReviewState();
 
-  // Загрузка главы (через public-endpoint).
+  // Загрузка главы. Slug-роут — авторизованный путь (owner/contributor
+  // приватной/unlisted студии). /c/-роут — public-endpoint (анонимные).
   useEffect(() => {
     if (!chapterId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    studiesApi
-      .getPublicChapter(chapterId)
-      .then((resp) => {
-        if (cancelled) return;
-        setStudy(resp.study as StudyDto);
-        setChapter(resp.chapter);
-        if (resp.chapter.startFen) {
-          review.setInitialFen(resp.chapter.startFen);
+
+    const applyChapter = (
+      respStudy: StudyDto,
+      respChapter: StudyChapterDto,
+    ) => {
+      setStudy(respStudy);
+      setChapter(respChapter);
+      if (respChapter.startFen) {
+        review.setInitialFen(respChapter.startFen);
+      } else {
+        review.setInitialFen(INITIAL_FEN);
+      }
+      if (respChapter.pgn) {
+        try {
+          review.loadFromPgn(
+            parseAnnotatedPgn(respChapter.pgn),
+            extractInitialAnnotations(respChapter.pgn),
+          );
+        } catch {
+          /* битый PGN — оставляем дерево пустым */
+        }
+      }
+    };
+
+    const fetchChapter = async () => {
+      try {
+        if (slug) {
+          // KS-2907: авторизованный путь — owner/contributor получает
+          // свою главу даже если study=private/unlisted.
+          const [studyResp, chRes] = await Promise.all([
+            studiesApi.getBySlug(slug),
+            studiesApi.getChapter(slug, chapterId),
+          ]);
+          if (cancelled) return;
+          applyChapter(studyResp.study, chRes);
         } else {
-          review.setInitialFen(INITIAL_FEN);
+          // /studies/c/:chapterId/play — анонимный путь.
+          const resp = await studiesApi.getPublicChapter(chapterId);
+          if (cancelled) return;
+          applyChapter(resp.study as StudyDto, resp.chapter);
         }
-        if (resp.chapter.pgn) {
-          try {
-            review.loadFromPgn(
-              parseAnnotatedPgn(resp.chapter.pgn),
-              extractInitialAnnotations(resp.chapter.pgn),
-            );
-          } catch {
-            /* битый PGN — оставляем дерево пустым */
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('studies.error.notFound', 'Chapter not found.'));
-      })
-      .finally(() => {
+      } catch {
+        if (!cancelled)
+          setError(t('studies.error.notFound', 'Chapter not found.'));
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    void fetchChapter();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapterId, t]);
+  }, [slug, chapterId, t]);
 
   useEffect(() => {
     if (!chapter || !study) return;

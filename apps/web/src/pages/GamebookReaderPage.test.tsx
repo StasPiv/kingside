@@ -8,18 +8,26 @@ import { renderWithProviders, screen } from '../test/test-utils';
  */
 
 const getPublicChapterMock = vi.fn();
+const getBySlugMock = vi.fn();
+const getChapterMock = vi.fn();
 vi.mock('../api/studiesApi', () => ({
   studiesApi: {
     getPublicChapter: (chId: string) => getPublicChapterMock(chId),
+    getBySlug: (slug: string) => getBySlugMock(slug),
+    getChapter: (slug: string, chId: string) => getChapterMock(slug, chId),
   },
 }));
 
+let routeParams: Record<string, string | undefined> = {
+  slug: 's',
+  chapterId: 'ch1',
+};
 vi.mock('react-router-dom', async () => {
   const actual =
     await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ slug: 's', chapterId: 'ch1' }),
+    useParams: () => routeParams,
   };
 });
 
@@ -69,17 +77,22 @@ const CHAPTER = {
 
 beforeEach(() => {
   getPublicChapterMock.mockReset();
+  getBySlugMock.mockReset();
+  getChapterMock.mockReset();
   getPublicChapterMock.mockResolvedValue({ study: STUDY, chapter: CHAPTER });
+  getBySlugMock.mockResolvedValue({ study: STUDY, chapters: [] });
+  getChapterMock.mockResolvedValue(CHAPTER);
+  routeParams = { slug: 's', chapterId: 'ch1' };
 });
 
-describe('GamebookReaderPage (KS-2874)', () => {
-  it('загружает главу и рендерит intro + кнопку «Старт»', async () => {
+describe('GamebookReaderPage (KS-2874 / KS-2907)', () => {
+  it('slug-роут → авторизованный путь getBySlug+getChapter (KS-2907)', async () => {
     renderWithProviders(<GamebookReaderPage />, {
       route: '/studies/s/ch1/play',
     });
-    await waitFor(() =>
-      expect(getPublicChapterMock).toHaveBeenCalledWith('ch1'),
-    );
+    await waitFor(() => expect(getChapterMock).toHaveBeenCalledWith('s', 'ch1'));
+    expect(getBySlugMock).toHaveBeenCalledWith('s');
+    expect(getPublicChapterMock).not.toHaveBeenCalled();
     expect(
       screen.getByTestId('gamebook-reader-page').getAttribute('data-state'),
     ).toBe('ready');
@@ -91,13 +104,24 @@ describe('GamebookReaderPage (KS-2874)', () => {
     ).toBe('intro');
   });
 
-  it('клик «Старт» → phase=playing, intro исчезает, feedback показывается', async () => {
+  it('/c/-роут (без slug) → public-endpoint getPublicChapter (анонимный)', async () => {
+    routeParams = { chapterId: 'ch1' };
     renderWithProviders(<GamebookReaderPage />, {
-      route: '/studies/s/ch1/play',
+      route: '/studies/c/ch1/play',
     });
     await waitFor(() =>
       expect(getPublicChapterMock).toHaveBeenCalledWith('ch1'),
     );
+    expect(getBySlugMock).not.toHaveBeenCalled();
+    expect(getChapterMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('gamebook-reader-intro')).toBeInTheDocument();
+  });
+
+  it('клик «Старт» → phase=playing, intro исчезает, feedback показывается', async () => {
+    renderWithProviders(<GamebookReaderPage />, {
+      route: '/studies/s/ch1/play',
+    });
+    await waitFor(() => expect(getChapterMock).toHaveBeenCalledWith('s', 'ch1'));
     fireEvent.click(screen.getByTestId('gamebook-reader-start'));
     expect(
       screen.getByTestId('gamebook-reader-page').getAttribute('data-phase'),
@@ -107,7 +131,7 @@ describe('GamebookReaderPage (KS-2874)', () => {
   });
 
   it('error state → fallback с «Chapter not found»', async () => {
-    getPublicChapterMock.mockRejectedValue(new Error('boom'));
+    getChapterMock.mockRejectedValue(new Error('boom'));
     renderWithProviders(<GamebookReaderPage />, {
       route: '/studies/s/ch1/play',
     });
@@ -120,9 +144,10 @@ describe('GamebookReaderPage (KS-2874)', () => {
   });
 
   it('warning отображается если глава не gamebook-режима', async () => {
-    getPublicChapterMock.mockResolvedValue({
-      study: STUDY,
-      chapter: { ...CHAPTER, mode: 'analysis', gamebook: null },
+    getChapterMock.mockResolvedValue({
+      ...CHAPTER,
+      mode: 'analysis',
+      gamebook: null,
     });
     renderWithProviders(<GamebookReaderPage />, {
       route: '/studies/s/ch1/play',

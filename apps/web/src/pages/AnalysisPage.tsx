@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -541,6 +541,33 @@ function AnalysisPageInner({
       (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, []);
+
+  // KS-2909: удаление главы — owner-only, с confirm.
+  // После успеха navigate на детальную страницу студии (там список
+  // глав уже обновится через свой re-fetch).
+  const navigate = useNavigate();
+  const handleDeleteChapter = useCallback(() => {
+    if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
+      return;
+    const confirmed = window.confirm(
+      t(
+        'studies.confirm.deleteChapter',
+        'Delete this chapter? This cannot be undone.',
+      ),
+    );
+    if (!confirmed) return;
+    studiesApi
+      .deleteChapter(ctx.slug, studyChapter.id)
+      .then(() => {
+        navigate(`/studies/${encodeURIComponent(ctx.slug)}`, { replace: true });
+      })
+      .catch(() => {
+        // best-effort: ошибку показываем через setError (existing state).
+        setError(
+          t('studies.error.delete', 'Failed to delete chapter.'),
+        );
+      });
+  }, [ctx, studyChapter, navigate, t]);
 
   const analysisPageRef = useRef<HTMLDivElement>(null);
 
@@ -1694,7 +1721,14 @@ function AnalysisPageInner({
         );
 
   return (
-    <div className="analysis-page" ref={analysisPageRef}>
+    <div
+      className={`analysis-page${ctx.kind === 'study' ? ' analysis-page--study' : ''}`}
+      data-analysis-context={ctx.kind}
+      data-study-mode={
+        ctx.kind === 'study' ? ctx.mode : undefined
+      }
+      ref={analysisPageRef}
+    >
       <div className="analysis-board-area">
         {!gameId && (
           <AnalysisHeader
@@ -1726,6 +1760,17 @@ function AnalysisPageInner({
                   onChapterModeChange={handleChapterModeChange}
                   onConcealPlyChange={handleConcealPlyChange}
                   onEditGamebook={handleEditGamebook}
+                  onDeleteChapter={
+                    // KS-2909: показываем delete только owner'у — определяем
+                    // по study.ownerId. Contributor / viewer на editor-роуте
+                    // увидит mode-switcher, но не Delete.
+                    ctx.mode === 'editor' &&
+                    studyData &&
+                    user &&
+                    studyData.ownerId === user.id
+                      ? handleDeleteChapter
+                      : undefined
+                  }
                 />
               ) : undefined
             }
