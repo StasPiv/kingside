@@ -684,3 +684,455 @@
   color: var(--c-a0a0c0, #a0a0c0);
   cursor: pointer;
 }
+
+/* ============================================================
+ * KS-2875 (ADR-060 §10.1 L1) — mode-switcher + gamebook reader.
+ * ============================================================ */
+
+/* ─── AnalysisStudyModeSwitcher (FM1) ─────────────────────────── */
+
+.analysis-study-mode-switcher {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.analysis-study-mode-switcher__label {
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.analysis-study-mode-switcher__select {
+  padding: 4px 8px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.analysis-study-mode-switcher__select:hover:not(:disabled),
+.analysis-study-mode-switcher__select:focus:not(:disabled) {
+  border-color: var(--c-7c83ff, #7c83ff);
+  outline: none;
+}
+
+.analysis-study-mode-switcher__select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analysis-study-mode-switcher__conceal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.analysis-study-mode-switcher__conceal-input {
+  width: 60px;
+  padding: 4px 8px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.analysis-study-mode-switcher__conceal-input:focus {
+  border-color: var(--c-7c83ff, #7c83ff);
+  outline: none;
+}
+
+.analysis-study-mode-switcher__conceal-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analysis-study-mode-switcher__edit-gamebook {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--c-b0b0c8, #b0b0c8);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.analysis-study-mode-switcher__edit-gamebook:hover:not(:disabled) {
+  border-color: var(--c-7c83ff, #7c83ff);
+  color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
+}
+
+.analysis-study-mode-switcher__edit-gamebook:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── GamebookReaderPage (FM5) ────────────────────────────────── */
+
+.gamebook-reader-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+}
+
+.gamebook-reader-page__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+}
+
+.gamebook-reader-page__name {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  min-width: 0;
+}
+
+.gamebook-reader-page__warn {
+  padding: 6px 12px;
+  background: var(--ov-warning-15, rgba(255, 152, 0, 0.15));
+  border: 1px solid var(--c-ff9800, #ff9800);
+  border-radius: 6px;
+  color: var(--c-ff9800, #ff9800);
+  font-size: 12px;
+}
+
+/* KS-2875: двухпанельный layout (board + text). На desktop рядом
+   (grid 1fr / 360px), на mobile вертикально (один столбец). */
+.gamebook-reader-page__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.gamebook-reader-page__board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gamebook-reader-page__board > div:first-child {
+  max-width: min(70vh, 680px);
+  width: 100%;
+}
+
+.gamebook-reader-page__text {
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 10px;
+  padding: 16px;
+  min-height: 200px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  line-height: 1.5;
+}
+
+/* Вступительный экран — текст + кнопка «Старт». */
+.gamebook-reader-page__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gamebook-reader-page__intro-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  white-space: pre-wrap;
+  /* KS-2875: длинные тексты-параграфы переносим, не растягиваем
+     родителя по ширине. */
+  overflow-wrap: anywhere;
+}
+
+.gamebook-reader-page__start {
+  align-self: flex-start;
+  padding: 10px 22px;
+  background: var(--c-7c83ff, #7c83ff);
+  border: none;
+  border-radius: 6px;
+  color: var(--c-fff, #fff);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gamebook-reader-page__start:hover {
+  background: var(--c-6366f1, #6366f1);
+}
+
+/* KS-2875: feedback после хода — фон/border по `data-kind`.
+   - success → зелёный overlay
+   - failure → красный overlay
+   - none → нейтральный */
+.gamebook-reader-page__feedback {
+  font-size: 15px;
+  line-height: 1.55;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--c-141422, #141422);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.gamebook-reader-page__feedback[data-kind='success'] {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  border-color: var(--c-4caf50, #4caf50);
+  color: var(--c-4caf50, #4caf50);
+}
+
+.gamebook-reader-page__feedback[data-kind='failure'] {
+  background: var(--ov-danger-15, rgba(232, 140, 140, 0.15));
+  border-color: var(--c-e88c8c, #e88c8c);
+  color: var(--c-e88c8c, #e88c8c);
+}
+
+.gamebook-reader-page__finished {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  padding: 18px;
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  border: 1px solid var(--c-4caf50, #4caf50);
+  border-radius: 8px;
+  color: var(--c-4caf50, #4caf50);
+}
+
+@media (max-width: 900px) {
+  .gamebook-reader-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gamebook-reader-page__board > div:first-child {
+    max-width: 100%;
+  }
+  .gamebook-reader-page__text {
+    min-height: auto;
+  }
+}
+
+/* ─── AnalysisGamebookEditor (FM4) ────────────────────────────── */
+
+.analysis-gamebook-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--c-141422, #141422);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 8px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-size: 13px;
+}
+
+.analysis-gamebook-editor__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analysis-gamebook-editor__header strong {
+  margin-right: auto;
+  font-size: 13px;
+}
+
+.analysis-gamebook-editor__intro-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--c-b0b0c8, #b0b0c8);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.analysis-gamebook-editor__intro-btn:hover {
+  border-color: var(--c-7c83ff, #7c83ff);
+  color: var(--c-7c83ff, #7c83ff);
+  background: var(--ov-accent-10, rgba(124, 131, 255, 0.1));
+}
+
+.analysis-gamebook-editor__count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-9e9e9e, #9e9e9e);
+  font-variant-numeric: tabular-nums;
+}
+
+/* KS-2875: индикатор «лимит достигнут» — окрашиваем в warning. */
+.analysis-gamebook-editor__count[data-at-limit='true'] {
+  color: var(--c-ff9800, #ff9800);
+}
+
+.analysis-gamebook-editor__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analysis-gamebook-editor label {
+  font-size: 11px;
+  color: var(--c-a0a0c0, #a0a0c0);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.analysis-gamebook-editor textarea {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 50px;
+  box-sizing: border-box;
+}
+
+.analysis-gamebook-editor textarea:focus {
+  border-color: var(--c-7c83ff, #7c83ff);
+  outline: none;
+}
+
+.analysis-gamebook-editor textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analysis-gamebook-editor__placeholder {
+  padding: 12px;
+  text-align: center;
+  font-style: italic;
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-size: 12px;
+}
+
+.analysis-gamebook-editor__node {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analysis-gamebook-editor__uci {
+  font-size: 12px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.analysis-gamebook-editor__uci code {
+  background: var(--c-2a2a4a, #2a2a4a);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.analysis-gamebook-editor__limit {
+  padding: 6px 8px;
+  background: var(--ov-warning-15, rgba(255, 152, 0, 0.15));
+  border: 1px solid var(--c-ff9800, #ff9800);
+  border-radius: 6px;
+  color: var(--c-ff9800, #ff9800);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ============================================================
+ * KS-2876 (ADR-060 §10.1 L2) — practice / conceal overlay.
+ * ============================================================ */
+
+/* Practice/conceal-баннер над доской (KS-2871/2872). По
+   `data-mode` подкрашиваем индикатор. */
+.analysis-practice-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-left: 3px solid var(--c-7c83ff, #7c83ff);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.analysis-practice-bar[data-mode='conceal'] {
+  border-left-color: var(--c-ff9800, #ff9800);
+}
+
+/* KS-2876: hint появляется после ошибки — лёгкое pulse внимания. */
+.analysis-practice-bar__hint {
+  flex: 1 1 auto;
+  font-weight: 500;
+  color: var(--c-e88c8c, #e88c8c);
+  animation: practice-hint-pulse 280ms ease-out;
+}
+
+@keyframes practice-hint-pulse {
+  0%   { opacity: 0;   transform: translateY(-2px); }
+  60%  { opacity: 1;   transform: translateY(0); }
+  100% { opacity: 1; }
+}
+
+.analysis-practice-bar__status {
+  flex: 1 1 auto;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+/* Счётчик ошибок справа. */
+.analysis-practice-bar__errors {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  background: var(--ov-danger-15, rgba(232, 140, 140, 0.15));
+  border: 1px solid var(--c-e88c8c, #e88c8c);
+  border-radius: 999px;
+  color: var(--c-e88c8c, #e88c8c);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* KS-2876: концейлинг — ходы за `concealAfterPly` рендерятся как
+   «???» в move-list. Приглушаем цвет и убираем кликабельность —
+   позиция не должна раскрываться. */
+.review-move--concealed {
+  color: var(--c-6a6a8a, #6a6a8a) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.5px;
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.review-move--concealed:hover {
+  background: transparent !important;
+}
