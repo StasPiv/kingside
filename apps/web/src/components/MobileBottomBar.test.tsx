@@ -386,3 +386,67 @@ describe('<MobileBottomBar> KS-2807 — drawer группировка', () => {
   });
 });
 
+/**
+ * KS-2812 (ADR-058 §6.6 T15): active highlight на nested-маршрутах
+ * mobile bottom bar. Группа подсвечивается при заходе в любой из её
+ * подразделов (паттерн из useNavStats.matches).
+ */
+describe('<MobileBottomBar> KS-2812 — active highlight на nested-routes', () => {
+  it('на /puzzles подсвечен mobile-bar-train', async () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<MobileBottomBar />, { route: '/puzzles' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-train')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-train').className).toContain(
+      'mobile-bar-item--active',
+    );
+  });
+
+  it('на /precision/stats подсвечен mobile-bar-train (nested)', async () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<MobileBottomBar />, { route: '/precision/stats' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-train')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-train').className).toContain(
+      'mobile-bar-item--active',
+    );
+  });
+
+  it('на /tournaments подсвечен mobile-bar-play (группа)', async () => {
+    renderWithProviders(<MobileBottomBar />, { route: '/tournaments' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-play').className).toContain(
+      'mobile-bar-item--active',
+    );
+  });
+
+  it('на /lessons/some-slug подсвечен mobile-bar-learn', async () => {
+    renderWithProviders(<MobileBottomBar />, { route: '/lessons/slug' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-learn')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-learn').className).toContain(
+      'mobile-bar-item--active',
+    );
+  });
+
+  it('на /play подсвечен только mobile-bar-play (других не задевает)', async () => {
+    renderWithProviders(<MobileBottomBar />, { route: '/play' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-bar-play')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mobile-bar-play').className).toContain(
+      'mobile-bar-item--active',
+    );
+    flagControls.puzzles = true;
+    // train не должна быть active
+    expect(
+      screen.queryByTestId('mobile-bar-train')?.className ?? '',
+    ).not.toContain('mobile-bar-item--active');
+  });
+});
+
