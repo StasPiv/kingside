@@ -604,7 +604,11 @@
 .import-pgn-dialog__textarea {
   width: 100%;
   padding: 8px 10px;
-  background: var(--c-141422, #141422);
+  /* KS-2903: `--c-141422` НЕ определён в tokens.css — fallback `#141422`
+     даёт чёрный прямоугольник в light-теме (текст тёмный, фон тёмный →
+     не видно). Семантический `--bg-input` корректно инвертируется:
+     dark `#0f172a`, light `#f1f5f9`. */
+  background: var(--bg-input, #141422);
   border: 1px solid var(--c-2a2a4a, #2a2a4a);
   border-radius: 6px;
   color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
@@ -657,7 +661,11 @@
 .create-study-dialog__textarea {
   width: 100%;
   padding: 8px 10px;
-  background: var(--c-141422, #141422);
+  /* KS-2903: `--c-141422` НЕ определён в tokens.css — fallback `#141422`
+     даёт чёрный прямоугольник в light-теме (текст тёмный, фон тёмный →
+     не видно). Семантический `--bg-input` корректно инвертируется:
+     dark `#0f172a`, light `#f1f5f9`. */
+  background: var(--bg-input, #141422);
   border: 1px solid var(--c-2a2a4a, #2a2a4a);
   border-radius: 6px;
   color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
@@ -890,7 +898,11 @@
   padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid transparent;
-  background: var(--c-141422, #141422);
+  /* KS-2903: `--c-141422` НЕ определён в tokens.css — fallback `#141422`
+     даёт чёрный прямоугольник в light-теме (текст тёмный, фон тёмный →
+     не видно). Семантический `--bg-input` корректно инвертируется:
+     dark `#0f172a`, light `#f1f5f9`. */
+  background: var(--bg-input, #141422);
   color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -939,7 +951,11 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  background: var(--c-141422, #141422);
+  /* KS-2903: `--c-141422` НЕ определён в tokens.css — fallback `#141422`
+     даёт чёрный прямоугольник в light-теме (текст тёмный, фон тёмный →
+     не видно). Семантический `--bg-input` корректно инвертируется:
+     dark `#0f172a`, light `#f1f5f9`. */
+  background: var(--bg-input, #141422);
   border: 1px solid var(--c-2a2a4a, #2a2a4a);
   border-radius: 8px;
   color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
