@@ -90,7 +90,16 @@
       "errorLimit": "Chapter limit (64) exceeded for this study.",
       "errorGeneric": "PGN import failed. Check the syntax and the chapter limit."
     },
-    "create": "Create study",
+    "create": {
+      "cta": "+ Create study",
+      "title": "Create a study",
+      "name": "Name",
+      "description": "Description (optional)",
+      "isPublic": "Make public (anyone with link can view)",
+      "submit": "Create",
+      "errorNameRequired": "Name is required.",
+      "errorGeneric": "Failed to create study. Please try again."
+    },
     "notFound": "Study not found.",
     "access": {
       "privateGuest": "This study is private. Sign in to view if you have access."

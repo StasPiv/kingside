@@ -27,10 +27,27 @@
   color: var(--c-a0a0c0, #a0a0c0);
 }
 
+.studies-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 18px;
+  flex-wrap: wrap;
+}
+
 .studies-page__tabs {
   display: flex;
   gap: 6px;
-  margin: 16px 0 18px;
+}
+
+.studies-page__create-btn {
+  flex-shrink: 0;
+}
+
+.studies-page__empty-cta {
+  margin-top: 12px;
+  display: inline-block;
 }
 
 .studies-page__tab {
@@ -60,11 +77,20 @@
 .studies-page__empty {
   padding: 32px;
   text-align: center;
-  font-style: italic;
   color: var(--c-9e9e9e, #9e9e9e);
   background: var(--c-1a1a2e, #1a1a2e);
   border: 1px solid var(--c-2a2a4a, #2a2a4a);
   border-radius: 10px;
+}
+
+.studies-page__loading,
+.studies-page__error {
+  font-style: italic;
+}
+
+.studies-page__empty p {
+  margin: 0;
+  font-style: italic;
 }
 
 .studies-page__error {
@@ -612,4 +638,49 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ─── CreateStudyDialog (KS-2852) ──────────────────────────── */
+
+.create-study-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.create-study-dialog__label {
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.create-study-dialog__input,
+.create-study-dialog__textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--c-141422, #141422);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-size: 14px;
+}
+
+.create-study-dialog__textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.create-study-dialog__input:focus,
+.create-study-dialog__textarea:focus {
+  outline: none;
+  border-color: var(--c-7c83ff, #7c83ff);
+}
+
+.create-study-dialog__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+  cursor: pointer;
 }

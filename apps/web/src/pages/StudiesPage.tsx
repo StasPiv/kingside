@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useAuth } from '../context/AuthContext';
 import { studiesApi, type StudyDto } from '../api/studiesApi';
+import { CreateStudyDialog } from '../components/studies/CreateStudyDialog';
 
 /**
  * KS-2825 (KS-2815 §B.5, §A.5) — каталог Studies `/studies`.
@@ -25,8 +26,11 @@ type Tab = 'mine' | 'public';
 export function StudiesPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryTab = (searchParams.get('tab') as Tab | null) ?? null;
+  // KS-2852: модалка создания студии.
+  const [createOpen, setCreateOpen] = useState<boolean>(false);
 
   // Гость не имеет таба «Мои» — для него всегда «Публичные».
   const activeTab: Tab = useMemo(() => {
@@ -106,31 +110,46 @@ export function StudiesPage() {
       </header>
 
       {user && (
-        <div
-          className="studies-page__tabs"
-          role="tablist"
-          data-testid="studies-tabs"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'mine'}
-            className={`studies-page__tab${activeTab === 'mine' ? ' studies-page__tab--active' : ''}`}
-            data-testid="studies-tab-mine"
-            onClick={() => setTab('mine')}
+        <div className="studies-page__toolbar" data-testid="studies-toolbar">
+          <div
+            className="studies-page__tabs"
+            role="tablist"
+            data-testid="studies-tabs"
           >
-            {t('studies.tabs.mine', 'My studies')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'public'}
-            className={`studies-page__tab${activeTab === 'public' ? ' studies-page__tab--active' : ''}`}
-            data-testid="studies-tab-public"
-            onClick={() => setTab('public')}
-          >
-            {t('studies.tabs.public', 'Public')}
-          </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'mine'}
+              className={`studies-page__tab${activeTab === 'mine' ? ' studies-page__tab--active' : ''}`}
+              data-testid="studies-tab-mine"
+              onClick={() => setTab('mine')}
+            >
+              {t('studies.tabs.mine', 'My studies')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'public'}
+              className={`studies-page__tab${activeTab === 'public' ? ' studies-page__tab--active' : ''}`}
+              data-testid="studies-tab-public"
+              onClick={() => setTab('public')}
+            >
+              {t('studies.tabs.public', 'Public')}
+            </button>
+          </div>
+          {/* KS-2852: кнопка «Создать студию» в правой части toolbar'а
+              на вкладке «Мои» (для гостя не показываем — на «Публичные»
+              тоже скрыто, т.к. там создавать нечего). */}
+          {activeTab === 'mine' && (
+            <button
+              type="button"
+              className="study-page__action studies-page__create-btn"
+              data-testid="studies-create-btn"
+              onClick={() => setCreateOpen(true)}
+            >
+              {t('studies.create.cta', '+ Create study')}
+            </button>
+          )}
         </div>
       )}
 
@@ -148,15 +167,28 @@ export function StudiesPage() {
 
       {!loading && !error && studies.length === 0 && (
         <div className="studies-page__empty" data-testid="studies-empty">
-          {activeTab === 'mine'
-            ? t(
-                'studies.empty.mine',
-                'You don’t have any studies yet. Create your first one to get started.',
-              )
-            : t(
-                'studies.empty.public',
-                'No public studies yet. Be the first to share.',
-              )}
+          <p>
+            {activeTab === 'mine'
+              ? t(
+                  'studies.empty.mine',
+                  'You don’t have any studies yet. Create your first one to get started.',
+                )
+              : t(
+                  'studies.empty.public',
+                  'No public studies yet. Be the first to share.',
+                )}
+          </p>
+          {/* KS-2852: дублирующий CTA в empty-state для «Мои». */}
+          {user && activeTab === 'mine' && (
+            <button
+              type="button"
+              className="study-page__action studies-page__empty-cta"
+              data-testid="studies-empty-create-btn"
+              onClick={() => setCreateOpen(true)}
+            >
+              {t('studies.create.cta', '+ Create study')}
+            </button>
+          )}
         </div>
       )}
 
@@ -201,6 +233,17 @@ export function StudiesPage() {
             </Link>
           ))}
         </div>
+      )}
+
+      {createOpen && (
+        <CreateStudyDialog
+          onClose={() => setCreateOpen(false)}
+          onCreated={(study) => {
+            // После создания — переходим в новую студию (там
+            // owner-actions сразу доступны для добавления глав).
+            navigate(`/studies/${encodeURIComponent(study.slug)}`);
+          }}
+        />
       )}
     </div>
   );

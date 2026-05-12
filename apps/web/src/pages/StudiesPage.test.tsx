@@ -11,10 +11,12 @@ import { renderWithProviders, screen } from '../test/test-utils';
 
 const listMock = vi.fn();
 const listPublicMock = vi.fn();
+const createMock = vi.fn();
 vi.mock('../api/studiesApi', () => ({
   studiesApi: {
     list: (opts: { mine?: boolean }) => listMock(opts),
     listPublic: () => listPublicMock(),
+    create: (req: unknown) => createMock(req),
   },
 }));
 
@@ -30,6 +32,7 @@ import { StudiesPage } from './StudiesPage';
 beforeEach(() => {
   listMock.mockReset();
   listPublicMock.mockReset();
+  createMock.mockReset();
   listMock.mockResolvedValue({ data: [] });
   listPublicMock.mockResolvedValue({ data: [] });
   authState.user = { id: 'u1', username: 'tester' };
@@ -120,5 +123,60 @@ describe('StudiesPage (KS-2825)', () => {
     });
     await waitFor(() => expect(listPublicMock).toHaveBeenCalled());
     expect(screen.getByTestId('studies-tab-public').getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+/**
+ * KS-2852: кнопка «+ Создать студию» в toolbar и empty-state CTA.
+ */
+describe('StudiesPage KS-2852 — Create study button', () => {
+  it('auth + tab=mine → видна кнопка «+ Создать студию»', async () => {
+    renderWithProviders(<StudiesPage />, { route: '/studies?tab=mine' });
+    await waitFor(() => expect(listMock).toHaveBeenCalled());
+    expect(screen.getByTestId('studies-create-btn')).toBeInTheDocument();
+  });
+
+  it('auth + tab=public → кнопка скрыта', async () => {
+    renderWithProviders(<StudiesPage />, { route: '/studies?tab=public' });
+    await waitFor(() => expect(listPublicMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('studies-create-btn')).not.toBeInTheDocument();
+  });
+
+  it('гость → кнопка скрыта (toolbar не рендерится)', async () => {
+    authState.user = null;
+    renderWithProviders(<StudiesPage />, { route: '/studies' });
+    await waitFor(() => expect(listPublicMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('studies-create-btn')).not.toBeInTheDocument();
+  });
+
+  it('empty-state mine + auth → дублирующий CTA', async () => {
+    renderWithProviders(<StudiesPage />, { route: '/studies?tab=mine' });
+    await waitFor(() =>
+      expect(screen.getByTestId('studies-empty')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('studies-empty-create-btn'),
+    ).toBeInTheDocument();
+  });
+
+  it('empty-state public → дублирующего CTA нет', async () => {
+    renderWithProviders(<StudiesPage />, { route: '/studies?tab=public' });
+    await waitFor(() =>
+      expect(screen.getByTestId('studies-empty')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('studies-empty-create-btn'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('клик по кнопке → открывает CreateStudyDialog', async () => {
+    renderWithProviders(<StudiesPage />, { route: '/studies?tab=mine' });
+    await waitFor(() =>
+      expect(screen.getByTestId('studies-create-btn')).toBeInTheDocument(),
+    );
+    screen.getByTestId('studies-create-btn').click();
+    await waitFor(() =>
+      expect(screen.getByTestId('create-study-dialog')).toBeInTheDocument(),
+    );
   });
 });
