@@ -126,6 +126,12 @@ const StudiesPage = lazy(() =>
 const StudyPage = lazy(() =>
   import('./pages/StudyPage').then((m) => ({ default: m.StudyPage })),
 );
+// KS-2827 (KS-2815 §B.5): редактор главы `/studies/:slug/:chapterId`.
+const StudyChapterEditorPage = lazy(() =>
+  import('./pages/StudyChapterEditorPage').then((m) => ({
+    default: m.StudyChapterEditorPage,
+  })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -386,6 +392,17 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <StudyPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2827: редактор главы. Не-owner попадает сюда через owner-
+            URL и видит read-only вариант; anonymous + public — отдельная
+            страница `/studies/public/c/:chapterId` (KS-2829). */}
+        <Route
+          path="/studies/:slug/:chapterId"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <StudyChapterEditorPage />
             </Suspense>
           }
         />

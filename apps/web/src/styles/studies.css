@@ -310,3 +310,100 @@
   border-radius: 999px;
   background: var(--c-2a2a4a, #2a2a4a);
 }
+
+/* ─── StudyChapterEditorPage (KS-2827) ─────────────────────────── */
+
+.study-editor-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+}
+
+.study-editor-page__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 12px;
+  flex-wrap: wrap;
+}
+
+.study-editor-page__name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  flex: 1 1 auto;
+}
+
+.study-editor-page__name--editable {
+  cursor: text;
+}
+
+.study-editor-page__name--editable:hover {
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.study-editor-page__name-input {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-7c83ff, #7c83ff);
+  border-radius: 6px;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.study-editor-page__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.study-editor-page__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .study-editor-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.study-editor-page__board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.study-editor-page__nav {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.study-editor-page__nav button {
+  padding: 6px 12px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.study-editor-page__nav button:hover {
+  border-color: var(--c-7c83ff, #7c83ff);
+}
+
+.study-editor-page__moves {
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 70vh;
+  overflow-y: auto;
+}

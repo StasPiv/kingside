@@ -58,10 +58,18 @@
       "createChapter": "+ New chapter",
       "importPgn": "Import PGN",
       "importPgnPending": "PGN import is being implemented (KS-2830).",
-      "delete": "Delete study"
+      "delete": "Delete study",
+      "deleteChapter": "Delete chapter",
+      "editName": "Rename",
+      "flipBoard": "Flip board"
+    },
+    "orientation": {
+      "white": "White",
+      "black": "Black"
     },
     "confirm": {
-      "delete": "Delete this study? Chapters will be lost. This cannot be undone."
+      "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
+      "deleteChapter": "Delete this chapter? This cannot be undone."
     },
     "backToCatalog": "Back to studies"
   },
