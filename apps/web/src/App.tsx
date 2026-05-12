@@ -109,6 +109,15 @@ const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ defa
 // `PublicAnalysisPage` упразднён.
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
+// KS-2796/KS-2797 (ADR-058 §6.1 T1, T2): лобби-страницы группы
+// «Тренировка» и «Анализ». Lazy — чтобы не тянуть их JS при заходе
+// на не-смежные маршруты.
+const TrainLobbyPage = lazy(() =>
+  import('./pages/TrainLobbyPage').then((m) => ({ default: m.TrainLobbyPage })),
+);
+const AnalyzeLobbyPage = lazy(() =>
+  import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
+);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -323,6 +332,27 @@ export function App() {
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<LobbyPage />} />
         <Route path="/play" element={<ProtectedRoute><PlayPage /></ProtectedRoute>} />
+        {/* KS-2796 / KS-2797 (ADR-058 §6.1 T3): лобби-страницы
+            тренировочной и аналитической групп. Без ProtectedRoute —
+            видимы и гостям; gating отдельных модулей — внутри страниц
+            и/или дочерних маршрутов. Lazy + Suspense — отдельные чанки,
+            не тянем JS на смежных маршрутах. */}
+        <Route
+          path="/train"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <TrainLobbyPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/analyze"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <AnalyzeLobbyPage />
+            </Suspense>
+          }
+        />
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
