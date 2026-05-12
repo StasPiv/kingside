@@ -477,6 +477,32 @@ endpoints, тесты), что в продуктивном коде пишетс
 При параллельной работе backend + frontend (без зависимостей):
 **≈ 7–8 календарных дней**.
 
+### D.6 Реальные ключи в трекере (созданы пакетом KS-2815)
+
+| T | Ключ | Assignee | Резюме |
+|---|------|----------|--------|
+| T1 | KS-2816 | architect | ADR-059 Studies module |
+| T2 | KS-2817 | backend | Prisma миграция (studies + study_chapters) |
+| T3 | KS-2818 | backend | StudyModule — сервисы, DTO, guards |
+| T4 | KS-2819 | backend | REST Studies CRUD + Chapters CRUD + reorder |
+| T5 | KS-2820 | backend | Multi-PGN импорт + экспорт |
+| T6 | KS-2821 | backend | StudyPublicController |
+| T7 | KS-2822 | backend | Тесты backend permissions matrix |
+| T8 | KS-2823 | backend | Feature-flag studiesEnabled |
+| T9 | KS-2824 | frontend | Shared types + studiesApi.ts |
+| T10 | KS-2825 | frontend | StudiesPage (каталог) |
+| T11 | KS-2826 | frontend | StudyPage (детали + действия) |
+| T12 | KS-2827 | frontend | StudyChapterEditorPage |
+| T13 | KS-2829 | frontend | StudyChapterPublicPage |
+| T14 | KS-2830 | frontend | ImportPgnDialog |
+| T15 | KS-2831 | frontend | ChapterList drag-n-drop |
+| T16 | KS-2832 | frontend | Sidebar пункт «🧪 Студии» под флагом |
+| T17 | KS-2833 | frontend | i18n studies (ru/en) |
+| T18 | KS-2834 | frontend | vitest frontend |
+| T19 | KS-2835 | layout | studies.css |
+
+Все тикеты в статусе **TODO**. Запуск пакетом по согласованию.
+
 ---
 
 ## E. Что произойдёт после MVP (Phase 2 — отдельно)
