@@ -630,8 +630,26 @@ if $DEPLOY_FRONTEND; then
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
-    aws s3 sync "$REPO_DIR/apps/web/dist/" "s3://${S3_BUCKET}/" --delete --quiet
-    echo "  Synced to s3://$S3_BUCKET/"
+    # KS-2918: hash-name'д чанки в /assets/ — immutable. Удалять их сразу после
+    # выката нового билда нельзя: активные вкладки клиентов ещё держат
+    # dynamic-import'ы на старые hash-чанки → 403 → "Failed to fetch
+    # dynamically imported module". Поэтому:
+    #   1) корень + не-hash-статика — синкается с --delete (index.html, sw.js,
+    #      manifest.webmanifest и т.п. перезаписываются, удалённые из dist
+    #      ключи стираются с S3).
+    #   2) /assets/ — синкается БЕЗ --delete. Старые hash-чанки остаются на
+    #      S3 для уже открытых вкладок. Физическое удаление — через S3
+    #      Lifecycle (правило expire-stale-hashed-assets, Expiration 30 days
+    #      по prefix=assets/). Vite пересобирает dist на каждом выкате →
+    #      mtime локальных файлов всегда свежий → sync обновляет LastModified
+    #      у current-чанков → lifecycle countdown сбрасывается. Чанк, чьего
+    #      исходника больше нет в коде, через 30 дней (по своему собственному
+    #      LastModified) удалится.
+    aws s3 sync "$REPO_DIR/apps/web/dist/" "s3://${S3_BUCKET}/" \
+        --delete --exclude "assets/*" --quiet
+    aws s3 sync "$REPO_DIR/apps/web/dist/assets/" "s3://${S3_BUCKET}/assets/" \
+        --quiet
+    echo "  Synced to s3://$S3_BUCKET/ (root pruned, assets retained for lifecycle)"
 
     echo "[frontend] Invalidating CloudFront cache..."
     aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION" \
