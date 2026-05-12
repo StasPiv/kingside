@@ -52,9 +52,23 @@
   background: var(--c-1a1a2e, #1a1a2e);
   border: 1px solid var(--c-2a2a4a, #2a2a4a);
   border-radius: 10px;
-  text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+
+/* KS-2837: глобальное правило `a:hover { text-decoration: underline }`
+   (base.css) подчёркивало текст карточки в активном/hover-состоянии —
+   в светлой теме это особенно заметно. Явно снимаем underline во ВСЕХ
+   состояниях, включая `:visited` (Link был посещён) и `:focus-visible`
+   (клавиатурная навигация). Те же селекторы — что у `.sidebar-item` и
+   `.mobile-bar-item` (KS-1572/KS-2614). */
+.lobby-card,
+.lobby-card:hover,
+.lobby-card:focus,
+.lobby-card:focus-visible,
+.lobby-card:active,
+.lobby-card:visited {
+  text-decoration: none;
 }
 
 .lobby-card:hover {
@@ -88,6 +102,15 @@
 .lobby-card__desc {
   font-size: 13px;
   color: var(--c-a0a0c0, #a0a0c0);
+}
+
+/* KS-2837: подстраховка — если внутренний текст когда-то унаследует
+   underline (например через `.lobby-card:hover *`), явно сбрасываем. */
+.lobby-card__title,
+.lobby-card__desc,
+.lobby-card:hover .lobby-card__title,
+.lobby-card:hover .lobby-card__desc {
+  text-decoration: none;
 }
 
 /* ============================================================
