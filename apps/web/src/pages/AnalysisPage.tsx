@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
-import { GameMetaBar } from '../components/GameMetaBar';
 import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
-import { MaterialBalance } from '../components/MaterialBalance';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -33,11 +31,10 @@ import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 // KS-2281 (E5 deferred): localStorage autosave для ad-hoc /analysis,
 // чтобы NAG-аннотации не терялись при reload страницы.
 import { useAdHocAnalysisAutosave } from '../hooks/useAdHocAnalysisAutosave';
-import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn, extractInitialAnnotations } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
-import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
+import { formatEval, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
@@ -49,7 +46,10 @@ import { AnalysisHeader } from './analysis/AnalysisHeader';
 // EvalBar + Chessboard + promotion-overlay + VariationChooser.
 // useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
 import { AnalysisBoard } from './analysis/AnalysisBoard';
-import { ArchiveTreePanel } from '../components/analysis/ArchiveTreePanel';
+// KS-2866 (ADR-060 §10.1 FR3): извлечённый sidebar — engine-panel +
+// archive tree + ReviewMoveList + mobile tabs. На FR4 большая часть
+// props переедет в AnalysisContext.
+import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 
 type GameData = {
   id: string;
@@ -1522,223 +1522,44 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
         </div>
       </div>
 
-      <div className="analysis-sidebar">
-        {/* Desktop-only: GameMetaBar */}
-        {gameInfo && (
-          <div className="analysis-desktop-only">
-            <GameMetaBar info={gameInfo} />
-          </div>
-        )}
-
-        {/* KS-2434: блок серверного анализа партии удалён (см. KS-2433).
-            Глубокий анализ — через клиентский Stockfish в нижних панелях. */}
-
-        {/* Bridge promo — desktop only */}
-        {activeSource === 'wasm' && !bridgePromoDismissed && (
-          <div className="bridge-promo analysis-desktop-only">
-            <div className="bridge-promo__text">
-              <strong>{t('bridgePromo.title', 'Want deeper analysis?')}</strong>
-              <span>{t('bridgePromo.desc', 'Connect your local engine for unlimited depth and speed.')}</span>
-            </div>
-            <div className="bridge-promo__actions">
-              <Link to="/help/external-engine" className="bridge-promo__link">
-                {t('bridgePromo.learnMore', 'Learn more')}
-              </Link>
-              <button
-                className="bridge-promo__dismiss"
-                onClick={() => {
-                  setBridgePromoDismissed(true);
-                  try { localStorage.setItem('bridgePromoDismissed', '1'); } catch { /* ignore */ }
-                }}
-                title={t('bridgePromo.dismiss', 'Dismiss')}
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Desktop: Engine panel (collapsible) */}
-        <div className="analysis-panel analysis-desktop-only">
-          <div className="analysis-panel-header" onClick={() => togglePanel('engine')}>
-            <span className="analysis-panel-header-left">
-              <span className="analysis-panel-icon">&#9881;</span>
-              <span className="analysis-panel-title">{engineName}{engineStatusSuffix}</span>
-              {activeSource === 'external' && (
-                <span className={`engine-status-dot engine-status-dot--${sfState === 'ready' || sfState === 'analyzing' ? 'connected' : sfState === 'connecting' ? 'connecting' : 'disconnected'}`} />
-              )}
-              {engineErrorMessage && (
-                <span className="engine-error-detail" title={engineErrorMessage}>{engineErrorMessage}</span>
-              )}
-            </span>
-            <span className="analysis-panel-header-right">
-              <span className="engine-multipv-controls" onClick={(e) => e.stopPropagation()}>
-                <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1} title="Fewer lines">−</button>
-                <span className="engine-multipv-value">{ec.multiPv}</span>
-                <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10} title="More lines">+</button>
-              </span>
-              <button className="engine-settings-btn" onClick={(e) => { e.stopPropagation(); ec.setShowEngineModal(true); }} title="Engine settings">⚙</button>
-              {wasmSupported && !(isTouchDevice && engineFailed) && (
-                <button
-                  className="analysis-toggle-btn"
-                  onClick={(e) => { e.stopPropagation(); toggleAnalysis(); }}
-                  title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
-                  data-testid="stockfish-toggle"
-                  style={{ padding: '2px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid var(--c-555)', background: analysisEnabled ? 'var(--c-dc2626)' : 'var(--c-16a34a)', color: 'var(--c-fff)', marginLeft: 8, whiteSpace: 'nowrap' }}
-                >
-                  {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-                </button>
-              )}
-              <span className="analysis-panel-chevron">{panelStates.engine ? '▾' : '▸'}</span>
-            </span>
-          </div>
-          {panelStates.engine && (
-            <div className="analysis-panel-body">
-              <div className="stockfish-lines">
-                {(analysisEnabled || displayedLines.length > 0) &&
-                  displayedLines.map((line) => (
-                    <div key={line.multipv} className="stockfish-line">
-                      <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
-                        {formatEval(line, evalIsBlackTurn)}
-                      </span>
-                      <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Desktop: Archive tree panel (Database) */}
-        <div className="analysis-desktop-only">
-          <ArchiveTreePanel
-            currentFen={currentFen}
-            opening={treeOpeningName || null}
-            onSelectMove={handleTreeMove}
-            onHoverMove={handleTreeHover}
-          />
-        </div>
-
-        {/* Desktop: Moves panel (collapsible) */}
-        <div className="analysis-panel analysis-panel--flex analysis-desktop-only">
-          <div className="analysis-panel-header" onClick={() => togglePanel('moves')}>
-            <span className="analysis-panel-header-left">
-              <span className="analysis-panel-icon">&#9776;</span>
-              <span className="analysis-panel-title">{t('review.moves', 'Moves')}</span>
-            </span>
-            <span className="analysis-panel-header-right">
-              <span className="analysis-panel-chevron">{panelStates.moves ? '▾' : '▸'}</span>
-            </span>
-          </div>
-          {panelStates.moves && (
-            <div className="analysis-panel-body analysis-panel-body--scroll">
-              <ReviewMoveList
-                history={history}
-                currentGlobalIndex={currentGlobalIndex}
-                onMoveClick={gotoMove}
-                onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
-                onDeleteVariation={(move) => removeVariation(move as ChessMove)}
-                onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
-                onSetNag={setNag}
-                onSetComment={setComment}
-                // KS-2300 (ADR-038): variation-color через reducer.
-                onSetVariationColor={setVariationColor}
-              />
-            </div>
-          )}
-          <MaterialBalance fen={currentFen} />
-        </div>
-
-        {/* ===== Mobile: Single panel with tabs ===== */}
-        <div className="analysis-mobile-panel">
-          <div className="analysis-mobile-panel__tabs">
-            <button className={`analysis-mobile-tab${mobileTab === 'moves' ? ' active' : ''}`} onClick={() => setMobileTab('moves')}>
-              {t('review.moves', 'Moves')}
-            </button>
-            <button className={`analysis-mobile-tab${mobileTab === 'engine' ? ' active' : ''}`} onClick={() => setMobileTab('engine')}>
-              {t('analysis.engine', 'Engine')}
-            </button>
-            <button className={`analysis-mobile-tab${mobileTab === 'tree' ? ' active' : ''}`} onClick={() => setMobileTab('tree')}>
-              {t('archive.tree', 'Tree')}
-            </button>
-            {/* KS-2434: вкладка 'report' удалена — серверный game-report
-                больше не доступен (см. KS-2433). */}
-          </div>
-          <div className="analysis-mobile-panel__content">
-            {/* KS-1698: каждая вкладка показывает только своё содержимое.
-                До этой правки условие было `mobileTab !== 'report' && mobileTab !== 'tree'`
-                на обеих секциях (engine + moves), поэтому `moves` и `engine`
-                одновременно получали `.active` и показывались вместе. */}
-            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab === 'engine' ? ' active' : ''}`}>
-              <div className="analysis-mobile-engine-controls">
-                <span className="engine-multipv-controls">
-                  <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
-                  <span className="engine-multipv-value">{ec.multiPv}</span>
-                  <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
-                </span>
-                <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
-                {wasmSupported && !(isTouchDevice && engineFailed) && (
-                  <button
-                    className="analysis-toggle-btn"
-                    onClick={toggleAnalysis}
-                    style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid var(--c-555)', background: analysisEnabled ? 'var(--c-dc2626)' : 'var(--c-16a34a)', color: 'var(--c-fff)', marginLeft: 8 }}
-                  >
-                    {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-                  </button>
-                )}
-              </div>
-              <div className="analysis-panel-body">
-                <div className="stockfish-lines">
-                  {(analysisEnabled || displayedLines.length > 0) &&
-                    displayedLines.map((line) => (
-                      <div key={line.multipv} className="stockfish-line">
-                        <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
-                          {formatEval(line, evalIsBlackTurn)}
-                        </span>
-                        <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab === 'moves' ? ' active' : ''}`}>
-              <div className="analysis-panel-body analysis-panel-body--scroll">
-                <ReviewMoveList
-                  history={history}
-                  currentGlobalIndex={currentGlobalIndex}
-                  onMoveClick={gotoMove}
-                  onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
-                  onDeleteVariation={(move) => removeVariation(move as ChessMove)}
-                  onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
-                  // KS-2297: на mobile эти колбэки тоже нужны, иначе
-                  // long-press открывает NagPaletteSheet, но клик по
-                  // NAG не доходит до reducer (handlePaletteChange
-                  // падает на `!onSetNag` guard) — символ NAG не
-                  // появляется в нотации. В desktop ReviewMoveList
-                  // (выше) колбэки уже были — отсюда desktop работал,
-                  // mobile молча терял ввод.
-                  onSetNag={setNag}
-                  onSetComment={setComment}
-                  // KS-2300 (ADR-038): variation-color через reducer.
-                  onSetVariationColor={setVariationColor}
-                />
-              </div>
-            </div>
-            {mobileTab === 'tree' && (
-              <div className="analysis-mobile-section analysis-mobile-section--tree active">
-                <ArchiveTreePanel
-                  currentFen={currentFen}
-                  opening={treeOpeningName || null}
-                  onSelectMove={handleTreeMove}
-                  onHoverMove={handleTreeHover}
-                />
-              </div>
-            )}
-            {/* KS-2434: mobile-секция 'report' удалена вместе с
-                серверным game-report (см. KS-2433). */}
-          </div>
-        </div>
-      </div>
+      <AnalysisSidebar
+        gameInfo={gameInfo}
+        activeSource={activeSource}
+        bridgePromoDismissed={bridgePromoDismissed}
+        onDismissBridgePromo={() => {
+          setBridgePromoDismissed(true);
+          try { localStorage.setItem('bridgePromoDismissed', '1'); } catch { /* ignore */ }
+        }}
+        engineName={engineName}
+        engineStatusSuffix={engineStatusSuffix}
+        engineErrorMessage={engineErrorMessage}
+        sfState={sfState}
+        analysisEnabled={analysisEnabled}
+        wasmSupported={wasmSupported}
+        isTouchDevice={isTouchDevice}
+        engineFailed={engineFailed}
+        onToggleAnalysis={toggleAnalysis}
+        ec={ec}
+        panelStates={panelStates}
+        onTogglePanel={togglePanel}
+        displayedLines={displayedLines}
+        evalIsBlackTurn={evalIsBlackTurn}
+        currentFen={currentFen}
+        treeOpeningName={treeOpeningName || null}
+        onTreeMove={handleTreeMove}
+        onTreeHover={handleTreeHover}
+        history={history}
+        currentGlobalIndex={currentGlobalIndex}
+        onMoveClick={gotoMove}
+        onPromoteVariation={(m) => promoteVariation(m as ChessMove)}
+        onDeleteVariation={(m) => removeVariation(m as ChessMove)}
+        onTruncateRemaining={(m) => truncateRemaining(m as ChessMove)}
+        onSetNag={setNag}
+        onSetComment={setComment}
+        onSetVariationColor={setVariationColor}
+        mobileTab={mobileTab}
+        onMobileTabChange={setMobileTab}
+      />
 
       {ec.showEngineModal && (
         <EngineSettingsModal
