@@ -1484,6 +1484,9 @@
     "card": {
       "blunder": "Blunder"
     },
+    "attempt": {
+      "progressLabel": "Task progress"
+    },
     "eloFilter": {
       "label": "Rating",
       "minAria": "Minimum rating",

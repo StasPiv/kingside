@@ -1053,6 +1053,14 @@ export function PlayVsEngineRunner({
 
         <div className="puzzle-engine-runner__board-col">
           <div className="puzzle-engine-runner__progress" data-testid="puzzle-engine-progress">
+            {/* KS-2923: подпись над progress-bar. Место под неё уже
+                зарезервировано CSS-правкой KS-2922 (074b2edb). */}
+            <div
+              className="puzzle-engine-runner__progress-title"
+              data-testid="puzzle-engine-progress-title"
+            >
+              {t('precision.attempt.progressLabel', 'Task progress')}
+            </div>
             <div className="puzzle-engine-runner__progress-bar">
               <div
                 className="puzzle-engine-runner__progress-fill"

@@ -1514,6 +1514,9 @@
     "card": {
       "blunder": "Зевок"
     },
+    "attempt": {
+      "progressLabel": "Прогресс задачи"
+    },
     "eloFilter": {
       "label": "Рейтинг",
       "minAria": "Минимальный рейтинг",
