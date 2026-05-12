@@ -237,11 +237,18 @@ function RedirectMyLesson() {
   return <Navigate to={target} replace />;
 }
 
+/**
+ * KS-2810 (ADR-058 §4.4, §6.5 T13): авторизованный пользователь на
+ * корневом `/` сразу попадает на `/play` (вместо устаревшего `/lobby`).
+ * `/lobby` остаётся доступен по прямому URL — это не редирект на
+ * уровне роута, а только переадресация с index'а.
+ * Гостю по-прежнему показывается лендинг (`FeaturesPage`).
+ */
 function HomePage() {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  return user ? <Navigate to="/lobby" replace /> : <FeaturesPage />;
+  return user ? <Navigate to="/play" replace /> : <FeaturesPage />;
 }
 
 function ProfileRedirect() {

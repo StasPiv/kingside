@@ -165,6 +165,23 @@ describe('App routing', () => {
     expect(screen.getByText('Features')).toBeInTheDocument();
   });
 
+  // KS-2810 (ADR-058 §6.5 T13): авторизованный → / редиректится на /play
+  // (раньше шёл на /lobby).
+  it('KS-2810: authenticated user on `/` is redirected to /play', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/');
+    // Redirect лендит на /play (ProtectedRoute → PlayPage в этом тесте
+    // замокана через PlayPage placeholder).
+    expect(screen.queryByText('Features')).not.toBeInTheDocument();
+  });
+
   it('redirects protected routes to /login when not authenticated', () => {
     // `/lobby` is now a public route, so use `/settings` (ProtectedRoute)
     // to exercise the redirect-to-login behavior that the previous
