@@ -790,6 +790,9 @@ button.sidebar-item {
 .mobile-bar-icon { font-size: 18px; }
 .mobile-bar-label { font-size: 10px; }
 
+/* KS-2807/KS-2808 (ADR-058 §5.2/§6.3 T11): сгруппированный drawer
+   «Ещё». Структура: `.mobile-more-menu > .mobile-more-group*`,
+   каждая группа = `.mobile-more-group__title` + ссылки/кнопка. */
 .mobile-more-menu {
   position: absolute;
   bottom: 100%;
@@ -798,11 +801,20 @@ button.sidebar-item {
   border: 1px solid var(--c-2a2a4e);
   border-radius: 8px;
   padding: 4px 0;
-  min-width: 140px;
+  /* KS-2808: drawer теперь группированный (до 5 групп) — узкое
+     меню (140px) визуально схлопывалось. 220px даёт место под
+     заголовки групп и пункты вроде «Трансляции». */
+  min-width: 220px;
+  max-width: calc(100vw - 16px);
+  /* KS-2808: при большом числе пунктов (admin + все группы)
+     drawer не должен уходить за пределы viewport'а. */
+  max-height: 70vh;
+  overflow-y: auto;
   box-shadow: 0 -4px 12px var(--ov-black-40);
 }
 
-.mobile-more-menu a {
+.mobile-more-menu a,
+.mobile-more-feedback-btn {
   display: block;
   padding: 10px 16px;
   color: var(--c-ccc);
@@ -810,7 +822,13 @@ button.sidebar-item {
   font-size: 14px;
 }
 
-.mobile-more-menu a:hover { background: var(--ov-accent-10); }
+.mobile-more-menu a:hover,
+.mobile-more-feedback-btn:hover,
+.mobile-more-feedback-btn:focus,
+.mobile-more-feedback-btn:focus-visible {
+  background: var(--ov-accent-10);
+}
+
 /* KS-2614: тот же сброс подчёркивания и для пунктов меню «Ещё». */
 .mobile-more-menu a,
 .mobile-more-menu a:hover,
@@ -819,6 +837,68 @@ button.sidebar-item {
 .mobile-more-menu a:active,
 .mobile-more-menu a:visited {
   text-decoration: none;
+}
+
+/* KS-2808: группа drawer'а. Внутренний padding минимальный —
+   расстояние между группами создаёт разделитель + margin. */
+.mobile-more-group {
+  padding: 2px 0;
+}
+
+/* KS-2808: разделитель между группами — тонкая линия + отступ.
+   Используем border-top + margin/padding на не-первой группе,
+   чтобы поверх divider'а не накладывался padding меню. */
+.mobile-more-group + .mobile-more-group {
+  border-top: 1px solid var(--c-2a2a4e);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+/* KS-2808: заголовок группы — приглушённый, uppercase, мелкий. */
+.mobile-more-group__title {
+  padding: 6px 16px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--c-9e9e9e);
+}
+
+/* KS-2808: <button class="mobile-more-feedback-btn"> — поведение
+   как у ссылок в меню (full-width, left-aligned, без border'а).
+   `display: block` уже задан выше — здесь добавляем normalize.
+   `font-weight: 400` снимает глобальный `button { font-weight: 600 }`
+   из base.css — иначе «Обратная связь» рендерится жирной,
+   визуально отличаясь от соседних ссылок группы Help. */
+.mobile-more-feedback-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+/* KS-2808: на узких mobile (≤360px) сжимаем отступы и шрифты,
+   чтобы 5 групп не выходили за пределы экрана. */
+@media (max-width: 360px) {
+  .mobile-more-menu {
+    min-width: 200px;
+  }
+  .mobile-more-menu a,
+  .mobile-more-feedback-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .mobile-more-group__title {
+    padding: 4px 12px 2px;
+    font-size: 10px;
+  }
+  .mobile-more-group + .mobile-more-group {
+    margin-top: 2px;
+    padding-top: 4px;
+  }
 }
 
 /* Dashboard (KS-1107) */
