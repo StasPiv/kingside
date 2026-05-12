@@ -74,6 +74,12 @@ export function FeaturesPage() {
                   'After login you land on /play instead of /lobby.',
                 )}
               </li>
+              <li>
+                {t(
+                  'features.navigation.bullet5',
+                  'On desktop, "Train" and "Analyze" subsections open directly from the sidebar via hover/click — no intermediate lobby page.',
+                )}
+              </li>
             </ul>
           </div>
         </div>
