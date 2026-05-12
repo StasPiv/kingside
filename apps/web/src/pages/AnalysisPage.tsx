@@ -27,7 +27,7 @@ import {
   type ShareAnalysisButtonHandle,
 } from '../components/analysis/ShareAnalysisButton';
 import { useReviewState } from '../review/useReviewState';
-import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
+import { useAnalysisPersistenceResolver } from './analysis/useAnalysisPersistenceResolver';
 // KS-2281 (E5 deferred): localStorage autosave для ad-hoc /analysis,
 // чтобы NAG-аннотации не терялись при reload страницы.
 import { useAdHocAnalysisAutosave } from '../hooks/useAdHocAnalysisAutosave';
@@ -50,6 +50,11 @@ import { AnalysisBoard } from './analysis/AnalysisBoard';
 // archive tree + ReviewMoveList + mobile tabs. На FR4 большая часть
 // props переедет в AnalysisContext.
 import { AnalysisSidebar } from './analysis/AnalysisSidebar';
+// KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
+// discriminated union review/analysis/puzzle/study. Заменяет
+// разбросанные `params.id`/`params.gameId`/`puzzleFen`/`localId`
+// производные. На FS1/FS2 study-роуты подключатся через wrapper.
+import { useAnalysisContext } from './analysis/AnalysisContext';
 
 type GameData = {
   id: string;
@@ -146,12 +151,13 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     };
   }, []);
 
-  const params = useParams<{ id?: string; gameId?: string }>();
-  const rawGameId = params.id ?? params.gameId;
-  const isAnalysisRoute = params.id !== undefined;
-  const isGameRoute = params.gameId !== undefined;
-  const gameId = isGameRoute ? params.gameId : undefined;
-  const analysisId = isAnalysisRoute && rawGameId !== 'new' ? rawGameId : undefined;
+  // KS-2867 (FR4): единый AnalysisContext вместо разбросанных derivations.
+  // Backwards-compatible локальные алиасы — оставлены чтобы не переписывать
+  // 30+ мест использования за одну итерацию (FM1-FM5 поэтапно мигрируют
+  // на прямое чтение ctx.kind/ctx.fields).
+  const ctx = useAnalysisContext({ publicMode });
+  const gameId = ctx.kind === 'review' ? ctx.gameId : undefined;
+  const analysisId = ctx.kind === 'analysis' ? ctx.analysisId : undefined;
   const location = useLocation();
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -193,8 +199,10 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     getById,
     getPublicById,
   } = useSavedAnalyses();
+  // KS-2867 (FR4): localId-инициализация из AnalysisContext.localId
+  // (resolver уже учёл state.localId и id из URL).
   const localIdRef = useRef<string | undefined>(
-    (location.state as { localId?: string } | null)?.localId ?? analysisId,
+    ctx.kind === 'analysis' ? ctx.localId : analysisId,
   );
   // Safety-net: при смене `:id` синхронизируем `localIdRef.current`,
   // даже если KS-2403 `key={id}` обёртка по какой-то причине не
@@ -214,11 +222,13 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
   const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
   const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
-  const urlParams = new URLSearchParams(location.search);
-  const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen ?? urlParams.get('fen') ?? undefined;
-  const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn ?? urlParams.get('pgn') ?? undefined;
-  const puzzleMovesParam = urlParams.get('moves') ?? undefined;
-  const puzzleSide = urlParams.get('side') as 'white' | 'black' | null;
+  // KS-2867 (FR4): puzzle-параметры теперь приходят из AnalysisContext.
+  // Совместимость: значения те же, что раньше из location.state/URL.
+  const puzzleFen = ctx.kind === 'puzzle' ? ctx.fen : undefined;
+  const puzzlePgn = ctx.kind === 'puzzle' ? ctx.pgn : undefined;
+  const puzzleMovesParam = ctx.kind === 'puzzle' ? ctx.moves : undefined;
+  const puzzleSide: 'white' | 'black' | null =
+    ctx.kind === 'puzzle' && ctx.side ? ctx.side : null;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -514,7 +524,9 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     // оставался бы при любом открытии следующей.
   }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen]);
 
-  useAnalysisPersistence(gameId, history, initialAnnotations, annotationsByIndex);
+  // KS-2867 (FR4): резолвер выбирает persistence-хук по ctx.kind.
+  // review → PUT /games/:id/analysis; study → PATCH chapter; analysis/puzzle — no-op здесь.
+  useAnalysisPersistenceResolver(ctx, history, initialAnnotations, annotationsByIndex);
 
   // KS-2281: ad-hoc autosave (localStorage). Активен только когда нет
   // gameId и нет сохранённого analysisId — для review (gameId) работает
