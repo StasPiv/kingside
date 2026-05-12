@@ -75,6 +75,13 @@ vi.mock('../context/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// KS-2846: для mobile-кейсов submenu Sidebar читает useIsMobile.
+// По умолчанию false (desktop), переключаем в тестах под mobile.
+const mobileState = { isMobile: false };
+vi.mock('../hooks/useIsMobile', () => ({
+  useIsMobile: () => mobileState.isMobile,
+}));
+
 import { Sidebar } from './Sidebar';
 
 beforeEach(() => {
@@ -86,6 +93,7 @@ beforeEach(() => {
   flagControls.tournaments = true;
   flagControls.drills = false;
   adminControls.isAdmin = false;
+  mobileState.isMobile = false;
 });
 
 afterEach(() => {
@@ -411,5 +419,44 @@ describe('<Sidebar> KS-2842 — двойная подсветка group + под
     expect(
       screen.getByTestId('sidebar-submenu-item-drills').className,
     ).not.toContain('sidebar-submenu__item--active');
+  });
+});
+
+/**
+ * KS-2846 / KS-2840: на mobile (useIsMobile=true) submenu не активен.
+ * Train/Analyze рендерятся как обычные `<Link>` на лобби-страницы.
+ */
+describe('<Sidebar> KS-2846 — mobile: submenu выключен, обычные Link', () => {
+  beforeEach(() => {
+    mobileState.isMobile = true;
+    flagControls.puzzles = true;
+    flagControls.drills = true;
+  });
+
+  it('Train на mobile — обычная <Link> на /train, без submenu-popover', () => {
+    renderWithProviders(<Sidebar />, { route: '/play' });
+    // Submenu-parent НЕ рендерится; вместо него Link с title и href.
+    expect(
+      screen.queryByTestId('sidebar-submenu-parent-train'),
+    ).not.toBeInTheDocument();
+    const trainLink = screen.getByTitle(/^train$|^тренировка$/i);
+    expect(trainLink.tagName).toBe('A');
+    expect(trainLink.getAttribute('href')).toBe('/train');
+  });
+
+  it('Analyze на mobile — обычная <Link> на /analyze', () => {
+    renderWithProviders(<Sidebar />, { route: '/play' });
+    expect(
+      screen.queryByTestId('sidebar-submenu-parent-analyze'),
+    ).not.toBeInTheDocument();
+    const analyzeLink = screen.getByTitle(/^analyze$|^анализ$/i);
+    expect(analyzeLink.tagName).toBe('A');
+    expect(analyzeLink.getAttribute('href')).toBe('/analyze');
+  });
+
+  it('на mobile подсветка group на /puzzles работает (через match)', () => {
+    renderWithProviders(<Sidebar />, { route: '/puzzles' });
+    const trainLink = screen.getByTitle(/^train$|^тренировка$/i);
+    expect(trainLink.className).toContain('sidebar-item--active');
   });
 });
