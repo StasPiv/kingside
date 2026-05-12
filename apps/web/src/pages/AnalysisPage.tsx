@@ -3,11 +3,9 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
-import { MemoChessboard } from '../components/MemoChessboard';
 import { GameMetaBar } from '../components/GameMetaBar';
 import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
-import { EvalBar } from '../components/EvalBar';
 import { MaterialBalance } from '../components/MaterialBalance';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
@@ -36,7 +34,6 @@ import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 // чтобы NAG-аннотации не терялись при reload страницы.
 import { useAdHocAnalysisAutosave } from '../hooks/useAdHocAnalysisAutosave';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
-import { VariationChooser } from '../components/VariationChooser';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn, extractInitialAnnotations } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
@@ -44,11 +41,14 @@ import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
-import { HelpButton } from '../components/HelpButton';
 // KS-2863 (ADR-060 §10.1 FR1): извлечённый header — workshop-shortcut +
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
 // handlers) остаётся в AnalysisPage, передаётся через props.
 import { AnalysisHeader } from './analysis/AnalysisHeader';
+// KS-2864 (ADR-060 §10.1 FR2): извлечённый board-area — GameMetaBar +
+// EvalBar + Chessboard + promotion-overlay + VariationChooser.
+// useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
+import { AnalysisBoard } from './analysis/AnalysisBoard';
 import { ArchiveTreePanel } from '../components/analysis/ArchiveTreePanel';
 
 type GameData = {
@@ -1366,50 +1366,23 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
             overflow-menu. Шапка освободилась — особенно над доской
             на mobile. */}
         <div className="analysis-board-wrapper">
-          {gameInfo ? <GameMetaBar info={gameInfo} /> : <div className="game-meta-bar"><div className="game-meta-bar__mobile" /><div className="game-meta-bar__desktop" /></div>}
-
-          <div className="analysis-eval-board-row">
-            <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
-            <div className="board-container" ref={boardContainerRef}>
-              <MemoChessboard key={annotationsKey} options={boardOptions} />
-              {pendingPromotion && (
-                <div className="promotion-overlay" onClick={handlePromotionCancel}>
-                  <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
-                    {(['q', 'r', 'b', 'n'] as const).map((piece) => {
-                      const color = pendingPromotion.to[1] === '8' ? 'w' : 'b';
-                      const isWhite = color === 'w';
-                      const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
-                      return (
-                        <button
-                          key={piece}
-                          className="promotion-piece"
-                          onClick={() => handlePromotionChoice(piece)}
-                          data-piece={`${color}${pieceNames[piece]}`}
-                        >
-                          {piece === 'q' ? (isWhite ? '\u2655' : '\u265B') : null}
-                          {piece === 'r' ? (isWhite ? '\u2656' : '\u265C') : null}
-                          {piece === 'b' ? (isWhite ? '\u2657' : '\u265D') : null}
-                          {piece === 'n' ? (isWhite ? '\u2658' : '\u265E') : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {variationChooser && (
-            <VariationChooser
-              mainLine={variationChooser.mainLine}
-              variations={variationChooser.variations}
-              onSelect={(move) => {
-                setVariationChooser(null);
-                gotoMove(move);
-              }}
-              onClose={() => setVariationChooser(null)}
-            />
-          )}
+          <AnalysisBoard
+            gameInfo={gameInfo}
+            boardContainerRef={boardContainerRef}
+            boardOptions={boardOptions}
+            annotationsKey={annotationsKey}
+            displayedLines={displayedLines}
+            evalIsBlackTurn={evalIsBlackTurn}
+            pendingPromotion={pendingPromotion}
+            onPromotionChoice={handlePromotionChoice}
+            onPromotionCancel={handlePromotionCancel}
+            variationChooser={variationChooser}
+            onVariationSelect={(move) => {
+              setVariationChooser(null);
+              gotoMove(move);
+            }}
+            onVariationClose={() => setVariationChooser(null)}
+          />
 
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
