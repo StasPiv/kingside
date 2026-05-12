@@ -24,6 +24,8 @@ const flagControls = {
   broadcasts: true,
   tournaments: true,
   drills: false,
+  // KS-2832: новый флаг от KS-2823 (backend). Default off (фича в beta).
+  studies: false,
 };
 vi.mock('../context/FeatureFlagsContext', () => ({
   useFeatureFlags: () => ({
@@ -33,6 +35,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
       broadcastsEnabled: flagControls.broadcasts,
       tournamentsEnabled: flagControls.tournaments,
       drillsEnabled: flagControls.drills,
+      studiesEnabled: flagControls.studies,
     },
     loading: false,
     error: null,
@@ -44,6 +47,7 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     if (key === 'broadcastsEnabled') return flagControls.broadcasts;
     if (key === 'tournamentsEnabled') return flagControls.tournaments;
     if (key === 'drillsEnabled') return flagControls.drills;
+    if (key === 'studiesEnabled') return flagControls.studies;
     return false;
   },
   FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
@@ -92,6 +96,7 @@ beforeEach(() => {
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
   flagControls.drills = false;
+  flagControls.studies = false;
   adminControls.isAdmin = false;
   mobileState.isMobile = false;
 });
@@ -543,5 +548,33 @@ describe('<Sidebar> KS-2848 — Play submenu с Турнирами', () => {
     const playLink = screen.getByTitle(/^play$|^играть$/i);
     expect(playLink.tagName).toBe('A');
     expect(playLink.getAttribute('href')).toBe('/play');
+  });
+});
+
+/**
+ * KS-2832 (KS-2815 §B.1, §B.2): временный пункт «Студии» в sidebar
+ * под `studiesEnabled` (default off). Когда флаг appear в backend
+ * KS-2823, customGate перестанет быть нужным — TODO в Sidebar.tsx.
+ */
+describe('<Sidebar> KS-2832 — Studies feature-flag', () => {
+  it('studiesEnabled=false (default) → пункт «Студии» скрыт', () => {
+    flagControls.studies = false;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^studies$|^студии$/i)).not.toBeInTheDocument();
+  });
+
+  it('studiesEnabled=true → пункт «Студии» виден и ведёт на /studies', () => {
+    flagControls.studies = true;
+    renderWithProviders(<Sidebar />);
+    const link = screen.getByTitle(/^studies$|^студии$/i);
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/studies');
+  });
+
+  it('studiesEnabled=true: на /studies/<id> пункт «Студии» активен', () => {
+    flagControls.studies = true;
+    renderWithProviders(<Sidebar />, { route: '/studies/abc' });
+    const link = screen.getByTitle(/^studies$|^студии$/i);
+    expect(link.className).toContain('sidebar-item--active');
   });
 });

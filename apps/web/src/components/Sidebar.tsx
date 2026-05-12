@@ -184,6 +184,26 @@ const NAV_ITEMS: NavItem[] = [
     match: ['/lessons'],
     featureFlag: 'lessonsEnabled',
   },
+  // KS-2832 (KS-2815 §B.1, §B.2): временный пункт «Студии» под flag'ом
+  // `studiesEnabled` (default off — фича в разработке). Финальный
+  // плейсмент (отдельный / в группе «Анализ» / «Обучение») решится
+  // после релиза MVP.
+  //
+  // TODO(KS-2823): когда backend добавит `studiesEnabled` в
+  // `FeatureFlags` (`@kingside/shared/types/feature-flags`), заменить
+  // `customGate` на `featureFlag: 'studiesEnabled'`. До тех пор
+  // обращаемся к флагу через индекс — он отсутствует в типе, но
+  // на runtime backend уже может его отдавать (FeatureFlagsContext
+  // мерджит с DEFAULT_FLAGS, неизвестные ключи в `flags`-объекте
+  // сохраняются).
+  {
+    path: '/studies',
+    icon: '🧪',
+    i18nKey: 'nav.studies',
+    match: ['/studies'],
+    customGate: (flags) =>
+      Boolean((flags as unknown as Record<string, boolean>)['studiesEnabled']),
+  },
   {
     path: '/broadcasts',
     icon: '📺',
