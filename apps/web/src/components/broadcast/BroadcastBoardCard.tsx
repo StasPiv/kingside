@@ -1,11 +1,17 @@
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
+import { useTranslation } from 'react-i18next';
 import type { BroadcastGameSummary } from '@kingside/shared';
 import {
   formatBroadcastClock,
   useBroadcastClock,
 } from '../../hooks/useBroadcastClock';
 import type { EvalSnapshot } from '../../hooks/useBroadcastEvalQueue';
+import { useNow } from '../../hooks/useNow';
+import {
+  formatMoveAgo,
+  formatExactMoveTime,
+} from '../../utils/moveRelativeTime';
 import { BroadcastEvalBar } from './BroadcastEvalBar';
 
 /**
@@ -125,6 +131,25 @@ function computeLastMove(pgn: string): { from: string; to: string } | null {
   }
 }
 
+/**
+ * KS-2795: SAN последнего хода из PGN (`e4`, `Nf3`, `O-O`, `Qxd5+`).
+ * Используется для подписи под мини-доской. Если PGN пустой / битый /
+ * без ходов — возвращаем `null`, родитель показывает плейсхолдер.
+ * Экспортируется для unit-тестов.
+ */
+export function computeLastMoveSan(pgn: string): string | null {
+  if (!pgn) return null;
+  const chess = new Chess();
+  if (!loadPgnSafe(chess, pgn)) return null;
+  try {
+    const hist = chess.history();
+    if (hist.length === 0) return null;
+    return hist[hist.length - 1];
+  } catch {
+    return null;
+  }
+}
+
 function resultToScore(
   result: string | null | undefined,
   side: 'white' | 'black',
@@ -196,6 +221,26 @@ export function BroadcastBoardCard({
   const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
   const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
 
+  // KS-2795: SAN последнего хода + относительное время («3 мин. назад»)
+  // под мини-доской. SAN считаем из PGN — это надёжный источник
+  // основной линии. Время — из `clockUpdatedAt` (момент применения
+  // свежего `%clk` из PGN). Если у партии нет clockUpdatedAt (источник
+  // без `%clk`) — показываем только SAN без подписи времени, без
+  // плейсхолдера «давно/сейчас» (см. согласование с координатором).
+  // Тикер обновления подписи — раз в 30 сек через useNow.
+  const { t, i18n } = useTranslation();
+  const now = useNow(30_000);
+  const lastSan = computeLastMoveSan(game.pgn ?? '');
+  const lastMoveAgoText = formatMoveAgo(
+    game.clockUpdatedAt ?? null,
+    now,
+    t,
+  );
+  const lastMoveExactTime = formatExactMoveTime(
+    game.clockUpdatedAt ?? null,
+    i18n.language || 'en',
+  );
+
   return (
     <div
       className={`broadcast-board-card${isClickable ? ' broadcast-board-card--clickable' : ''}`}
@@ -259,6 +304,40 @@ export function BroadcastBoardCard({
             data-testid="broadcast-card-clock-white"
           >
             {whiteClockText}
+          </span>
+        )}
+      </div>
+      {/* KS-2795: блок с SAN последнего хода + «N минут назад». Если PGN
+          ещё пуст (партия не началась) — нейтральный плейсхолдер. Если
+          partner clockUpdatedAt=null — время не показываем, только SAN. */}
+      <div
+        className="broadcast-board-last-move"
+        data-testid="broadcast-board-last-move"
+      >
+        {lastSan ? (
+          <span
+            className="broadcast-board-last-move__san"
+            data-testid="broadcast-board-last-move-san"
+          >
+            {lastSan}
+          </span>
+        ) : (
+          <span
+            className="broadcast-board-last-move__placeholder"
+            data-testid="broadcast-board-last-move-placeholder"
+          >
+            {t('broadcastRound.lastMove.notStarted', {
+              defaultValue: 'Game not started',
+            })}
+          </span>
+        )}
+        {lastSan && lastMoveAgoText && (
+          <span
+            className="broadcast-board-last-move__time"
+            data-testid="broadcast-board-last-move-time"
+            title={lastMoveExactTime ?? undefined}
+          >
+            {lastMoveAgoText}
           </span>
         )}
       </div>

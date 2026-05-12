@@ -248,6 +248,26 @@
       "empty": "Жду первый ход…",
       "summaryWithCount": "Лента ходов ({{count}})"
     },
+    "lastMove": {
+      "notStarted": "Партия не началась",
+      "justNow": "только что",
+      "secondsAgo_one": "{{count}} сек. назад",
+      "secondsAgo_few": "{{count}} сек. назад",
+      "secondsAgo_many": "{{count}} сек. назад",
+      "secondsAgo_other": "{{count}} сек. назад",
+      "minutesAgo_one": "{{count}} минуту назад",
+      "minutesAgo_few": "{{count}} минуты назад",
+      "minutesAgo_many": "{{count}} минут назад",
+      "minutesAgo_other": "{{count}} минут назад",
+      "hoursAgo_one": "{{count}} час назад",
+      "hoursAgo_few": "{{count}} часа назад",
+      "hoursAgo_many": "{{count}} часов назад",
+      "hoursAgo_other": "{{count}} часов назад",
+      "daysAgo_one": "{{count}} день назад",
+      "daysAgo_few": "{{count}} дня назад",
+      "daysAgo_many": "{{count}} дней назад",
+      "daysAgo_other": "{{count}} дней назад"
+    },
     "playoff": {
       "title": "Плей-офф",
       "winners": "Сетка победителей",

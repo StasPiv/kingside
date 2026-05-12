@@ -245,34 +245,41 @@
   margin-top: 4px;
 }
 
-/* KS-2707: двух-колоночный layout — сетка партий + лента ходов
-   справа. На mobile (<= 900px) — одна колонка, лента уходит в
-   accordion внизу. */
-.broadcast-games-section--with-feed {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 16px;
-  align-items: start;
+/* KS-2795: блок «последний ход + время» под мини-доской.
+   SAN крупно и жирно — это основной информационный элемент карточки
+   («что произошло»). Подпись времени мельче и второстепенным цветом
+   — это контекст («когда»). Структура: flex-row с baseline-align,
+   wrap-on-narrow чтобы на узких карточках время уезжало под SAN. */
+.broadcast-board-last-move {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  padding: 2px 4px 0;
+  min-height: 22px;
 }
 
-@media (max-width: 900px) {
-  .broadcast-games-section--with-feed {
-    grid-template-columns: 1fr;
-  }
+.broadcast-board-last-move__san {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-primary, var(--c-e0e0f0));
+  line-height: 1.1;
+  letter-spacing: 0.02em;
 }
 
-/* KS-2707: обёртка карточки — чтобы ловить ref для scrollIntoView и
-   рисовать flash-подсветку при клике из ленты. */
-.broadcast-board-card-wrap {
-  position: relative;
-  border-radius: 8px;
-  transition: box-shadow 0.2s ease, outline-color 0.2s ease;
-  outline: 2px solid transparent;
+.broadcast-board-last-move__placeholder {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--c-9e9e9e, #9e9e9e);
 }
 
-.broadcast-board-card-wrap--flash {
-  outline-color: var(--c-7c83ff, #7c83ff);
-  box-shadow: 0 0 0 4px var(--ov-accent-10, rgba(124, 131, 255, 0.18));
+.broadcast-board-last-move__time {
+  font-size: 12px;
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
 }
 
 .broadcast-player {
@@ -2133,157 +2140,7 @@
   color: var(--c-e2e8f0, #e2e8f0);
 }
 
-/* KS-2707: лента последних ходов раунда. Desktop — фиксированная
-   правая колонка ~280px, sticky прокрутка с ограничением высоты по
-   viewport. Mobile — встроенный <details>-accordion (CSS прячет
-   desktop-вариант через media-query). */
-.broadcast-feed {
-  background: var(--c-1a1a2e, #1a1a2e);
-  border: 1px solid var(--c-2a2a3e, #2a2a3e);
-  border-radius: 6px;
-  color: var(--c-e0e0e0);
-}
-
-.broadcast-feed--desktop {
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 64px);
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.broadcast-feed--mobile {
-  display: none;
-  margin-top: 12px;
-  padding: 8px 12px;
-}
-
-@media (max-width: 900px) {
-  .broadcast-feed--desktop { display: none; }
-  .broadcast-feed--mobile { display: block; }
-}
-
-.broadcast-feed__title {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--c-a0a0c0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.broadcast-feed__summary {
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-7c83ff);
-  list-style: none;
-  user-select: none;
-}
-
-.broadcast-feed__summary::-webkit-details-marker { display: none; }
-.broadcast-feed__summary::before { content: "▸ "; }
-details[open] .broadcast-feed__summary::before { content: "▾ "; }
-
-.broadcast-feed__empty {
-  margin: 6px 0;
-  font-size: 12px;
-  color: var(--c-9e9e9e);
-}
-
-.broadcast-feed__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.broadcast-feed__row + .broadcast-feed__row {
-  border-top: 1px solid var(--c-2a2a3e, #2a2a3e);
-}
-
-.broadcast-feed__row-btn {
-  display: grid;
-  grid-template-columns: 56px 12px 1fr;
-  grid-template-rows: auto auto;
-  gap: 2px 6px;
-  width: 100%;
-  padding: 6px 4px;
-  background: transparent;
-  border: 0;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-
-.broadcast-feed__row-btn:hover {
-  background: var(--c-2a2a3e, #2a2a3e);
-}
-
-.broadcast-feed__row-time {
-  grid-row: 1; grid-column: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--c-9e9e9e);
-  font-variant-numeric: tabular-nums;
-}
-
-/* KS-2709: контрастный индикатор стороны хода. Заменяет
-   маловидные unicode-кружки ○/●. Кружок 10px:
-   - white: светлый фон + тёмная обводка (контраст и на тёмном, и
-     на светлом фоне ленты)
-   - black: тёмный фон без обводки
-   Текстовая метка W/B рядом — для accessibility и доп.различимости. */
-.broadcast-feed__row-dot {
-  grid-row: 1; grid-column: 2;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  align-self: center;
-}
-
-/* KS-2711: явные цвета без глобальных --c-1a1a1a/--c-f5f5f5 (которые
-   в светлой теме инвертируются и делают кружки невидимыми). */
-.broadcast-feed__row-dot--white {
-  background: #f5f5f5;
-  border: 1px solid #1a1a1a;
-}
-
-.broadcast-feed__row-dot--black {
-  background: #1a1a1a;
-  border: 1px solid #606078;
-}
-
-.broadcast-feed__row-side-label {
-  display: none; /* визуально не нужен, оставлен в DOM для screen-reader'ов */
-}
-
-/* Старый класс остался ради back-compat теста. */
-.broadcast-feed__row-side {
-  grid-row: 1; grid-column: 2;
-  font-size: 12px;
-  color: var(--c-c0c0c0);
-}
-
-.broadcast-feed__row-move {
-  grid-row: 1; grid-column: 3;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  font-weight: 600;
-  /* KS-2711: было var(--c-fff) — белый текст исчезал на светлом
-     фоне ленты в светлой теме. text-primary даёт контраст в обеих. */
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.broadcast-feed__row-players {
-  grid-row: 2; grid-column: 1 / -1;
-  font-size: 11px;
-  color: var(--c-a0a0c0);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* KS-2795: правила .broadcast-feed* удалены вместе с компонентом
+   BroadcastLiveFeed — последний ход теперь показывается под каждой
+   мини-доской прямо в карточке (.broadcast-board-last-move). */
 

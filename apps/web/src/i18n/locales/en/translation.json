@@ -248,6 +248,18 @@
       "empty": "Waiting for the first move…",
       "summaryWithCount": "Live moves ({{count}})"
     },
+    "lastMove": {
+      "notStarted": "Game not started",
+      "justNow": "just now",
+      "secondsAgo_one": "{{count}} sec ago",
+      "secondsAgo_other": "{{count}} sec ago",
+      "minutesAgo_one": "{{count}} minute ago",
+      "minutesAgo_other": "{{count}} minutes ago",
+      "hoursAgo_one": "{{count}} hour ago",
+      "hoursAgo_other": "{{count}} hours ago",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago"
+    },
     "playoff": {
       "title": "Playoff",
       "winners": "Winners bracket",
