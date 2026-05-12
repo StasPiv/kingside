@@ -163,6 +163,57 @@ describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
 });
 
 /**
+ * KS-2801 (ADR-058 §4.1, §9.3, §6.2 T5): футер sidebar'а — Профиль,
+ * Друзья, Настройки, Feedback (модалка), Admin. «Возможности»
+ * (/features) убраны из футера.
+ */
+describe('<Sidebar> KS-2801 — footer', () => {
+  it('авторизованный: видны Профиль, Друзья, Настройки, Feedback', () => {
+    authControls.user = { id: 'u1', username: 'tester' };
+    renderWithProviders(<Sidebar />);
+    const footer = screen.getByTestId('sidebar-footer');
+    expect(footer).toBeInTheDocument();
+    expect(screen.getByTitle(/^profile$|^профиль$/i).getAttribute('href')).toBe('/profile');
+    expect(screen.getByTitle(/^friends$|^друзья$/i).getAttribute('href')).toBe('/friends');
+    expect(screen.getByTitle(/^settings$|^настройки$/i).getAttribute('href')).toBe('/settings');
+    expect(screen.getByTestId('sidebar-feedback-btn')).toBeInTheDocument();
+  });
+
+  it('гость: Профиль / Друзья / Настройки скрыты (authOnly), Feedback виден', () => {
+    authControls.user = null;
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^profile$|^профиль$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^friends$|^друзья$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^settings$|^настройки$/i)).not.toBeInTheDocument();
+    // Feedback-кнопка не authOnly — модалка работает и для гостей.
+    expect(screen.getByTestId('sidebar-feedback-btn')).toBeInTheDocument();
+    // Восстановим, чтобы не ломать следующие тесты.
+    authControls.user = { id: 'u1', username: 'tester' };
+  });
+
+  it('«Возможности» (/features) убрано из футера', () => {
+    renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/^features$|^возможности$/i)).not.toBeInTheDocument();
+  });
+
+  it('пункт «Feedback» как страница (/feedback) — убран; остаётся только кнопка-модалка', () => {
+    renderWithProviders(<Sidebar />);
+    // Ссылки на /feedback нет — только кнопка с data-testid.
+    const links = Array.from(document.querySelectorAll('a[href="/feedback"]'));
+    expect(links).toHaveLength(0);
+    expect(screen.getByTestId('sidebar-feedback-btn')).toBeInTheDocument();
+  });
+
+  it('«Админка» виден только админам и живёт в футере', () => {
+    adminControls.isAdmin = true;
+    renderWithProviders(<Sidebar />);
+    const footer = screen.getByTestId('sidebar-footer');
+    const admin = screen.getByTitle(/^admin$|^админка$/i);
+    expect(footer.contains(admin)).toBe(true);
+  });
+});
+
+/**
  * KS-2803 (T6, плановый отдельный тикет): подсветка групповых пунктов
  * по подразделам. Эти тесты живут здесь — match-список уже задан в
  * NAV_ITEMS (KS-2800), они отрабатывают сразу.

@@ -109,14 +109,45 @@ const NAV_ITEMS: NavItem[] = [
     i18nKey: 'nav.analyze',
     match: ['/analyze', '/workshop', '/analysis', '/archive'],
   },
-  // KS-2801: ниже — футер (Профиль / Друзья / Настройки / Feedback /
-  // Admin). Текущий divider + список остаются в коде до отдельного
-  // разделения; разметка переедет в KS-2801 (T5).
-  { path: '', icon: '', i18nKey: '', match: [] }, // divider
-  { path: '/feedback', icon: '📋', i18nKey: 'nav.feedback', match: ['/feedback'] },
-  { path: '/features', icon: '✨', i18nKey: 'nav.features', match: ['/features'] },
-  { path: '/friends', icon: '👥', i18nKey: 'nav.friends', match: ['/friends'] },
-  { path: '/settings', icon: '⚙', i18nKey: 'nav.settings', match: ['/settings'] },
+];
+
+/**
+ * KS-2801 (ADR-058 §4.1, §9.3, §6.2 T5) — футер sidebar'а.
+ * Утилитарные пункты, отделены от контентной навигации `sidebar-spacer`'ом
+ * и `sidebar-divider`'ом в разметке.
+ *
+ * Состав сверху-вниз:
+ *   👤 Профиль   → /profile     (authOnly — у гостя профиля нет)
+ *   👥 Друзья    → /friends     (authOnly; отдельным пунктом по §9.3)
+ *   ⚙ Настройки  → /settings    (authOnly)
+ *   📝 Feedback  — модалка (рендерится отдельной <button>, не в массиве)
+ *   🛡 Админка   → /admin/...   (adminOnly)
+ *
+ * KS-2801: «Возможности» (/features) убран из футера sidebar'а;
+ * доступ остаётся через прямой URL и через mobile drawer (T10).
+ */
+const FOOTER_NAV: NavItem[] = [
+  {
+    path: '/profile',
+    icon: '👤',
+    i18nKey: 'nav.profile',
+    match: ['/profile'],
+    authOnly: true,
+  },
+  {
+    path: '/friends',
+    icon: '👥',
+    i18nKey: 'nav.friends',
+    match: ['/friends'],
+    authOnly: true,
+  },
+  {
+    path: '/settings',
+    icon: '⚙',
+    i18nKey: 'nav.settings',
+    match: ['/settings'],
+    authOnly: true,
+  },
   // KS-2109: пункт «Админка» — только для админов (env `KS_ADMIN_USERS`).
   {
     path: '/admin/feature-flags',
@@ -150,55 +181,63 @@ export function Sidebar() {
       (p) => location.pathname === p || location.pathname.startsWith(p + '/'),
     );
 
-  const visibleItems = NAV_ITEMS.filter((it) => {
-    // KS-2800: customGate имеет приоритет над featureFlag — для
-    // групповых пунктов (`/train`, `/analyze`) условие может быть
-    // составным («хотя бы один подраздел открыт»).
-    if (it.customGate) {
-      if (!it.customGate(flags)) return false;
-    } else if (it.featureFlag && !flags[it.featureFlag]) {
-      return false;
-    }
-    if (it.adminOnly && !isAdmin) return false;
-    if (it.authOnly && !user) return false;
-    return true;
-  });
+  // KS-2800: общий фильтр видимости — учитывает customGate, featureFlag,
+  // adminOnly, authOnly. Применяется к MAIN_NAV и FOOTER_NAV.
+  const filterVisible = (items: NavItem[]) =>
+    items.filter((it) => {
+      if (it.customGate) {
+        if (!it.customGate(flags)) return false;
+      } else if (it.featureFlag && !flags[it.featureFlag]) {
+        return false;
+      }
+      if (it.adminOnly && !isAdmin) return false;
+      if (it.authOnly && !user) return false;
+      return true;
+    });
+
+  const mainItems = filterVisible(NAV_ITEMS);
+  const footerItems = filterVisible(FOOTER_NAV);
+
+  const renderItem = (item: NavItem) => (
+    <Link
+      key={item.path}
+      to={item.path}
+      className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
+      title={t(item.i18nKey)}
+    >
+      <span className="sidebar-icon">{item.icon}</span>
+    </Link>
+  );
 
   return (
     <>
       <aside className="sidebar">
-        {visibleItems.map((item, i) => {
-          if (!item.path) {
-            return <div key={i} className="sidebar-divider" />;
-          }
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
-              title={t(item.i18nKey)}
-            >
-              <span className="sidebar-icon">{item.icon}</span>
-            </Link>
-          );
-        })}
+        {/* KS-2801: главная навигация — 5 групповых контентных пунктов. */}
+        <div className="sidebar-main" data-testid="sidebar-main">
+          {mainItems.map(renderItem)}
+        </div>
         <div className="sidebar-spacer" />
-        {/*
-          KS-2252: эмодзи изменена с 💬 на 📝, чтобы кнопка обратной
-          связи не путалась с иконкой `ChatWidget` (ассистент в правом
-          нижнем углу — KS-2228, default `assistantEnabled=false`).
-          Пользователь жаловался на «бейджик ассистента» именно из-за
-          совпадающей 💬 — функционально кнопка относится к feedback,
-          под `assistantEnabled` её прятать неверно.
-         */}
-        <button
-          className="sidebar-item sidebar-feedback-btn"
-          onClick={() => setShowFeedback(true)}
-          title={t('feedback.title', 'Feedback')}
-          data-testid="sidebar-feedback-btn"
-        >
-          <span className="sidebar-icon">📝</span>
-        </button>
+        {/* KS-2801: футер — утилитарные пункты (Профиль/Друзья/Настройки/
+            Feedback/Admin). Отделён от основной навигации `sidebar-spacer`
+            (растягивается на свободное место) и визуальным `sidebar-divider`. */}
+        <div className="sidebar-divider" />
+        <div className="sidebar-footer" data-testid="sidebar-footer">
+          {footerItems.map(renderItem)}
+          {/* KS-2252: эмодзи изменена с 💬 на 📝, чтобы кнопка обратной
+              связи не путалась с иконкой `ChatWidget` (ассистент в правом
+              нижнем углу — KS-2228, default `assistantEnabled=false`).
+              Пользователь жаловался на «бейджик ассистента» именно из-за
+              совпадающей 💬 — функционально кнопка относится к feedback,
+              под `assistantEnabled` её прятать неверно. */}
+          <button
+            className="sidebar-item sidebar-feedback-btn"
+            onClick={() => setShowFeedback(true)}
+            title={t('feedback.title', 'Feedback')}
+            data-testid="sidebar-feedback-btn"
+          >
+            <span className="sidebar-icon">📝</span>
+          </button>
+        </div>
       </aside>
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </>
