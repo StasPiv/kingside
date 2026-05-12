@@ -126,18 +126,11 @@ const StudiesPage = lazy(() =>
 const StudyPage = lazy(() =>
   import('./pages/StudyPage').then((m) => ({ default: m.StudyPage })),
 );
-// KS-2827 (KS-2815 §B.5): редактор главы `/studies/:slug/:chapterId`.
-const StudyChapterEditorPage = lazy(() =>
-  import('./pages/StudyChapterEditorPage').then((m) => ({
-    default: m.StudyChapterEditorPage,
-  })),
-);
-// KS-2829 (KS-2815 §B.5): публичная read-only страница главы.
-const StudyChapterPublicPage = lazy(() =>
-  import('./pages/StudyChapterPublicPage').then((m) => ({
-    default: m.StudyChapterPublicPage,
-  })),
-);
+// KS-2868 (FS1) / KS-2869 (FS2): редактор и публичный просмотр главы
+// студии теперь рендерятся универсальным AnalysisPage в режимах
+// studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
+// StudyChapterEditorPage / StudyChapterPublicPage удалены вместе с
+// файлами компонентов.
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -401,25 +394,23 @@ export function App() {
             </Suspense>
           }
         />
-        {/* KS-2827: редактор главы. Не-owner попадает сюда через owner-
-            URL и видит read-only вариант; anonymous + public — отдельная
-            страница `/studies/public/c/:chapterId` (KS-2829). */}
+        {/* KS-2868 (FS1): редактор главы теперь рендерится универсальным
+            AnalysisPage в editor-режиме. Раньше — StudyChapterEditorPage. */}
         <Route
           path="/studies/:slug/:chapterId"
           element={
             <Suspense fallback={<LazyFallback />}>
-              <StudyChapterEditorPage />
+              <AnalysisPage studyMode="editor" />
             </Suspense>
           }
         />
-        {/* KS-2829: публичный read-only просмотр главы по prefix `/c/`.
-            Без auth — anonymous могут открыть. Owner получит ссылку
-            «Открыть в редакторе» в header'е. */}
+        {/* KS-2869 (FS2): публичный read-only просмотр главы по prefix `/c/`.
+            Без auth — anonymous могут открыть. Раньше — StudyChapterPublicPage. */}
         <Route
           path="/studies/c/:chapterId"
           element={
             <Suspense fallback={<LazyFallback />}>
-              <StudyChapterPublicPage />
+              <AnalysisPage studyMode="public-readonly" />
             </Suspense>
           }
         />

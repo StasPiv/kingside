@@ -55,6 +55,13 @@ import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 // разбросанные `params.id`/`params.gameId`/`puzzleFen`/`localId`
 // производные. На FS1/FS2 study-роуты подключатся через wrapper.
 import { useAnalysisContext } from './analysis/AnalysisContext';
+// KS-2868 (FS1): загрузка study + chapter для ctx.kind === 'study'.
+// Удаление chapter / переименование — через studiesApi.updateChapter.
+import {
+  studiesApi,
+  type StudyDto,
+  type StudyChapterDto,
+} from '../api/studiesApi';
 
 type GameData = {
   id: string;
@@ -131,15 +138,38 @@ type MoveData = {
  */
 interface AnalysisPageProps {
   publicMode?: boolean;
+  /**
+   * KS-2868 (FS1) / KS-2869 (FS2): когда AnalysisPage обслуживает
+   * `/studies/:slug/:chapterId` (`editor`) или `/studies/c/:chapterId`
+   * (`public-readonly`), передаётся через App.tsx. Хук
+   * `useAnalysisContext` использует это для resolved `ctx.kind='study'`.
+   */
+  studyMode?: 'editor' | 'public-readonly' | 'embed';
 }
 
-export function AnalysisPage({ publicMode = false }: AnalysisPageProps = {}) {
-  const params = useParams<{ id?: string; gameId?: string }>();
-  const key = params.id ?? params.gameId ?? '__none__';
-  return <AnalysisPageInner key={key} publicMode={publicMode} />;
+export function AnalysisPage({
+  publicMode = false,
+  studyMode,
+}: AnalysisPageProps = {}) {
+  const params = useParams<{
+    id?: string;
+    gameId?: string;
+    slug?: string;
+    chapterId?: string;
+  }>();
+  // KS-2868 (FS1): для study-роутов ключ remount'а должен учитывать
+  // chapterId, иначе при переходе между chapters в одной студии
+  // компонент не перемонтируется и stale-state выживает.
+  const key = params.chapterId ?? params.id ?? params.gameId ?? '__none__';
+  return (
+    <AnalysisPageInner key={key} publicMode={publicMode} studyMode={studyMode} />
+  );
 }
 
-function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
+function AnalysisPageInner({
+  publicMode = false,
+  studyMode,
+}: AnalysisPageProps) {
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     document.body.classList.add('has-analysis-page');
@@ -155,7 +185,7 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   // Backwards-compatible локальные алиасы — оставлены чтобы не переписывать
   // 30+ мест использования за одну итерацию (FM1-FM5 поэтапно мигрируют
   // на прямое чтение ctx.kind/ctx.fields).
-  const ctx = useAnalysisContext({ publicMode });
+  const ctx = useAnalysisContext({ publicMode, studyMode });
   const gameId = ctx.kind === 'review' ? ctx.gameId : undefined;
   const analysisId = ctx.kind === 'analysis' ? ctx.analysisId : undefined;
   const location = useLocation();
@@ -166,6 +196,10 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   // `analysisBoardSize`). UI-переключатель ниже в `.analysis-board-controls`.
   const { boardSize, setBoardSize } = useBoardSettings();
   const [gameData, setGameData] = useState<GameData | null>(null);
+  // KS-2868 (FS1): study + chapter — заполняются когда ctx.kind === 'study'.
+  // study.name → breadcrumb section; chapter.name → analysisTitle.
+  const [studyData, setStudyData] = useState<StudyDto | null>(null);
+  const [studyChapter, setStudyChapter] = useState<StudyChapterDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
@@ -214,14 +248,29 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   useEffect(() => {
     localIdRef.current = analysisId;
   }, [analysisId]);
-  const breadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
-  const breadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
-  const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
-  const breadcrumbBackUrl = (location.state as { breadcrumbBackUrl?: string } | null)?.breadcrumbBackUrl;
-  const breadcrumbBackState = (location.state as { breadcrumbBackState?: unknown } | null)?.breadcrumbBackState;
+  const stateBreadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
+  const stateBreadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
+  const stateBreadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
+  const stateBreadcrumbBackUrl = (location.state as { breadcrumbBackUrl?: string } | null)?.breadcrumbBackUrl;
+  const stateBreadcrumbBackState = (location.state as { breadcrumbBackState?: unknown } | null)?.breadcrumbBackState;
   const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
   const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
   const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
+  // KS-2868 (FS1): для study-роутов breadcrumb формируется из studyData,
+  // а не из location.state (он у study-роутов пуст). Studies → study.name
+  // → chapter.name (chapter.name отображается через analysisTitle).
+  const isStudyCtx = ctx.kind === 'study';
+  const breadcrumbRootTitle = isStudyCtx
+    ? t('studies.title', 'Studies')
+    : stateBreadcrumbRootTitle;
+  const breadcrumbRootUrl = isStudyCtx ? '/studies' : stateBreadcrumbRootUrl;
+  const breadcrumbSection =
+    isStudyCtx && studyData ? studyData.name : stateBreadcrumbSection;
+  const breadcrumbBackUrl =
+    isStudyCtx && ctx.kind === 'study' && ctx.slug
+      ? `/studies/${encodeURIComponent(ctx.slug)}`
+      : stateBreadcrumbBackUrl;
+  const breadcrumbBackState = isStudyCtx ? undefined : stateBreadcrumbBackState;
   // KS-2867 (FR4): puzzle-параметры теперь приходят из AnalysisContext.
   // Совместимость: значения те же, что раньше из location.state/URL.
   const puzzleFen = ctx.kind === 'puzzle' ? ctx.fen : undefined;
@@ -381,9 +430,11 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     if (gameId) return;
     // KS-2672: в publicMode не-владелец не редактирует title.
     if (publicMode) return;
+    // KS-2868 (FS1): public-readonly study — title не редактируется.
+    if (ctx.kind === 'study' && ctx.mode !== 'editor') return;
     setTitleInput(analysisTitle);
     setIsEditingTitle(true);
-  }, [gameId, analysisTitle, publicMode]);
+  }, [gameId, analysisTitle, publicMode, ctx]);
 
   const handleTitleSave = useCallback(() => {
     const trimmed = titleInput.trim() || getDefaultTitle();
@@ -391,10 +442,18 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     setIsEditingTitle(false);
     // KS-2672: в publicMode мутация title запрещена.
     if (publicMode) return;
+    // KS-2868 (FS1): study-editor сохраняет имя главы в studiesApi.
+    if (ctx.kind === 'study' && ctx.mode === 'editor' && studyChapter) {
+      studiesApi
+        .updateChapter(ctx.slug, studyChapter.id, { name: trimmed })
+        .then((updated) => setStudyChapter(updated))
+        .catch(() => {});
+      return;
+    }
     if (localIdRef.current) {
       updateAnalysis(localIdRef.current, { title: trimmed }).catch(() => {});
     }
-  }, [titleInput, updateAnalysis, publicMode]);
+  }, [titleInput, updateAnalysis, publicMode, ctx, studyChapter]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -523,6 +582,98 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     // `getById` с актуальным id, иначе stale-state предыдущей партии
     // оставался бы при любом открытии следующей.
   }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen]);
+
+  // KS-2868 (FS1): загрузка study + chapter когда ctx.kind === 'study'.
+  // Отдельный эффект от game/analysis loader'а (выше) — для study главный
+  // loader выходит рано (gameId=undefined, localIdRef.current=undefined).
+  useEffect(() => {
+    if (ctx.kind !== 'study') return;
+    const { slug, chapterId } = ctx;
+    if (!chapterId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    const fetchStudyData = async () => {
+      try {
+        // public-readonly режим грузит через `getPublicChapter` (без auth);
+        // editor — через `getBySlug + getChapter` (нужен auth для PATCH).
+        if (ctx.mode === 'public-readonly') {
+          const resp = await studiesApi.getPublicChapter(chapterId);
+          if (cancelled) return;
+          setStudyData(resp.study as StudyDto);
+          setStudyChapter(resp.chapter);
+          // KS-2854: setInitialFen ДО loadFromPgn, иначе reducer
+          // сбросит history.
+          if (resp.chapter.startFen) {
+            setInitialFen(resp.chapter.startFen);
+          }
+          setAnalysisTitle(resp.chapter.name);
+          setTitleInput(resp.chapter.name);
+          setBoardOrientation(resp.chapter.orientation);
+          if (resp.chapter.pgn) {
+            try {
+              loadFromPgn(
+                parseAnnotatedPgn(resp.chapter.pgn),
+                extractInitialAnnotations(resp.chapter.pgn),
+              );
+            } catch {
+              /* битый PGN — оставляем дерево пустым */
+            }
+          }
+        } else {
+          if (!slug) {
+            setError(t('studies.error.notFound', 'Chapter not found.'));
+            setLoading(false);
+            return;
+          }
+          const [studyResp, ch] = await Promise.all([
+            studiesApi.getBySlug(slug),
+            studiesApi.getChapter(slug, chapterId),
+          ]);
+          if (cancelled) return;
+          setStudyData(studyResp.study);
+          setStudyChapter(ch);
+          if (ch.startFen) {
+            setInitialFen(ch.startFen);
+          }
+          setAnalysisTitle(ch.name);
+          setTitleInput(ch.name);
+          setBoardOrientation(ch.orientation);
+          if (ch.pgn) {
+            try {
+              loadFromPgn(
+                parseAnnotatedPgn(ch.pgn),
+                extractInitialAnnotations(ch.pgn),
+              );
+            } catch {
+              /* битый PGN — оставляем дерево пустым */
+            }
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setError(t('studies.error.notFound', 'Chapter not found.'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void fetchStudyData();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.kind, ctx.kind === 'study' ? ctx.slug : null, ctx.kind === 'study' ? ctx.chapterId : null]);
+
+  // KS-2868 (FS1): document.title для study-страницы.
+  useEffect(() => {
+    if (ctx.kind !== 'study' || !studyChapter || !studyData) return;
+    const prev = document.title;
+    document.title = `${studyChapter.name} — ${studyData.name} — Kingside`;
+    return () => {
+      document.title = prev;
+    };
+  }, [ctx.kind, studyChapter, studyData]);
 
   // KS-2867 (FR4): резолвер выбирает persistence-хук по ctx.kind.
   // review → PUT /games/:id/analysis; study → PATCH chapter; analysis/puzzle — no-op здесь.
@@ -1225,7 +1376,9 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
     onPieceDrop: handleFastDragDrop,
     boardOrientation,
     allowBothColors: true,
-    enabled: !loading,
+    // KS-2868/KS-2869 (FS1/FS2): read-only mode (publicMode и
+    // study public-readonly/embed) — drag отключён.
+    enabled: !loading && !ctx.readOnly,
   });
 
   const boardOptions = useMemo(
@@ -1296,6 +1449,8 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (gameId && !gameData) return null;
+  // KS-2868 (FS1): для study-роута ждём загруженных study + chapter.
+  if (ctx.kind === 'study' && (!studyData || !studyChapter)) return null;
 
   const resultPgn = gameData
     ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white' ? '1–0' : '0–1'
@@ -1571,6 +1726,7 @@ function AnalysisPageInner({ publicMode = false }: AnalysisPageProps) {
         onSetVariationColor={setVariationColor}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
+        readOnly={ctx.readOnly}
       />
 
       {ec.showEngineModal && (

@@ -80,6 +80,14 @@ export interface AnalysisSidebarProps {
   /* ---------- mobile tabs ---------- */
   mobileTab: AnalysisMobileTab;
   onMobileTabChange: (tab: AnalysisMobileTab) => void;
+
+  /* ---------- read-only (KS-2868/2869 FS1/FS2) ---------- */
+  /**
+   * Когда true: ReviewMoveList не открывает контекстное меню (right-click,
+   * long-press игнорируются), NAG-палитра скрыта. Клик по ходу для
+   * навигации остаётся.
+   */
+  readOnly?: boolean;
 }
 
 export function AnalysisSidebar({
@@ -116,6 +124,7 @@ export function AnalysisSidebar({
   onSetVariationColor,
   mobileTab,
   onMobileTabChange,
+  readOnly = false,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
 
@@ -321,6 +330,7 @@ export function AnalysisSidebar({
               onSetNag={onSetNag}
               onSetComment={onSetComment}
               onSetVariationColor={onSetVariationColor}
+              readOnly={readOnly}
             />
           </div>
         )}
