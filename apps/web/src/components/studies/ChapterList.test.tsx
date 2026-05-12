@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fireEvent, waitFor } from '@testing-library/react';
 
 import { renderWithProviders, screen } from '../../test/test-utils';
 import {
@@ -6,9 +7,12 @@ import {
   computeReorderPayload,
 } from './ChapterList';
 
+const reorderChapterMock = vi.fn();
+const deleteChapterMock = vi.fn();
 vi.mock('../../api/studiesApi', () => ({
   studiesApi: {
-    reorderChapter: vi.fn(),
+    reorderChapter: (...args: unknown[]) => reorderChapterMock(...args),
+    deleteChapter: (...args: unknown[]) => deleteChapterMock(...args),
   },
 }));
 
@@ -117,5 +121,86 @@ describe('<ChapterList> (KS-2831)', () => {
       .getByTestId('study-chapter-a')
       .querySelector('a.study-chapter-item__link');
     expect(link?.getAttribute('href')).toBe('/studies/demo/a');
+  });
+});
+
+describe('<ChapterList> delete (KS-2912)', () => {
+  beforeEach(() => {
+    deleteChapterMock.mockReset();
+    reorderChapterMock.mockReset();
+  });
+
+  it('canEdit=true: кнопка удаления с testid study-chapter-delete-<id>', () => {
+    renderWithProviders(
+      <ChapterList slug="demo" chapters={CHAPTERS} canEdit={true} />,
+    );
+    expect(
+      screen.getByTestId('study-chapter-delete-a'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('study-chapter-delete-b'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('study-chapter-delete-c'),
+    ).toBeInTheDocument();
+  });
+
+  it('canEdit=false: кнопок удаления нет', () => {
+    renderWithProviders(
+      <ChapterList slug="demo" chapters={CHAPTERS} canEdit={false} />,
+    );
+    expect(
+      screen.queryByTestId('study-chapter-delete-a'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('confirm=true → studiesApi.deleteChapter + optimistic remove + onDeleted', async () => {
+    const onDeleted = vi.fn();
+    deleteChapterMock.mockResolvedValue(undefined);
+    window.confirm = vi.fn(() => true);
+    renderWithProviders(
+      <ChapterList
+        slug="demo"
+        chapters={CHAPTERS}
+        canEdit={true}
+        onDeleted={onDeleted}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('study-chapter-delete-b'));
+    await waitFor(() =>
+      expect(deleteChapterMock).toHaveBeenCalledWith('demo', 'b'),
+    );
+    expect(onDeleted).toHaveBeenCalledWith('b');
+    // optimistic remove
+    expect(screen.queryByTestId('study-chapter-b')).not.toBeInTheDocument();
+    expect(screen.getByTestId('study-chapter-a')).toBeInTheDocument();
+    expect(screen.getByTestId('study-chapter-c')).toBeInTheDocument();
+  });
+
+  it('confirm=false → API не вызывается, список не меняется', () => {
+    window.confirm = vi.fn(() => false);
+    renderWithProviders(
+      <ChapterList slug="demo" chapters={CHAPTERS} canEdit={true} />,
+    );
+    fireEvent.click(screen.getByTestId('study-chapter-delete-b'));
+    expect(deleteChapterMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('study-chapter-b')).toBeInTheDocument();
+  });
+
+  it('API error → rollback + error-message', async () => {
+    window.confirm = vi.fn(() => true);
+    deleteChapterMock.mockRejectedValue(new Error('boom'));
+    renderWithProviders(
+      <ChapterList slug="demo" chapters={CHAPTERS} canEdit={true} />,
+    );
+    fireEvent.click(screen.getByTestId('study-chapter-delete-b'));
+    await waitFor(() => expect(deleteChapterMock).toHaveBeenCalled());
+    // rollback — глава снова в списке
+    await waitFor(() =>
+      expect(screen.getByTestId('study-chapter-b')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('study-chapter-list-error'),
+    ).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -38,6 +38,12 @@ interface ChapterListProps {
    * но родитель может перечитать с сервера при необходимости.
    */
   onReorder?: (orderedIds: string[]) => void;
+  /**
+   * KS-2912: колбэк после успешного удаления главы. Родитель может
+   * перечитать список / обновить счётчики. `ChapterList` сам делает
+   * optimistic-remove из локального `order`.
+   */
+  onDeleted?: (chapterId: string) => void;
 }
 
 /**
@@ -79,22 +85,78 @@ export function ChapterList({
   chapters,
   canEdit,
   onReorder,
+  onDeleted,
 }: ChapterListProps) {
   const { t } = useTranslation();
   // Локальная копия — для оптимистического обновления и rollback.
   const [order, setOrder] = useState<StudyChapterSummaryDto[]>(chapters);
   const [error, setError] = useState<string | null>(null);
 
-  // Если parent передал новый список (после reload) — синхронизируем.
-  // Используем шаблон «sync from props» (effect + memoized ids).
-  const propsIds = useMemo(() => chapters.map((c) => c.id).join('|'), [chapters]);
-  const stateIds = useMemo(() => order.map((c) => c.id).join('|'), [order]);
-  if (propsIds !== stateIds && chapters.length !== order.length) {
-    // Размер списка изменился (главу добавили/удалили) — синхронизируем.
-    setOrder(chapters);
-  }
+  // KS-2912: pendingDeletes — ID, для которых мы сделали optimistic
+  // remove. Sync-from-props фильтрует их, чтобы parent (ещё не успевший
+  // reload) не перезатёр локальный optimistic-state.
+  const pendingDeletesRef = useRef<Set<string>>(new Set());
+
+  // Sync from props: при изменении `chapters` (reference) подменяем
+  // локальный order. Pending-deletes фильтруем — они должны остаться
+  // вне списка до тех пор, пока parent не обновит chapters.
+  useEffect(() => {
+    setOrder(
+      chapters.filter((c) => !pendingDeletesRef.current.has(c.id)),
+    );
+  }, [chapters]);
 
   const itemIds = useMemo(() => order.map((c) => c.id), [order]);
+
+  // KS-2912: удаление главы из списка. Optimistic-remove из локального
+  // `order`, rollback при ошибке. Backend dual-protected: viewer без
+  // прав получит 403. UI-уровень скрываем кнопку под `canEdit` (owner/
+  // contributor — те же права что у DnD-handle'а).
+  const handleDelete = useCallback(
+    async (chapterId: string) => {
+      const confirmed = window.confirm(
+        t(
+          'studies.confirm.deleteChapter',
+          'Delete this chapter? This cannot be undone.',
+        ),
+      );
+      if (!confirmed) return;
+      // Optimistic: фиксируем pending + убираем из order.
+      pendingDeletesRef.current.add(chapterId);
+      setOrder((prev) => prev.filter((c) => c.id !== chapterId));
+      setError(null);
+      try {
+        await studiesApi.deleteChapter(slug, chapterId);
+        onDeleted?.(chapterId);
+        // pending очищается только когда parent перечитает chapters
+        // и оттуда исчезнет deleted-id; до этого фильтр в sync-from-props
+        // удерживает удалённый из визуального списка.
+      } catch {
+        // Откат: убираем из pending, возвращаем главу в order.
+        pendingDeletesRef.current.delete(chapterId);
+        setOrder((prev) => {
+          const has = prev.some((c) => c.id === chapterId);
+          if (has) return prev;
+          // Восстанавливаем позицию из props (сохраняем исходный порядок).
+          const restored = chapters.find((c) => c.id === chapterId);
+          if (!restored) return prev;
+          // Вставка перед первым элементом, который имеет orderIdx больше.
+          // Если все меньше — в конец.
+          const next = [...prev];
+          const insertAt = next.findIndex(
+            (c) => c.orderIdx > restored.orderIdx,
+          );
+          if (insertAt === -1) next.push(restored);
+          else next.splice(insertAt, 0, restored);
+          return next;
+        });
+        setError(
+          t('studies.error.delete', 'Failed to delete chapter.'),
+        );
+      }
+    },
+    [chapters, slug, t, onDeleted],
+  );
 
   const handleReorder = useCallback(
     async (nextIds: string[]) => {
@@ -204,6 +266,24 @@ export function ChapterList({
                     </span>
                     <span className="study-chapter-item__mode">{ch.mode}</span>
                   </Link>
+                  {/* KS-2912: delete chapter button — owner/contributor.
+                      window.confirm перед deleteChapter API-вызовом. */}
+                  <button
+                    type="button"
+                    className="study-chapter-item__delete"
+                    data-testid={`study-chapter-delete-${ch.id}`}
+                    aria-label={t(
+                      'studies.action.deleteChapter',
+                      'Delete chapter',
+                    )}
+                    title={t(
+                      'studies.action.deleteChapter',
+                      'Delete chapter',
+                    )}
+                    onClick={() => void handleDelete(ch.id)}
+                  >
+                    🗑
+                  </button>
                 </li>
               )}
             </SortableItem>

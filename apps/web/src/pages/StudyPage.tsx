@@ -233,6 +233,12 @@ export function StudyPage() {
           slug={study.slug}
           chapters={chapters}
           canEdit={isOwner}
+          onDeleted={() => {
+            // KS-2912: после удаления главы пересчитываем список +
+            // chaptersCount у study (через reload). ChapterList уже
+            // сделал optimistic-remove, reload подтверждает с сервера.
+            void reload();
+          }}
         />
       )}
 
