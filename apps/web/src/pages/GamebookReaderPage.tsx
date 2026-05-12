@@ -338,7 +338,16 @@ export function GamebookReaderPage() {
                 type="button"
                 className="gamebook-reader-page__start"
                 data-testid="gamebook-reader-start"
-                onClick={() => setPhase('playing')}
+                onClick={() => {
+                  // KS-2915: после loadFromPgn курсор стоит на последнем
+                  // ходе main-line. Если не вернуть его на старт, читатель
+                  // не сможет сыграть первый ход — handlePieceDrop ищет
+                  // expected = currentMove.next, а в конце линии next=null.
+                  review.gotoFirst();
+                  setFeedback(null);
+                  setFeedbackKind(null);
+                  setPhase('playing');
+                }}
               >
                 {t('studies.gamebook.start', 'Start')}
               </button>
