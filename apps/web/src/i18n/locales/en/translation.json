@@ -85,6 +85,17 @@
       "errors_one": "Errors: {{count}}",
       "errors_other": "Errors: {{count}}"
     },
+    "gamebook": {
+      "title": "Gamebook",
+      "intro": "Intro",
+      "uci": "Move",
+      "hint": "Hint (before move)",
+      "success": "Success (after correct)",
+      "failure": "Failure (after wrong)",
+      "selectMove": "Select a move to edit its hint / success / failure.",
+      "nodeCount": "{{count}}/{{max}}",
+      "atLimit": "Node limit reached ({{max}}). Remove fields from other nodes to add new ones."
+    },
     "confirm": {
       "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
       "deleteChapter": "Delete this chapter? This cannot be undone."

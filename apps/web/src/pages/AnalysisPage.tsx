@@ -66,6 +66,9 @@ import {
 // KS-2870 (FM1): mode-switcher для study-роутов — analysis/practice/
 // conceal/gamebook + concealPly input.
 import { AnalysisStudyModeSwitcher } from './analysis/AnalysisStudyModeSwitcher';
+// KS-2873 (FM4): gamebook editor — поля hint/success/failure на узле.
+import { AnalysisGamebookEditor } from './analysis/AnalysisGamebookEditor';
+import type { GamebookPayload } from '@kingside/shared';
 
 type GameData = {
   id: string;
@@ -514,10 +517,29 @@ function AnalysisPageInner({
     [ctx, studyChapter],
   );
 
-  // KS-2870 (FM1): открытие gamebook-editor (FM4-ticket).
-  // На FM1 — placeholder; полноценный editor подключается на FM4.
+  // KS-2873 (FM4): gamebook payload-update — отправляется в studiesApi.updateChapter.
+  // Если backend не примет {gamebook} в общем endpoint'е — переключим
+  // на специализированный PATCH .../gamebook (B5) когда тот будет готов.
+  const handleGamebookChange = useCallback(
+    (next: GamebookPayload) => {
+      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
+        return;
+      studiesApi
+        .updateChapter(ctx.slug, studyChapter.id, { gamebook: next })
+        .then((updated) => setStudyChapter(updated))
+        .catch(() => {});
+    },
+    [ctx, studyChapter],
+  );
+
+  // KS-2870 (FM1): кнопка «Edit script» в mode-switcher.
+  // Сейчас просто скроллим страницу к gamebook-редактору / показываем
+  // sidebar (на mobile). Полноценный modal — фоллоу-ап.
   const handleEditGamebook = useCallback(() => {
-    // KS-2873 (FM4): TODO открыть gamebook editor overlay.
+    const el = document.querySelector('[data-testid="analysis-gamebook-editor"]');
+    if (el && 'scrollIntoView' in el) {
+      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }, []);
 
   const analysisPageRef = useRef<HTMLDivElement>(null);
@@ -1927,6 +1949,24 @@ function AnalysisPageInner({
         onMobileTabChange={setMobileTab}
         readOnly={ctx.readOnly}
         concealAfterPly={isConcealMode ? revealedPly : null}
+        extraPanel={
+          // KS-2873 (FM4): gamebook editor — только в study editor-режиме
+          // с chapter.mode='gamebook'. Для не-owner / read-only — скрыт.
+          ctx.kind === 'study' &&
+          ctx.mode === 'editor' &&
+          studyChapter?.mode === 'gamebook' ? (
+            <AnalysisGamebookEditor
+              currentUci={
+                currentMove
+                  ? (currentMove.lan as string | undefined) ?? null
+                  : null
+              }
+              gamebook={studyChapter.gamebook ?? null}
+              editable
+              onChange={handleGamebookChange}
+            />
+          ) : undefined
+        }
       />
 
       {ec.showEngineModal && (
