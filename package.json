@@ -15,7 +15,7 @@
     "dev": "turbo run dev",
     "start": "docker compose up -d && turbo run dev",
     "lint": "turbo run lint && npm run check:features",
-    "check:features": "node packages/shared/scripts/check-features-catalog.mjs",
+    "check:features": "node tools/check-features-catalog.mjs",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "prisma:migrate": "bash scripts/prisma-migrate-deploy.sh",

@@ -4,15 +4,8 @@
  * (`packages/shared/src/features-catalog/`) реальным роутам фронта
  * (`apps/web/src/App.tsx`).
  *
- * Запускается из корня монорепо: `node packages/shared/scripts/check-features-catalog.mjs`.
+ * Запускается из корня монорепо: `node tools/check-features-catalog.mjs`.
  * Также подключён в npm-скрипт `check:features` корневого package.json.
- *
- * Замечание по расположению: ADR-062 предписывает положить скрипт и
- * whitelist в `tools/`. Текущая инфра агентов держит `tools/` владельцем
- * root и не bind-mount'ит его на хост (см. KS-2962 комментарии в трекере),
- * поэтому скрипт временно живёт в `packages/shared/scripts/` (RW-зона
- * backend). После расширения mount-схемы файлы переедут в tools/ как
- * единым коммитом — путь в `package.json` тоже обновится.
  *
  * Алгоритм:
  *   1. Если есть `apps/web/src/App.tsx` — парсим TypeScript compiler API,
@@ -38,23 +31,18 @@ import ts from 'typescript';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+// tools/check-features-catalog.mjs → /project
+const REPO_ROOT = resolve(__dirname, '..');
 
 const APP_TSX_PATH = resolve(REPO_ROOT, 'apps/web/src/App.tsx');
-// KS-2962: whitelist живёт рядом со скриптом — временно, пока tools/
-// недоступен (см. KS-2962). После переезда — `tools/features-catalog-whitelist.json`.
 const WHITELIST_PATH = resolve(
   REPO_ROOT,
-  'packages/shared/config/features-catalog-whitelist.json',
+  'tools/features-catalog-whitelist.json',
 );
 
 const CATALOG_MODULE_PATH = resolve(
   REPO_ROOT,
   'packages/shared/dist/features-catalog/index.js',
-);
-const FLAGS_MODULE_PATH = resolve(
-  REPO_ROOT,
-  'packages/shared/dist/types/feature-flags.js',
 );
 
 // ─── helpers ────────────────────────────────────────────────────────
@@ -92,12 +80,10 @@ async function loadCatalog() {
 }
 
 async function loadKnownFlagKeys() {
-  // KS-2962: union ключей берём из IFeatureFlags. На уровне runtime у нас
-  // нет рантайм-объекта KNOWN_FEATURE_FLAGS в shared (он на бэке).
-  // Узнаём ключи из самого каталога — те которые встречаются в записях,
-  // плюс дублируем известные из shared/types/feature-flags. Это не
-  // авторитативный источник, но для проверки «не выдуман ли ключ»
-  // достаточно сверки с FEATURE_FLAGS_ALL_KEYS ниже.
+  // KS-2962: union ключей FeatureFlagKey. Источник истины —
+  // packages/shared/src/types/feature-flags.ts; здесь дублируем
+  // защитно, для runtime-валидации, чтобы поймать опечатку до того
+  // как она доедет до TS-сборки на стороне потребителя.
   return new Set([
     'lessonsEnabled',
     'puzzlesEnabled',
