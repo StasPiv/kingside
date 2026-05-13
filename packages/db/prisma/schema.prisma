@@ -561,6 +561,10 @@ model SavedFilter {
 
   @@index([userId])
   @@index([userId, section, createdAt(sort: Desc)], map: "saved_filters_user_section_idx")
+  // KS-2940. Уникальность имени в пределах (user_id, section) —
+  // закрывает TOCTOU-race в SavedFiltersService. При нарушении
+  // Prisma бросает P2002 → сервис конвертирует в 409 Conflict.
+  @@unique([userId, section, name], map: "saved_filters_user_section_name_uniq")
   @@map("saved_filters")
 }
 

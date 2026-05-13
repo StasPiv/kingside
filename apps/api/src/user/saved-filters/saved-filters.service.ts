@@ -84,14 +84,26 @@ export class SavedFiltersService {
       throw new ConflictException('Имя уже используется');
     }
 
-    const created = await this.prisma.savedFilter.create({
-      data: {
-        userId,
-        section: dto.section,
-        name,
-        params: stripSectionFromParams(params) as object,
-      },
-    });
+    let created;
+    try {
+      created = await this.prisma.savedFilter.create({
+        data: {
+          userId,
+          section: dto.section,
+          name,
+          params: stripSectionFromParams(params) as object,
+        },
+      });
+    } catch (err) {
+      // KS-2940: гонка пройдена БД (concurrent create обогнал нашу
+      // pre-SELECT-проверку и нарушил unique-индекс
+      // `saved_filters_user_section_name_uniq`). Возвращаем тот же
+      // контракт 409, что и для синхронного дубля выше.
+      if (isPrismaUniqueViolation(err)) {
+        throw new ConflictException('Имя уже используется');
+      }
+      throw err;
+    }
     return toSavedFilterDto(created);
   }
 
@@ -141,10 +153,20 @@ export class SavedFiltersService {
       return toSavedFilterDto(existing);
     }
 
-    const updated = await this.prisma.savedFilter.update({
-      where: { id },
-      data,
-    });
+    let updated;
+    try {
+      updated = await this.prisma.savedFilter.update({
+        where: { id },
+        data,
+      });
+    } catch (err) {
+      // KS-2940: см. комментарий в `create`. При rename два
+      // concurrent PATCH могут попытаться занять одно и то же имя.
+      if (isPrismaUniqueViolation(err)) {
+        throw new ConflictException('Имя уже используется');
+      }
+      throw err;
+    }
     return toSavedFilterDto(updated);
   }
 
@@ -161,6 +183,22 @@ export class SavedFiltersService {
     await this.prisma.savedFilter.delete({ where: { id } });
     return { deleted: true };
   }
+}
+
+/**
+ * KS-2940. Prisma выбрасывает `PrismaClientKnownRequestError` с
+ * `code = 'P2002'` при нарушении уникального индекса. Проверка по
+ * `code` без импорта `@prisma/client` — чтобы не тянуть рантайм
+ * зависимости. Тот же паттерн используется в
+ * `mistakes.service.ts` и `lessons-admin.service.ts`.
+ */
+function isPrismaUniqueViolation(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'code' in e &&
+    (e as { code?: unknown }).code === 'P2002'
+  );
 }
 
 /**

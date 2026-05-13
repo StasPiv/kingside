@@ -530,6 +530,54 @@ describe('SavedFiltersService — KS-2927', () => {
       });
     });
 
+    describe('KS-2940: P2002 (concurrent create/rename) → 409', () => {
+      it('create: Prisma бросает P2002 (гонка после pre-SELECT) → ConflictException', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        // pre-SELECT не нашёл дубль, но concurrent transaction обогнал
+        // и БД упала по unique-индексу.
+        const p2002 = Object.assign(new Error('Unique constraint failed'), {
+          code: 'P2002',
+        });
+        prisma.savedFilter.create.mockRejectedValue(p2002);
+        await expect(
+          svc.create(userId, {
+            section: 'workshop',
+            name: 'X',
+            params: {},
+          } as never),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('create: прочие Prisma-ошибки не маскируются под 409', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        const other = Object.assign(new Error('Connection lost'), {
+          code: 'P1001',
+        });
+        prisma.savedFilter.create.mockRejectedValue(other);
+        await expect(
+          svc.create(userId, {
+            section: 'workshop',
+            name: 'X',
+            params: {},
+          } as never),
+        ).rejects.toThrow('Connection lost');
+      });
+
+      it('update: P2002 при rename → ConflictException', async () => {
+        prisma.savedFilter.findUnique.mockResolvedValue(rowOf());
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        const p2002 = Object.assign(new Error('Unique constraint failed'), {
+          code: 'P2002',
+        });
+        prisma.savedFilter.update.mockRejectedValue(p2002);
+        await expect(
+          svc.update(userId, 'sf-1', { name: 'Renamed' } as never),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+    });
+
     describe('PATCH: частичный body', () => {
       it('только name → update не трогает params', async () => {
         prisma.savedFilter.findUnique.mockResolvedValue(
