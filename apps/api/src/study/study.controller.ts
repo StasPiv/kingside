@@ -25,6 +25,7 @@ import {
   ImportPgnDto,
   ListStudiesQueryDto,
   ReorderChapterDto,
+  StudyFromAnalysisDto,
   UpdateChapterDto,
   UpdateStudyDto,
 } from './dto/study.dto';
@@ -99,6 +100,25 @@ export class StudyController {
     @Body() dto: CreateStudyDto,
   ): Promise<StudyDto> {
     return this.study.create(req.user.id, dto);
+  }
+
+  // KS-2882 / ADR-060 §3.6. Save-to-study. Помещён сразу после `POST /`
+  // и ДО `:slug`-маршрутов; статический сегмент `from-analysis` в любом
+  // случае матчится приоритетно, порядок-в-коде делает явным.
+  @McpTool({
+    name: 'studies__from_analysis',
+    description:
+      'Сохранить анализ в студию: либо в существующую (studyId), либо ' +
+      'создать новую private-студию (newStudyName). Возвращает ' +
+      '{studyId, slug, chapterId} для navigate.',
+  })
+  @UseGuards(JwtAuthGuard)
+  @Post('from-analysis')
+  async fromAnalysis(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: StudyFromAnalysisDto,
+  ): Promise<{ studyId: string; slug: string; chapterId: string }> {
+    return this.study.fromAnalysis(req.user.id, dto);
   }
 
   /**

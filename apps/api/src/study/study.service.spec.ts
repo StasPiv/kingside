@@ -14,8 +14,12 @@ function makePrisma(): any {
   const txContext: any = {
     study: {
       create: jest.fn(),
+      update: jest.fn(),
     },
     studyMember: {
+      create: jest.fn(),
+    },
+    studyChapter: {
       create: jest.fn(),
     },
   };
@@ -23,6 +27,7 @@ function makePrisma(): any {
     study: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -30,12 +35,19 @@ function makePrisma(): any {
     },
     studyChapter: {
       findMany: jest.fn(),
+      // KS-2882: fromAnalysis считает существующие главы и max(orderIdx).
+      findFirst: jest.fn(),
+      count: jest.fn(),
     },
     studyMember: {
       create: jest.fn(),
     },
     // KS-2881: listByUser использует prisma.user.findUnique для owner.
     user: {
+      findUnique: jest.fn(),
+    },
+    // KS-2882: fromAnalysis грузит Analysis.
+    analysis: {
       findUnique: jest.fn(),
     },
     // KS-2880: catalog hot-sort использует $queryRawUnsafe для PG-формулы
@@ -622,6 +634,221 @@ describe('StudyService — KS-2818 T3', () => {
       const r = await svc.listByUser(null, userId, { page: 1, pageSize: 20 });
       expect(r.hasMore).toBe(true);
       expect(r.total).toBe(45);
+    });
+  });
+
+  // ── KS-2882 / ADR-060 §3.6. Save-to-study из AnalysisPage.
+  describe('fromAnalysis (KS-2882)', () => {
+    const analysisId = '44444444-4444-4444-a444-444444444444';
+    const studyId = '55555555-5555-5555-a555-555555555555';
+    const chapterId = '66666666-6666-6666-a666-666666666666';
+
+    const ownAnalysis = {
+      id: analysisId,
+      userId,
+      title: 'My analysis',
+      pgn: '1. e4 e5 *',
+      fen: null,
+      isPublic: false,
+      createdAt: new Date('2026-05-10T12:34:56Z'),
+    };
+
+    beforeEach(() => {
+      prisma.analysis.findUnique.mockResolvedValue(ownAnalysis);
+      prisma.study.findUnique.mockResolvedValue({ ...baseStudy, id: studyId });
+      prisma.studyChapter.count.mockResolvedValue(0);
+      prisma.studyChapter.findFirst.mockResolvedValue({ orderIdx: 0 });
+      prisma.__tx.studyChapter.create.mockResolvedValue({ id: chapterId });
+      prisma.__tx.study.create.mockResolvedValue({
+        ...baseStudy,
+        id: studyId,
+        slug: 'abc123-new',
+      });
+      prisma.study.count.mockResolvedValue(0);
+    });
+
+    it('400 если оба studyId и newStudyName не заданы', async () => {
+      await expect(svc.fromAnalysis(userId, { analysisId })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('400 если оба studyId и newStudyName заданы', async () => {
+      await expect(
+        svc.fromAnalysis(userId, {
+          analysisId,
+          studyId,
+          newStudyName: 'X',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('404 если анализ не найден', async () => {
+      prisma.analysis.findUnique.mockResolvedValue(null);
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, newStudyName: 'X' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('404 если анализ не свой и не public', async () => {
+      prisma.analysis.findUnique.mockResolvedValue({
+        ...ownAnalysis,
+        userId: otherUserId,
+        isPublic: false,
+      });
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, newStudyName: 'X' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('public-анализ другого пользователя — разрешён', async () => {
+      prisma.analysis.findUnique.mockResolvedValue({
+        ...ownAnalysis,
+        userId: otherUserId,
+        isPublic: true,
+      });
+      const r = await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'From public',
+      });
+      expect(r.chapterId).toBe(chapterId);
+    });
+
+    // ─── ветка newStudyName ──────────────────────────────────────────
+    it('newStudyName: создаёт private-студию с fromKind=analysis:<id>', async () => {
+      await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'New study',
+      });
+      const data = prisma.__tx.study.create.mock.calls[0][0].data;
+      expect(data.ownerId).toBe(userId);
+      expect(data.name).toBe('New study');
+      expect(data.visibility).toBe('private');
+      expect(data.isPublic).toBe(false);
+      expect(data.fromKind).toBe(`analysis:${analysisId}`);
+      expect(data.fromRefId).toBe(analysisId);
+      expect(data.chaptersCount).toBe(1);
+    });
+
+    it('newStudyName: создаётся owner-record в study_members', async () => {
+      await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'New study',
+      });
+      expect(prisma.__tx.studyMember.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId, role: 'owner' }),
+      });
+    });
+
+    it('newStudyName: глава получает Analysis.title и pgn копируется', async () => {
+      await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'New study',
+      });
+      const chapterData = prisma.__tx.studyChapter.create.mock.calls[0][0].data;
+      expect(chapterData.name).toBe('My analysis');
+      expect(chapterData.pgn).toBe('1. e4 e5 *');
+      expect(chapterData.mode).toBe('analysis');
+    });
+
+    it('newStudyName: если Analysis.title пуст — имя «Analysis from <date>»', async () => {
+      prisma.analysis.findUnique.mockResolvedValue({
+        ...ownAnalysis,
+        title: '',
+      });
+      await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'New study',
+      });
+      const chapterData = prisma.__tx.studyChapter.create.mock.calls[0][0].data;
+      expect(chapterData.name).toBe('Analysis from 2026-05-10');
+    });
+
+    it('newStudyName: 400 при превышении лимита studiesPerUser', async () => {
+      prisma.study.count.mockResolvedValue(STUDY_LIMITS.studiesPerUser);
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, newStudyName: 'X' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.__tx.study.create).not.toHaveBeenCalled();
+    });
+
+    it('newStudyName: response {studyId, slug, chapterId}', async () => {
+      const r = await svc.fromAnalysis(userId, {
+        analysisId,
+        newStudyName: 'New study',
+      });
+      expect(r).toEqual({
+        studyId,
+        slug: 'abc123-new',
+        chapterId,
+      });
+    });
+
+    // ─── ветка studyId ───────────────────────────────────────────────
+    it('studyId: owner — добавляет главу с orderIdx=max+STUDY_ORDER_STEP', async () => {
+      prisma.studyChapter.findFirst.mockResolvedValue({ orderIdx: 3000 });
+      await svc.fromAnalysis(userId, { analysisId, studyId });
+      const chapterData = prisma.__tx.studyChapter.create.mock.calls[0][0].data;
+      expect(chapterData.studyId).toBe(studyId);
+      expect(chapterData.orderIdx).toBe(4000); // 3000 + 1000
+      // chaptersCount инкрементируется в студии
+      expect(prisma.__tx.study.update).toHaveBeenCalledWith({
+        where: { id: studyId },
+        data: { chaptersCount: { increment: 1 } },
+      });
+    });
+
+    it('studyId: contributor — допускается', async () => {
+      prisma.study.findUnique.mockResolvedValue({
+        ...baseStudy,
+        id: studyId,
+        ownerId: otherUserId, // не owner
+      });
+      // mock members.getRole возвращает 'contributor'
+      (svc as any).members.getRole.mockResolvedValueOnce('contributor');
+      const r = await svc.fromAnalysis(userId, { analysisId, studyId });
+      expect(r.chapterId).toBe(chapterId);
+    });
+
+    it('studyId: posторонний (не member) → 404', async () => {
+      prisma.study.findUnique.mockResolvedValue({
+        ...baseStudy,
+        id: studyId,
+        ownerId: otherUserId,
+      });
+      (svc as any).members.getRole.mockResolvedValueOnce(null);
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, studyId }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('studyId: spectator (role!=owner/contributor) → 404', async () => {
+      prisma.study.findUnique.mockResolvedValue({
+        ...baseStudy,
+        id: studyId,
+        ownerId: otherUserId,
+      });
+      (svc as any).members.getRole.mockResolvedValueOnce('spectator' as any);
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, studyId }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('studyId: 404 если студия не найдена', async () => {
+      prisma.study.findUnique.mockResolvedValue(null);
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, studyId }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('studyId: 400 при достижении лимита chaptersPerStudy=64', async () => {
+      prisma.studyChapter.count.mockResolvedValue(
+        STUDY_LIMITS.chaptersPerStudy,
+      );
+      await expect(
+        svc.fromAnalysis(userId, { analysisId, studyId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.__tx.studyChapter.create).not.toHaveBeenCalled();
     });
   });
 });

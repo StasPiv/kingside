@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -230,6 +231,27 @@ export class ReorderChapterDto {
 export class ImportPgnDto {
   @IsString()
   pgn!: string;
+}
+
+/**
+ * KS-2882 / ADR-060 §3.6. Save-to-study из AnalysisPage.
+ *
+ * XOR: либо `studyId` (добавить главу в существующую студию), либо
+ * `newStudyName` (создать новую private-студию и положить главу туда).
+ * Оба или ни одного → 400, проверяется в сервисе.
+ */
+export class StudyFromAnalysisDto {
+  @IsUUID()
+  analysisId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  studyId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(STUDY_LIMITS.studyNameMaxLength)
+  newStudyName?: string;
 }
 
 /**

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StudySlugService } from './study-slug.service';
 import {
   STUDY_LIMITS,
+  STUDY_ORDER_STEP,
   type StudyMemberRole,
   type StudyVisibility,
 } from './study-limits';
@@ -439,6 +440,163 @@ export class StudyService {
       return study;
     });
     return toStudyDto(created);
+  }
+
+  /**
+   * KS-2882 / ADR-060 §3.6. Save-to-study из AnalysisPage.
+   *
+   * Body: `{ analysisId, studyId? | newStudyName? }` (XOR).
+   *
+   * Логика:
+   *  - Загружаем `Analysis` по `analysisId`; доступ — если caller владеет
+   *    либо `isPublic=true`. Иначе 404 (не светим существование).
+   *  - Если `studyId`: caller должен быть owner/contributor этой студии
+   *    (проверка через `StudyMembersService.getRole`). Добавляем
+   *    `StudyChapter` с проверкой лимита 64 (`chaptersPerStudy`).
+   *  - Если `newStudyName`: создаём `Study` (visibility='private',
+   *    fromKind='analysis:<analysisId>', fromRefId=analysisId) +
+   *    owner-запись в `study_members` + одну `StudyChapter`. Всё в
+   *    одной транзакции — иначе race при ошибке.
+   *  - Имя главы: `Analysis.title || 'Analysis from <ISO date>'`.
+   *  - PGN копируется как есть (`Analysis.pgn ?? ''`).
+   *
+   * Response: `{ studyId, slug, chapterId }` — фронт делает navigate
+   * на `/studies/<slug>?chapter=<chapterId>`.
+   *
+   * Errors:
+   *  - 400: оба или ни одного из `studyId`/`newStudyName`; превышение
+   *    лимита глав; превышение лимита студий per user (для newStudyName).
+   *  - 404: analysis недоступен (не свой и не public); studyId не найден
+   *    либо caller не member.
+   */
+  async fromAnalysis(
+    userId: string,
+    dto: {
+      analysisId: string;
+      studyId?: string;
+      newStudyName?: string;
+    },
+  ): Promise<{ studyId: string; slug: string; chapterId: string }> {
+    if (!!dto.studyId === !!dto.newStudyName) {
+      throw new BadRequestException(
+        'Specify exactly one of studyId or newStudyName',
+      );
+    }
+
+    // 1. Загружаем анализ + проверка доступа.
+    const analysis = await this.prisma.analysis.findUnique({
+      where: { id: dto.analysisId },
+    });
+    if (!analysis) throw new NotFoundException('Analysis not found');
+    if (analysis.userId !== userId && !analysis.isPublic) {
+      throw new NotFoundException('Analysis not found');
+    }
+
+    const chapterName = analysis.title
+      ? analysis.title
+      : `Analysis from ${analysis.createdAt.toISOString().slice(0, 10)}`;
+    const pgn = analysis.pgn ?? '';
+    const fromKind = `analysis:${analysis.id}`;
+
+    // 2a. Существующая студия — caller должен быть member.
+    if (dto.studyId) {
+      const study = await this.prisma.study.findUnique({
+        where: { id: dto.studyId },
+      });
+      if (!study) throw new NotFoundException('Study not found');
+      const isOwner = study.ownerId === userId;
+      const role = isOwner ? 'owner' : await this.members.getRole(study.id, userId);
+      if (!role || (role !== 'owner' && role !== 'contributor')) {
+        throw new NotFoundException('Study not found');
+      }
+
+      const chaptersCount = await this.prisma.studyChapter.count({
+        where: { studyId: study.id },
+      });
+      if (chaptersCount >= STUDY_LIMITS.chaptersPerStudy) {
+        throw new BadRequestException(
+          `Chapters limit reached (max ${STUDY_LIMITS.chaptersPerStudy} per study)`,
+        );
+      }
+
+      // orderIdx = max + STUDY_ORDER_STEP (1000).
+      const maxOrder = await this.prisma.studyChapter.findFirst({
+        where: { studyId: study.id },
+        orderBy: { orderIdx: 'desc' },
+        select: { orderIdx: true },
+      });
+      const nextOrderIdx = (maxOrder?.orderIdx ?? 0) + STUDY_ORDER_STEP;
+
+      const chapter = await this.prisma.$transaction(async (tx) => {
+        const c = await tx.studyChapter.create({
+          data: {
+            studyId: study.id,
+            name: chapterName,
+            orderIdx: nextOrderIdx,
+            pgn,
+            startFen: analysis.fen ?? null,
+            orientation: 'white',
+            mode: 'analysis',
+          },
+        });
+        await tx.study.update({
+          where: { id: study.id },
+          data: { chaptersCount: { increment: 1 } },
+        });
+        return c;
+      });
+
+      return { studyId: study.id, slug: study.slug, chapterId: chapter.id };
+    }
+
+    // 2b. Новая студия из newStudyName. Проверяем лимит студий per user.
+    const existingStudies = await this.prisma.study.count({
+      where: { ownerId: userId },
+    });
+    if (existingStudies >= STUDY_LIMITS.studiesPerUser) {
+      throw new BadRequestException(
+        `Studies limit reached (max ${STUDY_LIMITS.studiesPerUser} per user)`,
+      );
+    }
+    const slug = await this.slug.generateUnique(userId, dto.newStudyName!);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const study = await tx.study.create({
+        data: {
+          ownerId: userId,
+          slug,
+          name: dto.newStudyName!,
+          description: null,
+          isPublic: false,
+          visibility: 'private',
+          topics: [],
+          fromKind,
+          fromRefId: analysis.id,
+          chaptersCount: 1,
+        },
+      });
+      await tx.studyMember.create({
+        data: { studyId: study.id, userId, role: 'owner' },
+      });
+      const chapter = await tx.studyChapter.create({
+        data: {
+          studyId: study.id,
+          name: chapterName,
+          orderIdx: STUDY_ORDER_STEP,
+          pgn,
+          startFen: analysis.fen ?? null,
+          orientation: 'white',
+          mode: 'analysis',
+        },
+      });
+      return { study, chapter };
+    });
+
+    return {
+      studyId: created.study.id,
+      slug: created.study.slug,
+      chapterId: created.chapter.id,
+    };
   }
 
   /**
