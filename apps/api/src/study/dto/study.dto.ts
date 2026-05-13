@@ -249,6 +249,35 @@ export class ImportPgnDto {
 export const STUDY_CATALOG_SORTS = ['hot', 'new', 'updated', 'popular'] as const;
 export type StudyCatalogSort = (typeof STUDY_CATALOG_SORTS)[number];
 
+/**
+ * KS-2881 / ADR-060 §2.8 K6. Query для `GET /studies/by/:userId`.
+ *
+ *  - page default 1, pageSize default 20 max 50;
+ *  - `includePrivate=1` имеет смысл только когда caller == :userId; для
+ *    остальных параметр игнорируется (сервис сам режет).
+ */
+export class StudyByUserQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pageSize?: number;
+
+  /**
+   * `1`/`true` — auth-self хочет видеть и свои `unlisted`/`private` тоже.
+   * Для caller != :userId — параметр игнорируется (отдаём только public).
+   */
+  @IsOptional()
+  @IsString()
+  includePrivate?: string;
+}
+
 export class StudyCatalogQueryDto {
   @IsOptional()
   @IsIn(STUDY_CATALOG_SORTS as readonly string[])

@@ -34,12 +34,20 @@ function makePrisma(): any {
     studyMember: {
       create: jest.fn(),
     },
+    // KS-2881: listByUser использует prisma.user.findUnique для owner.
+    user: {
+      findUnique: jest.fn(),
+    },
     // KS-2880: catalog hot-sort использует $queryRawUnsafe для PG-формулы
     // (динамические WHERE-условия с параметризацией).
     $queryRawUnsafe: jest.fn(),
-    $transaction: jest.fn(async (cb: (tx: any) => Promise<unknown>) =>
-      cb(txContext),
-    ),
+    // KS-2881: listByUser использует $transaction([findMany, count]).
+    // Поддерживаем оба варианта: callback (для create) и array (для batch).
+    $transaction: jest.fn(async (arg: any) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      if (typeof arg === 'function') return arg(txContext);
+      return arg;
+    }),
   };
   // exposing tx context so tests can configure inner mocks
   prisma.__tx = txContext;
@@ -515,6 +523,105 @@ describe('StudyService — KS-2818 T3', () => {
 
       // skip=20 + 5 = 25 = total → hasMore=false
       expect(r.hasMore).toBe(false);
+    });
+  });
+
+  // ── KS-2881 / ADR-060 §2.8 K6. Список студий конкретного пользователя.
+  // Покрытие правил доступа:
+  //  - anon → только public;
+  //  - auth-other → только public (includePrivate игнорируется);
+  //  - auth-self + includePrivate=1 → все visibility'и;
+  //  - auth-self без includePrivate → только public;
+  //  - 404 если user не найден.
+  describe('listByUser (KS-2881)', () => {
+    const targetUser = { id: userId, username: 'alice' };
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue(targetUser);
+      prisma.study.findMany.mockResolvedValue([]);
+      prisma.study.count.mockResolvedValue(0);
+    });
+
+    it('anon → where = {ownerId, visibility: public}', async () => {
+      await svc.listByUser(null, userId, {});
+      const where = prisma.study.findMany.mock.calls[0][0].where;
+      expect(where).toEqual({ ownerId: userId, visibility: 'public' });
+    });
+
+    it('auth-other → where = {ownerId, visibility: public} даже при includePrivate=1', async () => {
+      await svc.listByUser(otherUserId, userId, { includePrivate: '1' });
+      const where = prisma.study.findMany.mock.calls[0][0].where;
+      expect(where).toEqual({ ownerId: userId, visibility: 'public' });
+    });
+
+    it('auth-self БЕЗ includePrivate → only public', async () => {
+      await svc.listByUser(userId, userId, {});
+      const where = prisma.study.findMany.mock.calls[0][0].where;
+      expect(where).toEqual({ ownerId: userId, visibility: 'public' });
+    });
+
+    it('auth-self + includePrivate=1 → все visibility', async () => {
+      await svc.listByUser(userId, userId, { includePrivate: '1' });
+      const where = prisma.study.findMany.mock.calls[0][0].where;
+      expect(where).toEqual({ ownerId: userId });
+      expect(where.visibility).toBeUndefined();
+    });
+
+    it('auth-self + includePrivate=true (строка) тоже включает приватные', async () => {
+      await svc.listByUser(userId, userId, { includePrivate: 'true' });
+      expect(prisma.study.findMany.mock.calls[0][0].where.visibility).toBeUndefined();
+    });
+
+    it('auth-self + includePrivate=anything-else → public', async () => {
+      await svc.listByUser(userId, userId, { includePrivate: 'yes' });
+      const where = prisma.study.findMany.mock.calls[0][0].where;
+      expect(where.visibility).toBe('public');
+    });
+
+    it('404 если user не найден', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(svc.listByUser(null, userId, {})).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('orderBy=updatedAt desc + пагинация page=2 pageSize=10 → skip=10 take=10', async () => {
+      await svc.listByUser(null, userId, { page: 2, pageSize: 10 });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.orderBy).toEqual({ updatedAt: 'desc' });
+      expect(call.skip).toBe(10);
+      expect(call.take).toBe(10);
+    });
+
+    it('pageSize клампится до max=50', async () => {
+      await svc.listByUser(null, userId, { pageSize: 999 });
+      expect(prisma.study.findMany.mock.calls[0][0].take).toBe(50);
+    });
+
+    it('response содержит owner: {id, username}', async () => {
+      prisma.study.findMany.mockResolvedValue([baseStudy]);
+      prisma.study.count.mockResolvedValue(1);
+      const r = await svc.listByUser(null, userId, {});
+      expect(r.owner).toEqual({ id: userId, username: 'alice' });
+      expect(r.items).toHaveLength(1);
+      expect(r.total).toBe(1);
+      expect(r.hasMore).toBe(false);
+    });
+
+    it('owner.username=null когда у пользователя нет username (requires setup)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: userId, username: null });
+      const r = await svc.listByUser(null, userId, {});
+      expect(r.owner).toEqual({ id: userId, username: null });
+    });
+
+    it('hasMore=true когда skip+items.length < total', async () => {
+      prisma.study.findMany.mockResolvedValue(
+        Array.from({ length: 20 }, (_, i) => ({ ...baseStudy, id: `s-${i}` })),
+      );
+      prisma.study.count.mockResolvedValue(45);
+      const r = await svc.listByUser(null, userId, { page: 1, pageSize: 20 });
+      expect(r.hasMore).toBe(true);
+      expect(r.total).toBe(45);
     });
   });
 });

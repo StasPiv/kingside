@@ -14,6 +14,7 @@ import {
 } from './study-limits';
 import type {
   CreateStudyDto,
+  StudyByUserQueryDto,
   StudyCatalogQueryDto,
   StudyCatalogSort,
   UpdateStudyDto,
@@ -196,6 +197,79 @@ export class StudyService {
       items,
       total,
       hasMore: skip + items.length < total,
+    };
+  }
+
+  /**
+   * KS-2881 / ADR-060 §2.8 K6. Список студий конкретного пользователя.
+   *
+   * Правила доступа:
+   *  - anonymous (callerId=null) → только `visibility='public'`.
+   *  - caller != ownerId → только `visibility='public'`.
+   *  - caller == ownerId + `includePrivate=true` → все visibility'и
+   *    (public, unlisted, private).
+   *  - caller == ownerId + без `includePrivate` → только `public`
+   *    (симметрия с тем, что увидит сторонний наблюдатель).
+   *
+   * Сортировка `updatedAt DESC` (использует индекс
+   * `(visibility, updatedAt)` для public-веток; для self-includePrivate
+   * — `(ownerId, updatedAt)`).
+   *
+   * Response: `{ items, total, hasMore, owner: { id, username } }`.
+   * `owner.username` бывает `null` (требуется setup-username flow); в
+   * этом случае возвращаем `null`, чтобы фронт мог отрисовать `id`.
+   *
+   * 404, если пользователя `:userId` не существует — не светим
+   * существование/отсутствие через ассиметрию ответов.
+   */
+  async listByUser(
+    callerId: string | null,
+    targetUserId: string,
+    query: StudyByUserQueryDto,
+  ): Promise<{
+    items: StudyDto[];
+    total: number;
+    hasMore: boolean;
+    owner: { id: string; username: string | null };
+  }> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, username: true },
+    });
+    if (!owner) throw new NotFoundException('User not found');
+
+    const page = clampInt(query.page ?? 1, 1, 10_000);
+    const pageSize = clampInt(query.pageSize ?? 20, 1, 50);
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    const isSelf = callerId !== null && callerId === targetUserId;
+    const wantPrivate =
+      isSelf &&
+      (query.includePrivate === '1' ||
+        query.includePrivate === 'true');
+
+    const where: Prisma.StudyWhereInput = {
+      ownerId: targetUserId,
+      ...(wantPrivate ? {} : { visibility: 'public' }),
+    };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.study.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.study.count({ where }),
+    ]);
+
+    const items = rows.map(toStudyDto);
+    return {
+      items,
+      total,
+      hasMore: skip + items.length < total,
+      owner: { id: owner.id, username: owner.username ?? null },
     };
   }
 
