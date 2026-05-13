@@ -972,7 +972,7 @@ MCP_ALLOWED_TOOLS = [
 
 def _build_mcp_config(user_id, user_token=""):
     """Build temporary MCP config JSON for Claude CLI with user-specific env."""
-    api_url = os.environ.get("KINGSIDE_API_URL", "http://localhost:3001/api")
+    api_url = os.environ.get("KINGSIDE_API_URL", "http://localhost:3001")
     return {
         "mcpServers": {
             "kingside": {
@@ -994,12 +994,15 @@ def _build_mcp_config(user_id, user_token=""):
 
 chat_daemons: dict[str, "ChatDaemon"] = {}
 chat_daemons_lock = threading.Lock()
+# Хранит session_id Claude CLI для каждого user_id. Переживает перезапуски ChatDaemon,
+# чтобы после timeout/idle новый процесс мог продолжить через --resume.
+chat_session_ids: dict[str, str] = {}
 
 
 class ChatDaemon:
     """Daemon claude CLI для одного пользователя чата."""
 
-    def __init__(self, user_id: str, user_token: str = ""):
+    def __init__(self, user_id: str, user_token: str = "", resume_session_id: str | None = None):
         self.user_id = user_id
         self.user_token = user_token
         self.proc: subprocess.Popen | None = None
@@ -1007,6 +1010,8 @@ class ChatDaemon:
         self._reader_thread: threading.Thread | None = None
         self._last_activity = time.time()
         self._mcp_config_path: str | None = None
+        # session_id для --resume при следующем старте. Берётся из system/init event.
+        self._resume_session_id: str | None = resume_session_id
         # Для синхронного ожидания ответа
         self._response_text = ""
         self._response_ready = threading.Event()
@@ -1029,10 +1034,11 @@ class ChatDaemon:
             "--model", "sonnet",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
-            "--no-session-persistence",
             "--verbose",
             "--strict-mcp-config",
         ])
+        if self._resume_session_id:
+            cmd.extend(["--resume", self._resume_session_id])
         if self._mcp_config_path:
             cmd.extend(["--mcp-config", self._mcp_config_path])
             cmd.extend(["--allowedTools"] + MCP_ALLOWED_TOOLS)
@@ -1069,17 +1075,31 @@ class ChatDaemon:
     def _read_stdout(self):
         """Читает stream-json stdout, собирает текстовый ответ."""
         proc = self.proc
+        log_path = os.path.join(LOG_DIR, f"chat-daemon-{self.user_id[:8]}.log")
+        try:
+            stream_log = open(log_path, "a", buffering=1)
+        except OSError:
+            stream_log = None
         try:
             for line in iter(proc.stdout.readline, ""):
                 line_s = line.strip()
                 if not line_s:
                     continue
+                if stream_log:
+                    stream_log.write(f"[{time.strftime('%H:%M:%S')}] {line_s}\n")
                 try:
                     data = json.loads(line_s)
                 except (json.JSONDecodeError, ValueError):
                     continue
 
                 msg_type = data.get("type", "")
+
+                # Запоминаем session_id для будущего --resume
+                if msg_type == "system" and data.get("subtype") == "init":
+                    sid = data.get("session_id")
+                    if sid:
+                        self._resume_session_id = sid
+                        chat_session_ids[self.user_id] = sid
 
                 # Собираем текстовые блоки ответа
                 if msg_type == "assistant" and self._collecting:
@@ -1103,6 +1123,11 @@ class ChatDaemon:
         finally:
             if proc.stdout:
                 proc.stdout.close()
+            if stream_log:
+                try:
+                    stream_log.close()
+                except OSError:
+                    pass
             log(f"ChatDaemon {self.user_id[:8]}: reader done")
             # Signal waiting callers
             self._response_ready.set()
@@ -1207,8 +1232,9 @@ def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str
         if len(chat_daemons) >= MAX_CHAT_DAEMONS:
             log(f"ChatDaemon limit reached ({MAX_CHAT_DAEMONS}), rejecting {user_id[:8]}")
             return None
-        # Создаём новый
-        daemon = ChatDaemon(user_id, user_token)
+        # Создаём новый (с резюме предыдущей сессии, если есть)
+        resume_sid = chat_session_ids.get(user_id)
+        daemon = ChatDaemon(user_id, user_token, resume_session_id=resume_sid)
         daemon.start(system_prompt)
         chat_daemons[user_id] = daemon
         return daemon
@@ -1298,13 +1324,6 @@ def handle_ai_chat(handler):
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": str(e)}).encode())
-
-    finally:
-        if mcp_config_path:
-            try:
-                os.unlink(mcp_config_path)
-            except OSError:
-                pass
 
 
 def launch_agent(key, summary, agent, prompt=None):

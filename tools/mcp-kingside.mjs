@@ -10,7 +10,7 @@ import { createInterface } from 'readline';
 
 const USER_TOKEN = process.env.KINGSIDE_USER_TOKEN || '';
 const USER_ID = process.env.KINGSIDE_USER_ID || '';
-const API = process.env.KINGSIDE_API_URL || 'http://localhost:3001/api';
+const API = process.env.KINGSIDE_API_URL || 'http://localhost:3001';
 
 const TOOLS = [
   { name: 'get_user_analyses', description: "Get the user's saved game analyses.", inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
