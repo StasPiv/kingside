@@ -18,19 +18,36 @@ import {
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AnalysisService } from './analysis.service';
-import { SavedFilterService } from './saved-filter.service';
+import { SavedFiltersService } from '../user/saved-filters/saved-filters.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 import { ShareAnalysisDto } from './dto/share-analysis.dto';
 import { CreateSavedFilterDto } from './dto/create-saved-filter.dto';
 import { UpdateSavedFilterDto } from './dto/update-saved-filter.dto';
+import {
+  legacyCreateToShared,
+  legacyUpdateToShared,
+  toLegacyShape,
+} from './saved-filter-legacy.mapper';
+
+/**
+ * KS-2924 / KS-2929 Phase A5. Sunset эндпоинтов `/analyses/filters` —
+ * 90 дней с момента выкатки A5 (2026-05-13 → 2026-08-11). После этой
+ * даты эндпоинты можно удалять вместе с legacy-mapper'ом, при условии
+ * что Phase B3 (миграция фронта Мастерской на `/api/user/saved-filters`)
+ * завершена. Формат HTTP-date — RFC 7231 §7.1.1.1.
+ */
+const SUNSET_DATE = 'Tue, 11 Aug 2026 00:00:00 GMT';
+const SUCCESSOR_LINK =
+  '</api/user/saved-filters>; rel="successor-version"';
 
 @UseGuards(JwtAuthGuard)
 @Controller('analyses')
 export class AnalysisController {
   constructor(
     private readonly analysisService: AnalysisService,
-    private readonly savedFilterService: SavedFilterService,
+    /** KS-2929: legacy /analyses/filters делегирует в новый сервис. */
+    private readonly savedFiltersService: SavedFiltersService,
   ) {}
 
   @Post()
@@ -56,36 +73,62 @@ export class AnalysisController {
     );
   }
 
-  // ---- Saved Filters ----
+  // ---- Saved Filters (DEPRECATED — KS-2929) ----------------------
+  // Legacy proxy на `SavedFiltersService` (/api/user/saved-filters).
+  // На каждый ответ выставляются заголовки Sunset/Deprecation/Link
+  // (RFC 8594 + RFC 7234), чтобы клиенты могли отследить депрекейт.
+  // Удаляется после фазы B3 (миграция фронта Мастерской).
 
   @Get('filters')
-  getFilters(@Request() req: AuthenticatedRequest) {
-    return this.savedFilterService.findAll(req.user.id);
+  @Header('Sunset', SUNSET_DATE)
+  @Header('Deprecation', 'true')
+  @Header('Link', SUCCESSOR_LINK)
+  async getFilters(@Request() req: AuthenticatedRequest) {
+    const list = await this.savedFiltersService.list(req.user.id, 'workshop');
+    return list.map((dto) => toLegacyShape(req.user.id, dto));
   }
 
   @Post('filters')
-  createFilter(
+  @Header('Sunset', SUNSET_DATE)
+  @Header('Deprecation', 'true')
+  @Header('Link', SUCCESSOR_LINK)
+  async createFilter(
     @Request() req: AuthenticatedRequest,
     @Body() dto: CreateSavedFilterDto,
   ) {
-    return this.savedFilterService.create(req.user.id, dto);
+    const created = await this.savedFiltersService.create(
+      req.user.id,
+      legacyCreateToShared(dto),
+    );
+    return toLegacyShape(req.user.id, created);
   }
 
   @Patch('filters/:filterId')
-  updateFilter(
+  @Header('Sunset', SUNSET_DATE)
+  @Header('Deprecation', 'true')
+  @Header('Link', SUCCESSOR_LINK)
+  async updateFilter(
     @Request() req: AuthenticatedRequest,
     @Param('filterId', ParseUUIDPipe) filterId: string,
     @Body() dto: UpdateSavedFilterDto,
   ) {
-    return this.savedFilterService.update(req.user.id, filterId, dto);
+    const updated = await this.savedFiltersService.update(
+      req.user.id,
+      filterId,
+      legacyUpdateToShared(dto),
+    );
+    return toLegacyShape(req.user.id, updated);
   }
 
   @Delete('filters/:filterId')
+  @Header('Sunset', SUNSET_DATE)
+  @Header('Deprecation', 'true')
+  @Header('Link', SUCCESSOR_LINK)
   removeFilter(
     @Request() req: AuthenticatedRequest,
     @Param('filterId', ParseUUIDPipe) filterId: string,
   ) {
-    return this.savedFilterService.remove(req.user.id, filterId);
+    return this.savedFiltersService.remove(req.user.id, filterId);
   }
 
   @Post('export')
