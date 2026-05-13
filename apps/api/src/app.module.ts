@@ -38,7 +38,14 @@ import { ProfileModule } from './profile/profile.module';
 import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
 import { StudyModule } from './study/study.module';
 import { McpModule } from './mcp/mcp.module';
-import { KnowledgeModule } from './knowledge/knowledge.module';
+// KS-2967 / ADR-063 Phase 2 — KnowledgeModule временно отключён от
+// bootstrap'а NestJS. Код, тесты и Dockerfile-инструкции остаются в
+// репо для следующей итерации (см. apps/api/src/knowledge/). Причина
+// rollback'а: реализация даёт залогиненному пользователю через
+// ассистент path/line/фрагменты исходников фронта, а STATIC_FOOTER
+// одновременно требует «не раскрывать technical details» — конфликт
+// инструкций модели, не подходит к политике приватного репо.
+// import { KnowledgeModule } from './knowledge/knowledge.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -93,10 +100,8 @@ import { HealthController } from './health.controller';
     StudyModule,
     // KS-2952 / ADR-061 этап A. MCP auto-discovery: GET /_mcp/tools.
     McpModule,
-    // KS-2967 / ADR-063 Phase 2. Knowledge-tools для AI-ассистента —
-    // search/read по allowlist репозитория. Регистрируется в MCP как
-    // section `knowledge`.
-    KnowledgeModule,
+    // KS-2967 / ADR-063 Phase 2 (KnowledgeModule) — временно отключён,
+    // см. import выше.
   ],
 })
 export class AppModule implements NestModule {

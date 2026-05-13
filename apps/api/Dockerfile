@@ -41,25 +41,14 @@ COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
-# KS-2967 / ADR-063 Phase 2 — knowledge-tools читают на лету
-# allowlisted-исходники репозитория. Бинарь ripgrep ставим обязательно
-# (search-инструмент), допускаем пустой allowlist в production: source-
-# каталоги (apps/web/src, apps/web/public/locales, docs, apps/*/README.md)
-# в текущем build context deploy-runner'а недоступны. Без них:
-#   - GET /knowledge/search вернёт пустой результат (existsSync-фильтр
-#     отсекает отсутствующие search-roots до вызова rg).
-#   - GET /knowledge/read вернёт 404 для всех путей (resolveAndAuthorize
-#     проверяет существование файла).
-#   - В /_mcp/tools section `knowledge` зарегистрирована и обнаруживается
-#     MCP-сервером — модель видит инструменты, но без данных.
-# packages/shared/src копируется выше (нужен для @kingside/shared) и
-# попадает под allowlist — поиск по types/constants работает.
-# Расширение build-context (apps/web/src + docs) — отдельная задача
-# DevOps; после неё нужно добавить сюда `COPY apps/web/src ./apps/web/src`
-# и аналогично для docs/locales.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ripgrep \
-    && rm -rf /var/lib/apt/lists/*
+# KS-2967 / ADR-063 Phase 2 — rollback. KnowledgeModule отключён от
+# bootstrap'а в apps/api/src/app.module.ts. ripgrep, COPY apps/web/src,
+# COPY docs убраны, чтобы не раздувать build context и не плодить
+# layer'ы под отключённую фичу. Когда Phase 2 вернётся (после
+# пересмотра политики экспонирования путей/фрагментов кода через
+# ассистент и расширения build-context на deploy-runner'е) — вернуть
+# `apt-get install -y --no-install-recommends ripgrep` и нужные COPY
+# из подмножества allowlist'а.
 # KS-2411: AWS RDS global CA bundle для verify-full подключения к
 # archive-RDS из индексера (`scripts/index-tactic-drills`,
 # `tactic-drill-incremental.scheduler`). Заменяет NODE_TLS_REJECT_UNAUTHORIZED=0
