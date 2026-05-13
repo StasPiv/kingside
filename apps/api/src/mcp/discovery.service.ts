@@ -229,8 +229,17 @@ export class McpDiscoveryService implements OnApplicationBootstrap {
           }
           const auth: McpAuth | undefined =
             toolMeta.auth ?? moduleMeta.defaultAuth;
+          // KS-2954: имя по-умолчанию включает controller-slug чтобы
+          // избежать коллизий при одинаковых method-name в разных
+          // контроллерах одного section (например, UserController.create
+          // vs SavedFiltersController.create в section `users`).
+          // controller-slug = `<Class>Controller` → `<class_snake>`.
+          const controllerSlug = toSnakeCase(
+            (controllerClass.name ?? 'ctrl').replace(/Controller$/, ''),
+          );
           const toolName =
-            toolMeta.name ?? `${moduleMeta.section}__${toSnakeCase(methodName)}`;
+            toolMeta.name ??
+            `${moduleMeta.section}__${controllerSlug}__${toSnakeCase(methodName)}`;
           if (usedNames.has(toolName)) {
             throw new Error(
               `MCP tool name collision: '${toolName}' (см. ` +

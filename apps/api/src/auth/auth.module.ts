@@ -17,7 +17,13 @@ import { AdminEmailGuard } from './admin-email.guard';
 import { AdminUserGuard, AdminUserService } from './admin-user.guard';
 import { InternalKeyGuard } from './internal-key.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { McpExclude } from '../mcp/decorators';
 
+// KS-2954 (ADR-061 §8): auth-флоу никогда не для ассистента (login/refresh/
+// OAuth/screenshot-token). `@McpExclude` ставится на модуль как
+// страховка — даже если кто-то по ошибке добавит `@McpModule`, discovery
+// service увидит exclude и пропустит весь модуль.
+@McpExclude()
 @Module({
   imports: [
     PassportModule,

@@ -14,7 +14,22 @@ import { SavedFiltersService } from './saved-filters/saved-filters.service';
 import { EcoService } from '../game/eco.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkshopModule } from '../workshop/workshop.module';
+import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
+// KS-2954 (ADR-061 §8): MCP-секция `users` — профиль текущего
+// пользователя, time-controls, preferences, saved-filters, nav-stats.
+// InternalUsersController защищён InternalKeyGuard и автоматически
+// отсекается hard-exclude (см. §5 уровень 1).
+@McpDiscoveryModule({
+  section: 'users',
+  title: 'Пользователь',
+  description:
+    'Профиль текущего пользователя: настройки игры (time-controls), ' +
+    'preferences (тема, доска, звуки), сохранённые фильтры workshop/архива, ' +
+    'статистика посещений разделов. Сюда — за «моими» настройками и ' +
+    'данными аккаунта.',
+  defaultAuth: 'user',
+})
 @Module({
   imports: [AuthModule, WorkshopModule],
   controllers: [

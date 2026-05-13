@@ -214,9 +214,12 @@ describe('McpDiscoveryService (KS-2952)', () => {
     expect(cat.tools[0].auth).toBe('user');
   });
 
-  it('5b) auto-generated tool name: <section>__<method snake_case>', () => {
+  it('5b) auto-generated tool name: <section>__<controller-slug>__<method snake_case>', () => {
+    // KS-2954: имя включает controller-slug чтобы избежать коллизий
+    // когда несколько controllers в одной секции имеют одинаковый
+    // method name (например, два `create`).
     @Controller('analyses')
-    class Ctl {
+    class AnalysisController {
       @Get()
       findAllUsers() {}
     }
@@ -227,10 +230,10 @@ describe('McpDiscoveryService (KS-2952)', () => {
     })
     class M {}
     const svc = buildService(
-      buildContainer([{ metatype: M, controllers: [Ctl] }]),
+      buildContainer([{ metatype: M, controllers: [AnalysisController] }]),
     );
     const cat = svc.build();
-    expect(cat.tools[0].name).toBe('analyses__find_all_users');
+    expect(cat.tools[0].name).toBe('analyses__analysis__find_all_users');
   });
 
   it('5c) tool name collision → ошибка bootstrap', () => {

@@ -63,12 +63,77 @@ describe('GET /_mcp/tools (KS-2952)', () => {
     }
   });
 
+  it('KS-2954 (A2): каталог содержит остальные секции по таблице ADR-061 §8', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/_mcp/tools')
+      .expect(200);
+    const ids = res.body.sections.map((s: { id: string }) => s.id);
+    // ProfileModule использует тот же section `users` что и UserModule;
+    // MistakesModule — `puzzles` как и PuzzleModule. Дедуплицируется.
+    for (const expected of [
+      'users',
+      'puzzle_rush',
+      'tournaments',
+      'live_tournaments',
+      'workshop',
+      'players',
+      'messages',
+      'friends',
+      'notifications',
+      'arena',
+      'feedback',
+      'lessons',
+      'user_courses',
+      'config',
+    ]) {
+      expect(ids).toContain(expected);
+    }
+  });
+
+  it('KS-2954: total ~20 секций (по таблице ADR-061 §8)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/_mcp/tools')
+      .expect(200);
+    // Ожидаемо 19 уникальных section id (UserModule+ProfileModule
+    // делят `users`; PuzzleModule+MistakesModule делят `puzzles`):
+    // studies, analyses, puzzles, tactic_drills, games, users,
+    // puzzle_rush, tournaments, live_tournaments, workshop, players,
+    // messages, friends, notifications, arena, feedback, lessons,
+    // user_courses, config = 19.
+    expect(res.body.sections.length).toBeGreaterThanOrEqual(18);
+    expect(res.body.sections.length).toBeLessThanOrEqual(22);
+  });
+
   it('каталог НЕ содержит admin/internal путей', async () => {
     const res = await request(app.getHttpServer())
       .get('/_mcp/tools')
       .expect(200);
     for (const tool of res.body.tools as Array<{ path: string }>) {
       expect(tool.path).not.toMatch(/(?:^|\/)(admin|internal)(?:\/|$)/);
+    }
+  });
+
+  it('KS-2954: excluded-модули отсутствуют в каталоге (auth/admin/ai-chat/metrics/client-logs/health)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/_mcp/tools')
+      .expect(200);
+    const paths = (res.body.tools as Array<{ path: string }>).map(
+      (t) => t.path,
+    );
+    // ни одного tool'а под этими префиксами
+    for (const forbidden of [
+      '/auth',
+      '/admin',
+      '/internal',
+      '/chat',
+      '/metrics',
+      '/client-logs',
+      '/health',
+    ]) {
+      const leaked = paths.filter(
+        (p) => p === forbidden || p.startsWith(forbidden + '/'),
+      );
+      expect(leaked).toEqual([]);
     }
   });
 

@@ -6,6 +6,7 @@ import { UserLessonStepsService } from './user-lesson-steps.service';
 import { UserProgressService } from './user-progress.service';
 import { UserCourseOwnerGuard } from './user-course-owner.guard';
 import { SlugService } from './slug.service';
+import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
 
 /**
  * UserCoursesModule — пользовательские курсы (ADR-026, KS-1829).
@@ -29,7 +30,22 @@ import { SlugService } from './slug.service';
  *   - `SlugService` — генерация slug'ов.
  *
  * `RedisModule` не импортируется явно: он `@Global()`.
+ *
+ * KS-2954 (ADR-061 §8): MCP-секция `user_courses`. Сам модуль после
+ * KS-2647 (Phase E1) не имеет собственных контроллеров — unified-роуты
+ * живут в `LessonsModule` (раздел `lessons`). Секция оставлена в
+ * каталоге для системного промта ассистента — отдельная концепция в
+ * UI «пользовательские курсы».
  */
+@McpDiscoveryModule({
+  section: 'user_courses',
+  title: 'Пользовательские курсы',
+  description:
+    'Пользовательские курсы — авторские курсы, создаваемые игроками. ' +
+    'HTTP-эндпоинты живут под унифицированным /lessons/* (см. lessons), ' +
+    'здесь только концепция для системного промта.',
+  defaultAuth: 'optional',
+})
 @Module({
   imports: [PrismaModule],
   controllers: [],

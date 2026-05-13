@@ -37,6 +37,7 @@ import {
   Adr054UnifiedProgressController,
 } from './adr054-unified.controller';
 import { Adr054UnifiedCoursesPublicController } from './adr054-unified-public.controller';
+import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -49,7 +50,21 @@ import { Adr054UnifiedCoursesPublicController } from './adr054-unified-public.co
  *    появления соответствующих типов шагов (`game_review` — итерация 3).
  *
  * `@nestjs/schedule` подключается в `app.module.ts` (`ScheduleModule.forRoot()`).
+ *
+ * KS-2954 (ADR-061 §8): MCP-секция `lessons` — уроки/курсы платформы и
+ * прогресс пользователя. Admin-контроллеры (`lessons/admin/*`)
+ * автоматически отсекаются hard-exclude по `AdminEmailGuard` + path
+ * `admin/*`.
  */
+@McpDiscoveryModule({
+  section: 'lessons',
+  title: 'Уроки и курсы',
+  description:
+    'Образовательные курсы и уроки платформы: каталог авторов и курсов, ' +
+    'структура уроков, прогресс пользователя, ревью уроков по SM-2, ' +
+    'i18n-локализованные тексты. Сюда — за обучением и материалами.',
+  defaultAuth: 'optional',
+})
 @Module({
   // KS-1962: AuthModule импортируем ради DI-резолва AdminEmailGuard
   // в LessonsAdminController (JwtAuthGuard ходит через passport

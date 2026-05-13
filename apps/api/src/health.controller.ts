@@ -1,9 +1,14 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
+import { McpExclude } from './mcp/decorators';
 
 type ComponentStatus = 'ok' | 'error' | 'readonly';
 
+// KS-2954 (ADR-061 §8): health-check бесполезен ассистенту. AppModule
+// сам по себе не помечен `@McpModule`, и HealthController туда бы не
+// попал. Но ставим явный `@McpExclude` чтобы намерение читалось.
+@McpExclude()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
