@@ -19,7 +19,19 @@ import { GlickoRatingService } from '../puzzle/glicko-rating.service';
 import { DailyTacticDrillController } from './daily-tactic-drill.controller';
 import { DailyTacticDrillService } from './daily-tactic-drill.service';
 import { DailyTacticDrillImageService } from './daily-tactic-drill-image.service';
+import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
+// KS-2952 (ADR-061 §8): MCP-секция `tactic_drills` — тактические
+// тренировки, sprint и daily-drill.
+@McpDiscoveryModule({
+  section: 'tactic_drills',
+  title: 'Тактические тренировки',
+  description:
+    'Тактические упражнения (drill-mode): подбор по теме/рейтингу, ' +
+    'sprint-сессии с лидербордом, daily-drill. Сюда — если пользователь ' +
+    'хочет тренировать тактику или посмотреть рейтинг drill.',
+  defaultAuth: 'optional',
+})
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [TacticDrillController, DailyTacticDrillController],

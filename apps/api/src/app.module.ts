@@ -37,6 +37,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ProfileModule } from './profile/profile.module';
 import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
 import { StudyModule } from './study/study.module';
+import { McpModule } from './mcp/mcp.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -89,6 +90,8 @@ import { HealthController } from './health.controller';
     // KS-2815 / ADR-059 (KS-2818 T3). Учебные студии — самостоятельная
     // фича (см. docs/architecture/KS-2815-studies-standalone.md).
     StudyModule,
+    // KS-2952 / ADR-061 этап A. MCP auto-discovery: GET /_mcp/tools.
+    McpModule,
   ],
 })
 export class AppModule implements NestModule {

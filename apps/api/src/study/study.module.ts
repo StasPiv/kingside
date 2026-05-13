@@ -15,6 +15,7 @@ import { StudyMembersController } from './study-members.controller';
 import { StudyMembersService } from './study-members.service';
 import { StudyLikesService } from './study-likes.service';
 import { StudyInvitesService } from './study-invites.service';
+import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
 /**
  * KS-2815 / ADR-059 / KS-2818 T3. NestJS-модуль для Studies.
@@ -32,6 +33,17 @@ import { StudyInvitesService } from './study-invites.service';
  * модуль их экспортирует через `providers`/`exports`, при появлении
  * controller'а добавим его в `controllers`.
  */
+// KS-2952 / ADR-061 этап A1. Студии — учебные контейнеры с pgn-главами,
+// доступ к публичному каталогу + к собственным студиям пользователя.
+@McpDiscoveryModule({
+  section: 'studies',
+  title: 'Учебные студии',
+  description:
+    'Студии — контейнеры с pgn-главами, аналог Lichess studies. ' +
+    'Каталог публичных студий с фильтрами/сортировкой, мои студии, ' +
+    'главы, импорт/экспорт PGN, участники и лайки.',
+  defaultAuth: 'optional',
+})
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [
