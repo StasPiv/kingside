@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -77,12 +77,30 @@ function saveSettings(s: PuzzleGenSettings) {
 
 interface PuzzleGeneratorModalProps {
   onClose: () => void;
+  /**
+   * KS-2958: предзаполненный PGN (например, из окна анализа). Если задан —
+   * блоки «upload .pgn» и `<textarea>` скрываются, юзер не вводит PGN
+   * руками. PGN можно по-прежнему изменить параметрами (depth/blunderDelta)
+   * через раздел «Advanced Settings».
+   */
+  initialPgn?: string;
+  /**
+   * KS-2958: автоматически запустить генерацию сразу после открытия
+   * модала. Используется в сочетании с `initialPgn` — клик «Сгенерировать
+   * пазл» из overflow-меню анализа сразу же показывает прогресс, без
+   * лишнего «Generate» нажатия. Срабатывает один раз.
+   */
+  autoStart?: boolean;
 }
 
-export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
+export function PuzzleGeneratorModal({
+  onClose,
+  initialPgn,
+  autoStart = false,
+}: PuzzleGeneratorModalProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [pgnText, setPgnText] = useState('');
+  const [pgnText, setPgnText] = useState(initialPgn ?? '');
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [result, setResult] = useState<GeneratedPuzzleData[] | null>(null);
@@ -201,6 +219,20 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     navigate('/precision?mine=true&visibility=draft');
   }, [onClose, navigate]);
 
+  // KS-2958: автозапуск генерации при открытии с предзаполненным PGN
+  // (точка входа из overflow-меню анализа). Срабатывает один раз: гард
+  // через ref защищает от повторных вызовов при ре-рендере (StrictMode
+  // dev double-invoke).
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart) return;
+    if (autoStartedRef.current) return;
+    if (!pgnText.trim()) return;
+    if (generating || result) return;
+    autoStartedRef.current = true;
+    void handleGenerate();
+  }, [autoStart, pgnText, generating, result, handleGenerate]);
+
   // KS-2585: blunderDelta UI работает в %, а в state — в долях [0..1].
   const blunderDeltaPct = Math.round(settings.blunderDelta * 100);
 
@@ -218,18 +250,26 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
 
         {!generating && !result && (
           <div className="puzzle-generator-input">
-            <div className="puzzle-generator-upload">
-              <input type="file" accept=".pgn" onChange={handleFileUpload} className="puzzle-generator-file" />
-              <span className="puzzle-generator-or">{t('common.or', 'or')}</span>
-            </div>
-            <textarea
-              className="puzzle-generator-textarea"
-              placeholder={t('puzzleGenerator.pastePgn', 'Paste PGN here...')}
-              value={pgnText}
-              onChange={(e) => setPgnText(e.target.value)}
-              rows={6}
-              data-testid="puzzle-generator-textarea"
-            />
+            {/* KS-2958: при `initialPgn` (запуск из окна анализа) скрываем
+                блоки upload + textarea — PGN уже передан, юзеру не надо
+                его вводить руками. Advanced settings (depth/blunderDelta)
+                остаются доступны. */}
+            {!initialPgn && (
+              <>
+                <div className="puzzle-generator-upload">
+                  <input type="file" accept=".pgn" onChange={handleFileUpload} className="puzzle-generator-file" />
+                  <span className="puzzle-generator-or">{t('common.or', 'or')}</span>
+                </div>
+                <textarea
+                  className="puzzle-generator-textarea"
+                  placeholder={t('puzzleGenerator.pastePgn', 'Paste PGN here...')}
+                  value={pgnText}
+                  onChange={(e) => setPgnText(e.target.value)}
+                  rows={6}
+                  data-testid="puzzle-generator-textarea"
+                />
+              </>
+            )}
 
             {/* Advanced Settings */}
             <div className="puzzle-gen-advanced">

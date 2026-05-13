@@ -42,8 +42,10 @@ import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
 // handlers) остаётся в AnalysisPage, передаётся через props.
 import { AnalysisHeader } from './analysis/AnalysisHeader';
-// KS-2958: пункт overflow-меню «Сгенерировать пазл» для kind=analysis|review.
-import { GeneratePuzzleMenuItem } from '../components/analysis/GeneratePuzzleMenuItem';
+// KS-2958: переиспользуем основной `PuzzleGeneratorModal` с пропами
+// `initialPgn` + `autoStart` — то же окно с прогрессом и пост-flow
+// (My drafts / Publish all), что и в разделе «Тренировка точности».
+import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
 // KS-2864 (ADR-060 §10.1 FR2): извлечённый board-area — GameMetaBar +
 // EvalBar + Chessboard + promotion-overlay + VariationChooser.
 // useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
@@ -587,6 +589,10 @@ function AnalysisPageInner({
   const ec = useEngineConfig();
   const [showSetPosition, setShowSetPosition] = useState(false);
   const [showPgnHeaders, setShowPgnHeaders] = useState(false);
+  // KS-2958: модал «Сгенерировать пазл» — переиспользует основной
+  // PuzzleGeneratorModal с автозапуском от текущего PGN партии.
+  const [showPuzzleGen, setShowPuzzleGen] = useState(false);
+  const [puzzleGenPgn, setPuzzleGenPgn] = useState<string>('');
   const [bridgePromoDismissed, setBridgePromoDismissed] = useState(() => {
     try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
   });
@@ -1942,14 +1948,25 @@ function AnalysisPageInner({
                   </button>
                   {/* KS-2958: «Сгенерировать пазл» — только для kind=analysis|review.
                       В study/puzzle скрыто (в studies своя задача, в puzzle
-                      нет смысла). Использует тот же puzzleGenerator.ts,
-                      что и precision-режим. */}
+                      нет смысла). Открывает основной PuzzleGeneratorModal
+                      с PGN текущей партии и autoStart=true — то же окно с
+                      прогрессом и пост-flow «My drafts» / «Publish all»,
+                      что и в разделе «Тренировка точности», только без
+                      ручного ввода PGN (он подставляется автоматически). */}
                   {(ctx.kind === 'analysis' || ctx.kind === 'review') && (
-                    <GeneratePuzzleMenuItem
-                      getPgn={buildAnalysisPgn}
-                      onClose={() => setShowOverflowMenu(false)}
+                    <button
+                      onClick={() => {
+                        const pgn = buildAnalysisPgn();
+                        if (!pgn) return;
+                        setPuzzleGenPgn(pgn);
+                        setShowPuzzleGen(true);
+                        setShowOverflowMenu(false);
+                      }}
                       disabled={history.length === 0}
-                    />
+                      data-testid="analysis-generate-puzzle-overflow"
+                    >
+                      {t('analysis.generatePuzzle', 'Generate puzzle')}
+                    </button>
                   )}
                   {/* KS-2674: «Поделиться» — пункт меню для mobile.
                       Клик открывает тот же popup, что Share-кнопка на
@@ -2084,6 +2101,17 @@ function AnalysisPageInner({
           headers={pgnHeaders}
           onApply={(h) => setPgnHeaders(h)}
           onClose={() => setShowPgnHeaders(false)}
+        />
+      )}
+
+      {/* KS-2958: тот же PuzzleGeneratorModal, что в разделе «Тренировка
+          точности» — единое окно с прогрессом и пост-flow (My drafts /
+          Publish all). PGN подставляется автоматически, ввод скрыт. */}
+      {showPuzzleGen && (
+        <PuzzleGeneratorModal
+          initialPgn={puzzleGenPgn}
+          autoStart
+          onClose={() => setShowPuzzleGen(false)}
         />
       )}
     </div>
