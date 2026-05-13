@@ -90,7 +90,7 @@ _BASE_VOLUMES = [
     f"{_P}/.claude:/project/.claude:ro",
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
     f"{_SHARED_TMP}:/tmp",
-    f"{_P}/tools/mcp-agent.mjs:/project/tools/mcp-agent.mjs:ro",
+    f"{_P}/tools:/project/tools:rw",
     # turbo.json нужен всем для `turbo run build/test/lint` в монорепо
     f"{_P}/turbo.json:/project/turbo.json:ro",
 ]
