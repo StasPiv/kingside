@@ -21,5 +21,5 @@ export const broadcasts: AssistantFeature = {
   ],
   auth: 'public',
   featureFlag: 'broadcastsEnabled',
-  mcpSection: 'broadcasts',
+  mcpSection: null,
 };

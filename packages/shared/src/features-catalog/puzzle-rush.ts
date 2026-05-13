@@ -20,5 +20,5 @@ export const puzzleRush: AssistantFeature = {
   ],
   auth: 'optional',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'puzzle_rush',
 };

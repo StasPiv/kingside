@@ -16,5 +16,5 @@ export const workshop: AssistantFeature = {
   ],
   auth: 'user',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'workshop',
 };

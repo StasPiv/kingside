@@ -29,5 +29,5 @@ export const drills: AssistantFeature = {
   auth: 'optional',
   featureFlag: 'drillsEnabled',
   adr: ['ADR-035'],
-  mcpSection: 'drills',
+  mcpSection: 'tactic_drills',
 };

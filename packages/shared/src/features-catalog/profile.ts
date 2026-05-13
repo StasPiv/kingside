@@ -12,5 +12,5 @@ export const profile: AssistantFeature = {
   caveats: ['Requires authentication'],
   auth: 'user',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'users',
 };

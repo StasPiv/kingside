@@ -12,9 +12,10 @@ export const mistakes: AssistantFeature = {
   ],
   caveats: [
     'Requires authentication',
-    'Mistakes are sourced from analyses the user has run on their own games',
+    'Mistakes are sourced from two channels: (a) failed attempts in the puzzle trainer (source=puzzle), (b) blunders detected during game review (source=game_review)',
+    'Practice mode rotates positions within ±200 of the user\'s puzzle rating',
   ],
   auth: 'user',
   featureFlag: 'puzzlesEnabled',
-  mcpSection: null,
+  mcpSection: 'puzzles',
 };

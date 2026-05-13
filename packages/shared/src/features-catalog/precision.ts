@@ -24,5 +24,5 @@ export const precision: AssistantFeature = {
   auth: 'user',
   featureFlag: 'puzzlesEnabled',
   adr: ['ADR-047', 'ADR-048', 'ADR-055', 'ADR-056', 'ADR-057'],
-  mcpSection: 'precision',
+  mcpSection: 'puzzles',
 };

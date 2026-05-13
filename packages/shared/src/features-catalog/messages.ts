@@ -13,5 +13,5 @@ export const messages: AssistantFeature = {
   caveats: ['Requires authentication'],
   auth: 'user',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'messages',
 };

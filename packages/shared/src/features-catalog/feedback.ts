@@ -12,5 +12,5 @@ export const feedback: AssistantFeature = {
   ],
   auth: 'optional',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'feedback',
 };

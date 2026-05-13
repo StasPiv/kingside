@@ -13,5 +13,5 @@ export const friends: AssistantFeature = {
   caveats: ['Requires authentication'],
   auth: 'user',
   featureFlag: null,
-  mcpSection: null,
+  mcpSection: 'friends',
 };
