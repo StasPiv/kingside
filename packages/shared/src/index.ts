@@ -21,6 +21,8 @@ export * from './utils/archive-name-normalize.js';
 export * from './utils/wdl.js';
 export * from './utils/move-classification.js';
 export * from './chess/index.js';
+// KS-2962 / ADR-062: каталог фич для AI-ассистента.
+export * from './features-catalog/index.js';
 // NB: `./utils/position-key.js` намеренно НЕ реэкспортируется — он тянет `node:crypto`
 // и ломает браузерный бандл. Backend (apps/api, apps/archive-service) импортирует
 // функцию напрямую: `@kingside/shared/dist/utils/position-key`.

@@ -1,0 +1,31 @@
+{
+  "_doc": "KS-2962 / ADR-062 §8.1 — пути в apps/web/src/App.tsx, которые НЕ должны попадать в каталог фич (системные/инфраструктурные). Меняется редко и осознанно: изменение whitelist'а — отдельный коммит, видный в diff.",
+
+  "exactPaths": [
+    "/login",
+    "/register",
+    "/oauth/callback",
+    "/terms",
+    "/terms-of-service",
+    "/lobby",
+    "/dashboard",
+    "/admin/feature-flags"
+  ],
+
+  "prefixes": [
+    "/admin",
+    "/dev",
+    "/daily"
+  ],
+
+  "redirectElements": [
+    "Navigate",
+    "RedirectWithQuery",
+    "RedirectMyCourse",
+    "RedirectMyLesson",
+    "ProfileRedirect",
+    "InviteRedirect"
+  ],
+
+  "indexRoute": true
+}

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { ContextCollectorService } from './context-collector.service';
 import { buildSystemPrompt } from './system-prompt';
 
@@ -29,6 +30,7 @@ export class ChatAssistantService {
     private readonly config: ConfigService,
     private readonly jwtService: JwtService,
     private readonly contextCollector: ContextCollectorService,
+    private readonly featureFlags: FeatureFlagsService,
   ) {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '');
     this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
@@ -204,10 +206,13 @@ export class ChatAssistantService {
       return;
     }
 
-    // Collect context and build system prompt
+    // Collect context and build system prompt.
+    // KS-2962 / ADR-062 §9: snapshot флагов читается на каждый запрос,
+    // не кэшируется в самом промте (флаги runtime-меняемые).
     const context = await this.contextCollector.collectContext(userId);
+    const flags = await this.featureFlags.getFlags();
     const resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
-    const systemPrompt = buildSystemPrompt(context, resolvedSiteUrl);
+    const systemPrompt = buildSystemPrompt(context, flags, resolvedSiteUrl);
 
     // Get conversation history
     const history = await this.getHistory(conversationId);
@@ -260,10 +265,13 @@ export class ChatAssistantService {
     conversationId: string,
     siteUrl?: string,
   ): Promise<string> {
-    // Collect context and build system prompt
+    // Collect context and build system prompt.
+    // KS-2962 / ADR-062 §9: snapshot флагов читается на каждый запрос,
+    // не кэшируется в самом промте (флаги runtime-меняемые).
     const context = await this.contextCollector.collectContext(userId);
+    const flags = await this.featureFlags.getFlags();
     const resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
-    const systemPrompt = buildSystemPrompt(context, resolvedSiteUrl);
+    const systemPrompt = buildSystemPrompt(context, flags, resolvedSiteUrl);
 
     // Get conversation history
     const history = await this.getHistory(conversationId);

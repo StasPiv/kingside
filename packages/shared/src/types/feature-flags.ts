@@ -12,6 +12,15 @@
  * whitelist на бэке — без миграции БД (таблица key/value).
  */
 
+/**
+ * KS-2962 / ADR-062: типизированный ключ runtime feature flag. Используется
+ * `packages/shared/features-catalog` для строгой типизации поля
+ * `featureFlag` в `AssistantFeature`. Union производится из ключей
+ * `FeatureFlags` — добавление нового флага автоматически расширяет union,
+ * удаление — ломает компиляцию записей, ссылающихся на удалённый ключ.
+ */
+export type FeatureFlagKey = keyof FeatureFlags;
+
 export interface FeatureFlags {
   /**
    * KS-2105: показывать раздел «Уроки» в UI и пускать на `/lessons*`.
