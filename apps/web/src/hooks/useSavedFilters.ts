@@ -30,10 +30,20 @@ import { ApiError } from '../ApiError';
  *  `{ name, category, tags, search }` в `localStorage`. */
 export const LS_LEGACY_WORKSHOP_KEY = 'workshopSavedFilters';
 
+/** KS-2944: префикс LS-ключа для гостевых пресетов. Полный ключ —
+ *  `savedFilters:archive` / `savedFilters:workshop`. */
+export const GUEST_LS_KEY_PREFIX = 'savedFilters:';
+
+/** KS-2944: лимит на (user/guest, section) — совпадает с сервером. */
+export const MAX_SAVED_FILTERS_PER_SECTION = 20;
+
 /** Префикс id для optimistic-записи до подтверждения сервером.
  *  Гарантирует, что UI может отличить optimistic-id от реального
  *  UUID (например, чтобы отключить «Update from current» до коммита). */
 const OPTIMISTIC_ID_PREFIX = '__optimistic_';
+
+/** KS-2944: префикс id для гостевых пресетов (LS-режим). */
+const GUEST_ID_PREFIX = 'local-';
 
 export type SavedFiltersErrorCode = 'duplicate_name' | 'limit_reached';
 
@@ -57,10 +67,26 @@ export interface UseSavedFiltersResult<T extends SavedFilterParams> {
   filters: SavedFilterDto[];
   loading: boolean;
   error: string | null;
+  /**
+   * KS-2944: `true` если хук работает в guest-режиме (LS вместо API).
+   * UI может опционально показать подсказку «эти фильтры сохранены
+   * только в этом браузере».
+   */
+  isGuestMode: boolean;
   create: (name: string, params: T) => Promise<SavedFilterDto>;
   rename: (id: string, name: string) => Promise<void>;
   update: (id: string, params: T) => Promise<void>;
   remove: (id: string) => Promise<void>;
+}
+
+/**
+ * KS-2944: опции хука. По умолчанию `isGuest=false` (auth-режим),
+ * чтобы существующие вызовы (Dropdown без явного prop'а в тестах)
+ * не сломались. Страницы-родители вычисляют `isGuest` через
+ * `useAuth()` и передают сюда.
+ */
+export interface UseSavedFiltersOptions {
+  isGuest?: boolean;
 }
 
 /** Внутренний legacy-формат фильтра в localStorage (workshop, до A3). */
@@ -156,9 +182,77 @@ function clearLegacyWorkshopKey(): void {
   }
 }
 
+/** KS-2944: ключ LS для гостевого хранилища пресетов конкретной секции. */
+function guestStorageKey(section: SavedFilterSection): string {
+  return `${GUEST_LS_KEY_PREFIX}${section}`;
+}
+
+/** KS-2944: безопасное чтение гостевых пресетов с фильтрацией мусора. */
+function readGuestFilters(section: SavedFilterSection): SavedFilterDto[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(guestStorageKey(section));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (x): x is SavedFilterDto =>
+        typeof x === 'object' &&
+        x !== null &&
+        typeof (x as { id?: unknown }).id === 'string' &&
+        typeof (x as { name?: unknown }).name === 'string' &&
+        typeof (x as { section?: unknown }).section === 'string' &&
+        typeof (x as { params?: unknown }).params === 'object',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** KS-2944: запись гостевых пресетов в LS (best-effort). */
+function writeGuestFilters(
+  section: SavedFilterSection,
+  filters: SavedFilterDto[],
+): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(guestStorageKey(section), JSON.stringify(filters));
+  } catch {
+    /* QuotaExceededError / приватный режим */
+  }
+}
+
+function clearGuestFilters(section: SavedFilterSection): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(guestStorageKey(section));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** KS-2944: уникальный id для гостевого пресета. UUID если crypto доступен. */
+function makeLocalId(): string {
+  const c =
+    typeof globalThis !== 'undefined'
+      ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+      : undefined;
+  if (c && typeof c.randomUUID === 'function') {
+    return `${GUEST_ID_PREFIX}${c.randomUUID()}`;
+  }
+  return `${GUEST_ID_PREFIX}${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
 export function useSavedFilters<
   T extends SavedFilterParams = SavedFilterParams,
->(section: SavedFilterSection): UseSavedFiltersResult<T> {
+>(
+  section: SavedFilterSection,
+  options?: UseSavedFiltersOptions,
+): UseSavedFiltersResult<T> {
+  const isGuest = options?.isGuest ?? false;
   const [filters, setFilters] = useState<SavedFilterDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,15 +266,86 @@ export function useSavedFilters<
    */
   const workshopMigrationAttemptedRef = useRef(false);
 
+  /**
+   * KS-2944: предыдущее значение isGuest — нужно, чтобы при переходе
+   * guest → auth (после успешного логина) запустить миграцию LS → API.
+   * Инициализируем в `false`, чтобы initial mount с isGuest=true не
+   * считался переходом (ничего мигрировать ещё некуда: пользователь
+   * ещё не залогинен).
+   */
+  const prevIsGuestRef = useRef(isGuest);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
+    // ---- KS-2944: guest-режим ----------------------------------------
+    if (isGuest) {
+      const guest = readGuestFilters(section);
+      if (!cancelled) {
+        setFilters(guest);
+        setLoading(false);
+      }
+      // prevIsGuestRef обновится во втором useEffect.
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const path = `/user/saved-filters?section=${encodeURIComponent(section)}`;
 
     (async () => {
       try {
+        // KS-2944: миграция гостевых пресетов перед первым GET'ом
+        // в auth-режиме (был isGuest=true, стал false — пользователь
+        // только что залогинился). Без блокировки UI: при 409 запись
+        // пропускается (на сервере уже такая существует), при 400
+        // (лимит) — миграция останавливается, оставшиеся записи
+        // сохраняются в LS для ручной чистки пользователем.
+        if (prevIsGuestRef.current === true) {
+          const guest = readGuestFilters(section);
+          if (guest.length > 0) {
+            let limitHit = false;
+            const failedToMigrate: SavedFilterDto[] = [];
+            for (const f of guest) {
+              if (cancelled) return;
+              if (limitHit) {
+                failedToMigrate.push(f);
+                continue;
+              }
+              try {
+                await api.post<SavedFilterDto>('/user/saved-filters', {
+                  section: f.section,
+                  name: f.name,
+                  params: f.params,
+                } satisfies CreateSavedFilterPayload);
+              } catch (postErr) {
+                if (postErr instanceof ApiError) {
+                  if (postErr.status === 409) {
+                    // duplicate — на сервере уже есть, локальную удаляем.
+                    continue;
+                  }
+                  if (postErr.status === 400) {
+                    // лимит — стоп, сохраняем хвост.
+                    limitHit = true;
+                    failedToMigrate.push(f);
+                    continue;
+                  }
+                }
+                // сетевая / 5xx — сохраняем в LS, пользователь
+                // повторит при следующем mount'е.
+                failedToMigrate.push(f);
+              }
+            }
+            if (failedToMigrate.length > 0) {
+              writeGuestFilters(section, failedToMigrate);
+            } else {
+              clearGuestFilters(section);
+            }
+          }
+        }
+
         const rawInitial = await api.get<SavedFilterDto[]>(path);
         if (cancelled) return;
         // KS-2937: защита от моков/мутаций, где api.get вернул не-массив
@@ -250,10 +415,43 @@ export function useSavedFilters<
     return () => {
       cancelled = true;
     };
-  }, [section]);
+  }, [section, isGuest]);
+
+  // KS-2944: фиксируем предыдущее значение isGuest после каждого
+  // изменения. Update идёт В отдельном эффекте, чтобы выше иметь
+  // доступ к `prevIsGuestRef.current` — старому значению.
+  useEffect(() => {
+    prevIsGuestRef.current = isGuest;
+  }, [isGuest]);
 
   const create = useCallback(
     async (name: string, params: T): Promise<SavedFilterDto> => {
+      const trimmedName = name.trim();
+      // ---- KS-2944: guest-режим ------------------------------------
+      if (isGuest) {
+        const guest = readGuestFilters(section);
+        if (guest.length >= MAX_SAVED_FILTERS_PER_SECTION) {
+          throw new SavedFiltersError('limit_reached');
+        }
+        if (guest.some((f) => f.name === trimmedName)) {
+          throw new SavedFiltersError('duplicate_name');
+        }
+        const nowIsoG = new Date().toISOString();
+        const dto: SavedFilterDto = {
+          id: makeLocalId(),
+          section,
+          name: trimmedName,
+          params,
+          createdAt: nowIsoG,
+          updatedAt: nowIsoG,
+        };
+        const next = [dto, ...guest];
+        writeGuestFilters(section, next);
+        setFilters(next);
+        return dto;
+      }
+
+      // ---- auth-режим (оригинальный optimistic-flow) ---------------
       const tempId = makeOptimisticId();
       const nowIso = new Date().toISOString();
       const optimistic: SavedFilterDto = {
@@ -280,11 +478,34 @@ export function useSavedFilters<
         throw toMutationError(e);
       }
     },
-    [section],
+    [section, isGuest],
   );
 
   const rename = useCallback(
     async (id: string, name: string): Promise<void> => {
+      const trimmedName = name.trim();
+      // ---- KS-2944: guest-режим ------------------------------------
+      if (isGuest) {
+        const guest = readGuestFilters(section);
+        const target = guest.find((f) => f.id === id);
+        if (!target) {
+          throw new Error('Saved filter not found');
+        }
+        if (
+          guest.some((f) => f.id !== id && f.name === trimmedName)
+        ) {
+          throw new SavedFiltersError('duplicate_name');
+        }
+        const next = guest.map((f) =>
+          f.id === id
+            ? { ...f, name: trimmedName, updatedAt: new Date().toISOString() }
+            : f,
+        );
+        writeGuestFilters(section, next);
+        setFilters(next);
+        return;
+      }
+
       if (isOptimisticId(id)) {
         // optimistic-запись ещё не подтверждена сервером — переименование
         // по временному id запрещено (нет реального PATCH-эндпоинта).
@@ -316,11 +537,28 @@ export function useSavedFilters<
         throw toMutationError(e);
       }
     },
-    [],
+    [section, isGuest],
   );
 
   const update = useCallback(
     async (id: string, params: T): Promise<void> => {
+      // ---- KS-2944: guest-режим ------------------------------------
+      if (isGuest) {
+        const guest = readGuestFilters(section);
+        const target = guest.find((f) => f.id === id);
+        if (!target) {
+          throw new Error('Saved filter not found');
+        }
+        const next = guest.map((f) =>
+          f.id === id
+            ? { ...f, params, updatedAt: new Date().toISOString() }
+            : f,
+        );
+        writeGuestFilters(section, next);
+        setFilters(next);
+        return;
+      }
+
       if (isOptimisticId(id)) {
         throw new Error('Cannot update optimistic filter before commit');
       }
@@ -350,16 +588,29 @@ export function useSavedFilters<
         throw toMutationError(e);
       }
     },
-    [],
+    [section, isGuest],
   );
 
-  const remove = useCallback(async (id: string): Promise<void> => {
-    if (isOptimisticId(id)) {
-      // Удаление неподтверждённой optimistic-записи — просто чистим стейт,
-      // запроса в API нет.
-      setFilters((prev) => prev.filter((f) => f.id !== id));
-      return;
-    }
+  const remove = useCallback(
+    async (id: string): Promise<void> => {
+      // ---- KS-2944: guest-режим ------------------------------------
+      if (isGuest) {
+        const guest = readGuestFilters(section);
+        const next = guest.filter((f) => f.id !== id);
+        // Если ничего не удалили — не пишем.
+        if (next.length !== guest.length) {
+          writeGuestFilters(section, next);
+          setFilters(next);
+        }
+        return;
+      }
+
+      if (isOptimisticId(id)) {
+        // Удаление неподтверждённой optimistic-записи — просто чистим стейт,
+        // запроса в API нет.
+        setFilters((prev) => prev.filter((f) => f.id !== id));
+        return;
+      }
     let removed: SavedFilterDto | undefined;
     let removedIndex = -1;
     setFilters((prev) => {
@@ -388,7 +639,18 @@ export function useSavedFilters<
       }
       throw toMutationError(e);
     }
-  }, []);
+    },
+    [section, isGuest],
+  );
 
-  return { filters, loading, error, create, rename, update, remove };
+  return {
+    filters,
+    loading,
+    error,
+    isGuestMode: isGuest,
+    create,
+    rename,
+    update,
+    remove,
+  };
 }

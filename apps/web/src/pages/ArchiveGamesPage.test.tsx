@@ -84,6 +84,23 @@ vi.mock('../components/archive/ArchivePositionHeader', () => ({
 
 const mockNavigate = vi.fn();
 
+// KS-2944: ArchiveGamesPage теперь читает `useAuth()` для guest-режима
+// useSavedFilters. Мокаем как авторизованного пользователя — все
+// существующие тесты ждут auth-режима (мок api.get, api.post и т.п.).
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u-test', username: 'tester' },
+    token: 'jwt',
+    loading: false,
+    login: vi.fn(),
+    register: vi.fn(),
+    loginWithTokens: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',

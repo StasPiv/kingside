@@ -509,4 +509,392 @@ describe('useSavedFilters — KS-2931', () => {
       expect(result.current.error).toBeNull();
     });
   });
+
+  // ─── KS-2944: guest-режим + миграция при логине ─────────────────────
+  describe('guest mode (KS-2944)', () => {
+    const GUEST_ARCHIVE_KEY = 'savedFilters:archive';
+    const GUEST_WORKSHOP_KEY = 'savedFilters:workshop';
+
+    function archiveGuestParams(
+      overrides: Partial<Extract<SavedFilterParams, { section: 'archive' }>> = {},
+    ): SavedFilterParams {
+      return {
+        section: 'archive',
+        players: [],
+        event: null,
+        eco: null,
+        result: null,
+        minElo: null,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        timeControlCategory: [],
+        sort: null,
+        ...overrides,
+      };
+    }
+
+    it('initial load: читает из LS, isGuestMode=true, api.get не вызывается', async () => {
+      const seed = [
+        {
+          id: 'local-1',
+          section: 'archive',
+          name: 'A',
+          params: archiveGuestParams({ eco: 'B90' }),
+          createdAt: '2026-05-13T00:00:00.000Z',
+          updatedAt: '2026-05-13T00:00:00.000Z',
+        },
+      ];
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify(seed));
+
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.isGuestMode).toBe(true);
+      expect(result.current.filters.map((f) => f.id)).toEqual(['local-1']);
+      expect(mockedApi.get).not.toHaveBeenCalled();
+    });
+
+    it('create: пишет в LS с локальным id и persist между mounts', async () => {
+      const { result, unmount } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.create('My filter', archiveGuestParams({ eco: 'B90' }));
+      });
+      expect(result.current.filters).toHaveLength(1);
+      expect(result.current.filters[0].id.startsWith('local-')).toBe(true);
+      expect(result.current.filters[0].name).toBe('My filter');
+
+      // Persist: после ре-mount запись подгружается из LS.
+      unmount();
+      const { result: r2 } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(r2.current.loading).toBe(false));
+      expect(r2.current.filters.map((f) => f.name)).toEqual(['My filter']);
+    });
+
+    it('create: лимит 20 на guest → SavedFiltersError("limit_reached")', async () => {
+      const existing = Array.from({ length: 20 }, (_, i) => ({
+        id: `local-${i}`,
+        section: 'archive',
+        name: `Filter ${i}`,
+        params: archiveGuestParams(),
+        createdAt: '2026-05-13T00:00:00.000Z',
+        updatedAt: '2026-05-13T00:00:00.000Z',
+      }));
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify(existing));
+
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await expect(
+        result.current.create('21st', archiveGuestParams()),
+      ).rejects.toMatchObject({
+        name: 'SavedFiltersError',
+        code: 'limit_reached',
+      });
+      expect(result.current.filters).toHaveLength(20);
+    });
+
+    it('create: дубль имени → SavedFiltersError("duplicate_name")', async () => {
+      const seed = [
+        {
+          id: 'local-a',
+          section: 'archive',
+          name: 'Dup',
+          params: archiveGuestParams(),
+          createdAt: '2026-05-13T00:00:00.000Z',
+          updatedAt: '2026-05-13T00:00:00.000Z',
+        },
+      ];
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify(seed));
+
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await expect(
+        result.current.create('Dup', archiveGuestParams()),
+      ).rejects.toMatchObject({
+        name: 'SavedFiltersError',
+        code: 'duplicate_name',
+      });
+      expect(result.current.filters).toHaveLength(1);
+    });
+
+    it('rename/update/remove работают в LS', async () => {
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // create → rename → update → remove
+      let createdId = '';
+      await act(async () => {
+        const dto = await result.current.create('Initial', archiveGuestParams());
+        createdId = dto.id;
+      });
+      expect(result.current.filters[0].name).toBe('Initial');
+
+      await act(async () => {
+        await result.current.rename(createdId, 'Renamed');
+      });
+      expect(result.current.filters[0].name).toBe('Renamed');
+
+      await act(async () => {
+        await result.current.update(createdId, archiveGuestParams({ eco: 'C20' }));
+      });
+      const p = result.current.filters[0].params as Extract<
+        SavedFilterParams,
+        { section: 'archive' }
+      >;
+      expect(p.eco).toBe('C20');
+
+      await act(async () => {
+        await result.current.remove(createdId);
+      });
+      expect(result.current.filters).toHaveLength(0);
+      // LS — пустой массив (writeGuestFilters записал []).
+      const stored = JSON.parse(
+        localStorage.getItem(GUEST_ARCHIVE_KEY) ?? '[]',
+      );
+      expect(stored).toEqual([]);
+    });
+
+    it('rename: дубль имени в LS → duplicate_name', async () => {
+      const seed = [
+        {
+          id: 'local-a',
+          section: 'archive',
+          name: 'First',
+          params: archiveGuestParams(),
+          createdAt: '2026-05-13T00:00:00.000Z',
+          updatedAt: '2026-05-13T00:00:00.000Z',
+        },
+        {
+          id: 'local-b',
+          section: 'archive',
+          name: 'Second',
+          params: archiveGuestParams(),
+          createdAt: '2026-05-13T00:00:00.000Z',
+          updatedAt: '2026-05-13T00:00:00.000Z',
+        },
+      ];
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify(seed));
+
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await expect(
+        result.current.rename('local-b', 'First'),
+      ).rejects.toMatchObject({ code: 'duplicate_name' });
+    });
+
+    it('изоляция по section: archive не виден в workshop', async () => {
+      localStorage.setItem(
+        GUEST_ARCHIVE_KEY,
+        JSON.stringify([
+          {
+            id: 'local-arc',
+            section: 'archive',
+            name: 'Arc',
+            params: archiveGuestParams(),
+            createdAt: '2026-05-13T00:00:00.000Z',
+            updatedAt: '2026-05-13T00:00:00.000Z',
+          },
+        ]),
+      );
+      const { result } = renderHook(() =>
+        useSavedFilters('workshop', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.filters).toEqual([]);
+      // Записываем в workshop — archive не трогается.
+      await act(async () => {
+        await result.current.create('W', {
+          section: 'workshop',
+          category: null,
+          tags: [],
+          search: null,
+          sortOrder: null,
+        });
+      });
+      expect(
+        JSON.parse(localStorage.getItem(GUEST_WORKSHOP_KEY) ?? '[]'),
+      ).toHaveLength(1);
+      expect(
+        JSON.parse(localStorage.getItem(GUEST_ARCHIVE_KEY) ?? '[]'),
+      ).toHaveLength(1);
+    });
+
+    it('повреждённый JSON в LS → пустой массив, без падения', async () => {
+      localStorage.setItem(GUEST_ARCHIVE_KEY, '{not-json');
+      const { result } = renderHook(() =>
+        useSavedFilters('archive', { isGuest: true }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.filters).toEqual([]);
+      expect(result.current.error).toBeNull();
+    });
+  });
+
+  describe('migration guest → auth on login (KS-2944)', () => {
+    const GUEST_ARCHIVE_KEY = 'savedFilters:archive';
+
+    function makeGuestArchiveDto(
+      id: string,
+      name: string,
+    ): SavedFilterDto {
+      return {
+        id,
+        section: 'archive',
+        name,
+        params: {
+          section: 'archive',
+          players: [],
+          event: null,
+          eco: 'B90',
+          result: null,
+          minElo: null,
+          since: null,
+          until: null,
+          minPly: null,
+          maxPly: null,
+          timeControlCategory: [],
+          sort: null,
+        },
+        createdAt: '2026-05-13T00:00:00.000Z',
+        updatedAt: '2026-05-13T00:00:00.000Z',
+      };
+    }
+
+    it('все POST успешно → LS очищен, filters из server-ответа', async () => {
+      const a = makeGuestArchiveDto('local-a', 'A');
+      const b = makeGuestArchiveDto('local-b', 'B');
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify([a, b]));
+
+      mockedApi.post
+        .mockResolvedValueOnce({ ...a, id: 'srv-a' })
+        .mockResolvedValueOnce({ ...b, id: 'srv-b' });
+      mockedApi.get.mockResolvedValueOnce([
+        { ...a, id: 'srv-a' },
+        { ...b, id: 'srv-b' },
+      ]);
+
+      // Стартуем с isGuest=true, потом переключаем на false (логин).
+      const { result, rerender } = renderHook(
+        ({ guest }: { guest: boolean }) =>
+          useSavedFilters('archive', { isGuest: guest }),
+        { initialProps: { guest: true } },
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      // Logged in.
+      rerender({ guest: false });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Оба POST'а выполнены с правильными payload'ами.
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/user/saved-filters',
+        expect.objectContaining({
+          section: 'archive',
+          name: 'A',
+          params: expect.objectContaining({ eco: 'B90' }),
+        }),
+      );
+      // LS очищен.
+      expect(localStorage.getItem(GUEST_ARCHIVE_KEY)).toBeNull();
+      // filters берутся с сервера (GET).
+      expect(result.current.filters.map((f) => f.id)).toEqual([
+        'srv-a',
+        'srv-b',
+      ]);
+      expect(result.current.isGuestMode).toBe(false);
+    });
+
+    it('409 на одном пресете → запись удаляется из LS, остальное мигрирует', async () => {
+      const a = makeGuestArchiveDto('local-a', 'Dup');
+      const b = makeGuestArchiveDto('local-b', 'OK');
+      localStorage.setItem(GUEST_ARCHIVE_KEY, JSON.stringify([a, b]));
+
+      mockedApi.post
+        .mockRejectedValueOnce(new ApiError('dup', undefined, 409))
+        .mockResolvedValueOnce({ ...b, id: 'srv-b' });
+      mockedApi.get.mockResolvedValueOnce([
+        { ...b, id: 'srv-b' },
+      ]);
+
+      const { result, rerender } = renderHook(
+        ({ guest }: { guest: boolean }) =>
+          useSavedFilters('archive', { isGuest: guest }),
+        { initialProps: { guest: true } },
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      rerender({ guest: false });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+      // 409 — запись «уже на сервере», локальная копия удалена.
+      // Поскольку остальные тоже успешно — LS полностью очищен.
+      expect(localStorage.getItem(GUEST_ARCHIVE_KEY)).toBeNull();
+    });
+
+    it('400 (лимит) → миграция останавливается, хвост остаётся в LS', async () => {
+      const a = makeGuestArchiveDto('local-a', 'A');
+      const b = makeGuestArchiveDto('local-b', 'B');
+      const c = makeGuestArchiveDto('local-c', 'C');
+      localStorage.setItem(
+        GUEST_ARCHIVE_KEY,
+        JSON.stringify([a, b, c]),
+      );
+
+      // a — успех; b — 400 (limit); c — не вызывается, добавляется в failed.
+      mockedApi.post
+        .mockResolvedValueOnce({ ...a, id: 'srv-a' })
+        .mockRejectedValueOnce(new ApiError('limit', undefined, 400));
+      mockedApi.get.mockResolvedValueOnce([{ ...a, id: 'srv-a' }]);
+
+      const { result, rerender } = renderHook(
+        ({ guest }: { guest: boolean }) =>
+          useSavedFilters('archive', { isGuest: guest }),
+        { initialProps: { guest: true } },
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      rerender({ guest: false });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Был сделан POST a (успех) и b (400). c — пропущен.
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+      // В LS остались b и c (failed).
+      const remaining = JSON.parse(
+        localStorage.getItem(GUEST_ARCHIVE_KEY) ?? '[]',
+      ) as SavedFilterDto[];
+      expect(remaining.map((f) => f.id)).toEqual(['local-b', 'local-c']);
+    });
+
+    it('LS пуст при логине → миграция пропускается, обычный GET', async () => {
+      mockedApi.get.mockResolvedValueOnce([]);
+      const { result, rerender } = renderHook(
+        ({ guest }: { guest: boolean }) =>
+          useSavedFilters('archive', { isGuest: guest }),
+        { initialProps: { guest: true } },
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      rerender({ guest: false });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(mockedApi.post).not.toHaveBeenCalled();
+      expect(mockedApi.get).toHaveBeenCalled();
+    });
+  });
 });

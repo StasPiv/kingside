@@ -445,6 +445,7 @@ export function WorkshopAnalysisList() {
             onApply={handleApplyFilter}
             activeFilter={activeFilter}
             onFiltersChange={setKnownSavedFilters}
+            isGuest={!user}
           />
         </div>
       )}

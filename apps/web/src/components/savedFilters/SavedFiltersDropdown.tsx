@@ -93,6 +93,14 @@ export interface SavedFiltersDropdownProps<T extends SavedFilterParams> {
    * считается вовсе.
    */
   onFiltersChange?: (filters: SavedFilterDto[]) => void;
+  /**
+   * KS-2944: гость или авторизованный. Если `true` — хук работает в
+   * LS-режиме (CRUD без сети, лимит 20, уникальность имени). По
+   * умолчанию `false` (auth-режим) — обратная совместимость с
+   * существующими тестами и страницами, передающими DI явно.
+   * Страницы-родители вычисляют через `useAuth()` и пробрасывают сюда.
+   */
+  isGuest?: boolean;
 }
 
 interface ToastState {
@@ -127,10 +135,11 @@ export function SavedFiltersDropdown<
     onApply,
     activeFilter = null,
     onFiltersChange,
+    isGuest = false,
   } = props;
   const { t } = useTranslation();
-  const { filters, loading, error, create, rename, update, remove } =
-    useSavedFilters<T>(section);
+  const { filters, loading, error, isGuestMode, create, rename, update, remove } =
+    useSavedFilters<T>(section, { isGuest });
 
   // KS-2937 (C2): пробрасываем filters наверх, чтобы родитель мог
   // считать `activeFilterId` без второго инстанса useSavedFilters.
@@ -784,6 +793,15 @@ export function SavedFiltersDropdown<
                 );
               })}
             </ul>
+          )}
+
+          {isGuestMode && (
+            <div
+              className="saved-filters-dropdown__guest-note"
+              data-testid="saved-filters-guest-note"
+            >
+              {t('saved_filters.guestNote')}
+            </div>
           )}
         </div>
       )}

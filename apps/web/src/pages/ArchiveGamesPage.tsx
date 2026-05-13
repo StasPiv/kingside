@@ -16,6 +16,7 @@ import { archiveApi } from '../api/archive';
 import { archivePreferencesApi } from '../api/archivePreferencesApi';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
 import { SavedFiltersDropdown } from '../components/savedFilters/SavedFiltersDropdown';
+import { useAuth } from '../context/AuthContext';
 import type { ArchiveFilters } from '@kingside/shared';
 import {
   ArchiveMetadataFilters,
@@ -513,6 +514,11 @@ function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  // KS-2944: гость или авторизованный — определяет режим useSavedFilters
+  // (LS vs API). При логине prevIsGuestRef в хуке детектит переход и
+  // запускает миграцию LS → API.
+  const { user } = useAuth();
+  const isGuest = !user;
 
   const filterValues = useMemo(
     () => urlToMetadataFilters(searchParams),
@@ -1048,6 +1054,7 @@ function ArchiveMetadataMode() {
           onApply={handleApplySavedFilter}
           activeFilter={activeFilter}
           onFiltersChange={setKnownSavedFilters}
+          isGuest={isGuest}
         />
       </div>
 

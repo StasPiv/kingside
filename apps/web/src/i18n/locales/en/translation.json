@@ -2972,6 +2972,7 @@
     "deleteError": "Failed to delete filter",
     "confirmDelete": "Delete \"{{name}}\"?",
     "loading": "Loading…",
-    "loadError": "Failed to load filters"
+    "loadError": "Failed to load filters",
+    "guestNote": "These filters are saved only in this browser. Sign in to keep them across devices."
   }
 }

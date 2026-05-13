@@ -85,6 +85,23 @@ vi.mock('../hooks/useArchiveGamesByPosition', () => ({
 }));
 
 const mockNavigate = vi.fn();
+// KS-2944: useAuth — мокаем как авторизованного пользователя (default
+// для интеграционных тестов архива). Guest-flow покрыт unit-тестами
+// в useSavedFilters.test.ts; тут проверяется обычный auth-путь.
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u-test', username: 'tester' },
+    token: 'jwt',
+    loading: false,
+    login: vi.fn(),
+    register: vi.fn(),
+    loginWithTokens: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>(
     'react-router-dom',
