@@ -20,6 +20,15 @@
  *      (опционально) cross-ref `mcpSection` ↔ `/_mcp/tools`.
  *   5. Exit 0 / 1 с понятным сообщением.
  *
+ * Семантика `redirectElements` (после KS-2962 фикса false-positive по
+ * `/profile`): редирект-обёртка вычёркивает путь из routesInApp ТОЛЬКО
+ * если каталог его не описывает. Кастомные `*Redirect`-компоненты на
+ * user-facing путях (например `<ProfileRedirect/>` на `/profile`) —
+ * это shortcut'ы, которые пользователь набирает в адресной строке;
+ * каталог обязан их описать, и тогда они учитываются. Чистые
+ * `<Navigate>`/`<RedirectWithQuery>` на устаревших путях остаются
+ * отфильтрованными, потому что их нет в каталоге.
+ *
  * Без runtime-зависимостей кроме `typescript` (уже в repo как devDep).
  */
 
@@ -104,7 +113,7 @@ async function loadKnownFlagKeys() {
  *
  * Returns: Array<{path: string, element: string|null, flag: string|null}>
  */
-function extractRoutesFromAppTsx(source) {
+export function extractRoutesFromAppTsx(source) {
   const sourceFile = ts.createSourceFile(
     'App.tsx',
     source,
@@ -271,7 +280,7 @@ function extractRoutesFromAppTsx(source) {
 
 // ─── CI logic ───────────────────────────────────────────────────────
 
-function isWhitelisted(path, whitelist) {
+export function isWhitelisted(path, whitelist) {
   if (whitelist.exactPaths.includes(path)) return true;
   for (const pref of whitelist.prefixes) {
     if (path === pref || path.startsWith(pref + '/') || path.startsWith(pref)) {
@@ -279,6 +288,41 @@ function isWhitelisted(path, whitelist) {
     }
   }
   return false;
+}
+
+/**
+ * Применяет whitelist к набору извлечённых из App.tsx роутов и
+ * возвращает только user-facing.
+ *
+ * `catalogPaths` — set путей, которые каталог уже описывает. Нужен для
+ * мягкой фильтрации `redirectElements`: путь с redirect-обёрткой
+ * вычёркивается ТОЛЬКО если каталог его не упоминает. Это исправляет
+ * false-positive по `/profile` (KS-2962): `<Route path="/profile"
+ * element={<ProtectedRoute><ProfileRedirect/></ProtectedRoute>}>` —
+ * `/profile` есть в каталоге → оставляем; путь же типа `/legacy-old`
+ * с `<Navigate to="/new"/>` каталог не описывает → фильтруем.
+ */
+export function filterUserFacingRoutes(routes, whitelist, catalogPaths) {
+  const catalogSet =
+    catalogPaths instanceof Set ? catalogPaths : new Set(catalogPaths ?? []);
+  return routes.filter((r) => {
+    if (r.path === '*') return false;
+    if (r.path === '__index__') {
+      // indexRoute: true ⇒ это HomePage (id 'home' в каталоге с path
+      // '/'); запись `__index__` потом превращается в '/' и матчится
+      // с каталогом. indexRoute: false ⇒ index — это «системный»
+      // компонент, который мы не описываем в каталоге → вычёркиваем.
+      return whitelist.indexRoute === true;
+    }
+    if (isWhitelisted(r.path, whitelist)) return false;
+    if (r.element && whitelist.redirectElements.includes(r.element)) {
+      // Мягкая фильтрация: если каталог явно описывает путь — это не
+      // «чистый редирект», а user-facing shortcut. Оставляем.
+      if (catalogSet.has(r.path)) return true;
+      return false;
+    }
+    return true;
+  });
 }
 
 async function main() {
@@ -295,28 +339,24 @@ async function main() {
     const source = await readFile(APP_TSX_PATH, 'utf8');
     const routes = extractRoutesFromAppTsx(source);
 
-    // Применяем whitelist: redirectElements, prefixes/exactPaths,
-    // wildcard '*' и index-routes (если indexRoute=true).
-    const userFacingRoutes = routes.filter((r) => {
-      if (r.path === '*') return false;
-      if (r.path === '__index__') return !whitelist.indexRoute === false;
-      if (r.element && whitelist.redirectElements.includes(r.element)) {
-        return false;
-      }
-      if (isWhitelisted(r.path, whitelist)) return false;
-      return true;
-    });
+    // Каталог известен заранее — нужен фильтру для мягкой обработки
+    // `redirectElements` (см. doc-comment у `filterUserFacingRoutes`).
+    const routesInCatalog = new Set();
+    for (const f of features) {
+      for (const p of f.paths) routesInCatalog.add(p);
+    }
+
+    const userFacingRoutes = filterUserFacingRoutes(
+      routes,
+      whitelist,
+      routesInCatalog,
+    );
 
     const routesInApp = new Set(
       userFacingRoutes
         .map((r) => (r.path === '__index__' ? '/' : r.path))
         .filter((p) => typeof p === 'string'),
     );
-
-    const routesInCatalog = new Set();
-    for (const f of features) {
-      for (const p of f.paths) routesInCatalog.add(p);
-    }
 
     // ── Step 5: diff ────────────────────────────────────────────────
     const missingFromCatalog = [...routesInApp].filter(
@@ -472,7 +512,13 @@ async function main() {
   ok(`features-catalog all checks passed (${features.length} records).`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Запускаем main() только когда файл вызван как CLI, чтобы импорт из
+// `tools/check-features-catalog.spec.mjs` не триггерил параллельный
+// прогон проверки и не засорял вывод тестов.
+const isCli = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (isCli) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
