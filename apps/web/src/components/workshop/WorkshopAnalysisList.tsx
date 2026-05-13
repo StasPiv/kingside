@@ -11,7 +11,9 @@ import { api } from '../../api';
 import { openAnalysis } from '../../utils/openAnalysis';
 import { SavedFiltersDropdown } from '../savedFilters/SavedFiltersDropdown';
 
-const PAGE_SIZE = 20;
+// KS-2948: backend дефолтный limit=20, max 100. KS-2950: фронт грузит
+// 100 за раз и инфинит-скроллом дозагружает следующие страницы.
+const SERVER_PAGE_SIZE = 100;
 
 type CategoryFilter = 'all' | 'game_review' | 'puzzle' | 'analysis';
 
@@ -44,7 +46,9 @@ export function WorkshopAnalysisList() {
 
   const [allAnalyses, setAllAnalyses] = useState<AnalysisListItem[]>([]);
   const [searchResults, setSearchResults] = useState<AnalysisListItem[] | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  // KS-2950: серверная пагинация. `serverHasMore` — есть ли ещё страницы
+  // на сервере (true пока последний запрос вернул ровно SERVER_PAGE_SIZE).
+  const [serverHasMore, setServerHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   // KS-2034: используется только setter (для поиска через timeout) — флаг
@@ -92,13 +96,11 @@ export function WorkshopAnalysisList() {
 
   const setCategoryFilter = (cat: CategoryFilter) => {
     setCategoryFilterState(cat);
-    setVisibleCount(PAGE_SIZE);
     updateUrl(cat, selectedTags, searchQuery, savedFilterIdFromUrl);
   };
 
   const setSearchQuery = (q: string) => {
     setSearchQueryState(q);
-    setVisibleCount(PAGE_SIZE);
     updateUrl(categoryFilter, selectedTags, q, savedFilterIdFromUrl);
   };
 
@@ -154,7 +156,6 @@ export function WorkshopAnalysisList() {
       setCategoryFilterState(cat);
       setSelectedTagsState(tags);
       setSearchQueryState(search);
-      setVisibleCount(PAGE_SIZE);
       updateUrl(cat, tags, search, presetId ?? null);
     },
     [updateUrl],
@@ -228,14 +229,44 @@ export function WorkshopAnalysisList() {
     if (!user) return;
     setLoading(true);
     setError('');
-    api.get<AnalysisListItem[]>('/analyses')
-      .then((data) => setAllAnalyses(data))
+    // KS-2948/KS-2950: backend дефолт limit=20, max 100. Тянем 100 разом;
+    // если страница «полная» — выставляем флаг hasMore и догружаем
+    // следующие страницы по infinite-scroll.
+    api
+      .get<AnalysisListItem[]>(`/analyses?limit=${SERVER_PAGE_SIZE}&offset=0`)
+      .then((data) => {
+        setAllAnalyses(data);
+        setServerHasMore(data.length === SERVER_PAGE_SIZE);
+      })
       .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
       .finally(() => setLoading(false));
     // KS-2933 (B3): загрузка saved-filters и миграция legacy
     // `localStorage['workshopSavedFilters']` теперь — забота
     // `useSavedFilters('workshop')` внутри SavedFiltersDropdown.
   }, [user, t]);
+
+  /**
+   * KS-2950: догрузить следующую серверную страницу анализов. Используется
+   * IntersectionObserver'ом на sentinel'е. Идемпотентность через
+   * `loadingMore`-флаг и проверку `serverHasMore`.
+   */
+  const loadMoreFromServer = useCallback(async () => {
+    if (loadingMore || !serverHasMore) return;
+    setLoadingMore(true);
+    try {
+      const offset = allAnalyses.length;
+      const next = await api.get<AnalysisListItem[]>(
+        `/analyses?limit=${SERVER_PAGE_SIZE}&offset=${offset}`,
+      );
+      setAllAnalyses((prev) => [...prev, ...next]);
+      setServerHasMore(next.length === SERVER_PAGE_SIZE);
+    } catch {
+      // Молча оставляем загруженное. Кнопка/sentinel останутся видимы —
+      // следующий заход в зону видимости попробует ещё раз.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [allAnalyses.length, loadingMore, serverHasMore]);
 
   // Debounced API search when query >= 2 chars
   useEffect(() => {
@@ -247,7 +278,12 @@ export function WorkshopAnalysisList() {
     }
     setSearching(true);
     searchTimerRef.current = setTimeout(() => {
-      api.get<AnalysisListItem[]>(`/analyses/search?q=${encodeURIComponent(searchQuery)}`)
+      // KS-2950: search endpoint тоже подразумевает лимит, явно
+      // передаём верхнюю границу (max 100 на бэке).
+      api
+        .get<AnalysisListItem[]>(
+          `/analyses/search?q=${encodeURIComponent(searchQuery)}&limit=${SERVER_PAGE_SIZE}`,
+        )
         .then((data) => setSearchResults(data))
         .catch(() => setSearchResults(null))
         .finally(() => setSearching(false));
@@ -273,19 +309,22 @@ export function WorkshopAnalysisList() {
     return true;
   });
 
-  const visibleAnalyses = filteredAnalyses.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredAnalyses.length;
+  // KS-2950: серверная пагинация — рендерим всё, что подтянули.
+  // Локальные фильтры (category/tags) применяются к загруженной странице.
+  // При поиске (searchResults!==null) серверный loadMore отключён — поиск
+  // отдельный endpoint и сам ограничен SERVER_PAGE_SIZE.
+  const visibleAnalyses = filteredAnalyses;
+  const hasMore = searchResults === null && serverHasMore;
 
-  // Infinite scroll via IntersectionObserver
+  // Infinite scroll: при пересечении sentinel'а догружаем следующую
+  // серверную страницу (а не двигаем визуальный курсор как раньше).
   useEffect(() => {
     if (!hasMore) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          setLoadingMore(true);
-          setVisibleCount((prev) => prev + PAGE_SIZE);
-          setLoadingMore(false);
+          void loadMoreFromServer();
         }
       },
       { threshold: 0.1 },
@@ -294,7 +333,7 @@ export function WorkshopAnalysisList() {
     const el = sentinelRef.current;
     if (el) observer.observe(el);
     return () => { if (el) observer.unobserve(el); };
-  }, [hasMore, loadingMore]);
+  }, [hasMore, loadingMore, loadMoreFromServer]);
 
   const handleOpen = (analysis: AnalysisListItem) => {
     navigate('/analysis/' + analysis.id, {
@@ -397,7 +436,7 @@ export function WorkshopAnalysisList() {
           <button
             key={cat}
             className={`workshop-category-tab${categoryFilter === cat ? ' active' : ''}`}
-            onClick={() => { setCategoryFilter(cat); setVisibleCount(PAGE_SIZE); }}
+            onClick={() => setCategoryFilter(cat)}
           >
             {t(`workshop.categories.${cat}`, cat === 'all' ? 'All' : cat === 'game_review' ? 'Games' : cat === 'puzzle' ? 'Puzzles' : 'Free')}
           </button>
@@ -410,7 +449,7 @@ export function WorkshopAnalysisList() {
           type="text"
           placeholder={t('workshop.myAnalyses.searchPlaceholder', 'Search by player, event, opening...')}
           value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(PAGE_SIZE); }}
+          onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
 
