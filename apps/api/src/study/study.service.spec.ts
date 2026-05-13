@@ -34,6 +34,9 @@ function makePrisma(): any {
     studyMember: {
       create: jest.fn(),
     },
+    // KS-2880: catalog hot-sort использует $queryRawUnsafe для PG-формулы
+    // (динамические WHERE-условия с параметризацией).
+    $queryRawUnsafe: jest.fn(),
     $transaction: jest.fn(async (cb: (tx: any) => Promise<unknown>) =>
       cb(txContext),
     ),
@@ -336,6 +339,182 @@ describe('StudyService — KS-2818 T3', () => {
       await expect(svc.getBySlug(userId, 'x')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  // ── KS-2880 / ADR-060 §3.4. Каталог публичных студий.
+  // Проверяем: where всегда visibility='public'; q → ILIKE на name+description;
+  // topic → topics.has; sort new/updated/popular → orderBy; sort=hot → $queryRaw
+  // + добор полей через findMany по списку id с сохранением порядка.
+  describe('catalog (KS-2880)', () => {
+    const pubStudy = { ...baseStudy, visibility: 'public', isPublic: true };
+
+    beforeEach(() => {
+      prisma.study.count.mockResolvedValue(0);
+      prisma.study.findMany.mockResolvedValue([]);
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+    });
+
+    it('дефолт: sort=hot, page=1, pageSize=20; вызывает $queryRaw с public-фильтром', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValue([{ id: pubStudy.id }]);
+      prisma.study.findMany.mockResolvedValue([pubStudy]);
+      prisma.study.count.mockResolvedValue(1);
+
+      const r = await svc.catalog({});
+
+      expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+      // count с фильтром visibility=public
+      expect(prisma.study.count).toHaveBeenCalledWith({
+        where: { visibility: 'public' },
+      });
+      expect(r.items).toHaveLength(1);
+      expect(r.items[0].id).toBe(pubStudy.id);
+      expect(r.total).toBe(1);
+      expect(r.hasMore).toBe(false);
+    });
+
+    it('sort=new → orderBy createdAt desc; пагинация page=2 pageSize=10 даёт skip=10 take=10', async () => {
+      prisma.study.findMany.mockResolvedValueOnce([pubStudy]);
+      prisma.study.count.mockResolvedValue(25);
+
+      const r = await svc.catalog({ sort: 'new', page: 2, pageSize: 10 });
+
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.orderBy).toEqual([{ createdAt: 'desc' }]);
+      expect(call.where).toEqual({ visibility: 'public' });
+      expect(call.skip).toBe(10);
+      expect(call.take).toBe(10);
+      expect(r.total).toBe(25);
+      // 1 item на странице 2/10 → 25 total → hasMore: 10+1=11 < 25
+      expect(r.hasMore).toBe(true);
+    });
+
+    it('sort=updated → orderBy updatedAt desc', async () => {
+      await svc.catalog({ sort: 'updated' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.orderBy).toEqual([{ updatedAt: 'desc' }]);
+    });
+
+    it('sort=popular → orderBy likes desc, updatedAt desc (tie-break)', async () => {
+      await svc.catalog({ sort: 'popular' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.orderBy).toEqual([
+        { likes: 'desc' },
+        { updatedAt: 'desc' },
+      ]);
+    });
+
+    it('q добавляет OR ILIKE name+description (insensitive)', async () => {
+      await svc.catalog({ sort: 'new', q: 'sicilian' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.where).toEqual({
+        visibility: 'public',
+        OR: [
+          { name: { contains: 'sicilian', mode: 'insensitive' } },
+          { description: { contains: 'sicilian', mode: 'insensitive' } },
+        ],
+      });
+    });
+
+    it('q пустой/whitespace → НЕ добавляет OR', async () => {
+      await svc.catalog({ sort: 'new', q: '   ' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.where).toEqual({ visibility: 'public' });
+      expect(call.where.OR).toBeUndefined();
+    });
+
+    it('topic добавляет фильтр topics.has (PG @> ARRAY[$1])', async () => {
+      await svc.catalog({ sort: 'new', topic: 'opening' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.where).toEqual({
+        visibility: 'public',
+        topics: { has: 'opening' },
+      });
+    });
+
+    it('q+topic — комбинация фильтров без потери visibility=public', async () => {
+      await svc.catalog({ sort: 'popular', q: 'sicilian', topic: 'opening' });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.where).toEqual({
+        visibility: 'public',
+        OR: [
+          { name: { contains: 'sicilian', mode: 'insensitive' } },
+          { description: { contains: 'sicilian', mode: 'insensitive' } },
+        ],
+        topics: { has: 'opening' },
+      });
+    });
+
+    it('pageSize клампится до max=50 даже если запросили больше', async () => {
+      await svc.catalog({ sort: 'new', page: 1, pageSize: 999 });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      expect(call.take).toBe(50);
+    });
+
+    it('page клампится до min=1 (через DTO @Min(1), здесь страховка)', async () => {
+      await svc.catalog({ sort: 'new', page: 0, pageSize: 20 });
+      const call = prisma.study.findMany.mock.calls[0][0];
+      // clampInt(0,1,…) → 1; skip = (1-1)*20 = 0
+      expect(call.skip).toBe(0);
+    });
+
+    it('hot: dual-query сохраняет порядок id из raw-результата', async () => {
+      const a = { ...pubStudy, id: 'aaa', name: 'A' };
+      const b = { ...pubStudy, id: 'bbb', name: 'B' };
+      const c = { ...pubStudy, id: 'ccc', name: 'C' };
+      // raw вернул порядок c,a,b (по hot-rate)
+      prisma.$queryRawUnsafe.mockResolvedValue([
+        { id: 'ccc' },
+        { id: 'aaa' },
+        { id: 'bbb' },
+      ]);
+      // findMany может вернуть в любом порядке
+      prisma.study.findMany.mockResolvedValue([a, b, c]);
+      prisma.study.count.mockResolvedValue(3);
+
+      const r = await svc.catalog({ sort: 'hot' });
+
+      expect(r.items.map((s) => s.id)).toEqual(['ccc', 'aaa', 'bbb']);
+      expect(r.total).toBe(3);
+      expect(r.hasMore).toBe(false);
+    });
+
+    it('hot: пустой результат не вызывает findMany добор', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+      prisma.study.count.mockResolvedValue(0);
+
+      const r = await svc.catalog({ sort: 'hot' });
+
+      expect(r.items).toEqual([]);
+      expect(prisma.study.findMany).not.toHaveBeenCalled();
+    });
+
+    it('hasMore=true когда skip+items.length < total', async () => {
+      prisma.study.findMany.mockResolvedValue(
+        Array.from({ length: 20 }, (_, i) => ({
+          ...pubStudy,
+          id: `id-${i}`,
+        })),
+      );
+      prisma.study.count.mockResolvedValue(45);
+
+      const r = await svc.catalog({ sort: 'new', page: 1, pageSize: 20 });
+
+      expect(r.hasMore).toBe(true);
+      expect(r.total).toBe(45);
+      expect(r.items).toHaveLength(20);
+    });
+
+    it('hasMore=false на последней странице', async () => {
+      prisma.study.findMany.mockResolvedValue(
+        Array.from({ length: 5 }, (_, i) => ({ ...pubStudy, id: `id-${i}` })),
+      );
+      prisma.study.count.mockResolvedValue(25);
+
+      const r = await svc.catalog({ sort: 'new', page: 2, pageSize: 20 });
+
+      // skip=20 + 5 = 25 = total → hasMore=false
+      expect(r.hasMore).toBe(false);
     });
   });
 });

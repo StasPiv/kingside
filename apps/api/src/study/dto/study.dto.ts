@@ -231,3 +231,48 @@ export class ImportPgnDto {
   @IsString()
   pgn!: string;
 }
+
+/**
+ * KS-2880 / ADR-060 §3.4. Каталог публичных студий.
+ *
+ * `GET /api/studies/catalog?sort=hot|new|updated|popular&q=&topic=&page=&pageSize=`.
+ *
+ * - sort default = 'hot'.
+ * - page default = 1, min = 1.
+ * - pageSize default = 20, max = 50, min = 1.
+ * - q (опционально) — ILIKE по `name`+`description` без full-text.
+ * - topic (опционально) — точное совпадение элемента в `topics` (PG `@>`).
+ *
+ * Каталог содержит ТОЛЬКО `visibility='public'`; `unlisted`/`private`
+ * не попадают (см. ADR-060 §2.6).
+ */
+export const STUDY_CATALOG_SORTS = ['hot', 'new', 'updated', 'popular'] as const;
+export type StudyCatalogSort = (typeof STUDY_CATALOG_SORTS)[number];
+
+export class StudyCatalogQueryDto {
+  @IsOptional()
+  @IsIn(STUDY_CATALOG_SORTS as readonly string[])
+  sort?: StudyCatalogSort;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(STUDY_TOPIC_LENGTH_MAX)
+  topic?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pageSize?: number;
+}

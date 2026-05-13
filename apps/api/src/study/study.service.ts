@@ -12,7 +12,13 @@ import {
   type StudyMemberRole,
   type StudyVisibility,
 } from './study-limits';
-import type { CreateStudyDto, UpdateStudyDto } from './dto/study.dto';
+import type {
+  CreateStudyDto,
+  StudyCatalogQueryDto,
+  StudyCatalogSort,
+  UpdateStudyDto,
+} from './dto/study.dto';
+import type { Prisma } from '@kingside/db';
 import {
   normalizeTopics,
   resolveVisibilityChange,
@@ -67,6 +73,130 @@ export class StudyService {
       skip,
     });
     return { data: rows.map(toStudyListItem) };
+  }
+
+  /**
+   * KS-2880 / ADR-060 §3.4. Каталог публичных студий.
+   *
+   * Особенности:
+   *  - `visibility='public'` строго (unlisted/private не попадают; см.
+   *    KS-2910 регрессия — раньше под `isPublic=true` лежали и unlisted).
+   *  - `q`: case-insensitive `ILIKE` по `name`+`description` (без FTS).
+   *  - `topic`: `topics @> ARRAY[$1]` — Prisma `has` маппится в `?` для
+   *    text[]-колонки.
+   *  - `sort='hot'`: PG-формула из ADR `likes / EXTRACT(EPOCH FROM (NOW()
+   *    - created_at)) + 1 DESC`. Деление на 0 защищаем `GREATEST(..., 1)`
+   *    — иначе только что созданная студия с 0 лайков даёт `0/0=NaN` и
+   *    смешивает порядок.
+   *  - `sort='popular'`: tie-break по `updatedAt DESC`.
+   *  - `sort∈{new,updated,popular}`: Prisma findMany — индексы
+   *    `(visibility, *_DESC)` в KS-2857 миграции (Postgres делает
+   *    Index Scan Backward для DESC по ASC-индексу).
+   *
+   * Response: `{ items, total, hasMore }`. `total` — count с теми же
+   * фильтрами, без `take/skip`. `hasMore = offset + items.length < total`.
+   */
+  async catalog(
+    query: StudyCatalogQueryDto,
+  ): Promise<{ items: StudyDto[]; total: number; hasMore: boolean }> {
+    const sort: StudyCatalogSort = query.sort ?? 'hot';
+    const page = clampInt(query.page ?? 1, 1, 10_000);
+    const pageSize = clampInt(query.pageSize ?? 20, 1, 50);
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    // q — нормализуем: trim, пустую строку считаем «нет фильтра».
+    const q = (query.q ?? '').trim();
+    const topic = (query.topic ?? '').trim();
+
+    const where: Prisma.StudyWhereInput = {
+      visibility: 'public',
+      ...(q.length > 0
+        ? {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' as const } },
+              { description: { contains: q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+      ...(topic.length > 0 ? { topics: { has: topic } } : {}),
+    };
+
+    const total = await this.prisma.study.count({ where });
+
+    let rows: Study[];
+    if (sort === 'hot') {
+      // PG raw для hot-формулы. Чтобы не дублировать select полей
+      // (snake_case в raw), сначала выбираем только `id` упорядоченный
+      // по hot-rate, затем дозагружаем полные Study через findMany и
+      // восстанавливаем порядок.
+      //
+      // `$queryRawUnsafe` с параметризованными `$N` плейсхолдерами —
+      // pgsql-driver биндит значения, защита от SQL-injection
+      // эквивалентна `$queryRaw`. Используется здесь потому, что
+      // условия фильтра собираются динамически (Prisma.sql/join
+      // удобнее, но не покрыты jest-моком `@kingside/db`).
+      const params: unknown[] = [];
+      const conditions: string[] = [`s.visibility = 'public'`];
+      if (q.length > 0) {
+        const pat = `%${q}%`;
+        params.push(pat);
+        const p1 = `$${params.length}`;
+        params.push(pat);
+        const p2 = `$${params.length}`;
+        conditions.push(`(s.name ILIKE ${p1} OR s.description ILIKE ${p2})`);
+      }
+      if (topic.length > 0) {
+        params.push(topic);
+        const p = `$${params.length}`;
+        conditions.push(`s.topics @> ARRAY[${p}]::text[]`);
+      }
+      params.push(take);
+      const takeParam = `$${params.length}`;
+      params.push(skip);
+      const skipParam = `$${params.length}`;
+      const sql = `
+        SELECT s.id
+        FROM studies s
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY (
+          s.likes::float
+            / GREATEST(EXTRACT(EPOCH FROM (NOW() - s.created_at)), 1)
+            + 1
+        ) DESC, s.updated_at DESC
+        LIMIT ${takeParam} OFFSET ${skipParam}
+      `;
+      const idRows = await this.prisma.$queryRawUnsafe<
+        Array<{ id: string }>
+      >(sql, ...params);
+      const orderedIds = idRows.map((r) => r.id);
+      if (orderedIds.length === 0) {
+        rows = [];
+      } else {
+        const fetched = await this.prisma.study.findMany({
+          where: { id: { in: orderedIds } },
+        });
+        const byId = new Map(fetched.map((s) => [s.id, s]));
+        rows = orderedIds
+          .map((id) => byId.get(id))
+          .filter((s): s is Study => Boolean(s));
+      }
+    } else {
+      const orderBy: Prisma.StudyOrderByWithRelationInput[] =
+        sort === 'new'
+          ? [{ createdAt: 'desc' }]
+          : sort === 'updated'
+            ? [{ updatedAt: 'desc' }]
+            : /* popular */ [{ likes: 'desc' }, { updatedAt: 'desc' }];
+      rows = await this.prisma.study.findMany({ where, orderBy, take, skip });
+    }
+
+    const items = rows.map(toStudyDto);
+    return {
+      items,
+      total,
+      hasMore: skip + items.length < total,
+    };
   }
 
   // ─── Read by slug ────────────────────────────────────────────────

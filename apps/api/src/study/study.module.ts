@@ -10,6 +10,7 @@ import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { StudyController } from './study.controller';
 import { StudyPublicController } from './study-public.controller';
+import { StudyCatalogController } from './study-catalog.controller';
 import { StudyMembersController } from './study-members.controller';
 import { StudyMembersService } from './study-members.service';
 import { StudyLikesService } from './study-likes.service';
@@ -34,6 +35,10 @@ import { StudyInvitesService } from './study-invites.service';
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [
+    // KS-2880: catalog регистрируется ДО StudyController, чтобы Nest
+    // матчил `/studies/catalog` строго; статические сегменты в любом
+    // случае имеют приоритет, но порядок делает поведение детерминированным.
+    StudyCatalogController,
     StudyPublicController,
     StudyMembersController,
     StudyController,
