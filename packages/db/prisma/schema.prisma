@@ -541,16 +541,26 @@ model SavedFilter {
   id        String  @id @default(uuid()) @db.Uuid
   userId    String  @map("user_id") @db.Uuid
   name      String
+  // KS-2925 / Phase A1. `section` — дискриминатор секции (workshop|archive).
+  // CHECK на доменное множество висит на уровне БД (см. миграцию
+  // 20260513090000_ks2925_saved_filters_section_params). `params` — JSONB,
+  // форма соответствует SavedFilterParams из @kingside/shared (KS-2928).
+  // Плоские колонки category/tags/search/sortOrder сохранены до Phase D —
+  // удаляются после нескольких релизов сосуществования (см. KS-2924 §5).
+  section   String  @default("workshop")
+  params    Json    @default("{}")
   category  String?
   tags      String?
   search    String?
   sortOrder String? @map("sort_order")
 
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt        @map("updated_at")
 
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  @@index([userId, section, createdAt(sort: Desc)], map: "saved_filters_user_section_idx")
   @@map("saved_filters")
 }
 
