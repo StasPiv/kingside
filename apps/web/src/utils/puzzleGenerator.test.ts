@@ -375,7 +375,8 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
       blunderDelta: 0.7,
     });
     expect(puzzles.length).toBeGreaterThanOrEqual(1);
-    expect(puzzles[0].sourceMetadata?.depth).toBe(14);
+    // KS-2955: default depth поднят с 14 до 18 для выравнивания с раннером.
+    expect(puzzles[0].sourceMetadata?.depth).toBe(18);
   });
 
   it('crushing-метка при wdlAfterForSolver ≥ 0.95', async () => {

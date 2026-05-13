@@ -110,8 +110,19 @@ export type GenerationProgress = {
 };
 
 export interface PuzzleGenSettings {
-  /** Глубина SF-анализа (полуходов). По умолчанию 14. */
+  /**
+   * Глубина SF-анализа (полуходов). По умолчанию 18 — выровнено с
+   * `PlayVsEngineRunner` (KS-2955), чтобы оценка `wdlAfterBlunder` при
+   * генерации совпадала с оценкой при последующей игре пазла. На меньших
+   * глубинах SF18 WASM в насыщенных позициях даёт ложные WDL.
+   */
   depth: number;
+  /**
+   * KS-2955: нижний порог времени на каждый analyze (мс). Парой с `depth`
+   * гарантирует ≥1 секунды на оценку каждой позиции — те же параметры,
+   * что в раннере, чтобы gen-time и run-time не расходились.
+   */
+  movetimeMs: number;
   /**
    * Минимальная разница `wdlBefore + wdlAfterForSolver` ([0..2]),
    * чтобы считать ход блaндером. По умолчанию `PUZZLE_GEN_DEFAULTS.
@@ -126,7 +137,8 @@ export interface PuzzleGenSettings {
 }
 
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
-  depth: 14,
+  depth: 18,
+  movetimeMs: 1000,
   blunderDelta: PUZZLE_GEN_DEFAULTS.blunderDelta,
   solvabilityCheck: false,
 };
@@ -195,6 +207,7 @@ async function solvabilityPasses(
   engine: EngineAdapter,
   fenAfter: string,
   depth: number,
+  movetimeMs: number,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
   const halfMoves = PUZZLE_GEN_DEFAULTS.halfMovesN;
@@ -219,7 +232,7 @@ async function solvabilityPasses(
       }
       return false;
     }
-    const result = await engine.analyze(chess.fen(), depth, 1);
+    const result = await engine.analyze(chess.fen(), depth, 1, movetimeMs);
     if (result.lines.length === 0) return false;
     const line = result.lines[0];
     const sideOnMove = chess.turn();
@@ -270,7 +283,7 @@ export async function generatePuzzlesFromPgn(
     ...DEFAULT_PUZZLE_GEN_SETTINGS,
     ...options,
   };
-  const { depth, blunderDelta, solvabilityCheck } = settings;
+  const { depth, movetimeMs, blunderDelta, solvabilityCheck } = settings;
   const { abortSignal, bridgeConfig, engineFactory } = options;
   const startPly = PUZZLE_GEN_DEFAULTS.startPly;
   const skipDecidedThreshold = PUZZLE_GEN_DEFAULTS.skipDecidedWdl;
@@ -421,7 +434,7 @@ export async function generatePuzzlesFromPgn(
       // Анализ before.
       let beforeRes;
       try {
-        beforeRes = await engine.analyze(fenBefore, depth, MULTI_PV);
+        beforeRes = await engine.analyze(fenBefore, depth, MULTI_PV, movetimeMs);
       } catch (e) {
         console.error(`${logBase} SKIP:analyzeBeforeError`, e);
         continue;
@@ -458,7 +471,7 @@ export async function generatePuzzlesFromPgn(
       // side-to-move → wdlSignedFromInfo возвращает signed POV решателя.
       let afterRes;
       try {
-        afterRes = await engine.analyze(fenAfter, depth, MULTI_PV);
+        afterRes = await engine.analyze(fenAfter, depth, MULTI_PV, movetimeMs);
       } catch (e) {
         console.error(`${logBase} SKIP:analyzeAfterError`, e);
         continue;
@@ -515,7 +528,7 @@ export async function generatePuzzlesFromPgn(
       }
 
       if (solvabilityCheck) {
-        const ok = await solvabilityPasses(engine, fenAfter, depth, abortSignal);
+        const ok = await solvabilityPasses(engine, fenAfter, depth, movetimeMs, abortSignal);
         if (!ok) {
           console.log(
             `${logBase} blunderΔ=${round3(blunderΔ)} SKIP:solvabilityFailed`,
