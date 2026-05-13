@@ -15,6 +15,11 @@ const config: Config = {
     '^(\\.\\.?/.*)\\.js$': '$1',
     '^.*/generated/prisma/client$': '<rootDir>/__mocks__/prisma-client.mock.ts',
   },
+  // KS-2967: исключаем dist/ из haste-map чтобы jest не подбирал
+  // устаревшие .spec.js из предыдущей сборки и не дублировал прогон
+  // тестов. Также гасит warning «duplicate manual mock found».
+  modulePathIgnorePatterns: ['<rootDir>/../dist/'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
 };
 
 export default config;

@@ -41,6 +41,22 @@ COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
+# KS-2967 / ADR-063 Phase 2 — knowledge-tools читают на лету
+# allowlisted-исходники фронта (pages/components/hooks/context/layouts),
+# i18n-локали и документацию. Без этого ассистент не сможет ничего
+# рассказать о реальных деталях страниц. Установлен ripgrep (rg) —
+# базовый инструмент search.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/web/src ./apps/web/src
+COPY apps/web/public/locales ./apps/web/public/locales
+COPY docs ./docs
+COPY apps/api/README.md ./apps/api/README.md
+COPY apps/archive-service/README.md ./apps/archive-service/README.md
+COPY apps/broadcast-service/README.md ./apps/broadcast-service/README.md
+COPY apps/game-service/README.md ./apps/game-service/README.md
+COPY apps/tactic-worker/README.md ./apps/tactic-worker/README.md
 # KS-2411: AWS RDS global CA bundle для verify-full подключения к
 # archive-RDS из индексера (`scripts/index-tactic-drills`,
 # `tactic-drill-incremental.scheduler`). Заменяет NODE_TLS_REJECT_UNAUTHORIZED=0

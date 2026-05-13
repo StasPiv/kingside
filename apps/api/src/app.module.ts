@@ -38,6 +38,7 @@ import { ProfileModule } from './profile/profile.module';
 import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
 import { StudyModule } from './study/study.module';
 import { McpModule } from './mcp/mcp.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -92,6 +93,10 @@ import { HealthController } from './health.controller';
     StudyModule,
     // KS-2952 / ADR-061 этап A. MCP auto-discovery: GET /_mcp/tools.
     McpModule,
+    // KS-2967 / ADR-063 Phase 2. Knowledge-tools для AI-ассистента —
+    // search/read по allowlist репозитория. Регистрируется в MCP как
+    // section `knowledge`.
+    KnowledgeModule,
   ],
 })
 export class AppModule implements NestModule {
