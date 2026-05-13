@@ -1,77 +1,183 @@
 #!/usr/bin/env node
 /**
- * MCP Server for Kingside AI Chat.
- * Calls existing public API endpoints using user JWT.
+ * MCP Server for Kingside AI Chat (динамический, ADR-061 §10).
  *
- * Env: KINGSIDE_USER_TOKEN (JWT), KINGSIDE_USER_ID, KINGSIDE_API_URL
+ * Тянет каталог инструментов с GET /_mcp/tools, регистрирует их в
+ * Claude CLI и проксирует вызовы в публичный API под JWT юзера.
+ * Новые эндпоинты, помеченные `@McpTool`, появляются автоматически
+ * (кэш обновляется каждые 10 минут, по ETag).
+ *
+ * Env:
+ *   KINGSIDE_USER_TOKEN — JWT пользователя (для auth: user/optional).
+ *   KINGSIDE_USER_ID    — sub юзера (вспомогательно, для логов).
+ *   KINGSIDE_API_URL    — база API (https://api.kingside.site в prod).
+ *   MCP_DISCOVERY_KEY   — заголовок X-Mcp-Discovery-Key (в dev можно пусто).
  */
 
 import { createInterface } from 'readline';
 
 const USER_TOKEN = process.env.KINGSIDE_USER_TOKEN || '';
 const USER_ID = process.env.KINGSIDE_USER_ID || '';
-const API = process.env.KINGSIDE_API_URL || 'http://localhost:3001';
+const API = (process.env.KINGSIDE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+const DISCOVERY_KEY = process.env.MCP_DISCOVERY_KEY || '';
 
-const TOOLS = [
-  { name: 'get_user_analyses', description: "Get the user's saved game analyses.", inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-  { name: 'get_game_details', description: 'Get details of a specific game by ID.', inputSchema: { type: 'object', properties: { gameId: { type: 'string' } }, required: ['gameId'] } },
-  { name: 'get_user_tournaments', description: "Get user's tournaments (created or joined).", inputSchema: { type: 'object', properties: {} } },
-  { name: 'search_games', description: "Search user's finished games.", inputSchema: { type: 'object', properties: { timeControlType: { type: 'string' }, result: { type: 'string' }, limit: { type: 'number' } } } },
-  { name: 'get_puzzle_stats_by_theme', description: "User's puzzle stats by theme.", inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_user_profile', description: "Get user's full profile and ratings.", inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_player_profile', description: "Get any player's profile by username.", inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] } },
-  { name: 'get_friends', description: "Get user's friends with online status.", inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_online_players', description: 'Get currently online players.', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-  { name: 'get_daily_puzzle', description: "Today's daily puzzle.", inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_puzzle_rush_leaderboard', description: 'Puzzle Rush top scores.', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-  { name: 'get_puzzle_rating_history', description: "User's puzzle rating over time.", inputSchema: { type: 'object', properties: { days: { type: 'number' } } } },
-  { name: 'get_broadcasts', description: 'Chess event broadcasts.', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-  { name: 'get_workshop_files', description: "User's PGN files from Workshop.", inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-  { name: 'get_feedback_list', description: 'Community feedback posts.', inputSchema: { type: 'object', properties: { type: { type: 'string' }, status: { type: 'string' }, sort: { type: 'string' }, limit: { type: 'number' } } } },
-  { name: 'get_user_settings', description: "User's settings (language, board theme, etc).", inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_game_history', description: "User's game history with pagination.", inputSchema: { type: 'object', properties: { limit: { type: 'number' }, offset: { type: 'number' } } } },
-  { name: 'get_active_games', description: "User's active (in-progress) games.", inputSchema: { type: 'object', properties: {} } },
-  { name: 'navigate', description: 'Suggest user navigate to a page.', inputSchema: { type: 'object', properties: { url: { type: 'string' }, description: { type: 'string' } }, required: ['url'] } },
-];
+const SUPPORTED_SCHEMA_VERSION = 1;
+const CATALOG_REFRESH_MS = 10 * 60 * 1000;
 
-function qs(params) {
-  const s = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) { if (v != null) s.set(k, String(v)); }
-  const r = s.toString();
-  return r ? `?${r}` : '';
-}
+let catalog = null;
+let catalogEtag = null;
+let lastFetch = 0;
 
-function buildUrl(tool, args) {
-  switch (tool) {
-    case 'get_user_analyses':     return `${API}/analyses${qs({ limit: args.limit })}`;
-    case 'get_game_details':      return `${API}/games/${args.gameId}`;
-    case 'get_user_tournaments':  return `${API}/arena/my`;
-    case 'search_games':          return `${API}/users/${USER_ID}/games${qs({ timeControlType: args.timeControlType, result: args.result, limit: args.limit })}`;
-    case 'get_puzzle_stats_by_theme': return `${API}/puzzles/stats/themes`;
-    case 'get_user_profile':      return `${API}/auth/me`;
-    case 'get_player_profile':    return `${API}/players/${encodeURIComponent(args.username)}`;
-    case 'get_friends':           return `${API}/friends`;
-    case 'get_online_players':    return `${API}/players/online${qs({ limit: args.limit })}`;
-    case 'get_daily_puzzle':      return `${API}/puzzles/daily`;
-    case 'get_puzzle_rush_leaderboard': return `${API}/puzzle-rush/leaderboard${qs({ limit: args.limit })}`;
-    case 'get_puzzle_rating_history':   return `${API}/puzzles/stats/rating-history${qs({ days: args.days })}`;
-    case 'get_broadcasts':        return `${API}/broadcasts${qs({ limit: args.limit })}`;
-    case 'get_workshop_files':    return `${API}/workshop/pgn-files${qs({ limit: args.limit })}`;
-    case 'get_feedback_list':     return `${API}/feedback${qs({ type: args.type, status: args.status, sort: args.sort, limit: args.limit })}`;
-    case 'get_user_settings':     return `${API}/users/me/settings`;
-    case 'get_game_history':      return `${API}/users/${USER_ID}/games${qs({ limit: args.limit, offset: args.offset })}`;
-    case 'get_active_games':      return `${API}/games/active`;
-    default: return null;
+function logErr(msg) { process.stderr.write(`[mcp-kingside] ${msg}\n`); }
+
+async function fetchCatalog() {
+  const headers = {};
+  if (DISCOVERY_KEY) headers['X-Mcp-Discovery-Key'] = DISCOVERY_KEY;
+  if (catalogEtag) headers['If-None-Match'] = catalogEtag;
+  const res = await fetch(`${API}/_mcp/tools`, { headers });
+  if (res.status === 304 && catalog) {
+    lastFetch = Date.now();
+    return catalog;
   }
+  if (!res.ok) {
+    throw new Error(`GET /_mcp/tools → ${res.status}`);
+  }
+  const etag = res.headers.get('etag');
+  if (etag) catalogEtag = etag;
+  const data = await res.json();
+  if (data.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported schemaVersion ${data.schemaVersion}, expected ${SUPPORTED_SCHEMA_VERSION}`,
+    );
+  }
+  catalog = data;
+  lastFetch = Date.now();
+  return catalog;
 }
 
-async function callApi(url) {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+async function getCatalog() {
+  if (!catalog || Date.now() - lastFetch > CATALOG_REFRESH_MS) {
+    return await fetchCatalog();
+  }
+  return catalog;
+}
+
+function buildMcpTools(cat) {
+  // Анонимные сессии (без JWT) не видят auth='user' инструменты.
+  return cat.tools
+    .filter((t) => USER_TOKEN || t.auth !== 'user')
+    .map((t) => ({
+      name: t.name,
+      description: t.description || `${t.method} ${t.path}`,
+      inputSchema: t.input || { type: 'object', properties: {} },
+    }));
+}
+
+function applyDefaults(args, defaults) {
+  if (!defaults) return args;
+  const out = { ...args };
+  for (const [k, v] of Object.entries(defaults)) {
+    if (out[k] == null) out[k] = v;
+  }
+  return out;
+}
+
+function applyLimits(args, limits) {
+  if (!limits) return args;
+  const out = { ...args };
+  if (typeof limits.maxLimit === 'number' && typeof out.limit === 'number') {
+    out.limit = Math.min(out.limit, limits.maxLimit);
+  }
+  return out;
+}
+
+// excludeFields: ["pgn", "items[].pgn", "items[].fen"] → удаляем из ответа.
+function deleteByPath(node, parts) {
+  if (node == null) return;
+  const [head, ...rest] = parts;
+  if (!head) return;
+  const arr = head.match(/^(\w+)\[\]$/);
+  if (arr) {
+    const list = node[arr[1]];
+    if (Array.isArray(list)) {
+      for (const item of list) deleteByPath(item, rest);
+    }
+    return;
+  }
+  if (rest.length === 0) {
+    if (typeof node === 'object') delete node[head];
+    return;
+  }
+  deleteByPath(node?.[head], rest);
+}
+
+function applyExcludeFields(data, paths) {
+  if (!paths || !paths.length) return data;
+  for (const p of paths) deleteByPath(data, p.split('.'));
+  return data;
+}
+
+function substitutePathParams(path, args) {
+  const used = new Set();
+  const out = path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, (_, name) => {
+    if (args[name] == null) {
+      throw new Error(`Missing path parameter "${name}" for ${path}`);
+    }
+    used.add(name);
+    return encodeURIComponent(String(args[name]));
+  });
+  return { path: out, used };
+}
+
+function buildRequest(tool, args) {
+  const method = (tool.method || 'GET').toUpperCase();
+  const { path: substPath, used } = substitutePathParams(tool.path, args);
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(method);
+  const query = new URLSearchParams();
+  let body = null;
+  for (const [k, v] of Object.entries(args)) {
+    if (used.has(k) || v == null) continue;
+    if (hasBody) {
+      body = body || {};
+      body[k] = v;
+    } else {
+      query.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+    }
+  }
+  const qs = query.toString();
+  const url = `${API}${substPath}${qs ? '?' + qs : ''}`;
+  return { url, method, body };
+}
+
+async function callTool(tool, rawArgs) {
+  const args = applyLimits(applyDefaults(rawArgs, tool.defaults), tool.limits);
+  const { url, method, body } = buildRequest(tool, args);
+  const headers = {};
+  if ((tool.auth === 'user' || tool.auth === 'optional') && USER_TOKEN) {
+    headers['Authorization'] = `Bearer ${USER_TOKEN}`;
+  }
+  const init = { method, headers };
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, init);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    return { error: `${res.status}: ${text.slice(0, 200)}` };
+    return { error: `${res.status}: ${text.slice(0, 300)}` };
   }
-  return res.json();
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('json')) {
+    const text = await res.text();
+    return { raw: text.slice(0, 2000) };
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return { error: 'invalid json response' };
+  }
+  return applyExcludeFields(data, tool.excludeFields);
 }
 
 function send(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
@@ -84,29 +190,83 @@ rl.on('line', async (line) => {
   const { id, method, params } = req;
 
   if (method === 'initialize') {
-    send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'kingside-mcp', version: '2.0.0' } } });
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'kingside-mcp', version: '3.0.0' },
+      },
+    });
     return;
   }
   if (method === 'notifications/initialized') return;
-  if (method === 'tools/list') { send({ jsonrpc: '2.0', id, result: { tools: TOOLS } }); return; }
-  if (method === 'tools/call') {
-    const name = params?.name;
-    const args = params?.arguments || {};
-    if (name === 'navigate') {
-      send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ action: 'navigate', url: args.url, description: args.description }) }] } });
-      return;
-    }
-    const url = buildUrl(name, args);
-    if (!url) { send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true } }); return; }
+
+  if (method === 'tools/list') {
     try {
-      const result = await callApi(url);
-      send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } });
+      const cat = await getCatalog();
+      send({ jsonrpc: '2.0', id, result: { tools: buildMcpTools(cat) } });
     } catch (e) {
-      send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true } });
+      logErr(`tools/list failed: ${e.message}`);
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32000, message: `Discovery failed: ${e.message}` },
+      });
     }
     return;
   }
-  if (id !== undefined) { send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } }); }
+
+  if (method === 'tools/call') {
+    const name = params?.name;
+    const args = params?.arguments || {};
+    try {
+      const cat = await getCatalog();
+      const tool = cat.tools.find((t) => t.name === name);
+      if (!tool) {
+        send({
+          jsonrpc: '2.0',
+          id,
+          result: { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true },
+        });
+        return;
+      }
+      if (tool.auth === 'user' && !USER_TOKEN) {
+        send({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [{ type: 'text', text: `Tool "${name}" requires user JWT, but none provided.` }],
+            isError: true,
+          },
+        });
+        return;
+      }
+      const result = await callTool(tool, args);
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
+      });
+    } catch (e) {
+      logErr(`tools/call ${name} failed: ${e.message}`);
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true },
+      });
+    }
+    return;
+  }
+
+  if (id !== undefined) {
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32601, message: `Method not found: ${method}` },
+    });
+  }
 });
 
 rl.on('close', () => process.exit(0));

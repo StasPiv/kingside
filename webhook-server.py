@@ -947,27 +947,36 @@ AI_CHAT_IDLE_TTL = 600  # 10 minutes
 MAX_CHAT_DAEMONS = 10
 MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
 
-MCP_ALLOWED_TOOLS = [
-    "mcp__kingside__get_user_analyses",
-    "mcp__kingside__get_game_details",
-    "mcp__kingside__get_user_tournaments",
-    "mcp__kingside__search_games",
-    "mcp__kingside__get_puzzle_stats_by_theme",
-    "mcp__kingside__get_user_profile",
-    "mcp__kingside__get_player_profile",
-    "mcp__kingside__get_friends",
-    "mcp__kingside__get_online_players",
-    "mcp__kingside__get_daily_puzzle",
-    "mcp__kingside__get_puzzle_rush_leaderboard",
-    "mcp__kingside__get_puzzle_rating_history",
-    "mcp__kingside__get_broadcasts",
-    "mcp__kingside__get_workshop_files",
-    "mcp__kingside__get_feedback_list",
-    "mcp__kingside__get_user_settings",
-    "mcp__kingside__get_game_history",
-    "mcp__kingside__get_active_games",
-    "mcp__kingside__navigate",
-]
+# Список allowedTools для Claude CLI собирается динамически из каталога API
+# `GET /_mcp/tools` (ADR-061). Кэшируется на CATALOG_CACHE_TTL секунд, чтобы
+# не делать запрос при каждом старте даймона.
+CATALOG_CACHE_TTL = 600  # 10 minutes
+_mcp_tool_names_cache: tuple[float, list[str]] | None = None
+
+
+def _fetch_mcp_tool_names() -> list[str]:
+    """Тянет каталог /_mcp/tools и возвращает список имён `mcp__kingside__<name>`."""
+    global _mcp_tool_names_cache
+    now = time.time()
+    if _mcp_tool_names_cache and now - _mcp_tool_names_cache[0] < CATALOG_CACHE_TTL:
+        return _mcp_tool_names_cache[1]
+    api_url = os.environ.get("KINGSIDE_API_URL", "http://localhost:3001").rstrip("/")
+    headers = {}
+    key = os.environ.get("MCP_DISCOVERY_KEY", "")
+    if key:
+        headers["X-Mcp-Discovery-Key"] = key
+    try:
+        req = urllib.request.Request(f"{api_url}/_mcp/tools", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        names = [f"mcp__kingside__{t['name']}" for t in data.get("tools", [])]
+        _mcp_tool_names_cache = (now, names)
+        return names
+    except Exception as e:
+        log(f"_fetch_mcp_tool_names failed: {e}")
+        # Возвращаем кэш если есть, иначе пустой список (модель не сможет
+        # дёрнуть MCP, но не упадёт)
+        return _mcp_tool_names_cache[1] if _mcp_tool_names_cache else []
 
 
 def _build_mcp_config(user_id, user_token=""):
@@ -1041,7 +1050,9 @@ class ChatDaemon:
             cmd.extend(["--resume", self._resume_session_id])
         if self._mcp_config_path:
             cmd.extend(["--mcp-config", self._mcp_config_path])
-            cmd.extend(["--allowedTools"] + MCP_ALLOWED_TOOLS)
+            allowed = _fetch_mcp_tool_names()
+            if allowed:
+                cmd.extend(["--allowedTools"] + allowed)
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
         return cmd
