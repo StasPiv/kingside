@@ -37,10 +37,6 @@ deploy-archive-service:
 logs-archive-importer lines="100":
     docker compose logs archive-importer --tail {{lines}} --timestamps
 
-# Deploy to Kamatera (legacy)
-deploy-kamatera:
-    bash scripts/deploy-local.sh
-
 # Stop infrastructure
 down:
     docker compose down

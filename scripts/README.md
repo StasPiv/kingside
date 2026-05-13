@@ -136,14 +136,10 @@ node scripts/screenshot.mjs \
 | `deploy-frontend.sh`                  | Враппер `deploy-aws.sh frontend`.                                               |
 | `deploy-api.sh`                       | Враппер `deploy-aws.sh api`.                                                    |
 | `deploy-synthetic-bot.sh`             | Сборка + регистрация revision + update-service для synthetic-bot.               |
-| `deploy-local.sh`                     | Legacy деплой на Kamatera.                                                      |
-| `deploy-server-zero-downtime.sh`      | Blue/green на Kamatera-хосте (legacy).                                          |
 | `archive-cutover.sh`, `archive-db-setup.sh`, `archive-infra-setup.sh`, `archive-service-aws-setup.sh`, `archive-sql.sh` | One-off bootstrap archive-service. |
 | `broadcast-service-aws-setup.sh`      | One-off bootstrap broadcast-service.                                            |
 | `synthetic-bot-aws-setup.sh`          | One-off bootstrap synthetic-bot.                                                |
 | `cleanup-puzzle-worker-infra.sh`      | Удаление legacy puzzle-worker инфры.                                            |
-| `remove-rabbitmq.sh`                  | Деинсталляция RabbitMQ (legacy).                                                |
-| `nginx-hotfix.sh`, `prod-502-fix.sh`, `api-hotfix.sh` | Hotfix-процедуры на проде.                                      |
 | `api-watchdog.sh`, `dev-watchdog.sh`  | Локальные watchdog'и сервисов.                                                  |
 
 ## Сопровождение БД и данных

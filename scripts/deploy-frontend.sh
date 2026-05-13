@@ -1,3 +1,3 @@
 #!/bin/bash
-# Deploy only frontend — shortcut for deploy-local.sh frontend
-exec "$(dirname "${BASH_SOURCE[0]}")/deploy-local.sh" frontend
+# Deploy only frontend — shortcut for deploy-aws.sh frontend
+exec "$(dirname "${BASH_SOURCE[0]}")/deploy-aws.sh" frontend
