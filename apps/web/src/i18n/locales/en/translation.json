@@ -743,7 +743,8 @@
     "home": "Home",
     "rematch": "Rematch",
     "rematchSent": "Sent...",
-    "backToTournament": "Back to Tournament"
+    "backToTournament": "Back to Tournament",
+    "openInAnalysis": "Open in analysis"
   },
   "review": {
     "loadError": "Failed to load game",

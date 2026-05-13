@@ -761,7 +761,8 @@
     "home": "На главную",
     "rematch": "Реванш",
     "rematchSent": "Отправлено...",
-    "backToTournament": "Вернуться в турнир"
+    "backToTournament": "Вернуться в турнир",
+    "openInAnalysis": "Открыть в анализе"
   },
   "review": {
     "loadError": "Не удалось загрузить партию",

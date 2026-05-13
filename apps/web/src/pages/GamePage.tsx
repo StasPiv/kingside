@@ -117,6 +117,9 @@ export function GamePage() {
   const triggerBotMoveRef = useRef(triggerBotMove);
   triggerBotMoveRef.current = triggerBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
+  // KS-2949: флаг «уже инициировали авто-редирект в анализ» — чтобы при
+  // повторных state-апдейтах не делать двойной POST /analyses + navigate.
+  const analysisRedirectingRef = useRef(false);
 
   /**
    * KS-2946: открыть анализ сыгранной партии. Раньше модалка результата
@@ -281,6 +284,31 @@ export function GamePage() {
           triggerBotMoveRef.current(fen);
         }
       }
+      // KS-2949: если партия уже завершена на момент посещения /game/:id
+      // (пользователь открыл ссылку на сыгранную партию), сразу редирект
+      // в анализ. Окончание НЕ происходит в текущей сессии — модалка не
+      // показывается. На live-партиях (status='active') редирект не
+      // срабатывает.
+      if (
+        isFirstState &&
+        state.status === 'finished' &&
+        !analysisRedirectingRef.current
+      ) {
+        analysisRedirectingRef.current = true;
+        const playersForPgn = state.players ?? { white: '', black: '' };
+        const pgn = buildGamePgn({
+          players: playersForPgn,
+          moves: state.moves,
+          result: state.result ?? null,
+          gameId: gameId ?? null,
+        });
+        void openAnalysis(navigate, {
+          pgn,
+          title: buildGameAnalysisTitle(playersForPgn),
+          t,
+          replace: true,
+        });
+      }
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
@@ -356,7 +384,7 @@ export function GamePage() {
       socket.off(GameEvents.ERROR, onError);
       socket.off('game:berserk', onBerserk);
     };
-  }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove]);
+  }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove, navigate, t]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -724,13 +752,14 @@ export function GamePage() {
                 </button>
               )}
               <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
+              {/* KS-2949: тот же CTA, что и в финальной модалке. */}
               <button
                 type="button"
                 className="result-btn result-btn-primary"
-                data-testid="game-result-analyze"
+                data-testid="game-result-analyze-side"
                 onClick={handleAnalyze}
               >
-                {t('game.analyze')}
+                {t('gameResult.openInAnalysis', 'Open in analysis')}
               </button>
             </div>
           </div>
@@ -808,14 +837,17 @@ export function GamePage() {
               ) : (
                 <>
                   <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
+                  {/* KS-2949: «Открыть в анализе» — явный CTA в финальной
+                      модалке live-партии, помимо авто-редиректа уже
+                      завершённых партий из onGameState. */}
                   <button
-                type="button"
-                className="result-btn result-btn-primary"
-                data-testid="game-result-analyze"
-                onClick={handleAnalyze}
-              >
-                {t('game.analyze')}
-              </button>
+                    type="button"
+                    className="result-btn result-btn-primary"
+                    data-testid="game-result-analyze"
+                    onClick={handleAnalyze}
+                  >
+                    {t('gameResult.openInAnalysis', 'Open in analysis')}
+                  </button>
                   <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
                 </>
               )}
