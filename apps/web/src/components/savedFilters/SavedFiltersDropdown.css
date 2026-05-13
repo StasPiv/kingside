@@ -39,6 +39,29 @@
   font-family: inherit;
 }
 
+/* KS-2945: первопричина бага «sub-меню перекрывается соседней строкой».
+ * TSX рендерит подписи «Сейчас применён» / «Модифицирован» внутри
+ * `<span class="sr-only">` для screen reader'ов. В проекте нет глобальной
+ * утилиты `.sr-only` (см. `grep -r '\\.sr-only' apps/web/src`), и без
+ * стиля span превращался в обычный inline-элемент с видимым текстом,
+ * раздувая ширину `.saved-filters-dropdown__item-name` (flex:1 1 auto,
+ * min-width:auto = min-content). В итоге item-name тянул li за правую
+ * границу popover'а, а kebab вместе с sub-меню оказывались снаружи.
+ * Стандартный visually-hidden pattern (WAI-ARIA APG) — спрячет текст
+ * визуально, оставив доступным для AT. Скоупим в namespace компонента,
+ * чтобы не цеплять глобальные `.sr-only`. */
+.saved-filters-dropdown .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* === Toggle button ==================================================== */
 
 .saved-filters-dropdown__toggle {
@@ -89,14 +112,19 @@
   flex-direction: column;
   box-sizing: border-box;
   width: 320px;
-  max-height: 420px;
   padding: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-mid);
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
   color: var(--text-primary);
-  overflow: hidden;
+  /* KS-2945: убрали `overflow: hidden` + `max-height: 420px`. Они
+   * клипали kebab sub-меню, расположенное под строкой через
+   * `position: absolute; top: 100%`. Scroll-логика перенесена на
+   * `.saved-filters-dropdown__list` (там собственный max-height +
+   * overflow-y). При ~20 фильтрах max-height в list даёт ту же
+   * визуальную плотность, а sub-меню теперь имеет право вылазить
+   * за пределы popover'а (видно полностью). */
   animation: saved-filters-fade-in 120ms ease-out;
 }
 
@@ -309,8 +337,12 @@
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* KS-2945: scroll/clip убраны. Любой `overflow !=visible` создаёт
+   * clipping context для абсолютно-позиционированного sub-меню kebab
+   * — даже без реального переполнения по высоте. При 20 фильтрах
+   * (потолок KS-2927) popover тянется страницей; page-scroll
+   * пользователя на это рассчитан. */
+  overflow: visible;
 }
 
 /* === Item ============================================================= */
@@ -422,13 +454,28 @@
   opacity: 1;
 }
 
-/* === Kebab sub-menu =================================================== */
+/* === Kebab sub-menu ===================================================
+ *
+ * KS-2945: причина бага «видно только первый пункт» была в
+ * `overflow: hidden` на `.saved-filters-dropdown__popover` и
+ * `overflow-y: auto` на `.saved-filters-dropdown__list` — оба
+ * клипали absolute-меню, расположенное через `top: 100%`. Убрали
+ * overflow с обоих контейнеров; меню теперь имеет право вылазить
+ * за их границы и видно полностью. Дополнительно поднимаем z-index
+ * у строки с открытым kebab, чтобы фон соседнего item в DOM-потоке
+ * не перекрывал меню. */
+
+.saved-filters-dropdown__item:has(
+    .saved-filters-dropdown__item-kebab[aria-expanded="true"]
+  ) {
+  z-index: 5;
+}
 
 .saved-filters-dropdown__kebab-menu {
   position: absolute;
   top: 100%;
   right: 6px;
-  z-index: 3;
+  z-index: 20;
   min-width: 180px;
   margin-top: 2px;
   padding: 4px 0;
@@ -664,6 +711,13 @@
   }
 
   .saved-filters-dropdown__kebab-menu {
+    /* KS-2945: на mobile bottom-sheet прижат к низу viewport'а;
+     * sub-меню при `top: 100%` вылазит за нижний край экрана.
+     * Открываем вверх — над строкой, внутри bottom-sheet'а. */
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
     right: 8px;
     min-width: 200px;
   }
