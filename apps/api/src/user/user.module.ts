@@ -9,6 +9,8 @@ import { UserPreferencesController } from './user-preferences.controller';
 import { UserPreferencesService } from './user-preferences.service';
 import { UserNavStatsController } from './user-nav-stats.controller';
 import { UserNavStatsService } from './user-nav-stats.service';
+import { SavedFiltersController } from './saved-filters/saved-filters.controller';
+import { SavedFiltersService } from './saved-filters/saved-filters.service';
 import { EcoService } from '../game/eco.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkshopModule } from '../workshop/workshop.module';
@@ -25,6 +27,8 @@ import { WorkshopModule } from '../workshop/workshop.module';
     UserPreferencesController,
     // KS-2373: статистика посещений разделов (MobileBottomBar top-3).
     UserNavStatsController,
+    // KS-2924 / KS-2927 Phase A3: сохранённые фильтры (workshop+archive).
+    SavedFiltersController,
   ],
   providers: [
     UserService,
@@ -33,6 +37,7 @@ import { WorkshopModule } from '../workshop/workshop.module';
     EcoService,
     UserPreferencesService,
     UserNavStatsService,
+    SavedFiltersService,
   ],
   exports: [UserService, BlockService],
 })
