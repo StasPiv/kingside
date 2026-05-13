@@ -1288,15 +1288,44 @@ export type AnalysisResponse = {
   updatedAt: string;
 };
 
-/** List item (GET /api/analyses response) */
+/**
+ * List item (GET /api/analyses response).
+ *
+ * KS-2948: список — только метаданные. Запрос:
+ *   `GET /api/analyses?limit=20&offset=0&withPgn=false`
+ *  - дефолтный `limit=20`, верхний потолок 100;
+ *  - `withPgn=true` опционально включает поля `pgn`, `fen`,
+ *    `currentPosition` (но для одной партии правильно дёргать
+ *    `GET /api/analyses/:id`).
+ */
 export type AnalysisListItem = {
   id: string;
   title: string;
   headline: string | null;
   opening: string | null;
+  event: string | null;
+  white: string | null;
+  black: string | null;
+  result: string | null;
   category: string | null;
   tags: string[];
   createdAt: string;
+  /** Присутствует только при `?withPgn=true`. */
+  pgn?: string | null;
+  /** Присутствует только при `?withPgn=true`. */
+  fen?: string | null;
+  /** Присутствует только при `?withPgn=true`. */
+  currentPosition?: number | null;
+};
+
+/** GET /api/analyses query. */
+export type AnalysisListQuery = {
+  /** Дефолт 20, max 100. Клампится на сервере. */
+  limit?: number;
+  /** Дефолт 0. */
+  offset?: number;
+  /** Дефолт false. При true добавляет `pgn`/`fen`/`currentPosition` в каждую запись. */
+  withPgn?: boolean;
 };
 
 export const BroadcastEvents = {

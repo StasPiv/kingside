@@ -37,9 +37,24 @@ export class AnalysisController {
     return this.analysisService.create(req.user.id, dto);
   }
 
+  // KS-2948: список анализов пользователя.
+  //  - дефолтный limit=20, верхний потолок 100 (защита от 200КБ tool_result
+  //    в MCP-обёртке `tools/mcp-kingside.mjs::getUserAnalyses`);
+  //  - `offset` для пагинации;
+  //  - `withPgn=true` опционально включает `pgn`/`fen` в каждой записи
+  //    (по умолчанию список содержит только метаданные).
   @Get()
-  findAll(@Request() req: AuthenticatedRequest) {
-    return this.analysisService.findAll(req.user.id);
+  findAll(
+    @Request() req: AuthenticatedRequest,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('withPgn') withPgn?: string,
+  ) {
+    return this.analysisService.findAll(req.user.id, {
+      limit: limit !== undefined ? parseInt(limit, 10) : undefined,
+      offset: offset !== undefined ? parseInt(offset, 10) : undefined,
+      withPgn: withPgn === 'true' || withPgn === '1',
+    });
   }
 
   @Get('search')

@@ -185,6 +185,97 @@ describe('AnalysisService', () => {
         }),
       );
     });
+
+    // ── KS-2948: дефолтный limit=20, max=100, offset=0;
+    // в select по умолчанию НЕТ `pgn` / `fen` / `currentPosition`
+    // (защита от 200КБ tool_result в MCP getUserAnalyses).
+    describe('KS-2948 pagination & PGN exclusion', () => {
+      it('применяет дефолтный limit=20 и skip=0 без options', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId);
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.take).toBe(20);
+        expect(call.skip).toBe(0);
+      });
+
+      it('select по умолчанию НЕ содержит pgn/fen/currentPosition', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId);
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.select.pgn).toBeUndefined();
+        expect(call.select.fen).toBeUndefined();
+        expect(call.select.currentPosition).toBeUndefined();
+        // метаданные должны быть в select
+        expect(call.select.id).toBe(true);
+        expect(call.select.title).toBe(true);
+        expect(call.select.headline).toBe(true);
+      });
+
+      it('withPgn=true добавляет pgn/fen/currentPosition в select', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { withPgn: true });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.select.pgn).toBe(true);
+        expect(call.select.fen).toBe(true);
+        expect(call.select.currentPosition).toBe(true);
+      });
+
+      it('limit клампится сверху до 100', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { limit: 5000 });
+
+        expect(prisma.analysis.findMany.mock.calls[0][0].take).toBe(100);
+      });
+
+      it('limit клампится снизу до 1', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { limit: 0 });
+
+        expect(prisma.analysis.findMany.mock.calls[0][0].take).toBe(1);
+      });
+
+      it('limit с NaN → дефолт 20', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { limit: Number.NaN });
+
+        expect(prisma.analysis.findMany.mock.calls[0][0].take).toBe(20);
+      });
+
+      it('offset передаётся как skip и клампится снизу до 0', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { offset: -5 });
+
+        expect(prisma.analysis.findMany.mock.calls[0][0].skip).toBe(0);
+      });
+
+      it('offset=40, limit=10 → take=10, skip=40', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { limit: 10, offset: 40 });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.take).toBe(10);
+        expect(call.skip).toBe(40);
+      });
+
+      it('дробный limit → Math.floor', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { limit: 12.7 });
+
+        expect(prisma.analysis.findMany.mock.calls[0][0].take).toBe(12);
+      });
+    });
   });
 
   describe('findOne', () => {

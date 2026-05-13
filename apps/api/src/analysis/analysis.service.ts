@@ -169,23 +169,65 @@ export class AnalysisService implements OnModuleInit {
     });
   }
 
-  async findAll(userId: string) {
+  /**
+   * KS-2948: список анализов пользователя с пагинацией.
+   *
+   * Параметры:
+   *  - `limit` — кол-во записей в ответе. Дефолт 20, max 100, min 1.
+   *    NaN/невалидное → дефолт. До KS-2948 список не имел лимита
+   *    и вместе с MCP-обёрткой (см. `tools/mcp-kingside.mjs`) на
+   *    реальном пользователе давал ~200 КБ tool_result, что ломало
+   *    Claude CLI (199,835 chars > token limit).
+   *  - `offset` — пагинация. Дефолт 0, min 0.
+   *  - `withPgn` — если `true`, в каждую запись добавляются `pgn`,
+   *    `fen`, `currentPosition`. По умолчанию список — только
+   *    метаданные; для конкретной партии используется `GET /analyses/:id`.
+   */
+  async findAll(
+    userId: string,
+    options?: { limit?: number; offset?: number; withPgn?: boolean },
+  ) {
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    const rawLimit = options?.limit;
+    const limit =
+      rawLimit === undefined || Number.isNaN(rawLimit)
+        ? DEFAULT_LIMIT
+        : Math.min(Math.max(Math.floor(rawLimit), 1), MAX_LIMIT);
+    const rawOffset = options?.offset;
+    const offset =
+      rawOffset === undefined || Number.isNaN(rawOffset)
+        ? 0
+        : Math.max(Math.floor(rawOffset), 0);
+
+    const baseSelect = {
+      id: true,
+      title: true,
+      headline: true,
+      opening: true,
+      event: true,
+      white: true,
+      black: true,
+      result: true,
+      category: true,
+      tags: true,
+      createdAt: true,
+    } as const;
+    const select = options?.withPgn
+      ? {
+          ...baseSelect,
+          pgn: true,
+          fen: true,
+          currentPosition: true,
+        }
+      : baseSelect;
+
     const analyses = await this.prisma.analysis.findMany({
       where: { userId },
-      select: {
-        id: true,
-        title: true,
-        headline: true,
-        opening: true,
-        event: true,
-        white: true,
-        black: true,
-        result: true,
-        category: true,
-        tags: true,
-        createdAt: true,
-      },
+      select,
       orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
     });
     return analyses.map((a) => ({
       ...a,
