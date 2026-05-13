@@ -364,6 +364,24 @@ export function PlayVsEngineRunner({
    * POV соперника — инвертируем (`w↔l`) перед записью.
    */
   const [latestWdl, setLatestWdl] = useState<WdlDistribution | null>(null);
+  /**
+   * KS-2960. Baseline WDL стартовой позиции (POV решателя), посчитанный
+   * локальным SF18 WASM — тем же движком, что играет в раннере. Считается
+   * в initial pre-analyze (см. effect KS-2507 ниже) и хранится отдельно
+   * от `latestWdl`, чтобы не перезаписываться при post-analyze.
+   *
+   * Используется как `start`-значение в финальном WDL-summary и как
+   * initial значение для `latestWdlUser` — вместо серверного
+   * `puzzle.playVsEngine.wdlAfter` / `wdlAfterBlunder`. Серверные поля
+   * остаются fallback'ом если pre-analyze упал (worker не загрузился /
+   * таймаут).
+   *
+   * Зачем: gen-time оценка пазла может быть посчитана на другом движке,
+   * глубине или через mate-fallback в `wdlSignedFromInfo` — UI ловил
+   * расхождения и показывал «преимущество удержано/потеряно» в обратную
+   * сторону. См. KS-2955 / KS-2960.
+   */
+  const [clientBaselineWdl, setClientBaselineWdl] = useState<WdlDistribution | null>(null);
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
   /**
    * KS-2473: лог «лучшего хода юзера» в позиции ДО user-move. Заполняется
@@ -918,6 +936,10 @@ export function PlayVsEngineRunner({
     // KS-2527: latestWdl сбрасываем в null — initial analyze запишет
     // настоящее значение из движка (если UCI_ShowWDL поддерживается).
     setLatestWdl(null);
+    // KS-2960: baseline тоже сбрасываем — заполнится в initial pre-analyze
+    // ниже. До этого момента fallback идёт на серверный
+    // `puzzle.playVsEngine.wdlAfter` / `wdlAfterBlunder`.
+    setClientBaselineWdl(null);
     setReason(null);
     // KS-2739: ref сбрасываем тут же чтобы не утащить лог прошлого пазла
     // в submit нового. updateUserBestLog тоже работал бы, но reset-эффект
@@ -961,6 +983,17 @@ export function PlayVsEngineRunner({
         // без flip. null если info без wdl.
         const initialBest = pickBestLine(initial);
         setLatestWdl(initialBest?.wdl ?? null);
+        // KS-2960: фиксируем клиентский baseline POV-решателя из
+        // локального SF (тот же движок, что будет играть). Используется
+        // как `start` в финальном summary и как initial для
+        // `latestWdlUser`. Без этого UI показывал «удержано/потеряно»
+        // от серверного `puzzle.playVsEngine.wdlAfter`, который может
+        // не совпадать с реальной оценкой движка на этой глубине.
+        if (initialBest?.wdl) {
+          setClientBaselineWdl(initialBest.wdl);
+          // signedWdl POV решателя (= user, на puzzle.fen ходит он).
+          setLatestWdlUser(signedWdlFromObj(initialBest.wdl));
+        }
       } catch {
         /* ignore — EvalBar не критичен, юзер сделает ход и анализ
            перезапустится в runEngineCycle. */
@@ -1224,7 +1257,11 @@ export function PlayVsEngineRunner({
                   Внутренний lost/preserved-header УБРАН — он дублировал
                   внешний reasonLabel. */}
               {(() => {
-                const wdlAfter = puzzle.playVsEngine?.wdlAfter;
+                // KS-2960: предпочитаем клиентский baseline (тот же
+                // движок, что играет) — серверный wdlAfter оставлен
+                // как fallback на случай если initial pre-analyze упал
+                // / движок не отдаёт WDL.
+                const wdlAfter = clientBaselineWdl ?? puzzle.playVsEngine?.wdlAfter;
                 if (!wdlAfter || !latestWdl) return null;
 
                 const start = {

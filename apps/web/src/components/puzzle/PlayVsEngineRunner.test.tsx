@@ -1264,6 +1264,121 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       expect(pgnDecoded).toContain('e5');
     });
   });
+
+  /**
+   * KS-2960: baseline WDL стартовой позиции должен браться из локального
+   * SF (initial pre-analyze), а не из серверного `puzzle.playVsEngine.wdlAfter`.
+   * Иначе при расхождении gen-time vs run-time UI показывал «удержано»/«потеряно»
+   * с неверными `start`-процентами.
+   */
+  describe('KS-2960 — клиентский baseline WDL вместо серверного', () => {
+    it('clientBaselineWdl из initial analyze переопределяет puzzle.playVsEngine.wdlAfter в summary', async () => {
+      // Сервер говорит 100% win — серверный wdlAfter сильно завышен.
+      // Клиентский SF на той же позиции видит 50/30/20.
+      const puzzle = makePuzzle({
+        playVsEngine: {
+          blunderMove: 'd2d4',
+          wdlAfterBlunder: 0.6,
+          winThreshold: 0.5,
+          failThreshold: 0.1,
+          halfMovesN: 6,
+          // Серверный baseline, которому НЕ должны доверять:
+          wdlAfter: { w: 1000, d: 0, l: 0 },
+        },
+      });
+      const engine = new ScriptedEngine([
+        // KS-2960: initial pre-analyze отдаёт реальный WDL клиента.
+        result(
+          line({ type: 'cp', value: 0 }, ['e2e4'], 12, 1, {
+            w: 500,
+            d: 300,
+            l: 200,
+          }),
+        ),
+        // pre-analyze user move 1 (без wdl — не влияет на summary).
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        // post-analyze: lose-сценарий, чтобы дойти до summary.
+        result(
+          line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
+            w: 780,
+            d: 200,
+            l: 20,
+          }),
+        ),
+      ]);
+      renderWithProviders(
+        <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+      );
+      (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+      (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+        ).toBe('lose');
+      });
+      await waitFor(() => {
+        const sum = screen.getByTestId('puzzle-engine-wdl-summary');
+        if (sum.getAttribute('data-mode') !== 'permille') {
+          throw new Error('still on signed fallback');
+        }
+      });
+      const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+      // start берётся из клиентского baseline (500/300/200 → 50/30/20),
+      // НЕ из серверного wdlAfter (1000/0/0 → 100/0/0).
+      expect(summary.getAttribute('data-start-w')).toBe('50');
+      expect(summary.getAttribute('data-start-d')).toBe('30');
+      expect(summary.getAttribute('data-start-l')).toBe('20');
+    });
+
+    it('fallback на серверный wdlAfter, если initial analyze не вернул wdl', async () => {
+      // Старые movки/сборки SF без UCI_ShowWDL → initial возвращает
+      // info без `wdl` поля. Раннер должен остаться на серверном
+      // baseline (back-compat).
+      const puzzle = makePuzzle({
+        playVsEngine: {
+          blunderMove: 'd2d4',
+          wdlAfterBlunder: 0.6,
+          winThreshold: 0.5,
+          failThreshold: 0.1,
+          halfMovesN: 6,
+          wdlAfter: { w: 850, d: 130, l: 20 },
+        },
+      });
+      const engine = new ScriptedEngine([
+        // initial без wdl → clientBaselineWdl остаётся null.
+        result(line({ type: 'cp', value: 0 }, ['e2e4'])),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(
+          line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
+            w: 780,
+            d: 200,
+            l: 20,
+          }),
+        ),
+      ]);
+      renderWithProviders(
+        <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+      );
+      (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+      (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+        ).toBe('lose');
+      });
+      await waitFor(() => {
+        const sum = screen.getByTestId('puzzle-engine-wdl-summary');
+        if (sum.getAttribute('data-mode') !== 'permille') {
+          throw new Error('still on signed fallback');
+        }
+      });
+      const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+      // start берётся из серверного wdlAfter (850/130/20 → 85/13/2).
+      expect(summary.getAttribute('data-start-w')).toBe('85');
+      expect(summary.getAttribute('data-start-d')).toBe('13');
+      expect(summary.getAttribute('data-start-l')).toBe('2');
+    });
+  });
 });
 
 /**
