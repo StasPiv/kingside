@@ -73,8 +73,21 @@ export interface PlayVsEngineRunnerProps {
    * Production — `() => new WasmEngineAdapter()`.
    */
   engineFactory?: () => EngineAdapter;
-  /** Глубина для анализа. По умолчанию 12 — компромисс скорость/точность. */
+  /**
+   * Глубина для анализа. По умолчанию 18 — на меньших глубинах SF18 WASM
+   * в насыщенных позициях даёт ложные WDL и срабатывает ложный
+   * «Преимущество потеряно» (KS-2955). Пара с `analyzeMovetimeMs`
+   * гарантирует разумный нижний порог: SF останавливается по первой
+   * достигнутой границе.
+   */
   analyzeDepth?: number;
+  /**
+   * KS-2955: нижний порог времени анализа в мс. По умолчанию 1000 — на
+   * проблемных позициях типа `3r4/pppk1pQP/8/...` это даёт SF18 WASM
+   * добраться до depth 18+, где `bestmove`/`wdl` стабильно корректны.
+   * 0/undefined — без movetime, только depth (как было до KS-2955).
+   */
+  analyzeMovetimeMs?: number;
 }
 
 type RunnerState = 'thinking' | 'evaluating' | 'engine' | 'win' | 'lose' | 'error';
@@ -287,7 +300,12 @@ export function PlayVsEngineRunner({
   onSubmit,
   onNext,
   engineFactory,
-  analyzeDepth = 12,
+  // KS-2955: depth=18 + movetime=1000 — гарантия корректной оценки
+  // в насыщенных позициях. На depth=12 SF18 WASM в FEN
+  // 3r4/pppk1pQP/8/... выбирал c5c6 вместо g7f7 и оценивал результат
+  // как «чёрные выигрывают», давая ложный «Преимущество потеряно».
+  analyzeDepth = 18,
+  analyzeMovetimeMs = 1000,
 }: PlayVsEngineRunnerProps) {
   const { t } = useTranslation();
   const { playSound } = useSounds();
@@ -450,14 +468,19 @@ export function PlayVsEngineRunner({
     (fen: string): Promise<AnalysisResult> => {
       const next = engineQueueRef.current.then(async () => {
         const eng = await ensureEngine();
-        return eng.analyze(fen, analyzeDepth, 1);
+        // KS-2955: гарантируем нижнюю границу анализа ≥ 1 секунда. На
+        // depth=12 SF18 WASM в насыщенных позициях даёт ложные WDL
+        // (например для FEN 3r4/pppk1pQP/8/...: depth=12 bestmove c5c6
+        // wdl 0 679 321 → effWdlUser -0.32 → ложный «потеряно», на
+        // depth 18 / movetime 1000 — bestmove g7f7 (Qxf7+) wdl 1000 0 0).
+        return eng.analyze(fen, analyzeDepth, 1, analyzeMovetimeMs);
       });
       // Не пробрасываем ошибки в цепочку, чтобы один сбой не убил все
       // последующие analyze.
       engineQueueRef.current = next.catch(() => undefined);
       return next;
     },
-    [ensureEngine, analyzeDepth],
+    [ensureEngine, analyzeDepth, analyzeMovetimeMs],
   );
 
   useEffect(() => {

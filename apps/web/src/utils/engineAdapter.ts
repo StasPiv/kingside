@@ -42,7 +42,22 @@ export type AnalysisResult = {
 export interface EngineAdapter {
   init(): Promise<void>;
   setOption(name: string, value: string): void;
-  analyze(fen: string, depth: number, multiPv: number): Promise<AnalysisResult>;
+  /**
+   * KS-2955: опциональный `movetimeMs` — нижний порог времени на анализ
+   * (мс). Полезен в `play-vs-engine` раннере: на низких `depth` SF
+   * систематически промахивается в насыщенных позициях (например
+   * Qxf7+ в FEN `3r4/pppk1pQP/...` на depth=12 SF18 WASM выбирает
+   * c5c6 вместо g7f7 и оценивает позицию как «чёрные выигрывают»;
+   * на depth 18 / movetime 1000 даёт корректный wdl 1000 0 0).
+   * Если задан — посылается `go depth N movetime M` (SF останавливается
+   * по первому достигнутому условию). Если не задан — обычное `go depth N`.
+   */
+  analyze(
+    fen: string,
+    depth: number,
+    multiPv: number,
+    movetimeMs?: number,
+  ): Promise<AnalysisResult>;
   destroy(): void;
 }
 
@@ -151,7 +166,12 @@ export class WasmEngineAdapter implements EngineAdapter {
     this.worker?.postMessage(`setoption name ${name} value ${value}`);
   }
 
-  analyze(fen: string, depth: number, multiPv: number): Promise<AnalysisResult> {
+  analyze(
+    fen: string,
+    depth: number,
+    multiPv: number,
+    movetimeMs?: number,
+  ): Promise<AnalysisResult> {
     return new Promise((resolve) => {
       const finalLines = new Map<number, InfoLine>();
       const bestByDepth = new Map<number, string>();
@@ -182,7 +202,14 @@ export class WasmEngineAdapter implements EngineAdapter {
       this.worker!.addEventListener('message', handler);
       this.worker!.postMessage(`setoption name MultiPV value ${multiPv}`);
       this.worker!.postMessage(`position fen ${fen}`);
-      this.worker!.postMessage(`go depth ${depth}`);
+      // KS-2955: при заданном `movetimeMs` SF получает обе границы и
+      // останавливается по первой достигнутой — гарантируем нижнюю
+      // длительность анализа, не теряя выхода по depth для лёгких позиций.
+      const goCmd =
+        movetimeMs && movetimeMs > 0
+          ? `go depth ${depth} movetime ${movetimeMs}`
+          : `go depth ${depth}`;
+      this.worker!.postMessage(goCmd);
     });
   }
 
@@ -286,7 +313,12 @@ export class BridgeEngineAdapter implements EngineAdapter {
     }
   }
 
-  analyze(fen: string, depth: number, multiPv: number): Promise<AnalysisResult> {
+  analyze(
+    fen: string,
+    depth: number,
+    multiPv: number,
+    movetimeMs?: number,
+  ): Promise<AnalysisResult> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         reject(new Error('Bridge not connected'));
@@ -345,7 +377,18 @@ export class BridgeEngineAdapter implements EngineAdapter {
       };
 
       this.ws.addEventListener('message', handler);
-      this.ws.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
+      // KS-2955: пробрасываем movetimeMs в bridge для симметрии с
+      // WasmEngineAdapter. Bridge-сервер должен поддерживать поле; если
+      // нет — оно молча игнорируется, остаётся прежнее поведение по depth.
+      this.ws.send(
+        JSON.stringify({
+          type: 'analyze',
+          fen,
+          depth,
+          multiPv,
+          ...(movetimeMs && movetimeMs > 0 ? { movetimeMs } : {}),
+        }),
+      );
     });
   }
 
