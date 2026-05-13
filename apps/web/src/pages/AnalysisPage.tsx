@@ -42,6 +42,8 @@ import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
 // handlers) остаётся в AnalysisPage, передаётся через props.
 import { AnalysisHeader } from './analysis/AnalysisHeader';
+// KS-2958: пункт overflow-меню «Сгенерировать пазл» для kind=analysis|review.
+import { GeneratePuzzleMenuItem } from '../components/analysis/GeneratePuzzleMenuItem';
 // KS-2864 (ADR-060 §10.1 FR2): извлечённый board-area — GameMetaBar +
 // EvalBar + Chessboard + promotion-overlay + VariationChooser.
 // useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
@@ -1938,6 +1940,17 @@ function AnalysisPageInner({
                   >
                     {t('review.copyPgn', 'Copy PGN to clipboard')}
                   </button>
+                  {/* KS-2958: «Сгенерировать пазл» — только для kind=analysis|review.
+                      В study/puzzle скрыто (в studies своя задача, в puzzle
+                      нет смысла). Использует тот же puzzleGenerator.ts,
+                      что и precision-режим. */}
+                  {(ctx.kind === 'analysis' || ctx.kind === 'review') && (
+                    <GeneratePuzzleMenuItem
+                      getPgn={buildAnalysisPgn}
+                      onClose={() => setShowOverflowMenu(false)}
+                      disabled={history.length === 0}
+                    />
+                  )}
                   {/* KS-2674: «Поделиться» — пункт меню для mobile.
                       Клик открывает тот же popup, что Share-кнопка на
                       desktop, через ref на ShareAnalysisButton. Виден
