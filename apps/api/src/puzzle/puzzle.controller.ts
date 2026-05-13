@@ -27,6 +27,7 @@ import {
   decodePuzzleCursor,
   encodePuzzleCursor,
 } from './puzzle-cursor-codec';
+import { McpTool } from '../mcp/decorators';
 
 @Controller('puzzles')
 export class PuzzleController {
@@ -38,6 +39,16 @@ export class PuzzleController {
   /**
    * GET /puzzles — search puzzles by theme and difficulty.
    */
+  @McpTool({
+    name: 'puzzles__find',
+    description:
+      'Поиск шахматных задач по теме и диапазону рейтинга. Возвращает ' +
+      'список задач (FEN + метаданные); решения и попытки — отдельными ' +
+      'эндпоинтами по id.',
+    defaultLimit: 10,
+    maxLimit: 50,
+    excludeFields: ['[].solution', '[].moves'],
+  })
   @Get()
   findPuzzles(@Query() dto: FindPuzzlesDto) {
     return this.puzzleService.findPuzzles({
@@ -103,6 +114,15 @@ export class PuzzleController {
     return this.puzzleService.getThemeStats(req.user.id);
   }
 
+  @McpTool({
+    name: 'puzzles__attempts',
+    description:
+      'История попыток пользователя по задачам: правильность, время, ' +
+      'изменение рейтинга. Без полей решения/ходов.',
+    defaultLimit: 20,
+    maxLimit: 100,
+    excludeFields: ['[].puzzle.solution', '[].puzzle.moves'],
+  })
   @UseGuards(JwtAuthGuard)
   @Get('attempts')
   getAttempts(
@@ -149,6 +169,16 @@ export class PuzzleController {
    *    клиент не ждал drafts там, где их в принципе быть не может).
    *  - `visibility` вне whitelist → 400.
    */
+  @McpTool({
+    name: 'puzzles__browse',
+    description:
+      'Браузер шахматных задач с keyset-курсором, фильтрами по темам/' +
+      'рейтингу/источнику/blunderer-ELO. Возвращает список + ' +
+      '`nextCursor` для следующей страницы.',
+    defaultLimit: 20,
+    maxLimit: 50,
+    excludeFields: ['[].solution', '[].moves'],
+  })
   @UseGuards(OptionalJwtGuard)
   @Get('browse')
   async browse(

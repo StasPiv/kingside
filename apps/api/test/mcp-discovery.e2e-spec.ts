@@ -157,6 +157,111 @@ describe('GET /_mcp/tools (KS-2952)', () => {
     }
   });
 
+  // ── KS-2953 (этап B). Точечные `@McpTool` на listing-эндпоинтах
+  // публикуют `defaults.limit`, `limits.maxLimit`, `excludeFields` в
+  // каталог; MCP-сервер использует их как подсказки для клиентских
+  // вызовов (резка тяжёлых полей до возврата модели).
+  describe('KS-2953 listing tools (defaults/limits/excludeFields)', () => {
+    let tools: Map<string, any>;
+
+    beforeAll(async () => {
+      const res = await request(app.getHttpServer())
+        .get('/_mcp/tools')
+        .expect(200);
+      tools = new Map(
+        (res.body.tools as Array<{ name: string }>).map((t) => [t.name, t]),
+      );
+    });
+
+    function expectListing(
+      name: string,
+      expected: {
+        defaultLimit?: number;
+        maxLimit?: number;
+        excludeFields?: string[];
+      },
+    ) {
+      const t = tools.get(name);
+      expect(t).toBeDefined();
+      if (expected.defaultLimit !== undefined) {
+        expect(t.defaults?.limit).toBe(expected.defaultLimit);
+      }
+      if (expected.maxLimit !== undefined) {
+        expect(t.limits?.maxLimit).toBe(expected.maxLimit);
+      }
+      if (expected.excludeFields !== undefined) {
+        expect(t.excludeFields).toEqual(expected.excludeFields);
+      }
+    }
+
+    it('analyses__list — limit=20/max=100, exclude pgn/fen/currentPosition', () => {
+      expectListing('analyses__list', {
+        defaultLimit: 20,
+        maxLimit: 100,
+        excludeFields: ['[].pgn', '[].fen', '[].currentPosition'],
+      });
+    });
+
+    it('analyses__search — limit=20/max=50', () => {
+      expectListing('analyses__search', { defaultLimit: 20, maxLimit: 50 });
+    });
+
+    it('studies__list — limit=20/max=50', () => {
+      expectListing('studies__list', { defaultLimit: 20, maxLimit: 50 });
+    });
+
+    it('studies__catalog — limit=20/max=50', () => {
+      expectListing('studies__catalog', { defaultLimit: 20, maxLimit: 50 });
+    });
+
+    it('studies__list_public — limit=20/max=50', () => {
+      expectListing('studies__list_public', {
+        defaultLimit: 20,
+        maxLimit: 50,
+      });
+    });
+
+    it('games__my — limit=20/max=100, exclude pgn/moves/fen/finalFen', () => {
+      expectListing('games__my', {
+        defaultLimit: 20,
+        maxLimit: 100,
+        excludeFields: ['[].pgn', '[].moves', '[].fen', '[].finalFen'],
+      });
+    });
+
+    it('games__live — limit=20/max=100, exclude pgn/moves', () => {
+      expectListing('games__live', {
+        defaultLimit: 20,
+        maxLimit: 100,
+        excludeFields: ['[].pgn', '[].moves'],
+      });
+    });
+
+    it('puzzles__find — limit=10/max=50, exclude solution/moves', () => {
+      expectListing('puzzles__find', {
+        defaultLimit: 10,
+        maxLimit: 50,
+        excludeFields: ['[].solution', '[].moves'],
+      });
+    });
+
+    it('puzzles__attempts — limit=20/max=100, exclude nested puzzle solution/moves', () => {
+      expectListing('puzzles__attempts', {
+        defaultLimit: 20,
+        maxLimit: 100,
+        excludeFields: ['[].puzzle.solution', '[].puzzle.moves'],
+      });
+    });
+
+    it('puzzles__browse — limit=20/max=50, exclude solution/moves', () => {
+      expectListing('puzzles__browse', {
+        defaultLimit: 20,
+        maxLimit: 50,
+        excludeFields: ['[].solution', '[].moves'],
+      });
+    });
+  });
+
   it('prod: без ключа → 403', async () => {
     // переключаемся в production-режим через override guard.canActivate
     // (manipulate process.env могло бы повлиять на другие тесты — лучше

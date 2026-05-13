@@ -35,6 +35,7 @@ import {
 import { StudyOwnerGuard } from './study-owner.guard';
 import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
+import { McpTool } from '../mcp/decorators';
 
 /**
  * KS-2815 / ADR-059 / KS-2819 T4. REST API для Studies.
@@ -69,6 +70,14 @@ export class StudyController {
    * Используем OptionalJwt, чтобы публичный каталог можно было читать
    * без auth; для `mine=1` без auth — сервис кинет 400.
    */
+  @McpTool({
+    name: 'studies__list',
+    description:
+      'Список студий: `?mine=1` — мои студии (auth required); `?mine=0` — ' +
+      'публичные. Возвращает метаданные без глав.',
+    defaultLimit: 20,
+    maxLimit: 50,
+  })
   @UseGuards(OptionalJwtAuthGuard)
   @Get()
   async list(

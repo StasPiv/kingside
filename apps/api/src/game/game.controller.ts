@@ -22,6 +22,7 @@ import { RedisRateLimitGuard, RateLimit } from '../common/redis-rate-limit.guard
 import { GameService } from './game.service';
 import { LiveGameService } from './live-game.service';
 import { UserService } from '../user/user.service';
+import { McpTool } from '../mcp/decorators';
 
 @Controller('games')
 export class GameController {
@@ -37,6 +38,20 @@ export class GameController {
     return this.gameService.getActiveGameForUser(req.user.id);
   }
 
+  // KS-2953 (ADR-061 этап B): архив партий пользователя — типичный
+  // источник тяжёлых ответов с PGN/moves. excludeFields сообщает MCP-у
+  // вырезать их даже если сервер вернёт.
+  @McpTool({
+    name: 'games__my',
+    description:
+      'Архив сыгранных партий текущего пользователя. Метаданные ' +
+      '(оппонент, результат, тайминг, рейтинги). PGN/ходы вырезаются ' +
+      'для ассистента; для конкретной партии — games__find_one / ' +
+      'games__moves.',
+    defaultLimit: 20,
+    maxLimit: 100,
+    excludeFields: ['[].pgn', '[].moves', '[].fen', '[].finalFen'],
+  })
   @UseGuards(JwtAuthGuard)
   @Get('my')
   getMyGames(
@@ -47,6 +62,15 @@ export class GameController {
     return this.userService.getUserGames(req.user.id, { take, skip });
   }
 
+  @McpTool({
+    name: 'games__live',
+    description:
+      'Список live-партий платформы прямо сейчас (фильтры по time-control ' +
+      'и игроку). Метаданные без PGN/ходов.',
+    defaultLimit: 20,
+    maxLimit: 100,
+    excludeFields: ['[].pgn', '[].moves'],
+  })
   @Get('live')
   @UseGuards(RedisRateLimitGuard)
   @RateLimit(60, 60)

@@ -13,6 +13,7 @@ import {
   type StudyChapterDto,
 } from './study-chapters.service';
 import { ListStudiesQueryDto } from './dto/study.dto';
+import { McpTool } from '../mcp/decorators';
 
 /**
  * KS-2815 / ADR-059 / KS-2821 T6. Публичный read-only доступ к
@@ -41,6 +42,14 @@ export class StudyPublicController {
   ) {}
 
   /** Каталог публичных студий (anonymous). */
+  @McpTool({
+    name: 'studies__list_public',
+    description:
+      'Анонимный листинг публичных студий без фильтров (legacy-режим до ' +
+      'KS-2880). Для расширенной фильтрации/сортировки — studies__catalog.',
+    defaultLimit: 20,
+    maxLimit: 50,
+  })
   @Get()
   async listPublic(
     @Query() query: ListStudiesQueryDto,

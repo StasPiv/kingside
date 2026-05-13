@@ -20,6 +20,7 @@ import { AnalysisService } from './analysis.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 import { ShareAnalysisDto } from './dto/share-analysis.dto';
+import { McpTool } from '../mcp/decorators';
 
 /**
  * KS-2924 / KS-2943 Phase D1. Legacy proxy `/analyses/filters`
@@ -43,6 +44,18 @@ export class AnalysisController {
   //  - `offset` для пагинации;
   //  - `withPgn=true` опционально включает `pgn`/`fen` в каждой записи
   //    (по умолчанию список содержит только метаданные).
+  // KS-2953 (ADR-061 этап B): подсказки для MCP-сервера.
+  // `excludeFields` страховка — если фронт когда-то начнёт слать
+  // `?withPgn=true` через ассистента, MCP вырежет тяжёлые поля.
+  @McpTool({
+    name: 'analyses__list',
+    description:
+      'Список анализов партий текущего пользователя (метаданные, без PGN). ' +
+      'Для конкретной партии с PGN — analyses__find_one.',
+    defaultLimit: 20,
+    maxLimit: 100,
+    excludeFields: ['[].pgn', '[].fen', '[].currentPosition'],
+  })
   @Get()
   findAll(
     @Request() req: AuthenticatedRequest,
@@ -57,6 +70,14 @@ export class AnalysisController {
     });
   }
 
+  @McpTool({
+    name: 'analyses__search',
+    description:
+      'Поиск среди анализов пользователя по подстроке в заголовках/' +
+      'дебюте/именах игроков. Только метаданные.',
+    defaultLimit: 20,
+    maxLimit: 50,
+  })
   @Get('search')
   search(
     @Request() req: AuthenticatedRequest,
