@@ -1,9 +1,717 @@
-/**
- * KS-2924 / KS-2932 (B2) — заглушка стилей для SavedFiltersDropdown.
+/*
+ * KS-2924 / KS-2934 (Phase B4) — стили для SavedFiltersDropdown.
  *
- * Реальные стили — @layout, KS-2934 (B4). Здесь только пустой файл,
- * чтобы импорт в компоненте не падал до накатки KS-2934. Не править,
- * не добавлять правила вручную — это задача layout.
+ * DOM-контракт зафиксирован в SavedFiltersDropdown.tsx (KS-2932, B2):
+ *   .saved-filters-dropdown[data-state="open|closed"]
+ *     > .saved-filters-dropdown__toggle
+ *     > .saved-filters-dropdown__popover[role=dialog]
+ *         > .saved-filters-dropdown__search
+ *         > .saved-filters-dropdown__save-row
+ *             — .saved-filters-dropdown__save-btn
+ *             — .saved-filters-dropdown__save-form
+ *                 > __save-input, __save-confirm, __save-cancel, __save-error
+ *         > .saved-filters-dropdown__loading       (loading/error placeholder)
+ *         > .saved-filters-dropdown__empty
+ *         > .saved-filters-dropdown__list[role=menu]
+ *             > .saved-filters-dropdown__item[--active]
+ *                 — __item-name (button) > __item-check, __item-text
+ *                 — __item-kebab
+ *                 — __kebab-menu > __kebab-item ×3
+ *                 — __rename-form (заменяет item-name+kebab во время rename)
+ *     > .saved-filters-dropdown__toast[--error|--success]
  *
- * Контракт DOM/классов задокументирован в SavedFiltersDropdown.tsx.
+ * Светлая тема — через инверсию `--c-*` / `--ov-*` в tokens.css
+ * (`html[data-theme="light"]`); отдельных override'ов здесь нет, кроме
+ * мест где нужен дополнительный контраст (например, kebab-menu shadow).
+ *
+ * Mobile ≤640px: popover превращается в bottom-sheet (fixed bottom: 0,
+ * full-width). Kebab-кнопки всегда видимы (отключаем opacity-hover).
+ *
+ * Анимации: fade-in 120ms для popover; slide-up для bottom-sheet;
+ * отключаются под `prefers-reduced-motion: reduce`.
  */
+
+/* === Root (toggle host) =============================================== */
+
+.saved-filters-dropdown {
+  position: relative;
+  display: inline-block;
+  font-family: inherit;
+}
+
+/* === Toggle button ==================================================== */
+
+.saved-filters-dropdown__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.saved-filters-dropdown__toggle:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+.saved-filters-dropdown__toggle:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.saved-filters-dropdown[data-state="open"] .saved-filters-dropdown__toggle {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+/* === Popover (desktop) ================================================ */
+
+.saved-filters-dropdown__popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 320px;
+  max-height: 420px;
+  padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  overflow: hidden;
+  animation: saved-filters-fade-in 120ms ease-out;
+}
+
+@keyframes saved-filters-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* === Sticky search ==================================================== */
+
+.saved-filters-dropdown__search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  outline: none;
+}
+
+.saved-filters-dropdown__search::placeholder {
+  color: var(--text-muted);
+}
+
+.saved-filters-dropdown__search:focus {
+  border-bottom-color: var(--accent-primary);
+  box-shadow: inset 0 -1px 0 0 var(--accent-primary);
+}
+
+/* === Save section ===================================================== */
+
+.saved-filters-dropdown__save-row {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: var(--ov-white-03);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.saved-filters-dropdown__save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.saved-filters-dropdown__save-btn::before {
+  content: '+';
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.saved-filters-dropdown__save-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+.saved-filters-dropdown__save-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.saved-filters-dropdown__save-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.saved-filters-dropdown__save-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.saved-filters-dropdown__save-input::placeholder {
+  color: var(--text-muted);
+}
+
+.saved-filters-dropdown__save-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.saved-filters-dropdown__save-input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+.saved-filters-dropdown__save-confirm,
+.saved-filters-dropdown__save-cancel {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.saved-filters-dropdown__save-confirm {
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.saved-filters-dropdown__save-confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.saved-filters-dropdown__save-confirm:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.saved-filters-dropdown__save-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.saved-filters-dropdown__save-cancel {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+}
+
+.saved-filters-dropdown__save-cancel:hover {
+  background: var(--ov-white-06);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.saved-filters-dropdown__save-cancel:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.saved-filters-dropdown__save-error {
+  flex-basis: 100%;
+  margin-top: 2px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* === Loading / empty placeholders ===================================== */
+
+.saved-filters-dropdown__loading,
+.saved-filters-dropdown__empty {
+  padding: 18px 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.saved-filters-dropdown__empty {
+  padding: 24px 16px;
+}
+
+/* === List ============================================================= */
+
+.saved-filters-dropdown__list {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* === Item ============================================================= */
+
+.saved-filters-dropdown__item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+}
+
+.saved-filters-dropdown__item:hover,
+.saved-filters-dropdown__item:focus-within {
+  background: var(--ov-white-06);
+}
+
+.saved-filters-dropdown__item--active {
+  background: var(--accent-soft);
+}
+
+.saved-filters-dropdown__item--active:hover,
+.saved-filters-dropdown__item--active:focus-within {
+  background: var(--accent-soft-strong);
+}
+
+.saved-filters-dropdown__item-name {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px 0 12px;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-filters-dropdown__item-name:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.saved-filters-dropdown__item-check {
+  flex-shrink: 0;
+  width: 14px;
+  color: var(--accent-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.saved-filters-dropdown__item--active .saved-filters-dropdown__item-name {
+  font-weight: 500;
+}
+
+/* Длинное имя — ellipsis. Span внутри button: чтобы overflow работал
+ * на flex-child, нужен min-width:0 на родителе + block на самом span'е. */
+.saved-filters-dropdown__item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* === Kebab ============================================================ */
+
+.saved-filters-dropdown__item-kebab {
+  flex-shrink: 0;
+  width: 28px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+
+/* Десктоп: kebab появляется на hover/focus строки. */
+.saved-filters-dropdown__item:hover .saved-filters-dropdown__item-kebab,
+.saved-filters-dropdown__item:focus-within .saved-filters-dropdown__item-kebab,
+.saved-filters-dropdown__item-kebab[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.saved-filters-dropdown__item-kebab:hover {
+  background: var(--ov-white-10);
+  color: var(--text-primary);
+}
+
+.saved-filters-dropdown__item-kebab:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+  opacity: 1;
+}
+
+/* === Kebab sub-menu =================================================== */
+
+.saved-filters-dropdown__kebab-menu {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  z-index: 3;
+  min-width: 180px;
+  margin-top: 2px;
+  padding: 4px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  animation: saved-filters-fade-in 100ms ease-out;
+}
+
+.saved-filters-dropdown__kebab-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.saved-filters-dropdown__kebab-item:hover {
+  background: var(--accent-soft);
+}
+
+.saved-filters-dropdown__kebab-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+/* Последний пункт «Delete» подсвечен danger. */
+.saved-filters-dropdown__kebab-item:last-child {
+  color: var(--danger);
+}
+
+.saved-filters-dropdown__kebab-item:last-child:hover {
+  background: var(--danger-soft);
+}
+
+/* === Rename form (in-place внутри item) =============================== */
+
+.saved-filters-dropdown__rename-form {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 12px;
+}
+
+.saved-filters-dropdown__rename-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-mid);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.saved-filters-dropdown__rename-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.saved-filters-dropdown__rename-input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+.saved-filters-dropdown__rename-confirm,
+.saved-filters-dropdown__rename-cancel {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.saved-filters-dropdown__rename-confirm {
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.saved-filters-dropdown__rename-confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.saved-filters-dropdown__rename-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.saved-filters-dropdown__rename-confirm:focus-visible,
+.saved-filters-dropdown__rename-cancel:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.saved-filters-dropdown__rename-cancel {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+}
+
+.saved-filters-dropdown__rename-cancel:hover {
+  background: var(--ov-white-06);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.saved-filters-dropdown__rename-error {
+  flex-basis: 100%;
+  margin-top: 2px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* === Toast (поверх dropdown) ========================================== */
+
+.saved-filters-dropdown__toast {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  max-width: 320px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  animation: saved-filters-fade-in 120ms ease-out;
+}
+
+.saved-filters-dropdown__toast--error {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* === Mobile ≤640px — bottom-sheet ===================================== */
+
+@media (max-width: 640px) {
+  .saved-filters-dropdown__popover {
+    position: fixed;
+    inset: auto 0 0 0;
+    top: auto;
+    left: 0;
+    z-index: 1100;
+    width: 100vw;
+    max-height: min(85vh, 560px);
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border-mid);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 16px var(--ov-black-50);
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: saved-filters-sheet-up 180ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  @keyframes saved-filters-sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  .saved-filters-dropdown__search {
+    padding: 14px 16px;
+    font-size: 14px;
+  }
+
+  .saved-filters-dropdown__save-row {
+    padding: 10px 14px;
+  }
+
+  .saved-filters-dropdown__save-btn,
+  .saved-filters-dropdown__save-confirm,
+  .saved-filters-dropdown__save-cancel,
+  .saved-filters-dropdown__rename-confirm,
+  .saved-filters-dropdown__rename-cancel {
+    height: 40px;
+    font-size: 13px;
+  }
+
+  .saved-filters-dropdown__save-input {
+    height: 40px;
+    font-size: 13px;
+  }
+
+  .saved-filters-dropdown__rename-input {
+    height: 38px;
+    font-size: 13px;
+  }
+
+  /* На touch — kebab всегда видим (нет hover). */
+  .saved-filters-dropdown__item-kebab {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+    opacity: 1;
+  }
+
+  .saved-filters-dropdown__item-name {
+    height: 44px;
+    padding: 0 6px 0 14px;
+    font-size: 14px;
+  }
+
+  .saved-filters-dropdown__kebab-menu {
+    right: 8px;
+    min-width: 200px;
+  }
+
+  .saved-filters-dropdown__kebab-item {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  /* Toast на mobile — выравниваем к нижнему safe-area */
+  .saved-filters-dropdown__toast {
+    position: fixed;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 16px;
+    right: 16px;
+    top: auto;
+    max-width: none;
+  }
+}
+
+/* === reduced-motion =================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .saved-filters-dropdown__popover,
+  .saved-filters-dropdown__kebab-menu,
+  .saved-filters-dropdown__toast {
+    animation: none;
+  }
+  .saved-filters-dropdown__toggle,
+  .saved-filters-dropdown__save-btn,
+  .saved-filters-dropdown__save-confirm,
+  .saved-filters-dropdown__save-cancel,
+  .saved-filters-dropdown__save-input,
+  .saved-filters-dropdown__rename-confirm,
+  .saved-filters-dropdown__rename-cancel,
+  .saved-filters-dropdown__rename-input,
+  .saved-filters-dropdown__item-kebab,
+  .saved-filters-dropdown__kebab-item {
+    transition: none;
+  }
+}
+
+/* === Wrapper в WorkshopAnalysisList (KS-2933) ========================
+ * Frontend добавил обёртку `.workshop-saved-filters-row` вокруг dropdown
+ * (без своих стилей). Кладём dropdown в верхнюю часть фильтр-зоны
+ * с тем же ритмом spacing'а, что и `.workshop-tag-filters` рядом. */
+.workshop-saved-filters-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}

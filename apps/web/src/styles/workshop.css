@@ -734,78 +734,12 @@
   border-radius: 0;
 }
 
-.workshop-save-filter-row {
-  margin-bottom: 6px;
-}
-
-.workshop-save-filter-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.workshop-save-filter-input {
-  background: var(--c-2a2a4e);
-  border: 1px solid var(--c-4a4a7e);
-  border-radius: 4px;
-  color: var(--c-e0e0e0);
-  padding: 2px 6px;
-  font-size: 12px;
-  width: 120px;
-  outline: none;
-}
-
-.workshop-save-filter-input:focus {
-  border-color: var(--c-7c83ff);
-}
-
-.workshop-saved-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-
-.workshop-saved-filters__label {
-  font-size: 11px;
-  color: var(--c-666);
-}
-
-.workshop-saved-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: var(--ov-success-12);
-  color: var(--c-81c784);
-  font-size: 11px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.workshop-saved-filter-chip:hover {
-  background: var(--ov-success-20);
-}
-
-.workshop-saved-filter-chip button {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0 2px;
-  opacity: 0;
-  border-radius: 0;
-}
-
-.workshop-saved-filter-chip:hover button {
-  opacity: 0.7;
-}
-
-.workshop-saved-filter-chip button:hover {
-  opacity: 1;
-}
+/*
+ * KS-2933/KS-2934: блок чипов `.workshop-saved-filters` и inline-форма
+ * `.workshop-save-filter-row` удалены. Сохранение/применение фильтров
+ * теперь через общий `SavedFiltersDropdown` (см. SavedFiltersDropdown.css);
+ * обёртка ряда — `.workshop-saved-filters-row` (стили там же).
+ */
 
 .workshop-tag-add {
   background: var(--ov-accent-10);
