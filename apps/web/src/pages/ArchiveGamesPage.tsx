@@ -7,12 +7,14 @@ import type {
   ArchiveGamesRequest,
   ArchiveGamesSortMetadata,
   ArchiveTimeControlCategory,
+  SavedFilterParams,
 } from '@kingside/shared';
 
 import { api } from '../api';
 import { archiveApi } from '../api/archive';
 import { archivePreferencesApi } from '../api/archivePreferencesApi';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
+import { SavedFiltersDropdown } from '../components/savedFilters/SavedFiltersDropdown';
 import type { ArchiveFilters } from '@kingside/shared';
 import {
   ArchiveMetadataFilters,
@@ -21,6 +23,12 @@ import {
   type MetadataResultFilter,
 } from '../components/archive/ArchiveMetadataFilters';
 import { ArchiveGamesByPositionPage } from './ArchiveGamesByPositionPage';
+
+/** KS-2924 / KS-2936 (C1): узкий тип saved-filter params для archive-секции. */
+export type ArchiveSavedFilterParams = Extract<
+  SavedFilterParams,
+  { section: 'archive' }
+>;
 
 /**
  * KS-2068 (F2 / ADR-033 §4): универсальный список архива партий.
@@ -178,6 +186,76 @@ export function metadataFiltersToUrl(
   // первую страницу нужного sort'а.
   if (cursor && page > 1) params.set('cursor', cursor);
   return params;
+}
+
+/**
+ * KS-2924 / KS-2936 (C1): сериализация `ArchiveMetadataFilterValues`
+ * → `SavedFilterParams.archive` для хранения в сохранённом фильтре.
+ *
+ * Пустые/дефолтные значения формы нормализуются в `null` / `[]`:
+ *   - `result === 'any'` → `null` (без явного фильтра по результату);
+ *   - пустые строки event/eco/since/until → `null`;
+ *   - `minElo/minPly/maxPly === null` остаются `null`;
+ *   - `sort === 'recent'` (дефолт) → `null` — в saved-filter не пишется,
+ *     при apply вернётся как `recent`.
+ *
+ * Массивы (`players`, `timeControlCategory`) копируются по значению,
+ * чтобы saved-filter не разделял ссылку с активной формой.
+ */
+export function archiveValuesToSavedParams(
+  values: ArchiveMetadataFilterValues,
+): ArchiveSavedFilterParams {
+  return {
+    section: 'archive',
+    players: [...values.players],
+    event: values.event ? values.event : null,
+    eco: values.eco ? values.eco : null,
+    result: values.result === 'any' ? null : values.result,
+    minElo: values.minElo,
+    since: values.since ? values.since : null,
+    until: values.until ? values.until : null,
+    minPly: values.minPly,
+    maxPly: values.maxPly,
+    timeControlCategory: [...values.timeControlCategory],
+    sort: values.sort === 'recent' ? null : values.sort,
+  };
+}
+
+/**
+ * KS-2924 / KS-2936 (C1): обратное преобразование
+ * `SavedFilterParams.archive` → `ArchiveMetadataFilterValues`.
+ *
+ * Любые нерасшифровываемые / устаревшие значения отбрасываются — в
+ * URL пишется только то, что прошло валидацию (`parseSort` /
+ * `parseTimeControlCategories` / т.д.). На вход допускаются legacy
+ * saved-filters, у которых result сохранён как `'any'` — нормализуем
+ * в `'any'` (UI-форма). `sort=null` означает «дефолтный recent».
+ */
+export function archiveSavedParamsToValues(
+  params: ArchiveSavedFilterParams,
+): ArchiveMetadataFilterValues {
+  const result: MetadataResultFilter =
+    params.result === null || params.result === 'any'
+      ? 'any'
+      : VALID_RESULTS.includes(params.result as MetadataResultFilter)
+        ? (params.result as MetadataResultFilter)
+        : 'any';
+  return {
+    players: params.players.map((p) => p.trim()).filter((p) => p.length > 0),
+    event: params.event ?? '',
+    eco: params.eco ?? '',
+    result,
+    minElo: params.minElo,
+    since: params.since ?? '',
+    until: params.until ?? '',
+    minPly: params.minPly,
+    maxPly: params.maxPly,
+    timeControlCategory: parseTimeControlCategories(params.timeControlCategory),
+    sort:
+      params.sort && VALID_SORTS.includes(params.sort)
+        ? params.sort
+        : 'recent',
+  };
 }
 
 /**
@@ -531,6 +609,35 @@ function ArchiveMetadataMode() {
     scheduleSaveFilters(EMPTY_METADATA_FILTERS);
   }, [pageSize, writeFilters, scheduleSaveFilters]);
 
+  /**
+   * KS-2924 / KS-2936 (C1): снапшот текущих фильтров в формате
+   * `SavedFilterParams.archive` для SavedFiltersDropdown. useMemo —
+   * чтобы при неизменных filterValues не пересоздавать ссылку и не
+   * дёргать downstream-эффекты внутри dropdown'а.
+   */
+  const savedFilterCurrentParams = useMemo<ArchiveSavedFilterParams>(
+    () => archiveValuesToSavedParams(filterValues),
+    [filterValues],
+  );
+
+  /**
+   * KS-2924 / KS-2936 (C1): применить сохранённый пресет.
+   *
+   * Десериализуем params → ArchiveMetadataFilterValues, пишем в URL
+   * через `writeFilters` (тот же путь, что обычное изменение формы:
+   * page=1, cursor сбрасывается). Дополнительно вызываем
+   * `scheduleSaveFilters`, чтобы KS-2210 автосейв подхватил пресет
+   * как «последнее применённое состояние».
+   */
+  const handleApplySavedFilter = useCallback(
+    (params: ArchiveSavedFilterParams) => {
+      const nextValues = archiveSavedParamsToValues(params);
+      writeFilters(nextValues, pageSize);
+      scheduleSaveFilters(nextValues);
+    },
+    [pageSize, writeFilters, scheduleSaveFilters],
+  );
+
   // KS-2208: прямой переход в анализ без промежуточного экрана.
   // Загружаем PGN через API и сразу навигируем в /analysis.
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
@@ -782,6 +889,24 @@ function ArchiveMetadataMode() {
           </p>
         )}
       </header>
+
+      {/*
+        KS-2924 / KS-2936 (C1): saved-filters dropdown в toolbar'е,
+        рядом с управлением фильтрами. Применение пресета через
+        `handleApplySavedFilter` сбрасывает пагинацию (writeFilters →
+        page=1, cursor=undefined) и триггерит KS-2210 автосейв
+        состояния как «последнее применённое».
+      */}
+      <div
+        className="archive-games-metadata__toolbar"
+        data-testid="archive-games-metadata-toolbar"
+      >
+        <SavedFiltersDropdown<ArchiveSavedFilterParams>
+          section="archive"
+          currentParams={savedFilterCurrentParams}
+          onApply={handleApplySavedFilter}
+        />
+      </div>
 
       <ArchiveMetadataFilters
         values={filterValues}
