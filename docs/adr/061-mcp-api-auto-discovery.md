@@ -263,6 +263,43 @@ export function McpExclude(): MethodDecorator & ClassDecorator;
 
 `output` schema на первом этапе **не публикуется** — генерация требует разметки return-типов и сложна. Ассистенту достаточно описания + примера в `description`. Если выяснится, что нужно, — добавим во второй версии (`schemaVersion: 2`).
 
+### 9.1. Отступление при реализации: peer-dep конфликт
+
+При реализации этапа A backend столкнулся с `ERESOLVE`: `class-validator-jsonschema@^5.0.1` декларирует peer-dep `class-validator: ^0.14.0`, в проекте используется `class-validator@^0.15.1`. Понижение версии нежелательно — `0.15.x` уже точечно используется в существующих DTO, регрессия на ~50+ файлов и переписывание ряда декораторов под старое API.
+
+Рассмотренные варианты:
+
+- `npm install --legacy-peer-deps` / `--force` — установится, но внутри библиотеки возможны рантайм-несовместимости с приватным API `class-validator` (внутренние `MetadataStorage`/`ValidationMetadata`). Тихий сбой при первой нетривиальной валидации.
+- Форк библиотеки и patch peer-dep — оверкилл ради тонкого слоя, плюс долг на сопровождение форка.
+- Подождать обновления библиотеки — у репозитория последний релиз более года назад, ждать нельзя.
+
+**Решение: самописный inline-конвертер** `DtoToJsonSchema` (~150 строк, `apps/api/src/mcp/dto-to-json-schema.ts`), покрывающий узкий набор декораторов, фактически используемых в DTO `apps/api`:
+
+| Декоратор | Маппинг в JSON Schema |
+|---|---|
+| `@IsString()` | `type: "string"` |
+| `@IsInt()` | `type: "integer"` |
+| `@IsNumber()` | `type: "number"` |
+| `@IsBoolean()` | `type: "boolean"` |
+| `@IsArray()` | `type: "array"` (items резолвится по `@Type()`) |
+| `@IsObject()` | `type: "object"` |
+| `@IsUUID()` | `type: "string", format: "uuid"` |
+| `@IsEmail()` | `type: "string", format: "email"` |
+| `@IsEnum(E)` | `enum: [...значения E]` |
+| `@IsIn([a,b,c])` | `enum: [a,b,c]` |
+| `@Min(n)`, `@Max(n)` | `minimum`, `maximum` |
+| `@MinLength(n)`, `@MaxLength(n)` | `minLength`, `maxLength` |
+| `@IsOptional()` | поле не попадает в `required[]` |
+| `@Type(() => Nested)` | рекурсивный вызов `DtoToJsonSchema.build(Nested)` |
+
+Поведение при незнакомом декораторе: конвертер бросает `Error('Unsupported class-validator decorator <name> on <Dto>.<field>')` на этапе bootstrap. Это явный сигнал автору нового DTO добавить маппер или поставить `@McpExclude()` на эндпоинт. Тихого fallback'а нет.
+
+Тесты: `dto-to-json-schema.spec.ts` — отдельный кейс на каждый поддержанный декоратор и комбинации (`@IsOptional + @IsString`, `@IsArray + @Type`, nested DTO глубины 2). Снапшоты JSON Schema проверяются буква-в-букву.
+
+Если в будущем `class-validator-jsonschema` (или замена) станет совместим с `class-validator@^0.15`, можно вернуться к ней — публичный контракт `DtoToJsonSchema.build(DtoClass): JsonSchema` стабильный, замена внутренностей не сломает остальной MCP-код.
+
+Альтернативы из §9 (`@nestjs/swagger`, ручные схемы, ts-json-schema-generator) остаются актуально отклонёнными и по тем же причинам — peer-dep конфликт сам по себе их не реанимирует.
+
 ## 10. Контракт с `mcp-kingside.mjs`
 
 MCP-сервер пользователя (вне репозитория, его пишет/правит пользователь сам — это не задача агентов):
