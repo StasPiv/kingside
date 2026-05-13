@@ -3,6 +3,9 @@ import { BroadcastSyncService } from './broadcast-sync.service';
 import { SyncMetricsService } from './sync-metrics';
 import { BroadcastWatchdogService } from './broadcast-watchdog.service';
 import { ChessResultsModule } from '../chess-results/chess-results.module';
+import { KingsideApiClient } from './kingside-api.client';
+import { InternalKeyGuard } from './internal-key.guard';
+import { BroadcastInternalController } from './broadcast-internal.controller';
 
 /**
  * Sync-модуль broadcast-service (ADR-022 §2.2).
@@ -24,7 +27,17 @@ import { ChessResultsModule } from '../chess-results/chess-results.module';
   // `BroadcastStandingsSyncService` для event-driven инвалидации
   // кэша из `BroadcastSyncService.processPgnUpdate`.
   imports: [ChessResultsModule],
-  providers: [SyncMetricsService, BroadcastSyncService, BroadcastWatchdogService],
-  exports: [BroadcastSyncService, BroadcastWatchdogService],
+  // KS-2883 (B10): BroadcastInternalController обслуживает api-вызовы
+  // за round+games (контракт зафиксирован KS-2884).
+  controllers: [BroadcastInternalController],
+  providers: [
+    SyncMetricsService,
+    BroadcastSyncService,
+    BroadcastWatchdogService,
+    // KS-2883 (B10): клиент api для зеркала студии + guard на internal-эндпоинты.
+    KingsideApiClient,
+    InternalKeyGuard,
+  ],
+  exports: [BroadcastSyncService, BroadcastWatchdogService, KingsideApiClient],
 })
 export class BroadcastSyncModule {}

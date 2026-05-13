@@ -21,6 +21,7 @@ import { extractTournamentFormatFromTitle } from '../crosstable/extract-tourname
 import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
 import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
 import { applyBracketLinks } from '../crosstable/apply-bracket-links';
+import { KingsideApiClient } from './kingside-api.client';
 
 /**
  * Sync-сервис Lichess broadcasts (ADR-022 §2.6 шаг 0).
@@ -368,6 +369,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // KS-2723: для event-driven инвалидации кэша standings при
     // изменении result или появлении новой partii.
     private readonly standingsSync: BroadcastStandingsSyncService,
+    // KS-2883: HTTP-клиент api для broadcast-зеркала студии.
+    private readonly apiClient: KingsideApiClient,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1067,6 +1070,40 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // KS-2883 (B10): авто-зеркало в студию. Если флаг `mirrorToStudy=true`
+    // и зеркало ещё не создано — POST в api. После успеха сохраняем
+    // slug как idempotent-marker.
+    if (upserted.mirrorToStudy && !upserted.mirroredStudySlug) {
+      try {
+        const res = await this.apiClient.createMirror(upserted.id);
+        if (res) {
+          await this.prisma.broadcastRound.update({
+            where: { id: upserted.id },
+            data: { mirroredStudySlug: res.slug },
+          });
+          this.logger.log(
+            `[broadcast-sync] mirror created for round=${upserted.id.slice(0, 8)} slug=${res.slug}`,
+          );
+        } else {
+          // 409 от api — зеркало уже существует. Спросим api за slug
+          // через sync (он вернёт slug). Это случай ручного отката
+          // mirroredStudySlug в БД при существующем зеркале.
+          const sync = await this.apiClient.flushSync(upserted.id);
+          if (sync) {
+            await this.prisma.broadcastRound.update({
+              where: { id: upserted.id },
+              data: { mirroredStudySlug: sync.slug },
+            });
+          }
+        }
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] createMirror failed round=${upserted.id.slice(0, 8)}: ${(e as Error).message}`,
+        );
+        // не блокируем sync-цикл — попробуем в следующем тике.
+      }
+    }
+
     return { status };
   }
 
@@ -1584,6 +1621,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           `[broadcast-sync] standings.invalidate failed for broadcast=${round.broadcastId.slice(0, 8)}: ${(e as Error).message}`,
         );
       });
+    }
+
+    // KS-2883 (B10): debounce-sync broadcast-зеркала в студию. Срабатывает
+    // только если для раунда зеркало уже создано (есть mirroredStudySlug).
+    // Множественные PGN-обновления в окне 30s коалесцируются в один
+    // HTTP-вызов /sync-broadcast-round (см. KingsideApiClient.scheduleSync).
+    if (round.mirrorToStudy && round.mirroredStudySlug) {
+      this.apiClient.scheduleSync(round.id);
     }
   }
 
