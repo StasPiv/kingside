@@ -181,8 +181,16 @@ export function useSavedFilters<
 
     (async () => {
       try {
-        const initial = await api.get<SavedFilterDto[]>(path);
+        const rawInitial = await api.get<SavedFilterDto[]>(path);
         if (cancelled) return;
+        // KS-2937: защита от моков/мутаций, где api.get вернул не-массив
+        // (например, stub `Response({})` в общем тестовом setup).
+        // Без этого UI-ветка `.filter`/`.map` падала бы каскадом, и
+        // существующие тесты других страниц с подключённым dropdown'ом
+        // получали бы шум, не относящийся к их сценариям.
+        const initial: SavedFilterDto[] = Array.isArray(rawInitial)
+          ? rawInitial
+          : [];
 
         let next: SavedFilterDto[] = initial;
 

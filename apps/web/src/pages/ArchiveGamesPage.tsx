@@ -7,6 +7,7 @@ import type {
   ArchiveGamesRequest,
   ArchiveGamesSortMetadata,
   ArchiveTimeControlCategory,
+  SavedFilterDto,
   SavedFilterParams,
 } from '@kingside/shared';
 
@@ -256,6 +257,71 @@ export function archiveSavedParamsToValues(
         ? params.sort
         : 'recent',
   };
+}
+
+/**
+ * KS-2924 / KS-2937 (C2): канонический вид архивных params для
+ * сравнения «текущие фильтры vs сохранённый пресет».
+ *
+ * Нормализация:
+ *   - пустые строки → `null` (event/eco/since/until);
+ *   - `result === 'any'` → `null`;
+ *   - `sort === 'recent' | null | undefined` → `null` (дефолт);
+ *   - players/timeControlCategory сортируются и фильтруются —
+ *     порядок добавления элементов и пустые строки не должны влиять
+ *     на equality.
+ *
+ * Идемпотентно: `canonicalArchiveParams(canonicalArchiveParams(x)) === ...`.
+ */
+export function canonicalArchiveParams(
+  p: ArchiveSavedFilterParams,
+): ArchiveSavedFilterParams {
+  return {
+    section: 'archive',
+    players: [...p.players]
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .sort(),
+    event: p.event && p.event.length > 0 ? p.event : null,
+    eco: p.eco && p.eco.length > 0 ? p.eco : null,
+    result: p.result === 'any' || p.result === null ? null : p.result,
+    minElo: p.minElo,
+    since: p.since && p.since.length > 0 ? p.since : null,
+    until: p.until && p.until.length > 0 ? p.until : null,
+    minPly: p.minPly,
+    maxPly: p.maxPly,
+    timeControlCategory: [...p.timeControlCategory].sort(),
+    sort: !p.sort || p.sort === 'recent' ? null : p.sort,
+  };
+}
+
+/**
+ * KS-2924 / KS-2937 (C2): находит сохранённый пресет, ровно
+ * совпадающий с текущими параметрами фильтра (deep-equal с
+ * нормализацией через {@link canonicalArchiveParams}).
+ *
+ * Возвращает `id` первого совпавшего пресета, либо `null` если
+ * совпадения нет. Используется для подсветки активного пресета в
+ * dropdown'е чекмарком (KS-2932 §2 «иконка-чекмарк»).
+ *
+ * Сравнение через `JSON.stringify` — порядок ключей детерминирован,
+ * потому что обе стороны проходят через `canonicalArchiveParams` с
+ * фиксированной структурой объекта-литерала.
+ */
+export function findMatchingFilter(
+  currentParams: ArchiveSavedFilterParams,
+  filters: SavedFilterDto[],
+): string | null {
+  if (!Array.isArray(filters)) return null;
+  const ref = JSON.stringify(canonicalArchiveParams(currentParams));
+  for (const f of filters) {
+    if (f.section !== 'archive') continue;
+    const candidate = canonicalArchiveParams(
+      f.params as ArchiveSavedFilterParams,
+    );
+    if (JSON.stringify(candidate) === ref) return f.id;
+  }
+  return null;
 }
 
 /**
@@ -621,6 +687,28 @@ function ArchiveMetadataMode() {
   );
 
   /**
+   * KS-2937 (C2): зеркало списка saved-filters из dropdown'а — нужно,
+   * чтобы вычислить `activeFilterId` через `findMatchingFilter` без
+   * дублирующего GET'а в этом компоненте. Dropdown отдаёт filters
+   * через `onFiltersChange` после загрузки/каждой мутации.
+   */
+  const [knownSavedFilters, setKnownSavedFilters] = useState<
+    SavedFilterDto[]
+  >([]);
+
+  /**
+   * KS-2937 (C2): id активного пресета — `null`, если текущие фильтры
+   * не совпадают ровно ни с одним сохранённым (с нормализацией
+   * пустых/`any`/default-sort). При ручном изменении любого поля
+   * чекмарк пропадает автоматически (savedFilterCurrentParams
+   * пересчитывается через useMemo по filterValues).
+   */
+  const activeFilterId = useMemo(
+    () => findMatchingFilter(savedFilterCurrentParams, knownSavedFilters),
+    [savedFilterCurrentParams, knownSavedFilters],
+  );
+
+  /**
    * KS-2924 / KS-2936 (C1): применить сохранённый пресет.
    *
    * Десериализуем params → ArchiveMetadataFilterValues, пишем в URL
@@ -905,6 +993,8 @@ function ArchiveMetadataMode() {
           section="archive"
           currentParams={savedFilterCurrentParams}
           onApply={handleApplySavedFilter}
+          activeFilterId={activeFilterId}
+          onFiltersChange={setKnownSavedFilters}
         />
       </div>
 

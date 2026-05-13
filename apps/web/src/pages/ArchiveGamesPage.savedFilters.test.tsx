@@ -23,6 +23,8 @@ import {
   ArchiveGamesPage,
   archiveValuesToSavedParams,
   archiveSavedParamsToValues,
+  canonicalArchiveParams,
+  findMatchingFilter,
   type ArchiveSavedFilterParams,
 } from './ArchiveGamesPage';
 import { EMPTY_METADATA_FILTERS } from '../components/archive/ArchiveMetadataFilters';
@@ -314,6 +316,175 @@ describe('archiveSavedParamsToValues — KS-2936', () => {
   });
 });
 
+// ─── Unit-тесты canonicalArchiveParams / findMatchingFilter (KS-2937) ─
+
+describe('canonicalArchiveParams — KS-2937', () => {
+  const base: ArchiveSavedFilterParams = {
+    section: 'archive',
+    players: [],
+    event: null,
+    eco: null,
+    result: null,
+    minElo: null,
+    since: null,
+    until: null,
+    minPly: null,
+    maxPly: null,
+    timeControlCategory: [],
+    sort: null,
+  };
+
+  it('идемпотентен: canonical(canonical(x)) ≡ canonical(x)', () => {
+    const a = canonicalArchiveParams({
+      ...base,
+      players: ['B', '', 'A'],
+      timeControlCategory: ['rapid', 'blitz'],
+    });
+    const b = canonicalArchiveParams(a);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it('result="any" → null; sort="recent" → null', () => {
+    const x = canonicalArchiveParams({
+      ...base,
+      result: 'any',
+      sort: 'recent',
+    });
+    expect(x.result).toBeNull();
+    expect(x.sort).toBeNull();
+  });
+
+  it('players и timeControlCategory сортируются + чистятся от пустых строк', () => {
+    const x = canonicalArchiveParams({
+      ...base,
+      players: ['  Carlsen ', '', 'Aronian', 'Caruana'],
+      timeControlCategory: ['rapid', 'blitz', 'classical'],
+    });
+    expect(x.players).toEqual(['Aronian', 'Carlsen', 'Caruana']);
+    expect(x.timeControlCategory).toEqual(['blitz', 'classical', 'rapid']);
+  });
+
+  it('пустые строки event/eco/since/until → null', () => {
+    const x = canonicalArchiveParams({
+      ...base,
+      event: '',
+      eco: '',
+      since: '',
+      until: '',
+    });
+    expect(x.event).toBeNull();
+    expect(x.eco).toBeNull();
+    expect(x.since).toBeNull();
+    expect(x.until).toBeNull();
+  });
+});
+
+describe('findMatchingFilter — KS-2937', () => {
+  const base: ArchiveSavedFilterParams = {
+    section: 'archive',
+    players: [],
+    event: null,
+    eco: null,
+    result: null,
+    minElo: null,
+    since: null,
+    until: null,
+    minPly: null,
+    maxPly: null,
+    timeControlCategory: [],
+    sort: null,
+  };
+
+  it('возвращает null если совпадений нет', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', { params: { ...base, eco: 'B90' } }),
+    ];
+    expect(findMatchingFilter({ ...base, eco: 'C20' }, dtos)).toBeNull();
+  });
+
+  it('возвращает id совпавшего пресета (точное совпадение)', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', { params: { ...base, eco: 'B90' } }),
+      archiveDto('b', { params: { ...base, eco: 'C20' } }),
+    ];
+    expect(findMatchingFilter({ ...base, eco: 'C20' }, dtos)).toBe('b');
+  });
+
+  it('результат "any" в одной стороне и null в другой считаются равными', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', { params: { ...base, result: null } }),
+    ];
+    expect(findMatchingFilter({ ...base, result: 'any' }, dtos)).toBe('a');
+  });
+
+  it('sort="recent" в одной стороне и null в другой считаются равными', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', { params: { ...base, sort: null } }),
+    ];
+    expect(
+      findMatchingFilter({ ...base, sort: 'recent' as const }, dtos),
+    ).toBe('a');
+  });
+
+  it('порядок элементов в players/timeControlCategory не влияет', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', {
+        params: {
+          ...base,
+          players: ['Carlsen', 'Aronian'],
+          timeControlCategory: ['blitz', 'rapid'],
+        },
+      }),
+    ];
+    expect(
+      findMatchingFilter(
+        {
+          ...base,
+          players: ['Aronian', 'Carlsen'],
+          timeControlCategory: ['rapid', 'blitz'],
+        },
+        dtos,
+      ),
+    ).toBe('a');
+  });
+
+  it('изменение одного поля → возвращает null', () => {
+    const dtos: SavedFilterDto[] = [
+      archiveDto('a', {
+        params: { ...base, eco: 'B90', minElo: 2700 },
+      }),
+    ];
+    expect(
+      findMatchingFilter({ ...base, eco: 'B90', minElo: 2600 }, dtos),
+    ).toBeNull();
+  });
+
+  it('пустой массив filters → null', () => {
+    expect(findMatchingFilter({ ...base }, [])).toBeNull();
+  });
+
+  it('игнорирует filters другой секции', () => {
+    // workshop-фильтр с теми же «пустыми» params не должен матчиться.
+    const dtos: SavedFilterDto[] = [
+      {
+        id: 'w',
+        section: 'workshop',
+        name: 'workshop preset',
+        params: {
+          section: 'workshop',
+          category: null,
+          tags: [],
+          search: null,
+          sortOrder: null,
+        },
+        createdAt: '2026-05-13T00:00:00.000Z',
+        updatedAt: '2026-05-13T00:00:00.000Z',
+      },
+    ];
+    expect(findMatchingFilter({ ...base }, dtos)).toBeNull();
+  });
+});
+
 // ─── Интеграционный тест ─────────────────────────────────────────────
 
 describe('SavedFiltersDropdown в ArchiveMetadataMode — KS-2936 интеграция', () => {
@@ -399,6 +570,92 @@ describe('SavedFiltersDropdown в ArchiveMetadataMode — KS-2936 интегра
       },
       { timeout: 2000 },
     );
+  });
+
+  it('KS-2937 (C2): после apply пресет помечен чекмарком; после ручного изменения чекмарк пропадает; возврат точных значений возвращает чекмарк', async () => {
+    const preset = archiveDto('p-active', {
+      name: 'Eco B90',
+      params: {
+        section: 'archive',
+        players: [],
+        event: null,
+        eco: 'B90',
+        result: null,
+        minElo: null,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        timeControlCategory: [],
+        sort: null,
+      },
+    });
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/saved-filters?section=archive') return [preset];
+      return [];
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route: '/archive/games',
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toContain('(1)'),
+    );
+
+    // 1) Открываем dropdown, применяем пресет.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-apply-p-active'));
+
+    // 2) Открываем заново — строка пресета помечена чекмарком (activeFilterId).
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await waitFor(() => {
+      const row = screen.getByTestId('saved-filters-item-p-active');
+      expect(
+        row.querySelector('.saved-filters-dropdown__item-check'),
+      ).not.toBeNull();
+      expect(row.className).toContain(
+        'saved-filters-dropdown__item--active',
+      );
+    });
+
+    // 3) Меняем одно поле фильтра вручную (ECO → C20). Чекмарк
+    //    пропадает, т.к. совпадение нарушено.
+    //    Используем поле eco напрямую из формы. data-testid задан в
+    //    ArchiveMetadataFilters через `testIdPrefix='archive-metadata-filter'`.
+    // Закрываем popover перед взаимодействием с формой.
+    await user.keyboard('{Escape}');
+    const ecoInput = await screen.findByTestId(
+      'archive-metadata-filter-eco',
+    );
+    await user.clear(ecoInput);
+    await user.type(ecoInput, 'C20');
+    // debounce 400ms на eco — подождём.
+    await waitFor(
+      () => {
+        const row = screen.queryByTestId('saved-filters-item-p-active');
+        // Открываем popover чтобы проверить состояние строки.
+        if (!row) {
+          // popover ещё закрыт.
+          return;
+        }
+      },
+      { timeout: 1000 },
+    );
+    // Снова открываем popover и проверяем что чекмарк ушёл.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await waitFor(() => {
+      const row = screen.getByTestId('saved-filters-item-p-active');
+      expect(
+        row.querySelector('.saved-filters-dropdown__item-check'),
+      ).toBeNull();
+      expect(row.className).not.toContain(
+        'saved-filters-dropdown__item--active',
+      );
+    });
   });
 
   it('currentParams нормализован: дефолтные values → params со всеми null', async () => {

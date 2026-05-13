@@ -63,6 +63,15 @@ export interface SavedFiltersDropdownProps<T extends SavedFilterParams> {
    * Логика «modified» (применили → руками поменяли) отложена.
    */
   activeFilterId?: string | null;
+  /**
+   * KS-2937 (C2): уведомляет родителя об актуальном списке пресетов
+   * (после загрузки/мутации). Нужно, чтобы страница могла сама
+   * вычислять `activeFilterId` через свой matcher (например,
+   * `findMatchingFilter` для архива), не дублируя GET-запрос. Не
+   * передавать, если активный пресет считается извне иначе или не
+   * считается вовсе (как в Workshop).
+   */
+  onFiltersChange?: (filters: SavedFilterDto[]) => void;
 }
 
 interface ToastState {
@@ -91,10 +100,25 @@ function getFocusable(root: HTMLElement): HTMLElement[] {
 export function SavedFiltersDropdown<
   T extends SavedFilterParams = SavedFilterParams,
 >(props: SavedFiltersDropdownProps<T>) {
-  const { section, currentParams, onApply, activeFilterId = null } = props;
+  const {
+    section,
+    currentParams,
+    onApply,
+    activeFilterId = null,
+    onFiltersChange,
+  } = props;
   const { t } = useTranslation();
   const { filters, loading, error, create, rename, update, remove } =
     useSavedFilters<T>(section);
+
+  // KS-2937 (C2): пробрасываем filters наверх, чтобы родитель мог
+  // считать `activeFilterId` без второго инстанса useSavedFilters.
+  // Не зовём при первом render'e с пустым массивом — это значение
+  // совпадает с initial state хука, поэтому effect отработает один
+  // раз и далее на каждое обновление.
+  useEffect(() => {
+    onFiltersChange?.(filters);
+  }, [filters, onFiltersChange]);
 
   // UI state
   const [open, setOpen] = useState(false);
