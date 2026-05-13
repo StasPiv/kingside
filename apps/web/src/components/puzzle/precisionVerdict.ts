@@ -1,3 +1,5 @@
+import type { WdlDistribution } from '../../utils/engineAdapter';
+
 /**
  * KS-2955: вердикт «преимущество удержано / потеряно» для precision-режима.
  *
@@ -28,6 +30,49 @@ export interface PrecisionVerdictSnapshot {
   bestUci: string;
   /** UCI фактического хода юзера. */
   playedUci: string;
+}
+
+/**
+ * KS-2968: порог допустимого падения win% (промилле) между стартовым
+ * baseline и финальным WDL для квалификации «преимущество удержано».
+ * 150 ‰ = 15 п.п. — допускаем небольшие просадки от движка
+ * (1-10 п.п. — естественный noise SF между depth/movetime), но падение
+ * на 15+ п.п. больше уже квалифицируется как потеря преимущества,
+ * даже если по абсолютному WDL раннер остался формально в плюсе
+ * (winThreshold).
+ */
+export const PRESERVED_WIN_DROP_THRESHOLD_PERMILLE = 150;
+
+/**
+ * KS-2968: квалификатор «преимущество потеряно» по дельте win%
+ * baseline → final. Дополнение к `shouldFinishLose` и проверке
+ * `effWdl >= winThreshold`: даже если итоговая позиция формально в
+ * выигрышной зоне по signed-WDL, но win% упал относительно стартового
+ * baseline сильнее порога — это потеря преимущества.
+ *
+ * Реальный кейс (KS-2968, скриншот пользователя): start=92/8/0,
+ * final=50/50/0. signed-WDL финала ≈ 0.5 — на границе winThreshold,
+ * UI ставил «удержано». Но падение win% на 42 п.п. — очевидная
+ * потеря, плашка должна стать «потеряно».
+ *
+ * @param start baseline WDL перед началом партии (`clientBaselineWdl`,
+ *   либо серверный `puzzle.playVsEngine.wdlAfter` как fallback). Если
+ *   `null`/`undefined` — функция возвращает `false` (нет baseline —
+ *   старая логика без drop-проверки).
+ * @param final WDL POV user'а после финального полухода. Если
+ *   `null`/`undefined` — функция возвращает `false`.
+ * @param thresholdPermille допустимое падение win в промилле
+ *   (default 150 = 15 п.п.).
+ * @returns `true`, если падение win превышает порог → «потеряно».
+ */
+export function isWinDropExcessive(
+  start: WdlDistribution | null | undefined,
+  final: WdlDistribution | null | undefined,
+  thresholdPermille = PRESERVED_WIN_DROP_THRESHOLD_PERMILLE,
+): boolean {
+  if (!start || !final) return false;
+  const drop = start.w - final.w;
+  return drop > thresholdPermille;
 }
 
 /**

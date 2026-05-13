@@ -898,22 +898,34 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // delta_pct = 98 − 57 = 41 > 0, но WDL-объект решает state=win.
     // До KS-2535 header брался из дельты → «Advantage lost».
     // Теперь — из state → «Advantage preserved».
+    //
+    // KS-2968: после введения drop-критерия baseline → final больше
+    // 15 п.п. квалифицируется как «потеряно» (даже если signed-WDL
+    // формально в плюсе). Чтобы тест продолжал ловить именно фикс
+    // KS-2535 (header следует state'у при PRESERVED исходе), сужаем
+    // расхождение baseline ↔ final до значения в пределах порога.
+    // baseline берём из initial pre-analyze (с WDL) — clientBaselineWdl.
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.96,
+        wdlAfterBlunder: 0.7,
         winThreshold: 0.5,
         failThreshold: 0.0,
         halfMovesN: 2,
-        wdlAfter: { w: 980, d: 20, l: 0 },
+        wdlAfter: { w: 850, d: 150, l: 0 },
       },
     });
     // halfMovesN=2 → user-ход → engine-ход → final analyze.
-    // final POV user: cp=+50 (sigmoid≈+0.12), wdl POV user {800,150,50}
-    //   → signedWdl=(800-50)/1000=+0.75 ≥ winThreshold → win.
-    // sigmoid даёт ≈ 56% (final), startPct=98% → deltaPct=41 > 0.
+    // clientBaseline (из initial pre-analyze WDL) = {850,150,0}.
+    // final POV user {800,150,50} → drop=850-800=50 ‰ < 150 ‰ → preserved.
+    // signedWdl(final)=(800-50)/1000=+0.75 ≥ winThreshold → state=win.
     const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
+      // KS-2960/KS-2968: initial pre-analyze поставляет clientBaselineWdl.
+      result(line({ type: 'cp', value: 80 }, ['e2e4'], 12, 1, {
+        w: 850,
+        d: 150,
+        l: 0,
+      })),
       result(line({ type: 'cp', value: 80 }, ['e2e4'])), // pre
       result(line({ type: 'cp', value: -50 }, ['e7e5'], 12, 1, {
         w: 50,
@@ -924,7 +936,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         w: 800,
         d: 150,
         l: 50,
-      })), // final POV user — winning по WDL, но низкий cp
+      })), // final POV user — winning по WDL, drop в пределах порога KS-2968.
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
@@ -1328,6 +1340,129 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       expect(summary.getAttribute('data-start-w')).toBe('50');
       expect(summary.getAttribute('data-start-d')).toBe('30');
       expect(summary.getAttribute('data-start-l')).toBe('20');
+    });
+
+    it('KS-2968 — live кейс (start 92/8/0 → final 50/50/0): preserved=false, плашка «потеряно»', async () => {
+      // Жалоба пользователя на проде (KS-2968): три хода `!`, signed-WDL
+      // финала ровно на winThreshold (0.5), формально «в плюсе», но win%
+      // упал на 42 п.п. — это потеря преимущества. До KS-2968 раннер
+      // ставил «удержано» (effWdl >= winThreshold выигрывал, drop
+      // игнорировался).
+      const puzzle = makePuzzle({
+        playVsEngine: {
+          blunderMove: 'd2d4',
+          wdlAfterBlunder: 0.92,
+          winThreshold: 0.5,
+          failThreshold: 0,
+          halfMovesN: 2, // 1 user-ход + final (без engine-ответа)
+          wdlAfter: { w: 920, d: 80, l: 0 },
+        },
+      });
+      const engine = new ScriptedEngine([
+        // initial pre-analyze: clientBaselineWdl = 92/8/0.
+        result(
+          line({ type: 'cp', value: 200 }, ['e2e4'], 12, 1, {
+            w: 920,
+            d: 80,
+            l: 0,
+          }),
+        ),
+        // pre-analyze user move (для snapshot bestUci/wdlBefore).
+        result(
+          line({ type: 'cp', value: 200 }, ['e2e4'], 12, 1, {
+            w: 920,
+            d: 80,
+            l: 0,
+          }),
+        ),
+        // post-analyze POV opp (user winning по signed, но WDL упал):
+        // flipWdl → POV user {500, 500, 0} → signed=+0.5 (ровно winThreshold).
+        result(
+          line({ type: 'cp', value: -50 }, ['e7e5'], 12, 1, {
+            w: 0,
+            d: 500,
+            l: 500,
+          }),
+        ),
+      ]);
+      renderWithProviders(
+        <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+      );
+      (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+      (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+      // С KS-2968: drop=420 ‰ > 150 ‰ → state=lose, plашка «потеряно».
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+        ).toBe('lose');
+      });
+      await waitFor(() => {
+        const sum = screen.getByTestId('puzzle-engine-wdl-summary');
+        if (sum.getAttribute('data-mode') !== 'permille') {
+          throw new Error('still on signed fallback');
+        }
+      });
+      const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+      expect(summary.getAttribute('data-preserved')).toBe('false');
+      expect(summary.getAttribute('data-start-w')).toBe('92');
+      expect(summary.getAttribute('data-final-w')).toBe('50');
+      const resultLabel = screen.getByTestId('puzzle-engine-result');
+      expect(resultLabel.textContent).toMatch(
+        /lost the advantage|потеряли преимущество/,
+      );
+    });
+
+    it('KS-2968 — drop в пределах порога (92→90): preserved=true', async () => {
+      // Контрольный кейс: drop=20 ‰ ≤ 150 ‰ — это не «потеря», UI
+      // должен оставить плашку «удержано».
+      const puzzle = makePuzzle({
+        playVsEngine: {
+          blunderMove: 'd2d4',
+          wdlAfterBlunder: 0.92,
+          winThreshold: 0.5,
+          failThreshold: 0,
+          halfMovesN: 2,
+          wdlAfter: { w: 920, d: 80, l: 0 },
+        },
+      });
+      const engine = new ScriptedEngine([
+        result(
+          line({ type: 'cp', value: 200 }, ['e2e4'], 12, 1, {
+            w: 920,
+            d: 80,
+            l: 0,
+          }),
+        ),
+        result(
+          line({ type: 'cp', value: 200 }, ['e2e4'], 12, 1, {
+            w: 920,
+            d: 80,
+            l: 0,
+          }),
+        ),
+        // POV opp {0, 100, 900} → flipWdl POV user {900, 100, 0}.
+        result(
+          line({ type: 'cp', value: -300 }, ['e7e5'], 12, 1, {
+            w: 0,
+            d: 100,
+            l: 900,
+          }),
+        ),
+      ]);
+      renderWithProviders(
+        <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+      );
+      (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+      (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('puzzle-engine-runner').getAttribute('data-state'),
+        ).toBe('win');
+      });
+      const summary = screen.getByTestId('puzzle-engine-wdl-summary');
+      expect(summary.getAttribute('data-preserved')).toBe('true');
+      expect(summary.getAttribute('data-start-w')).toBe('92');
+      expect(summary.getAttribute('data-final-w')).toBe('90');
     });
 
     it('fallback на серверный wdlAfter, если initial analyze не вернул wdl', async () => {

@@ -23,7 +23,7 @@ import {
   type WdlDistribution,
 } from '../../utils/engineAdapter';
 import type { EvalLine } from '../../hooks/useStockfish';
-import { shouldFinishLose } from './precisionVerdict';
+import { shouldFinishLose, isWinDropExcessive } from './precisionVerdict';
 
 /**
  * KS-2466 / ADR-044 §5. Раннер пазла-«удержания преимущества» против
@@ -382,6 +382,22 @@ export function PlayVsEngineRunner({
    * сторону. См. KS-2955 / KS-2960.
    */
   const [clientBaselineWdl, setClientBaselineWdl] = useState<WdlDistribution | null>(null);
+  /**
+   * KS-2968: ref-зеркало clientBaselineWdl. finishWin/Lose-точки внутри
+   * `runEngineCycle`/`onPieceDrop` читают baseline без добавления state'а
+   * в зависимости useCallback (иначе колбэки пересоздаются каждый раз
+   * при baseline-update и теряются стабильные ссылки). Pattern такой же
+   * как `userBestLogRef` (KS-2739). Обновляется параллельно state'у в
+   * `updateClientBaselineWdl`.
+   */
+  const clientBaselineWdlRef = useRef<WdlDistribution | null>(null);
+  const updateClientBaselineWdl = useCallback(
+    (next: WdlDistribution | null) => {
+      clientBaselineWdlRef.current = next;
+      setClientBaselineWdl(next);
+    },
+    [],
+  );
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
   /**
    * KS-2473: лог «лучшего хода юзера» в позиции ДО user-move. Заполняется
@@ -671,7 +687,15 @@ export function PlayVsEngineRunner({
       // → N=4 (4 user + 3 engine).
       const userMovesTarget = Math.ceil(params.halfMovesN / 2);
       if (userBestLogRef.current.length >= userMovesTarget) {
-        if (effWdlUser >= params.winThreshold) {
+        // KS-2968: даже если effWdlUser >= winThreshold (формально в
+        // выигрышной зоне), сравниваем итоговый WDL с baseline. Если
+        // win% упал сильнее порога — это потеря преимущества, плашка
+        // должна быть «потеряно». Baseline — клиентский SF (KS-2960)
+        // с fallback'ом на серверный wdlAfter.
+        const baseline =
+          clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
+        const dropTooHigh = isWinDropExcessive(baseline, wdlUserObj);
+        if (effWdlUser >= params.winThreshold && !dropTooHigh) {
           finishWin('win', effWdlUser, halfAfterUser);
         } else {
           finishLose('lose-wdl', effWdlUser, halfAfterUser);
@@ -739,15 +763,29 @@ export function PlayVsEngineRunner({
           setLatestWdl(finalWdlObj);
           // KS-2533: см. effWdlUser выше — те же причины.
           const effWdlFinal = effectiveSignedWdl(finalWdlObj, wdlFinalUser);
-          if (effWdlFinal >= params.winThreshold) {
+          // KS-2968: дополнительный критерий — drop по win относительно
+          // baseline. При формальном плюсе (>= winThreshold) но падении
+          // win% > 15 п.п. ставим «потеряно».
+          const baselineFinal =
+            clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
+          const dropTooHighFinal = isWinDropExcessive(baselineFinal, finalWdlObj);
+          if (effWdlFinal >= params.winThreshold && !dropTooHighFinal) {
             finishWin('win', effWdlFinal, halfAfterEngine);
           } else {
             finishLose('lose-wdl', effWdlFinal, halfAfterEngine);
           }
         } catch {
-          // Если final analyze упал — судим по последнему effWdlUser.
-          if (effWdlUser >= params.winThreshold) finishWin('win', effWdlUser, halfAfterEngine);
-          else finishLose('lose-wdl', effWdlUser, halfAfterEngine);
+          // Если final analyze упал — судим по последнему effWdlUser
+          // и последнему wdlUserObj (после user-хода, до engine-ответа).
+          // KS-2968: тот же drop-check.
+          const baselineFallback =
+            clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
+          const dropTooHighFallback = isWinDropExcessive(baselineFallback, wdlUserObj);
+          if (effWdlUser >= params.winThreshold && !dropTooHighFallback) {
+            finishWin('win', effWdlUser, halfAfterEngine);
+          } else {
+            finishLose('lose-wdl', effWdlUser, halfAfterEngine);
+          }
         }
         return;
       }
@@ -765,6 +803,8 @@ export function PlayVsEngineRunner({
       finishWin,
       playSound,
       updateUserBestLog,
+      // KS-2968: серверный wdlAfter — fallback baseline для drop-check.
+      puzzle.playVsEngine?.wdlAfter,
     ],
   );
 
@@ -890,7 +930,16 @@ export function PlayVsEngineRunner({
               finishWin('win-engine-resign', effWdlUser, halfAfterUser);
               return;
             }
-            if (effWdlUser >= params.winThreshold)
+            // KS-2968: drop-check на финальный полуход (без engine-ответа).
+            // Если win% упал относительно baseline сильнее порога — ставим
+            // «потеряно», даже если effWdlUser формально в плюсе.
+            const baselineLastUser =
+              clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
+            const dropTooHighLastUser = isWinDropExcessive(
+              baselineLastUser,
+              wdlUserObj,
+            );
+            if (effWdlUser >= params.winThreshold && !dropTooHighLastUser)
               finishWin('win', effWdlUser, halfAfterUser);
             else finishLose('lose-wdl', effWdlUser, halfAfterUser);
           } catch (e) {
@@ -918,6 +967,9 @@ export function PlayVsEngineRunner({
       finishLose,
       finishWin,
       updateUserBestLog,
+      // KS-2968: серверный wdlAfter — fallback baseline для drop-check
+      // в финальной точке решения внутри last-user-move ветки.
+      puzzle.playVsEngine?.wdlAfter,
     ],
   );
 
@@ -939,7 +991,7 @@ export function PlayVsEngineRunner({
     // KS-2960: baseline тоже сбрасываем — заполнится в initial pre-analyze
     // ниже. До этого момента fallback идёт на серверный
     // `puzzle.playVsEngine.wdlAfter` / `wdlAfterBlunder`.
-    setClientBaselineWdl(null);
+    updateClientBaselineWdl(null);
     setReason(null);
     // KS-2739: ref сбрасываем тут же чтобы не утащить лог прошлого пазла
     // в submit нового. updateUserBestLog тоже работал бы, но reset-эффект
@@ -955,7 +1007,7 @@ export function PlayVsEngineRunner({
     submittedRef.current = false;
     startTimeRef.current = Date.now();
     lastMoveUciRef.current = null;
-  }, [puzzle.id, puzzle.fen, params.wdlAfterBlunder]);
+  }, [puzzle.id, puzzle.fen, params.wdlAfterBlunder, updateClientBaselineWdl]);
 
   // ── KS-2507 / ADR-047 §2.1 + §3 #4 ───────────────────────────────────
   // Initial pre-analyze стартовой позиции — чтобы `<EvalBar />` сразу
@@ -990,7 +1042,7 @@ export function PlayVsEngineRunner({
         // от серверного `puzzle.playVsEngine.wdlAfter`, который может
         // не совпадать с реальной оценкой движка на этой глубине.
         if (initialBest?.wdl) {
-          setClientBaselineWdl(initialBest.wdl);
+          updateClientBaselineWdl(initialBest.wdl);
           // signedWdl POV решателя (= user, на puzzle.fen ходит он).
           setLatestWdlUser(signedWdlFromObj(initialBest.wdl));
         }
@@ -1002,7 +1054,7 @@ export function PlayVsEngineRunner({
     return () => {
       cancelled = true;
     };
-  }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze]);
+  }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze, updateClientBaselineWdl]);
 
   // ── KS-2508 / ADR-047 §4(i) ──────────────────────────────────────────
   // Fallback-analyze для записей userBestLog без cpAfter. Сценарий:
