@@ -28,6 +28,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Hanging piece. Find an undefended enemy piece and capture it in one move."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -58,6 +59,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Loose piece. Find a piece on the board with no defenders."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -88,6 +90,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Pin. Locate the piece pinned against a more valuable one (or the king)."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -118,6 +121,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Create a fork. Find a move after which your piece simultaneously attacks two valuable opponent pieces (knight, bishop, rook, queen, king). Such an attack is called a fork."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -148,6 +152,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Count attackers. Count how many pieces attack the marked square."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -178,6 +183,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="All checks. Mark every square where you can deliver a check."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -208,6 +214,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       aria-label="Create a hanging piece. Find a move after which the opponent has a piece that is attacked by your piece and has no defenders — and your attacking piece itself stays safe."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -370,6 +377,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Висящая фигура. Найдите фигуру противника без защитников и заберите её одним ходом."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -400,6 +408,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Незащищённая фигура. Найдите на доске фигуру без единого защитника."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -430,6 +439,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Связка. Определите связанную фигуру — ту, за которой стоит фигура большей ценности (или король)."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -460,6 +470,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Создать вилку. Найдите ход, после которого ваша фигура одновременно нападает на две ценные фигуры соперника (конь, слон, ладья, ферзь, король). Такая атака называется вилкой."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -490,6 +501,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Счёт атакующих. Подсчитайте, сколько фигур атакуют выделенную клетку."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -520,6 +532,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Все шахи. Отметьте все клетки, с которых можно дать шах."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >
@@ -550,6 +563,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       aria-label="Создать висящую фигуру. Найдите ход, после которого у соперника появится фигура, атакованная вашей и без защитников — и при этом ваша атакующая фигура сама не подставится под удар."
       class="drill-type-card"
       data-disabled="false"
+      data-has-preview="false"
       data-testid="drill-type-card"
       type="button"
     >

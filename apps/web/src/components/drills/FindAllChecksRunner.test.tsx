@@ -73,7 +73,11 @@ describe('<FindAllChecksRunner> KS-2326', () => {
     expect(root.getAttribute('data-state')).toBe('idle');
     expect(root.getAttribute('data-found')).toBe('0');
     expect(root.getAttribute('data-expected')).toBe('2');
-    expect(screen.getByTestId('facr-hud').textContent).toBe('0 / 2');
+    // KS-2558/2559: HUD стал многоячеечным (Solved/Attempts/Time);
+    // прогресс «N / M» проверяем через data-атрибуты на корне HUD.
+    const hud = screen.getByTestId('facr-hud');
+    expect(hud.getAttribute('data-found')).toBe('0');
+    expect(hud.getAttribute('data-expected')).toBe('2');
   });
 
   it('правильный ход (d1→d8) → state=feedback-correct, HUD «1 / 2»', async () => {
@@ -88,7 +92,8 @@ describe('<FindAllChecksRunner> KS-2326', () => {
         screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
       ).toBe('feedback-correct'),
     );
-    expect(screen.getByTestId('facr-hud').textContent).toBe('1 / 2');
+    // KS-2558/2559: прогресс «N / M» через data-атрибуты HUD.
+    expect(screen.getByTestId('facr-hud').getAttribute('data-found')).toBe('1');
     expect(screen.getByTestId('drill-feedback').getAttribute('data-result')).toBe(
       'correct',
     );
@@ -128,8 +133,8 @@ describe('<FindAllChecksRunner> KS-2326', () => {
         screen.getByTestId('find-all-checks-runner').getAttribute('data-state'),
       ).toBe('feedback-already'),
     );
-    // HUD остаётся 1/2 (already не инкрементит found).
-    expect(screen.getByTestId('facr-hud').textContent).toBe('1 / 2');
+    // HUD остаётся 1/2 (already не инкрементит found). KS-2558/2559: через data-атрибуты.
+    expect(screen.getByTestId('facr-hud').getAttribute('data-found')).toBe('1');
   });
 
   it('ход НЕ из expected (d1→a1) → feedback-wrong, attempts++', async () => {

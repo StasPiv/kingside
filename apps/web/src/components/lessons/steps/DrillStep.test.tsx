@@ -174,7 +174,9 @@ describe('<DrillStep> KS-2249', () => {
         'feedback',
       ),
     );
-    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
+    // KS-2481: при solved=false auto-next отключён — переход в 'done'
+    // только по ручному клику в DrillExplanationPanel.
+    await user.click(screen.getByTestId('drill-explanation-next'));
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',

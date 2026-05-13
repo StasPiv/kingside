@@ -422,8 +422,12 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
-    // Кнопка имеет data-testid `analysis-copy-pgn` (desktop-вариант).
-    const copyBtn = await screen.findByTestId('analysis-copy-pgn');
+    // KS-2678: Copy PGN живёт только в overflow-меню — сначала открыть.
+    const overflowBtn = await screen.findByTestId('analysis-overflow-btn');
+    await act(async () => {
+      overflowBtn.click();
+    });
+    const copyBtn = await screen.findByTestId('analysis-copy-pgn-overflow');
 
     await act(async () => {
       copyBtn.click();
@@ -462,7 +466,12 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
-    const copyBtn = await screen.findByTestId('analysis-copy-pgn');
+    // KS-2678: Copy PGN живёт только в overflow-меню — сначала открыть.
+    const overflowBtn = await screen.findByTestId('analysis-overflow-btn');
+    await act(async () => {
+      overflowBtn.click();
+    });
+    const copyBtn = await screen.findByTestId('analysis-copy-pgn-overflow');
 
     await act(async () => {
       copyBtn.click();

@@ -1893,6 +1893,7 @@ function AnalysisPageInner({
                 className="analysis-overflow-btn"
                 onClick={() => setShowOverflowMenu((v) => !v)}
                 title={t('common.more', 'More')}
+                data-testid="analysis-overflow-btn"
               >
                 &#x22EF;
               </button>
