@@ -272,6 +272,27 @@ export class ChatAssistantService {
       { role: 'user', content: message },
     ];
 
+    // KS-2947: `userToken` отправляется в webhook → MCP-сервер
+    // прокладывает его как Bearer в публичный API. Раньше токен
+    // подписывался с `{ sub }` и `expiresIn: '2m'`:
+    //   - 2m — слишком короткий бюджет на webhook + Claude
+    //     (latency + thinking + 2-3 tool call'а) и токен мог истечь
+    //     посреди диалога → API отвечал 401 → ассистент видел
+    //     «API не отвечает». Поднимаем до 15m — совпадает с обычным
+    //     `JWT_EXPIRES_IN` для пользовательских токенов.
+    //   - `{ sub }` без `username` означал, что `JwtStrategy.validate`
+    //     возвращал `req.user.username = undefined`; endpoint'ы,
+    //     полагающиеся на username (не критичные для MCP, но
+    //     всё-таки), могли падать. Прокидываем username из БД.
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    const userToken = this.jwtService.sign(
+      { sub: userId, username: user?.username ?? null },
+      { expiresIn: '15m' },
+    );
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45_000);
     let responseText: string;
@@ -280,7 +301,7 @@ export class ChatAssistantService {
       if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
       const res = await fetch(this.webhookUrl, {
         method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ message, systemPrompt, history: messages, userId, userToken: this.jwtService.sign({ sub: userId }, { expiresIn: '2m' }) }),
+        body: JSON.stringify({ message, systemPrompt, history: messages, userId, userToken }),
       });
       if (!res.ok) {
         this.logger.warn(`AI webhook failed: ${res.status}`);
