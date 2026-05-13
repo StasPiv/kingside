@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useLocation, Link } from 'react-router-dom';
+import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -24,6 +24,8 @@ import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { useChallenge } from '../hooks/useChallenge';
 import { HelpButton } from '../components/HelpButton';
+import { openAnalysis } from '../utils/openAnalysis';
+import { buildGamePgn, buildGameAnalysisTitle } from './buildGamePgn';
 import { socket, messagesSocket } from '../socket';
 import { useLazySocket } from '../hooks/useLazySocket';
 import { useBotEngine } from '../hooks/useBotEngine';
@@ -49,6 +51,7 @@ export function GamePage() {
   useLazySocket(messagesSocket); // challenges
   const { id: gameId } = useParams<{ id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const [urlParams] = useState(() => new URLSearchParams(location.search));
   const tournamentId = urlParams.get('tournamentId');
   const [tournamentType, setTournamentType] = useState<string | null>(null);
@@ -114,6 +117,34 @@ export function GamePage() {
   const triggerBotMoveRef = useRef(triggerBotMove);
   triggerBotMoveRef.current = triggerBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
+
+  /**
+   * KS-2946: открыть анализ сыгранной партии. Раньше модалка результата
+   * содержала `<Link to={`/analysis/${gameId}`}>`, где `gameId` — id
+   * live-игры, а не id записи в таблице `analyses`. `AnalysisPage`
+   * получал 404 на GET /analyses/<gameId> и уходил в режим «новый
+   * чистый анализ» — отсюда пустая доска и пустой move-list.
+   *
+   * Чиним так же, как `handleRowClick` в `ArchiveGamesPage` (KS-2403
+   * follow-up): собираем полный PGN из текущего state'а партии
+   * (moves + players + result), создаём запись `POST /analyses`
+   * через helper `openAnalysis` (ADR-051 §4 B1), затем navigate на
+   * `/analysis/<created.id>`. При ошибке helper показывает alert и
+   * не уводит пользователя со страницы партии.
+   */
+  const handleAnalyze = useCallback(() => {
+    const pgn = buildGamePgn({
+      players,
+      moves,
+      result,
+      gameId: gameId ?? null,
+    });
+    void openAnalysis(navigate, {
+      pgn,
+      title: buildGameAnalysisTitle(players),
+      t,
+    });
+  }, [navigate, players, moves, result, gameId, t]);
   const [gameMeta, setGameMeta] = useState<{ opponentId: string; timeInitial: number; increment: number } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -693,7 +724,14 @@ export function GamePage() {
                 </button>
               )}
               <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
-              <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
+              <button
+                type="button"
+                className="result-btn result-btn-primary"
+                data-testid="game-result-analyze"
+                onClick={handleAnalyze}
+              >
+                {t('game.analyze')}
+              </button>
             </div>
           </div>
         )}
@@ -770,7 +808,14 @@ export function GamePage() {
               ) : (
                 <>
                   <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
-                  <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
+                  <button
+                type="button"
+                className="result-btn result-btn-primary"
+                data-testid="game-result-analyze"
+                onClick={handleAnalyze}
+              >
+                {t('game.analyze')}
+              </button>
                   <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
                 </>
               )}
