@@ -573,6 +573,112 @@ describe('SavedFiltersDropdown в ArchiveMetadataMode — KS-2936 интегра
     );
   });
 
+  it('KS-2942 modified flow: apply → URL?savedFilter=<id>; manual edit → modified; Reset to saved → active back', async () => {
+    const preset = archiveDto('p-mod', {
+      name: 'B90 minElo 2700',
+      params: {
+        section: 'archive',
+        players: [],
+        event: null,
+        eco: 'B90',
+        result: null,
+        minElo: 2700,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        timeControlCategory: [],
+        sort: null,
+      },
+    });
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/saved-filters?section=archive') return [preset];
+      return [];
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <ArchiveGamesPage />
+        <LocationProbe />
+      </>,
+      { route: '/archive/games' },
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toContain('(1)'),
+    );
+
+    // 1) Apply пресета → URL содержит savedFilter=p-mod + eco=B90.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-apply-p-mod'));
+    await waitFor(() => {
+      const search = screen.getByTestId('location-probe').textContent ?? '';
+      expect(search).toContain('savedFilter=p-mod');
+      expect(search).toContain('eco=B90');
+    });
+    // data-active-state=active.
+    expect(
+      screen
+        .getByTestId('saved-filters-dropdown')
+        .getAttribute('data-active-state'),
+    ).toBe('active');
+
+    // 2) Ручное изменение поля (eco→C20). savedFilter в URL остался,
+    //    state переключился на modified.
+    const ecoInput = await screen.findByTestId(
+      'archive-metadata-filter-eco',
+    );
+    await user.clear(ecoInput);
+    await user.type(ecoInput, 'C20');
+    // Дебаунс на eco — 400 мс. Ждём изменения URL и data-active-state.
+    await waitFor(
+      () => {
+        const search = screen.getByTestId('location-probe').textContent ?? '';
+        expect(search).toContain('eco=C20');
+        expect(search).toContain('savedFilter=p-mod');
+      },
+      { timeout: 1500 },
+    );
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('saved-filters-dropdown')
+          .getAttribute('data-active-state'),
+      ).toBe('modified');
+    });
+    // Точка-индикатор на тогле видна.
+    expect(
+      screen.getByTestId('saved-filters-toggle-modified'),
+    ).toBeInTheDocument();
+
+    // 3) Открыть kebab → есть «Reset to saved» → клик возвращает active.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-kebab-p-mod'));
+    expect(
+      screen.getByTestId('saved-filters-kebab-reset-p-mod'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByTestId('saved-filters-kebab-reset-p-mod'));
+    await waitFor(() => {
+      const search = screen.getByTestId('location-probe').textContent ?? '';
+      expect(search).toContain('eco=B90');
+      expect(search).not.toContain('eco=C20');
+      expect(search).toContain('savedFilter=p-mod');
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('saved-filters-dropdown')
+          .getAttribute('data-active-state'),
+      ).toBe('active');
+    });
+    expect(
+      screen.queryByTestId('saved-filters-toggle-modified'),
+    ).not.toBeInTheDocument();
+  });
+
   it('KS-2937 (C2): после apply пресет помечен чекмарком; после ручного изменения чекмарк пропадает; возврат точных значений возвращает чекмарк', async () => {
     const preset = archiveDto('p-active', {
       name: 'Eco B90',

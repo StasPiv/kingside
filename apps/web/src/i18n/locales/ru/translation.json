@@ -3006,6 +3006,8 @@
     "menuRename": "Переименовать",
     "menuUpdate": "Обновить из текущего",
     "menuDelete": "Удалить",
+    "menuResetToSaved": "Вернуться к сохранённому",
+    "itemModified": "Изменён",
     "renameConfirm": "Сохранить",
     "renameCancel": "Отмена",
     "renameError": "Не удалось переименовать фильтр",

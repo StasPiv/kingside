@@ -216,7 +216,7 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('apply: клик по строке вызывает onApply(params) и закрывает popover', async () => {
+    it('apply: клик по строке вызывает onApply(params, presetId) и закрывает popover', async () => {
       const user = userEvent.setup();
       const dto = workshopDto('a', {
         name: 'Italian',
@@ -226,7 +226,9 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       await user.click(screen.getByTestId('saved-filters-toggle'));
       await user.click(screen.getByTestId('saved-filters-apply-a'));
       expect(onApply).toHaveBeenCalledTimes(1);
-      expect(onApply).toHaveBeenCalledWith(dto.params);
+      // KS-2942: вторым аргументом передаётся id пресета — родитель
+      // использует его для записи `?savedFilter=<id>` в URL.
+      expect(onApply).toHaveBeenCalledWith(dto.params, 'a');
       await waitFor(() =>
         expect(
           screen.queryByTestId('saved-filters-popover'),
@@ -234,7 +236,86 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       );
     });
 
-    it('активный пресет рендерится с чекмарком', async () => {
+    it('KS-2942 modified: точка-индикатор на тогле + ● на строке + kebab пункт «Reset to saved»', async () => {
+      const user = userEvent.setup();
+      const dto = workshopDto('m-1', { name: 'Was-applied' });
+      mockedApi.get.mockResolvedValueOnce([dto]);
+      const onApply = vi.fn();
+      renderWithProviders(
+        <SavedFiltersDropdown<SavedFilterParams>
+          section="workshop"
+          currentParams={workshopParams({ search: 'edited' })}
+          onApply={onApply}
+          activeFilter={{ id: 'm-1', state: 'modified' }}
+        />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('saved-filters-toggle').textContent,
+        ).toContain('Saved filters (1)'),
+      );
+      // На тогле появилась точка-индикатор.
+      expect(
+        screen.getByTestId('saved-filters-toggle-modified'),
+      ).toBeInTheDocument();
+      // data-active-state=modified на root.
+      expect(
+        screen.getByTestId('saved-filters-dropdown').getAttribute(
+          'data-active-state',
+        ),
+      ).toBe('modified');
+
+      await user.click(screen.getByTestId('saved-filters-toggle'));
+      // На строке — ● вместо ✓.
+      const row = screen.getByTestId('saved-filters-item-m-1');
+      expect(row.className).toContain('saved-filters-dropdown__item--modified');
+      expect(row.getAttribute('data-item-state')).toBe('modified');
+      expect(
+        row.querySelector('.saved-filters-dropdown__item-check'),
+      ).toBeNull();
+      expect(
+        screen.getByTestId('saved-filters-item-modified-m-1'),
+      ).toBeInTheDocument();
+
+      // Kebab → есть пункт «Reset to saved».
+      await user.click(screen.getByTestId('saved-filters-kebab-m-1'));
+      const resetBtn = screen.getByTestId('saved-filters-kebab-reset-m-1');
+      expect(resetBtn).toHaveTextContent('Reset to saved');
+
+      // Клик по Reset to saved → onApply(params пресета, id пресета).
+      await user.click(resetBtn);
+      expect(onApply).toHaveBeenCalledWith(dto.params, 'm-1');
+    });
+
+    it('KS-2942: kebab «Reset to saved» НЕ показывается при state=active', async () => {
+      const user = userEvent.setup();
+      const dto = workshopDto('a-1', { name: 'Currently applied' });
+      mockedApi.get.mockResolvedValueOnce([dto]);
+      renderWithProviders(
+        <SavedFiltersDropdown<SavedFilterParams>
+          section="workshop"
+          currentParams={workshopParams()}
+          onApply={vi.fn()}
+          activeFilter={{ id: 'a-1', state: 'active' }}
+        />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('saved-filters-toggle').textContent,
+        ).toContain('Saved filters (1)'),
+      );
+      // Точки-индикатора нет.
+      expect(
+        screen.queryByTestId('saved-filters-toggle-modified'),
+      ).not.toBeInTheDocument();
+      await user.click(screen.getByTestId('saved-filters-toggle'));
+      await user.click(screen.getByTestId('saved-filters-kebab-a-1'));
+      expect(
+        screen.queryByTestId('saved-filters-kebab-reset-a-1'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('активный пресет рендерится с чекмарком (activeFilter state=active)', async () => {
       const user = userEvent.setup();
       const dto = workshopDto('active-1', { name: 'Pinned' });
       mockedApi.get.mockResolvedValueOnce([dto]);
@@ -243,7 +324,7 @@ describe('SavedFiltersDropdown — KS-2932', () => {
           section="workshop"
           currentParams={workshopParams()}
           onApply={vi.fn()}
-          activeFilterId="active-1"
+          activeFilter={{ id: 'active-1', state: 'active' }}
         />,
       );
       await waitFor(() =>
@@ -257,6 +338,7 @@ describe('SavedFiltersDropdown — KS-2932', () => {
         row.querySelector('.saved-filters-dropdown__item-check'),
       ).not.toBeNull();
       expect(row.className).toContain('saved-filters-dropdown__item--active');
+      expect(row.getAttribute('data-item-state')).toBe('active');
     });
   });
 

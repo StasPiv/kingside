@@ -2962,6 +2962,8 @@
     "menuRename": "Rename",
     "menuUpdate": "Update from current",
     "menuDelete": "Delete",
+    "menuResetToSaved": "Reset to saved",
+    "itemModified": "Modified",
     "renameConfirm": "Save",
     "renameCancel": "Cancel",
     "renameError": "Failed to rename filter",

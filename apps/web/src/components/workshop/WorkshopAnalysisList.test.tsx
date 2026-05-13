@@ -189,6 +189,86 @@ describe('WorkshopAnalysisList — KS-2933 (B3)', () => {
     expect(document.body.textContent).toContain('gambit');
   });
 
+  it('KS-2942: apply → URL?savedFilter=<id>; ручное изменение → modified; Reset to saved → active', async () => {
+    const preset = workshopFilterDto('w-mod', {
+      name: 'Italian-puzzle',
+      params: workshopParams({
+        category: 'puzzle',
+        tags: ['italian'],
+        search: null,
+      }),
+    });
+    wireApiGet({ savedFilters: [preset] });
+
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <WorkshopAnalysisList />
+        <LocationProbe />
+      </>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toContain('(1)'),
+    );
+
+    // 1) Apply пресета → savedFilter=w-mod в URL + state=active.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-apply-w-mod'));
+    await waitFor(() => {
+      const search = screen.getByTestId('location-probe').textContent ?? '';
+      expect(search).toContain('category=puzzle');
+      expect(search).toContain('tags=italian');
+      expect(search).toContain('savedFilter=w-mod');
+    });
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId('saved-filters-dropdown')
+          .getAttribute('data-active-state'),
+      ).toBe('active'),
+    );
+
+    // 2) Меняем категорию вручную (puzzle → analysis) — savedFilter
+    //    остаётся, state=modified.
+    const analysisTab = document.querySelectorAll<HTMLButtonElement>(
+      '.workshop-category-tab',
+    )[3]; // 'analysis' — индекс 3 в ['all','game_review','puzzle','analysis']
+    await user.click(analysisTab);
+    await waitFor(() => {
+      const search = screen.getByTestId('location-probe').textContent ?? '';
+      expect(search).toContain('category=analysis');
+      expect(search).toContain('savedFilter=w-mod');
+    });
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId('saved-filters-dropdown')
+          .getAttribute('data-active-state'),
+      ).toBe('modified'),
+    );
+
+    // 3) Reset to saved.
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-kebab-w-mod'));
+    await user.click(screen.getByTestId('saved-filters-kebab-reset-w-mod'));
+    await waitFor(() => {
+      const search = screen.getByTestId('location-probe').textContent ?? '';
+      expect(search).toContain('category=puzzle');
+      expect(search).not.toContain('category=analysis');
+      expect(search).toContain('savedFilter=w-mod');
+    });
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId('saved-filters-dropdown')
+          .getAttribute('data-active-state'),
+      ).toBe('active'),
+    );
+  });
+
   it('apply пресета с category=null ставит таб «All» и не пишет category в URL', async () => {
     const preset = workshopFilterDto('p2', {
       name: 'Free tag-italian',

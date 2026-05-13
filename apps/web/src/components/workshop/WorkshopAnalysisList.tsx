@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { AnalysisListItem, SavedFilterParams } from '@kingside/shared';
+import type {
+  AnalysisListItem,
+  SavedFilterDto,
+  SavedFilterParams,
+} from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
 import { openAnalysis } from '../../utils/openAnalysis';
@@ -60,31 +64,48 @@ export function WorkshopAnalysisList() {
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
 
-  // Sync state → URL
-  const updateUrl = useCallback((cat: CategoryFilter, tags: string[], search: string) => {
-    const params: Record<string, string> = {};
-    if (cat !== 'all') params.category = cat;
-    if (tags.length > 0) params.tags = tags.join(',');
-    if (search) params.search = search;
-    setSearchParams(params, { replace: true });
-  }, [setSearchParams]);
+  // KS-2942: id применённого пресета из URL (hint для modified-индикации).
+  const savedFilterIdFromUrl = searchParams.get('savedFilter');
+
+  // Sync state → URL.
+  // KS-2942: 4-й аргумент `savedFilterId` пробрасывается из URL, чтобы
+  // `?savedFilter=<id>` не терялся при ручном изменении любого поля
+  // (иначе исчезла бы кнопка «Reset to saved»). При apply из dropdown'а
+  // передаётся новый id; при handleResetFilters / apply без presetId —
+  // `undefined`, и параметр не пишется в URL.
+  const updateUrl = useCallback(
+    (
+      cat: CategoryFilter,
+      tags: string[],
+      search: string,
+      savedFilterId: string | null | undefined,
+    ) => {
+      const params: Record<string, string> = {};
+      if (cat !== 'all') params.category = cat;
+      if (tags.length > 0) params.tags = tags.join(',');
+      if (search) params.search = search;
+      if (savedFilterId) params.savedFilter = savedFilterId;
+      setSearchParams(params, { replace: true });
+    },
+    [setSearchParams],
+  );
 
   const setCategoryFilter = (cat: CategoryFilter) => {
     setCategoryFilterState(cat);
     setVisibleCount(PAGE_SIZE);
-    updateUrl(cat, selectedTags, searchQuery);
+    updateUrl(cat, selectedTags, searchQuery, savedFilterIdFromUrl);
   };
 
   const setSearchQuery = (q: string) => {
     setSearchQueryState(q);
     setVisibleCount(PAGE_SIZE);
-    updateUrl(categoryFilter, selectedTags, q);
+    updateUrl(categoryFilter, selectedTags, q, savedFilterIdFromUrl);
   };
 
   const setSelectedTags = (updater: string[] | ((prev: string[]) => string[])) => {
     setSelectedTagsState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      updateUrl(categoryFilter, next, searchQuery);
+      updateUrl(categoryFilter, next, searchQuery, savedFilterIdFromUrl);
       return next;
     });
   };
@@ -108,13 +129,15 @@ export function WorkshopAnalysisList() {
   );
 
   /**
-   * KS-2933 (B3): применить сохранённый пресет. Восстанавливаем локальный
-   * стейт и параллельно пишем в URL (тот же контракт, что и был у старого
-   * `handleApplyFilter`). `category === null` → 'all' для UI; неизвестные
-   * категории (на случай legacy-записей) приводим к 'all'.
+   * KS-2933 (B3) + KS-2942: применить сохранённый пресет. Восстанавливаем
+   * локальный стейт и пишем в URL (`category`/`tags`/`search` +
+   * `savedFilter=<presetId>` как hint для modified-индикации).
+   *
+   * `category === null` → 'all' для UI; неизвестные категории
+   * (на случай legacy-записей) приводим к 'all'.
    */
   const handleApplyFilter = useCallback(
-    (params: WorkshopSavedFilterParams) => {
+    (params: WorkshopSavedFilterParams, presetId?: string) => {
       const allowedCategories: ReadonlyArray<CategoryFilter> = [
         'all',
         'game_review',
@@ -132,10 +155,74 @@ export function WorkshopAnalysisList() {
       setSelectedTagsState(tags);
       setSearchQueryState(search);
       setVisibleCount(PAGE_SIZE);
-      updateUrl(cat, tags, search);
+      updateUrl(cat, tags, search, presetId ?? null);
     },
     [updateUrl],
   );
+
+  /**
+   * KS-2942: список известных saved-filters (зеркало dropdown'а через
+   * `onFiltersChange`). Используется для подсчёта `activeFilter`.
+   */
+  const [knownSavedFilters, setKnownSavedFilters] = useState<
+    SavedFilterDto[]
+  >([]);
+
+  /**
+   * KS-2942: workshop-аналог `findMatchingFilter`. Нормализация:
+   * `category` пустой → null, `tags` сортируется, пустые строки → null,
+   * `sortOrder='' / 'newest' (default)` рассматривается как `null`
+   * (текущая UI-форма не управляет sortOrder, поэтому строгое
+   * совпадение по нему было бы хрупким).
+   */
+  const findWorkshopMatchingFilter = useCallback(
+    (
+      cur: WorkshopSavedFilterParams,
+      list: SavedFilterDto[],
+    ): string | null => {
+      if (!Array.isArray(list)) return null;
+      const canon = (p: WorkshopSavedFilterParams) => ({
+        section: 'workshop' as const,
+        category: p.category && p.category.length > 0 ? p.category : null,
+        tags: [...p.tags]
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+          .sort(),
+        search: p.search && p.search.length > 0 ? p.search : null,
+      });
+      const ref = JSON.stringify(canon(cur));
+      for (const f of list) {
+        if (f.section !== 'workshop') continue;
+        const cand = canon(f.params as WorkshopSavedFilterParams);
+        if (JSON.stringify(cand) === ref) return f.id;
+      }
+      return null;
+    },
+    [],
+  );
+
+  /**
+   * KS-2942: 3-state индикация активного пресета (см. ArchiveGamesPage).
+   */
+  const activeFilter = useMemo(() => {
+    const matchedId = findWorkshopMatchingFilter(
+      currentParams as WorkshopSavedFilterParams,
+      knownSavedFilters,
+    );
+    if (matchedId) return { id: matchedId, state: 'active' as const };
+    if (
+      savedFilterIdFromUrl &&
+      knownSavedFilters.some((f) => f.id === savedFilterIdFromUrl)
+    ) {
+      return { id: savedFilterIdFromUrl, state: 'modified' as const };
+    }
+    return null;
+  }, [
+    currentParams,
+    knownSavedFilters,
+    savedFilterIdFromUrl,
+    findWorkshopMatchingFilter,
+  ]);
 
   useEffect(() => {
     if (!user) return;
@@ -356,6 +443,8 @@ export function WorkshopAnalysisList() {
             section="workshop"
             currentParams={currentParams}
             onApply={handleApplyFilter}
+            activeFilter={activeFilter}
+            onFiltersChange={setKnownSavedFilters}
           />
         </div>
       )}

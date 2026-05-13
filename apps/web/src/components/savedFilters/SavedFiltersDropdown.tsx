@@ -52,24 +52,45 @@ const MAX_FILTERS_PER_SECTION = 20;
 /** Длительность auto-dismiss всплывающего toast'а (мс). */
 const TOAST_DURATION_MS = 3000;
 
+/**
+ * KS-2942 — 3-state индикация активного пресета:
+ *   - 'active'   — `currentParams` ровно совпадают с пресетом X,
+ *                  отображаем чекмарк, никаких отметок «modified»;
+ *   - 'modified' — пресет X был применён ранее (URL содержит
+ *                  `?savedFilter=<id>`), но текущие фильтры уже не
+ *                  совпадают: чекмарк заменяется индикатором «изменён»,
+ *                  на toggle добавляется точка, в kebab появляется
+ *                  «Reset to saved» (применить params пресета заново).
+ *   - `null` — ни один пресет не совпал и нет «модифицированного» hint'а.
+ */
+export interface ActiveSavedFilterState {
+  id: string;
+  state: 'active' | 'modified';
+}
+
 export interface SavedFiltersDropdownProps<T extends SavedFilterParams> {
   section: SavedFilterSection;
   /** Снапшот текущих фильтров — используется для «Save» и «Update». */
   currentParams: T;
-  /** Применить пресет: родитель пишет в URL/state. */
-  onApply: (params: T) => void;
   /**
-   * Подсветка активного пресета (бинарная — совпал id / нет).
-   * Логика «modified» (применили → руками поменяли) отложена.
+   * Применить пресет: родитель пишет в URL/state. Второй аргумент
+   * (`presetId`) передаётся для KS-2942 — родитель сохраняет hint
+   * `?savedFilter=<id>` в URL, чтобы детектить «modified» состояние
+   * после ручного изменения фильтра.
    */
-  activeFilterId?: string | null;
+  onApply: (params: T, presetId?: string) => void;
+  /**
+   * KS-2942: 3-state индикация. `null` — нет активного пресета.
+   * Передаётся родителем после вычисления через свой matcher
+   * (см. `findMatchingFilter` в `ArchiveGamesPage`).
+   */
+  activeFilter?: ActiveSavedFilterState | null;
   /**
    * KS-2937 (C2): уведомляет родителя об актуальном списке пресетов
    * (после загрузки/мутации). Нужно, чтобы страница могла сама
-   * вычислять `activeFilterId` через свой matcher (например,
-   * `findMatchingFilter` для архива), не дублируя GET-запрос. Не
-   * передавать, если активный пресет считается извне иначе или не
-   * считается вовсе (как в Workshop).
+   * вычислять `activeFilter` через свой matcher, не дублируя GET-запрос.
+   * Не передавать, если активный пресет считается извне иначе или не
+   * считается вовсе.
    */
   onFiltersChange?: (filters: SavedFilterDto[]) => void;
 }
@@ -104,7 +125,7 @@ export function SavedFiltersDropdown<
     section,
     currentParams,
     onApply,
-    activeFilterId = null,
+    activeFilter = null,
     onFiltersChange,
   } = props;
   const { t } = useTranslation();
@@ -339,7 +360,25 @@ export function SavedFiltersDropdown<
   // === Apply pre-set ===
   const handleApply = useCallback(
     (f: SavedFilterDto) => {
-      onApply(f.params as T);
+      // KS-2942: presetId передаётся, чтобы родитель добавил
+      // `?savedFilter=<id>` в URL и мог детектить «modified» после
+      // ручного изменения фильтра.
+      onApply(f.params as T, f.id);
+      closePopover();
+    },
+    [onApply, closePopover],
+  );
+
+  /**
+   * KS-2942: «Reset to saved» — пункт kebab'а, видимый только если
+   * `activeFilter.state === 'modified'` И `f.id === activeFilter.id`.
+   * Применяет params пресета без изменений — currentParams снова
+   * совпадают, state переключается обратно в 'active'.
+   */
+  const handleResetToSaved = useCallback(
+    (f: SavedFilterDto) => {
+      setKebabOpenId(null);
+      onApply(f.params as T, f.id);
       closePopover();
     },
     [onApply, closePopover],
@@ -381,23 +420,45 @@ export function SavedFiltersDropdown<
       ? t('saved_filters.toggleEmpty')
       : t('saved_filters.toggleWithCount', { count: filters.length });
 
+  // KS-2942: 3-state — 'active' | 'modified' | 'none'. Атрибут на root
+  // используется в CSS для подсветки и в тестах для проверки состояния
+  // без зависимости от layout-классов.
+  const activeStateValue: 'active' | 'modified' | 'none' =
+    activeFilter?.state ?? 'none';
+
   return (
     <div
       className="saved-filters-dropdown"
       data-testid="saved-filters-dropdown"
       data-state={open ? 'open' : 'closed'}
+      data-active-state={activeStateValue}
       ref={rootRef}
     >
       <button
         type="button"
         ref={toggleRef}
-        className="saved-filters-dropdown__toggle"
+        className={`saved-filters-dropdown__toggle${
+          activeStateValue === 'modified'
+            ? ' saved-filters-dropdown__toggle--modified'
+            : ''
+        }`}
         data-testid="saved-filters-toggle"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={handleToggleClick}
       >
-        {toggleLabel}
+        <span className="saved-filters-dropdown__toggle-label">
+          {toggleLabel}
+        </span>
+        {activeStateValue === 'modified' && (
+          <span
+            className="saved-filters-dropdown__toggle-indicator"
+            data-testid="saved-filters-toggle-modified"
+            aria-hidden
+          >
+            ●
+          </span>
+        )}
       </button>
 
       {open && (
@@ -523,16 +584,29 @@ export function SavedFiltersDropdown<
               data-testid="saved-filters-list"
             >
               {filtered.map((f) => {
-                const isActive = f.id === activeFilterId;
+                const isActive =
+                  activeFilter?.state === 'active' &&
+                  f.id === activeFilter.id;
+                const isModified =
+                  activeFilter?.state === 'modified' &&
+                  f.id === activeFilter.id;
                 const isRenaming = renameId === f.id;
                 const isKebabOpen = kebabOpenId === f.id;
+                const itemClassNames = [
+                  'saved-filters-dropdown__item',
+                  isActive ? 'saved-filters-dropdown__item--active' : '',
+                  isModified ? 'saved-filters-dropdown__item--modified' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
                 return (
                   <li
                     key={f.id}
-                    className={`saved-filters-dropdown__item${
-                      isActive ? ' saved-filters-dropdown__item--active' : ''
-                    }`}
+                    className={itemClassNames}
                     data-testid={`saved-filters-item-${f.id}`}
+                    data-item-state={
+                      isActive ? 'active' : isModified ? 'modified' : 'none'
+                    }
                     role="none"
                   >
                     {isRenaming ? (
@@ -606,9 +680,19 @@ export function SavedFiltersDropdown<
                           {isActive && (
                             <span
                               className="saved-filters-dropdown__item-check"
+                              data-testid={`saved-filters-item-check-${f.id}`}
                               aria-hidden
                             >
                               ✓
+                            </span>
+                          )}
+                          {isModified && (
+                            <span
+                              className="saved-filters-dropdown__item-modified"
+                              data-testid={`saved-filters-item-modified-${f.id}`}
+                              aria-hidden
+                            >
+                              ●
                             </span>
                           )}
                           <span className="saved-filters-dropdown__item-text">
@@ -617,6 +701,11 @@ export function SavedFiltersDropdown<
                           {isActive && (
                             <span className="sr-only">
                               {t('saved_filters.itemActive')}
+                            </span>
+                          )}
+                          {isModified && (
+                            <span className="sr-only">
+                              {t('saved_filters.itemModified')}
                             </span>
                           )}
                         </button>
@@ -676,6 +765,17 @@ export function SavedFiltersDropdown<
                             >
                               {t('saved_filters.menuDelete')}
                             </button>
+                            {isModified && (
+                              <button
+                                type="button"
+                                className="saved-filters-dropdown__kebab-item saved-filters-dropdown__kebab-item--reset"
+                                data-testid={`saved-filters-kebab-reset-${f.id}`}
+                                role="menuitem"
+                                onClick={() => handleResetToSaved(f)}
+                              >
+                                {t('saved_filters.menuResetToSaved')}
+                              </button>
+                            )}
                           </div>
                         )}
                       </>

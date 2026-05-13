@@ -150,12 +150,18 @@ export function urlToMetadataFilters(
 /**
  * Сериализует фильтры в URLSearchParams. Пустые значения / `null` /
  * дефолтный sort=`recent` опускаются — URL остаётся чистым.
+ *
+ * KS-2942: `savedFilterId` — опциональный hint, пишется в URL как
+ * `?savedFilter=<id>` при apply пресета и сохраняется через ручные
+ * изменения формы — это и есть сигнал «modified» (URL содержит
+ * пресет, но params уже не совпадают).
  */
 export function metadataFiltersToUrl(
   values: ArchiveMetadataFilterValues,
   page: number,
   pageSize: number,
   cursor?: string,
+  savedFilterId?: string | null,
 ): URLSearchParams {
   const params = new URLSearchParams();
   // KS-2084: каждый игрок — отдельный `player=...` через `append`.
@@ -186,6 +192,10 @@ export function metadataFiltersToUrl(
   // первой странице (`page === 1`) cursor не нужен — backend отдаёт
   // первую страницу нужного sort'а.
   if (cursor && page > 1) params.set('cursor', cursor);
+  // KS-2942: сохраняем hint о применённом пресете отдельным параметром.
+  // Никак не влияет на запрос архива (бэкенд игнорирует), нужен только
+  // для UI-индикации modified-состояния после ручного изменения формы.
+  if (savedFilterId) params.set('savedFilter', savedFilterId);
   return params;
 }
 
@@ -559,14 +569,31 @@ function ArchiveMetadataMode() {
   const inflightAbortRef = useRef<AbortController | null>(null);
 
   const writeFilters = useCallback(
-    (next: ArchiveMetadataFilterValues, nextPageSize: number) => {
+    (
+      next: ArchiveMetadataFilterValues,
+      nextPageSize: number,
+      savedFilterId?: string | null,
+    ) => {
       // KS-2144: после любого изменения формы URL чистый — без cursor
       // и без page (page=1, pageSize пишется только если ≠ дефолта).
-      const params = metadataFiltersToUrl(next, 1, nextPageSize);
+      // KS-2942: `savedFilterId` пробрасывается в URL как hint для
+      // modified-индикации. Пустая строка / null — параметр выпускается.
+      const params = metadataFiltersToUrl(
+        next,
+        1,
+        nextPageSize,
+        undefined,
+        savedFilterId ?? undefined,
+      );
       setSearchParams(params, { replace: true });
     },
     [setSearchParams],
   );
+
+  // KS-2942: id применённого пресета из URL. Используется как «hint»
+  // для определения modified-состояния — даже если currentParams
+  // больше не совпадают с пресетом, URL помнит «работал в его контексте».
+  const savedFilterIdFromUrl = searchParams.get('savedFilter');
 
   // KS-2210: таймер дебаунса для PUT /user/preferences/archive-filters.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -657,21 +684,25 @@ function ArchiveMetadataMode() {
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
-      writeFilters(next, pageSize);
+      // KS-2942: ручное изменение формы НЕ должно сбрасывать
+      // `?savedFilter=<id>` — иначе пользователь потеряет modified-hint
+      // (и кнопку «Reset to saved»). Если id всё ещё в URL — переносим.
+      writeFilters(next, pageSize, savedFilterIdFromUrl);
       scheduleSaveFilters(next);
     },
-    [pageSize, writeFilters, scheduleSaveFilters],
+    [pageSize, writeFilters, scheduleSaveFilters, savedFilterIdFromUrl],
   );
 
   const handlePageSizeChange = useCallback(
     (size: number) => {
-      writeFilters(filterValues, size);
+      writeFilters(filterValues, size, savedFilterIdFromUrl);
     },
-    [filterValues, writeFilters],
+    [filterValues, writeFilters, savedFilterIdFromUrl],
   );
 
   const handleResetFilters = useCallback(() => {
-    writeFilters(EMPTY_METADATA_FILTERS, pageSize);
+    // Reset — полный сброс: и фильтров, и hint'а пресета.
+    writeFilters(EMPTY_METADATA_FILTERS, pageSize, null);
     scheduleSaveFilters(EMPTY_METADATA_FILTERS);
   }, [pageSize, writeFilters, scheduleSaveFilters]);
 
@@ -697,30 +728,52 @@ function ArchiveMetadataMode() {
   >([]);
 
   /**
-   * KS-2937 (C2): id активного пресета — `null`, если текущие фильтры
-   * не совпадают ровно ни с одним сохранённым (с нормализацией
-   * пустых/`any`/default-sort). При ручном изменении любого поля
-   * чекмарк пропадает автоматически (savedFilterCurrentParams
-   * пересчитывается через useMemo по filterValues).
+   * KS-2937 (C2) + KS-2942: 3-state индикация активного пресета.
+   *
+   *   - `state='active'` — currentParams ровно совпадают с пресетом,
+   *     URL может и не содержать `?savedFilter=<id>` (например, после
+   *     ручного восстановления значений до точного совпадения).
+   *   - `state='modified'` — URL содержит `?savedFilter=<id>`,
+   *     этот id присутствует в загруженных filters, но
+   *     currentParams уже НЕ совпадают.
+   *   - `null` — ни совпадения, ни валидного hint'а в URL.
+   *
+   * Пересчитывается при изменении currentParams, известных filters
+   * или savedFilter из URL.
    */
-  const activeFilterId = useMemo(
-    () => findMatchingFilter(savedFilterCurrentParams, knownSavedFilters),
-    [savedFilterCurrentParams, knownSavedFilters],
-  );
+  const activeFilter = useMemo(() => {
+    const matchedId = findMatchingFilter(
+      savedFilterCurrentParams,
+      knownSavedFilters,
+    );
+    if (matchedId) {
+      return { id: matchedId, state: 'active' as const };
+    }
+    if (
+      savedFilterIdFromUrl &&
+      knownSavedFilters.some((f) => f.id === savedFilterIdFromUrl)
+    ) {
+      return { id: savedFilterIdFromUrl, state: 'modified' as const };
+    }
+    return null;
+  }, [savedFilterCurrentParams, knownSavedFilters, savedFilterIdFromUrl]);
 
   /**
-   * KS-2924 / KS-2936 (C1): применить сохранённый пресет.
+   * KS-2924 / KS-2936 (C1) + KS-2942: применить сохранённый пресет.
    *
    * Десериализуем params → ArchiveMetadataFilterValues, пишем в URL
    * через `writeFilters` (тот же путь, что обычное изменение формы:
-   * page=1, cursor сбрасывается). Дополнительно вызываем
-   * `scheduleSaveFilters`, чтобы KS-2210 автосейв подхватил пресет
-   * как «последнее применённое состояние».
+   * page=1, cursor сбрасывается, savedFilter=presetId). Дополнительно
+   * вызываем `scheduleSaveFilters`, чтобы KS-2210 автосейв подхватил
+   * пресет как «последнее применённое состояние».
+   *
+   * `presetId` — KS-2942: id из dropdown'а, кладётся в URL как
+   * `?savedFilter=<id>` для modified-индикации.
    */
   const handleApplySavedFilter = useCallback(
-    (params: ArchiveSavedFilterParams) => {
+    (params: ArchiveSavedFilterParams, presetId?: string) => {
       const nextValues = archiveSavedParamsToValues(params);
-      writeFilters(nextValues, pageSize);
+      writeFilters(nextValues, pageSize, presetId ?? null);
       scheduleSaveFilters(nextValues);
     },
     [pageSize, writeFilters, scheduleSaveFilters],
@@ -993,7 +1046,7 @@ function ArchiveMetadataMode() {
           section="archive"
           currentParams={savedFilterCurrentParams}
           onApply={handleApplySavedFilter}
-          activeFilterId={activeFilterId}
+          activeFilter={activeFilter}
           onFiltersChange={setKnownSavedFilters}
         />
       </div>
