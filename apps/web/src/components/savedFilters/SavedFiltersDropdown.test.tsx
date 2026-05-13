@@ -289,6 +289,16 @@ describe('SavedFiltersDropdown — KS-2932', () => {
           screen.queryByTestId('saved-filters-save-form'),
         ).not.toBeInTheDocument(),
       );
+      // KS-2935 §3: новый пресет виден в списке dropdown (real id заменил
+      // optimistic). Тогл показывает увеличенный счётчик (1 → 2).
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('saved-filters-item-new'),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getByTestId('saved-filters-toggle').textContent).toContain(
+        '(2)',
+      );
     });
 
     it('409 → inline-подсказка «Name already in use», форма остаётся открытой', async () => {
@@ -314,6 +324,9 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       expect(
         screen.getByTestId('saved-filters-save-form'),
       ).toBeInTheDocument();
+      // KS-2935 §4: повторного POST'а быть не должно, пока пользователь не
+      // починит имя и не нажмёт Save снова — текущий API-вызов был ровно один.
+      expect(mockedApi.post).toHaveBeenCalledTimes(1);
     });
 
     it('400 → toast про лимит', async () => {
@@ -386,6 +399,10 @@ describe('SavedFiltersDropdown — KS-2932', () => {
           screen.queryByTestId('saved-filters-rename-form-a'),
         ).not.toBeInTheDocument(),
       );
+      // KS-2935 §5: имя обновилось в DOM-списке.
+      expect(
+        screen.getByTestId('saved-filters-item-a'),
+      ).toHaveTextContent('New');
     });
 
     it('Rename 409 → inline-ошибка, форма открыта', async () => {
@@ -408,10 +425,15 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       ).toBeInTheDocument();
     });
 
-    it('Update from current → PATCH params, success toast', async () => {
+    it('Update from current → PATCH params, success toast, имя пресета не меняется', async () => {
       const user = userEvent.setup();
-      await renderWithFilters([workshopDto('a')]);
-      mockedApi.patch.mockResolvedValueOnce(workshopDto('a'));
+      await renderWithFilters([workshopDto('a', { name: 'Original-A' })]);
+      mockedApi.patch.mockResolvedValueOnce(
+        workshopDto('a', {
+          name: 'Original-A',
+          params: workshopParams({ search: 'current-snapshot' }),
+        }),
+      );
       await user.click(screen.getByTestId('saved-filters-toggle'));
       await user.click(screen.getByTestId('saved-filters-kebab-a'));
       await user.click(screen.getByTestId('saved-filters-kebab-update-a'));
@@ -425,6 +447,10 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       );
       const toast = await screen.findByTestId('saved-filters-toast');
       expect(toast).toHaveAttribute('data-tone', 'success');
+      // KS-2935 §7: имя не меняется при update-from-current.
+      expect(
+        screen.getByTestId('saved-filters-item-a'),
+      ).toHaveTextContent('Original-A');
     });
 
     it('Delete: confirm=true → DELETE; confirm=false → no-op', async () => {
@@ -457,6 +483,15 @@ describe('SavedFiltersDropdown — KS-2932', () => {
             '/user/saved-filters/drop',
           ),
         );
+        // KS-2935 §6: пресет исчез из списка, в тогле счётчик уменьшен.
+        await waitFor(() =>
+          expect(
+            screen.queryByTestId('saved-filters-item-drop'),
+          ).not.toBeInTheDocument(),
+        );
+        expect(
+          screen.getByTestId('saved-filters-toggle').textContent,
+        ).toContain('(1)');
 
         // Второй вызов — confirm=false: запроса быть не должно.
         confirmFn.mockReturnValueOnce(false);
@@ -469,6 +504,105 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       } finally {
         Object.defineProperty(window, 'confirm', {
           value: originalConfirm,
+          configurable: true,
+          writable: true,
+        });
+      }
+    });
+  });
+
+  describe('error and load states (KS-2935 branch coverage)', () => {
+    it('load error → отображается load-error-блок', async () => {
+      mockedApi.get.mockRejectedValueOnce(
+        new ApiError('boom', 'NETWORK_ERROR', 0),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(
+        <SavedFiltersDropdown<SavedFilterParams>
+          section="workshop"
+          currentParams={workshopParams()}
+          onApply={vi.fn()}
+        />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('saved-filters-toggle'),
+        ).toBeInTheDocument(),
+      );
+      // Открываем popover — внутри блок ошибки.
+      await user.click(screen.getByTestId('saved-filters-toggle'));
+      expect(
+        screen.getByTestId('saved-filters-load-error'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('saved-filters-load-error'),
+      ).toHaveTextContent('Failed to load filters');
+    });
+
+    it('rename generic error (500) → toast про rename, форма остаётся открытой', async () => {
+      const user = userEvent.setup();
+      await renderWithFilters([workshopDto('a', { name: 'Old' })]);
+      mockedApi.patch.mockRejectedValueOnce(
+        new ApiError('boom', undefined, 500),
+      );
+      await user.click(screen.getByTestId('saved-filters-toggle'));
+      await user.click(screen.getByTestId('saved-filters-kebab-a'));
+      await user.click(screen.getByTestId('saved-filters-kebab-rename-a'));
+      const input = screen.getByTestId('saved-filters-rename-input-a');
+      await user.clear(input);
+      await user.type(input, 'New');
+      await user.click(screen.getByTestId('saved-filters-rename-confirm-a'));
+      const toast = await screen.findByTestId('saved-filters-toast');
+      expect(toast).toHaveAttribute('data-tone', 'error');
+      expect(toast.textContent).toContain('Failed to rename');
+      // Форма остаётся (это не 409, inline-error не показывается, но и
+      // форма пользователя не закрыта).
+      expect(
+        screen.getByTestId('saved-filters-rename-form-a'),
+      ).toBeInTheDocument();
+    });
+
+    it('update generic error → toast про update', async () => {
+      const user = userEvent.setup();
+      await renderWithFilters([workshopDto('a')]);
+      mockedApi.patch.mockRejectedValueOnce(
+        new ApiError('boom', undefined, 500),
+      );
+      await user.click(screen.getByTestId('saved-filters-toggle'));
+      await user.click(screen.getByTestId('saved-filters-kebab-a'));
+      await user.click(screen.getByTestId('saved-filters-kebab-update-a'));
+      const toast = await screen.findByTestId('saved-filters-toast');
+      expect(toast).toHaveAttribute('data-tone', 'error');
+      expect(toast.textContent).toContain('Failed to update');
+    });
+
+    it('delete generic error → toast про delete + пресет восстанавливается в списке (rollback из хука)', async () => {
+      const user = userEvent.setup();
+      await renderWithFilters([workshopDto('a', { name: 'A' })]);
+      mockedApi.delete.mockRejectedValueOnce(
+        new ApiError('boom', undefined, 500),
+      );
+      const confirmFn = vi.fn().mockReturnValueOnce(true);
+      const original = (window as unknown as { confirm?: unknown }).confirm;
+      Object.defineProperty(window, 'confirm', {
+        value: confirmFn,
+        configurable: true,
+        writable: true,
+      });
+      try {
+        await user.click(screen.getByTestId('saved-filters-toggle'));
+        await user.click(screen.getByTestId('saved-filters-kebab-a'));
+        await user.click(screen.getByTestId('saved-filters-kebab-delete-a'));
+        const toast = await screen.findByTestId('saved-filters-toast');
+        expect(toast).toHaveAttribute('data-tone', 'error');
+        expect(toast.textContent).toContain('Failed to delete');
+        // Запись восстановлена useSavedFilters'ом при ошибке.
+        expect(
+          screen.getByTestId('saved-filters-item-a'),
+        ).toBeInTheDocument();
+      } finally {
+        Object.defineProperty(window, 'confirm', {
+          value: original,
           configurable: true,
           writable: true,
         });
