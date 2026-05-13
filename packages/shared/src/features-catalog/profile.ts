@@ -5,11 +5,7 @@ export const profile: AssistantFeature = {
   title: 'Profile (your own)',
   paths: ['/profile'],
   summary:
-    'Your own profile. Shortcut route that redirects to your public player profile — all ratings, game history, and a link to settings.',
-  highlights: [
-    'Your profile at {siteUrl}/profile — auto-redirects to your public player profile at /player/:username',
-  ],
-  caveats: ['Requires authentication'],
+    'Shortcut entry that redirects to the user\'s own public player profile (ratings, game history, link to settings).',
   auth: 'user',
   featureFlag: null,
   mcpSection: 'users',

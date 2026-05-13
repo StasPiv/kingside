@@ -3,9 +3,11 @@ import { buildSystemPrompt, __TESTING__ } from './system-prompt';
 import type { UserContext } from './context-collector.service';
 
 /**
- * KS-2962 / ADR-062 §8.3 — гарантирует, что каждая запись FEATURES
- * попадает в собранный промт, и в STATIC_HEADER/STATIC_FOOTER нет
- * «голых» URL, обходящих каталог.
+ * KS-2962 / ADR-062 §8.3 + KS-2966 / ADR-063 §5 — гарантирует, что
+ * каждая запись FEATURES попадает в собранный промт, в
+ * STATIC_HEADER/STATIC_FOOTER нет «голых» URL, а slim-summary каждой
+ * записи валиден (≥30 / ≤200, заканчивается точкой, без URL и без
+ * подстановок).
  */
 
 const SITE_URL = 'https://kingside.test';
@@ -56,7 +58,7 @@ const ALL_DISABLED_FLAGS: FeatureFlagsSnapshot = {
   studiesEnabled: false,
 };
 
-describe('buildSystemPrompt (KS-2962 / ADR-062)', () => {
+describe('buildSystemPrompt (KS-2962 / ADR-062 + KS-2966 / ADR-063)', () => {
   it('every FEATURES entry appears in the rendered prompt (title + all paths)', () => {
     const prompt = buildSystemPrompt(STUB_CONTEXT, ALL_ENABLED_FLAGS, SITE_URL);
     for (const f of FEATURES) {
@@ -84,7 +86,7 @@ describe('buildSystemPrompt (KS-2962 / ADR-062)', () => {
     expect(prompt).toContain('Currently enabled for this user');
   });
 
-  it('{siteUrl} placeholder in highlights is substituted', () => {
+  it('rendered prompt contains no {siteUrl} placeholder leftovers', () => {
     const prompt = buildSystemPrompt(STUB_CONTEXT, ALL_ENABLED_FLAGS, SITE_URL);
     expect(prompt).not.toContain('{siteUrl}');
   });
@@ -132,6 +134,47 @@ describe('buildSystemPrompt (KS-2962 / ADR-062)', () => {
     expect(prompt).toContain(`${SITE_URL}/precision/stats`);
     expect(prompt).toContain(`${SITE_URL}/precision/history`);
     expect(prompt).toContain(`${SITE_URL}/precision/attempts/:id`);
+  });
+
+  // ── KS-2966 / ADR-063 §5: slim-summary валидации ────────────────
+
+  it('every summary is in [30..200] characters', () => {
+    for (const f of FEATURES) {
+      expect(typeof f.summary).toBe('string');
+      expect(f.summary.length).toBeGreaterThanOrEqual(30);
+      expect(f.summary.length).toBeLessThanOrEqual(200);
+    }
+  });
+
+  it('every summary ends with a period (one sentence convention)', () => {
+    for (const f of FEATURES) {
+      expect(f.summary.endsWith('.')).toBe(true);
+    }
+  });
+
+  it('summaries do not contain URLs or {siteUrl} placeholders (URLs live only in paths)', () => {
+    for (const f of FEATURES) {
+      expect(f.summary).not.toContain('{siteUrl}');
+      expect(f.summary).not.toMatch(/https?:\/\//);
+      expect(f.summary).not.toContain('kingside.site');
+    }
+  });
+
+  it('summaries are unique across the catalog (sanity)', () => {
+    const seen = new Map<string, string>();
+    for (const f of FEATURES) {
+      const dup = seen.get(f.summary);
+      expect(dup).toBeUndefined();
+      seen.set(f.summary, f.id);
+    }
+  });
+
+  it('AssistantFeature shape: no legacy highlights / caveats fields on any record', () => {
+    for (const f of FEATURES) {
+      const bag = f as unknown as Record<string, unknown>;
+      expect(bag.highlights).toBeUndefined();
+      expect(bag.caveats).toBeUndefined();
+    }
   });
 });
 

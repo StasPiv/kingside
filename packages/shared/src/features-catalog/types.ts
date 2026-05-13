@@ -1,12 +1,16 @@
 import type { FeatureFlagKey } from '../types/feature-flags.js';
 
 /**
- * KS-2962 / ADR-062 §5 — каталог фич для AI-ассистента.
+ * KS-2966 / ADR-063 §5 — slim features-catalog для AI-ассистента.
  *
- * Источник истины описания разделов сайта для system-prompt'а. Записи
- * рендерятся `renderFeaturesBlock` в `apps/api/src/ai-chat/system-prompt.ts`.
- * CI-чек `tools/check-features-catalog.mjs` сверяет union `paths[]` со
- * списком `<Route path="...">` в `apps/web/src/App.tsx`.
+ * Источник правды коротких описаний разделов сайта для system-prompt'а.
+ * Раньше (ADR-062, KS-2962) содержал длинные `highlights` и `caveats` —
+ * именно там скапливались выдуманные факты, которые ловил архитектор в
+ * KS-2964. После Phase 1 (KS-2966) поля удалены: остаётся только то,
+ * что верифицируется автоматически — paths (CI-чек path-diff), auth,
+ * featureFlag, mcpSection, плюс одно короткое предложение `summary`
+ * (≤200 символов, что это и зачем). Детальные ответы ассистент будет
+ * доставать через MCP knowledge-tools (Phase 2, KS-2967).
  */
 export interface AssistantFeature {
   /**
@@ -36,26 +40,15 @@ export interface AssistantFeature {
   paths: string[];
 
   /**
-   * Краткое назначение раздела (1-3 предложения, EN). Отвечает на
-   * вопрос «что это и когда сюда идти». Детальные правила — в
-   * `highlights`. Минимум 30 символов (валидируется CI-чеком).
+   * Одно короткое предложение (≤200 символов, EN), отвечающее на «что
+   * это и зачем». Без перечисления механик и без URL — детали ассистент
+   * достанет через knowledge-tools (Phase 2). CI-валидация:
+   *   - длина в диапазоне [30..200];
+   *   - заканчивается точкой;
+   *   - не содержит `{siteUrl}` или прямых URL;
+   *   - не повторяется текст между записями.
    */
   summary: string;
-
-  /**
-   * Опциональные буллеты с ключевыми возможностями раздела. EN.
-   * Рекомендованная длина — до 8 пунктов; больше — модель не запомнит.
-   * Шаблонная подстановка `{siteUrl}` поддерживается.
-   */
-  highlights?: string[];
-
-  /**
-   * Ограничения / технические оговорки. EN. Примеры:
-   *  - «Requires authentication»
-   *  - «Max 3 active bot games at a time»
-   *  - «Engine runs locally (WebAssembly) — no server needed»
-   */
-  caveats?: string[];
 
   /**
    * Требуется ли авторизация. Подсказка ассистенту: предлагать раздел

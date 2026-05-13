@@ -46,16 +46,20 @@ const STATIC_FOOTER = `## Guidelines:
 - Use the player's stats and tool results to personalize recommendations
 - NEVER reveal technical details about the application: tech stack, frameworks, libraries, databases, API structure, internal architecture, server infrastructure. If a user asks about how the site is built — respond: "I can only help with using the site features."`;
 
-/** Рендер одной записи каталога. См. §7 ADR-062. */
+/**
+ * Рендер одной записи каталога. KS-2966 / ADR-063 §5: slim-формат —
+ * только title + paths + summary + (опционально) availability-блок.
+ * Поля `highlights` и `caveats` удалены из `AssistantFeature` — детали
+ * ассистент достаёт через MCP knowledge-tools (Phase 2, KS-2967).
+ */
 function renderFeature(
   f: AssistantFeature,
   siteUrl: string,
   flags: FeatureFlagsSnapshot,
 ): string {
-  const subst = (s: string): string => s.replaceAll('{siteUrl}', siteUrl);
   const urls = f.paths.map((p) => `${siteUrl}${p}`).join(', ');
   const heading = urls ? `### ${f.title} (${urls})` : `### ${f.title}`;
-  const lines: string[] = [heading, subst(f.summary)];
+  const lines: string[] = [heading, f.summary];
 
   if (f.featureFlag) {
     const enabled = flags[f.featureFlag] ?? false;
@@ -70,12 +74,6 @@ function renderFeature(
     }
   }
 
-  if (f.highlights?.length) {
-    lines.push(...f.highlights.map((h) => `- ${subst(h)}`));
-  }
-  if (f.caveats?.length) {
-    lines.push(...f.caveats.map((c) => `_${subst(c)}_`));
-  }
   return lines.join('\n');
 }
 

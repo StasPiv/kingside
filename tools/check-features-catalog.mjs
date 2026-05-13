@@ -444,6 +444,39 @@ async function main() {
         `record ${f.id}: summary must be a non-empty string ≥ 30 chars`,
       );
     }
+    // KS-2966 / ADR-063 §5.4: slim-summary — одно предложение ≤200,
+    // оканчивается точкой, без URL и подстановок (URL живут только в paths).
+    if (typeof f.summary === 'string' && f.summary.length > 200) {
+      problems.push(
+        `record ${f.id}: summary must be ≤ 200 chars (got ${f.summary.length}), keep it to one sentence`,
+      );
+    }
+    if (typeof f.summary === 'string' && !f.summary.endsWith('.')) {
+      problems.push(
+        `record ${f.id}: summary must end with a period (one-sentence convention)`,
+      );
+    }
+    if (
+      typeof f.summary === 'string' &&
+      (f.summary.includes('{siteUrl}') ||
+        /https?:\/\//.test(f.summary) ||
+        f.summary.includes('kingside.site'))
+    ) {
+      problems.push(
+        `record ${f.id}: summary must not contain URLs or {siteUrl} placeholders (URLs live in paths only)`,
+      );
+    }
+    // KS-2966: поля legacy highlights/caveats удалены из схемы.
+    if ('highlights' in f) {
+      problems.push(
+        `record ${f.id}: legacy field 'highlights' must be removed (ADR-063 §5)`,
+      );
+    }
+    if ('caveats' in f) {
+      problems.push(
+        `record ${f.id}: legacy field 'caveats' must be removed (ADR-063 §5)`,
+      );
+    }
     if (f.featureFlag !== null && !knownFlags.has(f.featureFlag)) {
       problems.push(
         `record ${f.id}: unknown featureFlag '${f.featureFlag}' — not in FeatureFlagKey union`,

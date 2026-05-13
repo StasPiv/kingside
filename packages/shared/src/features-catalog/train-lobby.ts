@@ -5,10 +5,7 @@ export const trainLobby: AssistantFeature = {
   title: 'Training hub',
   paths: ['/train'],
   summary:
-    'Hub page that aggregates training-oriented sections: puzzles, puzzle rush, precision, drills, mistakes practice, and lessons. The user picks a training mode from one screen.',
-  highlights: [
-    'Training hub at {siteUrl}/train — shortcut entry point for all training modes',
-  ],
+    'Hub page that aggregates training modes (puzzles, puzzle rush, precision, drills, mistakes, lessons) for the user to pick from one screen.',
   auth: 'public',
   featureFlag: null,
   mcpSection: null,

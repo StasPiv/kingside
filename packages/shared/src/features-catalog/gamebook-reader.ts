@@ -8,13 +8,7 @@ export const gamebookReader: AssistantFeature = {
     '/studies/c/:chapterId/play',
   ],
   summary:
-    'Standalone read-only player for "gamebook" chapters of a study. The user reads the chapter intro, then plays moves against an expected line — correct moves get success feedback, wrong moves get a hint and a retry. Used for guided lessons and puzzles authored as gamebook chapters.',
-  highlights: [
-    'Play screen at {siteUrl}/studies/:slug/:chapterId/play — by slug + chapter id',
-    'Direct link at {siteUrl}/studies/c/:chapterId/play — same screen, accessible by chapter id only',
-    'Phases: intro (read explanation, click Start), playing (drag-and-drop, success/failure feedback from the author), finished (main line complete)',
-    'No engine, no auto-save — purely a guided reading experience',
-  ],
+    'Standalone read-only player for gamebook chapters of a study: the user plays an expected line with success/failure feedback and hints.',
   auth: 'public',
   featureFlag: 'studiesEnabled',
   adr: ['ADR-060'],

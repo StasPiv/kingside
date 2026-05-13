@@ -5,12 +5,7 @@ export const friends: AssistantFeature = {
   title: 'Friends',
   paths: ['/friends'],
   summary:
-    'Friends list with online/offline status and ratings. Send, accept, or decline friend requests. Challenge friends to a game directly from the friends page.',
-  highlights: [
-    'Friends list at {siteUrl}/friends — see who is online, their ratings, send a direct game challenge',
-    'Manage friend requests (send / accept / decline) from the same screen',
-  ],
-  caveats: ['Requires authentication'],
+    'Friends list with online status and ratings; send, accept, or decline friend requests and challenge friends to a game.',
   auth: 'user',
   featureFlag: null,
   mcpSection: 'friends',

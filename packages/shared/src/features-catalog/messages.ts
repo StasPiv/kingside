@@ -5,12 +5,7 @@ export const messages: AssistantFeature = {
   title: 'Messages',
   paths: ['/messages', '/messages/:userId'],
   summary:
-    'Direct messaging between users. Conversation list, message history, real-time delivery.',
-  highlights: [
-    'Conversations at {siteUrl}/messages — list of your conversations sorted by recency',
-    'Chat with a specific user at {siteUrl}/messages/:userId — message history and live updates',
-  ],
-  caveats: ['Requires authentication'],
+    'Direct messaging between users with a conversation list, message history, and real-time delivery.',
   auth: 'user',
   featureFlag: null,
   mcpSection: 'messages',
