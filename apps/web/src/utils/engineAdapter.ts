@@ -187,9 +187,13 @@ export class WasmEngineAdapter implements EngineAdapter {
               bestByDepth.set(info.depth, info.pv[0]);
               evalByDepth.set(info.depth, scoreToCP(info.score));
             }
-            if (info.depth >= depth - 2) {
-              finalLines.set(info.multipv, info);
-            }
+            // KS-2955: раньше здесь стоял фильтр `info.depth >= depth - 2`
+            // — он предполагал, что SF гарантированно доходит до целевой
+            // глубины. С `movetime` SF может остановиться раньше; такой
+            // фильтр оставлял `finalLines` пустыми → `engine-no-bestmove`.
+            // Теперь храним последнюю info на каждый multipv — она и есть
+            // финальная на момент остановки SF (по depth или по movetime).
+            finalLines.set(info.multipv, info);
           }
         }
 
@@ -360,9 +364,8 @@ export class BridgeEngineAdapter implements EngineAdapter {
             bestByDepth.set(info.depth, info.pv[0]);
             evalByDepth.set(info.depth, scoreToCP(info.score));
           }
-          if (info.depth >= depth - 2) {
-            finalLines.set(info.multipv, info);
-          }
+          // KS-2955: см. WasmEngineAdapter — последняя info на multipv.
+          finalLines.set(info.multipv, info);
         }
 
         if (msg.type === 'bestmove') {
