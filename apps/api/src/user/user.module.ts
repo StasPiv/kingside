@@ -39,9 +39,9 @@ import { WorkshopModule } from '../workshop/workshop.module';
     UserNavStatsService,
     SavedFiltersService,
   ],
-  // KS-2929 (Phase A5): экспортируем SavedFiltersService, чтобы legacy-
-  // proxy в AnalysisModule (`/analyses/filters`) делегировал в него
-  // вместо собственной бизнес-логики.
-  exports: [UserService, BlockService, SavedFiltersService],
+  // KS-2929 экспортировал SavedFiltersService для legacy proxy в
+  // AnalysisModule. KS-2943 (Phase D1) этот proxy удалил —
+  // SavedFiltersService снова приватен модулю.
+  exports: [UserService, BlockService],
 })
 export class UserModule {}

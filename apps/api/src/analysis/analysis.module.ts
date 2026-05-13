@@ -2,17 +2,14 @@ import { Module } from '@nestjs/common';
 import { AnalysisController } from './analysis.controller';
 import { AnalysisPublicController } from './analysis-public.controller';
 import { AnalysisService } from './analysis.service';
-import { UserModule } from '../user/user.module';
 
 /**
- * KS-2929 (Phase A5): старый `SavedFilterService` удалён —
- * бизнес-логика saved_filters переехала в
- * `apps/api/src/user/saved-filters/`. UserModule импортируется,
- * чтобы legacy proxy `/analyses/filters` в AnalysisController мог
- * делегировать в `SavedFiltersService`.
+ * KS-2929 (Phase A5): старый `SavedFilterService` удалён — saved_filters
+ *   логика переехала в `apps/api/src/user/saved-filters/`.
+ * KS-2943 (Phase D1): legacy proxy `/analyses/filters` удалён целиком,
+ *   зависимость от `UserModule` больше не нужна.
  */
 @Module({
-  imports: [UserModule],
   controllers: [AnalysisController, AnalysisPublicController],
   providers: [AnalysisService],
 })
