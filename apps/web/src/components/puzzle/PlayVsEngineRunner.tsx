@@ -23,6 +23,7 @@ import {
   type WdlDistribution,
 } from '../../utils/engineAdapter';
 import type { EvalLine } from '../../hooks/useStockfish';
+import { shouldFinishLose } from './precisionVerdict';
 
 /**
  * KS-2466 / ADR-044 §5. Раннер пазла-«удержания преимущества» против
@@ -596,7 +597,23 @@ export function PlayVsEngineRunner({
       }
       // KS-2533: смотрим effWdlUser, чтобы при WDL-данных юзер не
       // получил lose-wdl при реально выигрывающей позиции.
-      if (effWdlUser < params.failThreshold) {
+      // KS-2955: дополнительно учитываем `bestUci` из pre-analyze
+      // snapshot — если фактический ход совпал с лучшим, «потеряно»
+      // НЕ ставим даже при отрицательном effWdlUser (в задачах с
+      // изначально проигранной позицией лучший ход не возвращает
+      // оценку в плюс, но это не «потеря преимущества»).
+      const snapForVerdict = userBestLogRef.current.find(
+        (s) => s.halfMove === halfAfterUser,
+      );
+      if (
+        shouldFinishLose(
+          snapForVerdict
+            ? { bestUci: snapForVerdict.bestUci, playedUci: snapForVerdict.playedUci }
+            : null,
+          effWdlUser,
+          params.failThreshold,
+        )
+      ) {
         finishLose('lose-wdl', effWdlUser, halfAfterUser);
         return;
       }
@@ -809,7 +826,22 @@ export function PlayVsEngineRunner({
             setLatestWdl(wdlUserObj);
             // KS-2533: WDL-данные приоритетнее sigmoid.
             const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
-            if (effWdlUser < params.failThreshold) {
+            // KS-2955: см. описание выше про учёт `bestUci`.
+            const snapForVerdict = userBestLogRef.current.find(
+              (s) => s.halfMove === halfAfterUser,
+            );
+            if (
+              shouldFinishLose(
+                snapForVerdict
+                  ? {
+                      bestUci: snapForVerdict.bestUci,
+                      playedUci: snapForVerdict.playedUci,
+                    }
+                  : null,
+                effWdlUser,
+                params.failThreshold,
+              )
+            ) {
               finishLose('lose-wdl', effWdlUser, halfAfterUser);
               return;
             }
