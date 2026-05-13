@@ -19,6 +19,7 @@ import { useLocation } from 'react-router-dom';
 import type { SavedFilterDto } from '@kingside/shared';
 
 import { renderWithProviders, screen } from '../test/test-utils';
+import { ApiError } from '../ApiError';
 import {
   ArchiveGamesPage,
   archiveValuesToSavedParams,
@@ -710,5 +711,214 @@ describe('SavedFiltersDropdown в ArchiveMetadataMode — KS-2936 интегра
         }),
       ),
     );
+  });
+
+  it('KS-2938 §1: сохранение пресета через dropdown — POST на /user/saved-filters, новый пресет виден в списке', async () => {
+    // Сценарий: пользователь зашёл с активными фильтрами в URL, открыл
+    // dropdown, набрал имя, сохранил.
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/saved-filters?section=archive') return [];
+      return [];
+    });
+    const createdDto = archiveDto('saved-1', {
+      name: 'My Najdorf',
+      params: {
+        section: 'archive',
+        players: [],
+        event: null,
+        eco: 'B90',
+        result: null,
+        minElo: 2700,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        timeControlCategory: [],
+        sort: null,
+      },
+    });
+    mockApiPost.mockResolvedValueOnce(createdDto);
+
+    const user = userEvent.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route: '/archive/games?eco=B90&minElo=2700',
+    });
+
+    // Тогл показывает «Save filter» (N=0). Клик откроет popover и
+    // сразу активирует save-form.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toBe('Save filter'),
+    );
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    const input = await screen.findByTestId('saved-filters-save-input');
+    await user.type(input, 'My Najdorf');
+    await user.click(screen.getByTestId('saved-filters-save-confirm'));
+
+    // POST уходит с params на основе URL.
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/user/saved-filters',
+        expect.objectContaining({
+          section: 'archive',
+          name: 'My Najdorf',
+          params: expect.objectContaining({
+            eco: 'B90',
+            minElo: 2700,
+          }),
+        }),
+      ),
+    );
+
+    // После успеха пресет виден в списке + счётчик тогла=(1).
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-item-saved-1'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('saved-filters-toggle').textContent).toContain(
+      '(1)',
+    );
+  });
+
+  it('KS-2938 §2: apply пресета триггерит перезапрос архива с правильными query-params', async () => {
+    const preset = archiveDto('p-refetch', {
+      name: 'Carlsen 1-0',
+      params: {
+        section: 'archive',
+        players: ['Carlsen'],
+        event: null,
+        eco: null,
+        result: '1-0',
+        minElo: null,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        timeControlCategory: [],
+        sort: null,
+      },
+    });
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/saved-filters?section=archive') return [preset];
+      return [];
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route: '/archive/games',
+    });
+
+    // Дождёмся первого запроса архива.
+    await waitFor(() =>
+      expect(mockGetGamesMetadata).toHaveBeenCalled(),
+    );
+    const initialCalls = mockGetGamesMetadata.mock.calls.length;
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toContain('(1)'),
+    );
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-apply-p-refetch'));
+
+    // После apply — новый запрос с player='Carlsen' и result='1-0'.
+    await waitFor(() => {
+      expect(mockGetGamesMetadata.mock.calls.length).toBeGreaterThan(
+        initialCalls,
+      );
+    });
+    const lastRequest =
+      mockGetGamesMetadata.mock.calls[
+        mockGetGamesMetadata.mock.calls.length - 1
+      ][0];
+    expect(lastRequest.player).toBe('Carlsen');
+    expect(lastRequest.result).toBe('1-0');
+    expect(lastRequest.offset).toBe(0);
+    expect(lastRequest.cursor).toBeUndefined();
+  });
+
+  it('KS-2938 §4: deep-link фильтры имеют приоритет над автосейвом KS-2210', async () => {
+    // Автосейв возвращает eco=A20, но URL содержит eco=B90 —
+    // отображается B90 (restore-effect срабатывает только если URL
+    // дефолтный).
+    mockGetPreferencesFilters.mockResolvedValue({
+      filters: {
+        player: null,
+        event: null,
+        eco: 'A20',
+        result: null,
+        timeControl: null,
+        minElo: null,
+        since: null,
+        until: null,
+        minPly: null,
+        maxPly: null,
+        sort: null,
+      },
+    });
+
+    renderWithProviders(
+      <>
+        <ArchiveGamesPage />
+        <LocationProbe />
+      </>,
+      { route: '/archive/games?eco=B90' },
+    );
+
+    // Сначала ждём, что метадата-запрос ушёл (страница смонтирована).
+    await waitFor(() => expect(mockGetGamesMetadata).toHaveBeenCalled());
+    // Restore-effect выполнился (mockGetPreferencesFilters вызван),
+    // но URL не должен поменяться — фильтр в URL уже не-дефолтный.
+    await waitFor(() => {
+      expect(mockGetPreferencesFilters).toHaveBeenCalled();
+    });
+    // Проверяем что URL остался с B90 (а не переписался на A20).
+    const search = screen.getByTestId('location-probe').textContent ?? '';
+    expect(search).toContain('eco=B90');
+    expect(search).not.toContain('eco=A20');
+  });
+
+  it('KS-2938 §7: 21-й POST → toast про лимит, UI не блокируется', async () => {
+    // У пользователя уже 20 пресетов — backend на 21-м вернёт 400.
+    const existing = Array.from({ length: 20 }, (_, i) =>
+      archiveDto(`f-${i}`, { name: `Filter ${i + 1}` }),
+    );
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/saved-filters?section=archive') return existing;
+      return [];
+    });
+    mockApiPost.mockRejectedValueOnce(
+      new ApiError('Maximum 20 saved filters per section', undefined, 400),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route: '/archive/games?eco=B90',
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('saved-filters-toggle').textContent,
+      ).toContain('(20)'),
+    );
+
+    await user.click(screen.getByTestId('saved-filters-toggle'));
+    await user.click(screen.getByTestId('saved-filters-save-btn'));
+    const input = await screen.findByTestId('saved-filters-save-input');
+    await user.type(input, '21st');
+    await user.click(screen.getByTestId('saved-filters-save-confirm'));
+
+    // Toast про лимит, dropdown не блокируется (всё ещё открыт +
+    // save-form тоже).
+    const toast = await screen.findByTestId('saved-filters-toast');
+    expect(toast).toHaveAttribute('data-tone', 'error');
+    expect(toast.textContent).toContain('20');
+    expect(screen.getByTestId('saved-filters-popover')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('saved-filters-save-form'),
+    ).toBeInTheDocument();
   });
 });
