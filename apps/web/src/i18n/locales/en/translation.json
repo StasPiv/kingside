@@ -2943,5 +2943,33 @@
         "draw": "Right-click — highlight square, right-click drag — arrow. Shift/Alt/Ctrl — color"
       }
     }
+  },
+  "saved_filters": {
+    "toggleWithCount": "Saved filters ({{count}}) ▾",
+    "toggleEmpty": "Save filter",
+    "popoverAriaLabel": "Saved filters",
+    "searchPlaceholder": "Search saved filters",
+    "saveCurrent": "Save current filter",
+    "saveInputPlaceholder": "Filter name",
+    "saveConfirm": "Save",
+    "saveCancel": "Cancel",
+    "saveError": "Failed to save filter",
+    "errorDuplicateName": "Name is already in use",
+    "errorLimitReached": "You can save up to {{max}} filters",
+    "empty": "Save the current filter to use it later",
+    "itemActive": "Currently applied",
+    "kebabAriaLabel": "Actions for filter \"{{name}}\"",
+    "menuRename": "Rename",
+    "menuUpdate": "Update from current",
+    "menuDelete": "Delete",
+    "renameConfirm": "Save",
+    "renameCancel": "Cancel",
+    "renameError": "Failed to rename filter",
+    "updateSuccess": "Filter updated",
+    "updateError": "Failed to update filter",
+    "deleteError": "Failed to delete filter",
+    "confirmDelete": "Delete \"{{name}}\"?",
+    "loading": "Loading…",
+    "loadError": "Failed to load filters"
   }
 }

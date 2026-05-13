@@ -2987,5 +2987,33 @@
         "draw": "Правый клик — выделить клетку, правый клик с протяжкой — стрелка. Shift/Alt/Ctrl — цвет"
       }
     }
+  },
+  "saved_filters": {
+    "toggleWithCount": "Сохранённые фильтры ({{count}}) ▾",
+    "toggleEmpty": "Сохранить фильтр",
+    "popoverAriaLabel": "Сохранённые фильтры",
+    "searchPlaceholder": "Поиск по сохранённым фильтрам",
+    "saveCurrent": "Сохранить текущий фильтр",
+    "saveInputPlaceholder": "Название фильтра",
+    "saveConfirm": "Сохранить",
+    "saveCancel": "Отмена",
+    "saveError": "Не удалось сохранить фильтр",
+    "errorDuplicateName": "Такое название уже используется",
+    "errorLimitReached": "Можно сохранить не больше {{max}} фильтров",
+    "empty": "Сохраните текущий фильтр, чтобы вернуться к нему позже",
+    "itemActive": "Сейчас применён",
+    "kebabAriaLabel": "Действия с фильтром «{{name}}»",
+    "menuRename": "Переименовать",
+    "menuUpdate": "Обновить из текущего",
+    "menuDelete": "Удалить",
+    "renameConfirm": "Сохранить",
+    "renameCancel": "Отмена",
+    "renameError": "Не удалось переименовать фильтр",
+    "updateSuccess": "Фильтр обновлён",
+    "updateError": "Не удалось обновить фильтр",
+    "deleteError": "Не удалось удалить фильтр",
+    "confirmDelete": "Удалить «{{name}}»?",
+    "loading": "Загрузка…",
+    "loadError": "Не удалось загрузить фильтры"
   }
 }

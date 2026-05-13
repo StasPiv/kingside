@@ -17,8 +17,8 @@
  *   - A11y: focus-trap внутри popover (Tab/Shift+Tab циклически),
  *     Esc закрывает (каскад: rename → save → kebab → popover),
  *     при закрытии фокус возвращается на тогл.
- *   - i18n — все строки через `t('saved_filters.*', '<en default>')`.
- *     Канонический набор ключей согласован с @content (KS-2939, C4).
+ *   - i18n — все строки через `t('saved_filters.*')` без дефолтов:
+ *     ресурсы en/ru залиты в `translation.json` в KS-2939 (C4).
  *
  * Контракт DOM/классов — согласован с @layout (KS-2934), см.
  * `SavedFiltersDropdown.css` (заглушка) и обсуждение в KS-2934.
@@ -277,18 +277,13 @@ export function SavedFiltersDropdown<
         } else if (e.code === 'limit_reached') {
           showToast(
             'error',
-            t(
-              'saved_filters.errorLimitReached',
-              'You can save up to {{max}} filters',
-              { max: MAX_FILTERS_PER_SECTION },
-            ),
+            t('saved_filters.errorLimitReached', {
+              max: MAX_FILTERS_PER_SECTION,
+            }),
           );
         }
       } else {
-        showToast(
-          'error',
-          t('saved_filters.saveError', 'Failed to save filter'),
-        );
+        showToast('error', t('saved_filters.saveError'));
       }
     } finally {
       setSavePending(false);
@@ -310,10 +305,7 @@ export function SavedFiltersDropdown<
       if (e instanceof SavedFiltersError && e.code === 'duplicate_name') {
         setRenameError('duplicate_name');
       } else {
-        showToast(
-          'error',
-          t('saved_filters.renameError', 'Failed to rename filter'),
-        );
+        showToast('error', t('saved_filters.renameError'));
       }
     } finally {
       setRenamePending(false);
@@ -335,15 +327,9 @@ export function SavedFiltersDropdown<
       setKebabOpenId(null);
       try {
         await update(id, currentParams);
-        showToast(
-          'success',
-          t('saved_filters.updateSuccess', 'Filter updated'),
-        );
+        showToast('success', t('saved_filters.updateSuccess'));
       } catch {
-        showToast(
-          'error',
-          t('saved_filters.updateError', 'Failed to update filter'),
-        );
+        showToast('error', t('saved_filters.updateError'));
       }
     },
     [update, currentParams, showToast, t],
@@ -354,18 +340,13 @@ export function SavedFiltersDropdown<
     async (f: SavedFilterDto) => {
       setKebabOpenId(null);
       const confirmed = window.confirm(
-        t('saved_filters.confirmDelete', 'Delete "{{name}}"?', {
-          name: f.name,
-        }),
+        t('saved_filters.confirmDelete', { name: f.name }),
       );
       if (!confirmed) return;
       try {
         await remove(f.id);
       } catch {
-        showToast(
-          'error',
-          t('saved_filters.deleteError', 'Failed to delete filter'),
-        );
+        showToast('error', t('saved_filters.deleteError'));
       }
     },
     [remove, showToast, t],
@@ -373,12 +354,8 @@ export function SavedFiltersDropdown<
 
   const toggleLabel =
     filters.length === 0
-      ? t('saved_filters.toggleEmpty', 'Save filter')
-      : t(
-          'saved_filters.toggleWithCount',
-          'Saved filters ({{count}}) ▾',
-          { count: filters.length },
-        );
+      ? t('saved_filters.toggleEmpty')
+      : t('saved_filters.toggleWithCount', { count: filters.length });
 
   return (
     <div
@@ -404,7 +381,7 @@ export function SavedFiltersDropdown<
           ref={popoverRef}
           className="saved-filters-dropdown__popover"
           role="dialog"
-          aria-label={t('saved_filters.popoverAriaLabel', 'Saved filters')}
+          aria-label={t('saved_filters.popoverAriaLabel')}
           data-testid="saved-filters-popover"
         >
           <input
@@ -412,10 +389,7 @@ export function SavedFiltersDropdown<
             type="text"
             className="saved-filters-dropdown__search"
             data-testid="saved-filters-search"
-            placeholder={t(
-              'saved_filters.searchPlaceholder',
-              'Search saved filters',
-            )}
+            placeholder={t('saved_filters.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -436,10 +410,7 @@ export function SavedFiltersDropdown<
                   className="saved-filters-dropdown__save-input"
                   data-testid="saved-filters-save-input"
                   value={saveName}
-                  placeholder={t(
-                    'saved_filters.saveInputPlaceholder',
-                    'Filter name',
-                  )}
+                  placeholder={t('saved_filters.saveInputPlaceholder')}
                   onChange={(e) => {
                     setSaveName(e.target.value);
                     if (saveError) setSaveError(null);
@@ -464,7 +435,7 @@ export function SavedFiltersDropdown<
                   data-testid="saved-filters-save-confirm"
                   disabled={!saveName.trim() || savePending}
                 >
-                  {t('saved_filters.saveConfirm', 'Save')}
+                  {t('saved_filters.saveConfirm')}
                 </button>
                 <button
                   type="button"
@@ -476,7 +447,7 @@ export function SavedFiltersDropdown<
                     setSaveError(null);
                   }}
                 >
-                  {t('saved_filters.saveCancel', 'Cancel')}
+                  {t('saved_filters.saveCancel')}
                 </button>
                 {saveError === 'duplicate_name' && (
                   <span
@@ -484,10 +455,7 @@ export function SavedFiltersDropdown<
                     className="saved-filters-dropdown__save-error"
                     data-testid="saved-filters-save-error"
                   >
-                    {t(
-                      'saved_filters.errorDuplicateName',
-                      'Name already in use',
-                    )}
+                    {t('saved_filters.errorDuplicateName')}
                   </span>
                 )}
               </form>
@@ -498,7 +466,7 @@ export function SavedFiltersDropdown<
                 data-testid="saved-filters-save-btn"
                 onClick={() => setSavingMode(true)}
               >
-                {t('saved_filters.saveCurrent', 'Save current filter')}
+                {t('saved_filters.saveCurrent')}
               </button>
             )}
           </div>
@@ -508,24 +476,21 @@ export function SavedFiltersDropdown<
               className="saved-filters-dropdown__loading"
               data-testid="saved-filters-loading"
             >
-              {t('saved_filters.loading', 'Loading…')}
+              {t('saved_filters.loading')}
             </div>
           ) : error ? (
             <div
               className="saved-filters-dropdown__loading"
               data-testid="saved-filters-load-error"
             >
-              {t('saved_filters.loadError', 'Failed to load filters')}
+              {t('saved_filters.loadError')}
             </div>
           ) : filters.length === 0 ? (
             <div
               className="saved-filters-dropdown__empty"
               data-testid="saved-filters-empty"
             >
-              {t(
-                'saved_filters.empty',
-                'Save the current filter to use it later',
-              )}
+              {t('saved_filters.empty')}
             </div>
           ) : (
             <ul
@@ -582,7 +547,7 @@ export function SavedFiltersDropdown<
                           data-testid={`saved-filters-rename-confirm-${f.id}`}
                           disabled={!renameName.trim() || renamePending}
                         >
-                          {t('saved_filters.renameConfirm', 'Save')}
+                          {t('saved_filters.renameConfirm')}
                         </button>
                         <button
                           type="button"
@@ -594,17 +559,14 @@ export function SavedFiltersDropdown<
                             setRenameError(null);
                           }}
                         >
-                          {t('saved_filters.renameCancel', 'Cancel')}
+                          {t('saved_filters.renameCancel')}
                         </button>
                         {renameError === 'duplicate_name' && (
                           <span
                             className="saved-filters-dropdown__rename-error"
                             data-testid={`saved-filters-rename-error-${f.id}`}
                           >
-                            {t(
-                              'saved_filters.errorDuplicateName',
-                              'Name already in use',
-                            )}
+                            {t('saved_filters.errorDuplicateName')}
                           </span>
                         )}
                       </form>
@@ -630,10 +592,7 @@ export function SavedFiltersDropdown<
                           </span>
                           {isActive && (
                             <span className="sr-only">
-                              {t(
-                                'saved_filters.itemActive',
-                                'Currently applied',
-                              )}
+                              {t('saved_filters.itemActive')}
                             </span>
                           )}
                         </button>
@@ -641,11 +600,9 @@ export function SavedFiltersDropdown<
                           type="button"
                           className="saved-filters-dropdown__item-kebab"
                           data-testid={`saved-filters-kebab-${f.id}`}
-                          aria-label={t(
-                            'saved_filters.kebabAriaLabel',
-                            'Filter actions for {{name}}',
-                            { name: f.name },
-                          )}
+                          aria-label={t('saved_filters.kebabAriaLabel', {
+                            name: f.name,
+                          })}
                           aria-haspopup="menu"
                           aria-expanded={isKebabOpen}
                           onClick={(e) => {
@@ -675,7 +632,7 @@ export function SavedFiltersDropdown<
                                 setKebabOpenId(null);
                               }}
                             >
-                              {t('saved_filters.menuRename', 'Rename')}
+                              {t('saved_filters.menuRename')}
                             </button>
                             <button
                               type="button"
@@ -684,10 +641,7 @@ export function SavedFiltersDropdown<
                               role="menuitem"
                               onClick={() => void handleUpdate(f.id)}
                             >
-                              {t(
-                                'saved_filters.menuUpdate',
-                                'Update from current',
-                              )}
+                              {t('saved_filters.menuUpdate')}
                             </button>
                             <button
                               type="button"
@@ -696,7 +650,7 @@ export function SavedFiltersDropdown<
                               role="menuitem"
                               onClick={() => void handleDelete(f)}
                             >
-                              {t('saved_filters.menuDelete', 'Delete')}
+                              {t('saved_filters.menuDelete')}
                             </button>
                           </div>
                         )}

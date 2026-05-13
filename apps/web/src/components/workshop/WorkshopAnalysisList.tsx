@@ -1,24 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { AnalysisListItem } from '@kingside/shared';
+import type { AnalysisListItem, SavedFilterParams } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
 import { openAnalysis } from '../../utils/openAnalysis';
+import { SavedFiltersDropdown } from '../savedFilters/SavedFiltersDropdown';
 
 const PAGE_SIZE = 20;
-const LS_SAVED_FILTERS_KEY = 'workshopSavedFilters';
 
 type CategoryFilter = 'all' | 'game_review' | 'puzzle' | 'analysis';
 
-type SavedFilter = {
-  id: string;
-  name: string;
-  category: string | null;
-  tags: string | null;
-  search: string | null;
-  sortOrder: string | null;
-};
+/** Узкий тип saved-filter params для workshop-секции — используется в
+ *  generic'е dropdown'а, чтобы получить точные сигнатуры onApply/create. */
+type WorkshopSavedFilterParams = Extract<
+  SavedFilterParams,
+  { section: 'workshop' }
+>;
 
 function AnalysisItemTitle({ analysis, categoryIcon }: { analysis: AnalysisListItem; categoryIcon: string }) {
   return (
@@ -61,9 +59,6 @@ export function WorkshopAnalysisList() {
   const [selectedTags, setSelectedTagsState] = useState<string[]>(urlTags);
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [savingFilter, setSavingFilter] = useState(false);
-  const [filterNameInput, setFilterNameInput] = useState('');
 
   // Sync state → URL
   const updateUrl = useCallback((cat: CategoryFilter, tags: string[], search: string) => {
@@ -94,36 +89,53 @@ export function WorkshopAnalysisList() {
     });
   };
 
-  const handleSaveFilter = useCallback(async () => {
-    const name = filterNameInput.trim();
-    if (!name) return;
-    setSavingFilter(false);
-    setFilterNameInput('');
-    try {
-      const created = await api.post<SavedFilter>('/analyses/filters', {
-        name,
-        category: categoryFilter === 'all' ? '' : categoryFilter,
-        tags: selectedTags.join(','),
-        search: searchQuery,
-      });
-      setSavedFilters((prev) => [created, ...prev]);
-    } catch { /* ignore */ }
-  }, [filterNameInput, categoryFilter, selectedTags, searchQuery]);
+  /**
+   * KS-2933 (B3): снапшот текущих фильтров для SavedFiltersDropdown.
+   * `category === 'all'` маппится в `null` (фильтр-«любая категория»);
+   * пустой `searchQuery` — также `null`. `sortOrder` пока не используется
+   * в Мастерской (нет UI-управления порядком) — сохраняем `null`, чтобы
+   * не терять контракт.
+   */
+  const currentParams = useMemo<WorkshopSavedFilterParams>(
+    () => ({
+      section: 'workshop',
+      category: categoryFilter === 'all' ? null : categoryFilter,
+      tags: selectedTags,
+      search: searchQuery ? searchQuery : null,
+      sortOrder: null,
+    }),
+    [categoryFilter, selectedTags, searchQuery],
+  );
 
-  const handleApplyFilter = useCallback((filter: SavedFilter) => {
-    const cat = (filter.category || 'all') as CategoryFilter;
-    const tags = filter.tags ? filter.tags.split(',').filter(Boolean) : [];
-    setCategoryFilterState(cat);
-    setSelectedTagsState(tags);
-    setSearchQueryState(filter.search || '');
-    setVisibleCount(PAGE_SIZE);
-    updateUrl(cat, tags, filter.search || '');
-  }, [updateUrl]);
-
-  const handleDeleteFilter = useCallback(async (id: string) => {
-    setSavedFilters((prev) => prev.filter((f) => f.id !== id));
-    try { await api.delete(`/analyses/filters/${id}`); } catch { /* ignore */ }
-  }, []);
+  /**
+   * KS-2933 (B3): применить сохранённый пресет. Восстанавливаем локальный
+   * стейт и параллельно пишем в URL (тот же контракт, что и был у старого
+   * `handleApplyFilter`). `category === null` → 'all' для UI; неизвестные
+   * категории (на случай legacy-записей) приводим к 'all'.
+   */
+  const handleApplyFilter = useCallback(
+    (params: WorkshopSavedFilterParams) => {
+      const allowedCategories: ReadonlyArray<CategoryFilter> = [
+        'all',
+        'game_review',
+        'puzzle',
+        'analysis',
+      ];
+      const cat: CategoryFilter =
+        params.category &&
+        allowedCategories.includes(params.category as CategoryFilter)
+          ? (params.category as CategoryFilter)
+          : 'all';
+      const tags = params.tags ?? [];
+      const search = params.search ?? '';
+      setCategoryFilterState(cat);
+      setSelectedTagsState(tags);
+      setSearchQueryState(search);
+      setVisibleCount(PAGE_SIZE);
+      updateUrl(cat, tags, search);
+    },
+    [updateUrl],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -133,35 +145,9 @@ export function WorkshopAnalysisList() {
       .then((data) => setAllAnalyses(data))
       .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
       .finally(() => setLoading(false));
-
-    // Load saved filters from API + migrate localStorage
-    api.get<SavedFilter[]>('/analyses/filters')
-      .then(async (filters) => {
-        setSavedFilters(filters);
-        // Migrate from localStorage if any
-        try {
-          const raw = localStorage.getItem(LS_SAVED_FILTERS_KEY);
-          if (raw) {
-            const local: { name: string; category: string; tags: string[]; search: string }[] = JSON.parse(raw);
-            if (local.length > 0) {
-              const created = await Promise.all(
-                local.map((f) =>
-                  api.post<SavedFilter>('/analyses/filters', {
-                    name: f.name,
-                    category: f.category === 'all' ? '' : f.category,
-                    tags: Array.isArray(f.tags) ? f.tags.join(',') : (f.tags || ''),
-                    search: f.search || '',
-                  }).catch(() => null),
-                ),
-              );
-              const migrated = created.filter(Boolean) as SavedFilter[];
-              if (migrated.length > 0) setSavedFilters((prev) => [...migrated, ...prev]);
-              localStorage.removeItem(LS_SAVED_FILTERS_KEY);
-            }
-          }
-        } catch { /* ignore migration errors */ }
-      })
-      .catch(() => {});
+    // KS-2933 (B3): загрузка saved-filters и миграция legacy
+    // `localStorage['workshopSavedFilters']` теперь — забота
+    // `useSavedFilters('workshop')` внутри SavedFiltersDropdown.
   }, [user, t]);
 
   // Debounced API search when query >= 2 chars
@@ -356,48 +342,21 @@ export function WorkshopAnalysisList() {
         </div>
       )}
 
-      {/* Save filter — visible when any filter is active */}
-      {(selectedTags.length > 0 || searchQuery || categoryFilter !== 'all') && (
-        <div className="workshop-save-filter-row">
-          {savingFilter ? (
-            <span className="workshop-save-filter-inline">
-              <input
-                type="text"
-                className="workshop-save-filter-input"
-                value={filterNameInput}
-                onChange={(e) => setFilterNameInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveFilter();
-                  if (e.key === 'Escape') { setSavingFilter(false); setFilterNameInput(''); }
-                }}
-                placeholder={t('workshop.myAnalyses.filterName', 'Filter name')}
-                autoFocus
-              />
-              <button className="workshop-tag-clear" onClick={handleSaveFilter}>
-                {t('common.save', 'Save')}
-              </button>
-              <button className="workshop-tag-clear" onClick={() => { setSavingFilter(false); setFilterNameInput(''); }}>
-                {t('common.cancel', 'Cancel')}
-              </button>
-            </span>
-          ) : (
-            <button className="workshop-tag-clear" onClick={() => setSavingFilter(true)}>
-              {t('workshop.myAnalyses.saveFilter', 'Save filter')}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Saved filters */}
-      {savedFilters.length > 0 && (
-        <div className="workshop-saved-filters">
-          <span className="workshop-saved-filters__label">{t('workshop.myAnalyses.savedFilters', 'Saved:')}</span>
-          {savedFilters.map((f) => (
-            <span key={f.id} className="workshop-saved-filter-chip" onClick={() => handleApplyFilter(f)}>
-              {f.name}
-              <button onClick={(e) => { e.stopPropagation(); handleDeleteFilter(f.id); }}>×</button>
-            </span>
-          ))}
+      {/*
+        KS-2933 (B3): старая inline-«Save filter» строка и блок чипов
+        `.workshop-saved-filters` заменены на общий SavedFiltersDropdown
+        (B2). Хранение, лимит, дубль-чек, миграция legacy LS — внутри
+        `useSavedFilters('workshop')` (B1). Удаление старого CSS
+        `.workshop-saved-filters` / `.workshop-save-filter-row` —
+        координируется с @layout в KS-2934.
+      */}
+      {user && (
+        <div className="workshop-saved-filters-row">
+          <SavedFiltersDropdown<WorkshopSavedFilterParams>
+            section="workshop"
+            currentParams={currentParams}
+            onApply={handleApplyFilter}
+          />
         </div>
       )}
 

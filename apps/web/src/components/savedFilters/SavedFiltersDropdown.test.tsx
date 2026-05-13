@@ -309,7 +309,7 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       await waitFor(() =>
         expect(
           screen.getByTestId('saved-filters-save-error'),
-        ).toHaveTextContent('Name already in use'),
+        ).toHaveTextContent('Name is already in use'),
       );
       expect(
         screen.getByTestId('saved-filters-save-form'),
@@ -402,7 +402,7 @@ describe('SavedFiltersDropdown — KS-2932', () => {
       await user.type(input, 'Conflict');
       await user.click(screen.getByTestId('saved-filters-rename-confirm-a'));
       const err = await screen.findByTestId('saved-filters-rename-error-a');
-      expect(err.textContent).toBe('Name already in use');
+      expect(err.textContent).toBe('Name is already in use');
       expect(
         screen.getByTestId('saved-filters-rename-form-a'),
       ).toBeInTheDocument();
