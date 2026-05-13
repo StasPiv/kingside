@@ -1520,6 +1520,19 @@ model StudyChapter {
   /// `{ intro?: string, byUci?: { "<uci>": { hint?, success?, failure? } } }`.
   /// JSON без жёсткой Prisma-схемы; валидация структуры — на API (B2).
   gamebook    Json?
+  /// KS-2884 / ADR-060 §3.7 B11. Источник происхождения главы.
+  /// Используется broadcast-зеркалом для идемпотентного `sync` —
+  /// при повторной синхронизации главы матчатся по `fromRefId`
+  /// (broadcastGameId) и обновляется `pgn` без удаления/создания.
+  ///
+  /// Значения (открытый whitelist):
+  ///   'broadcast-game:<id>' — глава-зеркало партии broadcast'а;
+  ///   'analysis:<id>'       — Save-to-study главы (Wave B KS-2882);
+  ///   NULL                  — глава создана вручную (default).
+  fromKind    String?  @map("from_kind")
+  /// UUID соответствующей сущности (broadcastGameId, analysisId).
+  /// Без FK — broadcast-модели в отдельной БД (ADR-021 §2.1).
+  fromRefId   String?  @map("from_ref_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -1527,6 +1540,8 @@ model StudyChapter {
 
   @@unique([studyId, orderIdx])
   @@index([studyId])
+  /// KS-2884: индекс на матчинг главы по broadcastGameId при sync'е.
+  @@index([studyId, fromRefId])
   @@map("study_chapters")
 }
 

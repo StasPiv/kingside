@@ -8,10 +8,18 @@ import { StudyAccessGuard } from './study-access.guard';
 import { StudyOwnerGuard } from './study-owner.guard';
 import { StudyContributorGuard } from './study-contributor.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
+// KS-2884: InternalKeyGuard для /studies/from-broadcast-round и sync.
+// Уже регистрируется в AuthModule, но мы импортируем его в providers
+// здесь чтобы Nest резолвил его DI (ConfigService) при UseGuards
+// в контроллере.
+import { InternalKeyGuard } from '../auth/internal-key.guard';
 import { StudyController } from './study.controller';
 import { StudyPublicController } from './study-public.controller';
 import { StudyCatalogController } from './study-catalog.controller';
 import { StudyByUserController } from './study-by-user.controller';
+import { StudyBroadcastMirrorController } from './broadcast/study-broadcast-mirror.controller';
+import { StudyBroadcastMirrorService } from './broadcast/study-broadcast-mirror.service';
+import { BroadcastServiceClient } from './broadcast/broadcast-service.client';
 import { StudyMembersController } from './study-members.controller';
 import { StudyMembersService } from './study-members.service';
 import { StudyLikesService } from './study-likes.service';
@@ -48,12 +56,14 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [
-    // KS-2880/KS-2881: catalog и by-user регистрируются ДО StudyController,
-    // чтобы Nest матчил `/studies/catalog` и `/studies/by/:userId` строго;
-    // статические сегменты в любом случае имеют приоритет, но порядок
-    // делает поведение детерминированным.
+    // KS-2880/KS-2881/KS-2884: статические подмаршруты регистрируются ДО
+    // StudyController, чтобы Nest матчил `/studies/catalog`,
+    // `/studies/by/:userId`, `/studies/from-broadcast-round`,
+    // `/studies/sync-broadcast-round` строго. Статические сегменты в
+    // любом случае имеют приоритет, но порядок-в-коде явный.
     StudyCatalogController,
     StudyByUserController,
+    StudyBroadcastMirrorController,
     StudyPublicController,
     StudyMembersController,
     StudyController,
@@ -70,6 +80,10 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
     StudyMembersService,
     StudyLikesService,
     StudyInvitesService,
+    // KS-2884 (Wave A B11): broadcast-зеркало.
+    StudyBroadcastMirrorService,
+    BroadcastServiceClient,
+    InternalKeyGuard,
   ],
   exports: [
     StudyService,
