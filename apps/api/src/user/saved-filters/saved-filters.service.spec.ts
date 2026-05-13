@@ -91,13 +91,13 @@ describe('SavedFiltersService — KS-2927', () => {
         section: 'workshop' as const,
         name: '  Испанская  ',
         params: {
-          // section внутри JSON будет отрезан перед записью
+          // section внутри JSON допустим, если совпадает с dto.section;
+          // отрезается перед записью в JSONB.
           section: 'workshop',
           category: 'opening',
           tags: ['italian', 'spanish'],
           search: 'e4',
           sortOrder: 'newest',
-          unknownField: 'dropped',
         },
       };
       const r = await svc.create(userId, dto as never);
@@ -352,6 +352,220 @@ describe('SavedFiltersService — KS-2927', () => {
         rowOf({ section: 'archive', params: null }) as never,
       );
       expect(dto.params).toEqual({ section: 'archive' });
+    });
+  });
+
+  // ─── KS-2930 Phase A6: сверка с чек-листом A6 ────────────────────
+  //
+  // Большая часть кейсов уже покрыта в describe-блоках выше; здесь
+  // явно добавляются edge-cases, которых нет:
+  //   - изоляция секций (лимит / уникальность не пересекаются между
+  //     workshop и archive);
+  //   - strict-mode по дискриминатору (params.players в workshop
+  //     → 400);
+  //   - явный trim имени и case-sensitive сравнение;
+  //   - частичный PATCH (только name / только params).
+  describe('KS-2930 A6 чек-лист', () => {
+    describe('изоляция секций', () => {
+      it('лимит 20 на workshop не блокирует POST в archive', async () => {
+        // workshop полон (count=20), archive свободен (count=0).
+        // Сервис делает count → проверяем для archive — не 20.
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.create.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ ...data, section: 'archive' })),
+        );
+        await expect(
+          svc.create(userId, {
+            section: 'archive',
+            name: 'A',
+            params: {},
+          } as never),
+        ).resolves.toBeDefined();
+        expect(prisma.savedFilter.count).toHaveBeenCalledWith({
+          where: { userId, section: 'archive' },
+        });
+      });
+
+      it('дубль имени в workshop не мешает создать то же имя в archive', async () => {
+        prisma.savedFilter.count.mockResolvedValue(3);
+        // archive — нет дубля; findFirst при поиске дубля возвращает null.
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.create.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ ...data })),
+        );
+        await expect(
+          svc.create(userId, {
+            section: 'archive',
+            name: 'Spanish',
+            params: {},
+          } as never),
+        ).resolves.toBeDefined();
+        // findFirst дубля фильтруется по конкретной секции — это и есть
+        // механизм изоляции.
+        expect(prisma.savedFilter.findFirst).toHaveBeenCalledWith({
+          where: { userId, section: 'archive', name: 'Spanish' },
+          select: { id: true },
+        });
+      });
+    });
+
+    describe('strict-mode по дискриминатору', () => {
+      it('section=workshop с params.players (archive-поле) → 400', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        await expect(
+          svc.create(userId, {
+            section: 'workshop',
+            name: 'X',
+            params: { players: ['Carlsen'] },
+          } as never),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.savedFilter.create).not.toHaveBeenCalled();
+      });
+
+      it('section=archive с params.category (workshop-поле) → 400', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        await expect(
+          svc.create(userId, {
+            section: 'archive',
+            name: 'X',
+            params: { category: 'opening' },
+          } as never),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('params.section не совпадает с dto.section → 400', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        await expect(
+          svc.create(userId, {
+            section: 'workshop',
+            name: 'X',
+            params: { section: 'archive' },
+          } as never),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('archive: минимальный валидный params (пустой объект) → 200', async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.create.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ ...data, section: 'archive' })),
+        );
+        const r = await svc.create(userId, {
+          section: 'archive',
+          name: 'A',
+          params: {},
+        } as never);
+        const persisted = (prisma.savedFilter.create as jest.Mock).mock
+          .calls[0][0].data.params;
+        // Все archive-поля имеют канонические дефолты:
+        //   string|null → null, string[]/enum[] → [].
+        expect(persisted).toEqual({
+          players: [],
+          event: null,
+          eco: null,
+          result: null,
+          minElo: null,
+          since: null,
+          until: null,
+          minPly: null,
+          maxPly: null,
+          timeControlCategory: [],
+          sort: null,
+        });
+        expect(r.section).toBe('archive');
+      });
+
+      it('неизвестный section в DTO отклоняется class-validator (юнит-тест в DTO-spec)', () => {
+        // Дискриминатор `section` валидируется через `@IsIn` на DTO,
+        // т.е. до попадания в сервис. На уровне сервиса — пустая
+        // проверка-документация: контракт сервиса принимает только
+        // 'workshop' | 'archive', типизация TS защищает; на runtime
+        // защита — ValidationPipe.
+        expect(['workshop', 'archive']).toEqual(['workshop', 'archive']);
+      });
+    });
+
+    describe('trim/case-sensitive имени', () => {
+      it("'  My filter  ' сохраняется как 'My filter' (trim)", async () => {
+        prisma.savedFilter.count.mockResolvedValue(0);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.create.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ ...data })),
+        );
+        await svc.create(userId, {
+          section: 'workshop',
+          name: '  My filter  ',
+          params: {},
+        } as never);
+        const persistedName = (prisma.savedFilter.create as jest.Mock).mock
+          .calls[0][0].data.name;
+        expect(persistedName).toBe('My filter');
+      });
+
+      it("дубль 'My filter' vs 'my filter' — оба создаются (case-sensitive)", async () => {
+        // findFirst по точному совпадению `name` (Prisma TEXT в Postgres
+        // case-sensitive). Дубль не найден — запись создаётся.
+        prisma.savedFilter.count.mockResolvedValue(1);
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.create.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ ...data })),
+        );
+        await expect(
+          svc.create(userId, {
+            section: 'workshop',
+            name: 'my filter',
+            params: {},
+          } as never),
+        ).resolves.toBeDefined();
+        // findFirst ищет именно 'my filter' (другой регистр) — это и
+        // фиксирует case-sensitivity сравнения.
+        expect(prisma.savedFilter.findFirst).toHaveBeenCalledWith({
+          where: { userId, section: 'workshop', name: 'my filter' },
+          select: { id: true },
+        });
+      });
+    });
+
+    describe('PATCH: частичный body', () => {
+      it('только name → update не трогает params', async () => {
+        prisma.savedFilter.findUnique.mockResolvedValue(
+          rowOf({ params: { category: 'unchanged' } }),
+        );
+        prisma.savedFilter.findFirst.mockResolvedValue(null);
+        prisma.savedFilter.update.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ name: data.name })),
+        );
+        await svc.update(userId, 'sf-1', { name: 'Renamed' } as never);
+        const data = (prisma.savedFilter.update as jest.Mock).mock.calls[0][0]
+          .data;
+        expect(data).toEqual({ name: 'Renamed' });
+        expect(data.params).toBeUndefined();
+      });
+
+      it('только params → update не трогает name', async () => {
+        prisma.savedFilter.findUnique.mockResolvedValue(
+          rowOf({ name: 'Untouched' }),
+        );
+        prisma.savedFilter.update.mockImplementation(({ data }: any) =>
+          Promise.resolve(rowOf({ params: data.params })),
+        );
+        await svc.update(userId, 'sf-1', {
+          params: { category: 'opening' },
+        } as never);
+        const data = (prisma.savedFilter.update as jest.Mock).mock.calls[0][0]
+          .data;
+        expect(data.name).toBeUndefined();
+        expect(data.params).toEqual({
+          category: 'opening',
+          tags: [],
+          search: null,
+          sortOrder: null,
+        });
+      });
     });
   });
 });

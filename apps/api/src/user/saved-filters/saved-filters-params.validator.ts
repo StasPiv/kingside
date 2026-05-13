@@ -13,7 +13,12 @@ import type { ArchiveTimeControlCategory } from '@kingside/shared';
  * из `SavedFiltersService` для всех write-операций (create, update).
  *
  * Принципы:
- *   - неизвестные поля отбрасываются (whitelist);
+ *   - strict-mode по дискриминатору (KS-2930 §4.1): любое поле,
+ *     не входящее в whitelist текущей секции, → 400. Это защищает
+ *     от path-confusion багов фронта (напр. отправка `params.players`
+ *     с `section='workshop'`).
+ *   - поле `section` внутри params допускается, но обязано совпадать
+ *     с `dto.section`; иначе → 400.
  *   - типы полей строго проверяются (string|null, number|null,
  *     enum, массив-enum);
  *   - вместо `undefined` всегда выдаётся `null` или `[]` —
@@ -22,6 +27,29 @@ import type { ArchiveTimeControlCategory } from '@kingside/shared';
  * При невалидной форме бросается `BadRequestException` с указанием
  * конкретного поля.
  */
+
+const WORKSHOP_KEYS: ReadonlySet<string> = new Set([
+  'section',
+  'category',
+  'tags',
+  'search',
+  'sortOrder',
+]);
+
+const ARCHIVE_KEYS: ReadonlySet<string> = new Set([
+  'section',
+  'players',
+  'event',
+  'eco',
+  'result',
+  'minElo',
+  'since',
+  'until',
+  'minPly',
+  'maxPly',
+  'timeControlCategory',
+  'sort',
+]);
 
 const ARCHIVE_RESULTS: readonly ArchiveResult[] = [
   '1-0',
@@ -49,6 +77,20 @@ export function normalizeSavedFilterParams(
     throw new BadRequestException('params must be an object');
   }
   const r = raw as Record<string, unknown>;
+
+  const allowed = section === 'workshop' ? WORKSHOP_KEYS : ARCHIVE_KEYS;
+  for (const key of Object.keys(r)) {
+    if (!allowed.has(key)) {
+      throw new BadRequestException(
+        `params.${key} is not allowed for section='${section}'`,
+      );
+    }
+  }
+  if (typeof r.section === 'string' && r.section !== section) {
+    throw new BadRequestException(
+      `params.section ('${r.section}') does not match dto.section ('${section}')`,
+    );
+  }
 
   if (section === 'workshop') {
     return {
