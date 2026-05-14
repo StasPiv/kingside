@@ -721,9 +721,17 @@ export class PuzzleService {
     }
 
     // 3. Классификация (server-trust). Аггрегаты.
+    //
+    // KS-3020 / ADR-066: classifyMove теперь WDL-loss primary с cp-
+    // fallback. Передаём `wdlBefore`/`wdlAfter` из PrecisionMoveSnapshot
+    // (KS-2754 контракт: POV игрока-решателя, инверсия уже сделана на
+    // фронте). cp оставляем как fallback для legacy attempt'ов где
+    // фронт ещё не шлёт WDL.
     const classified = moves.map((m) => {
       const isBestMove = sameUci(m.playedUci, m.bestUci);
       const klass = classifyMove({
+        wdlBefore: m.wdlBefore ?? null,
+        wdlAfter: m.wdlAfter ?? null,
         cpBefore: m.cpBefore ?? null,
         cpAfter: m.cpAfter ?? null,
         isBestMove,

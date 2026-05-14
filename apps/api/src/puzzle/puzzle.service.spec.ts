@@ -1505,6 +1505,133 @@ describe('PuzzleService', () => {
       expect(tx.precision.scorePct).toBeCloseTo(100, 1);
     });
 
+    // ── KS-3021 / ADR-066: server-side classifyMove на WDL ─────────
+
+    it('KS-3021 UX-bug repro: WDL не меняется, cp прыгает → все best', async () => {
+      // Сценарий из KS-3019: «в выигранной позиции cp скачет на сотни
+      // пунктов между ходами, WDL остаётся 100/0/0». До ADR-066 cp-loss
+      // помечал такие ходы как mistake (`?`). После ADR-066 → best.
+      const tx = setupPveMocks();
+      const startFen =
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const moves = [
+        {
+          ply: 1,
+          fenBefore: startFen,
+          playedUci: 'e2e4',
+          bestUci: 'd2d4', // НЕ совпадает с PV1
+          cpBefore: 1500,
+          cpAfter: 1300, // cp-loss=200 → раньше mistake
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 }, // WDL не упал → best
+          depth: 14,
+        },
+        {
+          ply: 2,
+          fenBefore: startFen,
+          playedUci: 'g1f3',
+          bestUci: 'b1c3', // НЕ PV1
+          cpBefore: 1300,
+          cpAfter: 1100, // cp-loss=200 → раньше mistake
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
+          depth: 14,
+        },
+      ];
+
+      await service.submitAttempt('user-1', 'pve-2', true, 5000, undefined, 0, {
+        halfMovesPlayed: 2,
+        finalWdl: 1.0,
+        initialWdl: 1.0,
+        reason: 'win',
+        moves,
+      } as any);
+
+      // Все ходы — best (через mate-edge wdl_after.w > 950).
+      expect(tx.precision.bestMovesCount).toBe(2);
+      expect(tx.precision.mistakesCount).toBe(0);
+      expect(tx.precision.accuracyPercent).toBe(100);
+      expect(tx.moves![0].classification).toBe('best');
+      expect(tx.moves![1].classification).toBe('best');
+    });
+
+    it('KS-3021: mid-mistake (loss_E=0.20) на нейтральной позиции → mistake', async () => {
+      // Стартовая E=0.7, после хода E=0.5 → loss_E=0.20. Mate-edge не
+      // активен (w/l < 950). classifyMove должен вернуть mistake.
+      const tx = setupPveMocks();
+      const startFen =
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const moves = [
+        {
+          ply: 1,
+          fenBefore: startFen,
+          playedUci: 'e2e4',
+          bestUci: 'd2d4', // НЕ PV1
+          cpBefore: 100,
+          cpAfter: 0,
+          wdlBefore: { w: 500, d: 400, l: 100 }, // E=0.7
+          wdlAfter: { w: 300, d: 400, l: 300 }, // E=0.5 → loss=0.20
+          depth: 14,
+        },
+        {
+          ply: 2,
+          fenBefore: startFen,
+          playedUci: 'g1f3',
+          bestUci: 'g1f3', // best
+          cpBefore: 0,
+          cpAfter: 0,
+          wdlBefore: { w: 300, d: 400, l: 300 },
+          wdlAfter: { w: 300, d: 400, l: 300 },
+          depth: 14,
+        },
+      ];
+
+      await service.submitAttempt('user-1', 'pve-2', false, 6000, undefined, 0, {
+        halfMovesPlayed: 2,
+        finalWdl: 0.0,
+        initialWdl: 0.4,
+        reason: 'lose-wdl',
+        moves,
+      } as any);
+
+      expect(tx.precision.mistakesCount).toBe(1);
+      expect(tx.precision.bestMovesCount).toBe(1);
+      expect(tx.precision.firstMistakePly).toBe(1);
+      expect(tx.moves![0].classification).toBe('mistake');
+      expect(tx.moves![1].classification).toBe('best');
+    });
+
+    it('KS-3021: mate-edge wdl_after.l > 950 → blunder', async () => {
+      // Игрок «сходил под мат»: WDL после хода почти полностью loss.
+      const tx = setupPveMocks();
+      const startFen =
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const moves = [
+        {
+          ply: 1,
+          fenBefore: startFen,
+          playedUci: 'e2e4',
+          bestUci: 'd2d4',
+          cpBefore: 50,
+          cpAfter: -200,
+          wdlBefore: { w: 400, d: 400, l: 200 },
+          wdlAfter: { w: 0, d: 30, l: 970 }, // l > 950 → mate-edge blunder
+          depth: 14,
+        },
+      ];
+
+      await service.submitAttempt('user-1', 'pve-2', false, 3000, undefined, 0, {
+        halfMovesPlayed: 1,
+        finalWdl: -1.0,
+        initialWdl: 0.2,
+        reason: 'lose-mate',
+        moves,
+      } as any);
+
+      expect(tx.precision.blundersCount).toBe(1);
+      expect(tx.moves![0].classification).toBe('blunder');
+    });
+
     // ── KS-2740: sparse ply (user-only ходы) ────────────────────────
 
     it('KS-2740: sparse ply 1,3,5,... принимается (user-moves в PVE)', async () => {
