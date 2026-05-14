@@ -1399,6 +1399,105 @@ describe('PuzzleService', () => {
         firstMistakePly: 1,
       });
       expect(tx.moves![0].classification).toBe('blunder');
+      // KS-2999: 1 ход (halfMovesPlayed=1) < MIN_HALF_MOVES_FOR_SCORE=2,
+      // computePrecisionScore возвращает null → пишется null в БД.
+      expect(tx.precision.score).toBeNull();
+      expect(tx.precision.scorePct).toBeNull();
+    });
+
+    // ── KS-2999 / ADR-065: server-side score ────────────────────────
+
+    it('KS-2999: 5 best + 1 blunder с WDL-loss=50% → score=2, scorePct=60 (cap blunder)', async () => {
+      // Контрольный кейс ADR-065 §4.3 #6: композит композит даёт
+      // ≈ 60.4, но worst-class cap (blunder → 60) опускает ровно к 60.
+      // Маппинг: 60 ∈ [50,70) → ★★.
+      const tx = setupPveMocks();
+      const startFen =
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      // 5 best-ходов: WDL не меняется (E=1.0 везде) → accuracy=100.
+      const bestUcis: string[] = ['e2e4', 'd2d4', 'c2c4', 'g1f3', 'b1c3'];
+      const moves: any[] = bestUcis.map((uci, i) => ({
+        ply: i + 1,
+        fenBefore: startFen,
+        playedUci: uci,
+        bestUci: uci, // совпадает → classifyMove() → 'best'
+        cpBefore: 30,
+        cpAfter: 30,
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 1000, d: 0, l: 0 },
+        depth: 14,
+      }));
+      // Финальный ход — blunder с WDL loss=50% (E=1.0 → 0.5) →
+      // accuracy_move ≈ 8.5; cpLoss=300 → classifyMove='blunder'.
+      moves.push({
+        ply: 6,
+        fenBefore: startFen,
+        playedUci: 'g2g4',
+        bestUci: 'e2e4',
+        cpBefore: 100,
+        cpAfter: -200,
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 500, d: 0, l: 500 },
+        depth: 14,
+      });
+
+      await service.submitAttempt('user-1', 'pve-2', false, 8000, undefined, 0, {
+        halfMovesPlayed: 6,
+        finalWdl: 0.0,
+        initialWdl: 1.0,
+        reason: 'lose-wdl',
+        moves,
+      } as any);
+
+      // Аггрегат счётчиков (унаследованный accuracyPercent — отдельная
+      // метрика, KS-2999 её не трогает): 5 best + 1 blunder = 5/6 ≈ 83.33%.
+      expect(tx.precision.bestMovesCount).toBe(5);
+      expect(tx.precision.blundersCount).toBe(1);
+      expect(tx.precision.accuracyPercent).toBeCloseTo(83.33, 1);
+      // KS-2999: scorePct упирается в cap=60, stars=2.
+      expect(tx.precision.scorePct).toBe(60);
+      expect(tx.precision.score).toBe(2);
+    });
+
+    it('KS-2999: 2 best-хода с WDL=1.0 → score=5, scorePct≈100', async () => {
+      const tx = setupPveMocks();
+      const startFen =
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const moves = [
+        {
+          ply: 1,
+          fenBefore: startFen,
+          playedUci: 'e2e4',
+          bestUci: 'e2e4',
+          cpBefore: 30,
+          cpAfter: 30,
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
+          depth: 14,
+        },
+        {
+          ply: 2,
+          fenBefore: startFen,
+          playedUci: 'd2d4',
+          bestUci: 'd2d4',
+          cpBefore: 30,
+          cpAfter: 30,
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
+          depth: 14,
+        },
+      ];
+
+      await service.submitAttempt('user-1', 'pve-2', true, 4000, undefined, 0, {
+        halfMovesPlayed: 2,
+        finalWdl: 1.0,
+        initialWdl: 1.0,
+        reason: 'win',
+        moves,
+      } as any);
+
+      expect(tx.precision.score).toBe(5);
+      expect(tx.precision.scorePct).toBeCloseTo(100, 1);
     });
 
     // ── KS-2740: sparse ply (user-only ходы) ────────────────────────

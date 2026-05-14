@@ -12,7 +12,11 @@ import type {
 // KS-2665: серверные дефолты порогов PVE (ADR-050 §3 #5) — фронт-
 // генератор их не передаёт в sourceMetadata, поэтому подхватываем тут
 // при сборке `playVsEngine` блока из row.
-import { PUZZLE_GEN_DEFAULTS, classifyMove } from '@kingside/shared';
+import {
+  PUZZLE_GEN_DEFAULTS,
+  classifyMove,
+  computePrecisionScore,
+} from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
@@ -781,6 +785,24 @@ export class PuzzleService {
 
     const endReason = args.playVsEngine.reason ?? 'aborted';
 
+    // KS-2999 / ADR-065 §3.4. Server-side compute 5★-оценки.
+    // `accuracyPercent` (выше) — отдельная метрика «% best+good» и
+    // остаётся как раньше (§6.4 ADR-065). Score — Lichess-style
+    // continuous accuracy + композит + worst-class cap. Чистая
+    // функция, без I/O — выполняется до транзакции.
+    //
+    // halfMovesPlayed < 2 или > 50% gaps без WDL/cp → `{stars:null, scorePct:null}`,
+    // что и пишем в БД (legacy fallback на бинарную плашку, ADR §6.2).
+    const precisionScore = computePrecisionScore(
+      classified.map(({ m, klass }) => ({
+        wdlBefore: m.wdlBefore ?? null,
+        wdlAfter: m.wdlAfter ?? null,
+        cpBefore: m.cpBefore ?? null,
+        cpAfter: m.cpAfter ?? null,
+        classification: klass,
+      })),
+    );
+
     // 5. Транзакция: PuzzleAttempt → PrecisionAttempt → moves.
     await this.prisma.$transaction(async (tx) => {
       const created = await tx.puzzleAttempt.create({
@@ -813,6 +835,9 @@ export class PuzzleService {
           firstMistakePly,
           wdlLeakSum,
           endReason,
+          // KS-2999 / ADR-065 §6.1: 5-балльная оценка.
+          score: precisionScore.stars,
+          scorePct: precisionScore.scorePct,
         },
       });
 
@@ -846,7 +871,9 @@ export class PuzzleService {
       `Puzzle ${args.puzzleId} PVE attempt by user ${args.userId}: ` +
         `accuracy=${accuracyPercent.toFixed(1)}% halfMoves=${halfMovesPlayed} ` +
         `firstMistakePly=${firstMistakePly ?? 'none'} ` +
-        `wdlLeakSum=${wdlLeakSum.toFixed(3)} endReason=${endReason}`,
+        `wdlLeakSum=${wdlLeakSum.toFixed(3)} endReason=${endReason} ` +
+        `score=${precisionScore.stars ?? 'null'} ` +
+        `scorePct=${precisionScore.scorePct?.toFixed(1) ?? 'null'}`,
     );
   }
 
