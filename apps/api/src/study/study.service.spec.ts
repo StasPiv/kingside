@@ -39,9 +39,6 @@ function makePrisma(): any {
       findFirst: jest.fn(),
       count: jest.fn(),
     },
-    studyMember: {
-      create: jest.fn(),
-    },
     // KS-2881: listByUser использует prisma.user.findUnique для owner.
     user: {
       findUnique: jest.fn(),
@@ -52,6 +49,12 @@ function makePrisma(): any {
     },
     // KS-2994: getLikedSet ходит в study_likes для POV likedByMe.
     studyLike: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    // KS-3015: getViewerRoleMap ходит в study_members для POV viewerRole.
+    // root-level (не tx) — create в studyMembers идёт через txContext.
+    studyMember: {
+      create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
     // KS-2880: catalog hot-sort использует $queryRawUnsafe для PG-формулы

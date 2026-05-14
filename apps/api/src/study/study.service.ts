@@ -21,6 +21,7 @@ import type {
   UpdateStudyDto,
 } from './dto/study.dto';
 import type { Prisma } from '@kingside/db';
+import type { StudyViewerRole } from '@kingside/shared';
 import {
   normalizeTopics,
   resolveVisibilityChange,
@@ -72,6 +73,66 @@ export class StudyService {
     return new Set(rows.map((r) => r.studyId));
   }
 
+  // ─── Viewer role (POV current user) ──────────────────────────────
+
+  /**
+   * KS-3015 / ADR-060 §2.5. Возвращает Map `studyId → viewerRole` для
+   * текущего пользователя.
+   *
+   * Правила:
+   *  - `userId === null` → все 'anon' без запроса в БД.
+   *  - `userId === study.ownerId` → 'owner' (вычисляется локально).
+   *  - Запись в `study_members` с `role='contributor'` → 'contributor'.
+   *  - Запись в `study_members` с `role='owner'` → 'owner' (страховка
+   *    на случай, если caller — owner, но `ownerId` в студии разошёлся
+   *    с членством; в норме оба совпадают, см. `create` транзакцию).
+   *  - Иначе (auth, не owner, не member) → 'viewer'.
+   *
+   * Реализация — один SELECT по PK `(studyId, userId)` в
+   * `study_members`. Паттерн идентичен `getLikedSet` (KS-2994).
+   *
+   * Принимает массив `studies` (а не только id'ы), потому что для
+   * вычисления 'owner' нужен `ownerId` каждой строки — это позволяет
+   * избежать второго SELECT'а на `studies`.
+   */
+  private async getViewerRoleMap(
+    userId: string | null,
+    studies: Array<{ id: string; ownerId: string }>,
+  ): Promise<Map<string, StudyViewerRole>> {
+    const map = new Map<string, StudyViewerRole>();
+    if (studies.length === 0) return map;
+    if (!userId) {
+      for (const s of studies) map.set(s.id, 'anon');
+      return map;
+    }
+    // Сначала локально проставляем 'owner' для своих, чтобы запросить
+    // в БД только те id'ы, где caller не owner.
+    const nonOwnerIds: string[] = [];
+    for (const s of studies) {
+      if (s.ownerId === userId) {
+        map.set(s.id, 'owner');
+      } else {
+        nonOwnerIds.push(s.id);
+      }
+    }
+    if (nonOwnerIds.length === 0) return map;
+
+    const rows = await this.prisma.studyMember.findMany({
+      where: { userId, studyId: { in: nonOwnerIds } },
+      select: { studyId: true, role: true },
+    });
+    const memberRole = new Map<string, string>(
+      rows.map((r) => [r.studyId, r.role]),
+    );
+    for (const id of nonOwnerIds) {
+      const role = memberRole.get(id);
+      if (role === 'contributor') map.set(id, 'contributor');
+      else if (role === 'owner') map.set(id, 'owner');
+      else map.set(id, 'viewer');
+    }
+    return map;
+  }
+
   // ─── Listings ────────────────────────────────────────────────────
 
   /**
@@ -103,13 +164,19 @@ export class StudyService {
       take,
       skip,
     });
-    // KS-2994: подгружаем POV likedByMe одним SELECT.
-    const likedSet = await this.getLikedSet(
-      userId,
-      rows.map((r) => r.id),
-    );
+    // KS-2994 / KS-3015: POV likedByMe + viewerRole одним SELECT каждый.
+    const ids = rows.map((r) => r.id);
+    const [likedSet, roleMap] = await Promise.all([
+      this.getLikedSet(userId, ids),
+      this.getViewerRoleMap(
+        userId,
+        rows.map((r) => ({ id: r.id, ownerId: r.ownerId })),
+      ),
+    ]);
     return {
-      data: rows.map((r) => toStudyListItem(r, likedSet.has(r.id))),
+      data: rows.map((r) =>
+        toStudyListItem(r, likedSet.has(r.id), roleMap.get(r.id) ?? 'anon'),
+      ),
     };
   }
 
@@ -230,12 +297,20 @@ export class StudyService {
       rows = await this.prisma.study.findMany({ where, orderBy, take, skip });
     }
 
-    // KS-2994: POV likedByMe одним SELECT по уже выбранным id'ам.
-    const likedSet = await this.getLikedSet(
-      userId,
-      rows.map((r) => r.id),
+    // KS-2994 / KS-3015: POV likedByMe + viewerRole параллельно.
+    const [likedSet, roleMap] = await Promise.all([
+      this.getLikedSet(
+        userId,
+        rows.map((r) => r.id),
+      ),
+      this.getViewerRoleMap(
+        userId,
+        rows.map((r) => ({ id: r.id, ownerId: r.ownerId })),
+      ),
+    ]);
+    const items = rows.map((r) =>
+      toStudyDto(r, likedSet.has(r.id), roleMap.get(r.id) ?? 'anon'),
     );
-    const items = rows.map((r) => toStudyDto(r, likedSet.has(r.id)));
     return {
       items,
       total,
@@ -307,12 +382,20 @@ export class StudyService {
       this.prisma.study.count({ where }),
     ]);
 
-    // KS-2994: POV likedByMe для caller (callerId может быть null — anon).
-    const likedSet = await this.getLikedSet(
-      callerId,
-      rows.map((r) => r.id),
+    // KS-2994 / KS-3015: POV likedByMe + viewerRole для caller.
+    const [likedSet, roleMap] = await Promise.all([
+      this.getLikedSet(
+        callerId,
+        rows.map((r) => r.id),
+      ),
+      this.getViewerRoleMap(
+        callerId,
+        rows.map((r) => ({ id: r.id, ownerId: r.ownerId })),
+      ),
+    ]);
+    const items = rows.map((r) =>
+      toStudyDto(r, likedSet.has(r.id), roleMap.get(r.id) ?? 'anon'),
     );
-    const items = rows.map((r) => toStudyDto(r, likedSet.has(r.id)));
     return {
       items,
       total,
@@ -354,10 +437,17 @@ export class StudyService {
         updatedAt: true,
       },
     });
-    // KS-2994: POV likedByMe для одной студии (Set из одного id).
-    const likedSet = await this.getLikedSet(userId, [study.id]);
+    // KS-2994 / KS-3015: POV likedByMe + viewerRole для одной студии.
+    const [likedSet, roleMap] = await Promise.all([
+      this.getLikedSet(userId, [study.id]),
+      this.getViewerRoleMap(userId, [{ id: study.id, ownerId: study.ownerId }]),
+    ]);
     return {
-      study: toStudyDto(study, likedSet.has(study.id)),
+      study: toStudyDto(
+        study,
+        likedSet.has(study.id),
+        roleMap.get(study.id) ?? 'anon',
+      ),
       chapters: chapters.map((c) => ({
         id: c.id,
         name: c.name,
@@ -488,8 +578,9 @@ export class StudyService {
       });
       return study;
     });
-    // KS-2994: только что созданная студия — лайков от автора ещё нет.
-    return toStudyDto(created, false);
+    // KS-2994 / KS-3015: только что созданная студия — автор владелец,
+    // лайков от него ещё нет.
+    return toStudyDto(created, false, 'owner');
   }
 
   /**
@@ -683,8 +774,10 @@ export class StudyService {
     });
     // KS-2994: PATCH study не меняет состояние лайка — но фронт ожидает
     // актуальный POV. Один SELECT по PK study_likes, дешёвый.
+    // KS-3015: caller прошёл `requireOwn` ⇒ он owner, viewerRole='owner'
+    // без дополнительного запроса в study_members.
     const likedSet = await this.getLikedSet(userId, [updated.id]);
-    return toStudyDto(updated, likedSet.has(updated.id));
+    return toStudyDto(updated, likedSet.has(updated.id), 'owner');
   }
 
   /** Удалить студию — каскадом удалятся главы (FK CASCADE). */
@@ -733,6 +826,11 @@ export interface StudyDto {
    * Для anonymous — всегда `false`. См. `getLikedSet`.
    */
   likedByMe: boolean;
+  /**
+   * KS-3015 / ADR-060 §2.5. Роль запрашивающего пользователя.
+   * См. `getViewerRoleMap`.
+   */
+  viewerRole: StudyViewerRole;
 }
 
 export interface StudyListItem extends StudyDto {}
@@ -754,12 +852,18 @@ export interface StudyWithChapters {
 }
 
 /**
- * KS-2994: `likedByMe` опционален у самой функции (default `false` —
- * корректно для anon и для нештатных вызовов), вычисляется callsite'ом
- * через `getLikedSet`. Это позволяет сохранить сигнатуру без обяз.
- * userId-параметра и не ломать существующие точки вызова.
+ * KS-2994 / KS-3015: `likedByMe` и `viewerRole` опциональны у самой
+ * функции (дефолты `false` / `'anon'` — корректны для anonymous и
+ * для нештатных вызовов), вычисляются callsite'ом через
+ * `getLikedSet` / `getViewerRoleMap`. Это позволяет сохранить
+ * сигнатуру без обязательного userId-параметра и не ломать
+ * существующие точки вызова.
  */
-export function toStudyDto(s: Study, likedByMe = false): StudyDto {
+export function toStudyDto(
+  s: Study,
+  likedByMe = false,
+  viewerRole: StudyViewerRole = 'anon',
+): StudyDto {
   return {
     id: s.id,
     ownerId: s.ownerId,
@@ -776,11 +880,16 @@ export function toStudyDto(s: Study, likedByMe = false): StudyDto {
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
     likedByMe,
+    viewerRole,
   };
 }
 
-export function toStudyListItem(s: Study, likedByMe = false): StudyListItem {
-  return toStudyDto(s, likedByMe);
+export function toStudyListItem(
+  s: Study,
+  likedByMe = false,
+  viewerRole: StudyViewerRole = 'anon',
+): StudyListItem {
+  return toStudyDto(s, likedByMe, viewerRole);
 }
 
 // ─── helpers ───────────────────────────────────────────────────────

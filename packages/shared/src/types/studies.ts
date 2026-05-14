@@ -110,7 +110,24 @@ export interface StudyDto {
    * follow-up GET'а на состояние лайка.
    */
   likedByMe: boolean;
+  /**
+   * KS-3015 / ADR-060 §2.5. Роль запрашивающего пользователя относительно
+   * этой студии. Считается одним SELECT по `study_members` на страницу
+   * (паттерн `getLikedSet`). Используется фронтом (KS-3014) для
+   * role-based gating (viewer → `mode='public-readonly'`) без extra-fetch
+   * на `/studies/:slug/members`.
+   *
+   *  - `anon` — не залогинен;
+   *  - `owner` — `currentUserId === study.ownerId`;
+   *  - `contributor` — запись в `study_members` с `role='contributor'`;
+   *  - `viewer` — auth-пользователь, не owner и не member (включая
+   *    публичный/unlisted просмотр).
+   */
+  viewerRole: StudyViewerRole;
 }
+
+/** KS-3015 / ADR-060 §2.5. */
+export type StudyViewerRole = 'owner' | 'contributor' | 'viewer' | 'anon';
 
 /**
  * Краткая сводка главы (без `pgn`) — используется в

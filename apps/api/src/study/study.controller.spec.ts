@@ -62,6 +62,8 @@ const baseStudyDto = {
   updatedAt: '2026-01-02T00:00:00.000Z',
   // KS-2994 / ADR-060 §3.4 K4.
   likedByMe: false,
+  // KS-3015 / ADR-060 §2.5.
+  viewerRole: 'anon' as const,
 };
 
 const baseStudy = {

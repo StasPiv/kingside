@@ -33,6 +33,10 @@ function makePrisma(): any {
     studyLike: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // KS-3015: getViewerRoleMap ходит в study_members.
+    studyMember: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn(async (arg: any) => {
       if (Array.isArray(arg)) return Promise.all(arg);
