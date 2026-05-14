@@ -491,15 +491,26 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
  *     ADR-050 §3 #1 требует PVE-runner.
  */
 describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', () => {
+  /**
+   * KS-2959. После переезда на `findMany` для получения id вставленных
+   * пазлов мок должен отдавать те же id, что прилетели в `createMany`
+   * (мы заранее генерируем UUID локально). По умолчанию возвращаем
+   * полный набор — это эмулирует «дубликатов не было».
+   */
   function makeBatchPrisma() {
+    const createMany = jest
+      .fn<Promise<{ count: number }>, [{ data: Array<{ id: string }> }]>()
+      .mockImplementation(async ({ data }) => ({ count: data.length }));
+    const findMany = jest
+      .fn<Promise<Array<{ id: string }>>, [{ where: { id: { in: string[] } } }]>()
+      .mockImplementation(async ({ where }) => where.id.in.map((id) => ({ id })));
     return {
       puzzle: {
-        createMany: jest
-          .fn<Promise<{ count: number }>, [unknown]>()
-          .mockResolvedValue({ count: 1 }),
+        createMany,
+        findMany,
       },
     } as unknown as PrismaService & {
-      puzzle: { createMany: jest.Mock };
+      puzzle: { createMany: jest.Mock; findMany: jest.Mock };
     };
   }
 
@@ -596,7 +607,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
     expect(args.data[1].source).toBe('generated');
   });
 
-  it('пустой puzzles[] → count=0, createMany не вызывается', async () => {
+  it('пустой puzzles[] → count=0, created=[], createMany не вызывается', async () => {
     const prisma = makeBatchPrisma();
     const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
 
@@ -605,7 +616,132 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
       loginReq('user-1'),
     );
     expect(res.count).toBe(0);
+    expect(res.created).toEqual([]);
     expect(prisma.puzzle.createMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * KS-2959. `POST /puzzles/batch` обязан вернуть id'ы созданных
+ * пазлов: фронт после генерации перенаправляет на
+ * `/puzzle/<id>?source=precision&visibility=draft` без follow-up
+ * `GET /puzzles/browse`.
+ *
+ * Проверяем:
+ *  1. `created.length === count` и каждый элемент — `{id: uuid, fen: string}`.
+ *  2. `id` валидный v4 UUID.
+ *  3. `fen` соответствует i-той позиции входного массива (позиционный порядок).
+ *  4. Дубликаты, отсеянные `skipDuplicates`, в `created` не попадают.
+ */
+describe('PuzzleController.batch — KS-2959 response.created', () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function makeBatchPrismaCustom(opts: {
+    insertedFilter?: (ids: string[]) => string[];
+    insertedCount?: (n: number) => number;
+  } = {}) {
+    const createMany = jest
+      .fn<Promise<{ count: number }>, [{ data: Array<{ id: string }> }]>()
+      .mockImplementation(async ({ data }) => {
+        const filtered = opts.insertedFilter
+          ? opts.insertedFilter(data.map((d) => d.id))
+          : data.map((d) => d.id);
+        return { count: opts.insertedCount ? opts.insertedCount(filtered.length) : filtered.length };
+      });
+    const findMany = jest
+      .fn<Promise<Array<{ id: string }>>, [{ where: { id: { in: string[] } } }]>()
+      .mockImplementation(async ({ where }) => {
+        const all = where.id.in;
+        const kept = opts.insertedFilter ? opts.insertedFilter(all) : all;
+        return kept.map((id) => ({ id }));
+      });
+    return {
+      puzzle: { createMany, findMany },
+    } as unknown as PrismaService & {
+      puzzle: { createMany: jest.Mock; findMany: jest.Mock };
+    };
+  }
+
+  const fen = (i: number) => `position-${i}-fen w - - 0 1`;
+  const mkPuzzle = (i: number) => ({
+    fen: fen(i),
+    moves: 'e2e4',
+    rating: 1500,
+    gap: 100,
+    themes: 'fork',
+    sourceType: 'pgn_import',
+  });
+
+  it('N пазлов вставлены → created.length === N, id — UUID v4', async () => {
+    const prisma = makeBatchPrismaCustom();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+
+    const N = 3;
+    const res = await controller.batch(
+      { puzzles: [mkPuzzle(0), mkPuzzle(1), mkPuzzle(2)] } as any,
+      loginReq('user-1'),
+    );
+
+    expect(res.count).toBe(N);
+    expect(res.created).toHaveLength(N);
+    for (const c of res.created) {
+      expect(c.id).toMatch(UUID_RE);
+      expect(typeof c.fen).toBe('string');
+    }
+  });
+
+  it('created сохраняет позиционный порядок входного puzzles[] (created[i].fen === puzzles[i].fen)', async () => {
+    const prisma = makeBatchPrismaCustom();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+
+    const input = [mkPuzzle(10), mkPuzzle(20), mkPuzzle(30)];
+    const res = await controller.batch({ puzzles: input } as any, loginReq('user-1'));
+
+    expect(res.created.map((c) => c.fen)).toEqual([fen(10), fen(20), fen(30)]);
+  });
+
+  it('skipDuplicates: один пазл отсеян → count=N-1, created без него', async () => {
+    // Эмулируем: первый и третий вставились, второй — дубликат.
+    const prisma = makeBatchPrismaCustom({
+      insertedFilter: (ids) => [ids[0], ids[2]],
+    });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+
+    const input = [mkPuzzle(1), mkPuzzle(2), mkPuzzle(3)];
+    const res = await controller.batch({ puzzles: input } as any, loginReq('user-1'));
+
+    expect(res.count).toBe(2);
+    expect(res.created).toHaveLength(2);
+    // Порядок сохранён: позиции 0 и 2 из входа.
+    expect(res.created[0].fen).toBe(fen(1));
+    expect(res.created[1].fen).toBe(fen(3));
+  });
+
+  it('id из created совпадает с id, переданным в createMany', async () => {
+    const prisma = makeBatchPrismaCustom();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+
+    const res = await controller.batch(
+      { puzzles: [mkPuzzle(0), mkPuzzle(1)] } as any,
+      loginReq('user-1'),
+    );
+
+    const createManyArgs = (prisma.puzzle.createMany as jest.Mock).mock.calls[0][0];
+    const idsPassedToDb: string[] = createManyArgs.data.map((d: { id: string }) => d.id);
+    const idsInResponse = res.created.map((c) => c.id);
+    expect(idsInResponse).toEqual(idsPassedToDb);
   });
 });
 

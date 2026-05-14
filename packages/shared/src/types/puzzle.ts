@@ -227,9 +227,26 @@ export interface BatchPuzzlesRequest {
   puzzles: BatchPuzzleItem[];
 }
 
+/**
+ * KS-2959. Запись о реально созданном пазле — пара `id` сервера и
+ * исходный `fen`. Используется фронтом, чтобы найти id конкретного
+ * draft'а после batch-вставки без следующего GET /puzzles/browse.
+ */
+export interface BatchPuzzleCreated {
+  id: string;
+  fen: string;
+}
+
 export interface BatchPuzzlesResponse {
   /** Сколько строк реально вставилось (`createMany.skipDuplicates: true`). */
   count: number;
+  /**
+   * KS-2959. Реально вставленные строки в порядке исходного `puzzles[]`
+   * (с пропусками для тех, что отсеялись `skipDuplicates`). `created[i].fen`
+   * соответствует одной из позиций входного массива; ID — server-side UUID.
+   * `created.length === count`.
+   */
+  created: BatchPuzzleCreated[];
 }
 
 /**

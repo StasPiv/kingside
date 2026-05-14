@@ -456,30 +456,57 @@ export class PuzzleController {
     @Request() req: AuthenticatedRequest,
   ) {
     const puzzles = body.puzzles ?? [];
-    if (puzzles.length === 0) return { count: 0 };
+    if (puzzles.length === 0) return { count: 0, created: [] };
 
     const { randomUUID } = await import('crypto');
-    const created = await this.prisma.puzzle.createMany({
-      data: puzzles.slice(0, 200).map((p) => ({
-        id: randomUUID(),
-        fen: p.fen, moves: p.moves, rating: p.rating, gap: p.gap, themes: p.themes,
-        source: 'generated', sourceType: p.sourceType || 'pgn_import',
-        sourceId: p.sourceId || null, sourceMoveNum: p.sourceMoveNum ?? 0,
-        sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
-        acceptedMoves: p.acceptedMoves || null, depth: 14,
-        createdBy: req.user.id,
-        // KS-2580: default false (draft); фронт передаёт `true` для
-        // immediate-publish.
-        isPublic: p.isPublic ?? false,
-        // KS-2659: server-side инвариант. `source='generated'` ⇒
-        // `solutionMode='play-vs-engine'` (ADR-050 §3 #1). Любое
-        // значение от клиента игнорируем — это закрывает источник
-        // `forced-line`-записей в БД для generated.
-        solutionMode: 'play-vs-engine',
-      })),
+
+    // KS-2959. Сначала генерируем id'ы локально, чтобы потом
+    // отдать клиенту `{id, fen}` без дополнительного round-trip и
+    // без race-fallback по fen (две вкладки могут создать draft с
+    // одинаковым FEN — поиск по fen становится неоднозначным).
+    const rows = puzzles.slice(0, 200).map((p) => ({
+      id: randomUUID(),
+      fen: p.fen, moves: p.moves, rating: p.rating, gap: p.gap, themes: p.themes,
+      source: 'generated', sourceType: p.sourceType || 'pgn_import',
+      sourceId: p.sourceId || null, sourceMoveNum: p.sourceMoveNum ?? 0,
+      sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
+      acceptedMoves: p.acceptedMoves || null, depth: 14,
+      createdBy: req.user.id,
+      // KS-2580: default false (draft); фронт передаёт `true` для
+      // immediate-publish.
+      isPublic: p.isPublic ?? false,
+      // KS-2659: server-side инвариант. `source='generated'` ⇒
+      // `solutionMode='play-vs-engine'` (ADR-050 §3 #1). Любое
+      // значение от клиента игнорируем — это закрывает источник
+      // `forced-line`-записей в БД для generated.
+      solutionMode: 'play-vs-engine',
+    }));
+
+    const result = await this.prisma.puzzle.createMany({
+      data: rows,
       skipDuplicates: true,
     });
-    return { count: created.count };
+
+    // KS-2959. `createMany` не отдаёт строки, плюс `skipDuplicates: true`
+    // может отсеять часть записей по unique-констрейнтам. Делаем SELECT
+    // по своим заранее сгенерированным id'ам — это даёт точное множество
+    // реально вставленных строк (id'ы рандомные, конфликт по PK
+    // невозможен; дубликаты отсеиваются только по другим unique-ключам).
+    const ids = rows.map((r) => r.id);
+    const inserted = await this.prisma.puzzle.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    const insertedIds = new Set(inserted.map((r) => r.id));
+
+    // Сохраняем порядок исходного `puzzles[]`: проходим по `rows`,
+    // оставляем только реально вставленные. Позиция `created[i]`
+    // соответствует i-той позиции входа (с пропусками для дубликатов).
+    const created = rows
+      .filter((r) => insertedIds.has(r.id))
+      .map((r) => ({ id: r.id, fen: r.fen }));
+
+    return { count: result.count, created };
   }
 
   /**
