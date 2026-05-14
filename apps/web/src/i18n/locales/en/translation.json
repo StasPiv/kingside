@@ -1640,7 +1640,11 @@
     "loadMore": "Load more",
     "empty": "You don't have any attempts yet.",
     "filterEmpty": "No attempts match this filter.",
-    "loadError": "Could not load attempt history."
+    "loadError": "Could not load attempt history.",
+    "loadErrorNetwork": "No connection. Check your internet and try again.",
+    "loadErrorTimeout": "Server is not responding. Please retry.",
+    "loadErrorSession": "Session expired. Sign in to see your attempts.",
+    "loadErrorServer": "Server error ({{status}}). Please retry."
   },
   "precisionAttempt": {
     "title": "Attempt #{{id}}",

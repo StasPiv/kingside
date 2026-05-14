@@ -7,9 +7,40 @@ import type {
   PrecisionAttemptsListResponse,
 } from '@kingside/shared';
 import { api } from '../../api';
+import { ApiError } from '../../ApiError';
 // KS-3004 (ADR-065 §5.1.2, F3): compact 5-балльная оценка для строки
 // каталога. Заменяет старую бинарную «УДЕРЖАНО/УПУЩЕНО» плашку.
 import { PrecisionScoreBadge } from './PrecisionScoreBadge';
+
+/**
+ * Диагностика причин ошибки загрузки. Используется и для console.error
+ * (полная причина), и для UI (разные сообщения для разных проблем).
+ */
+type LoadErrorKind =
+  | { kind: 'network' }
+  | { kind: 'timeout' }
+  | { kind: 'unauthorized' }
+  | { kind: 'server'; status: number }
+  | { kind: 'session-expired' }
+  | { kind: 'unknown'; detail: string };
+
+function classifyError(e: unknown): LoadErrorKind {
+  if (e instanceof ApiError) {
+    if (e.errorCode === 'NETWORK_ERROR') return { kind: 'network' };
+    if (e.errorCode === 'REQUEST_TIMEOUT') return { kind: 'timeout' };
+    if (e.status === 401 || e.status === 403) return { kind: 'unauthorized' };
+    if (typeof e.status === 'number' && e.status >= 500) {
+      return { kind: 'server', status: e.status };
+    }
+    return { kind: 'unknown', detail: `${e.status ?? '?'} ${e.errorCode ?? ''} ${e.message}`.trim() };
+  }
+  // request() в `api.ts` оборачивает провал refresh'а в `new Error('Session expired')`
+  // (не-ApiError), отличаем по message.
+  if (e instanceof Error && e.message === 'Session expired') {
+    return { kind: 'session-expired' };
+  }
+  return { kind: 'unknown', detail: e instanceof Error ? e.message : String(e) };
+}
 
 /**
  * KS-2724 / ADR-056 §2.2. История precision-попыток текущего юзера.
@@ -70,7 +101,10 @@ export function PrecisionAttemptsList({
   const [offset, setOffset] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
-  const [error, setError] = useState<boolean>(false);
+  // Сохраняем причину, а не булеву — UI показывает разный текст,
+  // консоль получает структурный лог (KS-3038/3039 hotfix scope:
+  // координатор просил «залогируй причину или хотя бы разный текст»).
+  const [error, setError] = useState<LoadErrorKind | null>(null);
   const [filter, setFilter] = useState<FilterTab>('all');
 
   const doFetch = useCallback(
@@ -82,12 +116,23 @@ export function PrecisionAttemptsList({
         if (append) setLoadingMore(true);
         else setLoading(true);
         const res = await get(url);
-        setError(false);
+        setError(null);
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
         setTotal(res.total);
         setOffset(off + res.items.length);
-      } catch {
-        setError(true);
+      } catch (e) {
+        const cause = classifyError(e);
+        // KS-3038/3039 hotfix: до этого catch был пустой и UI всегда
+        // показывал generic «Не удалось загрузить...». При диагностике
+        // у пользователя это маскировало и сетевой error, и 401-refresh-fail,
+        // и реальный 5xx. Логируем структурно — видно в DevTools/Sentry-like.
+        // eslint-disable-next-line no-console
+        console.error('[precision-attempts] load failed', {
+          url,
+          cause,
+          raw: e,
+        });
+        setError(cause);
         if (!append) setItems([]);
       } finally {
         if (append) setLoadingMore(false);
@@ -149,22 +194,59 @@ export function PrecisionAttemptsList({
   }
 
   if (error) {
+    const errorText =
+      error.kind === 'network'
+        ? t(
+            'precisionAttempts.loadErrorNetwork',
+            'No connection. Check your internet and try again.',
+          )
+        : error.kind === 'timeout'
+          ? t(
+              'precisionAttempts.loadErrorTimeout',
+              'Server is not responding. Please retry.',
+            )
+          : error.kind === 'unauthorized' || error.kind === 'session-expired'
+            ? t(
+                'precisionAttempts.loadErrorSession',
+                'Session expired. Sign in to see your attempts.',
+              )
+            : error.kind === 'server'
+              ? t(
+                  'precisionAttempts.loadErrorServer',
+                  'Server error ({{status}}). Please retry.',
+                  { status: error.status },
+                )
+              : t(
+                  'precisionAttempts.loadError',
+                  'Could not load attempt history.',
+                );
+    // Технический details — для скриншота при удалённой диагностике
+    // (видно пользователю мелким шрифтом, помогает QA понять причину
+    // без доступа к DevTools).
+    const errorDetail =
+      error.kind === 'unknown'
+        ? error.detail
+        : error.kind === 'server'
+          ? `HTTP ${error.status}`
+          : error.kind;
     return (
       <section
         className="precision-attempts"
         data-testid="precision-attempts"
         data-state="error"
+        data-error-kind={error.kind}
       >
         {!hideTitle && (
           <h2 className="precision-attempts__title">
             {t('precisionAttempts.title', 'Attempt history')}
           </h2>
         )}
-        <p className="precision-attempts__error">
-          {t(
-            'precisionAttempts.loadError',
-            'Could not load attempt history.',
-          )}
+        <p className="precision-attempts__error">{errorText}</p>
+        <p
+          className="precision-attempts__error-detail"
+          data-testid="precision-attempts-error-detail"
+        >
+          <code>{errorDetail}</code>
         </p>
         <button
           type="button"

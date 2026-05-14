@@ -3964,6 +3964,14 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   color: var(--c-94a3b8);
   font-size: 13px;
 }
+.precision-attempts__error-detail {
+  margin: 4px 0 0 0;
+  color: var(--c-94a3b8);
+  font-size: 11px;
+  opacity: 0.7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
 .precision-attempts__retry {
   margin-top: 8px;
   background: transparent;
