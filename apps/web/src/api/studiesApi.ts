@@ -187,6 +187,18 @@ export const studiesApi = {
     ),
 
   /**
+   * KS-2891 / ADR-060 §3.6 (FC6) — Save-to-Study (one-shot).
+   *
+   * POST `/api/studies/from-analysis` (backend B9): создаёт студию
+   * либо добавляет главу в существующую. Контракт см.
+   * `CreateFromAnalysisRequest`. Requires JWT.
+   */
+  createFromAnalysis: (
+    req: CreateFromAnalysisRequest,
+  ): Promise<CreateFromAnalysisResponse> =>
+    api.post<CreateFromAnalysisResponse>('/studies/from-analysis', req),
+
+  /**
    * KS-2889 / ADR-060 §3.4 K6 (FC4) — студии конкретного автора.
    *
    * GET `/api/studies/by/:userId?includePrivate=1&page=N`. Anon видит
@@ -261,4 +273,33 @@ export interface StudyByUserResponse {
   total: number;
   hasMore: boolean;
   owner: { id: string; username: string };
+}
+
+/**
+ * KS-2891 / ADR-060 §3.6 (FC6) — Save-to-Study payload.
+ *
+ * Backend (B9) принимает либо:
+ *   • `analysisId` — UUID сохранённого анализа, либо
+ *   • `pgn` + опц. `fen` — для ad-hoc анализа / puzzle-режима.
+ *
+ * Цель назначается одним из двух полей:
+ *   • `studyId` — добавить главу в существующую студию, либо
+ *   • `newStudyName` — создать новую студию с этим именем,
+ *     текущая глава становится первой.
+ *
+ * Имя главы — `chapterName`; backend проставляет дефолт если поле
+ * пустое.
+ */
+export interface CreateFromAnalysisRequest {
+  studyId?: string;
+  newStudyName?: string;
+  analysisId?: string;
+  pgn?: string;
+  fen?: string;
+  chapterName?: string;
+}
+
+export interface CreateFromAnalysisResponse {
+  study: StudyDto;
+  chapter: StudyChapterDto;
 }

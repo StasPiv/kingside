@@ -73,6 +73,11 @@ import { AnalysisStudyModeSwitcher } from './analysis/AnalysisStudyModeSwitcher'
 // KS-2873 (FM4): gamebook editor — поля hint/success/failure на узле.
 import { AnalysisGamebookEditor } from './analysis/AnalysisGamebookEditor';
 import type { GamebookPayload } from '@kingside/shared';
+// KS-2891 (FC6): «Save to study» из обычного анализа / puzzle.
+import {
+  SaveToStudyTrigger,
+  type SaveToStudySource,
+} from '../components/studies/SaveToStudyDialog';
 
 type GameData = {
   id: string;
@@ -1672,6 +1677,39 @@ function AnalysisPageInner({
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
 
+  // KS-2891 (FC6): источник для «Save to study».
+  //   • analysis (kind='analysis', есть analysisId) → передаём analysisId;
+  //   • analysis без id (ad-hoc /analysis) либо puzzle → берём текущий PGN;
+  //   • review/study → null (кнопку не рисуем).
+  // ВАЖНО: useMemo стоит ВЫШЕ early-returns ниже, иначе на load-стадии
+  // компонент сделает return ДО хука, и при следующем render React
+  // увидит «extra hook» (rules-of-hooks).
+  const saveStudySource = useMemo<SaveToStudySource | null>(() => {
+    if (ctx.kind === 'review' || ctx.kind === 'study') return null;
+    if (ctx.kind === 'analysis' && analysisId) {
+      return { kind: 'analysis', analysisId };
+    }
+    try {
+      const movesOnly = serializeToAnnotatedPgn(
+        history,
+        initialAnnotations,
+        annotationsByIndex,
+      );
+      const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+      return { kind: 'pgn', pgn, fen: initialFen };
+    } catch {
+      return null;
+    }
+  }, [
+    ctx,
+    analysisId,
+    history,
+    initialAnnotations,
+    annotationsByIndex,
+    initialFen,
+    pgnHeaders,
+  ]);
+
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (gameId && !gameData) return null;
@@ -1779,6 +1817,14 @@ function AnalysisPageInner({
                       ? handleDeleteChapter
                       : undefined
                   }
+                />
+              ) : saveStudySource && user ? (
+                // KS-2891 (FC6): для kind='analysis' / 'puzzle' даём
+                // юзеру сохранить текущую позицию в студию. Гостям
+                // кнопку не рисуем (backend в любом случае 401).
+                <SaveToStudyTrigger
+                  source={saveStudySource}
+                  defaultChapterName={analysisTitle}
                 />
               ) : undefined
             }
