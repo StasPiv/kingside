@@ -425,7 +425,21 @@ export function useReviewState() {
         }
 
         const newFen = chess.fen();
-        const ply = (state.currentMove?.ply ?? 0) + 1;
+        // KS-3039 follow-up: на root (currentMove === null) при непустой
+        // основной линии variation создаётся как альтернатива history[0].
+        // По шахматной семантике она играется из той же позиции и
+        // соответствует тому же ply, что и history[0] (если основная
+        // партия — фрагмент из середины с FEN-headers `... b ... 1 25`,
+        // то history[0].ply = 49 и вариант к нему должен быть ply=49,
+        // отображаться как `25...<SAN>`, а не `1.<SAN>`).
+        // Прежняя формула `(currentMove?.ply ?? 0) + 1` давала на root
+        // всегда ply=1, и formatMoveDisplay рисовал «1.e5» вместо
+        // «25...e5» для партии из произвольного branching-point.
+        const ply = state.currentMove
+          ? state.currentMove.ply + 1
+          : state.history.length > 0
+            ? state.history[0].ply
+            : 1;
         const globalIndex = state.nextGlobalIndex;
         const newMove: ChessMove = {
           san: move.san,

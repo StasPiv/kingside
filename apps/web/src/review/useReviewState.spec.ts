@@ -294,6 +294,13 @@ describe('useReviewState — KS-3039 root variation (ply=0)', () => {
     expect(rootVariations!.length).toBe(1);
     expect(rootVariations![0][0].san).toBe('d4');
 
+    // KS-3039 follow-up: ply варианта должен совпадать с ply
+    // history[0] (= 1 для обычного e4-старта). Раньше формула
+    // `(currentMove?.ply ?? 0) + 1` давала ply=1 случайно — но
+    // здесь это и есть верное значение.
+    expect(rootVariations![0][0].ply).toBe(result.current.history[0].ply);
+    expect(rootVariations![0][0].ply).toBe(1);
+
     // Навигация переключилась на новый ход.
     expect(result.current.currentMove?.san).toBe('d4');
 
@@ -302,6 +309,49 @@ describe('useReviewState — KS-3039 root variation (ply=0)', () => {
     expect(pgn).toContain('1. e4');
     expect(pgn).toContain('d4');
     expect(pgn).toContain('(');
+  });
+
+  /**
+   * KS-3039 follow-up: партия загружена из PGN c FEN-header `... b ... 0 25`
+   * (фрагмент игры с `25...<SAN>`). history[0].ply = 50. Альтернативный
+   * первый ход с root должен иметь ply=50 (а не 1) и отображаться как
+   * `25...<SAN>`, а не `1.<SAN>`. До фикса формула выставляла ply=1
+   * вне зависимости от того, какой ply у history[0].
+   */
+  it('FEN-фрагмент с ply=50 (25...a6 ...) — альтернативный first-move наследует ply=50', () => {
+    // Воспроизводим реальный flow AnalysisPage: setInitialFen(FEN из header)
+    // → loadFromPgn(parseAnnotatedPgn(pgn)). makeVariantMove стартует Chess
+    // из state.currentMove?.fen ?? state.initialFen, поэтому без
+    // setInitialFen movе h7→h6 был бы нелегален (стандартный старт,
+    // ход белых).
+    const fen = 'r1bqkb1r/pp3ppp/2n2n2/2pp4/3P4/2N1PN2/PP3PPP/R1BQKB1R b KQkq - 0 25';
+    const pgn = `[SetUp "1"]\n[FEN "${fen}"]\n\n25... a6 26. Bd3`;
+    const moves = parseAnnotatedPgn(pgn);
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.setInitialFen(fen);
+      result.current.loadFromPgn(moves);
+    });
+
+    expect(result.current.history[0].san).toBe('a6');
+    expect(result.current.history[0].ply).toBe(50);
+
+    act(() => {
+      result.current.gotoFirst();
+    });
+    expect(result.current.currentMove).toBeNull();
+
+    // Альтернатива чёрных в той же позиции, что и a6 — например, h6.
+    act(() => {
+      result.current.makeVariantMove('h7', 'h6');
+    });
+
+    const rootVar = result.current.history[0].variations;
+    expect(rootVar).toBeDefined();
+    expect(rootVar![0][0].san).toBe('h6');
+    // Ключевое требование возврата: ply наследуется от history[0].
+    expect(rootVar![0][0].ply).toBe(50);
+    expect(rootVar![0][0].ply).toBe(result.current.history[0].ply);
   });
 
   it('повтор первого хода основной линии — не создаёт variation, переходит на history[0]', () => {
