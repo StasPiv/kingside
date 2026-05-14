@@ -408,12 +408,28 @@ model PrecisionAttempt {
   /// 'lose-mate' | 'timeout' | 'aborted'`.
   endReason String @map("end_reason")
 
+  /// KS-2998 / ADR-065 §6.1. 5-балльная оценка решения precision-задачи.
+  /// 1..5 stars. `null` для:
+  ///  - legacy-attempt'ов без per-move WDL и без cp (бэкфил B5 пройдёт
+  ///    только по тем, у кого есть данные);
+  ///  - attempt'ов с `halfMovesPlayed < 2` (ADR-065 §3.2);
+  ///  - attempt'ов где >50% per-move-данных отсутствуют (§3.4).
+  /// См. `computePrecisionScore` в `packages/shared/src/utils/precision-score.ts`.
+  score    Int?    @map("score")
+  /// KS-2998 / ADR-065 §6.1. scorePct (0..100) до округления до звёзд —
+  /// используется фронтом для подписи «87% точности» и trend-графиков.
+  /// `null` синхронно со `score`.
+  scorePct Float?  @map("score_pct")
+
   attempt PuzzleAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   moves   PrecisionAttemptMove[]
 
   @@map("precision_attempts")
   @@index([accuracyPercent])
   @@index([endReason])
+  /// KS-2998 / ADR-065 §6.1. Индекс для агрегатов «средний балл /
+  /// распределение по звёздам» в Уровне А и trend-графиков.
+  @@index([score])
 }
 
 /// KS-2717 / ADR-056 §3.2. Per-move детализация — для PostGameReview

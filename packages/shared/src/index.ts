@@ -20,6 +20,7 @@ export * from './utils/fen-key.js';
 export * from './utils/archive-name-normalize.js';
 export * from './utils/wdl.js';
 export * from './utils/move-classification.js';
+export * from './utils/precision-score.js';
 export * from './chess/index.js';
 // KS-2962 / ADR-062: каталог фич для AI-ассистента.
 export * from './features-catalog/index.js';
