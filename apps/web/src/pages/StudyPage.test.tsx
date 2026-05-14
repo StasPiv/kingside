@@ -97,7 +97,7 @@ describe('StudyPage (KS-2826)', () => {
     expect(screen.getByTestId('study-chapter-ch2')).toBeInTheDocument();
   });
 
-  it('owner: видит owner-actions (share/create/import/delete)', async () => {
+  it('owner: видит owner-actions (share/create/import/members/delete)', async () => {
     renderWithProviders(<StudyPage />, { route: '/studies/demo' });
     await waitFor(() =>
       expect(screen.getByTestId('study-owner-actions')).toBeInTheDocument(),
@@ -105,16 +105,21 @@ describe('StudyPage (KS-2826)', () => {
     expect(screen.getByTestId('study-action-share')).toBeInTheDocument();
     expect(screen.getByTestId('study-action-create-chapter')).toBeInTheDocument();
     expect(screen.getByTestId('study-action-import-pgn')).toBeInTheDocument();
+    // KS-2892 (FC7): кнопка «Members» доступна только владельцу.
+    expect(screen.getByTestId('study-action-members')).toBeInTheDocument();
     expect(screen.getByTestId('study-action-delete')).toBeInTheDocument();
   });
 
-  it('не owner: owner-actions не рендерятся', async () => {
+  it('не owner: owner-actions не рендерятся (в т.ч. members)', async () => {
     authState.user = { id: 'other', username: 'other' };
     renderWithProviders(<StudyPage />, { route: '/studies/demo' });
     await waitFor(() => expect(getBySlugMock).toHaveBeenCalled());
     expect(
       screen.queryByTestId('study-owner-actions'),
     ).not.toBeInTheDocument();
+    // KS-2892: явная проверка по testid members-кнопки — регрессия по
+    // visibility сразу падает сюда.
+    expect(screen.queryByTestId('study-action-members')).toBeNull();
   });
 
   it('click share → studiesApi.share(slug, !isPublic), обновляет badge', async () => {

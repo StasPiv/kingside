@@ -11,6 +11,7 @@ import {
 import { ImportPgnDialog } from '../components/studies/ImportPgnDialog';
 import { ChapterList } from '../components/studies/ChapterList';
 import { LikeButton } from '../components/studies/LikeButton';
+import { StudyMembersDialog } from '../components/studies/StudyMembersDialog';
 
 /**
  * KS-2826 (KS-2815 §B.5) — детальная страница студии `/studies/:slug`.
@@ -43,6 +44,8 @@ export function StudyPage() {
   >(null);
   // KS-2830: модалка импорта multi-PGN.
   const [importOpen, setImportOpen] = useState<boolean>(false);
+  // KS-2892 (FC7): модалка управления соавторами (owner-only).
+  const [membersOpen, setMembersOpen] = useState<boolean>(false);
 
   const reload = useCallback(async () => {
     if (!slug) return;
@@ -220,6 +223,16 @@ export function StudyPage() {
           >
             {t('studies.action.importPgn', 'Import PGN')}
           </button>
+          {/* KS-2892 (FC7): соавторы — модалка с инвайтами/удалением.
+              Только для owner'а (этот блок уже под `isOwner`-условием). */}
+          <button
+            type="button"
+            className="study-page__action"
+            data-testid="study-action-members"
+            onClick={() => setMembersOpen(true)}
+          >
+            {t('studies.action.members', 'Members')}
+          </button>
           <button
             type="button"
             className="study-page__action study-page__action--danger"
@@ -266,6 +279,14 @@ export function StudyPage() {
             // После импорта подтягиваем обновлённый список глав.
             void reload();
           }}
+        />
+      )}
+
+      {/* KS-2892 (FC7): соавторы. Открывается только владельцем. */}
+      {membersOpen && (
+        <StudyMembersDialog
+          slug={study.slug}
+          onClose={() => setMembersOpen(false)}
         />
       )}
     </div>

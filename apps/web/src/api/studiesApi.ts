@@ -37,6 +37,10 @@ import type {
   ImportPgnResponse,
   StudyExportPgnResponse,
   ToggleLikeResponse,
+  StudyMembersResponse,
+  InviteMemberRequest,
+  InviteLinkResponse,
+  AcceptInviteResponse,
 } from '@kingside/shared';
 import { api } from '../api';
 
@@ -62,6 +66,13 @@ export type {
   StudyChapterOrientation,
   StudyChapterMode,
   ToggleLikeResponse,
+  // KS-2892 (FC7): members API.
+  StudyMembersResponse,
+  StudyMemberDto,
+  InviteMemberRequest,
+  InviteLinkResponse,
+  AcceptInviteResponse,
+  StudyMemberRole,
 } from '@kingside/shared';
 
 export const studiesApi = {
@@ -183,6 +194,49 @@ export const studiesApi = {
   toggleLike: (slug: string): Promise<ToggleLikeResponse> =>
     api.post<ToggleLikeResponse>(
       `/studies/${encodeURIComponent(slug)}/like`,
+      {},
+    ),
+
+  /**
+   * KS-2892 / ADR-060 §2.5 (FC7) — управление соавторами студии.
+   *
+   * Backend (B5) endpoints:
+   *   • GET    /studies/:slug/members           → список members (owner + contributors)
+   *   • POST   /studies/:slug/members           → пригласить по username/uuid
+   *   • DELETE /studies/:slug/members/:userId   → убрать contributor'а
+   *   • POST   /studies/:slug/invite-link       → одноразовая ссылка (TTL 7д)
+   *   • POST   /studies/invites/:token/accept   → принять приглашение
+   *
+   * Все эндпоинты, кроме accept, требуют owner'а. Backend сам валидирует.
+   */
+  listMembers: (slug: string): Promise<StudyMembersResponse> =>
+    api.get<StudyMembersResponse>(
+      `/studies/${encodeURIComponent(slug)}/members`,
+    ),
+
+  inviteMember: (
+    slug: string,
+    req: InviteMemberRequest,
+  ): Promise<StudyMembersResponse> =>
+    api.post<StudyMembersResponse>(
+      `/studies/${encodeURIComponent(slug)}/members`,
+      req,
+    ),
+
+  removeMember: (slug: string, userId: string): Promise<void> =>
+    api.delete<void>(
+      `/studies/${encodeURIComponent(slug)}/members/${encodeURIComponent(userId)}`,
+    ),
+
+  createInviteLink: (slug: string): Promise<InviteLinkResponse> =>
+    api.post<InviteLinkResponse>(
+      `/studies/${encodeURIComponent(slug)}/invite-link`,
+      {},
+    ),
+
+  acceptInvite: (token: string): Promise<AcceptInviteResponse> =>
+    api.post<AcceptInviteResponse>(
+      `/studies/invites/${encodeURIComponent(token)}/accept`,
       {},
     ),
 

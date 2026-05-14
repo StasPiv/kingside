@@ -2022,3 +2022,60 @@
     text-align: center;
   }
 }
+
+/* ─── KS-2892 (FC7): StudyMembersDialog — список members + invite-flow ─── */
+
+.study-members-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.study-members-list__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+}
+
+.study-members-list__name {
+  flex: 1 1 auto;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-members-list__role {
+  flex-shrink: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.study-members-list__role[data-role='owner'] {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-4caf50, #4caf50);
+}
+
+.study-members-list__success {
+  margin: 6px 0 0;
+  color: var(--c-4caf50, #4caf50);
+  font-size: 12px;
+}
+
+.study-members-list__expires {
+  font-size: 11px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
