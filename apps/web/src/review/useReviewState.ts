@@ -214,10 +214,20 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
       };
     }
     case 'ADD_VARIATION': {
-      if (!state.currentMove) return state;
+      // KS-3039: на root (currentMove === null) variation добавляется к
+      // history[0] — это альтернативный first-move основной линии.
+      // Раньше ранний return съедал диспатч, а makeVariantMove из-за этого
+      // фолбэкал в ADD_MOVE и addMoveToHistory затирал всю историю.
+      // Синтезируем «виртуальный branch-point» c .next=history[0] и
+      // переиспользуем общую утилиту — никаких других мест трогать не надо.
+      const branchPoint = state.currentMove
+        ?? (state.history.length > 0
+          ? ({ next: state.history[0] } as unknown as ChessMove)
+          : null);
+      if (!branchPoint) return state;
       const { updatedHistory } = addVariationToHistory(
         action.payload,
-        state.currentMove,
+        branchPoint,
         state.history,
       );
       return {
@@ -432,7 +442,16 @@ export function useReviewState() {
           globalIndex,
           ply,
         };
-        if (state.currentMove?.next) {
+        // KS-3039: на ply=0 (currentMove === null) при непустой
+        // основной линии существующее продолжение — это history[0].
+        // Раньше условие проверяло только `currentMove?.next` (всегда
+        // false на root) и фолбэкало в ADD_MOVE → addMoveToHistory
+        // затирал всю историю до [newMove]. Теперь — корректно
+        // создаём variation для альтернативного first-move.
+        const hasMainContinuation =
+          !!state.currentMove?.next
+          || (state.currentMove === null && state.history.length > 0);
+        if (hasMainContinuation) {
           dispatch({ type: 'ADD_VARIATION', payload: newMove });
         } else {
           dispatch({ type: 'ADD_MOVE', payload: newMove });

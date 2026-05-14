@@ -244,3 +244,135 @@ describe('useReviewState — KS-2287 SET_VARIATION_COLOR', () => {
     expect(pgn).not.toContain('c5');
   });
 });
+
+/**
+ * KS-3039: variation на ply=0 (root, currentMove === null).
+ *
+ * Симптом до фикса: ход с начальной позиции, отличный от первого
+ * хода основной линии, через `makeVariantMove` фолбэкал в ADD_MOVE,
+ * который через addMoveToHistory затирал всю историю (`if (!currentMove)
+ * return [newMove]`). На ply >= 1 поведение работало корректно
+ * (variation на `currentMove.next`).
+ *
+ * Фикс: makeVariantMove распознаёт root-with-history как «main-line
+ * имеет продолжение» (history[0]), а ADD_VARIATION reducer
+ * синтезирует виртуальный branch-point `{next: history[0]}` и
+ * добавляет variation на history[0].
+ */
+describe('useReviewState — KS-3039 root variation (ply=0)', () => {
+  function setupWithPgn(pgn: string) {
+    const moves = parseAnnotatedPgn(pgn);
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.loadFromPgn(moves);
+    });
+    return result;
+  }
+
+  it('альтернативный first-move создаёт variation на history[0], основная линия сохранена', () => {
+    const result = setupWithPgn('1. e4 e5 2. Nf3');
+    const historyBefore = result.current.history;
+    expect(historyBefore.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
+
+    // Возвращаемся в root (до 1.e4).
+    act(() => {
+      result.current.gotoFirst();
+    });
+    expect(result.current.currentMove).toBeNull();
+
+    // Играем d4 — альтернативный первый ход.
+    act(() => {
+      result.current.makeVariantMove('d2', 'd4');
+    });
+
+    // Основная линия не потеряна.
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
+
+    // Variation осела на history[0] (= e4) как альтернатива первому ходу.
+    const rootVariations = result.current.history[0].variations;
+    expect(rootVariations).toBeDefined();
+    expect(rootVariations!.length).toBe(1);
+    expect(rootVariations![0][0].san).toBe('d4');
+
+    // Навигация переключилась на новый ход.
+    expect(result.current.currentMove?.san).toBe('d4');
+
+    // PGN сериализуется со скобочной нотацией для root-варианта.
+    const pgn = serializeToAnnotatedPgn(result.current.history);
+    expect(pgn).toContain('1. e4');
+    expect(pgn).toContain('d4');
+    expect(pgn).toContain('(');
+  });
+
+  it('повтор первого хода основной линии — не создаёт variation, переходит на history[0]', () => {
+    const result = setupWithPgn('1. e4 e5 2. Nf3');
+    const historyBefore = result.current.history;
+    act(() => {
+      result.current.gotoFirst();
+    });
+
+    // Играем тот же e4 — должны просто перейти на main-line e4.
+    act(() => {
+      result.current.makeVariantMove('e2', 'e4');
+    });
+
+    // История осталась той же (никаких новых ходов).
+    expect(result.current.history).toBe(historyBefore);
+    // Курсор — на main-line e4.
+    expect(result.current.currentMove?.san).toBe('e4');
+    expect(result.current.currentMove?.globalIndex).toBe(historyBefore[0].globalIndex);
+    // Никаких variations не наросло.
+    expect(result.current.history[0].variations).toBeUndefined();
+  });
+
+  it('пустая история + ход с root — обычный ADD_MOVE (не variation)', () => {
+    const { result } = renderHook(() => useReviewState());
+    expect(result.current.history).toEqual([]);
+    expect(result.current.currentMove).toBeNull();
+
+    act(() => {
+      result.current.makeVariantMove('e2', 'e4');
+    });
+
+    expect(result.current.history.length).toBe(1);
+    expect(result.current.history[0].san).toBe('e4');
+    expect(result.current.history[0].variations).toBeUndefined();
+    expect(result.current.currentMove?.san).toBe('e4');
+  });
+
+  it('повтор уже существующего root-variation — переключение на него, дубль не создаётся', () => {
+    const result = setupWithPgn('1. e4 (1. d4) e5 2. Nf3');
+    act(() => {
+      result.current.gotoFirst();
+    });
+
+    const d4Before = result.current.history[0].variations![0][0];
+    act(() => {
+      result.current.makeVariantMove('d2', 'd4');
+    });
+
+    // Variations осталась одна (никаких дублей).
+    expect(result.current.history[0].variations!.length).toBe(1);
+    // Курсор стоит на существующем d4.
+    expect(result.current.currentMove?.globalIndex).toBe(d4Before.globalIndex);
+  });
+
+  it('удаление root-variation — основная линия сохранена', () => {
+    const result = setupWithPgn('1. e4 e5 2. Nf3');
+    act(() => {
+      result.current.gotoFirst();
+    });
+    act(() => {
+      result.current.makeVariantMove('d2', 'd4');
+    });
+    const d4 = result.current.history[0].variations![0][0];
+
+    act(() => {
+      result.current.removeVariation(d4);
+    });
+
+    // Variations исчезли, основная линия не пострадала.
+    expect(result.current.history[0].variations).toBeUndefined();
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
+  });
+});
