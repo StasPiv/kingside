@@ -43,6 +43,35 @@ export class StudyService {
     private readonly members: StudyMembersService,
   ) {}
 
+  // ─── Likes (POV current user) ────────────────────────────────────
+
+  /**
+   * KS-2994 / ADR-060 §3.4 K4. Для текущего пользователя возвращает
+   * множество `studyId`'ов, которые он лайкнул среди переданных.
+   *
+   * Реализация — один SELECT по индексу `(userId, studyId)` (PK
+   * `study_likes`). Это эквивалент `EXISTS (SELECT 1 FROM study_likes
+   * WHERE study_id = s.id AND user_id = :userId)` для каждой строки,
+   * но без LEFT JOIN'а в Prisma findMany (Prisma не поддерживает
+   * EXISTS-фильтр как поле выборки — `_count` отдельная история).
+   *
+   * Edge:
+   *  - `userId === null` (anonymous) → пустой Set, без запроса в БД;
+   *  - `studyIds === []` → пустой Set;
+   *  - дубликаты в `studyIds` допускаются (Set схлопнет).
+   */
+  private async getLikedSet(
+    userId: string | null,
+    studyIds: string[],
+  ): Promise<Set<string>> {
+    if (!userId || studyIds.length === 0) return new Set();
+    const rows = await this.prisma.studyLike.findMany({
+      where: { userId, studyId: { in: studyIds } },
+      select: { studyId: true },
+    });
+    return new Set(rows.map((r) => r.studyId));
+  }
+
   // ─── Listings ────────────────────────────────────────────────────
 
   /**
@@ -74,7 +103,14 @@ export class StudyService {
       take,
       skip,
     });
-    return { data: rows.map(toStudyListItem) };
+    // KS-2994: подгружаем POV likedByMe одним SELECT.
+    const likedSet = await this.getLikedSet(
+      userId,
+      rows.map((r) => r.id),
+    );
+    return {
+      data: rows.map((r) => toStudyListItem(r, likedSet.has(r.id))),
+    };
   }
 
   /**
@@ -99,6 +135,7 @@ export class StudyService {
    * фильтрами, без `take/skip`. `hasMore = offset + items.length < total`.
    */
   async catalog(
+    userId: string | null,
     query: StudyCatalogQueryDto,
   ): Promise<{ items: StudyDto[]; total: number; hasMore: boolean }> {
     const sort: StudyCatalogSort = query.sort ?? 'hot';
@@ -193,7 +230,12 @@ export class StudyService {
       rows = await this.prisma.study.findMany({ where, orderBy, take, skip });
     }
 
-    const items = rows.map(toStudyDto);
+    // KS-2994: POV likedByMe одним SELECT по уже выбранным id'ам.
+    const likedSet = await this.getLikedSet(
+      userId,
+      rows.map((r) => r.id),
+    );
+    const items = rows.map((r) => toStudyDto(r, likedSet.has(r.id)));
     return {
       items,
       total,
@@ -265,7 +307,12 @@ export class StudyService {
       this.prisma.study.count({ where }),
     ]);
 
-    const items = rows.map(toStudyDto);
+    // KS-2994: POV likedByMe для caller (callerId может быть null — anon).
+    const likedSet = await this.getLikedSet(
+      callerId,
+      rows.map((r) => r.id),
+    );
+    const items = rows.map((r) => toStudyDto(r, likedSet.has(r.id)));
     return {
       items,
       total,
@@ -307,8 +354,10 @@ export class StudyService {
         updatedAt: true,
       },
     });
+    // KS-2994: POV likedByMe для одной студии (Set из одного id).
+    const likedSet = await this.getLikedSet(userId, [study.id]);
     return {
-      study: toStudyDto(study),
+      study: toStudyDto(study, likedSet.has(study.id)),
       chapters: chapters.map((c) => ({
         id: c.id,
         name: c.name,
@@ -439,7 +488,8 @@ export class StudyService {
       });
       return study;
     });
-    return toStudyDto(created);
+    // KS-2994: только что созданная студия — лайков от автора ещё нет.
+    return toStudyDto(created, false);
   }
 
   /**
@@ -631,7 +681,10 @@ export class StudyService {
         ...(topics !== undefined ? { topics } : {}),
       },
     });
-    return toStudyDto(updated);
+    // KS-2994: PATCH study не меняет состояние лайка — но фронт ожидает
+    // актуальный POV. Один SELECT по PK study_likes, дешёвый.
+    const likedSet = await this.getLikedSet(userId, [updated.id]);
+    return toStudyDto(updated, likedSet.has(updated.id));
   }
 
   /** Удалить студию — каскадом удалятся главы (FK CASCADE). */
@@ -675,6 +728,11 @@ export interface StudyDto {
   chaptersCount: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * KS-2994 / ADR-060 §3.4 K4. Лайкнул ли текущий пользователь.
+   * Для anonymous — всегда `false`. См. `getLikedSet`.
+   */
+  likedByMe: boolean;
 }
 
 export interface StudyListItem extends StudyDto {}
@@ -695,7 +753,13 @@ export interface StudyWithChapters {
   chapters: StudyChapterSummaryDto[];
 }
 
-export function toStudyDto(s: Study): StudyDto {
+/**
+ * KS-2994: `likedByMe` опционален у самой функции (default `false` —
+ * корректно для anon и для нештатных вызовов), вычисляется callsite'ом
+ * через `getLikedSet`. Это позволяет сохранить сигнатуру без обяз.
+ * userId-параметра и не ломать существующие точки вызова.
+ */
+export function toStudyDto(s: Study, likedByMe = false): StudyDto {
   return {
     id: s.id,
     ownerId: s.ownerId,
@@ -711,11 +775,12 @@ export function toStudyDto(s: Study): StudyDto {
     chaptersCount: s.chaptersCount,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
+    likedByMe,
   };
 }
 
-export function toStudyListItem(s: Study): StudyListItem {
-  return toStudyDto(s);
+export function toStudyListItem(s: Study, likedByMe = false): StudyListItem {
+  return toStudyDto(s, likedByMe);
 }
 
 // ─── helpers ───────────────────────────────────────────────────────

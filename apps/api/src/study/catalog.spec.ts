@@ -21,6 +21,12 @@ function makePrisma(): any {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
+    // KS-2994: catalog после KS-2994 подгружает POV likedByMe для каждой
+    // студии (один SELECT по study_likes). По умолчанию — пусто (anon
+    // или auth без лайков).
+    studyLike: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn(async (arg: any) => {
       if (Array.isArray(arg)) return Promise.all(arg);
@@ -74,7 +80,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       prisma.study.findMany.mockResolvedValue([baseStudy]);
       prisma.study.count.mockResolvedValue(1);
 
-      const r = await svc.catalog({});
+      const r = await svc.catalog(null, {});
 
       expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
       const sql = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0][0] as string;
@@ -86,19 +92,19 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
     });
 
     it('sort=new → orderBy createdAt desc', async () => {
-      await svc.catalog({ sort: 'new' });
+      await svc.catalog(null, { sort: 'new' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.orderBy).toEqual([{ createdAt: 'desc' }]);
     });
 
     it('sort=updated → orderBy updatedAt desc', async () => {
-      await svc.catalog({ sort: 'updated' });
+      await svc.catalog(null, { sort: 'updated' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.orderBy).toEqual([{ updatedAt: 'desc' }]);
     });
 
     it('sort=popular → orderBy likes desc, updatedAt desc (tie-break)', async () => {
-      await svc.catalog({ sort: 'popular' });
+      await svc.catalog(null, { sort: 'popular' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.orderBy).toEqual([{ likes: 'desc' }, { updatedAt: 'desc' }]);
     });
@@ -116,7 +122,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       prisma.study.findMany.mockResolvedValue([a, b, c]);
       prisma.study.count.mockResolvedValue(3);
 
-      const r = await svc.catalog({ sort: 'hot' });
+      const r = await svc.catalog(null, { sort: 'hot' });
 
       expect(r.items.map((s) => s.id)).toEqual(['ccc', 'aaa', 'bbb']);
     });
@@ -124,7 +130,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
 
   describe('filters: q + topic', () => {
     it('q добавляет OR ILIKE name+description (insensitive)', async () => {
-      await svc.catalog({ sort: 'new', q: 'sicilian' });
+      await svc.catalog(null, { sort: 'new', q: 'sicilian' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -136,13 +142,13 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
     });
 
     it('q whitespace → НЕ добавляет OR', async () => {
-      await svc.catalog({ sort: 'new', q: '   ' });
+      await svc.catalog(null, { sort: 'new', q: '   ' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.where).toEqual({ visibility: 'public' });
     });
 
     it('topic добавляет topics.has', async () => {
-      await svc.catalog({ sort: 'new', topic: 'opening' });
+      await svc.catalog(null, { sort: 'new', topic: 'opening' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -151,7 +157,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
     });
 
     it('q + topic — комбинация без потери visibility=public', async () => {
-      await svc.catalog({ sort: 'popular', q: 'caro-kann', topic: 'opening' });
+      await svc.catalog(null, { sort: 'popular', q: 'caro-kann', topic: 'opening' });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -165,7 +171,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
 
     it('hot: q+topic — SQL содержит ILIKE и `topics @>` с параметризацией', async () => {
       prisma.$queryRawUnsafe.mockResolvedValue([]);
-      await svc.catalog({ sort: 'hot', q: 'sicilian', topic: 'opening' });
+      await svc.catalog(null, { sort: 'hot', q: 'sicilian', topic: 'opening' });
       const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
       expect(sql).toMatch(/ILIKE \$1[\s\S]+ILIKE \$2/);
       expect(sql).toMatch(/s\.topics @> ARRAY\[\$3\]::text\[\]/);
@@ -175,20 +181,20 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
 
   describe('пагинация', () => {
     it('page=2 pageSize=10 → skip=10 take=10', async () => {
-      await svc.catalog({ sort: 'new', page: 2, pageSize: 10 });
+      await svc.catalog(null, { sort: 'new', page: 2, pageSize: 10 });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.skip).toBe(10);
       expect(call.take).toBe(10);
     });
 
     it('pageSize клампится до max=50', async () => {
-      await svc.catalog({ sort: 'new', page: 1, pageSize: 999 });
+      await svc.catalog(null, { sort: 'new', page: 1, pageSize: 999 });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.take).toBe(50);
     });
 
     it('page=0 → clampInt(1, …) → skip=0', async () => {
-      await svc.catalog({ sort: 'new', page: 0, pageSize: 20 });
+      await svc.catalog(null, { sort: 'new', page: 0, pageSize: 20 });
       const call = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(call.skip).toBe(0);
     });
@@ -199,7 +205,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       );
       prisma.study.count.mockResolvedValue(45);
 
-      const r = await svc.catalog({ sort: 'new', page: 1, pageSize: 20 });
+      const r = await svc.catalog(null, { sort: 'new', page: 1, pageSize: 20 });
 
       expect(r.total).toBe(45);
       expect(r.items).toHaveLength(20);
@@ -212,7 +218,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       );
       prisma.study.count.mockResolvedValue(25);
 
-      const r = await svc.catalog({ sort: 'new', page: 2, pageSize: 20 });
+      const r = await svc.catalog(null, { sort: 'new', page: 2, pageSize: 20 });
 
       expect(r.hasMore).toBe(false);
     });
@@ -223,7 +229,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       prisma.study.findMany.mockResolvedValue([]);
       prisma.study.count.mockResolvedValue(0);
 
-      const r = await svc.catalog({ sort: 'new', q: 'nonexistent-token-xyz' });
+      const r = await svc.catalog(null, { sort: 'new', q: 'nonexistent-token-xyz' });
 
       expect(r.items).toEqual([]);
       expect(r.total).toBe(0);
@@ -234,7 +240,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       prisma.$queryRawUnsafe.mockResolvedValue([]);
       prisma.study.count.mockResolvedValue(0);
 
-      const r = await svc.catalog({ sort: 'hot' });
+      const r = await svc.catalog(null, { sort: 'hot' });
 
       expect(r.items).toEqual([]);
       expect(prisma.study.findMany).not.toHaveBeenCalled();
@@ -243,7 +249,7 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
 
   describe('visibility инвариант (KS-2910)', () => {
     it('catalog никогда не отдаёт unlisted/private — `where.visibility=public` всегда', async () => {
-      await svc.catalog({ sort: 'new' });
+      await svc.catalog(null, { sort: 'new' });
       const findManyCall = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
       expect(findManyCall.where.visibility).toBe('public');
 
@@ -273,20 +279,26 @@ describe('KS-2885 B12 · StudyCatalogController', () => {
       page: 2,
       pageSize: 10,
     };
-    const r = await controller.catalog(query);
+    // KS-2994: контроллер пробрасывает userId из req.user.
+    const req = { user: { id: 'user-1' } } as any;
+    const r = await controller.catalog(req, query);
 
-    expect((fakeService.catalog as jest.Mock)).toHaveBeenCalledWith(query);
+    expect((fakeService.catalog as jest.Mock)).toHaveBeenCalledWith(
+      'user-1',
+      query,
+    );
     expect(r).toBe(expected);
   });
 
-  it('пустой query тоже передаётся в сервис (defaults применяет сервис)', async () => {
+  it('anonymous (нет req.user) → передаёт userId=null', async () => {
     const fakeService = {
       catalog: jest.fn().mockResolvedValue({ items: [], total: 0, hasMore: false }),
     } as unknown as StudyService;
     const controller = new StudyCatalogController(fakeService);
 
-    await controller.catalog({} as StudyCatalogQueryDto);
+    const anonReq = { user: undefined } as any;
+    await controller.catalog(anonReq, {} as StudyCatalogQueryDto);
 
-    expect((fakeService.catalog as jest.Mock)).toHaveBeenCalledWith({});
+    expect((fakeService.catalog as jest.Mock)).toHaveBeenCalledWith(null, {});
   });
 });

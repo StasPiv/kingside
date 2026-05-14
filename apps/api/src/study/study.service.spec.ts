@@ -50,6 +50,10 @@ function makePrisma(): any {
     analysis: {
       findUnique: jest.fn(),
     },
+    // KS-2994: getLikedSet ходит в study_likes для POV likedByMe.
+    studyLike: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     // KS-2880: catalog hot-sort использует $queryRawUnsafe для PG-формулы
     // (динамические WHERE-условия с параметризацией).
     $queryRawUnsafe: jest.fn(),
@@ -380,7 +384,7 @@ describe('StudyService — KS-2818 T3', () => {
       prisma.study.findMany.mockResolvedValue([pubStudy]);
       prisma.study.count.mockResolvedValue(1);
 
-      const r = await svc.catalog({});
+      const r = await svc.catalog(null, {});
 
       expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
       // count с фильтром visibility=public
@@ -397,7 +401,7 @@ describe('StudyService — KS-2818 T3', () => {
       prisma.study.findMany.mockResolvedValueOnce([pubStudy]);
       prisma.study.count.mockResolvedValue(25);
 
-      const r = await svc.catalog({ sort: 'new', page: 2, pageSize: 10 });
+      const r = await svc.catalog(null, { sort: 'new', page: 2, pageSize: 10 });
 
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.orderBy).toEqual([{ createdAt: 'desc' }]);
@@ -410,13 +414,13 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('sort=updated → orderBy updatedAt desc', async () => {
-      await svc.catalog({ sort: 'updated' });
+      await svc.catalog(null, { sort: 'updated' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.orderBy).toEqual([{ updatedAt: 'desc' }]);
     });
 
     it('sort=popular → orderBy likes desc, updatedAt desc (tie-break)', async () => {
-      await svc.catalog({ sort: 'popular' });
+      await svc.catalog(null, { sort: 'popular' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.orderBy).toEqual([
         { likes: 'desc' },
@@ -425,7 +429,7 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('q добавляет OR ILIKE name+description (insensitive)', async () => {
-      await svc.catalog({ sort: 'new', q: 'sicilian' });
+      await svc.catalog(null, { sort: 'new', q: 'sicilian' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -437,14 +441,14 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('q пустой/whitespace → НЕ добавляет OR', async () => {
-      await svc.catalog({ sort: 'new', q: '   ' });
+      await svc.catalog(null, { sort: 'new', q: '   ' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.where).toEqual({ visibility: 'public' });
       expect(call.where.OR).toBeUndefined();
     });
 
     it('topic добавляет фильтр topics.has (PG @> ARRAY[$1])', async () => {
-      await svc.catalog({ sort: 'new', topic: 'opening' });
+      await svc.catalog(null, { sort: 'new', topic: 'opening' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -453,7 +457,7 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('q+topic — комбинация фильтров без потери visibility=public', async () => {
-      await svc.catalog({ sort: 'popular', q: 'sicilian', topic: 'opening' });
+      await svc.catalog(null, { sort: 'popular', q: 'sicilian', topic: 'opening' });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.where).toEqual({
         visibility: 'public',
@@ -466,13 +470,13 @@ describe('StudyService — KS-2818 T3', () => {
     });
 
     it('pageSize клампится до max=50 даже если запросили больше', async () => {
-      await svc.catalog({ sort: 'new', page: 1, pageSize: 999 });
+      await svc.catalog(null, { sort: 'new', page: 1, pageSize: 999 });
       const call = prisma.study.findMany.mock.calls[0][0];
       expect(call.take).toBe(50);
     });
 
     it('page клампится до min=1 (через DTO @Min(1), здесь страховка)', async () => {
-      await svc.catalog({ sort: 'new', page: 0, pageSize: 20 });
+      await svc.catalog(null, { sort: 'new', page: 0, pageSize: 20 });
       const call = prisma.study.findMany.mock.calls[0][0];
       // clampInt(0,1,…) → 1; skip = (1-1)*20 = 0
       expect(call.skip).toBe(0);
@@ -492,7 +496,7 @@ describe('StudyService — KS-2818 T3', () => {
       prisma.study.findMany.mockResolvedValue([a, b, c]);
       prisma.study.count.mockResolvedValue(3);
 
-      const r = await svc.catalog({ sort: 'hot' });
+      const r = await svc.catalog(null, { sort: 'hot' });
 
       expect(r.items.map((s) => s.id)).toEqual(['ccc', 'aaa', 'bbb']);
       expect(r.total).toBe(3);
@@ -503,7 +507,7 @@ describe('StudyService — KS-2818 T3', () => {
       prisma.$queryRawUnsafe.mockResolvedValue([]);
       prisma.study.count.mockResolvedValue(0);
 
-      const r = await svc.catalog({ sort: 'hot' });
+      const r = await svc.catalog(null, { sort: 'hot' });
 
       expect(r.items).toEqual([]);
       expect(prisma.study.findMany).not.toHaveBeenCalled();
@@ -518,7 +522,7 @@ describe('StudyService — KS-2818 T3', () => {
       );
       prisma.study.count.mockResolvedValue(45);
 
-      const r = await svc.catalog({ sort: 'new', page: 1, pageSize: 20 });
+      const r = await svc.catalog(null, { sort: 'new', page: 1, pageSize: 20 });
 
       expect(r.hasMore).toBe(true);
       expect(r.total).toBe(45);
@@ -531,7 +535,7 @@ describe('StudyService — KS-2818 T3', () => {
       );
       prisma.study.count.mockResolvedValue(25);
 
-      const r = await svc.catalog({ sort: 'new', page: 2, pageSize: 20 });
+      const r = await svc.catalog(null, { sort: 'new', page: 2, pageSize: 20 });
 
       // skip=20 + 5 = 25 = total → hasMore=false
       expect(r.hasMore).toBe(false);

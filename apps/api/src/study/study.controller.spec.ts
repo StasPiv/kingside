@@ -60,6 +60,8 @@ const baseStudyDto = {
   chaptersCount: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
+  // KS-2994 / ADR-060 §3.4 K4.
+  likedByMe: false,
 };
 
 const baseStudy = {

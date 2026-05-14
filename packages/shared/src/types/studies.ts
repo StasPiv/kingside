@@ -101,6 +101,15 @@ export interface StudyDto {
   createdAt: string;
   /** ISO-8601 timestamp; обновляется при PATCH study / chapters. */
   updatedAt: string;
+  /**
+   * KS-2994 / ADR-060 §3.4 K4. POV текущего пользователя: лайкнул ли
+   * он эту студию. Для anonymous — всегда `false`. Считается отдельным
+   * запросом в `study_likes` по `(studyId, userId=currentUserId)` —
+   * см. `StudyService.getLikedSet`. Фронт использует поле для
+   * первичной отрисовки сердечка в `LikeButton` (KS-2888 FC3) без
+   * follow-up GET'а на состояние лайка.
+   */
+  likedByMe: boolean;
 }
 
 /**

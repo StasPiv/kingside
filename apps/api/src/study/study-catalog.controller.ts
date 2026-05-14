@@ -1,18 +1,24 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import { StudyService, type StudyDto } from './study.service';
 import { StudyCatalogQueryDto } from './dto/study.dto';
 import { McpTool } from '../mcp/decorators';
+import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
+import { AuthenticatedRequest } from '../common/authenticated-request';
 
 /**
  * KS-2880 / ADR-060 §3.4. Каталог публичных студий.
  *
- * Анонимный read-only эндпоинт (без `JwtAuthGuard`). Вынесен в
- * отдельный controller с префиксом `studies/catalog` чтобы:
- *  - не конфликтовать с параметрическим `:slug` `StudyController`;
- *  - не наследовать `OptionalJwtAuthGuard` оттуда (каталог никогда
- *    не зависит от auth, чтобы CDN-кеш был эффективен);
- *  - не путаться с `studies/public` (`StudyPublicController`),
- *    который остаётся как legacy-листинг без сортировок/фильтров.
+ * Read-only эндпоинт; ранее был полностью anonymous (без guards), но
+ * с KS-2994 / ADR-060 §3.4 K4 каталог отдаёт `likedByMe: boolean` —
+ * POV текущего пользователя. Поэтому добавлен `OptionalJwtAuthGuard`:
+ *  - anonymous допускается (auth-токен не обязателен), `likedByMe`
+ *    всегда `false`;
+ *  - auth user — `likedByMe` вычисляется по `study_likes`.
+ *
+ * CDN-кеш: для anonymous-обращений (без `Authorization`/JWT-куки)
+ * ответ детерминирован и кешируется как раньше; для auth-обращений
+ * — формально per-user, в MVP без edge-кеша (см. ADR-060 §6 — кеш
+ * stale-only для anon).
  *
  * Контракт: `GET /api/studies/catalog?sort=hot|new|updated|popular
  * &q=&topic=&page=&pageSize=` → `{items, total, hasMore}`.
@@ -30,10 +36,12 @@ export class StudyCatalogController {
     defaultLimit: 20,
     maxLimit: 50,
   })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
   async catalog(
+    @Request() req: AuthenticatedRequest,
     @Query() query: StudyCatalogQueryDto,
   ): Promise<{ items: StudyDto[]; total: number; hasMore: boolean }> {
-    return this.study.catalog(query);
+    return this.study.catalog(req.user?.id ?? null, query);
   }
 }
