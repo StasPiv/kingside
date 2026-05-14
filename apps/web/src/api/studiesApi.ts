@@ -185,4 +185,46 @@ export const studiesApi = {
       `/studies/${encodeURIComponent(slug)}/like`,
       {},
     ),
+
+  /**
+   * KS-2886 / ADR-060 §3.4 (FC1) — каталог студий.
+   *
+   * GET `/api/studies/catalog?sort=hot|new|updated|popular&q=&topic=&page=&mine=`.
+   * Ответ — `{items, total, hasMore}` (offset-style). `sort`-значения
+   * совпадают с табами в UI; `mine=1` сужает до студий текущего юзера
+   * (требует JWT, иначе backend вернёт 401 → ловим в catch).
+   * `facets=topics` пока используется как fallback при отсутствии
+   * выделенного facets-endpoint'а: backend возвращает обычный items-
+   * список, фронт собирает топ-topics из items на клиенте.
+   */
+  getCatalog: (opts: {
+    sort?: 'hot' | 'new' | 'updated' | 'popular';
+    q?: string;
+    topic?: string;
+    page?: number;
+    mine?: boolean;
+  } = {}): Promise<StudyCatalogResponse> => {
+    const params = new URLSearchParams();
+    if (opts.sort) params.set('sort', opts.sort);
+    if (opts.q) params.set('q', opts.q);
+    if (opts.topic) params.set('topic', opts.topic);
+    if (opts.page != null) params.set('page', String(opts.page));
+    if (opts.mine) params.set('mine', '1');
+    const qs = params.toString();
+    return api.get<StudyCatalogResponse>(
+      `/studies/catalog${qs ? `?${qs}` : ''}`,
+    );
+  },
 };
+
+/**
+ * KS-2886 (FC1): ответ `/api/studies/catalog`. Тип объявлен здесь
+ * (а не в `@kingside/shared`), потому что shared-types ещё не
+ * расширены — backend B7 уехал в прод раньше синхронизации DTO.
+ * После KS-289X (синхронизация shared) перенесём.
+ */
+export interface StudyCatalogResponse {
+  items: StudyDto[];
+  total: number;
+  hasMore: boolean;
+}
