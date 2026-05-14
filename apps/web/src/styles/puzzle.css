@@ -4385,6 +4385,18 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   outline-offset: 2px;
 }
 
+/* KS-3038: на мобильном tap по доске-превью не открывал пазл —
+   react-chessboard вешает свои pointer/touch-обработчики на корень
+   доски (даже при allowDragging:false, чтобы поддержать клики
+   по фигурам в режиме puzzle). На touchstart он вызывает
+   e.preventDefault(), из-за чего синтетический click на родительском
+   <a> не срабатывает. Блокируем pointer-events на всех потомках
+   ссылки — тап идёт напрямую на <a>, навигация работает штатно.
+   Доска тут чисто декоративная (превью), интерактив не нужен. */
+.play-vs-engine-card__board-btn > * {
+  pointer-events: none;
+}
+
 .play-vs-engine-card__body {
   display: flex;
   flex-direction: column;
