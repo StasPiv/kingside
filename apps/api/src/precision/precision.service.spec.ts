@@ -549,6 +549,143 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
     });
   });
 
+  // ─── KS-3029: dev-only test fixture ────────────────────────────────
+
+  describe('createTestFixtureAttempt (KS-3029)', () => {
+    function setupTxMocks() {
+      const txState: { attempt?: any; precision?: any; moves?: any[] } = {};
+      prisma.puzzle = {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pve-puzzle-1' }),
+      };
+      prisma.$transaction = jest.fn(
+        async (cb: (tx: any) => Promise<unknown>) => {
+          const tx = {
+            puzzleAttempt: {
+              create: jest.fn(async ({ data }: any) => {
+                txState.attempt = { id: 'fixture-attempt-1', ...data };
+                return { id: 'fixture-attempt-1' };
+              }),
+            },
+            precisionAttempt: {
+              create: jest.fn(async ({ data }: any) => {
+                txState.precision = data;
+                return data;
+              }),
+            },
+            precisionAttemptMove: {
+              createMany: jest.fn(async ({ data }: any) => {
+                txState.moves = data;
+                return { count: data.length };
+              }),
+            },
+          };
+          return cb(tx);
+        },
+      );
+      return txState;
+    }
+
+    it('5★ кейс: 6 best (WDL не меняется) → score=5', async () => {
+      const tx = setupTxMocks();
+      const moves = new Array(6).fill(null).map((_, i) => ({
+        ply: i + 1,
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 1000, d: 0, l: 0 },
+      }));
+
+      const r = await service.createTestFixtureAttempt({
+        userId: 'user-1',
+        body: { moves },
+      });
+
+      expect(r.attemptId).toBe('fixture-attempt-1');
+      expect(r.score).toBe(5);
+      expect(r.scorePct).toBeCloseTo(100, 1);
+      expect(tx.precision.bestMovesCount).toBe(6);
+      expect(tx.moves).toHaveLength(6);
+    });
+
+    it('2★ кейс (ADR §4.3 #6): 5 best + 1 blunder → score=2 через cap', async () => {
+      const tx = setupTxMocks();
+      const bestMoves = ['e2e4', 'd2d4', 'c2c4', 'g1f3', 'b1c3'].map(
+        (uci, i) => ({
+          ply: i + 1,
+          playedUci: uci,
+          bestUci: uci,
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
+        }),
+      );
+      const moves = [
+        ...bestMoves,
+        {
+          ply: 6,
+          playedUci: 'g2g4',
+          bestUci: 'e2e4',
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 500, d: 0, l: 500 }, // loss_E=0.5 → blunder
+        },
+      ];
+
+      const r = await service.createTestFixtureAttempt({
+        userId: 'user-1',
+        body: { moves },
+      });
+
+      expect(r.score).toBe(2);
+      expect(r.scorePct).toBe(60); // cap blunder
+      expect(tx.precision.blundersCount).toBe(1);
+      expect(tx.precision.firstMistakePly).toBe(6);
+    });
+
+    it('puzzleId не указан → берёт первый PVE-пазл из БД', async () => {
+      setupTxMocks();
+      await service.createTestFixtureAttempt({
+        userId: 'user-1',
+        body: { moves: [{ ply: 1, playedUci: 'e2e4', bestUci: 'e2e4' }, { ply: 2, playedUci: 'd2d4', bestUci: 'd2d4' }] },
+      });
+      expect(prisma.puzzle.findFirst).toHaveBeenCalledWith({
+        where: { solutionMode: 'play-vs-engine' },
+        select: { id: true },
+      });
+    });
+
+    it('puzzleId передан явно → не дёргает puzzle.findFirst', async () => {
+      setupTxMocks();
+      await service.createTestFixtureAttempt({
+        userId: 'user-1',
+        body: {
+          puzzleId: 'custom-pve-id',
+          moves: [{ ply: 1, playedUci: 'e2e4', bestUci: 'e2e4' }, { ply: 2, playedUci: 'd2d4', bestUci: 'd2d4' }],
+        },
+      });
+      expect(prisma.puzzle.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('пустой moves[] → 400 BadRequestException', async () => {
+      setupTxMocks();
+      await expect(
+        service.createTestFixtureAttempt({
+          userId: 'user-1',
+          body: { moves: [] },
+        }),
+      ).rejects.toThrow('moves[] must be non-empty');
+    });
+
+    it('PVE-пазлов в БД нет, puzzleId не передан → 400', async () => {
+      setupTxMocks();
+      prisma.puzzle.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.createTestFixtureAttempt({
+          userId: 'user-1',
+          body: { moves: [{ ply: 1, playedUci: 'e2e4', bestUci: 'e2e4' }, { ply: 2, playedUci: 'd2d4', bestUci: 'd2d4' }] },
+        }),
+      ).rejects.toThrow('No PVE puzzle');
+    });
+  });
+
   // ─── KS-2727: trends + breakdowns ──────────────────────────────────
 
   describe('classifyPhaseByFen (KS-2727)', () => {

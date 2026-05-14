@@ -8,6 +8,7 @@
  *   - `precision_attempt_moves` — per-move детали.
  */
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -19,8 +20,14 @@ import type {
   PrecisionBreakdownsResponse,
   PrecisionStatsResponse,
   PrecisionTrendsResponse,
+  PrecisionMoveInput,
+} from '@kingside/shared';
+import {
+  classifyMove,
+  computePrecisionScore,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CreateTestFixtureAttemptDto } from './dto/test-fixture.dto';
 
 @Injectable()
 export class PrecisionService {
@@ -530,6 +537,185 @@ export class PrecisionService {
     );
 
     return { byPhase, byTheme };
+  }
+
+  // ── KS-3029: dev-only fixture для e2e (KS-3007) ──────────────────
+
+  /**
+   * KS-3029. Создаёт precision-attempt с произвольными moves БЕЗ
+   * chess.js валидации — для e2e KS-3007 (5★ сценарии ADR-065 §4.3).
+   *
+   * Доступ ограничен `DevOnlyGuard` на контроллере (NODE_ENV !=
+   * production). На проде endpoint вернёт 404 ещё до вызова сервиса.
+   *
+   * Алгоритм:
+   *  1. Если `puzzleId` не задан — берём первый PVE-пазл из БД.
+   *  2. Для каждого move: classifyMove(WDL/cp/isBestMove).
+   *  3. Считаем counts, accuracyPercent, firstMistakePly, wdlLeakSum.
+   *  4. computePrecisionScore → score, scorePct.
+   *  5. Транзакция: PuzzleAttempt + PrecisionAttempt + Moves.
+   *  6. Возврат `{attemptId, score, scorePct}`.
+   */
+  async createTestFixtureAttempt(args: {
+    userId: string;
+    body: CreateTestFixtureAttemptDto;
+  }): Promise<{
+    attemptId: string;
+    score: number | null;
+    scorePct: number | null;
+  }> {
+    const moves = args.body.moves ?? [];
+    if (moves.length === 0) {
+      throw new BadRequestException('moves[] must be non-empty');
+    }
+
+    let puzzleId = args.body.puzzleId;
+    if (!puzzleId) {
+      const puzzle = await this.prisma.puzzle.findFirst({
+        where: { solutionMode: 'play-vs-engine' },
+        select: { id: true },
+      });
+      if (!puzzle) {
+        throw new BadRequestException(
+          'No PVE puzzle in DB to attach fixture attempt. Pass puzzleId explicitly.',
+        );
+      }
+      puzzleId = puzzle.id;
+    }
+
+    // Классификация + входы для score.
+    const classified = moves.map((m) => {
+      const isBestMove = m.playedUci === m.bestUci;
+      const klass = classifyMove({
+        wdlBefore: m.wdlBefore ?? null,
+        wdlAfter: m.wdlAfter ?? null,
+        cpBefore: m.cpBefore ?? null,
+        cpAfter: m.cpAfter ?? null,
+        isBestMove,
+      });
+      return { m, klass };
+    });
+
+    const counts = {
+      best: 0,
+      good: 0,
+      inaccuracy: 0,
+      mistake: 0,
+      blunder: 0,
+    };
+    let firstMistakePly: number | null = null;
+    let wdlLeakSum = 0;
+    for (const c of classified) {
+      counts[c.klass]++;
+      if (
+        firstMistakePly == null &&
+        (c.klass === 'mistake' || c.klass === 'blunder')
+      ) {
+        firstMistakePly = c.m.ply;
+      }
+      const wb = c.m.wdlBefore;
+      const wa = c.m.wdlAfter;
+      if (wb && wa) {
+        const eBefore = (wb.w + wb.d / 2) / 1000;
+        const eAfter = (wa.w + wa.d / 2) / 1000;
+        wdlLeakSum += Math.max(0, eBefore - eAfter);
+      }
+    }
+    const total = classified.length;
+    const accuracyPercent =
+      total > 0 ? ((counts.best + counts.good) / total) * 100 : 0;
+
+    const scoreInputs: PrecisionMoveInput[] = classified.map(({ m, klass }) => ({
+      wdlBefore: m.wdlBefore ?? null,
+      wdlAfter: m.wdlAfter ?? null,
+      cpBefore: m.cpBefore ?? null,
+      cpAfter: m.cpAfter ?? null,
+      classification: klass,
+    }));
+    const scoreResult = computePrecisionScore(scoreInputs);
+
+    // WDL_signed start/end для PrecisionAttempt (упрощённо).
+    const first = moves[0];
+    const last = moves[moves.length - 1];
+    const wdlSigned = (w: { w: number; d: number; l: number } | null | undefined) =>
+      w ? (w.w - w.l) / 1000 : 0;
+    const wdlAtStartSigned = wdlSigned(first.wdlBefore);
+    const wdlAtEndSigned = wdlSigned(last.wdlAfter);
+
+    const endReason = args.body.endReason ?? 'win';
+    const solved = args.body.solved ?? true;
+
+    const attemptId = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.puzzleAttempt.create({
+        data: {
+          puzzleId: puzzleId!,
+          userId: args.userId,
+          solved,
+          timeMs: 0,
+          ratingBefore: 0,
+          ratingAfter: 0,
+          userMoves: null,
+          hintsUsed: 0,
+        },
+        select: { id: true },
+      });
+
+      await tx.precisionAttempt.create({
+        data: {
+          attemptId: created.id,
+          wdlAtStartSigned,
+          wdlAtEndSigned,
+          halfMovesPlayed: total,
+          halfMovesTarget: total,
+          accuracyPercent,
+          bestMovesCount: counts.best,
+          goodMovesCount: counts.good,
+          inaccuraciesCount: counts.inaccuracy,
+          mistakesCount: counts.mistake,
+          blundersCount: counts.blunder,
+          firstMistakePly,
+          wdlLeakSum,
+          endReason,
+          score: scoreResult.stars,
+          scorePct: scoreResult.scorePct,
+        },
+      });
+
+      if (classified.length > 0) {
+        await tx.precisionAttemptMove.createMany({
+          data: classified.map(({ m, klass }) => ({
+            attemptId: created.id,
+            ply: m.ply,
+            fenBefore: m.fenBefore ?? '',
+            playedUci: m.playedUci,
+            bestUci: m.bestUci,
+            cpBefore: m.cpBefore ?? null,
+            cpAfter: m.cpAfter ?? null,
+            wdlBeforeW: m.wdlBefore?.w ?? null,
+            wdlBeforeD: m.wdlBefore?.d ?? null,
+            wdlBeforeL: m.wdlBefore?.l ?? null,
+            wdlAfterW: m.wdlAfter?.w ?? null,
+            wdlAfterD: m.wdlAfter?.d ?? null,
+            wdlAfterL: m.wdlAfter?.l ?? null,
+            depth: m.depth ?? null,
+            classification: klass,
+          })),
+        });
+      }
+
+      return created.id;
+    });
+
+    this.logger.log(
+      `KS-3029 test fixture: user=${args.userId} puzzle=${puzzleId} ` +
+        `moves=${total} score=${scoreResult.stars} scorePct=${scoreResult.scorePct?.toFixed(1)}`,
+    );
+
+    return {
+      attemptId,
+      score: scoreResult.stars,
+      scorePct: scoreResult.scorePct,
+    };
   }
 }
 
