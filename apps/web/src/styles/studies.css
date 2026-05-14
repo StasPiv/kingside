@@ -1858,23 +1858,95 @@
   margin: 0;
 }
 
-/* ─── KS-2890 (FC5): embed-страница студии `/study/embed/:studyId/:chapterId`.
-   Минимальный layout — только доска + move-list + footer.
-   L4 (отдельная задача) подкрасит детали; здесь — каркас. ────── */
+/* ─── KS-2890 (FC5) / KS-2895 (L4): embed-страница студии
+   `/study/embed/:studyId/:chapterId`.
+
+   Каркас и тонкая полировка:
+   • занимает 100% viewport iframe'а, без внешних padding'ов
+     (Sidebar/Header сайта не рендерятся — route ВНЕ MainLayout);
+   • внутри `__board` сидит `<AnalysisPage studyMode="embed">`,
+     поэтому его собственные padding'ы / max-width нужно
+     сбросить, чтобы доска заполняла всё доступное место;
+   • `__footer` — узкая строка «Powered by Kingside» снизу;
+   • theme через `body[data-board-theme]` управляется
+     `BoardSettingsContext` (KS-2890), CSS правил здесь не нужно —
+     палитра клеток лежит в `themes.css`.
+   ────────────────────────────────────────────────────────────── */
 
 .study-embed-page {
+  /* iframe всегда подставляет реальную высоту viewport'а; не
+     блокируем скролл флагом `overflow:hidden` — это даёт move-list
+     возможность скроллиться внутри своего флекс-контейнера, а сам
+     embed остаётся «целостной» страничкой. */
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--c-1a1a2e, #1a1a2e);
   color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  overflow: hidden;
+}
+
+/* Состояние ошибки («Студия не найдена.») и loader — AnalysisPage
+   возвращает `<div class="error">{msg}</div>` / `<div class="loading">`.
+   Центруем по доступной площади, чтобы сообщение не висело
+   узкой колонкой в верхнем-левом углу iframe'а. */
+.study-embed-page .error,
+.study-embed-page .loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 16px;
+  font-size: 14px;
+  text-align: center;
+  background: transparent;
+  border: 0;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.study-embed-page .error {
+  color: var(--c-e88c8c, #e88c8c);
 }
 
 .study-embed-page__board {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  /* AnalysisPage внутри использует flex 1 + min-height: 0 — оба
+     контейнера должны быть способны схлопнуть высоту, иначе
+     move-list прорастёт за footer. */
 }
+
+/* AnalysisPage в embed-режиме: сбрасываем внешние padding'ы и
+   max-width, чтобы доска + move-list занимали 100% площади.
+   Перекрываем `.analysis-page { padding: 8px 8px 0 }` из
+   analysis.css только в пределах `.study-embed-page`. */
+.study-embed-page .analysis-page {
+  padding: 0;
+  gap: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+/* AnalysisHeader / workshop-shortcut в embed избыточны — это
+   часть «сайтовой» декорации, которую владелец встраивающего
+   сайта не должен видеть внутри iframe. Скрываем только в embed,
+   editor / public-readonly не задеваем. */
+.study-embed-page .analysis-workshop-shortcut,
+.study-embed-page .analysis-breadcrumbs,
+.study-embed-page .analysis-header__top {
+  display: none;
+}
+
+/* Move-list в embed — компактнее, без выраженного бордера-обёртки. */
+.study-embed-page .analysis-moves--variants {
+  border-radius: 0;
+  background: var(--c-16213e, #16213e);
+}
+
+/* ─── Footer «Powered by Kingside» ────────────────────────── */
 
 .study-embed-page__footer {
   flex-shrink: 0;
@@ -1882,15 +1954,71 @@
   background: var(--c-0f0f1e, #0f0f1e);
   border-top: 1px solid var(--c-2a2a4a, #2a2a4a);
   font-size: 11px;
+  letter-spacing: 0.3px;
   text-align: right;
+  /* На случай очень узких iframe'ов — не даём footer'у переноситься
+     на 2 строки и съедать высоту доски. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .study-embed-page__footer a {
   color: var(--c-a0a0c0, #a0a0c0);
   text-decoration: none;
   letter-spacing: 0.3px;
+  transition: color 0.15s;
 }
 
-.study-embed-page__footer a:hover {
+.study-embed-page__footer a:hover,
+.study-embed-page__footer a:focus-visible {
   color: var(--c-7c83ff, #7c83ff);
+  outline: none;
+}
+
+.study-embed-page__footer a:focus-visible {
+  text-decoration: underline;
+}
+
+/* ─── Theme-override маркер (data-theme на корне) ─────────
+   FC5 уже выставляет `body[data-board-theme]` через
+   BoardSettingsContext, поэтому palette клеток подменяется
+   `themes.css`. На уровне корня `.study-embed-page[data-theme]`
+   просто оставляем след для отладки/tests — без дублирующих
+   палитр (всё через токены). */
+
+/* ─── Responsive: ≤400px (узкий iframe / mobile) ──────────
+   Внутри AnalysisPage перестраиваем layout: board сверху на всю
+   ширину, move-list уходит под доску. Бордер eval-bar остаётся,
+   но max-width у `.analysis-board-area` снимается. */
+
+@media (max-width: 400px) {
+  .study-embed-page .analysis-page {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .study-embed-page .analysis-board-area {
+    max-width: 100%;
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  /* Сайд-панель AnalysisPage — превращается в нижний move-list. */
+  .study-embed-page .analysis-side,
+  .study-embed-page .analysis-sidebar,
+  .study-embed-page .analysis-right-panel {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 auto;
+    min-height: 120px;
+    border-left: 0;
+    border-top: 1px solid var(--c-2a2a4a, #2a2a4a);
+  }
+
+  .study-embed-page__footer {
+    padding: 4px 8px;
+    font-size: 10px;
+    text-align: center;
+  }
 }
