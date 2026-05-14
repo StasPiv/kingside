@@ -234,8 +234,8 @@ export const studiesApi = {
       {},
     ),
 
-  acceptInvite: (token: string): Promise<AcceptInviteResponse> =>
-    api.post<AcceptInviteResponse>(
+  acceptInvite: (token: string): Promise<AcceptInviteResult> =>
+    api.post<AcceptInviteResult>(
       `/studies/invites/${encodeURIComponent(token)}/accept`,
       {},
     ),
@@ -348,6 +348,18 @@ export interface StudyByUserResponse {
 }
 
 /**
+ * KS-2898: backend B5 `POST /studies/invites/:token/accept` отдаёт
+ * `{studyId, slug, role}` (плоский), а не `{study, role}`-вариант из
+ * shared (`AcceptInviteResponse`). Поэтому фронт работает с локальным
+ * `AcceptInviteResult` под фактический ответ.
+ */
+export interface AcceptInviteResult {
+  studyId: string;
+  slug: string;
+  role: 'owner' | 'contributor';
+}
+
+/**
  * KS-2893 (FC8): ответ `GET /api/studies/invites/:token` — preview
  * приглашения. Backend пока в реализации; тип объявлен здесь, чтобы
  * фронт мог парсить ответ как только endpoint появится. Если backend
@@ -391,7 +403,13 @@ export interface CreateFromAnalysisRequest {
   chapterName?: string;
 }
 
+/**
+ * KS-2891 / KS-2898: backend B9 отдаёт «плоский» ответ
+ * `{studyId, slug, chapterId}` — а не `{study, chapter}`. Тип
+ * скорректирован под фактический API.
+ */
 export interface CreateFromAnalysisResponse {
-  study: StudyDto;
-  chapter: StudyChapterDto;
+  studyId: string;
+  slug: string;
+  chapterId: string;
 }

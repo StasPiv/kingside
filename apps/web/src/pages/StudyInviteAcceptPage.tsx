@@ -37,10 +37,25 @@ type PreviewState =
   | { kind: 'error'; message: string };
 
 function classifyError(e: unknown): string {
+  // HTTP-статус из api.ts ApiError (если есть) — наиболее надёжный сигнал.
+  const status = (e as { status?: number } | null | undefined)?.status;
+  if (status === 404) return 'not-found';
+  if (status === 410 || status === 409) return 'used';
   const text = e instanceof Error ? e.message.toLowerCase() : '';
   if (text.includes('expired')) return 'expired';
   if (text.includes('used') || text.includes('already')) return 'used';
-  if (text.includes('not found') || text.includes('404')) return 'not-found';
+  // NestJS 404 wildcard handler шлёт «Cannot GET /...» / «Cannot POST /...»
+  // — это бывает, когда preview endpoint ещё не выкачен. Считаем
+  // эквивалентным «not-found», чтобы фронт деградировал в no-preview
+  // ветке вместо красного error-стейта.
+  if (
+    text.includes('not found') ||
+    text.includes('cannot get') ||
+    text.includes('cannot post') ||
+    text.includes('404')
+  ) {
+    return 'not-found';
+  }
   return 'generic';
 }
 
@@ -114,8 +129,10 @@ export function StudyInviteAcceptPage() {
     setAccepting(true);
     setAcceptError(null);
     try {
+      // KS-2898: backend отдаёт плоский ответ `{slug, ...}`,
+      // см. AcceptInviteResult.
       const resp = await studiesApi.acceptInvite(token);
-      navigate(`/studies/${encodeURIComponent(resp.study.slug)}`);
+      navigate(`/studies/${encodeURIComponent(resp.slug)}`);
     } catch (e) {
       const kind = classifyError(e);
       const msg =

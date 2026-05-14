@@ -82,8 +82,10 @@ beforeEach(() => {
     expired: false,
     used: false,
   });
+  // KS-2898: backend B5 отдаёт плоский ответ.
   acceptMock.mockResolvedValue({
-    study: { id: 'study-a', slug: 'alpha' },
+    studyId: 'study-a',
+    slug: 'alpha',
     role: 'contributor',
   });
 });

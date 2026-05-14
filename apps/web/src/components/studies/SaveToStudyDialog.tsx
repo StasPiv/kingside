@@ -129,7 +129,9 @@ export function SaveToStudyDialog({
     setError(null);
     try {
       const resp = await studiesApi.createFromAnalysis(payload);
-      setSuccess({ slug: resp.study.slug, chapterId: resp.chapter.id });
+      // KS-2898: backend B9 отдаёт плоский ответ `{slug, chapterId}`
+      // (не вложенный `{study, chapter}` как ожидалось на этапе FC6).
+      setSuccess({ slug: resp.slug, chapterId: resp.chapterId });
     } catch (e) {
       setError(
         e instanceof Error && e.message

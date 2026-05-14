@@ -92,22 +92,11 @@ beforeEach(() => {
   createFromAnalysisMock.mockReset();
   navigateMock.mockReset();
   listMock.mockResolvedValue({ data: SAMPLE_STUDIES });
+  // KS-2898: backend B9 отдаёт плоский ответ — `{studyId, slug, chapterId}`.
   createFromAnalysisMock.mockResolvedValue({
-    study: SAMPLE_STUDIES[0],
-    chapter: {
-      id: 'chap-1',
-      studyId: 'study-a',
-      name: 'New chapter',
-      orderIdx: 1,
-      pgn: '',
-      startFen: null,
-      orientation: 'white',
-      mode: 'analysis',
-      concealPly: null,
-      gamebook: null,
-      createdAt: '',
-      updatedAt: '',
-    },
+    studyId: SAMPLE_STUDIES[0].id,
+    slug: SAMPLE_STUDIES[0].slug,
+    chapterId: 'chap-1',
   });
 });
 
