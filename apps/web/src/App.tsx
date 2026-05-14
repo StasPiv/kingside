@@ -138,6 +138,12 @@ const StudyEmbedPage = lazy(() =>
     default: m.StudyEmbedPage,
   })),
 );
+// KS-2893 (ADR-060 FC8): accept-flow для приглашения в студию.
+const StudyInviteAcceptPage = lazy(() =>
+  import('./pages/StudyInviteAcceptPage').then((m) => ({
+    default: m.StudyInviteAcceptPage,
+  })),
+);
 // KS-2868 (FS1) / KS-2869 (FS2): редактор и публичный просмотр главы
 // студии теперь рендерятся универсальным AnalysisPage в режимах
 // studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
@@ -421,6 +427,17 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <UserStudiesPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2893 (ADR-060 FC8): принять приглашение по токену.
+            Idem — выше `/studies/:slug`, чтобы slug не перехватил
+            `invites/...`. */}
+        <Route
+          path="/studies/invites/:token"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <StudyInviteAcceptPage />
             </Suspense>
           }
         />

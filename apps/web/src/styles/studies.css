@@ -2079,3 +2079,65 @@
   font-size: 11px;
   color: var(--c-a0a0c0, #a0a0c0);
 }
+
+/* ─── KS-2893 (FC8): StudyInviteAcceptPage `/studies/invites/:token` ─── */
+
+.study-invite-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 16px 48px;
+}
+
+.study-invite-page__header h1 {
+  margin: 0 0 18px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.study-invite-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 10px;
+}
+
+.study-invite-page__study-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.study-invite-page__study-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.study-invite-page__study-owner {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.study-invite-page__study-owner a {
+  color: var(--c-7c83ff, #7c83ff);
+  text-decoration: none;
+}
+
+.study-invite-page__fallback {
+  margin: 0;
+  font-size: 14px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.study-invite-page__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}

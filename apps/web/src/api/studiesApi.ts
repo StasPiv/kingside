@@ -241,6 +241,24 @@ export const studiesApi = {
     ),
 
   /**
+   * KS-2893 / ADR-060 §2.5 C5 (FC8) — preview приглашения по токену.
+   *
+   * GET `/studies/invites/:token` (если backend поддерживает) →
+   * `InvitePreviewResponse` с метаинфой студии (имя, owner, описание) +
+   * флагами `expired` / `used`. Anon вызов разрешён — backend сам
+   * решает, что отдать без JWT.
+   *
+   * Frontend использует preview, если он доступен; иначе показывает
+   * generic-UI «Press Accept to join». На стороне фронта 404 (endpoint
+   * пока не выкачен в этом env) обрабатывается как «нет preview, но
+   * accept может сработать» — кнопка остаётся активной.
+   */
+  getInvitePreview: (token: string): Promise<InvitePreviewResponse> =>
+    api.get<InvitePreviewResponse>(
+      `/studies/invites/${encodeURIComponent(token)}`,
+    ),
+
+  /**
    * KS-2891 / ADR-060 §3.6 (FC6) — Save-to-Study (one-shot).
    *
    * POST `/api/studies/from-analysis` (backend B9): создаёт студию
@@ -327,6 +345,26 @@ export interface StudyByUserResponse {
   total: number;
   hasMore: boolean;
   owner: { id: string; username: string };
+}
+
+/**
+ * KS-2893 (FC8): ответ `GET /api/studies/invites/:token` — preview
+ * приглашения. Backend пока в реализации; тип объявлен здесь, чтобы
+ * фронт мог парсить ответ как только endpoint появится. Если backend
+ * вернул 404 — фронт деградирует на «accept без preview».
+ */
+export interface InvitePreviewResponse {
+  study: {
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    ownerUsername: string | null;
+  };
+  /** Срок действия токена истёк. UI показывает соответствующий error. */
+  expired: boolean;
+  /** Приглашение уже принято (или другим юзером, или текущим). */
+  used: boolean;
 }
 
 /**
