@@ -1619,15 +1619,9 @@
     "notFound": "Attempt not found or no longer available.",
     "openInWorkshop": "Open in workshop →",
     "summary": {
-      "result": "Result",
       "halfMoves": "Half-moves",
       "accuracy": "Accuracy",
       "wdlLeakSum": "Advantage lost"
-    },
-    "result": {
-      "preserved": "Preserved",
-      "lost": "Lost",
-      "aborted": "Aborted"
     },
     "sparkline": {
       "title": "WDL trajectory",

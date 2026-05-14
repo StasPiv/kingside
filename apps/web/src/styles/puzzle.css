@@ -3983,9 +3983,9 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.precision-attempt-page__summary-value--preserved { color: #4ade80; }
-.precision-attempt-page__summary-value--lost { color: #f87171; }
-.precision-attempt-page__summary-value--aborted { color: #94a3b8; }
+/* KS-3003: `__summary-value--preserved|lost|aborted` удалены — Result-cell
+   удалена вместе с бинарной плашкой; цветовая идентичность ушла в
+   `precision-score-block--*`. */
 .precision-attempt-page__chart { margin-bottom: 24px; }
 .precision-attempt-page__chart-title {
   font-size: 14px;
@@ -4154,6 +4154,23 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-score-block--amber   { --tone-color: #f59e0b; --tone-bg: rgba(245, 158,  11, 0.14); }
 .precision-score-block--orange  { --tone-color: #f97316; --tone-bg: rgba(249, 115,  22, 0.14); }
 .precision-score-block--red     { --tone-color: #ef4444; --tone-bg: rgba(239,  68,  68, 0.14); }
+/* KS-3003: null-state — нейтральная серая палитра. Текст-плэйсхолдер
+ * «—», подпись «Score unavailable». Сохраняем слот, чтобы layout не
+ * прыгал между попытками с/без score. */
+.precision-score-block--unavailable {
+  --tone-color: #94a3b8;
+  --tone-bg: rgba(148, 163, 184, 0.08);
+}
+.precision-score-block__stars--unavailable {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--tone-color);
+}
+.precision-score-block__dash {
+  display: inline-block;
+  min-width: 96px; /* совпадает с шириной 5 звёзд по 20px + gaps */
+}
 
 .precision-score-block__row {
   display: flex;

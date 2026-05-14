@@ -84,10 +84,20 @@ function clampPct(raw: number): number {
 }
 
 export interface PrecisionScoreBlockProps {
-  /** Итоговый балл попытки, 1..5. Не-integer/выход за диапазон округляется и зажимается. */
-  score: number;
-  /** Точность в процентах, 0..100. Не-integer/выход за диапазон округляется и зажимается. */
-  scorePct: number;
+  /**
+   * Итоговый балл попытки, 1..5. `null` — данных нет (legacy attempt без
+   * WDL/cp / `halfMovesPlayed < 2` / >50% gaps). В null-state блок
+   * рендерится в нейтральной палитре с «—» и подписью «Score unavailable»,
+   * чтобы у каждой попытки был визуально консистентный слот.
+   *
+   * Не-integer/выход за диапазон округляется и зажимается.
+   */
+  score: number | null;
+  /**
+   * Точность в процентах, 0..100. `null` если `score === null` (нет данных).
+   * Не-integer/выход за диапазон округляется и зажимается.
+   */
+  scorePct: number | null;
 }
 
 export function PrecisionScoreBlock({
@@ -95,6 +105,56 @@ export function PrecisionScoreBlock({
   scorePct,
 }: PrecisionScoreBlockProps) {
   const { t } = useTranslation();
+
+  // KS-3003: null-state. Backend B5 пересчитал legacy attempts с WDL/cp,
+  // null остаётся только для патологических случаев — но всё равно надо
+  // показать слот, чтобы не было пустого места над разбором.
+  if (score === null || scorePct === null) {
+    return (
+      <div
+        className="precision-score-block precision-score-block--unavailable"
+        data-testid="precision-score-block"
+        data-score=""
+        data-tone="unavailable"
+        data-score-pct=""
+      >
+        <div className="precision-score-block__row">
+          <div
+            className="precision-score-block__stars precision-score-block__stars--unavailable"
+            role="img"
+            aria-label={t(
+              'precision.score.unavailable.aria',
+              'Score unavailable',
+            )}
+            data-testid="precision-score-block-stars"
+          >
+            <span
+              className="precision-score-block__dash"
+              data-testid="precision-score-block-dash"
+            >
+              —
+            </span>
+          </div>
+          <div
+            className="precision-score-block__accuracy"
+            data-testid="precision-score-block-accuracy"
+          >
+            {t('precision.score.unavailable.label', 'Score unavailable')}
+          </div>
+        </div>
+        <p
+          className="precision-score-block__interpretation"
+          data-testid="precision-score-block-interpretation"
+        >
+          {t(
+            'precision.score.unavailable.hint',
+            'Not enough WDL/cp data to score this attempt.',
+          )}
+        </p>
+      </div>
+    );
+  }
+
   const safeScore = clampScore(score);
   const safePct = clampPct(scorePct);
   const tone = TONE_BY_SCORE[safeScore];

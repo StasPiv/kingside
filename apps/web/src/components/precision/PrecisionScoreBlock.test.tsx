@@ -117,4 +117,38 @@ describe('<PrecisionScoreBlock>', () => {
     expect(stars.getAttribute('aria-label')).toContain('4');
     expect(stars.getAttribute('aria-label')).toContain('5');
   });
+
+  describe('null-state (KS-3003)', () => {
+    it('score=null → блок в нейтральной палитре, "—" вместо звёзд', () => {
+      renderWithProviders(<PrecisionScoreBlock score={null} scorePct={null} />);
+      const block = screen.getByTestId('precision-score-block');
+      expect(block.getAttribute('data-tone')).toBe('unavailable');
+      expect(block.className).toContain('precision-score-block--unavailable');
+      // Нет SVG-звёзд — только тире.
+      expect(
+        screen
+          .getByTestId('precision-score-block-stars')
+          .querySelector('svg'),
+      ).toBeNull();
+      expect(screen.getByTestId('precision-score-block-dash').textContent).toBe(
+        '—',
+      );
+    });
+
+    it('scorePct=null (а score есть) тоже даёт null-state', () => {
+      renderWithProviders(<PrecisionScoreBlock score={3} scorePct={null} />);
+      expect(
+        screen
+          .getByTestId('precision-score-block')
+          .getAttribute('data-tone'),
+      ).toBe('unavailable');
+    });
+
+    it('null-state показывает подпись "Score unavailable"', () => {
+      renderWithProviders(<PrecisionScoreBlock score={null} scorePct={null} />);
+      expect(
+        screen.getByTestId('precision-score-block-accuracy').textContent,
+      ).toContain('Score unavailable');
+    });
+  });
 });

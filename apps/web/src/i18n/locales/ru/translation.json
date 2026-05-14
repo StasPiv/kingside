@@ -1649,15 +1649,9 @@
     "notFound": "Попытка не найдена или больше недоступна.",
     "openInWorkshop": "Открыть в мастерской →",
     "summary": {
-      "result": "Результат",
       "halfMoves": "Полуходы",
       "accuracy": "Точность",
       "wdlLeakSum": "Потери преимущества"
-    },
-    "result": {
-      "preserved": "Удержано",
-      "lost": "Упущено",
-      "aborted": "Прервано"
     },
     "sparkline": {
       "title": "Динамика WDL",

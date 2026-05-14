@@ -9,12 +9,14 @@ import { PrecisionScoreBlock } from '../components/precision/PrecisionScoreBlock
  * Маршрут: `/dev/precision-score`.
  */
 
-const FIXTURES: Array<{ score: 1 | 2 | 3 | 4 | 5; scorePct: number }> = [
-  { score: 5, scorePct: 96 },
-  { score: 4, scorePct: 82 },
-  { score: 3, scorePct: 67 },
-  { score: 2, scorePct: 48 },
-  { score: 1, scorePct: 21 },
+const FIXTURES: Array<{ score: number | null; scorePct: number | null; label: string }> = [
+  { score: 5, scorePct: 96, label: 'score=5 · scorePct=96%' },
+  { score: 4, scorePct: 82, label: 'score=4 · scorePct=82%' },
+  { score: 3, scorePct: 67, label: 'score=3 · scorePct=67%' },
+  { score: 2, scorePct: 48, label: 'score=2 · scorePct=48%' },
+  { score: 1, scorePct: 21, label: 'score=1 · scorePct=21%' },
+  // KS-3003: null-state.
+  { score: null, scorePct: null, label: 'score=null (legacy без WDL/cp)' },
 ];
 
 export function DevPrecisionScoreBlockPage() {
@@ -24,7 +26,7 @@ export function DevPrecisionScoreBlockPage() {
         PrecisionScoreBlock — palette demo (ADR-065 §4.2)
       </h1>
       {FIXTURES.map((f) => (
-        <div key={f.score}>
+        <div key={String(f.score)}>
           <div
             style={{
               fontSize: 12,
@@ -34,7 +36,7 @@ export function DevPrecisionScoreBlockPage() {
               textTransform: 'uppercase',
             }}
           >
-            score={f.score} · scorePct={f.scorePct}%
+            {f.label}
           </div>
           <PrecisionScoreBlock score={f.score} scorePct={f.scorePct} />
         </div>

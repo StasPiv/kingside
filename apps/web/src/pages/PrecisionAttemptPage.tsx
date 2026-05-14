@@ -14,6 +14,9 @@ import { PuzzleBoard } from '../components/PuzzleBoard';
 // у PrecisionMoveDto нет) — собственный компонент с полной аннотацией
 // партии (user + engine), классификацией и сильнейшими ходами.
 import { PrecisionAttemptReview } from '../components/precision/PrecisionAttemptReview';
+// KS-3003 (ADR-065 §5.1.1, F2): 5-балльная плашка над разбором заменяет
+// бывшую бинарную «Preserved/Lost» Result-cell в summary.
+import { PrecisionScoreBlock } from '../components/precision/PrecisionScoreBlock';
 import type { MoveClass } from '../utils/moveClassification';
 
 /**
@@ -240,12 +243,10 @@ export function PrecisionAttemptPage() {
   // бэке. На UI показываем в процентных пунктах: 0.12 → «12%».
   const wdlLeakText = `${Math.round(data.wdlLeakSum * 100)}%`;
 
-  // KS-2741: верстаем result-чип из shared-контракта `solved + endReason`.
-  // Старый код использовал собственный `result: 'preserved'|'lost'|'aborted'`
-  // — этого поля backend не присылает. Маппим:
-  //   solved=true            → preserved
-  //   solved=false           → lost
-  //   endReason='aborted'    → aborted (даже если solved=false)
+  // KS-3003 (ADR-065 §5.1.1): бинарная «Preserved/Lost/Aborted» Result-cell
+  // удалена. Её заменил `<PrecisionScoreBlock>` сверху раздела «Разбор».
+  // `data-result` на корне страницы оставляем для e2e/аналитики — это
+  // чистый mapping `solved + endReason`, UI-плашки больше нет.
   const resultKey: 'preserved' | 'lost' | 'aborted' =
     data.endReason === 'aborted'
       ? 'aborted'
@@ -397,20 +398,9 @@ export function PrecisionAttemptPage() {
         className="precision-attempt-page__summary"
         data-testid="precision-attempt-summary"
       >
-        <div className="precision-attempt-page__summary-cell">
-          <div className="precision-attempt-page__summary-label">
-            {t('precisionAttempt.summary.result', 'Result')}
-          </div>
-          <div
-            className={`precision-attempt-page__summary-value precision-attempt-page__summary-value--${resultKey}`}
-          >
-            {resultKey === 'preserved'
-              ? t('precisionAttempt.result.preserved', 'Preserved')
-              : resultKey === 'lost'
-                ? t('precisionAttempt.result.lost', 'Lost')
-                : t('precisionAttempt.result.aborted', 'Aborted')}
-          </div>
-        </div>
+        {/* KS-3003 (ADR-065 §5.1.1, F2): Result-cell удалён. 5-балльная
+            оценка теперь живёт в `<PrecisionScoreBlock>` над разделом
+            «Разбор партии». В summary остаются числовые показатели. */}
         <div className="precision-attempt-page__summary-cell">
           <div className="precision-attempt-page__summary-label">
             {t('precisionAttempt.summary.halfMoves', 'Half-moves')}
@@ -621,6 +611,15 @@ export function PrecisionAttemptPage() {
           </ul>
         </section>
       )}
+
+      {/* KS-3003 (ADR-065 §5.1.1, F2): 5-балльная плашка над разбором.
+          Заменяет старую бинарную «Preserved/Lost» Result-cell в summary.
+          Для legacy attempt'ов без WDL/cp (`score===null`) блок рисует
+          null-state «—» с подписью «Score unavailable». */}
+      <PrecisionScoreBlock
+        score={data.score ?? null}
+        scorePct={data.scorePct ?? null}
+      />
 
       <section className="precision-attempt-page__review">
         <PuzzleBoard
