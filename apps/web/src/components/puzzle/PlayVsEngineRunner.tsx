@@ -277,6 +277,59 @@ export function uciToSan(uci: string, fen: string): string {
  * взятая фигура восстановиться не может — для SAN это не критично
  * (получим Rf4 вместо Rxf4). При любых ошибках — fallback на UCI.
  */
+/**
+ * KS-3035: SAN зевка → строка с номером хода:
+ *   `22... f6` если соперник был чёрные (postBlunderFen.side === 'w');
+ *   `3. d4`   если соперник был белые (postBlunderFen.side === 'b').
+ *
+ * fullmoveNumber по правилам FEN увеличивается ПОСЛЕ хода чёрных:
+ *   - solver=w, fm=N → previous (opponent black) был «${N-1}... ${san}».
+ *   - solver=b, fm=N → previous (opponent white) был «${N}. ${san}».
+ *
+ * Без SAN (пустая строка / неизвестный blunder) возвращает пустую
+ * строку — caller сам выберет generic-вариант.
+ */
+export function formatBlunderMoveWithNumber(
+  san: string,
+  postBlunderFen: string,
+): string {
+  if (!san) return '';
+  const parts = postBlunderFen.split(' ');
+  const sideToMove = parts[1] === 'b' ? 'b' : 'w';
+  const fullmove = Math.max(1, parseInt(parts[5] ?? '1', 10) || 1);
+  if (sideToMove === 'w') {
+    // Соперник был чёрные.
+    const blackMoveNumber = Math.max(1, fullmove - 1);
+    return `${blackMoveNumber}... ${san}`;
+  }
+  // Соперник был белые.
+  return `${fullmove}. ${san}`;
+}
+
+/**
+ * KS-3035: выбор i18n-ключа goal по WDL_before решателя.
+ *
+ *  - `wdl.w > 550` → advantage (можно реально выиграть).
+ *  - `E = w + d/2 ∈ [400..600]` → equality (зона ничейного баланса).
+ *  - `wdl.w < 400` → defense (хуже у решателя — защита проигранной).
+ *
+ * Приоритеты при пересечении: advantage > equality > defense >
+ * fallback `advantage` (исторический default).
+ *
+ * Все значения в per-mille (0..1000) — формат `WdlDistribution`
+ * из Stockfish.
+ */
+export function selectBlunderGoalKey(
+  wdl: WdlDistribution | null | undefined,
+): 'advantage' | 'equality' | 'defense' {
+  if (!wdl) return 'advantage';
+  if (wdl.w > 550) return 'advantage';
+  const expected = wdl.w + wdl.d / 2;
+  if (expected >= 400 && expected <= 600) return 'equality';
+  if (wdl.w < 400) return 'defense';
+  return 'advantage';
+}
+
 export function blunderUciToSan(blunderUci: string, postBlunderFen: string): string {
   if (!blunderUci || blunderUci.length < 4) return blunderUci;
   try {
@@ -1333,34 +1386,41 @@ export function PlayVsEngineRunner({
             </div>
           </div>
 
-          {state === 'thinking' && halfMovesPlayed === 0 && (
-            <p
-              className="puzzle-engine-runner__hint"
-              data-testid="puzzle-engine-blunder-hint"
-              data-blunder-known={blunderSan ? 'true' : 'false'}
-            >
-              {/*
-                KS-2732: если в DTO нет blunderMove (backend mismatch или
-                forced-line пазл попал в PVE-runner) — рендерим
-                generic-текст без «зевнул ходом ?». Раньше шаблон был
-                fallback'ом на '?', что выглядело как баг для юзера.
-              */}
-              {blunderSan
-                ? t(
-                    'puzzle.engine.blunderHint',
-                    'Opponent just blundered ({{move}}). Hold the advantage for {{n}} half-moves.',
-                    {
-                      move: blunderSan,
+          {state === 'thinking' && halfMovesPlayed === 0 && (() => {
+            // KS-3035: динамика подсказки.
+            // 1) blunder-ход с номером (22... f6 / 3. d4) вместо «f6».
+            // 2) goal по WDL_before: advantage / equality / defense.
+            // baseline = клиентский WDL initial pre-analyze; fallback —
+            // серверный `puzzle.playVsEngine?.wdlAfter` (WDL ПОСЛЕ
+            // блаандера в перспективе решателя). Если оба null —
+            // generic-goal=advantage (исторический default).
+            const moveWithNum = blunderSan
+              ? formatBlunderMoveWithNumber(blunderSan, puzzle.fen)
+              : '';
+            const baselineWdl =
+              clientBaselineWdl ?? puzzle.playVsEngine?.wdlAfter ?? null;
+            const goalKind = selectBlunderGoalKey(baselineWdl);
+            const goalText = t(`puzzle.engine.blunderGoal.${goalKind}`);
+            return (
+              <p
+                className="puzzle-engine-runner__hint"
+                data-testid="puzzle-engine-blunder-hint"
+                data-blunder-known={moveWithNum ? 'true' : 'false'}
+                data-blunder-goal={goalKind}
+              >
+                {moveWithNum
+                  ? t('puzzle.engine.blunderHint', {
+                      move: moveWithNum,
                       n: params.halfMovesN,
-                    },
-                  )
-                : t(
-                    'puzzle.engine.blunderHintGeneric',
-                    'Hold the advantage against the engine for {{n}} half-moves.',
-                    { n: params.halfMovesN },
-                  )}
-            </p>
-          )}
+                      goal: goalText,
+                    })
+                  : t('puzzle.engine.blunderHintGeneric', {
+                      n: params.halfMovesN,
+                      goal: goalText,
+                    })}
+              </p>
+            );
+          })()}
 
           {/* KS-2510: при выбранном snapshot'е (reviewFen != null) на
               доске показываем позицию ДО ошибочного хода, чтобы юзер

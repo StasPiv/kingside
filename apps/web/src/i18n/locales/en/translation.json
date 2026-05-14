@@ -1276,8 +1276,13 @@
       "loseMate": "You got mated",
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
-      "blunderHint": "Opponent blundered ({{move}}). Hold the advantage for {{n}} half-moves against the engine.",
-      "blunderHintGeneric": "Hold the advantage against the engine for {{n}} half-moves.",
+      "blunderHint": "Opponent made an inaccuracy ({{move}}). {{goal}} for {{n}} half-moves against the engine.",
+      "blunderHintGeneric": "{{goal}} against the engine for {{n}} half-moves.",
+      "blunderGoal": {
+        "advantage": "Hold the advantage",
+        "equality": "Hold the balance",
+        "defense": "Defend the position"
+      },
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop",
       "summary": {

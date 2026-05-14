@@ -1302,8 +1302,13 @@
       "halfMovesLeft_few": "{{count}} полухода осталось",
       "halfMovesLeft_many": "{{count}} полуходов осталось",
       "halfMovesLeft_other": "{{count}} полуходов осталось",
-      "blunderHint": "Соперник зевнул ходом {{move}}. Удержите преимущество {{n}} полуходов против движка.",
-      "blunderHintGeneric": "Удержите преимущество против движка {{n}} полуходов.",
+      "blunderHint": "Соперник допустил неточность ходом {{move}}. {{goal}} {{n}} полуходов против движка.",
+      "blunderHintGeneric": "{{goal}} против движка {{n}} полуходов.",
+      "blunderGoal": {
+        "advantage": "Удержите преимущество",
+        "equality": "Удержите равенство",
+        "defense": "Защитите позицию"
+      },
       "error": "Ошибка движка",
       "openInWorkshop": "Открыть в мастерской",
       "summary": {

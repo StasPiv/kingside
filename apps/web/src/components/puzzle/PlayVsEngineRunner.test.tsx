@@ -848,7 +848,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // рендерится PrecisionScoreBlock. Для legacy-теста с 1 ходом (<2 →
     // §3.2) score=null → null-state (data-tone="unavailable").
     const scoreBlock = screen.getByTestId('precision-score-block');
-    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
   });
 
   it('KS-2686: legacy preserved (без wdlAfter) → summary не рендерится, reasonLabel «Advantage preserved»', async () => {
@@ -883,7 +885,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     ).toBeNull();
     // KS-3018: PrecisionScoreBlock с null-state (1 ход < §3.2 минимума).
     const scoreBlock = screen.getByTestId('precision-score-block');
-    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
   });
 
   it('KS-2528: primary path — три строки Win/Draw/Loss с per-mille→% и сigned-дельтой', async () => {
@@ -943,7 +947,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // KS-3018: бинарная плашка заменена на PrecisionScoreBlock (звёзды).
     // В этом кейсе 1 user-полуход → score=null (null-state).
     const scoreBlock = screen.getByTestId('precision-score-block');
-    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
 
     // Каждая строка Win/Draw/Loss есть в DOM.
     const winRow = screen.getByTestId('puzzle-engine-wdl-row-win');
@@ -1058,7 +1064,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. В этом
     // кейсе 1 user-полуход → score=null (null-state).
     const scoreBlock = screen.getByTestId('precision-score-block');
-    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
     expect(summary.getAttribute('data-preserved')).toBe('true');
     // KS-2686: режим только permille (sigmoid-fallback удалён).
     expect(summary.getAttribute('data-mode')).toBe('permille');
@@ -1174,7 +1182,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. В этом
     // кейсе 1 user-полуход → score=null (null-state).
     const scoreBlock = screen.getByTestId('precision-score-block');
-    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
     // Все три строки, дельты — `(0%)` без знака.
     expect(
       screen.getByTestId('puzzle-engine-wdl-row-win').textContent,
@@ -1512,7 +1522,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. 1 user-
       // полуход → score=null (null-state).
       const scoreBlock = screen.getByTestId('precision-score-block');
-      expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
+      // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
+    // получает реальный score; tone не unavailable.
+    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
     });
 
     it('KS-2968 — drop в пределах порога (92→90): preserved=true', async () => {
