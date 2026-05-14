@@ -37,6 +37,21 @@ const PAD_X = 24;
 const PAD_TOP = 8;
 const PAD_BOTTOM = 18;
 
+/**
+ * KS-3024 / ADR-066 §7.3 (F1): дата миграции классификации
+ * cp-loss → WDL-loss. Marker на trend-графике помечает «до/после»
+ * момента, чтобы пользователь видел, что разрыв в accuracy в этой
+ * точке — это смена методики, а не реальное падение/рост точности.
+ *
+ * Placeholder-значение. B3 (backend backfill) уточнит точную дату —
+ * либо она прилетит в `PrecisionTrendsResponse` отдельным полем
+ * `classifyMigrationAt`, либо в shared-константе. До тех пор хардкод
+ * безопасен: пользователю эта дата НЕ выводится в виде даты (только
+ * tooltip с пояснением), и сдвиг в пределах ±1 дня нагрузки UI не
+ * меняет — marker всё равно попадёт в «недельный» бакет.
+ */
+export const CLASSIFY_WDL_MIGRATION_DATE = '2026-05-15';
+
 export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}) {
   const { t } = useTranslation();
   const [bucket, setBucket] = useState<Bucket>('week');
@@ -72,6 +87,33 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
   }, [doFetch, bucket]);
 
   const points = useMemo(() => data?.points ?? [], [data]);
+
+  /**
+   * KS-3024 / ADR-066 §7.3 (F1): X-координата marker'а или `null`, если
+   * дата миграции вне диапазона видимых точек. Считаем по timestamp'у,
+   * а не по индексу бакета — иначе при пустых бакетах marker «прыгает».
+   * Если до миграции точек нет (все после) или после — нет (все до),
+   * marker не рисуется.
+   */
+  const migrationMarkerX = useMemo<number | null>(() => {
+    if (points.length < 2) return null;
+    const migrationTs = Date.parse(CLASSIFY_WDL_MIGRATION_DATE);
+    if (Number.isNaN(migrationTs)) return null;
+    const firstTs = Date.parse(points[0].bucketStart);
+    const lastTs = Date.parse(points[points.length - 1].bucketStart);
+    if (
+      Number.isNaN(firstTs) ||
+      Number.isNaN(lastTs) ||
+      migrationTs < firstTs ||
+      migrationTs > lastTs
+    ) {
+      return null;
+    }
+    const span = Math.max(1, lastTs - firstTs);
+    const frac = (migrationTs - firstTs) / span;
+    const innerW = VB_W - PAD_X * 2;
+    return PAD_X + frac * innerW;
+  }, [points]);
 
   const path = useMemo(() => {
     if (points.length === 0) return '';
@@ -221,6 +263,45 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
           stroke="rgba(255,255,255,0.15)"
           strokeWidth={0.5}
         />
+        {/* KS-3024 / ADR-066 §7.3 (F1): vertical marker даты миграции
+            cp-loss → WDL-loss. Тонкая пунктирная линия + подпись
+            «Methodology updated» сверху + <title>-tooltip с полным
+            пояснением. Рисуется только если дата попадает в видимый
+            диапазон бакетов. */}
+        {migrationMarkerX !== null && (
+          <g
+            className="precision-trends__migration-marker"
+            data-testid="precision-trends-migration-marker"
+            data-migration-date={CLASSIFY_WDL_MIGRATION_DATE}
+          >
+            <line
+              x1={migrationMarkerX}
+              y1={PAD_TOP}
+              x2={migrationMarkerX}
+              y2={VB_H - PAD_BOTTOM}
+              stroke="#facc15"
+              strokeWidth={0.8}
+              strokeDasharray="2 2"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>
+                {t(
+                  'precisionTrends.migrationTooltip',
+                  'Move classification method updated (ADR-066). Before this date moves were classified by cp-loss; now by WDL-loss. Accuracy went up on theoretically winning positions — keeping the advantage is no longer counted as a mistake.',
+                )}
+              </title>
+            </line>
+            <text
+              x={migrationMarkerX + 2}
+              y={PAD_TOP + 7}
+              fontSize={7}
+              fill="#facc15"
+              data-testid="precision-trends-migration-marker-label"
+            >
+              {t('precisionTrends.migrationMarker', 'Method update')}
+            </text>
+          </g>
+        )}
         {/* линия тренда */}
         <path
           d={path}
