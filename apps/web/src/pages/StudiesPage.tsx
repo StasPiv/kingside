@@ -116,7 +116,10 @@ export function StudiesPage() {
   const [pageState, setPageState] = useState<
     'idle' | 'loading' | 'ready' | 'empty' | 'error'
   >('idle');
-  const [page, setPage] = useState<number>(0);
+  // KS-3011 hotfix: backend требует `page≥1` (1-based). Первый запрос —
+  // page=1, infinite scroll → page=2, 3, … До 3011 пагинация была 0-based,
+  // что приводило к 400 `page must not be less than 1`.
+  const [page, setPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState<boolean>(false);
@@ -149,10 +152,11 @@ export function StudiesPage() {
 
   const fetchFirstPage = useCallback(async () => {
     setPageState('loading');
-    setPage(0);
+    // KS-3011: 1-based; первый запрос — page=1.
+    setPage(1);
     try {
       const resp: StudyCatalogResponse = await studiesApi.getCatalog(
-        buildQuery(0),
+        buildQuery(1),
       );
       setItems(resp.items);
       setHasMore(resp.hasMore);

@@ -59,7 +59,8 @@ export function UserStudiesPage() {
   const [pageState, setPageState] = useState<
     'idle' | 'loading' | 'ready' | 'empty' | 'error'
   >('idle');
-  const [page, setPage] = useState<number>(0);
+  // KS-3011 hotfix: backend требует `page≥1` (1-based).
+  const [page, setPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
@@ -75,11 +76,12 @@ export function UserStudiesPage() {
   const fetchFirstPage = useCallback(async () => {
     if (!userId) return;
     setPageState('loading');
-    setPage(0);
+    // KS-3011: 1-based; первый запрос — page=1.
+    setPage(1);
     try {
       const resp: StudyByUserResponse = await studiesApi.listByUser(userId, {
         includePrivate: effectiveIncludePrivate,
-        page: 0,
+        page: 1,
       });
       setItems(resp.items);
       setOwner(resp.owner);

@@ -127,7 +127,8 @@ describe('UserStudiesPage (KS-2889 FC4)', () => {
     await waitFor(() => expect(listByUserMock).toHaveBeenCalled());
     expect(listByUserMock).toHaveBeenCalledWith(
       'u-author',
-      expect.objectContaining({ includePrivate: false, page: 0 }),
+      // KS-3011 hotfix: 1-based pagination.
+      expect.objectContaining({ includePrivate: false, page: 1 }),
     );
     expect(
       screen.queryByTestId('user-studies-include-private'),
