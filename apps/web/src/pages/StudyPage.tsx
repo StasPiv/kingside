@@ -10,6 +10,7 @@ import {
 } from '../api/studiesApi';
 import { ImportPgnDialog } from '../components/studies/ImportPgnDialog';
 import { ChapterList } from '../components/studies/ChapterList';
+import { LikeButton } from '../components/studies/LikeButton';
 
 /**
  * KS-2826 (KS-2815 §B.5) — детальная страница студии `/studies/:slug`.
@@ -166,6 +167,21 @@ export function StudyPage() {
               ? t('studies.card.public', 'Public')
               : t('studies.card.private', 'Private')}
           </span>
+          {/* KS-2888 (FC3): кнопка лайка рядом с бейджем. Initial
+              `liked` пока приходит как false — backend в B5/FC1
+              расширит StudyDto полем `likedByMe`, и можно будет
+              отдать сюда настоящее значение. */}
+          <LikeButton
+            slug={study.slug}
+            studyId={study.id}
+            likes={study.likes}
+            liked={false}
+            onChange={(s) =>
+              setStudy((prev) =>
+                prev ? { ...prev, likes: s.likes } : prev,
+              )
+            }
+          />
         </div>
         {study.description && (
           <p className="study-page__desc">{study.description}</p>

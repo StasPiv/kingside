@@ -1737,3 +1737,48 @@
     font-size: 14px;
   }
 }
+
+/* ─── KS-2888 / ADR-060 §3.4 K4 (FC3): Like button. Используется на
+   карточке (внутри <Link>) и на странице студии. ──────── */
+
+.study-like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--c-a0a0c0, #a0a0c0);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.study-like-btn:hover:not(:disabled) {
+  color: var(--c-ef4444, #ef4444);
+  border-color: var(--c-ef4444, #ef4444);
+}
+
+.study-like-btn:focus-visible {
+  outline: 2px solid var(--c-7c83ff, #7c83ff);
+  outline-offset: 2px;
+}
+
+.study-like-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.study-like-btn--liked {
+  color: var(--c-ef4444, #ef4444);
+  border-color: var(--c-ef4444, #ef4444);
+  background: var(--ov-danger-10, rgba(239, 68, 68, 0.1));
+}
+
+.study-like-btn svg {
+  flex-shrink: 0;
+  display: block;
+}

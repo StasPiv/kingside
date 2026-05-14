@@ -1,8 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { StudyDto } from '@kingside/shared';
 
 import { renderWithProviders, screen } from '../../test/test-utils';
 import { StudyCatalogCard } from './StudyCatalogCard';
+
+// KS-2888: LikeButton внутри карточки тянет useAuth. В тесте обёртка
+// test-utils не предоставляет AuthProvider — мокаем хук в no-auth-
+// состоянии (anon), чтобы render не падал.
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({ user: null, token: null, loading: false }),
+}));
+vi.mock('../../api/studiesApi', () => ({
+  studiesApi: { toggleLike: vi.fn() },
+}));
 
 /**
  * KS-2887 / ADR-060 §3.4 K5 (FC2). Юнит-проверка рендера карточки

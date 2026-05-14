@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
-import type { StudyDto } from '@kingside/shared';
+import type { StudyDto, ToggleLikeResponse } from '@kingside/shared';
+
+import { LikeButton } from './LikeButton';
 
 /**
  * KS-2887 / ADR-060 §3.4 K5 (FC2) — карточка студии в каталоге.
@@ -80,12 +82,26 @@ export interface StudyCatalogCardProps {
    * парсит первый PGN.
    */
   previewFen?: string;
+  /**
+   * KS-2888 (FC3): лайкнул ли текущий пользователь эту студию. StudyDto
+   * сейчас не несёт этот флаг (отдельный API в B5); родитель пробрасывает
+   * `false` пока нет данных. После клика LikeButton сам синхронизирует
+   * состояние от сервера.
+   */
+  liked?: boolean;
+  /**
+   * KS-2888: уведомление родителя о смене лайка (для обновления списка
+   * после успешного toggle).
+   */
+  onLikeChange?: (state: ToggleLikeResponse) => void;
 }
 
 export function StudyCatalogCard({
   study,
   ownerUsername,
   previewFen,
+  liked = false,
+  onLikeChange,
 }: StudyCatalogCardProps) {
   const board = parseFenBoard(previewFen ?? START_FEN);
   const author = ownerUsername ?? study.ownerId.slice(0, 8);
@@ -179,21 +195,20 @@ export function StudyCatalogCard({
           >
             {study.chaptersCount} ch
           </span>
+          {/* KS-2888 (FC3): like-кнопка вместо статического span. Клик
+              перехватывает preventDefault/stopPropagation внутри
+              LikeButton, чтобы Link не уводил на страницу студии. */}
           <span
             className="study-catalog-card__likes"
             data-testid="study-catalog-card-likes"
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path d="M12 21s-7-4.35-9.5-8.5C.5 9.5 2 6 5.5 6c2 0 3.5 1 4.5 2.5C11 7 12.5 6 14.5 6 18 6 19.5 9.5 21.5 12.5 19 16.65 12 21 12 21z" />
-            </svg>
-            {study.likes}
+            <LikeButton
+              slug={study.slug}
+              studyId={study.id}
+              likes={study.likes}
+              liked={liked}
+              onChange={onLikeChange}
+            />
           </span>
         </div>
         {study.topics.length > 0 && (

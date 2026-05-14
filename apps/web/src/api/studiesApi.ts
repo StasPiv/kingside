@@ -36,6 +36,7 @@ import type {
   ImportPgnRequest,
   ImportPgnResponse,
   StudyExportPgnResponse,
+  ToggleLikeResponse,
 } from '@kingside/shared';
 import { api } from '../api';
 
@@ -60,6 +61,7 @@ export type {
   ShareStudyRequest,
   StudyChapterOrientation,
   StudyChapterMode,
+  ToggleLikeResponse,
 } from '@kingside/shared';
 
 export const studiesApi = {
@@ -170,5 +172,17 @@ export const studiesApi = {
   getPublicChapter: (chapterId: string): Promise<PublicChapterResponse> =>
     api.get<PublicChapterResponse>(
       `/studies/public/c/${encodeURIComponent(chapterId)}`,
+    ),
+
+  /**
+   * KS-2888 / ADR-060 §3.4 K4 — toggle лайк студии. Один POST переключает
+   * состояние; backend возвращает актуальное `{liked, likes}` (счётчик
+   * денормализован в `study.likes`). Требует JWT — для гостей фронт
+   * редиректит на /login с returnUrl ДО вызова.
+   */
+  toggleLike: (slug: string): Promise<ToggleLikeResponse> =>
+    api.post<ToggleLikeResponse>(
+      `/studies/${encodeURIComponent(slug)}/like`,
+      {},
     ),
 };
