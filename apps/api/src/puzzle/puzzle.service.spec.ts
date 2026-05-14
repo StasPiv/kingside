@@ -1326,11 +1326,15 @@ describe('PuzzleService', () => {
       expect(result.solved).toBe(true);
       // Транзакция вызвана.
       expect(prisma.$transaction).toHaveBeenCalled();
-      // PrecisionAttempt: правильные агрегаты (1 best + 1 good = 2/2 = 100%).
+      // KS-3020 / ADR-066 §3.4: после перехода на WDL-loss-классификацию
+      // оба хода с малым cp-изменением (30→35, 35→25) попадают в `best`
+      // через cp-fallback: winPctFromCp(35)≈53.21, winPctFromCp(25)≈52.30,
+      // loss_E=0.0091 ≤ 0.02 → best. Раньше cpLoss=10 → good. Это и есть
+      // одна из «3 точек сдвига» из ADR-066 §5.1, утверждённая пользователем.
       expect(tx.precision).toMatchObject({
         attemptId: 'attempt-uuid',
-        bestMovesCount: 1,
-        goodMovesCount: 1,
+        bestMovesCount: 2,
+        goodMovesCount: 0,
         inaccuraciesCount: 0,
         mistakesCount: 0,
         blundersCount: 0,
@@ -1349,10 +1353,11 @@ describe('PuzzleService', () => {
         playedUci: 'e2e4',
         classification: 'best',
       });
+      // KS-3020: g1f3 vs PV1 b1c3 → не best, но cp-loss мал → best (через WDL).
       expect(tx.moves![1]).toMatchObject({
         ply: 2,
         playedUci: 'g1f3',
-        classification: 'good',
+        classification: 'best',
       });
     });
 
