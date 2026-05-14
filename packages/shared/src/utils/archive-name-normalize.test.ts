@@ -52,7 +52,7 @@ describe('normalizeArchiveName', () => {
     expect(normalizeArchiveName('....,,,')).toBe('');
     // @ts-expect-error — проверяем защиту от runtime-мусора
     expect(normalizeArchiveName(null)).toBe('');
-    // @ts-expect-error
+    // @ts-expect-error — проверяем защиту от runtime-мусора
     expect(normalizeArchiveName(undefined)).toBe('');
   });
 
