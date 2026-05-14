@@ -132,12 +132,6 @@ const UserStudiesPage = lazy(() =>
     default: m.UserStudiesPage,
   })),
 );
-// KS-2890 (ADR-060 FC5): embed-страница студии для iframe.
-const StudyEmbedPage = lazy(() =>
-  import('./pages/StudyEmbedPage').then((m) => ({
-    default: m.StudyEmbedPage,
-  })),
-);
 // KS-2893 (ADR-060 FC8): accept-flow для приглашения в студию.
 const StudyInviteAcceptPage = lazy(() =>
   import('./pages/StudyInviteAcceptPage').then((m) => ({
@@ -149,12 +143,6 @@ const StudyInviteAcceptPage = lazy(() =>
 // studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
 // StudyChapterEditorPage / StudyChapterPublicPage удалены вместе с
 // файлами компонентов.
-// KS-2874 (FM5): отдельная страница чтения gamebook'а — /studies/:slug/:chapterId/play.
-const GamebookReaderPage = lazy(() =>
-  import('./pages/GamebookReaderPage').then((m) => ({
-    default: m.GamebookReaderPage,
-  })),
-);
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -363,17 +351,6 @@ export function App() {
 
   return (
     <Routes>
-      {/* KS-2890 (ADR-060 FC5): embed-страница студии — ВНЕ MainLayout,
-          без Sidebar/Header сайта. Должен матчиться РАНЬШЕ wildcard
-          path="*" из MainLayout-блока ниже. */}
-      <Route
-        path="/study/embed/:studyId/:chapterId"
-        element={
-          <Suspense fallback={<LazyFallback />}>
-            <StudyEmbedPage />
-          </Suspense>
-        }
-      />
       <Route element={<MainLayout />}>
         <Route index element={<HomePage />} />
         <Route path="/features" element={<FeaturesPage />} />
@@ -451,44 +428,9 @@ export function App() {
             </Suspense>
           }
         />
-        {/* KS-2868 (FS1): редактор главы теперь рендерится универсальным
-            AnalysisPage в editor-режиме. Раньше — StudyChapterEditorPage. */}
-        <Route
-          path="/studies/:slug/:chapterId"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <AnalysisPage studyMode="editor" />
-            </Suspense>
-          }
-        />
-        {/* KS-2869 (FS2): публичный read-only просмотр главы по prefix `/c/`.
-            Без auth — anonymous могут открыть. Раньше — StudyChapterPublicPage. */}
-        <Route
-          path="/studies/c/:chapterId"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <AnalysisPage studyMode="public-readonly" />
-            </Suspense>
-          }
-        />
-        {/* KS-2874 (FM5): gamebook reader. Open via «Play gamebook» из
-            study/chapter-страницы или прямой ссылке. */}
-        <Route
-          path="/studies/:slug/:chapterId/play"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <GamebookReaderPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/studies/c/:chapterId/play"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <GamebookReaderPage />
-            </Suspense>
-          }
-        />
+        {/* KS-3014: роуты chapter-страниц (editor, public-readonly,
+            gamebook reader) временно отключены — Studies переезжают на
+            отдельную страницу прохождения, не связанную с AnalysisPage. */}
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />

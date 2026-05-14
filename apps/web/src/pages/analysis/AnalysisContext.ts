@@ -9,14 +9,15 @@ import { useLocation, useParams } from 'react-router-dom';
  * - `puzzleFen`/`puzzlePgn`/`puzzleMovesParam`/`puzzleSide` — из URL/state,
  * - `publicMode` — prop сверху.
  *
- * FR4 объединяет это в discriminated union `AnalysisContext`. На FS1/FS2
- * добавится подтип `study` — backbone готов уже сейчас.
+ * FR4 объединяет это в discriminated union `AnalysisContext`.
  *
- * `readOnly` — производное от kind/mode. UI-компоненты на FR3 могут
- * принимать его как один проп вместо «угадывания» по publicMode.
+ * `readOnly` — производное от kind/mode. UI-компоненты могут принимать
+ * его как один проп вместо «угадывания» по publicMode.
+ *
+ * KS-3014: вариант `kind='study'` удалён — Studies теперь живут на
+ * собственной странице, AnalysisPage обслуживает только review /
+ * analysis / puzzle.
  */
-
-export type StudyMode = 'editor' | 'public-readonly' | 'embed';
 
 export type AnalysisContext =
   | {
@@ -46,22 +47,12 @@ export type AnalysisContext =
       /** Цвет, которым играет пользователь, из `?side=`. */
       side?: 'white' | 'black';
       readOnly: false;
-    }
-  | {
-      kind: 'study';
-      /** Slug студии (`/studies/:slug/:chapterId`). Для public-роута `/studies/c/:chapterId` — пустая строка. */
-      slug: string;
-      chapterId: string;
-      mode: StudyMode;
-      readOnly: boolean;
     };
 
 export interface ResolveAnalysisContextInput {
   params: {
     id?: string;
     gameId?: string;
-    slug?: string;
-    chapterId?: string;
   };
   /** `location.state` из react-router. */
   state: unknown;
@@ -69,11 +60,6 @@ export interface ResolveAnalysisContextInput {
   search: string;
   /** `publicMode` flag (передаётся в AnalysisPage как prop из роута). */
   publicMode?: boolean;
-  /**
-   * Опциональный override для study-режима. На FR4 не используется
-   * (study-роуты пока не подключены) — параметр под FS1/FS2.
-   */
-  studyMode?: StudyMode;
 }
 
 /**
@@ -85,44 +71,20 @@ export function resolveAnalysisContext({
   state,
   search,
   publicMode = false,
-  studyMode,
 }: ResolveAnalysisContextInput): AnalysisContext {
   const urlParams = new URLSearchParams(search);
   const stateRecord = (state ?? null) as Record<string, unknown> | null;
 
-  // 1) Study-роут (chapterId присутствует). На FR4 эта ветка живёт
-  //    «вхолостую» — routes ещё не подключены к AnalysisPage, но FS1/FS2
-  //    будут вызывать `useAnalysisContext({ studyMode: 'editor' })`
-  //    из обёртки.
-  if (params.chapterId) {
-    const slug = params.slug ?? '';
-    // Если studyMode явно не указан: slug есть → editor, slug нет →
-    // public-readonly (роут `/studies/c/:chapterId`).
-    const mode: StudyMode = studyMode ?? (params.slug ? 'editor' : 'public-readonly');
-    return {
-      kind: 'study',
-      slug,
-      chapterId: params.chapterId,
-      mode,
-      readOnly: mode !== 'editor',
-    };
-  }
-
-  // 2) Game review: `/games/:gameId`.
+  // 1) Game review: `/games/:gameId`.
   if (params.gameId !== undefined) {
     return {
       kind: 'review',
       gameId: params.gameId,
-      // KS-2672: для review (партии из архива) publicMode не имеет смысла
-      // (партии всегда public), но в существующих тестах review-роут
-      // никогда не получает publicMode=true. Оставляем эту ветку
-      // последовательной: readOnly наследуется от publicMode для будущих
-      // расширений.
       readOnly: publicMode,
     };
   }
 
-  // 3) Analysis route с id: `/analysis/:id` или `/analysis/public/:id`.
+  // 2) Analysis route с id: `/analysis/:id` или `/analysis/public/:id`.
   if (params.id !== undefined) {
     const rawId = params.id;
     const analysisId = rawId !== 'new' ? rawId : undefined;
@@ -137,7 +99,7 @@ export function resolveAnalysisContext({
     };
   }
 
-  // 4) Никакого id в URL — может быть puzzle-from-URL или fresh analysis.
+  // 3) Никакого id в URL — может быть puzzle-from-URL или fresh analysis.
   //    Puzzle опознаём по наличию `?fen=` или `state.puzzleFen`.
   const fen =
     (stateRecord?.puzzleFen as string | undefined) ??
@@ -159,7 +121,7 @@ export function resolveAnalysisContext({
     };
   }
 
-  // 5) Fresh ad-hoc analysis: `/analysis` без id и без `?fen=`.
+  // 4) Fresh ad-hoc analysis: `/analysis` без id и без `?fen=`.
   return {
     kind: 'analysis',
     analysisId: undefined,
@@ -171,18 +133,13 @@ export function resolveAnalysisContext({
 
 /**
  * React-хук — оборачивает resolver, читая `useParams` + `useLocation`.
- * Возвращает стабильный объект `AnalysisContext` при каждом рендере;
- * react-router сам мемоизирует location, так что в большинстве случаев
- * результат идентичен по reference между ренда́ми.
  */
 export function useAnalysisContext(
-  opts: { publicMode?: boolean; studyMode?: StudyMode } = {},
+  opts: { publicMode?: boolean } = {},
 ): AnalysisContext {
   const params = useParams<{
     id?: string;
     gameId?: string;
-    slug?: string;
-    chapterId?: string;
   }>();
   const location = useLocation();
   return resolveAnalysisContext({
@@ -190,6 +147,5 @@ export function useAnalysisContext(
     state: location.state,
     search: location.search,
     publicMode: opts.publicMode,
-    studyMode: opts.studyMode,
   });
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -59,20 +59,6 @@ import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 // разбросанные `params.id`/`params.gameId`/`puzzleFen`/`localId`
 // производные. На FS1/FS2 study-роуты подключатся через wrapper.
 import { useAnalysisContext } from './analysis/AnalysisContext';
-// KS-2868 (FS1): загрузка study + chapter для ctx.kind === 'study'.
-// Удаление chapter / переименование — через studiesApi.updateChapter.
-import {
-  studiesApi,
-  type StudyDto,
-  type StudyChapterDto,
-  type StudyChapterMode,
-} from '../api/studiesApi';
-// KS-2870 (FM1): mode-switcher для study-роутов — analysis/practice/
-// conceal/gamebook + concealPly input.
-import { AnalysisStudyModeSwitcher } from './analysis/AnalysisStudyModeSwitcher';
-// KS-2873 (FM4): gamebook editor — поля hint/success/failure на узле.
-import { AnalysisGamebookEditor } from './analysis/AnalysisGamebookEditor';
-import type { GamebookPayload } from '@kingside/shared';
 // KS-2891 (FC6): «Save to study» из обычного анализа / puzzle.
 import {
   SaveToStudyTrigger,
@@ -154,37 +140,21 @@ type MoveData = {
  */
 interface AnalysisPageProps {
   publicMode?: boolean;
-  /**
-   * KS-2868 (FS1) / KS-2869 (FS2): когда AnalysisPage обслуживает
-   * `/studies/:slug/:chapterId` (`editor`) или `/studies/c/:chapterId`
-   * (`public-readonly`), передаётся через App.tsx. Хук
-   * `useAnalysisContext` использует это для resolved `ctx.kind='study'`.
-   */
-  studyMode?: 'editor' | 'public-readonly' | 'embed';
 }
 
 export function AnalysisPage({
   publicMode = false,
-  studyMode,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
     gameId?: string;
-    slug?: string;
-    chapterId?: string;
   }>();
-  // KS-2868 (FS1): для study-роутов ключ remount'а должен учитывать
-  // chapterId, иначе при переходе между chapters в одной студии
-  // компонент не перемонтируется и stale-state выживает.
-  const key = params.chapterId ?? params.id ?? params.gameId ?? '__none__';
-  return (
-    <AnalysisPageInner key={key} publicMode={publicMode} studyMode={studyMode} />
-  );
+  const key = params.id ?? params.gameId ?? '__none__';
+  return <AnalysisPageInner key={key} publicMode={publicMode} />;
 }
 
 function AnalysisPageInner({
   publicMode = false,
-  studyMode,
 }: AnalysisPageProps) {
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
@@ -201,7 +171,7 @@ function AnalysisPageInner({
   // Backwards-compatible локальные алиасы — оставлены чтобы не переписывать
   // 30+ мест использования за одну итерацию (FM1-FM5 поэтапно мигрируют
   // на прямое чтение ctx.kind/ctx.fields).
-  const ctx = useAnalysisContext({ publicMode, studyMode });
+  const ctx = useAnalysisContext({ publicMode });
   const gameId = ctx.kind === 'review' ? ctx.gameId : undefined;
   const analysisId = ctx.kind === 'analysis' ? ctx.analysisId : undefined;
   const location = useLocation();
@@ -212,10 +182,6 @@ function AnalysisPageInner({
   // `analysisBoardSize`). UI-переключатель ниже в `.analysis-board-controls`.
   const { boardSize, setBoardSize } = useBoardSettings();
   const [gameData, setGameData] = useState<GameData | null>(null);
-  // KS-2868 (FS1): study + chapter — заполняются когда ctx.kind === 'study'.
-  // study.name → breadcrumb section; chapter.name → analysisTitle.
-  const [studyData, setStudyData] = useState<StudyDto | null>(null);
-  const [studyChapter, setStudyChapter] = useState<StudyChapterDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
@@ -272,21 +238,11 @@ function AnalysisPageInner({
   const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
   const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
   const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
-  // KS-2868 (FS1): для study-роутов breadcrumb формируется из studyData,
-  // а не из location.state (он у study-роутов пуст). Studies → study.name
-  // → chapter.name (chapter.name отображается через analysisTitle).
-  const isStudyCtx = ctx.kind === 'study';
-  const breadcrumbRootTitle = isStudyCtx
-    ? t('studies.title', 'Studies')
-    : stateBreadcrumbRootTitle;
-  const breadcrumbRootUrl = isStudyCtx ? '/studies' : stateBreadcrumbRootUrl;
-  const breadcrumbSection =
-    isStudyCtx && studyData ? studyData.name : stateBreadcrumbSection;
-  const breadcrumbBackUrl =
-    isStudyCtx && ctx.kind === 'study' && ctx.slug
-      ? `/studies/${encodeURIComponent(ctx.slug)}`
-      : stateBreadcrumbBackUrl;
-  const breadcrumbBackState = isStudyCtx ? undefined : stateBreadcrumbBackState;
+  const breadcrumbRootTitle = stateBreadcrumbRootTitle;
+  const breadcrumbRootUrl = stateBreadcrumbRootUrl;
+  const breadcrumbSection = stateBreadcrumbSection;
+  const breadcrumbBackUrl = stateBreadcrumbBackUrl;
+  const breadcrumbBackState = stateBreadcrumbBackState;
   // KS-2867 (FR4): puzzle-параметры теперь приходят из AnalysisContext.
   // Совместимость: значения те же, что раньше из location.state/URL.
   const puzzleFen = ctx.kind === 'puzzle' ? ctx.fen : undefined;
@@ -309,15 +265,6 @@ function AnalysisPageInner({
   const [variationChooser, setVariationChooser] = useState<
     { mainLine: ChessMove; variations: ChessMove[][] } | null
   >(null);
-  // KS-2871 (FM2): практика — hint после ошибочного хода и счётчик ошибок.
-  const [practiceHint, setPracticeHint] = useState<string | null>(null);
-  const [practiceErrors, setPracticeErrors] = useState<number>(0);
-  const practiceHintTimerRef = useRef<number | null>(null);
-  // KS-2872 (FM3): conceal — динамический порог раскрытия ходов. Стартует
-  // как chapter.concealPly и увеличивается на 1 после каждого правильного
-  // хода. nav-кнопки не откатывают (раскрытое остаётся раскрытым).
-  const [revealedPly, setRevealedPly] = useState<number | null>(null);
-
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
       window.history.replaceState(null, '', '/analysis/' + localIdRef.current);
@@ -454,11 +401,9 @@ function AnalysisPageInner({
     if (gameId) return;
     // KS-2672: в publicMode не-владелец не редактирует title.
     if (publicMode) return;
-    // KS-2868 (FS1): public-readonly study — title не редактируется.
-    if (ctx.kind === 'study' && ctx.mode !== 'editor') return;
     setTitleInput(analysisTitle);
     setIsEditingTitle(true);
-  }, [gameId, analysisTitle, publicMode, ctx]);
+  }, [gameId, analysisTitle, publicMode]);
 
   const handleTitleSave = useCallback(() => {
     const trimmed = titleInput.trim() || getDefaultTitle();
@@ -466,18 +411,10 @@ function AnalysisPageInner({
     setIsEditingTitle(false);
     // KS-2672: в publicMode мутация title запрещена.
     if (publicMode) return;
-    // KS-2868 (FS1): study-editor сохраняет имя главы в studiesApi.
-    if (ctx.kind === 'study' && ctx.mode === 'editor' && studyChapter) {
-      studiesApi
-        .updateChapter(ctx.slug, studyChapter.id, { name: trimmed })
-        .then((updated) => setStudyChapter(updated))
-        .catch(() => {});
-      return;
-    }
     if (localIdRef.current) {
       updateAnalysis(localIdRef.current, { title: trimmed }).catch(() => {});
     }
-  }, [titleInput, updateAnalysis, publicMode, ctx, studyChapter]);
+  }, [titleInput, updateAnalysis, publicMode]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -486,97 +423,6 @@ function AnalysisPageInner({
     },
     [handleTitleSave],
   );
-
-  // KS-2870 (FM1): смена режима главы студии.
-  // studiesApi.updateChapter(mode). Optimistic-update studyChapter.
-  const handleChapterModeChange = useCallback(
-    (next: StudyChapterMode) => {
-      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
-        return;
-      // KS-2870: при переключении НА conceal проставим concealPly=1 если
-      // его ещё нет — backend требует значение для mode='conceal'.
-      const concealPlyForUpdate =
-        next === 'conceal' && (studyChapter.concealPly == null)
-          ? 1
-          : undefined;
-      studiesApi
-        .updateChapter(ctx.slug, studyChapter.id, {
-          mode: next,
-          ...(concealPlyForUpdate !== undefined && {
-            concealPly: concealPlyForUpdate,
-          }),
-        })
-        .then((updated) => setStudyChapter(updated))
-        .catch(() => {});
-    },
-    [ctx, studyChapter],
-  );
-
-  // KS-2870 (FM1): смена concealPly для mode='conceal'.
-  const handleConcealPlyChange = useCallback(
-    (ply: number) => {
-      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
-        return;
-      if (studyChapter.mode !== 'conceal') return;
-      studiesApi
-        .updateChapter(ctx.slug, studyChapter.id, { concealPly: ply })
-        .then((updated) => setStudyChapter(updated))
-        .catch(() => {});
-    },
-    [ctx, studyChapter],
-  );
-
-  // KS-2873 (FM4): gamebook payload-update — отправляется в studiesApi.updateChapter.
-  // Если backend не примет {gamebook} в общем endpoint'е — переключим
-  // на специализированный PATCH .../gamebook (B5) когда тот будет готов.
-  const handleGamebookChange = useCallback(
-    (next: GamebookPayload) => {
-      if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
-        return;
-      studiesApi
-        .updateChapter(ctx.slug, studyChapter.id, { gamebook: next })
-        .then((updated) => setStudyChapter(updated))
-        .catch(() => {});
-    },
-    [ctx, studyChapter],
-  );
-
-  // KS-2870 (FM1): кнопка «Edit script» в mode-switcher.
-  // Сейчас просто скроллим страницу к gamebook-редактору / показываем
-  // sidebar (на mobile). Полноценный modal — фоллоу-ап.
-  const handleEditGamebook = useCallback(() => {
-    const el = document.querySelector('[data-testid="analysis-gamebook-editor"]');
-    if (el && 'scrollIntoView' in el) {
-      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, []);
-
-  // KS-2909: удаление главы — owner-only, с confirm.
-  // После успеха navigate на детальную страницу студии (там список
-  // глав уже обновится через свой re-fetch).
-  const navigate = useNavigate();
-  const handleDeleteChapter = useCallback(() => {
-    if (ctx.kind !== 'study' || ctx.mode !== 'editor' || !studyChapter)
-      return;
-    const confirmed = window.confirm(
-      t(
-        'studies.confirm.deleteChapter',
-        'Delete this chapter? This cannot be undone.',
-      ),
-    );
-    if (!confirmed) return;
-    studiesApi
-      .deleteChapter(ctx.slug, studyChapter.id)
-      .then(() => {
-        navigate(`/studies/${encodeURIComponent(ctx.slug)}`, { replace: true });
-      })
-      .catch(() => {
-        // best-effort: ошибку показываем через setError (existing state).
-        setError(
-          t('studies.error.delete', 'Failed to delete chapter.'),
-        );
-      });
-  }, [ctx, studyChapter, navigate, t]);
 
   const analysisPageRef = useRef<HTMLDivElement>(null);
 
@@ -702,141 +548,11 @@ function AnalysisPageInner({
     // оставался бы при любом открытии следующей.
   }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen]);
 
-  // KS-2868 (FS1): загрузка study + chapter когда ctx.kind === 'study'.
-  // Отдельный эффект от game/analysis loader'а (выше) — для study главный
-  // loader выходит рано (gameId=undefined, localIdRef.current=undefined).
-  useEffect(() => {
-    if (ctx.kind !== 'study') return;
-    const { slug, chapterId } = ctx;
-    if (!chapterId) return;
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    const fetchStudyData = async () => {
-      try {
-        // public-readonly режим грузит через `getPublicChapter` (без auth);
-        // editor — через `getBySlug + getChapter` (нужен auth для PATCH).
-        if (ctx.mode === 'public-readonly') {
-          const resp = await studiesApi.getPublicChapter(chapterId);
-          if (cancelled) return;
-          // KS-3014: gamebook-глава в public-readonly бессмысленна
-          // как «показать PGN» — пользователь хочет ПРОЙТИ сценарий
-          // (intro / Start / правильные ходы / hint-success-failure).
-          // Это GamebookReaderPage по адресу `.../play`. Автоматически
-          // переотправляем viewer'а туда.
-          if (resp.chapter.mode === 'gamebook') {
-            navigate(
-              `/studies/c/${encodeURIComponent(chapterId)}/play`,
-              { replace: true },
-            );
-            return;
-          }
-          setStudyData(resp.study as StudyDto);
-          setStudyChapter(resp.chapter);
-          // KS-2854: setInitialFen ДО loadFromPgn, иначе reducer
-          // сбросит history.
-          if (resp.chapter.startFen) {
-            setInitialFen(resp.chapter.startFen);
-          }
-          setAnalysisTitle(resp.chapter.name);
-          setTitleInput(resp.chapter.name);
-          setBoardOrientation(resp.chapter.orientation);
-          // KS-2872 (FM3): инициализируем revealedPly из chapter.concealPly.
-          setRevealedPly(resp.chapter.concealPly ?? null);
-          if (resp.chapter.pgn) {
-            try {
-              loadFromPgn(
-                parseAnnotatedPgn(resp.chapter.pgn),
-                extractInitialAnnotations(resp.chapter.pgn),
-              );
-            } catch {
-              /* битый PGN — оставляем дерево пустым */
-            }
-          }
-        } else {
-          if (!slug) {
-            setError(t('studies.error.notFound', 'Chapter not found.'));
-            setLoading(false);
-            return;
-          }
-          const [studyResp, ch] = await Promise.all([
-            studiesApi.getBySlug(slug),
-            studiesApi.getChapter(slug, chapterId),
-          ]);
-          if (cancelled) return;
-          // KS-3014 / KS-3015: editor-роут `/studies/:slug/:chapterId`
-          // должен быть доступен только write-юзерам (owner /
-          // contributor). Если backend сказал, что viewer/anon —
-          // редиректим на публичный роут `/studies/c/:chapterId`,
-          // который рендерится в studyMode='public-readonly' и
-          // отрубает все write-ветки UI (mode-switcher, gamebook
-          // editor, delete-chapter, NAG-write и т.п.).
-          const viewerRole = studyResp.study.viewerRole;
-          if (viewerRole !== 'owner' && viewerRole !== 'contributor') {
-            navigate(`/studies/c/${encodeURIComponent(chapterId)}`, {
-              replace: true,
-            });
-            return;
-          }
-          setStudyData(studyResp.study);
-          setStudyChapter(ch);
-          if (ch.startFen) {
-            setInitialFen(ch.startFen);
-          }
-          setAnalysisTitle(ch.name);
-          setTitleInput(ch.name);
-          setBoardOrientation(ch.orientation);
-          // KS-2872 (FM3): инициализируем revealedPly из chapter.concealPly.
-          setRevealedPly(ch.concealPly ?? null);
-          if (ch.pgn) {
-            try {
-              loadFromPgn(
-                parseAnnotatedPgn(ch.pgn),
-                extractInitialAnnotations(ch.pgn),
-              );
-            } catch {
-              /* битый PGN — оставляем дерево пустым */
-            }
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setError(t('studies.error.notFound', 'Chapter not found.'));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void fetchStudyData();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.kind, ctx.kind === 'study' ? ctx.slug : null, ctx.kind === 'study' ? ctx.chapterId : null]);
-
-  // KS-2868 (FS1): document.title для study-страницы.
-  useEffect(() => {
-    if (ctx.kind !== 'study' || !studyChapter || !studyData) return;
-    const prev = document.title;
-    document.title = `${studyChapter.name} — ${studyData.name} — Kingside`;
-    return () => {
-      document.title = prev;
-    };
-  }, [ctx.kind, studyChapter, studyData]);
-
-  // KS-2867 (FR4): резолвер выбирает persistence-хук по ctx.kind.
-  // KS-2871/2872/2874 (FM2/FM3/FM5): для chapter.mode не === 'analysis'
-  // пользователь «играет» — попытки не сохраняются в PGN главы.
-  const disablePersistence =
-    ctx.kind === 'study' &&
-    studyChapter != null &&
-    studyChapter.mode !== 'analysis';
   useAnalysisPersistenceResolver(
     ctx,
     history,
     initialAnnotations,
     annotationsByIndex,
-    disablePersistence,
   );
 
   // KS-2281: ad-hoc autosave (localStorage). Активен только когда нет
@@ -1528,95 +1244,9 @@ function AnalysisPageInner({
   // `handleFastDragDrop` (быстрый drop без анимации). Если потребуется
   // вернуть «классический» drop — восстановить из истории git.
 
-  // KS-2871/2872 (FM2/FM3): в practice/conceal — ход валидируется против
-  // expected-list (mainLine + variations). При совпадении гото-им на эту
-  // ноду; при несовпадении — ход откатывается, hint.
-  const isPracticeMode =
-    ctx.kind === 'study' && studyChapter?.mode === 'practice';
-  // KS-2872 (FM3): conceal активен только в read-only режиме (для viewer'а).
-  // Editor (owner на /studies/:slug/:chapterId) видит без сокрытия.
-  const isConcealMode =
-    ctx.kind === 'study' &&
-    ctx.readOnly &&
-    studyChapter?.mode === 'conceal';
-  const isConstrainedPlay = isPracticeMode || isConcealMode;
-
-  const findExpectedMove = useCallback(
-    (from: string, to: string): ChessMove | null => {
-      // Какие ходы ожидаются на текущей позиции:
-      // - currentMove === null: первый ход (history[0]) + его варианты.
-      // - currentMove !== null: currentMove.next + currentMove.next.variations.
-      let mainLine: ChessMove | null = null;
-      if (currentMove === null) {
-        if (history.length === 0) return null;
-        mainLine = history[0] as ChessMove;
-      } else {
-        mainLine = (currentMove.next as ChessMove | null | undefined) ?? null;
-      }
-      if (!mainLine) return null;
-      if (mainLine.from === from && mainLine.to === to) return mainLine;
-      const variations = (mainLine.variations ?? []) as ChessMove[][];
-      for (const branch of variations) {
-        const head = branch[0];
-        if (head && head.from === from && head.to === to) return head;
-      }
-      return null;
-    },
-    [currentMove, history],
-  );
-
-  const showPracticeHint = useCallback((text: string) => {
-    setPracticeHint(text);
-    setPracticeErrors((n) => n + 1);
-    if (practiceHintTimerRef.current) {
-      window.clearTimeout(practiceHintTimerRef.current);
-    }
-    practiceHintTimerRef.current = window.setTimeout(() => {
-      setPracticeHint(null);
-      practiceHintTimerRef.current = null;
-    }, 3000);
-  }, []);
-
   const handleFastDragDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
-
-      // KS-2871/2872: practice/conceal — fail-fast если ход не соответствует expected.
-      if (isConstrainedPlay) {
-        const expected = findExpectedMove(sourceSquare, targetSquare);
-        if (!expected) {
-          showPracticeHint(
-            t('studies.practice.wrongMove', 'Try a different move.'),
-          );
-          return false;
-        }
-        // Совпадает с одной из ожидаемых линий → гото-им на эту ноду.
-        // PGN не меняется, auto-save отключён через disablePersistence.
-        gotoMove(expected);
-        // KS-2872: conceal — раскрываем ply правильного хода (если он
-        // был скрыт). Никогда не уменьшаем revealedPly.
-        if (isConcealMode && typeof expected.ply === 'number') {
-          setRevealedPly((prev) =>
-            prev == null ? expected.ply : Math.max(prev, expected.ply),
-          );
-        }
-        // Авто-ход «соперника» через 250мс — main-line continuation от expected.
-        const opponentNext = expected.next as ChessMove | null | undefined;
-        if (opponentNext) {
-          window.setTimeout(() => {
-            gotoMove(opponentNext);
-            if (isConcealMode && typeof opponentNext.ply === 'number') {
-              setRevealedPly((prev) =>
-                prev == null
-                  ? opponentNext.ply
-                  : Math.max(prev, opponentNext.ply),
-              );
-            }
-          }, 250);
-        }
-        return true;
-      }
-
       if (isPromotionMove(sourceSquare, targetSquare)) {
         const testGame = new Chess(currentFen);
         const testMove = testGame.move({ from: sourceSquare as Square, to: targetSquare as Square, promotion: 'q' });
@@ -1626,7 +1256,7 @@ function AnalysisPageInner({
       }
       return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeVariantMove, isPromotionMove, currentFen, isConstrainedPlay, isConcealMode, findExpectedMove, gotoMove, showPracticeHint, t],
+    [makeVariantMove, isPromotionMove, currentFen],
   );
 
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
@@ -1711,7 +1341,7 @@ function AnalysisPageInner({
   // компонент сделает return ДО хука, и при следующем render React
   // увидит «extra hook» (rules-of-hooks).
   const saveStudySource = useMemo<SaveToStudySource | null>(() => {
-    if (ctx.kind === 'review' || ctx.kind === 'study') return null;
+    if (ctx.kind === 'review') return null;
     if (ctx.kind === 'analysis' && analysisId) {
       return { kind: 'analysis', analysisId };
     }
@@ -1739,8 +1369,6 @@ function AnalysisPageInner({
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (gameId && !gameData) return null;
-  // KS-2868 (FS1): для study-роута ждём загруженных study + chapter.
-  if (ctx.kind === 'study' && (!studyData || !studyChapter)) return null;
 
   const resultPgn = gameData
     ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white' ? '1–0' : '0–1'
@@ -1794,11 +1422,8 @@ function AnalysisPageInner({
 
   return (
     <div
-      className={`analysis-page${ctx.kind === 'study' ? ' analysis-page--study' : ''}`}
+      className="analysis-page"
       data-analysis-context={ctx.kind}
-      data-study-mode={
-        ctx.kind === 'study' ? ctx.mode : undefined
-      }
       ref={analysisPageRef}
     >
       <div className="analysis-board-area">
@@ -1823,30 +1448,7 @@ function AnalysisPageInner({
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
             rightSlot={
-              // KS-2870/FM1 + KS-3014: mode-switcher рендерим ТОЛЬКО
-              // в editor-режиме. Для viewer/anon (public-readonly)
-              // дисэйблнутые «Mode»/«Edit script»/«Delete chapter»
-              // визуально путают и подталкивают к action, который
-              // и так запрещён — лучше не показывать вовсе.
-              ctx.kind === 'study' &&
-              ctx.mode === 'editor' &&
-              studyChapter ? (
-                <AnalysisStudyModeSwitcher
-                  chapterMode={studyChapter.mode}
-                  concealPly={studyChapter.concealPly}
-                  readOnly={ctx.readOnly}
-                  onChapterModeChange={handleChapterModeChange}
-                  onConcealPlyChange={handleConcealPlyChange}
-                  onEditGamebook={handleEditGamebook}
-                  onDeleteChapter={
-                    // KS-2909/KS-3014: delete только owner'у.
-                    // Contributor видит mode-switcher, но delete — нет.
-                    studyData && studyData.viewerRole === 'owner'
-                      ? handleDeleteChapter
-                      : undefined
-                  }
-                />
-              ) : saveStudySource && user ? (
+              saveStudySource && user ? (
                 // KS-2891 (FC6): для kind='analysis' / 'puzzle' даём
                 // юзеру сохранить текущую позицию в студию. Гостям
                 // кнопку не рисуем (backend в любом случае 401).
@@ -1864,34 +1466,6 @@ function AnalysisPageInner({
             overflow-menu. Шапка освободилась — особенно над доской
             на mobile. */}
         <div className="analysis-board-wrapper">
-          {/* KS-2871/2872 (FM2/FM3): practice/conceal-режим — баннер с
-              подсказкой после ошибочного хода. Появляется ~3с, потом
-              исчезает. */}
-          {isConstrainedPlay && (
-            <div
-              className="analysis-practice-bar"
-              data-testid="analysis-practice-bar"
-              data-mode={isConcealMode ? 'conceal' : 'practice'}
-              data-errors={practiceErrors}
-            >
-              {practiceHint ? (
-                <span className="analysis-practice-bar__hint" role="alert">
-                  {practiceHint}
-                </span>
-              ) : (
-                <span className="analysis-practice-bar__status">
-                  {t('studies.practice.yourTurn', 'Find the move.')}
-                </span>
-              )}
-              {practiceErrors > 0 && (
-                <span className="analysis-practice-bar__errors">
-                  {t('studies.practice.errors', 'Errors: {{count}}', {
-                    count: practiceErrors,
-                  })}
-                </span>
-              )}
-            </div>
-          )}
           <AnalysisBoard
             gameInfo={gameInfo}
             boardContainerRef={boardContainerRef}
@@ -2109,25 +1683,7 @@ function AnalysisPageInner({
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         readOnly={ctx.readOnly}
-        concealAfterPly={isConcealMode ? revealedPly : null}
-        extraPanel={
-          // KS-2873 (FM4): gamebook editor — только в study editor-режиме
-          // с chapter.mode='gamebook'. Для не-owner / read-only — скрыт.
-          ctx.kind === 'study' &&
-          ctx.mode === 'editor' &&
-          studyChapter?.mode === 'gamebook' ? (
-            <AnalysisGamebookEditor
-              currentUci={
-                currentMove
-                  ? (currentMove.lan as string | undefined) ?? null
-                  : null
-              }
-              gamebook={studyChapter.gamebook ?? null}
-              editable
-              onChange={handleGamebookChange}
-            />
-          ) : undefined
-        }
+        concealAfterPly={null}
       />
 
       {ec.showEngineModal && (

@@ -173,78 +173,11 @@ describe('resolveAnalysisContext (KS-2867)', () => {
     });
   });
 
-  describe('study (route /studies/:slug/:chapterId или /studies/c/:chapterId)', () => {
-    it('slug + chapterId → kind=study, mode=editor, readOnly=false', () => {
-      const ctx = resolveAnalysisContext({
-        params: { slug: 'my-study', chapterId: 'ch-1' },
-        state: null,
-        search: '',
-      });
-      expect(ctx.kind).toBe('study');
-      if (ctx.kind === 'study') {
-        expect(ctx.slug).toBe('my-study');
-        expect(ctx.chapterId).toBe('ch-1');
-        expect(ctx.mode).toBe('editor');
-        expect(ctx.readOnly).toBe(false);
-      }
-    });
-
-    it('только chapterId (public-роут) → mode=public-readonly, readOnly=true', () => {
-      const ctx = resolveAnalysisContext({
-        params: { chapterId: 'ch-2' },
-        state: null,
-        search: '',
-      });
-      if (ctx.kind === 'study') {
-        expect(ctx.slug).toBe('');
-        expect(ctx.mode).toBe('public-readonly');
-        expect(ctx.readOnly).toBe(true);
-      }
-    });
-
-    it('явный studyMode=embed → readOnly=true', () => {
-      const ctx = resolveAnalysisContext({
-        params: { slug: 's', chapterId: 'c' },
-        state: null,
-        search: '',
-        studyMode: 'embed',
-      });
-      if (ctx.kind === 'study') {
-        expect(ctx.mode).toBe('embed');
-        expect(ctx.readOnly).toBe(true);
-      }
-    });
-
-    it('явный studyMode=editor при только chapterId — readOnly=false', () => {
-      const ctx = resolveAnalysisContext({
-        params: { chapterId: 'c' },
-        state: null,
-        search: '',
-        studyMode: 'editor',
-      });
-      if (ctx.kind === 'study') {
-        expect(ctx.readOnly).toBe(false);
-      }
-    });
-  });
+  // KS-3014: ветка kind='study' удалена — Studies живут на отдельной
+  // странице, AnalysisPage обслуживает только review/analysis/puzzle.
 
   describe('приоритет веток', () => {
-    it('study (chapterId) > review (gameId) > analysis (id) > puzzle', () => {
-      // Все параметры одновременно — выигрывает study.
-      const ctx = resolveAnalysisContext({
-        params: {
-          chapterId: 'ch',
-          gameId: 'g',
-          id: 'a',
-          slug: 's',
-        },
-        state: null,
-        search: '?fen=x',
-      });
-      expect(ctx.kind).toBe('study');
-    });
-
-    it('review > analysis (id) > puzzle когда нет chapterId', () => {
+    it('review > analysis (id) > puzzle', () => {
       const ctx = resolveAnalysisContext({
         params: { gameId: 'g', id: 'a' },
         state: null,
