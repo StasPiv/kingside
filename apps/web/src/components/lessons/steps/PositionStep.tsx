@@ -11,6 +11,7 @@ import { Chess, type Square } from 'chess.js';
 import type { PositionStepPayload } from '@kingside/shared';
 
 import { MemoChessboard } from '../../MemoChessboard';
+import { PromotionPicker, type PromotionPiece } from '../../PromotionPicker';
 import { useContainerWidth } from '../../../hooks/useContainerWidth';
 import { useFastDrag } from '../../../hooks/useFastDrag';
 import { useStablePosition } from '../../../hooks/useStablePosition';
@@ -108,6 +109,16 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   const [attempts, setAttempts] = useState(0);
   const [hintSquare, setHintSquare] = useState<Square | null>(null);
   const [highlight, setHighlight] = useState<{ square: Square; kind: Status } | null>(null);
+  /**
+   * KS-2969: модалка выбора фигуры при превращении пешки. До этого
+   * шаг авто-продвигал в ферзя, и expectedMoves с `r/b/n` нельзя было
+   * засчитать. Теперь юзер сам выбирает фигуру; UCI собирается из
+   * `move.promotion`.
+   */
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
 
   const stepDoneFiredRef = useRef(false);
 
@@ -118,6 +129,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
     setAttempts(0);
     setHintSquare(null);
     setHighlight(null);
+    setPendingPromotion(null);
     stepDoneFiredRef.current = false;
   }, [payload]);
 
@@ -132,15 +144,34 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   const setLastMoveRef = useRef<((from: Square, to: Square) => void) | null>(null);
   const clearLastMoveRef = useRef<(() => void) | null>(null);
 
-  const handleMove = useCallback(
-    ({
-      sourceSquare,
-      targetSquare,
-    }: {
-      sourceSquare: string;
-      targetSquare: string | null;
-    }): boolean => {
-      if (isReadOnly || !targetSquare || status !== 'thinking') return false;
+  /**
+   * KS-2969: определяет, является ли ход превращением пешки на текущей
+   * позиции. Используется для перехвата promotion-ходов до их применения.
+   */
+  const isPromotionMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      const piece = baseGame.get(sourceSquare as Square);
+      if (!piece || piece.type !== 'p') return false;
+      const targetRank = targetSquare[1];
+      return (
+        (piece.color === 'w' && targetRank === '8') ||
+        (piece.color === 'b' && targetRank === '1')
+      );
+    },
+    [baseGame],
+  );
+
+  /**
+   * KS-2969: применить ход. promotion — выбранная пользователем фигура
+   * (для не-promotion-ходов параметр игнорируется chess.js).
+   */
+  const applyMove = useCallback(
+    (
+      sourceSquare: string,
+      targetSquare: string,
+      promotion: PromotionPiece = 'q',
+    ): boolean => {
+      if (isReadOnly || status !== 'thinking') return false;
 
       // Применяем ход на КОПИИ baseGame (move мутирует экземпляр). При неудаче
       // получим визуально откат к baseGame через overrideGame = null.
@@ -150,7 +181,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
         moveResult = test.move({
           from: sourceSquare,
           to: targetSquare,
-          promotion: 'q',
+          promotion,
         });
       } catch {
         // chess.js бросает на заведомо невалидных клетках — snap-back.
@@ -192,6 +223,55 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
     },
     [baseGame, status, payload.expectedMoves, onStepDone, isReadOnly],
   );
+
+  const handleMove = useCallback(
+    ({
+      sourceSquare,
+      targetSquare,
+    }: {
+      sourceSquare: string;
+      targetSquare: string | null;
+    }): boolean => {
+      if (isReadOnly || !targetSquare || status !== 'thinking') return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        // Проверим легальность хода ферзём; если ход вообще запрещён,
+        // модалку не открываем.
+        const testGame = new Chess(baseGame.fen());
+        let testMove: ReturnType<Chess['move']> | null = null;
+        try {
+          testMove = testGame.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: 'q',
+          });
+        } catch {
+          testMove = null;
+        }
+        if (!testMove) return false;
+        setPendingPromotion({
+          from: sourceSquare as Square,
+          to: targetSquare as Square,
+        });
+        return true;
+      }
+      return applyMove(sourceSquare, targetSquare);
+    },
+    [isReadOnly, status, isPromotionMove, baseGame, applyMove],
+  );
+
+  const handlePromotionChoice = useCallback(
+    (piece: PromotionPiece) => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      applyMove(from, to, piece);
+    },
+    [pendingPromotion, applyMove],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
 
   const onClickMove = useCallback(
     (from: Square, to: Square): boolean =>
@@ -348,6 +428,14 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
 
       <div className="board-container" ref={boardContainerRef}>
         <MemoChessboard options={boardOptions} />
+        {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
+        <PromotionPicker
+          pending={pendingPromotion}
+          color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+          onChoice={handlePromotionChoice}
+          onCancel={handlePromotionCancel}
+          testId="lesson-position-promotion-overlay"
+        />
       </div>
 
       <div className="lesson-position-step__actions">

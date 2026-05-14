@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import type {
   EndgameDrillStepPayload,
   EndgameWinCondition,
 } from '@kingside/shared';
 
 import { MemoChessboard } from '../../MemoChessboard';
+import { PromotionPicker, type PromotionPiece } from '../../PromotionPicker';
 import { useStockfish } from '../../../hooks/useStockfish';
 
 /**
@@ -160,6 +161,15 @@ export function EndgameDrillStep({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [status, setStatus] = useState<OutcomeStatus>('playing');
   const [hintUci, setHintUci] = useState<string | null>(null);
+  /**
+   * KS-2969: модалка выбора фигуры при превращении пешки. До этого
+   * шаг авто-продвигал в ферзя — для эндшпилей с под-промоушном
+   * (Кр+п против Кр и т.п.) ученик не мог выбрать ладью/слона/коня.
+   */
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
   const stepDoneFiredRef = useRef(false);
 
   // Движок-соперник (с ограничением силы).
@@ -263,21 +273,44 @@ export function EndgameDrillStep({
   }, [chess, opponentSide, status, engine]);
 
   // ─── Player move ───────────────────────────────────────────────────
-  const handlePieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string }) => {
+
+  /**
+   * KS-2969: определяет, является ли ход превращением пешки.
+   */
+  const isPromotionMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      const piece = chess.get(sourceSquare as Square);
+      if (!piece || piece.type !== 'p') return false;
+      const targetRank = targetSquare[1];
+      return (
+        (piece.color === 'w' && targetRank === '8') ||
+        (piece.color === 'b' && targetRank === '1')
+      );
+    },
+    [chess],
+  );
+
+  /**
+   * KS-2969: применить ход ученика. promotion — выбранная фигура (для
+   * не-promotion-ходов параметр игнорируется chess.js).
+   */
+  const applyStudentMove = useCallback(
+    (
+      sourceSquare: string,
+      targetSquare: string,
+      promotion: PromotionPiece = 'q',
+    ): boolean => {
       if (status !== 'playing') return false;
       if (targetSquare === sourceSquare) return false;
       const sideToMove = chess.turn() === 'w' ? 'white' : 'black';
       if (sideToMove !== playerSide) return false;
 
-      // Пробуем ход; при невалидности возвращаем false — chessboard откатит анимацию.
       try {
         const next = new Chess(chess.fen());
         const move = next.move({
           from: sourceSquare,
           to: targetSquare,
-          // Автопромоушн в ферзя — простая эвристика для эндшпильного тренажёра.
-          promotion: 'q',
+          promotion,
         });
         if (!move) return false;
         const uci =
@@ -301,6 +334,49 @@ export function EndgameDrillStep({
     [chess, playerSide, status],
   );
 
+  const handlePieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string }) => {
+      if (status !== 'playing') return false;
+      if (targetSquare === sourceSquare) return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        // Проверим легальность хода ферзём — иначе модалку не открываем.
+        const testGame = new Chess(chess.fen());
+        let testMove: ReturnType<Chess['move']> | null = null;
+        try {
+          testMove = testGame.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: 'q',
+          });
+        } catch {
+          testMove = null;
+        }
+        if (!testMove) return false;
+        setPendingPromotion({
+          from: sourceSquare as Square,
+          to: targetSquare as Square,
+        });
+        return true;
+      }
+      return applyStudentMove(sourceSquare, targetSquare);
+    },
+    [status, isPromotionMove, chess, applyStudentMove],
+  );
+
+  const handlePromotionChoice = useCallback(
+    (piece: PromotionPiece) => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      applyStudentMove(from, to, piece);
+    },
+    [pendingPromotion, applyStudentMove],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
+
   // ─── Сдаться / рестарт / откат ─────────────────────────────────────
   const resetToStart = useCallback(() => {
     setChess(new Chess(payload.fen));
@@ -309,6 +385,7 @@ export function EndgameDrillStep({
     setStatus('playing');
     engineBestMoveRef.current = null;
     stepDoneFiredRef.current = false;
+    setPendingPromotion(null);
   }, [payload.fen]);
 
   const handleResign = useCallback(() => {
@@ -401,6 +478,14 @@ export function EndgameDrillStep({
             onPieceDrop: handlePieceDrop,
             squareStyles,
           }}
+        />
+        {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
+        <PromotionPicker
+          pending={pendingPromotion}
+          color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+          onChoice={handlePromotionChoice}
+          onCancel={handlePromotionCancel}
+          testId="lesson-endgame-promotion-overlay"
         />
       </div>
 

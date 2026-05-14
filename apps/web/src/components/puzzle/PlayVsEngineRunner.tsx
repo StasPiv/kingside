@@ -7,12 +7,14 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
+import type { Square } from 'chess.js';
 import type {
   PuzzleDto,
   PlayVsEnginePuzzleReason,
 } from '@kingside/shared';
 import { PuzzleBoard } from '../PuzzleBoard';
 import { EvalBar } from '../EvalBar';
+import { PromotionPicker, type PromotionPiece } from '../PromotionPicker';
 import { PostGameReview } from './PostGameReview';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import { permilleToPercent } from '../../utils/chessFormat';
@@ -399,6 +401,17 @@ export function PlayVsEngineRunner({
     [],
   );
   const [reason, setReason] = useState<PlayVsEnginePuzzleReason | null>(null);
+  /**
+   * KS-2969: pending promotion. Когда юзер тащит пешку на 8-й (для белых)
+   * или 1-й (для чёрных) ряд, мы НЕ применяем ход сразу с авто-ферзём, а
+   * открываем модалку выбора фигуры (Q/R/B/N). После выбора применяем
+   * `applyUserMove(from, to, piece)`. Тот же UX-паттерн, что в GamePage
+   * (live-партии) и AnalysisPage (анализ).
+   */
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
   /**
    * KS-2473: лог «лучшего хода юзера» в позиции ДО user-move. Заполняется
    * pre-analyze'ом параллельно с engine-ответом, см. `onPieceDrop`.
@@ -809,22 +822,31 @@ export function PlayVsEngineRunner({
   );
 
   // ── User move handler ────────────────────────────────────────────────
-  const onPieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!targetSquare) return false;
-      if (state !== 'thinking') return false;
 
+  /**
+   * KS-2969: применить ход пользователя. promotion-параметр — выбор юзера
+   * из `PromotionPicker` (Q/R/B/N). Для не-promotion ходов параметр
+   * игнорируется (chess.js его не использует). До KS-2969 здесь был
+   * жёсткий `promotion: 'q'` (авто-ферзь, ADR §5.6) — теперь это
+   * default для случаев когда вызывающий не знал о promotion (например,
+   * программный вызов из тестов).
+   */
+  const applyUserMove = useCallback(
+    (sourceSquare: string, targetSquare: string, promotion: PromotionPiece = 'q'): boolean => {
+      if (state !== 'thinking') return false;
       const next = new Chess(game.fen());
       let move: ReturnType<Chess['move']> | null = null;
       try {
-        // Авто-продвижение в ферзя для MVP — ADR §5.6.
-        move = next.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
+        move = next.move({ from: sourceSquare, to: targetSquare, promotion });
       } catch {
         move = null;
       }
       if (!move) return false;
       playSound(soundEventFromSan(move.san));
-      const playedUci = sourceSquare + targetSquare;
+      // KS-2969: UCI промоушна обязан содержать суффикс фигуры
+      // (b7b8q, не b7b8). chess.js заполняет move.promotion только
+      // когда ход реально является превращением пешки.
+      const playedUci = sourceSquare + targetSquare + (move.promotion ?? '');
       lastMoveUciRef.current = playedUci;
       const fenBefore = game.fen();
       setGame(next);
@@ -973,6 +995,75 @@ export function PlayVsEngineRunner({
     ],
   );
 
+  /**
+   * KS-2969: определяет, является ли ход превращением пешки.
+   * Pawn идёт на 8-й (белые) или 1-й (чёрные) ряд.
+   */
+  const isPromotionMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      const piece = game.get(sourceSquare as Square);
+      if (!piece || piece.type !== 'p') return false;
+      const targetRank = targetSquare[1];
+      return (
+        (piece.color === 'w' && targetRank === '8') ||
+        (piece.color === 'b' && targetRank === '1')
+      );
+    },
+    [game],
+  );
+
+  /**
+   * KS-2969: обработчик drop/click из PuzzleBoard. Если ход — promotion,
+   * сохраняем pending и показываем `<PromotionPicker>`; иначе сразу
+   * применяем ход через `applyUserMove`. Возвращаем `true` для promotion,
+   * чтобы react-chessboard не «отскочил» (фигура всё равно вернётся в
+   * исходное положение при следующем рендере, потому что `game` не
+   * изменился).
+   */
+  const onPieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (!targetSquare) return false;
+      if (state !== 'thinking') return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        // Проверим легальность хода ферзём — если ход вообще запрещён
+        // (пешка под связкой, фигура мешает и т.п.), модалку не открываем.
+        const testGame = new Chess(game.fen());
+        let testMove: ReturnType<Chess['move']> | null = null;
+        try {
+          testMove = testGame.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: 'q',
+          });
+        } catch {
+          testMove = null;
+        }
+        if (!testMove) return false;
+        setPendingPromotion({
+          from: sourceSquare as Square,
+          to: targetSquare as Square,
+        });
+        return true;
+      }
+      return applyUserMove(sourceSquare, targetSquare);
+    },
+    [state, game, isPromotionMove, applyUserMove],
+  );
+
+  const handlePromotionChoice = useCallback(
+    (piece: PromotionPiece) => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      applyUserMove(from, to, piece);
+    },
+    [pendingPromotion, applyUserMove],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
+
   // ── Reset при смене puzzle ───────────────────────────────────────────
   useEffect(() => {
     setGame(new Chess(puzzle.fen));
@@ -1007,6 +1098,8 @@ export function PlayVsEngineRunner({
     submittedRef.current = false;
     startTimeRef.current = Date.now();
     lastMoveUciRef.current = null;
+    // KS-2969: закрыть модалку выбора promotion при переключении пазла.
+    setPendingPromotion(null);
   }, [puzzle.id, puzzle.fen, params.wdlAfterBlunder, updateClientBaselineWdl]);
 
   // ── KS-2507 / ADR-047 §2.1 + §3 #4 ───────────────────────────────────
@@ -1259,7 +1352,17 @@ export function PlayVsEngineRunner({
               reviewFen ? null : (lastMoveUciRef.current ?? blunderHighlight)
             }
             status={boardStatus}
-          />
+          >
+            {/* KS-2969: модалка выбора фигуры при превращении пешки.
+                Цвет — по ряду промоушна (8 → белые, 1 → чёрные). */}
+            <PromotionPicker
+              pending={pendingPromotion}
+              color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+              onChoice={handlePromotionChoice}
+              onCancel={handlePromotionCancel}
+              testId="puzzle-promotion-overlay"
+            />
+          </PuzzleBoard>
 
           {/* KS-2486: открыть пазл в мастерской (анализ). Передаём
               `?fen=<initialPuzzleFen>&pgn=<пройденные ходы>` — Workshop

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import type { OpeningDrillStepPayload } from '@kingside/shared';
 
 import { MemoChessboard } from '../../MemoChessboard';
+import { PromotionPicker, type PromotionPiece } from '../../PromotionPicker';
 import { useStockfish } from '../../../hooks/useStockfish';
 import { parseAnnotatedPgn } from '../../../review/utils/PgnDeserializer';
 import type { ChessMove } from '../../../review/types';
@@ -93,6 +94,14 @@ export function OpeningDrillStep({
   const [playerMoves, setPlayerMoves] = useState(0);
   const [correctionMove, setCorrectionMove] = useState<ChessMove | null>(null);
   const [engineActive, setEngineActive] = useState(false);
+  /**
+   * KS-2969: модалка выбора фигуры при превращении пешки. До этого
+   * шаг авто-продвигал в ферзя.
+   */
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
   const stepDoneFiredRef = useRef(false);
 
   const engine = useStockfish({
@@ -203,8 +212,33 @@ export function OpeningDrillStep({
   }, [status, onStepDone]);
 
   // ─── Ход ученика ────────────────────────────────────────────────────
-  const handlePieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string }) => {
+
+  /**
+   * KS-2969: определяет, является ли ход превращением пешки.
+   */
+  const isPromotionMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      const piece = chess.get(sourceSquare as Square);
+      if (!piece || piece.type !== 'p') return false;
+      const targetRank = targetSquare[1];
+      return (
+        (piece.color === 'w' && targetRank === '8') ||
+        (piece.color === 'b' && targetRank === '1')
+      );
+    },
+    [chess],
+  );
+
+  /**
+   * KS-2969: применить ход ученика. promotion — выбранная фигура (для
+   * не-promotion ходов параметр игнорируется chess.js).
+   */
+  const applyStudentMove = useCallback(
+    (
+      sourceSquare: string,
+      targetSquare: string,
+      promotion: PromotionPiece = 'q',
+    ): boolean => {
       if (status !== 'playing' && status !== 'engine_punish') return false;
       const sideToMove = chess.turn() === 'w' ? 'white' : 'black';
       if (sideToMove !== playerSide) return false;
@@ -213,7 +247,7 @@ export function OpeningDrillStep({
         const move = next.move({
           from: sourceSquare,
           to: targetSquare,
-          promotion: 'q',
+          promotion,
         });
         if (!move) return false;
         const uci = move.from + move.to + (move.promotion ?? '');
@@ -255,6 +289,48 @@ export function OpeningDrillStep({
     },
     [chess, playerSide, status, cursor, tree, payload.onDeviation],
   );
+
+  const handlePieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string }) => {
+      if (status !== 'playing' && status !== 'engine_punish') return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        // Проверим легальность хода ферзём.
+        const testGame = new Chess(chess.fen());
+        let testMove: ReturnType<Chess['move']> | null = null;
+        try {
+          testMove = testGame.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: 'q',
+          });
+        } catch {
+          testMove = null;
+        }
+        if (!testMove) return false;
+        setPendingPromotion({
+          from: sourceSquare as Square,
+          to: targetSquare as Square,
+        });
+        return true;
+      }
+      return applyStudentMove(sourceSquare, targetSquare);
+    },
+    [status, isPromotionMove, chess, applyStudentMove],
+  );
+
+  const handlePromotionChoice = useCallback(
+    (piece: PromotionPiece) => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      applyStudentMove(from, to, piece);
+    },
+    [pendingPromotion, applyStudentMove],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
 
   // ─── Reset / retry ──────────────────────────────────────────────────
   const retryFromStart = useCallback(() => {
@@ -310,6 +386,14 @@ export function OpeningDrillStep({
             animationDurationInMs: 150,
             onPieceDrop: handlePieceDrop,
           }}
+        />
+        {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
+        <PromotionPicker
+          pending={pendingPromotion}
+          color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+          onChoice={handlePromotionChoice}
+          onCancel={handlePromotionCancel}
+          testId="lesson-opening-promotion-overlay"
         />
       </div>
 

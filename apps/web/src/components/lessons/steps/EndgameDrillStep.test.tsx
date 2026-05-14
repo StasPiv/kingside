@@ -224,8 +224,10 @@ describe('<EndgameDrillStep>', () => {
 
   it('движок получает evaluate(fen) после хода ученика', async () => {
     renderWithProviders(<EndgameDrillStep payload={basePayload()} />);
-    // Прокидываем d7-d8 (с автопромоушном в Q) — это ход ученика.
+    // KS-2969: d7-d8 — promotion-ход, теперь открывается модалка выбора.
+    // Кликаем по ферзю — получаем тот же результат, что и до фикса.
     fireEvent.click(screen.getByTestId('test-fire-move-d7d8'));
+    fireEvent.click(screen.getByTestId('promotion-choice-q'));
     // После promote winCondition выполнено → status=player_won, очередь
     // пусть и чёрных, но движок НЕ должен звать (мы уже done).
     await waitFor(() =>
@@ -245,7 +247,9 @@ describe('<EndgameDrillStep>', () => {
     renderWithProviders(
       <EndgameDrillStep payload={basePayload()} onStepDone={onStepDone} />,
     );
+    // KS-2969: promotion теперь через модалку — выбираем ферзя.
     fireEvent.click(screen.getByTestId('test-fire-move-d7d8'));
+    fireEvent.click(screen.getByTestId('promotion-choice-q'));
     await waitFor(() => expect(onStepDone).toHaveBeenCalledTimes(1));
   });
 
@@ -314,7 +318,9 @@ describe('<EndgameDrillStep>', () => {
 
   it('откат (takeback) → позиция возвращается, история обрезается', async () => {
     renderWithProviders(<EndgameDrillStep payload={basePayload()} />);
+    // KS-2969: promotion теперь через модалку — выбираем ферзя.
     fireEvent.click(screen.getByTestId('test-fire-move-d7d8'));
+    fireEvent.click(screen.getByTestId('promotion-choice-q'));
     await waitFor(() =>
       expect(screen.getByTestId('lesson-endgame-step')).toHaveAttribute(
         'data-status',

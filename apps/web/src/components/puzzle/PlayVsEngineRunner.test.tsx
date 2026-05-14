@@ -287,6 +287,80 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.moves[0].engineUci).toBeNull();
   });
 
+  it('KS-2969: promotion-ход — playedUci содержит выбранную фигуру (b7b8q)', async () => {
+    // FEN из репро задачи KS-2969: после хода `b7b8` нужно promotion-
+    // суффикс. Раньше playedUci был «b7b8» без фигуры → API 400.
+    const puzzle = makePuzzle({
+      fen: '8/1P1b1p1p/5kp1/8/2Pr3P/2n2P2/4RKP1/8 w - - 1 41',
+      playVsEngine: {
+        blunderMove: 'b7b8q',
+        wdlAfterBlunder: 0.9,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    // Engine после промоушна белых видит mate против чёрных → win-engine-resign.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 800 }, ['b7b8q'])), // pre-analyze
+      result(line({ type: 'mate', value: -2 }, ['c3a2'])), // post-analyze
+    ]);
+    const onSubmit = vi.fn();
+    const { container } = renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={onSubmit} engineFactory={() => engine} />,
+    );
+    // user ход b7-b8 → открывается модалка выбора фигуры.
+    (screen.getByTestId('fire-square-b7') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-b8') as HTMLButtonElement).click();
+    // Модалка отрендерилась — выбираем ферзя.
+    await waitFor(() => {
+      expect(screen.getByTestId('puzzle-promotion-overlay')).toBeInTheDocument();
+    });
+    (screen.getByTestId('promotion-choice-q') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="puzzle-engine-runner"]')?.getAttribute('data-state')).toBe('win');
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const arg = onSubmit.mock.calls[0][0];
+    // KS-2969: главная проверка — playedUci содержит суффикс фигуры.
+    // Backend требует «b7b8q», а не голое «b7b8» (illegal-move 400).
+    expect(arg.moves).toHaveLength(1);
+    expect(arg.moves[0].playedUci).toBe('b7b8q');
+  });
+
+  it('KS-2969: promotion-ход — выбор НЕ ферзя (под-промоушн в коня)', async () => {
+    // Тот же FEN, но юзер выбирает коня (`n`) — playedUci='b7b8n'.
+    const puzzle = makePuzzle({
+      fen: '8/1P1b1p1p/5kp1/8/2Pr3P/2n2P2/4RKP1/8 w - - 1 41',
+      playVsEngine: {
+        blunderMove: 'b7b8n',
+        wdlAfterBlunder: 0.9,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 800 }, ['b7b8n'])),
+      result(line({ type: 'mate', value: -2 }, ['c3a2'])),
+    ]);
+    const onSubmit = vi.fn();
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={onSubmit} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-b7') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-b8') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(screen.getByTestId('puzzle-promotion-overlay')).toBeInTheDocument();
+    });
+    (screen.getByTestId('promotion-choice-n') as HTMLButtonElement).click();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const arg = onSubmit.mock.calls[0][0];
+    expect(arg.moves[0].playedUci).toBe('b7b8n');
+  });
+
   it('win-mate: ход игрока ставит мат соперника', async () => {
     // Backrank: 6k1/5ppp/8/8/8/8/8/R6K w - - 0 1.
     // Ход a1a8 = мат. После него next.isCheckmate() → win-mate, движок не нужен,

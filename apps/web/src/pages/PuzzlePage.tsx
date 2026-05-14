@@ -6,9 +6,10 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { PuzzleBoard } from '../components/PuzzleBoard';
+import { PromotionPicker, type PromotionPiece } from '../components/PromotionPicker';
 import { HelpButton } from '../components/HelpButton';
 import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
 // KS-2488: блок «Из партии» (sourceGame) под доской пазла.
@@ -74,6 +75,15 @@ export function PuzzlePage() {
   // неиспользуемый элемент destructure.
   const [allSolved] = useState(false);
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
+  /**
+   * KS-2969: модалка выбора фигуры при превращении пешки. До этого
+   * forced-line раннер всегда подставлял promotion из expectedMove,
+   * и игрок не мог выбрать другую фигуру.
+   */
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
   const userMovesRef = useRef<string[]>([]);
@@ -158,6 +168,8 @@ export function PuzzlePage() {
     setSolutionMove(null);
     setAltMoveMsg(null);
     setRatingChange(null);
+    // KS-2969: закрыть модалку выбора promotion при переключении пазла.
+    setPendingPromotion(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
     userMovesRef.current = [];
@@ -233,31 +245,68 @@ export function PuzzlePage() {
     }
   }, [puzzle, user]);
 
-  const onPieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!targetSquare) return false;
+  /**
+   * KS-2969: определяет, является ли ход превращением пешки на текущей
+   * позиции `game`. Используется для перехвата promotion-ходов до их
+   * передачи в `processPlayerMove` — игрок должен сам выбрать фигуру.
+   */
+  const isPromotionMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      if (!game) return false;
+      const piece = game.get(sourceSquare as Square);
+      if (!piece || piece.type !== 'p') return false;
+      const targetRank = targetSquare[1];
+      return (
+        (piece.color === 'w' && targetRank === '8') ||
+        (piece.color === 'b' && targetRank === '1')
+      );
+    },
+    [game],
+  );
+
+  /**
+   * KS-2969: основная логика обработки хода игрока. До рефакторинга это
+   * было inline-телом `onPieceDrop`. Вынесли в отдельный коллбэк, чтобы
+   * можно было вызвать его после выбора фигуры в `PromotionPicker`.
+   *
+   * `userPromotion` — выбор фигуры юзером при promotion-ходе. Для
+   * не-promotion-ходов параметр игнорируется.
+   */
+  const processPlayerMove = useCallback(
+    (sourceSquare: string, targetSquare: string, userPromotion?: PromotionPiece): boolean => {
       if (!game || !puzzle || status !== 'thinking') return false;
       if (moveIndex >= puzzleMoves.length) return false;
 
       const expectedMove = puzzleMoves[moveIndex];
-      console.log(`[Puzzle] onPieceDrop: moveIndex=${moveIndex} expected=${expectedMove} player=${sourceSquare}${targetSquare} total=${puzzleMoves.length}`);
+      console.log(`[Puzzle] processPlayerMove: moveIndex=${moveIndex} expected=${expectedMove} player=${sourceSquare}${targetSquare}${userPromotion ?? ''} total=${puzzleMoves.length}`);
       const from = expectedMove.slice(0, 2);
       const to = expectedMove.slice(2, 4);
       const promotion = expectedMove.length > 4 ? expectedMove[4] : undefined;
 
       // For generated puzzles with multiple accepted moves (first move only)
-      const playerUci = sourceSquare + targetSquare;
+      // KS-2969: playerUci собирается с выбранной promotion-фигурой, чтобы
+      // сравнение с expectedMove (b7b8q) работало корректно.
+      const playerUci = sourceSquare + targetSquare + (userPromotion ?? '');
       userMovesRef.current.push(playerUci);
       const acceptedList = isGenerated && moveIndex === 0 && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves
         ? (puzzle as unknown as { acceptedMoves: string }).acceptedMoves.split(' ')
         : null;
       const isAccepted = acceptedList ? acceptedList.some((m) => m.startsWith(playerUci)) : false;
 
-      if (!isAccepted && (sourceSquare !== from || targetSquare !== to)) {
+      // KS-2969: сравниваем по полному UCI (с promotion-суффиксом). До
+       // фикса сравнивались только from/to, и promotion-ход с фигурой
+       // отличной от expected ушёл бы в ветку «правильно», заменяясь
+       // на ход из solution.
+       if (!isAccepted && playerUci !== expectedMove) {
         // Try alternative move via engine analysis
         const currentFen = game.fen();
         const testCopy = new Chess(currentFen);
-        const testMove = testCopy.move({ from: sourceSquare, to: targetSquare });
+        const testMove = testCopy.move({
+          from: sourceSquare,
+          to: targetSquare,
+          // KS-2969: передаём выбранную игроком фигуру (если ход — promotion).
+          promotion: userPromotion,
+        });
         if (!testMove) {
           // Illegal move
           return false;
@@ -417,8 +466,56 @@ export function PuzzlePage() {
 
       return true;
     },
-    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult, getEngine],
+    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult, getEngine, isGenerated, t],
   );
+
+  /**
+   * KS-2969: обёртка над `processPlayerMove` для перехвата promotion-ходов
+   * до их применения. Если ход — promotion, открываем `PromotionPicker`
+   * и ждём выбор; иначе сразу передаём в обработчик.
+   */
+  const onPieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (!targetSquare) return false;
+      if (!game || status !== 'thinking') return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        // Проверим легальность хода ферзём — иначе модалку не открываем.
+        const testGame = new Chess(game.fen());
+        let testMove: ReturnType<Chess['move']> | null = null;
+        try {
+          testMove = testGame.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: 'q',
+          });
+        } catch {
+          testMove = null;
+        }
+        if (!testMove) return false;
+        setPendingPromotion({
+          from: sourceSquare as Square,
+          to: targetSquare as Square,
+        });
+        return true;
+      }
+      return processPlayerMove(sourceSquare, targetSquare);
+    },
+    [game, status, isPromotionMove, processPlayerMove],
+  );
+
+  const handlePromotionChoice = useCallback(
+    (piece: PromotionPiece) => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      processPlayerMove(from, to, piece);
+    },
+    [pendingPromotion, processPlayerMove],
+  );
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
 
   const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);
 
@@ -457,6 +554,8 @@ export function PuzzlePage() {
     setStatus('thinking');
     setSolutionMove(null);
     setAltMoveMsg(null);
+    // KS-2969: закрыть модалку выбора promotion при retry.
+    setPendingPromotion(null);
     userMovesRef.current = [];
     attemptSubmittedRef.current = false;
     startTimeRef.current = Date.now();
@@ -702,7 +801,16 @@ export function PuzzlePage() {
           onPieceDrop={onPieceDrop}
           lastMoveUci={lastMoveUci}
           status={status}
-        />
+        >
+          {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
+          <PromotionPicker
+            pending={pendingPromotion}
+            color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+            onChoice={handlePromotionChoice}
+            onCancel={handlePromotionCancel}
+            testId="puzzle-promotion-overlay"
+          />
+        </PuzzleBoard>
 
         <div className="puzzle-actions-slot">
           {status === 'checking' && (
