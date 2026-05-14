@@ -364,6 +364,32 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     // Don't change state — bestmove handler will transition appropriately.
   }, []);
 
+  /**
+   * KS-3042: при изменении `multiPv` в UI во время активного анализа
+   * нужно переотправить `setoption MultiPV` и заново стартовать `go` —
+   * Stockfish не подхватывает MultiPV «на лету» без рестарта поиска.
+   *
+   * Используем уже существующий путь `evaluate(currentFen)`: при
+   * `stateRef.current === 'analyzing'` он сложит fen в `pendingFenRef`
+   * и отправит `stop`. Дальше bestmove-handler сделает `isready`,
+   * после `readyok` уйдёт `setoption MultiPV value <clamp(...)>` с
+   * актуальным `multiPvRef.current` + `position` + `go` (см. блок
+   * `waitingForReadyRef`). Клемпа KS-3041 сохраняется — она читается
+   * на момент re-dispatch'а из ref.
+   *
+   * Если движок не активен (idle/ready/loading) — ничего не делаем,
+   * следующий обычный `evaluate()` подхватит новый `multiPvRef`
+   * через те же 3 точки отправки setoption.
+   */
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    if (!engineRef.current) return;
+    const fen = fenRef.current;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiPv]);
+
   return {
     state,
     lines,

@@ -1,11 +1,14 @@
 /**
- * KS-3041: тесты `clampMultiPvToLegalMoves`. Хук `useStockfish`
- * целиком не тестируется (Web Worker + WASM), а его новая ветка
- * клемпы — чистая функция, проверяется юнитом.
+ * KS-3041: тесты `clampMultiPvToLegalMoves`. Чистая функция.
+ * KS-3042: тесты на re-dispatch `setoption MultiPV` при изменении
+ * `multiPv` во время активного анализа. Используется мок-Worker
+ * (см. пример в `engineAdapter.test.ts`).
  */
 
-import { describe, it, expect } from 'vitest';
-import { clampMultiPvToLegalMoves } from './useStockfish';
+// @vitest-environment happy-dom
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useStockfish, clampMultiPvToLegalMoves } from './useStockfish';
 
 describe('clampMultiPvToLegalMoves (KS-3041)', () => {
   it('FEN из жалобы (2 легальных ответа на шах) — multipv=3 → 2', () => {
@@ -55,5 +58,145 @@ describe('clampMultiPvToLegalMoves (KS-3041)', () => {
       'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     expect(clampMultiPvToLegalMoves(startFen, 3.9)).toBe(3);
     expect(clampMultiPvToLegalMoves(startFen, 2.1)).toBe(2);
+  });
+});
+
+// KS-3042: re-dispatch MultiPV при изменении в UI во время активного анализа.
+describe('useStockfish — KS-3042 re-dispatch MultiPV at runtime', () => {
+  type Listener = (e: { data: string }) => void;
+  class MockWorker {
+    static instances: MockWorker[] = [];
+    sent: string[] = [];
+    onmessage: Listener | null = null;
+    onerror: Listener | null = null;
+    onmessageerror: Listener | null = null;
+    terminated = false;
+    constructor(public url?: string | URL) {
+      MockWorker.instances.push(this);
+    }
+    postMessage(msg: string): void {
+      this.sent.push(msg);
+    }
+    terminate(): void {
+      this.terminated = true;
+    }
+    emit(line: string): void {
+      this.onmessage?.({ data: line });
+    }
+  }
+
+  const START_FEN =
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+  let prevWorker: typeof globalThis.Worker;
+
+  beforeEach(() => {
+    prevWorker = globalThis.Worker;
+    MockWorker.instances = [];
+    // @ts-expect-error replace global Worker with mock
+    globalThis.Worker = MockWorker;
+  });
+  afterEach(() => {
+    globalThis.Worker = prevWorker;
+  });
+
+  /**
+   * Прогоняет lazy-init цикл: первый `evaluate` → init → uci/uciok →
+   * isready/readyok → setoption MultiPV + position + go. Возвращает
+   * мок-worker и сбрасывает `.sent`, чтобы тестировать ТОЛЬКО действия
+   * после изменения multiPv.
+   */
+  async function startAnalysisAndResetSent(
+    initialMultiPv: number,
+    fen: string,
+  ) {
+    const { result, rerender } = renderHook(
+      ({ multiPv }: { multiPv: number }) =>
+        useStockfish({ multiPv, depth: 5 }),
+      { initialProps: { multiPv: initialMultiPv } },
+    );
+    await act(async () => {
+      result.current.evaluate(fen);
+    });
+    const worker = MockWorker.instances[0];
+    expect(worker).toBeDefined();
+    // Эмулируем UCI handshake.
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    // После readyok ушёл `setoption name MultiPV value <N>` + `position` + `go`.
+    expect(worker.sent).toContain(
+      `setoption name MultiPV value ${initialMultiPv}`,
+    );
+    worker.sent.length = 0;
+    return { result, rerender, worker };
+  }
+
+  it('3 → 4: после смены multiPv хук шлёт stop, после bestmove/readyok — setoption MultiPV value 4 + position + go', async () => {
+    const { rerender, worker } = await startAnalysisAndResetSent(3, START_FEN);
+
+    // Меняем multiPv 3 → 4. Эффект [multiPv] срабатывает синхронно,
+    // вызывает evaluate(currentFen) → stop.
+    await act(async () => {
+      rerender({ multiPv: 4 });
+    });
+    expect(worker.sent).toContain('stop');
+
+    // Сбрасываем для чистого среза «после bestmove».
+    worker.sent.length = 0;
+
+    // Движок присылает bestmove (предыдущей итерации).
+    await act(async () => {
+      worker.emit('bestmove e2e4');
+    });
+    // bestmove-handler видит pendingFen → шлёт isready.
+    expect(worker.sent).toContain('isready');
+
+    worker.sent.length = 0;
+    // Движок отвечает readyok → handler ставит MultiPV=4 + position + go.
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('setoption name MultiPV value 4');
+    expect(worker.sent.some((m) => m.startsWith(`position fen ${START_FEN}`))).toBe(true);
+    expect(worker.sent.some((m) => m.startsWith('go depth'))).toBe(true);
+  });
+
+  it('multiPv больше числа легальных ходов клемпится при re-dispatch (KS-3041 интеграция)', async () => {
+    // FEN из KS-3041 (2 легальных хода). Стартуем с multiPv=1, потом
+    // меняем на 5 во время анализа — re-dispatch должен отправить
+    // `setoption MultiPV value 2` (клемпнуто к legalCount=2), не 5.
+    const fewMovesFen = '8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1 w - - 2 51';
+    const { rerender, worker } = await startAnalysisAndResetSent(1, fewMovesFen);
+
+    await act(async () => {
+      rerender({ multiPv: 5 });
+    });
+    await act(async () => {
+      worker.emit('bestmove e3e1');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('setoption name MultiPV value 2');
+    expect(worker.sent).not.toContain('setoption name MultiPV value 5');
+  });
+
+  it('изменение multiPv в idle/ready-состоянии НЕ триггерит лишний stop', async () => {
+    // Хук не вызывался evaluate() — engineRef.current === null,
+    // эффект не должен ничего отправлять.
+    const { rerender } = renderHook(
+      ({ multiPv }: { multiPv: number }) =>
+        useStockfish({ multiPv, depth: 5 }),
+      { initialProps: { multiPv: 3 } },
+    );
+    await act(async () => {
+      rerender({ multiPv: 4 });
+    });
+    // Worker даже не создан.
+    expect(MockWorker.instances).toHaveLength(0);
   });
 });
