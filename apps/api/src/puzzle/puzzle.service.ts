@@ -115,6 +115,18 @@ export class PuzzleService {
       ratingMax?: number;
       // KS-2472 / ADR-044 §5.5. Whitelist валидируется на DTO-уровне.
       solutionMode?: 'forced-line' | 'play-vs-engine';
+      /**
+       * KS-3032. Для PVE-режима default = false: строго исключаем
+       * любые задачи с attempt'ом (solved/failed/abort). Если все
+       * задачи в выборке пройдены — 404 «все пройдены».
+       *
+       * `includeAttempted=true` возвращает каскадное поведение
+       * (recent-7d → recent-1d → solved-only → none) — для случая
+       * когда юзер сознательно хочет перерешать.
+       *
+       * Для `forced-line` игнорируется (там каскад всегда уместен).
+       */
+      includeAttempted?: boolean;
     },
   ) {
     const DEFAULT_RATING = 1500;
@@ -146,7 +158,12 @@ export class PuzzleService {
     // (4) дополнительно ослабляем range/popularity. Все 4 пути дают
     // согласованный SQL с переиндексацией параметров (KS-2733-фикс).
 
-    type ExcludeStrategy = 'recent-7d' | 'recent-1d' | 'solved-only' | 'none';
+    type ExcludeStrategy =
+      | 'recent-7d'
+      | 'recent-1d'
+      | 'solved-only'
+      | 'all-attempted'
+      | 'none';
     type RangeMode = 'strict' | 'relaxed';
 
     const tryQuery = async (
@@ -200,6 +217,16 @@ export class PuzzleService {
               AND pa.user_id = $${i}::uuid
               AND pa.created_at > NOW() - INTERVAL '1 day'
           )`;
+        } else if (excludeStrategy === 'all-attempted') {
+          // KS-3032: строгий exclude для PVE — НИКОГДА не повторять
+          // задачи с любым attempt'ом (solved/failed/abort). Если все
+          // PVE-задачи пройдены — внешний caller получит 404, фронт
+          // покажет «Все пройдены».
+          exclusion = `NOT EXISTS (
+            SELECT 1 FROM puzzle_attempts pa
+            WHERE pa.puzzle_id = p.id
+              AND pa.user_id = $${i}::uuid
+          )`;
         } else {
           // solved-only — старое поведение до KS-2735.
           exclusion = `NOT EXISTS (
@@ -237,25 +264,46 @@ export class PuzzleService {
       );
     };
 
-    // Primary: strict range + 7-дневное окно.
-    let puzzles = await tryQuery('recent-7d', 'strict');
-    if (puzzles.length === 0) {
-      // 1-day fallback в strict-range — пользователь решил всю выборку
-      // за неделю, но за сутки могли остаться непосещённые.
-      puzzles = await tryQuery('recent-1d', 'strict');
-    }
-    if (puzzles.length === 0) {
-      // Старое поведение: только solved исключаем (KS-2735 fallback 3).
-      puzzles = await tryQuery('solved-only', 'strict');
-    }
-    if (puzzles.length === 0) {
-      // Relaxed range + solved-only — последний шанс.
-      puzzles = await tryQuery('solved-only', 'relaxed');
-    }
-    if (puzzles.length === 0) {
-      // Совсем без user-exclude — пускай повторится, но дадим
-      // что-нибудь. Это сигнал «PVE-контента мало».
-      puzzles = await tryQuery('none', 'relaxed');
+    // KS-3032: для PVE-режима с default-флагом `includeAttempted=false`
+    // используем строгий exclude (`all-attempted`), без каскада. Это
+    // гарантирует, что юзеру никогда не вернётся уже посещённая
+    // precision-задача. Если все PVE пройдены — 404 «все пройдены».
+    //
+    // Для forced-line и для `includeAttempted=true` оставляем
+    // прежний каскад recent-7d → recent-1d → solved-only → relaxed → none.
+    const isPveStrict =
+      filters?.solutionMode === 'play-vs-engine' &&
+      filters?.includeAttempted !== true;
+
+    let puzzles: Awaited<ReturnType<typeof tryQuery>> = [];
+    if (isPveStrict && userId) {
+      // Только две попытки: strict range → relaxed range (для случая
+      // когда в нужном рейтинговом окне всё пройдено, но в соседнем —
+      // ещё есть непосещённые задачи). Каскад на recent-1d/solved-only
+      // не применяется намеренно: цель — не повторять никогда.
+      puzzles = await tryQuery('all-attempted', 'strict');
+      if (puzzles.length === 0) {
+        puzzles = await tryQuery('all-attempted', 'relaxed');
+      }
+      // Если всё ещё пусто — 404 ниже без fallback на 'none'. Это
+      // правильно: фронт покажет «Все пройдены», не возвращаем повтор.
+    } else {
+      // Прежний 4-уровневый каскад (forced-line / явный includeAttempted).
+      puzzles = await tryQuery('recent-7d', 'strict');
+      if (puzzles.length === 0) {
+        puzzles = await tryQuery('recent-1d', 'strict');
+      }
+      if (puzzles.length === 0) {
+        puzzles = await tryQuery('solved-only', 'strict');
+      }
+      if (puzzles.length === 0) {
+        puzzles = await tryQuery('solved-only', 'relaxed');
+      }
+      if (puzzles.length === 0) {
+        // Совсем без user-exclude — пускай повторится, но дадим
+        // что-нибудь. Это сигнал «PVE-контента мало».
+        puzzles = await tryQuery('none', 'relaxed');
+      }
     }
 
     if (puzzles.length === 0) {

@@ -75,11 +75,17 @@ export class PuzzleController {
     @Query('excludeId') excludeId?: string,
     @Query() dto?: FindPuzzlesDto,
   ) {
+    // KS-3032: `includeAttempted` приходит строкой через query
+    // (`'true' | 'false' | '1' | '0'`); приводим к boolean. Default —
+    // false (для PVE строго исключаем посещённые задачи).
+    const includeAttempted =
+      dto?.includeAttempted === 'true' || dto?.includeAttempted === '1';
     return this.puzzleService.getNextPuzzle(req.user?.id ?? null, excludeId, {
       themes: dto?.themes,
       ratingMin: dto?.ratingMin,
       ratingMax: dto?.ratingMax,
       solutionMode: dto?.solutionMode,
+      includeAttempted,
     });
   }
 

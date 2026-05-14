@@ -435,6 +435,11 @@ describe('PuzzleService', () => {
       // ссылками на $3/$4 — SQL получал «несуществующие placeholder'ы»
       // и возвращал 500. После KS-2733/2735-фикса каждый шаг каскада
       // строится с индексами параметров начиная с $1.
+      //
+      // KS-3032: для PVE по default включается строгий exclude
+      // (`all-attempted`) без каскада. Чтобы здесь проверить именно
+      // переиндексацию параметров на 4-м шаге каскада — явно передаём
+      // `includeAttempted=true` (возвращаем legacy-каскад).
       prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
       // Все шаги strict (recent-7d, recent-1d, solved-only) пусты,
       // на 4-м шаге (relaxed + solved-only) возвращаем пазл.
@@ -459,6 +464,7 @@ describe('PuzzleService', () => {
 
       const r = await service.getNextPuzzle('user-1', 'exclude-id', {
         solutionMode: 'play-vs-engine',
+        includeAttempted: true,
       });
 
       expect(r.id).toBe('pve-fb');
@@ -541,6 +547,163 @@ describe('PuzzleService', () => {
       // 5-й — none, без NOT EXISTS на user_attempts (только excludeId/themes/etc).
       // Проверим что нет NOT EXISTS user_id.
       expect(sqls[4]).not.toContain('user_id');
+    });
+
+    // ── KS-3032: строгий all-attempted exclude для PVE ───────────
+
+    it('KS-3032: PVE без includeAttempted → строгий all-attempted exclude (NOT EXISTS без INTERVAL и без solved=true)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'pve-fresh',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: 'playVsEngine',
+          source: 'generated',
+          solution_mode: 'play-vs-engine',
+          source_metadata: '{}',
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      const r = await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'play-vs-engine',
+      });
+
+      expect(r.id).toBe('pve-fresh');
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).toContain('NOT EXISTS');
+      // KS-3032: НЕТ временного окна и НЕТ фильтра по solved.
+      expect(sql).not.toContain('INTERVAL');
+      expect(sql).not.toContain('solved = true');
+    });
+
+    it('KS-3032: PVE — strict пуст, relaxed пуст → 404 (без fallback на none)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      // Обе попытки (strict + relaxed) пустые. Фронт должен показать
+      // «Все пройдены», без повтора старых задач.
+      prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await expect(
+        service.getNextPuzzle('user-1', undefined, {
+          solutionMode: 'play-vs-engine',
+        }),
+      ).rejects.toThrow('messages.puzzle.noPuzzlesAvailable');
+
+      // ровно 2 SQL-запроса (strict + relaxed), без каскада на 5
+      // уровней.
+      expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    });
+
+    it('KS-3032: PVE — strict пуст, relaxed возвращает → выдаёт relaxed-вариант', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'pve-relaxed',
+            fen: 'fen',
+            moves: '',
+            rating: 2000,
+            themes: 'playVsEngine',
+            source: 'generated',
+            solution_mode: 'play-vs-engine',
+            source_metadata: '{}',
+            game_url: null,
+            opening_tags: null,
+          },
+        ]);
+
+      const r = await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'play-vs-engine',
+      });
+
+      expect(r.id).toBe('pve-relaxed');
+      // 2-й запрос — relaxed (без rating window и popularity).
+      const sql2 = prisma.$queryRawUnsafe.mock.calls[1][0] as string;
+      expect(sql2).not.toContain('p.rating >=');
+      expect(sql2).not.toContain('popularity >= 50');
+    });
+
+    it('KS-3032: PVE + includeAttempted=true → каскад (recent-7d → ...), не all-attempted', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'pve-cascade',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: 'playVsEngine',
+          source: 'generated',
+          solution_mode: 'play-vs-engine',
+          source_metadata: '{}',
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'play-vs-engine',
+        includeAttempted: true,
+      });
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).toContain("INTERVAL '7 days'"); // legacy каскад
+    });
+
+    it('KS-3032: forced-line — без изменений (каскад как раньше)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'fl-1',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: 'fork',
+          source: 'lichess',
+          solution_mode: 'forced-line',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle('user-1', undefined, {
+        solutionMode: 'forced-line',
+      });
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      // forced-line идёт по каскаду recent-7d.
+      expect(sql).toContain("INTERVAL '7 days'");
+    });
+
+    it('KS-3032: anonymous (userId=null) + PVE → нет user-exclude (как раньше)', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          id: 'pve-anon',
+          fen: 'fen',
+          moves: '',
+          rating: 1500,
+          themes: 'playVsEngine',
+          source: 'generated',
+          solution_mode: 'play-vs-engine',
+          source_metadata: null,
+          game_url: null,
+          opening_tags: null,
+        },
+      ]);
+
+      await service.getNextPuzzle(null, undefined, {
+        solutionMode: 'play-vs-engine',
+      });
+
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+      // Для anon — каскадный путь, без user-exclude.
+      expect(sql).not.toContain('user_id');
     });
 
     it('KS-2735: anonymous (userId=null) → нет user-exclude вообще', async () => {
