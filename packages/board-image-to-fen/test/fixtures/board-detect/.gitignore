@@ -1,0 +1,8 @@
+# KS-2359 / ADR-040 Stage 1. Synthetic board fixtures, генерируются
+# через `test/gen-board-detect-fixtures.py` (Lichess fen.gif public API).
+# В git не коммитим — это runtime-данные ≈1 MB.
+*.gif
+*.png
+*.jpg
+*.jpeg
+!.gitignore
