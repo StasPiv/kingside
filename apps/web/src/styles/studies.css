@@ -1857,3 +1857,40 @@
 .studies-by-user__include-private input {
   margin: 0;
 }
+
+/* ─── KS-2890 (FC5): embed-страница студии `/study/embed/:studyId/:chapterId`.
+   Минимальный layout — только доска + move-list + footer.
+   L4 (отдельная задача) подкрасит детали; здесь — каркас. ────── */
+
+.study-embed-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-1a1a2e, #1a1a2e);
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+}
+
+.study-embed-page__board {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.study-embed-page__footer {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: var(--c-0f0f1e, #0f0f1e);
+  border-top: 1px solid var(--c-2a2a4a, #2a2a4a);
+  font-size: 11px;
+  text-align: right;
+}
+
+.study-embed-page__footer a {
+  color: var(--c-a0a0c0, #a0a0c0);
+  text-decoration: none;
+  letter-spacing: 0.3px;
+}
+
+.study-embed-page__footer a:hover {
+  color: var(--c-7c83ff, #7c83ff);
+}

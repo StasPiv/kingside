@@ -132,6 +132,12 @@ const UserStudiesPage = lazy(() =>
     default: m.UserStudiesPage,
   })),
 );
+// KS-2890 (ADR-060 FC5): embed-страница студии для iframe.
+const StudyEmbedPage = lazy(() =>
+  import('./pages/StudyEmbedPage').then((m) => ({
+    default: m.StudyEmbedPage,
+  })),
+);
 // KS-2868 (FS1) / KS-2869 (FS2): редактор и публичный просмотр главы
 // студии теперь рендерятся универсальным AnalysisPage в режимах
 // studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
@@ -351,6 +357,17 @@ export function App() {
 
   return (
     <Routes>
+      {/* KS-2890 (ADR-060 FC5): embed-страница студии — ВНЕ MainLayout,
+          без Sidebar/Header сайта. Должен матчиться РАНЬШЕ wildcard
+          path="*" из MainLayout-блока ниже. */}
+      <Route
+        path="/study/embed/:studyId/:chapterId"
+        element={
+          <Suspense fallback={<LazyFallback />}>
+            <StudyEmbedPage />
+          </Suspense>
+        }
+      />
       <Route element={<MainLayout />}>
         <Route index element={<HomePage />} />
         <Route path="/features" element={<FeaturesPage />} />
