@@ -1,4 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Chess } from 'chess.js';
+
+/**
+ * KS-3041: Stockfish WASM зависал на позициях с малым числом легальных
+ * ходов при `multipv > legalMoves` (наблюдался hang на FEN
+ * `8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1 w - - 2 51`, где у белых 2 легальных
+ * ответа в шахе, а в UI выбран multipv=3). Перед отправкой
+ * `setoption name MultiPV value N` клемпим N к фактическому числу
+ * легальных ходов: `clamp(requested, 1, legalCount)`. На UI выбор
+ * пользователя не меняется — клемпа применяется только в момент
+ * команды движку.
+ */
+export function clampMultiPvToLegalMoves(fen: string, requested: number): number {
+  const lower = Math.max(1, Math.floor(requested));
+  try {
+    const chess = new Chess(fen);
+    const legalCount = chess.moves().length;
+    if (legalCount === 0) return 1; // mate/stalemate — движок сам сразу отдаст bestmove.
+    return Math.min(lower, legalCount);
+  } catch {
+    // Невалидный FEN — отдаём как просили, дальше движок отвалится сам
+    // (а парсер всё равно не должен ронять весь hook).
+    return lower;
+  }
+}
 
 export type EvalLine = {
   depth: number;
@@ -188,7 +213,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
             setBestMove(null);
             analysisGenRef.current += 1;
             setState('analyzing');
-            engine.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
+            // KS-3041: см. clampMultiPvToLegalMoves.
+            const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
+            engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
             engine.postMessage(`position fen ${lazyFen}`);
             engine.postMessage(`go depth ${depthRef.current}`);
           } else {
@@ -208,7 +235,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
             setBestMove(null);
             analysisGenRef.current += 1;
             setState('analyzing');
-            engine.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
+            // KS-3041: см. clampMultiPvToLegalMoves.
+            const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
+            engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
             engine.postMessage(`position fen ${pendingFen}`);
             engine.postMessage(`go depth ${depthRef.current}`);
             return;
@@ -319,7 +348,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       setBestMove(null);
       analysisGenRef.current += 1;
       setState('analyzing');
-      engineRef.current.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
+      // KS-3041: см. clampMultiPvToLegalMoves.
+      const effectiveMpv = clampMultiPvToLegalMoves(fen, multiPvRef.current);
+      engineRef.current.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
       engineRef.current.postMessage(`position fen ${fen}`);
       engineRef.current.postMessage(`go depth ${depthRef.current}`);
     },
