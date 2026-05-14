@@ -104,7 +104,14 @@ export class PrecisionService {
       precisionFilter.attempt.createdAt = { gte: since };
     }
 
-    const [accuracyAgg, leakRows, firstMistakeAgg] = await Promise.all([
+    const [
+      accuracyAgg,
+      leakRows,
+      firstMistakeAgg,
+      // KS-3000: avgScore / avgScorePct + распределение по звёздам.
+      scoreAgg,
+      scoreGroups,
+    ] = await Promise.all([
       this.prisma.precisionAttempt.aggregate({
         where: precisionFilter,
         _avg: { accuracyPercent: true },
@@ -123,6 +130,20 @@ export class PrecisionService {
         where: { ...precisionFilter, firstMistakePly: { not: null } },
         _avg: { firstMistakePly: true },
       }),
+      // KS-3000 / ADR-065 §6.5: AVG среди attempts со score!=null
+      // (legacy без WDL/cp проигнорированы — это правильно: NULL не
+      // искажает среднее).
+      this.prisma.precisionAttempt.aggregate({
+        where: { ...precisionFilter, score: { not: null } },
+        _avg: { score: true, scorePct: true },
+      }),
+      // KS-3000: распределение по звёздам через groupBy. Индекс
+      // `precision_attempts_score_idx` (KS-2998) ускоряет COUNT(*).
+      this.prisma.precisionAttempt.groupBy({
+        by: ['score'],
+        where: { ...precisionFilter, score: { not: null } },
+        _count: { score: true },
+      }),
     ]);
 
     let avgWdlLeakPerMove = 0;
@@ -136,6 +157,22 @@ export class PrecisionService {
       avgWdlLeakPerMove = totalMoves > 0 ? totalLeak / totalMoves : 0;
     }
 
+    // KS-3000: scoreDistribution. groupBy({score}) даёт массив
+    // `{score: 1..5 | null, _count: {score: N}}`; разворачиваем в
+    // объект stars1..stars5. NULL-группа исключена фильтром выше.
+    const scoreDistribution = {
+      stars1: 0,
+      stars2: 0,
+      stars3: 0,
+      stars4: 0,
+      stars5: 0,
+    };
+    for (const g of scoreGroups) {
+      if (g.score === null || g.score === undefined) continue;
+      const key = `stars${g.score}` as keyof typeof scoreDistribution;
+      if (key in scoreDistribution) scoreDistribution[key] = g._count.score;
+    }
+
     return {
       totalAttempts,
       preservedCount,
@@ -147,6 +184,10 @@ export class PrecisionService {
         firstMistakeAgg._avg.firstMistakePly ?? null,
       todayAttempts,
       todayPreserved,
+      // KS-3000 / ADR-065 §6.5.
+      avgScore: scoreAgg._avg.score ?? null,
+      avgScorePct: scoreAgg._avg.scorePct ?? null,
+      scoreDistribution,
     };
   }
 
@@ -209,6 +250,8 @@ export class PrecisionService {
             mistake: pa.mistakesCount,
             blunder: pa.blundersCount,
           },
+          // KS-3000 / ADR-065 §6.1. 5★-оценка; null для legacy.
+          score: pa.score,
         };
       }
       // Legacy/без moves[]-snapshot — дефолтные агрегаты.
@@ -228,6 +271,7 @@ export class PrecisionService {
           mistake: 0,
           blunder: 0,
         },
+        score: null,
       };
     });
 
@@ -288,6 +332,9 @@ export class PrecisionService {
       wdlAtEnd: pa.wdlAtEndSigned,
       wdlLeakSum: pa.wdlLeakSum,
       firstMistakePly: pa.firstMistakePly,
+      // KS-3000 / ADR-065 §6.1.
+      score: pa.score,
+      scorePct: pa.scorePct,
       moves: pa.moves.map((m) => ({
         ply: m.ply,
         fenBefore: m.fenBefore,
@@ -340,6 +387,10 @@ export class PrecisionService {
         avg_accuracy: number | null;
         sum_leak: number | null;
         sum_half_moves: bigint;
+        // KS-3000: AVG идёт только по строкам со score!=null (PG AVG
+        // автоматически игнорирует NULL — это нужное поведение).
+        avg_score: number | null;
+        avg_score_pct: number | null;
       }>
     >(
       `
@@ -349,7 +400,9 @@ export class PrecisionService {
         SUM(CASE WHEN pa.solved THEN 1 ELSE 0 END)::bigint AS preserved,
         AVG(prec.accuracy_percent)::float  AS avg_accuracy,
         SUM(prec.wdl_leak_sum)::float      AS sum_leak,
-        SUM(prec.half_moves_played)::bigint AS sum_half_moves
+        SUM(prec.half_moves_played)::bigint AS sum_half_moves,
+        AVG(prec.score)::float             AS avg_score,
+        AVG(prec.score_pct)::float         AS avg_score_pct
       FROM puzzle_attempts pa
       JOIN puzzles p ON p.id = pa.puzzle_id
       JOIN precision_attempts prec ON prec.attempt_id = pa.id
@@ -374,6 +427,9 @@ export class PrecisionService {
           Number(r.sum_half_moves) > 0
             ? (r.sum_leak ?? 0) / Number(r.sum_half_moves)
             : 0,
+        // KS-3000 / ADR-065 §6.5. null если в бакете все score=null.
+        avgScore: r.avg_score,
+        avgScorePct: r.avg_score_pct,
       })),
     };
   }

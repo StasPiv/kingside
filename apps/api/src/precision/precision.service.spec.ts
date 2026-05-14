@@ -19,6 +19,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       precisionAttempt: {
         aggregate: jest.fn(),
         findMany: jest.fn(),
+        // KS-3000: groupBy для scoreDistribution; дефолт — пусто
+        // (нет attempts со score!=null).
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       $queryRawUnsafe: jest.fn(),
     };
@@ -32,7 +35,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       prisma.puzzleAttempt.count.mockResolvedValue(0);
       prisma.precisionAttempt.aggregate
         .mockResolvedValueOnce({ _avg: { accuracyPercent: null } })
-        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } });
+        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } })
+        // KS-3000: 3-й aggregate — score/scorePct (null когда нет attempts).
+        .mockResolvedValueOnce({ _avg: { score: null, scorePct: null } });
       prisma.precisionAttempt.findMany.mockResolvedValue([]);
 
       const r = await service.getStatsForUser('user-1');
@@ -47,6 +52,16 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         avgHalfMovesUntilFirstMistake: null,
         todayAttempts: 0,
         todayPreserved: 0,
+        // KS-3000: пустой набор → null/нули.
+        avgScore: null,
+        avgScorePct: null,
+        scoreDistribution: {
+          stars1: 0,
+          stars2: 0,
+          stars3: 0,
+          stars4: 0,
+          stars5: 0,
+        },
       });
     });
 
@@ -59,7 +74,17 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         .mockResolvedValueOnce(1); // todayPreserved
       prisma.precisionAttempt.aggregate
         .mockResolvedValueOnce({ _avg: { accuracyPercent: 78.5 } })
-        .mockResolvedValueOnce({ _avg: { firstMistakePly: 4.2 } });
+        .mockResolvedValueOnce({ _avg: { firstMistakePly: 4.2 } })
+        // KS-3000: avgScore=3.4, avgScorePct=77.1.
+        .mockResolvedValueOnce({ _avg: { score: 3.4, scorePct: 77.1 } });
+      // KS-3000: распределение по звёздам.
+      prisma.precisionAttempt.groupBy.mockResolvedValue([
+        { score: 1, _count: { score: 1 } },
+        { score: 2, _count: { score: 2 } },
+        { score: 3, _count: { score: 3 } },
+        { score: 4, _count: { score: 2 } },
+        { score: 5, _count: { score: 1 } },
+      ]);
       // wdlLeakSum=0.5 за 5 ходов, 0.3 за 3 хода → totalLeak=0.8, totalMoves=8 → 0.1/move
       prisma.precisionAttempt.findMany.mockResolvedValue([
         { wdlLeakSum: 0.5, halfMovesPlayed: 5 },
@@ -77,13 +102,25 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.avgHalfMovesUntilFirstMistake).toBe(4.2);
       expect(r.todayAttempts).toBe(3);
       expect(r.todayPreserved).toBe(1);
+      // KS-3000 / ADR-065 §6.5.
+      expect(r.avgScore).toBe(3.4);
+      expect(r.avgScorePct).toBe(77.1);
+      expect(r.scoreDistribution).toEqual({
+        stars1: 1,
+        stars2: 2,
+        stars3: 3,
+        stars4: 2,
+        stars5: 1,
+      });
     });
 
     it('фильтр PVE через relation puzzle.solutionMode', async () => {
       prisma.puzzleAttempt.count.mockResolvedValue(0);
       prisma.precisionAttempt.aggregate
         .mockResolvedValueOnce({ _avg: { accuracyPercent: null } })
-        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } });
+        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } })
+        // KS-3000: 3-й aggregate — score/scorePct (null когда нет attempts).
+        .mockResolvedValueOnce({ _avg: { score: null, scorePct: null } });
       prisma.precisionAttempt.findMany.mockResolvedValue([]);
 
       await service.getStatsForUser('user-1');
@@ -99,7 +136,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       prisma.puzzleAttempt.count.mockResolvedValue(0);
       prisma.precisionAttempt.aggregate
         .mockResolvedValueOnce({ _avg: { accuracyPercent: null } })
-        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } });
+        .mockResolvedValueOnce({ _avg: { firstMistakePly: null } })
+        // KS-3000: 3-й aggregate — score/scorePct (null когда нет attempts).
+        .mockResolvedValueOnce({ _avg: { score: null, scorePct: null } });
       prisma.precisionAttempt.findMany.mockResolvedValue([]);
 
       const since = new Date('2026-01-01');
@@ -134,6 +173,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
             inaccuraciesCount: 1,
             mistakesCount: 0,
             blundersCount: 0,
+            // KS-3000.
+            score: 4,
+            scorePct: 87.5,
           },
         },
         {
@@ -152,6 +194,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
             inaccuraciesCount: 1,
             mistakesCount: 1,
             blundersCount: 1,
+            // KS-3000: legacy без score (halfMoves<2 или нет данных).
+            score: null,
+            scorePct: null,
           },
         },
       ]);
@@ -177,9 +222,13 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           mistake: 0,
           blunder: 0,
         },
+        // KS-3000: 5★-оценка пробрасывается из БД.
+        score: 4,
       });
       expect(r.items[1].endReason).toBe('lose-wdl');
       expect(r.items[1].classCounts.blunder).toBe(1);
+      // KS-3000: legacy без данных → score=null.
+      expect(r.items[1].score).toBeNull();
     });
 
     it('фильтр PVE через relation puzzle.solutionMode (KS-2737: без precisionAttempt:isNot:null)', async () => {
@@ -304,6 +353,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         firstMistakePly: null,
         wdlLeakSum: 0.05,
         endReason: 'win',
+        // KS-3000.
+        score: 4,
+        scorePct: 87.2,
         moves: [
           {
             ply: 1,
@@ -353,6 +405,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.moves[0].wdlBefore).toEqual({ w: 600, d: 200, l: 200 });
       expect(r.moves[0].wdlAfter).toEqual({ w: 620, d: 180, l: 200 });
       expect(r.moves[0].classification).toBe('best');
+      // KS-3000 / ADR-065 §6.1.
+      expect(r.score).toBe(4);
+      expect(r.scorePct).toBe(87.2);
     });
 
     it('возвращает детали для админа (даже если не владелец)', async () => {
@@ -533,6 +588,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           avg_accuracy: 75.5,
           sum_leak: 0.4,
           sum_half_moves: BigInt(20),
+          // KS-3000.
+          avg_score: 3.2,
+          avg_score_pct: 76.4,
         },
         {
           bucket_start: new Date('2026-05-11T00:00:00Z'),
@@ -541,6 +599,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           avg_accuracy: 92.0,
           sum_leak: 0.0,
           sum_half_moves: BigInt(8),
+          // KS-3000: бакет без score (legacy / old SQL).
+          avg_score: null,
+          avg_score_pct: null,
         },
       ]);
 
@@ -554,8 +615,13 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         preserved: 3,
         avgAccuracyPercent: 75.5,
         avgWdlLeakPerMove: 0.02, // 0.4 / 20
+        // KS-3000.
+        avgScore: 3.2,
+        avgScorePct: 76.4,
       });
       expect(r.points[1].avgWdlLeakPerMove).toBe(0); // 0 leak / 8 = 0
+      expect(r.points[1].avgScore).toBeNull();
+      expect(r.points[1].avgScorePct).toBeNull();
     });
 
     it('пустые данные → points=[]', async () => {

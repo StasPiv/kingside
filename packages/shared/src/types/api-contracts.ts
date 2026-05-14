@@ -328,6 +328,30 @@ export interface PrecisionStatsResponse {
   /** Сегодня — count attempts (для today-блока). */
   todayAttempts: number;
   todayPreserved: number;
+  /**
+   * KS-3000 / ADR-065 §6.5. AVG(precision_attempts.score) по attempts
+   * текущего пользователя, [1..5] float. `null` если ни у одного
+   * attempt'а нет score (legacy without WDL/cp). См. KS-2997.
+   */
+  avgScore?: number | null;
+  /**
+   * KS-3000 / ADR-065 §6.5. AVG(precision_attempts.scorePct) [0..100].
+   * `null` синхронно с `avgScore`.
+   */
+  avgScorePct?: number | null;
+  /**
+   * KS-3000 / ADR-065 §6.5. Распределение attempts по звёздам (для
+   * stack-bar в карточке «Средний балл», ADR §5.1.3 / F4). Ключи —
+   * количество звёзд (1..5), значения — count attempts c таким score.
+   * Сумма ≤ totalAttempts (attempts с score=null не считаются).
+   */
+  scoreDistribution?: {
+    stars1: number;
+    stars2: number;
+    stars3: number;
+    stars4: number;
+    stars5: number;
+  };
 }
 
 /**
@@ -389,6 +413,12 @@ export interface PrecisionAttemptListItem {
     mistake: number;
     blunder: number;
   };
+  /**
+   * KS-3000 / ADR-065 §6.1. 5-балльная оценка (1..5). `null` для
+   * legacy attempt'ов без WDL/cp и для attempts с `halfMovesPlayed < 2`.
+   * Используется в `<PrecisionScoreBadge>` на каталоге (F3).
+   */
+  score?: number | null;
 }
 
 /**
@@ -413,6 +443,16 @@ export interface PrecisionTrendsResponse {
     preserved: number;
     avgAccuracyPercent: number;
     avgWdlLeakPerMove: number;
+    /**
+     * KS-3000 / ADR-065 §6.5. AVG(precision_attempts.score) в бакете,
+     * [1..5] float. `null` если в бакете все score=null (legacy).
+     */
+    avgScore?: number | null;
+    /**
+     * KS-3000 / ADR-065 §6.5. AVG(precision_attempts.scorePct) в
+     * бакете, [0..100]. `null` синхронно с `avgScore`.
+     */
+    avgScorePct?: number | null;
   }>;
 }
 
@@ -463,6 +503,17 @@ export interface PrecisionAttemptDetail {
   /** 1-based ply первого `mistake|blunder`; `null` — ошибок не было. */
   firstMistakePly: number | null;
   moves: PrecisionMoveDto[];
+  /**
+   * KS-3000 / ADR-065 §6.1. 5-балльная оценка (1..5). `null` для
+   * legacy attempt'ов без WDL/cp, для попыток с `halfMovesPlayed < 2`,
+   * либо с >50% gaps в per-move-данных.
+   */
+  score?: number | null;
+  /**
+   * KS-3000 / ADR-065 §6.1. scorePct (0..100) до округления до звёзд —
+   * для подписи «87% точности» в `<PrecisionScoreBlock>`.
+   */
+  scorePct?: number | null;
 }
 
 export type PuzzleAttemptResponse = {
