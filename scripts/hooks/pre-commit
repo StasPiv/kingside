@@ -70,4 +70,35 @@ if [ $ERRORS -ne 0 ]; then
 fi
 
 echo "[pre-commit] Типы OK"
+
+# --- features-catalog check (KS-2963 / ADR-062 §15.3) ---
+# Каталог фич AI-ассистента (packages/shared/src/features-catalog/)
+# должен оставаться в строгом соответствии с реальными роутами
+# apps/web/src/App.tsx. Скрипт читает скомпилированный каталог из
+# packages/shared/dist/features-catalog/index.js — если dist не собран,
+# сам же скажет «Run tsc --build packages/shared first».
+#
+# Пропуск: SKIP_FEATURES_CHECK=1 git commit ...
+if [ "$SKIP_FEATURES_CHECK" = "1" ]; then
+    echo "[pre-commit] features-catalog: пропущено (SKIP_FEATURES_CHECK=1)"
+    exit 0
+fi
+
+CHECK_SCRIPT="$REPO_DIR/tools/check-features-catalog.mjs"
+if [ ! -f "$CHECK_SCRIPT" ]; then
+    echo "[pre-commit] WARN: $CHECK_SCRIPT не найден, пропускаем features-catalog check"
+    exit 0
+fi
+
+echo "[pre-commit] Проверка каталога фич (check:features)..."
+( cd "$REPO_DIR" && node "$CHECK_SCRIPT" )
+FEATURES_EXIT=$?
+if [ $FEATURES_EXIT -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] Коммит отклонён — features-catalog рассинхронизирован."
+    echo "Подробности выше. Для пропуска: SKIP_FEATURES_CHECK=1 git commit ..."
+    exit 1
+fi
+
+echo "[pre-commit] features-catalog OK"
 exit 0
