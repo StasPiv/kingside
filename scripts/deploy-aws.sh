@@ -81,6 +81,125 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# =====================================================================
+# KS-2993: Deploy mutex (flock) — блокировка параллельных деплоев
+# =====================================================================
+# Параллельные деплои ломали прод: два frontend-build'а заливались в S3 с
+# --delete почти одновременно, второй сносил чанки первого, index.html
+# оставался с битыми ссылками на отсутствующие bundles (KS-2993, инцидент
+# 14.05.2026 — KS-2887 + KS-2894).
+#
+# Решение: re-exec самого себя под утилитой `flock`. flock(1) держит fd
+# на lock-файле как PARENT-процесс, deploy-скрипт — его child. Так fd
+# не наследуется дочерними командами деплоя (aws/npm/docker), и lock
+# освобождается ровно когда родительский flock завершается — независимо
+# от того, какие orphan-child'ы остались после краша скрипта.
+#
+# Одновременно может идти ТОЛЬКО ОДИН deploy любого scope (frontend/api/
+# game-service/broadcast/archive/tactic-worker/workers/all). Все scope
+# делят один и тот же lock-файл.
+#
+# Механика:
+# 1. Probe-фаза в исходном процессе: открываем lock-файл на fd 199, делаем
+#    flock -n. Если занят — читаем метаданные предыдущего владельца, выводим
+#    детальную ошибку и exit 1.
+# 2. Если probe прошёл — отпускаем fd 199 и делаем `exec flock -n -E 75
+#    <lockfile> "$0" "$@"`. Текущий процесс заменяется на flock, который
+#    запускает deploy-скрипт повторно, уже под защитой lock'а. Маркер
+#    KINGSIDE_DEPLOY_LOCK_HELD=1 не даёт уйти в рекурсию.
+# 3. После захвата записываем метаданные (pid, scope, agent, timestamp,
+#    host) в lock-файл — для информативности при следующих отказах.
+# 4. trap EXIT опустошает lock-файл (само освобождение делает flock-parent
+#    при закрытии своего fd на exit).
+#
+# Между шагом 1 (probe-release) и шагом 2 (re-exec) теоретически есть
+# микро-race — другой процесс может захватить lock в этот промежуток.
+# В таком случае flock в шаге 2 вернёт код 75 без детальных метаданных,
+# но безопасность не нарушается (один deploy остаётся в один момент).
+#
+# Stale-таймаут 15 мин (DEPLOY_LOCK_STALE_WARN_SEC) — только информативный
+# warn при отказе. Force-override НЕ делаем: легитимный `deploy all` с
+# миграциями может идти дольше 15 мин, ручное снятие lock'а сломает S3
+# sync / ECS rollout. Если процесс реально мёртв — flock сам освободит.
+#
+# Bypass для отладки: KINGSIDE_DEPLOY_SKIP_LOCK=1 пропускает acquire.
+# =====================================================================
+DEPLOY_LOCK_FILE="$REPO_DIR/.deploy.lock"
+DEPLOY_LOCK_STALE_WARN_SEC=900
+DEPLOY_LOCK_EXIT_CODE=75
+
+acquire_deploy_lock() {
+    if [ "${KINGSIDE_DEPLOY_SKIP_LOCK:-0}" = "1" ]; then
+        echo "[deploy-lock] KINGSIDE_DEPLOY_SKIP_LOCK=1 — bypassing mutex (debug mode)"
+        return 0
+    fi
+    local requested_scope="${1:-auto}"
+
+    # Шаг 3: если мы уже под flock-wrapper'ом — записываем метаданные и
+    # ставим trap. Сам lock держит наш PARENT (утилита flock).
+    if [ "${KINGSIDE_DEPLOY_LOCK_HELD:-0}" = "1" ]; then
+        : > "$DEPLOY_LOCK_FILE"
+        {
+            echo "pid=$$"
+            echo "scope=$requested_scope"
+            echo "agent=${AGENT_NAME:-${USER:-unknown}}"
+            echo "started_at=$(date -Iseconds 2>/dev/null || date)"
+            echo "started_unix=$(date +%s)"
+            echo "host=$(hostname 2>/dev/null || echo unknown)"
+        } >> "$DEPLOY_LOCK_FILE"
+        trap 'release_deploy_lock' EXIT
+        echo "[deploy-lock] Acquired (scope=$requested_scope, pid=$$, agent=${AGENT_NAME:-${USER:-unknown}})"
+        return 0
+    fi
+
+    # Шаг 1: probe-фаза. Создаём файл если нужно, пробуем взять lock на fd 199
+    # с timeout 0. При отказе показываем holder'а.
+    [ -e "$DEPLOY_LOCK_FILE" ] || : > "$DEPLOY_LOCK_FILE"
+    exec 199>>"$DEPLOY_LOCK_FILE"
+    if ! flock -n 199; then
+        local holder_info lock_mtime now age
+        holder_info="$(cat "$DEPLOY_LOCK_FILE" 2>/dev/null || echo '<no metadata>')"
+        if ! lock_mtime=$(stat -c '%Y' "$DEPLOY_LOCK_FILE" 2>/dev/null); then
+            lock_mtime=$(stat -f '%m' "$DEPLOY_LOCK_FILE" 2>/dev/null || echo 0)
+        fi
+        now=$(date +%s)
+        age=$((now - lock_mtime))
+        echo "[deploy-lock] ERROR: another deploy is already in progress (requested scope=$requested_scope)." >&2
+        echo "[deploy-lock] Holder metadata:" >&2
+        echo "$holder_info" | sed 's/^/  /' >&2
+        echo "[deploy-lock] Lock age: ${age}s" >&2
+        if [ "$age" -gt "$DEPLOY_LOCK_STALE_WARN_SEC" ]; then
+            echo "[deploy-lock] WARN: lock is older than ${DEPLOY_LOCK_STALE_WARN_SEC}s — holder may be hung." >&2
+            echo "[deploy-lock] If you're sure the holder is dead, kill its PID — flock releases automatically." >&2
+        else
+            echo "[deploy-lock] Retry after the current deploy completes." >&2
+        fi
+        exit 1
+    fi
+    # Отпускаем probe-lock и закрываем fd 199 (flock-wrapper возьмёт свой).
+    flock -u 199
+    exec 199<&-
+
+    # Шаг 2: re-exec под flock-утилитой.
+    # -n: non-blocking
+    # -E 75: код выхода при отказе захвата (если кто-то проскочил micro-race)
+    # -o (--close): закрыть lock-fd ПЕРЕД exec'ом deploy-скрипта. Без этого
+    #   bash-child наследует fd и держит lock даже после смерти flock-parent'а,
+    #   что ломает auto-release при SIGKILL/crash сценариях.
+    export KINGSIDE_DEPLOY_LOCK_HELD=1
+    exec flock -n -E "$DEPLOY_LOCK_EXIT_CODE" -o "$DEPLOY_LOCK_FILE" "$0" "$@"
+}
+
+release_deploy_lock() {
+    # flock-parent освобождает lock при своём exit. Файл опустошаем, чтобы
+    # следующий запуск не увидел stale-метаданные предыдущего владельца.
+    : > "$DEPLOY_LOCK_FILE" 2>/dev/null || true
+}
+
+# Захватываем lock как можно раньше — до git fetch, npm install и AWS-работы.
+# Argv[1] — будущий FORCE_SCOPE (auto, frontend, api, ...).
+acquire_deploy_lock "$@"
+
 # AWS config
 REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
 ACCOUNT_ID="342946498289"
