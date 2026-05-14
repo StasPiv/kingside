@@ -4128,6 +4128,71 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 :root[data-theme="dark"] .precision-attempt-review__move--mistake    { color: #f97316; }
 :root[data-theme="dark"] .precision-attempt-review__move--blunder    { color: #f87171; }
 
+/* KS-3002 (ADR-065 §5.1.1, §4.2): 5-балльный блок precision-оценки.
+ *
+ * Цвета по таблице §4.2:
+ *   5★ emerald-500 → #10b981
+ *   4★ lime-500    → #84cc16
+ *   3★ amber-500   → #f59e0b
+ *   2★ orange-500  → #f97316
+ *   1★ red-500     → #ef4444
+ *
+ * `--tone-color`/`--tone-bg` задаём на корне для каждого тона, чтобы
+ * звёзды/текст брали `currentColor`, а фон — приглушённый тинт. Это
+ * упрощает дальнейшие правки и шкала визуально работает в обеих темах. */
+.precision-score-block {
+  --tone-color: #94a3b8;
+  --tone-bg: rgba(148, 163, 184, 0.10);
+  padding: 14px 16px;
+  background: var(--tone-bg);
+  border: 1px solid var(--tone-color);
+  border-radius: 10px;
+  color: var(--text-primary, var(--c-e2e8f0));
+}
+.precision-score-block--emerald { --tone-color: #10b981; --tone-bg: rgba(16, 185, 129, 0.12); }
+.precision-score-block--lime    { --tone-color: #84cc16; --tone-bg: rgba(132, 204,  22, 0.12); }
+.precision-score-block--amber   { --tone-color: #f59e0b; --tone-bg: rgba(245, 158,  11, 0.14); }
+.precision-score-block--orange  { --tone-color: #f97316; --tone-bg: rgba(249, 115,  22, 0.14); }
+.precision-score-block--red     { --tone-color: #ef4444; --tone-bg: rgba(239,  68,  68, 0.14); }
+
+.precision-score-block__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.precision-score-block__stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--tone-color);
+  line-height: 0; /* svg-баseline */
+}
+.precision-score-block__star {
+  display: block;
+}
+.precision-score-block__star--empty {
+  opacity: 0.55;
+}
+.precision-score-block__accuracy {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--tone-color);
+  font-variant-numeric: tabular-nums;
+}
+.precision-score-block__interpretation {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary, var(--c-94a3b8));
+}
+
+@media (max-width: 480px) {
+  .precision-score-block { padding: 12px 14px; }
+  .precision-score-block__accuracy { font-size: 14px; }
+}
+
 /* KS-2756: back-link выровнен по визуальному весу с
  * `.generate-puzzles-btn` рядом — раньше текстовая ссылка против
  * фиолетовой primary-кнопки выглядела дисбалансом. Делаем ghost-

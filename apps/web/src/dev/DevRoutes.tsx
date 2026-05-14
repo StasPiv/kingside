@@ -10,6 +10,7 @@ import { DevPlayoffBracketPage } from '../pages/DevPlayoffBracketPage';
 import { DevNagPalettePage } from '../pages/DevNagPalettePage';
 import { DevDrillExplanationPage } from '../pages/DevDrillExplanationPage';
 import { DevPostGameReviewPage } from '../pages/DevPostGameReviewPage';
+import { DevPrecisionScoreBlockPage } from '../pages/DevPrecisionScoreBlockPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -42,6 +43,8 @@ export default function DevRoutes() {
       <Route path="drill-explanation" element={<DevDrillExplanationPage />} />
       {/* KS-2686: моки итогового экрана play-vs-engine для скриншотов. */}
       <Route path="post-game-review" element={<DevPostGameReviewPage />} />
+      {/* KS-3002 (ADR-065 §5.1.1): демо PrecisionScoreBlock для проверки палитры. */}
+      <Route path="precision-score" element={<DevPrecisionScoreBlockPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
