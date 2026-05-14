@@ -1539,7 +1539,32 @@
       "untilFirstMistake": "Until first mistake",
       "untilFirstMistakeHint": "Average number of accurate moves before the first inaccuracy",
       "placeholder": "Play your first attempt",
-      "noData": "—"
+      "noData": "—",
+      "avgScore": "Average score"
+    },
+    "score": {
+      "cardTitle": "Average score",
+      "cardSubtitle": "across {{n}} attempts",
+      "accuracy": "Accuracy: {{value}}%",
+      "aria": "{{score}} out of 5 stars",
+      "legacyMissing": "Score unavailable",
+      "legacyMissingHint": "Not enough WDL/cp data to score this attempt.",
+      "avgScoreBarAria": "Distribution of attempts by stars (1★ to 5★)",
+      "avgScoreNoDist": "No graded attempts yet",
+      "stars": {
+        "1": "1 out of 5 stars",
+        "2": "2 out of 5 stars",
+        "3": "3 out of 5 stars",
+        "4": "4 out of 5 stars",
+        "5": "5 out of 5 stars"
+      },
+      "interpretation": {
+        "1": "The advantage was lost.",
+        "2": "The advantage wavered — significant mistakes.",
+        "3": "Held, but with noticeable mistakes.",
+        "4": "Held precisely with a minor inaccuracy.",
+        "5": "Flawless solution."
+      }
     },
     "hidePreserved": "Hide preserved",
     "showSolved": "Show solved",

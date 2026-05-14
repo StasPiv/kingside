@@ -26,6 +26,15 @@ const TONE_BY_SCORE: Record<1 | 2 | 3 | 4 | 5, string> = {
 
 const STAR_INDICES: ReadonlyArray<0 | 1 | 2 | 3 | 4> = [0, 1, 2, 3, 4];
 
+/** KS-3006: тип-safe ключи для t() без literal-string в JSX. */
+const STARS_KEY: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: 'precision.score.stars.1',
+  2: 'precision.score.stars.2',
+  3: 'precision.score.stars.3',
+  4: 'precision.score.stars.4',
+  5: 'precision.score.stars.5',
+};
+
 function clampScore(raw: number): 1 | 2 | 3 | 4 | 5 {
   const r = Math.round(raw);
   if (r <= 1) return 1;
@@ -57,8 +66,8 @@ export function PrecisionScoreBadge({
         data-tone="unavailable"
         data-score=""
         role="img"
-        aria-label={t('precision.score.unavailable.label', 'Score unavailable')}
-        title={t('precision.score.unavailable.label', 'Score unavailable')}
+        aria-label={t('precision.score.legacyMissing')}
+        title={t('precision.score.legacyMissing')}
       >
         <span className="precision-score-badge__dash" aria-hidden="true">
           —
@@ -69,6 +78,7 @@ export function PrecisionScoreBadge({
 
   const safeScore = clampScore(score);
   const tone = TONE_BY_SCORE[safeScore];
+  const starsLabel = t(STARS_KEY[safeScore]);
 
   return (
     <span
@@ -77,12 +87,8 @@ export function PrecisionScoreBadge({
       data-tone={tone}
       data-score={safeScore}
       role="img"
-      aria-label={t('precision.score.aria', '{{score}} out of 5 stars', {
-        score: safeScore,
-      })}
-      title={t('precision.score.aria', '{{score}} out of 5 stars', {
-        score: safeScore,
-      })}
+      aria-label={starsLabel}
+      title={starsLabel}
     >
       {STAR_INDICES.map((i) => {
         const filled = i < safeScore;

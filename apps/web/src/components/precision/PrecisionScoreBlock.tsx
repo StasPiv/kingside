@@ -19,8 +19,9 @@ import { useTranslation } from 'react-i18next';
  * hex (`#10b981`, `#84cc16`, …) определены в `puzzle.css`, чтобы можно было
  * подкорректировать палитру централизованно, не трогая JSX.
  *
- * i18n: используем плейсхолдеры `t(...)` с дефолтами; ключи официально
- * добавит F5. Это безопасно — если ключа нет, i18next вернёт fallback.
+ * i18n: KS-3006 (F5) — все строки приходят из `precision.score.*` в
+ * `apps/web/src/i18n/locales/{en,ru}/translation.json`. EN-fallback'и
+ * удалены, в коде нет literal-строк.
  */
 
 export type PrecisionScoreValue = 1 | 2 | 3 | 4 | 5;
@@ -31,36 +32,6 @@ const TONE_BY_SCORE: Record<PrecisionScoreValue, string> = {
   3: 'amber',
   2: 'orange',
   1: 'red',
-};
-
-interface InterpretationKey {
-  /** i18n-ключ (F5 добавит официальные тексты). */
-  key: string;
-  /** Fallback пока F5 не подъехал. */
-  fallback: string;
-}
-
-const INTERPRETATION_BY_SCORE: Record<PrecisionScoreValue, InterpretationKey> = {
-  5: {
-    key: 'precision.score.interpretation.5',
-    fallback: 'Excellent — played at near-engine level.',
-  },
-  4: {
-    key: 'precision.score.interpretation.4',
-    fallback: 'Strong — only minor inaccuracies.',
-  },
-  3: {
-    key: 'precision.score.interpretation.3',
-    fallback: 'Solid — kept the position with some imprecisions.',
-  },
-  2: {
-    key: 'precision.score.interpretation.2',
-    fallback: 'Shaky — significant mistakes hurt the edge.',
-  },
-  1: {
-    key: 'precision.score.interpretation.1',
-    fallback: 'Poor — a major blunder cost the advantage.',
-  },
 };
 
 const STAR_INDICES: ReadonlyArray<0 | 1 | 2 | 3 | 4> = [0, 1, 2, 3, 4];
@@ -75,6 +46,22 @@ function clampScore(raw: number): PrecisionScoreValue {
   if (rounded >= 5) return 5;
   return isPrecisionScoreValue(rounded) ? rounded : 3;
 }
+
+/** KS-3006: тип-safe ключ для `t()` без literal-string в JSX. */
+const STARS_KEY: Record<PrecisionScoreValue, string> = {
+  1: 'precision.score.stars.1',
+  2: 'precision.score.stars.2',
+  3: 'precision.score.stars.3',
+  4: 'precision.score.stars.4',
+  5: 'precision.score.stars.5',
+};
+const INTERP_KEY: Record<PrecisionScoreValue, string> = {
+  1: 'precision.score.interpretation.1',
+  2: 'precision.score.interpretation.2',
+  3: 'precision.score.interpretation.3',
+  4: 'precision.score.interpretation.4',
+  5: 'precision.score.interpretation.5',
+};
 
 function clampPct(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
@@ -122,10 +109,7 @@ export function PrecisionScoreBlock({
           <div
             className="precision-score-block__stars precision-score-block__stars--unavailable"
             role="img"
-            aria-label={t(
-              'precision.score.unavailable.aria',
-              'Score unavailable',
-            )}
+            aria-label={t('precision.score.legacyMissing')}
             data-testid="precision-score-block-stars"
           >
             <span
@@ -139,17 +123,14 @@ export function PrecisionScoreBlock({
             className="precision-score-block__accuracy"
             data-testid="precision-score-block-accuracy"
           >
-            {t('precision.score.unavailable.label', 'Score unavailable')}
+            {t('precision.score.legacyMissing')}
           </div>
         </div>
         <p
           className="precision-score-block__interpretation"
           data-testid="precision-score-block-interpretation"
         >
-          {t(
-            'precision.score.unavailable.hint',
-            'Not enough WDL/cp data to score this attempt.',
-          )}
+          {t('precision.score.legacyMissingHint')}
         </p>
       </div>
     );
@@ -158,7 +139,6 @@ export function PrecisionScoreBlock({
   const safeScore = clampScore(score);
   const safePct = clampPct(scorePct);
   const tone = TONE_BY_SCORE[safeScore];
-  const interp = INTERPRETATION_BY_SCORE[safeScore];
 
   return (
     <div
@@ -172,9 +152,7 @@ export function PrecisionScoreBlock({
         <div
           className="precision-score-block__stars"
           role="img"
-          aria-label={t('precision.score.aria', '{{score}} out of 5 stars', {
-            score: safeScore,
-          })}
+          aria-label={t(STARS_KEY[safeScore])}
           data-testid="precision-score-block-stars"
         >
           {STAR_INDICES.map((i) => {
@@ -196,16 +174,14 @@ export function PrecisionScoreBlock({
           className="precision-score-block__accuracy"
           data-testid="precision-score-block-accuracy"
         >
-          {t('precision.score.accuracy', 'Accuracy: {{value}}%', {
-            value: safePct,
-          })}
+          {t('precision.score.accuracy', { value: safePct })}
         </div>
       </div>
       <p
         className="precision-score-block__interpretation"
         data-testid="precision-score-block-interpretation"
       >
-        {t(interp.key, interp.fallback)}
+        {t(INTERP_KEY[safeScore])}
       </p>
     </div>
   );

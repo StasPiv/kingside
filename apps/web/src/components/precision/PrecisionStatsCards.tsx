@@ -259,42 +259,44 @@ function AvgScoreCard({ avgScore, distribution, t }: AvgScoreCardProps) {
     >
       <div className="precision-stats__value">{avgText}</div>
       <div className="precision-stats__label">
-        {t('precision.stats.avgScore', 'Average score')}
+        {t('precision.score.cardTitle')}
       </div>
       {total > 0 ? (
-        <div
-          className="precision-stats__stack-bar"
-          data-testid="precision-stats-avg-score-bar"
-          role="img"
-          aria-label={t(
-            'precision.stats.avgScoreBarAria',
-            'Distribution of attempts by stars (1★ to 5★)',
-          )}
-        >
-          {STARS_ORDER.map((s) => {
-            const count = dist[s.key];
-            const pct = total > 0 ? (count / total) * 100 : 0;
-            return (
-              <span
-                key={s.key}
-                className="precision-stats__stack-seg"
-                data-testid={`precision-stats-avg-score-seg-${s.key}`}
-                data-count={String(count)}
-                style={{
-                  width: `${pct}%`,
-                  background: s.tone,
-                }}
-                title={`${s.label}: ${count}`}
-              />
-            );
-          })}
-        </div>
+        <>
+          <div
+            className="precision-stats__stack-bar"
+            data-testid="precision-stats-avg-score-bar"
+            role="img"
+            aria-label={t('precision.score.avgScoreBarAria')}
+          >
+            {STARS_ORDER.map((s) => {
+              const count = dist[s.key];
+              const pct = total > 0 ? (count / total) * 100 : 0;
+              return (
+                <span
+                  key={s.key}
+                  className="precision-stats__stack-seg"
+                  data-testid={`precision-stats-avg-score-seg-${s.key}`}
+                  data-count={String(count)}
+                  style={{
+                    width: `${pct}%`,
+                    background: s.tone,
+                  }}
+                  title={`${s.label}: ${count}`}
+                />
+              );
+            })}
+          </div>
+          <div
+            className="precision-stats__hint"
+            data-testid="precision-stats-avg-score-subtitle"
+          >
+            {t('precision.score.cardSubtitle', { n: total })}
+          </div>
+        </>
       ) : (
         <div className="precision-stats__hint">
-          {t(
-            'precision.stats.avgScoreNoDist',
-            'No graded attempts yet',
-          )}
+          {t('precision.score.avgScoreNoDist')}
         </div>
       )}
     </div>
