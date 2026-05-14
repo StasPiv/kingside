@@ -22,7 +22,8 @@
     "scan:chess-results": "node dist/broadcast/chess-results/scan-chess-results.js",
     "drill:validate": "npx ts-node src/scripts/validate-drill-positions.ts",
     "drill:validate:bundle": "esbuild src/scripts/validate-drill-positions.ts --bundle --platform=node --target=node20 --format=cjs --outfile=/tmp/kingside-tools/validate-drill.js",
-    "backfill:precision-score": "npx ts-node src/scripts/backfill-precision-score.ts"
+    "backfill:precision-score": "npx ts-node src/scripts/backfill-precision-score.ts",
+    "backfill:classification-wdl": "npx ts-node src/scripts/backfill-classification-wdl.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
