@@ -1,0 +1,261 @@
+{
+  "version": "v1",
+  "task": "KS-2360",
+  "adr": "ADR-040",
+  "created_at": "2026-05-14T15:42:14Z",
+  "cell_size": 64,
+  "labels": [
+    "empty",
+    "wK",
+    "wQ",
+    "wR",
+    "wB",
+    "wN",
+    "wP",
+    "bK",
+    "bQ",
+    "bR",
+    "bB",
+    "bN",
+    "bP"
+  ],
+  "label_to_idx": {
+    "empty": 0,
+    "wK": 1,
+    "wQ": 2,
+    "wR": 3,
+    "wB": 4,
+    "wN": 5,
+    "wP": 6,
+    "bK": 7,
+    "bQ": 8,
+    "bR": 9,
+    "bB": 10,
+    "bN": 11,
+    "bP": 12
+  },
+  "n_cells_total": 1030400,
+  "n_fens_per_style": 2300,
+  "split_ratios": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "split_counts": {
+    "train": 724544,
+    "val": 153216,
+    "test": 152640
+  },
+  "styles": [
+    {
+      "license": "GPL-3.0 / CC BY-SA 3.0 (dual)",
+      "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/cburnett",
+      "attribution": "Colin M.L. Burnett",
+      "redistribute": true,
+      "name": "lichess_cburnett",
+      "palettes": [
+        "lichess_brown",
+        "lichess_blue",
+        "lichess_green"
+      ],
+      "label_counts": {
+        "empty": 98872,
+        "wK": 2300,
+        "wQ": 1709,
+        "wR": 3699,
+        "wB": 2415,
+        "wN": 1928,
+        "wP": 12210,
+        "bK": 2300,
+        "bQ": 1706,
+        "bR": 3627,
+        "bB": 2394,
+        "bN": 2000,
+        "bP": 12040
+      },
+      "source_commit": "dbb70df75034045447c60588d4a7b9b3b3209fd8"
+    },
+    {
+      "license": "GPL-2.0+",
+      "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/merida",
+      "attribution": "Armando H. Marroquín",
+      "redistribute": true,
+      "name": "lichess_merida",
+      "palettes": [
+        "lichess_brown",
+        "wood"
+      ],
+      "label_counts": {
+        "empty": 98289,
+        "wK": 2300,
+        "wQ": 1748,
+        "wR": 3727,
+        "wB": 2487,
+        "wN": 2005,
+        "wP": 12327,
+        "bK": 2300,
+        "bQ": 1725,
+        "bR": 3657,
+        "bB": 2485,
+        "bN": 2046,
+        "bP": 12104
+      },
+      "source_commit": "dbb70df75034045447c60588d4a7b9b3b3209fd8"
+    },
+    {
+      "license": "Public Domain / CC BY-SA 3.0",
+      "source_url": "https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces",
+      "attribution": "Colin M.L. Burnett (SCID set, distributed via Wikimedia Commons)",
+      "redistribute": true,
+      "name": "lichess_wikipedia",
+      "palettes": [
+        "lichess_brown",
+        "monochrome"
+      ],
+      "label_counts": {
+        "empty": 98742,
+        "wK": 2300,
+        "wQ": 1699,
+        "wR": 3742,
+        "wB": 2408,
+        "wN": 1942,
+        "wP": 12258,
+        "bK": 2300,
+        "bQ": 1684,
+        "bR": 3680,
+        "bB": 2421,
+        "bN": 1976,
+        "bP": 12048
+      }
+    },
+    {
+      "license": "Free for personal/non-commercial (Eric Bentzen)",
+      "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/alpha",
+      "attribution": "Eric Bentzen",
+      "redistribute": false,
+      "note": "Trained weights are publishable, raw rendered cells stay in the internal S3 prefix.",
+      "name": "lichess_alpha",
+      "palettes": [
+        "lichess_green",
+        "chesscom_classic"
+      ],
+      "label_counts": {
+        "empty": 98732,
+        "wK": 2300,
+        "wQ": 1722,
+        "wR": 3632,
+        "wB": 2427,
+        "wN": 1990,
+        "wP": 12220,
+        "bK": 2300,
+        "bQ": 1704,
+        "bR": 3612,
+        "bB": 2402,
+        "bN": 2065,
+        "bP": 12094
+      },
+      "source_commit": "dbb70df75034045447c60588d4a7b9b3b3209fd8"
+    },
+    {
+      "license": "CC BY-SA 4.0",
+      "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/staunty",
+      "attribution": "Sadsnake",
+      "redistribute": true,
+      "replaces": "chess.com/classic (excluded by chess-expert: closed IP)",
+      "name": "lichess_staunty",
+      "palettes": [
+        "chesscom_classic",
+        "chesscom_modern"
+      ],
+      "label_counts": {
+        "empty": 99266,
+        "wK": 2300,
+        "wQ": 1694,
+        "wR": 3685,
+        "wB": 2382,
+        "wN": 1940,
+        "wP": 12085,
+        "bK": 2300,
+        "bQ": 1689,
+        "bR": 3621,
+        "bB": 2430,
+        "bN": 1924,
+        "bP": 11884
+      },
+      "source_commit": "dbb70df75034045447c60588d4a7b9b3b3209fd8"
+    },
+    {
+      "license": "GPL",
+      "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/pirouetti",
+      "attribution": "Sergey Makagonov",
+      "redistribute": true,
+      "replaces": "chess.com/modern (excluded by chess-expert: closed IP)",
+      "name": "lichess_pirouetti",
+      "palettes": [
+        "chesscom_modern",
+        "purple"
+      ],
+      "label_counts": {
+        "empty": 98681,
+        "wK": 2300,
+        "wQ": 1701,
+        "wR": 3719,
+        "wB": 2454,
+        "wN": 2018,
+        "wP": 12214,
+        "bK": 2300,
+        "bQ": 1703,
+        "bR": 3636,
+        "bB": 2429,
+        "bN": 2035,
+        "bP": 12010
+      },
+      "source_commit": "dbb70df75034045447c60588d4a7b9b3b3209fd8"
+    },
+    {
+      "license": "MIT (react-chessboard); pieces derived from cburnett (GPL-3.0 / CC BY-SA 3.0)",
+      "source_url": "https://github.com/Clariity/react-chessboard/blob/main/src/pieces.tsx",
+      "attribution": "Colin M.L. Burnett (pieces); react-chessboard MIT (wrapper)",
+      "redistribute": true,
+      "note": "Visual diversity vs. lichess_cburnett comes from the board palette (kingside_green / kingside_dark).",
+      "name": "kingside_default",
+      "palettes": [
+        "kingside_green",
+        "kingside_dark"
+      ],
+      "label_counts": {
+        "empty": 98501,
+        "wK": 2300,
+        "wQ": 1730,
+        "wR": 3769,
+        "wB": 2415,
+        "wN": 1944,
+        "wP": 12317,
+        "bK": 2300,
+        "bQ": 1718,
+        "bR": 3707,
+        "bB": 2426,
+        "bN": 2013,
+        "bP": 12060
+      }
+    }
+  ],
+  "deferred_styles": [
+    {
+      "name": "chess_merida",
+      "reason": "enpassant.dk TTF source not reachable (HTTP 403)",
+      "follow_up": "v2"
+    },
+    {
+      "name": "maizelis",
+      "reason": "scan source-file sprites pending curation",
+      "follow_up": "v2"
+    },
+    {
+      "name": "dvoretsky",
+      "reason": "scan source-file sprites pending curation",
+      "follow_up": "v2"
+    }
+  ],
+  "s3_prefix": "s3://kingside-ml/datasets/board-recog/v1/"
+}

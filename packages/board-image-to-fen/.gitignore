@@ -1,0 +1,17 @@
+# Build artefacts
+dist/
+*.tsbuildinfo
+
+# Dataset generator outputs (KS-2360).
+# Only the meta manifest `data/manifest_v1.json` is committed; the actual cell
+# bitmaps (>1M files, ~4 GB) and the per-split JSONL listings live in S3 —
+# regenerate locally with `python3 src/python/dataset_gen.py`.
+data/v1/
+!data/manifest_v1.json
+
+# Cached SVG sources (re-fetched on demand by scripts/fetch_styles.sh).
+styles_cache/
+
+# Python
+__pycache__/
+*.pyc
