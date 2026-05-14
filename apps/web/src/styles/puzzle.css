@@ -2517,6 +2517,22 @@ body:has(.puzzle-rush-board) {
   color: var(--danger-strong, var(--c-f44336, #f44336));
 }
 
+/* KS-3018: endnote под PrecisionScoreBlock — только для mate/resign-
+ * концовок (звёзды уже сказали оценку, endnote добавляет «Checkmate!»
+ * / «Engine resigned» как игровой факт). Не для win/lose-wdl. */
+.puzzle-engine-runner__result-endnote {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--c-94a3b8));
+  text-align: center;
+}
+.puzzle-engine-runner__result-endnote--win {
+  color: var(--success-strong, #4ade80);
+}
+.puzzle-engine-runner__result-endnote--lose {
+  color: var(--danger-strong, #f87171);
+}
+
 /* KS-2518: WDL-summary блок заменил одиночный «Финальный WDL». Если
    позже понадобится legacy-стиль одной строки — селектор оставлен. */
 .puzzle-engine-runner__final-wdl {

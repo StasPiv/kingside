@@ -12,10 +12,18 @@ import type {
   PuzzleDto,
   PlayVsEnginePuzzleReason,
 } from '@kingside/shared';
+// KS-3018 hotfix: рассчитываем итоговую 5-балльную оценку прямо во фронте
+// из `userBestLog` — данные уже собраны. Это убирает round-trip к backend
+// после POST attempt и даёт мгновенный результат на финальном экране.
+import {
+  computePrecisionScore,
+  type PrecisionMoveInput,
+} from '@kingside/shared';
 import { PuzzleBoard } from '../PuzzleBoard';
 import { EvalBar } from '../EvalBar';
 import { PromotionPicker, type PromotionPiece } from '../PromotionPicker';
 import { PostGameReview } from './PostGameReview';
+import { PrecisionScoreBlock } from '../precision/PrecisionScoreBlock';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import { permilleToPercent } from '../../utils/chessFormat';
 import {
@@ -1231,6 +1239,24 @@ export function PlayVsEngineRunner({
     return 'thinking';
   }, [state]);
 
+  // KS-3018: считаем 5-балльную оценку (ADR-065 §3) локально из
+  // `userBestLog` — те же поля cpBefore/cpAfter/wdlBefore/wdlAfter, что
+  // отправляются на backend в `submitAttempt`. На финальном экране это
+  // даёт мгновенный результат, без round-trip к backend. Backend всё
+  // равно пересчитает свой `score` для persistence (источник истины).
+  const precisionScore = useMemo(() => {
+    if (state !== 'win' && state !== 'lose') {
+      return { stars: null as 1 | 2 | 3 | 4 | 5 | null, scorePct: null as number | null };
+    }
+    const inputs: PrecisionMoveInput[] = userBestLog.map((m) => ({
+      wdlBefore: m.wdlBefore,
+      wdlAfter: m.wdlAfter,
+      cpBefore: m.cpBefore,
+      cpAfter: m.cpAfter,
+    }));
+    return computePrecisionScore(inputs);
+  }, [state, userBestLog]);
+
   const reasonLabel = (r: PlayVsEnginePuzzleReason | null): string => {
     switch (r) {
       case 'win':
@@ -1397,9 +1423,24 @@ export function PlayVsEngineRunner({
 
           {(state === 'win' || state === 'lose') && (
             <div className="puzzle-engine-runner__result" data-testid="puzzle-engine-result">
-              <div className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}>
-                {reasonLabel(reason)}
-              </div>
+              {/* KS-3018 (ADR-065 §5.1.1): 5-балльная оценка вместо бинарной
+                  плашки «You held / lost the advantage». Старый result-label
+                  оставлен mate/resign-каёмкой ниже — это игровая концовка,
+                  не «итог попытки» (её показывает PrecisionScoreBlock). */}
+              <PrecisionScoreBlock
+                score={precisionScore.stars}
+                scorePct={precisionScore.scorePct}
+              />
+              {(reason === 'win-mate' ||
+                reason === 'win-engine-resign' ||
+                reason === 'lose-mate') && (
+                <div
+                  className={`puzzle-engine-runner__result-endnote puzzle-engine-runner__result-endnote--${state}`}
+                  data-testid="puzzle-engine-result-endnote"
+                >
+                  {reasonLabel(reason)}
+                </div>
+              )}
               {/* KS-2686: финальный summary блок.
                   Только реальные WDL Stockfish (UCI_ShowWDL=true) +
                   WDL пазла (puzzle.playVsEngine.wdlAfter, KS-2524).

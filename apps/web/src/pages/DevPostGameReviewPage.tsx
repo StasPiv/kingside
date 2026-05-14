@@ -2,6 +2,9 @@ import { useTranslation } from 'react-i18next';
 import { PostGameReview } from '../components/puzzle/PostGameReview';
 import type { UserBestSnapshot } from '../components/puzzle/PlayVsEngineRunner';
 import { permilleToPercent } from '../utils/chessFormat';
+// KS-3018: моки финального экрана теперь рендерят PrecisionScoreBlock
+// вместо бинарной плашки «преимущество удержано/потеряно».
+import { PrecisionScoreBlock } from '../components/precision/PrecisionScoreBlock';
 
 /**
  * KS-2686 — dev-демо итогового экрана режима «Тренировка точности».
@@ -72,8 +75,10 @@ const SAMPLE_PLAYED_SANS = ['e4', 'e5', 'Nf3', 'Nc6', 'Nh4', 'd6'];
 
 interface DemoCardProps {
   title: string;
-  reasonLabel: string;
   state: 'win' | 'lose';
+  /** KS-3018: моковый balanced score для демонстрации звёзд. */
+  score: 1 | 2 | 3 | 4 | 5 | null;
+  scorePct: number | null;
   startWdl: { w: number; d: number; l: number };
   finalWdl: { w: number; d: number; l: number };
 }
@@ -85,8 +90,9 @@ function signedFmt(n: number): string {
 
 function DemoSummaryCard({
   title,
-  reasonLabel,
   state,
+  score,
+  scorePct,
   startWdl,
   finalWdl,
 }: DemoCardProps) {
@@ -109,11 +115,8 @@ function DemoSummaryCard({
     <div style={{ marginBottom: 32 }}>
       <h2 style={{ marginBottom: 12 }}>{title}</h2>
       <div className="puzzle-engine-runner__result">
-        <div
-          className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${state}`}
-        >
-          {reasonLabel}
-        </div>
+        {/* KS-3018: бинарная плашка заменена на PrecisionScoreBlock. */}
+        <PrecisionScoreBlock score={score} scorePct={scorePct} />
         <div
           className={`puzzle-engine-runner__wdl-summary puzzle-engine-runner__wdl-summary--${preserved ? 'preserved' : 'lost'}`}
           data-mode="permille"
@@ -201,16 +204,18 @@ export function DevPostGameReviewPage() {
       </div>
 
       <DemoSummaryCard
-        title="Сценарий: преимущество потеряно"
-        reasonLabel={t('puzzle.engine.loseWdl', 'You lost the advantage')}
+        title="Сценарий: преимущество потеряно (1★)"
         state="lose"
+        score={1}
+        scorePct={28}
         startWdl={{ w: 850, d: 130, l: 20 }}
         finalWdl={{ w: 20, d: 200, l: 780 }}
       />
       <DemoSummaryCard
-        title="Сценарий: преимущество удержано"
-        reasonLabel={t('puzzle.engine.win', 'You held the advantage')}
+        title="Сценарий: преимущество удержано (5★)"
         state="win"
+        score={5}
+        scorePct={97}
         startWdl={{ w: 850, d: 130, l: 20 }}
         finalWdl={{ w: 900, d: 80, l: 20 }}
       />

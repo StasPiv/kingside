@@ -844,9 +844,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(
       screen.queryByTestId('puzzle-engine-wdl-summary'),
     ).toBeNull();
-    // Внешний reasonLabel показывает «You lost the advantage» один раз.
-    const resultEl = screen.getByTestId('puzzle-engine-result');
-    expect(resultEl.textContent).toMatch(/lost the advantage|потеряли преимущество/);
+    // KS-3018: вместо бинарной плашки «You lost the advantage» теперь
+    // рендерится PrecisionScoreBlock. Для legacy-теста с 1 ходом (<2 →
+    // §3.2) score=null → null-state (data-tone="unavailable").
+    const scoreBlock = screen.getByTestId('precision-score-block');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
   });
 
   it('KS-2686: legacy preserved (без wdlAfter) → summary не рендерится, reasonLabel «Advantage preserved»', async () => {
@@ -879,8 +881,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(
       screen.queryByTestId('puzzle-engine-wdl-summary'),
     ).toBeNull();
-    const resultEl = screen.getByTestId('puzzle-engine-result');
-    expect(resultEl.textContent).toMatch(/held the advantage|удержали преимущество/);
+    // KS-3018: PrecisionScoreBlock с null-state (1 ход < §3.2 минимума).
+    const scoreBlock = screen.getByTestId('precision-score-block');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
   });
 
   it('KS-2528: primary path — три строки Win/Draw/Loss с per-mille→% и сigned-дельтой', async () => {
@@ -937,12 +940,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(summary.getAttribute('data-final-w')).toBe('2');
     expect(summary.getAttribute('data-final-d')).toBe('20');
     expect(summary.getAttribute('data-final-l')).toBe('78');
-    // KS-2686: внутренний lostHeader удалён, заголовок только во внешнем
-    // result-label (reasonLabel).
-    const resultLabel = screen.getByTestId('puzzle-engine-result');
-    expect(resultLabel.textContent).toMatch(
-      /lost the advantage|потеряли преимущество/,
-    );
+    // KS-3018: бинарная плашка заменена на PrecisionScoreBlock (звёзды).
+    // В этом кейсе 1 user-полуход → score=null (null-state).
+    const scoreBlock = screen.getByTestId('precision-score-block');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
 
     // Каждая строка Win/Draw/Loss есть в DOM.
     const winRow = screen.getByTestId('puzzle-engine-wdl-row-win');
@@ -1054,12 +1055,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       ).toBe('win');
     });
     const summary = screen.getByTestId('puzzle-engine-wdl-summary');
-    // KS-2686: header перенесён в внешний reasonLabel; в самой карточке
-    // его больше нет. Проверим reasonLabel для «удержано».
-    const resultLabel = screen.getByTestId('puzzle-engine-result');
-    expect(resultLabel.textContent).toMatch(
-      /held the advantage|удержали преимущество/,
-    );
+    // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. В этом
+    // кейсе 1 user-полуход → score=null (null-state).
+    const scoreBlock = screen.getByTestId('precision-score-block');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
     expect(summary.getAttribute('data-preserved')).toBe('true');
     // KS-2686: режим только permille (sigmoid-fallback удалён).
     expect(summary.getAttribute('data-mode')).toBe('permille');
@@ -1172,11 +1171,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     const summary = screen.getByTestId('puzzle-engine-wdl-summary');
     expect(summary.getAttribute('data-preserved')).toBe('true');
-    // KS-2686: header теперь только во внешнем reasonLabel.
-    const resultLabel = screen.getByTestId('puzzle-engine-result');
-    expect(resultLabel.textContent).toMatch(
-      /held the advantage|удержали преимущество/,
-    );
+    // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. В этом
+    // кейсе 1 user-полуход → score=null (null-state).
+    const scoreBlock = screen.getByTestId('precision-score-block');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
     // Все три строки, дельты — `(0%)` без знака.
     expect(
       screen.getByTestId('puzzle-engine-wdl-row-win').textContent,
@@ -1511,10 +1509,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       expect(summary.getAttribute('data-preserved')).toBe('false');
       expect(summary.getAttribute('data-start-w')).toBe('92');
       expect(summary.getAttribute('data-final-w')).toBe('50');
-      const resultLabel = screen.getByTestId('puzzle-engine-result');
-      expect(resultLabel.textContent).toMatch(
-        /lost the advantage|потеряли преимущество/,
-      );
+      // KS-3018: бинарная плашка заменена на PrecisionScoreBlock. 1 user-
+      // полуход → score=null (null-state).
+      const scoreBlock = screen.getByTestId('precision-score-block');
+      expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
     });
 
     it('KS-2968 — drop в пределах порога (92→90): preserved=true', async () => {
