@@ -18,6 +18,9 @@ import { PrecisionAttemptReview } from '../components/precision/PrecisionAttempt
 // бывшую бинарную «Preserved/Lost» Result-cell в summary.
 import { PrecisionScoreBlock } from '../components/precision/PrecisionScoreBlock';
 import type { MoveClass } from '../utils/moveClassification';
+// KS-3040: «Потери преимущества» = net drop в win-probability,
+// клемпнутый в [0..100]%. Раньше это была сумма drops без клемпы.
+import { computeAdvantageLossPct } from '../utils/precisionAdvantageLoss';
 
 /**
  * KS-2719 F4 / KS-2741 / ADR-056 §3.4 + §5. Detail-страница одной
@@ -238,10 +241,14 @@ export function PrecisionAttemptPage() {
 
   const orientation: 'white' | 'black' = userSide === 'w' ? 'white' : 'black';
   const accuracyText = `${Math.round(data.accuracyPercent)}%`;
-  // KS-2754 / backend e35f72e7: `wdlLeakSum` — кумулятивная просадка
-  // вероятности победы в signed-шкале [0..N]; per-move clamp ≥ 0 на
-  // бэке. На UI показываем в процентных пунктах: 0.12 → «12%».
-  const wdlLeakText = `${Math.round(data.wdlLeakSum * 100)}%`;
+  // KS-3040: «Потери преимущества» — раньше выводили `wdlLeakSum * 100`,
+  // где `wdlLeakSum` — кумулятивная сумма per-move drops в signed
+  // WDL-scale [0..2N]. Для многоходовых попыток с большими просадками
+  // сумма превышала 1.0 → UI показывал «122%», что математически
+  // невалидно для процента «насколько просело преимущество».
+  // Перешли на net drop `(wdlAtStart - wdlAtEnd) / 2` (см.
+  // `computeAdvantageLossPct` — там же unit-тесты).
+  const wdlLeakText = `${computeAdvantageLossPct(data.wdlAtStart, data.wdlAtEnd)}%`;
 
   // KS-3003 (ADR-065 §5.1.1): бинарная «Preserved/Lost/Aborted» Result-cell
   // удалена. Её заменил `<PrecisionScoreBlock>` сверху раздела «Разбор».

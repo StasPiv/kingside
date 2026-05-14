@@ -5,16 +5,29 @@ import { api } from '../../api';
 
 /**
  * KS-2728 / ADR-056 §2.3 + §4 (Уровень В). График тренда точности —
- * `GET /precision/trends/me?bucket=week|month`. Отрисовка — inline SVG,
- * без recharts (не тащим лишнюю зависимость).
+ * `GET /precision/trends/me?bucket=day&since=<from>&until=<to>`.
+ * Отрисовка — inline SVG, без recharts.
+ *
+ * # KS-3040: окно «Неделя/Месяц» вместо weekly/monthly бакетов
+ * Раньше переключатель отправлял `bucket=week|month` и backend
+ * возвращал недельные/месячные агрегаты. Если у пользователя был
+ * только один такой бакет (1 неделя данных), на оси X получалось
+ * «11.05.2026 — 11.05.2026», одна точка по центру, без понимания,
+ * за какой период график.
+ *
+ * Теперь переключатель — это длина видимого окна:
+ *   - Неделя = последние 7 дней (today-6 ... today),
+ *   - Месяц  = последние 30 дней (today-29 ... today).
+ * Backend всегда зовём с `bucket=day` + `since`/`until`, и точки
+ * расставляем по реальной дате внутри окна. X-подписи — границы окна
+ * (константа для выбранного режима), независимо от количества данных.
  *
  * # Layout
  * Линейный график:
- *   X = bucketStart (даты, шкала равномерная по индексу),
+ *   X = реальная дата bucketStart внутри окна,
  *   Y = avgAccuracyPercent [0..100].
- * Tooltip на hover у точки — нативный <title>, без портала: дата,
- * attempts, preserved, accuracy, leak.
- * Переключатель week/month сверху.
+ * Tooltip на hover у точки — нативный <title>: дата, attempts,
+ * preserved, accuracy, leak.
  *
  * # Состояния
  *   loading: skeleton-плашка.
@@ -23,11 +36,48 @@ import { api } from '../../api';
  *   ready: SVG.
  */
 
-type Bucket = 'week' | 'month';
+type WindowMode = 'week' | 'month';
+
+const WINDOW_DAYS_BY_MODE: Record<WindowMode, number> = {
+  week: 7,
+  month: 30,
+};
+
+/**
+ * Окно «последние N дней» с шагом 1 день. `since` — полночь дня
+ * (today - (N-1)), `until` — полночь следующего за today дня (чтобы
+ * текущие сутки попадали в выборку backend'а: трактовка `until`
+ * по конвенции — exclusive).
+ */
+function computeWindow(
+  mode: WindowMode,
+  now: Date = new Date(),
+): { since: Date; until: Date } {
+  const days = WINDOW_DAYS_BY_MODE[mode];
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const since = new Date(todayStart);
+  since.setDate(todayStart.getDate() - (days - 1));
+  const until = new Date(todayStart);
+  until.setDate(todayStart.getDate() + 1);
+  return { since, until };
+}
 
 export interface PrecisionTrendsChartProps {
-  /** DI для тестов. */
-  fetcher?: (bucket: Bucket) => Promise<PrecisionTrendsResponse>;
+  /**
+   * DI для тестов. Параметры — режим окна (`week` / `month`) и
+   * рассчитанные границы окна. Реализация по умолчанию зовёт
+   * `/precision/trends/me?bucket=day&since=&until=`.
+   */
+  fetcher?: (
+    mode: WindowMode,
+    range: { since: Date; until: Date },
+  ) => Promise<PrecisionTrendsResponse>;
+  /**
+   * Тест-инъекция «сегодня». Production — `new Date()`. Нужно
+   * детерминированно тестировать окно (today-6 … today).
+   */
+  now?: Date;
 }
 
 // Размер viewBox — масштабируется по контейнеру через CSS.
@@ -52,25 +102,37 @@ const PAD_BOTTOM = 18;
  */
 export const CLASSIFY_WDL_MIGRATION_DATE = '2026-05-15';
 
-export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}) {
+export function PrecisionTrendsChart({
+  fetcher,
+  now,
+}: PrecisionTrendsChartProps = {}) {
   const { t } = useTranslation();
-  const [bucket, setBucket] = useState<Bucket>('week');
+  const [mode, setMode] = useState<WindowMode>('week');
   const [data, setData] = useState<PrecisionTrendsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
 
+  // Окно — мемо по mode/now. При смене mode useEffect ниже триггерит
+  // fetch с новым окном.
+  const range = useMemo(() => computeWindow(mode, now), [mode, now]);
+
   const doFetch = useCallback(
-    async (b: Bucket) => {
+    async (m: WindowMode, r: { since: Date; until: Date }) => {
       const get =
         fetcher ??
-        ((bb: Bucket) =>
+        ((_mm: WindowMode, rr: { since: Date; until: Date }) =>
           api.get<PrecisionTrendsResponse>(
-            `/precision/trends/me?bucket=${bb}`,
+            // KS-3040: всегда bucket=day; ширина «окна» задаётся
+            // since/until. UI-toggle переключает окно, а не bucket
+            // backend'а — это и даёт стабильную ось X.
+            `/precision/trends/me?bucket=day&since=${encodeURIComponent(
+              rr.since.toISOString(),
+            )}&until=${encodeURIComponent(rr.until.toISOString())}`,
           ));
       setLoading(true);
       setError(false);
       try {
-        const res = await get(b);
+        const res = await get(m, r);
         setData(res);
       } catch {
         setError(true);
@@ -83,17 +145,38 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
   );
 
   useEffect(() => {
-    void doFetch(bucket);
-  }, [doFetch, bucket]);
+    void doFetch(mode, range);
+  }, [doFetch, mode, range]);
 
   const points = useMemo(() => data?.points ?? [], [data]);
 
   /**
+   * KS-3040: позиция точки по X = доля даты bucketStart в окне
+   * [since..until). При 1 точке она встанет в свою реальную дату,
+   * а ось X сохранит границы окна как фиксированные подписи.
+   */
+  const xForDate = useCallback(
+    (iso: string): number => {
+      const ts = Date.parse(iso);
+      const fromTs = range.since.getTime();
+      const toTs = range.until.getTime();
+      const span = Math.max(1, toTs - fromTs);
+      const clamped = Math.max(fromTs, Math.min(toTs, Number.isNaN(ts) ? fromTs : ts));
+      const frac = (clamped - fromTs) / span;
+      const innerW = VB_W - PAD_X * 2;
+      return PAD_X + frac * innerW;
+    },
+    [range],
+  );
+
+  /**
    * KS-3024 / ADR-066 §7.3 (F1): X-координата marker'а или `null`, если
-   * дата миграции вне диапазона видимых точек. Считаем по timestamp'у,
-   * а не по индексу бакета — иначе при пустых бакетах marker «прыгает».
-   * Если до миграции точек нет (все после) или после — нет (все до),
-   * marker не рисуется.
+   * дата миграции вне диапазона видимых точек. Marker рисуется только
+   * когда у пользователя ЕСТЬ данные с обеих сторон миграции (≥2 точки,
+   * первая ДО, последняя ПОСЛЕ) — иначе линия методики не визуализирует
+   * ничего полезного. KS-3040 follow-up: позиция считается через
+   * общий `xForDate` (окно since..until), что даёт корректный X
+   * независимо от bucket-плотности.
    */
   const migrationMarkerX = useMemo<number | null>(() => {
     if (points.length < 2) return null;
@@ -109,27 +192,22 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
     ) {
       return null;
     }
-    const span = Math.max(1, lastTs - firstTs);
-    const frac = (migrationTs - firstTs) / span;
-    const innerW = VB_W - PAD_X * 2;
-    return PAD_X + frac * innerW;
-  }, [points]);
+    return xForDate(CLASSIFY_WDL_MIGRATION_DATE);
+  }, [points, xForDate]);
 
   const path = useMemo(() => {
     if (points.length === 0) return '';
-    const innerW = VB_W - PAD_X * 2;
     const innerH = VB_H - PAD_TOP - PAD_BOTTOM;
-    const denom = Math.max(1, points.length - 1);
     return points
       .map((p, i) => {
-        const x = PAD_X + (i / denom) * innerW;
+        const x = xForDate(p.bucketStart);
         // accuracyPercent 0..100 → y отображаем сверху=100%, снизу=0%.
         const yNorm = Math.max(0, Math.min(100, p.avgAccuracyPercent)) / 100;
         const y = PAD_TOP + (1 - yNorm) * innerH;
         return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
       })
       .join(' ');
-  }, [points]);
+  }, [points, xForDate]);
 
   const renderToggle = () => (
     <div
@@ -137,17 +215,17 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
       role="tablist"
       aria-label={t('precisionTrends.toggleLabel', 'Bucket size')}
     >
-      {(['week', 'month'] as const).map((b) => (
+      {(['week', 'month'] as const).map((m) => (
         <button
-          key={b}
+          key={m}
           type="button"
           role="tab"
-          aria-selected={bucket === b}
-          className={`precision-trends__toggle-btn${bucket === b ? ' precision-trends__toggle-btn--active' : ''}`}
-          onClick={() => setBucket(b)}
-          data-testid={`precision-trends-bucket-${b}`}
+          aria-selected={mode === m}
+          className={`precision-trends__toggle-btn${mode === m ? ' precision-trends__toggle-btn--active' : ''}`}
+          onClick={() => setMode(m)}
+          data-testid={`precision-trends-bucket-${m}`}
         >
-          {b === 'week'
+          {m === 'week'
             ? t('precisionTrends.week', 'Week')
             : t('precisionTrends.month', 'Month')}
         </button>
@@ -235,8 +313,10 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
       className="precision-trends"
       data-testid="precision-trends"
       data-state="ready"
-      data-bucket={bucket}
+      data-bucket={mode}
       data-points={String(points.length)}
+      data-window-since={range.since.toISOString()}
+      data-window-until={range.until.toISOString()}
     >
       <header className="precision-trends__header">
         <h2 className="precision-trends__title">
@@ -310,12 +390,12 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
           strokeWidth={1.5}
           vectorEffect="non-scaling-stroke"
         />
-        {/* точки + tooltip через title */}
+        {/* KS-3040: точки позиционируются по реальной дате внутри окна.
+            При одной точке она встаёт в свою дату, ось X сохраняет
+            границы окна как подписи (см. ниже). */}
         {points.map((p, i) => {
-          const innerW = VB_W - PAD_X * 2;
           const innerH = VB_H - PAD_TOP - PAD_BOTTOM;
-          const denom = Math.max(1, points.length - 1);
-          const x = PAD_X + (i / denom) * innerW;
+          const x = xForDate(p.bucketStart);
           const yNorm =
             Math.max(0, Math.min(100, p.avgAccuracyPercent)) / 100;
           const y = PAD_TOP + (1 - yNorm) * innerH;
@@ -343,30 +423,30 @@ export function PrecisionTrendsChart({ fetcher }: PrecisionTrendsChartProps = {}
             </g>
           );
         })}
-        {/* X-подписи: первая и последняя дата */}
-        {points.length > 0 && (
-          <>
-            <text
-              x={PAD_X}
-              y={VB_H - 4}
-              fontSize={8}
-              fill="rgba(255,255,255,0.5)"
-            >
-              {new Date(points[0].bucketStart).toLocaleDateString()}
-            </text>
-            <text
-              x={VB_W - PAD_X}
-              y={VB_H - 4}
-              fontSize={8}
-              textAnchor="end"
-              fill="rgba(255,255,255,0.5)"
-            >
-              {new Date(
-                points[points.length - 1].bucketStart,
-              ).toLocaleDateString()}
-            </text>
-          </>
-        )}
+        {/* KS-3040: X-подписи — границы окна (since/until-1d), а не
+            min/max точек. Это значит, что подпись стабильна для
+            выбранного режима «Неделя/Месяц» независимо от количества
+            данных. `until` — exclusive (полночь следующего после today),
+            для подписи используем `until - 1д` = today. */}
+        <text
+          x={PAD_X}
+          y={VB_H - 4}
+          fontSize={8}
+          fill="rgba(255,255,255,0.5)"
+          data-testid="precision-trends-x-start"
+        >
+          {range.since.toLocaleDateString()}
+        </text>
+        <text
+          x={VB_W - PAD_X}
+          y={VB_H - 4}
+          fontSize={8}
+          textAnchor="end"
+          fill="rgba(255,255,255,0.5)"
+          data-testid="precision-trends-x-end"
+        >
+          {new Date(range.until.getTime() - 24 * 60 * 60 * 1000).toLocaleDateString()}
+        </text>
       </svg>
     </section>
   );
