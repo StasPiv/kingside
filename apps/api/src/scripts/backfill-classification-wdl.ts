@@ -52,6 +52,8 @@
  *
  * На проде запускает devops в ночное окно (Q3 = KS-3028).
  */
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { PrismaClient } from '@kingside/db';
 import {
   classifyMove,
@@ -105,6 +107,28 @@ function emptyDistribution(): Distribution {
   return { best: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
 }
 
+/**
+ * KS-3023: SQL-snapshot distribution для аудита.
+ * `SELECT classification, COUNT(*) FROM precision_attempt_moves GROUP BY classification`.
+ * Не зависит от in-memory счётчиков скрипта — авторитетный источник.
+ */
+async function fetchDistribution(
+  prisma: PrismaClient,
+): Promise<Distribution> {
+  const rows = await prisma.precisionAttemptMove.groupBy({
+    by: ['classification'],
+    _count: { classification: true },
+  });
+  const dist = emptyDistribution();
+  for (const r of rows) {
+    const key = r.classification as ClassKey;
+    if (CLASS_KEYS.includes(key)) {
+      dist[key] = r._count.classification;
+    }
+  }
+  return dist;
+}
+
 interface BackfillStats {
   attemptsScanned: number;
   attemptsChanged: number;
@@ -113,6 +137,16 @@ interface BackfillStats {
   scoresChanged: number;
   before: Distribution;
   after: Distribution;
+  /**
+   * KS-3023 / ADR-066 §10 Риск 10: список attempt_id с изменением
+   * `score` — для пост-backfill ручного аудита (если потребуется
+   * откатить редкие сильные изменения star-оценки).
+   */
+  scoreChanges: Array<{
+    attemptId: string;
+    before: number | null;
+    after: number | null;
+  }>;
 }
 
 function buildMoveInput(m: MoveRow): {
@@ -156,6 +190,7 @@ async function main(): Promise<void> {
     scoresChanged: 0,
     before: emptyDistribution(),
     after: emptyDistribution(),
+    scoreChanges: [],
   };
   let cursor = NULL_UUID;
   let batches = 0;
@@ -163,6 +198,12 @@ async function main(): Promise<void> {
   process.stdout.write(
     `[backfill-classification-wdl] start batchSize=${batchSize} ` +
       `sleepMs=${sleepMs} dryRun=${dryRun}\n`,
+  );
+
+  // KS-3023: SQL-snapshot distribution до backfill.
+  const sqlBefore = await fetchDistribution(prisma);
+  process.stdout.write(
+    `[backfill-classification-wdl] SQL distribution BEFORE: ${JSON.stringify(sqlBefore)}\n`,
   );
 
   try {
@@ -260,7 +301,15 @@ async function main(): Promise<void> {
           const scoreResult = computePrecisionScore(moveInputs);
           const oldScore = attempt.score;
           const scoreChanged = oldScore !== scoreResult.stars;
-          if (scoreChanged) stats.scoresChanged++;
+          if (scoreChanged) {
+            stats.scoresChanged++;
+            // KS-3023 / ADR-066 §10 Риск 10: фиксируем для аудита.
+            stats.scoreChanges.push({
+              attemptId: attempt.attemptId,
+              before: oldScore,
+              after: scoreResult.stars,
+            });
+          }
 
           if (!dryRun) {
             await tx.precisionAttempt.update({
@@ -298,19 +347,64 @@ async function main(): Promise<void> {
     await prisma.$disconnect();
   }
 
-  // Финальный отчёт (KS-3023 B4 дополнит его записью в файл).
-  process.stdout.write(
-    `\n[backfill-classification-wdl] DONE\n` +
-      `  batches: ${batches}\n` +
-      `  attemptsScanned: ${stats.attemptsScanned}\n` +
-      `  attemptsChanged: ${stats.attemptsChanged}\n` +
-      `  movesScanned: ${stats.movesScanned}\n` +
-      `  movesReclassified: ${stats.movesReclassified}\n` +
-      `  scoresChanged: ${stats.scoresChanged}\n` +
-      `  distribution BEFORE: ${JSON.stringify(stats.before)}\n` +
-      `  distribution AFTER:  ${JSON.stringify(stats.after)}\n` +
-      (dryRun ? '  (dry-run, БД не изменена)\n' : ''),
+  // KS-3023: SQL-snapshot distribution после backfill (авторитетный).
+  const sqlAfter = await fetchDistribution(prisma);
+
+  // Финальный отчёт + KS-3023 (B4): запись лог-файла для аудита.
+  const summary =
+    `[backfill-classification-wdl] DONE\n` +
+    `  date: ${new Date().toISOString()}\n` +
+    `  dryRun: ${dryRun}\n` +
+    `  batches: ${batches}\n` +
+    `  attemptsScanned: ${stats.attemptsScanned}\n` +
+    `  attemptsChanged: ${stats.attemptsChanged}\n` +
+    `  movesScanned: ${stats.movesScanned}\n` +
+    `  movesReclassified: ${stats.movesReclassified}\n` +
+    `  scoresChanged: ${stats.scoresChanged}\n` +
+    `  SQL distribution BEFORE: ${JSON.stringify(sqlBefore)}\n` +
+    `  SQL distribution AFTER:  ${JSON.stringify(sqlAfter)}\n` +
+    `  in-memory BEFORE (processed): ${JSON.stringify(stats.before)}\n` +
+    `  in-memory AFTER  (processed): ${JSON.stringify(stats.after)}\n`;
+  process.stdout.write('\n' + summary);
+
+  // KS-3023 / ADR-066 §10 Риск 10. Лог-файл с distribution до/после +
+  // полным списком attempt_id с изменением score (для аудита, если
+  // потребуется откатить отдельные сильные изменения star-оценки).
+  // Каталог `apps/api/src/scripts/logs/` создаётся автоматически.
+  const logsDir = path.resolve(__dirname, 'logs');
+  await fs.mkdir(logsDir, { recursive: true });
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .slice(0, 19);
+  const logPath = path.join(
+    logsDir,
+    `backfill-classification-wdl-${timestamp}${dryRun ? '-dryrun' : ''}.log`,
   );
+  const scoreChangesLog =
+    stats.scoreChanges.length === 0
+      ? '  (none)\n'
+      : stats.scoreChanges
+          .map(
+            (c) =>
+              `  ${c.attemptId}  ${c.before ?? 'null'} → ${c.after ?? 'null'}\n`,
+          )
+          .join('');
+  const fileContent =
+    `# Backfill classification (WDL) — ADR-066 B3+B4\n` +
+    `# Generated: ${new Date().toISOString()}\n\n` +
+    `## Summary\n` +
+    summary +
+    `\n## SQL distribution diff\n` +
+    CLASS_KEYS.map(
+      (k) => `  ${k}: ${sqlBefore[k]} → ${sqlAfter[k]} (Δ ${sqlAfter[k] - sqlBefore[k]})`,
+    ).join('\n') +
+    `\n\n## Score changes (KS-3023 / ADR-066 §10 Risk 10)\n` +
+    `# attempt_id  oldScore → newScore\n` +
+    scoreChangesLog;
+  await fs.writeFile(logPath, fileContent, 'utf8');
+  process.stdout.write(`[backfill-classification-wdl] log: ${logPath}\n`);
 }
 
 if (require.main === module) {
