@@ -330,8 +330,40 @@ export function selectBlunderGoalKey(
   return 'advantage';
 }
 
-export function blunderUciToSan(blunderUci: string, postBlunderFen: string): string {
+/**
+ * KS-2471 → KS-3035: SAN зевка соперника.
+ *
+ * Precise path (KS-3035): если у нас есть `fenBeforeBlunder` (backend
+ * кладёт его в `playVsEngine.fenBeforeBlunder` для generated-пазлов) —
+ * берём SAN через `chess.move(uci)` прямо с pre-blunder позиции. Это
+ * даёт корректную нотацию с захватами (`Nxe5`) и шахами/матами
+ * (`Nxe5+`, `Qf7#`).
+ *
+ * Fallback (legacy/lichess без fenBeforeBlunder): эвристическая
+ * реконструкция из postBlunder — фигуру с `to` обратно на `from`,
+ * переключаем side-to-move. На capture-зевках взятую фигуру восстановить
+ * нельзя, поэтому SAN будет без `x`/`+` (получим `Ne5` вместо `Nxe5+`).
+ * Это лучше сырого UCI. При любых ошибках — fallback на UCI.
+ */
+export function blunderUciToSan(
+  blunderUci: string,
+  postBlunderFen: string,
+  fenBeforeBlunder?: string | null,
+): string {
   if (!blunderUci || blunderUci.length < 4) return blunderUci;
+  if (fenBeforeBlunder) {
+    try {
+      const c = new Chess(fenBeforeBlunder);
+      const mv = c.move({
+        from: blunderUci.slice(0, 2),
+        to: blunderUci.slice(2, 4),
+        promotion: blunderUci.length > 4 ? blunderUci[4] : undefined,
+      });
+      if (mv?.san) return mv.san;
+    } catch {
+      /* fallthrough на эвристический путь */
+    }
+  }
   try {
     const c = new Chess(postBlunderFen);
     const from = blunderUci.slice(0, 2) as Parameters<typeof c.get>[0];
@@ -1332,10 +1364,19 @@ export function PlayVsEngineRunner({
   // полный список ходов с cp-loss классификацией. JSX рендерится
   // ниже в win/lose-блоке.
 
-  // KS-2471: blunder в SAN.
+  // KS-2471 → KS-3035: blunder в SAN.
+  // Backend для generated-пазлов отдаёт `playVsEngine.fenBeforeBlunder`
+  // (KS-2754), но в shared-типе `PuzzleDto.playVsEngine` поле пока не
+  // объявлено (это в скоупе backend). Читаем через локальный assert,
+  // чтобы получить корректную нотацию с захватами и шахами (`Nxe5+`,
+  // `Qf7#`); если поля нет (legacy/lichess) — функция упадёт на
+  // эвристический fallback (`Ne5` без `x`).
+  const fenBeforeBlunder =
+    (puzzle.playVsEngine as { fenBeforeBlunder?: string } | undefined)
+      ?.fenBeforeBlunder ?? null;
   const blunderSan = useMemo(
-    () => blunderUciToSan(params.blunderMove, puzzle.fen),
-    [params.blunderMove, puzzle.fen],
+    () => blunderUciToSan(params.blunderMove, puzzle.fen, fenBeforeBlunder),
+    [params.blunderMove, puzzle.fen, fenBeforeBlunder],
   );
 
   return (
