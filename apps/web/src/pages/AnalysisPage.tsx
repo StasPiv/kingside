@@ -752,6 +752,20 @@ function AnalysisPageInner({
             studiesApi.getChapter(slug, chapterId),
           ]);
           if (cancelled) return;
+          // KS-3014 / KS-3015: editor-роут `/studies/:slug/:chapterId`
+          // должен быть доступен только write-юзерам (owner /
+          // contributor). Если backend сказал, что viewer/anon —
+          // редиректим на публичный роут `/studies/c/:chapterId`,
+          // который рендерится в studyMode='public-readonly' и
+          // отрубает все write-ветки UI (mode-switcher, gamebook
+          // editor, delete-chapter, NAG-write и т.п.).
+          const viewerRole = studyResp.study.viewerRole;
+          if (viewerRole !== 'owner' && viewerRole !== 'contributor') {
+            navigate(`/studies/c/${encodeURIComponent(chapterId)}`, {
+              replace: true,
+            });
+            return;
+          }
           setStudyData(studyResp.study);
           setStudyChapter(ch);
           if (ch.startFen) {

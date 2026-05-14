@@ -41,6 +41,9 @@ vi.mock('react-router-dom', async () => {
 
 import { StudyPage } from './StudyPage';
 
+// KS-3014/KS-3015: backend отдаёт `viewerRole` в StudyDto. По умолчанию
+// — owner (исторический сценарий тестов). Тесты на viewer/contributor
+// переопределяют поле в `getBySlugMock.mockResolvedValueOnce`.
 const STUDY = {
   id: 's1',
   ownerId: 'u1',
@@ -51,6 +54,7 @@ const STUDY = {
   chaptersCount: 2,
   createdAt: '2026-05-12T10:00:00.000Z',
   updatedAt: '2026-05-12T10:00:00.000Z',
+  viewerRole: 'owner' as const,
 };
 
 beforeEach(() => {
@@ -110,8 +114,61 @@ describe('StudyPage (KS-2826)', () => {
     expect(screen.getByTestId('study-action-delete')).toBeInTheDocument();
   });
 
+  it('contributor: видит только «+ New chapter» (без share/import/members/delete)', async () => {
+    // KS-3014: contributor имеет write-доступ к главам, но не к
+    // метаданным студии.
+    authState.user = { id: 'u-contrib', username: 'contrib' };
+    getBySlugMock.mockResolvedValueOnce({
+      study: { ...STUDY, viewerRole: 'contributor' },
+      chapters: [],
+    });
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
+    await waitFor(() =>
+      expect(screen.getByTestId('study-owner-actions')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('study-action-create-chapter')).toBeInTheDocument();
+    expect(screen.queryByTestId('study-action-share')).toBeNull();
+    expect(screen.queryByTestId('study-action-import-pgn')).toBeNull();
+    expect(screen.queryByTestId('study-action-members')).toBeNull();
+    expect(screen.queryByTestId('study-action-delete')).toBeNull();
+    expect(
+      screen.getByTestId('study-page-role-badge').getAttribute('data-viewer-role'),
+    ).toBe('contributor');
+  });
+
+  it('viewer: owner-actions полностью скрыты, виден badge «Read-only»', async () => {
+    authState.user = { id: 'u-viewer', username: 'viewer' };
+    getBySlugMock.mockResolvedValueOnce({
+      study: { ...STUDY, viewerRole: 'viewer' },
+      chapters: [],
+    });
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
+    await waitFor(() => expect(getBySlugMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('study-owner-actions')).toBeNull();
+    expect(screen.queryByTestId('study-action-create-chapter')).toBeNull();
+    expect(
+      screen.getByTestId('study-page-role-badge').getAttribute('data-viewer-role'),
+    ).toBe('viewer');
+  });
+
+  it('anon: owner-actions и role-badge не рендерятся вовсе', async () => {
+    authState.user = null;
+    getBySlugMock.mockResolvedValueOnce({
+      study: { ...STUDY, viewerRole: 'anon' },
+      chapters: [],
+    });
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
+    await waitFor(() => expect(getBySlugMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('study-owner-actions')).toBeNull();
+    expect(screen.queryByTestId('study-page-role-badge')).toBeNull();
+  });
+
   it('не owner: owner-actions не рендерятся (в т.ч. members)', async () => {
     authState.user = { id: 'other', username: 'other' };
+    getBySlugMock.mockResolvedValueOnce({
+      study: { ...STUDY, viewerRole: 'viewer' },
+      chapters: [],
+    });
     renderWithProviders(<StudyPage />, { route: '/studies/demo' });
     await waitFor(() => expect(getBySlugMock).toHaveBeenCalled());
     expect(

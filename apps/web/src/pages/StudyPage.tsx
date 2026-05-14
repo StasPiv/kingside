@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { useAuth } from '../context/AuthContext';
 import {
   studiesApi,
   type StudyDto,
@@ -33,7 +32,6 @@ export function StudyPage() {
   const { t } = useTranslation();
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [study, setStudy] = useState<StudyDto | null>(null);
   const [chapters, setChapters] = useState<StudyChapterSummaryDto[]>([]);
@@ -77,7 +75,16 @@ export function StudyPage() {
     };
   }, [study, t]);
 
-  const isOwner = Boolean(user && study && study.ownerId === user.id);
+  // KS-3014 / KS-3015: роль берём напрямую из backend response
+  // (`study.viewerRole`). Раньше сравнивали `ownerId === user.id`,
+  // что не различало contributor от viewer и игнорировало членство.
+  const viewerRole = study?.viewerRole ?? 'anon';
+  const isOwner = viewerRole === 'owner';
+  const isContributor = viewerRole === 'contributor';
+  // KS-3014: contributor имеет write-доступ к главам, но НЕ может
+  // удалять студию, менять visibility, импортировать PGN или управлять
+  // members. owner — полный набор. viewer/anon — read-only.
+  const canEditChapters = isOwner || isContributor;
 
   const handleToggleShare = async () => {
     if (!study) return;
@@ -170,6 +177,25 @@ export function StudyPage() {
               ? t('studies.card.public', 'Public')
               : t('studies.card.private', 'Private')}
           </span>
+          {/* KS-3014: индикатор роли в шапке. owner → синий бейдж;
+              contributor → зелёный; viewer → серый «Read-only».
+              Anon не получает бейджа вовсе — для гостя достаточно
+              видеть, что owner-actions нет. */}
+          {(viewerRole === 'owner' ||
+            viewerRole === 'contributor' ||
+            viewerRole === 'viewer') && (
+            <span
+              className={`studies-card__badge study-page__role-badge study-page__role-badge--${viewerRole}`}
+              data-testid="study-page-role-badge"
+              data-viewer-role={viewerRole}
+            >
+              {viewerRole === 'owner'
+                ? t('studies.role.owner', 'Owner')
+                : viewerRole === 'contributor'
+                  ? t('studies.role.contributor', 'Contributor')
+                  : t('studies.role.viewer', 'Read-only')}
+            </span>
+          )}
           {/* KS-2888 (FC3): кнопка лайка рядом с бейджем. Initial
               `liked` пока приходит как false — backend в B5/FC1
               расширит StudyDto полем `likedByMe`, и можно будет
@@ -191,19 +217,30 @@ export function StudyPage() {
         )}
       </header>
 
-      {isOwner && (
-        <div className="study-page__actions" data-testid="study-owner-actions">
-          <button
-            type="button"
-            className="study-page__action"
-            data-testid="study-action-share"
-            disabled={busyAction === 'share'}
-            onClick={handleToggleShare}
-          >
-            {study.isPublic
-              ? t('studies.action.makePrivate', 'Make private')
-              : t('studies.action.makePublic', 'Make public')}
-          </button>
+      {/* KS-3014: actions-блок виден только write-юзерам.
+          - owner: share/create/import/members/delete;
+          - contributor: только «+ New chapter» (без delete-study,
+            share, import-pgn, members);
+          - viewer/anon: блок не рендерится вовсе. */}
+      {canEditChapters && (
+        <div
+          className="study-page__actions"
+          data-testid="study-owner-actions"
+          data-viewer-role={viewerRole}
+        >
+          {isOwner && (
+            <button
+              type="button"
+              className="study-page__action"
+              data-testid="study-action-share"
+              disabled={busyAction === 'share'}
+              onClick={handleToggleShare}
+            >
+              {study.isPublic
+                ? t('studies.action.makePrivate', 'Make private')
+                : t('studies.action.makePublic', 'Make public')}
+            </button>
+          )}
           <button
             type="button"
             className="study-page__action"
@@ -215,39 +252,45 @@ export function StudyPage() {
           </button>
           {/* KS-2830: модалка multi-PGN импорта. После закрытия с
               успехом — `reload()` подтянет новые главы. */}
-          <button
-            type="button"
-            className="study-page__action"
-            data-testid="study-action-import-pgn"
-            onClick={() => setImportOpen(true)}
-          >
-            {t('studies.action.importPgn', 'Import PGN')}
-          </button>
+          {isOwner && (
+            <button
+              type="button"
+              className="study-page__action"
+              data-testid="study-action-import-pgn"
+              onClick={() => setImportOpen(true)}
+            >
+              {t('studies.action.importPgn', 'Import PGN')}
+            </button>
+          )}
           {/* KS-2892 (FC7): соавторы — модалка с инвайтами/удалением.
-              Только для owner'а (этот блок уже под `isOwner`-условием). */}
-          <button
-            type="button"
-            className="study-page__action"
-            data-testid="study-action-members"
-            onClick={() => setMembersOpen(true)}
-          >
-            {t('studies.action.members', 'Members')}
-          </button>
-          <button
-            type="button"
-            className="study-page__action study-page__action--danger"
-            data-testid="study-action-delete"
-            disabled={busyAction === 'delete'}
-            onClick={handleDeleteStudy}
-          >
-            {t('studies.action.delete', 'Delete study')}
-          </button>
+              Только для owner'а (contributor видит, но не управляет). */}
+          {isOwner && (
+            <button
+              type="button"
+              className="study-page__action"
+              data-testid="study-action-members"
+              onClick={() => setMembersOpen(true)}
+            >
+              {t('studies.action.members', 'Members')}
+            </button>
+          )}
+          {isOwner && (
+            <button
+              type="button"
+              className="study-page__action study-page__action--danger"
+              data-testid="study-action-delete"
+              disabled={busyAction === 'delete'}
+              onClick={handleDeleteStudy}
+            >
+              {t('studies.action.delete', 'Delete study')}
+            </button>
+          )}
         </div>
       )}
 
       {chapters.length === 0 ? (
         <div className="studies-page__empty" data-testid="study-chapters-empty">
-          {isOwner
+          {canEditChapters
             ? t(
                 'studies.empty.chaptersOwner',
                 'No chapters yet. Create your first chapter or import a PGN.',
@@ -261,7 +304,8 @@ export function StudyPage() {
         <ChapterList
           slug={study.slug}
           chapters={chapters}
-          canEdit={isOwner}
+          // KS-3014: contributor тоже может править главы (read-write).
+          canEdit={canEditChapters}
           onDeleted={() => {
             // KS-2912: после удаления главы пересчитываем список +
             // chaptersCount у study (через reload). ChapterList уже

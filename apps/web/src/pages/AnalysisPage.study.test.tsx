@@ -167,6 +167,9 @@ const STUDY = {
   chaptersCount: 1,
   createdAt: '2026-05-12T10:00:00.000Z',
   updatedAt: '2026-05-12T10:00:00.000Z',
+  // KS-3014/KS-3015: editor-route рендерится только для write-юзеров;
+  // тесты на editor-режим mock'ают owner-роль.
+  viewerRole: 'owner' as const,
 };
 
 const CHAPTER = {

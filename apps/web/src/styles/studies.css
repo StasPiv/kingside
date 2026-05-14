@@ -327,6 +327,27 @@
   color: var(--c-9ca0ff, #9ca0ff);
 }
 
+/* ─── KS-3014: бейдж роли в шапке студии ─────────────────────── */
+
+.study-page__role-badge {
+  letter-spacing: 0.4px;
+}
+
+.study-page__role-badge--owner {
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.study-page__role-badge--contributor {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-4caf50, #4caf50);
+}
+
+.study-page__role-badge--viewer {
+  background: var(--c-2a2a4a, #2a2a4a);
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
 .study-chapter-list {
   list-style: none;
   padding: 0;
