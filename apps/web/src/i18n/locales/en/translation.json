@@ -1601,10 +1601,6 @@
       "preserved": "Preserved",
       "lost": "Lost"
     },
-    "result": {
-      "preserved": "Preserved",
-      "lost": "Lost"
-    },
     "accuracy": "Accuracy: {{value}}",
     "halfMoves": "{{count}} half-moves",
     "review": "Review",

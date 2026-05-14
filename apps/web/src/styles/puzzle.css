@@ -3861,14 +3861,10 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   align-items: center;
   font-size: 13px;
 }
-.precision-attempts__verdict {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: 12px;
-}
-.precision-attempts__verdict--preserved { color: #4ade80; }
-.precision-attempts__verdict--lost { color: #f87171; }
+/* KS-3004: `precision-attempts__verdict` («УДЕРЖАНО»/«УПУЩЕНО» в строке)
+ * удалён вместе с бинарной плашкой. Заменён 5-балльным
+ * `<PrecisionScoreBadge>` (CSS-классы `.precision-score-badge*` ниже,
+ * рядом с `.precision-score-block`). accuracy% остался — §6.4 (а). */
 .precision-attempts__accuracy {
   font-variant-numeric: tabular-nums;
 }
@@ -4160,6 +4156,38 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-score-block--unavailable {
   --tone-color: #94a3b8;
   --tone-bg: rgba(148, 163, 184, 0.08);
+}
+
+/* KS-3004 (ADR-065 §5.1.2): compact-вариант 5-балльной оценки для
+ * строки каталога attempt'ов. Inline-ряд из 5 mini-stars 16px без
+ * текстовой интерпретации (она остаётся в `<PrecisionScoreBlock>`
+ * на detail-странице). Палитра та же §4.2. */
+.precision-score-badge {
+  --tone-color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--tone-color);
+  line-height: 0;
+}
+.precision-score-badge--emerald { --tone-color: #10b981; }
+.precision-score-badge--lime    { --tone-color: #84cc16; }
+.precision-score-badge--amber   { --tone-color: #f59e0b; }
+.precision-score-badge--orange  { --tone-color: #f97316; }
+.precision-score-badge--red     { --tone-color: #ef4444; }
+.precision-score-badge--unavailable {
+  --tone-color: #94a3b8;
+  letter-spacing: 2px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.precision-score-badge__star { display: block; }
+.precision-score-badge__star--empty { opacity: 0.55; }
+.precision-score-badge__dash {
+  display: inline-block;
+  min-width: 5em; /* визуально совпадает с шириной 5 звёзд × 16px + gaps */
+  text-align: center;
+  line-height: 1;
 }
 .precision-score-block__stars--unavailable {
   font-size: 22px;

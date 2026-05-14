@@ -7,6 +7,9 @@ import type {
   PrecisionAttemptsListResponse,
 } from '@kingside/shared';
 import { api } from '../../api';
+// KS-3004 (ADR-065 §5.1.2, F3): compact 5-балльная оценка для строки
+// каталога. Заменяет старую бинарную «УДЕРЖАНО/УПУЩЕНО» плашку.
+import { PrecisionScoreBadge } from './PrecisionScoreBadge';
 
 /**
  * KS-2724 / ADR-056 §2.2. История precision-попыток текущего юзера.
@@ -241,9 +244,6 @@ export function PrecisionAttemptsList({
       <ul className="precision-attempts__list">
         {filteredItems.map((a) => {
           const orientation = sideFromFen(a.puzzleFen);
-          const verdict = a.solved
-            ? t('precisionAttempts.result.preserved', 'Preserved')
-            : t('precisionAttempts.result.lost', 'Lost');
           const accuracyText = `${Math.round(a.accuracyPercent)}%`;
           const onClick = () => navigate(`/precision/attempts/${a.attemptId}`);
           return (
@@ -273,11 +273,13 @@ export function PrecisionAttemptsList({
                   />
                 </span>
                 <span className="precision-attempts__main">
-                  <span
-                    className={`precision-attempts__verdict precision-attempts__verdict--${a.solved ? 'preserved' : 'lost'}`}
-                  >
-                    {verdict}
-                  </span>
+                  {/* KS-3004 (ADR-065 §5.1.2, F3): compact 5-балльная
+                      оценка вместо «УДЕРЖАНО/УПУЩЕНО». accuracy% остался
+                      справа — complementary metrics §6.4 (а). */}
+                  <PrecisionScoreBadge
+                    score={a.score ?? null}
+                    testIdSuffix={a.attemptId}
+                  />
                   <span className="precision-attempts__accuracy">
                     {t('precisionAttempts.accuracy', 'Accuracy: {{value}}', {
                       value: accuracyText,

@@ -1631,10 +1631,6 @@
       "preserved": "Удержано",
       "lost": "Упущено"
     },
-    "result": {
-      "preserved": "Удержано",
-      "lost": "Упущено"
-    },
     "accuracy": "Точность: {{value}}",
     "halfMoves": "{{count}} полуходов",
     "review": "Разбор",
