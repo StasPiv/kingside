@@ -507,6 +507,10 @@
       "wood": "Wooden board",
       "minimal": "Minimal",
       "eightbit": "Retro 8-bit"
+    },
+    "autoPromoteQueen": {
+      "label": "Auto-promote to queen",
+      "hint": "Game mode only. A pawn reaching the last rank becomes a queen automatically."
     }
   },
   "lobby": {

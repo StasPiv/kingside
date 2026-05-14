@@ -329,6 +329,37 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(arg.moves[0].playedUci).toBe('b7b8q');
   });
 
+  it('KS-2970: даже при autoPromoteToQueen=true в localStorage модалка показывается в precision-раннере', async () => {
+    // KS-2970 ограничивает автопромоушн режимом игры (/game/*).
+    // В пазлах настройка должна игнорироваться — модалка показывается всегда.
+    localStorage.setItem('autoPromoteToQueen', 'true');
+    const puzzle = makePuzzle({
+      fen: '8/1P1b1p1p/5kp1/8/2Pr3P/2n2P2/4RKP1/8 w - - 1 41',
+      playVsEngine: {
+        blunderMove: 'b7b8q',
+        wdlAfterBlunder: 0.9,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 800 }, ['b7b8q'])),
+      result(line({ type: 'mate', value: -2 }, ['c3a2'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
+    );
+    (screen.getByTestId('fire-square-b7') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-b8') as HTMLButtonElement).click();
+    // Модалка обязана появиться, даже если в localStorage autoPromoteToQueen=true.
+    await waitFor(() => {
+      expect(screen.getByTestId('puzzle-promotion-overlay')).toBeInTheDocument();
+    });
+    localStorage.removeItem('autoPromoteToQueen');
+  });
+
   it('KS-2969: promotion-ход — выбор НЕ ферзя (под-промоушн в коня)', async () => {
     // Тот же FEN, но юзер выбирает коня (`n`) — playedUci='b7b8n'.
     const puzzle = makePuzzle({

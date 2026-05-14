@@ -15,7 +15,14 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { muted, toggleMute, theme: soundTheme, setTheme: setSoundThemeState } = useSounds();
-  const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
+  const {
+    boardTheme,
+    pieceSet,
+    selectTheme,
+    selectPieceSet,
+    autoPromoteToQueen,
+    setAutoPromoteToQueen,
+  } = useBoardSettings();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
   const [chesscomUsername, setChesscomUsername] = useState('');
@@ -167,6 +174,34 @@ export function SettingsPage() {
               </label>
             ))}
           </div>
+        </div>
+
+        {/* KS-2970: toggle «Автопревращение в ферзя». Действует только
+            в режиме игры. В анализе/пазлах/студиях модалка показывается
+            всегда — настройка игнорируется. */}
+        <div
+          className="settings-field"
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 16 }}
+          data-testid="settings-auto-promote-queen-field"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="auto-promote-queen-toggle"
+              data-testid="settings-auto-promote-queen-toggle"
+              type="checkbox"
+              checked={autoPromoteToQueen}
+              onChange={(e) => setAutoPromoteToQueen(e.target.checked)}
+            />
+            <label htmlFor="auto-promote-queen-toggle">
+              {t('settings.autoPromoteQueen.label', 'Auto-promote to queen')}
+            </label>
+          </div>
+          <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+            {t(
+              'settings.autoPromoteQueen.hint',
+              'Game mode only. A pawn reaching the last rank becomes a queen automatically.',
+            )}
+          </p>
         </div>
       </section>
 

@@ -63,6 +63,14 @@ const LS_PIECE_SET_KEY = 'pieceSet';
 const LS_NOTATION_KEY = 'showNotation';
 const LS_INPUT_MODE_KEY = 'inputMode';
 const LS_BOARD_SIZE_KEY = 'analysisBoardSize';
+/**
+ * KS-2970: «Автопревращение пешки в ферзя». Действует ТОЛЬКО в режиме
+ * игры (`/game/*`). При значении `true` промоушн-ход сразу применяется
+ * с ферзём (UCI с суффиксом `q`), без модалки выбора фигуры. В анализе,
+ * пазлах и студиях настройка игнорируется — модалка показывается всегда.
+ * Default `false`.
+ */
+const LS_AUTO_PROMOTE_QUEEN_KEY = 'autoPromoteToQueen';
 
 function readTheme(): BoardThemeId {
   const stored = localStorage.getItem(LS_THEME_KEY) as BoardThemeId | null;
@@ -105,6 +113,21 @@ function readBoardSize(): BoardSizeId {
   return 'md';
 }
 
+/**
+ * KS-2970: автопромоушн в ферзя в режиме игры. По умолчанию `false` —
+ * сохраняем существующий UX (модалка выбора Q/R/B/N). Юзер включает
+ * сознательно через настройки.
+ */
+function readAutoPromoteToQueen(): boolean {
+  try {
+    const stored = localStorage.getItem(LS_AUTO_PROMOTE_QUEEN_KEY);
+    if (stored === null) return false;
+    return stored === 'true';
+  } catch {
+    return false;
+  }
+}
+
 type PieceRenderer = (props?: {
   fill?: string;
   square?: string;
@@ -143,11 +166,14 @@ interface BoardSettingsContextValue {
   showNotation: boolean;
   inputMode: InputMode;
   boardSize: BoardSizeId;
+  /** KS-2970: автопромоушн в ферзя в режиме игры. */
+  autoPromoteToQueen: boolean;
   selectTheme: (id: BoardThemeId) => void;
   selectPieceSet: (id: PieceSetId) => void;
   setShowNotation: (value: boolean) => void;
   setInputMode: (mode: InputMode) => void;
   setBoardSize: (size: BoardSizeId) => void;
+  setAutoPromoteToQueen: (value: boolean) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
   darkSquareStyle: React.CSSProperties;
@@ -162,6 +188,9 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [showNotation, setShowNotationState] = useState<boolean>(readShowNotation);
   const [inputMode, setInputModeState] = useState<InputMode>(readInputMode);
   const [boardSize, setBoardSizeState] = useState<BoardSizeId>(readBoardSize);
+  const [autoPromoteToQueen, setAutoPromoteToQueenState] = useState<boolean>(
+    readAutoPromoteToQueen,
+  );
 
   useEffect(() => {
     document.body.setAttribute('data-board-theme', boardTheme);
@@ -203,6 +232,19 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
     setBoardSizeState(size);
   }, []);
 
+  /**
+   * KS-2970: сохраняем в localStorage. Setter всегда пишет (как
+   * `setShowNotation` выше) — для предсказуемой UX-логики toggle'ов.
+   */
+  const setAutoPromoteToQueen = useCallback((value: boolean) => {
+    try {
+      localStorage.setItem(LS_AUTO_PROMOTE_QUEEN_KEY, String(value));
+    } catch {
+      /* ignore */
+    }
+    setAutoPromoteToQueenState(value);
+  }, []);
+
   const currentTheme = useMemo(
     () => BOARD_THEMES.find((t) => t.id === boardTheme) ?? BOARD_THEMES[0],
     [boardTheme],
@@ -230,11 +272,13 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       showNotation,
       inputMode,
       boardSize,
+      autoPromoteToQueen,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
       setBoardSize,
+      setAutoPromoteToQueen,
       currentTheme,
       customPieces,
       darkSquareStyle,
@@ -246,11 +290,13 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       showNotation,
       inputMode,
       boardSize,
+      autoPromoteToQueen,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
       setBoardSize,
+      setAutoPromoteToQueen,
       currentTheme,
       customPieces,
       darkSquareStyle,

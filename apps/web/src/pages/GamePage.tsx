@@ -207,7 +207,13 @@ export function GamePage() {
   }, [gameMeta, sendChallenge]);
 
   const { playSound, muted, toggleMute } = useSounds();
-  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  const {
+    showNotation,
+    customPieces,
+    darkSquareStyle,
+    lightSquareStyle,
+    autoPromoteToQueen,
+  } = useBoardSettings();
   // Stable callback ref used to break the circular dependency between
   // useBoardHighlights (needs onMove) and onDrop (needs clearSelection).
   const onMoveForTouchRef = useRef<((from: Square, to: Square) => boolean) | undefined>(undefined);
@@ -471,13 +477,22 @@ export function GamePage() {
       const testMove = testGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
       if (!testMove) return false;
 
+      // KS-2970: если включён автопромоушн в ферзя — применяем ход
+      // сразу с 'q' без модалки выбора фигуры. Действует ТОЛЬКО здесь,
+      // в режиме игры; в анализе/пазлах/студиях модалка показывается
+      // всегда (см. PromotionPicker в KS-2969).
+      if (autoPromoteToQueen) {
+        clearSelection();
+        return executeMove(sourceSquare, targetSquare, 'q');
+      }
+
       setPendingPromotion({ from: sourceSquare, to: targetSquare });
       return true;
     }
 
     clearSelection();
     return executeMove(sourceSquare, targetSquare);
-  }, [game, playerColor, status, isPromotionMove, executeMove, clearSelection]);
+  }, [game, playerColor, status, isPromotionMove, executeMove, clearSelection, autoPromoteToQueen]);
 
   // Keep the touch-move ref in sync so onMoveForTouch always calls the latest onDrop.
   onMoveForTouchRef.current = onDrop;
