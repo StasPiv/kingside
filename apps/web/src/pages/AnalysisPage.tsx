@@ -719,6 +719,18 @@ function AnalysisPageInner({
         if (ctx.mode === 'public-readonly') {
           const resp = await studiesApi.getPublicChapter(chapterId);
           if (cancelled) return;
+          // KS-3014: gamebook-глава в public-readonly бессмысленна
+          // как «показать PGN» — пользователь хочет ПРОЙТИ сценарий
+          // (intro / Start / правильные ходы / hint-success-failure).
+          // Это GamebookReaderPage по адресу `.../play`. Автоматически
+          // переотправляем viewer'а туда.
+          if (resp.chapter.mode === 'gamebook') {
+            navigate(
+              `/studies/c/${encodeURIComponent(chapterId)}/play`,
+              { replace: true },
+            );
+            return;
+          }
           setStudyData(resp.study as StudyDto);
           setStudyChapter(resp.chapter);
           // KS-2854: setInitialFen ДО loadFromPgn, иначе reducer
@@ -1811,8 +1823,14 @@ function AnalysisPageInner({
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
             rightSlot={
-              // KS-2870 (FM1): для study-роутов рисуем mode-switcher.
-              ctx.kind === 'study' && studyChapter ? (
+              // KS-2870/FM1 + KS-3014: mode-switcher рендерим ТОЛЬКО
+              // в editor-режиме. Для viewer/anon (public-readonly)
+              // дисэйблнутые «Mode»/«Edit script»/«Delete chapter»
+              // визуально путают и подталкивают к action, который
+              // и так запрещён — лучше не показывать вовсе.
+              ctx.kind === 'study' &&
+              ctx.mode === 'editor' &&
+              studyChapter ? (
                 <AnalysisStudyModeSwitcher
                   chapterMode={studyChapter.mode}
                   concealPly={studyChapter.concealPly}
@@ -1821,13 +1839,9 @@ function AnalysisPageInner({
                   onConcealPlyChange={handleConcealPlyChange}
                   onEditGamebook={handleEditGamebook}
                   onDeleteChapter={
-                    // KS-2909: показываем delete только owner'у — определяем
-                    // по study.ownerId. Contributor / viewer на editor-роуте
-                    // увидит mode-switcher, но не Delete.
-                    ctx.mode === 'editor' &&
-                    studyData &&
-                    user &&
-                    studyData.ownerId === user.id
+                    // KS-2909/KS-3014: delete только owner'у.
+                    // Contributor видит mode-switcher, но delete — нет.
+                    studyData && studyData.viewerRole === 'owner'
                       ? handleDeleteChapter
                       : undefined
                   }

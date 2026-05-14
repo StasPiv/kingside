@@ -308,15 +308,20 @@ describe('AnalysisPage в study-контексте (KS-2877)', () => {
       expect(screen.queryByTestId('analysis-header-title-input')).toBeNull();
     });
 
-    it('mode-switcher (rightSlot) в public-readonly — select disabled', async () => {
+    it('KS-3014: mode-switcher в public-readonly НЕ рендерится вовсе', async () => {
+      // До KS-3014 switcher оставался видимым, но disabled. Поскольку
+      // для viewer/anon он бесполезен (нельзя сменить режим, нельзя
+      // открыть gamebook-editor, нельзя удалить главу) — теперь скрыт.
       renderWithProviders(<AnalysisPage studyMode="public-readonly" />, {
         route: '/studies/c/ch1',
       });
       await waitFor(() => expect(getPublicChapterMock).toHaveBeenCalled());
-      const select = screen.getByTestId(
-        'analysis-study-mode-select',
-      ) as HTMLSelectElement;
-      expect(select.disabled).toBe(true);
+      expect(
+        screen.queryByTestId('analysis-study-mode-select'),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId('analysis-study-mode-edit-gamebook'),
+      ).toBeNull();
     });
   });
 });
