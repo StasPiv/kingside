@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
@@ -103,7 +103,6 @@ const TOAST_AUTO_HIDE_MS = 3000;
 
 export function PrecisionPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const copyToClipboard = useCopyToClipboard();
@@ -460,8 +459,10 @@ export function PrecisionPage() {
   const scrollToFirstCard = useCallback(() => {
     const grid = gridRef.current;
     if (!grid) return;
+    // KS-2972: после удаления «Solve»-кнопки целевой elem для focus —
+    // нативная ссылка-обёртка доски (`play-vs-engine-card-board-link`).
     const firstCard = grid.querySelector<HTMLElement>(
-      '[data-testid="play-vs-engine-card"] [data-testid="play-vs-engine-card-solve"]',
+      '[data-testid="play-vs-engine-card"] [data-testid="play-vs-engine-card-board-link"]',
     );
     if (firstCard) {
       firstCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -790,14 +791,14 @@ export function PrecisionPage() {
               user !== null && ownerId != null && ownerId === user.id;
             const isDraft = p.isPublic === false;
             const justPublished = recentlyPublishedId === p.id;
-            const onClick = () =>
-              // KS-2547 / ADR-048 §5: новый канон `?source=precision`.
-              // KS-2688: + сохраняем mine/visibility в query, чтобы при
-              // возврате со страницы пазла вернуться в тот же фильтр
-              // (например, /precision?mine=true&visibility=draft).
-              navigate(
-                `/puzzle/${p.id}${buildPrecisionPuzzleQuery(searchParams)}`,
-              );
+            // KS-2547 / ADR-048 §5: новый канон `?source=precision`.
+            // KS-2688: + сохраняем mine/visibility в query, чтобы при
+            // возврате со страницы пазла вернуться в тот же фильтр
+            // (например, /precision?mine=true&visibility=draft).
+            // KS-2972: URL единый для доски-превью и заголовка-партии
+            // (вместо button+navigate → <Link>, чтобы Cmd/Ctrl+click
+            // открывал в новой вкладке и работал tap на mobile).
+            const puzzleUrl = `/puzzle/${p.id}${buildPrecisionPuzzleQuery(searchParams)}`;
             return (
               <article
                 key={p.id}
@@ -807,11 +808,17 @@ export function PrecisionPage() {
                 data-public={p.isPublic === false ? 'false' : 'true'}
                 data-mine={isMine ? 'true' : 'false'}
               >
-                <button
-                  type="button"
+                {/* KS-2972: доска-превью — нативный <Link>. Раньше тут
+                    была <button onClick={navigate}>, из-за чего:
+                    - Cmd/Ctrl+click не открывал новую вкладку;
+                    - на мобильном tap по доске нестабильно срабатывал
+                      (некоторые WebView/тач-слоя). С <a> tap работает
+                      штатно, права на background-pinch не теряются. */}
+                <Link
+                  to={puzzleUrl}
                   className="play-vs-engine-card__board-btn"
-                  onClick={onClick}
                   aria-label={t('precision.openPuzzle', 'Open puzzle')}
+                  data-testid="play-vs-engine-card-board-link"
                 >
                   <Chessboard
                     options={{
@@ -828,7 +835,7 @@ export function PrecisionPage() {
                       showNotation: false,
                     }}
                   />
-                </button>
+                </Link>
                 <div className="play-vs-engine-card__body">
                   {/* KS-2754 follow-up: убрали `#cardTitle` (короткий
                       puzzle-id) — контекст партии (игроки/событие/ход
@@ -955,28 +962,16 @@ export function PrecisionPage() {
                   {/* KS-2670: текстовые кнопки заменены на иконки
                       (по образцу .my-courses-page__action--icon, KS-2654).
                       Текст действия → `aria-label` + `title` (нативный
-                      tooltip + CSS-tooltip из puzzle.css). */}
+                      tooltip + CSS-tooltip из puzzle.css).
+                      KS-2972: «Solve»-кнопка (фиолетовый play-icon)
+                      удалена — открытие пазла теперь идёт через
+                      доску-<Link> выше. Owner-actions (publish, copy,
+                      visibility, delete) остаются и видны только
+                      владельцу — оборачиваем весь блок в `isMine`,
+                      чтобы у чужих пазлов не висел пустой div с
+                      reserved-space. */}
+                  {isMine && (
                   <div className="play-vs-engine-card__actions">
-                    <button
-                      type="button"
-                      className="precision-card__icon-action precision-card__icon-action--solve"
-                      data-testid="play-vs-engine-card-solve"
-                      onClick={onClick}
-                      aria-label={t('puzzleBrowser.solve', 'Solve')}
-                      title={t('puzzleBrowser.solve', 'Solve')}
-                    >
-                      <svg
-                        className="precision-card__icon"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        aria-hidden="true"
-                        focusable="false"
-                      >
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </button>
                     {/* KS-2586/KS-2670/KS-2673: индивидуальный publish —
                         только владельцу + только для draft. С KS-2673
                         переведена на icon-action с зелёным акцентом —
@@ -1138,6 +1133,7 @@ export function PrecisionPage() {
                       </button>
                     )}
                   </div>
+                  )}
                 </div>
               </article>
             );

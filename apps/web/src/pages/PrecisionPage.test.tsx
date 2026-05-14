@@ -5,7 +5,6 @@
  * KS-2586 draft badge + индивидуальный publish.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import userEvent from '@testing-library/user-event';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 
@@ -186,19 +185,26 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
     ).toHaveLength(0);
   });
 
-  it('KS-2547: клик по «Solve» → /puzzle/:id?source=precision', async () => {
+  it('KS-2547 / KS-2972: карточка ведёт на /puzzle/:id?source=precision через <Link>', async () => {
+    // KS-2972: «Solve»-кнопка удалена; открытие пазла идёт через
+    // нативный <a href> (React-Router Link) на доске-превью. Проверяем
+    // что href корректный — это даёт Cmd/Ctrl+click в новой вкладке и
+    // надёжный tap на mobile.
     mockBrowseOnce(SAMPLE);
-    const user = userEvent.setup();
     renderWithProviders(<PrecisionPage />);
     await waitFor(() =>
       expect(
         screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
       ).toBe('ready'),
     );
-    await user.click(screen.getAllByTestId('play-vs-engine-card-solve')[0]);
-    expect(mockNavigate).toHaveBeenCalledWith(
+    const links = screen.getAllByTestId('play-vs-engine-card-board-link');
+    expect(links[0].getAttribute('href')).toBe(
       `/puzzle/${SAMPLE[0].id}?source=precision`,
     );
+    // Старого «Solve»-кнопочного API больше нет.
+    expect(
+      screen.queryAllByTestId('play-vs-engine-card-solve'),
+    ).toHaveLength(0);
   });
 
   it('пустой ответ → empty state', async () => {
