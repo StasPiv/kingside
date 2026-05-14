@@ -187,6 +187,28 @@ export const studiesApi = {
     ),
 
   /**
+   * KS-2889 / ADR-060 §3.4 K6 (FC4) — студии конкретного автора.
+   *
+   * GET `/api/studies/by/:userId?includePrivate=1&page=N`. Anon видит
+   * только public; владелец с `includePrivate=1` получает свои
+   * private/unlisted. Backend (B8) проверяет JWT.sub === :userId.
+   * Возвращает `{items, total, hasMore, owner: {id, username}}` —
+   * `owner` нужен для шапки страницы без отдельного `/users/:id`-fetch.
+   */
+  listByUser: (
+    userId: string,
+    opts: { includePrivate?: boolean; page?: number } = {},
+  ): Promise<StudyByUserResponse> => {
+    const params = new URLSearchParams();
+    if (opts.includePrivate) params.set('includePrivate', '1');
+    if (opts.page != null) params.set('page', String(opts.page));
+    const qs = params.toString();
+    return api.get<StudyByUserResponse>(
+      `/studies/by/${encodeURIComponent(userId)}${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  /**
    * KS-2886 / ADR-060 §3.4 (FC1) — каталог студий.
    *
    * GET `/api/studies/catalog?sort=hot|new|updated|popular&q=&topic=&page=&mine=`.
@@ -227,4 +249,16 @@ export interface StudyCatalogResponse {
   items: StudyDto[];
   total: number;
   hasMore: boolean;
+}
+
+/**
+ * KS-2889 (FC4): ответ `GET /api/studies/by/:userId`. Помимо items
+ * отдаёт минимальный профиль владельца, чтобы фронт мог нарисовать
+ * хедер «{username}'s studies» без второго запроса в /users/:id.
+ */
+export interface StudyByUserResponse {
+  items: StudyDto[];
+  total: number;
+  hasMore: boolean;
+  owner: { id: string; username: string };
 }

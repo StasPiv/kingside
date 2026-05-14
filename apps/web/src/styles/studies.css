@@ -1782,3 +1782,78 @@
   flex-shrink: 0;
   display: block;
 }
+
+/* ─── KS-2889 (FC4): UserStudiesPage `/studies/by/:userId` ────── */
+
+.studies-by-user {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.studies-by-user__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.studies-by-user__avatar {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--c-7c83ff, #7c83ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.studies-by-user__title-block {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.studies-by-user__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0f0, #e0e0f0));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studies-by-user__profile-link {
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+  text-decoration: none;
+}
+
+.studies-by-user__profile-link:hover {
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.studies-by-user__include-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--c-b0b0c8, #b0b0c8);
+  cursor: pointer;
+  padding: 6px 10px;
+  border: 1px solid var(--c-2a2a4a, #2a2a4a);
+  border-radius: 6px;
+}
+
+.studies-by-user__include-private input {
+  margin: 0;
+}

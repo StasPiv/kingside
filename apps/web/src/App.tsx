@@ -126,6 +126,12 @@ const StudiesPage = lazy(() =>
 const StudyPage = lazy(() =>
   import('./pages/StudyPage').then((m) => ({ default: m.StudyPage })),
 );
+// KS-2889 (ADR-060 FC4): студии конкретного автора `/studies/by/:userId`.
+const UserStudiesPage = lazy(() =>
+  import('./pages/UserStudiesPage').then((m) => ({
+    default: m.UserStudiesPage,
+  })),
+);
 // KS-2868 (FS1) / KS-2869 (FS2): редактор и публичный просмотр главы
 // студии теперь рендерятся универсальным AnalysisPage в режимах
 // studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
@@ -387,6 +393,17 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <StudiesPage />
+            </Suspense>
+          }
+        />
+        {/* KS-2889 (ADR-060 FC4): студии конкретного автора. Path
+            идёт ВЫШЕ `/studies/:slug`, потому что роутер матчит по
+            порядку и `:slug` иначе перехватит `by/...`. */}
+        <Route
+          path="/studies/by/:userId"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <UserStudiesPage />
             </Suspense>
           }
         />

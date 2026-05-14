@@ -262,6 +262,14 @@ export function PlayerProfilePage() {
           >
             {t('playerProfile.sendMessage')}
           </button>
+          {/* KS-2889 (ADR-060 FC4): ссылка на «Студии этого пользователя». */}
+          <Link
+            to={`/studies/by/${encodeURIComponent(profile.id)}`}
+            className="player-profile-message-btn"
+            data-testid="player-profile-studies-link"
+          >
+            {t('playerProfile.studies', 'Studies')}
+          </Link>
           {currentUser && profile.id !== currentUser.id && friendStatus !== 'loading' && (
             <>
               {friendStatus === 'none' && (
