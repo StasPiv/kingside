@@ -118,8 +118,26 @@ export const CLASSIFICATION_FALLBACK_ACCURACY: Record<
   blunder: 5,
 };
 
-/** ADR-065 §3.2: минимум полуходов для расчёта score. */
-export const MIN_HALF_MOVES_FOR_SCORE = 2;
+/**
+ * ADR-065 §3.2 (KS-3033). Минимум полуходов для расчёта score.
+ *
+ * Изначально =2 (ADR-065 §3.2: «1 ход — бросок монеты, не оценка»),
+ * но регрессия по UX: 1-ходовые attempt'ы (например `Nxc6??` =
+ * blunder с WDL 100%→0%) показывали «Балл недоступен» вместо звезды,
+ * хотя старая бинарная плашка «Преимущество потеряно» отображалась.
+ *
+ * KS-3033: понижено до **1**. Кейсы:
+ *  - 1 best → 5★ (через best-override KS-3030).
+ *  - 1 mistake (loss_E=0.20) → composite=40 без cap → 1★;
+ *    с cap mistake=80 не активируется (40<80) → 1★.
+ *  - 1 blunder (loss_E=0.30+) → composite низкий, cap blunder=60
+ *    не активируется → 1★.
+ *
+ * Композит mean+min на одном ходе вырождается в mean = min = accuracy
+ * этого хода. Cap по worst-class всё ещё страхует (для синхронности
+ * с многоходовыми attempt'ами).
+ */
+export const MIN_HALF_MOVES_FOR_SCORE = 1;
 
 /**
  * ADR-065 §3.4: минимальная доля ходов с реальными данными

@@ -1567,10 +1567,12 @@ describe('PuzzleService', () => {
         firstMistakePly: 1,
       });
       expect(tx.moves![0].classification).toBe('blunder');
-      // KS-2999: 1 ход (halfMovesPlayed=1) < MIN_HALF_MOVES_FOR_SCORE=2,
-      // computePrecisionScore возвращает null → пишется null в БД.
-      expect(tx.precision.score).toBeNull();
-      expect(tx.precision.scorePct).toBeNull();
+      // KS-3033: MIN_HALF_MOVES_FOR_SCORE понижен 2→1.
+      // 1 ход с blunder (cp 100/-200, loss_E через cp ≈ 0.27) →
+      // composite≈29 → 1★. Раньше тут было null.
+      expect(tx.precision.score).toBe(1);
+      expect(tx.precision.scorePct).toBeGreaterThan(0);
+      expect(tx.precision.scorePct).toBeLessThan(50);
     });
 
     // ── KS-2999 / ADR-065: server-side score ────────────────────────

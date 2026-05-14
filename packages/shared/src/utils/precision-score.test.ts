@@ -439,10 +439,12 @@ describe('computePrecisionScore — edge cases (ADR §3.4)', () => {
     expect(r.scorePct).toBeNull();
   });
 
-  it('length=1 → null (< MIN_HALF_MOVES_FOR_SCORE)', () => {
+  // KS-3033: раньше length=1 → null (MIN_HALF_MOVES_FOR_SCORE=2),
+  // теперь считается полноценно (см. describe «KS-3033: 1-move attempt»).
+  it('KS-3033: length=1 с best-ходом → score=5 (не null)', () => {
     const r = computePrecisionScore([perfectWdl()]);
-    expect(r.stars).toBeNull();
-    expect(r.scorePct).toBeNull();
+    expect(r.stars).toBe(5);
+    expect(r.scorePct).toBe(100);
   });
 
   it('все ходы без данных (wdl=cp=classification=null) → null', () => {
@@ -517,8 +519,103 @@ describe('Константы', () => {
   });
 
   it('MIN_HALF_MOVES_FOR_SCORE и MIN_DATA_FRACTION консистентны', () => {
-    expect(MIN_HALF_MOVES_FOR_SCORE).toBeGreaterThanOrEqual(2);
+    // KS-3033: понижено до 1 (раньше 2).
+    expect(MIN_HALF_MOVES_FOR_SCORE).toBeGreaterThanOrEqual(1);
     expect(MIN_DATA_FRACTION).toBeGreaterThan(0);
     expect(MIN_DATA_FRACTION).toBeLessThanOrEqual(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// KS-3033: 1-move attempts должны давать звезду (была регрессия —
+// показывался «Балл недоступен» вместо звезды).
+// ─────────────────────────────────────────────────────────────────
+
+describe('KS-3033: computePrecisionScore на 1-ходовом attempt', () => {
+  it('1 best-ход (WDL 100/0/0 → 100/0/0) → score=5, scorePct=100', () => {
+    const r = computePrecisionScore([
+      {
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 1000, d: 0, l: 0 },
+        isBestMove: true,
+      },
+    ]);
+    expect(r.stars).toBe(5);
+    expect(r.scorePct).toBe(100);
+  });
+
+  it('1 blunder (Nxc6?? — WDL 100/0/0 → 0/0/100, loss_E=1.0) → score=1', () => {
+    // Точное воспроизведение KS-3033 attempt #2c6ed2b7.
+    const r = computePrecisionScore([
+      {
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 0, d: 0, l: 1000 },
+        classification: 'blunder',
+      },
+    ]);
+    expect(r.stars).toBe(1);
+    // accuracy_move(loss=100) ≈ 0; mean=min=0; composite=0.
+    // worst-class cap=60 не активируется (0 < 60). Итог < 50 → 1★.
+    expect(r.scorePct).toBeLessThan(50);
+  });
+
+  it('1 mistake (loss_E=0.20) → score=1 (composite=40, cap=80 не активен)', () => {
+    // На 1-ходовом attempt mean=min=accuracy этого хода.
+    // accuracy_move(loss=20) ≈ 40 → composite 40, cap mistake=80 (не
+    // активен 40<80). 40 < 50 → 1★.
+    const r = computePrecisionScore([
+      {
+        wdlBefore: { w: 600, d: 300, l: 100 }, // E=0.75
+        wdlAfter: { w: 400, d: 300, l: 300 }, // E=0.55, loss_E=0.20
+        classification: 'mistake',
+      },
+    ]);
+    expect(r.stars).toBe(1);
+    expect(r.scorePct).toBeGreaterThan(35);
+    expect(r.scorePct).toBeLessThan(45);
+  });
+
+  it('1 inaccuracy (loss_E=0.08) → score=2 (composite≈69.7, ниже границы 70)', () => {
+    // accuracy_move(loss=8) ≈ 69.66 → composite=69.66 → 2★ (< 70).
+    // На границе 70 (3★/2★) — попадает в 2★. Cap inaccuracy нет.
+    const r = computePrecisionScore([
+      {
+        wdlBefore: { w: 600, d: 300, l: 100 }, // E=0.75
+        wdlAfter: { w: 520, d: 300, l: 180 }, // E=0.67, loss_E=0.08
+        classification: 'inaccuracy',
+      },
+    ]);
+    expect(r.stars).toBe(2);
+    expect(r.scorePct).toBeGreaterThan(65);
+    expect(r.scorePct).toBeLessThan(70);
+  });
+
+  it('1 good-ход (loss_E=0.03) → score=4 (composite~87)', () => {
+    // accuracy_move(loss=3) ≈ 87 → 4★.
+    const r = computePrecisionScore([
+      {
+        wdlBefore: { w: 600, d: 300, l: 100 }, // E=0.75
+        wdlAfter: { w: 570, d: 300, l: 130 }, // E=0.72, loss_E=0.03
+        classification: 'good',
+      },
+    ]);
+    expect(r.stars).toBe(4);
+  });
+
+  it('1 ход без данных (wdl=cp=classification=null) → null (>50% gaps)', () => {
+    // 1 из 1 без данных = 100% gaps, > 50% → null.
+    const r = computePrecisionScore([
+      { wdlBefore: null, wdlAfter: null, cpBefore: null, cpAfter: null },
+    ]);
+    expect(r.stars).toBeNull();
+    expect(r.scorePct).toBeNull();
+  });
+
+  it('length=0 (нет ходов) → null (после KS-3033 default min=1)', () => {
+    // Защита: даже после понижения MIN_HALF_MOVES_FOR_SCORE до 1
+    // пустой массив остаётся null.
+    const r = computePrecisionScore([]);
+    expect(r.stars).toBeNull();
+    expect(r.scorePct).toBeNull();
   });
 });
