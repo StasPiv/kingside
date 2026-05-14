@@ -55,6 +55,20 @@ export interface PrecisionMoveInput {
   cpBefore?: number | null;
   cpAfter?: number | null;
   classification?: PrecisionMoveClass | null;
+  /**
+   * KS-3030. Прямой override: ход совпал с PV1 движка. Если задано
+   * `true`, `accuracyMove` возвращает строго 100 — независимо от WDL/cp.
+   * Эквивалент проверки `playedUci === bestUci` на стороне caller'а.
+   * Когда не задано — override срабатывает по `classification === 'best'`.
+   */
+  isBestMove?: boolean;
+  /**
+   * KS-3030 (опционально). UCI сыгранного и PV1-хода. Если оба
+   * заданы и совпадают — override на accuracy=100 срабатывает.
+   * Удобно когда вызывающий не вычисляет `isBestMove` сам.
+   */
+  playedUci?: string;
+  bestUci?: string;
 }
 
 export interface PrecisionScoreResult {
@@ -144,13 +158,32 @@ export function winPctFromCp(cp: number): number {
  * Per-move accuracy в [0..100] (Lichess formula, §2.3). Возвращает
  * `null` если данных нет вообще (`wdl=null && cp=null && classification=null`).
  *
- * Источники (в порядке приоритета):
+ * Порядок проверок:
+ *  0. **KS-3030 override**: если ход совпал с PV1 движка (явный
+ *     `isBestMove === true`, либо `playedUci === bestUci`, либо
+ *     `classification === 'best'`) → `100`. Без расчёта по WDL/cp.
+ *     Это устраняет рассинхрон с `classifyMove`: NAG `!` (best) на ходе
+ *     теперь всегда означает 100% accuracy, без шума WDL между depths
+ *     Stockfish.
  *  1. wdlBefore + wdlAfter → expected-score `E = (w + d/2) / 1000`,
  *     loss = max(0, E_before - E_after) * 100.
  *  2. cpBefore + cpAfter → Lichess CP→Win%.
  *  3. classification → таблица §2.4.2.
  */
 export function accuracyMove(move: PrecisionMoveInput): number | null {
+  // KS-3030: best-override. NAG `!` ⟺ accuracy=100 (согласует обе шкалы).
+  const playedMatchesBest =
+    typeof move.playedUci === 'string' &&
+    typeof move.bestUci === 'string' &&
+    move.playedUci === move.bestUci;
+  if (
+    move.isBestMove === true ||
+    playedMatchesBest ||
+    move.classification === 'best'
+  ) {
+    return 100;
+  }
+
   if (move.wdlBefore && move.wdlAfter) {
     const eBefore =
       (move.wdlBefore.w + move.wdlBefore.d / 2) / 1000;

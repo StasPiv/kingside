@@ -44,6 +44,10 @@ function perfectWdl(): PrecisionMoveInput {
  * Конструктор хода с заданной WDL-loss в п.п. ΔE * 100. Стартовая
  * E = 1.0 (wdl=1000,0,0), конечная E = 1 - lossPct/100.
  * Для loss=0% → accuracy ≈ 100. Для loss=50% → accuracy ≈ 8.
+ *
+ * KS-3030: classification по умолчанию НЕ задаётся, чтобы избежать
+ * срабатывания best-override на loss-сценариях. Если нужно явно
+ * указать класс — передать вторым аргументом.
  */
 function wdlMoveWithLoss(lossPct: number, klass?: PrecisionMoveClass): PrecisionMoveInput {
   const eAfter = Math.max(0, 1 - lossPct / 100);
@@ -56,7 +60,7 @@ function wdlMoveWithLoss(lossPct: number, klass?: PrecisionMoveClass): Precision
       d: 0,
       l: lossPerMille,
     },
-    classification: klass ?? 'best',
+    ...(klass ? { classification: klass } : {}),
   };
 }
 
@@ -180,10 +184,86 @@ describe('accuracyMove', () => {
     expect(a).toBeCloseTo(100, 1);
   });
 
-  it('classification fallback: best → 95, blunder → 5', () => {
+  it('KS-3030: classification=best → 100 (best-override), не 95 fallback', () => {
     expect(
       accuracyMove({ wdlBefore: null, classification: 'best' }),
-    ).toBe(95);
+    ).toBe(100);
+  });
+
+  describe('KS-3030: best-override (NAG ! ⟺ accuracy=100)', () => {
+    it('isBestMove=true перебивает WDL-loss (репро 824f6b26)', () => {
+      // Сценарий из KS-3030: ход совпал с PV1, но WDL шумел между
+      // depths SF — например, eBefore=0.83, eAfter=0.81 (loss_E=0.02
+      // дало бы accuracy ≈ 91.4). С override — 100.
+      const a = accuracyMove({
+        wdlBefore: { w: 800, d: 60, l: 140 },
+        wdlAfter: { w: 780, d: 60, l: 160 },
+        isBestMove: true,
+      });
+      expect(a).toBe(100);
+    });
+
+    it('playedUci === bestUci → accuracy=100, без WDL расчёта', () => {
+      const a = accuracyMove({
+        wdlBefore: { w: 800, d: 60, l: 140 },
+        wdlAfter: { w: 780, d: 60, l: 160 },
+        playedUci: 'e2e4',
+        bestUci: 'e2e4',
+      });
+      expect(a).toBe(100);
+    });
+
+    it('playedUci !== bestUci и нет isBestMove → обычный WDL-расчёт', () => {
+      const a = accuracyMove({
+        wdlBefore: { w: 800, d: 60, l: 140 },
+        wdlAfter: { w: 780, d: 60, l: 160 },
+        playedUci: 'e2e4',
+        bestUci: 'd2d4',
+      });
+      // loss_E = max(0, 0.83 - 0.81) = 0.02 → accuracy ≈ 91.4.
+      expect(a).toBeLessThan(95);
+      expect(a).toBeGreaterThan(85);
+    });
+
+    it('classification=best с WDL-loss → 100 (override классификации)', () => {
+      // Эквивалент UX-сценария 824f6b26: ход помечен best, WDL слегка
+      // дёрнулся — accuracy всё равно 100.
+      const a = accuracyMove({
+        wdlBefore: { w: 800, d: 60, l: 140 },
+        wdlAfter: { w: 780, d: 60, l: 160 },
+        classification: 'best',
+      });
+      expect(a).toBe(100);
+    });
+
+    it('computePrecisionScore: 3 best с WDL-jitter → score=5, scorePct=100 (репро 824f6b26)', () => {
+      const moves: PrecisionMoveInput[] = [
+        {
+          wdlBefore: { w: 800, d: 60, l: 140 },
+          wdlAfter: { w: 820, d: 60, l: 120 }, // +2 п.п. — улучшение
+          isBestMove: true,
+        },
+        {
+          wdlBefore: { w: 820, d: 60, l: 120 },
+          wdlAfter: { w: 810, d: 70, l: 120 }, // мелкий jitter
+          isBestMove: true,
+        },
+        {
+          wdlBefore: { w: 810, d: 70, l: 120 },
+          wdlAfter: { w: 850, d: 50, l: 100 }, // +4 п.п.
+          isBestMove: true,
+        },
+      ];
+      const r = computePrecisionScore(moves);
+      expect(r.stars).toBe(5);
+      expect(r.scorePct).toBe(100);
+    });
+  });
+
+  it('classification fallback: good → 80, blunder → 5 (override НЕ для не-best)', () => {
+    expect(
+      accuracyMove({ wdlBefore: null, classification: 'good' }),
+    ).toBe(80);
     expect(
       accuracyMove({ wdlBefore: null, classification: 'blunder' }),
     ).toBe(5);
@@ -342,11 +422,13 @@ describe('computePrecisionScore — end-to-end', () => {
       { classification: 'good' },
       { classification: 'inaccuracy' },
     ];
-    // accuracies = [95, 95, 80, 55]; mean=81.25; min=55; composite=73.375.
-    // worst=inaccuracy → no cap. mapToStars(73.375) = 3.
+    // KS-3030: best → 100 (override), не 95 fallback.
+    // accuracies = [100, 100, 80, 55]; mean=83.75; min=55;
+    // composite = 0.7*83.75 + 0.3*55 = 58.625 + 16.5 = 75.125.
+    // worst=inaccuracy → no cap. mapToStars(75.125) = 3.
     const r = computePrecisionScore(moves);
     expect(r.stars).toBe(3);
-    expect(r.scorePct).toBeCloseTo(73.375, 2);
+    expect(r.scorePct).toBeCloseTo(75.125, 2);
   });
 });
 
