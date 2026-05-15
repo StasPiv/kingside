@@ -286,6 +286,52 @@ fi
 
 export AWS_DEFAULT_REGION="$REGION"
 
+# =====================================================================
+# KS-3048 / ADR-045: инструментирование таймингов этапов деплоя
+# =====================================================================
+# Пишет таймстампы (ms-precision) в /project/logs/deploy-perf-<ts>-<pid>.log.
+# Включено всегда (накладные расходы — date + echo, доли мс на этап).
+# Файл уникален по timestamp+PID → параллельные запуски не пересекаются
+# (хотя flock в acquire_deploy_lock и так блокирует параллелизм).
+#
+# Формат строки: <epoch_ms>\t<stage_name>
+# Парсится отдельно (см. docs/devops/deploy-perf-baseline.md).
+#
+# Финальный _perf_summary в конце скрипта выводит таблицу дельт между
+# соседними stamps в человеческом виде (помогает читать deploy-логи без
+# отдельного парсинга).
+PERF_TRACE_FILE=""
+_perf_stamp() {
+    if [ -z "$PERF_TRACE_FILE" ]; then
+        mkdir -p "$REPO_DIR/logs" 2>/dev/null || return 0
+        PERF_TRACE_FILE="$REPO_DIR/logs/deploy-perf-$(date +%Y%m%d-%H%M%S)-$$.log"
+        echo "[perf-trace] writing to $PERF_TRACE_FILE" >&2
+    fi
+    printf '%s\t%s\n' "$(date +%s%3N)" "$1" >> "$PERF_TRACE_FILE"
+}
+_perf_summary() {
+    [ -n "$PERF_TRACE_FILE" ] && [ -f "$PERF_TRACE_FILE" ] || return 0
+    echo ""
+    echo "=== Deploy perf summary (KS-3048) ==="
+    awk -F'\t' '
+        NR==1 { prev_t=$1; prev_s=$2; start_t=$1; next }
+        {
+            delta=($1-prev_t)/1000.0
+            printf "  %7.2fs   %-40s -> %s\n", delta, prev_s, $2
+            prev_t=$1; prev_s=$2
+        }
+        END {
+            total=(prev_t-start_t)/1000.0
+            printf "  ------- ------------------------------------- ----------------------\n"
+            printf "  %7.2fs   TOTAL                                    (%s stamps)\n", total, NR
+        }
+    ' "$PERF_TRACE_FILE"
+    echo "  raw trace: $PERF_TRACE_FILE"
+    echo "====================================="
+}
+
+_perf_stamp "00_init"
+
 # KS-2085 follow-up: подтянуть актуальный main в $REPO_DIR перед сборкой.
 # Раньше DEPLOY_SHA брался из произвольного локального HEAD — если у запускающего
 # был stale checkout, прод собирался без свежих коммитов (KS-2086/KS-2087 case).
@@ -352,7 +398,9 @@ ensure_main_synced() {
     echo "[pre-deploy] Rebase manually, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
     exit 1
 }
+_perf_stamp "01_pre_git_sync"
 ensure_main_synced
+_perf_stamp "02_post_git_sync"
 
 # SHA текущего HEAD — используется и как docker-тег, и как ECR tag.
 DEPLOY_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
@@ -734,6 +782,7 @@ echo ""
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 # Frontend не использует ECR — атомарность ECR-тегов не применима.
 if $DEPLOY_FRONTEND; then
+    _perf_stamp "frontend_start"
     # KS-2085 follow-up: чистим vite-cache и старый dist перед сборкой.
     # Без этого Vite иногда переиспользует кэш транзформаций даже при
     # изменении исходников, и asset-hash остаётся прежним, маскируя
@@ -747,6 +796,7 @@ if $DEPLOY_FRONTEND; then
     echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID, VITE_FEATURE_LESSONS=$PROD_VITE_FEATURE_LESSONS)..."
     VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" VITE_FEATURE_LESSONS="$PROD_VITE_FEATURE_LESSONS" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
+    _perf_stamp "frontend_vite_build_done"
 
     echo "[frontend] Syncing to S3..."
     # KS-2918: hash-name'д чанки в /assets/ — immutable. Удалять их сразу после
@@ -769,21 +819,25 @@ if $DEPLOY_FRONTEND; then
     aws s3 sync "$REPO_DIR/apps/web/dist/assets/" "s3://${S3_BUCKET}/assets/" \
         --quiet
     echo "  Synced to s3://$S3_BUCKET/ (root pruned, assets retained for lifecycle)"
+    _perf_stamp "frontend_s3_sync_done"
 
     echo "[frontend] Invalidating CloudFront cache..."
     aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION" \
         --paths "/*" --query 'Invalidation.Id' --output text
     echo "  CloudFront invalidation created."
+    _perf_stamp "frontend_cf_invalidation_done"
 fi
 
 # --- API: docker build → ECR push под :<sha> → migrate → update-service →
 #         services-stable → put-image :latest (атомарный move) ---
 if $DEPLOY_API; then
+    _perf_stamp "api_start"
     NEW_IMAGE="${ECR_URI}:${DEPLOY_SHA}"
 
     echo "[api] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "api_ecr_login_done"
 
     echo "[api] Building Docker image (tag=$DEPLOY_SHA)..."
     # KS-2441: --progress=plain + tee в /tmp + извлечение npm error при failure.
@@ -811,10 +865,12 @@ if $DEPLOY_API; then
         tail -80 "$BUILD_LOG" || true
         exit "$BUILD_RC"
     fi
+    _perf_stamp "api_docker_build_done"
 
     echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    _perf_stamp "api_docker_push_done"
 
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
     # KS-2108/KS-2109: admin endpoints (feature flags) требуют список логинов
@@ -826,6 +882,7 @@ if $DEPLOY_API; then
     API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"}]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
+    _perf_stamp "api_taskdef_done"
 
     echo "[api] Running Prisma migrations on new revision..."
     ensure_migrate_network
@@ -843,12 +900,14 @@ if $DEPLOY_API; then
         exit 1
     fi
     echo "  Migrations applied."
+    _perf_stamp "api_migrate_done"
 
     echo "[api] Updating ECS service to new revision..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
         --task-definition "$NEW_TD_ARN" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+    _perf_stamp "api_update_service_done"
 
     echo "[api] Waiting for rollout to stabilize..."
     if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"; then
@@ -857,9 +916,11 @@ if $DEPLOY_API; then
         exit 1
     fi
     echo "  Rollout stable."
+    _perf_stamp "api_services_stable_done"
 
     echo "[api] Atomic move ${ECR_REPO_API}:latest → :${DEPLOY_SHA}..."
     ecr_move_latest_to_tag "$ECR_REPO_API" "$DEPLOY_SHA"
+    _perf_stamp "api_atomic_latest_done"
 fi
 
 # --- Game Service: docker build → ECR push под :<sha> → update-service →
@@ -867,18 +928,22 @@ fi
 # Миграций нет (game-service stateless). Smoke пока тоже нет (см. KS-1817 — там
 # появился только для broadcast/archive). Gate = services-stable.
 if $DEPLOY_GAME; then
+    _perf_stamp "game_start"
     NEW_IMAGE="${ECR_URI_GAME}:${DEPLOY_SHA}"
 
     echo "[game-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "game_ecr_login_done"
 
     echo "[game-service] Building Docker image (tag=$DEPLOY_SHA)..."
     docker build -t "kingside-game-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
+    _perf_stamp "game_docker_build_done"
 
     echo "[game-service] Pushing ${ECR_REPO_GAME}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-game-service:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    _perf_stamp "game_docker_push_done"
 
     echo "[game-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
     # 30.04 откат synthetic-stack (KS-2159..2179): GAME_SERVICE_EXTRA_ENV
@@ -887,12 +952,14 @@ if $DEPLOY_GAME; then
     # этот блок будет переписан.
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE")
     echo "  task-def: $NEW_TD_ARN"
+    _perf_stamp "game_taskdef_done"
 
     echo "[game-service] Updating ECS service to new revision..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_GAME" \
         --task-definition "$NEW_TD_ARN" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+    _perf_stamp "game_update_service_done"
 
     echo "[game-service] Waiting for rollout to stabilize..."
     if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_GAME"; then
@@ -901,9 +968,11 @@ if $DEPLOY_GAME; then
         exit 1
     fi
     echo "  Rollout stable."
+    _perf_stamp "game_services_stable_done"
 
     echo "[game-service] Atomic move ${ECR_REPO_GAME}:latest → :${DEPLOY_SHA}..."
     ecr_move_latest_to_tag "$ECR_REPO_GAME" "$DEPLOY_SHA"
+    _perf_stamp "game_atomic_latest_done"
 fi
 
 # --- Broadcast Service (apps/broadcast-service): docker build → ECR push под :<sha> →
@@ -914,22 +983,27 @@ fi
 # kingside-broadcasts-api (lb_cookie, WS-critical).
 # Инфра — scripts/broadcast-service-aws-setup.sh (KS-1696).
 if $DEPLOY_BROADCAST_SERVICE; then
+    _perf_stamp "broadcast_start"
     NEW_IMAGE="${ECR_URI_BROADCAST_SERVICE}:${DEPLOY_SHA}"
 
     echo "[broadcast-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "broadcast_ecr_login_done"
 
     echo "[broadcast-service] Building Docker image (tag=$DEPLOY_SHA)..."
     docker build -t "kingside-broadcast-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
+    _perf_stamp "broadcast_docker_build_done"
 
     echo "[broadcast-service] Pushing ${ECR_REPO_BROADCAST_SERVICE}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-broadcast-service:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    _perf_stamp "broadcast_docker_push_done"
 
     SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    _perf_stamp "broadcast_describe_service_done"
 
     if [ "$SVC_STATUS" = "ACTIVE" ]; then
         echo "[broadcast-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
@@ -939,6 +1013,7 @@ if $DEPLOY_BROADCAST_SERVICE; then
         BROADCAST_SERVICE_EXTRA_ENV='[{"name":"BROADCAST_WATCHDOG_ENABLED","value":"true"}]'
         NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_BROADCAST_SERVICE" "$NEW_IMAGE" "$BROADCAST_SERVICE_EXTRA_ENV")
         echo "  task-def: $NEW_TD_ARN"
+        _perf_stamp "broadcast_taskdef_done"
 
         # KS-1817: Prisma migrations для broadcasts-db (отдельная БД broadcasts_kingside).
         # До KS-1817 миграции этой БД накатывались вручную → 24.04 миграция 20260424093000
@@ -961,12 +1036,14 @@ if $DEPLOY_BROADCAST_SERVICE; then
             exit 1
         fi
         echo "  Migrations applied."
+        _perf_stamp "broadcast_migrate_done"
 
         echo "[broadcast-service] Updating ECS service to new revision..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST_SERVICE" \
             --task-definition "$NEW_TD_ARN" \
             --force-new-deployment --query 'service.deployments[0].status' --output text
         echo "  ECS service update initiated."
+        _perf_stamp "broadcast_update_service_done"
 
         # KS-1817: post-deploy smoke-gate. Ждём rollout до stable (max ~10 min),
         # затем curl на реальный broadcast. Если /rounds != 200 — зафейлить деплой,
@@ -979,6 +1056,7 @@ if $DEPLOY_BROADCAST_SERVICE; then
             echo "  Rollback: см. runbook в шапке deploy-aws.sh."
             exit 1
         fi
+        _perf_stamp "broadcast_services_stable_done"
         echo "[broadcast-service] Smoke-check /rounds on broadcast $SMOKE_BROADCAST_ID..."
         SMOKE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://broadcasts.kingside.site/${SMOKE_BROADCAST_ID}/rounds" || echo "000")
         if [ "$SMOKE_CODE" != "200" ]; then
@@ -988,9 +1066,11 @@ if $DEPLOY_BROADCAST_SERVICE; then
             exit 1
         fi
         echo "  Smoke /rounds OK (HTTP 200)."
+        _perf_stamp "broadcast_smoke_done"
 
         echo "[broadcast-service] Atomic move ${ECR_REPO_BROADCAST_SERVICE}:latest → :${DEPLOY_SHA}..."
         ecr_move_latest_to_tag "$ECR_REPO_BROADCAST_SERVICE" "$DEPLOY_SHA"
+        _perf_stamp "broadcast_atomic_latest_done"
     else
         echo "[broadcast-service] ECS service '$ECS_SERVICE_BROADCAST_SERVICE' not found (status=$SVC_STATUS)."
         echo "[broadcast-service] Run scripts/broadcast-service-aws-setup.sh after first image push to register task-def + create service."
@@ -1014,18 +1094,22 @@ fi
 #   - kingside-archive-importer-adhoc    — adhoc batch / dev (ручной aws ecs run-task,
 #                                          подхватывает свежий :latest). Только register.
 if $DEPLOY_ARCHIVE_SERVICE; then
+    _perf_stamp "archive_start"
     NEW_IMAGE="${ECR_URI_ARCHIVE_SERVICE}:${DEPLOY_SHA}"
 
     echo "[archive-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "archive_ecr_login_done"
 
     echo "[archive-service] Building Docker image (tag=$DEPLOY_SHA)..."
     docker build -t "kingside-archive-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
+    _perf_stamp "archive_docker_build_done"
 
     echo "[archive-service] Pushing ${ECR_REPO_ARCHIVE_SERVICE}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-archive-service:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    _perf_stamp "archive_docker_push_done"
 
     ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
@@ -1165,6 +1249,7 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     else
         echo "[archive-service] Neither HTTP nor importer ACTIVE — :latest NOT moved (bootstrap flow)."
     fi
+    _perf_stamp "archive_done"
 fi
 
 # --- Tactic-worker (apps/tactic-worker): docker build → ECR push под :<sha> →
@@ -1181,18 +1266,22 @@ fi
 # обновлять не нужно. Когда §9.4 включит расписание — добавить сюда вызов
 # update_eventbridge_schedule_task_def по аналогии с archive-importer-daily.
 if $DEPLOY_TACTIC_WORKER; then
+    _perf_stamp "tactic_start"
     NEW_IMAGE="${ECR_URI_TACTIC_WORKER}:${DEPLOY_SHA}"
 
     echo "[tactic-worker] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "tactic_ecr_login_done"
 
     echo "[tactic-worker] Building Docker image (tag=$DEPLOY_SHA)..."
     docker build -t "kingside-tactic-worker:${DEPLOY_SHA}" -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR"
+    _perf_stamp "tactic_docker_build_done"
 
     echo "[tactic-worker] Pushing ${ECR_REPO_TACTIC_WORKER}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-tactic-worker:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    _perf_stamp "tactic_docker_push_done"
 
     # Регистрируем новую revision task-def, если family существует. Pinned :<sha>
     # даёт чистый откат и гарантирует что adhoc RunTask тянет проверенный образ
@@ -1218,6 +1307,7 @@ if $DEPLOY_TACTIC_WORKER; then
     # `index-tactic-drills --max-games=1`) делает backend пост-деплой по acceptance KS-2439.
     echo "[tactic-worker] Atomic move ${ECR_REPO_TACTIC_WORKER}:latest → :${DEPLOY_SHA}..."
     ecr_move_latest_to_tag "$ECR_REPO_TACTIC_WORKER" "$DEPLOY_SHA"
+    _perf_stamp "tactic_atomic_latest_done"
 fi
 
 # --- Synthetic-bot service (apps/synthetic-bot-service) ---
@@ -1227,13 +1317,17 @@ fi
 # выполняется внутри deploy-synthetic-bot.sh после wait services-stable
 # (тот же паттерн KS-1826/KS-2086).
 if $DEPLOY_SYNTHETIC_BOT; then
+    _perf_stamp "synthetic_start"
     echo ""
     echo "[synthetic-bot] Delegating to scripts/deploy-synthetic-bot.sh..."
     bash "${SCRIPT_DIR}/deploy-synthetic-bot.sh"
+    _perf_stamp "synthetic_done"
 fi
 
 # Save deployed commit
 save_deployed_commit
+_perf_stamp "99_deploy_complete"
 
 echo ""
 echo "=== Deploy complete ($SCOPE) ==="
+_perf_summary
