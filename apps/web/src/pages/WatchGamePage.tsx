@@ -6,7 +6,7 @@ import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useBoardSettings } from '../hooks/useBoardSettings';
-import { useStockfish } from '../hooks/useStockfish';
+import { useStockfish, clampMultiPvToLegalMoves } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { EvalBar } from '../components/EvalBar';
 import { formatEval, formatPv } from '../utils/chessFormat';
@@ -83,10 +83,15 @@ export function WatchGamePage() {
   } = useStockfish({ depth: 18, multiPv: MULTI_PV, autoStart: analysisEnabled });
 
   const lastLinesRef = useRef<EvalLine[]>([]);
-  if (lines.length === MULTI_PV) {
+  // KS-3043: на позициях с legalMoves < MULTI_PV движок (после KS-3041
+  // clamp) возвращает legalMoves строк, и условие `lines.length === MULTI_PV`
+  // никогда не выполнится — `lastLinesRef` остаётся со stale-эвалами
+  // прошлой позиции, SAN пустой (UCI прошлой PV не парсится на новом FEN).
+  const expectedLineCount = clampMultiPvToLegalMoves(displayFen, MULTI_PV);
+  if (lines.length === expectedLineCount) {
     lastLinesRef.current = lines;
   }
-  const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
+  const displayedLines = lines.length === expectedLineCount ? lines : lastLinesRef.current;
   const evalIsBlackTurn = displayFen.split(' ')[1] === 'b';
 
   // Evaluate when displayed FEN changes

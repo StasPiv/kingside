@@ -9,6 +9,7 @@ import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
+import { clampMultiPvToLegalMoves } from '../hooks/useStockfish';
 import { useEngine } from '../hooks/useEngine';
 import type { EngineSource } from '../hooks/useEngine';
 import { useEngineConfig } from '../hooks/useEngineConfig';
@@ -462,11 +463,31 @@ function AnalysisPageInner({
 
   const lastLinesRef = useRef<EvalLine[]>([]);
   const prevSourceRef = useRef<EngineSource>(activeSource);
+  const prevAnalysisFenRef = useRef<string | null>(analysisFen);
   if (prevSourceRef.current !== activeSource) {
     lastLinesRef.current = [];
     prevSourceRef.current = activeSource;
   }
-  if (activeSource === 'external' ? lines.length > 0 : lines.length === ec.multiPv) {
+  // KS-3043: при смене анализируемой позиции сбрасываем «замороженные»
+  // прошлые линии. Иначе для новой позиции с малым числом легальных
+  // ходов (legalMoves < ec.multiPv, см. KS-3041 clamp) свежие `lines`
+  // не достигают `ec.multiPv` строк, freeze-условие ниже не срабатывает,
+  // и UI продолжает показывать stale-эвалы прошлой позиции с пустыми
+  // SAN — `formatPv` не может применить UCI-ходы прошлой PV к новому FEN.
+  if (prevAnalysisFenRef.current !== analysisFen) {
+    lastLinesRef.current = [];
+    prevAnalysisFenRef.current = analysisFen;
+  }
+  // KS-3043: для WASM-движка эффективное число линий = clamp(multiPv,
+  // legalMoves). На позициях с legalMoves < ec.multiPv движок возвращает
+  // legalMoves строк, и условие `lines.length === ec.multiPv` никогда не
+  // выполнится → freeze никогда не обновляется. Считаем «полный набор»
+  // относительно того, сколько движок реально может вернуть для текущей
+  // анализируемой позиции.
+  const expectedLineCount = analysisFen
+    ? clampMultiPvToLegalMoves(analysisFen, ec.multiPv)
+    : ec.multiPv;
+  if (activeSource === 'external' ? lines.length > 0 : lines.length === expectedLineCount) {
     lastLinesRef.current = lines;
   }
   const displayedLines = lastLinesRef.current.length > 0 ? lastLinesRef.current : lines;

@@ -3,6 +3,7 @@ import { Chess } from 'chess.js';
 
 import en from '../i18n/locales/en/translation.json';
 import ru from '../i18n/locales/ru/translation.json';
+import { clampMultiPvToLegalMoves } from '../hooks/useStockfish';
 
 /**
  * KS-308: Unit-тесты для чистых функций анализа Stockfish
@@ -332,6 +333,151 @@ describe('KS-308: parseInfo — парсинг UCI info строк', () => {
     const line = 'info depth 18 score cp 0 pv e2e4';
     const result = parseInfo(line);
     expect(result!.multipv).toBe(1);
+  });
+});
+
+// --- KS-3043: freeze-логика displayedLines для случая legalMoves<multiPv ---
+
+/**
+ * Воспроизводит inline-логику AnalysisPage (`lastLinesRef` + `displayedLines`)
+ * как чистую цепочку трансформаций, чтобы протестировать регрессию из KS-3043
+ * без поднятия React-рендера.
+ *
+ * Регрессия: до фикса условие `lines.length === ec.multiPv` не выполнялось
+ * на позициях, где `legalMoves < ec.multiPv` (после KS-3041 движок отдаёт
+ * только legalMoves строк) — freeze не обновлялся, lastLinesRef оставался
+ * со stale-эвалами прошлой позиции, formatPv(stale_pv, new_fen) → '' →
+ * пользователь видел оценки без SAN.
+ */
+type FreezeState = { lastLines: EvalLine[]; prevAnalysisFen: string | null };
+function makeFreezeState(): FreezeState {
+  return { lastLines: [], prevAnalysisFen: null };
+}
+function applyFreezeStep(
+  s: FreezeState,
+  args: { analysisFen: string | null; multiPv: number; lines: EvalLine[] },
+): EvalLine[] {
+  // 1. reset на смену analysisFen (KS-3043).
+  if (s.prevAnalysisFen !== args.analysisFen) {
+    s.lastLines = [];
+    s.prevAnalysisFen = args.analysisFen;
+  }
+  // 2. effective expected count = clamp(multiPv, legalMoves) (KS-3043).
+  const expected = args.analysisFen
+    ? clampMultiPvToLegalMoves(args.analysisFen, args.multiPv)
+    : args.multiPv;
+  if (args.lines.length === expected) {
+    s.lastLines = args.lines;
+  }
+  return s.lastLines.length > 0 ? s.lastLines : args.lines;
+}
+
+describe('KS-3043: AnalysisPage freeze-логика displayedLines', () => {
+  const FEN_MANY = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'; // 20 ходов
+  const FEN_FEW = '8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1 w - - 2 51'; // 2 хода
+
+  const mkLine = (multipv: number, cp: number, pv: string): EvalLine => ({
+    depth: 18,
+    multipv,
+    score: { type: 'cp', value: cp },
+    pv,
+  });
+
+  it('навигация с многоходовой позиции на 2-ходовую: после двух info-линий freeze переключается на новые', () => {
+    const s = makeFreezeState();
+
+    // Этап 1: на FEN_MANY с multipv=4 движок отдал 4 строки.
+    const aLines = [
+      mkLine(1, 299, 'e2e4'),
+      mkLine(2, 19, 'd2d4'),
+      mkLine(3, -455, 'g1f3'),
+      mkLine(4, -455, 'b1c3'),
+    ];
+    let displayed = applyFreezeStep(s, {
+      analysisFen: FEN_MANY,
+      multiPv: 4,
+      lines: aLines,
+    });
+    expect(displayed).toEqual(aLines);
+
+    // Этап 2: пользователь переключился на FEN_FEW (2 легальных хода).
+    // analysisFen обновился, движок ещё ничего не прислал — displayed
+    // должен быть пустой, а не показывать stale-линии прошлой позиции.
+    displayed = applyFreezeStep(s, {
+      analysisFen: FEN_FEW,
+      multiPv: 4,
+      lines: [],
+    });
+    expect(displayed).toEqual([]);
+
+    // Этап 3: движок прислал 1 строку для FEN_FEW. Ещё не «полный набор»
+    // (ожидаем 2 = clamp(4, 2)). Показываем то что есть.
+    const bLine1 = mkLine(1, 50, 'g1h2');
+    displayed = applyFreezeStep(s, {
+      analysisFen: FEN_FEW,
+      multiPv: 4,
+      lines: [bLine1],
+    });
+    expect(displayed).toEqual([bLine1]);
+
+    // Этап 4: движок прислал 2 строки — это полный набор для FEN_FEW
+    // (clamp(4, 2) = 2). Freeze переключается на новые линии.
+    const bLine2 = mkLine(2, -120, 'e3e1');
+    displayed = applyFreezeStep(s, {
+      analysisFen: FEN_FEW,
+      multiPv: 4,
+      lines: [bLine1, bLine2],
+    });
+    expect(displayed).toEqual([bLine1, bLine2]);
+    // Регрессия: до фикса displayed остался бы равен aLines (4 stale-строки
+    // от FEN_MANY), потому что lines.length=2 ≠ ec.multiPv=4 и
+    // lastLinesRef не обновлялся.
+  });
+
+  it('переключение multipv 4→2 на той же позиции: после прихода 2 линий freeze обновляется', () => {
+    const s = makeFreezeState();
+    const oldLines = [
+      mkLine(1, 100, 'e2e4'),
+      mkLine(2, 80, 'd2d4'),
+      mkLine(3, 60, 'c2c4'),
+      mkLine(4, 40, 'g1f3'),
+    ];
+    applyFreezeStep(s, { analysisFen: FEN_MANY, multiPv: 4, lines: oldLines });
+
+    // Пользователь снизил multipv с 4 до 2. analysisFen тот же.
+    // Сначала пришла одна линия — отрисовываем stale (но SAN валиден,
+    // т.к. FEN не менялся; до 2-х линий freeze не обновляется).
+    const newLine1 = mkLine(1, 120, 'e2e4');
+    let displayed = applyFreezeStep(s, {
+      analysisFen: FEN_MANY,
+      multiPv: 2,
+      lines: [newLine1],
+    });
+    expect(displayed).toEqual(oldLines);
+
+    // Пришла вторая линия — это «полный набор» для multipv=2.
+    const newLine2 = mkLine(2, 100, 'd2d4');
+    displayed = applyFreezeStep(s, {
+      analysisFen: FEN_MANY,
+      multiPv: 2,
+      lines: [newLine1, newLine2],
+    });
+    expect(displayed).toEqual([newLine1, newLine2]);
+  });
+
+  it('FEN_FEW: при первом анализе с multipv=4 и 2 ходами freeze всё равно срабатывает на 2 линиях', () => {
+    const s = makeFreezeState();
+    const lines = [mkLine(1, 50, 'g1h2'), mkLine(2, -120, 'e3e1')];
+    const displayed = applyFreezeStep(s, {
+      analysisFen: FEN_FEW,
+      multiPv: 4,
+      lines,
+    });
+    // Регрессия: до фикса displayed остался бы равен lines напрямую (т.к.
+    // lastLinesRef пустой), но freeze не сработал бы НИКОГДА (lines.length=2
+    // ≠ ec.multiPv=4). Сейчас — сработал, lastLines=[2 строки].
+    expect(displayed).toEqual(lines);
+    expect(s.lastLines).toEqual(lines);
   });
 });
 
