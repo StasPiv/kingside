@@ -12,9 +12,7 @@
     "copy:engine": "mkdir -p dist/generated/prisma && cp -f src/generated/prisma/*.so.node dist/generated/prisma/ 2>/dev/null || true"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.2"
-  },
-  "devDependencies": {
+    "@prisma/client": "^6.19.2",
     "prisma": "^6.19.2"
   }
 }
