@@ -10,6 +10,10 @@ import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
 import { clampMultiPvToLegalMoves } from '../hooks/useStockfish';
+import {
+  getStoredBoardOrientation,
+  setStoredBoardOrientation,
+} from '../utils/analysisBoardOrientation';
 import { useEngine } from '../hooks/useEngine';
 import type { EngineSource } from '../hooks/useEngine';
 import { useEngineConfig } from '../hooks/useEngineConfig';
@@ -231,6 +235,22 @@ function AnalysisPageInner({
   useEffect(() => {
     localIdRef.current = analysisId;
   }, [analysisId]);
+
+  // KS-3044: при перевороте доски (1) обновляем state, (2) пишем
+  // новое значение в localStorage под ключом текущего анализа.
+  // Для ad-hoc-сессии без записи в БД (localIdRef.current=undefined)
+  // setStoredBoardOrientation тихо no-op'ит — персистенция включится
+  // позже, в момент создания записи через createAnalysis (см. там
+  // явный вызов setStoredBoardOrientation после `entry.id`).
+  const boardOrientationRef = useRef(boardOrientation);
+  boardOrientationRef.current = boardOrientation;
+  const flipBoardOrientation = useCallback(() => {
+    setBoardOrientation((prev) => {
+      const next = prev === 'white' ? 'black' : 'white';
+      setStoredBoardOrientation(localIdRef.current, next);
+      return next;
+    });
+  }, []);
   const stateBreadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
   const stateBreadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
   const stateBreadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
@@ -518,6 +538,14 @@ function AnalysisPageInner({
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
         const id = localIdRef.current;
+        // KS-3044: восстановление ориентации доски — отдельно от PGN
+        // и до самого getById, чтобы у пользователя не было микро-флэша
+        // доски в стандартной ориентации перед переворотом. Чтение
+        // localStorage синхронное; getStoredBoardOrientation тихо
+        // отдаёт null для старых записей без сохранённой ориентации,
+        // тогда оставляем дефолт ('white').
+        const storedOrientation = getStoredBoardOrientation(id);
+        if (storedOrientation) setBoardOrientation(storedOrientation);
         (publicMode ? getPublicById(id) : getById(id)).then((saved) => {
           if (saved?.pgn) {
             try {
@@ -696,6 +724,15 @@ function AnalysisPageInner({
           const entry = await createAnalysis(pgn, analysisTitle, category);
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
+          // KS-3044: до этого момента у анализа не было id и
+          // setStoredBoardOrientation в `flipBoardOrientation` был no-op.
+          // Если пользователь успел перевернуть доску в ad-hoc-сессии до
+          // первого autosave — переносим текущую ориентацию в storage
+          // под новым id. Записываем только не-дефолт, чтобы не плодить
+          // лишние ключи: 'white' = дефолт, отсутствие ключа = 'white'.
+          if (boardOrientationRef.current === 'black') {
+            setStoredBoardOrientation(entry.id, 'black');
+          }
           // KS-2669: только что создали анализ — мы автор. Установим
           // savedOwnerId сразу, чтобы Share-кнопка появилась без
           // ожидания дополнительного getById. savedIsPublic=false
@@ -1512,7 +1549,7 @@ function AnalysisPageInner({
             <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
             <button
               className="analysis-flip-btn"
-              onClick={() => setBoardOrientation((o) => o === 'white' ? 'black' : 'white')}
+              onClick={flipBoardOrientation}
               title={t('analysis.flipBoard', 'Flip board')}
             >
               ⇅
