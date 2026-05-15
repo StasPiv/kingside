@@ -20,6 +20,10 @@ COPY tsconfig.base.json ./
 RUN cd packages/shared && npx tsc --build
 RUN cd packages/archive-db && ARCHIVE_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/archive-service && npx nest build
+# KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules.
+# archive-service не запускает миграции через ECS run-task (deploy-perf
+# baseline это подтверждает — отсутствует archive_migrate_done).
+RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production
 WORKDIR /app

@@ -36,6 +36,14 @@ RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/tactic-worker && npx nest build
+# KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules.
+# tactic-worker запускается через ECS RunTask с подкомандами CLI
+# (`index-tactic-drills` и т.п.) — миграции **не** идут отсюда (схему
+# держит api/@kingside/db), поэтому prisma CLI в runtime не нужен.
+# Query-engine (`@prisma/client/.prisma`) копируется через
+# `packages/db copy:engine` → `dist/generated/prisma/*.so.node` и не
+# зависит от пакета `prisma` (CLI).
+RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production
 WORKDIR /app

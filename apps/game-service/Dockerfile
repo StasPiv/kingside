@@ -28,6 +28,12 @@ RUN cd apps/game-service && npx nest build 2>&1 || true
 RUN cp -r apps/game-service/src/engine/*.json apps/game-service/dist/engine/ 2>/dev/null || true
 RUN cp -r apps/game-service/src/i18n apps/game-service/dist/i18n 2>/dev/null || true
 RUN ls apps/game-service/dist/main.js
+# KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules,
+# которые не нужны в runtime (typescript, @nestjs/cli, jest, ts-jest,
+# @types/*, ts-node-dev и т.п.). Ожидаемый эффект — −100..200 MB на
+# образ → быстрее push в ECR и быстрее ECS task start. game-service
+# не запускает миграции через run-task, prisma CLI не нужен в runtime.
+RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production
 WORKDIR /app
