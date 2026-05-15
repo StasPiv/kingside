@@ -59,7 +59,11 @@ import { HealthController } from './health.controller';
       fallbackLanguage: 'en',
       loaderOptions: {
         path: path.join(__dirname, '/i18n/'),
-        watch: true,
+        // KS-3059: на dev — `watch:true` для hot-reload переводов.
+        // На проде fs.watch на ~5 файлах не даёт пользы (артефакт
+        // immutable после build), а на холодном Fargate task — лишний
+        // setup + удержание FD при низкой пользе. Выключаем.
+        watch: process.env.NODE_ENV !== 'production',
       },
       resolvers: [
         { use: QueryResolver, options: ['lang'] },

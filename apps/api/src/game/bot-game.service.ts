@@ -14,8 +14,17 @@ export class BotGameService implements OnModuleInit {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async onModuleInit() {
-    await this.ensureStockfishBot();
+  // KS-3059: Stockfish bot user нужен только Workshop / Play-vs-Bot
+  // (не критично для отклика api). Fire-and-forget — не блокирует
+  // startup на upsert'е (~50-200ms холодной БД).
+  onModuleInit() {
+    setImmediate(() => {
+      this.ensureStockfishBot().catch((err) => {
+        this.logger.warn(
+          `Stockfish bot init async failed: ${(err as Error).message}`,
+        );
+      });
+    });
   }
 
   private async ensureStockfishBot(): Promise<void> {

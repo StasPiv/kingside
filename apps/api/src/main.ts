@@ -33,8 +33,19 @@ function shouldUseRedisAdapter(logger: Logger): boolean {
 }
 
 async function bootstrap() {
+  // KS-3059: startup-timing telemetry для прода (CloudWatch). Помогает
+  // отделить «модули резолвятся медленно» от «слишком много блокирующих
+  // OnModuleInit»: если разница (T_listen − T_create) маленькая, узкое
+  // место — DI/RouterExplorer; если большая — какой-то OnModuleInit.
+  const T0 = Date.now();
   const logger = new Logger('Bootstrap');
+  logger.log(`[startup-timing] T0=process-start (pid=${process.pid})`);
+
   const app = await NestFactory.create(AppModule);
+  const T1 = Date.now();
+  logger.log(
+    `[startup-timing] NestFactory.create done at +${T1 - T0}ms (modules+DI+RouterExplorer)`,
+  );
   const corsOrigins: (string | RegExp)[] = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
     : [];
@@ -66,6 +77,10 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
+  const T2 = Date.now();
+  logger.log(
+    `[startup-timing] app.listen ready at +${T2 - T0}ms (this is the moment /health starts answering)`,
+  );
   console.log(`Server running on http://0.0.0.0:${port}`);
 }
 

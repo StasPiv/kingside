@@ -10,17 +10,27 @@ export class AdminService implements OnModuleInit {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async onModuleInit() {
-    try {
-      await this.prisma.user.upsert({
-        where: { id: SUPPORT_USER_ID },
-        update: {},
-        create: { id: SUPPORT_USER_ID, username: SUPPORT_USERNAME, email: 'support@kingside.local', passwordHash: '' },
-      });
-      this.logger.log('Support user ensured');
-    } catch (e: any) {
-      this.logger.warn(`Support user upsert failed: ${e.message}`);
-    }
+  // KS-3059: некритично для отклика api — Support user нужен только для
+  // редкого ручного fallback'а в feedback. Делаем fire-and-forget, чтобы
+  // не блокировать startup (~50-200ms на холодной БД).
+  onModuleInit() {
+    setImmediate(async () => {
+      try {
+        await this.prisma.user.upsert({
+          where: { id: SUPPORT_USER_ID },
+          update: {},
+          create: {
+            id: SUPPORT_USER_ID,
+            username: SUPPORT_USERNAME,
+            email: 'support@kingside.local',
+            passwordHash: '',
+          },
+        });
+        this.logger.log('Support user ensured (async)');
+      } catch (e: any) {
+        this.logger.warn(`Support user upsert failed: ${e.message}`);
+      }
+    });
   }
 
   async listFeedback(params: { type?: string; status?: string; sort?: string; limit?: number; offset?: number }) {

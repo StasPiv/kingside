@@ -1,11 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { polyglotHash, readPolyglotBook, BookEntry } from './polyglot-reader';
 
 /**
  * Opening book for bot games using Polyglot .bin format.
  * Loads book at startup, provides instant move lookup by FEN.
+ *
+ * KS-3059: загрузка асинхронная и fire-and-forget — на проде это
+ * 4.6 МБ файл + парс 265k entries (~1-2с блокировки event loop).
+ * До завершения загрузки `getBookMove` возвращает `null` (`book.size===0`),
+ * и `BotMoveService` штатно фолбэчит на random legal move.
  */
 @Injectable()
 export class OpeningBookService implements OnModuleInit {
@@ -13,10 +18,15 @@ export class OpeningBookService implements OnModuleInit {
   private book = new Map<bigint, BookEntry[]>();
 
   onModuleInit(): void {
-    this.loadBook();
+    // Не await: пусть startup проходит, книга догрузится в фоне.
+    setImmediate(() => {
+      this.loadBook().catch((err) => {
+        this.logger.warn(`opening book async load failed: ${(err as Error).message}`);
+      });
+    });
   }
 
-  private loadBook(): void {
+  private async loadBook(): Promise<void> {
     const paths = [
       join(process.cwd(), 'data', 'opening-book.bin'),           // Docker: /app/apps/api/data/
       join(__dirname, '..', '..', 'data', 'opening-book.bin'),   // dev: dist/engine/../../data/
@@ -26,13 +36,13 @@ export class OpeningBookService implements OnModuleInit {
 
     for (const filePath of paths) {
       try {
-        const buffer = readFileSync(filePath);
+        const buffer = await readFile(filePath);
         if (buffer.length % 16 !== 0) {
           this.logger.warn(`Invalid polyglot book at ${filePath}: size ${buffer.length} not multiple of 16`);
           continue;
         }
         this.book = readPolyglotBook(buffer);
-        this.logger.log(`Opening book loaded: ${this.book.size} positions from ${filePath}`);
+        this.logger.log(`Opening book loaded async: ${this.book.size} positions from ${filePath}`);
         return;
       } catch {
         // try next path

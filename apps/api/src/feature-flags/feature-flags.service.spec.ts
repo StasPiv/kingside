@@ -63,7 +63,10 @@ describe('FeatureFlagsService — KS-2104', () => {
   it('onApplicationBootstrap сидит дефолты и греет кэш', async () => {
     const { prisma, rows } = makePrisma();
     const svc = new FeatureFlagsService(prisma);
-    await svc.onApplicationBootstrap();
+    // KS-3059: реальный onApplicationBootstrap fire-and-forget через
+    // setImmediate (не блокирует api startup). Тестируем напрямую
+    // публичный `runBootstrap` — содержит идемпотентную bootstrap-логику.
+    await svc.runBootstrap();
     // Все ключи из whitelist оказались в БД с дефолтами.
     for (const key of FEATURE_FLAG_KEYS) {
       expect(rows.find((r) => r.key === key)?.value).toBe(

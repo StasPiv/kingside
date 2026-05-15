@@ -96,20 +96,34 @@ export class FeatureFlagsService implements OnApplicationBootstrap {
 
   /**
    * При старте api сидим недостающие ключи дефолтами и греем кэш.
-   * Не блокирующий: при ошибке БД — лог + сервис всё равно поднимется
-   * (`getFlags` упадёт и вернёт дефолты — fallback ниже).
+   * KS-3059: fire-and-forget — `getFlags` имеет fallback на whitelist
+   * дефолты (см. ниже), так что блокировать startup на UPSERT'ах нет
+   * смысла. На холодной БД bootstrap занимает ~100-300ms.
+   *
+   * Реальная логика вынесена в `runBootstrap()` — это публичный метод,
+   * чтобы тесты могли его await'ить напрямую (через `onApplicationBootstrap`
+   * нельзя — он fire-and-forget через setImmediate).
    */
-  async onApplicationBootstrap(): Promise<void> {
-    try {
-      await this.bootstrapDefaults();
-      await this.refreshCache();
-      this.logger.log(
-        `feature flags ready: ${JSON.stringify(this.cache?.value ?? {})}`,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`bootstrap failed: ${msg}`);
-    }
+  onApplicationBootstrap(): void {
+    setImmediate(() => {
+      this.runBootstrap().catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`bootstrap failed: ${msg}`);
+      });
+    });
+  }
+
+  /**
+   * Тестируемая часть bootstrap'а: сидинг дефолтов + прогрев кэша.
+   * Идемпотентна; ошибки бросает наверх (в production обёрнуто в catch
+   * выше, в тестах — let it throw).
+   */
+  async runBootstrap(): Promise<void> {
+    await this.bootstrapDefaults();
+    await this.refreshCache();
+    this.logger.log(
+      `feature flags ready (async): ${JSON.stringify(this.cache?.value ?? {})}`,
+    );
   }
 
   /**

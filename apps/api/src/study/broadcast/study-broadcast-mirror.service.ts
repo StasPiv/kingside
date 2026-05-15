@@ -64,8 +64,18 @@ export class StudyBroadcastMirrorService implements OnModuleInit {
     private readonly broadcast: BroadcastServiceClient,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    await this.ensureMirrorUser();
+  // KS-3059: broadcast-mirror-user нужен только при создании зеркала
+  // раунда. Fire-and-forget — не блокирует startup. `ensureMirrorUser`
+  // идемпотентен и кэширует `mirrorUserId`, поэтому первый createMirror
+  // переинициализирует если async init ещё не завершился.
+  onModuleInit(): void {
+    setImmediate(() => {
+      this.ensureMirrorUser().catch((err) => {
+        this.logger.warn(
+          `broadcast-mirror-user init async failed: ${(err as Error).message}`,
+        );
+      });
+    });
   }
 
   /**

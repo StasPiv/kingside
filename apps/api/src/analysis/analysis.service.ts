@@ -15,8 +15,20 @@ export class AnalysisService implements OnModuleInit {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async onModuleInit(): Promise<void> {
-    await this.backfillMetadata();
+  // KS-3059: backfill — одноразовая миграция метаданных PGN для старых
+  // записей. На каждом холодном старте перебирает stale записи (могут
+  // быть 50-200 на проде → ~1-3с). Не критично для отклика api: записи
+  // без метаданных штатно работают, findAll/findOne не зависят от
+  // присутствия `headline/event/...`. Fire-and-forget — не блокирует
+  // startup. При следующем рестарте оставшиеся stale записи догрузятся.
+  onModuleInit(): void {
+    setImmediate(() => {
+      this.backfillMetadata().catch((err) => {
+        this.logger.warn(
+          `backfillMetadata async failed: ${(err as Error).message}`,
+        );
+      });
+    });
   }
 
   /**
