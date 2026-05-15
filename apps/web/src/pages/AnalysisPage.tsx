@@ -60,12 +60,6 @@ import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 // разбросанные `params.id`/`params.gameId`/`puzzleFen`/`localId`
 // производные. На FS1/FS2 study-роуты подключатся через wrapper.
 import { useAnalysisContext } from './analysis/AnalysisContext';
-// KS-2891 (FC6): «Save to study» из обычного анализа / puzzle.
-import {
-  SaveToStudyTrigger,
-  type SaveToStudySource,
-} from '../components/studies/SaveToStudyDialog';
-
 type GameData = {
   id: string;
   white: { id: string; username: string };
@@ -1405,39 +1399,6 @@ function AnalysisPageInner({
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
 
-  // KS-2891 (FC6): источник для «Save to study».
-  //   • analysis (kind='analysis', есть analysisId) → передаём analysisId;
-  //   • analysis без id (ad-hoc /analysis) либо puzzle → берём текущий PGN;
-  //   • review/study → null (кнопку не рисуем).
-  // ВАЖНО: useMemo стоит ВЫШЕ early-returns ниже, иначе на load-стадии
-  // компонент сделает return ДО хука, и при следующем render React
-  // увидит «extra hook» (rules-of-hooks).
-  const saveStudySource = useMemo<SaveToStudySource | null>(() => {
-    if (ctx.kind === 'review') return null;
-    if (ctx.kind === 'analysis' && analysisId) {
-      return { kind: 'analysis', analysisId };
-    }
-    try {
-      const movesOnly = serializeToAnnotatedPgn(
-        history,
-        initialAnnotations,
-        annotationsByIndex,
-      );
-      const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
-      return { kind: 'pgn', pgn, fen: initialFen };
-    } catch {
-      return null;
-    }
-  }, [
-    ctx,
-    analysisId,
-    history,
-    initialAnnotations,
-    annotationsByIndex,
-    initialFen,
-    pgnHeaders,
-  ]);
-
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (gameId && !gameData) return null;
@@ -1519,17 +1480,6 @@ function AnalysisPageInner({
             onTitleSave={handleTitleSave}
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
-            rightSlot={
-              saveStudySource && user ? (
-                // KS-2891 (FC6): для kind='analysis' / 'puzzle' даём
-                // юзеру сохранить текущую позицию в студию. Гостям
-                // кнопку не рисуем (backend в любом случае 401).
-                <SaveToStudyTrigger
-                  source={saveStudySource}
-                  defaultChapterName={analysisTitle}
-                />
-              ) : undefined
-            }
           />
         )}
         {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт
