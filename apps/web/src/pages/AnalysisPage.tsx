@@ -10,10 +10,6 @@ import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
 import { clampMultiPvToLegalMoves } from '../hooks/useStockfish';
-import {
-  getStoredBoardOrientation,
-  setStoredBoardOrientation,
-} from '../utils/analysisBoardOrientation';
 import { useEngine } from '../hooks/useEngine';
 import type { EngineSource } from '../hooks/useEngine';
 import { useEngineConfig } from '../hooks/useEngineConfig';
@@ -236,21 +232,36 @@ function AnalysisPageInner({
     localIdRef.current = analysisId;
   }, [analysisId]);
 
-  // KS-3044: при перевороте доски (1) обновляем state, (2) пишем
-  // новое значение в localStorage под ключом текущего анализа.
-  // Для ad-hoc-сессии без записи в БД (localIdRef.current=undefined)
-  // setStoredBoardOrientation тихо no-op'ит — персистенция включится
-  // позже, в момент создания записи через createAnalysis (см. там
-  // явный вызов setStoredBoardOrientation после `entry.id`).
+  // KS-3046 (заменяет KS-3044 localStorage-слой): при перевороте доски
+  // (1) обновляем state оптимистично, (2) если у анализа уже есть id
+  // в БД — сразу шлём PATCH `{ boardOrientation: next }`. Для ad-hoc-
+  // сессии без id в момент переворота — персистенция отложена до
+  // первого createAnalysis (см. ниже после `entry.id` — там вызывается
+  // updateAnalysis с актуальным значением из boardOrientationRef).
+  // Backend поле `analyses.boardOrientation` добавлено в KS-3045.
   const boardOrientationRef = useRef(boardOrientation);
   boardOrientationRef.current = boardOrientation;
   const flipBoardOrientation = useCallback(() => {
     setBoardOrientation((prev) => {
       const next = prev === 'white' ? 'black' : 'white';
-      setStoredBoardOrientation(localIdRef.current, next);
+      const id = localIdRef.current;
+      // KS-2672: в publicMode не-владелец не должен мутировать чужой
+      // анализ — PATCH не отправляем, ориентация переключается только
+      // локально (на reload вернётся к owner-сохранённому значению).
+      // Авторизованный владелец public-URL ходит на /analysis/:id для
+      // редактирования — там publicMode=false.
+      if (id && !publicMode) {
+        // Fire-and-forget: PATCH без ожидания. Ошибки сети не должны
+        // блокировать UI — пользователь видит state-смену моментально.
+        // Если запись не сохранится (offline / 5xx), следующий переворот
+        // всё равно пошлёт новый PATCH; в худшем случае пользователь
+        // увидит дефолт при следующей загрузке — приемлемая деградация
+        // для UI-настройки.
+        updateAnalysis(id, { boardOrientation: next }).catch(() => {});
+      }
       return next;
     });
-  }, []);
+  }, [updateAnalysis, publicMode]);
   const stateBreadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
   const stateBreadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
   const stateBreadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
@@ -538,14 +549,6 @@ function AnalysisPageInner({
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
         const id = localIdRef.current;
-        // KS-3044: восстановление ориентации доски — отдельно от PGN
-        // и до самого getById, чтобы у пользователя не было микро-флэша
-        // доски в стандартной ориентации перед переворотом. Чтение
-        // localStorage синхронное; getStoredBoardOrientation тихо
-        // отдаёт null для старых записей без сохранённой ориентации,
-        // тогда оставляем дефолт ('white').
-        const storedOrientation = getStoredBoardOrientation(id);
-        if (storedOrientation) setBoardOrientation(storedOrientation);
         (publicMode ? getPublicById(id) : getById(id)).then((saved) => {
           if (saved?.pgn) {
             try {
@@ -558,6 +561,16 @@ function AnalysisPageInner({
               }
             } catch { /* ignore */ }
             setPgnHeaders(parsePgnHeaders(saved.pgn));
+          }
+          // KS-3046: ориентация доски теперь приходит с бэка
+          // (`AnalysisResponse.boardOrientation`, поле добавлено в
+          // KS-3045 миграции). `null` — старые записи без сохранённого
+          // значения → оставляем дефолт ('white'). Применяем после PGN,
+          // потому что getById асинхронен — микро-флэш в стандартной
+          // ориентации до ответа допустим (это уже после spinner'а
+          // загрузки, а на старых анализах вообще нет переворота).
+          if (saved?.boardOrientation === 'white' || saved?.boardOrientation === 'black') {
+            setBoardOrientation(saved.boardOrientation);
           }
           if (saved?.title) { setAnalysisTitle(saved.title); setTitleInput(saved.title); }
           // KS-2666: захватываем owner + публичность для share-кнопки.
@@ -724,14 +737,15 @@ function AnalysisPageInner({
           const entry = await createAnalysis(pgn, analysisTitle, category);
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
-          // KS-3044: до этого момента у анализа не было id и
-          // setStoredBoardOrientation в `flipBoardOrientation` был no-op.
+          // KS-3046: до этого момента у анализа не было id и PATCH
+          // в `flipBoardOrientation` был no-op (id отсутствовал в БД).
           // Если пользователь успел перевернуть доску в ad-hoc-сессии до
-          // первого autosave — переносим текущую ориентацию в storage
-          // под новым id. Записываем только не-дефолт, чтобы не плодить
-          // лишние ключи: 'white' = дефолт, отсутствие ключа = 'white'.
+          // первого autosave — догоняем текущую ориентацию отдельным
+          // PATCH под новым id. Отправляем только не-дефолт ('black'),
+          // т.к. backend для новых записей кладёт null (= 'white' на
+          // фронте), лишний апдейт на 'white' не нужен.
           if (boardOrientationRef.current === 'black') {
-            setStoredBoardOrientation(entry.id, 'black');
+            updateAnalysis(entry.id, { boardOrientation: 'black' }).catch(() => {});
           }
           // KS-2669: только что создали анализ — мы автор. Установим
           // savedOwnerId сразу, чтобы Share-кнопка появилась без

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { AnalysisResponse } from '@kingside/shared';
+import type { AnalysisResponse, UpdateAnalysisRequest } from '@kingside/shared';
 import { api } from '../api';
 
 export type SavedAnalysis = AnalysisResponse;
@@ -33,7 +33,7 @@ export function useSavedAnalyses() {
   );
 
   const update = useCallback(
-    async (id: string, updates: { pgn?: string; title?: string; currentPosition?: number | null }): Promise<void> => {
+    async (id: string, updates: UpdateAnalysisRequest): Promise<void> => {
       await api.patch<AnalysisResponse>(`/analyses/${id}`, updates);
     },
     [],
