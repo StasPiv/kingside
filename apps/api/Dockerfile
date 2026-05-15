@@ -31,6 +31,14 @@ RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
+# KS-3051 (ADR-045 E4): отбросить devDependencies (typescript, jest,
+# ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.). `prisma` CLI и
+# `@prisma/client` остаются — они переехали в `dependencies` пакета
+# packages/db и нужны в runtime для pre-rollout миграций через
+# `aws ecs run-task` на этом же образе.
+# `@prisma/engines` (schema-engine) уже скачан postinstall'ом выше —
+# prune его не трогает (transitive runtime dep пакета prisma).
+RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production
 WORKDIR /app
