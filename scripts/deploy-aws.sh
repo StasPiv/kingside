@@ -443,6 +443,77 @@ save_deployed_commit() {
     echo "  Saved deploy commit: ${commit:0:7}"
 }
 
+# =====================================================================
+# KS-3049 / ADR-045 §5.1: skip `prisma migrate` run-task если нет
+# pending миграций
+# =====================================================================
+# Fargate run-task для `prisma migrate deploy` гонится 60–90 с
+# (image pull + task lifecycle + migrate apply). На warm-деплое без
+# изменений миграций — это чистый overhead, схема уже актуальна.
+#
+# Алгоритм:
+#   1. last_sha = .deploy-commit-aws (записывается ТОЛЬКО при успешном
+#      завершении предыдущего деплоя). Если файла нет / SHA не в git
+#      history — safe-default: запускаем migrate.
+#   2. HEAD == last_sha → схема точно актуальна (если предыдущий деплой
+#      прошёл успешно, _prisma_migrations не отстаёт от HEAD).
+#   3. git diff --name-only $last_sha..HEAD -- $migrations_path
+#      → если пусто, миграций не добавлялось/не менялось → skip.
+#   4. Иначе — запускаем как обычно.
+#
+# Идемпотентность Prisma: если skip ошибочно решил пропустить (нп.
+# .deploy-commit-aws был обновлён, но migrate упал, и потом восстановили
+# вручную) — фоллбэк через docker-entrypoint.sh у api (запускает
+# `prisma migrate deploy` на старте контейнера). Для broadcast/archive
+# такого фоллбэка нет → их skip более рискован, но при честно ведущемся
+# .deploy-commit-aws (обновляется только в конце успешного деплоя)
+# проблема не возникает.
+#
+# Возврат: 0 = «нужно запускать migrate», 1 = «skip, схема up-to-date».
+# Безопасный default — возврат 0 при любой неуверенности.
+#
+# Аргументы:
+#   $1 — label сервиса (для лога), например "api" / "broadcast" / "archive"
+#   $2 — относительный путь к папке миграций, например
+#        "apps/api/prisma/migrations"
+should_run_migrate() {
+    local svc_label="$1"
+    local migrations_path="$2"
+    local last_sha
+    last_sha=$(get_deployed_commit)
+    if [ -z "$last_sha" ]; then
+        echo "[migrate-check $svc_label] no .deploy-commit-aws baseline → run migrate (safe default)"
+        return 0
+    fi
+    if ! git -C "$REPO_DIR" rev-parse --quiet --verify "${last_sha}^{commit}" >/dev/null 2>&1; then
+        echo "[migrate-check $svc_label] last sha ${last_sha:0:7} not in git history → run migrate (safe default)"
+        return 0
+    fi
+    local current_sha
+    current_sha=$(git -C "$REPO_DIR" rev-parse HEAD)
+    if [ "$last_sha" = "$current_sha" ]; then
+        echo "[migrate-check $svc_label] HEAD unchanged since last deploy (${last_sha:0:7}) → skip migrate"
+        return 1
+    fi
+    if [ ! -d "$REPO_DIR/$migrations_path" ]; then
+        echo "[migrate-check $svc_label] migrations dir '$migrations_path' missing → run migrate (safe default)"
+        return 0
+    fi
+    local diff
+    diff=$(git -C "$REPO_DIR" diff --name-only "$last_sha"..HEAD -- "$migrations_path" 2>/dev/null || echo "__diff_failed__")
+    if [ "$diff" = "__diff_failed__" ]; then
+        echo "[migrate-check $svc_label] git diff failed → run migrate (safe default)"
+        return 0
+    fi
+    if [ -n "$diff" ]; then
+        echo "[migrate-check $svc_label] migration changes since ${last_sha:0:7}:"
+        echo "$diff" | sed 's/^/  /'
+        return 0
+    fi
+    echo "[migrate-check $svc_label] no migration changes in '$migrations_path' since ${last_sha:0:7} → skip migrate"
+    return 1
+}
+
 # KS-1826: кэш VPC/subnet/sg — одинаков для всех migrate-run-task. Ленивая
 # инициализация, чтобы dry-scope-проверки не вызывали AWS API без необходимости.
 MIGRATE_VPC_ID=""
@@ -884,22 +955,27 @@ if $DEPLOY_API; then
     echo "  task-def: $NEW_TD_ARN"
     _perf_stamp "api_taskdef_done"
 
-    echo "[api] Running Prisma migrations on new revision..."
-    ensure_migrate_network
-    MIGRATE_TASK=$(aws ecs run-task \
-        --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
-        --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-        --overrides '{"containerOverrides":[{"name":"kingside-api","command":["sh","-c","cd /app/apps/api && npx prisma migrate deploy"]}]}' \
-        --query 'tasks[0].taskArn' --output text)
-    aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
-    MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
-        --query 'tasks[0].containers[0].exitCode' --output text)
-    if [ "$MIGRATE_EXIT" != "0" ]; then
-        echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
-        echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
-        exit 1
+    # KS-3049 / ADR-045 §5.1: skip migrate run-task если нет pending миграций.
+    if should_run_migrate "api" "apps/api/prisma/migrations"; then
+        echo "[api] Running Prisma migrations on new revision..."
+        ensure_migrate_network
+        MIGRATE_TASK=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides":[{"name":"kingside-api","command":["sh","-c","cd /app/apps/api && npx prisma migrate deploy"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+        MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+        if [ "$MIGRATE_EXIT" != "0" ]; then
+            echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            exit 1
+        fi
+        echo "  Migrations applied."
+    else
+        echo "[api] migrate skipped, schema up-to-date (KS-3049)"
     fi
-    echo "  Migrations applied."
     _perf_stamp "api_migrate_done"
 
     echo "[api] Updating ECS service to new revision..."
@@ -1020,22 +1096,27 @@ if $DEPLOY_BROADCAST_SERVICE; then
         # не приехала вместе с деплоем KS-1813 и /rounds падал 500.
         # KS-1826: migrate-run-task идёт на НОВУЮ revision (image :<sha>) — прод-сервисы
         # пока продолжают работать на предыдущей revision / предыдущем :latest.
-        echo "[broadcast-service] Running Prisma migrations (broadcasts-db) on new revision..."
-        ensure_migrate_network
-        MIGRATE_TASK=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"kingside-broadcast-service","command":["sh","-c","cd /app/packages/broadcasts-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
-            --query 'tasks[0].taskArn' --output text)
-        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
-        MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
-            --query 'tasks[0].containers[0].exitCode' --output text)
-        if [ "$MIGRATE_EXIT" != "0" ]; then
-            echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
-            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
-            exit 1
+        # KS-3049: skip migrate run-task если нет pending миграций.
+        if should_run_migrate "broadcast" "packages/broadcasts-db/prisma/migrations"; then
+            echo "[broadcast-service] Running Prisma migrations (broadcasts-db) on new revision..."
+            ensure_migrate_network
+            MIGRATE_TASK=$(aws ecs run-task \
+                --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
+                --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+                --overrides '{"containerOverrides":[{"name":"kingside-broadcast-service","command":["sh","-c","cd /app/packages/broadcasts-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
+                --query 'tasks[0].taskArn' --output text)
+            aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+            MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+                --query 'tasks[0].containers[0].exitCode' --output text)
+            if [ "$MIGRATE_EXIT" != "0" ]; then
+                echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+                echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+                exit 1
+            fi
+            echo "  Migrations applied."
+        else
+            echo "[broadcast-service] migrate skipped, schema up-to-date (KS-3049)"
         fi
-        echo "  Migrations applied."
         _perf_stamp "broadcast_migrate_done"
 
         echo "[broadcast-service] Updating ECS service to new revision..."
@@ -1146,22 +1227,27 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         # ADR-018). Симметрично api- и broadcast-service-блокам (KS-1817).
         # Одного migrate-таска достаточно: все archive task-def family ездят на
         # одном образе и работают с одной БД (ADR-019).
-        echo "[archive-service] Running Prisma migrations (archive-db) on new HTTP revision..."
-        ensure_migrate_network
-        MIGRATE_TASK=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_HTTP_ARN" --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"kingside-archive-service","command":["sh","-c","cd /app/packages/archive-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
-            --query 'tasks[0].taskArn' --output text)
-        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
-        MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
-            --query 'tasks[0].containers[0].exitCode' --output text)
-        if [ "$MIGRATE_EXIT" != "0" ]; then
-            echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
-            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
-            exit 1
+        # KS-3049: skip migrate run-task если нет pending миграций.
+        if should_run_migrate "archive" "packages/archive-db/prisma/migrations"; then
+            echo "[archive-service] Running Prisma migrations (archive-db) on new HTTP revision..."
+            ensure_migrate_network
+            MIGRATE_TASK=$(aws ecs run-task \
+                --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_HTTP_ARN" --launch-type FARGATE \
+                --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+                --overrides '{"containerOverrides":[{"name":"kingside-archive-service","command":["sh","-c","cd /app/packages/archive-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
+                --query 'tasks[0].taskArn' --output text)
+            aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+            MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+                --query 'tasks[0].containers[0].exitCode' --output text)
+            if [ "$MIGRATE_EXIT" != "0" ]; then
+                echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+                echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+                exit 1
+            fi
+            echo "  Migrations applied."
+        else
+            echo "[archive-service] migrate skipped, schema up-to-date (KS-3049)"
         fi
-        echo "  Migrations applied."
     else
         echo "[archive-service] HTTP service not ACTIVE (status=$ARCHIVE_SVC_STATUS) — skipping migrate step."
     fi
