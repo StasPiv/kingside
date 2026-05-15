@@ -82,123 +82,264 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # =====================================================================
-# KS-2993: Deploy mutex (flock) — блокировка параллельных деплоев
+# KS-2993 / KS-3057: Deploy mutex (flock) — блокировка параллельных деплоев
 # =====================================================================
-# Параллельные деплои ломали прод: два frontend-build'а заливались в S3 с
-# --delete почти одновременно, второй сносил чанки первого, index.html
-# оставался с битыми ссылками на отсутствующие bundles (KS-2993, инцидент
-# 14.05.2026 — KS-2887 + KS-2894).
+# Параллельные деплои одного scope ломали прод: два frontend-build'а
+# заливались в S3 с --delete почти одновременно, второй сносил чанки
+# первого (KS-2993, инцидент 14.05.2026). Однако одновременные деплои
+# *разных* сервисов корректности не нарушают: каждый пишет в свой ECR-репо
+# и обновляет свой ECS-сервис.
 #
-# Решение: re-exec самого себя под утилитой `flock`. flock(1) держит fd
-# на lock-файле как PARENT-процесс, deploy-скрипт — его child. Так fd
-# не наследуется дочерними командами деплоя (aws/npm/docker), и lock
-# освобождается ровно когда родительский flock завершается — независимо
-# от того, какие orphan-child'ы остались после краша скрипта.
+# KS-3057: вместо одного общего lock'а — двухуровневая схема (классический
+# readers-writers через flock -s/-x):
 #
-# Одновременно может идти ТОЛЬКО ОДИН deploy любого scope (frontend/api/
-# game-service/broadcast/archive/tactic-worker/workers/all). Все scope
-# делят один и тот же lock-файл.
+#   1) `.deploy.lock` (master, shared/exclusive).
+#      - per-scope деплои берут SHARED (-s): много readers одновременно.
+#      - `scope:all` берёт EXCLUSIVE (-x): writer, ждёт всех readers.
 #
-# Механика:
-# 1. Probe-фаза в исходном процессе: открываем lock-файл на fd 199, делаем
-#    flock -n. Если занят — читаем метаданные предыдущего владельца, выводим
-#    детальную ошибку и exit 1.
-# 2. Если probe прошёл — отпускаем fd 199 и делаем `exec flock -n -E 75
-#    <lockfile> "$0" "$@"`. Текущий процесс заменяется на flock, который
-#    запускает deploy-скрипт повторно, уже под защитой lock'а. Маркер
-#    KINGSIDE_DEPLOY_LOCK_HELD=1 не даёт уйти в рекурсию.
-# 3. После захвата записываем метаданные (pid, scope, agent, timestamp,
-#    host) в lock-файл — для информативности при следующих отказах.
-# 4. trap EXIT опустошает lock-файл (само освобождение делает flock-parent
-#    при закрытии своего fd на exit).
+#   2) `.deploy.<scope>.lock` (per-scope, exclusive).
+#      - каждый scope (frontend / api / game-service / broadcast-service /
+#        archive-service / tactic-worker / synthetic-bot) — свой lock.
+#      - два деплоя одного scope не идут параллельно (frontend-инцидент).
+#      - `scope:all` не использует per-scope lock'и (берёт master exclusive).
 #
-# Между шагом 1 (probe-release) и шагом 2 (re-exec) теоретически есть
-# микро-race — другой процесс может захватить lock в этот промежуток.
-# В таком случае flock в шаге 2 вернёт код 75 без детальных метаданных,
-# но безопасность не нарушается (один deploy остаётся в один момент).
+# Это даёт: deploy api + deploy broadcast-service параллельны; два
+# deploy broadcast-service последовательны; deploy all ждёт всех и
+# блокирует новых.
+#
+# Решение через re-exec `flock(1)`: flock-parent держит fd на lock-файле,
+# deploy-скрипт — child. fd не наследуется дочерним aws/npm/docker
+# (--close, флаг -o), lock освобождается ровно когда flock-parent умирает
+# — независимо от orphan-child'ов после краха скрипта (KS-2993).
+#
+# Двухуровневый re-exec: первый под master, второй под per-scope.
+# Цепочка процессов: flock(master) → flock(per-scope) → deploy-aws.sh.
+# Маркеры в env:
+#   KINGSIDE_DEPLOY_LOCK_MASTER_HELD=1 — уже под master flock.
+#   KINGSIDE_DEPLOY_LOCK_SCOPE_HELD=1  — уже под per-scope flock (финал).
+#
+# Bypass для отладки: KINGSIDE_DEPLOY_SKIP_LOCK=1 пропускает acquire.
 #
 # Stale-таймаут 15 мин (DEPLOY_LOCK_STALE_WARN_SEC) — только информативный
 # warn при отказе. Force-override НЕ делаем: легитимный `deploy all` с
-# миграциями может идти дольше 15 мин, ручное снятие lock'а сломает S3
-# sync / ECS rollout. Если процесс реально мёртв — flock сам освободит.
-#
-# Bypass для отладки: KINGSIDE_DEPLOY_SKIP_LOCK=1 пропускает acquire.
+# миграциями может идти дольше 15 мин, ручное снятие lock'а сломает
+# текущий деплой. Если процесс реально мёртв — flock сам освободит.
 # =====================================================================
 DEPLOY_LOCK_FILE="$REPO_DIR/.deploy.lock"
 DEPLOY_LOCK_STALE_WARN_SEC=900
 DEPLOY_LOCK_EXIT_CODE=75
 
-acquire_deploy_lock() {
+# Список валидных per-scope значений (`workers` раскладывается в два
+# scope'а, поэтому здесь его нет — он обрабатывается отдельно ниже).
+DEPLOY_SCOPES_WITH_PER_LOCK=(frontend api game-service broadcast-service archive-service tactic-worker synthetic-bot)
+
+# Файл per-scope lock'а для конкретного scope.
+deploy_scope_lock_file() {
+    echo "$REPO_DIR/.deploy.${1}.lock"
+}
+
+# Описание holder'а: читаем метаданные из lock-файла + вычисляем возраст.
+# Аргументы: $1 — путь к lock-файлу, $2 — префикс лога ("master" / "scope/api").
+_deploy_lock_print_holder() {
+    local lock_file="$1"
+    local label="$2"
+    local holder_info lock_mtime now age
+    holder_info="$(cat "$lock_file" 2>/dev/null || echo '<no metadata>')"
+    if ! lock_mtime=$(stat -c '%Y' "$lock_file" 2>/dev/null); then
+        lock_mtime=$(stat -f '%m' "$lock_file" 2>/dev/null || echo 0)
+    fi
+    now=$(date +%s)
+    age=$((now - lock_mtime))
+    echo "[deploy-lock $label] Holder metadata:" >&2
+    echo "$holder_info" | sed 's/^/  /' >&2
+    echo "[deploy-lock $label] Lock age: ${age}s" >&2
+    if [ "$age" -gt "$DEPLOY_LOCK_STALE_WARN_SEC" ]; then
+        echo "[deploy-lock $label] WARN: lock is older than ${DEPLOY_LOCK_STALE_WARN_SEC}s — holder may be hung." >&2
+        echo "[deploy-lock $label] If you're sure the holder is dead, kill its PID — flock releases automatically." >&2
+    else
+        echo "[deploy-lock $label] Retry after the current deploy completes." >&2
+    fi
+}
+
+# =====================================================================
+# Acquire deploy locks (двухуровневая схема, KS-3057).
+# Вызывается ПОСЛЕ резолва SCOPE.
+#
+# Аргументы: $1 — резолвленный scope (frontend / api / game-service /
+# broadcast-service / archive-service / tactic-worker / synthetic-bot /
+# workers / all).
+#
+# Re-exec проходит в три этапа (внутренние маркеры в env):
+#   0) Нет маркеров → probe master. Probe прошёл → re-exec под flock-master.
+#   1) `*_MASTER_HELD=1`, нет SCOPE_HELD → если scope==all, финал; иначе
+#      probe per-scope, re-exec под flock-per-scope. Для workers — две
+#      последовательные re-exec'ии (по одному per-scope за раз).
+#   2) `*_SCOPE_HELD=1` → финал, записываем метаданные, ставим trap.
+# =====================================================================
+acquire_deploy_locks() {
     if [ "${KINGSIDE_DEPLOY_SKIP_LOCK:-0}" = "1" ]; then
         echo "[deploy-lock] KINGSIDE_DEPLOY_SKIP_LOCK=1 — bypassing mutex (debug mode)"
         return 0
     fi
-    local requested_scope="${1:-auto}"
+    local scope="$1"
 
-    # Шаг 3: если мы уже под flock-wrapper'ом — записываем метаданные и
-    # ставим trap. Сам lock держит наш PARENT (утилита flock).
-    if [ "${KINGSIDE_DEPLOY_LOCK_HELD:-0}" = "1" ]; then
-        : > "$DEPLOY_LOCK_FILE"
+    local master_held="${KINGSIDE_DEPLOY_LOCK_MASTER_HELD:-0}"
+    local scope_held="${KINGSIDE_DEPLOY_LOCK_SCOPE_HELD:-0}"
+
+    # Финал: оба уровня уже у нас (или master+all). Пишем метаданные и trap.
+    if [ "$scope_held" = "1" ] || { [ "$master_held" = "1" ] && [ "$scope" = "all" ]; }; then
+        local primary_lock_file
+        if [ "$scope" = "all" ]; then
+            primary_lock_file="$DEPLOY_LOCK_FILE"
+        else
+            # При workers выбираем lock-файл с pid'ом текущего процесса как «маяк»
+            # (имя scope записываем по реальному режиму "workers", чтобы holder
+            # metadata показывала правильный режим).
+            primary_lock_file="$(deploy_scope_lock_file "$scope")"
+        fi
+        : > "$primary_lock_file"
         {
             echo "pid=$$"
-            echo "scope=$requested_scope"
+            echo "scope=$scope"
             echo "agent=${AGENT_NAME:-${USER:-unknown}}"
             echo "started_at=$(date -Iseconds 2>/dev/null || date)"
             echo "started_unix=$(date +%s)"
             echo "host=$(hostname 2>/dev/null || echo unknown)"
-        } >> "$DEPLOY_LOCK_FILE"
-        trap 'release_deploy_lock' EXIT
-        echo "[deploy-lock] Acquired (scope=$requested_scope, pid=$$, agent=${AGENT_NAME:-${USER:-unknown}})"
+        } >> "$primary_lock_file"
+        trap '_deploy_lock_release_trap' EXIT
+        echo "[deploy-lock] Acquired (scope=$scope, pid=$$, agent=${AGENT_NAME:-${USER:-unknown}})"
         return 0
     fi
 
-    # Шаг 1: probe-фаза. Создаём файл если нужно, пробуем взять lock на fd 199
-    # с timeout 0. При отказе показываем holder'а.
-    [ -e "$DEPLOY_LOCK_FILE" ] || : > "$DEPLOY_LOCK_FILE"
-    exec 199>>"$DEPLOY_LOCK_FILE"
-    if ! flock -n 199; then
-        local holder_info lock_mtime now age
-        holder_info="$(cat "$DEPLOY_LOCK_FILE" 2>/dev/null || echo '<no metadata>')"
-        if ! lock_mtime=$(stat -c '%Y' "$DEPLOY_LOCK_FILE" 2>/dev/null); then
-            lock_mtime=$(stat -f '%m' "$DEPLOY_LOCK_FILE" 2>/dev/null || echo 0)
-        fi
-        now=$(date +%s)
-        age=$((now - lock_mtime))
-        echo "[deploy-lock] ERROR: another deploy is already in progress (requested scope=$requested_scope)." >&2
-        echo "[deploy-lock] Holder metadata:" >&2
-        echo "$holder_info" | sed 's/^/  /' >&2
-        echo "[deploy-lock] Lock age: ${age}s" >&2
-        if [ "$age" -gt "$DEPLOY_LOCK_STALE_WARN_SEC" ]; then
-            echo "[deploy-lock] WARN: lock is older than ${DEPLOY_LOCK_STALE_WARN_SEC}s — holder may be hung." >&2
-            echo "[deploy-lock] If you're sure the holder is dead, kill its PID — flock releases automatically." >&2
+    # Этап 0 → 1: probe + re-exec под master.
+    if [ "$master_held" = "0" ]; then
+        [ -e "$DEPLOY_LOCK_FILE" ] || : > "$DEPLOY_LOCK_FILE"
+        exec 199>>"$DEPLOY_LOCK_FILE"
+        local flock_mode_probe flock_mode_real
+        if [ "$scope" = "all" ]; then
+            flock_mode_probe="-n -x"
+            flock_mode_real="-n -E $DEPLOY_LOCK_EXIT_CODE -o -x"
         else
-            echo "[deploy-lock] Retry after the current deploy completes." >&2
+            flock_mode_probe="-n -s"
+            flock_mode_real="-n -E $DEPLOY_LOCK_EXIT_CODE -o -s"
         fi
+        # shellcheck disable=SC2086
+        if ! flock $flock_mode_probe 199; then
+            echo "[deploy-lock master] ERROR: cannot acquire master lock as ${flock_mode_probe} (scope=$scope)." >&2
+            _deploy_lock_print_holder "$DEPLOY_LOCK_FILE" "master"
+            exit 1
+        fi
+        # Probe прошёл — отпускаем fd 199, под flock-wrapper возьмём свой.
+        flock -u 199
+        exec 199<&-
+
+        export KINGSIDE_DEPLOY_LOCK_MASTER_HELD=1
+        # shellcheck disable=SC2086
+        exec flock $flock_mode_real "$DEPLOY_LOCK_FILE" "$0" "$@"
+    fi
+
+    # Этап 1 → 2: уже под master. Берём per-scope (или финал для all).
+    if [ "$scope" = "all" ]; then
+        # all: per-scope не нужен. Финал — снова в верхнюю ветку (через
+        # рекурсивный вызов с обновлёнными маркерами).
+        export KINGSIDE_DEPLOY_LOCK_SCOPE_HELD=1
+        acquire_deploy_locks "$scope"
+        return $?
+    fi
+
+    if [ "$scope" = "workers" ]; then
+        # workers = broadcast-service + archive-service. Берём ОБА per-scope
+        # lock'а через цепочку из двух re-exec'ов. Маркер промежуточного
+        # состояния — KINGSIDE_DEPLOY_LOCK_WORKERS_STAGE.
+        local workers_stage="${KINGSIDE_DEPLOY_LOCK_WORKERS_STAGE:-0}"
+        local scope_lock_file scope_label
+        if [ "$workers_stage" = "0" ]; then
+            scope_lock_file="$(deploy_scope_lock_file broadcast-service)"
+            scope_label="scope/broadcast-service"
+            [ -e "$scope_lock_file" ] || : > "$scope_lock_file"
+            exec 198>>"$scope_lock_file"
+            if ! flock -n -x 198; then
+                echo "[deploy-lock $scope_label] ERROR: per-scope lock busy (workers needs broadcast-service)." >&2
+                _deploy_lock_print_holder "$scope_lock_file" "$scope_label"
+                exit 1
+            fi
+            flock -u 198
+            exec 198<&-
+            export KINGSIDE_DEPLOY_LOCK_WORKERS_STAGE=1
+            exec flock -n -E "$DEPLOY_LOCK_EXIT_CODE" -o -x "$scope_lock_file" "$0" "$@"
+        elif [ "$workers_stage" = "1" ]; then
+            scope_lock_file="$(deploy_scope_lock_file archive-service)"
+            scope_label="scope/archive-service"
+            [ -e "$scope_lock_file" ] || : > "$scope_lock_file"
+            exec 197>>"$scope_lock_file"
+            if ! flock -n -x 197; then
+                echo "[deploy-lock $scope_label] ERROR: per-scope lock busy (workers needs archive-service)." >&2
+                _deploy_lock_print_holder "$scope_lock_file" "$scope_label"
+                exit 1
+            fi
+            flock -u 197
+            exec 197<&-
+            export KINGSIDE_DEPLOY_LOCK_WORKERS_STAGE=2
+            export KINGSIDE_DEPLOY_LOCK_SCOPE_HELD=1
+            exec flock -n -E "$DEPLOY_LOCK_EXIT_CODE" -o -x "$scope_lock_file" "$0" "$@"
+        fi
+    fi
+
+    # Обычный per-scope (один lock).
+    local scope_lock_file scope_label
+    scope_lock_file="$(deploy_scope_lock_file "$scope")"
+    scope_label="scope/$scope"
+    [ -e "$scope_lock_file" ] || : > "$scope_lock_file"
+    exec 198>>"$scope_lock_file"
+    if ! flock -n -x 198; then
+        echo "[deploy-lock $scope_label] ERROR: per-scope lock busy (scope=$scope)." >&2
+        _deploy_lock_print_holder "$scope_lock_file" "$scope_label"
         exit 1
     fi
-    # Отпускаем probe-lock и закрываем fd 199 (flock-wrapper возьмёт свой).
-    flock -u 199
-    exec 199<&-
+    flock -u 198
+    exec 198<&-
 
-    # Шаг 2: re-exec под flock-утилитой.
-    # -n: non-blocking
-    # -E 75: код выхода при отказе захвата (если кто-то проскочил micro-race)
-    # -o (--close): закрыть lock-fd ПЕРЕД exec'ом deploy-скрипта. Без этого
-    #   bash-child наследует fd и держит lock даже после смерти flock-parent'а,
-    #   что ломает auto-release при SIGKILL/crash сценариях.
-    export KINGSIDE_DEPLOY_LOCK_HELD=1
-    exec flock -n -E "$DEPLOY_LOCK_EXIT_CODE" -o "$DEPLOY_LOCK_FILE" "$0" "$@"
+    export KINGSIDE_DEPLOY_LOCK_SCOPE_HELD=1
+    exec flock -n -E "$DEPLOY_LOCK_EXIT_CODE" -o -x "$scope_lock_file" "$0" "$@"
 }
 
-release_deploy_lock() {
-    # flock-parent освобождает lock при своём exit. Файл опустошаем, чтобы
-    # следующий запуск не увидел stale-метаданные предыдущего владельца.
-    : > "$DEPLOY_LOCK_FILE" 2>/dev/null || true
+_deploy_lock_release_trap() {
+    # flock-parent освобождает lock при exit. Опустошаем lock-файлы, чтобы
+    # следующий запуск не видел stale метаданные предыдущего владельца.
+    local scope="${KINGSIDE_DEPLOY_RESOLVED_SCOPE:-}"
+    if [ "$scope" = "all" ]; then
+        : > "$DEPLOY_LOCK_FILE" 2>/dev/null || true
+    elif [ "$scope" = "workers" ]; then
+        : > "$(deploy_scope_lock_file broadcast-service)" 2>/dev/null || true
+        : > "$(deploy_scope_lock_file archive-service)" 2>/dev/null || true
+    elif [ -n "$scope" ]; then
+        : > "$(deploy_scope_lock_file "$scope")" 2>/dev/null || true
+    fi
 }
 
-# Захватываем lock как можно раньше — до git fetch, npm install и AWS-работы.
-# Argv[1] — будущий FORCE_SCOPE (auto, frontend, api, ...).
-acquire_deploy_lock "$@"
+# =====================================================================
+# Git-sync lock (KS-3057) — короткий flock на время git fetch+ff-only.
+# Защищает .git/index.lock от race между параллельными деплоями разных
+# scope'ов (которые теперь стартуют одновременно). Держится секунды;
+# параллелизм AWS-этапов не затрагивает.
+# =====================================================================
+GIT_SYNC_LOCK_FILE="$REPO_DIR/.git-sync.lock"
+
+acquire_git_sync_lock() {
+    [ -e "$GIT_SYNC_LOCK_FILE" ] || : > "$GIT_SYNC_LOCK_FILE"
+    exec 196>>"$GIT_SYNC_LOCK_FILE"
+    # Ждём до 60 с — git fetch+ff-only обычно укладывается в 1-3 с.
+    if ! flock -w 60 196; then
+        echo "[git-sync-lock] WARN: could not acquire .git-sync.lock within 60s, proceeding without it" >&2
+        exec 196<&-
+        return 0
+    fi
+}
+
+release_git_sync_lock() {
+    flock -u 196 2>/dev/null || true
+    exec 196<&- 2>/dev/null || true
+}
 
 # AWS config
 REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
@@ -292,7 +433,7 @@ export AWS_DEFAULT_REGION="$REGION"
 # Пишет таймстампы (ms-precision) в /project/logs/deploy-perf-<ts>-<pid>.log.
 # Включено всегда (накладные расходы — date + echo, доли мс на этап).
 # Файл уникален по timestamp+PID → параллельные запуски не пересекаются
-# (хотя flock в acquire_deploy_lock и так блокирует параллелизм).
+# (хотя acquire_deploy_locks через flock и так блокирует параллелизм одного scope).
 #
 # Формат строки: <epoch_ms>\t<stage_name>
 # Парсится отдельно (см. docs/devops/deploy-perf-baseline.md).
@@ -399,7 +540,15 @@ ensure_main_synced() {
     exit 1
 }
 _perf_stamp "01_pre_git_sync"
-ensure_main_synced
+# KS-3057: git fetch+ff-only — под коротким flock'ом на .git-sync.lock,
+# защищаем .git/index.lock от race между параллельными per-scope деплоями.
+# Пропускаем повторный fetch если уже под master flock (re-exec): HEAD уже
+# на нужном sha, повторный fetch — лишняя операция.
+if [ "${KINGSIDE_DEPLOY_LOCK_MASTER_HELD:-0}" = "0" ]; then
+    acquire_git_sync_lock
+    ensure_main_synced
+    release_git_sync_lock
+fi
 _perf_stamp "02_post_git_sync"
 
 # SHA текущего HEAD — используется и как docker-тег, и как ECR tag.
@@ -812,7 +961,12 @@ FORCE_SCOPE="${1:-auto}"
 fix_symlinks
 ensure_deps
 
-if [ "$FORCE_SCOPE" = "auto" ]; then
+# KS-3057: при re-exec через flock-обёртки SCOPE уже зарезолвлен и
+# проброшен в env — повторный detect не нужен.
+if [ -n "${KINGSIDE_DEPLOY_RESOLVED_SCOPE:-}" ]; then
+    SCOPE="$KINGSIDE_DEPLOY_RESOLVED_SCOPE"
+    echo "Inherited scope (under lock): $SCOPE"
+elif [ "$FORCE_SCOPE" = "auto" ]; then
     SCOPE=$(detect_deploy_scope)
     if [ "$SCOPE" = "none" ]; then
         echo "No changes since last deploy ($(get_deployed_commit | head -c 7)). Nothing to do."
@@ -823,6 +977,12 @@ else
     SCOPE="$FORCE_SCOPE"
     echo "Forced scope: $SCOPE"
 fi
+
+# KS-3057: захватываем lock'и ПОСЛЕ резолва scope, чтобы знать какие
+# именно per-scope lock'и брать (двухуровневая схема: master shared/
+# exclusive + per-scope exclusive). Экспортируем scope для release-trap.
+export KINGSIDE_DEPLOY_RESOLVED_SCOPE="$SCOPE"
+acquire_deploy_locks "$SCOPE"
 
 DEPLOY_FRONTEND=false
 DEPLOY_API=false
