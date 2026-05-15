@@ -536,6 +536,11 @@ model Analysis {
   category        String  @default("analysis")
   tags            String  @default("")
   currentPosition Int?    @map("current_position")
+  /// KS-3045. Ориентация доски, сохранённая автором (white|black).
+  /// `null` означает «не задано» — фронт использует свой дефолт.
+  /// Хранится per-user-per-analysis, синхронизируется между устройствами
+  /// (поправка к KS-3044, где было через localStorage).
+  boardOrientation BoardOrientation? @map("board_orientation")
   /// KS-2600 (ADR-051 §3, share-1). Флаг публичности анализа.
   /// Если `true` — запись доступна по `GET /analyses/public/:id`
   /// без авторизации (см. share-2). Toggle делает автор через
@@ -551,6 +556,14 @@ model Analysis {
   @@index([userId])
   @@index([userId, createdAt])
   @@map("analyses")
+}
+
+/// KS-3045. Ориентация доски в анализе.
+/// `white`/`black` — кто внизу. Сравни с `enum PieceColor` (используется
+/// в moves), но семантика другая: тут — view-настройка, а не цвет фигур.
+enum BoardOrientation {
+  white
+  black
 }
 
 model SavedFilter {

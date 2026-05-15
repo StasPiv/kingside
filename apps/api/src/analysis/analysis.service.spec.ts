@@ -25,6 +25,7 @@ describe('AnalysisService', () => {
     category: 'analysis',
     tags: '',
     currentPosition: null,
+    boardOrientation: null as 'white' | 'black' | null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -440,6 +441,97 @@ describe('AnalysisService', () => {
       // не пришедшие headers НЕ передаются (round, site, opening и т.п.)
       expect(data).not.toHaveProperty('round');
       expect(data).not.toHaveProperty('site');
+    });
+
+    // ── KS-3045: PATCH сохраняет boardOrientation. Поле передаётся в
+    // data ТОЛЬКО когда ключ явно присутствует в DTO. `null` — валидный
+    // ввод (сброс на дефолт). Без ключа — поле не трогаем.
+    describe('KS-3045 boardOrientation', () => {
+      it('PATCH boardOrientation="black" сохраняет значение', async () => {
+        prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
+        prisma.analysis.update.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: 'black',
+        });
+
+        await service.update(userId, 'analysis-1', {
+          boardOrientation: 'black',
+        });
+
+        const data = prisma.analysis.update.mock.calls[0][0].data;
+        expect(data.boardOrientation).toBe('black');
+      });
+
+      it('PATCH boardOrientation="white" сохраняет значение', async () => {
+        prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
+        prisma.analysis.update.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: 'white',
+        });
+
+        await service.update(userId, 'analysis-1', {
+          boardOrientation: 'white',
+        });
+
+        const data = prisma.analysis.update.mock.calls[0][0].data;
+        expect(data.boardOrientation).toBe('white');
+      });
+
+      it('PATCH boardOrientation=null сохраняет null (сброс на дефолт)', async () => {
+        prisma.analysis.findUnique.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: 'black',
+        });
+        prisma.analysis.update.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: null,
+        });
+
+        await service.update(userId, 'analysis-1', {
+          boardOrientation: null,
+        });
+
+        const data = prisma.analysis.update.mock.calls[0][0].data;
+        expect(data).toHaveProperty('boardOrientation', null);
+      });
+
+      it('PATCH без boardOrientation НЕ трогает поле (undefined → не в data)', async () => {
+        prisma.analysis.findUnique.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: 'black',
+        });
+        prisma.analysis.update.mockResolvedValue(mockAnalysis);
+
+        await service.update(userId, 'analysis-1', { title: 'renamed' });
+
+        const data = prisma.analysis.update.mock.calls[0][0].data;
+        expect(data).not.toHaveProperty('boardOrientation');
+      });
+
+      it('findOne возвращает boardOrientation владельцу', async () => {
+        prisma.analysis.findUnique.mockResolvedValue({
+          ...mockAnalysis,
+          boardOrientation: 'black',
+        });
+
+        const result = await service.findOne(userId, 'analysis-1');
+
+        expect(result.boardOrientation).toBe('black');
+      });
+
+      it('findPublic возвращает boardOrientation третьему лицу', async () => {
+        prisma.analysis.findUnique.mockResolvedValue({
+          ...mockAnalysis,
+          isPublic: true,
+          boardOrientation: 'black',
+        });
+
+        const result = await service.findPublic('analysis-1');
+
+        expect(result.boardOrientation).toBe('black');
+        // публичная проекция, как и раньше, без userId
+        expect(result).not.toHaveProperty('userId');
+      });
     });
   });
 

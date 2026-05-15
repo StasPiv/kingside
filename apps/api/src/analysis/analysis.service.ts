@@ -375,6 +375,13 @@ export class AnalysisService implements OnModuleInit {
         ...(dto.pgn !== undefined && { pgn: dto.pgn }),
         ...(dto.fen !== undefined && { fen: dto.fen }),
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
+        // KS-3045: ориентация доски, сохранённая автором. `null`
+        // допустим и означает «сброс на дефолт фронта». Поле в data
+        // попадает только если клиент явно прислал ключ — пустой
+        // PATCH без `boardOrientation` ничего не трогает.
+        ...(dto.boardOrientation !== undefined && {
+          boardOrientation: dto.boardOrientation,
+        }),
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
         ...headerUpdate,
       },

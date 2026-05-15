@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateAnalysisDto {
   @IsOptional()
@@ -17,6 +17,14 @@ export class UpdateAnalysisDto {
   @IsInt()
   @Min(0)
   currentPosition?: number | null;
+
+  // KS-3045: ориентация доски, сохранённая автором.
+  // `null` явно разрешён — сброс на дефолт фронта.
+  // `@IsOptional()` пропускает undefined и null, `@IsIn` валидирует
+  // только когда значение пришло строкой → 'foo' → 400.
+  @IsOptional()
+  @IsIn(['white', 'black', null])
+  boardOrientation?: 'white' | 'black' | null;
 
   @IsOptional()
   @IsArray()

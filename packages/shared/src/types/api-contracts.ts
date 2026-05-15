@@ -1312,12 +1312,25 @@ export type CreateAnalysisRequest = {
   fen?: string;
 };
 
+/**
+ * KS-3045. Ориентация доски в анализе (кто внизу).
+ * Хранится на бэке per-user-per-analysis, синхронизируется между
+ * устройствами. `null` — не задано, фронт берёт свой дефолт.
+ */
+export type BoardOrientation = 'white' | 'black';
+
 /** PUT /api/analyses/:id */
 export type UpdateAnalysisRequest = {
   title?: string;
   pgn?: string;
   fen?: string;
   currentPosition?: number | null;
+  /**
+   * KS-3045. Ориентация доски, сохранённая автором.
+   * `null` сбрасывает значение на дефолт фронта.
+   * Пропуск поля (undefined) ничего не меняет в БД.
+   */
+  boardOrientation?: BoardOrientation | null;
 };
 
 /** Full analysis object (GET /api/analyses/:id, POST, PUT responses) */
@@ -1329,6 +1342,13 @@ export type AnalysisResponse = {
   fen: string | null;
   opening: string | null;
   currentPosition: number | null;
+  /**
+   * KS-3045. Ориентация доски, сохранённая автором.
+   * Возвращается и в `GET /api/analyses/:id`, и в публичной проекции
+   * `GET /api/analyses/public/:id` — публичная ссылка показывает
+   * сохранённую автором ориентацию третьему лицу.
+   */
+  boardOrientation: BoardOrientation | null;
   /**
    * KS-2667 (ADR-051 §3 share-2). Признак публичности анализа.
    * Backend (KS-2601) уже возвращает поле, фронт «Поделиться» (KS-2666)
