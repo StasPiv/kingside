@@ -39,17 +39,23 @@ export function ArchiveFenChip({ fen, onClear }: ArchiveFenChipProps) {
       className="archive-games-metadata__fen-chip"
       data-testid="archive-games-metadata-fen-chip"
     >
-      <span className="archive-games-metadata__fen-chip-board">
+      {/* KS-3084 hotfix: span с display:block для chessboard ломал рендер
+          фигур (react-chessboard v5 на узком контейнере 56×56 показывал
+          пустую доску). Заменили на div + увеличили min-size до 80×80,
+          передаём ПОЛНЫЙ fen (а не только board-part) — react-chessboard
+          v5 корректнее парсит полный FEN и не зависит от трактовки
+          board-only варианта. */}
+      <div className="archive-games-metadata__fen-chip-board">
         <Chessboard
           options={{
-            position: fen.split(' ')[0],
+            position: fen,
             boardOrientation: orientation,
             allowDragging: false,
             showNotation: false,
             animationDurationInMs: 0,
           }}
         />
-      </span>
+      </div>
       <span className="archive-games-metadata__fen-chip-info">
         <span className="archive-games-metadata__fen-chip-label">
           {t('archive.games.fenFilter', 'Position filter')}
