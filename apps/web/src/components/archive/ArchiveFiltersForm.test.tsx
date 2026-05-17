@@ -58,8 +58,8 @@ describe('ArchiveFiltersForm — рендер всех полей', () => {
     expect(screen.getByTestId('form-min-elo-2600')).toBeInTheDocument();
     expect(screen.getByTestId('form-time-control-any')).toBeInTheDocument();
     expect(screen.getByTestId('form-time-control-classical')).toBeInTheDocument();
-    expect(screen.getByTestId('form-since')).toBeInTheDocument();
-    expect(screen.getByTestId('form-until')).toBeInTheDocument();
+    // KS-3081: Since/Until объединены в DateRangePicker.
+    expect(screen.getByTestId('form-date-range-trigger')).toBeInTheDocument();
     expect(screen.getByTestId('form-player-input')).toBeInTheDocument();
     // KS-2136: «Event» переехал на `<ArchiveEventAutocomplete>`,
     // у его input'а data-testid='<prefix>-input' (см. ArchiveAutocomplete).
@@ -108,14 +108,21 @@ describe('ArchiveFiltersForm — применение фильтров', () => {
     );
   });
 
-  it('Since (date) пишется в state', async () => {
+  it('KS-3081: DateRangePicker отдаёт since в state через Apply', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     const spy = vi.fn();
     renderWithProviders(<Harness onSpy={spy} />);
-    const input = screen.getByTestId('form-since') as HTMLInputElement;
-    await user.type(input, '2024-01-15');
+    await user.click(screen.getByTestId('form-date-range-trigger'));
+    // Берём первый видимый день текущего месяца календаря.
+    const insideMonth = Array.from(
+      document.querySelectorAll('[data-testid^="form-date-range-day-"]'),
+    ).filter((b) => !(b as HTMLElement).classList.contains('is-outside')) as HTMLButtonElement[];
+    expect(insideMonth.length).toBeGreaterThan(0);
+    const firstIso = insideMonth[0].getAttribute('data-iso')!;
+    await user.click(insideMonth[0]);
+    await user.click(screen.getByTestId('form-date-range-apply'));
     expect(spy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ since: '2024-01-15' }),
+      expect.objectContaining({ since: firstIso }),
     );
   });
 

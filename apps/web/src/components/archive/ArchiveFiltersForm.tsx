@@ -8,6 +8,8 @@ import type {
 import { ArchiveTimeControlChips } from './ArchiveTimeControlChips';
 import { ArchivePlayerAutocomplete } from './ArchivePlayerAutocomplete';
 import { ArchiveEventAutocomplete } from './ArchiveEventAutocomplete';
+// KS-3081: единый range-picker вместо двух input[type=date].
+import { DateRangePicker } from '../DateRangePicker';
 
 /**
  * KS-2125: единая форма фильтров архива партий.
@@ -275,31 +277,24 @@ export function ArchiveFiltersForm({
         testIdPrefix={testIdPrefix}
       />
 
-      {/* Date range */}
-      <label className="archive-games-filters__field">
+      {/* KS-3081: единый range-picker. Раньше тут было два input[type=date]
+          (Since / Until) — занимали два поля в фильтре и не показывали
+          диапазон как целое. Контракт `values.since`/`values.until` в
+          ISO `YYYY-MM-DD` сохранён, URL-параметры тоже.
+          Оборачиваем в div (не label!): label перехватывает клик и
+          может закрывать popup пикера, если внутри popup'а есть label/
+          form-control с другим for-привязкой. */}
+      <div className="archive-games-filters__field">
         <span className="archive-games-filters__label">
-          {t('archive.games.sinceLabel', 'Since')}
+          {t('archive.games.dateRangeLabel', 'Date range')}
         </span>
-        <input
-          type="date"
-          className="archive-games-filters__input"
-          value={values.since}
-          onChange={(e) => apply({ since: e.target.value })}
-          data-testid={tid('since')}
+        <DateRangePicker
+          value={{ from: values.since, to: values.until }}
+          onChange={(next) => apply({ since: next.from, until: next.to })}
+          ariaLabel={t('archive.games.dateRangeLabel', 'Date range')}
+          testIdPrefix={tid('date-range')}
         />
-      </label>
-      <label className="archive-games-filters__field">
-        <span className="archive-games-filters__label">
-          {t('archive.games.untilLabel', 'Until')}
-        </span>
-        <input
-          type="date"
-          className="archive-games-filters__input"
-          value={values.until}
-          onChange={(e) => apply({ until: e.target.value })}
-          data-testid={tid('until')}
-        />
-      </label>
+      </div>
 
       {/* Players (multi).
           KS-2136: после унификации формы (KS-2125) тут был обычный

@@ -1,0 +1,194 @@
+/* KS-3081: компактный date range-picker для архива. */
+.date-range-picker {
+  position: relative;
+  display: inline-block;
+  font-family: inherit;
+}
+
+.date-range-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 32px;
+  background: var(--c-1e293b, #1e293b);
+  color: var(--c-e2e8f0, #e2e8f0);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.date-range-picker__trigger:hover {
+  background: rgba(124, 131, 255, 0.08);
+  border-color: rgba(160, 180, 230, 0.55);
+}
+
+.date-range-picker__trigger-icon {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.date-range-picker__trigger-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-picker__popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  width: 304px;
+  padding: 12px;
+  background: var(--c-0f172a, #0f172a);
+  color: var(--c-e2e8f0, #e2e8f0);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 480px) {
+  .date-range-picker__popup {
+    /* На mobile прижимаемся к левому краю trigger'а, но если не
+       помещаемся — фиксируем правый край. */
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+.date-range-picker__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.date-range-picker__nav-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+  line-height: 1;
+  background: transparent;
+  color: var(--c-e2e8f0, #e2e8f0);
+  border: 1px solid rgba(120, 140, 200, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.date-range-picker__nav-btn:hover {
+  background: rgba(124, 131, 255, 0.12);
+}
+
+.date-range-picker__month-label {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.date-range-picker__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.date-range-picker__weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--c-94a3b8, #94a3b8);
+  text-transform: uppercase;
+}
+
+.date-range-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-range-picker__day {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--c-e2e8f0, #e2e8f0);
+  border: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.date-range-picker__day:hover {
+  background: rgba(124, 131, 255, 0.18);
+}
+
+.date-range-picker__day.is-outside {
+  color: rgba(148, 163, 184, 0.45);
+}
+
+.date-range-picker__day.is-today {
+  outline: 1px dashed rgba(124, 131, 255, 0.5);
+}
+
+.date-range-picker__day.is-start,
+.date-range-picker__day.is-end {
+  background: var(--accent-primary, #7c83ff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.date-range-picker__day.is-in-range {
+  background: rgba(124, 131, 255, 0.22);
+  border-radius: 0;
+}
+
+.date-range-picker__day.is-start {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.date-range-picker__day.is-end {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.date-range-picker__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(120, 140, 200, 0.18);
+  padding-top: 12px;
+}
+
+.date-range-picker__btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-e2e8f0, #e2e8f0);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.date-range-picker__btn--apply {
+  background: var(--accent-primary, #7c83ff);
+  border-color: var(--accent-primary, #7c83ff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.date-range-picker__btn--reset:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.date-range-picker__btn--apply:hover {
+  background: #5d65e6;
+  border-color: #5d65e6;
+}

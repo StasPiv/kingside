@@ -644,7 +644,9 @@
   "common": {
     "loading": "Загрузка...",
     "all": "Все",
-    "dismiss": "Скрыть"
+    "dismiss": "Скрыть",
+    "apply": "Применить",
+    "reset": "Сбросить"
   },
   "auth": {
     "login": {
@@ -2262,7 +2264,8 @@
       "errorMessage": "Не удалось загрузить партии",
       "loadMore": "Показать ещё",
       "loadingMore": "Загрузка…",
-      "setFromImage": "Найти по картинке…"
+      "setFromImage": "Найти по картинке…",
+      "dateRangeLabel": "Период"
     }
   },
   "lessons": {
@@ -3087,5 +3090,13 @@
     "lowConfidenceCells_many": "{{count}} клеток под вопросом",
     "lowConfidenceCells_other": "{{count}} клеток под вопросом",
     "tabTitle": "По картинке"
+  },
+  "dateRange": {
+    "placeholder": "Выберите период",
+    "popupTitle": "Выбор периода",
+    "fromShort": "с",
+    "untilShort": "по",
+    "prevMonth": "Предыдущий месяц",
+    "nextMonth": "Следующий месяц"
   }
 }

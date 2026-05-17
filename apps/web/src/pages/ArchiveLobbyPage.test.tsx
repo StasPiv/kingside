@@ -151,8 +151,11 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(
       screen.getByTestId('archive-search-form-time-control-classical'),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('archive-search-form-since')).toBeInTheDocument();
-    expect(screen.getByTestId('archive-search-form-until')).toBeInTheDocument();
+    // KS-3081: Since/Until заменены на единый DateRangePicker
+    // (`<prefix>-date-range` корень + `-trigger` кнопка).
+    expect(
+      screen.getByTestId('archive-search-form-date-range-trigger'),
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId('archive-search-form-player-input'),
     ).toBeInTheDocument();

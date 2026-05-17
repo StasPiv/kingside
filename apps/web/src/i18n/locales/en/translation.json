@@ -626,7 +626,9 @@
   "common": {
     "loading": "Loading...",
     "all": "All",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "apply": "Apply",
+    "reset": "Reset"
   },
   "auth": {
     "login": {
@@ -2232,7 +2234,8 @@
       "errorMessage": "Failed to load games",
       "loadMore": "Load more",
       "loadingMore": "Loading…",
-      "setFromImage": "Find by image…"
+      "setFromImage": "Find by image…",
+      "dateRangeLabel": "Date range"
     }
   },
   "lessons": {
@@ -3041,5 +3044,13 @@
     "lowConfidenceCells_one": "{{count}} low-confidence cell",
     "lowConfidenceCells_other": "{{count}} low-confidence cells",
     "tabTitle": "From image"
+  },
+  "dateRange": {
+    "placeholder": "Select dates",
+    "popupTitle": "Select date range",
+    "fromShort": "From",
+    "untilShort": "Until",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month"
   }
 }
