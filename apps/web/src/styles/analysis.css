@@ -1847,6 +1847,13 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   display: none;
 }
 
+/* KS-3083: метрики WASM-движка над контролами мобильной вкладки
+   «Движок». На десктопе скрыты (там они выводятся в
+   analysis-panel-title панели движка). */
+.analysis-mobile-engine-meta {
+  display: none;
+}
+
 @media (max-width: 768px) {
   /* Hide desktop-only elements */
   .analysis-desktop-only {
@@ -1997,6 +2004,22 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
     border-bottom: 1px solid var(--c-333);
     width: 100%;
     box-sizing: border-box;
+  }
+
+  /* KS-3083: метрики WASM-движка над контролами на мобильном.
+     Текст приглушённый, мелкий, с переносом по словам — если
+     все 4 значения (название · d · n · nps) не помещаются в
+     одну строку, переезжают на следующую без обрезания. */
+  .analysis-mobile-engine-meta {
+    display: block;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--c-94a3b8, #94a3b8);
+    border-bottom: 1px solid var(--c-333);
+    word-spacing: 0.05em;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
   }
 
   /* KS-1182: раньше табы скрывали, чтобы показывать engine+moves одновременно.

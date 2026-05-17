@@ -420,6 +420,21 @@ export function AnalysisSidebar({
               mobileTab === 'engine' ? ' active' : ''
             }`}
           >
+            {/* KS-3083: метрики WASM-движка (название · d · n · nps) на
+                мобильном. На десктопе они в analysis-panel-title (строки
+                201-202), на мобильном раньше не выводились вовсе — был
+                только ряд контролов. Тестовая жалоба в Telegram: на
+                /analysis вкладке «Движок» не видно ни depth, ни nps, ни
+                версии движка. Кладём над контролами отдельной приглушённой
+                строкой; на ширине ≥4 значений (название + d + n + nps)
+                строка переносится по словам, ничего не обрезается. */}
+            <div
+              className="analysis-mobile-engine-meta"
+              data-testid="analysis-mobile-engine-meta"
+            >
+              {engineName}
+              {engineStatusSuffix}
+            </div>
             <div className="analysis-mobile-engine-controls">
               <span className="engine-multipv-controls">
                 <button
