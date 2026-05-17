@@ -259,6 +259,10 @@ export class PrecisionService {
           },
           // KS-3000 / ADR-065 §6.1. 5★-оценка; null для legacy.
           score: pa.score,
+          // KS-3077 / ADR-065 §6.1. Процент той же WDL/cp-шкалы;
+          // фронт показывает его на карточке вместо accuracyPercent
+          // (синхрон со звёздами и detail-страницей).
+          scorePct: pa.scorePct,
         };
       }
       // Legacy/без moves[]-snapshot — дефолтные агрегаты.
@@ -279,6 +283,7 @@ export class PrecisionService {
           blunder: 0,
         },
         score: null,
+        scorePct: null,
       };
     });
 

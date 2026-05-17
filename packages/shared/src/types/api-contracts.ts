@@ -419,6 +419,15 @@ export interface PrecisionAttemptListItem {
    * Используется в `<PrecisionScoreBadge>` на каталоге (F3).
    */
   score?: number | null;
+  /**
+   * KS-3077 / ADR-065 §6.1. Процент точности из той же шкалы что и
+   * `score` (WDL/cp leak), 0..100. `null` для тех же случаев что и
+   * `score` (legacy + halfMovesPlayed<2). Фронт через
+   * `pickDisplayedAccuracyPct()` (KS-3075) показывает его вместо
+   * `accuracyPercent`, чтобы цифра на карточке списка совпадала с
+   * detail-страницей.
+   */
+  scorePct?: number | null;
 }
 
 /**

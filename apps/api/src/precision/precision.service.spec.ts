@@ -224,11 +224,16 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         },
         // KS-3000: 5★-оценка пробрасывается из БД.
         score: 4,
+        // KS-3077: scorePct из той же WDL/cp-шкалы — фронт показывает
+        // его на карточке вместо accuracyPercent.
+        scorePct: 87.5,
       });
       expect(r.items[1].endReason).toBe('lose-wdl');
       expect(r.items[1].classCounts.blunder).toBe(1);
       // KS-3000: legacy без данных → score=null.
       expect(r.items[1].score).toBeNull();
+      // KS-3077: scorePct тоже null когда score=null.
+      expect(r.items[1].scorePct).toBeNull();
     });
 
     it('фильтр PVE через relation puzzle.solutionMode (KS-2737: без precisionAttempt:isNot:null)', async () => {
@@ -298,6 +303,8 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           mistake: 0,
           blunder: 0,
         },
+        // KS-3077: legacy без precision_attempts → scorePct=null.
+        scorePct: null,
       });
       // modern → реальные значения
       expect(r.items[1]).toMatchObject({
