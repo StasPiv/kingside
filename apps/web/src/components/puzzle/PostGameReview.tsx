@@ -1,6 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import { classifyMove, type MoveClass } from '../../utils/moveClassification';
+// KS-3068: единая классификация хода — теперь через `@kingside/shared`
+// (ADR-066, WDL-loss primary с cp-fallback). До этого PostGameReview
+// использовал устаревший cp-only вариант из `utils/moveClassification`,
+// что приводило к ложным `??` в выигранных позициях (Nd2 100/0/0→100/0/0
+// помечался `blunder`, потому что cp прыгал, хотя WDL не менялся).
+// Источник истины — та же функция, что выводит `classification` на
+// backend'е для `PrecisionMoveDto`, поэтому drill-down и история теперь
+// совпадают по NAG.
+import { classifyMove, type MoveClass } from '@kingside/shared';
 import { permilleToPercent } from '../../utils/chessFormat';
 import type { WdlDistribution } from '../../utils/engineAdapter';
 import type { UserBestSnapshot } from './PlayVsEngineRunner';
@@ -108,12 +116,18 @@ export function buildPgnReviewTokens({
 
     if (isUser) {
       const log = userBestLog[userIdx];
-      if (log && log.cpBefore != null && log.cpAfter != null) {
+      if (log && (log.wdlBefore || log.cpBefore != null) && (log.wdlAfter || log.cpAfter != null)) {
         const isBest = log.playedUci === log.bestUci;
+        // KS-3068: WDL primary (ADR-066). cp передаём как fallback —
+        // если pre/post-analyze не успел снять WDL (старые сборки
+        // Stockfish без UCI_ShowWDL), классификатор сам перейдёт
+        // на cp через winPctFromCp.
         cls = classifyMove({
+          wdlBefore: log.wdlBefore,
+          wdlAfter: log.wdlAfter,
           cpBefore: log.cpBefore,
           cpAfter: log.cpAfter,
-          isBest,
+          isBestMove: isBest,
         });
         nag = NAG_BY_CLASS[cls];
         if (

@@ -17,7 +17,8 @@ import { PrecisionAttemptReview } from '../components/precision/PrecisionAttempt
 // KS-3003 (ADR-065 §5.1.1, F2): 5-балльная плашка над разбором заменяет
 // бывшую бинарную «Preserved/Lost» Result-cell в summary.
 import { PrecisionScoreBlock } from '../components/precision/PrecisionScoreBlock';
-import type { MoveClass } from '../utils/moveClassification';
+// KS-3068: единый MoveClass теперь живёт в @kingside/shared (ADR-066).
+import type { MoveClass } from '@kingside/shared';
 // KS-3040: «Потери преимущества» = net drop в win-probability,
 // клемпнутый в [0..100]%. Раньше это была сумма drops без клемпы.
 import { computeAdvantageLossPct } from '../utils/precisionAdvantageLoss';
@@ -537,38 +538,25 @@ export function PrecisionAttemptPage() {
             })}
             </svg>
           </div>
-          {/* Подписи под точками. Слева оставляем margin под Y-axis. */}
-          <div
+          {/* KS-3069: подписи под точками — список бейджей с переносом.
+              Раньше использовался position:absolute + left:%, что слипало
+              текст при ≥4 точках на узком экране. Теперь flex-wrap: каждый
+              бейдж в отдельном «чипе», между ними gap, перенос на
+              следующую строку при нехватке ширины. */}
+          <ul
             className="precision-attempt-page__sparkline-labels"
             data-testid="precision-attempt-sparkline-labels"
-            style={{
-              position: 'relative',
-              height: '1.6em',
-              marginTop: '0.25rem',
-              marginLeft: '3em',
-              fontSize: '0.75rem',
-            }}
           >
-            {sparkPoints.map((p, i) => {
-              const n = Math.max(1, sparkPoints.length);
-              const left = (i / (n - 1 || 1)) * 100;
-              return (
-                <span
-                  key={`lbl-${i}`}
-                  className="precision-attempt-page__sparkline-label"
-                  data-testid={`precision-attempt-sparkline-label-${i}`}
-                  style={{
-                    position: 'absolute',
-                    left: `${left}%`,
-                    transform: 'translateX(-50%)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p.label}
-                </span>
-              );
-            })}
-          </div>
+            {sparkPoints.map((p, i) => (
+              <li
+                key={`lbl-${i}`}
+                className="precision-attempt-page__sparkline-label"
+                data-testid={`precision-attempt-sparkline-label-${i}`}
+              >
+                {p.label}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

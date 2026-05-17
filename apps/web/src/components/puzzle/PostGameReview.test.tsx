@@ -89,16 +89,16 @@ describe('<PostGameReview> KS-2534', () => {
   });
 
   it('blunder с лучшим ходом → NAG ?? и вариант «(N. SAN!)»', () => {
-    // user сыграл d2-d3 вместо лучшего e2-e4; cpBefore=100, cpAfter=-300
-    // → cp-loss=400 → blunder.
+    // KS-3068: классификация теперь WDL-loss primary (ADR-066).
+    // E_before = 1.0 (W=1000), E_after = 0.0 (L=1000) → loss_E=1.0 → blunder.
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -300,
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 0, d: 0, l: 1000 },
       }),
     ];
     renderWithProviders(
@@ -115,14 +115,15 @@ describe('<PostGameReview> KS-2534', () => {
   });
 
   it('inaccuracy → ?!', () => {
+    // E_before=0.7, E_after=0.62, loss_E=0.08 → inaccuracy (0.05<0.08≤0.12).
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: 30, // cp-loss=70 → inaccuracy
+        wdlBefore: { w: 500, d: 400, l: 100 },
+        wdlAfter: { w: 420, d: 400, l: 180 },
       }),
     ];
     renderWithProviders(
@@ -139,14 +140,15 @@ describe('<PostGameReview> KS-2534', () => {
   });
 
   it('mistake → ?', () => {
+    // E_before=0.7, E_after=0.5, loss_E=0.20 → mistake (0.12<0.20≤0.25).
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -50, // cp-loss=150 → mistake
+        wdlBefore: { w: 500, d: 400, l: 100 },
+        wdlAfter: { w: 300, d: 400, l: 300 },
       }),
     ];
     renderWithProviders(
@@ -161,6 +163,65 @@ describe('<PostGameReview> KS-2534', () => {
     // ровно один знак вопроса
     expect(pgn.textContent).toMatch(/d3\?(?!\?)/);
     expect(pgn.textContent).toMatch(/\(1\. e4!\)/);
+  });
+
+  // KS-3068 regression: UX-bug из жалобы (Wang Shixu B - Nakamura, Nd2).
+  // WDL 100/0/0 → 100/0/0 = эталонный ход в выигранной позиции; cp может
+  // упасть на тысячи, но классификация должна оставаться `best` (`!`),
+  // а не `blunder` (`??`). До KS-3068 PostGameReview использовал cp-only
+  // и ставил `??` в этом сценарии.
+  it('KS-3068: WDL 100/0/0 → 100/0/0 с cp-drop → best (!), не blunder (??)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4', // user не сыграл best, но WDL не упал
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 1000, d: 0, l: 0 },
+        cpBefore: 1500, // cp-loss = 700, по старой формуле — blunder
+        cpAfter: 800,
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    expect(pgn.textContent).toMatch(/d3!/); // best
+    expect(pgn.textContent).not.toMatch(/d3\?\?/); // НЕ blunder
+    expect(pgn.textContent).not.toMatch(/d3\?(?!!)/); // вообще никаких «?»
+  });
+
+  // KS-3068 regression: второй кейс из жалобы (Ndf3 87/13/0% vs Лучший 100/0/0%).
+  // E_before=1.0, E_after=0.87+0.065=0.935, loss_E=0.065 → inaccuracy (?!).
+  // До KS-3068 этот же кейс по cp-only мог давать blunder (??).
+  it('KS-3068: WDL 100/0/0 → 87/13/0 → inaccuracy (?!), не blunder (??)', () => {
+    const log: UserBestSnapshot[] = [
+      snap({
+        halfMove: 1,
+        fenBefore: STARTING_FEN,
+        playedUci: 'd2d3',
+        bestUci: 'e2e4',
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 870, d: 130, l: 0 },
+      }),
+    ];
+    renderWithProviders(
+      <PostGameReview
+        initialFen={STARTING_FEN}
+        playedSans={['d3']}
+        userBestLog={log}
+        userSide="w"
+      />,
+    );
+    const pgn = screen.getByTestId('post-game-review-pgn');
+    expect(pgn.textContent).toMatch(/d3\?!/); // inaccuracy
+    expect(pgn.textContent).not.toMatch(/d3\?\?/); // не blunder
   });
 
   it('user играет чёрными → префикс «N...» у первого хода и движок ходит первым (но первого нет, начинаем с user)', () => {

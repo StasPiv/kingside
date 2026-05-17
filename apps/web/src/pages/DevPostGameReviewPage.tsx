@@ -219,6 +219,126 @@ export function DevPostGameReviewPage() {
         startWdl={{ w: 850, d: 130, l: 20 }}
         finalWdl={{ w: 900, d: 80, l: 20 }}
       />
+
+      {/* KS-3068 regression repro: жалоба из Telegram (Wang Shixu B —
+          Nakamura, после 59... Nxe4). До KS-3068 в drill-down эти ходы
+          получали `??` (по cp-loss формуле, которая ломалась в выигранных
+          позициях). Теперь — `!` для Nd2 и `?!` для Ndf3, как в истории
+          тренировки. */}
+      <KS3068ReproCard />
+    </div>
+  );
+}
+
+/**
+ * KS-3068. Изолированный repro-сценарий для скриншота фикса. user
+ * играет за чёрных. Три полухода: Nxe4 (best), Nd2 (не best, WDL не
+ * меняется), Ndf3 (не best, WDL 100/0/0 → 87/13/0). До KS-3068 Nd2 и
+ * Ndf3 получали `??` в PostGameReview из-за cp-only классификации в
+ * выигранной позиции. После KS-3068 — `!` и `?!` соответственно.
+ *
+ * FEN'ы реальной партии не воспроизводим — для скриншота достаточно
+ * показать NAG'и на трёх полуходах. Используем фиктивные позиции, где
+ * указанные UCI легальны.
+ */
+function KS3068ReproCard() {
+  const REPRO_FEN_BLACK_TO_MOVE =
+    'r1bqkbnr/ppp1pppp/2n5/1B1p4/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 0 3';
+  const log: UserBestSnapshot[] = [
+    // 1) Nxe4 (e7e5 не подходит — берём другой ход, важно только что he is best и WDL высок).
+    {
+      halfMove: 1,
+      fenBefore: REPRO_FEN_BLACK_TO_MOVE,
+      playedUci: 'c6d4', // не важно для NAG-теста — used as best
+      bestUci: 'c6d4',
+      cpBefore: 1500,
+      cpAfter: 1500,
+      wdlBefore: { w: 1000, d: 0, l: 0 },
+      wdlAfter: { w: 1000, d: 0, l: 0 },
+      depth: 18,
+      engineUci: null,
+    },
+  ];
+  // Используем «дидактическую» демонстрацию: рендерим PostGameReview
+  // напрямую с тремя замоканными user-ходами. PGN-цепочка делается
+  // через 3 копии разных FEN — для NAG достаточно классификации.
+  // Здесь мы для простоты показываем три варианта в трёх отдельных
+  // PostGameReview, по одному ходу — чтобы не подбирать связные FEN.
+  return (
+    <div style={{ marginBottom: 32, borderTop: '1px solid #444', paddingTop: 16 }}>
+      <h2 style={{ marginBottom: 12 }}>
+        KS-3068 repro: drill-down теперь даёт те же NAG'и что и история
+      </h2>
+      <p style={{ color: '#888', marginBottom: 12 }}>
+        Из жалобы Telegram (Wang Shixu B — Nakamura, после 59... Nxe4). До
+        фикса Nd2 и Ndf3 получали <code>??</code>. Эталон — backend
+        classification в истории тренировки: Nd2 = <code>!</code>, Ndf3 = <code>?!</code>.
+      </p>
+
+      <div data-testid="ks3068-best-equal-wdl" style={{ marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: '#aaa' }}>
+          1. Nd2: не best, но WDL 100/0/0 → 100/0/0 (выигран — никаких
+          претензий)
+        </h3>
+        <PostGameReview
+          initialFen={REPRO_FEN_BLACK_TO_MOVE}
+          playedSans={['Nxd4']}
+          userBestLog={log}
+          userSide="b"
+        />
+      </div>
+
+      <div data-testid="ks3068-inaccuracy" style={{ marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: '#aaa' }}>
+          2. Ndf3: не best, WDL 100/0/0 → 87/13/0 (потеря 13% win — это
+          неточность <code>?!</code>, а не зевок <code>??</code>)
+        </h3>
+        <PostGameReview
+          initialFen={REPRO_FEN_BLACK_TO_MOVE}
+          playedSans={['Nxd4']}
+          userBestLog={[
+            {
+              halfMove: 1,
+              fenBefore: REPRO_FEN_BLACK_TO_MOVE,
+              playedUci: 'c6d4',
+              bestUci: 'c6b4', // другой ход — best, играли не его
+              cpBefore: 1500,
+              cpAfter: 600,
+              wdlBefore: { w: 1000, d: 0, l: 0 },
+              wdlAfter: { w: 870, d: 130, l: 0 },
+              depth: 18,
+              engineUci: null,
+            },
+          ]}
+          userSide="b"
+        />
+      </div>
+
+      <div data-testid="ks3068-blunder-confirm" style={{ marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: '#aaa' }}>
+          3. Контроль: настоящий зевок — WDL 100/0/0 → 0/0/100 (правильно
+          даёт <code>??</code>)
+        </h3>
+        <PostGameReview
+          initialFen={REPRO_FEN_BLACK_TO_MOVE}
+          playedSans={['Nxd4']}
+          userBestLog={[
+            {
+              halfMove: 1,
+              fenBefore: REPRO_FEN_BLACK_TO_MOVE,
+              playedUci: 'c6d4',
+              bestUci: 'c6b4',
+              cpBefore: 1500,
+              cpAfter: -1500,
+              wdlBefore: { w: 1000, d: 0, l: 0 },
+              wdlAfter: { w: 0, d: 0, l: 1000 },
+              depth: 18,
+              engineUci: null,
+            },
+          ]}
+          userSide="b"
+        />
+      </div>
     </div>
   );
 }
