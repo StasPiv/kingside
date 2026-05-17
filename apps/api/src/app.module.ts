@@ -38,6 +38,7 @@ import { ProfileModule } from './profile/profile.module';
 import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
 import { StudyModule } from './study/study.module';
 import { McpModule } from './mcp/mcp.module';
+import { BoardRecognitionModule } from './board-recognition/board-recognition.module';
 // KS-2967 / ADR-063 Phase 2 — KnowledgeModule временно отключён от
 // bootstrap'а NestJS. Код, тесты и Dockerfile-инструкции остаются в
 // репо для следующей итерации (см. apps/api/src/knowledge/). Причина
@@ -104,6 +105,10 @@ import { HealthController } from './health.controller';
     StudyModule,
     // KS-2952 / ADR-061 этап A. MCP auto-discovery: GET /_mcp/tools.
     McpModule,
+    // KS-2363 / ADR-040 §5.1. POST /api/board-recognition. На проде
+    // работает в disabled-режиме (mock-ответ + warning), пока devops
+    // не выставит ENV BOARD_RECOG_MODEL_VERSION (KS-2364 / KS-3071).
+    BoardRecognitionModule,
     // KS-2967 / ADR-063 Phase 2 (KnowledgeModule) — временно отключён,
     // см. import выше.
   ],

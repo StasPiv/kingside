@@ -3,8 +3,23 @@ FROM node:20-slim AS base
 # KS-2433: Stockfish удалён из api-образа. Движок остаётся только в
 # tactic-worker (когда выделим). Game-report и tactic-drill sf-validator
 # больше не используют SF.
+#
+# KS-2363 / ADR-040: для board-recognition нужен Python 3 + OpenCV + ONNX
+# runtime. Системные либы (libgl1/libglib2.0-0/libsm6/libxext6) — для
+# `import cv2` под opencv-python-headless и Pillow; awscli — entrypoint
+# скачивает модель из S3 при старте, если задан BOARD_RECOG_MODEL_VERSION.
+# Python pip-пакеты (onnxruntime/numpy/opencv-python-headless/Pillow)
+# ставим в финальной production-стадии — см. ниже.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
+    python3 \
+    python3-pip \
+    python3-venv \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    awscli \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -25,10 +40,15 @@ RUN npm ci --ignore-scripts
 RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
+COPY packages/board-image-to-fen ./packages/board-image-to-fen
 COPY apps/api ./apps/api
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
+RUN rm -f packages/board-image-to-fen/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
+# KS-2363 / ADR-040 §5.1: dist/ нужен в production для `await import(
+# '@kingside/board-image-to-fen')` из BoardRecognitionService (lazy).
+RUN npx tsc --build packages/board-image-to-fen
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
@@ -47,8 +67,24 @@ COPY --from=build /app/apps/api/data ./apps/api/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
+# KS-2363: board-image-to-fen tree включает dist/ (TS-обёртка) +
+# src/python/* (board_detect.py / board_recognize.py — spawn'ятся через
+# child_process). Без src/python модуль не сможет вызывать Python-стек.
+COPY --from=build /app/packages/board-image-to-fen ./packages/board-image-to-fen
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
+
+# KS-2363 / KS-2364: inference-зависимости для board-recognition.
+# Используются board_recognize.py / board_detect.py когда
+# BOARD_RECOG_MODEL_VERSION выставлен; в disabled-режиме Python вообще не
+# запускается (BoardRecognitionService возвращает мок). Albumentations
+# намеренно не ставим — это тренировочная аугментация, в inference не
+# нужна.
+RUN pip3 install --no-cache-dir --break-system-packages \
+    numpy==1.26.4 \
+    Pillow==10.4.0 \
+    opencv-python-headless==4.10.0.84 \
+    onnxruntime==1.19.2
 # KS-2967 / ADR-063 Phase 2 — rollback. KnowledgeModule отключён от
 # bootstrap'а в apps/api/src/app.module.ts. ripgrep, COPY apps/web/src,
 # COPY docs убраны, чтобы не раздувать build context и не плодить
@@ -64,6 +100,7 @@ COPY apps/api/package.json ./apps/api/
 COPY apps/api/certs ./apps/api/certs
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
+RUN rm -rf node_modules/@kingside/board-image-to-fen && ln -s ../../packages/board-image-to-fen node_modules/@kingside/board-image-to-fen
 
 ENV NODE_ENV=production
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех

@@ -18,5 +18,47 @@ if [ "${RUN_MIGRATE_ON_START:-false}" = "true" ]; then
   npx prisma migrate deploy
 fi
 
+# KS-2363 / KS-2364 (ADR-040 §5.1): подкачка ONNX-модели board-recog из S3.
+#
+#   * BOARD_RECOG_MODEL_VERSION не задан → ничего не делаем; модуль
+#     поднимется в disabled-режиме (см. ModelLoaderService) и будет
+#     возвращать mock-ответ с warning «model not loaded». Это базовый
+#     режим прода до выкатки модели.
+#   * BOARD_RECOG_MODEL_VERSION задан → пытаемся скачать в
+#     /var/cache/board-recog/model.onnx. На любую ошибку (нет креды,
+#     нет файла в S3, нет сети) — логируем и продолжаем без модели;
+#     ModelLoaderService перейдёт в `error` и health-check это покажет,
+#     но api-контейнер не упадёт (graceful disable).
+#   * BOARD_RECOG_MODEL_DIR / BOARD_RECOG_MODEL_PATH — escape-hatches
+#     для тестов: переопределяют каталог / точный путь.
+download_board_recog_model() {
+  local version="${BOARD_RECOG_MODEL_VERSION:-}"
+  if [ -z "$version" ]; then
+    echo "[entrypoint] BOARD_RECOG_MODEL_VERSION not set — board-recognition disabled."
+    return 0
+  fi
+  local dir="${BOARD_RECOG_MODEL_DIR:-/var/cache/board-recog}"
+  local target="${BOARD_RECOG_MODEL_PATH:-$dir/model.onnx}"
+  local bucket="${BOARD_RECOG_MODEL_BUCKET:-kingside-ml}"
+  local region="${BOARD_RECOG_MODEL_REGION:-eu-central-1}"
+  local key="models/board-recog/v${version}/model.onnx"
+  local s3_uri="s3://${bucket}/${key}"
+
+  if [ -s "$target" ]; then
+    echo "[entrypoint] board-recog model already cached at $target — skip download."
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  echo "[entrypoint] downloading board-recog model: $s3_uri -> $target"
+  if aws s3 cp "$s3_uri" "$target" --region "$region"; then
+    echo "[entrypoint] board-recog model ready: $target ($(stat -c %s "$target") bytes)"
+  else
+    echo "[entrypoint] WARN: failed to download $s3_uri — board-recognition will start in error state." >&2
+    rm -f "$target"
+  fi
+}
+
+download_board_recog_model
+
 echo "[entrypoint] Starting API..."
 exec node dist/main.js

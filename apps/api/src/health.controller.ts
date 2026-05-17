@@ -2,8 +2,28 @@ import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/co
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
 import { McpExclude } from './mcp/decorators';
+import {
+  ModelLoaderService,
+  ModelStatus,
+} from './board-recognition/model-loader.service';
 
 type ComponentStatus = 'ok' | 'error' | 'readonly';
+
+export interface HealthCheckResult {
+  status: 'ok' | 'degraded';
+  db: ComponentStatus;
+  redis: ComponentStatus;
+  /**
+   * KS-2363. Состояние ONNX-модели board-recog. Не влияет на overall
+   * `status` (disabled — штатный режим для прода без выкаченной модели);
+   * `error` отдельным алертом ловит deploy-bug (ENV задан, файла нет).
+   */
+  boardRecog: {
+    status: ModelStatus;
+    version: string | null;
+    error: string | null;
+  };
+}
 
 // KS-2954 (ADR-061 §8): health-check бесполезен ассистенту. AppModule
 // сам по себе не помечен `@McpModule`, и HealthController туда бы не
@@ -16,17 +36,28 @@ export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly boardRecogLoader: ModelLoaderService,
   ) {}
 
   @Get()
-  async check() {
+  async check(): Promise<HealthCheckResult> {
     const [db, redis] = await Promise.all([
       this.checkDb(),
       this.checkRedis(),
     ]);
+    const boardRecogState = this.boardRecogLoader.getState();
 
     const status = db === 'ok' && redis === 'ok' ? 'ok' : 'degraded';
-    return { status, db, redis };
+    return {
+      status,
+      db,
+      redis,
+      boardRecog: {
+        status: boardRecogState.status,
+        version: boardRecogState.version,
+        error: boardRecogState.error,
+      },
+    };
   }
 
   private async checkDb(): Promise<ComponentStatus> {
