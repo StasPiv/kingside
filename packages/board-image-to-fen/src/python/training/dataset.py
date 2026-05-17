@@ -134,11 +134,17 @@ def build_train_transform(cell_size: int = 64):
     7 piece styles). Aggressive augments hurt convergence on tiny 64x64 cells.
     """
     import albumentations as A
+    import cv2  # used below for explicit BORDER_CONSTANT
     from albumentations.pytorch import ToTensorV2
 
     return A.Compose([
         A.LongestMaxSize(max_size=cell_size),
-        A.PadIfNeeded(min_height=cell_size, min_width=cell_size, border_mode=0),
+        A.PadIfNeeded(
+            min_height=cell_size,
+            min_width=cell_size,
+            border_mode=cv2.BORDER_CONSTANT,
+            value=0,
+        ),
         # Geometry — slight jitter to model crop noise from board_detect.py.
         A.Affine(
             translate_percent={"x": (-0.06, 0.06), "y": (-0.06, 0.06)},
@@ -166,11 +172,17 @@ def build_train_transform(cell_size: int = 64):
 def build_eval_transform(cell_size: int = 64):
     """No augmentation, just resize + normalize."""
     import albumentations as A
+    import cv2  # used below for explicit BORDER_CONSTANT
     from albumentations.pytorch import ToTensorV2
 
     return A.Compose([
         A.LongestMaxSize(max_size=cell_size),
-        A.PadIfNeeded(min_height=cell_size, min_width=cell_size, border_mode=0),
+        A.PadIfNeeded(
+            min_height=cell_size,
+            min_width=cell_size,
+            border_mode=cv2.BORDER_CONSTANT,
+            value=0,
+        ),
         A.Normalize(
             mean=(0.485, 0.456, 0.406),
             std=(0.229, 0.224, 0.225),
