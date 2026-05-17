@@ -36,6 +36,7 @@ chmod +x /opt/work/bootstrap.sh
 
 # (5) Полный тренинг внутри pytorch-образа. Хост не трогаем.
 docker run --rm --gpus all \
+    --network host \
     --shm-size=2g \
     -e RUN_ID="$RUN_ID" \
     -v /opt/work:/work \
