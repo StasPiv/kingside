@@ -22,6 +22,8 @@ import type { MoveClass } from '@kingside/shared';
 // KS-3040: «Потери преимущества» = net drop в win-probability,
 // клемпнутый в [0..100]%. Раньше это была сумма drops без клемпы.
 import { computeAdvantageLossPct } from '../utils/precisionAdvantageLoss';
+// KS-3075: единый источник «точности %» — sync с <PrecisionScoreBlock>.
+import { pickDisplayedAccuracyPct } from '../utils/precisionAccuracyDisplay';
 
 /**
  * KS-2719 F4 / KS-2741 / ADR-056 §3.4 + §5. Detail-страница одной
@@ -241,7 +243,11 @@ export function PrecisionAttemptPage() {
   }
 
   const orientation: 'white' | 'black' = userSide === 'w' ? 'white' : 'black';
-  const accuracyText = `${Math.round(data.accuracyPercent)}%`;
+  // KS-3075: верхний summary-блок и нижняя плашка `<PrecisionScoreBlock>`
+  // на этой же странице должны показывать одну и ту же точность.
+  // Логика выбора — `pickDisplayedAccuracyPct` (scorePct primary,
+  // accuracyPercent fallback для legacy без WDL/cp).
+  const accuracyText = `${Math.round(pickDisplayedAccuracyPct(data))}%`;
   // KS-3040: «Потери преимущества» — раньше выводили `wdlLeakSum * 100`,
   // где `wdlLeakSum` — кумулятивная сумма per-move drops в signed
   // WDL-scale [0..2N]. Для многоходовых попыток с большими просадками
