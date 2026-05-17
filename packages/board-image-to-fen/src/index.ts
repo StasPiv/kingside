@@ -22,6 +22,7 @@ const __dirname = dirname(__filename);
 /** Пути к Python-скриптам. Решаются относительно `dist/index.js` после tsc-сборки. */
 const RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'recognizer.py');
 const PDF_RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'pdf_recognizer.py');
+const BOARD_RECOGNIZE_PY = resolve(__dirname, '..', 'src', 'python', 'board_recognize.py');
 
 export type Orientation = 'white' | 'black';
 
@@ -201,6 +202,227 @@ export async function recognizeBoardFen(
 ): Promise<string> {
   const result = await recognizeBoardImage(imagePath, options);
   return result.fen_board;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+ * Universal recognizer (KS-2362 / ADR-040 Stage 3).
+ *
+ * Под капотом — `src/python/board_recognize.py`: Stage 1 (board_detect.py)
+ * → Stage 2 (ONNX MobileNetV3-Small из KS-2361) → Stage 3 (FEN + ориентация
+ * + sanity). Универсальный: работает с любым piece-set'ом (lichess, chess.com,
+ * наш default, фото с углом). Это *дополнение* к существующим
+ * `recognizeBoardImage` (Майзелис) и `recognizePdfBoards` (Chess-Merida) —
+ * не замена.
+ *
+ * `recognizeUniversal()` принимает поле `profile`:
+ *
+ *   - `'generic'` — только новый универсальный pipeline. Требует ONNX-модель
+ *     (передаётся через `modelPath` или env `BOARD_RECOG_MODEL_PATH`).
+ *   - `'maizelis'` / `'dvoretsky'` — старый растровый recognizer.py.
+ *   - `'auto'` (по умолчанию) — пробуем generic; если detect/inference
+ *     провалился, sanity-чек упал или > 20% клеток с низкой уверенностью,
+ *     откатываемся на `maizelis`.
+ *
+ * Возвращает либо `UniversalRecognizeResult` (generic-путь, включает
+ * `cells`/`low_confidence_cells`/`sanity`), либо `RecognizeResult` (старый
+ * путь). Поле `usedProfile` всегда говорит, какой путь сработал.
+ * ─────────────────────────────────────────────────────────────────── */
+
+/** Профиль для `recognizeUniversal()`. */
+export type UniversalProfile = 'auto' | 'generic' | 'maizelis' | 'dvoretsky';
+
+/** Одна клетка из generic-пути (KS-2362). */
+export interface UniversalCell {
+  row: number;
+  col: number;
+  square: string;
+  bg: 'l' | 'd';
+  /** Метка из 13-классового набора (`empty`, `wK`, ..., `bP`). */
+  predicted: string;
+  /** Тот же набор в FEN-нотации (`.`, `K`, ..., `p`). */
+  piece: string;
+  /** Top-1 softmax probability ∈ [0, 1]. */
+  confidence: number;
+  /** Top-3 предсказаний с вероятностями (для UI/debug). */
+  top3: Array<{ label: string; prob: number }>;
+}
+
+/** Результат sanity-проверки FEN (count'ы фигур, пешки на крайних рангах…). */
+export interface UniversalSanity {
+  valid: boolean;
+  issues: string[];
+  counts: Record<string, number>;
+}
+
+/** Результат `recognizeUniversal()` для generic-пути. */
+export interface UniversalRecognizeResult {
+  success: true;
+  usedProfile: 'generic';
+  fen: string;
+  fen_board: string;
+  orientation: Orientation;
+  bbox: [number, number, number, number];
+  detect: {
+    method: string;
+    confidence: number;
+    corners: Array<[number, number]>;
+    image_size: [number, number];
+  };
+  cells: UniversalCell[];
+  low_confidence_cells: UniversalCell[];
+  sanity: UniversalSanity;
+  model_path: string;
+}
+
+/** Результат `recognizeUniversal()` для legacy-путей (Maizelis/Dvoretsky). */
+export interface UniversalLegacyResult extends RecognizeResult {
+  success: true;
+  usedProfile: 'maizelis' | 'dvoretsky';
+}
+
+export type AnyUniversalResult = UniversalRecognizeResult | UniversalLegacyResult;
+
+export interface RecognizeUniversalOptions {
+  /** Профиль: `auto` (default) / `generic` / `maizelis` / `dvoretsky`. */
+  profile?: UniversalProfile;
+  /** Ориентация. Для generic-пути `'auto'` (default) определяется по королям. */
+  orientation?: Orientation | 'auto';
+  /**
+   * Путь к ONNX-модели для generic-пути (KS-2361).
+   * Если не задан — используется env `BOARD_RECOG_MODEL_PATH`.
+   */
+  modelPath?: string;
+  /** Опциональная UNet-модель для board_detect fallback. */
+  unetModelPath?: string;
+  /** Cells с top-1 prob ниже этого порога попадают в `low_confidence_cells`. */
+  lowConfidenceThreshold?: number;
+  /** Путь к python (default `python3`). */
+  pythonPath?: string;
+  /** Альтернативная картинка-источник шаблонов для legacy-пути. */
+  templatesImage?: string;
+}
+
+/** Поведение auto-fallback'а из generic в maizelis. */
+interface AutoFallbackThresholds {
+  /** Минимальная доля cells с conf ≥ low-threshold. Меньше → fallback. */
+  minHighConfidenceFraction: number;
+}
+
+const AUTO_FALLBACK_DEFAULTS: AutoFallbackThresholds = {
+  minHighConfidenceFraction: 0.8,
+};
+
+/**
+ * Универсальное распознавание шахматной диаграммы (KS-2362).
+ *
+ * Возвращает либо результат generic-пути (с per-cell диагностикой), либо
+ * legacy-результат (Maizelis/Dvoretsky). Поле `usedProfile` всегда указывает,
+ * какой путь сработал. На полностью неуспешный результат бросает ошибку.
+ */
+export async function recognizeUniversal(
+  imagePath: string,
+  options: RecognizeUniversalOptions = {},
+): Promise<AnyUniversalResult> {
+  const {
+    profile = 'auto',
+    orientation = 'auto',
+    modelPath,
+    unetModelPath,
+    lowConfidenceThreshold = 0.85,
+    pythonPath = 'python3',
+    templatesImage,
+  } = options;
+
+  // 1. Forced legacy paths — нет смысла трогать generic.
+  if (profile === 'maizelis' || profile === 'dvoretsky') {
+    const legacy = await recognizeBoardImage(imagePath, {
+      orientation: orientation === 'auto' ? 'white' : orientation,
+      pythonPath,
+      templatesImage,
+      profile,
+    });
+    return { ...legacy, success: true, usedProfile: profile };
+  }
+
+  // 2. Generic / auto — сначала пытаемся universal pipeline.
+  let genericResult: UniversalRecognizeResult | null = null;
+  let genericError: Error | null = null;
+  try {
+    genericResult = await runGeneric(imagePath, {
+      orientation,
+      modelPath,
+      unetModelPath,
+      lowConfidenceThreshold,
+      pythonPath,
+    });
+  } catch (e) {
+    genericError = e as Error;
+  }
+
+  if (profile === 'generic') {
+    if (genericResult) return genericResult;
+    throw genericError ?? new Error('recognizeUniversal: generic path failed');
+  }
+
+  // 3. profile === 'auto': принимаем generic-результат если он валиден и
+  //    достаточно уверенный; иначе fallback на maizelis.
+  if (genericResult && isGenericResultAcceptable(genericResult, AUTO_FALLBACK_DEFAULTS)) {
+    return genericResult;
+  }
+  const legacy = await recognizeBoardImage(imagePath, {
+    orientation: orientation === 'auto' ? 'white' : orientation,
+    pythonPath,
+    templatesImage,
+    profile: 'maizelis',
+  });
+  return { ...legacy, success: true, usedProfile: 'maizelis' };
+}
+
+/** Сырой запуск generic Python-скрипта с обработкой "success: false". */
+async function runGeneric(
+  imagePath: string,
+  opts: {
+    orientation: Orientation | 'auto';
+    modelPath?: string;
+    unetModelPath?: string;
+    lowConfidenceThreshold: number;
+    pythonPath: string;
+  },
+): Promise<UniversalRecognizeResult> {
+  const args: string[] = [
+    imagePath,
+    '--orientation', opts.orientation,
+    '--low-confidence-threshold', String(opts.lowConfidenceThreshold),
+    '--json',
+  ];
+  if (opts.modelPath) args.push('--model', opts.modelPath);
+  if (opts.unetModelPath) args.push('--unet-model', opts.unetModelPath);
+
+  type Raw = {
+    success: boolean;
+    error?: string;
+    stage?: string | null;
+  } & Partial<Omit<UniversalRecognizeResult, 'success' | 'usedProfile'>>;
+
+  const raw = await runJsonScript<Raw>(BOARD_RECOGNIZE_PY, args, opts.pythonPath);
+  if (!raw.success) {
+    throw new Error(
+      `board_recognize.py failed at stage=${raw.stage ?? 'unknown'}: ${raw.error ?? 'no error message'}`,
+    );
+  }
+  return { ...(raw as UniversalRecognizeResult), success: true, usedProfile: 'generic' };
+}
+
+function isGenericResultAcceptable(
+  result: UniversalRecognizeResult,
+  thresholds: AutoFallbackThresholds,
+): boolean {
+  if (!result.sanity?.valid) return false;
+  const total = result.cells.length;
+  if (total === 0) return false;
+  const highConf = total - result.low_confidence_cells.length;
+  const fraction = highConf / total;
+  return fraction >= thresholds.minHighConfidenceFraction;
 }
 
 /**

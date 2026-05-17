@@ -109,6 +109,19 @@ for (const b of boards) {
 
 // PDF: одна страница.
 const pageBoards = await recognizePdfBoards('/path/to/book.pdf', { page: 21 });
+
+// Универсальный (KS-2362): любой piece-style + photo. Под капотом
+// board_detect.py → ONNX MobileNetV3-Small → FEN + sanity.
+// Требует ONNX-модель (KS-2361); путь — через modelPath или env
+// BOARD_RECOG_MODEL_PATH.
+import { recognizeUniversal } from '@kingside/board-image-to-fen';
+const uni = await recognizeUniversal('/tmp/lichess_screenshot.png', {
+  profile: 'auto',                       // 'auto' (default) | 'generic' | 'maizelis' | 'dvoretsky'
+  modelPath: process.env.BOARD_RECOG_MODEL_PATH,
+});
+if (uni.usedProfile === 'generic') {
+  console.log(uni.fen, uni.sanity.issues, uni.low_confidence_cells);
+}
 ```
 
 Опции (растр):
@@ -119,6 +132,19 @@ const pageBoards = await recognizePdfBoards('/path/to/book.pdf', { page: 21 });
   одной размеченной картинкой начальной позиции.
 - `profile: 'maizelis' | 'dvoretsky'` — профиль шрифта диаграмм (KS-2132).
   По умолчанию `'maizelis'`.
+
+Опции (`recognizeUniversal`, KS-2362):
+
+- `profile: 'auto' | 'generic' | 'maizelis' | 'dvoretsky'` — стратегия.
+  `auto` (default) запускает generic-пайплайн и при ошибке/невалидном
+  sanity-чеке откатывается на `maizelis`.
+- `orientation: 'auto' | 'white' | 'black'` — `auto` определяет по
+  положению королей.
+- `modelPath: string` — путь к ONNX-модели MobileNetV3-Small (KS-2361).
+  Иначе берётся из env `BOARD_RECOG_MODEL_PATH`.
+- `unetModelPath: string` — опциональная UNet для board_detect fallback.
+- `lowConfidenceThreshold: number` — порог top-1 prob (default 0.85).
+- `pythonPath`, `templatesImage` — как у `recognizeBoardImage`.
 
 Опции (PDF):
 
