@@ -20,6 +20,11 @@ onnxruntime==1.19.2
 scikit-learn==1.5.2
 tqdm==4.66.5
 
+# KS-3080 / runbook §9.7. HDF5 backend for the per-split datasets
+# (cells_train.h5 / cells_val.h5 / cells_test.h5). Cuts cloud-dataset
+# delivery from ~4.5 h (aws s3 sync v1/) to ~3 min (aws s3 cp v1-h5/).
+h5py==3.11.0
+
 # AWS CLI is only needed once at the end (upload the ONNX via
 # tools/upload-board-model.sh). Install separately on the Colab host:
 #   !pip install awscli

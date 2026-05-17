@@ -46,8 +46,9 @@ tier) и 15–20 минут на A100.
 
 ### 2. Скачивание датасета v1 из S3
 
-Требуются AWS-креды с правом `s3:GetObject` на `kingside-ml/datasets/board-recog/v1/*`
-(спросить devops). Готовый IAM-ключ для тренировки — `kingside-ml-trainer`.
+Требуются AWS-креды с правом `s3:GetObject` на
+`kingside-ml/datasets/board-recog/v1-h5/*` (спросить devops). Готовый
+IAM-ключ для тренировки — `kingside-ml-trainer`.
 
 ```python
 # Cell 2 — креды.
@@ -56,13 +57,45 @@ os.environ["AWS_ACCESS_KEY_ID"]     = "AKIA..."
 os.environ["AWS_SECRET_ACCESS_KEY"] = "..."
 os.environ["AWS_DEFAULT_REGION"]    = "eu-central-1"
 
-!aws s3 sync s3://kingside-ml/datasets/board-recog/v1/ /content/board-recog-v1/ \
-     --exclude '*' --include 'cells/*' --include 'splits/*' --include 'manifest_v1.json'
+# KS-3080 / runbook §9. Формат датасета — HDF5 per-split: пять объектов
+# суммарно ~4 GB, multipart download через AWS CLI — ~3 мин на g4dn.xlarge.
+# Старый `aws s3 sync .../v1/` с 1M PNG занимал 4.5 часа — не используем.
+!aws s3 cp s3://kingside-ml/datasets/board-recog/v1-h5/ /content/board-recog-v1/ \
+     --recursive
 !du -sh /content/board-recog-v1
+!ls /content/board-recog-v1
+# manifest_v1.json  splits/{train,val,test}.jsonl  cells_{train,val,test}.h5
 ```
 
-Ожидаемый объём — около 4 GB (≈1 M PNG ~4 KB каждый). Скачивание занимает
-3–5 минут на колабовском интернете.
+Если нужен исходный PNG-датасет (например, для повторной конверсии или
+визуальной отладки конкретной клетки) — он остаётся доступным:
+
+```python
+!aws s3 sync s3://kingside-ml/datasets/board-recog/v1/ /content/board-recog-v1-png/
+# ~4.5 часа на 1М мелких файлов — только если реально нужно.
+```
+
+#### 2.a. (опционально) Регенерация v1-h5/ из v1/
+
+Если в `convert_v1_to_h5.py` появились правки и нужно перепаковать
+датасет, это одноразовая IO-операция (без GPU):
+
+```bash
+# На CPU EC2 или локально с быстрым диском.
+aws s3 sync s3://kingside-ml/datasets/board-recog/v1/ /work/v1/
+
+python -m training.convert_v1_to_h5 \
+    --data-dir   /work/v1 \
+    --output-dir /work/v1-h5 \
+    --workers    8
+
+aws s3 cp /work/v1-h5/ s3://kingside-ml/datasets/board-recog/v1-h5/ --recursive
+```
+
+Скрипт читает `splits/{train,val,test}.jsonl`, упаковывает PNG-байты в
+`cells_<split>.h5` (один dataset `cells` типа `vlen(uint8)`), переписывает
+JSONL с новым полем `idx` и печатает sha256 каждого h5 (нужно для
+`bootstrap.sh` сверки).
 
 ### 3. Тренировка
 

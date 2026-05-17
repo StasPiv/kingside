@@ -14,6 +14,7 @@ line:
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -90,16 +91,45 @@ class CellDataset(Dataset):
             )
         self.rows = rows
 
+        # KS-3080 / runbook §9.6. Choose storage backend:
+        #   * h5  — single packed HDF5 with PNG bytes (production / cloud train)
+        #   * png — individual PNGs (mini-dataset / cpu-dry-run / local debug)
+        # h5py is NOT fork-safe — `self._h5` is opened lazily inside
+        # `__getitem__`, after `DataLoader` has forked the worker process.
+        self.h5_path: Path = self.data_dir / f"cells_{split}.h5"
+        if self.h5_path.is_file():
+            self._mode: str = "h5"
+        else:
+            self._mode = "png"
+            if not (self.data_dir / "cells").is_dir():
+                raise FileNotFoundError(
+                    f"Neither {self.h5_path} nor {self.data_dir / 'cells'} "
+                    f"found. Did you download v1-h5/ (or v1/) from S3?"
+                )
+        self._h5: Any = None
+
     def __len__(self) -> int:
         return len(self.rows)
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         row = self.rows[index]
-        img_path = self.data_dir / row["path"]
-        # Cells are saved as RGBA PNG by dataset_gen.py; convert to RGB.
-        with Image.open(img_path) as im:
-            im = im.convert("RGB")
-            arr = np.asarray(im, dtype=np.uint8)
+
+        # KS-3080 / runbook §9.6.3. Branch by storage backend.
+        if self._mode == "h5":
+            if self._h5 is None:
+                # Lazy open per DataLoader worker (h5py NOT fork-safe).
+                import h5py
+                self._h5 = h5py.File(self.h5_path, "r")
+            data = bytes(self._h5["cells"][int(row["idx"])])
+            with Image.open(io.BytesIO(data)) as im:
+                im = im.convert("RGB")
+                arr = np.asarray(im, dtype=np.uint8)
+        else:
+            img_path = self.data_dir / row["path"]
+            # Cells are saved as RGBA PNG by dataset_gen.py; convert to RGB.
+            with Image.open(img_path) as im:
+                im = im.convert("RGB")
+                arr = np.asarray(im, dtype=np.uint8)
 
         label_idx = int(row["label_idx"])
 
