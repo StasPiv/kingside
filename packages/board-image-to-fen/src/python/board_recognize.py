@@ -527,20 +527,43 @@ def _cli(argv: Optional[Sequence[str]] = None) -> int:
             unet_model_path=args.unet_model,
         )
     except FileNotFoundError as exc:
+        # Модель не передана / не существует — это инфраструктурная ошибка
+        # (deploy-bug), её должен видеть алерт оператора. Возвращаем
+        # exit 2 + stderr; в --json-режиме также печатаем заглушку, чтобы
+        # вызывающий мог распарсить и отличить от других exit-кодов.
         print(f"board_recognize: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({
+                "success": False,
+                "stage": "model_missing",
+                "error": str(exc),
+            }, ensure_ascii=False))
         return 2
     except Exception as exc:  # noqa: BLE001 — surface any unhandled failure
         print(f"board_recognize: unexpected error: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({
+                "success": False,
+                "stage": "unexpected",
+                "error": str(exc),
+            }, ensure_ascii=False))
         return 1
 
     if not result.get("success"):
         if args.json:
+            # KS-3095: в JSON-режиме negative-case (например `stage=detect`
+            # «board detection failed») — это **нормальная диагностика**,
+            # не падение процесса. Возвращаем exit 0; вызывающий парсит
+            # stdout и сам решает, как маппить `stage` на HTTP-код
+            # (board_not_detected vs inference_failed). До правки тут был
+            # `return 1` → backend трактовал нормальный «не нашёл доску»
+            # как 500 Internal Server Error.
             print(json.dumps(result, ensure_ascii=False))
-        else:
-            print(
-                f"failed at stage={result.get('stage')}: {result.get('error')}",
-                file=sys.stderr,
-            )
+            return 0
+        print(
+            f"failed at stage={result.get('stage')}: {result.get('error')}",
+            file=sys.stderr,
+        )
         return 1
 
     if args.json:

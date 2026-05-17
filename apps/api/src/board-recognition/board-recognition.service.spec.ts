@@ -215,6 +215,72 @@ describe('BoardRecognitionService (KS-2363)', () => {
       }
     });
 
+    it('KS-3095: typed GenericRecognizeError(stage=detect) → 400', async () => {
+      // Имитируем GenericRecognizeError из @kingside/board-image-to-fen без
+      // import'а самого класса, чтобы spec оставался free of подгрузки ESM.
+      const err = Object.assign(new Error('board detection failed'), {
+        name: 'GenericRecognizeError',
+        stage: 'detect',
+        originalError: 'board detection failed',
+      });
+      const recognize = jest.fn().mockRejectedValue(err);
+      const svc = new BoardRecognitionService(loader, makeRecognizer(recognize));
+
+      try {
+        await svc.recognize(makeFile(), 'auto');
+        fail('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(BadRequestException);
+        const ex = e as BadRequestException;
+        const resp = ex.getResponse() as { code: string; message: string };
+        expect(resp.code).toBe('board_not_detected');
+        expect(resp.message).toBe('board detection failed');
+      }
+    });
+
+    it('KS-3095: typed GenericRecognizeError(stage=classify) → 500 inference_failed', async () => {
+      const err = Object.assign(new Error('classify crash'), {
+        name: 'GenericRecognizeError',
+        stage: 'classify',
+        originalError: 'onnxruntime: segfault',
+      });
+      const recognize = jest.fn().mockRejectedValue(err);
+      const svc = new BoardRecognitionService(loader, makeRecognizer(recognize));
+
+      try {
+        await svc.recognize(makeFile(), 'auto');
+        fail('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(InternalServerErrorException);
+        const ex = e as InternalServerErrorException;
+        expect(ex.getResponse()).toMatchObject({
+          code: 'inference_failed',
+          message: 'onnxruntime: segfault',
+        });
+      }
+    });
+
+    it('KS-3095: typed GenericRecognizeError(stage=model_missing) → 500 model_load_failed', async () => {
+      const err = Object.assign(new Error('model missing'), {
+        name: 'GenericRecognizeError',
+        stage: 'model_missing',
+        originalError: 'ONNX model not found: /var/cache/board-recog/model.onnx',
+      });
+      const recognize = jest.fn().mockRejectedValue(err);
+      const svc = new BoardRecognitionService(loader, makeRecognizer(recognize));
+
+      try {
+        await svc.recognize(makeFile(), 'auto');
+        fail('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(InternalServerErrorException);
+        const ex = e as InternalServerErrorException;
+        expect(ex.getResponse()).toMatchObject({
+          code: 'model_load_failed',
+        });
+      }
+    });
+
     it('translates inference crashes into 500 model_load_failed', async () => {
       const recognize = jest
         .fn()

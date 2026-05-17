@@ -168,19 +168,47 @@ export class BoardRecognitionService {
           modelPath: modelPath ?? undefined,
         });
       } catch (e) {
-        const msg = (e as Error).message ?? 'unknown error';
-        // Heuristic: detector failures from Python script come back as
-        // "board_recognize.py failed at stage=detect: ...".
-        if (/stage=detect/i.test(msg) || /board[_ ]not[_ ]detected/i.test(msg)) {
+        const err = e as Error & {
+          name?: string;
+          stage?: string;
+          originalError?: string;
+        };
+        const msg = err.message ?? 'unknown error';
+
+        // KS-3095: typed маппинг по stage (GenericRecognizeError из
+        // @kingside/board-image-to-fen). Fallback на regex по message —
+        // для legacy-ошибок других путей (recognizeBoardImage / spawn).
+        const stage: string =
+          err.name === 'GenericRecognizeError' && err.stage
+            ? err.stage
+            : /stage=detect/i.test(msg) || /board[_ ]not[_ ]detected/i.test(msg)
+              ? 'detect'
+              : '';
+
+        if (stage === 'detect') {
           throw new BadRequestException({
             code: 'board_not_detected',
-            message: msg,
+            message: err.originalError ?? msg,
           });
         }
-        // Anything else — surface as 500. Most likely an inference-time crash
-        // (model corrupted, missing onnxruntime, etc.) — operator needs to
-        // see it.
-        this.logger.error(`recognize: inference failed: ${msg}`);
+        if (stage === 'model_missing') {
+          this.logger.error(`recognize: model missing: ${msg}`);
+          throw new InternalServerErrorException({
+            code: 'model_load_failed',
+            message: err.originalError ?? msg,
+          });
+        }
+        if (stage === 'classify' || stage === 'unexpected') {
+          this.logger.error(`recognize: inference failed (stage=${stage}): ${msg}`);
+          throw new InternalServerErrorException({
+            code: 'inference_failed',
+            message: err.originalError ?? msg,
+          });
+        }
+
+        // Anything else — surface as 500. Most likely a non-Python crash
+        // (spawn error, JSON parse failure with stderr already in message).
+        this.logger.error(`recognize: unexpected error: ${msg}`);
         throw new InternalServerErrorException({
           code: 'model_load_failed',
           message: msg,

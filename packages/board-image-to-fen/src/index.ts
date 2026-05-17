@@ -387,6 +387,39 @@ export async function recognizeUniversal(
   return genericResult;
 }
 
+/**
+ * Stage в `success:false`-ответе board_recognize.py (KS-3095). Используется
+ * для маппинга в HTTP-коды на стороне API:
+ *
+ *   - `detect`         — board_detect не нашёл квадрат → 400 board_not_detected
+ *   - `classify`       — ONNX inference крашнулся → 500 inference_failed
+ *   - `model_missing`  — модель не передана / отсутствует → 500 model_load_failed
+ *   - `unexpected`     — необработанное Python-исключение → 500
+ *   - `unknown`        — Python вернул success:false без stage
+ */
+export type GenericRecognizeStage =
+  | 'detect'
+  | 'classify'
+  | 'model_missing'
+  | 'unexpected'
+  | 'unknown';
+
+/**
+ * Типизированная ошибка `board_recognize.py`. Бэк (`apps/api`) мапит её на
+ * HTTP-код через `instanceof` + `.stage`, без regex по message.
+ */
+export class GenericRecognizeError extends Error {
+  readonly stage: GenericRecognizeStage;
+  readonly originalError: string;
+
+  constructor(stage: GenericRecognizeStage, originalError: string) {
+    super(`board_recognize.py failed at stage=${stage}: ${originalError}`);
+    this.name = 'GenericRecognizeError';
+    this.stage = stage;
+    this.originalError = originalError;
+  }
+}
+
 /** Сырой запуск generic Python-скрипта с обработкой "success: false". */
 async function runGeneric(
   imagePath: string,
@@ -410,13 +443,22 @@ async function runGeneric(
   type Raw = {
     success: boolean;
     error?: string;
-    stage?: string | null;
+    stage?: GenericRecognizeStage | string | null;
   } & Partial<Omit<UniversalRecognizeResult, 'success' | 'usedProfile'>>;
 
   const raw = await runJsonScript<Raw>(BOARD_RECOGNIZE_PY, args, opts.pythonPath);
   if (!raw.success) {
-    throw new Error(
-      `board_recognize.py failed at stage=${raw.stage ?? 'unknown'}: ${raw.error ?? 'no error message'}`,
+    const stage = (raw.stage as GenericRecognizeStage | null) ?? 'unknown';
+    const known: GenericRecognizeStage[] = [
+      'detect', 'classify', 'model_missing', 'unexpected', 'unknown',
+    ];
+    const normalizedStage: GenericRecognizeStage =
+      known.includes(stage as GenericRecognizeStage)
+        ? (stage as GenericRecognizeStage)
+        : 'unknown';
+    throw new GenericRecognizeError(
+      normalizedStage,
+      raw.error ?? 'no error message',
     );
   }
   return { ...(raw as UniversalRecognizeResult), success: true, usedProfile: 'generic' };
