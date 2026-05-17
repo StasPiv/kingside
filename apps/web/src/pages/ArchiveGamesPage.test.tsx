@@ -181,6 +181,8 @@ describe('urlToMetadataFilters', () => {
       maxPly: 80,
       sort: 'topElo',
       timeControlCategory: [],
+      // KS-3084: fen — обычное поле фильтров (по умолчанию пустое).
+      fen: '',
     });
   });
 
@@ -352,7 +354,7 @@ describe('metadataFiltersToRequest', () => {
 
 // ─── Страница ──────────────────────────────────────────────────────
 
-describe('ArchiveGamesPage — dispatch по ?fen=', () => {
+describe('ArchiveGamesPage — fen как обычный фильтр (KS-3084)', () => {
   it('без ?fen= → metadata режим', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
@@ -364,15 +366,24 @@ describe('ArchiveGamesPage — dispatch по ?fen=', () => {
     );
   });
 
-  it('с ?fen= → by-position режим (рендер делегируется существующему компоненту)', async () => {
+  it('с ?fen= → тот же metadata-layout + FEN-чип в шапке', async () => {
+    // KS-3084: до этой задачи был отдельный by-position layout. Теперь
+    // fen — обычный фильтр, layout единый, добавляется компактный чип.
+    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
     renderWithProviders(<ArchiveGamesPage />, {
-      route: '/archive/games?fen=startpos',
+      route:
+        '/archive/games?fen=rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F8%2FPPPPPPPP%2FRNBQKBNR+w+KQkq+-+0+1',
     });
-    // by-position-страница не имеет `data-mode="metadata"`. Достаточно
-    // убедиться, что мы НЕ показали metadata-summary.
     await waitFor(() =>
-      expect(screen.queryByTestId('archive-games-metadata-summary')).toBeNull(),
+      expect(screen.getByTestId('archive-games-page')).toHaveAttribute(
+        'data-mode',
+        'metadata',
+      ),
     );
+    // FEN-чип присутствует (значит fen передан в metadata-layout).
+    expect(
+      screen.getByTestId('archive-games-metadata-fen-chip'),
+    ).toBeInTheDocument();
   });
 });
 

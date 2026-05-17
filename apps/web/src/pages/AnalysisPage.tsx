@@ -1623,8 +1623,13 @@ function AnalysisPageInner({
                       всегда (даже на новых позициях). */}
                   <button
                     onClick={() => {
+                      // KS-3084: after by-position layout слит с обычным
+                      // metadata-режимом, fen — обычный фильтр в
+                      // ArchiveMetadataFilterValues. `bucket=master` больше
+                      // не нужен; `sort=topElo` оставляем как UX-default
+                      // для поиска по позиции — сильнейшие партии сверху.
                       navigate(
-                        `/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo&bucket=master`,
+                        `/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo`,
                       );
                       setShowOverflowMenu(false);
                     }}

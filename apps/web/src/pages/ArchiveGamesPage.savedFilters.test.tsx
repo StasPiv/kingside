@@ -326,6 +326,9 @@ describe('archiveSavedParamsToValues — KS-2936', () => {
       maxPly: null,
       sort: 'topElo' as const,
       timeControlCategory: ['classical' as const],
+      // KS-3084: fen — обычное поле фильтров; в saved-filter не
+      // хранится, после roundtrip остаётся пустой строкой.
+      fen: '',
     };
     const round = archiveSavedParamsToValues(
       archiveValuesToSavedParams(original),

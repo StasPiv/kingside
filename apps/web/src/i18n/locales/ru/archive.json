@@ -70,7 +70,8 @@
       "pageInfo": "Страница {{page}} из {{total}}",
       "pageSizeLabel": "На странице",
       "searchByPosition": "Поиск по позиции…"
-    }
+    },
+    "fenFilter": "Фильтр по позиции"
   },
   "player": {
     "title": "Игрок",

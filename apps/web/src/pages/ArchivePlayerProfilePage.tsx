@@ -132,6 +132,9 @@ export function urlToPlayerState(params: URLSearchParams): UrlState {
       timeControlCategory: parseTimeControlCategories(
         params.getAll('timeControlCategory'),
       ),
+      // KS-3084: на странице игрока fen-фильтр не используется (это
+      // профиль игрока, по всем его партиям). Всегда пустой.
+      fen: '',
     },
     color: parseColor(params.get('color')),
     page: Math.max(1, parseNonNegativeInt(params.get('page')) ?? 1),

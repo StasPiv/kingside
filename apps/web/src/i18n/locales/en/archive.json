@@ -65,7 +65,8 @@
       "pageInfo": "Page {{page}} of {{total}}",
       "pageSizeLabel": "Per page",
       "searchByPosition": "Search by position…"
-    }
+    },
+    "fenFilter": "Position filter"
   },
   "player": {
     "title": "Player",

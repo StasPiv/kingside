@@ -628,7 +628,8 @@
     "all": "All",
     "dismiss": "Dismiss",
     "apply": "Apply",
-    "reset": "Reset"
+    "reset": "Reset",
+    "clear": "Clear"
   },
   "auth": {
     "login": {

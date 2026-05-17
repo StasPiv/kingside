@@ -57,6 +57,14 @@ export interface ArchiveFiltersValues {
    * (`?timeControlCategory=classical&timeControlCategory=rapid`).
    */
   timeControlCategory: ArchiveTimeControlCategory[];
+  /**
+   * KS-3084. Полный FEN позиции для фильтра. Раньше by-position режим
+   * имел отдельный layout (`ArchiveGamesByPositionPage`), теперь это
+   * просто ещё один фильтр в общей форме. Пустая строка = «не задано»,
+   * фильтр не применяется. Backend `/games` уже принимает `fen` в
+   * query (см. `getArchiveGamesMetadata`).
+   */
+  fen: string;
 }
 
 export const EMPTY_FILTERS: ArchiveFiltersValues = {
@@ -71,6 +79,7 @@ export const EMPTY_FILTERS: ArchiveFiltersValues = {
   maxPly: null,
   sort: 'recent',
   timeControlCategory: [],
+  fen: '',
 };
 
 interface ArchiveFiltersFormProps {

@@ -24,10 +24,12 @@ import {
   type ArchiveMetadataFilterValues,
   type MetadataResultFilter,
 } from '../components/archive/ArchiveMetadataFilters';
-import { ArchiveGamesByPositionPage } from './ArchiveGamesByPositionPage';
+// KS-3084: удалён dispatch на ArchiveGamesByPositionPage — by-position
+// layout слит с metadata-режимом, fen теперь обычный фильтр.
 // KS-3082: ручной ввод/редактор/скриншот позиции (открывает тот же
 // SetPositionModal что используется в анализе и position-finder).
 import { SetPositionModal } from '../components/SetPositionModal';
+import { ArchiveFenChip } from '../components/archive/ArchiveFenChip';
 
 /** KS-2924 / KS-2936 (C1): узкий тип saved-filter params для archive-секции. */
 export type ArchiveSavedFilterParams = Extract<
@@ -148,6 +150,9 @@ export function urlToMetadataFilters(
     timeControlCategory: parseTimeControlCategories(
       params.getAll('timeControlCategory'),
     ),
+    // KS-3084: позиция — теперь обычный фильтр (раньше переключала
+    // отдельный by-position layout).
+    fen: params.get('fen') ?? '',
   };
 }
 
@@ -174,6 +179,8 @@ export function metadataFiltersToUrl(
     const trimmed = p.trim();
     if (trimmed.length > 0) params.append('player', trimmed);
   }
+  // KS-3084: fen в URL как обычный фильтр.
+  if (values.fen) params.set('fen', values.fen);
   if (values.event) params.set('event', values.event);
   if (values.eco) params.set('eco', values.eco);
   if (values.result !== 'any') params.set('result', values.result);
@@ -270,6 +277,9 @@ export function archiveSavedParamsToValues(
       params.sort && VALID_SORTS.includes(params.sort)
         ? params.sort
         : 'recent',
+    // KS-3084: fen в saved-filter не хранится (это конкретная позиция,
+    // не подходит для сохранённого пресета), при apply остаётся пустым.
+    fen: '',
   };
 }
 
@@ -357,6 +367,8 @@ export function metadataFiltersToRequest(
         : values.players.length === 1
           ? values.players[0]
           : values.players,
+    // KS-3084: fen — обычный фильтр в request.
+    fen: values.fen || undefined,
     event: values.event || undefined,
     eco: values.eco || undefined,
     result:
@@ -386,12 +398,12 @@ export function metadataFiltersToRequest(
 }
 
 export function ArchiveGamesPage() {
-  const [searchParams] = useSearchParams();
-  // KS-2068: dispatch по `?fen=`. By-position режим полностью
-  // делегируется существующему компоненту (он сам читает URL).
-  if (searchParams.get('fen')) {
-    return <ArchiveGamesByPositionPage />;
-  }
+  // KS-3084: убран dispatch на `ArchiveGamesByPositionPage` по `?fen=`.
+  // Раньше при наличии fen рендерился отдельный layout с большой
+  // доской и сокращённым набором фильтров — это рассинхронизировало
+  // UI архива на две версии. Теперь fen — обычный фильтр в
+  // metadata-режиме, layout единый, в шапке появляется компактный
+  // FEN-индикатор (мини-доска + Clear).
   return <ArchiveMetadataMode />;
 }
 
@@ -1023,6 +1035,23 @@ function ArchiveMetadataMode() {
         >
           {summaryText}
         </p>
+        {/* KS-3084: компактный FEN-индикатор — мини-доска 56×56 +
+            короткий FEN + кнопка очистки. Рендерится только когда
+            `filterValues.fen` непустой. До KS-3084 здесь рисовалась
+            большая доска во всю ширину + другой набор фильтров
+            (отдельный layout ArchiveGamesByPositionPage). */}
+        {filterValues.fen && (
+          <ArchiveFenChip
+            fen={filterValues.fen}
+            onClear={() => {
+              const next: ArchiveMetadataFilterValues = {
+                ...filterValues,
+                fen: '',
+              };
+              writeFilters(next, pageSize);
+            }}
+          />
+        )}
         {/* KS-2141: «Total: N» показываем только когда бэкенд реально
             посчитал COUNT(*) (clean recent / cache-path KS-2090). При
             любом фильтре `total === null` — просто не выводим строку,
@@ -1078,11 +1107,14 @@ function ArchiveMetadataMode() {
       {showSearchByPosition && (
         <SetPositionModal
           onApply={(fen) => {
-            const params = new URLSearchParams(searchParams);
-            params.set('fen', fen);
-            params.set('sort', 'topElo');
-            params.set('bucket', 'master');
-            setSearchParams(params, { replace: false });
+            // KS-3084: fen теперь обычный фильтр в `ArchiveMetadataFilterValues`.
+            // Раньше тут писали `bucket=master&sort=topElo` для
+            // by-position layout — больше не нужно, единый layout.
+            const next: ArchiveMetadataFilterValues = {
+              ...filterValues,
+              fen,
+            };
+            writeFilters(next, pageSize);
             setShowSearchByPosition(false);
           }}
           onClose={() => setShowSearchByPosition(false)}
