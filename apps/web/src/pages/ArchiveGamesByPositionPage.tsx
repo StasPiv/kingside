@@ -1,6 +1,9 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+// KS-2365: position-finder получает кнопку «Из картинки» — открывает
+// SetPositionModal на вкладке `image` с BoardImageDropzone.
+import { SetPositionModal } from '../components/SetPositionModal';
 import type {
   ArchiveBucket,
   ArchiveGameColor,
@@ -88,6 +91,17 @@ export function ArchiveGamesByPositionPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const fen = searchParams.get('fen') ?? '';
+  // KS-2365: модалка «Изменить позицию» с вкладкой «Из картинки».
+  const [showSetPosition, setShowSetPosition] = useState(false);
+  const applyFenFromModal = useCallback(
+    (next: string) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('fen', next);
+      setSearchParams(params, { replace: false });
+      setShowSetPosition(false);
+    },
+    [searchParams, setSearchParams],
+  );
   const bucket = parseBucket(searchParams.get('bucket'));
   const sort = parseSort(searchParams.get('sort'));
   const result = parseResult(searchParams.get('result'));
@@ -203,6 +217,24 @@ export function ArchiveGamesByPositionPage() {
     return (
       <div className="archive-games-page archive-games-page--missing-fen" data-testid="archive-games-page">
         <p>{t('archive.games.missingFen', 'No position specified. Open this page from the analysis board.')}</p>
+        {/* KS-2365: даём войти на страницу через скриншот доски, даже
+            если fen не передан query-параметром. */}
+        <button
+          type="button"
+          className="archive-games-page__set-position"
+          onClick={() => setShowSetPosition(true)}
+          data-testid="archive-games-page-set-position"
+        >
+          {t('archive.games.setFromImage', 'Find by image…')}
+        </button>
+        {showSetPosition && (
+          <SetPositionModal
+            initialFen={fen || DEFAULT_FEN}
+            initialTab="image"
+            onApply={applyFenFromModal}
+            onClose={() => setShowSetPosition(false)}
+          />
+        )}
       </div>
     );
   }
@@ -210,6 +242,19 @@ export function ArchiveGamesByPositionPage() {
   return (
     <div className="archive-games-page" data-testid="archive-games-page">
       <ArchivePositionHeader fen={fen || DEFAULT_FEN} totalApprox={totalApprox} />
+
+      <div className="archive-games-page__toolbar">
+        {/* KS-2365: позволяем юзеру переключиться на другую позицию,
+            в т.ч. распознанную со скриншота, без возврата в анализ. */}
+        <button
+          type="button"
+          className="archive-games-page__set-position"
+          onClick={() => setShowSetPosition(true)}
+          data-testid="archive-games-page-set-position"
+        >
+          {t('archive.games.setFromImage', 'Find by image…')}
+        </button>
+      </div>
 
       <ArchiveGamesFilters values={filterValues} onChange={setFromFilters} />
 
@@ -226,6 +271,15 @@ export function ArchiveGamesByPositionPage() {
         onResetFilters={resetFilters}
         onRowClick={handleRowClick}
       />
+
+      {showSetPosition && (
+        <SetPositionModal
+          initialFen={fen || DEFAULT_FEN}
+          initialTab="image"
+          onApply={applyFenFromModal}
+          onClose={() => setShowSetPosition(false)}
+        />
+      )}
     </div>
   );
 }

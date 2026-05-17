@@ -2231,7 +2231,8 @@
       "resetFilters": "Reset filters",
       "errorMessage": "Failed to load games",
       "loadMore": "Load more",
-      "loadingMore": "Loading…"
+      "loadingMore": "Loading…",
+      "setFromImage": "Find by image…"
     }
   },
   "lessons": {
@@ -3018,5 +3019,27 @@
       "errorGeneric": "Couldn’t start the chess engine. Refresh the page and try again.",
       "retry": "Try again"
     }
+  },
+  "boardImage": {
+    "regionLabel": "Board image recognition",
+    "dropHint": "Drop screenshot here",
+    "dropHintSub": "or paste from clipboard (Ctrl+V), or pick a file",
+    "pickFile": "Choose file…",
+    "replaceFile": "Replace image",
+    "recognizing": "Recognizing…",
+    "uploadedAlt": "Uploaded board",
+    "flip": "Flip board",
+    "sideToMove": "Side to move:",
+    "sideWhite": "White",
+    "sideBlack": "Black",
+    "editManually": "Edit FEN manually",
+    "exitManual": "Auto FEN",
+    "apply": "Apply",
+    "errorGeneric": "Failed to recognize board.",
+    "errorNotImage": "Drop an image file (PNG/JPEG).",
+    "modelVersion": "Model: {{version}}",
+    "lowConfidenceCells_one": "{{count}} low-confidence cell",
+    "lowConfidenceCells_other": "{{count}} low-confidence cells",
+    "tabTitle": "From image"
   }
 }

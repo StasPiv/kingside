@@ -11,6 +11,7 @@ import { DevNagPalettePage } from '../pages/DevNagPalettePage';
 import { DevDrillExplanationPage } from '../pages/DevDrillExplanationPage';
 import { DevPostGameReviewPage } from '../pages/DevPostGameReviewPage';
 import { DevPrecisionScoreBlockPage } from '../pages/DevPrecisionScoreBlockPage';
+import { DevBoardImageDropzonePage } from '../pages/DevBoardImageDropzonePage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -45,6 +46,8 @@ export default function DevRoutes() {
       <Route path="post-game-review" element={<DevPostGameReviewPage />} />
       {/* KS-3002 (ADR-065 §5.1.1): демо PrecisionScoreBlock для проверки палитры. */}
       <Route path="precision-score" element={<DevPrecisionScoreBlockPage />} />
+      {/* KS-2365 (ADR-040 §7): demo BoardImageDropzone для drag&drop. */}
+      <Route path="board-image-dropzone" element={<DevBoardImageDropzonePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

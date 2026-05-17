@@ -2,17 +2,25 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { useBoardSettings } from '../hooks/useBoardSettings';
+// KS-2365 / ADR-040 §7: вкладка «По картинке» для распознавания доски.
+import { BoardImageDropzone } from './BoardImageDropzone';
 
 type Props = {
   initialFen?: string;
   onApply: (fen: string) => void;
   onClose: () => void;
+  /**
+   * KS-2365: какая вкладка открыта при монтировании модалки. По
+   * умолчанию `'fen'` — поведение до KS-2365 не меняется. Position-
+   * finder открывает с `'image'`, чтобы сразу попасть в drag&drop.
+   */
+  initialTab?: Tab;
 };
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const EMPTY_FEN = '8/8/8/8/8/8/8/8 w - - 0 1';
 
-type Tab = 'fen' | 'editor';
+type Tab = 'fen' | 'editor' | 'image';
 
 const WHITE_PIECES = [
   { piece: 'wK', label: '♔' }, { piece: 'wQ', label: '♕' }, { piece: 'wR', label: '♖' },
@@ -113,12 +121,12 @@ function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
   return <img src={`/pieces/${pieceSet}/${piece}.svg`} alt={piece} style={{ width: 26, height: 26 }} />;
 }
 
-export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
+export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'fen' }: Props) {
   const { t } = useTranslation();
   const { pieceSet: rawPieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
   const pieceSet = rawPieceSet === 'standard' ? 'cburnett' : rawPieceSet;
   const startFen = initialFen || INITIAL_FEN;
-  const [tab, setTab] = useState<Tab>('fen');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [fenInput, setFenInput] = useState(startFen);
   const [error, setError] = useState<string | null>(null);
   // KS-2220: inline-сообщение возле кнопок Copy/Paste (success/error).
@@ -219,6 +227,15 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
         <div className="set-position-tabs">
           <button type="button" className={`set-position-tab${tab === 'fen' ? ' active' : ''}`} onClick={() => setTab('fen')}>FEN</button>
           <button type="button" className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>Board Editor</button>
+          {/* KS-2365: третья вкладка — drag&drop скриншота позиции. */}
+          <button
+            type="button"
+            className={`set-position-tab${tab === 'image' ? ' active' : ''}`}
+            onClick={() => setTab('image')}
+            data-testid="set-position-tab-image"
+          >
+            {t('boardImage.tabTitle', 'From image')}
+          </button>
         </div>
 
         {tab === 'fen' && (
@@ -274,6 +291,16 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
               <button type="button" className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
               <button type="button" className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>
             </div>
+          </div>
+        )}
+
+        {tab === 'image' && (
+          <div className="set-position-body">
+            <BoardImageDropzone
+              initialFen={fenInput}
+              onAccept={(fen) => onApply(fen)}
+              onCancel={onClose}
+            />
           </div>
         )}
 

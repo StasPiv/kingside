@@ -2261,7 +2261,8 @@
       "resetFilters": "Сбросить фильтры",
       "errorMessage": "Не удалось загрузить партии",
       "loadMore": "Показать ещё",
-      "loadingMore": "Загрузка…"
+      "loadingMore": "Загрузка…",
+      "setFromImage": "Найти по картинке…"
     }
   },
   "lessons": {
@@ -3062,5 +3063,29 @@
       "errorGeneric": "Не удалось запустить шахматный движок. Обнови страницу и попробуй снова.",
       "retry": "Попробовать снова"
     }
+  },
+  "boardImage": {
+    "regionLabel": "Распознавание доски по картинке",
+    "dropHint": "Перетащи скриншот сюда",
+    "dropHintSub": "или вставь из буфера обмена (Ctrl+V), или выбери файл",
+    "pickFile": "Выбрать файл…",
+    "replaceFile": "Заменить изображение",
+    "recognizing": "Распознаём…",
+    "uploadedAlt": "Загруженная доска",
+    "flip": "Перевернуть доску",
+    "sideToMove": "Ход:",
+    "sideWhite": "Белые",
+    "sideBlack": "Чёрные",
+    "editManually": "Править FEN вручную",
+    "exitManual": "Авто FEN",
+    "apply": "Применить",
+    "errorGeneric": "Не удалось распознать доску.",
+    "errorNotImage": "Перетащи файл-изображение (PNG/JPEG).",
+    "modelVersion": "Модель: {{version}}",
+    "lowConfidenceCells_one": "{{count}} клетка под вопросом",
+    "lowConfidenceCells_few": "{{count}} клетки под вопросом",
+    "lowConfidenceCells_many": "{{count}} клеток под вопросом",
+    "lowConfidenceCells_other": "{{count}} клеток под вопросом",
+    "tabTitle": "По картинке"
   }
 }
