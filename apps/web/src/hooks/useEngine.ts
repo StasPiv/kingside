@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useStockfish } from './useStockfish';
 import { useExternalEngine } from './useExternalEngine';
 import type { ExternalEngineConfig } from './useExternalEngine';
-import type { EvalLine } from './useStockfish';
+import type { EvalLine, EngineErrorReason } from './useStockfish';
 
 export type EngineSource = 'wasm' | 'external';
 
@@ -28,6 +28,10 @@ type EngineResult = {
   engineName: string;
   engineSource: EngineSource;
   errorMessage: string | null;
+  /** KS-3067: 0..1, прогресс загрузки wasm. Только для wasm-источника. */
+  loadProgress: number;
+  /** KS-3067: причина error-состояния. Только для wasm. Для external — null. */
+  errorReason: EngineErrorReason;
 };
 
 const STORAGE_KEY = 'externalEngineConfigs';
@@ -82,6 +86,8 @@ export function useEngine(options: UseEngineOptions): EngineResult {
         engineName: externalConfig?.name || external.engineName,
         engineSource: 'external' as const,
         errorMessage: external.errorMessage,
+        loadProgress: 1,
+        errorReason: null,
       };
     }
 
@@ -99,6 +105,8 @@ export function useEngine(options: UseEngineOptions): EngineResult {
       engineName: 'Stockfish 18 (WASM)',
       engineSource: 'wasm' as const,
       errorMessage: null,
+      loadProgress: wasm.loadProgress,
+      errorReason: wasm.errorReason,
     };
-  }, [source, wasm, external]);
+  }, [source, wasm, external, externalConfig]);
 }

@@ -478,6 +478,8 @@ function AnalysisPageInner({
     lines, analysisFen, evaluate, stop: stopEngine, setOption: setEngineOption,
     isReady, state: sfState, engineName, engineSource: activeSource,
     errorMessage: engineErrorMessage,
+    loadProgress: engineLoadProgress, errorReason: engineErrorReason,
+    init: engineInit,
   } = useEngine({
     source: ec.engineSource,
     externalConfig: ec.externalConfig,
@@ -853,9 +855,12 @@ function AnalysisPageInner({
         }, 3000);
         return () => clearTimeout(timer);
       } else {
+        // KS-3067: для wasm-ошибки НЕ сбрасываем analysisEnabled — иначе
+        // EngineLoader-плашка с понятным сообщением и кнопкой
+        // «Попробовать снова» сразу скрывается, пользователь видит лишь
+        // суффикс «Ошибка движка» в заголовке. engineFailed-флаг
+        // продолжаем выставлять — он нужен для touch-device fallback.
         setEngineFailed(true);
-        setAnalysisEnabled(false);
-        try { localStorage.setItem('analysisRunning', 'false'); } catch { /* ignore */ }
       }
     }
     return undefined;
@@ -1685,6 +1690,9 @@ function AnalysisPageInner({
         engineFailed={engineFailed}
         onToggleAnalysis={toggleAnalysis}
         ec={ec}
+        engineLoadProgress={engineLoadProgress}
+        engineErrorReason={engineErrorReason}
+        onEngineRetry={engineInit}
         panelStates={panelStates}
         onTogglePanel={togglePanel}
         displayedLines={displayedLines}

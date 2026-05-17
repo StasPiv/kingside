@@ -6,6 +6,7 @@ import type { OpeningDrillStepPayload } from '@kingside/shared';
 import { MemoChessboard } from '../../MemoChessboard';
 import { PromotionPicker, type PromotionPiece } from '../../PromotionPicker';
 import { useStockfish } from '../../../hooks/useStockfish';
+import { EngineLoader } from '../../EngineLoader';
 import { parseAnnotatedPgn } from '../../../review/utils/PgnDeserializer';
 import type { ChessMove } from '../../../review/types';
 
@@ -387,6 +388,18 @@ export function OpeningDrillStep({
             onPieceDrop: handlePieceDrop,
           }}
         />
+        {/* KS-3067: индикатор загрузки/ошибки движка-наказателя. Показываем
+            только если активна punish-фаза — иначе движок не нужен и
+            пользователь не должен видеть «загрузка». */}
+        {engineActive && (engine.state === 'loading' || engine.state === 'error') && (
+          <EngineLoader
+            variant="inline"
+            state={engine.state}
+            loadProgress={engine.loadProgress}
+            errorReason={engine.errorReason}
+            onRetry={engine.init}
+          />
+        )}
         {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
         <PromotionPicker
           pending={pendingPromotion}

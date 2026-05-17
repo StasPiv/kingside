@@ -3012,5 +3012,17 @@
     "loading": "Loading…",
     "loadError": "Failed to load filters",
     "guestNote": "These filters are saved only in this browser. Sign in to keep them across devices."
+  },
+  "engine": {
+    "loader": {
+      "loadingTitle": "Loading chess engine…",
+      "loadingHint": "One-time download, next time it will be instant.",
+      "errorTitle": "Couldn’t start the chess engine",
+      "errorLoadFailed": "Failed to load the chess engine. Check your internet connection and refresh the page.",
+      "errorInitTimeout": "Chess engine is not responding. Check your internet connection and try again.",
+      "errorNoCoi": "Your browser doesn’t support multi-threaded analysis. Update your browser or try a different one.",
+      "errorGeneric": "Couldn’t start the chess engine. Refresh the page and try again.",
+      "retry": "Try again"
+    }
   }
 }

@@ -9,9 +9,10 @@ import type { ReactNode } from 'react';
 
 import { ReviewMoveList } from '../../review/components/ReviewMoveList';
 import type { ChessMove, VariationColor } from '../../review/types';
-import type { EvalLine } from '../../hooks/useStockfish';
+import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import type { useEngineConfig } from '../../hooks/useEngineConfig';
 import { formatEval, formatPv } from '../../utils/chessFormat';
+import { EngineLoader } from '../../components/EngineLoader';
 
 /**
  * KS-2866 (ADR-060 §10.1 FR3) — извлечённый sidebar `AnalysisPage`.
@@ -53,6 +54,12 @@ export interface AnalysisSidebarProps {
   engineFailed: boolean;
   onToggleAnalysis: () => void;
   ec: ReturnType<typeof useEngineConfig>;
+  /** KS-3067: прогресс загрузки wasm-движка (0..1). Только для wasm-источника. */
+  engineLoadProgress?: number;
+  /** KS-3067: причина error-состояния wasm-движка. */
+  engineErrorReason?: EngineErrorReason;
+  /** KS-3067: повторная инициализация wasm-движка (кнопка «Попробовать снова»). */
+  onEngineRetry?: () => void;
 
   /* ---------- panels (collapsible) ---------- */
   panelStates: Record<AnalysisPanelKey, boolean>;
@@ -118,6 +125,9 @@ export function AnalysisSidebar({
   engineFailed,
   onToggleAnalysis,
   ec,
+  engineLoadProgress = 0,
+  engineErrorReason = null,
+  onEngineRetry,
   panelStates,
   onTogglePanel,
   displayedLines,
@@ -280,6 +290,17 @@ export function AnalysisSidebar({
         </div>
         {panelStates.engine && (
           <div className="analysis-panel-body">
+            {/* KS-3067: индикатор загрузки/ошибки wasm-движка. Только для
+                wasm-источника — у external свой error-баннер выше. */}
+            {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
+              <EngineLoader
+                variant="inline"
+                state={sfState}
+                loadProgress={engineLoadProgress}
+                errorReason={engineErrorReason}
+                onRetry={() => onEngineRetry?.()}
+              />
+            )}
             <div className="stockfish-lines">
               {(analysisEnabled || displayedLines.length > 0) &&
                 displayedLines.map((line) => (
@@ -446,6 +467,16 @@ export function AnalysisSidebar({
               )}
             </div>
             <div className="analysis-panel-body">
+              {/* KS-3067: тот же индикатор для мобильной вкладки «Engine». */}
+              {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
+                <EngineLoader
+                  variant="inline"
+                  state={sfState}
+                  loadProgress={engineLoadProgress}
+                  errorReason={engineErrorReason}
+                  onRetry={() => onEngineRetry?.()}
+                />
+              )}
               <div className="stockfish-lines">
                 {(analysisEnabled || displayedLines.length > 0) &&
                   displayedLines.map((line) => (

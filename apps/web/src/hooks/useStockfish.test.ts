@@ -89,16 +89,64 @@ describe('useStockfish — KS-3042 re-dispatch MultiPV at runtime', () => {
     'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
   let prevWorker: typeof globalThis.Worker;
+  let prevFetch: typeof globalThis.fetch;
+  let prevCOI: boolean | undefined;
+  let prevSAB: typeof globalThis.SharedArrayBuffer | undefined;
 
   beforeEach(() => {
     prevWorker = globalThis.Worker;
+    prevFetch = globalThis.fetch;
+    prevCOI = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated;
+    prevSAB = (globalThis as { SharedArrayBuffer?: typeof SharedArrayBuffer }).SharedArrayBuffer;
     MockWorker.instances = [];
     // @ts-expect-error replace global Worker with mock
     globalThis.Worker = MockWorker;
+    // KS-3067: useStockfish теперь требует crossOriginIsolated + предзагрузку
+    // wasm через fetch. Мокаем оба, чтобы lazy-init дошёл до создания Worker'а.
+    Object.defineProperty(globalThis, 'crossOriginIsolated', {
+      configurable: true,
+      value: true,
+    });
+    if (typeof globalThis.SharedArrayBuffer === 'undefined') {
+      Object.defineProperty(globalThis, 'SharedArrayBuffer', {
+        configurable: true,
+        value: ArrayBuffer,
+      });
+    }
+    globalThis.fetch = vi.fn(async () => {
+      const buf = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
+      return new Response(buf, {
+        status: 200,
+        headers: { 'content-length': String(buf.byteLength) },
+      });
+    }) as typeof globalThis.fetch;
   });
   afterEach(() => {
     globalThis.Worker = prevWorker;
+    globalThis.fetch = prevFetch;
+    if (prevCOI === undefined) {
+      delete (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated;
+    } else {
+      Object.defineProperty(globalThis, 'crossOriginIsolated', {
+        configurable: true,
+        value: prevCOI,
+      });
+    }
+    if (prevSAB === undefined) {
+      delete (globalThis as { SharedArrayBuffer?: typeof SharedArrayBuffer }).SharedArrayBuffer;
+    }
   });
+
+  /** Несколько микротаск-тиков для проталкивания async-fetch + создания Worker'а. */
+  async function waitForWorker(): Promise<MockWorker> {
+    for (let i = 0; i < 20; i++) {
+      if (MockWorker.instances.length > 0) return MockWorker.instances[0];
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+    }
+    throw new Error('Worker not created within timeout');
+  }
 
   /**
    * Прогоняет lazy-init цикл: первый `evaluate` → init → uci/uciok →
@@ -118,7 +166,7 @@ describe('useStockfish — KS-3042 re-dispatch MultiPV at runtime', () => {
     await act(async () => {
       result.current.evaluate(fen);
     });
-    const worker = MockWorker.instances[0];
+    const worker = await waitForWorker();
     expect(worker).toBeDefined();
     // Эмулируем UCI handshake.
     await act(async () => {

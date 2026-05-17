@@ -74,7 +74,7 @@ function formatPv(pv: string, fen: string): string {
   }
 }
 
-// --- parseInfo из stockfish.worker ---
+// --- parseInfo: дубль логики из useStockfish.ts для unit-теста парсера ---
 
 type InfoLine = {
   depth: number;

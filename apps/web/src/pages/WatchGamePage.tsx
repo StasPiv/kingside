@@ -9,6 +9,7 @@ import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useStockfish, clampMultiPvToLegalMoves } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { EvalBar } from '../components/EvalBar';
+import { EngineLoader } from '../components/EngineLoader';
 import { formatEval, formatPv } from '../utils/chessFormat';
 import { socket } from '../socket';
 import { useLazySocket } from '../hooks/useLazySocket';
@@ -80,6 +81,9 @@ export function WatchGamePage() {
     evaluate,
     isReady,
     state: sfState,
+    loadProgress: engineLoadProgress,
+    errorReason: engineErrorReason,
+    init: engineInit,
   } = useStockfish({ depth: 18, multiPv: MULTI_PV, autoStart: analysisEnabled });
 
   const lastLinesRef = useRef<EvalLine[]>([]);
@@ -101,12 +105,10 @@ export function WatchGamePage() {
     return () => clearTimeout(timer);
   }, [displayFen, isReady, evaluate, analysisEnabled]);
 
-  // Handle engine error
-  useEffect(() => {
-    if (sfState === 'error' && analysisEnabled) {
-      setAnalysisEnabled(false);
-    }
-  }, [sfState, analysisEnabled]);
+  // KS-3067: при error НЕ сбрасываем analysisEnabled — иначе плашка
+  // ошибки тут же скрывается и пользователь не понимает, что произошло.
+  // EngineLoader покажет внятный текст и кнопку «Попробовать снова».
+  // Полное выключение остаётся за пользователем (кнопка Stop).
 
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
@@ -476,6 +478,17 @@ export function WatchGamePage() {
                 )}
               </span>
             </div>
+            {analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
+              <div className="analysis-panel-body">
+                <EngineLoader
+                  variant="inline"
+                  state={sfState}
+                  loadProgress={engineLoadProgress}
+                  errorReason={engineErrorReason}
+                  onRetry={engineInit}
+                />
+              </div>
+            )}
             {analysisEnabled && displayedLines.length > 0 && (
               <div className="analysis-panel-body">
                 <div className="stockfish-lines">

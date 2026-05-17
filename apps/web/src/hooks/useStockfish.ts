@@ -36,6 +36,23 @@ export type EvalLine = {
 
 type StockfishState = 'idle' | 'loading' | 'ready' | 'analyzing' | 'error';
 
+/**
+ * KS-3067: причина ошибки инициализации движка. Используется UI-компонентом
+ * `EngineLoader` для подбора понятного сообщения пользователю:
+ * - `no_coi`     — `crossOriginIsolated === false` (нет SharedArrayBuffer);
+ *                  движок не запускается, сразу error. После KS-3065 COOP/COEP
+ *                  стоят на CloudFront, поэтому в норме у всех true.
+ * - `load_failed` — fetch wasm-файла упал (сеть/CORS/404/500).
+ * - `init_timeout`— worker создан, но за `INIT_TIMEOUT_MS` не пришёл readyok.
+ * - `worker_error`— исключение от `engine.onerror`/`onmessageerror`.
+ */
+export type EngineErrorReason =
+  | 'no_coi'
+  | 'load_failed'
+  | 'init_timeout'
+  | 'worker_error'
+  | null;
+
 type UseStockfishOptions = {
   depth?: number;
   multiPv?: number;
@@ -64,16 +81,65 @@ type UseStockfishOptions = {
 
 const INIT_TIMEOUT_MS = 30_000;
 
+/**
+ * KS-3065 + KS-3067: после деплоя COOP/COEP заголовков на CloudFront
+ * `crossOriginIsolated === true` у всех нормальных клиентов, поэтому
+ * загружается ТОЛЬКО lite-версия (7 МБ wasm). Single-thread fallback
+ * (`stockfish-18-single.js/.wasm`) на S3 больше не лежит — попытка
+ * загрузить дала бы 403 и 30-секундный таймаут. Поэтому если COI=false
+ * (расширение/политика браузера/сломанный прокси) — сразу `error` с
+ * причиной `no_coi`, без бесполезных fetch'ей.
+ */
+const ENGINE_JS_URL = '/stockfish/stockfish-18-lite.js';
+const ENGINE_WASM_URL = '/stockfish/stockfish-18-lite.wasm';
+
 /** Returns true if SharedArrayBuffer is available (COOP/COEP headers set). */
 function isMultiThreaded(): boolean {
   return typeof SharedArrayBuffer !== 'undefined' && typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
 }
 
-/** Select engine file based on cross-origin isolation support. */
-function getEngineUrl(): string {
-  return isMultiThreaded()
-    ? '/stockfish/stockfish-18-lite.js'
-    : '/stockfish/stockfish-18-single.js';
+/**
+ * KS-3067: предзагрузка wasm с прогресс-баром. Читаем тело ответа потоком
+ * (`ReadableStream`) и считаем `loaded / total` из `Content-Length`. После
+ * успешного завершения wasm попадает в HTTP-кеш браузера, и Worker при
+ * создании достанет его оттуда без повторного сетевого запроса (last-modified
+ * + etag на S3 есть → эвристический кеш работает у Chrome/Firefox).
+ *
+ * Если `Content-Length` отсутствует или `ReadableStream` API не доступен —
+ * fallback на `response.arrayBuffer()` без прогресса. UI в этом случае
+ * остаётся на 0% до завершения, но загрузка всё равно прерывается на
+ * AbortController, и ошибка fetch ловится в catch вызывающей init().
+ */
+async function prefetchWasm(
+  url: string,
+  signal: AbortSignal,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<void> {
+  const response = await fetch(url, { signal, credentials: 'same-origin' });
+  if (!response.ok) {
+    throw new Error(`fetch ${url} → HTTP ${response.status}`);
+  }
+  const totalHeader = response.headers.get('content-length');
+  const total = totalHeader ? Number(totalHeader) : 0;
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    // ReadableStream недоступен — старая платформа. Читаем целиком,
+    // прогресс остаётся 0 до конца.
+    await response.arrayBuffer();
+    onProgress(total || 1, total || 1);
+    return;
+  }
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      loaded += value.byteLength;
+      onProgress(loaded, total || loaded);
+    }
+  }
+  // Если total был 0 (S3 не вернул content-length) — финальный 100%.
+  onProgress(total || loaded, total || loaded);
 }
 
 function parseInfoLine(line: string): EvalLine | null {
@@ -129,6 +195,8 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const [lines, setLines] = useState<EvalLine[]>([]);
   const [analysisFen, setAnalysisFen] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState<string | null>(null);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [errorReason, setErrorReason] = useState<EngineErrorReason>(null);
   const engineRef = useRef<Worker | null>(null);
   const fenRef = useRef<string | null>(null);
   const linesBuffer = useRef<Map<number, EvalLine>>(new Map());
@@ -137,12 +205,17 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const analysisGenRef = useRef(0);
   const pendingFenRef = useRef<string | null>(null);
   const waitingForReadyRef = useRef(false);
+  const fetchAbortRef = useRef<AbortController | null>(null);
   stateRef.current = state;
 
   const cleanup = useCallback(() => {
     if (initTimerRef.current) {
       clearTimeout(initTimerRef.current);
       initTimerRef.current = null;
+    }
+    if (fetchAbortRef.current) {
+      try { fetchAbortRef.current.abort(); } catch { /* ignore */ }
+      fetchAbortRef.current = null;
     }
     if (engineRef.current) {
       try {
@@ -155,146 +228,189 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const init = useCallback(() => {
     cleanup();
-    setState('loading');
+    setErrorReason(null);
+    setLoadProgress(0);
 
-    const multi = isMultiThreaded();
-    let engine: Worker;
-    try {
-      engine = new Worker(getEngineUrl());
-    } catch (err) {
-      console.error('[Stockfish] Failed to create engine worker:', err);
+    // KS-3067: гейт. Без crossOriginIsolated — single-thread fallback
+    // (113 МБ wasm) на S3 нет, новый таймаут просто крутил бы 30s. Сразу
+    // даём UI понятную ошибку.
+    if (!isMultiThreaded()) {
+      setErrorReason('no_coi');
       setState('error');
       return;
     }
 
-    initTimerRef.current = setTimeout(() => {
-      initTimerRef.current = null;
-      if (stateRef.current === 'loading') {
-        console.warn(`[Stockfish] Init timeout after ${INIT_TIMEOUT_MS}ms — engine did not respond`);
-        setState('error');
+    setState('loading');
+
+    const abort = new AbortController();
+    fetchAbortRef.current = abort;
+
+    void (async () => {
+      // 1) Предзагружаем wasm с прогрессом. Это самый тяжёлый шаг
+      //    (≈7 МБ для lite) и определяет UX пользователя на медленной сети.
+      try {
+        await prefetchWasm(ENGINE_WASM_URL, abort.signal, (loaded, total) => {
+          if (total > 0) {
+            setLoadProgress(Math.min(0.99, loaded / total));
+          }
+        });
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return; // cleanup'нули — не считаем ошибкой
+        console.error('[Stockfish] Failed to fetch wasm:', err);
+        if (stateRef.current === 'loading') {
+          setErrorReason('load_failed');
+          setState('error');
+        }
+        return;
       }
-    }, INIT_TIMEOUT_MS);
+      // Cleanup мог сбросить состояние пока шла загрузка.
+      if (stateRef.current !== 'loading') return;
 
-    engine.onmessage = (e: MessageEvent) => {
-      const line = typeof e.data === 'string' ? e.data : String(e.data);
+      // 2) Создаём worker — он внутри сделает fetch wasm и в нормальных
+      //    условиях получит его из HTTP-кеша браузера (мы его только что
+      //    положили туда).
+      let engine: Worker;
+      try {
+        engine = new Worker(ENGINE_JS_URL);
+      } catch (err) {
+        console.error('[Stockfish] Failed to create engine worker:', err);
+        setErrorReason('worker_error');
+        setState('error');
+        return;
+      }
 
-      if (line === 'uciok') {
-        if (multi) {
+      // 3) Таймаут именно на инициализацию (uci handshake + wasm compile).
+      initTimerRef.current = setTimeout(() => {
+        initTimerRef.current = null;
+        if (stateRef.current === 'loading') {
+          console.warn(`[Stockfish] Init timeout after ${INIT_TIMEOUT_MS}ms — engine did not respond`);
+          setErrorReason('init_timeout');
+          setState('error');
+        }
+      }, INIT_TIMEOUT_MS);
+
+      engine.onmessage = (e: MessageEvent) => {
+        const line = typeof e.data === 'string' ? e.data : String(e.data);
+
+        if (line === 'uciok') {
           const threads = Math.max(1, (navigator.hardwareConcurrency ?? 2) - 1);
           engine.postMessage(`setoption name Threads value ${threads}`);
-        }
-        // Опция Skill Level (0..20) — ограничение силы движка для
-        // эндшпильного тренажёра (L-24, KS-1800). Отправляется перед
-        // первым `go`, чтобы быть в силе с самой первой позиции.
-        if (
-          skillLevelRef.current !== undefined &&
-          skillLevelRef.current >= 0 &&
-          skillLevelRef.current <= 20
-        ) {
-          engine.postMessage(
-            `setoption name Skill Level value ${Math.round(skillLevelRef.current)}`,
-          );
-        }
-        engine.postMessage('isready');
-        return;
-      }
-
-      if (line === 'readyok') {
-        if (initTimerRef.current) {
-          clearTimeout(initTimerRef.current);
-          initTimerRef.current = null;
-          // Check for pending FEN queued by lazy-init evaluate call
-          const lazyFen = pendingFenRef.current;
-          if (lazyFen && engineRef.current) {
-            pendingFenRef.current = null;
-            linesBuffer.current.clear();
-            setLines([]);
-            setAnalysisFen(lazyFen);
-            setBestMove(null);
-            analysisGenRef.current += 1;
-            setState('analyzing');
-            // KS-3041: см. clampMultiPvToLegalMoves.
-            const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
-            engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
-            engine.postMessage(`position fen ${lazyFen}`);
-            engine.postMessage(`go depth ${depthRef.current}`);
-          } else {
-            setState('ready');
+          // Опция Skill Level (0..20) — ограничение силы движка для
+          // эндшпильного тренажёра (L-24, KS-1800). Отправляется перед
+          // первым `go`, чтобы быть в силе с самой первой позиции.
+          if (
+            skillLevelRef.current !== undefined &&
+            skillLevelRef.current >= 0 &&
+            skillLevelRef.current <= 20
+          ) {
+            engine.postMessage(
+              `setoption name Skill Level value ${Math.round(skillLevelRef.current)}`,
+            );
           }
-          return;
-        }
-        // If we were waiting for readyok after stop, dispatch pending eval
-        if (waitingForReadyRef.current) {
-          waitingForReadyRef.current = false;
-          const pendingFen = pendingFenRef.current;
-          if (pendingFen && engineRef.current) {
-            pendingFenRef.current = null;
-            linesBuffer.current.clear();
-            setLines([]);
-            setAnalysisFen(pendingFen);
-            setBestMove(null);
-            analysisGenRef.current += 1;
-            setState('analyzing');
-            // KS-3041: см. clampMultiPvToLegalMoves.
-            const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
-            engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
-            engine.postMessage(`position fen ${pendingFen}`);
-            engine.postMessage(`go depth ${depthRef.current}`);
-            return;
-          }
-        }
-
-        setState('ready');
-        return;
-      }
-
-      if (line.startsWith('info') && line.includes(' pv ')) {
-        const info = parseInfoLine(line);
-        if (info) {
-          linesBuffer.current.set(info.multipv, info);
-          const sorted = Array.from(linesBuffer.current.values()).sort(
-            (a, b) => a.multipv - b.multipv,
-          );
-          setLines(sorted);
-        }
-        return;
-      }
-
-      if (line.startsWith('bestmove')) {
-        const move = line.split(' ')[1] ?? '';
-        setBestMove(move);
-
-        // If there's a pending eval, sync via isready before starting it
-        if (pendingFenRef.current && engineRef.current) {
-          waitingForReadyRef.current = true;
           engine.postMessage('isready');
           return;
         }
 
-        // Only return to 'ready' if still in 'analyzing' state
-        if (stateRef.current === 'analyzing') {
+        if (line === 'readyok') {
+          if (initTimerRef.current) {
+            clearTimeout(initTimerRef.current);
+            initTimerRef.current = null;
+            setLoadProgress(1);
+            // Check for pending FEN queued by lazy-init evaluate call
+            const lazyFen = pendingFenRef.current;
+            if (lazyFen && engineRef.current) {
+              pendingFenRef.current = null;
+              linesBuffer.current.clear();
+              setLines([]);
+              setAnalysisFen(lazyFen);
+              setBestMove(null);
+              analysisGenRef.current += 1;
+              setState('analyzing');
+              // KS-3041: см. clampMultiPvToLegalMoves.
+              const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
+              engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
+              engine.postMessage(`position fen ${lazyFen}`);
+              engine.postMessage(`go depth ${depthRef.current}`);
+            } else {
+              setState('ready');
+            }
+            return;
+          }
+          // If we were waiting for readyok after stop, dispatch pending eval
+          if (waitingForReadyRef.current) {
+            waitingForReadyRef.current = false;
+            const pendingFen = pendingFenRef.current;
+            if (pendingFen && engineRef.current) {
+              pendingFenRef.current = null;
+              linesBuffer.current.clear();
+              setLines([]);
+              setAnalysisFen(pendingFen);
+              setBestMove(null);
+              analysisGenRef.current += 1;
+              setState('analyzing');
+              // KS-3041: см. clampMultiPvToLegalMoves.
+              const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
+              engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
+              engine.postMessage(`position fen ${pendingFen}`);
+              engine.postMessage(`go depth ${depthRef.current}`);
+              return;
+            }
+          }
+
           setState('ready');
+          return;
         }
-      }
-    };
 
-    engine.onerror = (err) => {
-      console.error('[Stockfish] Engine error:', {
-        message: err.message,
-        filename: err.filename,
-        lineno: err.lineno,
-        type: err.type,
-      });
-      setState('error');
-    };
+        if (line.startsWith('info') && line.includes(' pv ')) {
+          const info = parseInfoLine(line);
+          if (info) {
+            linesBuffer.current.set(info.multipv, info);
+            const sorted = Array.from(linesBuffer.current.values()).sort(
+              (a, b) => a.multipv - b.multipv,
+            );
+            setLines(sorted);
+          }
+          return;
+        }
 
-    engine.onmessageerror = (err) => {
-      console.error('[Stockfish] Engine message error:', err);
-      setState('error');
-    };
+        if (line.startsWith('bestmove')) {
+          const move = line.split(' ')[1] ?? '';
+          setBestMove(move);
 
-    engineRef.current = engine;
-    engine.postMessage('uci');
+          // If there's a pending eval, sync via isready before starting it
+          if (pendingFenRef.current && engineRef.current) {
+            waitingForReadyRef.current = true;
+            engine.postMessage('isready');
+            return;
+          }
+
+          // Only return to 'ready' if still in 'analyzing' state
+          if (stateRef.current === 'analyzing') {
+            setState('ready');
+          }
+        }
+      };
+
+      engine.onerror = (err) => {
+        console.error('[Stockfish] Engine error:', {
+          message: err.message,
+          filename: err.filename,
+          lineno: err.lineno,
+          type: err.type,
+        });
+        setErrorReason('worker_error');
+        setState('error');
+      };
+
+      engine.onmessageerror = (err) => {
+        console.error('[Stockfish] Engine message error:', err);
+        setErrorReason('worker_error');
+        setState('error');
+      };
+
+      engineRef.current = engine;
+      engine.postMessage('uci');
+    })();
   }, [cleanup]);
 
   useEffect(() => {
@@ -330,7 +446,12 @@ export function useStockfish(options: UseStockfishOptions = {}) {
         return;
       }
 
-      if (!engineRef.current || s === 'loading' || s === 'error') return;
+      if (!engineRef.current || s === 'loading' || s === 'error') {
+        // Если ещё идёт загрузка wasm — запомним fen, он подхватится
+        // в readyok-handler'е после успешной инициализации.
+        if (s === 'loading') pendingFenRef.current = fen;
+        return;
+      }
 
       // If engine is currently analyzing, stop it and queue the new FEN.
       // The bestmove handler will trigger isready → readyok → start new analysis.
@@ -399,6 +520,8 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     stop,
     init,
     cleanup,
+    loadProgress,
+    errorReason,
     isReady: state === 'idle' || state === 'ready' || state === 'analyzing',
   };
 }

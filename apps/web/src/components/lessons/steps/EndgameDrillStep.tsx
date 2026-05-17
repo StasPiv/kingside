@@ -9,6 +9,7 @@ import type {
 import { MemoChessboard } from '../../MemoChessboard';
 import { PromotionPicker, type PromotionPiece } from '../../PromotionPicker';
 import { useStockfish } from '../../../hooks/useStockfish';
+import { EngineLoader } from '../../EngineLoader';
 
 /**
  * Эндшпильный тренажёр против Stockfish WASM (L-24, KS-1800).
@@ -479,6 +480,18 @@ export function EndgameDrillStep({
             squareStyles,
           }}
         />
+        {/* KS-3067: индикатор загрузки/ошибки движка-противника. Без него
+            ученик видит замершую позицию и не понимает почему движок не
+            отвечает. */}
+        {(engine.state === 'loading' || engine.state === 'error') && (
+          <EngineLoader
+            variant="inline"
+            state={engine.state}
+            loadProgress={engine.loadProgress}
+            errorReason={engine.errorReason}
+            onRetry={engine.init}
+          />
+        )}
         {/* KS-2969: модалка выбора фигуры при превращении пешки. */}
         <PromotionPicker
           pending={pendingPromotion}

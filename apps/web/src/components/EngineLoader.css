@@ -1,0 +1,96 @@
+/* KS-3067: индикатор загрузки/ошибки Stockfish-движка. */
+.engine-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--text, #e8e8ee);
+  background: rgba(20, 22, 36, 0.55);
+  border: 1px solid rgba(120, 140, 200, 0.18);
+  border-radius: 10px;
+  text-align: center;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.engine-loader--inline {
+  padding: 10px 12px;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.engine-loader--block {
+  padding: 20px 18px;
+  font-size: 14px;
+}
+
+.engine-loader__title {
+  font-weight: 600;
+  font-size: 1em;
+  color: var(--text, #e8e8ee);
+}
+
+.engine-loader__title--error {
+  color: #f4a4a4;
+}
+
+.engine-loader__bar {
+  width: 100%;
+  max-width: 320px;
+  height: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.engine-loader__bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4a8eff 0%, #6aa3ff 100%);
+  border-radius: 6px;
+  transition: width 200ms ease-out;
+}
+
+.engine-loader__percent {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+  color: var(--text-muted, #a9aebf);
+}
+
+.engine-loader__hint {
+  font-size: 0.85em;
+  color: var(--text-muted, #a9aebf);
+  max-width: 320px;
+  line-height: 1.35;
+}
+
+.engine-loader__text {
+  font-size: 0.95em;
+  color: var(--text, #e8e8ee);
+  max-width: 360px;
+  line-height: 1.4;
+}
+
+.engine-loader__retry {
+  margin-top: 4px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 140, 200, 0.35);
+  background: rgba(74, 142, 255, 0.12);
+  color: #cfe0ff;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  font-family: inherit;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.engine-loader__retry:hover {
+  background: rgba(74, 142, 255, 0.22);
+  border-color: rgba(160, 180, 230, 0.55);
+}
+
+.engine-loader__retry:active {
+  background: rgba(74, 142, 255, 0.3);
+}
