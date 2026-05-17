@@ -6,7 +6,7 @@
 set -euxo pipefail
 cd /work
 
-EXPECTED_SHA="d1506456a88a2c1c2396c266081539bc099ac7f5b2dd12fefe63971049fb45a1"
+EXPECTED_SHA="75f06cf5586adee0c3b58b5c4259acbbf13ad9f7dea0dc295a2313d9fcf0817a"
 ACTUAL_SHA=$(sha256sum code.tar.gz | awk '{print $1}')
 if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
   echo "code.tar.gz sha mismatch: got $ACTUAL_SHA, want $EXPECTED_SHA" >&2
@@ -28,14 +28,12 @@ pip install --no-cache-dir -r /tmp/req-noco-torch.txt awscli
 # train.py возьмёт --device cpu из аргументов.
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), 'devices', torch.cuda.device_count())"
 
-# Датасет v1 -> /work/data. Через instance-profile, ключи не нужны.
+# Датасет v1-h5 -> /work/data. 5 объектов суммарно ~4 ГБ, не 1М PNG.
+# §9.4 runbook + KS-3079 (HDF5 формат, бэкенд KS-3080 написал dataset.py).
 mkdir -p /work/data
-aws s3 sync s3://kingside-ml/datasets/board-recog/v1/ /work/data/ \
-    --exclude '*' \
-    --include 'cells/*' \
-    --include 'splits/*' \
-    --include 'manifest_v1.json'
+aws s3 cp s3://kingside-ml/datasets/board-recog/v1-h5/ /work/data/ --recursive
 du -sh /work/data
+ls -la /work/data /work/data/splits
 
 # Тренировка. width-mult=0.5 — целевой бюджет ONNX ≤ 1 MB (README KS-2361).
 RUN_ID="${RUN_ID:?RUN_ID must be set by user-data}"
