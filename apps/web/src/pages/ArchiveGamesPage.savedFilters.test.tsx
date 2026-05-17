@@ -201,6 +201,8 @@ describe('archiveValuesToSavedParams — KS-2936', () => {
       maxPly: null,
       sort: 'recent',
       timeControlCategory: [],
+      // KS-3084: fen — обязательное поле ArchiveFiltersValues.
+      fen: '',
     });
     expect(p.result).toBeNull();
     expect(p.sort).toBeNull();
@@ -225,6 +227,8 @@ describe('archiveValuesToSavedParams — KS-2936', () => {
       maxPly: 80,
       sort: 'topElo',
       timeControlCategory: ['classical', 'rapid'],
+      // KS-3084: fen — обязательное поле ArchiveFiltersValues.
+      fen: '',
     });
     expect(p).toMatchObject({
       section: 'archive',

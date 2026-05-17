@@ -19,6 +19,8 @@
 import type {
   ArchiveEventSearchResponse,
   ArchiveGameDetail,
+  ArchiveGamesByPositionRequest,
+  ArchiveGamesByPositionResponse,
   ArchiveGamesRequest,
   ArchiveGamesResponse,
   ArchivePlayerGamesRequest,
@@ -229,6 +231,60 @@ export function getArchiveGamesMetadata(
 }
 
 /**
+ * GET /games/by-position — список партий, где встречалась переданная позиция.
+ *
+ * KS-3087: единственный эндпоинт, который действительно фильтрует партии
+ * по FEN (использует `archive_position_stats`-индекс, keyset cursor).
+ * `/games` параметр `fen` принимает в DTO, но игнорирует в сервисе
+ * (KS-1581 §4.2 deferred → KS-3088 backend параллельно перевешивает на 400),
+ * поэтому фронт обязан звать именно этот путь, когда фильтр FEN активен.
+ *
+ * Набор поддерживаемых фильтров уже` ArchiveGamesRequest` — нет `event`,
+ * `until`, `minPly`, `maxPly`, `timeControlCategory`. Если пользователь
+ * выставил FEN и эти фильтры, они **молча игнорируются** (follow-up
+ * backend-задача — расширить эндпоинт). UI оставляет их видимыми, чтобы
+ * пользователь мог снять FEN и вернуться в общий список с этими фильтрами.
+ */
+export function getArchiveGamesByPosition(
+  filters: ArchiveGamesByPositionRequest,
+  signal?: AbortSignal,
+): Promise<ArchiveGamesByPositionResponse> {
+  const params = new URLSearchParams();
+  // FEN — обязательный.
+  params.set('fen', filters.fen);
+  // KS-2081 / KS-2084: `player` поддерживает массив (`?player=A&player=B`,
+  // OR на бэке). Дубликатный append, как и в `/games`.
+  if (Array.isArray(filters.player)) {
+    for (const name of filters.player) {
+      const trimmed = name.trim();
+      if (trimmed.length > 0) params.append('player', trimmed);
+    }
+  } else if (
+    typeof filters.player === 'string' &&
+    filters.player.trim().length > 0
+  ) {
+    params.set('player', filters.player.trim());
+  }
+  appendDefined(params, [
+    ['bucket', filters.bucket],
+    ['sort', filters.sort],
+    ['cursor', filters.cursor],
+    ['limit', filters.limit],
+    ['minElo', filters.minElo],
+    ['since', filters.since],
+    ['result', filters.result],
+    ['color', filters.color],
+    ['move', filters.move],
+    ['eco', filters.eco],
+  ]);
+  return archiveGet<ArchiveGamesByPositionResponse>(
+    '/games/by-position',
+    params,
+    signal,
+  );
+}
+
+/**
  * GET /games/:id — одна архивная партия с PGN. Источник страницы F4.
  */
 export function getArchiveGameById(id: string): Promise<ArchiveGameDetail> {
@@ -243,5 +299,6 @@ export const archiveApi = {
   getArchivePlayerGames,
   searchArchiveEvents,
   getArchiveGamesMetadata,
+  getArchiveGamesByPosition,
   getArchiveGameById,
 };

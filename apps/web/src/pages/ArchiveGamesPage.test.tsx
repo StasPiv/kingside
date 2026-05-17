@@ -29,6 +29,11 @@ import { EMPTY_METADATA_FILTERS } from '../components/archive/ArchiveMetadataFil
  */
 
 const mockGetGamesMetadata = vi.fn();
+// KS-3087: при активном FEN-фильтре страница зовёт `/games/by-position`
+// (а не `/games`) — это единственный эндпоинт, который реально фильтрует
+// по позиции. Мок отдельный, чтобы в тестах легко проверять, какой
+// именно путь активировался по `?fen=`.
+const mockGetGamesByPosition = vi.fn();
 // KS-2219: при клике по строке `ArchiveGamesPage` грузит партию через
 // `archiveApi.getArchiveGameById` и при успехе уходит в `/analysis`,
 // при ошибке — fallback `navigate('/archive/games/<id>')`. Раньше мок
@@ -40,6 +45,8 @@ vi.mock('../api/archive', () => ({
   archiveApi: {
     getArchiveGamesMetadata: (...args: unknown[]) =>
       mockGetGamesMetadata(...args),
+    getArchiveGamesByPosition: (...args: unknown[]) =>
+      mockGetGamesByPosition(...args),
     getArchiveGameById: (...args: unknown[]) => mockGetGameById(...args),
   },
 }));
@@ -113,6 +120,7 @@ vi.mock('react-router-dom', async () => {
 
 beforeEach(() => {
   mockGetGamesMetadata.mockReset();
+  mockGetGamesByPosition.mockReset();
   mockGetGameById.mockReset();
   mockNavigate.mockReset();
   mockApiPost.mockReset();
@@ -240,6 +248,8 @@ describe('metadataFiltersToUrl', () => {
         maxPly: 80,
         sort: 'topElo',
         timeControlCategory: ['classical', 'rapid'],
+        // KS-3084: fen — обязательное поле ArchiveFiltersValues.
+        fen: '',
       },
       3,
       50,
@@ -369,7 +379,18 @@ describe('ArchiveGamesPage — fen как обычный фильтр (KS-3084)'
   it('с ?fen= → тот же metadata-layout + FEN-чип в шапке', async () => {
     // KS-3084: до этой задачи был отдельный by-position layout. Теперь
     // fen — обычный фильтр, layout единый, добавляется компактный чип.
-    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    // KS-3087: при наличии FEN зовётся `/games/by-position` (а не
+    // `/games`), поэтому мокаем именно этот путь.
+    mockGetGamesByPosition.mockResolvedValueOnce({
+      fen: '',
+      positionKey: '',
+      bucket: 'master',
+      sort: 'recent',
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      totalApprox: 0,
+    });
     renderWithProviders(<ArchiveGamesPage />, {
       route:
         '/archive/games?fen=rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F8%2FPPPPPPPP%2FRNBQKBNR+w+KQkq+-+0+1',
@@ -384,6 +405,63 @@ describe('ArchiveGamesPage — fen как обычный фильтр (KS-3084)'
     expect(
       screen.getByTestId('archive-games-metadata-fen-chip'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('ArchiveGamesPage — dispatch на by-position эндпоинт (KS-3087)', () => {
+  it('БЕЗ ?fen= → `getArchiveGamesMetadata`, by-position НЕ зовётся', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() => expect(mockGetGamesMetadata).toHaveBeenCalledTimes(1));
+    expect(mockGetGamesByPosition).not.toHaveBeenCalled();
+  });
+
+  it('С ?fen= → `getArchiveGamesByPosition`, metadata НЕ зовётся', async () => {
+    // Жалоба пользователя: `/games?fen=...` молча игнорирует FEN
+    // (DTO принимает, сервис deferred — KS-1581 §4.2). Правильный
+    // путь — `/games/by-position`.
+    mockGetGamesByPosition.mockResolvedValueOnce({
+      fen: 'rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2',
+      positionKey: 'fakehex',
+      bucket: 'master',
+      sort: 'recent',
+      items: [
+        {
+          id: 'qg1',
+          white: { name: 'A', slug: 'a', elo: 2700, title: null },
+          black: { name: 'B', slug: 'b', elo: 2700, title: null },
+          result: '1-0' as const,
+          eco: 'D06',
+          opening: "Queen's Gambit",
+          event: 'Test',
+          date: '2024.01.01',
+          plyCount: 40,
+          reachedAtPly: 4,
+          nextMoveUci: 'e7e6',
+          sideToMove: 'b' as const,
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      totalApprox: 1,
+    });
+
+    renderWithProviders(<ArchiveGamesPage />, {
+      route:
+        '/archive/games?fen=rnbqkbnr%2Fpppp1ppp%2F4p3%2F8%2F2PP4%2F8%2FPP2PPPP%2FRNBQKBNR+b+KQkq+-+0+2',
+    });
+
+    await waitFor(() =>
+      expect(mockGetGamesByPosition).toHaveBeenCalledTimes(1),
+    );
+    expect(mockGetGamesMetadata).not.toHaveBeenCalled();
+
+    // FEN передан как параметр первого аргумента.
+    const [requestArg] = mockGetGamesByPosition.mock.calls[0];
+    expect(requestArg.fen).toBe(
+      'rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2',
+    );
   });
 });
 

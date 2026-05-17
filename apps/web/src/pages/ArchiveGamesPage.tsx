@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
   ArchiveGameSummary,
+  ArchiveGamesByPositionItem,
+  ArchiveGamesByPositionRequest,
   ArchiveGamesRequest,
+  ArchiveGamesSort,
   ArchiveGamesSortMetadata,
   ArchiveTimeControlCategory,
   SavedFilterDto,
@@ -349,6 +352,72 @@ export function findMatchingFilter(
 }
 
 /**
+ * KS-3087: Превращает `ArchiveMetadataFilterValues` + cursor/pageSize в
+ * `ArchiveGamesByPositionRequest` для `archiveApi.getArchiveGamesByPosition`.
+ *
+ * НЕ поддерживает:
+ *   - `event`, `until`, `minPly`, `maxPly`, `timeControlCategory` —
+ *     by-position эндпоинт их не принимает (см. KS-3087 backend follow-up);
+ *     фильтры остаются видимы в UI, но молча не применяются к запросу.
+ *   - `sort = 'oldest'` — by-position понимает только `recent`/`topElo`;
+ *     fallback в `recent`, чтобы не отдавать пустой набор по 400.
+ *   - `offset` / `page>1` — keyset cursor единственный путь; deep-link
+ *     `?page=N` без `?cursor=...` начинает с первой страницы.
+ */
+export function metadataFiltersToByPositionRequest(
+  values: ArchiveMetadataFilterValues,
+  pageSize: number,
+  cursor?: string,
+): ArchiveGamesByPositionRequest {
+  // sort='oldest' не поддержан by-position-эндпоинтом — оставляем
+  // дефолт (бэк сам подставит recent).
+  const sort: ArchiveGamesSort | undefined =
+    values.sort === 'topElo' ? 'topElo' : values.sort === 'recent' ? 'recent' : undefined;
+  return {
+    fen: values.fen,
+    player:
+      values.players.length === 0
+        ? undefined
+        : values.players.length === 1
+          ? values.players[0]
+          : values.players,
+    eco: values.eco || undefined,
+    result:
+      values.result === 'any' ? undefined : (values.result as ArchiveGameResult),
+    minElo: values.minElo ?? undefined,
+    since: values.since || undefined,
+    sort,
+    limit: pageSize,
+    cursor: cursor || undefined,
+  };
+}
+
+/**
+ * KS-3087: маппер ответа `/games/by-position` → элемент списка
+ * `/games`. Поля совпадают по структуре (id, white, black, result, eco,
+ * opening, event, date, plyCount). Отсутствующие в by-position поля
+ * (`timeControl`, `timeControlCategory`) выставляем в `null` — UI карточки
+ * партии корректно их игнорирует.
+ */
+export function byPositionItemToSummary(
+  item: ArchiveGamesByPositionItem,
+): ArchiveGameSummary {
+  return {
+    id: item.id,
+    white: item.white,
+    black: item.black,
+    result: item.result,
+    eco: item.eco,
+    opening: item.opening,
+    event: item.event,
+    date: item.date,
+    plyCount: item.plyCount,
+    timeControl: null,
+    timeControlCategory: null,
+  };
+}
+
+/**
  * Превращает `ArchiveMetadataFilterValues` + page/pageSize в
  * `ArchiveGamesRequest` для `archiveApi.getArchiveGamesMetadata`.
  */
@@ -665,7 +734,12 @@ function ArchiveMetadataMode() {
       currentFilters.minPly !== null ||
       currentFilters.maxPly !== null ||
       currentFilters.sort !== 'recent' ||
-      currentFilters.timeControlCategory.length > 0;
+      currentFilters.timeControlCategory.length > 0 ||
+      // KS-3087: deep-link `?fen=...` — точно «не дефолт». Без этой
+      // проверки saved-filters эффект восстанавливает EMPTY_METADATA_FILTERS
+      // (fen='') и затирает FEN из URL уже через ~3 секунды после захода,
+      // а страница уходит во второй запрос — на `/games`, теряя позицию.
+      !!currentFilters.fen;
     if (hasNonDefaultFilters) return;
 
     const applyPartial = (partial: Partial<ArchiveMetadataFilterValues>) => {
@@ -888,20 +962,46 @@ function ArchiveMetadataMode() {
       window.scrollTo({ top: 0, behavior: 'auto' });
     }
 
-    archiveApi
-      .getArchiveGamesMetadata(
-        metadataFiltersToRequest(
-          filterValues,
-          initialPage,
-          pageSize,
-          initialCursor,
-        ),
-        controller.signal,
-      )
+    // KS-3087: при активном FEN зовём `/games/by-position` — это
+    // единственный путь, который реально фильтрует партии по позиции.
+    // `/games?fen=…` параметр принимает в DTO, но в сервисе помечен
+    // deferred (KS-1581 §4.2), молча отдаёт без учёта позиции.
+    const initialFetch = filterValues.fen
+      ? archiveApi
+          .getArchiveGamesByPosition(
+            metadataFiltersToByPositionRequest(
+              filterValues,
+              pageSize,
+              initialCursor,
+            ),
+            controller.signal,
+          )
+          .then((res) => ({
+            items: res.items.map(byPositionItemToSummary),
+            nextCursor: res.nextCursor,
+            total: null as number | null,
+          }))
+      : archiveApi
+          .getArchiveGamesMetadata(
+            metadataFiltersToRequest(
+              filterValues,
+              initialPage,
+              pageSize,
+              initialCursor,
+            ),
+            controller.signal,
+          )
+          .then((res) => ({
+            items: res.items,
+            nextCursor: res.nextCursor ?? null,
+            total: res.total,
+          }));
+
+    initialFetch
       .then((res) => {
         if (mySeq !== requestSeqRef.current) return;
         setItems(res.items);
-        setNextCursor(res.nextCursor ?? null);
+        setNextCursor(res.nextCursor);
         setFirstPageTotal(res.total);
         setLoading(false);
       })
@@ -934,11 +1034,32 @@ function ArchiveMetadataMode() {
     inflightAbortRef.current = controller;
     setLoadingMore(true);
     setError(null);
-    archiveApi
-      .getArchiveGamesMetadata(
-        metadataFiltersToRequest(filterValues, 1, pageSize, nextCursor),
-        controller.signal,
-      )
+    // KS-3087: тот же dispatch что в initial — by-position при наличии FEN.
+    const moreFetch = filterValues.fen
+      ? archiveApi
+          .getArchiveGamesByPosition(
+            metadataFiltersToByPositionRequest(
+              filterValues,
+              pageSize,
+              nextCursor,
+            ),
+            controller.signal,
+          )
+          .then((res) => ({
+            items: res.items.map(byPositionItemToSummary),
+            nextCursor: res.nextCursor,
+          }))
+      : archiveApi
+          .getArchiveGamesMetadata(
+            metadataFiltersToRequest(filterValues, 1, pageSize, nextCursor),
+            controller.signal,
+          )
+          .then((res) => ({
+            items: res.items,
+            nextCursor: res.nextCursor ?? null,
+          }));
+
+    moreFetch
       .then((res) => {
         if (mySeq !== requestSeqRef.current) return;
         setItems((prev) => {
@@ -948,7 +1069,7 @@ function ArchiveMetadataMode() {
           const fresh = res.items.filter((it) => !seen.has(it.id));
           return [...prev, ...fresh];
         });
-        setNextCursor(res.nextCursor ?? null);
+        setNextCursor(res.nextCursor);
         setLoadingMore(false);
       })
       .catch((e: Error) => {
