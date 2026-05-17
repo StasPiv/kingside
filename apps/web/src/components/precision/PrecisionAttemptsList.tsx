@@ -11,6 +11,9 @@ import { ApiError } from '../../ApiError';
 // KS-3004 (ADR-065 §5.1.2, F3): compact 5-балльная оценка для строки
 // каталога. Заменяет старую бинарную «УДЕРЖАНО/УПУЩЕНО» плашку.
 import { PrecisionScoreBadge } from './PrecisionScoreBadge';
+// KS-3075 → KS-3077: scorePct теперь приходит в list-DTO, используем
+// единый источник «точности %» (synchronize со звёздами и detail-страницей).
+import { pickDisplayedAccuracyPct } from '../../utils/precisionAccuracyDisplay';
 
 /**
  * Диагностика причин ошибки загрузки. Используется и для console.error
@@ -378,7 +381,9 @@ export function PrecisionAttemptsList({
       <ul className="precision-attempts__list">
         {filteredItems.map((a) => {
           const orientation = sideFromFen(a.puzzleFen);
-          const accuracyText = `${Math.round(a.accuracyPercent)}%`;
+          // KS-3077: scorePct теперь приходит в list-DTO. Синхрон со
+          // звёздами и detail-страницей через общую утилиту (KS-3075).
+          const accuracyText = `${Math.round(pickDisplayedAccuracyPct(a))}%`;
           const onClick = () => navigate(`/precision/attempts/${a.attemptId}`);
           return (
             <li
