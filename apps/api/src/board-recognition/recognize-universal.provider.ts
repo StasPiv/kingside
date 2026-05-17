@@ -34,13 +34,30 @@ export class RecognizeUniversalProvider implements BoardRecognizer {
     },
   ): Promise<RecognizeUniversalResult> {
     const fn = await this.getRecognizeUniversal();
-    const raw = (await fn(imagePath, {
-      profile: options.profile,
-      modelPath: options.modelPath ?? undefined,
-      // `auto` — ориентацию определяет board_recognize.py.
-      orientation: 'auto',
-    })) as RecognizeUniversalResult;
-    return raw;
+    // KS-3094 / ADR-040: явное логирование profile+modelPath на каждый
+    // вызов — на проде ловили 500-ки и не могли понять, какая ветка
+    // recognizeUniversal'а отработала. По usedProfile в логе видно
+    // generic vs maizelis vs dvoretsky без чтения исходников.
+    this.logger.log(
+      `recognize: profile=${options.profile} modelPath=${options.modelPath ?? '(none)'}`,
+    );
+    try {
+      const raw = (await fn(imagePath, {
+        profile: options.profile,
+        modelPath: options.modelPath ?? undefined,
+        // `auto` — ориентацию определяет board_recognize.py.
+        orientation: 'auto',
+      })) as RecognizeUniversalResult;
+      this.logger.log(
+        `recognize: usedProfile=${raw.usedProfile} fen=${raw.fen_board}`,
+      );
+      return raw;
+    } catch (e) {
+      this.logger.warn(
+        `recognize: failed profile=${options.profile}: ${(e as Error).message}`,
+      );
+      throw e;
+    }
   }
 
   private async getRecognizeUniversal() {

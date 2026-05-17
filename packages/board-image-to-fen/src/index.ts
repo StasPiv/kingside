@@ -302,22 +302,32 @@ export interface RecognizeUniversalOptions {
   templatesImage?: string;
 }
 
-/** Поведение auto-fallback'а из generic в maizelis. */
-interface AutoFallbackThresholds {
-  /** Минимальная доля cells с conf ≥ low-threshold. Меньше → fallback. */
-  minHighConfidenceFraction: number;
-}
-
-const AUTO_FALLBACK_DEFAULTS: AutoFallbackThresholds = {
-  minHighConfidenceFraction: 0.8,
-};
-
 /**
  * Универсальное распознавание шахматной диаграммы (KS-2362).
  *
  * Возвращает либо результат generic-пути (с per-cell диагностикой), либо
  * legacy-результат (Maizelis/Dvoretsky). Поле `usedProfile` всегда указывает,
  * какой путь сработал. На полностью неуспешный результат бросает ошибку.
+ *
+ * ## Логика `profile`
+ *
+ * - `'maizelis' | 'dvoretsky'` — явный legacy template-matcher, рассчитан
+ *   на конкретные книжные шрифты. На скриншоте lichess/chess.com он не
+ *   работает (rejected с «cannot locate board frame»).
+ * - `'generic'` — только universal ONNX-пайплайн (KS-2362). Требует
+ *   `modelPath`.
+ * - `'auto'` — авто-выбор:
+ *     * `modelPath` задан → generic-пайплайн. Результат возвращается даже
+ *       при низкой уверенности / sanity-warning'ах — фронт показывает
+ *       `warnings` / `low_confidence_cells`. Если generic технически
+ *       упал (отсутствие модели в Python-резолвере, board_detect не
+ *       нашёл квадрат) — прокидываем ошибку наверх. Maizelis в этой ветке
+ *       НЕ используется: он гарантированно не сработает на скриншоте
+ *       lichess/chess.com и только заменит понятную 400-ошибку на
+ *       вводящий в заблуждение 500 (см. hotfix KS-3094: production
+ *       инцидент именно по этой причине).
+ *     * `modelPath` не задан → legacy `maizelis` (для книг Майзелиса —
+ *       исторический MVP-путь по умолчанию).
  */
 export async function recognizeUniversal(
   imagePath: string,
@@ -344,38 +354,37 @@ export async function recognizeUniversal(
     return { ...legacy, success: true, usedProfile: profile };
   }
 
-  // 2. Generic / auto — сначала пытаемся universal pipeline.
-  let genericResult: UniversalRecognizeResult | null = null;
-  let genericError: Error | null = null;
-  try {
-    genericResult = await runGeneric(imagePath, {
-      orientation,
-      modelPath,
-      unetModelPath,
-      lowConfidenceThreshold,
+  // 2. profile === 'auto' без модели → legacy maizelis (старая MVP-ветка
+  //    для книг Майзелиса). Этот путь живой, пока на проде не выкатили
+  //    ONNX-модель v1.0.0 — после чего service передаёт modelPath и
+  //    мы идём по generic-ветке ниже.
+  if (profile === 'auto' && !modelPath) {
+    const legacy = await recognizeBoardImage(imagePath, {
+      orientation: orientation === 'auto' ? 'white' : orientation,
       pythonPath,
+      templatesImage,
+      profile: 'maizelis',
     });
-  } catch (e) {
-    genericError = e as Error;
+    return { ...legacy, success: true, usedProfile: 'maizelis' };
   }
 
-  if (profile === 'generic') {
-    if (genericResult) return genericResult;
-    throw genericError ?? new Error('recognizeUniversal: generic path failed');
-  }
-
-  // 3. profile === 'auto': принимаем generic-результат если он валиден и
-  //    достаточно уверенный; иначе fallback на maizelis.
-  if (genericResult && isGenericResultAcceptable(genericResult, AUTO_FALLBACK_DEFAULTS)) {
-    return genericResult;
-  }
-  const legacy = await recognizeBoardImage(imagePath, {
-    orientation: orientation === 'auto' ? 'white' : orientation,
+  // 3. profile === 'generic' ИЛИ profile === 'auto' с моделью → generic.
+  //    KS-3094: на проде ловили 500-ки на скриншотах lichess/chess.com,
+  //    потому что в случае «generic вернул, но sanity невалиден / много
+  //    low-conf cells» старая реализация делала fallback на maizelis —
+  //    а тот на не-книжном материале гарантированно валится с
+  //    «cannot locate board frame». Теперь generic-результат отдаётся
+  //    как есть (фронт показывает warnings / low_confidence_cells);
+  //    fallback на maizelis сохранён только для «нет модели вовсе»
+  //    (ветка выше) и для явного profile='maizelis'.
+  const genericResult = await runGeneric(imagePath, {
+    orientation,
+    modelPath,
+    unetModelPath,
+    lowConfidenceThreshold,
     pythonPath,
-    templatesImage,
-    profile: 'maizelis',
   });
-  return { ...legacy, success: true, usedProfile: 'maizelis' };
+  return genericResult;
 }
 
 /** Сырой запуск generic Python-скрипта с обработкой "success: false". */
@@ -411,18 +420,6 @@ async function runGeneric(
     );
   }
   return { ...(raw as UniversalRecognizeResult), success: true, usedProfile: 'generic' };
-}
-
-function isGenericResultAcceptable(
-  result: UniversalRecognizeResult,
-  thresholds: AutoFallbackThresholds,
-): boolean {
-  if (!result.sanity?.valid) return false;
-  const total = result.cells.length;
-  if (total === 0) return false;
-  const highConf = total - result.low_confidence_cells.length;
-  const fraction = highConf / total;
-  return fraction >= thresholds.minHighConfidenceFraction;
 }
 
 /**
