@@ -4049,6 +4049,32 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   padding: 8px;
   box-sizing: border-box;
 }
+/* KS-3069: подписи под графиком «Динамика WDL». До этого фикса
+   рендерились через position:absolute + left:%, и при ≥4 точках
+   на мобильном (375px) или сжатом десктопе подписи вида
+   `59... Nxe4 — 100/0/0%` слипались в нечитаемую кашу. Теперь
+   flex-wrap список «чипов»: каждый ход в отдельном пилюлевидном
+   бейдже на тёмном фоне, между ними фиксированный gap, перенос
+   на следующую строку при нехватке ширины. */
+.precision-attempt-page__sparkline-labels {
+  list-style: none;
+  margin: 8px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.precision-attempt-page__sparkline-label {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--c-1e293b);
+  color: var(--c-94a3b8);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .precision-attempt-page__bars {
   list-style: none;
   margin: 0;
