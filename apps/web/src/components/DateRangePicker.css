@@ -49,13 +49,39 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 }
 
-@media (max-width: 480px) {
+/* KS-3081 follow-up: на ≤640px popup выходил за правый край viewport,
+   потому что был position:absolute от триггера и width:304px. Триггер
+   живёт в правой части ряда фильтров — popup упирался в край и кнопка
+   «Применить» налезала на список партий справа.
+
+   Решение — bottom-sheet: на узких экранах popup прижимается ко всем
+   четырём краям (с отступом 12px), отрывается от позиционирования
+   триггера, получает свой z-index выше всего фильтра и затемнённый
+   backdrop через приём «огромный box-shadow + clip-path», чтобы
+   визуально отделить popup от страницы без необходимости рендерить
+   отдельный backdrop-элемент (JS не трогаем по scope задачи).
+
+   Закрытие по клику снаружи остаётся работать: backdrop сделан
+   средствами CSS (тень), кликов не перехватывает, обработчик
+   document-click во фронтовом компоненте срабатывает как и раньше. */
+@media (max-width: 640px) {
   .date-range-picker__popup {
-    /* На mobile прижимаемся к левому краю trigger'а, но если не
-       помещаемся — фиксируем правый край. */
-    left: 0;
-    right: auto;
-    max-width: calc(100vw - 24px);
+    position: fixed;
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    z-index: 100;
+    /* Backdrop: огромная тень вокруг popup'а; clip-path с inset
+       наружу сохраняет скругления popup'а и не обрезает тень. */
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.45),
+      0 0 0 100vmax rgba(0, 0, 0, 0.5);
+    clip-path: inset(-100vmax round 8px);
   }
 }
 
