@@ -792,6 +792,7 @@
 .archive-games-metadata__fen-chip {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 8px;
   padding: 6px 10px;
@@ -802,15 +803,27 @@
 }
 
 /* KS-3084 hotfix: 56×56 был слишком мал — react-chessboard v5 на
-   таком размере показывал пустую доску без фигур. Поднял до 80×80
-   (всё ещё компактно, но >минимального размера). */
+   таком размере показывал пустую доску без фигур. Поднял до 80×80.
+   KS-3086: пользователь жаловался что 80×80 — каша, фигуры
+   неразличимы. Поднял до 144×144 (≈18px на клетку, фигуры
+   читаются). Парный flex-wrap на самом чипе разрешает info+clear
+   уехать вниз, если в ряд не помещается (актуально на mobile). */
 .archive-games-metadata__fen-chip-board {
-  width: 80px;
-  height: 80px;
+  width: 144px;
+  height: 144px;
   flex-shrink: 0;
   border-radius: 4px;
   overflow: hidden;
   background: var(--c-0f172a, #0f172a);
+}
+
+@media (max-width: 640px) {
+  .archive-games-metadata__fen-chip-board {
+    /* На узком экране подгоняем под половину ширины чипа, но не
+       меньше 120 и не больше 160. */
+    width: clamp(120px, 42vw, 160px);
+    height: clamp(120px, 42vw, 160px);
+  }
 }
 
 .archive-games-metadata__fen-chip-info {
