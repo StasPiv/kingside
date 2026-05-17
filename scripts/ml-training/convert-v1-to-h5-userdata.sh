@@ -57,7 +57,12 @@ docker run --rm \
     set -euxo pipefail
     cd /work
     pip install --no-cache-dir h5py==3.11.0
-    python -m training.convert_v1_to_h5 --src /work/v1 --dst /work/v1-h5
+    # Backend (KS-3080) реализовал CLI как --data-dir/--output-dir/--workers/--splits
+    # (runbook §9.5 говорит --src/--dst — но это псевдокод-шаблон, актуально из py).
+    python -m training.convert_v1_to_h5 \
+        --data-dir /work/v1 \
+        --output-dir /work/v1-h5 \
+        --workers $(nproc)
     ls -la /work/v1-h5
     ls -la /work/v1-h5/splits
   '
