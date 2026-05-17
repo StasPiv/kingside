@@ -2007,17 +2007,18 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   }
 
   /* KS-3083: метрики WASM-движка над контролами на мобильном.
-     Текст приглушённый, мелкий, с переносом по словам — если
-     все 4 значения (название · d · n · nps) не помещаются в
-     одну строку, переезжают на следующую без обрезания. */
+     Стиль идентичен .analysis-panel-title (тот же текст там
+     выводится на десктопе): 13px, weight 600, c0c0d0. Без
+     nowrap/ellipsis — на узком экране строка переносится
+     по словам, чтобы depth/n/nps не обрезались. */
   .analysis-mobile-engine-meta {
     display: block;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 13px;
+    font-weight: 600;
     line-height: 1.35;
-    color: var(--c-94a3b8, #94a3b8);
+    color: var(--c-c0c0d0);
     border-bottom: 1px solid var(--c-333);
-    word-spacing: 0.05em;
     overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
   }
