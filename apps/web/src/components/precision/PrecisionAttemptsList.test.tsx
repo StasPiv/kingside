@@ -157,7 +157,7 @@ describe('<PrecisionAttemptsList>', () => {
     expect(screen.queryByTestId('precision-attempts-row-a3')).toBeTruthy();
   });
 
-  it('items.length < total → показывает «Загрузить ещё»', async () => {
+  it('KS-3076: items.length < total → рендерится sentinel для infinite-scroll', async () => {
     const fetcher = vi.fn().mockResolvedValue({
       items: [makeItem('a1', true)],
       total: 5,
@@ -166,11 +166,11 @@ describe('<PrecisionAttemptsList>', () => {
     renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('precision-attempts-load-more')).toBeTruthy();
+      expect(screen.getByTestId('precision-attempts-sentinel')).toBeTruthy();
     });
   });
 
-  it('items.length === total → «Загрузить ещё» не рендерится', async () => {
+  it('KS-3076: items.length === total → sentinel не рендерится', async () => {
     const fetcher = vi.fn().mockResolvedValue({
       items: [makeItem('a1', true)],
       total: 1,
@@ -181,6 +181,6 @@ describe('<PrecisionAttemptsList>', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('precision-attempts-row-a1')).toBeTruthy();
     });
-    expect(screen.queryByTestId('precision-attempts-load-more')).toBeNull();
+    expect(screen.queryByTestId('precision-attempts-sentinel')).toBeNull();
   });
 });

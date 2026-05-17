@@ -3851,22 +3851,33 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   background: var(--c-2a2a4e, #2a2a4e);
   color: var(--c-e2e8f0);
 }
+/* KS-3076: история попыток теперь в grid-карточках по образцу /precision
+   (`.play-vs-engine-card`). Превью доски — квадратное во всю ширину
+   карточки, читаемое; карточки выстраиваются 1 / 2 / 3 колонки
+   responsive. До KS-3076 превью было 64×64 без notation — мелкое и
+   нечитаемое, плюс infinite-scroll был на кнопке «Load more».
+*/
 .precision-attempts__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
 }
 .precision-attempts__row {
   background: var(--c-1e293b);
   border: 1px solid var(--c-2a2a4e, #2a2a4e);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.precision-attempts__row:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
 }
 .precision-attempts__row--skeleton {
-  height: 88px;
+  min-height: 280px;
   opacity: 0.5;
   animation: precision-skeleton 1.2s ease-in-out infinite alternate;
 }
@@ -3877,32 +3888,32 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-attempts__row--preserved { border-left: 3px solid #4ade80; }
 .precision-attempts__row--lost { border-left: 3px solid #f87171; }
 .precision-attempts__row-btn {
-  display: grid;
-  grid-template-columns: 64px 1fr auto;
-  gap: 12px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
   background: transparent;
   border: 0;
-  padding: 10px 12px;
+  padding: 0;
   text-align: left;
   cursor: pointer;
   color: inherit;
 }
 .precision-attempts__row-btn:hover {
-  background: var(--c-2a2a4e, #2a2a4e);
+  background: rgba(124, 131, 255, 0.06);
 }
 .precision-attempts__preview {
   display: block;
-  width: 64px;
-  height: 64px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   flex-shrink: 0;
+  background: var(--c-0f172a, #0f172a);
 }
 .precision-attempts__main {
-  display: grid;
-  grid-template-columns: auto auto auto 1fr auto;
-  gap: 8px 14px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 10px;
   font-size: 13px;
 }
 /* KS-3004: `precision-attempts__verdict` («УДЕРЖАНО»/«УПУЩЕНО» в строке)
@@ -3958,6 +3969,14 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   cursor: pointer;
 }
 .precision-attempts__more:disabled { opacity: 0.5; cursor: default; }
+/* KS-3076: индикатор «загрузка следующей страницы» под IntersectionObserver
+   sentinel'ом (на месте бывшей кнопки «Load more»). */
+.precision-attempts__loading-more {
+  margin: 12px 0;
+  text-align: center;
+  color: var(--c-94a3b8);
+  font-size: 13px;
+}
 .precision-attempts__empty,
 .precision-attempts__error {
   margin: 8px 0 0 0;

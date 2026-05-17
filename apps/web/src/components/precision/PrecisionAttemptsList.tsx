@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
@@ -146,6 +146,60 @@ export function PrecisionAttemptsList({
     void doFetch(0, false);
   }, [doFetch]);
 
+  const canLoadMore = items.length < total;
+
+  // KS-3076: IntersectionObserver-based infinite scroll по образцу
+  // /precision (KS-2769 коммит 9384df8a). Sentinel-div рендерится после
+  // списка только когда `canLoadMore`. Observer переподписывается на
+  // каждый mount sentinel'а (после смены фильтра или перерисовки).
+  // rootMargin=600px — подгрузка чуть раньше чем sentinel реально въедет
+  // в viewport.
+  const sentinelInViewRef = useRef(false);
+  const sentinelObserverRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<() => void>(() => {});
+  loadMoreRef.current = () => {
+    if (loadingMore || loading) return;
+    if (!canLoadMore) return;
+    void doFetch(offset, true);
+  };
+  const setSentinelEl = useCallback((el: HTMLDivElement | null) => {
+    if (sentinelObserverRef.current) {
+      sentinelObserverRef.current.disconnect();
+      sentinelObserverRef.current = null;
+    }
+    if (!el) {
+      sentinelInViewRef.current = false;
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const isVis = entries[0]?.isIntersecting ?? false;
+        sentinelInViewRef.current = isVis;
+        if (isVis) loadMoreRef.current();
+      },
+      { rootMargin: '600px' },
+    );
+    obs.observe(el);
+    sentinelObserverRef.current = obs;
+  }, []);
+  useEffect(
+    () => () => {
+      sentinelObserverRef.current?.disconnect();
+      sentinelObserverRef.current = null;
+    },
+    [],
+  );
+  // Fallback: если sentinel остался видимым после загрузки страницы
+  // (грид короче экрана на большом мониторе — IntersectionObserver сам
+  // не переотобьётся), повторно дёргаем loadMore.
+  useEffect(() => {
+    if (loading || loadingMore) return;
+    if (!canLoadMore) return;
+    if (sentinelInViewRef.current) {
+      loadMoreRef.current();
+    }
+  }, [loading, loadingMore, canLoadMore, items.length]);
+
   const filteredItems = useMemo(() => {
     if (filter === 'all') return items;
     if (filter === 'preserved') return items.filter((a) => a.solved);
@@ -282,8 +336,6 @@ export function PrecisionAttemptsList({
     );
   }
 
-  const canLoadMore = items.length < total;
-
   return (
     <section
       className="precision-attempts"
@@ -343,6 +395,10 @@ export function PrecisionAttemptsList({
                 data-testid={`precision-attempts-link-${a.attemptId}`}
                 aria-label={t('precisionAttempts.openReview', 'Open review')}
               >
+                {/* KS-3076: превью-доска в стиле карточек /precision —
+                    квадрат во всю ширину карточки, без notation (мелкая
+                    нечитаемая на 64px она была), правильный orientation
+                    из side-to-move в FEN. */}
                 <span className="precision-attempts__preview">
                   <Chessboard
                     options={{
@@ -403,18 +459,23 @@ export function PrecisionAttemptsList({
         })}
       </ul>
 
+      {/* KS-3076: sentinel + IntersectionObserver вместо ручной кнопки
+          «Load more» — единый паттерн с /precision (KS-2769). */}
       {canLoadMore && (
-        <button
-          type="button"
-          className="precision-attempts__more"
-          onClick={() => void doFetch(offset, true)}
-          disabled={loadingMore}
+        <div
+          ref={setSentinelEl}
+          data-testid="precision-attempts-sentinel"
+          aria-hidden="true"
+          style={{ height: 1 }}
+        />
+      )}
+      {loadingMore && (
+        <p
+          className="precision-attempts__loading-more"
           data-testid="precision-attempts-load-more"
         >
-          {loadingMore
-            ? t('common.loading', 'Loading…')
-            : t('precisionAttempts.loadMore', 'Load more')}
-        </button>
+          {t('common.loading', 'Loading…')}
+        </p>
       )}
 
       {filteredItems.length === 0 && (
