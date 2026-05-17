@@ -59,6 +59,34 @@ describe('recognizeBoard (KS-2365)', () => {
     ).rejects.toThrow('aborted');
   });
 
+  it('hotfix: URL запроса включает VITE_API_URL (api.kingside.site, не относительный /api/...)', async () => {
+    // Раньше: const res = await fetchFn('/api/board-recognition', …) —
+    // CloudFront на kingside.site/api/* не маршрутизирует, запросы
+    // улетали в 404. Контроллер на бэке висит на `/board-recognition`
+    // без `/api`-префикса (как `/auth/login`), origin задаётся через
+    // `VITE_API_URL` (api.kingside.site).
+    let capturedUrl = '';
+    const fetchImpl = async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          fen: STARTING_FEN,
+          fenBoard: STARTING_FEN.split(' ')[0],
+          orientation: 'white',
+          orientationConfidence: 0.5,
+          bbox: { x: 0, y: 0, width: 0, height: 0 },
+          modelVersion: 'br-v1',
+          lowConfidenceCells: [],
+          warnings: [],
+        }),
+        { status: 200 },
+      );
+    };
+    await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
+    expect(capturedUrl).toMatch(/\/board-recognition$/);
+    expect(capturedUrl.startsWith('/api/')).toBe(false);
+  });
+
   it('кидает на 5xx (это не «backend pending», а реальная серверная ошибка)', async () => {
     const fetchImpl = async () => new Response('boom', { status: 500 });
     await expect(

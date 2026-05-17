@@ -1,6 +1,6 @@
 /**
  * KS-2365 / ADR-040 §5.1. Клиент для board-recognition API
- * (`POST /api/board-recognition`, multipart с полем `image`).
+ * (`POST {VITE_API_URL}/board-recognition`, multipart с полем `image`).
  *
  * Контракт response зафиксирован в ADR-040 §5.1 и в описании KS-2365:
  *   { fen, fenBoard, orientation, orientationConfidence, bbox, modelVersion,
@@ -60,6 +60,19 @@ const STARTING_FEN =
 const STARTING_FEN_BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 
 /**
+ * KS-3087/KS-2365 hotfix: api-сервис висит на отдельном origin
+ * (`api.kingside.site`), контроллер `BoardRecognitionController`
+ * зарегистрирован без `/api`-префикса (`/board-recognition`, как
+ * `/auth/login`). CloudFront не маршрутизирует `kingside.site/api/*`
+ * на backend, поэтому относительный путь `/api/board-recognition`
+ * улетал в никуда и фолбек-мок маскировал 404.
+ *
+ * Берём базовый URL из `VITE_API_URL` так же, как `api.ts` /
+ * `api-puzzle.ts`.
+ */
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
+/**
  * Стабильный мок ответа для случая, когда backend (KS-2363) ещё не
  * отвечает. Возвращает стартовую позицию — этого достаточно чтобы
  * увидеть полный UI-флоу: «загрузил → отрисовалась доска → можно
@@ -112,7 +125,7 @@ export async function recognizeBoard(
   }
   const fetchFn = options.fetchImpl ?? fetch;
   try {
-    const res = await fetchFn('/api/board-recognition', {
+    const res = await fetchFn(`${API_URL}/board-recognition`, {
       method: 'POST',
       body: form,
       headers,
