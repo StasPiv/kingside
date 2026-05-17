@@ -295,11 +295,24 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('minPly must be <= maxPly');
     }
 
-    const sort: ArchiveGamesSortMetadata = req.sort ?? 'recent';
+    // KS-3088: `fen` / `move` historically were accepted by the DTO and
+    // silently ignored at this layer (KS-1581 MVP scope, ADR §4.2 — the
+    // metadata table has no per-position index; position-based search
+    // lives in the separate `/archive/games/by-position` endpoint backed
+    // by `archive_position_stats`). The silent acceptance caused KS-3084
+    // (a frontend request to `/games?fen=…` returned 200 OK with an
+    // *unfiltered* list, so the user saw games without the requested
+    // position). Fail loudly until / unless we ever wire the join here.
+    if (req.fen != null || req.move != null) {
+      throw new BadRequestException({
+        error: 'fen_filter_not_supported',
+        message:
+          'Filtering /archive/games by position (fen/move) is not implemented here. ' +
+          'Use GET /archive/games/by-position?fen=... instead.',
+      });
+    }
 
-    // NOTE: fen/move filters require a position_stats join and are deferred
-    // to a follow-up (KS-1581 MVP scope, see ADR §4.2). They are accepted
-    // by the DTO but silently ignored at the service level for now.
+    const sort: ArchiveGamesSortMetadata = req.sort ?? 'recent';
 
     // KS-2090: «чистый recent» (sort=recent + offset=0 + нет фильтров) —
     // это тот самый блок «Последние партии» на `/archive`. Кэшируем в Redis

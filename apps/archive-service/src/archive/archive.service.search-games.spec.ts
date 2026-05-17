@@ -173,6 +173,61 @@ describe('ArchiveService.getGames — KS-2063', () => {
     );
   });
 
+  // ─── KS-3088 — fen/move → 400 с fen_filter_not_supported ─────────────
+
+  it('KS-3088: fen → 400 с error=fen_filter_not_supported и подсказкой на by-position', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await expect(svc.getGames({ fen: 'startpos' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    try {
+      await svc.getGames({ fen: 'startpos' });
+      fail('expected BadRequestException');
+    } catch (e) {
+      const ex = e as BadRequestException;
+      const resp = ex.getResponse() as { error: string; message: string };
+      expect(resp.error).toBe('fen_filter_not_supported');
+      expect(resp.message).toMatch(/by-position/);
+    }
+    expect(repo.lastSearchOpts).toBeNull();
+  });
+
+  it('KS-3088: move → 400 (тот же error code)', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    try {
+      await svc.getGames({ move: 'e2e4' });
+      fail('expected BadRequestException');
+    } catch (e) {
+      const ex = e as BadRequestException;
+      const resp = ex.getResponse() as { error: string; message: string };
+      expect(resp.error).toBe('fen_filter_not_supported');
+    }
+    expect(repo.lastSearchOpts).toBeNull();
+  });
+
+  it('KS-3088: fen + move одновременно → одно 400 (не два запроса в repo)', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await expect(
+      svc.getGames({ fen: 'startpos', move: 'e2e4' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.lastSearchOpts).toBeNull();
+  });
+
+  it('KS-3088: запрос без fen/move работает как раньше (regression)', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await svc.getGames({ player: 'Carlsen' });
+    expect(repo.lastSearchOpts).not.toBeNull();
+    expect(repo.lastSearchOpts?.player).toBe('Carlsen');
+  });
+
   it('маппит RawArchiveGameRow в ArchiveGameSummary с canonical date из played_at', async () => {
     const repo = new CapturingRepo();
     const svc = makeService(repo);

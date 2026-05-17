@@ -29,10 +29,21 @@ const TIME_CONTROL_CATEGORY_VALUES: ArchiveTimeControlCategory[] = [
 ];
 
 export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
+  /**
+   * KS-3088: НЕ используется здесь. `/archive/games` фильтрует по
+   * metadata-полям (player/eco/event/elo/dates/ply/result/sort);
+   * per-position поиск живёт в отдельном эндпоинте
+   * `GET /archive/games/by-position?fen=...` (через
+   * `archive_position_stats`). Если поле приходит — сервис вернёт
+   * `400 fen_filter_not_supported` с указанием правильного маршрута.
+   * Оставлено в DTO ради явной 400-ошибки и для обратной совместимости
+   * клиентов, переключающихся на by-position (KS-3087).
+   */
   @IsOptional()
   @IsString()
   fen?: string;
 
+  /** KS-3088: см. комментарий выше для `fen` — тот же режим (400). */
   @IsOptional()
   @IsString()
   move?: string;

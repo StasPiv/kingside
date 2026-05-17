@@ -167,8 +167,9 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
     ['minElo', { minElo: 2700 }],
     ['minPly', { minPly: 30 }],
     ['maxPly', { maxPly: 80 }],
-    ['fen', { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }],
-    ['move', { move: 'e2e4' }],
+    // KS-3088: fen/move теперь сразу 400 (fen_filter_not_supported),
+    // до проверки skipTotal не доходит — отдельный кейс в
+    // archive.service.search-games.spec.ts.
   ])('фильтр %s → НЕ clean-recent, skipTotal=true (KS-2140)', async (_name, req) => {
     const repo = new CapturingRepo();
     const { svc } = makeService(repo);
