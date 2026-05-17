@@ -485,7 +485,12 @@ function AnalysisPageInner({
   } = useEngine({
     source: ec.engineSource,
     externalConfig: ec.externalConfig,
-    depth: ec.engineSource === 'external' ? 99 : 18,
+    // KS-3085: для wasm — настраиваемая глубина из useEngineConfig
+    // (слайдер в EngineSettingsModal, localStorage `analysisDepth`,
+    // диапазон 10..30, default 18 — точка калибровки WDL).
+    // Для external оставляем 99 («бесконечно») — серверная сторона
+    // ограничивает сама.
+    depth: ec.engineSource === 'external' ? 99 : ec.analysisDepth,
     multiPv: ec.multiPv,
     autoStart: analysisEnabled,
   });
@@ -1741,6 +1746,11 @@ function AnalysisPageInner({
           engineSource={ec.engineSource}
           multiPv={ec.multiPv}
           setMultiPv={(v) => ec.setMultiPv(v)}
+          analysisDepth={ec.analysisDepth}
+          setAnalysisDepth={ec.setAnalysisDepth}
+          minAnalysisDepth={ec.minAnalysisDepth}
+          maxAnalysisDepth={ec.maxAnalysisDepth}
+          defaultAnalysisDepth={ec.defaultAnalysisDepth}
           extUrlInput={ec.extUrlInput}
           setExtUrlInput={ec.setExtUrlInput}
           extKeyInput={ec.extKeyInput}

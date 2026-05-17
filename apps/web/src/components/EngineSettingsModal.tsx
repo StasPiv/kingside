@@ -7,6 +7,12 @@ type Props = {
   engineSource: EngineSource;
   multiPv: number;
   setMultiPv: (v: number) => void;
+  /** KS-3085: настраиваемая глубина WASM-анализа (10..30). */
+  analysisDepth: number;
+  setAnalysisDepth: (v: number) => void;
+  minAnalysisDepth: number;
+  maxAnalysisDepth: number;
+  defaultAnalysisDepth: number;
   extUrlInput: string;
   setExtUrlInput: (v: string) => void;
   extKeyInput: string;
@@ -48,6 +54,11 @@ export function EngineSettingsModal({
   engineSource,
   multiPv,
   setMultiPv,
+  analysisDepth,
+  setAnalysisDepth,
+  minAnalysisDepth,
+  maxAnalysisDepth,
+  defaultAnalysisDepth,
   extUrlInput,
   setExtUrlInput,
   extKeyInput,
@@ -109,6 +120,60 @@ export function EngineSettingsModal({
               className="engine-uci-input"
             />
           </div>
+          {/* KS-3085: слайдер «Максимальная глубина анализа» — только для
+              WASM, потому что external engine использует свою depth=99
+              («бесконечно» / ограничивается серверной стороной). */}
+          {engineSource === 'wasm' && (
+            <div className="engine-uci-row engine-uci-row--depth">
+              <label htmlFor="engine-depth-slider">
+                {t('engineSettings.depthLabel', 'Max analysis depth')}
+              </label>
+              <div className="engine-depth-slider-wrap">
+                <input
+                  id="engine-depth-slider"
+                  type="range"
+                  min={minAnalysisDepth}
+                  max={maxAnalysisDepth}
+                  step={1}
+                  value={analysisDepth}
+                  onChange={(e) => setAnalysisDepth(Number(e.target.value))}
+                  className="engine-depth-slider"
+                  data-testid="engine-depth-slider"
+                  aria-valuemin={minAnalysisDepth}
+                  aria-valuemax={maxAnalysisDepth}
+                  aria-valuenow={analysisDepth}
+                />
+                <span
+                  className="engine-depth-value"
+                  data-testid="engine-depth-value"
+                  aria-live="polite"
+                >
+                  {analysisDepth}
+                </span>
+              </div>
+              <p className="engine-depth-hint">
+                {t(
+                  'engineSettings.depthHint',
+                  'Analysis stops at this depth. Higher = slower but more accurate.',
+                )}
+                {analysisDepth !== defaultAnalysisDepth && (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      className="engine-depth-reset"
+                      onClick={() => setAnalysisDepth(defaultAnalysisDepth)}
+                      data-testid="engine-depth-reset"
+                    >
+                      {t('engineSettings.depthReset', 'Reset to default ({{depth}})', {
+                        depth: defaultAnalysisDepth,
+                      })}
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         {engineSource === 'external' && (

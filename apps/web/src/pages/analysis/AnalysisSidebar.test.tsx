@@ -214,8 +214,10 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
         })}
       />,
     );
-    expect(screen.getByText(/Stockfish 16/)).toBeInTheDocument();
-    expect(screen.getByText(/Ready/)).toBeInTheDocument();
+    // AnalysisSidebar рендерит engineName в двух местах одновременно
+    // (desktop panel-title + mobile engine-meta) — используем getAllByText.
+    expect(screen.getAllByText(/Stockfish 16/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Ready/).length).toBeGreaterThan(0);
   });
 
   it('mobile-tabs: tree-таб рендерит ArchiveTreePanel только при выборе', () => {

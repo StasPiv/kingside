@@ -1900,7 +1900,10 @@
     "waitingMoves": "Waiting for moves..."
   },
   "engineSettings": {
-    "loadConfig": "Load config.yaml"
+    "loadConfig": "Load config.yaml",
+    "depthLabel": "Max analysis depth",
+    "depthHint": "Analysis stops at this depth. Higher = slower but more accurate.",
+    "depthReset": "Reset to default ({{depth}})"
   },
   "bridgePromo": {
     "title": "Want deeper analysis?",

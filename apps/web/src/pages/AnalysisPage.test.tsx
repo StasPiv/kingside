@@ -395,8 +395,12 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
   it('Stockfish 18 label отображается', async () => {
     renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
+    // На AnalysisPage заголовок «Stockfish 18 (WASM)» рендерится в двух
+    // местах одновременно: desktop `.analysis-panel-title` и
+    // mobile `[data-testid="analysis-mobile-engine-meta"]`. Используем
+    // getAllByText вместо getByText (последний требует уникальности).
     await waitFor(() => {
-      expect(screen.getByText(/Stockfish 18/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Stockfish 18/).length).toBeGreaterThan(0);
     });
   });
 

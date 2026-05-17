@@ -511,6 +511,27 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiPv]);
 
+  /**
+   * KS-3085: при изменении `depth` (слайдер «Максимальная глубина анализа»
+   * в EngineSettingsModal) во время активного анализа — переотправить
+   * `go depth ...` с новым значением. UCI не подхватывает depth на лету
+   * без stop'а текущего поиска. Логика идентична KS-3042 для multiPv:
+   * `evaluate(currentFen)` сложит fen в `pendingFenRef`, отправит `stop`,
+   * bestmove-handler сделает `isready` → re-dispatch с актуальным
+   * `depthRef.current`.
+   *
+   * Если движок не activиen — ничего не делаем, следующий `evaluate()`
+   * сам подхватит новый depth (на момент `go` читается из ref).
+   */
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    if (!engineRef.current) return;
+    const fen = fenRef.current;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depth]);
+
   return {
     state,
     lines,
