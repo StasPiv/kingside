@@ -32,7 +32,9 @@ export function FeaturesPage() {
       </section>
 
       {/* KS-2814 (ADR-058 §6.7 T17): запись о ревизии навигации.
-          Якорь #navigation — `NavOnboardingTooltip` ведёт сюда «Read more». */}
+          Якорь #navigation сохранён — на него до KS-3070 указывала кнопка
+          «Read more» в NavOnboardingTooltip; внешние ссылки/закладки
+          могли остаться. */}
       <section
         id="navigation"
         className="features-section features-section--changelog"

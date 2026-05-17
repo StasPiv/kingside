@@ -137,12 +137,6 @@
       "privateGuest": "This study is private. Sign in to view if you have access."
     }
   },
-  "navOnboarding": {
-    "title": "Menu reorganized",
-    "body": "Puzzles, Rush, Drills and Precision are now under «Train». Workshop and Archive are under «Analyze». On desktop, subsections open directly from the sidebar — hover or click «Train».",
-    "learnMore": "Read more",
-    "dismiss": "Dismiss"
-  },
   "analyze": {
     "lobby": {
       "title": "Analyze",
