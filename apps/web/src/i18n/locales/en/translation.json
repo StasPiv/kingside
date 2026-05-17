@@ -878,7 +878,8 @@
     "public": {
       "notFound": "Analysis not found or is private",
       "readOnlyHint": "Read-only public view. Sign in to create your own analyses."
-    }
+    },
+    "findByPosition": "Find games with this position"
   },
   "drills": {
     "title": "Tactical drills",

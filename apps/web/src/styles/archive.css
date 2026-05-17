@@ -785,6 +785,28 @@
   gap: 4px;
 }
 
+/* KS-3082: «Поиск по позиции» в toolbar metadata-режима. Стилизуем
+   как ghost-кнопку рядом с SavedFiltersDropdown — тот же визуальный
+   вес, чтобы не перетягивать внимание у основных фильтров. */
+.archive-games-metadata__search-by-position {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--c-1e293b, #1e293b);
+  color: var(--c-e2e8f0, #e2e8f0);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.archive-games-metadata__search-by-position:hover {
+  background: rgba(124, 131, 255, 0.08);
+  border-color: rgba(160, 180, 230, 0.55);
+}
+
 .archive-games-metadata__title {
   margin: 0;
   font-size: 22px;

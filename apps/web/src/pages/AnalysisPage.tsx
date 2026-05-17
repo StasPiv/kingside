@@ -1607,6 +1607,24 @@ function AnalysisPageInner({
                       </button>
                     </>
                   )}
+                  {/* KS-3082: явный CTA «Найти партии с этой позицией».
+                      Открывает архив в by-position режиме с уже
+                      подставленным fen-фильтром. ArchiveTreePanel ниже
+                      тоже имеет ссылку «View N games», но она видна
+                      только когда в позиции есть статистика партий и
+                      panel не collapsed — этот пункт меню работает
+                      всегда (даже на новых позициях). */}
+                  <button
+                    onClick={() => {
+                      navigate(
+                        `/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo&bucket=master`,
+                      );
+                      setShowOverflowMenu(false);
+                    }}
+                    data-testid="analysis-find-by-position-overflow"
+                  >
+                    {t('analysis.findByPosition', 'Find games with this position')}
+                  </button>
                   <button
                     onClick={() => { handleExportPgn(); setShowOverflowMenu(false); }}
                     disabled={history.length === 0}

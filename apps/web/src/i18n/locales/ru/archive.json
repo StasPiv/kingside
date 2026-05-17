@@ -68,7 +68,8 @@
       "prev": "Назад",
       "next": "Вперёд",
       "pageInfo": "Страница {{page}} из {{total}}",
-      "pageSizeLabel": "На странице"
+      "pageSizeLabel": "На странице",
+      "searchByPosition": "Поиск по позиции…"
     }
   },
   "player": {

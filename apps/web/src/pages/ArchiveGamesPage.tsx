@@ -25,6 +25,9 @@ import {
   type MetadataResultFilter,
 } from '../components/archive/ArchiveMetadataFilters';
 import { ArchiveGamesByPositionPage } from './ArchiveGamesByPositionPage';
+// KS-3082: ручной ввод/редактор/скриншот позиции (открывает тот же
+// SetPositionModal что используется в анализе и position-finder).
+import { SetPositionModal } from '../components/SetPositionModal';
 
 /** KS-2924 / KS-2936 (C1): узкий тип saved-filter params для archive-секции. */
 export type ArchiveSavedFilterParams = Extract<
@@ -557,6 +560,8 @@ function ArchiveMetadataMode() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KS-3082: модалка ручного ввода/редактора/скриншота позиции.
+  const [showSearchByPosition, setShowSearchByPosition] = useState(false);
 
   // KS-2144: sentinel для IntersectionObserver и стабильная ссылка на
   // loader, чтобы пересоздание observer'а на каждый рендер не
@@ -1056,7 +1061,33 @@ function ArchiveMetadataMode() {
           onFiltersChange={setKnownSavedFilters}
           isGuest={isGuest}
         />
+        {/* KS-3082: «Поиск по позиции» — открывает SetPositionModal,
+            после Apply переключается в by-position режим через
+            `?fen=...` (см. dispatch в ArchiveGamesPage). Поведение
+            то же что у кнопки в analysis overflow → единый сценарий
+            «увидел позицию → ищу её в архиве». */}
+        <button
+          type="button"
+          className="archive-games-metadata__search-by-position"
+          onClick={() => setShowSearchByPosition(true)}
+          data-testid="archive-games-metadata-search-by-position"
+        >
+          {t('games.metadata.searchByPosition', 'Search by position…')}
+        </button>
       </div>
+      {showSearchByPosition && (
+        <SetPositionModal
+          onApply={(fen) => {
+            const params = new URLSearchParams(searchParams);
+            params.set('fen', fen);
+            params.set('sort', 'topElo');
+            params.set('bucket', 'master');
+            setSearchParams(params, { replace: false });
+            setShowSearchByPosition(false);
+          }}
+          onClose={() => setShowSearchByPosition(false)}
+        />
+      )}
 
       <ArchiveMetadataFilters
         values={filterValues}
