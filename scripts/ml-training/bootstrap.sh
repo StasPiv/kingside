@@ -6,7 +6,7 @@
 set -euxo pipefail
 cd /work
 
-EXPECTED_SHA="43e354e496d0c355a75a8d87578153e7eafd7b573e98ccbb2f765192bbca9842"
+EXPECTED_SHA="d1506456a88a2c1c2396c266081539bc099ac7f5b2dd12fefe63971049fb45a1"
 ACTUAL_SHA=$(sha256sum code.tar.gz | awk '{print $1}')
 if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
   echo "code.tar.gz sha mismatch: got $ACTUAL_SHA, want $EXPECTED_SHA" >&2
