@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -170,6 +170,8 @@ function AnalysisPageInner({
   const gameId = ctx.kind === 'review' ? ctx.gameId : undefined;
   const analysisId = ctx.kind === 'analysis' ? ctx.analysisId : undefined;
   const location = useLocation();
+  // KS-3082: для onClick «Найти партии с этой позицией» в overflow меню.
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { user } = useAuth();
   // KS-2114: размер доски на странице анализа (S/M/L) — пресет из общего
