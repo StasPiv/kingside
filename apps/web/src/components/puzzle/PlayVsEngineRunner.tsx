@@ -19,6 +19,38 @@ import {
   computePrecisionScore,
   type PrecisionMoveInput,
 } from '@kingside/shared';
+
+/**
+ * KS-3074. Сборка input'ов для shared `computePrecisionScore` из
+ * `userBestLog`. Критически важно передавать `playedUci` и `bestUci` —
+ * без них `accuracyMove` теряет best-override (KS-3030) и считает
+ * каждый эталонный ход по WDL, который у Stockfish между depths
+ * гуляет на единицы процентов. На 3 best-ходах это давало 79% / 3★
+ * в раннере против 100% / 5★ в истории (backend передаёт UCI и
+ * override срабатывает) — жалоба пользователя из Telegram.
+ *
+ * Вынесено в чистую функцию для unit-теста регрессии (см.
+ * `PlayVsEngineRunner.test.tsx`, KS-3074).
+ */
+export function buildPrecisionScoreInputs(
+  log: ReadonlyArray<{
+    wdlBefore: WdlDistribution | null;
+    wdlAfter: WdlDistribution | null;
+    cpBefore: number | null;
+    cpAfter: number | null;
+    playedUci: string;
+    bestUci: string;
+  }>,
+): PrecisionMoveInput[] {
+  return log.map((m) => ({
+    wdlBefore: m.wdlBefore,
+    wdlAfter: m.wdlAfter,
+    cpBefore: m.cpBefore,
+    cpAfter: m.cpAfter,
+    playedUci: m.playedUci,
+    bestUci: m.bestUci,
+  }));
+}
 import { PuzzleBoard } from '../PuzzleBoard';
 import { EvalBar } from '../EvalBar';
 import { PromotionPicker, type PromotionPiece } from '../PromotionPicker';
@@ -1333,13 +1365,7 @@ export function PlayVsEngineRunner({
     if (state !== 'win' && state !== 'lose') {
       return { stars: null as 1 | 2 | 3 | 4 | 5 | null, scorePct: null as number | null };
     }
-    const inputs: PrecisionMoveInput[] = userBestLog.map((m) => ({
-      wdlBefore: m.wdlBefore,
-      wdlAfter: m.wdlAfter,
-      cpBefore: m.cpBefore,
-      cpAfter: m.cpAfter,
-    }));
-    return computePrecisionScore(inputs);
+    return computePrecisionScore(buildPrecisionScoreInputs(userBestLog));
   }, [state, userBestLog]);
 
   const reasonLabel = (r: PlayVsEnginePuzzleReason | null): string => {
