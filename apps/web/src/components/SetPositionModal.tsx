@@ -187,6 +187,30 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
 
   const boardError = useMemo(() => validateBoard(board, editorTurn), [board, editorTurn]);
 
+  // KS-3095: после распознавания НЕ переключаем вкладку
+  // автоматически — пользователь остаётся на «From image», видит
+  // загруженную картинку слева и распознанную доску справа
+  // (BoardImageDropzone сам это рендерит) и может визуально
+  // сравнить. Editor-state (board / castling / editorTurn / fenInput)
+  // заполняем, чтобы при ручном переключении на вкладку «Board
+  // Editor» позиция уже была загружена.
+  //
+  // useCallback ОБЯЗАТЕЛЕН: BoardImageDropzone-мок (и при желании
+  // реальная дропзона) держит ref на onRecognized в useEffect-deps;
+  // inline-arrow создаёт новую функцию каждый рендер → бесконечный
+  // цикл useEffect → re-recognize → setState → re-render → ...
+  const handleRecognizedFromImage = useCallback(
+    (fen: string) => {
+      setFenInput(fen);
+      setBoard(fenToBoard(fen));
+      const parts = fen.split(' ');
+      setEditorTurn(parts[1] === 'b' ? 'b' : 'w');
+      setCastling(parts[2] || '-');
+      setError(null);
+    },
+    [],
+  );
+
   const handleApplyEditor = () => {
     if (boardError) { setError(boardError); return; }
     const fen = positionToFen(board, editorTurn, castling);
@@ -238,8 +262,14 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
           </button>
         </div>
 
-        {tab === 'fen' && (
-          <div className="set-position-body">
+        {/* KS-3095: рендерим ВСЕ tab-body одновременно, скрывая
+            неактивные через `hidden`. Раньше использовалось
+            `{tab==='X' && (...)}` — при переключении вкладки React
+            размонтировал текущую и терял её state (особенно болезненно
+            для image: пропадал загруженный preview, распознанный
+            FEN, crop-state). `hidden` оставляет DOM в дереве, state
+            useState сохраняется, переключение мгновенное. */}
+        <div className="set-position-body" hidden={tab !== 'fen'}>
             <label className="set-position-label">{t('position.fenLabel', 'FEN notation:')}</label>
             <input
               type="text"
@@ -291,36 +321,18 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
               <button type="button" className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
               <button type="button" className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>
             </div>
-          </div>
-        )}
+        </div>
 
-        {tab === 'image' && (
-          <div className="set-position-body">
+        <div className="set-position-body" hidden={tab !== 'image'}>
             <BoardImageDropzone
               initialFen={fenInput}
-              onAccept={(fen) => onApply(fen)}
+              onAccept={onApply}
               onCancel={onClose}
-              // KS-3093: после распознавания (как 200, так и 422 с
-              // fenAttempt) — сразу пробрасываем FEN в Board Editor:
-              // заполняем фигуры, рокировку, ход, переключаем вкладку.
-              // Пользователь правит позицию drag'ом фигур, чекбоксами
-              // рокировки и т.п., а не текстовым FEN-инпутом. Это и
-              // есть acceptance KS-3093.
-              onRecognized={(fen) => {
-                setFenInput(fen);
-                setBoard(fenToBoard(fen));
-                const parts = fen.split(' ');
-                setEditorTurn(parts[1] === 'b' ? 'b' : 'w');
-                setCastling(parts[2] || '-');
-                setError(null);
-                setTab('editor');
-              }}
+              onRecognized={handleRecognizedFromImage}
             />
-          </div>
-        )}
+        </div>
 
-        {tab === 'editor' && (
-          <div className="set-position-body set-position-editor">
+        <div className="set-position-body set-position-editor" hidden={tab !== 'editor'}>
             <div className="set-position-editor__board" ref={boardEditorRef}>
               <div className="set-position-grid">
                 {Array.from({ length: 64 }, (_, i) => {
@@ -437,8 +449,7 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
                 <button type="button" className="set-position-apply" onClick={handleApplyEditor} disabled={!!boardError}>{t('position.apply', 'Apply')}</button>
               </div>
             </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
