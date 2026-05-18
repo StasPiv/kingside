@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import {
+  useParams,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -36,6 +41,7 @@ import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn, extractInitialAnnotations } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
 import { formatEval, formatCompact } from '../utils/chessFormat';
+import { parseInitialPly } from './utils/initialPly';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
@@ -172,6 +178,14 @@ function AnalysisPageInner({
   const location = useLocation();
   // KS-3082: для onClick «Найти партии с этой позицией» в overflow меню.
   const navigate = useNavigate();
+  // KS-3092: `?ply=N` (либо `location.state.initialPly`) — стартовый
+  // полу-ход для viewer'а при открытии партии из by-position-результатов
+  // архива. Backend (`/games/by-position`) отдаёт `reachedAtPly` в
+  // каждом item; ArchiveGamesPage.handleRowClick прокидывает его и
+  // в navState, и в URL — последнее переживает reload и копирование
+  // ссылки. Берём navState приоритетнее (без round-trip через
+  // URLSearchParams), URL — как fallback.
+  const [analysisSearchParams] = useSearchParams();
   const { t } = useTranslation();
   const { user } = useAuth();
   // KS-2114: размер доски на странице анализа (S/M/L) — пресет из общего
@@ -548,6 +562,20 @@ function AnalysisPageInner({
           const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
           if (fenMatch) setInitialFen(fenMatch[1]);
           loadFromPgn(parseAnnotatedPgn(pgn), extractInitialAnnotations(pgn));
+          // KS-3092: viewer должен встать на `initialPly` (полу-ход,
+          // на котором искомая позиция встретилась — by-position click
+          // из архива). Используем уже существующий отложенный
+          // механизм `pendingPositionRef` — он сработает, как только
+          // history populated reducer'ом (см. useEffect ниже,
+          // dispatch(GOTO_MOVE)). globalIndex главной линии = ply-1
+          // (0-based индекс в `history[]`), см. apiMovesToHistory.
+          const initialPly = parseInitialPly(
+            location.state,
+            analysisSearchParams,
+          );
+          if (typeof initialPly === 'number') {
+            pendingPositionRef.current = initialPly - 1;
+          }
         } catch { /* ignore */ }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
@@ -611,7 +639,7 @@ function AnalysisPageInner({
     // обёртки (теоретический edge-case к KS-2403) этот effect перезапустит
     // `getById` с актуальным id, иначе stale-state предыдущей партии
     // оставался бы при любом открытии следующей.
-  }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen]);
+  }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen, analysisSearchParams]);
 
   useAnalysisPersistenceResolver(
     ctx,

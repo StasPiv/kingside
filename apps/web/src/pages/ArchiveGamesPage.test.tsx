@@ -128,6 +128,13 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // KS-3092: by-position-тесты вызывают handleRowClick → saveFiltersToStorage,
+  // который пишет FEN в localStorage. Следующий metadata-тест с
+  // «дефолтным» URL (no player/no fen) триггерит savedFilters-effect и
+  // восстанавливает чужой fen → диспатч уходит в by-position-эндпоинт
+  // и mockGetGamesByPosition (без resolveValue) возвращает undefined →
+  // `.then` undefined → крэш. Чистим storage между тестами.
+  localStorage.clear();
 });
 
 const sampleResponse = {
@@ -415,6 +422,118 @@ describe('ArchiveGamesPage — dispatch на by-position эндпоинт (KS-30
 
     await waitFor(() => expect(mockGetGamesMetadata).toHaveBeenCalledTimes(1));
     expect(mockGetGamesByPosition).not.toHaveBeenCalled();
+  });
+
+  it('KS-3092: by-position клик → navigate(/analysis/<id>?ply=N) + state.initialPly=N', async () => {
+    // Сценарий пользователя: поиск по позиции в архиве → клик по
+    // партии. До KS-3092 viewer открывался на стартовой позиции,
+    // пользователь искал ход вручную. Теперь backend (`/games/by-position`)
+    // отдаёт `reachedAtPly`, фронт сохраняет его и прокидывает в
+    // /analysis через URL `?ply=N` и navState.initialPly — AnalysisPage
+    // ставит viewer ровно на этот полу-ход.
+    mockGetGamesByPosition.mockResolvedValueOnce({
+      fen: 'rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2',
+      positionKey: 'fakehex',
+      bucket: 'master',
+      sort: 'recent',
+      items: [
+        {
+          id: 'qg1',
+          white: { name: 'A', slug: 'a', elo: 2700, title: null },
+          black: { name: 'B', slug: 'b', elo: 2700, title: null },
+          result: '1-0' as const,
+          eco: 'D06',
+          opening: "Queen's Gambit",
+          event: 'Test',
+          date: '2024.01.01',
+          plyCount: 40,
+          reachedAtPly: 7,
+          nextMoveUci: 'e7e6',
+          sideToMove: 'b' as const,
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      totalApprox: 1,
+    });
+    mockGetGameById.mockResolvedValueOnce({
+      id: 'qg1',
+      pgn: '1. d4 d5 2. c4 e6 3. Nc3 Nf6',
+      white: { name: 'A', slug: 'a', elo: 2700, title: 'GM' },
+      black: { name: 'B', slug: 'b', elo: 2700, title: 'GM' },
+      result: '1-0',
+      eco: 'D06',
+      opening: "Queen's Gambit",
+      event: 'Test',
+      date: '2024.01.01',
+      plyCount: 40,
+    });
+    mockApiPost.mockResolvedValueOnce({ id: 'created-uuid-ply' });
+
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route:
+        '/archive/games?fen=rnbqkbnr%2Fpppp1ppp%2F4p3%2F8%2F2PP4%2F8%2FPP2PPPP%2FRNBQKBNR+b+KQkq+-+0+2',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-qg1')).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByTestId('archive-game-row-qg1'));
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/analysis/created-uuid-ply?ply=7',
+        expect.objectContaining({
+          state: expect.objectContaining({
+            pgn: '1. d4 d5 2. c4 e6 3. Nc3 Nf6',
+            initialPly: 7,
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('KS-3092: by-position клик + ошибка getById → fallback /archive/games/<id>?ply=N', async () => {
+    mockGetGamesByPosition.mockResolvedValueOnce({
+      fen: 'rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2',
+      positionKey: 'fakehex',
+      bucket: 'master',
+      sort: 'recent',
+      items: [
+        {
+          id: 'qg2',
+          white: { name: 'A', slug: 'a', elo: 2700, title: null },
+          black: { name: 'B', slug: 'b', elo: 2700, title: null },
+          result: '1-0' as const,
+          eco: 'D06',
+          opening: "Queen's Gambit",
+          event: 'Test',
+          date: '2024.01.01',
+          plyCount: 40,
+          reachedAtPly: 11,
+          nextMoveUci: 'e7e6',
+          sideToMove: 'b' as const,
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      totalApprox: 1,
+    });
+    mockGetGameById.mockRejectedValueOnce(new Error('boom'));
+
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, {
+      route:
+        '/archive/games?fen=rnbqkbnr%2Fpppp1ppp%2F4p3%2F8%2F2PP4%2F8%2FPP2PPPP%2FRNBQKBNR+b+KQkq+-+0+2',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-qg2')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('archive-game-row-qg2'));
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/archive/games/qg2?ply=11'),
+    );
   });
 
   it('С ?fen= → `getArchiveGamesByPosition`, metadata НЕ зовётся', async () => {

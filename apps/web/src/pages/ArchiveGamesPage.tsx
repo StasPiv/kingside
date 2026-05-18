@@ -629,6 +629,13 @@ function ArchiveMetadataMode() {
   );
 
   const [items, setItems] = useState<ArchiveGameSummary[]>([]);
+  // KS-3092: по id партии — ply, на котором искомая позиция встретилась
+  // (заполняется только в by-position-режиме). Лежит отдельно от items,
+  // чтобы не примешивать поля by-position-эндпоинта в ArchiveGameSummary
+  // и не сломать ArchiveGameRow.isByPositionItem (см. там), который
+  // отличает варианты по наличию `reachedAtPly` в самом item'е и при
+  // его появлении ожидает ещё `nextMoveUci` / `sideToMove`.
+  const reachedAtPlyByIdRef = useRef<Map<string, number>>(new Map());
   // `nextCursor` из последнего ответа: `null` — достигли конца архива
   // (`undefined` — данных пока нет; стартовый запрос ещё не вернулся).
   const [nextCursor, setNextCursor] = useState<string | null | undefined>(
@@ -895,6 +902,14 @@ function ArchiveMetadataMode() {
   const handleRowClick = useCallback(
     (item: { id: string }) => {
       saveFiltersToStorage(filterValues);
+      // KS-3092: ply из by-position-результатов. Если клик пришёл из
+      // by-position-режима, мы уже сохранили `reachedAtPly` каждого
+      // item'а в reachedAtPlyByIdRef при загрузке страницы. Прокидываем
+      // его в AnalysisPage через navState (`initialPly`) И в URL
+      // (`?ply=N`) — последнее переживёт reload и копирование ссылки.
+      // AnalysisPage сама расположит viewer на этом полу-ходе вместо
+      // стартовой позиции (см. pendingPositionRef там).
+      const initialPly = reachedAtPlyByIdRef.current.get(item.id);
       archiveApi
         .getArchiveGameById(item.id)
         .then(async (game) => {
@@ -905,7 +920,7 @@ function ArchiveMetadataMode() {
           const backUrl = currentSearch
             ? `/archive?${currentSearch}`
             : '/archive';
-          const navState = {
+          const navState: Record<string, unknown> = {
             pgn: game.pgn,
             title,
             breadcrumbRootTitle: t('games.title', 'Archive games'),
@@ -913,22 +928,31 @@ function ArchiveMetadataMode() {
             breadcrumbSection: game.event ?? undefined,
             breadcrumbBackUrl: backUrl,
           };
+          if (typeof initialPly === 'number') {
+            navState.initialPly = initialPly;
+          }
+          const plyQuery =
+            typeof initialPly === 'number' ? `?ply=${initialPly}` : '';
           try {
             const created = await api.post<{ id: string }>('/analyses', {
               pgn: game.pgn,
               title,
               category: 'analysis',
             });
-            navigate(`/analysis/${created.id}`, { state: navState });
+            navigate(`/analysis/${created.id}${plyQuery}`, {
+              state: navState,
+            });
           } catch {
             // Если создать запись не удалось (offline/auth) — fallback
             // на старое поведение. Без id не пересоздастся компонент,
             // но это всё равно лучше чем заблокировать переход.
-            navigate('/analysis', { state: navState });
+            navigate(`/analysis${plyQuery}`, { state: navState });
           }
         })
         .catch(() => {
-          navigate(`/archive/games/${item.id}`);
+          const plyQuery =
+            typeof initialPly === 'number' ? `?ply=${initialPly}` : '';
+          navigate(`/archive/games/${item.id}${plyQuery}`);
         });
     },
     [navigate, searchParams, t, filterValues],
@@ -976,11 +1000,18 @@ function ArchiveMetadataMode() {
             ),
             controller.signal,
           )
-          .then((res) => ({
-            items: res.items.map(byPositionItemToSummary),
-            nextCursor: res.nextCursor,
-            total: null as number | null,
-          }))
+          .then((res) => {
+            // KS-3092: сбрасываем и наполняем заново — это первая
+            // страница, старые ply относятся к предыдущему фильтру.
+            const map = new Map<string, number>();
+            for (const it of res.items) map.set(it.id, it.reachedAtPly);
+            reachedAtPlyByIdRef.current = map;
+            return {
+              items: res.items.map(byPositionItemToSummary),
+              nextCursor: res.nextCursor,
+              total: null as number | null,
+            };
+          })
       : archiveApi
           .getArchiveGamesMetadata(
             metadataFiltersToRequest(
@@ -1045,10 +1076,16 @@ function ArchiveMetadataMode() {
             ),
             controller.signal,
           )
-          .then((res) => ({
-            items: res.items.map(byPositionItemToSummary),
-            nextCursor: res.nextCursor,
-          }))
+          .then((res) => {
+            // KS-3092: дополняем Map ply'ями новой страницы (фильтр тот же).
+            for (const it of res.items) {
+              reachedAtPlyByIdRef.current.set(it.id, it.reachedAtPly);
+            }
+            return {
+              items: res.items.map(byPositionItemToSummary),
+              nextCursor: res.nextCursor,
+            };
+          })
       : archiveApi
           .getArchiveGamesMetadata(
             metadataFiltersToRequest(filterValues, 1, pageSize, nextCursor),
