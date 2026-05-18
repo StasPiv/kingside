@@ -12,6 +12,7 @@ import { DevDrillExplanationPage } from '../pages/DevDrillExplanationPage';
 import { DevPostGameReviewPage } from '../pages/DevPostGameReviewPage';
 import { DevPrecisionScoreBlockPage } from '../pages/DevPrecisionScoreBlockPage';
 import { DevBoardImageDropzonePage } from '../pages/DevBoardImageDropzonePage';
+import { DevBoardImageDropzoneUnreliablePage } from '../pages/DevBoardImageDropzoneUnreliablePage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -48,6 +49,12 @@ export default function DevRoutes() {
       <Route path="precision-score" element={<DevPrecisionScoreBlockPage />} />
       {/* KS-2365 (ADR-040 §7): demo BoardImageDropzone для drag&drop. */}
       <Route path="board-image-dropzone" element={<DevBoardImageDropzonePage />} />
+      {/* KS-3093: demo 422 recognition_unreliable — мок recognizer бросает
+          ошибку с fenAttempt, чтобы playwright мог снять acceptance-flow. */}
+      <Route
+        path="board-image-dropzone-unreliable"
+        element={<DevBoardImageDropzoneUnreliablePage />}
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
