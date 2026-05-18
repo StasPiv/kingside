@@ -272,6 +272,72 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     expect(onAccept).toHaveBeenCalledWith(fixed);
   });
 
+  // KS-3095 follow-up: ручной crop по кнопке (без 400).
+  it('KS-3095: «Crop image» после успешного 200 → crop UI → retry с обрезанным blob', async () => {
+    const recognizer = vi
+      .fn()
+      .mockResolvedValueOnce(RECOGNIZED)
+      .mockResolvedValueOnce(RECOGNIZED);
+    const cropImage = vi
+      .fn<(src: string, area: unknown) => Promise<Blob>>()
+      .mockResolvedValue(new Blob([new Uint8Array([9, 9])], { type: 'image/png' }));
+    renderWithProviders(
+      <BoardImageDropzone
+        onAccept={vi.fn()}
+        recognizer={recognizer}
+        cropImage={cropImage}
+      />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() => expect(recognizer).toHaveBeenCalledTimes(1));
+    // 200 — crop UI выключен, есть кнопка «Crop image».
+    expect(screen.queryByTestId('board-image-dropzone-crop-frame')).toBeNull();
+    const cropToggle = screen.getByTestId('board-image-dropzone-crop-toggle');
+    await userEvent.click(cropToggle);
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).not.toBeNull(),
+    );
+    // Cancel-кнопка тоже видна (для выхода без recognize).
+    expect(screen.queryByTestId('board-image-dropzone-crop-cancel')).not.toBeNull();
+    // Дожидаемся пока FakeCropper смонтирован — он сразу в useEffect
+    // дёрнет onCropComplete, ref заполнится.
+    await waitFor(() =>
+      expect(screen.queryByTestId('fake-cropper')).not.toBeNull(),
+    );
+    await Promise.resolve();
+    await userEvent.click(screen.getByTestId('board-image-dropzone-crop-retry'));
+    await waitFor(() => expect(cropImage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(recognizer).toHaveBeenCalledTimes(2));
+    expect(recognizer.mock.calls[1][0]).toBeInstanceOf(Blob);
+  });
+
+  it('KS-3095: «Cancel crop» возвращает в обычный режим без recognize', async () => {
+    const recognizer = vi.fn().mockResolvedValueOnce(RECOGNIZED);
+    renderWithProviders(
+      <BoardImageDropzone onAccept={vi.fn()} recognizer={recognizer} />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() => expect(recognizer).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByTestId('board-image-dropzone-crop-toggle'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).not.toBeNull(),
+    );
+    await userEvent.click(screen.getByTestId('board-image-dropzone-crop-cancel'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).toBeNull(),
+    );
+    // Recognizer не вызвался повторно.
+    expect(recognizer).toHaveBeenCalledTimes(1);
+    // Apply снова доступен (вместе с result).
+    expect(screen.queryByTestId('board-image-dropzone-apply')).not.toBeNull();
+  });
+
   // KS-3094: scenario из задачи — 400 board_not_detected → crop UI →
   // retry с обрезанным blob → 200 → доска отрисована.
   it('KS-3094: 400 board_not_detected → crop UI → retry вызывает recognizer с обрезанным blob', async () => {
