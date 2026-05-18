@@ -157,68 +157,11 @@ class CellDataset(Dataset):
 # Default Albumentations transforms.
 # ---------------------------------------------------------------------------
 
-def build_train_transform(cell_size: int = 64):
-    """Augmentations used during training.
-
-    Kept light — the dataset is already synthetically diverse (10+ palettes,
-    7 piece styles). Aggressive augments hurt convergence on tiny 64x64 cells.
-    """
-    import albumentations as A
-    import cv2  # used below for explicit BORDER_CONSTANT
-    from albumentations.pytorch import ToTensorV2
-
-    return A.Compose([
-        A.LongestMaxSize(max_size=cell_size),
-        A.PadIfNeeded(
-            min_height=cell_size,
-            min_width=cell_size,
-            border_mode=cv2.BORDER_CONSTANT,
-            value=0,
-        ),
-        # Geometry — slight jitter to model crop noise from board_detect.py.
-        A.Affine(
-            translate_percent={"x": (-0.06, 0.06), "y": (-0.06, 0.06)},
-            scale=(0.92, 1.08),
-            rotate=(-4, 4),
-            p=0.7,
-        ),
-        # Photometric noise — model must survive JPEG board screenshots.
-        A.RandomBrightnessContrast(
-            brightness_limit=0.15, contrast_limit=0.15, p=0.5,
-        ),
-        A.HueSaturationValue(
-            hue_shift_limit=4, sat_shift_limit=10, val_shift_limit=10, p=0.3,
-        ),
-        A.GaussNoise(var_limit=(5.0, 20.0), p=0.2),
-        A.ImageCompression(quality_lower=70, quality_upper=100, p=0.3),
-        A.Normalize(
-            mean=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225),
-        ),
-        ToTensorV2(),
-    ])
-
-
-def build_eval_transform(cell_size: int = 64):
-    """No augmentation, just resize + normalize."""
-    import albumentations as A
-    import cv2  # used below for explicit BORDER_CONSTANT
-    from albumentations.pytorch import ToTensorV2
-
-    return A.Compose([
-        A.LongestMaxSize(max_size=cell_size),
-        A.PadIfNeeded(
-            min_height=cell_size,
-            min_width=cell_size,
-            border_mode=cv2.BORDER_CONSTANT,
-            value=0,
-        ),
-        A.Normalize(
-            mean=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225),
-        ),
-        ToTensorV2(),
-    ])
+# KS-3091 / ADR-040-v2 §1.1. Albumentations-pipeline вынесен в `transforms.py`,
+# чтобы можно было визуально аудитировать аугментацию (preview_augmented_v2.py)
+# без затягивания torch. Тренировка (этап C/D) импортирует те же функции —
+# контракт остаётся прежним.
+from .transforms import build_train_transform, build_eval_transform  # noqa: F401
 
 
 def list_styles(data_dir: str | Path) -> List[str]:

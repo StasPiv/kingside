@@ -2,12 +2,15 @@
 dist/
 *.tsbuildinfo
 
-# Dataset generator outputs (KS-2360).
-# Only the meta manifest `data/manifest_v1.json` is committed; the actual cell
-# bitmaps (>1M files, ~4 GB) and the per-split JSONL listings live in S3 —
-# regenerate locally with `python3 src/python/dataset_gen.py`.
+# Dataset generator outputs (KS-2360 v1 + KS-3091 v2).
+# Только meta-манифесты коммитим; cell-битмапы (>1M файлов, ~4 GB) и
+# пакованные h5 уходят на S3 (регенерация — `python3 src/python/dataset_gen.py`).
+# Preview-сетки v2 (~400 KB) — выкладываем в S3 через upload-board-dataset.sh,
+# в репо не лежат.
 data/v1/
+data/v2/
 !data/manifest_v1.json
+!data/manifest_v2.json
 
 # Cached SVG sources (re-fetched on demand by scripts/fetch_styles.sh).
 styles_cache/

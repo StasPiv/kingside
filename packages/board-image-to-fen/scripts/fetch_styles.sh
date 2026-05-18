@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Downloads chess piece SVG sets for the board-image-to-fen dataset (KS-2360).
+# Downloads chess piece sets for the board-image-to-fen dataset (KS-2360 v1
+# + KS-3091 v2).
 #
-# Sources (all open-source, see LICENSES.md):
-#   - lichess_{cburnett,merida,alpha,staunty,pirouetti} : github.com/lichess-org/lila/public/piece
-#   - lichess_wikipedia                                  : commons.wikimedia.org (SCID Cburnett SVG, equivalent set)
-#   - kingside_default                                   : copy of cburnett (react-chessboard default is cburnett-derived; visual diversity comes from the board palette, not pieces)
+# Sources (all open-source; see manifest_v2.json for per-style license):
+#   v1 (still required for val_only in v2):
+#     - lichess_{cburnett,merida,alpha,staunty,pirouetti}  : lila/public/piece (SVG)
+#     - lichess_wikipedia                                  : Wikimedia Commons (SCID)
+#     - kingside_default                                   : copy of cburnett
+#   v2 train_only (KS-3091, chess-expert finalised list):
+#     - lichess_{tatiana,caliente,fantasy,gioco,riohacha,dubrovny,kosal,letter} : lila/public/piece (SVG)
+#     - lichess_monarchy                                                       : lila/public/piece (WebP only)
 #
 # Commit pin: written to styles_cache/.lila_commit. Re-run idempotent.
 
@@ -83,4 +88,39 @@ mkdir -p "$CACHE/kingside_default"
 cp -f "$CACHE/lichess_cburnett"/*.svg "$CACHE/kingside_default"/
 echo "[ok] kingside_default ($(ls "$CACHE/kingside_default" | wc -l) files, derived from cburnett)"
 
-echo "[fetch_styles] done. Total: $(find "$CACHE" -maxdepth 2 -name '*.svg' | wc -l) SVG files."
+# ──────────────────────────────────────────────────────────────────────
+# KS-3091 / ADR-040-v2 train_only piece-sets.
+#
+# 9 styles chosen by chess-expert (KS-3091 comment) to cover non-mainstream
+# visual classes orthogonal to v2 val (kingside_default + lichess_cburnett/
+# merida/wikipedia/alpha + chess.com proxies). pirouetti excluded — visually
+# leaks chess.com_classic. gioco added as «stylized rounded» replacement.
+# ──────────────────────────────────────────────────────────────────────
+
+# 8 SVG sets.
+for s in tatiana caliente fantasy gioco riohacha dubrovny kosal letter; do
+  fetch_lichess "$s"
+done
+
+# monarchy is distributed as WebP only.
+fetch_lichess_webp() {
+  local style="$1"
+  local dir="$CACHE/lichess_$style"
+  mkdir -p "$dir"
+  for p in $PIECES; do
+    local out="$dir/$p.webp"
+    [[ -s "$out" ]] && continue
+    local url="https://raw.githubusercontent.com/lichess-org/lila/$LILA_SHA/public/piece/$style/$p.webp"
+    local code
+    code="$(curl -sSL -o "$out" -w "%{http_code}" "$url")"
+    if [[ "$code" != "200" ]]; then
+      echo "[ERR] lichess_$style/$p.webp → HTTP $code"
+      rm -f "$out"
+      return 1
+    fi
+  done
+  echo "[ok] lichess_$style ($(ls "$dir" | wc -l) webp files)"
+}
+fetch_lichess_webp monarchy
+
+echo "[fetch_styles] done. Total: $(find "$CACHE" -maxdepth 2 -type f \( -name '*.svg' -o -name '*.webp' \) | wc -l) piece files."

@@ -1,23 +1,64 @@
 #!/usr/bin/env python3
 """
-Board-recog dataset v1 generator (KS-2360, ADR-040 Stage 4).
+Board-recog dataset v2 generator (KS-3091, ADR-040-v2 §1 / §6 этап B).
 
-Pipeline:
-    1. Load SVG piece sets from styles_cache/<style>/{wK,wQ,...,bP}.svg.
-    2. For each style × board-palette combination, pre-render every piece
-       on every (light, dark) square at the target cell size and cache the
-       resulting RGBA bitmaps.
-    3. Pull unique FENs (DB tactic_drills.fen / puzzles.fen + python-chess
-       synthetic fallback) — N_FENS_PER_STYLE per style.
-    4. For each FEN, render 64 cells directly (no full-board image) and save
-       them as PNGs in data/v1/cells/<style>/<bucket>/<fen_idx>_<square>.png.
-    5. Emit manifest_v1.json (meta) + splits/{train,val,test}.jsonl (paths).
+Радикально отличается от v1 (KS-2360):
 
-Output layout (data/v1 is .gitignored — keep manifest_v1.json only):
-    data/v1/
-        cells/<style>/<fen_idx//1000>/<fen_idx>_<sq>.png
-        splits/{train,val,test}.jsonl
-        manifest_v1.json
+* v1 расщеплял train/val/test ПО ПОЗИЦИЯМ внутри одного и того же piece-set'а.
+  Модель видела kingside_default/cburnett/merida в обеих корзинах и в итоге
+  стала «классификатором знакомых спрайтов» — что и сломалось на проде
+  17.05.2026.
+* v2 расщепляет train/val ПО ПИРС-СЕТАМ:
+    - TRAIN_STYLES — 9 чужих open-source стилей с lichess, которых нет на
+      проде. На них модель учится.
+    - VAL_STYLES — 7 целевых стилей (kingside_default + 4 lichess + 2 chess.com
+      proxy через lichess-стили), которых модель в обучении НЕ ВИДИТ.
+  Инвариант ``set(TRAIN_STYLES) & set(VAL_STYLES) == set()`` проверяется
+  и в коде (assert), и юнит-тестом.
+
+## Train-генерация (--style-set train|both)
+
+Train — это **независимые клетки**, без FEN-источника. Для каждой клетки:
+
+1. Класс сэмплится из ``CLASS_WEIGHTS`` (chess-expert §4: empty 22%,
+   pawn_w/pawn_b по 11%, остальные 10 классов по 5.6%).
+2. Piece-set выбирается случайно из ``TRAIN_STYLES`` (mixed-style).
+3. Цвет клетки — процедурный HSV-сэмплинг (light/dark) — не фиксированные
+   палитры конкретных платформ.
+4. Если класс != "empty" — рендерим SVG/WebP фигуры на фоне.
+5. Сохраняем PNG-байты в HDF5 + метку.
+
+Аугментация (Albumentations: Perspective, HueSaturationValue, RGBShift,
+Downscale, JPEG, Sharpen) применяется НЕ ЗДЕСЬ — она в
+`training/dataset.py:build_train_transform`. Сэмплинг и аугментация
+разнесены, как требует chess-expert (иначе один и тот же augmented tile
+попадёт в батч N раз при oversample).
+
+## Val-генерация (--style-set val|both)
+
+Val — FEN-based, чтобы можно было считать end-to-end FEN-match (этап D).
+500 фиксированных FEN'ов (491 случайных детерминированных + 9 edge-case
+от chess-expert) × 7 стилей × 64 клетки = 224 000 клеток. SHA256 списка
+FEN'ов фиксируется в manifest — между запусками не меняется.
+
+## Output layout
+
+::
+
+    data/v2/
+        cells_train.h5     — packed train cells (PNG bytes + labels)
+        cells_val.h5       — packed val cells (PNG bytes + labels)
+        edge_case_fens.json
+        val_fens.json      — 500 FEN'ов val-выборки + их sha256
+        manifest_v2.json   — стили (usage, license, SHA256), счётчики
+
+## CLI
+
+::
+
+    python dataset_gen.py --style-set both --n-train 1500000
+    python dataset_gen.py --style-set train --dry-run
+    python dataset_gen.py --style-set val
 """
 
 from __future__ import annotations
@@ -30,172 +71,312 @@ import os
 import random
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-import cairosvg
-import chess
-from PIL import Image, ImageDraw
+import numpy as np
+from PIL import Image
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# ─── Configuration ────────────────────────────────────────────────────────
 
-ROOT = Path(__file__).resolve().parents[2]          # packages/board-image-to-fen
+ROOT = Path(__file__).resolve().parents[2]  # packages/board-image-to-fen
 STYLES_DIR = ROOT / "styles_cache"
-DATA_DIR = ROOT / "data" / "v1"
-CELLS_DIR = DATA_DIR / "cells"
-SPLITS_DIR = DATA_DIR / "splits"
-MANIFEST_PATH = ROOT / "data" / "manifest_v1.json"
+DATA_DIR = ROOT / "data" / "v2"
+MANIFEST_PATH = DATA_DIR / "manifest_v2.json"
 
-CELL_SIZE = 64                                       # output cell resolution
-BOARD_SIZE = CELL_SIZE * 8                           # 512px
+CELL_SIZE = 64
+BOARD_SIZE = CELL_SIZE * 8
 
-# Active styles (KS-2360 chess-expert apruv, less Maizelis/Dvoretsky/Chess-Merida
-# which are deferred to v2 pending source material — see ADR-040 follow-up).
-STYLES: List[str] = [
+# ─── Style sets (ADR-040-v2 §1, chess-expert KS-3091) ────────────────────
+
+# 9 chosen by chess-expert: pirouetti исключён (визуально близок к chess.com_
+# classic, утечка в val), gioco добавлен взамен. Покрытие визуальных классов:
+#   modern flat        — caliente, riohacha, dubrovny, tatiana
+#   fantasy/heraldic   — fantasy, monarchy, kosal
+#   geometric/minimal  — letter
+#   stylized rounded   — gioco
+TRAIN_STYLES: List[str] = [
+    "lichess_tatiana",
+    "lichess_caliente",
+    "lichess_fantasy",
+    "lichess_gioco",
+    "lichess_riohacha",
+    "lichess_dubrovny",
+    "lichess_kosal",
+    # KS-3091 user-review: lichess_letter исключён — рисует фигуры
+    # буквами (K/Q/R/B/N/P), а не силуэтами. Модель должна учиться
+    # силуэту, не глифу буквы → шум для трейна.
+    "lichess_monarchy",
+]
+
+# 7 целевых стилей — те, что модель встречает на проде. В train ни один из
+# них не входит. chesscom_* — closed IP, используем lichess-прокси (явно
+# помечаются в manifest); инвариант изоляции это не нарушает (прокси-стили
+# не пересекаются с TRAIN_STYLES).
+VAL_STYLES: List[str] = [
+    "kingside_default",
     "lichess_cburnett",
     "lichess_merida",
     "lichess_wikipedia",
     "lichess_alpha",
-    "lichess_staunty",
-    "lichess_pirouetti",
-    "kingside_default",
+    "lichess_staunty",      # proxy for chesscom_classic
+    "lichess_pirouetti",    # proxy for chesscom_modern
 ]
 
-# Board palettes (light, dark). Per-style assignment below — gives each style a
-# distinct visual identity even when the piece SVG is identical (e.g.
-# kingside_default uses cburnett pieces but a different board colour).
-PALETTES: Dict[str, Tuple[str, str]] = {
-    "lichess_brown":     ("#f0d9b5", "#b58863"),
-    "lichess_blue":      ("#dee3e6", "#8ca2ad"),
-    "lichess_green":     ("#ffffdd", "#86a666"),
-    "chesscom_classic":  ("#eeeed2", "#769656"),
-    "chesscom_modern":   ("#ebecd0", "#739552"),
-    "kingside_green":    ("#ebecd0", "#739552"),
-    "kingside_dark":     ("#dfdfdf", "#4a6741"),
-    "wood":              ("#e0c098", "#8b6a45"),
-    "monochrome":        ("#ffffff", "#666666"),
-    "purple":            ("#e8d5ff", "#7a5bb5"),
+# 🔴 Hard invariant: train ∩ val = ∅. Если кто-то добавит стиль в обе
+# корзины — упадём на старте, до того как сжечь часы CPU.
+_OVERLAP = set(TRAIN_STYLES) & set(VAL_STYLES)
+assert not _OVERLAP, (
+    f"train ∩ val must be empty, got overlap: {sorted(_OVERLAP)}. "
+    f"This is the v1 mistake ADR-040-v2 is fixing — do not repeat it."
+)
+
+VAL_PROXY_NOTE: Dict[str, str] = {
+    "lichess_staunty":   "proxy_for_chesscom_classic (closed IP not redistributable)",
+    "lichess_pirouetti": "proxy_for_chesscom_modern (closed IP not redistributable)",
 }
 
-# Each style gets a primary palette plus one or two random variants. The random
-# variants are chosen per-FEN at generation time, so the dataset shows the
-# model multiple board colours within a single style.
-STYLE_PALETTES: Dict[str, List[str]] = {
-    "lichess_cburnett":  ["lichess_brown", "lichess_blue", "lichess_green"],
-    "lichess_merida":    ["lichess_brown", "wood"],
-    "lichess_wikipedia": ["lichess_brown", "monochrome"],
-    "lichess_alpha":     ["lichess_green", "chesscom_classic"],
-    "lichess_staunty":   ["chesscom_classic", "chesscom_modern"],
-    "lichess_pirouetti": ["chesscom_modern", "purple"],
-    "kingside_default":  ["kingside_green", "kingside_dark"],
-}
+# ─── Class set + balance (ADR-040-v2 §4 chess-expert) ────────────────────
 
-PIECE_KEYS = ["wK", "wQ", "wR", "wB", "wN", "wP",
-              "bK", "bQ", "bR", "bB", "bN", "bP"]
-
-# Class labels: 13 (empty + 12 pieces). Stored in manifest.
-LABELS: List[str] = ["empty"] + PIECE_KEYS
+LABELS: List[str] = [
+    "empty",
+    "wK", "wQ", "wR", "wB", "wN", "wP",
+    "bK", "bQ", "bR", "bB", "bN", "bP",
+]
 LABEL_TO_IDX: Dict[str, int] = {l: i for i, l in enumerate(LABELS)}
+PIECE_LABELS: List[str] = LABELS[1:]   # 12 фигур
 
-# Split ratios.
-SPLIT_RATIOS = {"train": 0.70, "val": 0.15, "test": 0.15}
+# chess-expert KS-3091 §4: 22 / 11 / 11 / 5.6×10 = 100.0
+CLASS_WEIGHTS: Dict[str, float] = {
+    "empty": 22.0,
+    "wP":    11.0,
+    "bP":    11.0,
+    "wK":     5.6,
+    "wQ":     5.6,
+    "wR":     5.6,
+    "wB":     5.6,
+    "wN":     5.6,
+    "bK":     5.6,
+    "bQ":     5.6,
+    "bR":     5.6,
+    "bB":     5.6,
+    "bN":     5.6,
+}
+assert abs(sum(CLASS_WEIGHTS.values()) - 100.0) < 1e-6
+assert set(CLASS_WEIGHTS) == set(LABELS)
 
-# ---------------------------------------------------------------------------
-# Piece bitmap cache
-# ---------------------------------------------------------------------------
+# ─── HSV palette sampling ────────────────────────────────────────────────
 
-@dataclass(frozen=True)
-class PieceKey:
-    style: str
-    piece: str        # 'wK'..'bP'
-    bg_color: str     # hex
+# Светлая клетка — высокая Value, тёмная — низкая. Hue свободно по кругу,
+# Saturation умеренный (десатурированные доски тоже бывают). chess-expert §1.1:
+# процедурно, не пресеты конкретных платформ.
+LIGHT_HSV_RANGES = {"H": (0, 360), "S": (10, 55), "V": (75, 100)}
+DARK_HSV_RANGES  = {"H": (0, 360), "S": (15, 65), "V": (25, 60)}
 
 
-def _render_svg_to_rgba(svg_bytes: bytes, size: int) -> Image.Image:
-    """Render an SVG into a square RGBA bitmap at `size` × `size`."""
-    png_bytes = cairosvg.svg2png(
-        bytestring=svg_bytes,
-        output_width=size,
-        output_height=size,
-    )
-    return Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+def sample_hsv(rng: random.Random, bg_kind: str) -> Tuple[float, float, float]:
+    ranges = LIGHT_HSV_RANGES if bg_kind == "light" else DARK_HSV_RANGES
+    h = rng.uniform(*ranges["H"])
+    s = rng.uniform(*ranges["S"]) / 100.0
+    v = rng.uniform(*ranges["V"]) / 100.0
+    return h, s, v
 
 
-def load_style_pieces(style: str) -> Dict[str, Image.Image]:
-    """Read all 12 piece SVGs for `style` and render them to transparent RGBA
-    bitmaps at CELL_SIZE."""
+def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
+    """h ∈ [0,360), s,v ∈ [0,1]. Возвращает 8-bit RGB."""
+    import colorsys
+    r, g, b = colorsys.hsv_to_rgb((h % 360) / 360.0, s, v)
+    return int(round(r * 255)), int(round(g * 255)), int(round(b * 255))
+
+
+# ─── Piece bitmap cache ──────────────────────────────────────────────────
+
+# Один разрезанный SVG/WebP в RGBA-битмап 64×64. Кэш per-process, ключ
+# (style, piece). Загружается лениво.
+_PIECE_CACHE: Dict[Tuple[str, str], Image.Image] = {}
+
+
+def _load_piece(style: str, piece: str) -> Image.Image:
+    key = (style, piece)
+    cached = _PIECE_CACHE.get(key)
+    if cached is not None:
+        return cached
     style_dir = STYLES_DIR / style
     if not style_dir.is_dir():
-        raise FileNotFoundError(f"Style cache missing: {style_dir}")
-    pieces: Dict[str, Image.Image] = {}
-    for piece in PIECE_KEYS:
-        svg_file = style_dir / f"{piece}.svg"
-        if not svg_file.is_file():
-            raise FileNotFoundError(f"Missing SVG: {svg_file}")
-        pieces[piece] = _render_svg_to_rgba(svg_file.read_bytes(), CELL_SIZE)
-    return pieces
+        raise FileNotFoundError(f"style dir missing: {style_dir}")
+    # SVG приоритетнее, fallback WebP / PNG.
+    for ext in ("svg", "webp", "png"):
+        path = style_dir / f"{piece}.{ext}"
+        if not path.is_file():
+            continue
+        if ext == "svg":
+            import cairosvg
+            png_bytes = cairosvg.svg2png(
+                bytestring=path.read_bytes(),
+                output_width=CELL_SIZE,
+                output_height=CELL_SIZE,
+            )
+            img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+        else:
+            img = Image.open(path).convert("RGBA")
+            if img.size != (CELL_SIZE, CELL_SIZE):
+                img = img.resize((CELL_SIZE, CELL_SIZE), Image.LANCZOS)
+        _PIECE_CACHE[key] = img
+        return img
+    raise FileNotFoundError(
+        f"no piece bitmap for {style}/{piece} (looked for .svg/.webp/.png)"
+    )
 
 
-def compose_cell(bg_hex: str, piece_img: Optional[Image.Image]) -> Image.Image:
-    """Compose a single 64×64 cell: solid background + optional piece overlay."""
-    cell = Image.new("RGB", (CELL_SIZE, CELL_SIZE), bg_hex)
-    if piece_img is not None:
-        cell.paste(piece_img, (0, 0), piece_img)  # alpha mask = piece itself
+def render_cell(
+    label: str,
+    style: str,
+    bg_kind: str,
+    rng: random.Random,
+) -> Image.Image:
+    """Один шаг рендера: цветной фон + (опционально) фигура поверх."""
+    bg_rgb = hsv_to_rgb(*sample_hsv(rng, bg_kind))
+    cell = Image.new("RGB", (CELL_SIZE, CELL_SIZE), bg_rgb)
+    if label != "empty":
+        piece_img = _load_piece(style, label)
+        cell.paste(piece_img, (0, 0), piece_img)
     return cell
 
 
-# ---------------------------------------------------------------------------
-# FEN sources
-# ---------------------------------------------------------------------------
-
-def fetch_db_fens(limit: int) -> List[str]:
-    """Pull up to `limit` distinct FENs from Postgres tactic_drills + puzzles."""
-    try:
-        import psycopg2
-    except ImportError:
-        return []
-    dsn = os.environ.get("DATABASE_URL",
-                         "postgresql://kingside:kingside@localhost:5432/kingside")
-    try:
-        conn = psycopg2.connect(dsn)
-    except Exception as exc:
-        print(f"[fen] DB connect failed: {exc}", file=sys.stderr)
-        return []
-    fens: List[str] = []
-    with conn, conn.cursor() as cur:
-        # tactic_drills is the bulk source (~400k rows).
-        cur.execute(
-            "SELECT DISTINCT fen FROM tactic_drills WHERE fen IS NOT NULL LIMIT %s;",
-            (limit,),
-        )
-        fens.extend(r[0] for r in cur.fetchall())
-        if len(fens) < limit:
-            remaining = limit - len(fens)
-            cur.execute(
-                "SELECT DISTINCT fen FROM puzzles WHERE fen IS NOT NULL LIMIT %s;",
-                (remaining,),
-            )
-            fens.extend(r[0] for r in cur.fetchall())
-    conn.close()
-    print(f"[fen] DB delivered {len(fens)} FENs", file=sys.stderr)
-    return fens
+def encode_png(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=False)
+    return buf.getvalue()
 
 
-def synthetic_fens(n: int, seed: int = 42) -> List[str]:
-    """Generate `n` synthetic FENs by playing random legal moves from the start.
+# ─── Class sampling ──────────────────────────────────────────────────────
 
-    Distribution: half from random openings (5-15 ply), half from deeper random
-    walks (20-60 ply). Guarantees variety in piece configurations.
+def _build_class_sampler(rng_seed: int) -> "WeightedSampler":
+    return WeightedSampler(
+        items=list(CLASS_WEIGHTS.keys()),
+        weights=list(CLASS_WEIGHTS.values()),
+        seed=rng_seed,
+    )
+
+
+class WeightedSampler:
+    """Stateful weighted sampler: numpy.random.choice — но с фиксированным
+    seed, чтобы прогоны были воспроизводимы.
     """
+    def __init__(self, items: List[str], weights: List[float], seed: int) -> None:
+        self.items = items
+        weights_arr = np.array(weights, dtype=np.float64)
+        self.probs = weights_arr / weights_arr.sum()
+        self.rng = np.random.default_rng(seed)
+
+    def sample(self) -> str:
+        idx = self.rng.choice(len(self.items), p=self.probs)
+        return self.items[int(idx)]
+
+
+# ─── Train generation ────────────────────────────────────────────────────
+
+def generate_train(
+    n_cells: int,
+    seed: int,
+    out_path: Path,
+) -> Dict[str, object]:
+    """Сгенерировать ``n_cells`` независимых клеток в HDF5.
+
+    Каждая клетка:
+      - класс из CLASS_WEIGHTS
+      - стиль random из TRAIN_STYLES (mixed-style)
+      - bg light/dark 50/50
+      - HSV-сэмплинг цвета
+      - render
+      - PNG → HDF5 'cells' (variable-length bytes) + 'labels' (uint8)
+    """
+    import h5py
+
+    sampler = _build_class_sampler(seed)
+    style_rng = random.Random(seed + 1)
+    bg_rng = random.Random(seed + 2)
+    color_rng = random.Random(seed + 3)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    label_counts: Dict[str, int] = {l: 0 for l in LABELS}
+    style_counts: Dict[str, int] = {s: 0 for s in TRAIN_STYLES}
+
+    print(f"[train] generating {n_cells:,} cells → {out_path}", file=sys.stderr)
+    t0 = time.time()
+    with h5py.File(out_path, "w") as fh:
+        dt = h5py.vlen_dtype(np.uint8)
+        cells_ds = fh.create_dataset("cells", shape=(n_cells,), dtype=dt)
+        labels_ds = fh.create_dataset(
+            "labels", shape=(n_cells,), dtype=np.uint8,
+        )
+        # Track style per cell for downstream diagnostics.
+        style_ds = fh.create_dataset(
+            "styles", shape=(n_cells,), dtype=h5py.string_dtype(encoding="ascii"),
+        )
+        for i in range(n_cells):
+            label = sampler.sample()
+            style = style_rng.choice(TRAIN_STYLES)
+            bg = "light" if bg_rng.random() < 0.5 else "dark"
+            img = render_cell(label, style, bg, color_rng)
+            png = encode_png(img)
+            cells_ds[i] = np.frombuffer(png, dtype=np.uint8)
+            labels_ds[i] = LABEL_TO_IDX[label]
+            style_ds[i] = style.encode("ascii")
+            label_counts[label] += 1
+            style_counts[style] += 1
+            if (i + 1) % 50000 == 0 or i + 1 == n_cells:
+                elapsed = time.time() - t0
+                rate = (i + 1) / max(elapsed, 0.01)
+                eta = (n_cells - i - 1) / max(rate, 0.01)
+                print(
+                    f"[train] {i + 1:,}/{n_cells:,} ({rate:.0f}/s, ETA {eta:.0f}s)",
+                    file=sys.stderr,
+                )
+
+    print(f"[train] done in {time.time() - t0:.0f}s", file=sys.stderr)
+    return {
+        "n_cells": n_cells,
+        "label_counts": label_counts,
+        "style_counts": style_counts,
+        "h5_path": str(out_path.relative_to(DATA_DIR.parent)),
+    }
+
+
+# ─── Val generation (FEN-based) ──────────────────────────────────────────
+
+# 9 трудных позиций от chess-expert (KS-3091 §3). Подмешиваются к
+# случайной выборке FEN'ов, чтобы val ловил клинические edge-кейсы.
+EDGE_CASE_FENS: List[str] = [
+    "4k3/8/8/8/8/8/8/4K3 w - - 0 1",                 # 1. KvK
+    "4k3/8/4K3/4Q3/8/8/8/8 w - - 0 1",               # 2. K+Q vs K
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",  # 3. start
+    "4k3/8/8/8/8/8/PPPPPPPP/4K3 w - - 0 1",          # 4. 8 pawns + kings
+    "4k3/8/8/3NN3/3NN3/8/8/4K3 w - - 0 1",           # 5. 4 white knights
+    "4k3/8/8/8/8/Q2Q2Q1/Q2Q4/4K3 w - - 0 1",         # 6. 5 white queens
+    "4N2k/8/8/8/8/8/8/4K3 b - - 0 1",                # 7. promotion to N
+    "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",          # 8. full castling
+    "8/8/8/3pP3/3Pp3/8/8/4K2k w - - 0 1",            # 9. symmetric pawns
+]
+
+VAL_FENS_PER_STYLE = 500  # ровно столько FEN'ов на стиль → 500 × 7 × 64 = 224 000
+
+
+def _collect_random_fens(target: int, seed: int) -> List[str]:
+    """Детерминированно собирает ``target`` уникальных FEN'ов случайным
+    blowingup от стартовой позиции. БД не используется — нужна
+    воспроизводимость между запусками без DB-доступа.
+    """
+    import chess
     rng = random.Random(seed)
     out: List[str] = []
-    while len(out) < n:
+    seen: set = set()
+    attempts = 0
+    while len(out) < target and attempts < target * 4:
+        attempts += 1
         board = chess.Board()
-        depth = rng.randint(5, 60)
+        depth = rng.randint(8, 50)
         for _ in range(depth):
             moves = list(board.legal_moves)
             if not moves:
@@ -203,335 +384,302 @@ def synthetic_fens(n: int, seed: int = 42) -> List[str]:
             board.push(rng.choice(moves))
             if board.is_game_over():
                 break
-        out.append(board.fen())
+        fen = board.fen()
+        if fen in seen:
+            continue
+        seen.add(fen)
+        out.append(fen)
+    if len(out) < target:
+        raise RuntimeError(f"failed to gather {target} unique FENs (got {len(out)})")
     return out
 
 
-def collect_fens(target: int) -> List[str]:
-    """Return `target` distinct FENs, preferring DB rows, falling back to synthetic."""
-    fens = fetch_db_fens(target)
-    seen = set(fens)
-    if len(fens) < target:
-        for f in synthetic_fens(target - len(fens) + 500):
-            if f in seen:
-                continue
-            seen.add(f)
-            fens.append(f)
-            if len(fens) >= target:
-                break
-    return fens[:target]
+def _build_val_fen_list() -> Tuple[List[str], str]:
+    """Возвращает (fens, sha256) — фиксированную выборку val-FEN'ов.
+
+    9 edge-case + 491 случайных (seed=2360) — итого 500. SHA256 списка
+    фиксируется и пишется в manifest, чтобы между запусками выборка
+    оставалась идентичной (acceptance: «val зафиксирован хешем»).
+    """
+    random_part = _collect_random_fens(VAL_FENS_PER_STYLE - len(EDGE_CASE_FENS), seed=2360)
+    fens = EDGE_CASE_FENS + random_part
+    assert len(fens) == VAL_FENS_PER_STYLE, f"got {len(fens)} fens"
+    sha = hashlib.sha256("\n".join(fens).encode()).hexdigest()
+    return fens, sha
 
 
-# ---------------------------------------------------------------------------
-# FEN → cells rendering
-# ---------------------------------------------------------------------------
+def _fen_to_grid(fen: str) -> List[List[str]]:
+    """FEN board part → 8×8 grid of labels.
 
-def fen_to_grid(fen: str) -> List[List[str]]:
-    """Convert FEN to 8×8 grid of piece codes; 'empty' for empty squares.
-
-    Grid[0] is rank 8 (top of the board), Grid[7] is rank 1.
+    Row 0 = rank 8 (top), Row 7 = rank 1 (bottom). Колонки a..h слева-направо.
+    Возвращает "empty" / "wK" / ... / "bP" в каждой клетке.
     """
     board_part = fen.split()[0]
-    rows = board_part.split("/")
     grid: List[List[str]] = []
-    for row in rows:
-        cells: List[str] = []
-        for ch in row:
+    for row_str in board_part.split("/"):
+        row: List[str] = []
+        for ch in row_str:
             if ch.isdigit():
-                cells.extend(["empty"] * int(ch))
+                row.extend(["empty"] * int(ch))
             else:
-                colour = "w" if ch.isupper() else "b"
-                cells.append(f"{colour}{ch.upper()}")
-        if len(cells) != 8:
-            raise ValueError(f"Bad FEN row: {row!r}")
-        grid.append(cells)
+                color = "w" if ch.isupper() else "b"
+                row.append(f"{color}{ch.upper()}")
+        if len(row) != 8:
+            raise ValueError(f"bad FEN row: {row_str!r}")
+        grid.append(row)
     if len(grid) != 8:
-        raise ValueError(f"Bad FEN: {fen!r}")
+        raise ValueError(f"bad FEN: {fen!r}")
     return grid
 
 
-def square_color(file_idx: int, rank_idx_from_top: int) -> str:
-    """Return 'light' or 'dark' for the given board coordinate.
-
-    a1 is dark; the colour of (file, rank) is light when (file + rank) is even
-    counting from a1.
-    """
-    rank_from_a1 = 7 - rank_idx_from_top
-    return "light" if (file_idx + rank_from_a1) % 2 == 1 else "dark"
+def _square_kind(row_from_top: int, col: int) -> str:
+    """light/dark в стандартной ориентации (white at bottom). a1 (row 7
+    col 0) — dark."""
+    rank_from_a1 = 7 - row_from_top
+    return "light" if (col + rank_from_a1) % 2 == 1 else "dark"
 
 
-def render_fen_cells(
-    fen: str,
-    style_pieces: Dict[str, Image.Image],
-    light_hex: str,
-    dark_hex: str,
-) -> List[Tuple[Image.Image, str]]:
-    """Render 64 cells for `fen` using preloaded piece bitmaps.
+def generate_val(out_path: Path) -> Dict[str, object]:
+    """Сгенерировать val-сет 7 × 500 × 64 = 224 000 клеток."""
+    import h5py
 
-    Returns a list of (cell_image, label) tuples in row-major order: index 0 is
-    rank 8 file a, index 63 is rank 1 file h.
-    """
-    grid = fen_to_grid(fen)
-    out: List[Tuple[Image.Image, str]] = []
-    for r, row in enumerate(grid):
-        for f, label in enumerate(row):
-            bg = light_hex if square_color(f, r) == "light" else dark_hex
-            piece_img = style_pieces.get(label) if label != "empty" else None
-            out.append((compose_cell(bg, piece_img), label))
-    return out
+    fens, fen_sha = _build_val_fen_list()
+    n_cells = len(VAL_STYLES) * VAL_FENS_PER_STYLE * 64
+    print(
+        f"[val] generating {n_cells:,} cells "
+        f"({len(VAL_STYLES)} styles × {VAL_FENS_PER_STYLE} FENs × 64) → {out_path}",
+        file=sys.stderr,
+    )
 
+    color_rng = random.Random(2361)  # отдельный seed для val палитр
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    label_counts: Dict[str, int] = {l: 0 for l in LABELS}
+    per_style_counts: Dict[str, Dict[str, int]] = {
+        s: {l: 0 for l in LABELS} for s in VAL_STYLES
+    }
 
-# ---------------------------------------------------------------------------
-# Worker
-# ---------------------------------------------------------------------------
-
-@dataclass
-class WorkItem:
-    style: str
-    fen_idx: int
-    fen: str
-    palette_name: str
-    light: str
-    dark: str
-
-
-def _process_one(item: WorkItem) -> Tuple[str, int, List[Dict[str, object]]]:
-    """Render and persist 64 cells for one (style, fen). Returns metadata rows."""
-    # Each worker keeps its own per-style piece cache to avoid re-rendering SVGs.
-    cache = _process_one._cache  # type: ignore[attr-defined]
-    if item.style not in cache:
-        cache[item.style] = load_style_pieces(item.style)
-    style_pieces = cache[item.style]
-
-    cells = render_fen_cells(item.fen, style_pieces, item.light, item.dark)
-    bucket = item.fen_idx // 1000
-    out_dir = CELLS_DIR / item.style / f"{bucket:04d}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rows: List[Dict[str, object]] = []
-    for sq_idx, (img, label) in enumerate(cells):
-        path = out_dir / f"{item.fen_idx:06d}_{sq_idx:02d}.png"
-        img.save(path, format="PNG", optimize=False)
-        rel = path.relative_to(DATA_DIR).as_posix()
-        rows.append({
-            "path": rel,
-            "label": label,
-            "label_idx": LABEL_TO_IDX[label],
-            "style": item.style,
-            "palette": item.palette_name,
-            "fen_idx": item.fen_idx,
-            "square": sq_idx,
-        })
-    return item.style, item.fen_idx, rows
-
-
-_process_one._cache = {}  # type: ignore[attr-defined]
-
-
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
-
-def deterministic_split(rng_seed: bytes, train: float, val: float) -> str:
-    """Stable hash-based assignment to train/val/test (no need to store random state)."""
-    h = int.from_bytes(hashlib.sha256(rng_seed).digest()[:8], "big") / 2**64
-    if h < train:
-        return "train"
-    if h < train + val:
-        return "val"
-    return "test"
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--fens-per-style", type=int, default=2300,
-                    help="Distinct FENs to render per style (default 2300 → ~1.03M cells across 7 styles).")
-    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 4) - 1))
-    ap.add_argument("--seed", type=int, default=2360)
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Skip rendering, only print plan and FEN counts.")
-    args = ap.parse_args(argv)
-
-    rng = random.Random(args.seed)
-    CELLS_DIR.mkdir(parents=True, exist_ok=True)
-    SPLITS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # 1. FEN pool — fetch enough for all styles, then sample without replacement
-    #    per-style to maximise diversity. With 7 styles × 2300 = 16100 FENs,
-    #    we need ~17000 distinct FENs in the pool.
-    total_needed = args.fens_per_style * len(STYLES) + 500
-    fen_pool = collect_fens(total_needed)
-    print(f"[plan] FEN pool size: {len(fen_pool)}", file=sys.stderr)
-    if len(fen_pool) < total_needed:
-        print(f"[warn] only {len(fen_pool)} FENs available, "
-              f"requested {total_needed}", file=sys.stderr)
-    rng.shuffle(fen_pool)
-
-    # 2. Build work items: each style gets its own slice of the pool plus a
-    #    random palette choice.
-    work: List[WorkItem] = []
-    offset = 0
-    for style in STYLES:
-        slice_ = fen_pool[offset: offset + args.fens_per_style]
-        offset += args.fens_per_style
-        palettes = STYLE_PALETTES[style]
-        for i, fen in enumerate(slice_):
-            palette_name = rng.choice(palettes)
-            light, dark = PALETTES[palette_name]
-            work.append(WorkItem(
-                style=style, fen_idx=i, fen=fen,
-                palette_name=palette_name, light=light, dark=dark,
-            ))
-
-    print(f"[plan] {len(work)} work items, {len(STYLES)} styles, "
-          f"{args.fens_per_style} FENs/style, {args.workers} workers", file=sys.stderr)
-    print(f"[plan] expected cells: {len(work) * 64:,}", file=sys.stderr)
-
-    if args.dry_run:
-        return 0
-
-    # 3. Process in parallel.
-    all_rows: List[Dict[str, object]] = []
-    start = time.time()
-    done = 0
-    if args.workers > 1:
-        with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = [pool.submit(_process_one, w) for w in work]
-            for fut in as_completed(futures):
-                _, _, rows = fut.result()
-                all_rows.extend(rows)
-                done += 1
-                if done % 200 == 0 or done == len(work):
-                    elapsed = time.time() - start
-                    rate = done / max(elapsed, 0.01)
-                    eta = (len(work) - done) / max(rate, 0.01)
-                    print(f"[render] {done}/{len(work)} "
-                          f"({rate:.1f} FEN/s, ETA {eta:.0f}s)", file=sys.stderr)
-    else:
-        # Serial fallback (debugging).
-        for w in work:
-            _, _, rows = _process_one(w)
-            all_rows.extend(rows)
-            done += 1
-
-    # 4. Split + write JSONL.
-    splits: Dict[str, List[Dict[str, object]]] = {"train": [], "val": [], "test": []}
-    for row in all_rows:
-        key = f"{row['style']}|{row['fen_idx']}".encode()
-        split = deterministic_split(
-            key, SPLIT_RATIOS["train"], SPLIT_RATIOS["val"],
+    t0 = time.time()
+    with h5py.File(out_path, "w") as fh:
+        dt = h5py.vlen_dtype(np.uint8)
+        cells_ds = fh.create_dataset("cells", shape=(n_cells,), dtype=dt)
+        labels_ds = fh.create_dataset("labels", shape=(n_cells,), dtype=np.uint8)
+        style_ds = fh.create_dataset(
+            "styles", shape=(n_cells,),
+            dtype=h5py.string_dtype(encoding="ascii"),
         )
-        row["split"] = split
-        splits[split].append(row)
+        fen_idx_ds = fh.create_dataset(
+            "fen_idx", shape=(n_cells,), dtype=np.uint16,
+        )
+        sq_ds = fh.create_dataset("square", shape=(n_cells,), dtype=np.uint8)
 
-    for split_name, rows in splits.items():
-        path = SPLITS_DIR / f"{split_name}.jsonl"
-        with path.open("w") as fh:
-            for row in rows:
-                fh.write(json.dumps(row, separators=(",", ":")) + "\n")
-        print(f"[split] {split_name}: {len(rows):,} rows → {path}", file=sys.stderr)
+        i = 0
+        for style in VAL_STYLES:
+            for fen_idx, fen in enumerate(fens):
+                grid = _fen_to_grid(fen)
+                for sq in range(64):
+                    r, c = divmod(sq, 8)
+                    label = grid[r][c]
+                    bg = _square_kind(r, c)
+                    img = render_cell(label, style, bg, color_rng)
+                    png = encode_png(img)
+                    cells_ds[i] = np.frombuffer(png, dtype=np.uint8)
+                    labels_ds[i] = LABEL_TO_IDX[label]
+                    style_ds[i] = style.encode("ascii")
+                    fen_idx_ds[i] = fen_idx
+                    sq_ds[i] = sq
+                    label_counts[label] += 1
+                    per_style_counts[style][label] += 1
+                    i += 1
+                    if i % 50000 == 0:
+                        elapsed = time.time() - t0
+                        print(
+                            f"[val] {i:,}/{n_cells:,} ({i/max(elapsed,0.01):.0f}/s)",
+                            file=sys.stderr,
+                        )
+        assert i == n_cells
 
-    # 5. Style label counts (for manifest stats).
-    per_style_counts: Dict[str, Dict[str, int]] = {}
-    for row in all_rows:
-        st = per_style_counts.setdefault(row["style"], {l: 0 for l in LABELS})
-        st[row["label"]] += 1
+        # Сохраним сами FEN'ы внутри h5 для воспроизводимости.
+        fh.create_dataset(
+            "val_fens", data=np.array(fens, dtype=h5py.string_dtype()),
+        )
+        fh.attrs["val_fens_sha256"] = fen_sha
 
-    # 6. Manifest (meta only — splits live in JSONL).
-    manifest = {
-        "version": "v1",
-        "task": "KS-2360",
-        "adr": "ADR-040",
+    # Дополнительно дублируем FEN'ы наружу в JSON — удобно для рецензии.
+    (DATA_DIR / "val_fens.json").write_text(
+        json.dumps({"sha256": fen_sha, "fens": fens, "edge_case_count": len(EDGE_CASE_FENS)},
+                   indent=2),
+        encoding="utf-8",
+    )
+    print(f"[val] done in {time.time() - t0:.0f}s", file=sys.stderr)
+    return {
+        "n_cells": n_cells,
+        "n_fens": VAL_FENS_PER_STYLE,
+        "fen_sha256": fen_sha,
+        "label_counts": label_counts,
+        "per_style_counts": per_style_counts,
+        "h5_path": str(out_path.relative_to(DATA_DIR.parent)),
+    }
+
+
+# ─── Style metadata + manifest ───────────────────────────────────────────
+
+# Лицензии на 17.05.2026 по COPYING.md в lichess-org/lila (master).
+# По CC-BY-NC-SA пользователь решил включать (KS-3091): attribution
+# обязателен в UI Credits + manifest, коммерческие риски приняты.
+_STYLE_LICENSE: Dict[str, Dict[str, str]] = {
+    "lichess_tatiana":   {"license": "CC-BY-NC-SA-4.0", "attribution": "sadsnake1"},
+    "lichess_caliente":  {"license": "CC-BY-NC-SA-4.0", "attribution": "avi (github.com/avi-0/caliente)"},
+    "lichess_fantasy":   {"license": "MIT",              "attribution": "Maurizio Monge (github.com/maurimo/chess-art)"},
+    "lichess_gioco":     {"license": "CC-BY-NC-SA-4.0", "attribution": "sadsnake1"},
+    "lichess_riohacha":  {"license": "lichess COPYING.md not specified — treated as AGPLv3+ (lila default)", "attribution": "unknown (lila contributor)"},
+    "lichess_dubrovny":  {"license": "CC-BY-NC-SA-4.0", "attribution": "sadsnake1"},
+    "lichess_kosal":     {"license": "lichess COPYING.md not specified — treated as AGPLv3+ (lila default)", "attribution": "unknown (lila contributor)"},
+    "lichess_letter":    {"license": "AGPLv3+",         "attribution": "usolando (lichess.org/@/usolando)"},
+    "lichess_monarchy":  {"license": "CC-BY-NC-SA-4.0", "attribution": "slither77 (github.com/slither77)"},
+    # Val-стили (целевые)
+    "kingside_default":   {"license": "MIT (react-chessboard); pieces ≡ cburnett (GPLv2+)", "attribution": "Colin M.L. Burnett (pieces); react-chessboard MIT (wrapper)"},
+    "lichess_cburnett":   {"license": "GPLv2+", "attribution": "Colin M.L. Burnett"},
+    "lichess_merida":     {"license": "GPLv2+", "attribution": "Armando Hernandez Marroquin"},
+    "lichess_wikipedia":  {"license": "Public Domain / CC BY-SA 3.0",
+                           "attribution": "Colin M.L. Burnett (SCID set via Wikimedia Commons)"},
+    "lichess_alpha":      {"license": "Eric Bentzen — free for personal non-commercial use",
+                           "attribution": "Eric Bentzen"},
+    "lichess_staunty":    {"license": "CC-BY-NC-SA-4.0", "attribution": "sadsnake1"},
+    "lichess_pirouetti":  {"license": "AGPLv3+",         "attribution": "pirouetti (lichess.org/@/pirouetti)"},
+}
+
+
+def _style_dir_sha(style: str) -> str:
+    """SHA256 от отсортированного содержимого style_dir (имена + байты)."""
+    h = hashlib.sha256()
+    style_dir = STYLES_DIR / style
+    if not style_dir.is_dir():
+        return ""
+    for name in sorted(os.listdir(style_dir)):
+        p = style_dir / name
+        if not p.is_file():
+            continue
+        h.update(name.encode())
+        h.update(b"\0")
+        h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def _style_meta(style: str, usage: str) -> Dict[str, object]:
+    meta = dict(_STYLE_LICENSE.get(style, {"license": "unknown", "attribution": "unknown"}))
+    meta["name"] = style
+    meta["usage"] = usage
+    meta["sha256"] = _style_dir_sha(style)
+    if usage == "val_only" and style in VAL_PROXY_NOTE:
+        meta["proxy_note"] = VAL_PROXY_NOTE[style]
+    return meta
+
+
+def write_manifest(
+    train_stats: Optional[Dict[str, object]],
+    val_stats: Optional[Dict[str, object]],
+) -> None:
+    manifest: Dict[str, object] = {
+        "version": "v2",
+        "task": "KS-3091",
+        "adr": "ADR-040-v2",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cell_size": CELL_SIZE,
         "labels": LABELS,
         "label_to_idx": LABEL_TO_IDX,
-        "n_cells_total": len(all_rows),
-        "n_fens_per_style": args.fens_per_style,
-        "split_ratios": SPLIT_RATIOS,
-        "split_counts": {k: len(v) for k, v in splits.items()},
-        "styles": [
-            _style_meta(style, per_style_counts.get(style, {}))
-            for style in STYLES
-        ],
-        "deferred_styles": [
-            {"name": "chess_merida", "reason": "enpassant.dk TTF source not reachable (HTTP 403)", "follow_up": "v2"},
-            {"name": "maizelis",      "reason": "scan source-file sprites pending curation",        "follow_up": "v2"},
-            {"name": "dvoretsky",     "reason": "scan source-file sprites pending curation",        "follow_up": "v2"},
-        ],
-        "s3_prefix": "s3://kingside-ml/datasets/board-recog/v1/",
+        "class_weights_pct": CLASS_WEIGHTS,
+        "isolation_invariant": {
+            "train_styles": TRAIN_STYLES,
+            "val_styles":   VAL_STYLES,
+            "intersection": sorted(set(TRAIN_STYLES) & set(VAL_STYLES)),
+            "valid":        not bool(set(TRAIN_STYLES) & set(VAL_STYLES)),
+        },
+        "external_datasets": {
+            "ChessReD": {
+                "license": "CC-BY-4.0",
+                "attribution": "Wölflein & Arandjelović (2023)",
+                "source": "https://github.com/georg-wolflein/chesscog (and follow-up)",
+                "status": "pending_integration (KS-3091 follow-up)",
+            },
+            "Chess Cog": {
+                "license": "MIT",
+                "attribution": "Czyzewski et al.",
+                "source": "https://github.com/maciejczyzewski/neural-chessboard",
+                "status": "pending_integration (KS-3091 follow-up)",
+            },
+        },
+        "styles": [_style_meta(s, "train_only") for s in TRAIN_STYLES]
+                + [_style_meta(s, "val_only")   for s in VAL_STYLES],
+        "train": train_stats,
+        "val":   val_stats,
+        "s3_prefix": "s3://kingside-ml/datasets/board-recog/v2/",
     }
     MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
     print(f"[manifest] wrote {MANIFEST_PATH}", file=sys.stderr)
 
-    print(f"[done] {len(all_rows):,} cells in {time.time() - start:.1f}s", file=sys.stderr)
+
+# ─── CLI ─────────────────────────────────────────────────────────────────
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--style-set", choices=("train", "val", "both"), default="both",
+        help="What to generate.",
+    )
+    ap.add_argument(
+        "--n-train", type=int, default=1_500_000,
+        help="Number of train cells (ADR acceptance ≥ 1.5M).",
+    )
+    ap.add_argument(
+        "--seed", type=int, default=3091,
+        help="Random seed for train cell generation.",
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true",
+        help="Print plan, do not write h5 files.",
+    )
+    args = ap.parse_args(argv)
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Sanity: проверим, что все стили физически есть в styles_cache.
+    missing: List[str] = []
+    for s in TRAIN_STYLES + VAL_STYLES:
+        if not (STYLES_DIR / s).is_dir():
+            missing.append(s)
+    if missing:
+        print(
+            f"[fatal] missing style dirs: {missing}. "
+            f"Run scripts/fetch_styles.sh first.",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"[plan] style_set={args.style_set}", file=sys.stderr)
+    print(f"[plan] TRAIN_STYLES ({len(TRAIN_STYLES)}): {TRAIN_STYLES}", file=sys.stderr)
+    print(f"[plan] VAL_STYLES   ({len(VAL_STYLES)}):   {VAL_STYLES}", file=sys.stderr)
+    print(f"[plan] isolation invariant: train ∩ val = {sorted(set(TRAIN_STYLES) & set(VAL_STYLES))}",
+          file=sys.stderr)
+
+    if args.dry_run:
+        print("[dry-run] not writing h5", file=sys.stderr)
+        return 0
+
+    train_stats = None
+    if args.style_set in ("train", "both"):
+        train_stats = generate_train(
+            n_cells=args.n_train,
+            seed=args.seed,
+            out_path=DATA_DIR / "cells_train.h5",
+        )
+
+    val_stats = None
+    if args.style_set in ("val", "both"):
+        val_stats = generate_val(out_path=DATA_DIR / "cells_val.h5")
+
+    write_manifest(train_stats, val_stats)
     return 0
-
-
-# ---------------------------------------------------------------------------
-# Style metadata (license + provenance)
-# ---------------------------------------------------------------------------
-
-_STYLE_META_BASE: Dict[str, Dict[str, object]] = {
-    "lichess_cburnett": {
-        "license": "GPL-3.0 / CC BY-SA 3.0 (dual)",
-        "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/cburnett",
-        "attribution": "Colin M.L. Burnett",
-        "redistribute": True,
-    },
-    "lichess_merida": {
-        "license": "GPL-2.0+",
-        "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/merida",
-        "attribution": "Armando H. Marroquín",
-        "redistribute": True,
-    },
-    "lichess_wikipedia": {
-        "license": "Public Domain / CC BY-SA 3.0",
-        "source_url": "https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces",
-        "attribution": "Colin M.L. Burnett (SCID set, distributed via Wikimedia Commons)",
-        "redistribute": True,
-    },
-    "lichess_alpha": {
-        "license": "Free for personal/non-commercial (Eric Bentzen)",
-        "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/alpha",
-        "attribution": "Eric Bentzen",
-        "redistribute": False,
-        "note": "Trained weights are publishable, raw rendered cells stay in the internal S3 prefix.",
-    },
-    "lichess_staunty": {
-        "license": "CC BY-SA 4.0",
-        "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/staunty",
-        "attribution": "Sadsnake",
-        "redistribute": True,
-        "replaces": "chess.com/classic (excluded by chess-expert: closed IP)",
-    },
-    "lichess_pirouetti": {
-        "license": "GPL",
-        "source_url": "https://github.com/lichess-org/lila/tree/master/public/piece/pirouetti",
-        "attribution": "Sergey Makagonov",
-        "redistribute": True,
-        "replaces": "chess.com/modern (excluded by chess-expert: closed IP)",
-    },
-    "kingside_default": {
-        "license": "MIT (react-chessboard); pieces derived from cburnett (GPL-3.0 / CC BY-SA 3.0)",
-        "source_url": "https://github.com/Clariity/react-chessboard/blob/main/src/pieces.tsx",
-        "attribution": "Colin M.L. Burnett (pieces); react-chessboard MIT (wrapper)",
-        "redistribute": True,
-        "note": "Visual diversity vs. lichess_cburnett comes from the board palette (kingside_green / kingside_dark).",
-    },
-}
-
-
-def _style_meta(style: str, label_counts: Dict[str, int]) -> Dict[str, object]:
-    meta = dict(_STYLE_META_BASE[style])
-    meta["name"] = style
-    meta["palettes"] = STYLE_PALETTES[style]
-    meta["label_counts"] = label_counts
-    # Record the lila commit pin if we have it.
-    commit_file = STYLES_DIR / ".lila_commit"
-    if style.startswith("lichess_") and style != "lichess_wikipedia" and commit_file.is_file():
-        meta["source_commit"] = commit_file.read_text().strip()
-    return meta
 
 
 if __name__ == "__main__":
