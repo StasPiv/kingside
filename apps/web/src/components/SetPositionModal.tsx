@@ -300,6 +300,21 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
               initialFen={fenInput}
               onAccept={(fen) => onApply(fen)}
               onCancel={onClose}
+              // KS-3093: после распознавания (как 200, так и 422 с
+              // fenAttempt) — сразу пробрасываем FEN в Board Editor:
+              // заполняем фигуры, рокировку, ход, переключаем вкладку.
+              // Пользователь правит позицию drag'ом фигур, чекбоксами
+              // рокировки и т.п., а не текстовым FEN-инпутом. Это и
+              // есть acceptance KS-3093.
+              onRecognized={(fen) => {
+                setFenInput(fen);
+                setBoard(fenToBoard(fen));
+                const parts = fen.split(' ');
+                setEditorTurn(parts[1] === 'b' ? 'b' : 'w');
+                setCastling(parts[2] || '-');
+                setError(null);
+                setTab('editor');
+              }}
             />
           </div>
         )}

@@ -246,6 +246,59 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     expect(onAccept).toHaveBeenCalledWith(fixed);
   });
 
+  // KS-3093 hand-off в родительский board-editor.
+  it('KS-3093: `onRecognized` вызывается с FEN на 200 — apply кнопка скрыта', async () => {
+    const onRecognized = vi.fn();
+    const recognizer = vi.fn().mockResolvedValue(RECOGNIZED);
+    renderWithProviders(
+      <BoardImageDropzone
+        onAccept={vi.fn()}
+        onRecognized={onRecognized}
+        recognizer={recognizer}
+      />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() =>
+      expect(onRecognized).toHaveBeenCalledWith(RECOGNIZED.fen),
+    );
+    // Локальный Apply и «Edit FEN manually» не рендерятся — apply
+    // делает родительский editor.
+    expect(screen.queryByTestId('board-image-dropzone-apply')).toBeNull();
+    expect(
+      screen.queryByTestId('board-image-dropzone-toggle-manual'),
+    ).toBeNull();
+  });
+
+  it('KS-3093: `onRecognized` вызывается с fenAttempt и на 422', async () => {
+    const onRecognized = vi.fn();
+    const payload: BoardRecognitionUnreliablePayload = {
+      error: 'recognition_unreliable',
+      fenAttempt:
+        'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
+      issues: ['some pawns are on the edge rows'],
+    };
+    const recognizer = vi
+      .fn()
+      .mockRejectedValue(new BoardRecognitionUnreliableError(payload));
+    renderWithProviders(
+      <BoardImageDropzone
+        onAccept={vi.fn()}
+        onRecognized={onRecognized}
+        recognizer={recognizer}
+      />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() =>
+      expect(onRecognized).toHaveBeenCalledWith(payload.fenAttempt),
+    );
+  });
+
   // KS-3093: scenario 2 — 422 без fenAttempt (legacy/edge-case).
   it('KS-3093: 422 без fenAttempt → старое сообщение «recognition failed»', async () => {
     const recognizer = vi.fn().mockRejectedValue(

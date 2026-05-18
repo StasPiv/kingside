@@ -38,6 +38,21 @@ export interface BoardImageDropzoneProps {
   onAccept: (fen: string) => void;
   onCancel?: () => void;
   recognizer?: (file: File | Blob) => Promise<BoardRecognitionResponse>;
+  /**
+   * KS-3093: callback, который дёргается СРАЗУ после распознавания
+   * (как успешного 200, так и 422 `recognition_unreliable` с
+   * `fenAttempt`). Если родитель его передал — он обычно открывает
+   * полноценный board-editor с предзаполненной позицией, чтобы
+   * пользователь правил перетаскиванием фигур / переключателем
+   * рокировки / side-to-move, а не текстовым FEN-инпутом.
+   *
+   * Когда `onRecognized` задан, локальная кнопка «Apply» в дропзоне
+   * больше не рендерится — apply делается в editor'е родителя
+   * (предотвращает двойной flow и недопонимание «куда жать»). Если
+   * `onRecognized` не задан — дропзона работает как раньше: Edit FEN
+   * + Apply прямо в ней.
+   */
+  onRecognized?: (fen: string) => void;
 }
 
 function composeFen(
@@ -184,6 +199,7 @@ export function BoardImageDropzone({
   onAccept,
   onCancel,
   recognizer = recognizeBoard,
+  onRecognized,
 }: BoardImageDropzoneProps) {
   const { t } = useTranslation();
   const fileInputId = useId();
@@ -249,6 +265,15 @@ export function BoardImageDropzone({
         setFenRest(parseFenRest(res.fen));
         setManualFen(res.fen);
         setWarnings(res.warnings ?? []);
+        // KS-3093: при успешном распознавании сразу передаём в
+        // родительский board-editor — чтобы пользователь правил
+        // позицию перетаскиванием фигур / переключателями рокировки /
+        // side-to-move, а не текстовым FEN. Если onRecognized не
+        // задан — остаёмся на старом потоке (локальный Apply внутри
+        // дропзоны).
+        if (onRecognized) {
+          onRecognized(res.fen);
+        }
       } catch (err) {
         // KS-3093: 422 `recognition_unreliable`. Backend распознал и
         // отдал fenAttempt; UI обязан показать его на доске и дать
@@ -281,6 +306,14 @@ export function BoardImageDropzone({
             });
             setSanityIssues(p.issues ?? ['recognition_unreliable']);
             setError(null);
+            // KS-3093: даже при sanity-провале сразу передаём
+            // fenAttempt в родительский editor — пусть пользователь
+            // правит позицию drag'ом (a1: P→R и т.п.). Внутри
+            // editor'а тот же sanity-чек заблокирует Apply, пока
+            // позиция нелегальна.
+            if (onRecognized) {
+              onRecognized(p.fenAttempt);
+            }
             return;
           }
           // Legacy/edge: 422 без fenAttempt — старое поведение
@@ -301,7 +334,7 @@ export function BoardImageDropzone({
         setBusy(false);
       }
     },
-    [recognizer, t],
+    [recognizer, t, onRecognized],
   );
 
   // Drag & drop через `dataTransfer.files`.
@@ -403,6 +436,13 @@ export function BoardImageDropzone({
     onAccept(manualMode ? manualFen.trim() : previewFen);
   }, [canApply, onAccept, manualMode, manualFen, previewFen]);
 
+  // KS-3093: когда родитель подключил `onRecognized` (= использует
+  // полноценный board-editor), локальный Apply / Edit FEN внутри
+  // дропзоны прячем. Иначе у пользователя два «куда применять»: внутри
+  // дропзоны и в editor'е родителя — путаница. recognizer уже
+  // передал fen в onRecognized'е.
+  const usesParentEditor = typeof onRecognized === 'function';
+
   return (
     <div
       className="board-image-dropzone"
@@ -502,16 +542,18 @@ export function BoardImageDropzone({
                 <option value="b">{t('boardImage.sideBlack', 'Black')}</option>
               </select>
             </label>
-            <button
-              type="button"
-              className={`board-image-dropzone__btn${manualMode ? ' is-active' : ''}`}
-              onClick={() => setManualMode((v) => !v)}
-              data-testid="board-image-dropzone-toggle-manual"
-            >
-              {manualMode
-                ? t('boardImage.exitManual', 'Auto FEN')
-                : t('boardImage.editManually', 'Edit FEN manually')}
-            </button>
+            {!usesParentEditor && (
+              <button
+                type="button"
+                className={`board-image-dropzone__btn${manualMode ? ' is-active' : ''}`}
+                onClick={() => setManualMode((v) => !v)}
+                data-testid="board-image-dropzone-toggle-manual"
+              >
+                {manualMode
+                  ? t('boardImage.exitManual', 'Auto FEN')
+                  : t('boardImage.editManually', 'Edit FEN manually')}
+              </button>
+            )}
           </div>
           <div className="board-image-dropzone__fen-row">
             <code
@@ -611,27 +653,30 @@ export function BoardImageDropzone({
             {t('common.cancel', 'Cancel')}
           </button>
         )}
-        <button
-          type="button"
-          className="board-image-dropzone__apply"
-          onClick={handleApply}
-          disabled={!canApply}
-          data-testid="board-image-dropzone-apply"
-          // KS-3093: подсказка, почему Apply неактивен — пользователь
-          // видит конкретный sanity-issue, а не молчаливо серую кнопку.
-          title={
-            !result
-              ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
-              : previewError
-                ? previewError
-                : liveSanityIssues.length > 0
-                  ? liveSanityIssues.join('; ')
-                  : undefined
-          }
-          aria-disabled={!canApply}
-        >
-          {t('boardImage.apply', 'Apply')}
-        </button>
+        {/* KS-3093: при использовании в `SetPositionModal` (вкладка
+            «From image») apply делает board-editor родителя — здесь
+            кнопка не нужна, иначе у пользователя два «куда жать». */}
+        {!usesParentEditor && (
+          <button
+            type="button"
+            className="board-image-dropzone__apply"
+            onClick={handleApply}
+            disabled={!canApply}
+            data-testid="board-image-dropzone-apply"
+            title={
+              !result
+                ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
+                : previewError
+                  ? previewError
+                  : liveSanityIssues.length > 0
+                    ? liveSanityIssues.join('; ')
+                    : undefined
+            }
+            aria-disabled={!canApply}
+          >
+            {t('boardImage.apply', 'Apply')}
+          </button>
+        )}
       </div>
     </div>
   );

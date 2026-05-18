@@ -1,29 +1,29 @@
 import { useState } from 'react';
-import { BoardImageDropzone } from '../components/BoardImageDropzone';
-import { BoardRecognitionUnreliableError } from '../api/boardRecognition';
+import { SetPositionModal } from '../components/SetPositionModal';
 
 /**
- * KS-3093 dev-песочница. Жёстко мокает `recognizer` так, что ЛЮБАЯ
- * загрузка картинки даёт 422 `recognition_unreliable` c тем самым
- * fenAttempt из задачи (a1 = пешка вместо ладьи). Нужна для
- * playwright-скриншота acceptance-flow без живого backend'а:
+ * KS-3093 dev-песочница для нового flow «после распознавания → board
+ * editor».
  *
- *   1. дроп файла → дропзона ловит unreliable-ответ;
- *   2. на доске нарисована позиция из fenAttempt (видно P на a1);
- *   3. warning-плашка с issues;
- *   4. подсвечен lowConfidenceCell (a1);
- *   5. «Edit FEN manually» активен, после правки P→R Apply
- *      разблокируется.
+ * Использует полный `SetPositionModal` (FEN / Board Editor / From image)
+ * с глобально мокнутым recognizer'ом: любой загруженный файл вызывает
+ * 422 `recognition_unreliable` с тем самым fenAttempt из жалобы юзера
+ * (a1 = пешка вместо ладьи). После «успешного» распознавания модал
+ * автоматически переключается на вкладку Board Editor с заполненной
+ * позицией, можно править фигуры кликом / настраивать рокировку и
+ * side-to-move.
  *
- * Доступна по `/dev/board-image-dropzone-unreliable`. Tree-shake'ается
- * из prod-сборки вместе с остальными DevRoutes (KS-1821).
+ * Для активации мока recognizer'а используем
+ * `VITE_BOARD_RECOG_FORCE_MOCK=1`-ветку нельзя (там 200 со стартпозом),
+ * поэтому жёстко подменяем `fetch` на уровне страницы: возвращаем 422
+ * с заранее подготовленным телом. После размонтирования страницы
+ * восстанавливаем оригинал.
  */
 
-const UNRELIABLE_PAYLOAD = {
-  error: 'recognition_unreliable' as const,
+const UNRELIABLE_BODY = JSON.stringify({
+  error: 'recognition_unreliable',
   message: 'sanity check failed',
-  // Точно из жалобы пользователя в задаче: модель распознала всё кроме
-  // a1, где нарисована пешка (должна быть ладья R).
+  // Точно из жалобы пользователя: модель распознала всё кроме a1.
   fenAttempt:
     'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
   issues: ['some pawns are on the edge rows'],
@@ -32,31 +32,53 @@ const UNRELIABLE_PAYLOAD = {
     { file: 5, rank: 2, piece: 'P', confidence: 0.58 },
     { file: 3, rank: 4, piece: 'B', confidence: 0.62 },
   ],
-  orientation: 'white' as const,
+  orientation: 'white',
   modelVersion: '0.9.3',
-};
+});
 
-async function mockRecognizer(): Promise<never> {
-  // Маленькая задержка, чтобы UI успел показать `Recognizing…` —
-  // снимок для отчёта будет содержательнее.
-  await new Promise((r) => setTimeout(r, 80));
-  throw new BoardRecognitionUnreliableError(UNRELIABLE_PAYLOAD);
+let installed = false;
+function installFetchMock() {
+  if (installed) return;
+  installed = true;
+  const original = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (url.includes('/board-recognition')) {
+      await new Promise((r) => setTimeout(r, 80));
+      return new Response(UNRELIABLE_BODY, {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return original(input, init);
+  };
 }
 
 export function DevBoardImageDropzoneUnreliablePage() {
+  installFetchMock();
+  const [open, setOpen] = useState(true);
   const [appliedFen, setAppliedFen] = useState<string | null>(null);
+
   return (
     <div style={{ maxWidth: 880, margin: '24px auto', padding: 16 }}>
-      <h1>KS-3093 — BoardImageDropzone 422-flow</h1>
+      <h1>KS-3093 — recognition_unreliable → Board Editor</h1>
       <p style={{ color: '#888', marginBottom: 16 }}>
-        Любая загрузка картинки → мок 422 `recognition_unreliable` c
-        тем самым fenAttempt (a1 = P, должно быть R) и issues
-        `[pawns on the edge rows]`. Используется для playwright-скрина.
+        Открываем SetPositionModal на вкладке «From image». Любая
+        загрузка картинки → мок 422 с fenAttempt (a1 = P, должно быть R).
+        После «распознавания» модалка автоматически переключается на
+        Board Editor — там правим фигуры кликом / меняем рокировку /
+        side-to-move и применяем.
       </p>
-      <BoardImageDropzone
-        onAccept={(fen) => setAppliedFen(fen)}
-        recognizer={mockRecognizer}
-      />
+      {!open && (
+        <button type="button" onClick={() => setOpen(true)}>
+          Open SetPositionModal again
+        </button>
+      )}
       {appliedFen && (
         <div
           style={{
@@ -78,6 +100,16 @@ export function DevBoardImageDropzoneUnreliablePage() {
             {appliedFen}
           </pre>
         </div>
+      )}
+      {open && (
+        <SetPositionModal
+          initialTab="image"
+          onApply={(fen) => {
+            setAppliedFen(fen);
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );
