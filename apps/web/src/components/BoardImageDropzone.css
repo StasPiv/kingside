@@ -74,10 +74,24 @@
   cursor: pointer;
   font-size: 0.9em;
   font-weight: 500;
+  /* KS-3095: тот же класс используется как для <label> (file-picker),
+     так и для <button class="...-file-label"> (Crop image). Браузер
+     применяет к <button> нативный font-family `button`/`system` и
+     цвет `ButtonText`, из-за чего кнопка выглядит «серой,
+     неактивной». Сбрасываем явно. */
+  font-family: inherit;
+  line-height: inherit;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .board-image-dropzone__file-label:hover {
   background: rgba(74, 142, 255, 0.22);
+}
+
+.board-image-dropzone__file-label:disabled {
+  opacity: 0.5;
+  cursor: progress;
 }
 
 .board-image-dropzone__file-input {

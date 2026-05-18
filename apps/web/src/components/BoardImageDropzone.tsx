@@ -646,8 +646,10 @@ export function BoardImageDropzone({
               в drop-зоне под загруженной картинкой. По умолчанию
               recognize прогоняется на исходнике; кнопка позволяет
               уточнить область вручную, если модель распознала плохо.
-              Прячем при cropMode (overlay уже активен) и при busy. */}
-          {imageUrl && !cropMode && !busy && (
+              Прячем при cropMode (overlay уже активен). Во время
+              busy кнопка видна, но disabled (полупрозрачная) —
+              чтобы юзер видел, что она существует, а не «исчезла». */}
+          {imageUrl && !cropMode && (
             <button
               type="button"
               className="board-image-dropzone__file-label"
@@ -657,6 +659,7 @@ export function BoardImageDropzone({
                 cropAreaPxRef.current = null;
                 setCropMode(true);
               }}
+              disabled={busy}
               data-testid="board-image-dropzone-crop-toggle"
             >
               {t('boardImage.cropToggle', 'Crop image')}
