@@ -68,6 +68,56 @@ export class StudyInvitesService {
   }
 
   /**
+   * KS-3013 / ADR-060 follow-up. Публичный preview invite-токена для
+   * `StudyInviteAcceptPage` фронта. Без auth — фронт показывает страницу
+   * до login, чтобы пользователь видел, в какую студию он соглашается
+   * вступить.
+   *
+   * Отдаёт только публичную метаинфу студии (id/slug/name/description/
+   * ownerUsername). Не отдаёт: token, members, chapters, никакие private
+   * поля. Состояния `expired` / `used` вычисляются на лету по полям
+   * `expiresAt` и `acceptedAt`. Если токен не найден или связанная студия
+   * удалена (cascade удалит токен, но на всякий случай проверяем `study`
+   * на null) — 404.
+   */
+  async preview(token: string): Promise<{
+    study: {
+      id: string;
+      slug: string;
+      name: string;
+      description: string | null;
+      ownerUsername: string;
+    };
+    expired: boolean;
+    used: boolean;
+  }> {
+    const invite = await this.prisma.studyInvite.findUnique({
+      where: { token },
+      include: {
+        study: {
+          include: {
+            owner: { select: { username: true } },
+          },
+        },
+      },
+    });
+    if (!invite || !invite.study) {
+      throw new NotFoundException('Invite not found');
+    }
+    return {
+      study: {
+        id: invite.study.id,
+        slug: invite.study.slug,
+        name: invite.study.name,
+        description: invite.study.description,
+        ownerUsername: invite.study.owner?.username ?? '',
+      },
+      expired: invite.expiresAt.getTime() < Date.now(),
+      used: invite.acceptedAt !== null,
+    };
+  }
+
+  /**
    * Принять приглашение. Возвращает `Study` (минимум — id/slug)
    * — фронт может перенаправить на страницу студии.
    */

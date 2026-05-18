@@ -327,6 +327,35 @@ export interface AcceptInviteResponse {
   role: StudyMemberRole;
 }
 
+/**
+ * KS-3013 / ADR-060 follow-up. Ответ `GET /api/studies/invites/:token` —
+ * публичный preview invite-токена для `StudyInviteAcceptPage` (KS-2893).
+ *
+ * Без auth: страница нужна до login, чтобы юзер понимал «куда соглашается»
+ * принять. Отдаём только публичную метаинфу студии (id/slug/name/description/
+ * ownerUsername), без members, без token-leak, без private chapters.
+ *
+ * Состояния invite:
+ *  - `expired: true`  → `expiresAt < now`. Принять нельзя; фронт показывает
+ *    "Срок ссылки истёк".
+ *  - `used: true`     → `acceptedAt != null`. Принять нельзя; фронт показывает
+ *    "Приглашение уже использовано".
+ *  - оба false        → можно принять (после login через accept-эндпоинт).
+ *
+ * Если токен не найден или связанная студия удалена — 404.
+ */
+export interface InvitePreviewResponse {
+  study: {
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    ownerUsername: string;
+  };
+  expired: boolean;
+  used: boolean;
+}
+
 /** Ответ `POST /api/studies/:slug/like` — toggle like. */
 export interface ToggleLikeResponse {
   liked: boolean;

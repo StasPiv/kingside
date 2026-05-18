@@ -396,6 +396,105 @@ describe('StudyMembersController — KS-2861 B5', () => {
     });
   });
 
+  // KS-3013: GET /studies/invites/:token — публичный preview.
+  describe('GET /studies/invites/:token', () => {
+    const preview = {
+      study: {
+        id: study.id,
+        slug,
+        name: 'X',
+        description: 'desc',
+        ownerUsername: 'alice',
+      },
+      expired: false,
+      used: false,
+    };
+
+    it('valid token без auth → 200 с preview', async () => {
+      app = await makeApp({
+        authUserId: null,
+        ownerOk: false,
+        accessOk: false,
+        contributorOk: false,
+        invitesOverrides: {
+          preview: jest.fn(async () => preview),
+        } as any,
+      });
+      const res = await request(app.getHttpServer())
+        .get('/studies/invites/tok-valid')
+        .expect(200);
+      expect(res.body).toEqual(preview);
+    });
+
+    it('expired token → 200 с expired=true', async () => {
+      app = await makeApp({
+        authUserId: null,
+        ownerOk: false,
+        accessOk: false,
+        contributorOk: false,
+        invitesOverrides: {
+          preview: jest.fn(async () => ({ ...preview, expired: true })),
+        } as any,
+      });
+      const res = await request(app.getHttpServer())
+        .get('/studies/invites/tok-expired')
+        .expect(200);
+      expect(res.body.expired).toBe(true);
+      expect(res.body.used).toBe(false);
+    });
+
+    it('used token → 200 с used=true', async () => {
+      app = await makeApp({
+        authUserId: null,
+        ownerOk: false,
+        accessOk: false,
+        contributorOk: false,
+        invitesOverrides: {
+          preview: jest.fn(async () => ({ ...preview, used: true })),
+        } as any,
+      });
+      const res = await request(app.getHttpServer())
+        .get('/studies/invites/tok-used')
+        .expect(200);
+      expect(res.body.used).toBe(true);
+      expect(res.body.expired).toBe(false);
+    });
+
+    it('bad token → 404', async () => {
+      const { NotFoundException } = await import('@nestjs/common');
+      app = await makeApp({
+        authUserId: null,
+        ownerOk: false,
+        accessOk: false,
+        contributorOk: false,
+        invitesOverrides: {
+          preview: jest.fn(async () => {
+            throw new NotFoundException('Invite not found');
+          }),
+        } as any,
+      });
+      await request(app.getHttpServer())
+        .get('/studies/invites/tok-bad')
+        .expect(404);
+    });
+
+    it('endpoint доступен без JWT (нет 401/403 на анонимный запрос)', async () => {
+      app = await makeApp({
+        authUserId: null,
+        ownerOk: false,
+        accessOk: false,
+        contributorOk: false,
+        invitesOverrides: {
+          preview: jest.fn(async () => preview),
+        } as any,
+      });
+      const res = await request(app.getHttpServer())
+        .get('/studies/invites/anon-token')
+        .expect(200);
+      expect(res.body.study.ownerUsername).toBe('alice');
+    });
+  });
+
   describe('PATCH /studies/:slug/chapters/:chapterId/gamebook', () => {
     it('contributor обновляет payload', async () => {
       app = await makeApp({

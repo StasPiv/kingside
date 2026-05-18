@@ -187,6 +187,30 @@ export class StudyMembersController {
     return { studyId: study.id, slug: study.slug, role };
   }
 
+  /**
+   * KS-3013 / ADR-060 follow-up. Публичный preview invite-токена.
+   * Без auth — фронт (`StudyInviteAcceptPage`, KS-2893) показывает
+   * страницу до login, чтобы юзер видел, в какую студию вступает.
+   * Возвращает только публичную метаинфу студии + флаги `expired`/`used`.
+   * Не возвращает: token, members, chapters.
+   */
+  @Get('invites/:token')
+  async previewInvite(
+    @Param('token') token: string,
+  ): Promise<{
+    study: {
+      id: string;
+      slug: string;
+      name: string;
+      description: string | null;
+      ownerUsername: string;
+    };
+    expired: boolean;
+    used: boolean;
+  }> {
+    return this.invites.preview(token);
+  }
+
   // ─── Gamebook PATCH (B5) ────────────────────────────────────────
 
   @UseGuards(JwtAuthGuard, StudyContributorGuard)

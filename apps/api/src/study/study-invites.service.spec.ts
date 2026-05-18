@@ -136,4 +136,90 @@ describe('StudyInvitesService — KS-2859 B3', () => {
       expect(tx.studyInvite.update).toHaveBeenCalled();
     });
   });
+
+  // KS-3013: публичный preview invite-токена.
+  describe('preview', () => {
+    const studyWithOwner: any = {
+      id: 'study-1',
+      slug: 'abc-x',
+      name: 'X',
+      description: 'desc',
+      owner: { username: 'alice' },
+    };
+
+    it('valid token → expired=false, used=false', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue({
+        token: 'a'.repeat(32),
+        expiresAt: new Date(Date.now() + 60_000),
+        acceptedAt: null,
+        study: studyWithOwner,
+      });
+      const r = await svc.preview('a'.repeat(32));
+      expect(r).toEqual({
+        study: {
+          id: 'study-1',
+          slug: 'abc-x',
+          name: 'X',
+          description: 'desc',
+          ownerUsername: 'alice',
+        },
+        expired: false,
+        used: false,
+      });
+    });
+
+    it('expired token → expired=true', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue({
+        token: 'b'.repeat(32),
+        expiresAt: new Date(Date.now() - 1000),
+        acceptedAt: null,
+        study: studyWithOwner,
+      });
+      const r = await svc.preview('b'.repeat(32));
+      expect(r.expired).toBe(true);
+      expect(r.used).toBe(false);
+    });
+
+    it('used token → used=true', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue({
+        token: 'c'.repeat(32),
+        expiresAt: new Date(Date.now() + 60_000),
+        acceptedAt: new Date(),
+        study: studyWithOwner,
+      });
+      const r = await svc.preview('c'.repeat(32));
+      expect(r.used).toBe(true);
+      expect(r.expired).toBe(false);
+    });
+
+    it('несуществующий токен → 404', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue(null);
+      await expect(svc.preview('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('связанная студия удалена → 404', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue({
+        token: 'd'.repeat(32),
+        expiresAt: new Date(Date.now() + 60_000),
+        acceptedAt: null,
+        study: null,
+      });
+      await expect(svc.preview('d'.repeat(32))).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('owner без username (legacy) → ownerUsername пустая строка', async () => {
+      prisma.studyInvite.findUnique.mockResolvedValue({
+        token: 'e'.repeat(32),
+        expiresAt: new Date(Date.now() + 60_000),
+        acceptedAt: null,
+        study: { ...studyWithOwner, owner: { username: null } },
+      });
+      const r = await svc.preview('e'.repeat(32));
+      expect(r.study.ownerUsername).toBe('');
+    });
+  });
 });
