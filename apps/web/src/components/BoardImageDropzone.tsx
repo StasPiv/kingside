@@ -642,6 +642,26 @@ export function BoardImageDropzone({
               ? t('boardImage.replaceFile', 'Replace image')
               : t('boardImage.pickFile', 'Choose file…')}
           </label>
+          {/* KS-3095 follow-up: «Crop image» — рядом с «Replace image»,
+              в drop-зоне под загруженной картинкой. По умолчанию
+              recognize прогоняется на исходнике; кнопка позволяет
+              уточнить область вручную, если модель распознала плохо.
+              Прячем при cropMode (overlay уже активен) и при busy. */}
+          {imageUrl && !cropMode && !busy && (
+            <button
+              type="button"
+              className="board-image-dropzone__file-label"
+              onClick={() => {
+                setCropPos({ x: 0, y: 0 });
+                setCropZoom(1);
+                cropAreaPxRef.current = null;
+                setCropMode(true);
+              }}
+              data-testid="board-image-dropzone-crop-toggle"
+            >
+              {t('boardImage.cropToggle', 'Crop image')}
+            </button>
+          )}
           <input
             id={fileInputId}
             ref={fileInputRef}
@@ -709,27 +729,6 @@ export function BoardImageDropzone({
                 {manualMode
                   ? t('boardImage.exitManual', 'Auto FEN')
                   : t('boardImage.editManually', 'Edit FEN manually')}
-              </button>
-            )}
-            {/* KS-3095 follow-up: «Crop image» доступна в любой момент
-                после загрузки картинки, не только при 400. По умолчанию
-                поток без crop'а (рекогнизер прогоняет исходник целиком),
-                эта кнопка нужна когда юзер видит плохой результат и
-                хочет уточнить, что именно отдать модели. Прячем при
-                cropMode (он уже активен) и при busy (идёт распознавание). */}
-            {imageUrl && !cropMode && !busy && (
-              <button
-                type="button"
-                className="board-image-dropzone__btn"
-                onClick={() => {
-                  setCropPos({ x: 0, y: 0 });
-                  setCropZoom(1);
-                  cropAreaPxRef.current = null;
-                  setCropMode(true);
-                }}
-                data-testid="board-image-dropzone-crop-toggle"
-              >
-                {t('boardImage.cropToggle', 'Crop image')}
               </button>
             )}
           </div>
