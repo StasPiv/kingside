@@ -53,7 +53,71 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from board_detect import detect_board
+from board_detect import detect_board as _heuristic_detect_board
+
+
+def _nn_detect_board(image_path: str) -> Dict[str, Any]:
+    """KS-3091 v3: corner-detector нейросетью.
+
+    Возвращает структуру совместимую с `board_detect.detect_board`:
+      success, method, confidence, corners, warped, image_size.
+
+    Активируется через env `BOARD_DETECT_NN_MODEL` — путь к ONNX.
+    """
+    import os as _os
+    model_path = _os.environ.get("BOARD_DETECT_NN_MODEL")
+    if not model_path or not _os.path.isfile(model_path):
+        return None  # сигнал «нет NN-детектора, используй эвристику»
+
+    import cv2
+    import onnxruntime as ort
+    from PIL import Image as _Image
+
+    img = _Image.open(image_path).convert("RGB")
+    orig_w, orig_h = img.size
+    img_resized = img.resize((256, 256), _Image.LANCZOS)
+    arr = np.asarray(img_resized, dtype=np.float32) / 255.0
+    luma = 0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2]
+    arr_gray = np.stack([luma, luma, luma], axis=-1)
+    arr_norm = (arr_gray - IMAGENET_MEAN) / IMAGENET_STD
+    chw = np.transpose(arr_norm, (2, 0, 1))[None].astype(np.float32)
+
+    sess = ort.InferenceSession(model_path)
+    corners_norm = sess.run(None, {"input": chw})[0][0]  # (8,) in [0,1]
+    corners = np.array([
+        [corners_norm[2*i] * orig_w, corners_norm[2*i+1] * orig_h]
+        for i in range(4)
+    ], dtype=np.float32)
+
+    # warpPerspective → 512×512 BGR.
+    bgr = cv2.imread(image_path)
+    if bgr is None:
+        return {
+            "success": False, "stage": "detect",
+            "error": "cv2.imread failed",
+            "method": "nn", "confidence": 0.0,
+            "corners": corners.tolist(), "image_size": [orig_w, orig_h],
+        }
+    dst = np.array([[0, 0], [512, 0], [512, 512], [0, 512]], dtype=np.float32)
+    M = cv2.getPerspectiveTransform(corners, dst)
+    warped = cv2.warpPerspective(bgr, M, (512, 512))
+    return {
+        "success": True,
+        "method": "nn",
+        "confidence": 1.0,            # модель уверена; качество отдельно
+        "corners": corners.tolist(),
+        "warped": warped,
+        "image_size": [orig_w, orig_h],
+    }
+
+
+def detect_board(image_path: str, unet_model_path=None) -> Dict[str, Any]:
+    """Унифицированный детектор: пробует NN-corner-detector если ONNX
+    доступен через env, иначе старая эвристика."""
+    nn_result = _nn_detect_board(image_path)
+    if nn_result is not None:
+        return nn_result
+    return _heuristic_detect_board(image_path, unet_model_path=unet_model_path)
 
 
 # ─── Constants ───────────────────────────────────────────────────────
@@ -282,16 +346,23 @@ def _split_into_cells(warped_bgr: np.ndarray) -> np.ndarray:
 
 
 def _preprocess_cells(cells_bgr: np.ndarray) -> np.ndarray:
-    """BGR uint8 (N,H,W,3) → RGB float32 (N,3,H,W) normalized with ImageNet stats.
+    """BGR uint8 (N,H,W,3) → grayscale-as-RGB float32 (N,3,H,W) normalized.
 
-    Matches training/dataset.py.build_eval_transform: no augmentation, just
-    LongestMaxSize+Pad (no-op when input is already 64×64), Normalize, ToTensor.
+    KS-3091 v3 follow-up: модель v0.9.3+ ожидает grayscale вход (ToGray в
+    train_transform/eval_transform). Конвертим BGR → grayscale (luma
+    BT.601: 0.299·R + 0.587·G + 0.114·B), затем повторяем по 3 каналам
+    для совместимости с MobileNetV3 (3-channel input).
     """
     # BGR → RGB.
     rgb = cells_bgr[..., ::-1].astype(np.float32) / 255.0
-    rgb = (rgb - IMAGENET_MEAN) / IMAGENET_STD
+    # RGB → grayscale (luma), shape (N, H, W).
+    luma = (0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2])
+    # Repeat across 3 channels: (N, H, W) → (N, H, W, 3).
+    gray3 = np.stack([luma, luma, luma], axis=-1)
+    # Normalize with ImageNet stats (как в build_eval_transform).
+    gray3 = (gray3 - IMAGENET_MEAN) / IMAGENET_STD
     # HWC → CHW per batch element.
-    chw = np.transpose(rgb, (0, 3, 1, 2)).astype(np.float32, copy=False)
+    chw = np.transpose(gray3, (0, 3, 1, 2)).astype(np.float32, copy=False)
     return chw
 
 

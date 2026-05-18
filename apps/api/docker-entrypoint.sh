@@ -58,7 +58,43 @@ download_board_recog_model() {
   fi
 }
 
+# KS-3091 v3 (corner-detector): рядом с classifier модели может лежать
+# второй ONNX-файл `corner_detector.onnx`. Если задана версия и файл есть
+# в S3 — качаем его в /var/cache/board-recog/corner_detector.onnx и
+# выставляем `BOARD_DETECT_NN_MODEL` для дочерних процессов (python
+# board_recognize.py подхватит).
+download_corner_detector() {
+  local version="${BOARD_RECOG_MODEL_VERSION:-}"
+  if [ -z "$version" ]; then
+    return 0
+  fi
+  local dir="${BOARD_RECOG_MODEL_DIR:-/var/cache/board-recog}"
+  local target="$dir/corner_detector.onnx"
+  local bucket="${BOARD_RECOG_MODEL_BUCKET:-kingside-ml}"
+  local region="${BOARD_RECOG_MODEL_REGION:-eu-central-1}"
+  local key="models/board-recog/v${version}/corner_detector.onnx"
+  local s3_uri="s3://${bucket}/${key}"
+
+  if [ -s "$target" ]; then
+    echo "[entrypoint] corner_detector already cached at $target — skip download."
+    export BOARD_DETECT_NN_MODEL="$target"
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  echo "[entrypoint] checking for corner_detector: $s3_uri"
+  if aws s3 cp "$s3_uri" "$target" --region "$region" 2>/dev/null; then
+    echo "[entrypoint] corner_detector ready: $target ($(stat -c %s "$target") bytes)"
+    export BOARD_DETECT_NN_MODEL="$target"
+  else
+    # Не критично: версия может быть без corner_detector (старые модели).
+    # board_recognize.py упадёт обратно на opencv-эвристику.
+    echo "[entrypoint] no corner_detector for v${version} — falling back to opencv heuristic."
+    rm -f "$target"
+  fi
+}
+
 download_board_recog_model
+download_corner_detector
 
 echo "[entrypoint] Starting API..."
 exec node dist/main.js
