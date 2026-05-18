@@ -229,18 +229,83 @@ def _load_piece(style: str, piece: str) -> Image.Image:
     )
 
 
+COORD_GLYPHS: List[str] = list("12345678abcdefgh")
+COORD_OVERLAY_PROB: float = 0.10  # KS-3091 fix: реальные board-detect крой
+# часто оставляет внутри клеток координатные подписи "1..8" / "a..h".
+# v1-модель путала их с фигурами (см. отчёт по user screenshot 18.05.2026 —
+# 3 ошибки на a-колонке из-за цифр). Учим модель: с вероятностью 10%
+# рисуем случайную цифру/букву в углу клетки. Метка не меняется (если
+# клетка была empty — остаётся empty).
+
+
+def _font_for_coord() -> "ImageFont.ImageFont":
+    """Один маленький bitmap-фонт DejaVu или fallback на default."""
+    try:
+        from PIL import ImageFont
+        return ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            size=14,
+        )
+    except OSError:
+        from PIL import ImageFont
+        return ImageFont.load_default()
+
+
+_COORD_FONT = None
+
+
+def _maybe_overlay_coord(
+    cell: Image.Image,
+    bg_kind: str,
+    rng: random.Random,
+) -> None:
+    """С вероятностью COORD_OVERLAY_PROB накладывает случайную цифру/букву
+    в один из 4 углов клетки. Цвет — контрастный к фону (светлая клетка
+    получает тёмный глиф, тёмная — светлый), с лёгким альфа-варьированием,
+    чтобы было реалистично.
+
+    Использует in-place mutation (cell.paste / draw)."""
+    if rng.random() >= COORD_OVERLAY_PROB:
+        return
+    global _COORD_FONT
+    if _COORD_FONT is None:
+        _COORD_FONT = _font_for_coord()
+    from PIL import ImageDraw
+    draw = ImageDraw.Draw(cell)
+    glyph = rng.choice(COORD_GLYPHS)
+    # Размер шрифта случайный (имитация разных стилей координат).
+    # Используем простой draw.text — для разных размеров либо разные фонты,
+    # либо просто скейл изображения. Один маленький фонт достаточно.
+    # 4 угла + лёгкий jitter
+    corner = rng.choice([
+        (3, 1),                                   # top-left
+        (CELL_SIZE - 12, 1),                      # top-right
+        (3, CELL_SIZE - 16),                      # bottom-left
+        (CELL_SIZE - 12, CELL_SIZE - 16),         # bottom-right
+    ])
+    # Цвет — контраст к фону.
+    if bg_kind == "light":
+        base = (rng.randint(20, 90),) * 3
+    else:
+        base = (rng.randint(170, 240),) * 3
+    draw.text(corner, glyph, fill=base, font=_COORD_FONT)
+
+
 def render_cell(
     label: str,
     style: str,
     bg_kind: str,
     rng: random.Random,
 ) -> Image.Image:
-    """Один шаг рендера: цветной фон + (опционально) фигура поверх."""
+    """Один шаг рендера: цветной фон + (опционально) фигура поверх +
+    с малой вероятностью наложить координатный глиф (KS-3091 follow-up).
+    """
     bg_rgb = hsv_to_rgb(*sample_hsv(rng, bg_kind))
     cell = Image.new("RGB", (CELL_SIZE, CELL_SIZE), bg_rgb)
     if label != "empty":
         piece_img = _load_piece(style, label)
         cell.paste(piece_img, (0, 0), piece_img)
+    _maybe_overlay_coord(cell, bg_kind, rng)
     return cell
 
 
