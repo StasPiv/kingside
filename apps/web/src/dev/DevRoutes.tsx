@@ -13,6 +13,7 @@ import { DevPostGameReviewPage } from '../pages/DevPostGameReviewPage';
 import { DevPrecisionScoreBlockPage } from '../pages/DevPrecisionScoreBlockPage';
 import { DevBoardImageDropzonePage } from '../pages/DevBoardImageDropzonePage';
 import { DevBoardImageDropzoneUnreliablePage } from '../pages/DevBoardImageDropzoneUnreliablePage';
+import { DevBoardImageDropzoneNotFoundPage } from '../pages/DevBoardImageDropzoneNotFoundPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -54,6 +55,11 @@ export default function DevRoutes() {
       <Route
         path="board-image-dropzone-unreliable"
         element={<DevBoardImageDropzoneUnreliablePage />}
+      />
+      {/* KS-3094: demo 400 board_not_detected → crop → 422 → editor. */}
+      <Route
+        path="board-image-dropzone-notfound"
+        element={<DevBoardImageDropzoneNotFoundPage />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
