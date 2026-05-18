@@ -55,6 +55,10 @@ const STUDY = {
   createdAt: '2026-05-12T10:00:00.000Z',
   updatedAt: '2026-05-12T10:00:00.000Z',
   viewerRole: 'owner' as const,
+  // KS-2994 / KS-2995: POV-флаг лайка из StudyDto. Дефолт false —
+  // owner не лайкнул свою же студию; отдельный тест ниже проверяет
+  // likedByMe=true.
+  likedByMe: false,
 };
 
 beforeEach(() => {
@@ -177,6 +181,33 @@ describe('StudyPage (KS-2826)', () => {
     // KS-2892: явная проверка по testid members-кнопки — регрессия по
     // visibility сразу падает сюда.
     expect(screen.queryByTestId('study-action-members')).toBeNull();
+  });
+
+  it('study.likedByMe=true → LikeButton рендерится filled с первого тика', async () => {
+    // KS-2995 / ADR-060 §3.4 K4: backend в StudyDto несёт `likedByMe`.
+    // StudyPage пробрасывает его в `<LikeButton liked={…}>`, чтобы
+    // сердечко не «мигало» из outline в filled на /studies/:slug.
+    getBySlugMock.mockResolvedValueOnce({
+      study: { ...STUDY, likedByMe: true },
+      chapters: [],
+    });
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
+    await waitFor(() =>
+      expect(screen.getByTestId('study-like-button')).toBeInTheDocument(),
+    );
+    const btn = screen.getByTestId('study-like-button');
+    expect(btn.getAttribute('data-liked')).toBe('true');
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('study.likedByMe=false → LikeButton рендерится outline', async () => {
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
+    await waitFor(() =>
+      expect(screen.getByTestId('study-like-button')).toBeInTheDocument(),
+    );
+    const btn = screen.getByTestId('study-like-button');
+    expect(btn.getAttribute('data-liked')).toBe('false');
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('click share → studiesApi.share(slug, !isPublic), обновляет badge', async () => {

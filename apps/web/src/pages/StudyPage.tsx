@@ -196,18 +196,21 @@ export function StudyPage() {
                   : t('studies.role.viewer', 'Read-only')}
             </span>
           )}
-          {/* KS-2888 (FC3): кнопка лайка рядом с бейджем. Initial
-              `liked` пока приходит как false — backend в B5/FC1
-              расширит StudyDto полем `likedByMe`, и можно будет
-              отдать сюда настоящее значение. */}
+          {/* KS-2888 (FC3) / KS-2995 (FC follow-up): кнопка лайка.
+              `study.likedByMe` приходит из StudyDto (backend KS-2994),
+              сердечко отрисовывается с актуальным состоянием уже на
+              первом рендере. После toggle `onChange` синхронизирует
+              `likes` и `likedByMe` в локальный state. */}
           <LikeButton
             slug={study.slug}
             studyId={study.id}
             likes={study.likes}
-            liked={false}
+            liked={study.likedByMe}
             onChange={(s) =>
               setStudy((prev) =>
-                prev ? { ...prev, likes: s.likes } : prev,
+                prev
+                  ? { ...prev, likes: s.likes, likedByMe: s.liked }
+                  : prev,
               )
             }
           />

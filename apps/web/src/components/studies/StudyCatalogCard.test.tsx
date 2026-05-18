@@ -36,6 +36,11 @@ function makeStudy(over: Partial<StudyDto> = {}): StudyDto {
     chaptersCount: 4,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-02T00:00:00.000Z',
+    // KS-2994 / KS-2995: backend отдаёт POV-флаги в StudyDto. Дефолт
+    // anon: не лайкнул, viewerRole='anon' (mock useAuth в этом тесте
+    // имитирует guest'а).
+    likedByMe: false,
+    viewerRole: 'anon',
     ...over,
   };
 }
@@ -123,6 +128,26 @@ describe('StudyCatalogCard (KS-2887 FC2)', () => {
     const study = makeStudy({ topics: [] });
     renderWithProviders(<StudyCatalogCard study={study} />);
     expect(screen.queryByTestId('study-catalog-card-topics')).toBeNull();
+  });
+
+  it('study.likedByMe=true → LikeButton сразу отрисован как liked (filled)', () => {
+    // KS-2995 / ADR-060 §3.4 K4: backend в StudyDto несёт POV-флаг.
+    // Карточка должна транслировать его в `<LikeButton liked={…}>` без
+    // дефолта false. Acceptance: heart filled с первого рендера для
+    // юзера, который уже лайкнул эту студию.
+    const study = makeStudy({ likedByMe: true });
+    renderWithProviders(<StudyCatalogCard study={study} />);
+    const btn = screen.getByTestId('study-like-button');
+    expect(btn.getAttribute('data-liked')).toBe('true');
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('study.likedByMe=false → LikeButton outline', () => {
+    const study = makeStudy({ likedByMe: false });
+    renderWithProviders(<StudyCatalogCard study={study} />);
+    const btn = screen.getByTestId('study-like-button');
+    expect(btn.getAttribute('data-liked')).toBe('false');
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('без ownerUsername — fallback на префикс ownerId', () => {

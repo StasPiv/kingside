@@ -57,6 +57,10 @@ const SAMPLE = [
     chaptersCount: 4,
     createdAt: '2026-05-01T00:00:00.000Z',
     updatedAt: '2026-05-02T00:00:00.000Z',
+    // KS-2994 / KS-2995: backend кладёт POV-флаг в каждую запись
+    // каталога; фронт читает study.likedByMe в LikeButton.
+    likedByMe: false,
+    viewerRole: 'viewer',
   },
   {
     id: 's2',
@@ -73,6 +77,8 @@ const SAMPLE = [
     chaptersCount: 9,
     createdAt: '2026-05-03T00:00:00.000Z',
     updatedAt: '2026-05-04T00:00:00.000Z',
+    likedByMe: true,
+    viewerRole: 'viewer',
   },
 ];
 

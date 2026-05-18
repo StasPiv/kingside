@@ -54,6 +54,9 @@ describe('<CreateStudyDialog> (KS-2852)', () => {
       chaptersCount: 0,
       createdAt: '',
       updatedAt: '',
+      // KS-2994 / KS-2995: POV-флаги в StudyDto.
+      likedByMe: false,
+      viewerRole: 'owner',
     };
     createMock.mockResolvedValue(created);
     const onClose = vi.fn();

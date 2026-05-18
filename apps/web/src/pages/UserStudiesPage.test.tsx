@@ -97,6 +97,9 @@ const PUBLIC_STUDY = {
   chaptersCount: 3,
   createdAt: '2026-05-01T00:00:00.000Z',
   updatedAt: '2026-05-02T00:00:00.000Z',
+  // KS-2994 / KS-2995: POV-флаги из StudyDto.
+  likedByMe: false,
+  viewerRole: 'viewer',
 };
 const PRIVATE_STUDY = {
   ...PUBLIC_STUDY,

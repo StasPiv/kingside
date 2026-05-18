@@ -83,13 +83,6 @@ export interface StudyCatalogCardProps {
    */
   previewFen?: string;
   /**
-   * KS-2888 (FC3): лайкнул ли текущий пользователь эту студию. StudyDto
-   * сейчас не несёт этот флаг (отдельный API в B5); родитель пробрасывает
-   * `false` пока нет данных. После клика LikeButton сам синхронизирует
-   * состояние от сервера.
-   */
-  liked?: boolean;
-  /**
    * KS-2888: уведомление родителя о смене лайка (для обновления списка
    * после успешного toggle).
    */
@@ -100,7 +93,6 @@ export function StudyCatalogCard({
   study,
   ownerUsername,
   previewFen,
-  liked = false,
   onLikeChange,
 }: StudyCatalogCardProps) {
   const board = parseFenBoard(previewFen ?? START_FEN);
@@ -206,7 +198,7 @@ export function StudyCatalogCard({
               slug={study.slug}
               studyId={study.id}
               likes={study.likes}
-              liked={liked}
+              liked={study.likedByMe}
               onChange={onLikeChange}
             />
           </span>
