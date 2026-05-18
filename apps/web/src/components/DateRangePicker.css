@@ -114,9 +114,21 @@
   text-transform: capitalize;
 }
 
+/* KS-3081 follow-up #2: minmax(0, 1fr) вместо 1fr.
+   Без minmax(0,...) в grid-template-columns каждая колонка имеет
+   неявный минимум `auto` = min-content грид-айтема. Для weekdays-spans
+   это безопасно, но для `.date-range-picker__day` (button, inline-flex
+   с числом «30»/«31» в font-size 13px) min-content + gap 2px суммарно
+   превышали ширину popup (304 - 24 = 280px), и тело календаря
+   расползалось вправо за границы popup. Visual: правые две колонки
+   (СБ, ВС) висели снаружи popup поверх контента страницы, при том что
+   header-ряд ПН-ВС вмещался корректно — оттуда и видимый «прозрачный
+   padding справа» в попапе и рассинхрон заголовков с числами.
+   minmax(0, 1fr) форсирует минимум 0 → колонки шринкаются до 1fr и
+   обе сетки получают одинаковую ширину колонок. */
 .date-range-picker__weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0;
   margin-bottom: 4px;
 }
@@ -130,7 +142,7 @@
 
 .date-range-picker__grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
 }
 
