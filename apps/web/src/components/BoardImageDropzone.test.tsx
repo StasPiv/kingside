@@ -10,9 +10,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { cleanup } from '@testing-library/react';
+import { useEffect } from 'react';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+
+// KS-3094: мок `react-easy-crop`, чтобы lazy-Suspense быстро отдал
+// заглушку, которая моментально дёргает `onCropComplete` с фейковой
+// областью (как будто пользователь уже подвигал рамку). Без этого
+// `cropAreaPxRef` остался бы null и retry был бы no-op.
+vi.mock('react-easy-crop', () => ({
+  default: function FakeCropper({
+    onCropComplete,
+  }: {
+    onCropComplete?: (
+      pct: { x: number; y: number; width: number; height: number },
+      px: { x: number; y: number; width: number; height: number },
+    ) => void;
+  }) {
+    useEffect(() => {
+      onCropComplete?.(
+        { x: 10, y: 10, width: 80, height: 80 },
+        { x: 100, y: 100, width: 400, height: 400 },
+      );
+    }, [onCropComplete]);
+    return <div data-testid="fake-cropper" />;
+  },
+}));
+
 import { BoardImageDropzone, checkBoardSanity } from './BoardImageDropzone';
 import {
+  BoardNotDetectedError,
   BoardRecognitionUnreliableError,
   type BoardRecognitionResponse,
   type BoardRecognitionUnreliablePayload,
@@ -244,6 +270,113 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     // 9) Apply → onAccept с поправленным FEN.
     await userEvent.click(apply);
     expect(onAccept).toHaveBeenCalledWith(fixed);
+  });
+
+  // KS-3094: scenario из задачи — 400 board_not_detected → crop UI →
+  // retry с обрезанным blob → 200 → доска отрисована.
+  it('KS-3094: 400 board_not_detected → crop UI → retry вызывает recognizer с обрезанным blob', async () => {
+    const recognizer = vi
+      .fn()
+      // 1-я попытка: backend не нашёл доску.
+      .mockRejectedValueOnce(
+        new BoardNotDetectedError({ error: 'board_not_detected' }),
+      )
+      // 2-я попытка: уже распознали.
+      .mockResolvedValueOnce(RECOGNIZED);
+    const cropImage = vi
+      .fn<(src: string, area: unknown) => Promise<Blob>>()
+      .mockResolvedValue(new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }));
+    renderWithProviders(
+      <BoardImageDropzone
+        onAccept={vi.fn()}
+        recognizer={recognizer}
+        cropImage={cropImage}
+      />,
+    );
+
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+
+    // crop UI появился (fake-cropper из mock-react-easy-crop).
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).not.toBeNull(),
+    );
+    expect(
+      screen.getByTestId('board-image-dropzone-crop-hint').textContent,
+    ).toMatch(/board not found|fit just the board/i);
+    expect(
+      screen.queryByTestId('board-image-dropzone-crop-retry'),
+    ).not.toBeNull();
+    expect(
+      screen.queryByTestId('board-image-dropzone-crop-reset'),
+    ).not.toBeNull();
+    // Apply отключён — позиция ещё не распознана.
+    expect(screen.queryByTestId('board-image-dropzone-apply')).toBeNull();
+
+    // fake-cropper сразу дёрнул onCropComplete (см. mock наверху), но
+    // useEffect срабатывает после mount — ждём, пока он отработает.
+    await waitFor(() =>
+      expect(screen.queryByTestId('fake-cropper')).not.toBeNull(),
+    );
+    // Микро-пауза, чтобы effect внутри FakeCropper успел дёрнуть
+    // onCropComplete до клика.
+    await Promise.resolve();
+    await userEvent.click(screen.getByTestId('board-image-dropzone-crop-retry'));
+
+    // cropImage вызван с областью из cropper'а.
+    await waitFor(() => expect(cropImage).toHaveBeenCalledTimes(1));
+    expect(cropImage.mock.calls[0][1]).toMatchObject({
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 400,
+    });
+    // recognizer вызван второй раз — с обрезанным blob.
+    await waitFor(() => expect(recognizer).toHaveBeenCalledTimes(2));
+    expect(recognizer.mock.calls[1][0]).toBeInstanceOf(Blob);
+    // crop UI ушёл, доска появилась с распознанным FEN.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('board-image-dropzone-crop-frame'),
+      ).toBeNull(),
+    );
+    expect(screen.getByTestId('board-image-dropzone-fen').textContent).toContain(
+      '8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1 w',
+    );
+  });
+
+  it('KS-3094: повторный 400 → опять crop UI (но уже над обрезанной картинкой)', async () => {
+    const recognizer = vi
+      .fn()
+      .mockRejectedValue(
+        new BoardNotDetectedError({ error: 'board_not_detected' }),
+      );
+    const cropImage = vi
+      .fn<(src: string, area: unknown) => Promise<Blob>>()
+      .mockResolvedValue(new Blob([new Uint8Array([4, 5])], { type: 'image/png' }));
+    renderWithProviders(
+      <BoardImageDropzone
+        onAccept={vi.fn()}
+        recognizer={recognizer}
+        cropImage={cropImage}
+      />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).not.toBeNull(),
+    );
+    await userEvent.click(screen.getByTestId('board-image-dropzone-crop-retry'));
+    await waitFor(() => expect(recognizer).toHaveBeenCalledTimes(2));
+    // crop UI снова показан после второго 400 — ровно как требует
+    // acceptance.
+    await waitFor(() =>
+      expect(screen.queryByTestId('board-image-dropzone-crop-frame')).not.toBeNull(),
+    );
   });
 
   // KS-3093 hand-off в родительский board-editor.

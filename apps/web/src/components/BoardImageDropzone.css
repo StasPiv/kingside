@@ -193,6 +193,41 @@
   font-size: 0.8em;
 }
 
+/* KS-3094: crop-оверлей (react-easy-crop) поверх загруженной картинки.
+   Cropper позиционируется через `position:absolute` и требует
+   заранее определённый размер контейнера. Делаем квадратный фрейм с
+   maxWidth, чтобы доска была удобна для одновременного перетаскивания
+   и pinch-zoom на mobile-портрете. */
+.board-image-dropzone__crop-frame {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  background: #111;
+  border-radius: 6px;
+  overflow: hidden;
+  /* Тач-скроллинг не должен мешать pinch'у — он управляется самим
+     react-easy-crop'ом. */
+  touch-action: none;
+  /* Cropper рендерит свой root с `position: absolute; inset: 0`. */
+}
+
+.board-image-dropzone__crop-frame > div {
+  position: absolute !important;
+  inset: 0;
+}
+
+/* KS-3094: подсказка над контролами — почему вместо доски crop UI. */
+.board-image-dropzone__crop-hint {
+  border-left: 3px solid #6c8cd0;
+  background: rgba(108, 140, 208, 0.12);
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #cfe0ff;
+  font-size: 0.85em;
+  line-height: 1.35;
+}
+
 /* KS-3093: warning-плашка sanity-проблем — не блокер, а подсказка
    «исправь подсвеченные клетки». Мягкий жёлтый фон, рамка слева. */
 .board-image-dropzone__sanity-warning {

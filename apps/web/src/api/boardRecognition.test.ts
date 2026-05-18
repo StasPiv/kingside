@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   recognizeBoard,
+  BoardNotDetectedError,
   BoardRecognitionUnreliableError,
 } from './boardRecognition';
 
@@ -125,6 +126,32 @@ describe('recognizeBoard (KS-2365)', () => {
     await expect(
       recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
     ).rejects.toBeInstanceOf(BoardRecognitionUnreliableError);
+  });
+
+  it('KS-3094: на 400 бросает BoardNotDetectedError c payload', async () => {
+    const payload = {
+      error: 'board_not_detected',
+      message: 'no board square found in image',
+    };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(payload), { status: 400 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
+    try {
+      await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
+    } catch (e) {
+      const err = e as BoardNotDetectedError;
+      expect(err.payload.error).toBe('board_not_detected');
+      expect(err.payload.message).toBe('no board square found in image');
+    }
+  });
+
+  it('KS-3094: на 400 с битым JSON всё равно бросает board_not_detected', async () => {
+    const fetchImpl = async () => new Response('not-a-json', { status: 400 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
   });
 
   it('кидает на 5xx (это не «backend pending», а реальная серверная ошибка)', async () => {

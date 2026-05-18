@@ -89,6 +89,34 @@ export class BoardRecognitionUnreliableError extends Error {
   }
 }
 
+/**
+ * KS-3094 / ADR-040-v2 §5.1. Тело 400 `board_not_detected`: stage 1
+ * `board_detect` не нашёл квадрат доски на картинке (мобильный
+ * скриншот с обвязкой, фото под углом, большой бэкграунд). UI должен
+ * показать crop-инструмент, дать пользователю руками выделить доску
+ * и переотправить кроп на тот же endpoint.
+ */
+export interface BoardNotDetectedPayload {
+  error: 'board_not_detected' | string;
+  message?: string;
+}
+
+/**
+ * KS-3094. Доменная ошибка 400 — отличается от unreliable тем, что
+ * stage 1 (детект квадрата доски) вообще ничего не вернул. fenAttempt
+ * тут принципиально невозможен. Дропзона на эту ошибку открывает
+ * crop-оверлей над исходной картинкой и повторно вызывает recognizer
+ * с обрезанным blob.
+ */
+export class BoardNotDetectedError extends Error {
+  readonly payload: BoardNotDetectedPayload;
+  constructor(payload: BoardNotDetectedPayload) {
+    super(payload.message ?? payload.error ?? 'board_not_detected');
+    this.name = 'BoardNotDetectedError';
+    this.payload = payload;
+  }
+}
+
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const STARTING_FEN_BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
@@ -168,6 +196,18 @@ export async function recognizeBoard(
     if (res.status === 404 || res.status === 501) {
       return buildMockResponse(`backend ${res.status} (KS-2363 pending)`);
     }
+    // KS-3094 / ADR-040-v2 §5.1. 400 `board_not_detected` — stage 1
+    // не нашёл квадрат доски на загруженной картинке. Пробрасываем
+    // доменной ошибкой, дропзона откроет crop-оверлей.
+    if (res.status === 400) {
+      let payload: BoardNotDetectedPayload;
+      try {
+        payload = (await res.json()) as BoardNotDetectedPayload;
+      } catch {
+        payload = { error: 'board_not_detected' };
+      }
+      throw new BoardNotDetectedError(payload);
+    }
     // KS-3093 / ADR-040-v2 §5.1. 422 — backend распознал картинку, но
     // sanity отверг результат. Тело несёт `fenAttempt` (что модель
     // увидела) + `issues` (почему отвергло) + `lowConfidenceCells`. UI
@@ -194,6 +234,9 @@ export async function recognizeBoard(
     // KS-3093: 422 — это нормальная доменная ошибка, не сетевая.
     // Не подменяем её моком, дропзона ловит и переходит в edit-mode.
     if (err instanceof BoardRecognitionUnreliableError) throw err;
+    // KS-3094: 400 board_not_detected — то же самое, доменная ошибка,
+    // дропзона ловит и показывает crop-оверлей.
+    if (err instanceof BoardNotDetectedError) throw err;
     return buildMockResponse(
       `network: ${err instanceof Error ? err.message : String(err)}`,
     );

@@ -1,14 +1,31 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import {
   recognizeBoard,
+  BoardNotDetectedError,
   BoardRecognitionUnreliableError,
   type BoardRecognitionCell,
   type BoardRecognitionResponse,
 } from '../api/boardRecognition';
+import { cropImageToBlob, type CropArea } from './boardImageCrop';
 import './BoardImageDropzone.css';
+
+/**
+ * KS-3094: lazy-импорт `react-easy-crop` — компонент весит ~12кб gz,
+ * нужен только в момент когда backend вернул 400 `board_not_detected`.
+ * При обычной успешной/422-загрузке в bundle он не попадает.
+ */
+const LazyCropper = lazy(() => import('react-easy-crop'));
 
 /**
  * KS-2365 / ADR-040 §7. Drag&drop / paste / file-input для скриншота
@@ -38,6 +55,12 @@ export interface BoardImageDropzoneProps {
   onAccept: (fen: string) => void;
   onCancel?: () => void;
   recognizer?: (file: File | Blob) => Promise<BoardRecognitionResponse>;
+  /**
+   * KS-3094: DI для канвас-обрезки. По умолчанию — `cropImageToBlob`
+   * из `./boardImageCrop`. Подмена нужна в юнит-тестах (happy-dom не
+   * грузит реальные изображения по blob: URL'у).
+   */
+  cropImage?: (src: string, area: CropArea) => Promise<Blob>;
   /**
    * KS-3093: callback, который дёргается СРАЗУ после распознавания
    * (как успешного 200, так и 422 `recognition_unreliable` с
@@ -199,6 +222,7 @@ export function BoardImageDropzone({
   onAccept,
   onCancel,
   recognizer = recognizeBoard,
+  cropImage = cropImageToBlob,
   onRecognized,
 }: BoardImageDropzoneProps) {
   const { t } = useTranslation();
@@ -229,6 +253,19 @@ export function BoardImageDropzone({
   //   - оставить Edit FEN / Flip активными, а Apply — заблокированной
   //     пока client-sanity не станет ok.
   const [, setSanityIssues] = useState<string[]>([]);
+  // KS-3094: режим «обрезка» после 400 board_not_detected. Когда
+  // активен — поверх исходной картинки рендерится react-easy-crop с
+  // aspect 1:1, кнопка «Обрезать и распознать заново» вызывает
+  // recognizer с обрезанным blob. Если снова 400 — остаёмся в crop-
+  // режиме, юзер пробует другой кроп.
+  const [cropMode, setCropMode] = useState(false);
+  const [cropPos, setCropPos] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const [cropZoom, setCropZoom] = useState(1);
+  const cropAreaPxRef = useRef<CropArea | null>(null);
+  const lastImageUrlRef = useRef<string | null>(null);
   // KS-2365: сохраняем «хвост» FEN'а от recognizer'а (castling, en-passant,
   // halfmove, fullmove), чтобы не терять их при ручном переключении side-to-
   // move. Изначально нейтральный — обновится при первом успешном fetch'е.
@@ -248,8 +285,16 @@ export function BoardImageDropzone({
       setError(null);
       setWarnings([]);
       setSanityIssues([]);
+      // KS-3094: при загрузке НОВОГО файла выходим из crop-режима —
+      // он привязан к конкретной картинке. Не сбрасываем профиль/
+      // side/orientation: пользовательские настройки сохраняются.
+      setCropMode(false);
+      setCropPos({ x: 0, y: 0 });
+      setCropZoom(1);
+      cropAreaPxRef.current = null;
       setBusy(true);
       const url = URL.createObjectURL(file);
+      lastImageUrlRef.current = url;
       setImageUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return url;
@@ -275,6 +320,20 @@ export function BoardImageDropzone({
           onRecognized(res.fen);
         }
       } catch (err) {
+        // KS-3094: 400 `board_not_detected`. Stage 1 не нашёл квадрат
+        // доски в загруженной картинке. Показываем crop-оверлей —
+        // юзер сам выделит доску и нажмёт «Обрезать и распознать
+        // заново», мы пошлём кроп тем же recognizer'ом.
+        if (err instanceof BoardNotDetectedError) {
+          setCropMode(true);
+          setCropPos({ x: 0, y: 0 });
+          setCropZoom(1);
+          cropAreaPxRef.current = null;
+          setResult(null);
+          setSanityIssues([]);
+          setError(null);
+          return;
+        }
         // KS-3093: 422 `recognition_unreliable`. Backend распознал и
         // отдал fenAttempt; UI обязан показать его на доске и дать
         // править вручную, а не схлопнуться в общий error-стейт.
@@ -436,6 +495,68 @@ export function BoardImageDropzone({
     onAccept(manualMode ? manualFen.trim() : previewFen);
   }, [canApply, onAccept, manualMode, manualFen, previewFen]);
 
+  // KS-3094: react-easy-crop отдаёт через onCropComplete два набора —
+  // % (для state) и пиксели в исходной картинке (для канвас-кропа).
+  // Берём пиксели и кладём в ref, чтобы при клике «Обрезать и
+  // распознать заново» взять последнюю выбранную область без
+  // re-render-petли.
+  const onCropComplete = useCallback(
+    (_percent: CropArea, pixels: CropArea) => {
+      cropAreaPxRef.current = pixels;
+    },
+    [],
+  );
+
+  // KS-3094: «Обрезать и распознать заново». Берём текущий imageUrl
+  // (blob:url последнего uploaded файла), обрезаем по выбранной
+  // области, прогоняем через handleFile(croppedBlob) — он выйдет из
+  // cropMode и пройдёт полный flow распознавания. Если backend снова
+  // вернёт 400, мы опять окажемся в cropMode, но уже с новым
+  // (обрезанным) imageUrl, как и просит acceptance.
+  const handleRecropAndRetry = useCallback(async () => {
+    const src = lastImageUrlRef.current;
+    // Если пользователь ещё не двигал рамку, react-easy-crop пришлёт
+    // onCropComplete сразу после монтирования с дефолтной областью —
+    // но дождаться этого можно не успеть, если он сразу нажал retry.
+    // Тогда `cropAreaPxRef.current` всё ещё null и retry молча
+    // ничего не делает. В этом случае логичнее переотправить
+    // исходник целиком — это тот же сценарий, что юзер уже пробовал
+    // и получил 400, поэтому делаем no-op и просто оставляем
+    // crop-overlay активным.
+    const area = cropAreaPxRef.current;
+    if (!src || !area) return;
+    try {
+      const blob = await cropImage(src, area);
+      await handleFile(blob);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : t('boardImage.cropFailed', 'Failed to crop the image.'),
+      );
+    }
+  }, [handleFile, t, cropImage]);
+
+  // KS-3094: «Загрузить другое изображение». Полный сброс — юзер
+  // выбирает другую картинку из системного file-picker'а.
+  const handleResetUpload = useCallback(() => {
+    setCropMode(false);
+    setResult(null);
+    setSanityIssues([]);
+    setError(null);
+    setWarnings([]);
+    setFenBoard(EMPTY_FEN_BOARD);
+    setManualFen(STARTING_FEN);
+    setManualMode(false);
+    if (lastImageUrlRef.current) {
+      URL.revokeObjectURL(lastImageUrlRef.current);
+      lastImageUrlRef.current = null;
+    }
+    setImageUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    fileInputRef.current?.click();
+  }, []);
+
   // KS-3093: когда родитель подключил `onRecognized` (= использует
   // полноценный board-editor), локальный Apply / Edit FEN внутри
   // дропзоны прячем. Иначе у пользователя два «куда применять»: внутри
@@ -458,7 +579,43 @@ export function BoardImageDropzone({
           onDrop={onDrop}
           data-testid="board-image-dropzone-drop"
         >
-          {imageUrl ? (
+          {imageUrl && cropMode ? (
+            // KS-3094: crop-оверлей поверх исходной картинки. Cropper
+            // загружен lazy, поэтому пока кусок чанка едет — показываем
+            // саму картинку (Suspense fallback). Реальный CSS-размер
+            // ограничивается контейнером 280×... через .board-image-
+            // dropzone__crop-frame.
+            <div
+              className="board-image-dropzone__crop-frame"
+              data-testid="board-image-dropzone-crop-frame"
+            >
+              <Suspense
+                fallback={
+                  <img
+                    src={imageUrl}
+                    alt={t('boardImage.uploadedAlt', 'Uploaded board')}
+                    className="board-image-dropzone__preview"
+                  />
+                }
+              >
+                <LazyCropper
+                  image={imageUrl}
+                  crop={cropPos}
+                  zoom={cropZoom}
+                  aspect={1}
+                  onCropChange={setCropPos}
+                  onZoomChange={setCropZoom}
+                  onCropComplete={onCropComplete}
+                  showGrid={true}
+                  // restrictPosition=false даёт юзеру вынести рамку
+                  // частично за края — на практике мобильные
+                  // скриншоты часто имеют доску у самого края, и
+                  // плотное прилегание удобнее.
+                  restrictPosition={false}
+                />
+              </Suspense>
+            </div>
+          ) : imageUrl ? (
             <img
               src={imageUrl}
               alt={t('boardImage.uploadedAlt', 'Uploaded board')}
@@ -573,6 +730,21 @@ export function BoardImageDropzone({
               />
             )}
           </div>
+          {/* KS-3094: пояснение для crop-режима — без него юзеру не
+              сразу понятно, почему вдруг доска не отрисована, а вместо
+              неё инструмент обрезки. */}
+          {cropMode && (
+            <div
+              className="board-image-dropzone__crop-hint"
+              role="status"
+              data-testid="board-image-dropzone-crop-hint"
+            >
+              {t(
+                'boardImage.cropHint',
+                'Board not found on the image. Drag and resize the square to fit just the board, then re-recognize.',
+              )}
+            </div>
+          )}
           {/* KS-3093: parse-error chess.js — только когда юзер ввёл
               мусор в manual-mode. Раньше это же сообщение показывалось
               и для 422 («pawns on the edge rows» — chess.js тоже
@@ -653,29 +825,54 @@ export function BoardImageDropzone({
             {t('common.cancel', 'Cancel')}
           </button>
         )}
-        {/* KS-3093: при использовании в `SetPositionModal` (вкладка
-            «From image») apply делает board-editor родителя — здесь
-            кнопка не нужна, иначе у пользователя два «куда жать». */}
-        {!usesParentEditor && (
-          <button
-            type="button"
-            className="board-image-dropzone__apply"
-            onClick={handleApply}
-            disabled={!canApply}
-            data-testid="board-image-dropzone-apply"
-            title={
-              !result
-                ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
-                : previewError
-                  ? previewError
-                  : liveSanityIssues.length > 0
-                    ? liveSanityIssues.join('; ')
-                    : undefined
-            }
-            aria-disabled={!canApply}
-          >
-            {t('boardImage.apply', 'Apply')}
-          </button>
+        {/* KS-3094: в crop-режиме показываем «Загрузить другое
+            изображение» (secondary) и «Обрезать и распознать заново»
+            (primary). Apply отключён — позиция ещё не распознана. */}
+        {cropMode ? (
+          <>
+            <button
+              type="button"
+              className="board-image-dropzone__cancel"
+              onClick={handleResetUpload}
+              data-testid="board-image-dropzone-crop-reset"
+            >
+              {t('boardImage.cropReset', 'Choose another image')}
+            </button>
+            <button
+              type="button"
+              className="board-image-dropzone__apply"
+              onClick={handleRecropAndRetry}
+              disabled={busy}
+              data-testid="board-image-dropzone-crop-retry"
+            >
+              {t('boardImage.cropRetry', 'Crop and re-recognize')}
+            </button>
+          </>
+        ) : (
+          /* KS-3093: при использовании в `SetPositionModal` (вкладка
+              «From image») apply делает board-editor родителя — здесь
+              кнопка не нужна, иначе у пользователя два «куда жать». */
+          !usesParentEditor && (
+            <button
+              type="button"
+              className="board-image-dropzone__apply"
+              onClick={handleApply}
+              disabled={!canApply}
+              data-testid="board-image-dropzone-apply"
+              title={
+                !result
+                  ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
+                  : previewError
+                    ? previewError
+                    : liveSanityIssues.length > 0
+                      ? liveSanityIssues.join('; ')
+                      : undefined
+              }
+              aria-disabled={!canApply}
+            >
+              {t('boardImage.apply', 'Apply')}
+            </button>
+          )
         )}
       </div>
     </div>
