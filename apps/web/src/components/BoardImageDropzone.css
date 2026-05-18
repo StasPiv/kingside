@@ -193,6 +193,28 @@
   font-size: 0.8em;
 }
 
+/* KS-3093: warning-плашка sanity-проблем — не блокер, а подсказка
+   «исправь подсвеченные клетки». Мягкий жёлтый фон, рамка слева. */
+.board-image-dropzone__sanity-warning {
+  border-left: 3px solid #e6b95a;
+  background: rgba(230, 185, 90, 0.12);
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #f4cf8a;
+  font-size: 0.85em;
+  line-height: 1.35;
+}
+
+.board-image-dropzone__sanity-warning-head {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.board-image-dropzone__sanity-warning-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .board-image-dropzone__meta {
   font-size: 0.75em;
   color: var(--text-muted, #a9aebf);

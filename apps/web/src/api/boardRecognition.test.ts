@@ -5,7 +5,10 @@
  */
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { recognizeBoard } from './boardRecognition';
+import {
+  recognizeBoard,
+  BoardRecognitionUnreliableError,
+} from './boardRecognition';
 
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -85,6 +88,43 @@ describe('recognizeBoard (KS-2365)', () => {
     await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
     expect(capturedUrl).toMatch(/\/board-recognition$/);
     expect(capturedUrl.startsWith('/api/')).toBe(false);
+  });
+
+  it('KS-3093: на 422 бросает BoardRecognitionUnreliableError c payload', async () => {
+    const payload = {
+      error: 'recognition_unreliable',
+      fenAttempt:
+        'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
+      issues: ['some pawns are on the edge rows'],
+      lowConfidenceCells: [
+        { file: 0, rank: 7, piece: 'P', confidence: 0.51 },
+      ],
+      orientation: 'white' as const,
+      modelVersion: '0.9.3',
+    };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(payload), { status: 422 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardRecognitionUnreliableError);
+    // Повторим с try/catch чтобы достать payload (rejects.toMatchObject
+    // на классовом instance не разворачивает кастомные поля).
+    try {
+      await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
+    } catch (e) {
+      const err = e as BoardRecognitionUnreliableError;
+      expect(err.payload.fenAttempt).toBe(payload.fenAttempt);
+      expect(err.payload.issues).toEqual(payload.issues);
+      expect(err.payload.lowConfidenceCells).toHaveLength(1);
+      expect(err.payload.modelVersion).toBe('0.9.3');
+    }
+  });
+
+  it('KS-3093: на 422 с битым JSON всё равно бросает unreliable-error', async () => {
+    const fetchImpl = async () => new Response('not-a-json', { status: 422 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardRecognitionUnreliableError);
   });
 
   it('кидает на 5xx (это не «backend pending», а реальная серверная ошибка)', async () => {

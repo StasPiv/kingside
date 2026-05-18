@@ -55,6 +55,40 @@ export interface BoardRecognitionResponse {
   warnings: string[];
 }
 
+/**
+ * KS-3093 / ADR-040-v2 §5.1. Тело 422 `recognition_unreliable`: backend
+ * успел распознать позицию, но client-sanity её отверг (например, пешки
+ * на 1/8 ранге). `fenAttempt` — что модель «увидела»; `issues` — почему
+ * sanity сработал; `lowConfidenceCells` — клетки, в которых модель не
+ * уверена. Фронт обязан показать fenAttempt на доске и дать
+ * исправить вручную, а не оборвать flow «Invalid FEN: точка».
+ */
+export interface BoardRecognitionUnreliablePayload {
+  error: 'recognition_unreliable' | string;
+  message?: string;
+  fenAttempt?: string;
+  issues?: string[];
+  lowConfidenceCells?: BoardRecognitionCell[];
+  orientation?: 'white' | 'black';
+  modelVersion?: string;
+}
+
+/**
+ * KS-3093. Доменная ошибка для 422-ответа: компонент-дропзона ловит её
+ * и переходит в «soft-warning»-режим вместо общего error-ветки. Хранит
+ * payload as-is, чтобы UI мог решить, есть ли `fenAttempt` (тогда —
+ * редактируем) или нет (legacy edge-case — старое сообщение «не удалось
+ * распознать»).
+ */
+export class BoardRecognitionUnreliableError extends Error {
+  readonly payload: BoardRecognitionUnreliablePayload;
+  constructor(payload: BoardRecognitionUnreliablePayload) {
+    super(payload.message ?? payload.error ?? 'recognition_unreliable');
+    this.name = 'BoardRecognitionUnreliableError';
+    this.payload = payload;
+  }
+}
+
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const STARTING_FEN_BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
@@ -134,6 +168,20 @@ export async function recognizeBoard(
     if (res.status === 404 || res.status === 501) {
       return buildMockResponse(`backend ${res.status} (KS-2363 pending)`);
     }
+    // KS-3093 / ADR-040-v2 §5.1. 422 — backend распознал картинку, но
+    // sanity отверг результат. Тело несёт `fenAttempt` (что модель
+    // увидела) + `issues` (почему отвергло) + `lowConfidenceCells`. UI
+    // должен показать fenAttempt и дать поправить, поэтому НЕ маскируем
+    // мок-ответом — пробрасываем доменной ошибкой.
+    if (res.status === 422) {
+      let payload: BoardRecognitionUnreliablePayload;
+      try {
+        payload = (await res.json()) as BoardRecognitionUnreliablePayload;
+      } catch {
+        payload = { error: 'recognition_unreliable' };
+      }
+      throw new BoardRecognitionUnreliableError(payload);
+    }
     if (!res.ok) {
       throw new Error(`board-recognition: HTTP ${res.status}`);
     }
@@ -143,6 +191,9 @@ export async function recognizeBoard(
     // ломаем UI, отдаём мок. После закрытия backend'а этот путь не
     // активен.
     if ((err as Error)?.name === 'AbortError') throw err;
+    // KS-3093: 422 — это нормальная доменная ошибка, не сетевая.
+    // Не подменяем её моком, дропзона ловит и переходит в edit-mode.
+    if (err instanceof BoardRecognitionUnreliableError) throw err;
     return buildMockResponse(
       `network: ${err instanceof Error ? err.message : String(err)}`,
     );

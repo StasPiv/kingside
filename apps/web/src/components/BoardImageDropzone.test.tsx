@@ -7,11 +7,26 @@
  *  - onAccept вызывается с актуальным FEN.
  */
 // @vitest-environment happy-dom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { cleanup } from '@testing-library/react';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
-import { BoardImageDropzone } from './BoardImageDropzone';
-import type { BoardRecognitionResponse } from '../api/boardRecognition';
+import { BoardImageDropzone, checkBoardSanity } from './BoardImageDropzone';
+import {
+  BoardRecognitionUnreliableError,
+  type BoardRecognitionResponse,
+  type BoardRecognitionUnreliablePayload,
+} from '../api/boardRecognition';
+
+// KS-3093: глобальный afterEach в test/setup.ts уже вызывает
+// `cleanup()`, но в комбинации с react-chessboard'ом в этом сьюте
+// иногда остаётся живая DOM-нода от предыдущего теста (происходит
+// внутри react-chessboard v5 + happy-dom, к нашему коду не относится).
+// На «горячую» — `beforeEach(cleanup)` гарантирует чистую страницу
+// перед каждым `render`-ом.
+beforeEach(() => {
+  cleanup();
+});
 
 const RECOGNIZED: BoardRecognitionResponse = {
   fen: '8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1 w - - 2 51',
@@ -27,6 +42,45 @@ const RECOGNIZED: BoardRecognitionResponse = {
 function makeImageFile(): File {
   return new File([new Uint8Array([0])], 'b.png', { type: 'image/png' });
 }
+
+describe('checkBoardSanity (KS-3093)', () => {
+  it('стартовая позиция — без issues', () => {
+    expect(
+      checkBoardSanity('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'),
+    ).toEqual([]);
+  });
+
+  it('пешки на 1/8 ранге — отмечает', () => {
+    // a1=P (нелегально по правилам, нельзя пешке стоять на своём первом ряду).
+    expect(
+      checkBoardSanity('r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1'),
+    ).toContain('some pawns are on the edge rows');
+  });
+
+  it('пустая доска — нет ни одного короля', () => {
+    const issues = checkBoardSanity('8/8/8/8/8/8/8/8');
+    expect(issues).toContain('exactly one white king required');
+    expect(issues).toContain('exactly one black king required');
+  });
+
+  it('14 ферзей на сторону — отмечает превышение', () => {
+    // 8 ферзей в ряду + 8 в другом + 1 король каждой стороны.
+    const fen = 'QQQQQQQQ/QQQQQQQK/8/8/8/8/qqqqqqqq/qqqqqqqk';
+    const issues = checkBoardSanity(fen);
+    expect(issues.some((i) => /too many white queens/.test(i))).toBe(true);
+    expect(issues.some((i) => /too many black queens/.test(i))).toBe(true);
+  });
+
+  it('меньше 8 рангов — структурная ошибка', () => {
+    expect(checkBoardSanity('8/8/8')).toEqual(['board must have 8 ranks']);
+  });
+
+  it('ранг не сходится по файлам — структурная ошибка', () => {
+    // 7 файлов в первом ранге вместо 8.
+    const issues = checkBoardSanity('7/8/8/8/8/8/8/8');
+    expect(issues.some((i) => /rank 8.*8 files/.test(i))).toBe(true);
+  });
+});
 
 describe('<BoardImageDropzone> (KS-2365)', () => {
   it('после загрузки файла рендерит распознанный FEN в превью', async () => {
@@ -107,6 +161,116 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     // обработчик кликабелен и не падает.
     await userEvent.click(flipBtn);
     await userEvent.click(flipBtn);
+  });
+
+  // KS-3093: scenario 1 из задачи — 422 c fenAttempt.
+  it('KS-3093: 422 c fenAttempt → доска показывает позицию, Apply disabled, после правки → enabled', async () => {
+    const payload: BoardRecognitionUnreliablePayload = {
+      error: 'recognition_unreliable',
+      // Распознанный FEN с ошибкой модели: пешка на a1 вместо ладьи.
+      fenAttempt: 'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
+      issues: ['some pawns are on the edge rows'],
+      lowConfidenceCells: [
+        { file: 0, rank: 7, piece: 'P', confidence: 0.51 },
+      ],
+      orientation: 'white',
+      modelVersion: '0.9.3',
+    };
+    const recognizer = vi
+      .fn()
+      .mockRejectedValue(new BoardRecognitionUnreliableError(payload));
+    const onAccept = vi.fn();
+    renderWithProviders(
+      <BoardImageDropzone onAccept={onAccept} recognizer={recognizer} />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() => expect(recognizer).toHaveBeenCalled());
+
+    // 1) Доска НЕ пустая — рисуется fenAttempt (board-only часть).
+    await waitFor(() => {
+      const board = screen.getByTestId('board-image-dropzone-board');
+      expect(board.getAttribute('data-fen-board')).toBe(
+        'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1',
+      );
+    });
+
+    // 2) Warning-плашка с sanity-issues видна.
+    expect(
+      screen.getByTestId('board-image-dropzone-sanity-warning').textContent,
+    ).toMatch(/edge rows|fix highlighted/i);
+
+    // 3) FEN-строка в превью равна fenAttempt (юзер видит, что
+    //    именно правит).
+    expect(screen.getByTestId('board-image-dropzone-fen').textContent).toContain(
+      'P2Q1RK1',
+    );
+
+    // 4) Apply заблокирован.
+    let apply = screen.getByTestId('board-image-dropzone-apply') as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+
+    // 5) Manual-edit и Flip активны (они не привязаны к валидности).
+    expect(
+      (screen.getByTestId('board-image-dropzone-toggle-manual') as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByTestId('board-image-dropzone-flip') as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    // 6) Юзер открывает Edit FEN, заменяет P2Q1RK1 → R2Q1RK1.
+    await userEvent.click(screen.getByTestId('board-image-dropzone-toggle-manual'));
+    const fenInput = screen.getByTestId(
+      'board-image-dropzone-fen-input',
+    ) as HTMLInputElement;
+    await userEvent.clear(fenInput);
+    const fixed = 'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/R2Q1RK1 w - - 0 1';
+    await userEvent.type(fenInput, fixed);
+
+    // 7) Warning-плашка пропадает.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('board-image-dropzone-sanity-warning'),
+      ).toBeNull(),
+    );
+
+    // 8) Apply становится активна.
+    apply = screen.getByTestId('board-image-dropzone-apply') as HTMLButtonElement;
+    await waitFor(() => expect(apply.disabled).toBe(false));
+
+    // 9) Apply → onAccept с поправленным FEN.
+    await userEvent.click(apply);
+    expect(onAccept).toHaveBeenCalledWith(fixed);
+  });
+
+  // KS-3093: scenario 2 — 422 без fenAttempt (legacy/edge-case).
+  it('KS-3093: 422 без fenAttempt → старое сообщение «recognition failed»', async () => {
+    const recognizer = vi.fn().mockRejectedValue(
+      new BoardRecognitionUnreliableError({
+        error: 'recognition_unreliable',
+        message: 'no board detected',
+      }),
+    );
+    renderWithProviders(
+      <BoardImageDropzone onAccept={vi.fn()} recognizer={recognizer} />,
+    );
+    await userEvent.upload(
+      screen.getByTestId('board-image-dropzone-file-input'),
+      makeImageFile(),
+    );
+    await waitFor(() => expect(recognizer).toHaveBeenCalled());
+    // Старый error-блок — а не плашка sanity-warning.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('board-image-dropzone-sanity-warning'),
+      ).toBeNull(),
+    );
+    expect(
+      (screen.getByTestId('board-image-dropzone-apply') as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it('некорректный manual FEN дизейблит Apply', async () => {
