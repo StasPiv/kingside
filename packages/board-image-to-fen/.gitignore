@@ -10,7 +10,13 @@ dist/
 data/v1/
 data/v2/
 !data/manifest_v1.json
-!data/manifest_v2.json
+# Манифест v2 лежит внутри data/v2/, нужно сначала разрешить директорию,
+# затем разрешить конкретный файл — иначе родительский ignore поглощает
+# исключение.
+!data/v2/
+data/v2/*
+!data/v2/manifest_v2.json
+!data/v2/val_fens.json
 
 # Cached SVG sources (re-fetched on demand by scripts/fetch_styles.sh).
 styles_cache/
