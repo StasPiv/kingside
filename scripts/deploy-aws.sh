@@ -471,34 +471,14 @@ _perf_summary() {
     echo "====================================="
 }
 
-# KS-3123: общая обёртка для `docker build` на shared-хосте с агентами.
-# Принимает все аргументы как `docker build`. DOCKER_BUILDKIT уважает env caller'а.
-#
-# Зачем:
-#   Хост 32G/16-CPU делит ресурсы между прод-сборками и контейнерами агентов
-#   + локальной БД/Redis/broadcast. Без лимитов `docker build` (особенно с
-#   BuildKit, KS-3121) съедал RAM/CPU/IO, агентские контейнеры уходили в swap
-#   thrashing и теряли сессию через webhook --resume; postgres/redis/broadcast
-#   получали SIGTERM/OOM.
-#
-# Что делаем:
-#   - `nice -n 19 ionice -c3` — build уступает CPU/IO любому соседу.
-#   - `--memory=6g` — потолок RSS для build-сборки.
-#   - `--memory-swap=6g` — равно --memory ⇒ swap для build ОТКЛЮЧЁН. Это
-#     ключевой момент: даже маленький host swap (2G) при swap thrashing
-#     валит всех соседей. Лучше OOM одной сборки, чем падение хоста.
-#   - `--cpus` НЕ используем: BuildKit его не поддерживает (см. KS-3122).
-#     CPU-приоритет через nice достаточен.
-#
-# История: KS-3122 ставил `--memory=8g --memory-swap=10g` только на api —
-# 8G всё равно много под swap thrashing на 32G хосте с тяжёлыми соседями.
-# Теперь 6G/без-swap и для всех 5 docker build (api/game/broadcast/archive/tactic).
-docker_build_limited() {
-    nice -n 19 ionice -c3 \
-        docker build \
-        --memory=6g --memory-swap=6g \
-        "$@"
-}
+# KS-3121/3122/3123 откачены (валили агентские контейнеры на shared-хосте):
+#   - DOCKER_BUILDKIT=1 / inline cache (KS-3121) включил buildkitd-демон, который
+#     не уважает --memory лимит docker build на уровне процесса. Жрал 10-15G RAM
+#     + IO, агенты в swap thrashing.
+#   - --memory=6g --memory-swap=6g + nice/ionice (KS-3122/3123) применяются к
+#     RUN-контейнерам сборки, но не к самому buildkitd-демону. Защита фиктивна.
+# До нахождения способа собирать api НЕ на shared-хосте (CodeBuild/GHA — задача
+# KS-3121) используется classic docker builder без лимитов и без cache-from.
 
 _perf_stamp "00_init"
 
@@ -1110,21 +1090,8 @@ if $DEPLOY_API; then
     # лог сразу после deploy). /tmp у webhook'а изолирован.
     BUILD_LOG="$REPO_DIR/logs/api-build-${DEPLOY_SHA}.log"
     mkdir -p "$REPO_DIR/logs"
-    # KS-3121: BuildKit inline cache. Используем стандартный `docker build`
-    # с DOCKER_BUILDKIT=1 + BUILDKIT_INLINE_CACHE=1, который встраивает
-    # layer-cache metadata в image. На следующем deploy --cache-from с этого
-    # же тега переиспользует слои, и при unchanged package.json npm install
-    # не прогоняется заново — docker build сокращается с ~80с до 15–30с.
-    # Cache pull на cold-start (нет ECR :cache тэга) — невидимая ошибка,
-    # build продолжается без cache (нормальное поведение BuildKit).
     set +e
-    # KS-3123: лимиты и приоритет — в общей docker_build_limited (см. helper).
-    # Здесь только DOCKER_BUILDKIT=1 (нужен inline cache из KS-3121) и
-    # args самой сборки.
-    DOCKER_BUILDKIT=1 docker_build_limited --progress=plain \
-        -t "kingside-api:${DEPLOY_SHA}" \
-        --cache-from "${ECR_URI}:cache" \
-        --build-arg BUILDKIT_INLINE_CACHE=1 \
+    docker build --progress=plain -t "kingside-api:${DEPLOY_SHA}" \
         -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
     BUILD_RC=${PIPESTATUS[0]}
     set -e
@@ -1143,12 +1110,6 @@ if $DEPLOY_API; then
     echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
-    # KS-3121: обновляем :cache тэг для inline cache следующего build.
-    # Layers те же что в :<sha>, ECR делает дедупликацию — push быстрый.
-    # Если что-то сломается — не критично, на следующий build просто cache miss.
-    docker tag "kingside-api:${DEPLOY_SHA}" "${ECR_URI}:cache" 2>/dev/null \
-      && docker push "${ECR_URI}:cache" 2>&1 | tail -3 \
-      || echo "  (cache push skipped: $?)"
     _perf_stamp "api_docker_push_done"
 
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
@@ -1221,7 +1182,7 @@ if $DEPLOY_GAME; then
     _perf_stamp "game_ecr_login_done"
 
     echo "[game-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker_build_limited -t "kingside-game-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
+    docker build -t "kingside-game-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
     _perf_stamp "game_docker_build_done"
 
     echo "[game-service] Pushing ${ECR_REPO_GAME}:${DEPLOY_SHA} to ECR..."
@@ -1276,7 +1237,7 @@ if $DEPLOY_BROADCAST_SERVICE; then
     _perf_stamp "broadcast_ecr_login_done"
 
     echo "[broadcast-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker_build_limited -t "kingside-broadcast-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
+    docker build -t "kingside-broadcast-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
     _perf_stamp "broadcast_docker_build_done"
 
     echo "[broadcast-service] Pushing ${ECR_REPO_BROADCAST_SERVICE}:${DEPLOY_SHA} to ECR..."
@@ -1392,7 +1353,7 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     _perf_stamp "archive_ecr_login_done"
 
     echo "[archive-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker_build_limited -t "kingside-archive-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
+    docker build -t "kingside-archive-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
     _perf_stamp "archive_docker_build_done"
 
     echo "[archive-service] Pushing ${ECR_REPO_ARCHIVE_SERVICE}:${DEPLOY_SHA} to ECR..."
@@ -1569,7 +1530,7 @@ if $DEPLOY_TACTIC_WORKER; then
     _perf_stamp "tactic_ecr_login_done"
 
     echo "[tactic-worker] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker_build_limited -t "kingside-tactic-worker:${DEPLOY_SHA}" -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR"
+    docker build -t "kingside-tactic-worker:${DEPLOY_SHA}" -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR"
     _perf_stamp "tactic_docker_build_done"
 
     echo "[tactic-worker] Pushing ${ECR_REPO_TACTIC_WORKER}:${DEPLOY_SHA} to ECR..."
