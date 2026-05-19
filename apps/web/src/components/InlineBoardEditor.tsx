@@ -177,6 +177,12 @@ export function InlineBoardEditor({
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(8, 1fr)',
+          // KS-3114: явный `grid-template-rows` рядом с columns + aspectRatio
+          // на самом grid'е. Без `rows: repeat(8, 1fr)` строки растягивались
+          // по контенту (например, после rename `aspect-ratio` контейнера
+          // не доезжал до children на узких viewport'ах) — клетки оказывались
+          // разной высоты, доска переставала быть 8×8 квадратом.
+          gridTemplateRows: 'repeat(8, 1fr)',
           width: '100%',
           maxWidth: 320,
           aspectRatio: '1 / 1',
@@ -209,6 +215,11 @@ export function InlineBoardEditor({
                 }}
                 style={{
                   ...baseStyle,
+                  // KS-3114: страховка от subpixel/aspect-rounding —
+                  // даже если grid отдаст клетке нецелую высоту,
+                  // aspect-ratio фиксирует квадрат, и клетки одного
+                  // визуального размера.
+                  aspectRatio: '1 / 1',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -277,12 +288,22 @@ export function InlineBoardEditor({
             data-testid={`${testIdPrefix}-palette`}
             style={{
               display: 'grid',
+              // KS-3114: bottom — repeat(6, 1fr). Раньше было `repeat(7, 1fr)`,
+              // и при `[...WHITE, ...BLACK]` (12) + eraser (1) = 13 элементов:
+              // в первой строке оказывались 6 белых + bK (чёрный король
+              // «перетекал» к белым), во второй — bQ..bP + ластик. Теперь
+              // ровно две строки по 6 фигур (1: только белые, 2: только
+              // чёрные) и ластик в третьей строке отдельно.
               gridTemplateColumns:
-                palettePosition === 'right' ? 'repeat(2, 1fr)' : 'repeat(7, 1fr)',
+                palettePosition === 'right' ? 'repeat(2, 1fr)' : 'repeat(6, 1fr)',
               // KS-3113: gap 8 (был 4) — кнопки явно отделены друг от
               // друга, не складываются в визуальные «ряды доски».
               gap: 8,
               flexShrink: 0,
+              // KS-3114: при `repeat(6, 1fr)` колонки шире фиксированной
+              // ширины кнопки (≈32px). Центруем кнопки в колонке, чтобы
+              // ряд белых ровно над рядом чёрных, без сдвига влево.
+              justifyItems: palettePosition === 'bottom' ? 'center' : 'normal',
             }}
           >
             {[...WHITE_PIECES, ...BLACK_PIECES].map((p) => (
