@@ -1011,30 +1011,35 @@ export function BoardImageDropzone({
             </button>
           </>
         ) : (
-          /* KS-3093: при использовании в `SetPositionModal` (вкладка
-              «From image») apply делает board-editor родителя — здесь
-              кнопка не нужна, иначе у пользователя два «куда жать». */
-          !usesParentEditor && (
-            <button
-              type="button"
-              className="board-image-dropzone__apply"
-              onClick={handleApply}
-              disabled={!canApply}
-              data-testid="board-image-dropzone-apply"
-              title={
-                !result
-                  ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
-                  : previewError
-                    ? previewError
-                    : liveSanityIssues.length > 0
-                      ? liveSanityIssues.join('; ')
-                      : undefined
-              }
-              aria-disabled={!canApply}
-            >
-              {t('boardImage.apply', 'Apply')}
-            </button>
-          )
+          /* KS-3109: Apply показывается ВСЕГДА после recognize.
+             Раньше при `usesParentEditor=true` (когда SetPositionModal
+             передал onRecognized) кнопка пряталась — ждали что юзер
+             переключится на вкладку Board Editor и Apply'нет там. С
+             KS-3105 редактор встроен прямо в dropzone, скрывать
+             Apply больше нельзя: пользователь поправил позицию руками,
+             ждёт кнопку «Применить», а видит только Cancel. Теперь
+             кнопка всегда видна, но `disabled` если sanity issues
+             или нет распознанного результата. Title-tooltip объясняет
+             ПОЧЕМУ disabled (sanity-issue текстом). */
+          <button
+            type="button"
+            className="board-image-dropzone__apply"
+            onClick={handleApply}
+            disabled={!canApply}
+            data-testid="board-image-dropzone-apply"
+            title={
+              !result
+                ? t('boardImage.applyTipNoImage', 'Upload a board screenshot first.')
+                : previewError
+                  ? previewError
+                  : liveSanityIssues.length > 0
+                    ? liveSanityIssues.join('; ')
+                    : undefined
+            }
+            aria-disabled={!canApply}
+          >
+            {t('boardImage.apply', 'Apply')}
+          </button>
         )}
       </div>
     </div>

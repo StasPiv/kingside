@@ -463,9 +463,16 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     await waitFor(() =>
       expect(onRecognized).toHaveBeenCalledWith(RECOGNIZED.fen),
     );
-    // Локальный Apply и «Edit FEN manually» не рендерятся — apply
-    // делает родительский editor.
-    expect(screen.queryByTestId('board-image-dropzone-apply')).toBeNull();
+    // KS-3109: Apply теперь видна ВСЕГДА после recognize (раньше
+    // пряталась когда `usesParentEditor`=true в надежде что родитель
+    // отрисует свой Apply на Board Editor; с KS-3105 editor встроен
+    // прямо в dropzone, скрывать кнопку нельзя — иначе пользователь
+    // правит позицию, видит только Cancel и не понимает куда жать).
+    // `Edit FEN manually` остаётся скрытой — её роль закрывает
+    // полноценный editor.
+    expect(
+      screen.queryByTestId('board-image-dropzone-apply'),
+    ).not.toBeNull();
     expect(
       screen.queryByTestId('board-image-dropzone-toggle-manual'),
     ).toBeNull();
