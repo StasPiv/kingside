@@ -726,20 +726,85 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   min-width: 280px;
   min-height: 0;
   align-self: stretch;
-  /* KS-3100: было `overflow: hidden` — если суммарная min-height
-     панелей (engine 172 + archive max-height + moves min) превышала
-     высоту sidebar (типично 600–720 px), последняя панель «Ходы»
-     торчала ниже viewport, и нотация физически уходила под нижнюю
-     панель управления доской. Теперь sidebar получает fallback-скролл
-     на оси Y — если не помещается, юзер скроллит колонку целиком и
-     дотягивается до последнего хода. Внутренний скролл нотации тоже
-     остаётся (см. `.review-move-list__moves`). */
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  /* iOS safe-area под home-indicator — нотация не лежит на «челюсти». */
+  /* KS-3118: возврат к `overflow: hidden` (после KS-3100 fallback-scroll).
+     Теперь высоты блоков фиксированы в процентах от sidebar'а
+     (см. `--analysis-sidebar-*-share` ниже), переполнение контента —
+     internal scroll каждого блока, fallback-скролл колонки не нужен. */
+  overflow: hidden;
+  /* iOS safe-area под home-indicator — внутренний padding sidebar'а. */
   padding-bottom: env(safe-area-inset-bottom, 0px);
   contain: inline-size;
+
+  /* KS-3118: целевые пропорции блоков правой панели (Stockfish /
+     Архив / Нотация). Сумма ровно 100%. Используются как flex-basis
+     ниже. */
+  --analysis-sidebar-engine-share: 25%;
+  --analysis-sidebar-archive-share: 30%;
+  --analysis-sidebar-moves-share: 45%;
+}
+
+/* KS-3118: Engine panel — collapsible. Раскрыта (`> .analysis-panel-body`
+   присутствует) — `flex-basis: 25%`. Свёрнута (body отсутствует) —
+   высота по контенту, т.е. только header (40px). */
+.analysis-sidebar > .analysis-panel:not(.analysis-panel--flex) {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.analysis-sidebar
+  > .analysis-panel:not(.analysis-panel--flex):has(> .analysis-panel-body) {
+  flex: 0 0 var(--analysis-sidebar-engine-share);
+}
+/* Engine body внутри desktop sidebar'а растягивается на оставшееся
+   место в panel'е (panel.height - header 40px). Раньше body имел
+   `min/max-height: 132px` — фикс высота под 3 PV-линии, теперь высота
+   определяется flex-basis самого panel'а, а body внутри — flex:1 со
+   своим scrollbar'ом. */
+.analysis-sidebar
+  > .analysis-panel:not(.analysis-panel--flex)
+  > .analysis-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* KS-3118: Archive panel обёрнут в `<div class="analysis-desktop-only">`
+   (см. AnalysisSidebar.tsx). flex-basis нужно задавать именно на этот
+   wrapper, потому что прямой child sidebar'а — он, а не archive-tree-panel.
+   ArchiveTreePanel внутри растягивается на высоту wrapper'а.
+
+   `:has()` без вложенности — Chromium / Safari поддерживают nested
+   `:has(:has())` с 121+ / 17.4+, но безопаснее писать плоский селектор:
+   ловим wrapper по наличию `.archive-tree-panel__body` (раскрытое
+   состояние) и `.archive-tree-panel` (любое состояние) отдельно. */
+.analysis-sidebar > .analysis-desktop-only:has(.archive-tree-panel) {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.analysis-sidebar
+  > .analysis-desktop-only:has(.archive-tree-panel__body) {
+  flex: 0 0 var(--analysis-sidebar-archive-share);
+}
+.analysis-sidebar > .analysis-desktop-only > .archive-tree-panel {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+/* KS-3118: Moves panel — basis 45% И flex-grow: 1. Раскрыта — забирает
+   45% + остаток (если верхние свёрнуты, их доля переходит сюда).
+   Свёрнута (только header) — `flex: 0 0 auto`, верхние блоки НЕ
+   растягиваются (свободное место остаётся пустым внизу sidebar'а —
+   таково требование ТЗ). */
+.analysis-sidebar > .analysis-panel--flex {
+  flex: 1 1 var(--analysis-sidebar-moves-share);
+  min-height: 0;
+}
+.analysis-sidebar
+  > .analysis-panel--flex:not(:has(> .analysis-panel-body)) {
+  flex: 0 0 auto;
 }
 
 /* Collapsible analysis panels (Acid Ape Chess style) */
@@ -754,12 +819,11 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 
 .analysis-panel--flex {
   flex: 1;
-  /* KS-3100: гарантированный минимум — header (40px) + хотя бы 3 строки
-     нотации (line-height 1.7 × 14px ≈ 24px × 3 = 72px) + fade-zone
-     внизу (56px). При недостатке места в sidebar активируется
-     fallback-скролл колонки (`.analysis-sidebar { overflow-y: auto }`)
-     и юзер дотягивается до полной нотации скроллом колонки. */
-  min-height: 168px;
+  /* KS-3100 → KS-3118: `min-height: 168px` убран, теперь высота
+     управляется flex-basis в `.analysis-sidebar > .analysis-panel--flex`
+     (45% от sidebar). `min-height: 0` нужен для корректного flex-shrink
+     дочернего scrollable body. */
+  min-height: 0;
   position: relative;
 }
 
@@ -2450,20 +2514,14 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .archive-tree-panel:has(.archive-tree-panel__body) {
-  /* KS-3100: раньше было `height: 360px` без возможности сжаться. На
-     коротких viewport'ах archive забирала почти весь sidebar и
-     moves-panel оказывалась ниже sidebar.bottom — нотация уходила
-     под нижнюю панель управления.
-     Теперь — `max-height: 360px` (поведение не меняется на длинных
-     viewport'ах) + базовая высота 280px вместо 360 на коротких,
-     чтобы оставить место под header+min-body «Ходов». Дополнительно
-     `flex: 0 1 360px` разрешает сжиматься: при недостатке места в
-     sidebar archive отдаст ширину moves-панели. Внутренний скролл
-     `__body` уже есть, контент не теряется. */
+  /* KS-3118: процентная пропорция (30%) задаётся в
+     `.analysis-sidebar .archive-tree-panel:has(...)` выше. Здесь
+     оставляем `height: auto` — чтобы при использовании панели ВНЕ
+     analysis-sidebar (mobile-tab, прочие места) её высота не была
+     фиксирована, а определялась родителем. KS-3100 правка max-height
+     удалена — теперь высота строго управляется flex-basis sidebar'а
+     и переполнение уходит во внутренний скролл `__body`. */
   height: auto;
-  max-height: min(360px, calc(50vh - 80px));
-  flex: 0 1 auto;
-  min-height: 120px;
 }
 
 .archive-tree-panel__header {
