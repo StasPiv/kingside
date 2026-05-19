@@ -1,5 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { SetPositionModal } from '../components/SetPositionModal';
+
+/**
+ * Программная эмуляция выбора файла — для MCP `interact`, который не
+ * умеет setInputFiles. См. DevBoardImageDropzoneUnreliablePage.
+ */
+function autoLoadFakeFile() {
+  const PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=';
+  const bin = atob(PNG_BASE64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const file = new File([bytes], 'autoload-test.png', { type: 'image/png' });
+  const input = document.querySelector<HTMLInputElement>(
+    'input[data-testid="board-image-dropzone-file-input"]',
+  );
+  if (!input) return;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
 /**
  * KS-3094 dev-песочница для crop-flow.
@@ -72,6 +94,15 @@ export function DevBoardImageDropzoneNotFoundPage() {
   installFetchMock();
   const [open, setOpen] = useState(true);
   const [appliedFen, setAppliedFen] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  // `?autoload=1` — для MCP `interact` (не умеет setInputFiles).
+  useEffect(() => {
+    if (!open) return;
+    if (searchParams.get('autoload') !== '1') return;
+    const t = setTimeout(() => autoLoadFakeFile(), 700);
+    return () => clearTimeout(t);
+  }, [open, searchParams]);
 
   return (
     <div style={{ maxWidth: 880, margin: '24px auto', padding: 16 }}>

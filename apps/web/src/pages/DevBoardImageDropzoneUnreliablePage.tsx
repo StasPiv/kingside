@@ -1,5 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { SetPositionModal } from '../components/SetPositionModal';
+
+/**
+ * KS-3093 / KS-3094 / KS-3095: автозагрузка тестовой картинки —
+ * для MCP `interact`, который не умеет setInputFiles. Делает программный
+ * change на `input[type=file]` через DataTransfer, чтобы пройти стандартный
+ * `onChange` обработчик BoardImageDropzone без какой-либо смены логики.
+ *
+ * Используется только в dev-роутах /dev/board-image-dropzone* — вне их
+ * не подгружается (tree-shake через `import.meta.env.DEV` в App.tsx).
+ */
+function autoLoadFakeFile() {
+  // 1x1 прозрачный PNG (минимально валидный, ML-моку всё равно — мы
+  // мокаем fetch на уровне страницы).
+  const PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=';
+  const bin = atob(PNG_BASE64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const file = new File([bytes], 'autoload-test.png', { type: 'image/png' });
+  const input = document.querySelector<HTMLInputElement>(
+    'input[data-testid="board-image-dropzone-file-input"]',
+  );
+  if (!input) return;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
 /**
  * KS-3093 dev-песочница для нового flow «после распознавания → board
@@ -63,6 +92,17 @@ export function DevBoardImageDropzoneUnreliablePage() {
   installFetchMock();
   const [open, setOpen] = useState(true);
   const [appliedFen, setAppliedFen] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  // `?autoload=1` — для MCP `interact` (не умеет setInputFiles). Ждём
+  // 700мс чтобы модал успел отрисовать input[type=file], затем
+  // эмулируем выбор файла.
+  useEffect(() => {
+    if (!open) return;
+    if (searchParams.get('autoload') !== '1') return;
+    const t = setTimeout(() => autoLoadFakeFile(), 700);
+    return () => clearTimeout(t);
+  }, [open, searchParams]);
 
   return (
     <div style={{ maxWidth: 880, margin: '24px auto', padding: 16 }}>
