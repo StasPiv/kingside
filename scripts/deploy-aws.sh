@@ -1095,7 +1095,7 @@ if $DEPLOY_API; then
     # 8g RAM / 8 CPU оставляет агенту запас на 32G/16-CPU хосте.
     nice -n 19 ionice -c3 \
     env DOCKER_BUILDKIT=1 docker build --progress=plain \
-        --memory=8g --memory-swap=10g --cpus=8 \
+        --memory=8g --memory-swap=10g \
         -t "kingside-api:${DEPLOY_SHA}" \
         --cache-from "${ECR_URI}:cache" \
         --build-arg BUILDKIT_INLINE_CACHE=1 \
