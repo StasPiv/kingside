@@ -247,6 +247,12 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     if (s === 'connecting' || s === 'idle' || s === 'error') return;
 
     if (s === 'analyzing') {
+      // KS-3112: UCI-sequence — сначала `stop`, дальше bestmove-handler
+      // выше (см. case 'bestmove') возьмёт pendingFenRef и отправит
+      // новый `analyze` с актуальными depth/multiPv. Между `stop` и
+      // следующим `analyze` engine успевает дослать bestmove и
+      // выйти из поиска — это и есть «handshake», который раньше
+      // отсутствовал при смене опций.
       pendingFenRef.current = fen;
       wsRef.current.send(JSON.stringify({ type: 'stop' }));
       return;
@@ -260,6 +266,20 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     setState('analyzing');
     wsRef.current.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
   }, [depth, multiPv]);
+
+  // KS-3112: при изменении `multiPv`/`depth` во время активного анализа —
+  // перезапускаем `analyze` с новыми значениями через `evaluate(fen)`.
+  // `evaluate` сам выполняет UCI-handshake (stop → wait bestmove →
+  // analyze). Без этого useEffect bridge продолжал старый поиск, новые
+  // значения подхватывались только на следующее изменение FEN. Логика
+  // идентична KS-3042 для wasm-стокфиша.
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    const fen = analysisFen;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiPv, depth]);
 
   const stop = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
