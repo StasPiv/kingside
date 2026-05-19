@@ -200,26 +200,53 @@ export function checkBoardSanity(fenBoard: string): string[] {
  * KS-3093: пройти fenBoard и собрать клетки, нарушающие sanity (пешки
  * на 1/8 ранге). Подсвечиваются вместе с `lowConfidenceCells`, чтобы
  * пользователь сразу видел, что именно править.
+ *
+ * KS-3106: расширено — теперь также возвращает координаты при
+ * нарушениях вида «два белых короля» / «два чёрных короля» /
+ * «слишком много ферзей» и т.п. Backend возвращает sanity-issues
+ * только текстом без координат (`"exactly one white king required"`),
+ * поэтому фронт сам сканирует FEN и находит все клетки виновной
+ * фигуры. На скриншоте KS-3106 жалоба: 2 белых короля (b7+h2 в FEN
+ * `6b1/kK3r2/...`) не подсвечивались.
  */
-function findSanityCells(fenBoard: string): string[] {
+export function findSanityCells(fenBoard: string): string[] {
   const out: string[] = [];
   const rows = fenBoard.split('/');
   if (rows.length !== 8) return out;
+
+  // Считаем фигуры одновременно с координатами, чтобы при нарушении
+  // подсветить все попавшие в нарушение клетки.
+  const positions: Record<string, string[]> = {
+    K: [], k: [], Q: [], q: [],
+  };
   rows.forEach((row, rowIdx) => {
-    if (rowIdx !== 0 && rowIdx !== 7) return;
     let file = 0;
     for (const ch of row) {
       if (ch >= '1' && ch <= '8') {
         file += Number(ch);
         continue;
       }
-      if (ch === 'P' || ch === 'p') {
-        const sq = `${String.fromCharCode(97 + file)}${8 - rowIdx}`;
+      const sq = `${String.fromCharCode(97 + file)}${8 - rowIdx}`;
+      // Пешка на 1/8 ранге — нарушение.
+      if ((ch === 'P' || ch === 'p') && (rowIdx === 0 || rowIdx === 7)) {
         out.push(sq);
+      }
+      if (ch in positions) {
+        positions[ch].push(sq);
       }
       file += 1;
     }
   });
+
+  // Нарушения количества: >1 короля / >9 ферзей. Подсвечиваем все
+  // фактические позиции виновной фигуры — пользователь сам решит
+  // какую оставить (drag&drop одну из них → подсветка снимается, и
+  // если осталась ровно одна — sanity ok).
+  if (positions.K.length !== 1) out.push(...positions.K);
+  if (positions.k.length !== 1) out.push(...positions.k);
+  if (positions.Q.length > 9) out.push(...positions.Q);
+  if (positions.q.length > 9) out.push(...positions.q);
+
   return out;
 }
 

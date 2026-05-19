@@ -49,9 +49,37 @@ function autoLoadFakeFile() {
  * восстанавливаем оригинал.
  */
 
-function buildUnreliableBody(orientation: 'white' | 'black'): string {
-  // KS-3105: позволяем через ?orientation=black снять скриншот для
-  // сценария когда исходник снят со стороны чёрных.
+function buildUnreliableBody(
+  orientation: 'white' | 'black',
+  scenario: 'pawn-on-edge' | 'multi-king',
+): string {
+  // KS-3105/KS-3106: scenario определяет какую жалобу эмулируем:
+  // - 'pawn-on-edge' (default) — пешка на a1, формат {file,rank,piece}.
+  // - 'multi-king' — два белых короля (точная репродукция KS-3106),
+  //   формат {square, predicted} как реально отдаёт прод-backend.
+  if (scenario === 'multi-king') {
+    return JSON.stringify({
+      error: 'recognition_unreliable',
+      message: 'sanity check failed',
+      // Из жалобы KS-3106: пользователь видел 2 белых короля в FEN
+      // `6b1/kK3r2/3pQ1np/4N3/2Pp4/3P2PP/PP2Q1BK/4R3 w - - 0 1`.
+      // Два K: b7 и h2.
+      fenAttempt:
+        '6b1/kK3r2/3pQ1np/4N3/2Pp4/3P2PP/PP2Q1BK/4R3 w - - 0 1',
+      issues: [
+        'exactly one white king required',
+        'low confidence: 3 cells',
+      ],
+      // Реальный prod-формат: {square, predicted, confidence, top3}.
+      lowConfidenceCells: [
+        { square: 'a8', predicted: 'empty', confidence: 0.41, top3: [] },
+        { square: 'd5', predicted: 'wP', confidence: 0.55, top3: [] },
+        { square: 'f5', predicted: 'empty', confidence: 0.6, top3: [] },
+      ],
+      orientation,
+      modelVersion: '0.9.5',
+    });
+  }
   return JSON.stringify({
     error: 'recognition_unreliable',
     message: 'sanity check failed',
@@ -71,6 +99,7 @@ function buildUnreliableBody(orientation: 'white' | 'black'): string {
 
 let installed = false;
 let currentOrientation: 'white' | 'black' = 'white';
+let currentScenario: 'pawn-on-edge' | 'multi-king' = 'pawn-on-edge';
 function installFetchMock() {
   if (installed) return;
   installed = true;
@@ -84,10 +113,13 @@ function installFetchMock() {
           : input.url;
     if (url.includes('/board-recognition')) {
       await new Promise((r) => setTimeout(r, 80));
-      return new Response(buildUnreliableBody(currentOrientation), {
-        status: 422,
-        headers: { 'content-type': 'application/json' },
-      });
+      return new Response(
+        buildUnreliableBody(currentOrientation, currentScenario),
+        {
+          status: 422,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
     }
     return original(input, init);
   };
@@ -102,6 +134,9 @@ export function DevBoardImageDropzoneUnreliablePage() {
   // KS-3105: `?orientation=black` — сценарий «картинка снята со стороны
   // чёрных», редактор должен быть перевёрнут.
   currentOrientation = searchParams.get('orientation') === 'black' ? 'black' : 'white';
+  // KS-3106: `?scenario=multi-king` — реальный prod-формат
+  // `{square, predicted}` + sanity-violation вида «two white kings».
+  currentScenario = searchParams.get('scenario') === 'multi-king' ? 'multi-king' : 'pawn-on-edge';
 
   // `?autoload=1` — для MCP `interact` (не умеет setInputFiles). Ждём
   // 700мс чтобы модал успел отрисовать input[type=file], затем

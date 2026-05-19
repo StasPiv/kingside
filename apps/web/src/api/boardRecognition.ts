@@ -161,6 +161,104 @@ function isForceMock(): boolean {
 }
 
 /**
+ * KS-3106: «толерантный» парсер ячеек low-confidence. Backend (prod
+ * с загруженной моделью) может вернуть массив в одной из форм:
+ *
+ *   1. `[{ file, rank, piece, confidence }]` — формат, который ждёт
+ *      фронт (camelCase, file=0..7 / rank=0..7 где 0=top).
+ *   2. `[{ square: "a1", piece, confidence }]` — алгебраическая нотация
+ *      одной строкой.
+ *   3. `["a1", "h6", ...]` — просто массив строк (минимальный вариант,
+ *      без piece/confidence).
+ *   4. `[{ file: "a", rank: 1, ... }]` — file как буква, rank как
+ *      1-based число (FEN-side, rank 8 — top).
+ *
+ * Нормализуем всё в `BoardRecognitionCell { file, rank, piece, confidence }`
+ * нашего контракта. Невалидные элементы пропускаем (не падаем — UI
+ * должен продолжить работать с тем что распарсилось).
+ *
+ * Этот же парсер используется и для `lowConfidenceCells` в 422-ответе
+ * `recognition_unreliable`.
+ */
+export function normalizeLowConfidenceCells(input: unknown): BoardRecognitionCell[] {
+  if (!Array.isArray(input)) return [];
+  const out: BoardRecognitionCell[] = [];
+  for (const raw of input) {
+    if (typeof raw === 'string') {
+      const cell = parseAlgebraicSquare(raw);
+      if (cell) out.push({ ...cell, piece: '.', confidence: 0 });
+      continue;
+    }
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      // KS-3106: piece может быть в `piece` (legacy/мок) или в
+      // `predicted` (реальный backend, `{square, predicted, ...}`).
+      const piece =
+        typeof obj.piece === 'string'
+          ? obj.piece
+          : typeof obj.predicted === 'string'
+            ? obj.predicted
+            : '.';
+      const confidence =
+        typeof obj.confidence === 'number'
+          ? obj.confidence
+          : typeof (obj as { conf?: unknown }).conf === 'number'
+            ? ((obj as { conf: number }).conf)
+            : 0;
+      // Сначала пробуем `square: "a1"`.
+      if (typeof obj.square === 'string') {
+        const cell = parseAlgebraicSquare(obj.square);
+        if (cell) {
+          out.push({ ...cell, piece, confidence });
+          continue;
+        }
+      }
+      // Дальше — `file`/`rank` в разных вариантах.
+      const f = obj.file;
+      const r = obj.rank;
+      let fileIdx: number | null = null;
+      let rankIdx: number | null = null;
+      if (typeof f === 'number') {
+        // 0..7 — наш контракт. Всё что вне диапазона — мусор.
+        if (f >= 0 && f <= 7) fileIdx = f;
+      } else if (typeof f === 'string' && f.length === 1) {
+        const code = f.toLowerCase().charCodeAt(0);
+        if (code >= 97 && code <= 104) fileIdx = code - 97;
+      }
+      if (typeof r === 'number') {
+        // Может быть 0-based (0=8-й ранг) или 1-based (1=1-й ранг,
+        // 8=8-й ранг — FEN-side). Считываем как 0-based по умолчанию
+        // (наш контракт), а если в диапазоне 1..8 — пробуем
+        // интерпретировать как FEN-rank и конвертируем в наш 0..7
+        // (rank 8 = 0, rank 1 = 7). НО только если строго в [1..8]
+        // и file тоже валидный — иначе мусор.
+        if (r >= 0 && r <= 7) {
+          rankIdx = r;
+        } else if (r >= 1 && r <= 8 && Number.isInteger(r)) {
+          rankIdx = 8 - r;
+        }
+      }
+      if (fileIdx !== null && rankIdx !== null) {
+        out.push({ file: fileIdx, rank: rankIdx, piece, confidence });
+      }
+    }
+  }
+  return out;
+}
+
+function parseAlgebraicSquare(
+  sq: string,
+): { file: number; rank: number } | null {
+  if (sq.length !== 2) return null;
+  const fileCh = sq[0].toLowerCase().charCodeAt(0);
+  const rankCh = sq[1];
+  if (fileCh < 97 || fileCh > 104) return null;
+  if (rankCh < '1' || rankCh > '8') return null;
+  // file: 'a'..'h' → 0..7. rank: '1'..'8' → 7..0 (FEN-top=0).
+  return { file: fileCh - 97, rank: 8 - Number(rankCh) };
+}
+
+/**
  * Отправляет изображение на распознавание. При недоступности backend'а —
  * возвращает мок (поведение KS-2365: «начинай с моком, пока KS-2363 не
  * закрыт»).
@@ -216,7 +314,13 @@ export async function recognizeBoard(
     if (res.status === 422) {
       let payload: BoardRecognitionUnreliablePayload;
       try {
-        payload = (await res.json()) as BoardRecognitionUnreliablePayload;
+        const raw = (await res.json()) as Record<string, unknown>;
+        payload = {
+          ...(raw as unknown as BoardRecognitionUnreliablePayload),
+          // KS-3106: тот же normalize для 422-ветки, формат элементов
+          // у бэка одинаковый что в 200, что в 422.
+          lowConfidenceCells: normalizeLowConfidenceCells(raw.lowConfidenceCells),
+        };
       } catch {
         payload = { error: 'recognition_unreliable' };
       }
@@ -225,7 +329,19 @@ export async function recognizeBoard(
     if (!res.ok) {
       throw new Error(`board-recognition: HTTP ${res.status}`);
     }
-    return (await res.json()) as BoardRecognitionResponse;
+    // KS-3106: backend отдаёт элементы как
+    // `{ square: "a8", predicted: "wK", confidence, top3 }`, а наш
+    // внутренний тип — `{ file, rank, piece, confidence }`. Без
+    // нормализации `cellToSquare()` в дропзоне получал `undefined`
+    // и подсветка молча пропадала. `normalizeLowConfidenceCells`
+    // принимает любую известную форму payload'а и приводит к
+    // нашему контракту.
+    const raw = (await res.json()) as Record<string, unknown>;
+    const normalized: BoardRecognitionResponse = {
+      ...(raw as unknown as BoardRecognitionResponse),
+      lowConfidenceCells: normalizeLowConfidenceCells(raw.lowConfidenceCells),
+    };
+    return normalized;
   } catch (err) {
     // KS-2363 не задеплоен → network-error / 404 / ECONNREFUSED. Не
     // ломаем UI, отдаём мок. После закрытия backend'а этот путь не

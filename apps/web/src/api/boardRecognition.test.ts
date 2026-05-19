@@ -9,6 +9,7 @@ import {
   recognizeBoard,
   BoardNotDetectedError,
   BoardRecognitionUnreliableError,
+  normalizeLowConfidenceCells,
 } from './boardRecognition';
 
 const STARTING_FEN =
@@ -163,5 +164,86 @@ describe('recognizeBoard (KS-2365)', () => {
     // это допустимое поведение «backend не отвечает корректно, не ломаем
     // UI». Тест фиксирует это поведение, чтобы будущее ужесточение шло
     // через намеренное изменение.
+  });
+
+  it('KS-3106: 200 c реальным форматом backend ({square, predicted, ...}) — нормализуется в {file, rank, piece}', async () => {
+    // Точный формат от apps/api/board-recognition.service.ts → toResponse().
+    const realPayload = {
+      fen: '6b1/kK3r2/3pQ1np/4N3/2Pp4/3P2PP/PP2Q1BK/4R3 w - - 0 1',
+      fenBoard: '6b1/kK3r2/3pQ1np/4N3/2Pp4/3P2PP/PP2Q1BK/4R3',
+      orientation: 'white' as const,
+      orientationConfidence: 0.94,
+      bbox: [0, 0, 320, 320],
+      modelVersion: '0.9.5',
+      lowConfidenceCells: [
+        { square: 'a8', predicted: 'empty', confidence: 0.41, top3: [] },
+        { square: 'h2', predicted: 'wK', confidence: 0.52, top3: [] },
+        { square: 'b7', predicted: 'wK', confidence: 0.48, top3: [] },
+      ],
+      warnings: ['sanity: white king count = 2 (expected 1)', 'low confidence: 3 cells'],
+    };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(realPayload), { status: 200 });
+    const res = await recognizeBoard(makeFile(), {
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(res.lowConfidenceCells).toHaveLength(3);
+    expect(res.lowConfidenceCells[0]).toMatchObject({ file: 0, rank: 0 });
+    expect(res.lowConfidenceCells[1]).toMatchObject({ file: 7, rank: 6 });
+    expect(res.lowConfidenceCells[2]).toMatchObject({ file: 1, rank: 1 });
+    expect(res.lowConfidenceCells[1].piece).toBe('wK');
+  });
+});
+
+describe('normalizeLowConfidenceCells (KS-3106)', () => {
+  it('бэк-формат {square, predicted}', () => {
+    const out = normalizeLowConfidenceCells([
+      { square: 'a8', predicted: 'wK', confidence: 0.5, top3: [] },
+      { square: 'h1', predicted: 'empty', confidence: 0.3 },
+    ]);
+    expect(out).toEqual([
+      { file: 0, rank: 0, piece: 'wK', confidence: 0.5 },
+      { file: 7, rank: 7, piece: 'empty', confidence: 0.3 },
+    ]);
+  });
+
+  it('legacy-формат {file, rank, piece} (0-based file/rank)', () => {
+    const out = normalizeLowConfidenceCells([
+      { file: 0, rank: 7, piece: 'P', confidence: 0.51 },
+    ]);
+    expect(out).toEqual([{ file: 0, rank: 7, piece: 'P', confidence: 0.51 }]);
+  });
+
+  it('массив строк ["a1", "h8"]', () => {
+    const out = normalizeLowConfidenceCells(['a1', 'h8']);
+    expect(out).toEqual([
+      { file: 0, rank: 7, piece: '.', confidence: 0 },
+      { file: 7, rank: 0, piece: '.', confidence: 0 },
+    ]);
+  });
+
+  it('FEN-rank (1..8) автоматически конвертируется в 0..7', () => {
+    const out = normalizeLowConfidenceCells([
+      { file: 0, rank: 8, piece: 'k', confidence: 0.4 },
+    ]);
+    expect(out).toEqual([{ file: 0, rank: 0, piece: 'k', confidence: 0.4 }]);
+  });
+
+  it('пропускает мусор без падения', () => {
+    const out = normalizeLowConfidenceCells([
+      null,
+      'zz',
+      { square: 'not-a-square' },
+      { file: 99, rank: 0 },
+      { square: 'a8', predicted: 'wK', confidence: 0.5 },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ file: 0, rank: 0, piece: 'wK' });
+  });
+
+  it('массив отсутствует / null', () => {
+    expect(normalizeLowConfidenceCells(undefined)).toEqual([]);
+    expect(normalizeLowConfidenceCells(null)).toEqual([]);
+    expect(normalizeLowConfidenceCells({ wrong: 'shape' })).toEqual([]);
   });
 });
