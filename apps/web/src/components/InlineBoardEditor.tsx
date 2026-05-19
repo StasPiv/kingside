@@ -252,14 +252,21 @@ export function InlineBoardEditor({
           className="inline-board-editor__palette-wrap"
           data-testid={`${testIdPrefix}-palette-wrap`}
           style={{
-            // bottom: разделитель сверху + отступ от доски; right: лёгкий внутренний контейнер сбоку.
-            marginTop: palettePosition === 'bottom' ? 16 : 0,
-            paddingTop: palettePosition === 'bottom' ? 12 : 0,
-            paddingLeft: palettePosition === 'right' ? 4 : 0,
-            borderTop:
+            // KS-3116: контрастный к бежевой доске фон + рамка. Раньше
+            // блок был прозрачным с одним лишь `border-top` — на тёмной
+            // модалке смотрелось ок, но в скриншоте пользователя фон
+            // модалки оказывался светло-серым и сливался с цветом
+            // светлых клеток доски (`#f0d9b5` default-темы). Теперь
+            // блок имеет собственный тёмно-синий panel-цвет `--c-16213e`
+            // и тонкую рамку — однозначно отдельный контрол.
+            background: palettePosition === 'bottom' ? 'var(--c-16213e, #16213e)' : 'transparent',
+            border:
               palettePosition === 'bottom'
-                ? '1px solid rgba(255,255,255,0.12)'
+                ? '1px solid var(--c-2a2a4e, #2a2a4e)'
                 : 'none',
+            borderRadius: palettePosition === 'bottom' ? 8 : 0,
+            marginTop: palettePosition === 'bottom' ? 16 : 0,
+            padding: palettePosition === 'bottom' ? '12px 12px 12px' : '0 0 0 4px',
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
@@ -268,6 +275,7 @@ export function InlineBoardEditor({
             // отдельный «control»-блок, а не продолжение grid'а).
             width: palettePosition === 'bottom' ? '100%' : 'auto',
             maxWidth: palettePosition === 'bottom' ? 320 : 'none',
+            boxSizing: 'border-box',
           }}
         >
           <div
@@ -277,7 +285,12 @@ export function InlineBoardEditor({
               fontWeight: 600,
               letterSpacing: '0.04em',
               textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.55)',
+              // KS-3116: ранее `rgba(255,255,255,0.55)` — на светлой
+              // теме (фон палитры в светлой теме = #eef2ff) полупрозрачный
+              // белый практически не читался. Берём нейтральный
+              // токен `--c-808098` — серый, контрастен и на тёмной, и
+              // на светлой панели.
+              color: 'var(--c-808098, #808098)',
               userSelect: 'none',
             }}
           >
