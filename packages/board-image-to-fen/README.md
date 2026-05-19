@@ -372,3 +372,165 @@ Spec: `test/dvoretsky.spec.ts` (skip-by-default если в среде нет cv
   калиброванных диаграмм, могут «протекать» false-positive фигуры —
   тогда увеличить морф-ядро в `_open_mask` или повысить
   `SOLID_WHITE_DARK_PIECE`.
+
+---
+
+## Универсальный YOLO-pipeline (KS-3091 v4 / KS-3110)
+
+С мая 2026 в проекте есть отдельный путь распознавания через YOLO
+object detection — он работает на ЛЮБОМ стиле досок (lichess, chess.com,
+наш UI, скриншоты UI с обвязкой, книги со штриховкой, частично — фото
+реальных досок). Это замена per-cell ONNX-классификатора предыдущей
+итерации (v1.0.0, ADR-040), который был чувствителен к фону клетки.
+
+Два этапа inference:
+
+1. **find-boards** (Stage 0, KS-3110, модель `findboards_v1.0.0`).
+   Один класс — `board`. На исходном скриншоте находит **все** доски,
+   возвращает массив bbox. Снимает три класса проблем:
+   - страницы с несколькими досками (учебник, страница пазлов);
+   - доски с UI/текстом вокруг;
+   - крупные шахматные графики вне доски (рекламы, логотипы) больше не
+     ловятся как доска.
+
+2. **find-pieces** (Stage 1, KS-3091 v4, модель `v2.0.0`). YOLOv8n с 12
+   классами фигур (`wK..bP`). Для каждой найденной доски делает crop +
+   resize в 512×512 + один прогон ONNX → список bbox фигур →
+   маппинг центров на сетку 8×8 → FEN.
+
+Этап Stage 0 опционален: без него pipeline деградирует к одиночной
+доске через эвристический corner-detector.
+
+### CLI
+
+```sh
+# Двухэтапный режим (find-boards включён).
+python3 src/python/board_recognize_yolo.py путь/к/картинке.png \
+    --model путь/к/find-pieces.onnx \
+    --find-boards-model путь/к/find-boards.onnx \
+    --json
+
+# Одиночный режим (corner-detector + find-pieces).
+python3 src/python/board_recognize_yolo.py путь/к/картинке.png \
+    --model путь/к/find-pieces.onnx \
+    --json
+
+# Только FEN-строка первой доски в stdout, без диагностики.
+python3 src/python/board_recognize_yolo.py путь/к/картинке.png \
+    --model путь/к/find-pieces.onnx \
+    --find-boards-model путь/к/find-boards.onnx
+```
+
+Скачать модели с прод-S3:
+
+```sh
+aws s3 cp s3://kingside-ml/models/board-recog/v2.0.0/model.onnx \
+          find-pieces.onnx --region eu-central-1
+aws s3 cp s3://kingside-ml/models/board-recog/findboards_v1.0.0/model.onnx \
+          find-boards.onnx --region eu-central-1
+```
+
+Зависимости Python для YOLO-пути: `onnxruntime`, `numpy`, `opencv-python`,
+`Pillow`. ultralytics в проде не нужен (используется только для
+тренировки/экспорта).
+
+### API (`@kingside/board-image-to-fen`)
+
+```ts
+import { recognizeUniversal } from '@kingside/board-image-to-fen';
+
+const result = await recognizeUniversal('image.png', {
+  profile: 'generic',
+  modelPath: '/path/to/find-pieces.onnx',
+  findBoardsModelPath: '/path/to/find-boards.onnx',  // опц., KS-3110
+});
+
+console.log(result.fen);            // FEN первой доски
+console.log(result.boards?.length); // массив, если найдено > 1 доски
+```
+
+### Контракт ответа
+
+Single-board (одна доска на скриншоте ИЛИ find-boards отключён):
+
+```jsonc
+{
+  "success": true,
+  "fen": "5rk1/.../R5K1 w - - 0 1",
+  "fen_board": "5rk1/.../R5K1",
+  "orientation": "white",
+  "bbox": [x0, y0, x1, y1],
+  "cells": [/* 64 ячейки */],
+  "low_confidence_cells": [/* < threshold */],
+  "sanity": { "valid": true, "issues": [] }
+}
+```
+
+Multi-board (≥ 2 досок на скриншоте):
+
+```jsonc
+{
+  "success": true,
+  "boards": [{ /* single-board result для доски 1 */ }, { /*  для доски 2  */ }, ...],
+  "n_boards_found": N,
+  // корневые поля дублируют первую success-доску для back-compat:
+  "fen": "...", "fen_board": "...", "orientation": "...", "bbox": [...],
+  "cells": [...], "low_confidence_cells": [...], "sanity": {...}
+}
+```
+
+REST-контракт API (POST `/api/board-recognition`) идентичен, только
+ключи в camelCase: `fenBoard`, `lowConfidenceCells`, опциональное
+`boards?: BoardRecognitionResponse[]`.
+
+### Деплой / переключение на проде
+
+ENV-переменные у `apps/api`:
+
+- `BOARD_RECOG_PIPELINE=yolo` — переключатель на YOLO-pipeline. Без него
+  работает старый per-cell классификатор (v1.0.0, back-compat).
+- `BOARD_RECOG_MODEL_VERSION=2.0.0` — find-pieces. `docker-entrypoint.sh`
+  скачивает с `s3://kingside-ml/models/board-recog/v2.0.0/model.onnx` в
+  `/var/cache/board-recog/model.onnx`.
+- `BOARD_FINDBOARDS_MODEL_VERSION=1.0.0` — find-boards (опционально).
+  Качается с `findboards_v1.0.0/model.onnx`. Без переменной — graceful
+  degrade к single-board через corner-detector.
+
+Откат на v1: снять `BOARD_RECOG_PIPELINE`, вернуть
+`BOARD_RECOG_MODEL_VERSION=0.9.5`, redeploy. Никаких миграций.
+
+### Известные ограничения
+
+- **Реальные физические 3D-доски (фото)** — out-of-distribution для
+  текущего train. Bbox-ы находятся, но классы фигур путаются. Лечится
+  добавлением открытых датасетов (ChessReD CC-BY-4.0, Chess Cog MIT)
+  в train — отдельный тикет.
+- **Книжные учебники с outlined-фигурами** (Майзелис, Калиниченко) —
+  модель путает цвет: белая фигура с прозрачной заливкой и чёрным
+  контуром читается как чёрная. Лечится добавлением outlined-стилей в
+  train.
+- **Multi-board на странице пазлов** — find-boards находит ВСЕ доски,
+  но качество find-pieces на маленьких досках (≤200px) деградирует
+  (sanity OK у ~50% досок). Лечится более крупным imgsz при тренировке
+  find-pieces или подачей crop'ов upscale до 512.
+
+### Документация по тренировке
+
+См. `docs/operations/ml-training-board-recog-runbook.md` (общий runbook)
++ ADR-040-v2 (`docs/adr/040-v2-board-recognition-retraining.md`) — там
+описаны принципы train/val разделения по piece-set'ам и acceptance-gate.
+Конкретные параметры YOLO-итерации в commit'ах KS-3091 v4 и KS-3110.
+
+### Файлы
+
+- `src/python/board_recognize_yolo.py` — YOLO inference pipeline (Stage 1+2).
+  Функции `recognize()` (single), `recognize_multi()` (с find-boards),
+  `find_boards()` (только Stage 0), `_recognize_from_warped()` (core).
+- `src/python/board_dataset_gen.py` — генератор синтетического датасета
+  для find-pieces (KS-3091 v4).
+- `src/python/find_boards_dataset_gen.py` — генератор для find-boards
+  (KS-3110): сцены 1024..1920 px с 1..8 досками и контекстным шумом.
+- `src/python/background.py` — процедурные фоны клеток (штриховка,
+  градиенты, шумы) для bg-invariance.
+- `src/python/training/train_foundation.py` — finetune ResNet18 ImageNet
+  для предыдущей итерации (per-cell). Сейчас не используется.
