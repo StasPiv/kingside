@@ -131,15 +131,47 @@ def recognize(
             "detect": detect,
         }
 
-    # Stage 2: YOLO inference на 512×512 BGR.
-    detections = _run_yolo(resolved_model, warped, detect_conf, iou_nms)
-    # detections — список dict: {cx, cy, w, h, class_idx, confidence}
-    # координаты в пикселях warped (0..512).
+    # Stage 2+3: YOLO inference + grid + FEN + sanity.
+    result = _recognize_from_warped(
+        warped, resolved_model,
+        orientation=orientation,
+        low_confidence_threshold=low_confidence_threshold,
+        detect_conf=detect_conf,
+        iou_nms=iou_nms,
+    )
 
-    # Stage 3a: bbox → grid 8×8.
+    image_size = detect.get("image_size") or [warped.shape[1], warped.shape[0]]
+    corners = detect.get("corners") or []
+    bbox = _bbox_from_corners(corners) if corners else [
+        0, 0, int(image_size[0]), int(image_size[1])
+    ]
+    result["bbox"] = bbox
+    result["detect"] = {
+        "method": detect.get("method"),
+        "confidence": float(detect.get("confidence", 0.0)),
+        "corners": corners,
+        "image_size": image_size,
+    }
+    return result
+
+
+def _recognize_from_warped(
+    warped: "np.ndarray",
+    model_path: str,
+    orientation: str = "auto",
+    low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+    detect_conf: float = DEFAULT_DETECT_CONF,
+    iou_nms: float = DEFAULT_IOU_NMS,
+) -> Dict[str, Any]:
+    """Core YOLO inference на готовом warped (512×512) изображении.
+
+    Не делает board-detect (Stage 1) — принимает уже выпрямленную доску.
+    Используется и в `recognize()` (после corner-detector warp), и в
+    `recognize_multi()` (после find-boards crop).
+    """
+    detections = _run_yolo(model_path, warped, detect_conf, iou_nms)
     raw_grid, raw_conf, raw_top3 = _detections_to_grid(detections)
 
-    # Stage 3b: orientation.
     effective_orientation = (
         _infer_orientation(raw_grid) if orientation == "auto" else orientation
     )
@@ -152,7 +184,6 @@ def recognize(
         oriented_conf = raw_conf
         oriented_top3 = raw_top3
 
-    # Stage 3c: FEN + sanity.
     fen_board = _grid_to_fen(oriented_grid)
     fen = f"{fen_board} w - - 0 1"
     sanity = _sanity_check(oriented_grid)
@@ -176,15 +207,8 @@ def recognize(
                 ],
             }
             cells_payload.append(cell)
-            # Low-confidence только для занятых клеток (empty с conf=1.0 — норма).
             if label != "empty" and oriented_conf[r][c] < low_confidence_threshold:
                 low_conf_payload.append(cell)
-
-    image_size = detect.get("image_size") or [warped.shape[1], warped.shape[0]]
-    corners = detect.get("corners") or []
-    bbox = _bbox_from_corners(corners) if corners else [
-        0, 0, int(image_size[0]), int(image_size[1])
-    ]
 
     return {
         "success": True,
@@ -192,17 +216,10 @@ def recognize(
         "fen": fen,
         "fen_board": fen_board,
         "orientation": effective_orientation,
-        "bbox": bbox,
-        "detect": {
-            "method": detect.get("method"),
-            "confidence": float(detect.get("confidence", 0.0)),
-            "corners": corners,
-            "image_size": image_size,
-        },
         "cells": cells_payload,
         "low_confidence_cells": low_conf_payload,
         "sanity": sanity,
-        "model_path": resolved_model,
+        "model_path": model_path,
         "model_kind": "yolo_v8n_objdet_v2",
     }
 
@@ -364,13 +381,218 @@ def _detections_to_grid(
     return grid_label, grid_conf, grid_top3
 
 
+# ─── Stage 0: find-boards (KS-3110) ──────────────────────────────────
+
+
+def find_boards(
+    image_path: str,
+    find_boards_model_path: str,
+    conf_threshold: float = 0.25,
+    iou_threshold: float = 0.45,
+    imgsz: int = 512,
+) -> List[Dict[str, Any]]:
+    """KS-3110: найти все доски на исходном скриншоте.
+
+    Возвращает список ``[{'bbox':[x0,y0,x1,y1], 'confidence': float}, ...]``
+    в координатах исходной картинки. Bbox — квадрат с захватом всей
+    доски (включая обвязку, если она маленькая).
+
+    Использует отдельную YOLOv8n ONNX модель (nc=1, class='board'),
+    обученную в KS-3110. На синтетическом val mAP50=0.995, на реальных
+    скриншотах 13/14 sanity OK.
+    """
+    import cv2
+    import onnxruntime as ort
+
+    bgr = cv2.imread(image_path)
+    if bgr is None:
+        raise FileNotFoundError(f"cv2.imread failed: {image_path}")
+    orig_h, orig_w = bgr.shape[:2]
+
+    # YOLO letterbox: ресайз до imgsz сохраняя aspect-ratio + паддинг.
+    scale = imgsz / max(orig_w, orig_h)
+    new_w, new_h = int(round(orig_w * scale)), int(round(orig_h * scale))
+    resized = cv2.resize(bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    pad_w = imgsz - new_w
+    pad_h = imgsz - new_h
+    top = pad_h // 2
+    left = pad_w // 2
+    canvas = np.full((imgsz, imgsz, 3), 114, dtype=np.uint8)
+    canvas[top:top + new_h, left:left + new_w] = resized
+
+    rgb = canvas[..., ::-1].astype(np.float32) / 255.0
+    chw = np.transpose(rgb, (2, 0, 1))[None]  # (1,3,imgsz,imgsz)
+
+    providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider")
+                 if p in ort.get_available_providers()]
+    sess = ort.InferenceSession(find_boards_model_path, providers=providers)
+    in_name = sess.get_inputs()[0].name
+    out_name = sess.get_outputs()[0].name
+    out = sess.run([out_name], {in_name: chw})[0]
+    # YOLOv8 1-class: shape (1, 5, num_anchors) — 4 bbox + 1 class score.
+    out = out[0]                       # (5, num_anchors)
+    boxes = out[:4, :].T               # (num_anchors, 4) — cx,cy,w,h
+    conf = out[4, :]                   # (num_anchors,)
+
+    mask = conf >= conf_threshold
+    boxes = boxes[mask]
+    conf = conf[mask]
+    if boxes.shape[0] == 0:
+        return []
+
+    # NMS — один класс.
+    class_idx = np.zeros(boxes.shape[0], dtype=np.int64)
+    keep = _nms_per_class(boxes, class_idx, conf, iou_threshold)
+
+    # Преобразование координат: letterbox imgsz → original image.
+    results: List[Dict[str, Any]] = []
+    for i in keep:
+        cx, cy, w, h = boxes[i]
+        # Снимаем letterbox-сдвиг.
+        cx -= left
+        cy -= top
+        # Снимаем letterbox-скейл.
+        cx /= scale; cy /= scale
+        w /= scale;  h /= scale
+        x0 = max(0.0, cx - w / 2)
+        y0 = max(0.0, cy - h / 2)
+        x1 = min(float(orig_w), cx + w / 2)
+        y1 = min(float(orig_h), cy + h / 2)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        # Filter: только квадратные bbox-ы (aspect-ratio ≈ 1:1 ± 25%).
+        bw = x1 - x0
+        bh = y1 - y0
+        ar = bw / max(1.0, bh)
+        if ar < 0.75 or ar > 1.33:
+            continue
+        # Filter: минимальный размер 80×80 (мелкий шум).
+        if bw < 80 or bh < 80:
+            continue
+        results.append({
+            "bbox": [int(x0), int(y0), int(x1), int(y1)],
+            "confidence": float(conf[i]),
+        })
+    # Сортируем по чтению: сверху вниз, слева направо.
+    results.sort(key=lambda b: (b["bbox"][1] // 100, b["bbox"][0]))
+    return results
+
+
+def recognize_multi(
+    image_path: str,
+    find_boards_model_path: Optional[str] = None,
+    find_pieces_model_path: Optional[str] = None,
+    orientation: str = "auto",
+    low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+    detect_conf: float = DEFAULT_DETECT_CONF,
+    iou_nms: float = DEFAULT_IOU_NMS,
+    find_boards_conf: float = 0.25,
+    unet_model_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """KS-3110 двухэтапный pipeline: найти все доски на скриншоте,
+    затем для каждой прогнать find-pieces.
+
+    Возвращает dict:
+        {
+          "success": True,
+          "boards": [{...}, {...}, ...],   # массив результатов recognize() на каждую доску
+          "n_boards_found": int,
+        }
+
+    Каждый элемент `boards` совпадает по формату с `recognize()`. Bbox в
+    нём пересчитан в координаты исходной картинки.
+
+    Если `find_boards_model_path` не задан — fallback на одну доску через
+    стандартный `recognize()`.
+    """
+    if find_boards_model_path is None:
+        find_boards_model_path = os.environ.get("BOARD_FINDBOARDS_MODEL_PATH")
+
+    # Fallback: нет find-boards модели — единичный recognize.
+    if not find_boards_model_path or not os.path.isfile(find_boards_model_path):
+        single = recognize(
+            image_path,
+            model_path=find_pieces_model_path,
+            orientation=orientation,
+            low_confidence_threshold=low_confidence_threshold,
+            detect_conf=detect_conf,
+            iou_nms=iou_nms,
+            unet_model_path=unet_model_path,
+        )
+        return {
+            "success": single.get("success", False),
+            "boards": [single] if single.get("success") else [],
+            "n_boards_found": 1 if single.get("success") else 0,
+            "find_boards_model": None,
+        }
+
+    # Stage 0: найти все доски.
+    boards_bboxes = find_boards(image_path, find_boards_model_path, conf_threshold=find_boards_conf)
+    if not boards_bboxes:
+        return {
+            "success": False,
+            "boards": [],
+            "n_boards_found": 0,
+            "find_boards_model": find_boards_model_path,
+            "error": "no boards detected by find-boards stage",
+        }
+
+    # Stage 1+2: для каждой доски — crop + прямой YOLO (без corner-detector).
+    # Bbox от find-boards уже точный квадрат — corner-detector только
+    # помешает: он часто обрезает края и теряет фигуры на краях
+    # (фото деревянной доски со стрелкой — wB на e1 пропадал).
+    import cv2
+    resolved_pieces = _resolve_model_path(find_pieces_model_path)
+    bgr_full = cv2.imread(image_path)
+    boards_results: List[Dict[str, Any]] = []
+    for i, bb in enumerate(boards_bboxes):
+        x0, y0, x1, y1 = bb["bbox"]
+        crop = bgr_full[y0:y1, x0:x1]
+        if crop.size == 0:
+            continue
+        # Прямой resize в 512×512 (бывший warp).
+        warped = cv2.resize(crop, (WARP_SIZE, WARP_SIZE), interpolation=cv2.INTER_LINEAR)
+        sub = _recognize_from_warped(
+            warped, resolved_pieces,
+            orientation=orientation,
+            low_confidence_threshold=low_confidence_threshold,
+            detect_conf=detect_conf,
+            iou_nms=iou_nms,
+        )
+        sub["bbox"] = [x0, y0, x1, y1]
+        sub["board_index"] = i
+        sub["find_boards_confidence"] = bb["confidence"]
+        sub["detect"] = {
+            "method": "find_boards_yolo",
+            "confidence": float(bb["confidence"]),
+            "corners": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+            "image_size": [bgr_full.shape[1], bgr_full.shape[0]],
+        }
+        boards_results.append(sub)
+
+    return {
+        "success": any(b.get("success") for b in boards_results),
+        "boards": boards_results,
+        "n_boards_found": len(boards_results),
+        "find_boards_model": find_boards_model_path,
+    }
+
+
 # ─── CLI ─────────────────────────────────────────────────────────────
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("image", help="Путь к PNG/JPG.")
-    ap.add_argument("--model", help="Путь к YOLO ONNX. Дефолт — $BOARD_RECOG_MODEL_PATH.")
+    ap.add_argument("--model", help="Путь к find-pieces YOLO ONNX. Дефолт — $BOARD_RECOG_MODEL_PATH.")
+    ap.add_argument("--find-boards-model", default=None,
+                    help="Путь к find-boards YOLO ONNX (KS-3110). "
+                         "Дефолт — $BOARD_FINDBOARDS_MODEL_PATH. Если задан — "
+                         "двухэтапный pipeline (find-boards → find-pieces). "
+                         "Если отсутствует — единичный recognize() через "
+                         "corner-detector.")
+    ap.add_argument("--multi", action="store_true",
+                    help="Принудительно multi-board режим (выходной массив).")
     ap.add_argument("--orientation", default="auto",
                     choices=("auto", "white", "black"))
     ap.add_argument("--low-confidence-threshold", type=float,
@@ -383,16 +605,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="Структурированный вывод вместо одной FEN-строки.")
     args = ap.parse_args(argv)
 
+    fb_model = args.find_boards_model or os.environ.get("BOARD_FINDBOARDS_MODEL_PATH")
+    use_multi = args.multi or bool(fb_model)
+
     try:
-        result = recognize(
-            args.image,
-            model_path=args.model,
-            orientation=args.orientation,
-            low_confidence_threshold=args.low_confidence_threshold,
-            detect_conf=args.detect_conf,
-            iou_nms=args.iou_nms,
-            unet_model_path=args.unet_model,
-        )
+        if use_multi:
+            result = recognize_multi(
+                args.image,
+                find_boards_model_path=fb_model,
+                find_pieces_model_path=args.model,
+                orientation=args.orientation,
+                low_confidence_threshold=args.low_confidence_threshold,
+                detect_conf=args.detect_conf,
+                iou_nms=args.iou_nms,
+                unet_model_path=args.unet_model,
+            )
+            # Back-compat: если найдена одна доска и НЕ задан --multi явно,
+            # отдаём её single-payload — service не сломается.
+            if not args.multi and result.get("n_boards_found", 0) == 1 and result["boards"]:
+                result = result["boards"][0]
+        else:
+            result = recognize(
+                args.image,
+                model_path=args.model,
+                orientation=args.orientation,
+                low_confidence_threshold=args.low_confidence_threshold,
+                detect_conf=args.detect_conf,
+                iou_nms=args.iou_nms,
+                unet_model_path=args.unet_model,
+            )
     except FileNotFoundError as e:
         print(f"board_recognize_yolo: {e}", file=sys.stderr)
         if args.json:

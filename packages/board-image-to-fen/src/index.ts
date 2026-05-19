@@ -315,12 +315,36 @@ export interface RecognizeUniversalOptions {
   modelPath?: string;
   /** Опциональная UNet-модель для board_detect fallback. */
   unetModelPath?: string;
+  /**
+   * Путь к find-boards ONNX-модели (KS-3110). Если задан — включает
+   * двухэтапный pipeline (Stage 0: найти все доски на скриншоте → Stage 1+2:
+   * для каждой recognize). Если не задан — используется env
+   * `BOARD_FINDBOARDS_MODEL_PATH`. При отсутствии — pipeline работает
+   * как раньше (один результат через corner-detector).
+   *
+   * Только для `BOARD_RECOG_PIPELINE=yolo` (find-pieces должен быть YOLO).
+   */
+  findBoardsModelPath?: string;
   /** Cells с top-1 prob ниже этого порога попадают в `low_confidence_cells`. */
   lowConfidenceThreshold?: number;
   /** Путь к python (default `python3`). */
   pythonPath?: string;
   /** Альтернативная картинка-источник шаблонов для legacy-пути. */
   templatesImage?: string;
+}
+
+/**
+ * Результат `recognizeUniversal()` в multi-board режиме (KS-3110).
+ * Активируется когда передан `findBoardsModelPath` или env-переменная.
+ *
+ * `boards` — массив результатов recognize() для каждой найденной доски.
+ * Bbox каждого элемента в координатах исходной картинки.
+ */
+export interface UniversalMultiBoardResult {
+  success: boolean;
+  usedProfile: 'generic';
+  n_boards_found: number;
+  boards: UniversalRecognizeResult[];
 }
 
 /**
@@ -359,6 +383,7 @@ export async function recognizeUniversal(
     orientation = 'auto',
     modelPath,
     unetModelPath,
+    findBoardsModelPath,
     lowConfidenceThreshold = 0.85,
     pythonPath = 'python3',
     templatesImage,
@@ -402,6 +427,7 @@ export async function recognizeUniversal(
     orientation,
     modelPath,
     unetModelPath,
+    findBoardsModelPath,
     lowConfidenceThreshold,
     pythonPath,
   });
@@ -448,6 +474,7 @@ async function runGeneric(
     orientation: Orientation | 'auto';
     modelPath?: string;
     unetModelPath?: string;
+    findBoardsModelPath?: string;
     lowConfidenceThreshold: number;
     pythonPath: string;
   },
@@ -460,6 +487,7 @@ async function runGeneric(
   ];
   if (opts.modelPath) args.push('--model', opts.modelPath);
   if (opts.unetModelPath) args.push('--unet-model', opts.unetModelPath);
+  if (opts.findBoardsModelPath) args.push('--find-boards-model', opts.findBoardsModelPath);
 
   type Raw = {
     success: boolean;

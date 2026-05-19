@@ -93,8 +93,42 @@ download_corner_detector() {
   fi
 }
 
+# KS-3110 (find-boards Stage 0): отдельная YOLO-модель ищет все доски
+# на исходном скриншоте. Префикс в S3 другой: `findboards_v<X>/model.onnx`.
+# Опциональна — если не задан BOARD_FINDBOARDS_MODEL_VERSION, pipeline
+# работает по-старому через corner-detector (один результат на запрос).
+download_find_boards_model() {
+  local version="${BOARD_FINDBOARDS_MODEL_VERSION:-}"
+  if [ -z "$version" ]; then
+    echo "[entrypoint] BOARD_FINDBOARDS_MODEL_VERSION not set — find-boards disabled."
+    return 0
+  fi
+  local dir="${BOARD_RECOG_MODEL_DIR:-/var/cache/board-recog}"
+  local target="${BOARD_FINDBOARDS_MODEL_PATH:-$dir/findboards.onnx}"
+  local bucket="${BOARD_RECOG_MODEL_BUCKET:-kingside-ml}"
+  local region="${BOARD_RECOG_MODEL_REGION:-eu-central-1}"
+  local key="models/board-recog/findboards_v${version}/model.onnx"
+  local s3_uri="s3://${bucket}/${key}"
+
+  if [ -s "$target" ]; then
+    echo "[entrypoint] find-boards model already cached at $target — skip download."
+    export BOARD_FINDBOARDS_MODEL_PATH="$target"
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  echo "[entrypoint] downloading find-boards model: $s3_uri -> $target"
+  if aws s3 cp "$s3_uri" "$target" --region "$region"; then
+    echo "[entrypoint] find-boards model ready: $target ($(stat -c %s "$target") bytes)"
+    export BOARD_FINDBOARDS_MODEL_PATH="$target"
+  else
+    echo "[entrypoint] WARN: failed to download $s3_uri — find-boards disabled, two-stage pipeline degraded to single-board." >&2
+    rm -f "$target"
+  fi
+}
+
 download_board_recog_model
 download_corner_detector
+download_find_boards_model
 
 echo "[entrypoint] Starting API..."
 exec node dist/main.js
