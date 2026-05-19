@@ -50,9 +50,21 @@ SHA256 `v5-findboards.tar` = `13fd3ea688a50930ce8ba030832350702b7542040e1834be1f
 | Файл | Где запускается | Назначение |
 |---|---|---|
 | `setup-aws.sh` | shared-хост devops | keypair + SG + IAM role + instance-profile. Идемпотентно: повторный запуск без ошибки. |
-| `launch.sh` | shared-хост devops | `aws ec2 run-instances` + ожидание `READY`-маркера. Печатает SSH-команды для backend. |
-| `user-data.sh` | внутри EC2 (через `--user-data`) | NVMe-init, `aws s3 cp` датасета, `pip install` ultralytics, prefetch `yolov8n.pt`, маркер `/opt/dlami/nvme/READY`. |
-| `teardown.sh` | shared-хост devops | terminate инстанса + удаление SG / IAM / keypair / локальных tmp-файлов. |
+| `launch.sh` | shared-хост devops | `aws ec2 run-instances` + ожидание `READY`-маркера. **Auto-detect AMI**: свежий baked если есть, иначе fallback на public DLAMI. Печатает SSH-команды для backend. |
+| `user-data-cold.sh` | внутри EC2 на public DLAMI | Полный setup: pip install torch+ultralytics+deps, `aws s3 cp` датасета, prefetch `yolov8n.pt`, маркер `/opt/dlami/nvme/READY`. ~4 мин. |
+| `user-data-baked.sh` | внутри EC2 на baked AMI | Сокращённый: pip install НЕ делается (запечён в AMI), только NVMe-init + `aws s3 cp` датасета + tar -xf + READY. ~30–60 сек. |
+| `teardown.sh` | shared-хост devops | terminate инстанса + удаление SG / IAM / keypair / локальных tmp-файлов. **AMI не трогает** — это переиспользуемый артефакт. |
+
+## Выбор AMI (cold vs baked)
+
+`launch.sh` сам решает:
+1. Ищет `aws ec2 describe-images --owners self --filters tag:Purpose=yolo-train-baked` — берёт самый свежий по `CreationDate`.
+2. Если такого нет — fallback на public DLAMI (`ami-03aa80bc63bbd3638`).
+3. Override через env: `KINGSIDE_YOLO_AMI=ami-XXX bash launch.sh <DATASET>`.
+
+Baked AMI хранит запечённые `torch 2.4.1+cu124` + `ultralytics 8.4.51` + все pip-deps. Это экономит ~3–4 минуты setup'а на каждый запуск. Стоимость хранения snapshot'а ~$1.5/мес.
+
+См. §7 «Запечь свой AMI» — как создать baked-image впервые / обновить.
 
 ## Полный сценарий: запуск, train, выгрузка, гашение
 
@@ -208,6 +220,10 @@ aws s3 cp /tmp/ks3110-yolo-gpu/evaluation_report.json \
 
 ОБЯЗАТЕЛЬНО — иначе on-demand $0.526/час идёт нон-стоп.
 
+⚠️ **Перед teardown'ом — рассмотри `aws ec2 create-image`** (см. §7), если
+текущая среда (новые версии torch/ultralytics/deps) ещё не запечена в baked AMI.
+Сейчас стартовать baked AMI почти бесплатно по времени, не упускай возможность.
+
 ```
 ./scripts/ml-training/yolo-gpu/teardown.sh
 ```
@@ -227,6 +243,60 @@ aws s3 cp /tmp/ks3110-yolo-gpu/evaluation_report.json \
 - IAM-обвес мелкий, без затрат — но висящие AssumeRole-инструменты
   в проде не нужны.
 
+### 7. Запечь свой AMI (опционально, но рекомендуется)
+
+Если предстоит ≥2 тренировок — `pip install` каждый раз занимает 3–4 мин
+впустую. Один раз запекаем готовое окружение (`torch+cu124`, `ultralytics`,
+deps) в AMI, дальше `launch.sh` сам его подхватит.
+
+Делается ОДИН раз после первой успешной тренировки, перед teardown'ом:
+
+```bash
+INSTANCE_ID=$(cat /tmp/kingside-gpu-pilot.id)
+IP=$(cat /tmp/kingside-gpu-pilot.ip)
+KEY=/tmp/kingside-gpu-pilot.pem
+
+# 1. Cleanup инстанса (приватные данные, чтобы не утекли в AMI):
+ssh -i $KEY ubuntu@$IP 'bash -s' <<'CLEANUP'
+sudo rm -rf /opt/dlami/nvme/data /opt/dlami/nvme/runs /opt/dlami/nvme/*.tar /opt/dlami/nvme/READY
+sudo rm -f /home/ubuntu/.ssh/authorized_keys
+sudo touch /home/ubuntu/.ssh/authorized_keys
+sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+sudo rm -f /var/log/kingside-setup.log /var/log/kingside-data.log
+sudo truncate -s 0 /var/log/cloud-init.log /var/log/cloud-init-output.log 2>/dev/null || true
+sudo rm -f /home/ubuntu/.bash_history /root/.bash_history /home/ubuntu/.ssh/known_hosts /root/.ssh/known_hosts
+sudo rm -rf /home/ubuntu/.aws /root/.aws
+sudo cloud-init clean --logs --seed
+CLEANUP
+
+# 2. Создать AMI (AWS сама сделает stop → snapshot → start; ~5–10 мин):
+DATE_TAG=$(date -u +%Y%m%d-%H%M)
+aws ec2 create-image --region eu-central-1 \
+  --instance-id "$INSTANCE_ID" \
+  --name "kingside-gpu-pilot-baked-${DATE_TAG}" \
+  --description "Kingside YOLO GPU baked: DLAMI 22.04 + torch 2.4.1+cu124 + ultralytics 8.4.51 + deps. Built $(date -Iseconds)." \
+  --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=kingside-gpu-pilot-baked-${DATE_TAG}},{Key=Project,Value=kingside},{Key=Purpose,Value=yolo-train-baked}]" \
+  --query 'ImageId' --output text
+# Дальше дождись `image-available`:
+aws ec2 wait image-available --region eu-central-1 --image-ids ami-XXXX
+
+# 3. После того как AMI готов — `teardown.sh` как обычно. AMI остаётся в аккаунте.
+```
+
+После этого `launch.sh` сам подхватит baked AMI — увидишь `[ami] mode=baked`.
+
+**Когда пересоздавать baked AMI:**
+- backend поменял версию `ultralytics` или `torch`;
+- AMI старше 2–3 месяцев и базовый DLAMI обновил драйвер NVIDIA / CUDA;
+- появился новый pip-deps, который user-data-cold.sh ставит впервые.
+
+Старые baked AMI можно удалить, освобождая snapshot'ы:
+```
+aws ec2 deregister-image --image-id ami-OLD --region eu-central-1
+aws ec2 delete-snapshot --snapshot-id snap-OLD --region eu-central-1
+```
+
 ## Типовые ошибки (по log'ам последней реальной тренировки)
 
 1. **`MaxSpotInstanceCountExceeded` на spot.**
@@ -240,7 +310,8 @@ aws s3 cp /tmp/ks3110-yolo-gpu/evaluation_report.json \
 3. **`polars not found` в ultralytics 8.4.51.**
    У `yolo train` есть post-train hook, который пытается импортировать `polars`,
    но в `ultralytics==8.4.51 --no-deps` его нет. Если упадёт — на инстансе:
-   `/opt/conda/bin/pip install polars`. Уже зашит в `user-data.sh`.
+   `/opt/conda/bin/pip install polars`. Уже зашит в `user-data-cold.sh`
+   и запечён в baked AMI.
 
 4. **`evaluation_report.json` грязный.**
    Если backend пишет через `tee` или `yolo val > report.json` — в файл

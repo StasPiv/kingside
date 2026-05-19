@@ -7,7 +7,14 @@
 # Аргумент: <DATASET> — имя без расширения (e.g. v4-objdet, v5-findboards).
 #                       На S3 должен лежать s3://kingside-ml/datasets/board-recog/<DATASET>.tar
 #
-# По завершении печатает SSH-команду и реквизиты для backend.
+# AMI выбирается автоматически:
+#   1. Свежий baked AMI с tag `Purpose=yolo-train-baked` (создаётся ручным
+#      `aws ec2 create-image` после первой успешной тренировки — см. README §7).
+#      Setup на нём ~30–60 сек (только NVMe init + s3 cp + tar -xf).
+#   2. Если baked AMI нет — публичный Deep Learning AMI (ami-03aa80bc63bbd3638).
+#      Setup ~4 мин (pip install torch+ultralytics+deps).
+#
+# Переопределить выбор: KINGSIDE_YOLO_AMI=ami-XXXX bash launch.sh <DATASET>
 
 set -euo pipefail
 
@@ -21,21 +28,18 @@ DATASET="$1"
 DATASET_TAR="${DATASET}.tar"
 
 REGION="eu-central-1"
-AMI_ID="ami-03aa80bc63bbd3638"
+PUBLIC_AMI_ID="ami-03aa80bc63bbd3638"   # fallback (cold)
 INSTANCE_TYPE="g4dn.xlarge"
 KEY_NAME="kingside-gpu-pilot"
 SG_ID_PATH="/tmp/${KEY_NAME}.sg"
 KEY_PATH="/tmp/${KEY_NAME}.pem"
-TEMPLATE="$(dirname "$0")/user-data.sh"
+SCRIPT_DIR="$(dirname "$0")"
 
 # ---- preflight -------------------------------------------------------------
 [ -f "$SG_ID_PATH" ] || { echo "ERROR: $SG_ID_PATH не найден — сначала запусти ./setup-aws.sh" >&2; exit 1; }
 [ -f "$KEY_PATH" ]  || { echo "ERROR: $KEY_PATH не найден — сначала запусти ./setup-aws.sh" >&2; exit 1; }
-[ -f "$TEMPLATE" ]  || { echo "ERROR: $TEMPLATE не найден" >&2; exit 1; }
 SG_ID=$(cat "$SG_ID_PATH")
 
-# Проверка что tar реально лежит в S3 — без неё инстанс упадёт в user-data
-# через 1 минуту, и мы заплатим $0.01 ни за что.
 if ! aws s3api head-object --bucket kingside-ml \
         --key "datasets/board-recog/${DATASET_TAR}" \
         --region "$REGION" >/dev/null 2>&1; then
@@ -43,6 +47,38 @@ if ! aws s3api head-object --bucket kingside-ml \
     echo "       Залей tar в S3 перед запуском, см. README §0." >&2
     exit 1
 fi
+
+# ---- auto-detect AMI -------------------------------------------------------
+if [ -n "${KINGSIDE_YOLO_AMI:-}" ]; then
+    AMI_ID="$KINGSIDE_YOLO_AMI"
+    AMI_MODE="override"
+else
+    BAKED_AMI=$(aws ec2 describe-images --region "$REGION" --owners self \
+        --filters 'Name=tag:Purpose,Values=yolo-train-baked' 'Name=state,Values=available' \
+        --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text 2>/dev/null || echo "None")
+    if [ -n "$BAKED_AMI" ] && [ "$BAKED_AMI" != "None" ]; then
+        AMI_ID="$BAKED_AMI"
+        AMI_MODE="baked"
+    else
+        AMI_ID="$PUBLIC_AMI_ID"
+        AMI_MODE="public-dlami"
+    fi
+fi
+
+# Соответствующий template user-data
+case "$AMI_MODE" in
+    baked)
+        TEMPLATE="$SCRIPT_DIR/user-data-baked.sh"
+        ;;
+    *)
+        # override и public-dlami оба используют cold-template
+        TEMPLATE="$SCRIPT_DIR/user-data-cold.sh"
+        ;;
+esac
+[ -f "$TEMPLATE" ] || { echo "ERROR: $TEMPLATE не найден" >&2; exit 1; }
+
+echo "[ami] mode=$AMI_MODE id=$AMI_ID"
+echo "[ami] user-data template: $TEMPLATE"
 
 # ---- собрать user-data из template -----------------------------------------
 USER_DATA_PATH="/tmp/gpu-user-data.sh"
@@ -60,7 +96,7 @@ INSTANCE_JSON=$(aws ec2 run-instances \
     --iam-instance-profile "Name=kingside-gpu-pilot-profile" \
     --user-data "fileb://${USER_DATA_PATH}" \
     --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=120,VolumeType=gp3,DeleteOnTermination=true}' \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${KEY_NAME}},{Key=Project,Value=kingside},{Key=Purpose,Value=${DATASET}-yolo-train}]" \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${KEY_NAME}},{Key=Project,Value=kingside},{Key=Purpose,Value=${DATASET}-yolo-train},{Key=AmiMode,Value=${AMI_MODE}}]" \
     --metadata-options 'HttpTokens=required,HttpPutResponseHopLimit=2' \
     --output json)
 INSTANCE_ID=$(echo "$INSTANCE_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin)['Instances'][0]['InstanceId'])")
@@ -76,8 +112,7 @@ echo "$IP" > "/tmp/${KEY_NAME}.ip"
 echo "[launch] public IP: $IP"
 
 # ---- ждать READY-маркер ----------------------------------------------------
-# user-data может работать 3–6 минут (pip install + s3 cp + tar -xf).
-# Считаем READY = SSH доступен + файл /opt/dlami/nvme/READY существует.
+# Cold: 3–6 мин; baked: 30–60 сек.
 echo "[wait] /opt/dlami/nvme/READY (timeout 10 min)..."
 DEADLINE=$(( $(date +%s) + 600 ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
@@ -105,7 +140,7 @@ cat <<EOF
 
 === READY ===
 
-Instance:  $INSTANCE_ID
+Instance:  $INSTANCE_ID  (AMI mode: $AMI_MODE)
 Public IP: $IP
 SSH key:   $KEY_PATH
 Dataset:   /opt/dlami/nvme/data/${DATASET}/  (from ${DATASET_TAR})
