@@ -49,23 +49,28 @@ function autoLoadFakeFile() {
  * восстанавливаем оригинал.
  */
 
-const UNRELIABLE_BODY = JSON.stringify({
-  error: 'recognition_unreliable',
-  message: 'sanity check failed',
-  // Точно из жалобы пользователя: модель распознала всё кроме a1.
-  fenAttempt:
-    'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
-  issues: ['some pawns are on the edge rows'],
-  lowConfidenceCells: [
-    { file: 0, rank: 7, piece: 'P', confidence: 0.51 },
-    { file: 5, rank: 2, piece: 'P', confidence: 0.58 },
-    { file: 3, rank: 4, piece: 'B', confidence: 0.62 },
-  ],
-  orientation: 'white',
-  modelVersion: '0.9.3',
-});
+function buildUnreliableBody(orientation: 'white' | 'black'): string {
+  // KS-3105: позволяем через ?orientation=black снять скриншот для
+  // сценария когда исходник снят со стороны чёрных.
+  return JSON.stringify({
+    error: 'recognition_unreliable',
+    message: 'sanity check failed',
+    // Точно из жалобы пользователя: модель распознала всё кроме a1.
+    fenAttempt:
+      'r2q1rk1/ppp1b1pp/1nn1pP2/5b2/2PP4/2N1BN2/PP2B1PP/P2Q1RK1 w - - 0 1',
+    issues: ['some pawns are on the edge rows'],
+    lowConfidenceCells: [
+      { file: 0, rank: 7, piece: 'P', confidence: 0.51 },
+      { file: 5, rank: 2, piece: 'P', confidence: 0.58 },
+      { file: 3, rank: 4, piece: 'B', confidence: 0.62 },
+    ],
+    orientation,
+    modelVersion: '0.9.3',
+  });
+}
 
 let installed = false;
+let currentOrientation: 'white' | 'black' = 'white';
 function installFetchMock() {
   if (installed) return;
   installed = true;
@@ -79,7 +84,7 @@ function installFetchMock() {
           : input.url;
     if (url.includes('/board-recognition')) {
       await new Promise((r) => setTimeout(r, 80));
-      return new Response(UNRELIABLE_BODY, {
+      return new Response(buildUnreliableBody(currentOrientation), {
         status: 422,
         headers: { 'content-type': 'application/json' },
       });
@@ -93,6 +98,10 @@ export function DevBoardImageDropzoneUnreliablePage() {
   const [open, setOpen] = useState(true);
   const [appliedFen, setAppliedFen] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
+
+  // KS-3105: `?orientation=black` — сценарий «картинка снята со стороны
+  // чёрных», редактор должен быть перевёрнут.
+  currentOrientation = searchParams.get('orientation') === 'black' ? 'black' : 'white';
 
   // `?autoload=1` — для MCP `interact` (не умеет setInputFiles). Ждём
   // 700мс чтобы модал успел отрисовать input[type=file], затем

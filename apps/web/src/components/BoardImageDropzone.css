@@ -119,9 +119,10 @@
 .board-image-dropzone__board {
   width: 100%;
   max-width: 320px;
-  aspect-ratio: 1 / 1;
+  /* KS-3105: aspect-ratio убран — внутри теперь не только chessboard,
+     но и InlineBoardEditor с палитрой снизу, общая высота больше
+     ширины. Сам grid внутри editor'а держит свой aspect-ratio 1:1. */
   border-radius: 6px;
-  overflow: hidden;
 }
 
 .board-image-dropzone__controls {

@@ -18,6 +18,13 @@ import {
   type BoardRecognitionResponse,
 } from '../api/boardRecognition';
 import { cropImageToBlob, type CropArea } from './boardImageCrop';
+import {
+  InlineBoardEditor,
+  fenToEditorBoard,
+  editorBoardToFen,
+  type PalettePiece,
+  type HighlightKind,
+} from './InlineBoardEditor';
 import './BoardImageDropzone.css';
 
 /**
@@ -242,6 +249,16 @@ export function BoardImageDropzone({
   const [manualMode, setManualMode] = useState(false);
   const [manualFen, setManualFen] = useState<string>(initialFen ?? STARTING_FEN);
   const [warnings, setWarnings] = useState<string[]>([]);
+  // KS-3105: state редактора позиции. После recognize отдаём управление
+  // пользователю — он правит фигуры click/drag на встроенном
+  // `<InlineBoardEditor>`. Изначально `null` (нет картинки → нет editor'а).
+  const [editorBoard, setEditorBoard] = useState<
+    Record<string, PalettePiece | undefined> | null
+  >(null);
+  const [palettePiece, setPalettePiece] = useState<PalettePiece | null>(null);
+  // KS-3105: клетки, которые пользователь правил руками — снимаем с них
+  // подсветку low/sanity (модель уже не отвечает за их содержимое).
+  const [editedCells, setEditedCells] = useState<Set<string>>(new Set());
   // KS-3093: backend 422 `recognition_unreliable` — модель распознала
   // позицию, но client-sanity отверг (типичный случай: пешка на a1
   // вместо ладьи). Раньше фронт показывал «Invalid FEN: точка» и
@@ -310,6 +327,12 @@ export function BoardImageDropzone({
         setFenRest(parseFenRest(res.fen));
         setManualFen(res.fen);
         setWarnings(res.warnings ?? []);
+        // KS-3105: инициализируем редактор позиции из распознанного FEN'а.
+        // Sanity/low-confidence клетки сбрасывают «editedCells», чтобы
+        // подсветка появилась снова на свежем результате (пользователь
+        // мог редактировать предыдущий распознанный board).
+        setEditorBoard(fenToEditorBoard(res.fenBoard));
+        setEditedCells(new Set());
         // KS-3093: при успешном распознавании сразу передаём в
         // родительский board-editor — чтобы пользователь правил
         // позицию перетаскиванием фигур / переключателями рокировки /
@@ -349,6 +372,9 @@ export function BoardImageDropzone({
             setSide(stm);
             setOrientation(p.orientation ?? 'white');
             setManualFen(p.fenAttempt);
+            // KS-3105: тот же init редактора и для 422-ветки.
+            setEditorBoard(fenToEditorBoard(board));
+            setEditedCells(new Set());
             // Подменяем `result`-метаданные тем, что есть в payload,
             // чтобы UI ниже корректно показывал modelVersion и
             // lowConfidenceCells. orientation и pseudo-bbox задаём
@@ -446,13 +472,21 @@ export function BoardImageDropzone({
     [handleFile],
   );
 
-  const previewFen = manualMode ? manualFen : composeFen(fenBoard, side, fenRest);
+  // KS-3105: когда есть editorBoard (распознавание прошло), FEN строим
+  // из его состояния — пользователь правит фигуры click/drag в редакторе,
+  // и мы должны мгновенно отражать это в preview/Apply/sanity. Если
+  // редактора нет (ещё ничего не загружали) — старая логика.
+  const editorFenBoard = editorBoard ? editorBoardToFen(editorBoard) : null;
+  const effectiveFenBoard = editorFenBoard ?? fenBoard;
+  const previewFen = manualMode
+    ? manualFen
+    : composeFen(effectiveFenBoard, side, fenRest);
   // KS-3093: parse-error chess.js — жёсткий блок Apply (только когда
   // юзер сам ввёл мусор в manual-mode). Soft-sanity (checkBoardSanity)
   // — отдельный warning, тоже блокирует Apply, но без alert.
   const previewBoardForSanity = manualMode
     ? manualFen.split(' ')[0] ?? EMPTY_FEN_BOARD
-    : fenBoard;
+    : effectiveFenBoard;
   const liveSanityIssues = checkBoardSanity(previewBoardForSanity);
   const previewError = manualMode ? validateFen(manualFen) : validateFen(previewFen);
   // Apply активен ⇔ chess.js принимает FEN И client-sanity ok И есть
@@ -476,18 +510,26 @@ export function BoardImageDropzone({
   // KS-3093: подсветка клеток. Объединяем lowConfidenceCells (модель не
   // уверена, жёлтые рамки) и клетки, нарушающие sanity (например, пешки
   // на 1/8 ранге, красные рамки). На общей клетке побеждает sanity.
+  // KS-3105: при использовании InlineBoardEditor — подсветка убирается
+  // с клеток, которые юзер уже исправил руками (editedCells), модель за
+  // их содержимое больше не отвечает.
   const squareStyles: Record<string, React.CSSProperties> = {};
+  const highlightMap: Partial<Record<string, HighlightKind>> = {};
   for (const c of result?.lowConfidenceCells ?? []) {
     const sq = cellToSquare(c);
     if (!sq) continue;
+    if (editedCells.has(sq)) continue;
     squareStyles[sq] = {
       boxShadow: 'inset 0 0 0 3px rgba(255, 200, 60, 0.9)',
     };
+    highlightMap[sq] = 'low';
   }
   for (const sq of findSanityCells(previewBoardForSanity)) {
+    if (editedCells.has(sq)) continue;
     squareStyles[sq] = {
       boxShadow: 'inset 0 0 0 3px rgba(240, 80, 80, 0.95)',
     };
+    highlightMap[sq] = 'sanity';
   }
 
   const handleApply = useCallback(() => {
@@ -703,18 +745,50 @@ export function BoardImageDropzone({
             data-testid="board-image-dropzone-board"
             data-fen-board={previewBoardForRender}
           >
-            <Chessboard
-              options={{
-                position: previewBoardForRender,
-                boardOrientation: orientation,
-                animationDurationInMs: 0,
-                allowDragging: false,
-                showNotation: true,
-                ...(Object.keys(squareStyles).length > 0
-                  ? { squareStyles }
-                  : {}),
-              }}
-            />
+            {editorBoard ? (
+              /* KS-3105: после recognize — полноценный редактор с palette
+                 и drag&drop, чтобы пользователь правил фигуры тут же, не
+                 уходя на вкладку «Board Editor». Подсветка low-confidence
+                 и sanity-нарушений снимается с клетки, когда юзер кладёт
+                 туда фигуру руками (cell в `editedCells`). orientation
+                 берётся из backend-ответа, можно перевернуть кнопкой Flip
+                 ниже. */
+              <InlineBoardEditor
+                board={editorBoard}
+                onBoardChange={setEditorBoard}
+                selectedPiece={palettePiece}
+                onSelectPiece={setPalettePiece}
+                orientation={orientation}
+                highlightCells={highlightMap}
+                onCellEdited={(sq) =>
+                  setEditedCells((prev) => {
+                    if (prev.has(sq)) return prev;
+                    const next = new Set(prev);
+                    next.add(sq);
+                    return next;
+                  })
+                }
+                /* KS-3105: палитра под доской — на desktop modal-ширина
+                   500px, board 320×320, справа места нет; на mobile тем
+                   более вертикальный layout. Bottom-placement даёт
+                   палитре всю ширину и не обрезается. */
+                palettePosition="bottom"
+                testIdPrefix="board-image-dropzone-editor"
+              />
+            ) : (
+              <Chessboard
+                options={{
+                  position: previewBoardForRender,
+                  boardOrientation: orientation,
+                  animationDurationInMs: 0,
+                  allowDragging: false,
+                  showNotation: true,
+                  ...(Object.keys(squareStyles).length > 0
+                    ? { squareStyles }
+                    : {}),
+                }}
+              />
+            )}
           </div>
           <div className="board-image-dropzone__controls">
             <button
