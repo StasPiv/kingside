@@ -133,7 +133,11 @@
 }
 
 .review-moves-list {
-  font-size: 15px;
+  /* KS-3099 v2: масштабируется через `--analysis-sidebar-font-scale`
+     (Aa-кнопка в шапке sidebar'а). Раньше font-size был жёстко 15px —
+     ходы нотации не реагировали на S/M/L. Дочерние `.move-item.variation-move`
+     с `font-size: 0.9em` теперь наследуют масштаб корректно через em. */
+  font-size: calc(15px * var(--analysis-sidebar-font-scale, 1));
   line-height: 1.6;
   white-space: normal;
   word-wrap: break-word;
@@ -144,7 +148,8 @@
 .review-no-moves {
   padding: 16px;
   color: var(--c-888);
-  font-size: 14px;
+  /* KS-3099 v2. */
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
 }
 
 /* move-item styles (matching chessgpt logic) */
