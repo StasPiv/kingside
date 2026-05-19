@@ -132,25 +132,39 @@
   gap: 8px;
 }
 
+/* KS-3108: до этого `__btn` имел `background: rgba(255,255,255,0.04)` —
+   почти-прозрачный белый. На светлом фоне модала (`--c-1a1a2e` в
+   light-теме = #ece8e3) кнопка выглядела как «disabled», пользователь
+   не понимал что Flip активна. Заменено на solid token-based стиль
+   (`bg-input`/`border-mid`/`text-primary`), идентичный crop-кнопкам из
+   KS-3104. Hover/focus-visible — выраженные. */
 .board-image-dropzone__btn {
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 6px;
-  border: 1px solid rgba(120, 140, 200, 0.35);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text, #e8e8ee);
+  border: 1px solid var(--border-mid, rgba(120, 140, 200, 0.45));
+  background: var(--bg-input, #2a2a3e);
+  color: var(--text-primary, #e8e8ee);
   cursor: pointer;
   font-size: 0.85em;
   font-family: inherit;
+  font-weight: 500;
+  transition: background 0.12s, border-color 0.12s, filter 0.12s;
 }
 
 .board-image-dropzone__btn:hover {
-  background: rgba(74, 142, 255, 0.12);
-  border-color: rgba(160, 180, 230, 0.5);
+  filter: brightness(1.15);
+  border-color: var(--accent-primary, #7c83ff);
+}
+
+.board-image-dropzone__btn:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
 }
 
 .board-image-dropzone__btn.is-active {
-  background: rgba(74, 142, 255, 0.25);
-  border-color: rgba(160, 180, 230, 0.7);
+  background: var(--accent-primary, #7c83ff);
+  border-color: var(--accent-primary, #7c83ff);
+  color: #ffffff;
 }
 
 .board-image-dropzone__side {

@@ -14,6 +14,7 @@ import {
   recognizeBoard,
   BoardNotDetectedError,
   BoardRecognitionUnreliableError,
+  resolveOrientation,
   type BoardRecognitionCell,
   type BoardRecognitionResponse,
 } from '../api/boardRecognition';
@@ -347,7 +348,19 @@ export function BoardImageDropzone({
         const res = await recognizer(file);
         setResult(res);
         setFenBoard(res.fenBoard);
-        setOrientation(res.orientation);
+        // KS-3108: backend orientation может быть ненадёжным (его
+        // эвристика смотрит на королей в распознанной позиции —
+        // если фигуры классифицированы неточно, orientation уезжает).
+        // Доверяем backend только при confidence >= 0.7, иначе берём
+        // autodetect по королям. Backend-агент рекомендует именно
+        // этот алгоритм (см. KS-3108 комментарии).
+        setOrientation(
+          resolveOrientation(
+            res.orientation,
+            res.orientationConfidence,
+            res.fenBoard,
+          ),
+        );
         const parts = res.fen.split(' ');
         const s = parts[1] === 'b' ? 'b' : 'w';
         setSide(s);
@@ -397,7 +410,12 @@ export function BoardImageDropzone({
             setFenBoard(board);
             setFenRest(rest);
             setSide(stm);
-            setOrientation(p.orientation ?? 'white');
+            // KS-3108: тот же resolveOrientation для 422-ветки.
+            // У 422-payload'а нет `orientationConfidence`, считаем
+            // его 0 → всегда применяем autodetect если он сработал.
+            setOrientation(
+              resolveOrientation(p.orientation, 0, board),
+            );
             setManualFen(p.fenAttempt);
             // KS-3105: тот же init редактора и для 422-ветки.
             setEditorBoard(fenToEditorBoard(board));

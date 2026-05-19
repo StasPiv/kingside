@@ -10,6 +10,9 @@ import {
   BoardNotDetectedError,
   BoardRecognitionUnreliableError,
   normalizeLowConfidenceCells,
+  normalizeOrientation,
+  autodetectOrientationFromFen,
+  resolveOrientation,
 } from './boardRecognition';
 
 const STARTING_FEN =
@@ -245,5 +248,94 @@ describe('normalizeLowConfidenceCells (KS-3106)', () => {
     expect(normalizeLowConfidenceCells(undefined)).toEqual([]);
     expect(normalizeLowConfidenceCells(null)).toEqual([]);
     expect(normalizeLowConfidenceCells({ wrong: 'shape' })).toEqual([]);
+  });
+});
+
+describe('normalizeOrientation (KS-3108)', () => {
+  it('строки white/black', () => {
+    expect(normalizeOrientation('white')).toBe('white');
+    expect(normalizeOrientation('black')).toBe('black');
+  });
+  it('короткие w/b', () => {
+    expect(normalizeOrientation('w')).toBe('white');
+    expect(normalizeOrientation('b')).toBe('black');
+  });
+  it('boolean flipped', () => {
+    expect(normalizeOrientation(true)).toBe('black');
+    expect(normalizeOrientation(false)).toBe('white');
+  });
+  it('числа 0/1', () => {
+    expect(normalizeOrientation(0)).toBe('white');
+    expect(normalizeOrientation(1)).toBe('black');
+  });
+  it('мусор / отсутствует → null', () => {
+    expect(normalizeOrientation(undefined)).toBeNull();
+    expect(normalizeOrientation('zz')).toBeNull();
+    expect(normalizeOrientation(42)).toBeNull();
+  });
+});
+
+describe('autodetectOrientationFromFen (KS-3108)', () => {
+  it('стандартная стартовая позиция → white', () => {
+    expect(
+      autodetectOrientationFromFen(
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR',
+      ),
+    ).toBe('white');
+  });
+  it('перевёрнутая (чёрные снизу) → black', () => {
+    // wK на 8-м ранге (top FEN), bK на 1-м (bottom FEN) — доска как
+    // будто перевёрнута относительно стандартного рендера.
+    expect(
+      autodetectOrientationFromFen(
+        'RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr',
+      ),
+    ).toBe('black');
+  });
+  it('wK на ранге 1, bK на ранге 8 → white (стандарт)', () => {
+    expect(autodetectOrientationFromFen('4k3/8/8/8/8/8/8/4K3')).toBe(
+      'white',
+    );
+  });
+  it('wK на ранге 8, bK на ранге 1 → black (перевёрнуто)', () => {
+    expect(autodetectOrientationFromFen('4K3/8/8/8/8/8/8/4k3')).toBe(
+      'black',
+    );
+  });
+  it('короли в центре (rank 4-5) → null (неоднозначно)', () => {
+    expect(autodetectOrientationFromFen('8/8/8/4K3/4k3/8/8/8')).toBeNull();
+  });
+  it('нет королей → null', () => {
+    expect(autodetectOrientationFromFen('8/8/8/8/8/8/8/8')).toBeNull();
+  });
+  it('битый FEN → null', () => {
+    expect(autodetectOrientationFromFen('badfen')).toBeNull();
+  });
+});
+
+describe('resolveOrientation (KS-3108)', () => {
+  const STD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+  const FLIPPED = 'RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr';
+
+  it('backend confidence >= 0.7 → доверяем backend', () => {
+    expect(resolveOrientation('white', 0.9, FLIPPED)).toBe('white');
+    expect(resolveOrientation('black', 0.85, STD)).toBe('black');
+  });
+  it('backend confidence < 0.7 + autodetect → autodetect', () => {
+    // Backend сказал white с низким confidence, эвристика говорит
+    // black (перевёрнутая позиция) — берём эвристику.
+    expect(resolveOrientation('white', 0.3, FLIPPED)).toBe('black');
+  });
+  it('backend orientation мусор → autodetect', () => {
+    expect(resolveOrientation('garbage', 1.0, STD)).toBe('white');
+    expect(resolveOrientation(undefined, 1.0, FLIPPED)).toBe('black');
+  });
+  it('backend мусор + autodetect не сработал → fallback на parsed/white', () => {
+    expect(resolveOrientation('garbage', 1.0, '8/8/8/8/8/8/8/8')).toBe(
+      'white',
+    );
+  });
+  it('случай KS-3108: backend white-confidence 0.5, fen перевёрнут → black', () => {
+    expect(resolveOrientation('white', 0.5, FLIPPED)).toBe('black');
   });
 });

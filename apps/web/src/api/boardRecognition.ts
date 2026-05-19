@@ -259,6 +259,101 @@ function parseAlgebraicSquare(
 }
 
 /**
+ * KS-3108: толерантный парсер `orientation` поля от backend.
+ * Strictly — это `'white' | 'black'` (см. apps/api), но историческая
+ * совместимость + защита от рассинхрона на проде: принимаем также
+ * `'w'`/`'b'`, boolean `flipped`/`flip`, числа 0/1. Всё остальное →
+ * null (fallback на autodetect или дефолт `'white'`).
+ */
+export function normalizeOrientation(
+  input: unknown,
+): 'white' | 'black' | null {
+  if (input === 'white' || input === 'black') return input;
+  if (input === 'w') return 'white';
+  if (input === 'b') return 'black';
+  if (input === true) return 'black'; // `flipped: true` чаще = чёрные снизу
+  if (input === false) return 'white';
+  if (typeof input === 'number') {
+    if (input === 0) return 'white';
+    if (input === 1) return 'black';
+  }
+  return null;
+}
+
+/**
+ * KS-3108: автодетект ориентации по позиции королей в FEN-board части.
+ * Эвристика:
+ *   - белый король на ранге 1-3 → доска повёрнута белыми вниз ('white');
+ *   - белый король на ранге 6-8 → доска повёрнута чёрными вниз ('black');
+ *   - неоднозначно (rank 4-5) — возвращаем null, оставляем backend.
+ * Тот же подход, что backend-агент сам рекомендует в комментарии KS-3108.
+ */
+export function autodetectOrientationFromFen(
+  fenBoard: string,
+): 'white' | 'black' | null {
+  const rows = fenBoard.split('/');
+  if (rows.length !== 8) return null;
+  // rowIdx=0 → ранг 8 (top FEN), rowIdx=7 → ранг 1 (bottom FEN).
+  let whiteKingRank: number | null = null;
+  let blackKingRank: number | null = null;
+  rows.forEach((row, rowIdx) => {
+    const fenRank = 8 - rowIdx;
+    for (const ch of row) {
+      if (ch === 'K') whiteKingRank = fenRank;
+      else if (ch === 'k') blackKingRank = fenRank;
+    }
+  });
+  // Если ни одного короля нет — не можем сказать.
+  if (whiteKingRank === null && blackKingRank === null) return null;
+  // Приоритет: белый король. Если есть оба, можно проверить
+  // консистентность (чёрный должен быть на противоположной половине).
+  const ranks: number[] = [];
+  if (whiteKingRank !== null) ranks.push(whiteKingRank);
+  if (blackKingRank !== null) ranks.push(8 - (blackKingRank as number) + 1); // зеркало
+  // Если хоть один король указывает что white-side внизу (ранги 1-3 для
+  // wK, 6-8 для bK) — это 'white' (стандартная ориентация).
+  // Аналогично 'black'.
+  if (whiteKingRank !== null) {
+    if (whiteKingRank <= 3) return 'white';
+    if (whiteKingRank >= 6) return 'black';
+  }
+  if (blackKingRank !== null) {
+    if (blackKingRank >= 6) return 'white';
+    if (blackKingRank <= 3) return 'black';
+  }
+  // Короли в центре (rank 4-5) — неоднозначно.
+  return null;
+}
+
+/**
+ * KS-3108: вычислить окончательную ориентацию редактора из
+ * (backend-orientation, orientationConfidence, fenBoard).
+ *   1. Если backend confidence >= 0.7 и orientation parsed — берём его.
+ *   2. Иначе пробуем autodetect по королям; если он дал результат и
+ *      РАСХОДИТСЯ с backend (или backend не parsed) — берём autodetect.
+ *   3. Fallback — то, что вернул backend (parsed), или 'white'.
+ * Backend сам в комментарии KS-3108 рекомендует именно этот алгоритм.
+ */
+export function resolveOrientation(
+  backendOrientation: unknown,
+  backendConfidence: unknown,
+  fenBoard: string,
+): 'white' | 'black' {
+  const parsed = normalizeOrientation(backendOrientation);
+  const conf =
+    typeof backendConfidence === 'number' ? backendConfidence : 1;
+  const auto = autodetectOrientationFromFen(fenBoard);
+  if (parsed !== null && conf >= 0.7) {
+    return parsed;
+  }
+  if (auto !== null) {
+    // Используем эвристику если backend < 0.7 или не парсится / не задан.
+    return auto;
+  }
+  return parsed ?? 'white';
+}
+
+/**
  * Отправляет изображение на распознавание. При недоступности backend'а —
  * возвращает мок (поведение KS-2365: «начинай с моком, пока KS-2363 не
  * закрыт»).
