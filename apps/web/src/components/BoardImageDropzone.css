@@ -319,6 +319,38 @@
   color: var(--text-muted, #a9aebf);
 }
 
+/* KS-3120: placeholder в правой колонке когда мы в crop-режиме —
+   доска не показывается, чтобы не вводить пользователя в заблуждение
+   фейковой стартовой позицией (initialFen родителя). */
+.board-image-dropzone__crop-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 320px;
+  padding: 16px;
+  border: 1px dashed var(--border-mid, rgba(120, 140, 200, 0.45));
+  border-radius: 6px;
+  color: var(--text-secondary, #a9aebf);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.board-image-dropzone__crop-placeholder span {
+  font-size: 1.8em;
+  line-height: 1;
+}
+
+.board-image-dropzone__crop-placeholder p {
+  margin: 0;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
 /* KS-3117: multi-board grid выбора — когда backend нашёл несколько
    досок на одной картинке (страница пазлов, учебник с несколькими
    диаграммами). Заменяет основной layout пока пользователь не выберет

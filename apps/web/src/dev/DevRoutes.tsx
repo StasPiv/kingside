@@ -15,6 +15,7 @@ import { DevBoardImageDropzonePage } from '../pages/DevBoardImageDropzonePage';
 import { DevBoardImageDropzoneUnreliablePage } from '../pages/DevBoardImageDropzoneUnreliablePage';
 import { DevBoardImageDropzoneNotFoundPage } from '../pages/DevBoardImageDropzoneNotFoundPage';
 import { DevBoardImageDropzoneMultiPage } from '../pages/DevBoardImageDropzoneMultiPage';
+import { DevBoardImageDropzone500Page } from '../pages/DevBoardImageDropzone500Page';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -66,6 +67,11 @@ export default function DevRoutes() {
       <Route
         path="board-image-dropzone-multi"
         element={<DevBoardImageDropzoneMultiPage />}
+      />
+      {/* KS-3120: demo HTTP 500 → BoardNotDetectedError → crop-overlay. */}
+      <Route
+        path="board-image-dropzone-500"
+        element={<DevBoardImageDropzone500Page />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

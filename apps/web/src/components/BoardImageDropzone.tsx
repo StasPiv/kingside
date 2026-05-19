@@ -903,7 +903,26 @@ export function BoardImageDropzone({
             data-testid="board-image-dropzone-board"
             data-fen-board={previewBoardForRender}
           >
-            {editorBoard ? (
+            {cropMode ? (
+              /* KS-3120: в crop-режиме (после 400/500/network-ошибки)
+                 не показываем доску справа — раньше она отрисовывала
+                 фейковую стартовую позицию из state'а (initialFen
+                 родителя), что путало пользователя «как будто
+                 распозналась стартовая». Теперь — нейтральный
+                 placeholder с подсказкой обрезать кадр. */
+              <div
+                className="board-image-dropzone__crop-placeholder"
+                data-testid="board-image-dropzone-board-crop-placeholder"
+              >
+                <span aria-hidden="true">⤴</span>
+                <p>
+                  {t(
+                    'boardImage.cropPlaceholder',
+                    'Crop the image on the left, then re-recognize.',
+                  )}
+                </p>
+              </div>
+            ) : editorBoard ? (
               /* KS-3105: после recognize — полноценный редактор с palette
                  и drag&drop, чтобы пользователь правил фигуры тут же, не
                  уходя на вкладку «Board Editor». Подсветка low-confidence

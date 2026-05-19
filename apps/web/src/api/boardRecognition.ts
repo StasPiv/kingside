@@ -466,7 +466,19 @@ export async function recognizeBoard(
       throw new BoardRecognitionUnreliableError(payload);
     }
     if (!res.ok) {
-      throw new Error(`board-recognition: HTTP ${res.status}`);
+      // KS-3120: при любом не-2xx (5xx / 502 / 503) — пользователь
+      // видел техническую строку `mock: network: board-recognition:
+      // HTTP 500` поверх фейковой стартовой позиции. Раньше она
+      // приходила из общего catch-блока, который маскировал ошибку
+      // мок-ответом. Теперь любой не-2xx (кроме явно обработанных
+      // 400/422 выше) → `BoardNotDetectedError`: дропзона переключается
+      // в crop-overlay из KS-3094 с понятным сообщением «доска не
+      // найдена, обрежьте кадр». Backend параллельно (KS-3119) поправит
+      // 500 → 400, но фронт остаётся defensive в любом случае.
+      throw new BoardNotDetectedError({
+        error: 'board_not_detected',
+        message: `Recognizer error (HTTP ${res.status}).`,
+      });
     }
     // KS-3106: backend отдаёт элементы как
     // `{ square: "a8", predicted: "wK", confidence, top3 }`, а наш
@@ -508,9 +520,6 @@ export async function recognizeBoard(
     }
     return normalized;
   } catch (err) {
-    // KS-2363 не задеплоен → network-error / 404 / ECONNREFUSED. Не
-    // ломаем UI, отдаём мок. После закрытия backend'а этот путь не
-    // активен.
     if ((err as Error)?.name === 'AbortError') throw err;
     // KS-3093: 422 — это нормальная доменная ошибка, не сетевая.
     // Не подменяем её моком, дропзона ловит и переходит в edit-mode.
@@ -518,8 +527,22 @@ export async function recognizeBoard(
     // KS-3094: 400 board_not_detected — то же самое, доменная ошибка,
     // дропзона ловит и показывает crop-оверлей.
     if (err instanceof BoardNotDetectedError) throw err;
-    return buildMockResponse(
-      `network: ${err instanceof Error ? err.message : String(err)}`,
+    // KS-3120: network-error (ECONNREFUSED, fetch failed и т.п.) —
+    // раньше возвращался мок со стартовой позицией и тех. строкой в
+    // warnings, что вводило пользователя в заблуждение «как будто
+    // распозналась стартовая». Теперь — `BoardNotDetectedError` с
+    // понятным message, дропзона показывает crop-overlay. Тех. detail
+    // остаётся в console.warn для дебага. Mock-fallback для случая
+    // «backend KS-2363 ещё не задеплоен» оставлен ТОЛЬКО на статусы
+    // 404/501 (см. выше — там explicit для dev-сценария) и под
+    // `VITE_BOARD_RECOG_FORCE_MOCK=1`.
+    console.warn(
+      '[recognizeBoard] network/unexpected error:',
+      err instanceof Error ? err.message : String(err),
     );
+    throw new BoardNotDetectedError({
+      error: 'board_not_detected',
+      message: 'Recognizer unavailable.',
+    });
   }
 }

@@ -48,13 +48,13 @@ describe('recognizeBoard (KS-2365)', () => {
     expect(res.warnings[0]).toMatch(/^mock:/);
   });
 
-  it('при network-error возвращает мок с warning о причине', async () => {
+  it('KS-3120: network-error → BoardNotDetectedError (раньше возвращался мок со стартовой позицией и тех. строкой в warnings — это вводило в заблуждение)', async () => {
     const fetchImpl = async () => {
       throw new Error('ECONNREFUSED');
     };
-    const res = await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
-    expect(res.fen).toBe(STARTING_FEN);
-    expect(res.warnings[0]).toContain('ECONNREFUSED');
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
   });
 
   it('AbortError пробрасывается без подмены мока', async () => {
@@ -159,15 +159,36 @@ describe('recognizeBoard (KS-2365)', () => {
     ).rejects.toBeInstanceOf(BoardNotDetectedError);
   });
 
-  it('кидает на 5xx (это не «backend pending», а реальная серверная ошибка)', async () => {
+  it('KS-3120: 500 → BoardNotDetectedError (не мок со стартовой позицией)', async () => {
     const fetchImpl = async () => new Response('boom', { status: 500 });
     await expect(
       recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
-    ).resolves.toMatchObject({ modelVersion: 'mock-ks2363-pending' });
-    // Примечание: текущая реализация мокирует и 5xx через catch ниже —
-    // это допустимое поведение «backend не отвечает корректно, не ломаем
-    // UI». Тест фиксирует это поведение, чтобы будущее ужесточение шло
-    // через намеренное изменение.
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
+  });
+
+  it('KS-3120: 502/503 — тот же путь, BoardNotDetectedError', async () => {
+    for (const status of [502, 503] as const) {
+      const fetchImpl = async () => new Response('boom', { status });
+      await expect(
+        recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+      ).rejects.toBeInstanceOf(BoardNotDetectedError);
+    }
+  });
+
+  it('KS-3120: 500-error message без stack/statusCode в техническом виде', async () => {
+    const fetchImpl = async () => new Response('boom', { status: 500 });
+    try {
+      await recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch });
+    } catch (e) {
+      const err = e as BoardNotDetectedError;
+      // message не содержит «mock:», «network:», stack-trace, response body.
+      expect(err.message).not.toMatch(/mock:/i);
+      expect(err.message).not.toContain('boom');
+      // statusCode допустим в техническом payload.message (для дебага),
+      // но это НЕ финальный UI-текст — компонент i18n-маппит на свой
+      // пользовательский message.
+      expect(err.payload.error).toBe('board_not_detected');
+    }
   });
 
   it('KS-3106: 200 c реальным форматом backend ({square, predicted, ...}) — нормализуется в {file, rank, piece}', async () => {
