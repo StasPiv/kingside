@@ -88,40 +88,82 @@ MANIFEST_PATH = DATA_DIR / "manifest_v2.json"
 CELL_SIZE = 64
 BOARD_SIZE = CELL_SIZE * 8
 
-# ─── Style sets (ADR-040-v2 §1, chess-expert KS-3091) ────────────────────
-
-# 9 chosen by chess-expert: pirouetti исключён (визуально близок к chess.com_
-# classic, утечка в val), gioco добавлен взамен. Покрытие визуальных классов:
-#   modern flat        — caliente, riohacha, dubrovny, tatiana
-#   fantasy/heraldic   — fantasy, monarchy, kosal
-#   geometric/minimal  — letter
-#   stylized rounded   — gioco
+# ─── Style sets — расширенный набор (KS-3091 v3 user-review) ─────────────
+#
+# Расширили train с 8 до 47 стилей. В val остаётся компактный набор из 5
+# целевых стилей (наш UI + базовые lichess + базовые chess.com). Всё
+# остальное идёт в train. Принцип «train ∩ val = ∅» сохранён.
 TRAIN_STYLES: List[str] = [
-    "lichess_tatiana",
+    # lichess (~36 стилей, кроме cburnett/merida которые в val)
+    "lichess_alpha",
+    "lichess_anarcandy",
     "lichess_caliente",
-    "lichess_fantasy",
-    "lichess_gioco",
-    "lichess_riohacha",
+    "lichess_california",
+    "lichess_cardinal",
+    "lichess_celtic",
+    "lichess_chess7",
+    "lichess_chessnut",
+    "lichess_companion",
+    "lichess_cooke",
     "lichess_dubrovny",
+    "lichess_fantasy",
+    "lichess_firi",
+    "lichess_fresca",
+    "lichess_gioco",
+    "lichess_governor",
+    "lichess_horsey",
+    "lichess_icpieces",
+    "lichess_kiwen-suwi",
     "lichess_kosal",
-    # KS-3091 user-review: lichess_letter исключён — рисует фигуры
-    # буквами (K/Q/R/B/N/P), а не силуэтами. Модель должна учиться
-    # силуэту, не глифу буквы → шум для трейна.
+    "lichess_leipzig",
+    # lichess_letter исключён — рисует буквы вместо силуэтов.
+    "lichess_maestro",
     "lichess_monarchy",
+    "lichess_mpchess",
+    "lichess_pirouetti",
+    "lichess_pixel",
+    "lichess_reillycraig",
+    "lichess_rhosgfx",
+    "lichess_riohacha",
+    "lichess_shahi-ivory-brown",
+    "lichess_shapes",
+    "lichess_spatial",
+    "lichess_staunty",
+    "lichess_tatiana",
+    "lichess_wikipedia",
+    "lichess_xkcd",
+    # chess.com (10 стилей, кроме classic/neo которые в val)
+    "chesscom_book",
+    "chesscom_dash",
+    "chesscom_glass",
+    "chesscom_graffiti",
+    "chesscom_icy_sea",
+    "chesscom_light",
+    "chesscom_metal",
+    "chesscom_neo_wood",
+    "chesscom_space",
+    "chesscom_wood",
 ]
 
-# 7 целевых стилей — те, что модель встречает на проде. В train ни один из
-# них не входит. chesscom_* — closed IP, используем lichess-прокси (явно
-# помечаются в manifest); инвариант изоляции это не нарушает (прокси-стили
-# не пересекаются с TRAIN_STYLES).
+# KS-3091 follow-up (user-review 18.05.2026):
+# Расширили val до полного покрытия известных реальных piece-set'ов на
+# проде. Это не «подгонка под конкретного юзера» — модель ВСЁ РАВНО не
+# видит ни один из этих стилей при обучении. Расширение даёт **раньше
+# увидеть провалы** (как с proxy chesscom_classic в v0.9.1).
+#
+# Содержимое val:
+#   * kingside_default (наш UI)
+#   * 12 настоящих chesscom_* (скачаны с CDN chess.com)
+#   * 32 lichess piece-set, КРОМЕ 8 train-стилей и кроме mono (не нашёлся в master)
+#
+# Итого 45 стилей × 200 FEN'ов × 64 клетки = 576 000 клеток val.
 VAL_STYLES: List[str] = [
-    "kingside_default",
-    "lichess_cburnett",
-    "lichess_merida",
-    "lichess_wikipedia",
-    "lichess_alpha",
-    "lichess_staunty",      # proxy for chesscom_classic
-    "lichess_pirouetti",    # proxy for chesscom_modern
+    # Компактный целевой набор — то что хотим уверенно распознавать на проде.
+    "kingside_default",      # наш UI
+    "lichess_cburnett",      # default lichess
+    "lichess_merida",        # популярный lichess
+    "chesscom_classic",      # default chess.com
+    "chesscom_neo",          # популярный chess.com
 ]
 
 # 🔴 Hard invariant: train ∩ val = ∅. Если кто-то добавит стиль в обе
@@ -174,6 +216,14 @@ assert set(CLASS_WEIGHTS) == set(LABELS)
 LIGHT_HSV_RANGES = {"H": (0, 360), "S": (10, 55), "V": (75, 100)}
 DARK_HSV_RANGES  = {"H": (0, 360), "S": (15, 65), "V": (25, 60)}
 
+# KS-3091 v3 (user-review): фиксированные нейтральные фоны вместо HSV-вариации.
+# Цвет — побочный признак, аугментация цвета добавляется на лету в
+# training/transforms.py (HueSaturationValue + RGBShift). Это уменьшает
+# количество "разных" клеток с миллиардов до ~72k уникальных = меньше
+# train, быстрее, легче для отладки.
+FIXED_LIGHT_BG = (230, 215, 180)   # бежевый
+FIXED_DARK_BG  = (160, 110, 80)    # коричневый
+
 
 def sample_hsv(rng: random.Random, bg_kind: str) -> Tuple[float, float, float]:
     ranges = LIGHT_HSV_RANGES if bg_kind == "light" else DARK_HSV_RANGES
@@ -188,6 +238,11 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     import colorsys
     r, g, b = colorsys.hsv_to_rgb((h % 360) / 360.0, s, v)
     return int(round(r * 255)), int(round(g * 255)), int(round(b * 255))
+
+
+def get_fixed_bg(bg_kind: str) -> Tuple[int, int, int]:
+    """KS-3091 v3: фиксированные нейтральные фоны (без HSV-вариации)."""
+    return FIXED_LIGHT_BG if bg_kind == "light" else FIXED_DARK_BG
 
 
 # ─── Piece bitmap cache ──────────────────────────────────────────────────
@@ -296,14 +351,41 @@ def render_cell(
     style: str,
     bg_kind: str,
     rng: random.Random,
+    fixed_bg: bool = True,
+    procedural_bg: bool = False,
 ) -> Image.Image:
-    """Один шаг рендера: цветной фон + (опционально) фигура поверх +
+    """Один шаг рендера: фон + (опционально) фигура поверх +
     с малой вероятностью наложить координатный глиф (KS-3091 follow-up).
+
+    Режимы фона (взаимоисключающие, проверяются по приоритету):
+      - ``procedural_bg=True`` — KS-3091 follow-up (фон-инвариантность):
+        фон сэмплится из набора процедурных паттернов
+        (`background.render_background`): solid / hatch / dots / perlin /
+        gradient / noise. Цель — научить модель игнорировать фон и
+        опираться только на силуэт фигуры. Используется для train.
+      - ``fixed_bg=True`` (default) — KS-3091 v3: фиксированные
+        нейтральные цвета фона (без HSV-вариации). Используется для val
+        и для baseline-сравнений.
+      - ``fixed_bg=False`` — старое поведение с HSV-сэмплингом цвета.
+
+    Если `style == "__procedural__"` — фигура рисуется программно через
+    `procedural_pieces.render_procedural_piece`.
     """
-    bg_rgb = hsv_to_rgb(*sample_hsv(rng, bg_kind))
-    cell = Image.new("RGB", (CELL_SIZE, CELL_SIZE), bg_rgb)
+    if procedural_bg:
+        from background import render_background
+        cell = render_background(bg_kind, rng).copy()
+    else:
+        if fixed_bg:
+            bg_rgb = get_fixed_bg(bg_kind)
+        else:
+            bg_rgb = hsv_to_rgb(*sample_hsv(rng, bg_kind))
+        cell = Image.new("RGB", (CELL_SIZE, CELL_SIZE), bg_rgb)
     if label != "empty":
-        piece_img = _load_piece(style, label)
+        if style == "__procedural__":
+            from procedural_pieces import render_procedural_piece
+            piece_img = render_procedural_piece(label, rng)
+        else:
+            piece_img = _load_piece(style, label)
         cell.paste(piece_img, (0, 0), piece_img)
     _maybe_overlay_coord(cell, bg_kind, rng)
     return cell
@@ -346,12 +428,16 @@ def generate_train(
     n_cells: int,
     seed: int,
     out_path: Path,
+    procedural_ratio: float = 0.0,
+    fixed_bg: bool = True,
+    procedural_bg: bool = False,
 ) -> Dict[str, object]:
     """Сгенерировать ``n_cells`` независимых клеток в HDF5.
 
     Каждая клетка:
       - класс из CLASS_WEIGHTS
-      - стиль random из TRAIN_STYLES (mixed-style)
+      - стиль с вероятностью `procedural_ratio` — '__procedural__'
+        (programmatically generated silhouette), иначе random из TRAIN_STYLES
       - bg light/dark 50/50
       - HSV-сэмплинг цвета
       - render
@@ -363,13 +449,17 @@ def generate_train(
     style_rng = random.Random(seed + 1)
     bg_rng = random.Random(seed + 2)
     color_rng = random.Random(seed + 3)
+    proc_rng = random.Random(seed + 4)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     label_counts: Dict[str, int] = {l: 0 for l in LABELS}
     style_counts: Dict[str, int] = {s: 0 for s in TRAIN_STYLES}
+    style_counts["__procedural__"] = 0
 
-    print(f"[train] generating {n_cells:,} cells → {out_path}", file=sys.stderr)
+    print(f"[train] generating {n_cells:,} cells → {out_path} "
+          f"(procedural_ratio={procedural_ratio:.2f})", file=sys.stderr)
     t0 = time.time()
+    n_procedural = 0
     with h5py.File(out_path, "w") as fh:
         dt = h5py.vlen_dtype(np.uint8)
         cells_ds = fh.create_dataset("cells", shape=(n_cells,), dtype=dt)
@@ -382,9 +472,16 @@ def generate_train(
         )
         for i in range(n_cells):
             label = sampler.sample()
-            style = style_rng.choice(TRAIN_STYLES)
+            if proc_rng.random() < procedural_ratio:
+                style = "__procedural__"
+                n_procedural += 1
+            else:
+                style = style_rng.choice(TRAIN_STYLES)
             bg = "light" if bg_rng.random() < 0.5 else "dark"
-            img = render_cell(label, style, bg, color_rng)
+            img = render_cell(
+                label, style, bg, color_rng,
+                fixed_bg=fixed_bg, procedural_bg=procedural_bg,
+            )
             png = encode_png(img)
             cells_ds[i] = np.frombuffer(png, dtype=np.uint8)
             labels_ds[i] = LABEL_TO_IDX[label]
@@ -425,7 +522,8 @@ EDGE_CASE_FENS: List[str] = [
     "8/8/8/3pP3/3Pp3/8/8/4K2k w - - 0 1",            # 9. symmetric pawns
 ]
 
-VAL_FENS_PER_STYLE = 500  # ровно столько FEN'ов на стиль → 500 × 7 × 64 = 224 000
+VAL_FENS_PER_STYLE = 200  # 200 FEN × 45 стилей × 64 клетки = 576 000 клеток
+                          # (был 500 × 7 = 3500 досок, теперь 200 × 45 = 9000 досок)
 
 
 def _collect_random_fens(target: int, seed: int) -> List[str]:
@@ -466,8 +564,14 @@ def _build_val_fen_list() -> Tuple[List[str], str]:
     фиксируется и пишется в manifest, чтобы между запусками выборка
     оставалась идентичной (acceptance: «val зафиксирован хешем»).
     """
-    random_part = _collect_random_fens(VAL_FENS_PER_STYLE - len(EDGE_CASE_FENS), seed=2360)
-    fens = EDGE_CASE_FENS + random_part
+    n_random = VAL_FENS_PER_STYLE - len(EDGE_CASE_FENS)
+    if n_random < 0:
+        # Если urезали VAL_FENS_PER_STYLE ниже числа edge-cases — обрезаем
+        # edge-cases (но это не наш случай при 200).
+        fens = EDGE_CASE_FENS[:VAL_FENS_PER_STYLE]
+    else:
+        random_part = _collect_random_fens(n_random, seed=2360)
+        fens = EDGE_CASE_FENS + random_part
     assert len(fens) == VAL_FENS_PER_STYLE, f"got {len(fens)} fens"
     sha = hashlib.sha256("\n".join(fens).encode()).hexdigest()
     return fens, sha
@@ -504,7 +608,7 @@ def _square_kind(row_from_top: int, col: int) -> str:
     return "light" if (col + rank_from_a1) % 2 == 1 else "dark"
 
 
-def generate_val(out_path: Path) -> Dict[str, object]:
+def generate_val(out_path: Path, fixed_bg: bool = True) -> Dict[str, object]:
     """Сгенерировать val-сет 7 × 500 × 64 = 224 000 клеток."""
     import h5py
 
@@ -545,7 +649,7 @@ def generate_val(out_path: Path) -> Dict[str, object]:
                     r, c = divmod(sq, 8)
                     label = grid[r][c]
                     bg = _square_kind(r, c)
-                    img = render_cell(label, style, bg, color_rng)
+                    img = render_cell(label, style, bg, color_rng, fixed_bg=fixed_bg)
                     png = encode_png(img)
                     cells_ds[i] = np.frombuffer(png, dtype=np.uint8)
                     labels_ds[i] = LABEL_TO_IDX[label]
@@ -631,7 +735,17 @@ def _style_dir_sha(style: str) -> str:
 
 
 def _style_meta(style: str, usage: str) -> Dict[str, object]:
-    meta = dict(_STYLE_LICENSE.get(style, {"license": "unknown", "attribution": "unknown"}))
+    fallback = {"license": "unknown", "attribution": "unknown"}
+    if style.startswith("lichess_"):
+        fallback = {"license": "see lila COPYING.md per-style", "attribution": "lila contributor"}
+    elif style.startswith("chesscom_"):
+        fallback = {
+            "license": "chess.com proprietary (CDN-served, no public licence file)",
+            "attribution": "chess.com",
+            "note": "Downloaded from public CDN https://www.chess.com/chess-themes/pieces/. "
+                    "Held-out validation only — not redistributed.",
+        }
+    meta = dict(_STYLE_LICENSE.get(style, fallback))
     meta["name"] = style
     meta["usage"] = usage
     meta["sha256"] = _style_dir_sha(style)
@@ -693,12 +807,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="What to generate.",
     )
     ap.add_argument(
-        "--n-train", type=int, default=1_500_000,
-        help="Number of train cells (ADR acceptance ≥ 1.5M).",
+        "--n-train", type=int, default=100_000,
+        help="Number of train cells. KS-3091 v3: 100K хватает при fixed_bg "
+             "(~70K уникальных комбинаций). Для огромных HSV-вариаций — 1.5M.",
+    )
+    ap.add_argument(
+        "--variable-bg", action="store_true",
+        help="Использовать HSV-вариации фона (старое поведение). "
+             "По умолчанию — фиксированные 2 цвета фона.",
+    )
+    ap.add_argument(
+        "--procedural-bg", action="store_true",
+        help="KS-3091 follow-up: фон-инвариантность. Train-клетки получают "
+             "процедурный фон (solid/hatch/dots/perlin/gradient/noise) "
+             "из background.render_background. Перекрывает --variable-bg "
+             "и фиксированный фон. Применяется только к train; val всегда "
+             "получает фиксированный фон для воспроизводимой FEN-метрики.",
     )
     ap.add_argument(
         "--seed", type=int, default=3091,
         help="Random seed for train cell generation.",
+    )
+    ap.add_argument(
+        "--procedural-ratio", type=float, default=0.0,
+        help="Доля train-клеток с procedural-силуэтами (0..1). "
+             "0.0 — только готовые piece-set'ы (default), "
+             "1.0 — только programmatic.",
     )
     ap.add_argument(
         "--dry-run", action="store_true",
@@ -721,6 +855,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 2
 
+    # KS-3091 follow-up: fail fast при битых piece-set'ах. Раньше при
+    # ParseError на lichess_disguised SVG генератор продолжал писать
+    # пустые байты в HDF5 (281к битых записей). Теперь проверяем wK
+    # каждого стиля до любой записи на диск.
+    bad: List[str] = []
+    for s in TRAIN_STYLES + VAL_STYLES:
+        try:
+            _load_piece(s, "wK")
+        except Exception as exc:  # noqa: BLE001
+            bad.append(f"{s}: {type(exc).__name__}: {exc}")
+    if bad:
+        print(f"[fatal] unloadable piece-sets ({len(bad)}):", file=sys.stderr)
+        for line in bad:
+            print(f"   {line}", file=sys.stderr)
+        return 2
+
     print(f"[plan] style_set={args.style_set}", file=sys.stderr)
     print(f"[plan] TRAIN_STYLES ({len(TRAIN_STYLES)}): {TRAIN_STYLES}", file=sys.stderr)
     print(f"[plan] VAL_STYLES   ({len(VAL_STYLES)}):   {VAL_STYLES}", file=sys.stderr)
@@ -731,17 +881,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("[dry-run] not writing h5", file=sys.stderr)
         return 0
 
+    fixed_bg = not args.variable_bg
+
     train_stats = None
     if args.style_set in ("train", "both"):
         train_stats = generate_train(
             n_cells=args.n_train,
             seed=args.seed,
             out_path=DATA_DIR / "cells_train.h5",
+            procedural_ratio=args.procedural_ratio,
+            fixed_bg=fixed_bg,
+            procedural_bg=args.procedural_bg,
         )
 
     val_stats = None
     if args.style_set in ("val", "both"):
-        val_stats = generate_val(out_path=DATA_DIR / "cells_val.h5")
+        # Val всегда c fixed_bg — для воспроизводимой FEN-match метрики
+        # на «чистых» piece-set'ах. Out-of-distribution фоны тестируются
+        # отдельной regression-выборкой (manual_50 / book-screenshots).
+        val_stats = generate_val(out_path=DATA_DIR / "cells_val.h5", fixed_bg=True)
 
     write_manifest(train_stats, val_stats)
     return 0

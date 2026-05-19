@@ -32,17 +32,21 @@ class IsolationInvariantTests(unittest.TestCase):
         )
 
     def test_train_styles_non_empty(self) -> None:
+        """Train-список должен содержать достаточно стилей для разнообразия.
+        Точное число меняется при ревизиях (см. user-review KS-3091 v3 —
+        расширили с 8 до 46), но не должно опускаться ниже 8.
+        lichess_letter (буквы вместо силуэтов) — всегда исключён."""
         import dataset_gen as dg
-        self.assertGreater(len(dg.TRAIN_STYLES), 0)
-        # 8 стилей — финальный набор после user-review (lichess_letter
-        # исключён, потому что рисует фигуры буквами а не силуэтами).
-        self.assertEqual(len(dg.TRAIN_STYLES), 8)
+        self.assertGreaterEqual(len(dg.TRAIN_STYLES), 8)
         self.assertNotIn("lichess_letter", dg.TRAIN_STYLES)
 
-    def test_val_styles_exactly_seven(self) -> None:
-        """Acceptance KS-3091: 7 × 500 × 64 = 224 000."""
+    def test_val_styles_required(self) -> None:
+        """Val должен покрывать целевые прод-стили, которые модель обязана
+        уметь распознавать. Минимум — kingside_default и cburnett."""
         import dataset_gen as dg
-        self.assertEqual(len(dg.VAL_STYLES), 7)
+        self.assertGreaterEqual(len(dg.VAL_STYLES), 2)
+        self.assertIn("kingside_default", dg.VAL_STYLES)
+        self.assertIn("lichess_cburnett", dg.VAL_STYLES)
 
     def test_invariant_assert_fires_on_violation(self) -> None:
         """Если кто-то добавит val-стиль в train — модуль должен падать на
@@ -144,10 +148,10 @@ class HSVSamplingTests(unittest.TestCase):
 class ValFenListTests(unittest.TestCase):
     """500 FEN'ов val-выборки фиксированы и воспроизводимы между запусками."""
 
-    def test_val_fen_list_length_500(self) -> None:
+    def test_val_fen_list_length(self) -> None:
         import dataset_gen as dg
         fens, _ = dg._build_val_fen_list()
-        self.assertEqual(len(fens), 500)
+        self.assertEqual(len(fens), dg.VAL_FENS_PER_STYLE)
 
     def test_val_fen_list_starts_with_edge_cases(self) -> None:
         import dataset_gen as dg
@@ -162,6 +166,74 @@ class ValFenListTests(unittest.TestCase):
         b_fens, b_sha = dg._build_val_fen_list()
         self.assertEqual(a_fens, b_fens)
         self.assertEqual(a_sha, b_sha)
+
+
+class ProceduralBackgroundTests(unittest.TestCase):
+    """KS-3091 follow-up: фон-инвариантность через процедурные фоны.
+
+    Главная идея — модель должна научиться игнорировать фон. Тесты
+    проверяют, что генератор фонов выдаёт ожидаемый объект и что
+    `render_cell(procedural_bg=True)` отрабатывает без падений
+    для всех классов и обоих типов клеток.
+    """
+
+    def test_background_module_lists_generators(self) -> None:
+        import background as bg
+        kinds = bg.list_bg_kinds()
+        self.assertIn("solid", kinds)
+        self.assertIn("hatch", kinds)
+        self.assertGreaterEqual(len(kinds), 4)
+
+    def test_render_background_returns_rgb_64(self) -> None:
+        import random
+        import background as bg
+        rng = random.Random(2026)
+        for kind in ("light", "dark"):
+            img = bg.render_background(kind, rng)
+            self.assertEqual(img.size, (64, 64))
+            self.assertEqual(img.mode, "RGB")
+
+    def test_render_background_rejects_bad_kind(self) -> None:
+        import random
+        import background as bg
+        with self.assertRaises(ValueError):
+            bg.render_background("medium", random.Random(0))
+
+    def test_render_cell_procedural_bg_runs_for_all_labels(self) -> None:
+        """С procedural_bg=True render_cell должен отработать для каждого
+        класса и обоих bg_kind — иначе сломаем train-генерацию."""
+        import random
+        import dataset_gen as dg
+        rng = random.Random(2026)
+        for label in dg.LABELS:
+            for bg_kind in ("light", "dark"):
+                img = dg.render_cell(
+                    label, dg.TRAIN_STYLES[0], bg_kind, rng,
+                    fixed_bg=False, procedural_bg=True,
+                )
+                self.assertEqual(img.size, (64, 64), (label, bg_kind))
+                self.assertEqual(img.mode, "RGB", (label, bg_kind))
+
+    def test_light_dark_mean_brightness_differs(self) -> None:
+        """Свет и тьма должны различаться по средней яркости — это
+        семантика, которую модель использует для inferring side-to-move.
+        Хотя bg инвариантен по построению, средняя яркость остаётся
+        правильной (proxy для bg_kind)."""
+        import random
+        import numpy as np
+        import background as bg
+        light_brightness = []
+        dark_brightness = []
+        rng = random.Random(2026)
+        for _ in range(40):
+            light_brightness.append(np.asarray(bg.render_background("light", rng)).mean())
+            dark_brightness.append(np.asarray(bg.render_background("dark", rng)).mean())
+        # Mean light должна быть заметно выше mean dark.
+        self.assertGreater(
+            float(np.mean(light_brightness)),
+            float(np.mean(dark_brightness)) + 30,
+            "light cells must be visibly brighter than dark on average",
+        )
 
 
 if __name__ == "__main__":
