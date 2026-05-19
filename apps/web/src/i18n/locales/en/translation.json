@@ -855,6 +855,7 @@
     "generatePuzzleSaveError": "Generated, but failed to save: {{msg}}",
     "report": "Report",
     "boardSize": "Board size",
+    "sidebarFontSize": "Sidebar font size",
     "flipBoard": "Flip board",
     "share": {
       "button": "Share",

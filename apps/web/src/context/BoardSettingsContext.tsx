@@ -19,6 +19,15 @@ export type InputMode = 'drag' | 'click';
  */
 export type BoardSizeId = 'sm' | 'md' | 'lg';
 
+/**
+ * KS-3099: размер шрифта правой панели анализа (Stockfish / нотация /
+ * «База партий»). Аналогично boardSize: переключатель S/M/L пишет
+ * `data-sidebar-font-size` на body, CSS-переменная
+ * `--analysis-sidebar-font-scale` умножает базовые font-size.
+ * Сохраняется в localStorage под ключом `analysisSidebarFontSize`.
+ */
+export type SidebarFontSizeId = 'sm' | 'md' | 'lg';
+
 export interface BoardTheme {
   id: BoardThemeId;
   label: string;
@@ -58,11 +67,29 @@ export const BOARD_SIZES: BoardSizePreset[] = [
   { id: 'lg', label: 'L', scale: 1.0 },
 ];
 
+export interface SidebarFontSizePreset {
+  id: SidebarFontSizeId;
+  label: string;
+  /** Множитель для font-size элементов внутри `.analysis-sidebar`. */
+  scale: number;
+}
+
+/**
+ * KS-3099: пресеты размера шрифта правой панели. Базовые размеры
+ * (md = 1.0) — текущие 13–14px. lg чуть крупнее, sm — компактнее.
+ */
+export const SIDEBAR_FONT_SIZES: SidebarFontSizePreset[] = [
+  { id: 'sm', label: 'S', scale: 0.85 },
+  { id: 'md', label: 'M', scale: 1.0 },
+  { id: 'lg', label: 'L', scale: 1.18 },
+];
+
 const LS_THEME_KEY = 'boardTheme';
 const LS_PIECE_SET_KEY = 'pieceSet';
 const LS_NOTATION_KEY = 'showNotation';
 const LS_INPUT_MODE_KEY = 'inputMode';
 const LS_BOARD_SIZE_KEY = 'analysisBoardSize';
+const LS_SIDEBAR_FONT_SIZE_KEY = 'analysisSidebarFontSize';
 /**
  * KS-2970: «Автопревращение пешки в ферзя». Действует ТОЛЬКО в режиме
  * игры (`/game/*`). При значении `true` промоушн-ход сразу применяется
@@ -107,6 +134,16 @@ function readBoardSize(): BoardSizeId {
   try {
     const stored = localStorage.getItem(LS_BOARD_SIZE_KEY) as BoardSizeId | null;
     if (stored && BOARD_SIZES.some((s) => s.id === stored)) return stored;
+  } catch {
+    /* ignore */
+  }
+  return 'md';
+}
+
+function readSidebarFontSize(): SidebarFontSizeId {
+  try {
+    const stored = localStorage.getItem(LS_SIDEBAR_FONT_SIZE_KEY) as SidebarFontSizeId | null;
+    if (stored && SIDEBAR_FONT_SIZES.some((s) => s.id === stored)) return stored;
   } catch {
     /* ignore */
   }
@@ -166,6 +203,8 @@ interface BoardSettingsContextValue {
   showNotation: boolean;
   inputMode: InputMode;
   boardSize: BoardSizeId;
+  /** KS-3099: размер шрифта правой панели анализа (S/M/L). */
+  sidebarFontSize: SidebarFontSizeId;
   /** KS-2970: автопромоушн в ферзя в режиме игры. */
   autoPromoteToQueen: boolean;
   selectTheme: (id: BoardThemeId) => void;
@@ -173,6 +212,7 @@ interface BoardSettingsContextValue {
   setShowNotation: (value: boolean) => void;
   setInputMode: (mode: InputMode) => void;
   setBoardSize: (size: BoardSizeId) => void;
+  setSidebarFontSize: (size: SidebarFontSizeId) => void;
   setAutoPromoteToQueen: (value: boolean) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
@@ -188,6 +228,9 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [showNotation, setShowNotationState] = useState<boolean>(readShowNotation);
   const [inputMode, setInputModeState] = useState<InputMode>(readInputMode);
   const [boardSize, setBoardSizeState] = useState<BoardSizeId>(readBoardSize);
+  const [sidebarFontSize, setSidebarFontSizeState] = useState<SidebarFontSizeId>(
+    readSidebarFontSize,
+  );
   const [autoPromoteToQueen, setAutoPromoteToQueenState] = useState<boolean>(
     readAutoPromoteToQueen,
   );
@@ -202,6 +245,14 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.body.setAttribute('data-board-size', boardSize);
   }, [boardSize]);
+
+  // KS-3099: аналогично boardSize — атрибут на body для шрифта правой
+  // панели. CSS в `analysis.css` читает его через
+  // `body[data-sidebar-font-size="lg"] .analysis-sidebar` и выставляет
+  // `--analysis-sidebar-font-scale`, который умножает базовые font-size.
+  useEffect(() => {
+    document.body.setAttribute('data-sidebar-font-size', sidebarFontSize);
+  }, [sidebarFontSize]);
 
   const selectTheme = useCallback((id: BoardThemeId) => {
     localStorage.setItem(LS_THEME_KEY, id);
@@ -230,6 +281,15 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
     setBoardSizeState(size);
+  }, []);
+
+  const setSidebarFontSize = useCallback((size: SidebarFontSizeId) => {
+    try {
+      localStorage.setItem(LS_SIDEBAR_FONT_SIZE_KEY, size);
+    } catch {
+      /* ignore */
+    }
+    setSidebarFontSizeState(size);
   }, []);
 
   /**
@@ -272,12 +332,14 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       showNotation,
       inputMode,
       boardSize,
+      sidebarFontSize,
       autoPromoteToQueen,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
       setBoardSize,
+      setSidebarFontSize,
       setAutoPromoteToQueen,
       currentTheme,
       customPieces,
@@ -290,12 +352,14 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       showNotation,
       inputMode,
       boardSize,
+      sidebarFontSize,
       autoPromoteToQueen,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
       setBoardSize,
+      setSidebarFontSize,
       setAutoPromoteToQueen,
       currentTheme,
       customPieces,
