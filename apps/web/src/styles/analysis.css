@@ -244,15 +244,6 @@ body[data-board-size='sm'] { --analysis-board-size-scale: 0.78; }
 body[data-board-size='md'] { --analysis-board-size-scale: 0.92; }
 body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
-/* KS-3099: множитель размера шрифта правой панели анализа. Базовое
-   значение `--analysis-sidebar-font-scale = 1` (md). Применяется в
-   правилах ниже к font-size элементов внутри `.analysis-sidebar`
-   (.stockfish-line, .review-move-list__moves, .analysis-panel-title,
-   .archive-tree-panel__*). Атрибут пишется BoardSettingsContext. */
-body[data-sidebar-font-size='sm'] { --analysis-sidebar-font-scale: 0.85; }
-body[data-sidebar-font-size='md'] { --analysis-sidebar-font-scale: 1; }
-body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
-
 .analysis-player-info {
   display: flex;
   align-items: center;
@@ -349,72 +340,6 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .analysis-board-controls .analysis-board-size__btn.is-active {
-  background: var(--c-7c83ff);
-  color: var(--c-fff);
-}
-
-/* KS-3099: лейбл-иконка слева в группе board-size (визуально
-   отделяет её от соседней font-size — обе группы 1×S/M/L). */
-.analysis-board-size__label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px;
-  background: var(--c-1a2436);
-  color: var(--c-7c83ff);
-  font-size: 14px;
-  border-right: 1px solid var(--c-4a4a7e);
-  user-select: none;
-  flex-shrink: 0;
-}
-
-/* KS-3099: группа кнопок «размер шрифта правой панели». Визуально
-   идентична board-size, отличается левым лейблом «Aa». */
-.analysis-sidebar-font-size {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 0;
-  border: 1px solid var(--c-4a4a7e);
-  border-radius: 6px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.analysis-sidebar-font-size__label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px;
-  background: var(--c-1a2436);
-  color: var(--c-7c83ff);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border-right: 1px solid var(--c-4a4a7e);
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.analysis-board-controls .analysis-sidebar-font-size__btn {
-  background: var(--c-2a2a4e);
-  color: var(--c-a0a0ff);
-  border: none !important;
-  border-left: 1px solid var(--c-4a4a7e) !important;
-  border-radius: 0 !important;
-  padding: 6px 10px !important;
-  min-width: 28px;
-  font-size: 12px !important;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.analysis-board-controls .analysis-sidebar-font-size__btn:hover:not(:disabled) {
-  background: var(--c-3a3a6e);
-}
-
-.analysis-board-controls .analysis-sidebar-font-size__btn.is-active {
   background: var(--c-7c83ff);
   color: var(--c-fff);
 }
@@ -574,8 +499,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 .stockfish-line {
   display: flex;
   gap: 8px;
-  /* KS-3099: масштабируется через `--analysis-sidebar-font-scale` (S/M/L). */
-  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 14px;
   align-items: flex-start;
   width: 100%;
   min-width: 0;
@@ -777,8 +701,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .analysis-panel-title {
-  /* KS-3099: scale ниже для согласованности с body-текстом панели. */
-  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 13px;
   font-weight: 600;
   color: var(--c-c0c0d0);
   white-space: nowrap;
@@ -817,11 +740,8 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   padding: 10px 12px;
   background: var(--c-0f172a);
   overflow-y: auto;
-  /* KS-3099: высота фиксированной engine-панели растёт пропорционально
-     `--analysis-sidebar-font-scale`, иначе при L=1.18 три PV-линии
-     обрезались бы (по высоте). */
-  min-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
-  max-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
+  min-height: 132px;
+  max-height: 132px;
 }
 
 .analysis-panel-body--scroll {
@@ -1166,8 +1086,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   flex: 1;
   overflow-y: auto;
   padding: 8px 12px;
-  /* KS-3099: масштабируется через `--analysis-sidebar-font-scale`. */
-  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 14px;
   line-height: 1.7;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1484,6 +1403,18 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 20px;
+}
+
+/* KS-3096: `[hidden]` атрибут на неактивных body НЕ перебивает
+   `display: flex` у `.set-position-editor` (UA stylesheet применяет
+   `display: none` без `!important`). До правки максимума по высоте
+   это маскировалось тем, что неактивные body уезжали за нижний край
+   вьюпорта; после внутреннего скролла все три body складывались
+   стопкой и были видны одновременно. Принудительный display:none
+   через !important — точечный фикс на attribute-selector, не трогает
+   активную вкладку. */
+.set-position-body[hidden] {
+  display: none !important;
 }
 
 .set-position-label {
@@ -2065,12 +1996,6 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   .analysis-board-size {
     display: none;
   }
-  /* KS-3099: на мобильном панели рисуются в `.analysis-mobile-panel`,
-     для них действует свой responsive-CSS — переключатель шрифта
-     скрываем (масштабирование desktop-only). */
-  .analysis-sidebar-font-size {
-    display: none;
-  }
 
   .analysis-mobile-panel__content {
     flex: 1;
@@ -2433,8 +2358,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .archive-tree-panel__title {
-  /* KS-3099: единый scale с .analysis-panel-title. */
-  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 13px;
   font-weight: 600;
   color: var(--c-c0c0d0);
   white-space: nowrap;
@@ -2502,8 +2426,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 
 /* Opening line (e.g. "B90 — Sicilian, Najdorf") */
 .archive-tree-panel__opening {
-  /* KS-3099. */
-  font-size: calc(12px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 12px;
   font-weight: 500;
   color: var(--c-c0c0d0);
   line-height: 1.4;
@@ -2511,8 +2434,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 
 /* "based on N games" subtext */
 .archive-tree-panel__stats {
-  /* KS-3099. */
-  font-size: calc(11px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 11px;
   color: var(--c-6b7280);
   margin-top: -2px;
 }
@@ -2531,8 +2453,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 .archive-tree-panel__table {
   width: 100%;
   border-collapse: collapse;
-  /* KS-3099. */
-  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 14px;
   color: var(--c-c0c0d0);
   table-layout: auto;
 }
@@ -2540,8 +2461,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 .archive-tree-panel__table thead th {
   text-align: left;
   font-weight: 600;
-  /* KS-3099. */
-  font-size: calc(11px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--c-6b7280);
@@ -2582,8 +2502,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
    расширяется и тянет визуальную полосу через всю строку. */
 .archive-tree-panel__san {
   font-weight: 700;
-  /* KS-3099. */
-  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
+  font-size: 14px;
   color: var(--c-e0e0ff);
   width: 1%;
   padding-right: 10px;

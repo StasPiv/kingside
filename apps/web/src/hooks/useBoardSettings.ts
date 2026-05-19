@@ -5,7 +5,6 @@ export {
   BOARD_THEMES,
   PIECE_SETS,
   BOARD_SIZES,
-  SIDEBAR_FONT_SIZES,
 } from '../context/BoardSettingsContext';
 export type {
   BoardThemeId,
@@ -15,6 +14,4 @@ export type {
   InputMode,
   BoardSizeId,
   BoardSizePreset,
-  SidebarFontSizeId,
-  SidebarFontSizePreset,
 } from '../context/BoardSettingsContext';

@@ -21,7 +21,7 @@ import { useEngineConfig } from '../hooks/useEngineConfig';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
-import { useBoardSettings, BOARD_SIZES, SIDEBAR_FONT_SIZES } from '../hooks/useBoardSettings';
+import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
@@ -191,10 +191,7 @@ function AnalysisPageInner({
   // KS-2114: размер доски на странице анализа (S/M/L) — пресет из общего
   // BoardSettingsContext, сохраняется в localStorage (см. ключ
   // `analysisBoardSize`). UI-переключатель ниже в `.analysis-board-controls`.
-  // KS-3099: рядом — переключатель размера шрифта правой панели
-  // (Stockfish/нотация/«База партий»), ключ `analysisSidebarFontSize`.
-  const { boardSize, setBoardSize, sidebarFontSize, setSidebarFontSize } =
-    useBoardSettings();
+  const { boardSize, setBoardSize } = useBoardSettings();
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1570,11 +1567,7 @@ function AnalysisPageInner({
               className="analysis-board-size"
               role="group"
               aria-label={t('analysis.boardSize', 'Board size')}
-              title={t('analysis.boardSize', 'Board size')}
             >
-              <span className="analysis-board-size__label" aria-hidden="true">
-                ⛶
-              </span>
               {BOARD_SIZES.map((preset) => (
                 <button
                   key={preset.id}
@@ -1583,41 +1576,6 @@ function AnalysisPageInner({
                   onClick={() => setBoardSize(preset.id)}
                   title={t('analysis.boardSize', 'Board size') + ': ' + preset.label}
                   aria-pressed={boardSize === preset.id}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            {/* KS-3099: переключатель размера шрифта правой панели анализа
-                (Stockfish/нотация/«База партий»). По образцу board-size:
-                3 кнопки S/M/L, значение пишется в localStorage и
-                применяется через CSS-переменную
-                `--analysis-sidebar-font-scale` к font-size элементов
-                внутри `.analysis-sidebar`. Иконка «Aa» отличает группу
-                от соседнего board-size, чтобы две одинаковые S/M/L
-                группы не путались. */}
-            <div
-              className="analysis-sidebar-font-size"
-              role="group"
-              aria-label={t('analysis.sidebarFontSize', 'Sidebar font size')}
-              title={t('analysis.sidebarFontSize', 'Sidebar font size')}
-            >
-              <span className="analysis-sidebar-font-size__label" aria-hidden="true">
-                Aa
-              </span>
-              {SIDEBAR_FONT_SIZES.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`analysis-sidebar-font-size__btn${sidebarFontSize === preset.id ? ' is-active' : ''}`}
-                  onClick={() => setSidebarFontSize(preset.id)}
-                  title={
-                    t('analysis.sidebarFontSize', 'Sidebar font size') +
-                    ': ' +
-                    preset.label
-                  }
-                  aria-pressed={sidebarFontSize === preset.id}
-                  data-testid={`analysis-sidebar-font-size-${preset.id}`}
                 >
                   {preset.label}
                 </button>
