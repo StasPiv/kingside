@@ -653,18 +653,21 @@ export function GamePage() {
               <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
                 {(['q', 'r', 'b', 'n'] as const).map((piece) => {
                   const color = playerColor === 'white' ? 'w' : 'b';
+                  const isWhite = playerColor === 'white';
                   const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
                   return (
                     <button
                       key={piece}
-                      className="promotion-piece"
+                      // KS-3103: --white/--black \u043C\u043E\u0434\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F CSS-color.
+                      className={`promotion-piece promotion-piece--${isWhite ? 'white' : 'black'}`}
                       onClick={() => handlePromotionChoice(piece)}
                       data-piece={`${color}${pieceNames[piece]}`}
+                      aria-label={`${isWhite ? 'White' : 'Black'} ${pieceNames[piece]}`}
                     >
-                      {piece === 'q' ? (playerColor === 'white' ? '\u2655' : '\u265B') : null}
-                      {piece === 'r' ? (playerColor === 'white' ? '\u2656' : '\u265C') : null}
-                      {piece === 'b' ? (playerColor === 'white' ? '\u2657' : '\u265D') : null}
-                      {piece === 'n' ? (playerColor === 'white' ? '\u2658' : '\u265E') : null}
+                      {piece === 'q' ? (isWhite ? '\u2655' : '\u265B') : null}
+                      {piece === 'r' ? (isWhite ? '\u2656' : '\u265C') : null}
+                      {piece === 'b' ? (isWhite ? '\u2657' : '\u265D') : null}
+                      {piece === 'n' ? (isWhite ? '\u2658' : '\u265E') : null}
                     </button>
                   );
                 })}

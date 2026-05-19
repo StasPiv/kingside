@@ -114,9 +114,13 @@ export function AnalysisBoard({
                   return (
                     <button
                       key={piece}
-                      className="promotion-piece"
+                      // KS-3103: модификатор --white/--black задаёт цвет
+                      // глифа в CSS. Без него `color: var(--c-fff)`
+                      // делал даже чёрные filled-Unicode-фигуры белыми.
+                      className={`promotion-piece promotion-piece--${isWhite ? 'white' : 'black'}`}
                       onClick={() => onPromotionChoice(piece)}
                       data-piece={`${color}${PIECE_LETTERS[piece]}`}
+                      aria-label={`${isWhite ? 'White' : 'Black'} ${PIECE_LETTERS[piece]}`}
                     >
                       {isWhite
                         ? PROMOTION_GLYPHS[piece].white

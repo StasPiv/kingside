@@ -67,10 +67,12 @@ export function PromotionPicker({
           <button
             key={piece}
             type="button"
-            className="promotion-piece"
+            // KS-3103: модификатор цвета — см. CSS .promotion-piece--*.
+            className={`promotion-piece promotion-piece--${isWhite ? 'white' : 'black'}`}
             data-testid={`promotion-choice-${piece}`}
             data-piece={`${color}${PIECE_LETTERS[piece]}`}
             onClick={() => onChoice(piece)}
+            aria-label={`${isWhite ? 'White' : 'Black'} ${PIECE_LETTERS[piece]}`}
           >
             {isWhite ? PROMOTION_GLYPHS[piece].white : PROMOTION_GLYPHS[piece].black}
           </button>
