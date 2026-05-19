@@ -3048,7 +3048,14 @@
     "modelVersion": "Model: {{version}}",
     "lowConfidenceCells_one": "{{count}} low-confidence cell",
     "lowConfidenceCells_other": "{{count}} low-confidence cells",
-    "tabTitle": "From image"
+    "tabTitle": "From image",
+    "cropToggle": "Crop manually",
+    "cropHint": "Drag the frame to fit just the board.",
+    "cropFailed": "Failed to crop the image.",
+    "cropReset": "Load another image",
+    "cropCancel": "Cancel crop",
+    "cropRetry": "Crop and re-recognize",
+    "applyTipNoImage": "Upload a board screenshot first."
   },
   "dateRange": {
     "placeholder": "Select dates",

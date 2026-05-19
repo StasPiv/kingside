@@ -3094,7 +3094,14 @@
     "lowConfidenceCells_few": "{{count}} клетки под вопросом",
     "lowConfidenceCells_many": "{{count}} клеток под вопросом",
     "lowConfidenceCells_other": "{{count}} клеток под вопросом",
-    "tabTitle": "По картинке"
+    "tabTitle": "По картинке",
+    "cropToggle": "Обрезать вручную",
+    "cropHint": "Перетаскивай рамку, чтобы она охватила только доску.",
+    "cropFailed": "Не удалось обрезать изображение.",
+    "cropReset": "Загрузить другое изображение",
+    "cropCancel": "Отменить обрезку",
+    "cropRetry": "Обрезать и распознать заново",
+    "applyTipNoImage": "Сначала загрузи скриншот доски."
   },
   "dateRange": {
     "placeholder": "Выберите период",

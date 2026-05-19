@@ -231,6 +231,41 @@
   inset: 0;
 }
 
+/* KS-3104: «×» закрытие crop-режима — overlay в правом верхнем углу
+   frame'а. Не отдельная кнопка внизу (избегаем 4 кнопок), но
+   функционально Cancel crop без сброса result'а. z-index выше
+   cropper'а (его child div'ы absolute inset:0). */
+.board-image-dropzone__crop-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.board-image-dropzone__crop-close:hover {
+  background: rgba(220, 38, 38, 0.85);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.board-image-dropzone__crop-close:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+
 /* KS-3094: подсказка над контролами — почему вместо доски crop UI. */
 .board-image-dropzone__crop-hint {
   border-left: 3px solid #6c8cd0;
@@ -274,29 +309,83 @@
   justify-content: flex-end;
   gap: 8px;
   border-top: 1px solid rgba(120, 140, 200, 0.18);
-  padding-top: 12px;
+  padding: 12px 0 4px;
+  /* KS-3104: на мобильном кнопки в несколько строк, не overflow. */
+  flex-wrap: wrap;
+  /* KS-3104: sticky-bottom внутри `.set-position-body` (он scroll'ится).
+     Иначе на короткой высоте viewport'а (например 720px desktop) primary
+     `Обрезать и распознать заново` уезжает за нижний край модала,
+     пользователь не видит куда жать. Sticky закрепляет кнопки у нижней
+     границы видимой области body. */
+  position: sticky;
+  bottom: 0;
+  background: var(--c-1a1a2e, #1a1a2e);
+  margin-top: 8px;
+  z-index: 2;
 }
 
-.board-image-dropzone__cancel,
-.board-image-dropzone__apply {
+/* KS-3104: secondary — читаемый stroke-кнопка с непрозрачным фоном,
+   не «disabled». Использует семантические токены, чтобы корректно
+   читалась и в светлой, и в тёмной темах. */
+.board-image-dropzone__cancel {
   padding: 8px 16px;
   border-radius: 6px;
-  border: 1px solid rgba(120, 140, 200, 0.35);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text, #e8e8ee);
+  border: 1px solid var(--border-mid, rgba(120, 140, 200, 0.45));
+  background: var(--bg-input, #2a2a3e);
+  color: var(--text-primary, #e8e8ee);
   cursor: pointer;
   font-family: inherit;
   font-size: 0.9em;
+  font-weight: 500;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
+.board-image-dropzone__cancel:hover {
+  background: var(--bg-input, #2a2a3e);
+  border-color: var(--accent-primary, #7c83ff);
+  color: var(--text-primary, #ffffff);
+  /* Subtle highlight без отдельного hover-токена. */
+  filter: brightness(1.15);
+}
+
+.board-image-dropzone__cancel:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+
+/* KS-3104: primary — яркий accent-bg вместо полупрозрачного `rgba(74,142,255,0.25)`.
+   Цвет accent проекта `--accent-primary` (= `--c-7c83ff`, в светлой
+   теме мапится на `#4f46e5`), белый текст, subtle shadow — primary
+   action визуально доминирует над secondary. */
 .board-image-dropzone__apply {
-  background: rgba(74, 142, 255, 0.25);
-  border-color: rgba(160, 180, 230, 0.55);
-  color: #cfe0ff;
-  font-weight: 500;
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent-primary, #7c83ff);
+  color: #ffffff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9em;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: background 0.12s, box-shadow 0.12s, filter 0.12s, transform 0.05s;
+}
+
+.board-image-dropzone__apply:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 2px 6px rgba(124, 131, 255, 0.45);
+}
+
+.board-image-dropzone__apply:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.board-image-dropzone__apply:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
 }
 
 .board-image-dropzone__apply:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
 }

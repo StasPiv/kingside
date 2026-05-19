@@ -589,6 +589,22 @@ export function BoardImageDropzone({
               className="board-image-dropzone__crop-frame"
               data-testid="board-image-dropzone-crop-frame"
             >
+              {/* KS-3104: вместо отдельной кнопки «Cancel crop» внизу
+                  (дублировала верхний Cancel и Reset, визуально шумела)
+                  — компактный «×» в правом верхнем углу crop-frame.
+                  Функционал тот же: выход из crop-режима БЕЗ recognize,
+                  result не трогаем. testid сохранён для существующих
+                  тестов KS-3095. */}
+              <button
+                type="button"
+                className="board-image-dropzone__crop-close"
+                onClick={() => setCropMode(false)}
+                data-testid="board-image-dropzone-crop-cancel"
+                aria-label={t('boardImage.cropCancel', 'Cancel crop')}
+                title={t('boardImage.cropCancel', 'Cancel crop')}
+              >
+                ✕
+              </button>
               <Suspense
                 fallback={
                   <img
@@ -850,7 +866,11 @@ export function BoardImageDropzone({
         )}
         {/* KS-3094: в crop-режиме показываем «Загрузить другое
             изображение» (secondary) и «Обрезать и распознать заново»
-            (primary). Apply отключён — позиция ещё не распознана. */}
+            (primary). Apply отключён — позиция ещё не распознана.
+            KS-3104: убрана третья кнопка «Cancel crop» — её роль
+            покрывает верхний Cancel (закрытие модала) и Reset
+            (возврат к dropzone). Три secondary + primary создавали
+            визуальный шум, пользователь не понимал куда жать. */}
         {cropMode ? (
           <>
             <button
@@ -859,19 +879,7 @@ export function BoardImageDropzone({
               onClick={handleResetUpload}
               data-testid="board-image-dropzone-crop-reset"
             >
-              {t('boardImage.cropReset', 'Choose another image')}
-            </button>
-            {/* KS-3095 follow-up: выйти из crop'а без отправки запроса
-                (юзер передумал). result не трогаем — если что-то уже
-                было распознано, превью и Apply вернутся ровно в то
-                состояние. */}
-            <button
-              type="button"
-              className="board-image-dropzone__cancel"
-              onClick={() => setCropMode(false)}
-              data-testid="board-image-dropzone-crop-cancel"
-            >
-              {t('boardImage.cropCancel', 'Cancel crop')}
+              {t('boardImage.cropReset', 'Load another image')}
             </button>
             <button
               type="button"
