@@ -11,6 +11,51 @@
 [data-board-theme="brown"] .board-square-light  { background-color: var(--c-d4b896); }
 [data-board-theme="brown"] .board-square-dark   { background-color: var(--c-6b3a2a); }
 
+/* ============= KS-3097: backdrop под доской ============= */
+/* `react-chessboard` v5 рендерит клетки через CSS-grid, который
+   распределяет дробные пиксели чередующимися ширинами вида
+   `64.3906px 64.4062px 64.3906px ...`. На zoom браузера 67% (и других
+   дробных коэффициентах) к этому добавляется ещё одно округление —
+   между некоторыми колонками появляется субпиксельный gap, через
+   который просвечивает фон страницы. По симптому пользователя —
+   яркая белая вертикальная линия по центру доски (между файлами
+   d и e на zoom 67%).
+
+   Фикс — поставить контейнеру доски background-color «среднего тона»
+   между light и dark клетками текущей темы. Тогда gap визуально
+   сливается с обеими соседними клетками вместо контрастной белой
+   полосы. Точечно: только классы `.board-container`,
+   `.board-image-dropzone__board` — все места, где монтируется
+   `<Chessboard>`. Подопечные собственного grid'а
+   `.set-position-grid` subpixel-gap'у не подвержены (там нет вложенных
+   слоёв с прозрачным фоном), правило их не трогает.
+
+   Цвета — простое арифметическое среднее (light+dark)/2 от палитры
+   темы в `BOARD_THEMES` (см. `BoardSettingsContext.tsx`). */
+.board-container,
+.board-image-dropzone__board {
+  /* default theme: (#f0d9b5 + #b58863) / 2 ≈ #d3b08c */
+  background-color: #d3b08c;
+}
+
+[data-board-theme="green"] .board-container,
+[data-board-theme="green"] .board-image-dropzone__board {
+  /* (#ffffdd + #86a666) / 2 ≈ #c3d3a2 */
+  background-color: #c3d3a2;
+}
+
+[data-board-theme="blue"] .board-container,
+[data-board-theme="blue"] .board-image-dropzone__board {
+  /* (#dde6ef + #4b7399) / 2 ≈ #94adc4 */
+  background-color: #94adc4;
+}
+
+[data-board-theme="brown"] .board-container,
+[data-board-theme="brown"] .board-image-dropzone__board {
+  /* (#d4b896 + #6b3a2a) / 2 ≈ #9f7960 */
+  background-color: #9f7960;
+}
+
 /* ===================== Piece set preview tiles ===================== */
 
 .piece-set-options {
