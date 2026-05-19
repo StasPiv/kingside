@@ -13,6 +13,7 @@ import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import type { useEngineConfig } from '../../hooks/useEngineConfig';
 import { formatEval, formatPv } from '../../utils/chessFormat';
 import { EngineLoader } from '../../components/EngineLoader';
+import { SidebarFontSizeButton } from '../../components/SidebarFontSizeButton';
 
 /**
  * KS-2866 (ADR-060 §10.1 FR3) — извлечённый sidebar `AnalysisPage`.
@@ -219,6 +220,13 @@ export function AnalysisSidebar({
             )}
           </span>
           <span className="analysis-panel-header-right">
+            {/* KS-3099 v2: единый контрол размера шрифта правой
+                панели — Aa-кнопка с dropdown S/M/L. Размещён в шапке
+                первой панели (Stockfish-engine), управляет шрифтом
+                ВСЕЙ правой колонки (engine + ходы + «База партий»).
+                stopPropagation на самой кнопке — чтобы клик не
+                сворачивал родительскую панель. */}
+            <SidebarFontSizeButton />
             <span
               className="engine-multipv-controls"
               onClick={(e) => e.stopPropagation()}

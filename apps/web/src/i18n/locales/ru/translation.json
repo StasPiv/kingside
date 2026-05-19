@@ -873,6 +873,7 @@
     "generatePuzzleSaveError": "Сгенерировано, но не удалось сохранить: {{msg}}",
     "report": "Отчёт",
     "boardSize": "Размер доски",
+    "sidebarFontSize": "Размер шрифта панели",
     "flipBoard": "Перевернуть доску",
     "share": {
       "button": "Поделиться",

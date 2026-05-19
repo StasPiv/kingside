@@ -244,6 +244,102 @@ body[data-board-size='sm'] { --analysis-board-size-scale: 0.78; }
 body[data-board-size='md'] { --analysis-board-size-scale: 0.92; }
 body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
+/* KS-3099 v2: множитель шрифта правой панели анализа. Применяется в
+   `font-size: calc(... * var(--analysis-sidebar-font-scale, 1))` у
+   текстовых элементов внутри `.analysis-sidebar` (stockfish-line,
+   review-move-list, archive-tree-panel*). Атрибут пишет
+   BoardSettingsContext. */
+body[data-sidebar-font-size='sm'] { --analysis-sidebar-font-scale: 0.85; }
+body[data-sidebar-font-size='md'] { --analysis-sidebar-font-scale: 1; }
+body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
+
+/* KS-3099 v2: Aa-кнопка в шапке правой панели анализа + dropdown S/M/L. */
+.sidebar-font-size {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sidebar-font-size__trigger {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 1px;
+  width: 30px;
+  height: 24px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--c-a0a0c0);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.sidebar-font-size__trigger:hover,
+.sidebar-font-size__trigger[aria-expanded='true'] {
+  background: var(--ov-white-10, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-mid, var(--c-4a4a7e));
+  color: var(--c-fff);
+}
+
+.sidebar-font-size__trigger:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+
+.sidebar-font-size__a {
+  font-size: 14px;
+}
+
+.sidebar-font-size__a--small {
+  font-size: 10px;
+}
+
+.sidebar-font-size__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  display: inline-flex;
+  background: var(--c-111827, #111827);
+  border: 1px solid var(--border-mid, var(--c-4a4a7e));
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  z-index: 50;
+}
+
+.sidebar-font-size__item {
+  min-width: 32px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--c-a0a0ff, #a0a0ff);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  border-left: 1px solid var(--c-2a2a4e, #2a2a4e);
+  transition: background 0.1s, color 0.1s;
+}
+
+.sidebar-font-size__item:first-child {
+  border-left: none;
+}
+
+.sidebar-font-size__item:hover {
+  background: var(--c-1a2436, #1a2436);
+}
+
+.sidebar-font-size__item.is-active {
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: var(--c-fff, #ffffff);
+}
+
 .analysis-player-info {
   display: flex;
   align-items: center;
@@ -499,7 +595,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 .stockfish-line {
   display: flex;
   gap: 8px;
-  font-size: 14px;
+  /* KS-3099 v2: масштабируется через `--analysis-sidebar-font-scale`. */
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
   align-items: flex-start;
   width: 100%;
   min-width: 0;
@@ -718,7 +815,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 }
 
 .analysis-panel-title {
-  font-size: 13px;
+  /* KS-3099 v2. */
+  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
   font-weight: 600;
   color: var(--c-c0c0d0);
   white-space: nowrap;
@@ -757,8 +855,10 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   padding: 10px 12px;
   background: var(--c-0f172a);
   overflow-y: auto;
-  min-height: 132px;
-  max-height: 132px;
+  /* KS-3099 v2: высота engine-панели scale'ятся пропорционально,
+     иначе на L три PV-линии обрезались бы по высоте. */
+  min-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
+  max-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
 }
 
 .analysis-panel-body--scroll {
@@ -1114,7 +1214,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
      indicator'ом ход останется выше «челюсти». */
   padding: 8px 12px;
   padding-bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px));
-  font-size: 14px;
+  /* KS-3099 v2: масштабируется через `--analysis-sidebar-font-scale`. */
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
   line-height: 1.7;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -2398,7 +2499,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 }
 
 .archive-tree-panel__title {
-  font-size: 13px;
+  /* KS-3099 v2. */
+  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
   font-weight: 600;
   color: var(--c-c0c0d0);
   white-space: nowrap;
@@ -2466,7 +2568,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
 /* Opening line (e.g. "B90 — Sicilian, Najdorf") */
 .archive-tree-panel__opening {
-  font-size: 12px;
+  /* KS-3099 v2. */
+  font-size: calc(12px * var(--analysis-sidebar-font-scale, 1));
   font-weight: 500;
   color: var(--c-c0c0d0);
   line-height: 1.4;
@@ -2474,7 +2577,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
 /* "based on N games" subtext */
 .archive-tree-panel__stats {
-  font-size: 11px;
+  /* KS-3099 v2. */
+  font-size: calc(11px * var(--analysis-sidebar-font-scale, 1));
   color: var(--c-6b7280);
   margin-top: -2px;
 }
@@ -2493,7 +2597,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 .archive-tree-panel__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  /* KS-3099 v2. */
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
   color: var(--c-c0c0d0);
   table-layout: auto;
 }
@@ -2501,7 +2606,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 .archive-tree-panel__table thead th {
   text-align: left;
   font-weight: 600;
-  font-size: 11px;
+  /* KS-3099 v2. */
+  font-size: calc(11px * var(--analysis-sidebar-font-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--c-6b7280);
@@ -2542,7 +2648,8 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
    расширяется и тянет визуальную полосу через всю строку. */
 .archive-tree-panel__san {
   font-weight: 700;
-  font-size: 14px;
+  /* KS-3099 v2. */
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
   color: var(--c-e0e0ff);
   width: 1%;
   padding-right: 10px;
