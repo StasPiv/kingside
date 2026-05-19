@@ -230,91 +230,140 @@ export function InlineBoardEditor({
       </div>
 
       {!hidePalette && (
+        // KS-3113: палитра обёрнута в отдельный «контрол»-блок с
+        // подписью, отступом от доски, своим фоном и тонкой верхней
+        // рамкой. До этого палитра рисовалась как `<div grid gap:4>`
+        // вплотную к доске тем же стилем клетки → пользователь
+        // воспринимал её как 9–10 горизонтали (см. KS-3113).
+        // Теперь видно: «доска заканчивается, ниже — отдельный
+        // блок выбора фигур».
         <div
-          className="inline-board-editor__palette"
-          data-testid={`${testIdPrefix}-palette`}
+          className="inline-board-editor__palette-wrap"
+          data-testid={`${testIdPrefix}-palette-wrap`}
           style={{
-            display: 'grid',
-            gridTemplateColumns:
-              palettePosition === 'right' ? 'repeat(2, 1fr)' : 'repeat(7, 1fr)',
-            gap: 4,
+            // bottom: разделитель сверху + отступ от доски; right: лёгкий внутренний контейнер сбоку.
+            marginTop: palettePosition === 'bottom' ? 16 : 0,
+            paddingTop: palettePosition === 'bottom' ? 12 : 0,
+            paddingLeft: palettePosition === 'right' ? 4 : 0,
+            borderTop:
+              palettePosition === 'bottom'
+                ? '1px solid rgba(255,255,255,0.12)'
+                : 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
             flexShrink: 0,
+            // На bottom — палитра во всю ширину доски (выглядит как
+            // отдельный «control»-блок, а не продолжение grid'а).
+            width: palettePosition === 'bottom' ? '100%' : 'auto',
+            maxWidth: palettePosition === 'bottom' ? 320 : 'none',
           }}
         >
-          {[...WHITE_PIECES, ...BLACK_PIECES].map((p) => (
+          <div
+            className="inline-board-editor__palette-label"
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.55)',
+              userSelect: 'none',
+            }}
+          >
+            Фигуры
+          </div>
+          <div
+            className="inline-board-editor__palette"
+            data-testid={`${testIdPrefix}-palette`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                palettePosition === 'right' ? 'repeat(2, 1fr)' : 'repeat(7, 1fr)',
+              // KS-3113: gap 8 (был 4) — кнопки явно отделены друг от
+              // друга, не складываются в визуальные «ряды доски».
+              gap: 8,
+              flexShrink: 0,
+            }}
+          >
+            {[...WHITE_PIECES, ...BLACK_PIECES].map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`inline-board-editor__palette-btn${
+                  selectedPiece === p ? ' is-active' : ''
+                }`}
+                data-testid={`${testIdPrefix}-palette-${p}`}
+                onClick={() => onSelectPiece(selectedPiece === p ? null : p)}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(
+                    'text/inline-board-editor-piece',
+                    p,
+                  );
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                title={p}
+                style={{
+                  // KS-3113: 32×32 вместо 36×36 — кнопка чуть меньше
+                  // клетки доски (~40px), визуально отличается.
+                  width: 32,
+                  height: 32,
+                  background:
+                    selectedPiece === p
+                      ? 'rgba(124,131,255,0.35)'
+                      : 'rgba(255,255,255,0.04)',
+                  border:
+                    selectedPiece === p
+                      ? '1px solid rgba(124,131,255,0.9)'
+                      : '1px solid rgba(255,255,255,0.18)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <PieceImg piece={p} pieceSet={pieceSet} />
+              </button>
+            ))}
             <button
-              key={p}
               type="button"
               className={`inline-board-editor__palette-btn${
-                selectedPiece === p ? ' is-active' : ''
+                selectedPiece === null ? ' is-active' : ''
               }`}
-              data-testid={`${testIdPrefix}-palette-${p}`}
-              onClick={() => onSelectPiece(selectedPiece === p ? null : p)}
+              data-testid={`${testIdPrefix}-palette-eraser`}
+              onClick={() => onSelectPiece(null)}
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData(
                   'text/inline-board-editor-piece',
-                  p,
+                  '__eraser__',
                 );
                 e.dataTransfer.effectAllowed = 'copy';
               }}
-              title={p}
+              title="Eraser"
               style={{
-                width: 36,
-                height: 36,
+                width: 32,
+                height: 32,
                 background:
-                  selectedPiece === p ? 'rgba(124,131,255,0.35)' : 'rgba(255,255,255,0.06)',
+                  selectedPiece === null
+                    ? 'rgba(220,38,38,0.35)'
+                    : 'rgba(255,255,255,0.04)',
                 border:
-                  selectedPiece === p
-                    ? '1px solid rgba(124,131,255,0.9)'
+                  selectedPiece === null
+                    ? '1px solid rgba(220,38,38,0.9)'
                     : '1px solid rgba(255,255,255,0.18)',
-                borderRadius: 4,
+                borderRadius: 6,
                 cursor: 'pointer',
+                color: '#ffffff',
+                fontSize: 14,
                 padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
               }}
             >
-              <PieceImg piece={p} pieceSet={pieceSet} />
+              ✕
             </button>
-          ))}
-          <button
-            type="button"
-            className={`inline-board-editor__palette-btn${
-              selectedPiece === null ? ' is-active' : ''
-            }`}
-            data-testid={`${testIdPrefix}-palette-eraser`}
-            onClick={() => onSelectPiece(null)}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData(
-                'text/inline-board-editor-piece',
-                '__eraser__',
-              );
-              e.dataTransfer.effectAllowed = 'copy';
-            }}
-            title="Eraser"
-            style={{
-              width: 36,
-              height: 36,
-              background:
-                selectedPiece === null
-                  ? 'rgba(220,38,38,0.35)'
-                  : 'rgba(255,255,255,0.06)',
-              border:
-                selectedPiece === null
-                  ? '1px solid rgba(220,38,38,0.9)'
-                  : '1px solid rgba(255,255,255,0.18)',
-              borderRadius: 4,
-              cursor: 'pointer',
-              color: '#ffffff',
-              fontSize: 16,
-              padding: 0,
-            }}
-          >
-            ✕
-          </button>
+          </div>
         </div>
       )}
     </div>
