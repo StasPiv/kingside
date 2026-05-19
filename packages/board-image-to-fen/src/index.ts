@@ -22,7 +22,28 @@ const __dirname = dirname(__filename);
 /** Пути к Python-скриптам. Решаются относительно `dist/index.js` после tsc-сборки. */
 const RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'recognizer.py');
 const PDF_RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'pdf_recognizer.py');
-const BOARD_RECOGNIZE_PY = resolve(__dirname, '..', 'src', 'python', 'board_recognize.py');
+const BOARD_RECOGNIZE_PY_V1 = resolve(__dirname, '..', 'src', 'python', 'board_recognize.py');
+const BOARD_RECOGNIZE_PY_YOLO = resolve(__dirname, '..', 'src', 'python', 'board_recognize_yolo.py');
+
+/**
+ * Выбор pipeline для board-recognition.
+ *
+ * - `BOARD_RECOG_PIPELINE=yolo` → `board_recognize_yolo.py` (KS-3091 v4,
+ *   object detection через YOLOv8n). Требует совместимую модель — обучена
+ *   на детекцию фигур, не per-cell классификатор.
+ * - иначе (включая отсутствие переменной) → `board_recognize.py` (v1,
+ *   per-cell ONNX classifier, KS-2361). Дефолт = back-compat.
+ *
+ * Переключение через ENV нужно чтобы выкатить v2 модель в прод без
+ * редеплоя кода: достаточно изменить переменную окружения у API + кинуть
+ * новый ONNX в S3.
+ */
+function _pickRecognizePy(): string {
+  if ((process.env.BOARD_RECOG_PIPELINE || '').toLowerCase() === 'yolo') {
+    return BOARD_RECOGNIZE_PY_YOLO;
+  }
+  return BOARD_RECOGNIZE_PY_V1;
+}
 
 export type Orientation = 'white' | 'black';
 
@@ -446,7 +467,7 @@ async function runGeneric(
     stage?: GenericRecognizeStage | string | null;
   } & Partial<Omit<UniversalRecognizeResult, 'success' | 'usedProfile'>>;
 
-  const raw = await runJsonScript<Raw>(BOARD_RECOGNIZE_PY, args, opts.pythonPath);
+  const raw = await runJsonScript<Raw>(_pickRecognizePy(), args, opts.pythonPath);
   if (!raw.success) {
     const stage = (raw.stage as GenericRecognizeStage | null) ?? 'unknown';
     const known: GenericRecognizeStage[] = [
