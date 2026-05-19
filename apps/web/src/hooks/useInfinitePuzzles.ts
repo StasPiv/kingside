@@ -203,6 +203,14 @@ export function useInfinitePuzzles(
     // KS-2565: при смене фильтра — разрешаем заново все cursor'ы.
     lastUsedCursorRef.current = null;
     setLoading(true);
+    // KS-3122: ОБЯЗАТЕЛЬНО сбросить loadingMore при смене filtersKey.
+    // Если пользователь поменял фильтр (themes/rating/etc.) пока
+    // предыдущий loadMore был inflight — его `.finally` сравнивает
+    // `mySeq !== seqRef.current` и НЕ вызывает `setLoadingMore(false)`
+    // (это race-guard). Результат: loadingMore залип в true, индикатор
+    // «Загрузка...» висит навсегда, новый loadMore блокируется
+    // условием `if (loadingMore) return`. Reset снимает блок.
+    setLoadingMore(false);
     setError(null);
     setPuzzles([]);
     setNextCursor(null);

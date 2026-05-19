@@ -254,4 +254,73 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(result.current.error).toMatch(/boom/);
     expect(result.current.puzzles).toEqual([]);
   });
+
+  it('KS-3122: смена filtersKey пока loadMore inflight сбрасывает loadingMore (раньше залипал на true)', async () => {
+    // Initial fetch — есть hasMore.
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: 'cur1',
+    });
+    const { result, rerender } = renderHook(
+      ({ themes }: { themes?: string[] }) =>
+        useInfinitePuzzles({ themes }),
+      { initialProps: {} },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Подвешиваем loadMore — promise который никогда не зарезолвится в
+    // пределах текущего теста (имитация inflight-запроса в момент смены
+    // фильтра). Этот запрос увеличит seqRef, но потом мы поменяем
+    // filtersKey — следующий increment seqRef сделает старый ответ
+    // невалидным.
+    let resolveSlow: (v: unknown) => void = () => {};
+    apiGet.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveSlow = res;
+      }),
+    );
+    act(() => {
+      result.current.loadMore();
+    });
+    // loadingMore стал true, запрос в полёте.
+    expect(result.current.loadingMore).toBe(true);
+
+    // Пользователь меняет theme — filtersKey изменился, идёт новый
+    // initial-fetch с новыми параметрами.
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_C],
+      nextCursor: 'cur2',
+    });
+    rerender({ themes: ['mateIn1'] });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Главное: loadingMore СБРОШЕН в false, индикатор «Загрузка...»
+    // не залипает. Раньше без фикса оставался true навсегда (старый
+    // mySeq не совпадает с новым seqRef.current → .finally early-return).
+    expect(result.current.loadingMore).toBe(false);
+    // Список заменён на отфильтрованные пазлы.
+    expect(result.current.puzzles.map((p) => p.id)).toEqual(['c']);
+
+    // Sanity: даже если старый запрос всё-таки зарезолвится — он не
+    // должен подмешать данные в новый список (race-guard через seqRef).
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_C, PUZZLE_A],
+      nextCursor: 'cur3',
+    });
+    act(() => {
+      resolveSlow({ data: [PUZZLE_B], nextCursor: 'old-cur' });
+    });
+    await waitFor(() =>
+      expect(result.current.puzzles.map((p) => p.id)).toEqual(['c']),
+    );
+    expect(result.current.loadingMore).toBe(false);
+
+    // Новый loadMore работает: после фикса разблокировано (раньше
+    // `if (loadingMore) return` блокировал).
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    expect(result.current.puzzles.map((p) => p.id)).toEqual(['c', 'c', 'a']);
+  });
 });
