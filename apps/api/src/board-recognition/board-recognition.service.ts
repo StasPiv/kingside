@@ -66,6 +66,35 @@ export interface RecognizeUniversalResult {
   detect?: {
     confidence?: number;
   };
+  /**
+   * KS-3110: множественные доски на исходной картинке (find-boards stage).
+   * Если поле присутствует и длина > 1 — на скриншоте обнаружено
+   * несколько досок (страница пазлов, учебник с двумя диаграммами и т.п.).
+   * Корневые поля (fen, fen_board, ...) дублируют первую `success` доску
+   * для back-compat. Service пробрасывает массив дальше в
+   * `BoardRecognitionResponse.boards` (опциональное поле).
+   */
+  boards?: Array<{
+    success?: boolean;
+    fen?: string;
+    fen_board?: string;
+    orientation?: 'white' | 'black';
+    bbox?: [number, number, number, number];
+    low_confidence_cells?: Array<{
+      square: string;
+      predicted: string;
+      confidence: number;
+      top3?: Array<{ label: string; prob: number }>;
+    }>;
+    sanity?: {
+      valid: boolean;
+      issues: string[];
+    };
+    detect?: {
+      confidence?: number;
+    };
+  }>;
+  n_boards_found?: number;
 }
 
 export const BOARD_RECOGNIZER = 'BOARD_RECOGNIZER';
@@ -225,11 +254,53 @@ export class BoardRecognitionService {
     raw: RecognizeUniversalResult,
     modelVersion: string | null,
   ): BoardRecognitionResponse {
+    const root = this.boardToResponse(
+      raw,
+      raw.low_confidence_cells,
+      raw.sanity,
+      raw.detect,
+      raw.bbox,
+      modelVersion,
+    );
+    // KS-3110: если find-boards вернул массив > 1, прокидываем как `boards`.
+    if (raw.boards && raw.boards.length > 1) {
+      root.boards = raw.boards
+        .filter((b) => b?.success !== false && b?.fen && b?.fen_board)
+        .map((b) =>
+          this.boardToResponse(
+            {
+              fen: b.fen!,
+              fen_board: b.fen_board!,
+              orientation: b.orientation!,
+            },
+            b.low_confidence_cells,
+            b.sanity,
+            b.detect,
+            b.bbox,
+            modelVersion,
+          ),
+        );
+    }
+    return root;
+  }
+
+  private boardToResponse(
+    raw: {
+      fen: string;
+      fen_board: string;
+      orientation: 'white' | 'black';
+    },
+    lowConfCells: RecognizeUniversalResult['low_confidence_cells'],
+    sanity: RecognizeUniversalResult['sanity'],
+    detect: RecognizeUniversalResult['detect'],
+    bbox: RecognizeUniversalResult['bbox'],
+    modelVersion: string | null,
+  ): BoardRecognitionResponse {
     const warnings: string[] = [];
-    for (const issue of raw.sanity?.issues ?? []) {
+    for (const issue of sanity?.issues ?? []) {
       warnings.push(`sanity: ${issue}`);
     }
-    const cells = raw.low_confidence_cells ?? [];
+    const cells = lowConfCells ?? [];
     if (cells.length > 0) {
       warnings.push(`low confidence: ${cells.length} cells`);
     }
@@ -237,8 +308,8 @@ export class BoardRecognitionService {
       fen: raw.fen,
       fenBoard: raw.fen_board,
       orientation: raw.orientation,
-      orientationConfidence: clamp(raw.detect?.confidence ?? 1, 0, 1),
-      bbox: raw.bbox ?? [0, 0, 0, 0],
+      orientationConfidence: clamp(detect?.confidence ?? 1, 0, 1),
+      bbox: bbox ?? [0, 0, 0, 0],
       modelVersion,
       lowConfidenceCells: cells.map((c) => ({
         square: c.square,

@@ -72,4 +72,20 @@ export interface BoardRecognitionResponse {
    *   - `"low confidence: 8 cells"`.
    */
   warnings: string[];
+  /**
+   * KS-3110: если на исходной картинке найдено больше одной доски через
+   * find-boards модель, тут список ВСЕХ распознанных позиций. Каждый
+   * элемент — самостоятельный BoardRecognitionResponse для одной доски,
+   * с собственным `fen`, `fenBoard`, `bbox`, `orientation`, `cells` и т.д.
+   *
+   * Поле опциональное. Если find-boards отключён (нет ENV
+   * `BOARD_FINDBOARDS_MODEL_VERSION`) или найдена одна доска — `boards`
+   * не присутствует, ответ — single как раньше.
+   *
+   * Когда `boards` есть и его длина > 1 — корневые поля (`fen`, `bbox`,
+   * etc.) дублируют **первую** найденную доску для back-compat; фронт
+   * волен либо ориентироваться на корень (одна позиция), либо обрабатывать
+   * массив (показать все, дать выбрать).
+   */
+  boards?: BoardRecognitionResponse[];
 }

@@ -570,12 +570,27 @@ def recognize_multi(
         }
         boards_results.append(sub)
 
-    return {
-        "success": any(b.get("success") for b in boards_results),
+    # Back-compat: дублируем первую (success'ную) доску на корень, чтобы
+    # старый код service / TS-обёртка не сломались. Новый код может
+    # читать `boards` массивом и `n_boards_found`.
+    primary_idx = next(
+        (i for i, b in enumerate(boards_results) if b.get("success")),
+        None,
+    )
+    primary = boards_results[primary_idx] if primary_idx is not None else {}
+    response: Dict[str, Any] = {
+        "success": primary_idx is not None,
         "boards": boards_results,
         "n_boards_found": len(boards_results),
         "find_boards_model": find_boards_model_path,
     }
+    # Скопировать поля основной доски на верхний уровень.
+    for k in ("fen", "fen_board", "orientation", "bbox", "cells",
+              "low_confidence_cells", "sanity", "detect",
+              "model_path", "model_kind", "stage"):
+        if k in primary:
+            response[k] = primary[k]
+    return response
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────
@@ -620,10 +635,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 iou_nms=args.iou_nms,
                 unet_model_path=args.unet_model,
             )
-            # Back-compat: если найдена одна доска и НЕ задан --multi явно,
-            # отдаём её single-payload — service не сломается.
-            if not args.multi and result.get("n_boards_found", 0) == 1 and result["boards"]:
-                result = result["boards"][0]
+            # Поле `boards` всегда присутствует в multi-режиме. Первая
+            # success'ная доска продублирована на корень для back-compat.
+            # Service видит и старые поля (fen, fen_board, ...), и массив.
         else:
             result = recognize(
                 args.image,
