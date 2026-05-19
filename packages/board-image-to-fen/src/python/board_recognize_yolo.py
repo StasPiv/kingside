@@ -529,8 +529,12 @@ def recognize_multi(
     # Stage 0: найти все доски.
     boards_bboxes = find_boards(image_path, find_boards_model_path, conf_threshold=find_boards_conf)
     if not boards_bboxes:
+        # KS-3119: stage="detect" → backend смаппит на 400 board_not_detected
+        # (контракт KS-3094). Это business case «доска не найдена»,
+        # не 500 server-error.
         return {
             "success": False,
+            "stage": "detect",
             "boards": [],
             "n_boards_found": 0,
             "find_boards_model": find_boards_model_path,
