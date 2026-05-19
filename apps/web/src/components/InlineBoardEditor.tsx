@@ -394,14 +394,23 @@ export function InlineBoardEditor({
 /* Helpers re-exported для родителей. */
 
 export function fenToEditorBoard(
-  fenBoard: string,
+  fenBoard: string | null | undefined,
 ): Record<string, PalettePiece | undefined> {
+  // KS-3115: defensive — undefined/null/мусор → пустая доска вместо
+  // TypeError на `.split()`. Backend в degenerate-случае может
+  // вернуть response без `fenBoard`; даже если в `recognizeBoard` мы
+  // отловили это `BoardNotDetectedError`'ом, оставшиеся каллеры
+  // (тесты, fallback-flows) могут передать пустую строку.
+  if (typeof fenBoard !== 'string' || fenBoard.length === 0) {
+    return {};
+  }
   const FEN_TO_PIECE: Record<string, PalettePiece> = {
     K: 'wK', Q: 'wQ', R: 'wR', B: 'wB', N: 'wN', P: 'wP',
     k: 'bK', q: 'bQ', r: 'bR', b: 'bB', n: 'bN', p: 'bP',
   };
   const out: Record<string, PalettePiece | undefined> = {};
   const rows = fenBoard.split('/');
+  if (rows.length !== 8) return out;
   for (let ri = 0; ri < rows.length; ri++) {
     const rank = 8 - ri;
     let file = 0;
@@ -409,6 +418,7 @@ export function fenToEditorBoard(
       if (ch >= '1' && ch <= '8') {
         file += Number(ch);
       } else {
+        if (file < 0 || file > 7) continue;
         const sq = `${'abcdefgh'[file]}${rank}`;
         const piece = FEN_TO_PIECE[ch];
         if (piece) out[sq] = piece;
@@ -420,8 +430,11 @@ export function fenToEditorBoard(
 }
 
 export function editorBoardToFen(
-  board: Record<string, PalettePiece | undefined>,
+  board: Record<string, PalettePiece | undefined> | null | undefined,
 ): string {
+  // KS-3115: defensive — board=undefined/null → пустая доска вместо
+  // обращения к board[...] на null.
+  const safeBoard = board ?? {};
   const PIECE_TO_FEN: Record<PalettePiece, string> = {
     wK: 'K', wQ: 'Q', wR: 'R', wB: 'B', wN: 'N', wP: 'P',
     bK: 'k', bQ: 'q', bR: 'r', bB: 'b', bN: 'n', bP: 'p',
@@ -432,7 +445,7 @@ export function editorBoardToFen(
     let empty = 0;
     for (const f of 'abcdefgh') {
       const sq = `${f}${r}`;
-      const piece = board[sq];
+      const piece = safeBoard[sq];
       if (piece) {
         if (empty > 0) { row += empty; empty = 0; }
         row += PIECE_TO_FEN[piece];

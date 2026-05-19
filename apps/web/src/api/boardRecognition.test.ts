@@ -339,3 +339,37 @@ describe('resolveOrientation (KS-3108)', () => {
     expect(resolveOrientation('white', 0.5, FLIPPED)).toBe('black');
   });
 });
+
+describe('recognizeBoard KS-3115 (response без fen/fenBoard)', () => {
+  it('200 ответ без fen — бросает BoardNotDetectedError, НЕ TypeError', async () => {
+    // Точный payload из жалобы пользователя — backend v2.0.0 на
+    // нераспознанной картинке: bbox=[0,0,0,0], без fen/fenBoard.
+    const realDegenerate = {
+      orientationConfidence: 1,
+      bbox: [0, 0, 0, 0],
+      modelVersion: '2.0.0',
+      lowConfidenceCells: [],
+      warnings: [],
+    };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(realDegenerate), { status: 200 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
+  });
+
+  it('200 с fenBoard но без fen — всё равно BoardNotDetectedError (требуем оба)', async () => {
+    const payload = {
+      fenBoard: '8/8/8/8/8/8/8/8',
+      orientationConfidence: 0.5,
+      bbox: [0, 0, 0, 0],
+      lowConfidenceCells: [],
+      warnings: [],
+    };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(payload), { status: 200 });
+    await expect(
+      recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
+    ).rejects.toBeInstanceOf(BoardNotDetectedError);
+  });
+});

@@ -101,7 +101,11 @@ interface FenRest {
   fullmove: number;
 }
 
-function parseFenRest(fen: string): FenRest {
+function parseFenRest(fen: string | null | undefined): FenRest {
+  // KS-3115: defensive — undefined → нейтральный rest, не падать.
+  if (typeof fen !== 'string') {
+    return { castling: '-', enPassant: '-', halfmove: 0, fullmove: 1 };
+  }
   const parts = fen.split(' ');
   return {
     castling: parts[2] ?? '-',
@@ -111,7 +115,9 @@ function parseFenRest(fen: string): FenRest {
   };
 }
 
-function safeFenBoard(fenFull: string): string {
+function safeFenBoard(fenFull: string | null | undefined): string {
+  // KS-3115: defensive — undefined → пустая доска.
+  if (typeof fenFull !== 'string') return EMPTY_FEN_BOARD;
   return fenFull.split(' ')[0] || EMPTY_FEN_BOARD;
 }
 

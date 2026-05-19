@@ -432,6 +432,20 @@ export async function recognizeBoard(
     // принимает любую известную форму payload'а и приводит к
     // нашему контракту.
     const raw = (await res.json()) as Record<string, unknown>;
+    // KS-3115: degenerate-случай — backend в новой v2 модели на
+    // непригодной картинке возвращает 200 с `bbox: [0,0,0,0]` и БЕЗ
+    // полей `fen`/`fenBoard`. Старая логика делала `fen.split(...)`
+    // на undefined → uncaught TypeError в продакшен-бандле.
+    // Конвертируем в нашу доменную ошибку `BoardNotDetectedError` —
+    // дропзона уже умеет её показывать как crop-overlay («доска не
+    // найдена, обрежьте кадр»). Backend не трогаем — фронт должен
+    // переживать любой формат.
+    if (typeof raw.fen !== 'string' || typeof raw.fenBoard !== 'string') {
+      throw new BoardNotDetectedError({
+        error: 'board_not_detected',
+        message: 'Recognizer returned no FEN — board not found in image.',
+      });
+    }
     const normalized: BoardRecognitionResponse = {
       ...(raw as unknown as BoardRecognitionResponse),
       lowConfidenceCells: normalizeLowConfidenceCells(raw.lowConfidenceCells),
