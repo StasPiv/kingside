@@ -1089,7 +1089,13 @@ if $DEPLOY_API; then
     # Cache pull на cold-start (нет ECR :cache тэга) — невидимая ошибка,
     # build продолжается без cache (нормальное поведение BuildKit).
     set +e
-    DOCKER_BUILDKIT=1 docker build --progress=plain \
+    # KS-3122: лимиты RAM/CPU + nice/ionice. До этого BuildKit (KS-3121)
+    # без ограничений съедал RAM/CPU хоста, агентский контейнер уходил
+    # в swap thrashing и терял контекст через webhook --resume.
+    # 8g RAM / 8 CPU оставляет агенту запас на 32G/16-CPU хосте.
+    nice -n 19 ionice -c3 \
+    env DOCKER_BUILDKIT=1 docker build --progress=plain \
+        --memory=8g --memory-swap=10g --cpus=8 \
         -t "kingside-api:${DEPLOY_SHA}" \
         --cache-from "${ECR_URI}:cache" \
         --build-arg BUILDKIT_INLINE_CACHE=1 \
