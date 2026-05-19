@@ -117,7 +117,13 @@
 .vml-container {
   flex: 1;
   overflow-y: auto;
+  /* KS-3100: симметрично `.review-move-list__moves` — padding-bottom
+     равен высоте fade-zone (56px) + базовые 8px, с уважением iOS
+     safe-area-inset-bottom. Иначе при `scrollTop=scrollHeight`
+     последние варианты прячутся под fade-градиентом
+     `.analysis-panel--flex::after`. */
   padding: 10px 12px;
+  padding-bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px));
   box-sizing: border-box;
 }
 

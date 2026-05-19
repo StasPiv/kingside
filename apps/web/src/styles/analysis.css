@@ -629,7 +629,19 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   min-width: 280px;
   min-height: 0;
   align-self: stretch;
-  overflow: hidden;
+  /* KS-3100: было `overflow: hidden` — если суммарная min-height
+     панелей (engine 172 + archive max-height + moves min) превышала
+     высоту sidebar (типично 600–720 px), последняя панель «Ходы»
+     торчала ниже viewport, и нотация физически уходила под нижнюю
+     панель управления доской. Теперь sidebar получает fallback-скролл
+     на оси Y — если не помещается, юзер скроллит колонку целиком и
+     дотягивается до последнего хода. Внутренний скролл нотации тоже
+     остаётся (см. `.review-move-list__moves`). */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* iOS safe-area под home-indicator — нотация не лежит на «челюсти». */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   contain: inline-size;
 }
 
@@ -645,7 +657,12 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
 .analysis-panel--flex {
   flex: 1;
-  min-height: 0;
+  /* KS-3100: гарантированный минимум — header (40px) + хотя бы 3 строки
+     нотации (line-height 1.7 × 14px ≈ 24px × 3 = 72px) + fade-zone
+     внизу (56px). При недостатке места в sidebar активируется
+     fallback-скролл колонки (`.analysis-sidebar { overflow-y: auto }`)
+     и юзер дотягивается до полной нотации скроллом колонки. */
+  min-height: 168px;
   position: relative;
 }
 
@@ -1085,7 +1102,18 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 .review-move-list__moves {
   flex: 1;
   overflow-y: auto;
+  /* KS-3100: padding-top/right/left как раньше, padding-bottom раньше
+     был 8px. Без него при `scrollTop = scrollHeight` последние ходы
+     оказывались под fade-градиентом `.analysis-panel--flex::after`
+     (`pointer-events: none`, но визуально замывает текст до
+     непрозрачности к нижнему краю) и под фиксированной нижней
+     панелью на mobile (`MobileBottomBar`). Пользователь жаловался
+     «нотация уходит под нижнюю панель управления».
+     Теперь bottom-padding = fade-zone (56px) + базовые 8px = 64px,
+     с уважением iOS safe-area-inset-bottom — на айфонах с home
+     indicator'ом ход останется выше «челюсти». */
   padding: 8px 12px;
+  padding-bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px));
   font-size: 14px;
   line-height: 1.7;
   white-space: pre-wrap;
@@ -2321,8 +2349,20 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 }
 
 .archive-tree-panel:has(.archive-tree-panel__body) {
-  /* Раскрыта: фиксированная высота 360px. */
-  height: 360px;
+  /* KS-3100: раньше было `height: 360px` без возможности сжаться. На
+     коротких viewport'ах archive забирала почти весь sidebar и
+     moves-panel оказывалась ниже sidebar.bottom — нотация уходила
+     под нижнюю панель управления.
+     Теперь — `max-height: 360px` (поведение не меняется на длинных
+     viewport'ах) + базовая высота 280px вместо 360 на коротких,
+     чтобы оставить место под header+min-body «Ходов». Дополнительно
+     `flex: 0 1 360px` разрешает сжиматься: при недостатке места в
+     sidebar archive отдаст ширину moves-панели. Внутренний скролл
+     `__body` уже есть, контент не теряется. */
+  height: auto;
+  max-height: min(360px, calc(50vh - 80px));
+  flex: 0 1 auto;
+  min-height: 120px;
 }
 
 .archive-tree-panel__header {
