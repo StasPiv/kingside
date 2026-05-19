@@ -13,6 +13,7 @@ import {
   normalizeOrientation,
   autodetectOrientationFromFen,
   resolveOrientation,
+  normalizeBoards,
 } from './boardRecognition';
 
 const STARTING_FEN =
@@ -371,5 +372,112 @@ describe('recognizeBoard KS-3115 (response без fen/fenBoard)', () => {
     await expect(
       recognizeBoard(makeFile(), { fetchImpl: fetchImpl as typeof fetch }),
     ).rejects.toBeInstanceOf(BoardNotDetectedError);
+  });
+});
+
+describe('normalizeBoards (KS-3117)', () => {
+  const VALID = {
+    fen: '8/4k3/8/8/8/8/4K3/8 w - - 0 1',
+    fenBoard: '8/4k3/8/8/8/8/4K3/8',
+    orientation: 'white' as const,
+    orientationConfidence: 0.9,
+    bbox: [10, 20, 100, 100],
+    modelVersion: '2.0.0',
+    lowConfidenceCells: [],
+    warnings: [],
+  };
+
+  it('undefined / null / пустой массив → undefined (single-board режим)', () => {
+    expect(normalizeBoards(undefined)).toBeUndefined();
+    expect(normalizeBoards(null)).toBeUndefined();
+    expect(normalizeBoards([])).toBeUndefined();
+    expect(normalizeBoards('not-array')).toBeUndefined();
+  });
+
+  it('массив из 1 валидной доски → массив длины 1', () => {
+    const out = normalizeBoards([VALID]);
+    expect(out).toHaveLength(1);
+    expect(out![0].fen).toBe(VALID.fen);
+  });
+
+  it('массив из N валидных досок → сохраняет все', () => {
+    const out = normalizeBoards([VALID, { ...VALID, fen: VALID.fen + ' tag2' }, VALID]);
+    expect(out).toHaveLength(3);
+  });
+
+  it('пропускает элементы без fen/fenBoard (KS-3115 guard)', () => {
+    const partial = { ...VALID } as Partial<typeof VALID>;
+    delete partial.fen;
+    const out = normalizeBoards([VALID, partial, VALID]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('нормализует lowConfidenceCells внутри каждой доски (KS-3106)', () => {
+    const boardWithCells = {
+      ...VALID,
+      lowConfidenceCells: [
+        // Backend prod-формат {square, predicted}.
+        { square: 'a8', predicted: 'wK', confidence: 0.5 },
+      ],
+    };
+    const out = normalizeBoards([boardWithCells])!;
+    expect(out[0].lowConfidenceCells).toHaveLength(1);
+    // После normalize — наш формат {file, rank, piece, confidence}.
+    expect(out[0].lowConfidenceCells[0]).toMatchObject({
+      file: 0,
+      rank: 0,
+      piece: 'wK',
+    });
+  });
+
+  it('пропускает мусор (string, null, {}, без fen) без падения', () => {
+    const out = normalizeBoards([VALID, null, 'string', {}, { fen: 'x' }, VALID]);
+    expect(out).toHaveLength(2);
+  });
+});
+
+describe('recognizeBoard KS-3117 (multi-board)', () => {
+  const BOARD_A = {
+    fen: '8/4k3/8/8/8/8/4K3/8 w - - 0 1',
+    fenBoard: '8/4k3/8/8/8/8/4K3/8',
+    orientation: 'white' as const,
+    orientationConfidence: 0.9,
+    bbox: [10, 20, 100, 100],
+    modelVersion: '2.0.0',
+    lowConfidenceCells: [],
+    warnings: [],
+  };
+  const BOARD_B = { ...BOARD_A, fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1', fenBoard: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR' };
+
+  it('200 с boards[2] — клиент сохраняет массив целиком', async () => {
+    const payload = { ...BOARD_A, boards: [BOARD_A, BOARD_B] };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(payload), { status: 200 });
+    const res = await recognizeBoard(makeFile(), {
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(res.boards).toBeDefined();
+    expect(res.boards).toHaveLength(2);
+    expect(res.boards![0].fen).toBe(BOARD_A.fen);
+    expect(res.boards![1].fen).toBe(BOARD_B.fen);
+  });
+
+  it('200 без boards — single-board режим, res.boards undefined', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(BOARD_A), { status: 200 });
+    const res = await recognizeBoard(makeFile(), {
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(res.boards).toBeUndefined();
+  });
+
+  it('200 с boards: [] — клиент не хранит пустой массив (treats as single)', async () => {
+    const payload = { ...BOARD_A, boards: [] };
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(payload), { status: 200 });
+    const res = await recognizeBoard(makeFile(), {
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(res.boards).toBeUndefined();
   });
 });

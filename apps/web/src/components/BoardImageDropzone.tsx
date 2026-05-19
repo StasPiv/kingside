@@ -293,6 +293,11 @@ export function BoardImageDropzone({
   // KS-3105: клетки, которые пользователь правил руками — снимаем с них
   // подсветку low/sanity (модель уже не отвечает за их содержимое).
   const [editedCells, setEditedCells] = useState<Set<string>>(new Set());
+  // KS-3117: multi-board режим. Когда backend нашёл несколько досок на
+  // одной картинке (страница пазлов, учебник с несколькими диаграммами)
+  // — здесь массив, UI показывает grid превью для выбора. Single-board
+  // и multi-board.length===1 → null (старый flow без grid).
+  const [multiBoards, setMultiBoards] = useState<BoardRecognitionResponse[] | null>(null);
   // KS-3093: backend 422 `recognition_unreliable` — модель распознала
   // позицию, но client-sanity отверг (типичный случай: пешка на a1
   // вместо ладьи). Раньше фронт показывал «Invalid FEN: точка» и
@@ -331,6 +336,53 @@ export function BoardImageDropzone({
     };
   }, [imageUrl]);
 
+  /**
+   * KS-3117: вынесенный «apply recognized board» — применяет одну
+   * распознанную доску к state'у дропзоны как раньше. Вызывается:
+   *  - из `handleFile` при single-board ответе;
+   *  - при клике пользователя на превью в multi-board grid.
+   * Логика идентична inline-блоку до KS-3117.
+   */
+  const applyRecognizedBoard = useCallback(
+    (res: BoardRecognitionResponse) => {
+      setResult(res);
+      setFenBoard(res.fenBoard);
+      setOrientation(
+        resolveOrientation(
+          res.orientation,
+          res.orientationConfidence,
+          res.fenBoard,
+        ),
+      );
+      const parts = res.fen.split(' ');
+      const s: Side = parts[1] === 'b' ? 'b' : 'w';
+      setSide(s);
+      setFenRest(parseFenRest(res.fen));
+      setManualFen(res.fen);
+      setWarnings(res.warnings ?? []);
+      setEditorBoard(fenToEditorBoard(res.fenBoard));
+      setEditedCells(new Set());
+      setSanityIssues([]);
+      setError(null);
+      if (onRecognized) {
+        onRecognized(res.fen);
+      }
+    },
+    [onRecognized],
+  );
+
+  /**
+   * KS-3117: клик по превью в multi-board grid'е. Выходим из
+   * grid-режима и применяем выбранную доску стандартным flow.
+   */
+  const handleSelectMultiBoard = useCallback(
+    (board: BoardRecognitionResponse) => {
+      setMultiBoards(null);
+      applyRecognizedBoard(board);
+    },
+    [applyRecognizedBoard],
+  );
+
   const handleFile = useCallback(
     async (file: File | Blob) => {
       setError(null);
@@ -352,42 +404,19 @@ export function BoardImageDropzone({
       });
       try {
         const res = await recognizer(file);
-        setResult(res);
-        setFenBoard(res.fenBoard);
-        // KS-3108: backend orientation может быть ненадёжным (его
-        // эвристика смотрит на королей в распознанной позиции —
-        // если фигуры классифицированы неточно, orientation уезжает).
-        // Доверяем backend только при confidence >= 0.7, иначе берём
-        // autodetect по королям. Backend-агент рекомендует именно
-        // этот алгоритм (см. KS-3108 комментарии).
-        setOrientation(
-          resolveOrientation(
-            res.orientation,
-            res.orientationConfidence,
-            res.fenBoard,
-          ),
-        );
-        const parts = res.fen.split(' ');
-        const s = parts[1] === 'b' ? 'b' : 'w';
-        setSide(s);
-        setFenRest(parseFenRest(res.fen));
-        setManualFen(res.fen);
-        setWarnings(res.warnings ?? []);
-        // KS-3105: инициализируем редактор позиции из распознанного FEN'а.
-        // Sanity/low-confidence клетки сбрасывают «editedCells», чтобы
-        // подсветка появилась снова на свежем результате (пользователь
-        // мог редактировать предыдущий распознанный board).
-        setEditorBoard(fenToEditorBoard(res.fenBoard));
-        setEditedCells(new Set());
-        // KS-3093: при успешном распознавании сразу передаём в
-        // родительский board-editor — чтобы пользователь правил
-        // позицию перетаскиванием фигур / переключателями рокировки /
-        // side-to-move, а не текстовым FEN. Если onRecognized не
-        // задан — остаёмся на старом потоке (локальный Apply внутри
-        // дропзоны).
-        if (onRecognized) {
-          onRecognized(res.fen);
+        // KS-3117: multi-board сценарий — несколько досок на одной
+        // картинке. Не применяем результат сразу, переключаемся в
+        // UI выбора (grid превью ниже). Single (boards отсутствует
+        // или ровно одна) — продолжаем старый flow.
+        if (res.boards && res.boards.length > 1) {
+          setMultiBoards(res.boards);
+          setResult(null);
+          setEditorBoard(null);
+          setSanityIssues([]);
+          setError(null);
+          return;
         }
+        applyRecognizedBoard(res);
       } catch (err) {
         // KS-3094: 400 `board_not_detected`. Stage 1 не нашёл квадрат
         // доски в загруженной картинке. Показываем crop-оверлей —
@@ -656,6 +685,84 @@ export function BoardImageDropzone({
   // дропзоны и в editor'е родителя — путаница. recognizer уже
   // передал fen в onRecognized'е.
   const usesParentEditor = typeof onRecognized === 'function';
+
+  // KS-3117: в multi-board режиме рендерим компактный grid превью
+  // вместо стандартного layout с InlineBoardEditor. После клика по
+  // карточке — `handleSelectMultiBoard(board)` сворачивает multi-state
+  // и применяет выбранную доску обычным flow.
+  if (multiBoards && multiBoards.length > 1) {
+    return (
+      <div
+        className="board-image-dropzone board-image-dropzone--multi"
+        data-testid="board-image-dropzone"
+        role="region"
+        aria-label={t('boardImage.regionLabel', 'Board image recognition')}
+      >
+        <div
+          className="board-image-dropzone__multi-header"
+          data-testid="board-image-dropzone-multi-header"
+        >
+          {t(
+            'boardImage.multiBoardsHint',
+            'Found {{count}} boards — pick one to open in the editor.',
+            { count: multiBoards.length },
+          )}
+        </div>
+        <div
+          className="board-image-dropzone__multi-grid"
+          data-testid="board-image-dropzone-multi-grid"
+        >
+          {multiBoards.map((board, idx) => (
+            <button
+              key={`${board.fen}-${idx}`}
+              type="button"
+              className="board-image-dropzone__multi-card"
+              onClick={() => handleSelectMultiBoard(board)}
+              data-testid={`board-image-dropzone-multi-card-${idx}`}
+              aria-label={t('boardImage.multiBoardPick', 'Open board {{n}}', {
+                n: idx + 1,
+              })}
+            >
+              <div className="board-image-dropzone__multi-thumb">
+                <Chessboard
+                  options={{
+                    position: board.fenBoard,
+                    boardOrientation: resolveOrientation(
+                      board.orientation,
+                      board.orientationConfidence,
+                      board.fenBoard,
+                    ),
+                    animationDurationInMs: 0,
+                    allowDragging: false,
+                    showNotation: false,
+                  }}
+                />
+              </div>
+              <div className="board-image-dropzone__multi-meta">
+                <span className="board-image-dropzone__multi-index">
+                  {idx + 1}
+                </span>
+                <code className="board-image-dropzone__multi-fen">
+                  {board.fenBoard}
+                </code>
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="board-image-dropzone__actions">
+          {onCancel && (
+            <button
+              type="button"
+              className="board-image-dropzone__cancel"
+              onClick={onCancel}
+            >
+              {t('common.cancel', 'Cancel')}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

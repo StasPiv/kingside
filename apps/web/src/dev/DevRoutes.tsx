@@ -14,6 +14,7 @@ import { DevPrecisionScoreBlockPage } from '../pages/DevPrecisionScoreBlockPage'
 import { DevBoardImageDropzonePage } from '../pages/DevBoardImageDropzonePage';
 import { DevBoardImageDropzoneUnreliablePage } from '../pages/DevBoardImageDropzoneUnreliablePage';
 import { DevBoardImageDropzoneNotFoundPage } from '../pages/DevBoardImageDropzoneNotFoundPage';
+import { DevBoardImageDropzoneMultiPage } from '../pages/DevBoardImageDropzoneMultiPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -60,6 +61,11 @@ export default function DevRoutes() {
       <Route
         path="board-image-dropzone-notfound"
         element={<DevBoardImageDropzoneNotFoundPage />}
+      />
+      {/* KS-3117: demo multi-board (200 c массивом из 4 досок) → grid выбора. */}
+      <Route
+        path="board-image-dropzone-multi"
+        element={<DevBoardImageDropzoneMultiPage />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -3050,6 +3050,8 @@
     "lowConfidenceCells_one": "{{count}} low-confidence cell",
     "lowConfidenceCells_other": "{{count}} low-confidence cells",
     "tabTitle": "From image",
+    "multiBoardsHint": "Found {{count}} boards — pick one to open in the editor.",
+    "multiBoardPick": "Open board {{n}}",
     "cropToggle": "Crop manually",
     "cropHint": "Drag the frame to fit just the board.",
     "cropFailed": "Failed to crop the image.",

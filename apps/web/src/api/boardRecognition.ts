@@ -53,6 +53,18 @@ export interface BoardRecognitionResponse {
   lowConfidenceCells: BoardRecognitionCell[];
   /** Дополнительные предупреждения (ambiguous orientation, blurry image и т.п.). */
   warnings: string[];
+  /**
+   * KS-3117 / backend `2521b320`+`779f4251`: multi-board режим. Если на
+   * скриншоте найдено больше одной доски (страница пазлов, учебник с
+   * несколькими диаграммами) — `boards` содержит ВСЕ распознанные
+   * позиции, каждая со своим fen/orientation/bbox/lowConfidenceCells.
+   * Корневые поля дублируют первую доску для back-compat.
+   *
+   * Для single-board (`boards` отсутствует или `length === 1`) — UI
+   * ведёт себя как раньше; для multi (`length > 1`) — показывает grid
+   * превью с выбором.
+   */
+  boards?: BoardRecognitionResponse[];
 }
 
 /**
@@ -244,6 +256,38 @@ export function normalizeLowConfidenceCells(input: unknown): BoardRecognitionCel
     }
   }
   return out;
+}
+
+/**
+ * KS-3117: нормализатор массива `boards` от backend. Принимает unknown[]
+ * (может быть undefined/null/массив объектов с разными формами полей),
+ * возвращает `BoardRecognitionResponse[]` либо undefined если поле
+ * отсутствует/пустое.
+ *
+ * Для каждой доски проверяем критичные поля `fen` и `fenBoard` (KS-3115
+ * guard — без них рендерить editor нельзя). Нормализуем вложенный
+ * `lowConfidenceCells` через `normalizeLowConfidenceCells`. Невалидные
+ * элементы (без fen/fenBoard) пропускаем — defensive против частичных
+ * payload'ов.
+ */
+export function normalizeBoards(
+  input: unknown,
+): BoardRecognitionResponse[] | undefined {
+  if (!Array.isArray(input) || input.length === 0) return undefined;
+  const out: BoardRecognitionResponse[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.fen !== 'string' || typeof obj.fenBoard !== 'string') {
+      continue;
+    }
+    const normalized: BoardRecognitionResponse = {
+      ...(obj as unknown as BoardRecognitionResponse),
+      lowConfidenceCells: normalizeLowConfidenceCells(obj.lowConfidenceCells),
+    };
+    out.push(normalized);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function parseAlgebraicSquare(
@@ -446,10 +490,22 @@ export async function recognizeBoard(
         message: 'Recognizer returned no FEN — board not found in image.',
       });
     }
+    // KS-3117: если backend прислал `boards` — нормализуем массив.
+    // Каждая доска получает свой набор lowConfidenceCells (нормализованных).
+    // Spread кладёт raw.boards в normalized, даже если массив пустой —
+    // явно убираем поле когда `normalizeBoards` вернул undefined, чтобы
+    // потребитель `res.boards === undefined` корректно различал single
+    // и multi-board сценарии.
+    const boards = normalizeBoards(raw.boards);
     const normalized: BoardRecognitionResponse = {
       ...(raw as unknown as BoardRecognitionResponse),
       lowConfidenceCells: normalizeLowConfidenceCells(raw.lowConfidenceCells),
     };
+    if (boards) {
+      normalized.boards = boards;
+    } else {
+      delete normalized.boards;
+    }
     return normalized;
   } catch (err) {
     // KS-2363 не задеплоен → network-error / 404 / ECONNREFUSED. Не

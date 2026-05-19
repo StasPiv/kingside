@@ -3096,6 +3096,8 @@
     "lowConfidenceCells_many": "{{count}} клеток под вопросом",
     "lowConfidenceCells_other": "{{count}} клеток под вопросом",
     "tabTitle": "По картинке",
+    "multiBoardsHint": "Найдено {{count}} досок — выберите нужную для редактора.",
+    "multiBoardPick": "Открыть доску {{n}}",
     "cropToggle": "Обрезать вручную",
     "cropHint": "Перетаскивай рамку, чтобы она охватила только доску.",
     "cropFailed": "Не удалось обрезать изображение.",

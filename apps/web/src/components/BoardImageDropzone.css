@@ -319,6 +319,103 @@
   color: var(--text-muted, #a9aebf);
 }
 
+/* KS-3117: multi-board grid выбора — когда backend нашёл несколько
+   досок на одной картинке (страница пазлов, учебник с несколькими
+   диаграммами). Заменяет основной layout пока пользователь не выберет
+   конкретную позицию. */
+.board-image-dropzone--multi {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.board-image-dropzone__multi-header {
+  padding: 8px 12px;
+  background: rgba(124, 131, 255, 0.12);
+  border-left: 3px solid var(--accent-primary, #7c83ff);
+  border-radius: 4px;
+  color: var(--text-primary, #e8e8ee);
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+
+.board-image-dropzone__multi-grid {
+  display: grid;
+  gap: 12px;
+  /* 4 в ряд на desktop, авто-меньше на узком (~140px минимум превью). */
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.board-image-dropzone__multi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-input, #2a2a3e);
+  border: 1px solid var(--border-mid, rgba(120, 140, 200, 0.45));
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary, #e8e8ee);
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s, transform 0.05s;
+}
+
+.board-image-dropzone__multi-card:hover {
+  background: var(--bg-input, #2a2a3e);
+  border-color: var(--accent-primary, #7c83ff);
+  filter: brightness(1.1);
+}
+
+.board-image-dropzone__multi-card:active {
+  transform: translateY(1px);
+}
+
+.board-image-dropzone__multi-card:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+
+.board-image-dropzone__multi-thumb {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.board-image-dropzone__multi-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.board-image-dropzone__multi-index {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-primary, #7c83ff);
+  color: #ffffff;
+  font-size: 0.8em;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board-image-dropzone__multi-fen {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.72em;
+  color: var(--text-secondary, #a9aebf);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .board-image-dropzone__actions {
   display: flex;
   justify-content: flex-end;
