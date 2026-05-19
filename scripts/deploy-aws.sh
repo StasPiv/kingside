@@ -1081,8 +1081,18 @@ if $DEPLOY_API; then
     # лог сразу после deploy). /tmp у webhook'а изолирован.
     BUILD_LOG="$REPO_DIR/logs/api-build-${DEPLOY_SHA}.log"
     mkdir -p "$REPO_DIR/logs"
+    # KS-3121: BuildKit inline cache. Используем стандартный `docker build`
+    # с DOCKER_BUILDKIT=1 + BUILDKIT_INLINE_CACHE=1, который встраивает
+    # layer-cache metadata в image. На следующем deploy --cache-from с этого
+    # же тега переиспользует слои, и при unchanged package.json npm install
+    # не прогоняется заново — docker build сокращается с ~80с до 15–30с.
+    # Cache pull на cold-start (нет ECR :cache тэга) — невидимая ошибка,
+    # build продолжается без cache (нормальное поведение BuildKit).
     set +e
-    docker build --progress=plain -t "kingside-api:${DEPLOY_SHA}" \
+    DOCKER_BUILDKIT=1 docker build --progress=plain \
+        -t "kingside-api:${DEPLOY_SHA}" \
+        --cache-from "${ECR_URI}:cache" \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
         -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
     BUILD_RC=${PIPESTATUS[0]}
     set -e
@@ -1101,6 +1111,12 @@ if $DEPLOY_API; then
     echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
     docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3121: обновляем :cache тэг для inline cache следующего build.
+    # Layers те же что в :<sha>, ECR делает дедупликацию — push быстрый.
+    # Если что-то сломается — не критично, на следующий build просто cache miss.
+    docker tag "kingside-api:${DEPLOY_SHA}" "${ECR_URI}:cache" 2>/dev/null \
+      && docker push "${ECR_URI}:cache" 2>&1 | tail -3 \
+      || echo "  (cache push skipped: $?)"
     _perf_stamp "api_docker_push_done"
 
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
