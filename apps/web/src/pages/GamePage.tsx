@@ -24,6 +24,7 @@ import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { useChallenge } from '../hooks/useChallenge';
 import { HelpButton } from '../components/HelpButton';
+import { PromotionPicker } from '../components/PromotionPicker';
 import { openAnalysis } from '../utils/openAnalysis';
 import { buildGamePgn, buildGameAnalysisTitle } from './buildGamePgn';
 import { socket, messagesSocket } from '../socket';
@@ -648,32 +649,17 @@ export function GamePage() {
         </div>
         <div className="board-container" ref={boardContainerRef} style={boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
           <MemoChessboard options={boardOptions} />
-          {pendingPromotion && (
-            <div className="promotion-overlay" onClick={handlePromotionCancel}>
-              <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
-                {(['q', 'r', 'b', 'n'] as const).map((piece) => {
-                  const color = playerColor === 'white' ? 'w' : 'b';
-                  const isWhite = playerColor === 'white';
-                  const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
-                  return (
-                    <button
-                      key={piece}
-                      // KS-3103: --white/--black \u043C\u043E\u0434\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F CSS-color.
-                      className={`promotion-piece promotion-piece--${isWhite ? 'white' : 'black'}`}
-                      onClick={() => handlePromotionChoice(piece)}
-                      data-piece={`${color}${pieceNames[piece]}`}
-                      aria-label={`${isWhite ? 'White' : 'Black'} ${pieceNames[piece]}`}
-                    >
-                      {piece === 'q' ? (isWhite ? '\u2655' : '\u265B') : null}
-                      {piece === 'r' ? (isWhite ? '\u2656' : '\u265C') : null}
-                      {piece === 'b' ? (isWhite ? '\u2657' : '\u265D') : null}
-                      {piece === 'n' ? (isWhite ? '\u2658' : '\u265E') : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          {/* KS-3107: inline Unicode-\u0440\u0435\u043D\u0434\u0435\u0440 \u0443\u0434\u0430\u043B\u0451\u043D, \u0442\u0435\u043F\u0435\u0440\u044C \u043E\u0431\u0449\u0438\u0439
+              `<PromotionPicker>` \u2014 \u043E\u043D \u0431\u0435\u0440\u0451\u0442 piece-set \u0438\u0437
+              BoardSettingsContext \u0438 \u0440\u0438\u0441\u0443\u0435\u0442 SVG-\u0444\u0438\u0433\u0443\u0440\u044B \u0442\u0435\u043C \u0436\u0435 \u0448\u0440\u0438\u0444\u0442\u043E\u043C,
+              \u0447\u0442\u043E react-chessboard \u043D\u0430 \u0434\u043E\u0441\u043A\u0435. */}
+          <PromotionPicker
+            pending={pendingPromotion}
+            color={playerColor === 'white' ? 'w' : 'b'}
+            onChoice={handlePromotionChoice}
+            onCancel={handlePromotionCancel}
+            testId="game-promotion-overlay"
+          />
         </div>
         <div className="player-info player-info-self">
           <span className={`color-indicator ${playerColor}`} />

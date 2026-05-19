@@ -5,8 +5,10 @@ import { GameMetaBar } from '../../components/GameMetaBar';
 import type { GameMetaInfo } from '../../components/GameMetaBar';
 import { EvalBar } from '../../components/EvalBar';
 import { VariationChooser } from '../../components/VariationChooser';
+import { PromotionPicker } from '../../components/PromotionPicker';
 import type { EvalLine } from '../../hooks/useStockfish';
 import type { ChessMove } from '../../review/types';
+import type { Square } from 'chess.js';
 
 /**
  * KS-2864 (ADR-060 §10.1 FR2) — извлечённый board-area из AnalysisPage.
@@ -51,19 +53,10 @@ export interface AnalysisBoardProps {
   onVariationClose: () => void;
 }
 
-const PROMOTION_PIECES: ReadonlyArray<'q' | 'r' | 'b' | 'n'> = ['q', 'r', 'b', 'n'];
-const PROMOTION_GLYPHS: Record<'q' | 'r' | 'b' | 'n', { white: string; black: string }> = {
-  q: { white: '♕', black: '♛' },
-  r: { white: '♖', black: '♜' },
-  b: { white: '♗', black: '♝' },
-  n: { white: '♘', black: '♞' },
-};
-const PIECE_LETTERS: Record<'q' | 'r' | 'b' | 'n', string> = {
-  q: 'Q',
-  r: 'R',
-  b: 'B',
-  n: 'N',
-};
+/* KS-3107: inline-копия Q/R/B/N + Unicode-глифов удалена. Теперь весь
+   рендер диалога — через общий `<PromotionPicker>`, который читает
+   piece-set из BoardSettingsContext и рисует SVG-фигуры тем же шрифтом,
+   что доска. См. KS-3107 в комментарии PromotionPicker. */
 
 export function AnalysisBoard({
   gameInfo,
@@ -98,39 +91,20 @@ export function AnalysisBoard({
           data-testid="analysis-board-container"
         >
           <MemoChessboard key={annotationsKey} options={boardOptions} />
-          {pendingPromotion && (
-            <div
-              className="promotion-overlay"
-              data-testid="analysis-promotion-overlay"
-              onClick={onPromotionCancel}
-            >
-              <div
-                className="promotion-dialog"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {PROMOTION_PIECES.map((piece) => {
-                  const color = pendingPromotion.to[1] === '8' ? 'w' : 'b';
-                  const isWhite = color === 'w';
-                  return (
-                    <button
-                      key={piece}
-                      // KS-3103: модификатор --white/--black задаёт цвет
-                      // глифа в CSS. Без него `color: var(--c-fff)`
-                      // делал даже чёрные filled-Unicode-фигуры белыми.
-                      className={`promotion-piece promotion-piece--${isWhite ? 'white' : 'black'}`}
-                      onClick={() => onPromotionChoice(piece)}
-                      data-piece={`${color}${PIECE_LETTERS[piece]}`}
-                      aria-label={`${isWhite ? 'White' : 'Black'} ${PIECE_LETTERS[piece]}`}
-                    >
-                      {isWhite
-                        ? PROMOTION_GLYPHS[piece].white
-                        : PROMOTION_GLYPHS[piece].black}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <PromotionPicker
+            pending={
+              pendingPromotion
+                ? {
+                    from: pendingPromotion.from as Square,
+                    to: pendingPromotion.to as Square,
+                  }
+                : null
+            }
+            color={pendingPromotion?.to[1] === '8' ? 'w' : 'b'}
+            onChoice={onPromotionChoice}
+            onCancel={onPromotionCancel}
+            testId="analysis-promotion-overlay"
+          />
         </div>
       </div>
 
