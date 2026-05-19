@@ -161,7 +161,7 @@ def _bg_perlin(bg_kind: str, rng: random.Random) -> Image.Image:
         scale = 2 ** (o + 1)  # 2, 4, 8 — частота
         # Сэмплим маленькое поле и апскейлим до 64.
         sm = np_rng.normal(0, 1, size=(CELL // scale + 1, CELL // scale + 1))
-        sm_img = Image.fromarray(((sm - sm.min()) / (sm.ptp() + 1e-6) * 255).astype(np.uint8))
+        sm_img = Image.fromarray(((sm - sm.min()) / (np.ptp(sm) + 1e-6) * 255).astype(np.uint8))
         sm_up = sm_img.resize((CELL, CELL), Image.BILINEAR)
         noise += np.asarray(sm_up, dtype=np.float32) / (255.0 * octaves)
     # Размах амплитуды шума.
@@ -183,7 +183,7 @@ def _bg_gradient(bg_kind: str, rng: random.Random) -> Image.Image:
     xs = np.arange(CELL)[None, :].repeat(CELL, axis=0)
     ys = np.arange(CELL)[:, None].repeat(CELL, axis=1)
     proj = xs * dx + ys * dy
-    proj = (proj - proj.min()) / (proj.ptp() + 1e-6)  # [0..1]
+    proj = (proj - proj.min()) / (np.ptp(proj) + 1e-6)  # [0..1]
     arr = (
         np.array(c1, dtype=np.float32)[None, None, :] * (1 - proj)[..., None]
         + np.array(c2, dtype=np.float32)[None, None, :] * proj[..., None]
