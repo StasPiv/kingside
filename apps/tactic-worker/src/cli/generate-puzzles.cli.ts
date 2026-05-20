@@ -9,7 +9,9 @@
  *     node dist/main.js generate-puzzles \
  *       [--solution-mode=play-vs-engine|forced-line]  default play-vs-engine
  *       [--max-games=N]            default 100
- *       [--blunder-delta=X]        default 0.6  (минимум blunderΔ в WDL)
+ *       # KS-3136 / ADR-068 §1.2: пороги deltaW/deltaD/minWAfterForSolver/
+ *       # minWPlusDAfterForSolver hardcoded в `generator-pipeline.ts`
+ *       # (HARD_*), CLI-флагов нет.
  *       [--time-ms=N]              default 1000
  *       [--depth=N]                опц. (по умолчанию используется time-ms)
  *       [--nodes=N]                опц.
@@ -17,7 +19,6 @@
  *       [--win-threshold=W]        default 0.5
  *       [--fail-threshold=F]       default 0.0
  *       [--skip-decided-wdl=W]     default 0.95
- *       [--min-wdl-after-blunder=W] default 0.5
  *       [--min-rating=N]           default 1400
  *       [--min-ply=N]              default 20
  *       [--start-ply=N]            default 20
@@ -60,9 +61,6 @@ export function parseArgs(argv: string[]): CliFlags {
     switch (k) {
       case 'max-games':
         opts.maxGames = v === 'inf' ? Infinity : parseInt(v, 10);
-        break;
-      case 'blunder-delta':
-        opts.blunderDelta = parseFloat(v);
         break;
       case 'spread-delta':
         opts.spreadDelta = parseFloat(v);
@@ -123,9 +121,6 @@ export function parseArgs(argv: string[]): CliFlags {
       case 'skip-decided-wdl':
         opts.skipDecidedWdl = parseFloat(v);
         break;
-      case 'min-wdl-after-blunder':
-        opts.minWdlAfterBlunder = parseFloat(v);
-        break;
       case 'import-id':
         // KS-2776. Фильтр по archive_games.import_id.
         opts.importId = v;
@@ -154,11 +149,11 @@ export async function runGeneratePuzzles(
 
   process.stdout.write(
     `[puzzle-gen] starting solutionMode=${parsed.solutionMode} ` +
-      `blunderDelta=${parsed.blunderDelta} ` +
+      // KS-3136 / ADR-068: пороги дельт hardcoded в pipeline; в лог не
+      // выводим — они константы релиза.
       `halfMovesN=${parsed.halfMovesN} ` +
       `win=${parsed.winThreshold} fail=${parsed.failThreshold} ` +
       `skipDecidedWdl=${parsed.skipDecidedWdl} ` +
-      `minWdlAfterBlunder=${parsed.minWdlAfterBlunder} ` +
       `limit={depth=${parsed.engineLimit.depth},time=${parsed.engineLimit.timeMs}ms,nodes=${parsed.engineLimit.nodes}} ` +
       `minRating=${parsed.minRating} ` +
       `cursor=${parsed.cursor ?? 'none'} ` +

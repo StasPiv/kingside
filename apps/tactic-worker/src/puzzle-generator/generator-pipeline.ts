@@ -1,5 +1,6 @@
 /**
- * KS-2464 / ADR-044 §6. Puzzle-generator pipeline (play-vs-engine).
+ * KS-2464 / ADR-044 §6, KS-3136 / ADR-068 §3.2 — Puzzle-generator
+ * pipeline (play-vs-engine).
  *
  * KS-2470: восстановлен параллелизм Stockfish-pool. До этого фикса
  * каждая позиция партии анализировалась последовательно (`for await`
@@ -10,17 +11,20 @@
  *     2) Promise.all всех fenBefore (multiPV=2);
  *     3) фильтры samePv1/skipDecided/gameOver — без движка;
  *     4) Promise.all всех fenAfter оставшихся (multiPV=2);
- *     5) blunderΔ + lowWdlAfterBlunder — без движка;
+ *     5) KS-3136 / ADR-068: `evaluateBlunder` из shared — OR(deltaW≥X,
+ *        deltaD≥X) + дифференцированный after-фильтр;
  *     6) solvability check — Promise.all между кандидатами,
  *        внутри одного кандидата последовательно по halfMovesN.
  *
- * Алгоритм фильтров не изменился (см. ADR-044 §6):
+ * Алгоритм фильтров:
  *   a. samePv1 — ход партии = PV1 движка → drop.
  *   b. skipDecided — |wdlBefore| > skipDecidedWdl → drop.
  *   c. gameOver — позиция терминальная после хода → drop.
- *   d. blunderΔ = wdlBefore + wdlAfterForSolver. Если < blunderDelta → drop.
- *   e. wdlAfterForSolver < minWdlAfterBlunder → drop.
- *   f. Solvability: halfMovesN полуходов Stockfish-vs-Stockfish. WDL
+ *   d. KS-3136 / ADR-068: `evaluateBlunder(...)` — единая (server+client)
+ *      реализация триггера. Пороги hardcoded ниже как `HARD_*` константы,
+ *      наружу не выставлены. Маппинг result.reason → drop-метрики:
+ *      `notBlunder` / `lowWAfterForSolver` / `lowWplusDAfter`.
+ *   e. Solvability: halfMovesN полуходов Stockfish-vs-Stockfish. WDL
  *      решающей < failThreshold в любой момент → drop. Через halfMovesN:
  *      WDL ≥ winThreshold — пазл проходит.
  *
@@ -38,8 +42,31 @@ import {
   newGeneratorStats,
 } from './types';
 import { wdlSignedFromInfo, type Wdl } from './score';
+import {
+  evaluateBlunder,
+  wdlOrMateFallback,
+  type BlunderEvalSettings,
+} from '@kingside/shared';
 import type { MultiPvLine } from './types';
 import { computeTags } from './tagging';
+
+/**
+ * KS-3136 / ADR-068 §1.2: пороги генератора в серверной обёртке —
+ * hardcoded в модуле, не из ENV/CLI/options. Клиентский генератор
+ * (`apps/web/src/utils/puzzleGenerator.ts`) использует те же дефолты
+ * через `PUZZLE_GEN_DEFAULTS`, но допускает их перекрытие в UI.
+ */
+const HARD_DELTA_W = 0.6;
+const HARD_DELTA_D = 0.6;
+const HARD_MIN_W_AFTER = 0.5;
+const HARD_MIN_WD_AFTER = 0.5;
+
+const BLUNDER_EVAL_SETTINGS: BlunderEvalSettings = {
+  deltaWThreshold: HARD_DELTA_W,
+  deltaDThreshold: HARD_DELTA_D,
+  minWAfterForSolver: HARD_MIN_W_AFTER,
+  minWPlusDAfterForSolver: HARD_MIN_WD_AFTER,
+};
 
 interface ArchiveGameRow {
   id: string;
@@ -256,11 +283,11 @@ async function processGame(
     task: PlyTask;
     wdlBefore: number;
     /**
-     * KS-2523: полный Wdl-объект (per-mille от Stockfish, POV side-to-
-     * move в `fenBefore` = блундёр). null если Stockfish WDL не
-     * вернул (старые версии при mate); в metadata тогда не пишется.
+     * KS-2523 / KS-3136: полный Wdl-объект POV блундёра на fenBefore
+     * с mate-фолбэком (см. `wdlOrMateFallback`). Гарантированно
+     * не-null на этой стадии — иначе кандидат drop'нулся как noScore.
      */
-    wdlBeforeRaw: Wdl | null;
+    wdlBeforeRaw: Wdl;
     pv1Before: string;
   }
   const postCandidates: PostCandidate[] = [];
@@ -270,8 +297,18 @@ async function processGame(
       // pre упал — не считаем positionsAnalyzed (как в старой логике).
       continue;
     }
+    // KS-3136: берём полный Wdl с mate-фолбэком (нужен в Stage 4 для
+    // evaluateBlunder), signed-проекция — для skipDecided.
+    const wdlBeforeRaw = wdlOrMateFallback(pre[0].wdl, pre[0].score);
+    if (wdlBeforeRaw == null) {
+      stats.positionsAnalyzed++;
+      stats.drops.noScore++;
+      continue;
+    }
     const wdlBefore = wdlSignedFromInfo(pre[0].wdl, pre[0].score);
     if (wdlBefore == null) {
+      // Не должно случиться (если wdlOrMateFallback вернул не-null,
+      // wdlSignedFromInfo тоже даст значение), но защита.
       stats.positionsAnalyzed++;
       stats.drops.noScore++;
       continue;
@@ -293,7 +330,7 @@ async function processGame(
     postCandidates.push({
       task: t,
       wdlBefore,
-      wdlBeforeRaw: pre[0].wdl ?? null,
+      wdlBeforeRaw,
       pv1Before: pre[0].bestMove,
     });
   }
@@ -321,16 +358,20 @@ async function processGame(
     }),
   );
 
-  // ── Stage 4 (sync): blunderΔ + lowWdlAfterBlunder ────────────────
+  // ── Stage 4 (sync): KS-3136 / ADR-068 — evaluateBlunder ──────────
+  // Единая реализация триггера для сервера и клиента (`@kingside/shared`).
+  // Пороги hardcoded (HARD_DELTA_W/D, HARD_MIN_W_AFTER, HARD_MIN_WD_AFTER).
   interface SolvabilityCandidate {
     task: PlyTask;
     wdlBefore: number;
     wdlAfterForSolver: number;
-    /** KS-2523: raw Wdl POV blunder (на fenBefore). */
-    wdlBeforeRaw: Wdl | null;
-    /** KS-2523: raw Wdl POV solver (на fenAfter). */
-    wdlAfterRaw: Wdl | null;
-    blunderDelta: number;
+    /** Raw Wdl POV blunder (на fenBefore), с mate-фолбэком. */
+    wdlBeforeRaw: Wdl;
+    /** Raw Wdl POV solver (на fenAfter), с mate-фолбэком. */
+    wdlAfterRaw: Wdl;
+    /** KS-3136 / ADR-068. Дельты от лица блaндера. */
+    deltaW: number;
+    deltaD: number;
     firstMovePV1: string;
   }
   const solvabilityCandidates: SolvabilityCandidate[] = [];
@@ -340,18 +381,33 @@ async function processGame(
       stats.drops.engineError++;
       continue;
     }
+    const wdlAfterRaw = wdlOrMateFallback(post[0].wdl, post[0].score);
+    if (wdlAfterRaw == null) {
+      stats.drops.noScore++;
+      continue;
+    }
     const wdlAfterForSolver = wdlSignedFromInfo(post[0].wdl, post[0].score);
     if (wdlAfterForSolver == null) {
       stats.drops.noScore++;
       continue;
     }
-    const blunderDelta = c.wdlBefore + wdlAfterForSolver;
-    if (blunderDelta < options.blunderDelta) {
-      stats.drops.notBlunder++;
-      continue;
-    }
-    if (wdlAfterForSolver < options.minWdlAfterBlunder) {
-      stats.drops.lowWdlAfterBlunder++;
+
+    const result = evaluateBlunder(
+      { wdlBeforeRaw: c.wdlBeforeRaw, wdlAfterRaw },
+      BLUNDER_EVAL_SETTINGS,
+    );
+    if (result.kind === 'rejected') {
+      switch (result.reason) {
+        case 'notBlunder':
+          stats.drops.notBlunder++;
+          break;
+        case 'lowWAfterForSolver':
+          stats.drops.lowWAfterForSolver++;
+          break;
+        case 'lowWplusDAfter':
+          stats.drops.lowWplusDAfter++;
+          break;
+      }
       continue;
     }
     solvabilityCandidates.push({
@@ -359,8 +415,9 @@ async function processGame(
       wdlBefore: c.wdlBefore,
       wdlAfterForSolver,
       wdlBeforeRaw: c.wdlBeforeRaw,
-      wdlAfterRaw: post[0].wdl ?? null,
-      blunderDelta,
+      wdlAfterRaw,
+      deltaW: result.deltaW,
+      deltaD: result.deltaD,
       firstMovePV1: post[0].bestMove,
     });
   }
@@ -434,7 +491,12 @@ async function processGame(
         fenBeforeBlunder: sc.task.fenBefore,
         wdlBeforeBlunder: round3(sc.wdlBefore),
         wdlAfterBlunder: round3(sc.wdlAfterForSolver),
-        blunderDelta: round3(sc.blunderDelta),
+        // KS-3136 / ADR-068: новые независимые метрики «зевок».
+        // Поле `blunderDelta` (legacy свёртка W−L) больше не пишем —
+        // resolveSolutionMode на api использует `deltaW`/`deltaD` для
+        // новых пазлов, fallback на `wdlAfterBlunder` для legacy.
+        deltaW: round3(sc.deltaW),
+        deltaD: round3(sc.deltaD),
         firstMovePV1: sc.firstMovePV1,
         winThreshold: options.winThreshold,
         failThreshold: options.failThreshold,
@@ -449,11 +511,11 @@ async function processGame(
         //
         // POV: Stockfish-native — `wdlBefore` от лица side-to-move в
         // позиции до зевка (= блундёр), `wdlAfter` от лица side-to-
-        // move после хода (= решающая = солвер). Если у Stockfish не
-        // было WDL (старые версии при mate) — поле не пишется,
-        // фронт fallback'ом смотрит на signed.
-        ...(sc.wdlBeforeRaw !== null ? { wdlBefore: sc.wdlBeforeRaw } : {}),
-        ...(sc.wdlAfterRaw !== null ? { wdlAfter: sc.wdlAfterRaw } : {}),
+        // move после хода (= решающая = солвер). KS-3136: после
+        // mate-фолбэка `wdlBeforeRaw`/`wdlAfterRaw` всегда не-null
+        // на этой стадии — пишем безусловно.
+        wdlBefore: sc.wdlBeforeRaw,
+        wdlAfter: sc.wdlAfterRaw,
         // KS-2489: PGN headers — для backend `resolveSourceGame`
         // (KS-2487) и frontend-блока «Из партии». Включаются только
         // если хоть один заголовок был. Резолвер на api игнорирует
@@ -688,7 +750,8 @@ function logProgress(
     `samePv1=${stats.drops.samePv1} ` +
     `decided=${stats.drops.decided} ` +
     `gameOver=${stats.drops.gameOver} ` +
-    `lowWdlAfterBlunder=${stats.drops.lowWdlAfterBlunder} ` +
+    `lowWAfterForSolver=${stats.drops.lowWAfterForSolver} ` +
+    `lowWplusDAfter=${stats.drops.lowWplusDAfter} ` +
     `solvabilityFailed=${stats.drops.solvabilityFailed} ` +
     `duplicate=${stats.drops.duplicate} ` +
     `noScore=${stats.drops.noScore} ` +

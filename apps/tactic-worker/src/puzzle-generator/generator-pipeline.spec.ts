@@ -85,8 +85,11 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     // KS-2470: parallel-friendly mock. В `buildPgn` на startPly=20 ходит
     // чёрный (Bxh3), значит blunderTurn='b', solverSide='w'.
     // Стратегия: на pre-analyze (multiPV=2) если sideToMove ≠ solver —
-    // ходит блундёр, PV1=alt, wdl≈0 (samePv1 не сработает, не decided).
-    // На post-analyze: ходит solver, PV1=first, wdl=+0.8 (зевок).
+    // ходит блундёр, PV1=alt, wdl=+0.7 (W=850, L=150 → не decided <0.95,
+    // samePv1 не сработает).
+    // На post-analyze: ходит solver, PV1=first, wdl=+0.85
+    // (W=925, L=75 → deltaW=(850−75)/1000=0.775 ≥ HARD_DELTA_W=0.6;
+    // W_after_for_solver=0.925 ≥ HARD_MIN_W_AFTER=0.5).
     // Solvability (multiPV=1): +0.8 для решающей, -0.8 для противника.
     const solverSide: 'w' | 'b' = 'w';
 
@@ -97,14 +100,15 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
           const sideToMove = fen.split(' ')[1] as 'w' | 'b';
           if (multiPV === 2) {
-            // Pre-analyze: ходит блундёр (sideToMove != solver) → PV1=alt,
-            // wdl≈0 (не decided, samePv1 не срабатывает).
-            // Post-analyze: ходит solver (sideToMove == solver) → PV1=first,
-            // wdl=+0.8 (зевок зафиксирован).
+            // Pre-analyze для blunder-side (sideToMove != solver):
+            // PV1=alt, wdl=+0.7 — позиция выиграна, но не «decided».
+            // Post-analyze для solver-side (sideToMove == solver):
+            // PV1=first, wdl=+0.85 — solver получил большое
+            // преимущество (это и есть «зевок»).
             if (sideToMove === solverSide) {
-              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+              return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
             }
-            return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
+            return [pvWdl(alt, 0.7), pvWdl(first, 0.6)];
           }
           // Solvability (multiPV=1): +0.8 для решающей, -0.8 для противника.
           const wdl = sideToMove === solverSide ? 0.8 : -0.8;
@@ -121,11 +125,12 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     const fakePg = makePgRowMock(pgn);
     const opts = defaultGeneratorOptions({
       maxGames: 1,
-      blunderDelta: 0.5,
+      // KS-3136 / ADR-068: пороги (deltaW/deltaD/minW/minWplusD) — hardcoded
+      // в pipeline (HARD_*); из options не настраиваются. Через WDL мока
+      // подбираем такие значения, чтобы триггер сработал на 0.6/0.6.
       halfMovesN: 2,
       winThreshold: 0.5,
       failThreshold: 0.0,
-      minWdlAfterBlunder: 0.5,
       startPly: 20,
       engineLimit: { timeMs: 100 },
     });
@@ -200,7 +205,7 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     const fakePg = makePgRowMock(pgn);
     const opts = defaultGeneratorOptions({
       maxGames: 1,
-      blunderDelta: 0.5,
+      // KS-3136 / ADR-068: blunderDelta убран — пороги hardcoded.
       skipDecidedWdl: 0.95,
       startPly: 20,
       engineLimit: { timeMs: 50 },
@@ -225,10 +230,12 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
           const sideToMove = fen.split(' ')[1] as 'w' | 'b';
           if (multiPV === 2) {
+            // KS-3136 / ADR-068: pre wdl поднят до +0.7 чтобы новая
+            // формула deltaW=(W_до − L_after)/1000 пробивала порог 0.6.
             if (sideToMove === solverSide) {
-              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+              return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
             }
-            return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
+            return [pvWdl(alt, 0.7), pvWdl(first, 0.6)];
           }
           // solvability — обваливается до -1 (фейл).
           return [pvWdl(first, -1.0)];
@@ -404,10 +411,12 @@ describe('runPuzzleGenerator + PGN headers (KS-2489)', () => {
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
           const sideToMove = fen.split(' ')[1] as 'w' | 'b';
           if (multiPV === 2) {
+            // KS-3136 / ADR-068: pre wdl поднят до +0.7 чтобы новая
+            // формула deltaW=(W_до − L_after)/1000 пробивала порог 0.6.
             if (sideToMove === solverSide) {
-              return [pvWdl(first, 0.8), pvWdl(alt, 0.7)];
+              return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
             }
-            return [pvWdl(alt, 0.0), pvWdl(first, -0.05)];
+            return [pvWdl(alt, 0.7), pvWdl(first, 0.6)];
           }
           const wdl = sideToMove === solverSide ? 0.8 : -0.8;
           return [pvWdl(first, wdl)];
@@ -423,11 +432,12 @@ describe('runPuzzleGenerator + PGN headers (KS-2489)', () => {
     const fakePg = makePgRowMock(pgn);
     const opts = defaultGeneratorOptions({
       maxGames: 1,
-      blunderDelta: 0.5,
+      // KS-3136 / ADR-068: пороги (deltaW/deltaD/minW/minWplusD) — hardcoded
+      // в pipeline (HARD_*); из options не настраиваются. Через WDL мока
+      // подбираем такие значения, чтобы триггер сработал на 0.6/0.6.
       halfMovesN: 2,
       winThreshold: 0.5,
       failThreshold: 0.0,
-      minWdlAfterBlunder: 0.5,
       startPly: 20,
       engineLimit: { timeMs: 100 },
     });

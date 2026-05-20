@@ -41,6 +41,17 @@ export interface PlayVsEngineDto {
    * Отсутствует у legacy-пазлов до KS-2754 — фронт грейсфолит.
    */
   fenBeforeBlunder?: string;
+  /**
+   * KS-3136 / ADR-068. Дельты «зевок» от лица блaндера:
+   *   - `deltaW` — падение P(победа), [−1..+1];
+   *   - `deltaD` — падение P(ничья), [−1..+1].
+   * Новые пазлы (KS-3136+) пишут эти поля вместо legacy
+   * `blunderDelta` в `sourceMetadata`. Legacy-пазлы их не имеют —
+   * resolveSolutionMode возвращает undefined; фронт работает по
+   * прежнему контракту через `wdlAfterBlunder`.
+   */
+  deltaW?: number;
+  deltaD?: number;
 }
 
 /**
@@ -1293,6 +1304,18 @@ export class PuzzleService {
         meta.fenBeforeBlunder.length > 0
           ? meta.fenBeforeBlunder
           : undefined;
+      // KS-3136 / ADR-068: новые поля. У новых пазлов (после KS-3136)
+      // присутствуют — пробрасываем во фронт-DTO. Legacy-пазлы (до
+      // KS-3136) их не имеют — undefined; фронт работает по
+      // прежнему контракту через `wdlAfterBlunder` без регрессии.
+      const deltaW =
+        typeof meta.deltaW === 'number' && Number.isFinite(meta.deltaW)
+          ? meta.deltaW
+          : undefined;
+      const deltaD =
+        typeof meta.deltaD === 'number' && Number.isFinite(meta.deltaD)
+          ? meta.deltaD
+          : undefined;
       return {
         solutionMode: 'play-vs-engine',
         playVsEngine: {
@@ -1304,6 +1327,8 @@ export class PuzzleService {
           ...(wdlBefore ? { wdlBefore } : {}),
           ...(wdlAfter ? { wdlAfter } : {}),
           ...(fenBeforeBlunder ? { fenBeforeBlunder } : {}),
+          ...(deltaW !== undefined ? { deltaW } : {}),
+          ...(deltaD !== undefined ? { deltaD } : {}),
         },
       };
     } catch (e) {

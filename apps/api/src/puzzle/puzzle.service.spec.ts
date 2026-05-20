@@ -986,6 +986,72 @@ describe('PuzzleService', () => {
       expect(pve!.wdlAfterBlunder).toBe(0.78);
     });
 
+    it('KS-3136: новый puzzle с deltaW/deltaD в metadata → пробрасывается в DTO', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        // ADR-068: новые поля. Legacy `blunderDelta` НЕ пишется.
+        deltaW: 0.72,
+        deltaD: 0.04,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-new',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-new');
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as {
+        playVsEngine?: { deltaW?: number; deltaD?: number };
+      }).playVsEngine;
+      expect(pve).toBeDefined();
+      expect(pve!.deltaW).toBeCloseTo(0.72);
+      expect(pve!.deltaD).toBeCloseTo(0.04);
+    });
+
+    it('KS-3136: legacy puzzle БЕЗ deltaW/deltaD → DTO без новых полей (backward-compat)', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        // Старый формат — есть только legacy blunderDelta.
+        blunderDelta: 0.74,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-legacy-delta',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-legacy-delta');
+      expect(result.solutionMode).toBe('play-vs-engine');
+      const pve = (result as {
+        playVsEngine?: { deltaW?: number; deltaD?: number; wdlAfterBlunder?: number };
+      }).playVsEngine;
+      expect(pve).toBeDefined();
+      // Новых полей нет — фронт работает по старому контракту через
+      // wdlAfterBlunder.
+      expect(pve!.deltaW).toBeUndefined();
+      expect(pve!.deltaD).toBeUndefined();
+      expect(pve!.wdlAfterBlunder).toBe(0.78);
+    });
+
     it('KS-2524: legacy puzzle без wdl-объектов → wdlBefore/wdlAfter undefined', async () => {
       const meta = {
         blunderMove: 'e2e4',

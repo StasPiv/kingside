@@ -1,5 +1,6 @@
 /**
- * KS-2464 / ADR-044 §6. Типы puzzle-генератора в режиме play-vs-engine.
+ * KS-2464 / ADR-044 §6, KS-3136 / ADR-068 §3.2 — типы puzzle-генератора
+ * в режиме play-vs-engine.
  *
  * Алгоритм отбора:
  *   1. На каждом ply ≥ startPly анализируем позицию ДО хода через
@@ -10,18 +11,21 @@
  *   4. После применения хода анализируем `fenAfter` (multiPV=1, можно
  *      переиспользовать пре-анализ следующего ply через кэш — здесь
  *      делаем явный второй анализ).
- *   5. blunderΔ = WDL_before_PV1 + WDL_after_PV1 (WDL_after отдан с POV
- *      решающей, инвертируем для сравнения с before-side).
- *   6. Если blunderΔ ≥ blunderDelta И WDL_after_for_solver ≥
- *      minWdlAfterBlunder — позиция кандидат.
- *   7. Solvability: прогоняем halfMovesN полуходов Stockfish-vs-Stockfish.
+ *   5. KS-3136 / ADR-068: триггер — `evaluateBlunder` из `@kingside/
+ *      shared`. OR двух дельт `deltaW`/`deltaD` ≥ порогов + after-фильтр
+ *      §3.2 (защита от мираж-побед / проигрышной «ничьи»). Пороги
+ *      hardcoded в `generator-pipeline.ts` (`HARD_*`), наружу не
+ *      выставлены.
+ *   6. Solvability: прогоняем halfMovesN полуходов Stockfish-vs-Stockfish.
  *      На каждом ply решающего берём bestmove. Если в любой момент
  *      WDL решающей < failThreshold — drop. После halfMovesN ходов:
  *      если WDL ≥ winThreshold — пазл проходит.
- *   8. Tagging — drill-предикаты + алгоритмические теги, добавляем
+ *   7. Tagging — drill-предикаты + алгоритмические теги, добавляем
  *      технический тег `playVsEngine`.
- *   9. Insert с `solutionMode='play-vs-engine'`, `moves=''`,
- *      `acceptedMoves=null`.
+ *   8. Insert с `solutionMode='play-vs-engine'`, `moves=''`,
+ *      `acceptedMoves=null`. В `sourceMetadata.playVsEngine` пишем
+ *      `deltaW`/`deltaD` (новые поля) + сохраняем `wdlBefore`/`wdlAfter`
+ *      raw для UI.
  */
 import type { MultiPvLine, AnalysisLimit } from '../stockfish/stockfish.service';
 import { PUZZLE_GEN_DEFAULTS } from '@kingside/shared';
@@ -45,8 +49,6 @@ export interface GeneratorOptions {
   maxGames: number;
   /** Stockfish-лимит на одну позицию. */
   engineLimit: AnalysisLimit;
-  /** Минимальный |blunderΔ| WDL для срабатывания зевка (X). */
-  blunderDelta: number;
   /**
    * Режим, в котором сохраняем пазлы. Default `play-vs-engine`
    * (KS-2464). Для legacy `forced-line` нужно явно указывать в CLI —
@@ -74,11 +76,6 @@ export interface GeneratorOptions {
    * зевком (skipDecided). Default 0.95.
    */
   skipDecidedWdl: number;
-  /**
-   * Минимальный WDL_for_solver сразу после зевка. Если ниже — позиция
-   * не выигрывается явно, drop. Default 0.5.
-   */
-  minWdlAfterBlunder: number;
   /**
    * Legacy forced-line — спред PV1-PV2 на стартовой позиции. Ignored
    * в play-vs-engine режиме.
@@ -171,7 +168,10 @@ export interface GeneratorStats {
   inserted: number;
   /** Сумма drops + inserted = positionsAnalyzed (инвариант). */
   drops: {
-    /** blunderΔ < blunderDelta — ход не зевок. */
+    /**
+     * KS-3136 / ADR-068: обе дельты ниже своих порогов (deltaW <
+     * HARD_DELTA_W И deltaD < HARD_DELTA_D) — ход не зевок.
+     */
     notBlunder: number;
     /** Ход партии = PV1 движка — не зевок (точно так, как считал движок). */
     samePv1: number;
@@ -180,10 +180,16 @@ export interface GeneratorStats {
     /** Игра уже терминальная (мат/пат/ничья) после хода. */
     gameOver: number;
     /**
-     * play-vs-engine: WDL_after_for_solver < minWdlAfterBlunder —
-     * формально blunderΔ ≥ X, но позиция не выигрывает решающего явно.
+     * KS-3136 / ADR-068 §3.2. Триггер по W сработал, но
+     * `W_after_for_solver < HARD_MIN_W_AFTER` — мираж-победа (решающий
+     * не в выигранной позиции после хода блaндера).
      */
-    lowWdlAfterBlunder: number;
+    lowWAfterForSolver: number;
+    /**
+     * KS-3136 / ADR-068 §3.2. Триггер по D без W, но `W + D after <
+     * HARD_MIN_WD_AFTER` — решающий не держит даже ничью.
+     */
+    lowWplusDAfter: number;
     /**
      * play-vs-engine: solvability-check провалился — за halfMovesN
      * Stockfish-vs-Stockfish WDL у решающей упал/не достиг порогов.
@@ -212,9 +218,18 @@ export function defaultGeneratorOptions(
     // и сравнительный анализ с lichess-puzzler).
     solutionMode: 'play-vs-engine',
     // KS-2583: алгоритмические пороги — общие с клиентским генератором
-    // (`@kingside/shared:PUZZLE_GEN_DEFAULTS`). Серверные options-only
-    // поля ниже добавляются отдельно.
-    ...PUZZLE_GEN_DEFAULTS,
+    // (`@kingside/shared:PUZZLE_GEN_DEFAULTS`). KS-3136 / ADR-068:
+    // пороги дельт `deltaWThreshold` / `deltaDThreshold` /
+    // `minWAfterForSolver` / `minWPlusDAfterForSolver` в options НЕ
+    // прокидываются — на сервере они hardcoded в pipeline (см.
+    // `HARD_DELTA_W` и пр.). Здесь берём только параметры, которые
+    // действительно настраиваемые (halfMovesN / win/failThreshold /
+    // skipDecidedWdl / startPly).
+    halfMovesN: PUZZLE_GEN_DEFAULTS.halfMovesN,
+    winThreshold: PUZZLE_GEN_DEFAULTS.winThreshold,
+    failThreshold: PUZZLE_GEN_DEFAULTS.failThreshold,
+    skipDecidedWdl: PUZZLE_GEN_DEFAULTS.skipDecidedWdl,
+    startPly: PUZZLE_GEN_DEFAULTS.startPly,
     // Legacy forced-line дефолты — не используются в play-vs-engine,
     // но сохраняются для обратной совместимости CLI.
     spreadDelta: 0.3,
@@ -240,7 +255,8 @@ export function newGeneratorStats(): GeneratorStats {
       samePv1: 0,
       decided: 0,
       gameOver: 0,
-      lowWdlAfterBlunder: 0,
+      lowWAfterForSolver: 0,
+      lowWplusDAfter: 0,
       solvabilityFailed: 0,
       duplicate: 0,
       noScore: 0,
