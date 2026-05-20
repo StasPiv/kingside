@@ -983,35 +983,9 @@
   text-decoration: underline;
 }
 
-/* KS-2905: в study-context (editor / public-readonly / embed) скрываем
-   workshop-shortcut — первый сегмент самого breadcrumb'а («Studies»)
-   уже даёт корректную навигацию, отдельная строка «Workshop ?» сверху
-   дублировала и путала. Привязка через атрибут `data-analysis-context`
-   на `.analysis-page` (frontend, commit `02be5a55`) покрывает ВСЕ
-   study-режимы, в т.ч. public-readonly где `right-slot` отсутствует. */
-.analysis-page[data-analysis-context='study'] .analysis-workshop-shortcut {
-  display: none;
-}
-
-/* KS-2905: в study-context разрешаем перенос — иначе mode-switcher
-   (editor) забирал бы ширину строки и `.analysis-breadcrumbs__link`
-   (max-width:20ch) обрезался до многоточий. На public-readonly /
-   embed mode-switcher отсутствует, но длинные имена студии всё равно
-   должны умещаться без ellipsis — `max-width: none` снимает 20ch
-   лимит во всём study-контексте. */
-.analysis-page[data-analysis-context='study'] .analysis-breadcrumbs {
-  flex-wrap: wrap;
-  overflow: visible;
-}
-
 .analysis-breadcrumbs__right-slot {
   flex-basis: 100%;
   margin-top: 4px;
-}
-
-.analysis-page[data-analysis-context='study'] .analysis-breadcrumbs__link,
-.analysis-page[data-analysis-context='study'] .analysis-breadcrumbs__current {
-  max-width: none;
 }
 
 /* Analysis page: editable title */

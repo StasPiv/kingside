@@ -22,121 +22,6 @@
       }
     }
   },
-  "studies": {
-    "title": "Studies",
-    "subtitle": "Curate your analysis in shareable studies — your own and the community's.",
-    "tabs": {
-      "mine": "My studies",
-      "public": "Public"
-    },
-    "card": {
-      "public": "Public",
-      "private": "Private",
-      "chapters_one": "{{count}} chapter",
-      "chapters_other": "{{count}} chapters",
-      "updated": "Updated {{date}}"
-    },
-    "empty": {
-      "mine": "You don't have any studies yet. Create your first one to get started.",
-      "public": "No public studies yet. Be the first to share.",
-      "chaptersOwner": "No chapters yet. Create your first chapter or import a PGN.",
-      "chaptersPublic": "This study has no chapters yet."
-    },
-    "error": {
-      "load": "Failed to load study.",
-      "share": "Failed to update sharing.",
-      "createChapter": "Failed to create chapter.",
-      "delete": "Failed to delete study.",
-      "notFound": "Study not found.",
-      "reorder": "Failed to reorder chapters. The previous order is restored."
-    },
-    "chapter": {
-      "defaultName": "New chapter",
-      "drag": "Drag to reorder"
-    },
-    "action": {
-      "makePublic": "Make public",
-      "makePrivate": "Make private",
-      "createChapter": "+ New chapter",
-      "importPgn": "Import PGN",
-      "importPgnPending": "PGN import is being implemented (KS-2830).",
-      "delete": "Delete study",
-      "deleteChapter": "Delete chapter",
-      "editName": "Rename",
-      "flipBoard": "Flip board",
-      "openInEditor": "Open in editor"
-    },
-    "orientation": {
-      "white": "White",
-      "black": "Black"
-    },
-    "mode": {
-      "label": "Mode",
-      "analysis": "Analysis",
-      "practice": "Practice",
-      "conceal": "Conceal",
-      "gamebook": "Gamebook",
-      "concealAfterPly": "Hide after move #",
-      "editGamebook": "Edit script"
-    },
-    "practice": {
-      "yourTurn": "Find the move.",
-      "wrongMove": "Try a different move.",
-      "errors_one": "Errors: {{count}}",
-      "errors_other": "Errors: {{count}}"
-    },
-    "gamebook": {
-      "title": "Gamebook",
-      "intro": "Intro",
-      "uci": "Move",
-      "hint": "Hint (before move)",
-      "success": "Success (after correct)",
-      "failure": "Failure (after wrong)",
-      "selectMove": "Select a move to edit its hint / success / failure.",
-      "nodeCount": "{{count}}/{{max}}",
-      "atLimit": "Node limit reached ({{max}}). Remove fields from other nodes to add new ones.",
-      "play": "Play",
-      "start": "Start",
-      "yourMove": "Your move.",
-      "correct": "Correct!",
-      "finished": "You completed the chapter!",
-      "notGamebook": "This chapter is not a gamebook."
-    },
-    "confirm": {
-      "delete": "Delete this study? Chapters will be lost. This cannot be undone.",
-      "deleteChapter": "Delete this chapter? This cannot be undone."
-    },
-    "backToCatalog": "Back to studies",
-    "import": {
-      "title": "Import PGN",
-      "hint": "Paste PGN below or upload a .pgn file. Each game becomes a separate chapter.",
-      "placeholder": "Paste PGN here. Multiple games separated by [Event ...] headers are supported.",
-      "pgnInput": "PGN",
-      "submit": "Import",
-      "success_one": "Imported {{count}} chapter",
-      "success_other": "Imported {{count}} chapters",
-      "foundGames_one": "{{count}} game found",
-      "foundGames_other": "{{count}} games found",
-      "errorEmpty": "PGN cannot be empty.",
-      "errorReadFile": "Could not read file. Please try copy-pasting the PGN text directly.",
-      "errorLimit": "Chapter limit (64) exceeded for this study.",
-      "errorGeneric": "PGN import failed. Check the syntax and the chapter limit."
-    },
-    "create": {
-      "cta": "+ Create study",
-      "title": "Create a study",
-      "name": "Name",
-      "description": "Description (optional)",
-      "isPublic": "Make public (anyone with link can view)",
-      "submit": "Create",
-      "errorNameRequired": "Name is required.",
-      "errorGeneric": "Failed to create study. Please try again."
-    },
-    "notFound": "Study not found.",
-    "access": {
-      "privateGuest": "This study is private. Sign in to view if you have access."
-    }
-  },
   "analyze": {
     "lobby": {
       "title": "Analyze",
@@ -232,7 +117,6 @@
     "precision": "Precision training",
     "precisionShort": "Precision",
     "analyze": "Analyze",
-    "studies": "Studies",
     "admin": "Admin"
   },
   "admin": {

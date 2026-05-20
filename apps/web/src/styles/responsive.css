@@ -269,30 +269,6 @@
     display: none !important;
   }
 
-  /* KS-2906: на mobile в study-режиме пользователю нужен контекст
-     (название главы / breadcrumb / mode-switcher), иначе непонятно где
-     находится и нельзя переключить режим. Возвращаем breadcrumbs только
-     для study-роутов, оставляя workshop-shortcut скрытым (он /workshop).
-     Mode-switcher живёт внутри breadcrumbs (rightSlot) — заворачиваем
-     на новую строку при нехватке места. */
-  .analysis-page--study .analysis-breadcrumbs {
-    display: flex !important;
-    flex-wrap: wrap;
-    row-gap: 4px;
-    padding: 4px 8px;
-    font-size: 12px;
-  }
-
-  .analysis-page--study .analysis-breadcrumbs__right-slot {
-    flex-basis: 100%;
-    margin-left: 0;
-  }
-
-  .analysis-page--study .analysis-study-mode-switcher {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
   /* Player row above board (black): compact info-bar ~28px (KS-916) */
   .analysis-player-row {
     height: 28px;

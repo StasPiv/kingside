@@ -118,31 +118,9 @@ const TrainLobbyPage = lazy(() =>
 const AnalyzeLobbyPage = lazy(() =>
   import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
 );
-// KS-2825 (KS-2815 §B.5): каталог студий `/studies` (Мои/Публичные).
-const StudiesPage = lazy(() =>
-  import('./pages/StudiesPage').then((m) => ({ default: m.StudiesPage })),
-);
-// KS-2826 (KS-2815 §B.5): детальная страница студии `/studies/:slug`.
-const StudyPage = lazy(() =>
-  import('./pages/StudyPage').then((m) => ({ default: m.StudyPage })),
-);
-// KS-2889 (ADR-060 FC4): студии конкретного автора `/studies/by/:userId`.
-const UserStudiesPage = lazy(() =>
-  import('./pages/UserStudiesPage').then((m) => ({
-    default: m.UserStudiesPage,
-  })),
-);
-// KS-2893 (ADR-060 FC8): accept-flow для приглашения в студию.
-const StudyInviteAcceptPage = lazy(() =>
-  import('./pages/StudyInviteAcceptPage').then((m) => ({
-    default: m.StudyInviteAcceptPage,
-  })),
-);
-// KS-2868 (FS1) / KS-2869 (FS2): редактор и публичный просмотр главы
-// студии теперь рендерятся универсальным AnalysisPage в режимах
-// studyMode='editor' / 'public-readonly'. Старые лeniwe-импорты
-// StudyChapterEditorPage / StudyChapterPublicPage удалены вместе с
-// файлами компонентов.
+// ADR-067: модуль Studies удалён (KS-3130). Lazy-импорты StudiesPage /
+// StudyPage / UserStudiesPage / StudyInviteAcceptPage и сопутствующие
+// маршруты `/studies/*` вырезаны вместе со страницами и компонентами.
 // KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
 // он используется как внутренний компонент `ArchiveGamesPage`
 // (by-position режим единого `/archive/games`).
@@ -385,52 +363,9 @@ export function App() {
             </Suspense>
           }
         />
-        {/* KS-2825 (KS-2815 §B.5): каталог Studies. Без ProtectedRoute —
-            публичные студии видны и гостям; таб «Мои» в UI рендерится
-            только для авторизованных. */}
-        <Route
-          path="/studies"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <StudiesPage />
-            </Suspense>
-          }
-        />
-        {/* KS-2889 (ADR-060 FC4): студии конкретного автора. Path
-            идёт ВЫШЕ `/studies/:slug`, потому что роутер матчит по
-            порядку и `:slug` иначе перехватит `by/...`. */}
-        <Route
-          path="/studies/by/:userId"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <UserStudiesPage />
-            </Suspense>
-          }
-        />
-        {/* KS-2893 (ADR-060 FC8): принять приглашение по токену.
-            Idem — выше `/studies/:slug`, чтобы slug не перехватил
-            `invites/...`. */}
-        <Route
-          path="/studies/invites/:token"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <StudyInviteAcceptPage />
-            </Suspense>
-          }
-        />
-        {/* KS-2826: детальная страница студии. Owner-actions показываются
-            только если `user.id === study.ownerId` (решает сам компонент). */}
-        <Route
-          path="/studies/:slug"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <StudyPage />
-            </Suspense>
-          }
-        />
-        {/* KS-3014: роуты chapter-страниц (editor, public-readonly,
-            gamebook reader) временно отключены — Studies переезжают на
-            отдельную страницу прохождения, не связанную с AnalysisPage. */}
+        {/* ADR-067 (KS-3130): модуль Studies удалён полностью.
+            Старые ссылки `/studies/*` уводим на корневой `/` через
+            wildcard `<Route path="*" />` ниже. */}
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />

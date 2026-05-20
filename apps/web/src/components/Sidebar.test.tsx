@@ -24,8 +24,6 @@ const flagControls = {
   broadcasts: true,
   tournaments: true,
   drills: false,
-  // KS-2832: новый флаг от KS-2823 (backend). Default off (фича в beta).
-  studies: false,
 };
 vi.mock('../context/FeatureFlagsContext', () => ({
   useFeatureFlags: () => ({
@@ -35,7 +33,6 @@ vi.mock('../context/FeatureFlagsContext', () => ({
       broadcastsEnabled: flagControls.broadcasts,
       tournamentsEnabled: flagControls.tournaments,
       drillsEnabled: flagControls.drills,
-      studiesEnabled: flagControls.studies,
     },
     loading: false,
     error: null,
@@ -47,7 +44,6 @@ vi.mock('../context/FeatureFlagsContext', () => ({
     if (key === 'broadcastsEnabled') return flagControls.broadcasts;
     if (key === 'tournamentsEnabled') return flagControls.tournaments;
     if (key === 'drillsEnabled') return flagControls.drills;
-    if (key === 'studiesEnabled') return flagControls.studies;
     return false;
   },
   FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
@@ -96,7 +92,6 @@ beforeEach(() => {
   flagControls.broadcasts = true;
   flagControls.tournaments = true;
   flagControls.drills = false;
-  flagControls.studies = false;
   adminControls.isAdmin = false;
   mobileState.isMobile = false;
 });
@@ -584,48 +579,5 @@ describe('<Sidebar> KS-2848 — Play submenu с Турнирами', () => {
   });
 });
 
-/**
- * KS-2832 / KS-2851 (KS-2815 §B.1, §B.2): пункт «Студии» в sidebar.
- * - На dev (`import.meta.env.DEV === true`) — виден всегда.
- * - На prod — gating по `studiesEnabled`.
- *
- * vitest по умолчанию работает в DEV-режиме (`import.meta.env.DEV = true`).
- * Для prod-кейсов используем `vi.stubEnv('DEV', false)`.
- */
-describe('<Sidebar> KS-2832/KS-2851 — Studies feature-flag', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it('dev mode + studiesEnabled=false → пункт всё равно виден (KS-2851)', () => {
-    vi.stubEnv('DEV', true);
-    flagControls.studies = false;
-    renderWithProviders(<Sidebar />);
-    const link = screen.getByTitle(/^studies$|^студии$/i);
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/studies');
-  });
-
-  it('prod mode + studiesEnabled=false → пункт «Студии» скрыт', () => {
-    vi.stubEnv('DEV', false);
-    flagControls.studies = false;
-    renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/^studies$|^студии$/i)).not.toBeInTheDocument();
-  });
-
-  it('prod mode + studiesEnabled=true → пункт «Студии» виден', () => {
-    vi.stubEnv('DEV', false);
-    flagControls.studies = true;
-    renderWithProviders(<Sidebar />);
-    const link = screen.getByTitle(/^studies$|^студии$/i);
-    expect(link).toBeInTheDocument();
-    expect(link.getAttribute('href')).toBe('/studies');
-  });
-
-  it('на /studies/<id> пункт «Студии» активен (любой режим)', () => {
-    flagControls.studies = true;
-    renderWithProviders(<Sidebar />, { route: '/studies/abc' });
-    const link = screen.getByTitle(/^studies$|^студии$/i);
-    expect(link.className).toContain('sidebar-item--active');
-  });
-});
+// ADR-067 (KS-3130): блок тестов «Studies feature-flag» удалён —
+// модуль Studies снят с продукта.
