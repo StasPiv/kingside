@@ -40,6 +40,7 @@ import { trainLobby } from './train-lobby.js';
 import { analyzeLobby } from './analyze-lobby.js';
 import { docs } from './docs.js';
 import { aiChat } from './ai-chat.js';
+import { boardRecognition } from './board-recognition.js';
 
 export * from './types.js';
 
@@ -69,4 +70,5 @@ export const FEATURES: readonly AssistantFeature[] = [
   analyzeLobby,
   docs,
   aiChat,
+  boardRecognition,
 ] as const;

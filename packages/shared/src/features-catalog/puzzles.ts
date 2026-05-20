@@ -5,7 +5,7 @@ export const puzzles: AssistantFeature = {
   title: 'Puzzles',
   paths: ['/puzzles', '/puzzle', '/puzzle/:id', '/puzzles/stats'],
   summary:
-    'Tactical puzzles selected near the user\'s puzzle rating; solving updates a Glicko-2 puzzle rating and streak counter.',
+    'Classic tactical puzzles set sourced from Lichess; solving updates a per-user puzzle rating (Glicko-2) and a streak. The newer engine-generated training lives separately on /precision.',
   auth: 'optional',
   featureFlag: 'puzzlesEnabled',
   mcpSection: 'puzzles',
