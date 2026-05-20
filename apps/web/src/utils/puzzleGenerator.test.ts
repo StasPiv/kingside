@@ -342,6 +342,47 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(puzzles[0].themes).toMatch(/saveEquality/);
   });
 
+  it('KS-3153 (ADR-069 regression): 39. d6 из эталонной партии KS-3139 — saveEquality по W-триггеру (wdlBefore=1000/0/0, wdlAfter POV solver=0/952/48)', async () => {
+    // KS-3153: воспроизводим точные числа конкретного зевка из KS-3139
+    // (партия Schmerbach-Pivovartsev, ход 39. d6). До KS-3140
+    // фильтровались по skipDecided=true (поэтому 0 пазлов), KS-3140
+    // снял этот гард — пазл должен находиться. KS-3149 переписал
+    // SourceMetadata flat, но не должен был затронуть accept-логику —
+    // тест защищает от регрессии accept'а на конкретном «упустил
+    // выигрыш в ничью».
+    let n = 0;
+    const { engine } = makeMockEngine(() => {
+      n++;
+      // before (POV блaндера = белых): W=1000, D=0, L=0. Decided — но
+      // KS-3140 убрал pre-condition, позиция должна пройти через
+      // evaluateBlunder.
+      if (n === 1) return res([line(['a1a8'], { w: 1000, d: 0, l: 0 })]);
+      if (n === 2) {
+        // after (POV solver = чёрных): W=0, D=952, L=48.
+        //   deltaW = (1000 − 48)/1000 = 0.952 ≥ 0.6 — триггер W ✓.
+        //   deltaD = (0 − 952)/1000 = -0.952 — НЕ триггер D (отрицательное).
+        //   W+D_after = 0.0+0.952 = 0.952 ≥ 0.5 ✓.
+        //   determinePuzzleObjective: W_solver/1000 = 0.0 < 0.5 →
+        //   saveEquality.
+        return res([line(['b1b8'], { w: 0, d: 952, l: 48 })]);
+      }
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+
+    const puzzles = await generatePuzzlesFromPgn(PGN, vi.fn(), {
+      engineFactory: () => engine,
+    });
+    expect(puzzles.length).toBeGreaterThanOrEqual(1);
+    const p = puzzles[0];
+    expect(p.sourceMetadata?.blunderTrigger).toBe('W');
+    expect(p.sourceMetadata?.deltaW).toBeCloseTo(0.952, 2);
+    expect(p.sourceMetadata?.objective).toBe('saveEquality');
+    expect(p.themes).toMatch(/saveEquality/);
+    // dedup+sort из KS-3149 даёт стабильный порядок: проверяем что
+    // обязательные теги остались.
+    expect(p.themes).toMatch(/playVsEngine/);
+  });
+
   it('mate в score → темы содержат `mate` и `mateInN`', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {

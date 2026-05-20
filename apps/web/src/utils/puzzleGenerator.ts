@@ -348,6 +348,16 @@ export async function generatePuzzlesFromPgn(
     pgn.length,
   );
   const puzzles: GeneratedPuzzleData[] = [];
+  // KS-3153: счётчик причин drop'ов — в финальном логе показываем
+  // breakdown, чтобы при «0 пазлов» пользователь сразу видел почему
+  // позиции отлетают (samePv1 / gameOver / noWdl / notBlunder /
+  // lowWplusDAfter / solvabilityFailed / analyzeError / fenError).
+  // Раньше каждая drop-причина писалась только в свою логстроку — на
+  // 88-полуходовой партии терялась в шуме.
+  const dropCounts = new Map<string, number>();
+  const countDrop = (reason: string) => {
+    dropCounts.set(reason, (dropCounts.get(reason) ?? 0) + 1);
+  };
   // KS-2690: single-shot warn для DevTools, чтобы пользователь увидел
   // причину «0 пазлов», если bridge стоит за движком без UCI_ShowWDL
   // (старый Stockfish, другой движок). После первой записи о noWdl за
@@ -457,6 +467,7 @@ export async function generatePuzzlesFromPgn(
       try {
         const checkBefore = new Chess(fenBefore);
         if (checkBefore.isGameOver()) {
+          countDrop('gameOverBefore');
           console.log(`${logBase} SKIP:gameOverBefore`);
           continue;
         }
@@ -466,15 +477,18 @@ export async function generatePuzzlesFromPgn(
           promotion: playedUci.length > 4 ? playedUci[4] : undefined,
         });
         if (!moved) {
+          countDrop('invalidMove');
           console.log(`${logBase} SKIP:invalidMove`);
           continue;
         }
         fenAfter = checkBefore.fen();
         if (checkBefore.isGameOver()) {
+          countDrop('gameOverAfter');
           console.log(`${logBase} SKIP:gameOverAfter`);
           continue;
         }
       } catch (e) {
+        countDrop('fenError');
         console.warn(
           `${logBase} SKIP:fenError`,
           e instanceof Error ? e.message : e,
@@ -487,10 +501,12 @@ export async function generatePuzzlesFromPgn(
       try {
         beforeRes = await engine.analyze(fenBefore, depth, MULTI_PV, movetimeMs);
       } catch (e) {
+        countDrop('analyzeBeforeError');
         console.error(`${logBase} SKIP:analyzeBeforeError`, e);
         continue;
       }
       if (beforeRes.lines.length === 0) {
+        countDrop('noLinesBefore');
         console.log(`${logBase} SKIP:noLinesBefore`);
         continue;
       }
@@ -501,11 +517,13 @@ export async function generatePuzzlesFromPgn(
         // session, чтобы пользователь увидел в DevTools реальную
         // причину 0 пазлов на bridge без поддержки опции.
         if (lineBefore.wdl === undefined) warnNoWdlOnce();
+        countDrop('noWdlBefore');
         console.log(`${logBase} SKIP:noWdlBefore`);
         continue;
       }
       const wdlBeforeSigned = wdlSigned(wdlBeforeRaw);
       if (lineBefore.pv[0] === playedUci) {
+        countDrop('samePv1');
         console.log(
           `${logBase} wdlBefore=${round3(wdlBeforeSigned)} SKIP:samePv1`,
         );
@@ -523,10 +541,12 @@ export async function generatePuzzlesFromPgn(
       try {
         afterRes = await engine.analyze(fenAfter, depth, MULTI_PV, movetimeMs);
       } catch (e) {
+        countDrop('analyzeAfterError');
         console.error(`${logBase} SKIP:analyzeAfterError`, e);
         continue;
       }
       if (afterRes.lines.length === 0) {
+        countDrop('noLinesAfter');
         console.log(`${logBase} SKIP:noLinesAfter`);
         continue;
       }
@@ -534,6 +554,7 @@ export async function generatePuzzlesFromPgn(
       const wdlAfterRaw = extractWdlRaw(lineAfter);
       if (wdlAfterRaw === null) {
         if (lineAfter.wdl === undefined) warnNoWdlOnce();
+        countDrop('noWdlAfter');
         console.log(`${logBase} SKIP:noWdlAfter`);
         continue;
       }
@@ -549,6 +570,7 @@ export async function generatePuzzlesFromPgn(
         blunderSettings,
       );
       if (result.kind === 'rejected') {
+        countDrop(result.reason);
         console.log(
           `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:${result.reason}`,
         );
@@ -571,6 +593,7 @@ export async function generatePuzzlesFromPgn(
       if (solvabilityCheck) {
         const ok = await solvabilityPasses(engine, fenAfter, depth, movetimeMs, abortSignal);
         if (!ok) {
+          countDrop('solvabilityFailed');
           console.log(
             `${logBase} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:solvabilityFailed`,
           );
@@ -638,7 +661,19 @@ export async function generatePuzzlesFromPgn(
   }
 
   engine.destroy();
-  console.log('[PuzzleGen] Done. Total puzzles:', puzzles.length);
+  // KS-3153: сводка дроп-причин. Если у пользователя 0 пазлов — он
+  // открывает DevTools → Console и сразу видит, какой именно фильтр
+  // отрезал все позиции. Например, `samePv1: 88` означает что SF
+  // считает все ходы партии лучшими (нет «зевков») — изменение
+  // алгоритма не поможет. `noWdlBefore` — bridge без UCI_ShowWDL.
+  const dropSummary: Record<string, number> = {};
+  for (const [reason, n] of dropCounts) dropSummary[reason] = n;
+  console.log(
+    '[PuzzleGen] Done. Total puzzles:',
+    puzzles.length,
+    '| Drops by reason:',
+    dropSummary,
+  );
   return puzzles;
 }
 
