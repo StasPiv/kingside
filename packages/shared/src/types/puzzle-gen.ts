@@ -68,6 +68,14 @@ export const PUZZLE_GEN_DEFAULTS = {
    * объективная оценка), пазлы не ищем.
    */
   startPly: 20,
+  /**
+   * KS-3157 / ADR-070 §2.2. Минимальный Elo обоих игроков партии для
+   * допуска в обработку. Default 0 = принимаем всех (клиентский
+   * режим — пользователь генерит из своих партий). Серверный
+   * tactic-worker в своей обёртке переопределяет на 2400 (TWIC
+   * фильтр-уровень по запросу пользователя).
+   */
+  minPlayerElo: 0,
 } as const;
 
 export type PuzzleGenDefaults = typeof PUZZLE_GEN_DEFAULTS;

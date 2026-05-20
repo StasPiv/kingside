@@ -19,6 +19,7 @@ export * from './utils/fen-key.js';
 export * from './utils/archive-name-normalize.js';
 export * from './utils/wdl.js';
 export * from './utils/puzzle-gen-core.js';
+export * from './utils/puzzle-gen-pipeline.js';
 export * from './utils/move-classification.js';
 export * from './utils/precision-score.js';
 export * from './chess/index.js';
