@@ -179,6 +179,10 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     // accountedFor invariant
     const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
     expect(stats.inserted + sumDrops).toBe(stats.positionsAnalyzed);
+    // KS-3145 / ADR-069: objective пишется и в sourceMetadata, и тегом
+    // в themes. wdlAfter в моке = +0.85 (W ≈ 925/1000) → convertAdvantage.
+    expect(meta.objective).toBe('convertAdvantage');
+    expect(p.themes.split(' ')).toContain('convertAdvantage');
   });
 
   it('samePv1 helper: положительные/отрицательные кейсы', () => {

@@ -867,7 +867,11 @@ describe('PuzzleService', () => {
       const result = await service.getPuzzle('pve1');
 
       expect(result.solutionMode).toBe('play-vs-engine');
-      expect((result as { playVsEngine?: typeof meta }).playVsEngine).toEqual(meta);
+      // KS-3145: DTO теперь дополнительно содержит `objective` (fallback
+      // по wdlAfterBlunder ≥ 0.5 ⇒ convertAdvantage). Проверяем что
+      // исходные поля сохранились + добавилось objective.
+      expect((result as { playVsEngine?: typeof meta & { objective?: string } })
+        .playVsEngine).toEqual({ ...meta, objective: 'convertAdvantage' });
     });
 
     it('KS-2665: sourceMetadata только с blunderMove + wdlAfterBlunder → пороги из PUZZLE_GEN_DEFAULTS', async () => {
@@ -1050,6 +1054,85 @@ describe('PuzzleService', () => {
       expect(pve!.deltaW).toBeUndefined();
       expect(pve!.deltaD).toBeUndefined();
       expect(pve!.wdlAfterBlunder).toBe(0.78);
+    });
+
+    it('KS-3145: новый puzzle с objective=saveEquality → пробрасывается в DTO', async () => {
+      // Кейс 39. d6 из KS-3139: solver получил ничью, не выигрыш.
+      const meta = {
+        blunderMove: 'd6',
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlAfter: { w: 0, d: 952, l: 48 },
+        objective: 'saveEquality' as const,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-save',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine saveEquality',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-save');
+      const pve = (result as { playVsEngine?: { objective?: string } })
+        .playVsEngine;
+      expect(pve?.objective).toBe('saveEquality');
+    });
+
+    it('KS-3145: legacy puzzle с wdlAfter, без objective → вычисляется fallback по wdlAfter.w', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlAfter: { w: 850, d: 100, l: 50 }, // w=0.85 ≥ 0.5 → convert
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-legacy-convert',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-legacy-convert');
+      const pve = (result as { playVsEngine?: { objective?: string } })
+        .playVsEngine;
+      expect(pve?.objective).toBe('convertAdvantage');
+    });
+
+    it('KS-3145: legacy puzzle БЕЗ wdlAfter — fallback по wdlAfterBlunder', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.2, // < 0.5 → saveEquality
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-legacy-save',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+
+      const result = await service.getPuzzle('pve-legacy-save');
+      const pve = (result as { playVsEngine?: { objective?: string } })
+        .playVsEngine;
+      expect(pve?.objective).toBe('saveEquality');
     });
 
     it('KS-2524: legacy puzzle без wdl-объектов → wdlBefore/wdlAfter undefined', async () => {

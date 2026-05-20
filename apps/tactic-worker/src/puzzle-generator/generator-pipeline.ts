@@ -43,6 +43,7 @@ import {
 } from './types';
 import { wdlSignedFromInfo, type Wdl } from './score';
 import {
+  determinePuzzleObjective,
   evaluateBlunder,
   wdlOrMateFallback,
   type BlunderEvalSettings,
@@ -459,6 +460,12 @@ async function processGame(
       endsInMate: false,
     });
     tags.push('playVsEngine');
+    // KS-3145 / ADR-069: жанр пазла — `convertAdvantage` (solver
+    // в выигранной позиции) или `saveEquality` (solver не в выигрыше,
+    // но держит ничью). Дублируется тегом для фильтра на
+    // /puzzles/browse и в /precision.
+    const objective = determinePuzzleObjective(sc.wdlAfterRaw);
+    tags.push(objective);
 
     const rating = computeStartingRating(row, sc.wdlAfterForSolver);
     const puzzle: PuzzleRecord = {
@@ -496,6 +503,10 @@ async function processGame(
         // новых пазлов, fallback на `wdlAfterBlunder` для legacy.
         deltaW: round3(sc.deltaW),
         deltaD: round3(sc.deltaD),
+        // KS-3145 / ADR-069: жанр пазла. API возвращает в DTO для UI;
+        // legacy-пазлы без поля резолверятся через fallback на
+        // `wdlAfter.w` или `wdlAfterBlunder`.
+        objective,
         firstMovePV1: sc.firstMovePV1,
         winThreshold: options.winThreshold,
         failThreshold: options.failThreshold,

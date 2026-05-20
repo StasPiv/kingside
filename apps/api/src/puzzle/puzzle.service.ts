@@ -52,6 +52,15 @@ export interface PlayVsEngineDto {
    */
   deltaW?: number;
   deltaD?: number;
+  /**
+   * KS-3145 / ADR-069. Жанр пазла:
+   *   - `convertAdvantage` — solver получил выигрышную позицию;
+   *   - `saveEquality`     — solver не в выигрыше, но держит ничью.
+   * Для пазлов, сгенерированных после KS-3145, читается из metadata
+   * напрямую. Для legacy — вычисляется fallback'ом по
+   * `wdlAfter.w / 1000 >= 0.5` (или `wdlAfterBlunder >= 0.5`).
+   */
+  objective?: 'convertAdvantage' | 'saveEquality';
 }
 
 /**
@@ -1316,6 +1325,25 @@ export class PuzzleService {
         typeof meta.deltaD === 'number' && Number.isFinite(meta.deltaD)
           ? meta.deltaD
           : undefined;
+      // KS-3145 / ADR-069. objective — жанр пазла (convertAdvantage /
+      // saveEquality). Для пазлов, сгенерированных после KS-3145, поле
+      // приходит напрямую из metadata. Для legacy-пазлов вычисляем
+      // fallback'ом:
+      //   1) если есть wdlAfter ({w,d,l}) — `w/1000 >= 0.5 ? convert : save`;
+      //   2) иначе по wdlAfterBlunder (signed): >=0.5 ⇒ convert,
+      //      иначе save (упрощённая аппроксимация, точнее не выйдет
+      //      без полного {w,d,l}).
+      const rawObjective = meta.objective;
+      let objective: 'convertAdvantage' | 'saveEquality' | undefined;
+      if (rawObjective === 'convertAdvantage' || rawObjective === 'saveEquality') {
+        objective = rawObjective;
+      } else if (wdlAfter) {
+        objective =
+          wdlAfter.w / 1000 >= 0.5 ? 'convertAdvantage' : 'saveEquality';
+      } else {
+        objective =
+          wdlAfterBlunder >= 0.5 ? 'convertAdvantage' : 'saveEquality';
+      }
       return {
         solutionMode: 'play-vs-engine',
         playVsEngine: {
@@ -1329,6 +1357,7 @@ export class PuzzleService {
           ...(fenBeforeBlunder ? { fenBeforeBlunder } : {}),
           ...(deltaW !== undefined ? { deltaW } : {}),
           ...(deltaD !== undefined ? { deltaD } : {}),
+          objective,
         },
       };
     } catch (e) {
