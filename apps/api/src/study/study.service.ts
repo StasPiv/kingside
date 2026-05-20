@@ -215,8 +215,18 @@ export class StudyService {
     const q = (query.q ?? '').trim();
     const topic = (query.topic ?? '').trim();
 
+    // KS-3124. `mine=1` — каталог «мои студии»: любой visibility, но
+    // owner = userId. Без параметра — публичный каталог как раньше.
+    // anonymous + mine=1 → 400 (см. `list()`, симметрия контрактов).
+    const mineOnly = query.mine === 1;
+    if (mineOnly && !userId) {
+      throw new BadRequestException('mine=1 requires authentication');
+    }
+
     const where: Prisma.StudyWhereInput = {
-      visibility: 'public',
+      ...(mineOnly
+        ? { ownerId: userId! }
+        : { visibility: 'public' }),
       ...(q.length > 0
         ? {
             OR: [
@@ -243,7 +253,15 @@ export class StudyService {
       // условия фильтра собираются динамически (Prisma.sql/join
       // удобнее, но не покрыты jest-моком `@kingside/db`).
       const params: unknown[] = [];
-      const conditions: string[] = [`s.visibility = 'public'`];
+      const conditions: string[] = [];
+      if (mineOnly) {
+        // KS-3124. mine=1 → owner_id binding, любой visibility.
+        params.push(userId!);
+        const p = `$${params.length}`;
+        conditions.push(`s.owner_id = ${p}`);
+      } else {
+        conditions.push(`s.visibility = 'public'`);
+      }
       if (q.length > 0) {
         const pat = `%${q}%`;
         params.push(pat);

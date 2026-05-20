@@ -326,4 +326,18 @@ export class StudyCatalogQueryDto {
   @IsInt()
   @Min(1)
   pageSize?: number;
+
+  /**
+   * KS-3124. `mine=1` — каталог показывает ТОЛЬКО студии текущего
+   * пользователя (любая visibility: public/unlisted/private), как
+   * старый `GET /studies?mine=1` (см. `StudyService.list`). Без
+   * параметра — каталог публичных студий, как раньше.
+   *
+   * `mine=1` без auth → 400 (анонимный «мой каталог» бессмыслен).
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  mine?: number;
 }

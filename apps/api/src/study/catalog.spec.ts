@@ -262,6 +262,79 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       expect(countCall.where.visibility).toBe('public');
     });
   });
+
+  describe('KS-3124 · mine=1 (мои студии в каталоге)', () => {
+    const userId = '11111111-1111-4111-a111-111111111111';
+
+    it('mine=1 без userId → BadRequestException', async () => {
+      await expect(
+        svc.catalog(null, { sort: 'new', mine: 1 }),
+      ).rejects.toThrow(/mine=1 requires authentication/);
+    });
+
+    it('mine=1 (sort=new) → where.ownerId=userId, БЕЗ visibility-фильтра', async () => {
+      await svc.catalog(userId, { sort: 'new', mine: 1 });
+      const findManyCall = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
+      expect(findManyCall.where).toEqual({ ownerId: userId });
+      expect(findManyCall.where.visibility).toBeUndefined();
+
+      const countCall = (prisma.study.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where).toEqual({ ownerId: userId });
+    });
+
+    it('mine=1 + q + topic — комбинация фильтров без visibility=public', async () => {
+      await svc.catalog(userId, {
+        sort: 'updated',
+        mine: 1,
+        q: 'sicilian',
+        topic: 'opening',
+      });
+      const findManyCall = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
+      expect(findManyCall.where).toEqual({
+        ownerId: userId,
+        OR: [
+          { name: { contains: 'sicilian', mode: 'insensitive' } },
+          { description: { contains: 'sicilian', mode: 'insensitive' } },
+        ],
+        topics: { has: 'opening' },
+      });
+      expect(findManyCall.where.visibility).toBeUndefined();
+    });
+
+    it('mine=1 + sort=hot → raw SQL содержит owner_id-binding, нет visibility=public', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+      await svc.catalog(userId, { sort: 'hot', mine: 1 });
+      const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+      expect(sql).toMatch(/s\.owner_id = \$1/);
+      expect(sql).not.toMatch(/s\.visibility = 'public'/);
+      expect(params[0]).toBe(userId);
+    });
+
+    it('mine=1 → viewerRole=owner для собственных студий (через getViewerRoleMap)', async () => {
+      const myStudy = { ...baseStudy, ownerId: userId };
+      prisma.study.findMany.mockResolvedValue([myStudy]);
+      prisma.study.count.mockResolvedValue(1);
+
+      const r = await svc.catalog(userId, { sort: 'new', mine: 1 });
+
+      expect(r.items).toHaveLength(1);
+      expect(r.items[0].viewerRole).toBe('owner');
+      // owner-локальный путь: getViewerRoleMap НЕ ходит в study_members
+      // когда все студии — caller'а.
+      expect(prisma.studyMember.findMany).not.toHaveBeenCalled();
+    });
+
+    it('mine=0 / без параметра → старое поведение (visibility=public)', async () => {
+      await svc.catalog(userId, { sort: 'new' });
+      const call1 = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
+      expect(call1.where).toEqual({ visibility: 'public' });
+
+      (prisma.study.findMany as jest.Mock).mockClear();
+      await svc.catalog(userId, { sort: 'new', mine: 0 });
+      const call2 = (prisma.study.findMany as jest.Mock).mock.calls[0][0];
+      expect(call2.where).toEqual({ visibility: 'public' });
+    });
+  });
 });
 
 describe('KS-2885 B12 · StudyCatalogController', () => {
