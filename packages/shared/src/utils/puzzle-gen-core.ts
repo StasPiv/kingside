@@ -22,7 +22,7 @@
  *   - solvability-check после accept — отдельный этап у tactic-worker'а,
  *     к данному модулю отношения не имеет.
  */
-import { deltaDFromWdl, deltaWFromWdl, type Wdl } from './wdl.js';
+import { deltaDFromWdl, deltaWFromWdl, wdlSigned, type Wdl } from './wdl.js';
 
 /**
  * Источник данных от Stockfish. Оба объекта — per-mille (0..1000),
@@ -174,4 +174,65 @@ export type PuzzleObjective = 'convertAdvantage' | 'saveEquality';
 
 export function determinePuzzleObjective(wdlAfterRaw: Wdl): PuzzleObjective {
   return wdlAfterRaw.w / 1000 >= 0.5 ? 'convertAdvantage' : 'saveEquality';
+}
+
+/**
+ * KS-3156 / ADR-069 §4 — единый критерий solvability с веткой по
+ * objective. До этой задачи solvability-check в `apps/tactic-worker/.../
+ * generator-pipeline.ts` (а также в выключенной по-дефолту копии в
+ * `apps/web/src/utils/puzzleGenerator.ts`) использовал ОДИН критерий:
+ * `wdlSigned (W − L) ≥ threshold`. Это корректно для `convertAdvantage`
+ * (solver обязан конвертировать перевес → итог signed ≥ 0.5), но
+ * структурно неверно для `saveEquality`: solver держит ничью, W ≈ 0,
+ * L ≈ 0, signed ≈ 0 < 0.5 — финальный чек НИКОГДА не проходит, все
+ * saveEquality-кандидаты улетают в `drops.solvabilityFailed`. Серверный
+ * банк saveEquality стоял на 0 именно из-за этого.
+ *
+ * Здесь — единственный источник истины критерия. Обёртки (сервер,
+ * клиент) пробрасывают сырой `Wdl` POV solver на каждом полуходе + в
+ * конце, а решение принимается тут.
+ *
+ *   - `convertAdvantage`: signed ≥ `winThreshold` (старое поведение).
+ *   - `saveEquality`: (W + D) ≥ `winThreshold`. Solver удерживает
+ *     ничью если суммарная вероятность не-проигрыша остаётся выше
+ *     порога. Тот же порог 0.5 для обоих жанров, чтобы критерий
+ *     не разъезжался по семантике «50 % шанс».
+ */
+export function meetsSolvabilityFinal(
+  wdlForSolver: Wdl,
+  objective: PuzzleObjective,
+  winThreshold: number,
+): boolean {
+  if (objective === 'convertAdvantage') {
+    return wdlSigned(wdlForSolver) >= winThreshold;
+  }
+  // saveEquality — W + D ≥ winThreshold
+  return (wdlForSolver.w + wdlForSolver.d) / 1000 >= winThreshold;
+}
+
+/**
+ * KS-3156. Промежуточный «не-фейл» чек на каждом полуходе solvability-
+ * прогона. Симметричен `meetsSolvabilityFinal`, но с порогом
+ * `failThreshold` (по умолчанию 0.0 для convertAdvantage):
+ *
+ *   - `convertAdvantage`: signed ≥ `failThreshold`. Если solver скатился
+ *     ниже — позиция упущена.
+ *   - `saveEquality`: (W + D) ≥ `failThreshold`. Если суммарная не-
+ *     проигрышная вероятность упала ниже порога — solver не удержал и
+ *     позиция стала проигрышной.
+ *
+ * Для saveEquality `failThreshold` по умолчанию должен быть выше нуля
+ * (например 0.5 как в `HARD_MIN_WD_AFTER`), иначе фильтр пропустит
+ * фолл в проигрыш. Обёртка `checkSolvability` (tactic-worker) выбирает
+ * порог по objective и пробрасывает сюда.
+ */
+export function holdsSolvabilityIntermediate(
+  wdlForSolver: Wdl,
+  objective: PuzzleObjective,
+  failThreshold: number,
+): boolean {
+  if (objective === 'convertAdvantage') {
+    return wdlSigned(wdlForSolver) >= failThreshold;
+  }
+  return (wdlForSolver.w + wdlForSolver.d) / 1000 >= failThreshold;
 }

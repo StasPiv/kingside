@@ -45,8 +45,11 @@ import { wdlSignedFromInfo, type Wdl } from './score';
 import {
   determinePuzzleObjective,
   evaluateBlunder,
+  holdsSolvabilityIntermediate,
+  meetsSolvabilityFinal,
   wdlOrMateFallback,
   type BlunderEvalSettings,
+  type PuzzleObjective,
 } from '@kingside/shared';
 import type { MultiPvLine } from './types';
 import { computeTags } from './tagging';
@@ -424,19 +427,38 @@ async function processGame(
 
   if (solvabilityCandidates.length === 0) return;
 
+  // KS-3156: objective ОПРЕДЕЛЯЕТСЯ ДО solvability-check, потому что
+  // критерий solvability ВЕТВИТСЯ по objective. До этой задачи
+  // checkSolvability использовал signed-WDL (W − L) ≥ winThreshold,
+  // что структурно не работает для saveEquality (solver держит ничью,
+  // W ≈ 0, L ≈ 0 → signed ≈ 0 < 0.5). Все saveEquality-кандидаты
+  // улетали в drops.solvabilityFailed; банк saveEquality стоял на 0.
+  const objectivesPerCandidate: PuzzleObjective[] = solvabilityCandidates.map(
+    (sc) => determinePuzzleObjective(sc.wdlAfterRaw),
+  );
+
   // ── Stage 5 (parallel between candidates, sequential within): ───
   // solvability check. Каждый кандидат — halfMovesN последовательных
   // SF-вызовов (Stockfish-vs-Stockfish), но между разными кандидатами
   // партии можно параллелить — пул сам сериализует.
+  //
+  // KS-3156: для saveEquality пороги пере-интерпретируются через
+  // (W + D) ≥ threshold, а не signed ≥ threshold. failThreshold по
+  // умолчанию = 0.0 для convertAdvantage; для saveEquality берём
+  // HARD_MIN_WD_AFTER (0.5) чтобы дроп в проигрыш фиксировался.
   const solvableFlags = await Promise.all(
-    solvabilityCandidates.map((sc) =>
+    solvabilityCandidates.map((sc, i) =>
       checkSolvability({
         engine,
         startFen: sc.task.fenAfter,
         solverSide: sc.task.solverSide,
         halfMovesN: options.halfMovesN,
         winThreshold: options.winThreshold,
-        failThreshold: options.failThreshold,
+        failThreshold:
+          objectivesPerCandidate[i] === 'saveEquality'
+            ? HARD_MIN_WD_AFTER
+            : options.failThreshold,
+        objective: objectivesPerCandidate[i],
         limit: options.engineLimit,
         gameId: row.id,
       }),
@@ -449,7 +471,14 @@ async function processGame(
   for (let i = 0; i < solvabilityCandidates.length; i++) {
     const sc = solvabilityCandidates[i];
     if (!solvableFlags[i]) {
-      stats.drops.solvabilityFailed++;
+      // KS-3156: per-objective счётчик. Агрегат `solvabilityFailed`
+      // удалён — выводился в лог одной цифрой и маскировал
+      // структурный баг saveEquality=0.
+      if (objectivesPerCandidate[i] === 'saveEquality') {
+        stats.drops.solvabilityFailedSaveEquality++;
+      } else {
+        stats.drops.solvabilityFailedConvertAdvantage++;
+      }
       continue;
     }
 
@@ -464,7 +493,7 @@ async function processGame(
     // в выигранной позиции) или `saveEquality` (solver не в выигрыше,
     // но держит ничью). Дублируется тегом для фильтра на
     // /puzzles/browse и в /precision.
-    const objective = determinePuzzleObjective(sc.wdlAfterRaw);
+    const objective = objectivesPerCandidate[i];
     tags.push(objective);
 
     const rating = computeStartingRating(row, sc.wdlAfterForSolver);
@@ -605,16 +634,44 @@ interface SolvabilityArgs {
   halfMovesN: number;
   winThreshold: number;
   failThreshold: number;
+  /**
+   * KS-3156: цель пазла. Определяет интерпретацию порогов:
+   *   - `convertAdvantage` — signed WDL (W − L) ≥ winThreshold/failThreshold.
+   *   - `saveEquality` — (W + D) ≥ winThreshold/failThreshold.
+   * До KS-3156 был только первый вариант, что не давало saveEquality
+   * пройти solvability ни при каких реальных позициях.
+   */
+  objective: PuzzleObjective;
   limit: import('./types').AnalysisLimit;
   /** Для phase-тегов в логе. */
   gameId?: string;
 }
 
+/** POV solver — Wdl на текущем ply, side-to-move = solver или его противник. */
+function wdlPovSolver(
+  wdl: { w: number; d: number; l: number } | null | undefined,
+  sideToMove: 'w' | 'b',
+  solverSide: 'w' | 'b',
+): import('@kingside/shared').Wdl | null {
+  if (!wdl) return null;
+  // Stockfish отдаёт POV side-to-move. Если sideToMove == solverSide —
+  // wdl уже от лица solver. Иначе W↔L меняются местами (D сохраняется).
+  if (sideToMove === solverSide) return { w: wdl.w, d: wdl.d, l: wdl.l };
+  return { w: wdl.l, d: wdl.d, l: wdl.w };
+}
+
 /**
  * Проверка решаемости: halfMovesN полуходов Stockfish-vs-Stockfish из
  * `startFen`. На каждом ply берём bestmove. После каждого
- * полухода-противника проверяем WDL для решающей; если < failThreshold —
- * drop. По окончании halfMovesN — если WDL ≥ winThreshold, проходит.
+ * полухода-противника проверяем WDL для решающей; если не выполняется
+ * holdsSolvabilityIntermediate — drop. По окончании halfMovesN — если
+ * meetsSolvabilityFinal вернул true, проходит.
+ *
+ * KS-3156: критерий ветвится по `objective`:
+ *   - convertAdvantage → signed WDL (старое поведение).
+ *   - saveEquality → (W + D) ≥ threshold — solver должен удерживать
+ *     не-проигрышную сумму выше порога. Без этой ветки signed≈0 у
+ *     ничейных позиций структурно валил финальный чек.
  *
  * Цикл по halfMovesN — последовательный по природе (надо знать ход
  * предыдущего ply, чтобы получить fen для следующего). Параллелизм —
@@ -626,21 +683,35 @@ interface SolvabilityArgs {
  *   - `phase=attack` — на ходу противник решающей.
  */
 async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
-  const { engine, startFen, solverSide, halfMovesN, winThreshold, failThreshold, limit, gameId } = args;
+  const {
+    engine,
+    startFen,
+    solverSide,
+    halfMovesN,
+    winThreshold,
+    failThreshold,
+    objective,
+    limit,
+    gameId,
+  } = args;
   const chess = new Chess(startFen);
-  let lastWdlForSolver: number | null = null;
+  let lastWdlForSolver: import('@kingside/shared').Wdl | null = null;
   const labelBase = gameId ? `g=${gameId} ` : '';
 
   for (let ply = 0; ply < halfMovesN; ply++) {
     if (chess.isGameOver()) {
-      // Мат за решающую — пазл решаемый. Стейлмейт/ничья — провал.
       if (chess.isCheckmate()) {
-        // Сторона, которая получила мат — проигравшая. Если это
-        // противник решающей, мы выиграли.
+        // Сторона на ходу = проигравшая (получила мат). Если это
+        // противник solver — solver выиграл, что для convertAdvantage
+        // успех; для saveEquality solver неожиданно выиграл, тоже не
+        // фейл (W+D = 1.0 → проходит финальный чек).
         const losingSide = chess.turn() as 'w' | 'b';
         return losingSide !== solverSide;
       }
-      return false;
+      // Стейлмейт/3-fold/50-move — позиция ничейная. Для saveEquality
+      // это **успех** (solver удержал ничью), для convertAdvantage —
+      // фейл (solver не реализовал перевес).
+      return objective === 'saveEquality';
     }
     const sideToMove = chess.turn() as 'w' | 'b';
     const phase = sideToMove === solverSide ? 'defend' : 'attack';
@@ -657,18 +728,18 @@ async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
     }
     if (pvs.length === 0 || !pvs[0].bestMove) return false;
     const bm = pvs[0].bestMove;
-    const wdl = wdlSignedFromInfo(pvs[0].wdl, pvs[0].score);
-    // POV: WDL отдан от стороны на ходу.
-    if (wdl != null) {
-      lastWdlForSolver = sideToMove === solverSide ? wdl : -wdl;
-      if (lastWdlForSolver < failThreshold) return false;
+    const wdlRaw = wdlOrMateFallback(pvs[0].wdl, pvs[0].score);
+    const wdlSolver = wdlPovSolver(wdlRaw, sideToMove, solverSide);
+    if (wdlSolver != null) {
+      lastWdlForSolver = wdlSolver;
+      if (!holdsSolvabilityIntermediate(wdlSolver, objective, failThreshold)) {
+        return false;
+      }
     }
     if (!applyUci(chess, bm)) return false;
   }
 
-  // Финальная позиция — анализируем ещё раз для итогового WDL за
-  // решающую (если последний ход был решающего, то после него
-  // sideToMove = противник, и WDL от его лица; инвертируем).
+  // Финальная позиция — анализируем ещё раз для итогового WDL solver.
   try {
     const sideToMove = chess.turn() as 'w' | 'b';
     const phase = sideToMove === solverSide ? 'defend' : 'attack';
@@ -679,16 +750,16 @@ async function checkSolvability(args: SolvabilityArgs): Promise<boolean> {
       `${labelBase}phase=${phase} solv-final`,
     );
     if (finalPvs.length > 0) {
-      const w = wdlSignedFromInfo(finalPvs[0].wdl, finalPvs[0].score);
-      if (w != null) {
-        lastWdlForSolver = sideToMove === solverSide ? w : -w;
-      }
+      const wdlRaw = wdlOrMateFallback(finalPvs[0].wdl, finalPvs[0].score);
+      const wdlSolver = wdlPovSolver(wdlRaw, sideToMove, solverSide);
+      if (wdlSolver != null) lastWdlForSolver = wdlSolver;
     }
   } catch {
     // Используем последний известный
   }
 
-  return lastWdlForSolver != null && lastWdlForSolver >= winThreshold;
+  if (lastWdlForSolver == null) return false;
+  return meetsSolvabilityFinal(lastWdlForSolver, objective, winThreshold);
 }
 
 async function applyOrReturn(
@@ -760,7 +831,11 @@ function logProgress(
     `samePv1=${stats.drops.samePv1} ` +
     `gameOver=${stats.drops.gameOver} ` +
     `lowWplusDAfter=${stats.drops.lowWplusDAfter} ` +
-    `solvabilityFailed=${stats.drops.solvabilityFailed} ` +
+    // KS-3156: solvability-провалы — отдельно по convertAdvantage и
+    // saveEquality. Раньше показывали агрегат; он маскировал
+    // структурный 100 %-провал saveEquality.
+    `solvabilityFailedConvert=${stats.drops.solvabilityFailedConvertAdvantage} ` +
+    `solvabilityFailedSave=${stats.drops.solvabilityFailedSaveEquality} ` +
     `duplicate=${stats.drops.duplicate} ` +
     `noScore=${stats.drops.noScore} ` +
     `engineError=${stats.drops.engineError}`;

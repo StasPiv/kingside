@@ -189,9 +189,16 @@ export interface GeneratorStats {
     lowWplusDAfter: number;
     /**
      * play-vs-engine: solvability-check провалился — за halfMovesN
-     * Stockfish-vs-Stockfish WDL у решающей упал/не достиг порогов.
+     * Stockfish-vs-Stockfish решающая не удержала / не реализовала.
+     *
+     * KS-3156: разбито по objective. Агрегат раньше существовал как
+     * `solvabilityFailed`, но маскировал структурный баг (saveEquality
+     * валился 100% из-за signed-WDL критерия, convertAdvantage работал
+     * — в агрегате выглядело «нормально»). Сумма этих двух полей =
+     * исторический `solvabilityFailed`.
      */
-    solvabilityFailed: number;
+    solvabilityFailedConvertAdvantage: number;
+    solvabilityFailedSaveEquality: number;
     /** дубликат FEN (UNIQUE conflict при insert). */
     duplicate: number;
     /** Stockfish не вернул score / WDL. */
@@ -252,7 +259,8 @@ export function newGeneratorStats(): GeneratorStats {
       samePv1: 0,
       gameOver: 0,
       lowWplusDAfter: 0,
-      solvabilityFailed: 0,
+      solvabilityFailedConvertAdvantage: 0,
+      solvabilityFailedSaveEquality: 0,
       duplicate: 0,
       noScore: 0,
       engineError: 0,

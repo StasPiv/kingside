@@ -284,7 +284,13 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
       engine,
       options: { ...opts, insertPuzzle },
     });
-    expect(stats.drops.solvabilityFailed).toBeGreaterThan(0);
+    // KS-3156: разбиение по objective; в тесте wdlAfter ≈ +0.85
+    // (convertAdvantage), но solvability падает, потому что мок WDL
+    // на solv-ply резко съезжает. См. setup engine.analyzePositionWdl.
+    const totalSolvabilityFailed =
+      stats.drops.solvabilityFailedConvertAdvantage +
+      stats.drops.solvabilityFailedSaveEquality;
+    expect(totalSolvabilityFailed).toBeGreaterThan(0);
     expect(stats.inserted).toBe(0);
   });
 

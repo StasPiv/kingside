@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   determinePuzzleObjective,
   evaluateBlunder,
+  holdsSolvabilityIntermediate,
+  meetsSolvabilityFinal,
   type BlunderEvalSettings,
 } from './puzzle-gen-core.js';
 
@@ -279,5 +281,69 @@ describe('determinePuzzleObjective (KS-3144 / ADR-069)', () => {
 
   it('абсолютная ничья — wdl={0,1000,0} → saveEquality', () => {
     expect(determinePuzzleObjective({ w: 0, d: 1000, l: 0 })).toBe('saveEquality');
+  });
+});
+
+describe('meetsSolvabilityFinal (KS-3156) — критерий «решено» в конце solvability', () => {
+  it('convertAdvantage: solver добил перевес — signed=0.8 ≥ 0.5 → true', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 850, d: 100, l: 50 }, 'convertAdvantage', 0.5),
+    ).toBe(true);
+  });
+
+  it('convertAdvantage: solver не дотянул — signed=0.2 < 0.5 → false', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 350, d: 450, l: 200 }, 'convertAdvantage', 0.5),
+    ).toBe(false);
+  });
+
+  it('saveEquality: solver удержал ничью — W+D = 0.95 ≥ 0.5 → true (раньше signed=0 валило)', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 50, d: 900, l: 50 }, 'saveEquality', 0.5),
+    ).toBe(true);
+  });
+
+  it('saveEquality: позиция чистой ничьей W=0/D=1000/L=0 → true (signed=0, но W+D=1.0)', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 0, d: 1000, l: 0 }, 'saveEquality', 0.5),
+    ).toBe(true);
+  });
+
+  it('saveEquality: solver потерял позицию — W+D=0.3 < 0.5 → false', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 50, d: 250, l: 700 }, 'saveEquality', 0.5),
+    ).toBe(false);
+  });
+
+  it('saveEquality: граница W+D = ровно 0.5 → true (порог включителен)', () => {
+    expect(
+      meetsSolvabilityFinal({ w: 100, d: 400, l: 500 }, 'saveEquality', 0.5),
+    ).toBe(true);
+  });
+});
+
+describe('holdsSolvabilityIntermediate (KS-3156) — промежуточный «не-фейл»', () => {
+  it('convertAdvantage: signed ≥ 0 → true (solver не уронил перевес)', () => {
+    expect(
+      holdsSolvabilityIntermediate({ w: 600, d: 300, l: 100 }, 'convertAdvantage', 0.0),
+    ).toBe(true);
+  });
+
+  it('convertAdvantage: signed < 0 → false', () => {
+    expect(
+      holdsSolvabilityIntermediate({ w: 100, d: 300, l: 600 }, 'convertAdvantage', 0.0),
+    ).toBe(false);
+  });
+
+  it('saveEquality: W+D ≥ failThreshold=0.5 → true', () => {
+    expect(
+      holdsSolvabilityIntermediate({ w: 50, d: 700, l: 250 }, 'saveEquality', 0.5),
+    ).toBe(true);
+  });
+
+  it('saveEquality: позиция схлопнулась в проигрыш — W+D=0.2 < 0.5 → false', () => {
+    expect(
+      holdsSolvabilityIntermediate({ w: 50, d: 150, l: 800 }, 'saveEquality', 0.5),
+    ).toBe(false);
   });
 });
