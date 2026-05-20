@@ -118,6 +118,58 @@ describe('<PrecisionScoreBlock>', () => {
     expect(stars.getAttribute('aria-label')).toContain('5');
   });
 
+  /**
+   * KS-3165 (ADR-070 UI): для `objective='saveEquality'` интерпретация
+   * берётся из `precision.score.interpretationSave.*` (про ничью).
+   * Для `'convertAdvantage'` / undefined — старые тексты про преимущество.
+   */
+  describe('KS-3165 — objective-aware interpretation', () => {
+    it('objective="saveEquality" + score=5 → текст про ничью, НЕ про преимущество', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock score={5} scorePct={95} objective="saveEquality" />,
+      );
+      const block = screen.getByTestId('precision-score-block-interpretation');
+      expect(block.getAttribute('data-objective')).toBe('saveEquality');
+      // EN fallback: «Draw held flawlessly.»
+      expect(block.textContent).toMatch(/draw|ничь/i);
+      expect(block.textContent).not.toMatch(/advantage|преимущ/i);
+    });
+
+    it('objective="saveEquality" + score=2 → «Ничья поколебалась», НЕ «Преимущество поколебалось»', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock score={2} scorePct={45} objective="saveEquality" />,
+      );
+      const text = screen
+        .getByTestId('precision-score-block-interpretation')
+        .textContent ?? '';
+      expect(text).toMatch(/draw wavered|Ничья поколебалась/i);
+      expect(text).not.toMatch(/advantage wavered|Преимущество поколебалось/i);
+    });
+
+    it('objective="convertAdvantage" → старая формулировка про преимущество (без регрессии)', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={2}
+          scorePct={45}
+          objective="convertAdvantage"
+        />,
+      );
+      const text = screen
+        .getByTestId('precision-score-block-interpretation')
+        .textContent ?? '';
+      expect(text).toMatch(/advantage wavered|Преимущество поколебалось/i);
+    });
+
+    it('objective не задан → fallback к convertAdvantage-набору', () => {
+      renderWithProviders(<PrecisionScoreBlock score={2} scorePct={45} />);
+      const block = screen.getByTestId('precision-score-block-interpretation');
+      expect(block.getAttribute('data-objective')).toBe('');
+      expect(block.textContent).toMatch(
+        /advantage wavered|Преимущество поколебалось/i,
+      );
+    });
+  });
+
   describe('null-state (KS-3003)', () => {
     it('score=null → блок в нейтральной палитре, "—" вместо звёзд', () => {
       renderWithProviders(<PrecisionScoreBlock score={null} scorePct={null} />);

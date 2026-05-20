@@ -1472,6 +1472,13 @@
         "3": "Held, but with noticeable mistakes.",
         "4": "Held precisely with a minor inaccuracy.",
         "5": "Flawless solution."
+      },
+      "interpretationSave": {
+        "1": "The draw was lost.",
+        "2": "The draw wavered — significant mistakes.",
+        "3": "Drew, but with noticeable mistakes.",
+        "4": "Drew precisely with a minor inaccuracy.",
+        "5": "Draw held flawlessly."
       }
     },
     "hidePreserved": "Hide preserved",

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import type { PuzzleObjective } from '@kingside/shared';
 
 /**
  * KS-3002 (ADR-065 §5.1.1, Этап 3 F1) — итоговый блок 5-балльной оценки
@@ -62,6 +63,18 @@ const INTERP_KEY: Record<PrecisionScoreValue, string> = {
   4: 'precision.score.interpretation.4',
   5: 'precision.score.interpretation.5',
 };
+/**
+ * KS-3165 (ADR-070 UI): для saveEquality-пазлов отдельный набор
+ * формулировок («Ничья удержана …»/«Ничья упущена») — текст про
+ * «преимущество» семантически неверен, когда solver держит ничью.
+ */
+const INTERP_KEY_SAVE: Record<PrecisionScoreValue, string> = {
+  1: 'precision.score.interpretationSave.1',
+  2: 'precision.score.interpretationSave.2',
+  3: 'precision.score.interpretationSave.3',
+  4: 'precision.score.interpretationSave.4',
+  5: 'precision.score.interpretationSave.5',
+};
 
 function clampPct(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
@@ -85,11 +98,21 @@ export interface PrecisionScoreBlockProps {
    * Не-integer/выход за диапазон округляется и зажимается.
    */
   scorePct: number | null;
+  /**
+   * KS-3165 (ADR-070 UI): жанр пазла. Если `saveEquality` — текстовая
+   * интерпретация берётся из `precision.score.interpretationSave.*`
+   * (формулировки про ничью). Иначе (`convertAdvantage` | undefined) —
+   * исторический набор `precision.score.interpretation.*` про
+   * «преимущество». Опциональный — legacy-попытки без objective
+   * рендерятся convertAdvantage-формулировкой как раньше.
+   */
+  objective?: PuzzleObjective | null;
 }
 
 export function PrecisionScoreBlock({
   score,
   scorePct,
+  objective,
 }: PrecisionScoreBlockProps) {
   const { t } = useTranslation();
 
@@ -180,8 +203,13 @@ export function PrecisionScoreBlock({
       <p
         className="precision-score-block__interpretation"
         data-testid="precision-score-block-interpretation"
+        data-objective={objective ?? ''}
       >
-        {t(INTERP_KEY[safeScore])}
+        {t(
+          (objective === 'saveEquality' ? INTERP_KEY_SAVE : INTERP_KEY)[
+            safeScore
+          ],
+        )}
       </p>
     </div>
   );

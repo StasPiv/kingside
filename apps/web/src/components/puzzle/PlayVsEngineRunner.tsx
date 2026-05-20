@@ -1664,6 +1664,7 @@ export function PlayVsEngineRunner({
               <PrecisionScoreBlock
                 score={precisionScore.stars}
                 scorePct={precisionScore.scorePct}
+                objective={objective ?? null}
               />
               {(reason === 'win-mate' ||
                 reason === 'win-engine-resign' ||
