@@ -301,11 +301,12 @@ describe('KS-2885 B12 · StudyService.catalog', () => {
       expect(findManyCall.where.visibility).toBeUndefined();
     });
 
-    it('mine=1 + sort=hot → raw SQL содержит owner_id-binding, нет visibility=public', async () => {
+    it('mine=1 + sort=hot → raw SQL содержит owner_id-binding с ::uuid cast, нет visibility=public', async () => {
       prisma.$queryRawUnsafe.mockResolvedValue([]);
       await svc.catalog(userId, { sort: 'hot', mine: 1 });
       const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
-      expect(sql).toMatch(/s\.owner_id = \$1/);
+      // ::uuid cast обязателен для PG (uuid-колонка vs text-параметр).
+      expect(sql).toMatch(/s\.owner_id = \$1::uuid/);
       expect(sql).not.toMatch(/s\.visibility = 'public'/);
       expect(params[0]).toBe(userId);
     });

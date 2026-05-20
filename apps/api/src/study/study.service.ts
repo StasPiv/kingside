@@ -256,9 +256,12 @@ export class StudyService {
       const conditions: string[] = [];
       if (mineOnly) {
         // KS-3124. mine=1 → owner_id binding, любой visibility.
+        // `::uuid` cast обязателен — PG не делает implicit coerce из
+        // text-параметра в uuid-колонку (ERROR 42883 operator does
+        // not exist: uuid = text).
         params.push(userId!);
         const p = `$${params.length}`;
-        conditions.push(`s.owner_id = ${p}`);
+        conditions.push(`s.owner_id = ${p}::uuid`);
       } else {
         conditions.push(`s.visibility = 'public'`);
       }
