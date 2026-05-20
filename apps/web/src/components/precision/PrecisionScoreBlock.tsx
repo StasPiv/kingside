@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import type { PuzzleObjective } from '@kingside/shared';
 
 /**
  * KS-3002 (ADR-065 §5.1.1, Этап 3 F1) — итоговый блок 5-балльной оценки
@@ -56,24 +55,19 @@ const STARS_KEY: Record<PrecisionScoreValue, string> = {
   4: 'precision.score.stars.4',
   5: 'precision.score.stars.5',
 };
+/**
+ * KS-3166 (ADR-070 UI): единый универсальный набор формулировок без
+ * привязки к жанру (convertAdvantage / saveEquality). До этого тикета
+ * был отдельный `INTERP_KEY_SAVE` (KS-3165) для saveEquality. По
+ * запросу пользователя — нейтральный текст «оценка позиции» / «решено»
+ * подходит обоим жанрам и не путает.
+ */
 const INTERP_KEY: Record<PrecisionScoreValue, string> = {
   1: 'precision.score.interpretation.1',
   2: 'precision.score.interpretation.2',
   3: 'precision.score.interpretation.3',
   4: 'precision.score.interpretation.4',
   5: 'precision.score.interpretation.5',
-};
-/**
- * KS-3165 (ADR-070 UI): для saveEquality-пазлов отдельный набор
- * формулировок («Ничья удержана …»/«Ничья упущена») — текст про
- * «преимущество» семантически неверен, когда solver держит ничью.
- */
-const INTERP_KEY_SAVE: Record<PrecisionScoreValue, string> = {
-  1: 'precision.score.interpretationSave.1',
-  2: 'precision.score.interpretationSave.2',
-  3: 'precision.score.interpretationSave.3',
-  4: 'precision.score.interpretationSave.4',
-  5: 'precision.score.interpretationSave.5',
 };
 
 function clampPct(raw: number): number {
@@ -98,21 +92,11 @@ export interface PrecisionScoreBlockProps {
    * Не-integer/выход за диапазон округляется и зажимается.
    */
   scorePct: number | null;
-  /**
-   * KS-3165 (ADR-070 UI): жанр пазла. Если `saveEquality` — текстовая
-   * интерпретация берётся из `precision.score.interpretationSave.*`
-   * (формулировки про ничью). Иначе (`convertAdvantage` | undefined) —
-   * исторический набор `precision.score.interpretation.*` про
-   * «преимущество». Опциональный — legacy-попытки без objective
-   * рендерятся convertAdvantage-формулировкой как раньше.
-   */
-  objective?: PuzzleObjective | null;
 }
 
 export function PrecisionScoreBlock({
   score,
   scorePct,
-  objective,
 }: PrecisionScoreBlockProps) {
   const { t } = useTranslation();
 
@@ -203,13 +187,8 @@ export function PrecisionScoreBlock({
       <p
         className="precision-score-block__interpretation"
         data-testid="precision-score-block-interpretation"
-        data-objective={objective ?? ''}
       >
-        {t(
-          (objective === 'saveEquality' ? INTERP_KEY_SAVE : INTERP_KEY)[
-            safeScore
-          ],
-        )}
+        {t(INTERP_KEY[safeScore])}
       </p>
     </div>
   );

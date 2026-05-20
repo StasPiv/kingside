@@ -1505,12 +1505,22 @@ export function PlayVsEngineRunner({
           </div>
 
           {state === 'thinking' && halfMovesPlayed === 0 && (() => {
-            // KS-3035 / KS-3164: динамика подсказки.
-            // 1) blunder-ход с номером (22... f6 / 3. d4) вместо «f6».
-            //    Формат зависит от фазы пазла: reactive — старая логика
-            //    (через противника зевнувшего), preventive — solver=сам
-            //    зевнувший (KS-3164).
-            // 2) goal по WDL_before: advantage / equality / defense.
+            // KS-3166 (ADR-070 UI): универсальная подсказка без
+            // дифференциации по `objective`. После KS-3162/KS-3165
+            // пользователь попросил единый текст «удержите оценку
+            // позиции» (вместо «удержите преимущество / удержите
+            // равенство»). Также упразднён `goal`-параметр и
+            // `puzzle.engine.blunderGoal.*` ключи.
+            //
+            // Дифференциация по `puzzlePhase` сохраняется:
+            //   reactive    → «Соперник допустил неточность … Удержите
+            //                 оценку позиции N полуходов против движка.»
+            //   preventive  → «В партии была допущена неточность …
+            //                 А как бы сыграли вы?»
+            //
+            // Move-индекс по-прежнему форматируется с учётом фазы
+            // (KS-3164): preventive solver = сам зевнувший, reactive
+            // solver = противник.
             const moveWithNum = blunderSan
               ? formatBlunderMoveWithNumber(
                   blunderSan,
@@ -1518,54 +1528,23 @@ export function PlayVsEngineRunner({
                   puzzlePhaseFromThemes,
                 )
               : '';
-            const baselineWdl =
-              clientBaselineWdl ?? puzzle.playVsEngine?.wdlAfter ?? null;
-            // KS-3146 (ADR-069 §3.2): жанр пазла даёт точный hint,
-            // независимо от WDL-эвристики. Если backend проставил
-            // `objective` — берём его (convertAdvantage→advantage,
-            // saveEquality→equality). Иначе fallback на исторический
-            // WDL-based `selectBlunderGoalKey` (KS-3035).
-            const goalKind: 'advantage' | 'equality' | 'defense' =
-              objective === 'convertAdvantage'
-                ? 'advantage'
-                : objective === 'saveEquality'
-                  ? 'equality'
-                  : selectBlunderGoalKey(baselineWdl);
-            const goalText = t(`puzzle.engine.blunderGoal.${goalKind}`);
-            // KS-3162 (ADR-070 UI): фаза пазла из `puzzlePhaseFromThemes`
-            // (определена выше на уровне компонента — единая константа,
-            // используется и при форматировании move-индекса).
             const puzzlePhase = puzzlePhaseFromThemes;
-            // 4 i18n-ключа для preventive (по objective × move-known):
-            //   preventiveConvert(Generic) — convertAdvantage solver
-            //     (зевнувший был в выигрыше — найди ход который
-            //     реализует перевес);
-            //   preventiveSave(Generic) — saveEquality solver
-            //     (зевнувший держал ничью — найди ход).
-            // Текст оба варианта оканчиваются вопросом «как бы сыграли вы?»
-            // (запрос пользователя KS-3162) вместо инструкции «удержи».
             let hintText: string;
             if (puzzlePhase === 'preventive') {
-              const suffix =
-                objective === 'convertAdvantage' ? 'Convert' : 'Save';
               hintText = moveWithNum
-                ? t(`puzzle.engine.blunderHintPreventive${suffix}`, {
+                ? t('puzzle.engine.blunderHintPreventive', {
                     move: moveWithNum,
                   })
-                : t(
-                    `puzzle.engine.blunderHintPreventive${suffix}Generic`,
-                  );
+                : t('puzzle.engine.blunderHintPreventiveGeneric');
             } else {
-              // Реактивный пазл (или legacy без тега). Старое поведение.
+              // Реактивный пазл (или legacy без тега).
               hintText = moveWithNum
                 ? t('puzzle.engine.blunderHint', {
                     move: moveWithNum,
                     n: params.halfMovesN,
-                    goal: goalText,
                   })
                 : t('puzzle.engine.blunderHintGeneric', {
                     n: params.halfMovesN,
-                    goal: goalText,
                   });
             }
             return (
@@ -1573,7 +1552,6 @@ export function PlayVsEngineRunner({
                 className="puzzle-engine-runner__hint"
                 data-testid="puzzle-engine-blunder-hint"
                 data-blunder-known={moveWithNum ? 'true' : 'false'}
-                data-blunder-goal={goalKind}
                 data-puzzle-phase={puzzlePhase ?? ''}
               >
                 {hintText}
@@ -1664,7 +1642,6 @@ export function PlayVsEngineRunner({
               <PrecisionScoreBlock
                 score={precisionScore.stars}
                 scorePct={precisionScore.scorePct}
-                objective={objective ?? null}
               />
               {(reason === 'win-mate' ||
                 reason === 'win-engine-resign' ||

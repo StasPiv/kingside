@@ -1699,87 +1699,19 @@ describe('cpFromScore KS-2505', () => {
 });
 
 /**
- * KS-3146 (ADR-069 §3.2): дифференцированные тексты по `puzzle.playVsEngine.objective`.
- * - convertAdvantage → hint goal=advantage, label «Hold the advantage».
- * - saveEquality     → hint goal=equality, label «Hold the balance».
- * - undefined        → fallback на `selectBlunderGoalKey` (KS-3035).
- */
-describe('PlayVsEngineRunner KS-3146 — objective-aware texts', () => {
-  it('objective=convertAdvantage → blunder-hint имеет data-blunder-goal="advantage"', async () => {
-    const puzzle = makePuzzle({
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.0,
-        halfMovesN: 4,
-        objective: 'convertAdvantage',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-blunder-goal')).toBe('advantage');
-  });
-
-  it('objective=saveEquality → blunder-hint имеет data-blunder-goal="equality"', async () => {
-    const puzzle = makePuzzle({
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        // wdlAfterBlunder низкое (как бывает в saveEquality), но goal-key
-        // должен прийти от objective, а не от WDL-эвристики.
-        wdlAfterBlunder: 0.0,
-        winThreshold: 0.5,
-        failThreshold: -1.0,
-        halfMovesN: 4,
-        objective: 'saveEquality',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-blunder-goal')).toBe('equality');
-  });
-
-  it('objective отсутствует → fallback на selectBlunderGoalKey (default advantage при отсутствии baseline WDL)', async () => {
-    const puzzle = makePuzzle({
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.0,
-        halfMovesN: 4,
-        // objective не передаём — legacy-пазлы (до KS-3144).
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    // selectBlunderGoalKey(null) → 'advantage' (исторический default).
-    expect(hint.getAttribute('data-blunder-goal')).toBe('advantage');
-  });
-});
-
-/**
- * KS-3162 (ADR-070 UI): hint дифференцируется по фазе пазла.
- * - phase='reactive'  → старая формулировка «Opponent made an
- *   inaccuracy ... Hold the advantage/balance for N half-moves»
- *   (раздваивается по `objective` через blunderGoal).
- * - phase='preventive' → «In the game ... What move would you have
- *   played?» (4 ключа в i18n: convert/save × move-known/generic).
+ * KS-3166 (ADR-070 UI): универсальный hint без objective-дифференциации.
+ * - phase='reactive'  → «Opponent made an inaccuracy ({move}). Hold
+ *   the position evaluation for N half-moves against the engine.»
+ *   (одинаковый для convertAdvantage и saveEquality).
+ * - phase='preventive' → «In the game, an inaccuracy was played
+ *   ({move}). What move would you have played?» (тоже одинаковый).
  *
- * `puzzlePhase` детектируется по тегу в `puzzle.themes` (KS-3160 пишет
- * `'preventive'` / `'reactive'` в массив). DTO-поле появится отдельно
- * в backend-задаче.
+ * Дифференциация по `objective` (KS-3146/KS-3162: blunderGoal /
+ * blunderHintPreventiveConvert/Save) откатывается — пользователь
+ * запросил единый текст.
  */
-describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
-  it('themes содержит "reactive" → data-puzzle-phase="reactive", текст содержит "Opponent made an inaccuracy"', async () => {
+describe('PlayVsEngineRunner KS-3166 — universal hint (no objective branching)', () => {
+  it('phase="reactive" + convertAdvantage → «Opponent made an inaccuracy ... Hold the position evaluation»', async () => {
     const puzzle = makePuzzle({
       themes: ['playVsEngine', 'convertAdvantage', 'reactive'],
       playVsEngine: {
@@ -1798,11 +1730,35 @@ describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
     expect(hint.getAttribute('data-puzzle-phase')).toBe('reactive');
     expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
-    // Не должно быть preventive-вопроса.
+    expect(hint.textContent).toMatch(/Hold the position evaluation/);
+    expect(hint.textContent).not.toMatch(/Hold the advantage/);
+    expect(hint.textContent).not.toMatch(/Hold the balance/);
     expect(hint.textContent).not.toMatch(/What move would you have played/);
   });
 
-  it('themes содержит "preventive" + convertAdvantage → preventive hint «chance to convert ... missed»', async () => {
+  it('phase="reactive" + saveEquality → тот же текст что для convertAdvantage', async () => {
+    const puzzle = makePuzzle({
+      themes: ['playVsEngine', 'saveEquality', 'reactive'],
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: -1.0,
+        halfMovesN: 4,
+        objective: 'saveEquality',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
+    expect(hint.textContent).toMatch(/Hold the position evaluation/);
+    expect(hint.textContent).not.toMatch(/Hold the balance/);
+  });
+
+  it('phase="preventive" + любой objective → единый «In the game ... What move would you have played?»', async () => {
     const puzzle = makePuzzle({
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
       playVsEngine: {
@@ -1820,42 +1776,14 @@ describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
     expect(hint.getAttribute('data-puzzle-phase')).toBe('preventive');
-    // Текст: «In the game, the chance to convert the advantage was missed
-    // (...). What move would you have played?» (en-fallback).
-    expect(hint.textContent).toMatch(/chance to convert the advantage/);
-    expect(hint.textContent).toMatch(/What move would you have played/);
-    // Не должно быть реактивной формулировки.
-    expect(hint.textContent).not.toMatch(/Opponent made an inaccuracy/);
-    expect(hint.textContent).not.toMatch(/half-moves against the engine/);
-  });
-
-  it('themes содержит "preventive" + saveEquality → preventive hint «an inaccuracy was played»', async () => {
-    const puzzle = makePuzzle({
-      themes: ['playVsEngine', 'saveEquality', 'preventive'],
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.0,
-        winThreshold: 0.5,
-        failThreshold: -1.0,
-        halfMovesN: 4,
-        objective: 'saveEquality',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-puzzle-phase')).toBe('preventive');
     expect(hint.textContent).toMatch(/an inaccuracy was played/);
     expect(hint.textContent).toMatch(/What move would you have played/);
-    // Convert-формулировка про «chance to convert» не должна попасть.
+    // Не должно быть convert-специфичной формулировки KS-3162.
     expect(hint.textContent).not.toMatch(/chance to convert the advantage/);
   });
 
-  it('themes не содержит phase-тега (legacy-пазл) → data-puzzle-phase="" + reactive формулировка (без регрессии)', async () => {
+  it('legacy-пазл без phase-тега → reactive формулировка (без регрессии)', async () => {
     const puzzle = makePuzzle({
-      // KS-3162: legacy-пазлы без тега `'preventive'`/`'reactive'`.
       themes: ['playVsEngine', 'mateIn2'],
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -1873,6 +1801,7 @@ describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
     expect(hint.getAttribute('data-puzzle-phase')).toBe('');
     expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
+    expect(hint.textContent).toMatch(/Hold the position evaluation/);
   });
 });
 

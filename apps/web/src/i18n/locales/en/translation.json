@@ -1167,17 +1167,10 @@
       "loseWdlSave": "You let the draw slip",
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
-      "blunderHint": "Opponent made an inaccuracy ({{move}}). {{goal}} for {{n}} half-moves against the engine.",
-      "blunderHintGeneric": "{{goal}} against the engine for {{n}} half-moves.",
-      "blunderHintPreventiveConvert": "In the game, the chance to convert the advantage was missed ({{move}}). What move would you have played?",
-      "blunderHintPreventiveConvertGeneric": "In the game, the chance to convert the advantage was missed. What move would you have played?",
-      "blunderHintPreventiveSave": "In the game, an inaccuracy was played ({{move}}). What move would you have played?",
-      "blunderHintPreventiveSaveGeneric": "In the game, an inaccuracy was played. What move would you have played?",
-      "blunderGoal": {
-        "advantage": "Hold the advantage",
-        "equality": "Hold the balance",
-        "defense": "Defend the position"
-      },
+      "blunderHint": "Opponent made an inaccuracy ({{move}}). Hold the position evaluation for {{n}} half-moves against the engine.",
+      "blunderHintGeneric": "Hold the position evaluation against the engine for {{n}} half-moves.",
+      "blunderHintPreventive": "In the game, an inaccuracy was played ({{move}}). What move would you have played?",
+      "blunderHintPreventiveGeneric": "In the game, an inaccuracy was played. What move would you have played?",
       "error": "Engine error",
       "openInWorkshop": "Open in Workshop",
       "summary": {
@@ -1467,18 +1460,11 @@
         "5": "5 out of 5 stars"
       },
       "interpretation": {
-        "1": "The advantage was lost.",
-        "2": "The advantage wavered — significant mistakes.",
-        "3": "Held, but with noticeable mistakes.",
-        "4": "Held precisely with a minor inaccuracy.",
+        "1": "Position evaluation not held — the solution failed.",
+        "2": "Position evaluation wavered — significant mistakes.",
+        "3": "Solved, but with noticeable mistakes.",
+        "4": "Almost flawless — one minor inaccuracy.",
         "5": "Flawless solution."
-      },
-      "interpretationSave": {
-        "1": "The draw was lost.",
-        "2": "The draw wavered — significant mistakes.",
-        "3": "Drew, but with noticeable mistakes.",
-        "4": "Drew precisely with a minor inaccuracy.",
-        "5": "Draw held flawlessly."
       }
     },
     "hidePreserved": "Hide preserved",
