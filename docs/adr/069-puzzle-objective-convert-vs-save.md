@@ -7,6 +7,11 @@
 - Связанные ADR: ADR-068 (алгоритм с `deltaW`/`deltaD`), ADR-044
   (play-vs-engine pivot), ADR-050 (унификация генератора). ADR-068
   обновляется (см. §8) на ссылку из `wdlAfter` в `objective`.
+- **Follow-up:** ADR-070 (KS-3156) — добавляет ортогональную ось
+  `puzzlePhase: 'preventive' | 'reactive'`. Полная матрица пазлов
+  становится 2×2 (фаза × objective). Реактивная фаза (`fenAfter`,
+  solver = противник) — то, что описано в этом ADR; превентивная
+  фаза (`fenBefore`, solver = зевнувший) — добавлена ADR-070.
 - Авторы: architect
 
 ---

@@ -13,6 +13,10 @@
   `convertAdvantage` / `saveEquality` (`determinePuzzleObjective` по
   `wdlAfterRaw`), UI-надписи и фильтрация. Алгоритм отбора в §3.2
   остаётся, но генератор после accept определяет и записывает `objective`.
+- **Follow-up:** ADR-070 (KS-3156) — двойной пазл (`preventive` +
+  `reactive`) из одного зевка, Elo-фильтр серверной генерации, полный
+  pipeline унифицирован в `packages/shared`. Алгоритм триггера §3.2
+  не меняется; build-фаза после accept расширяется (1 → до 2 пазлов).
 - Авторы: architect
 
 ---
