@@ -312,13 +312,22 @@ export function uciToSan(uci: string, fen: string): string {
  * (получим Rf4 вместо Rxf4). При любых ошибках — fallback на UCI.
  */
 /**
- * KS-3035: SAN зевка → строка с номером хода:
- *   `22... f6` если соперник был чёрные (postBlunderFen.side === 'w');
- *   `3. d4`   если соперник был белые (postBlunderFen.side === 'b').
+ * KS-3035 / KS-3164: SAN зевка → строка с номером хода.
  *
- * fullmoveNumber по правилам FEN увеличивается ПОСЛЕ хода чёрных:
- *   - solver=w, fm=N → previous (opponent black) был «${N-1}... ${san}».
- *   - solver=b, fm=N → previous (opponent white) был «${N}. ${san}».
+ * Для **реактивного** пазла (`puzzle.fen = fenAfter`, side-to-move =
+ * решающий = противник зевнувшего):
+ *   - solver=w, fm=N → зевнули чёрные → «${N-1}... ${san}»;
+ *   - solver=b, fm=N → зевнули белые  → «${N}. ${san}».
+ * fullmoveNumber по правилам FEN увеличивается ПОСЛЕ хода чёрных.
+ *
+ * Для **превентивного** пазла (`puzzle.fen = fenBefore`, side-to-move =
+ * сам зевнувший, ход ещё не сделан):
+ *   - solver=w, fm=N → зевнут БЕЛЫЙ → «${N}. ${san}»;
+ *   - solver=b, fm=N → зевнут ЧЁРНЫЙ → «${N}... ${san}».
+ * KS-3164: до этого тикета фронт всегда использовал реактивную формулу,
+ * из-за чего на превентивном пазле KS-3139 (39. d6, белые) показывалось
+ * «38... d6» (формат хода чёрных). Теперь формула выбирается по
+ * `puzzlePhase`.
  *
  * Без SAN (пустая строка / неизвестный blunder) возвращает пустую
  * строку — caller сам выберет generic-вариант.
@@ -326,17 +335,24 @@ export function uciToSan(uci: string, fen: string): string {
 export function formatBlunderMoveWithNumber(
   san: string,
   postBlunderFen: string,
+  puzzlePhase?: 'preventive' | 'reactive' | null,
 ): string {
   if (!san) return '';
   const parts = postBlunderFen.split(' ');
   const sideToMove = parts[1] === 'b' ? 'b' : 'w';
   const fullmove = Math.max(1, parseInt(parts[5] ?? '1', 10) || 1);
+  if (puzzlePhase === 'preventive') {
+    // side-to-move в fenBefore = сам зевнувший.
+    if (sideToMove === 'w') {
+      return `${fullmove}. ${san}`;
+    }
+    return `${fullmove}... ${san}`;
+  }
+  // Реактивный (или legacy без тега) — старая логика по противнику.
   if (sideToMove === 'w') {
-    // Соперник был чёрные.
     const blackMoveNumber = Math.max(1, fullmove - 1);
     return `${blackMoveNumber}... ${san}`;
   }
-  // Соперник был белые.
   return `${fullmove}. ${san}`;
 }
 
@@ -1426,6 +1442,20 @@ export function PlayVsEngineRunner({
     [params.blunderMove, puzzle.fen, fenBeforeBlunder],
   );
 
+  // KS-3162 / KS-3164: фаза пазла читается из тега в `puzzle.themes`
+  // (KS-3160 пишет `'preventive'` / `'reactive'`). DTO-поле в shared
+  // ещё не объявлено. Объявлена единая константа на компонент, чтобы
+  // использовать и при форматировании move-индекса (KS-3164), и при
+  // выборе hint-ключа (KS-3162).
+  const puzzlePhaseFromThemes: 'preventive' | 'reactive' | null = (() => {
+    const themesArr: ReadonlyArray<string> = Array.isArray(puzzle.themes)
+      ? (puzzle.themes as ReadonlyArray<string>)
+      : [];
+    if (themesArr.includes('preventive')) return 'preventive';
+    if (themesArr.includes('reactive')) return 'reactive';
+    return null;
+  })();
+
   return (
     <div
       className="puzzle-engine-runner"
@@ -1475,15 +1505,18 @@ export function PlayVsEngineRunner({
           </div>
 
           {state === 'thinking' && halfMovesPlayed === 0 && (() => {
-            // KS-3035: динамика подсказки.
+            // KS-3035 / KS-3164: динамика подсказки.
             // 1) blunder-ход с номером (22... f6 / 3. d4) вместо «f6».
+            //    Формат зависит от фазы пазла: reactive — старая логика
+            //    (через противника зевнувшего), preventive — solver=сам
+            //    зевнувший (KS-3164).
             // 2) goal по WDL_before: advantage / equality / defense.
-            // baseline = клиентский WDL initial pre-analyze; fallback —
-            // серверный `puzzle.playVsEngine?.wdlAfter` (WDL ПОСЛЕ
-            // блаандера в перспективе решателя). Если оба null —
-            // generic-goal=advantage (исторический default).
             const moveWithNum = blunderSan
-              ? formatBlunderMoveWithNumber(blunderSan, puzzle.fen)
+              ? formatBlunderMoveWithNumber(
+                  blunderSan,
+                  puzzle.fen,
+                  puzzlePhaseFromThemes,
+                )
               : '';
             const baselineWdl =
               clientBaselineWdl ?? puzzle.playVsEngine?.wdlAfter ?? null;
@@ -1499,25 +1532,10 @@ export function PlayVsEngineRunner({
                   ? 'equality'
                   : selectBlunderGoalKey(baselineWdl);
             const goalText = t(`puzzle.engine.blunderGoal.${goalKind}`);
-            // KS-3162 (ADR-070 UI): дифференциация по фазе пазла.
-            // DTO `PuzzleDto.playVsEngine.puzzlePhase` пока не объявлен в
-            // shared (это backend-скоуп), но KS-3160 проставляет тег
-            // `'preventive'` / `'reactive'` в `themes` (`themes.push(phase)`
-            // в `buildPuzzlesFromCandidate`). Опираемся на theme-флаг —
-            // он уже в проде после backfill (KS-3148). Для legacy-пазлов
-            // без тега — `null` → falsy ветка reactive (старое поведение,
-            // без регрессии для всех существующих пазлов).
-            const themesArr: ReadonlyArray<string> = Array.isArray(
-              puzzle.themes,
-            )
-              ? (puzzle.themes as ReadonlyArray<string>)
-              : [];
-            const puzzlePhase: 'preventive' | 'reactive' | null =
-              themesArr.includes('preventive')
-                ? 'preventive'
-                : themesArr.includes('reactive')
-                  ? 'reactive'
-                  : null;
+            // KS-3162 (ADR-070 UI): фаза пазла из `puzzlePhaseFromThemes`
+            // (определена выше на уровне компонента — единая константа,
+            // используется и при форматировании move-индекса).
+            const puzzlePhase = puzzlePhaseFromThemes;
             // 4 i18n-ключа для preventive (по objective × move-known):
             //   preventiveConvert(Generic) — convertAdvantage solver
             //     (зевнувший был в выигрыше — найди ход который

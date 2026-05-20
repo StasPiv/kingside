@@ -7,6 +7,7 @@ import {
   uciToSan,
   blunderUciToSan,
   cpFromScore,
+  formatBlunderMoveWithNumber,
 } from './PlayVsEngineRunner';
 import type {
   EngineAdapter,
@@ -1872,5 +1873,114 @@ describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
     expect(hint.getAttribute('data-puzzle-phase')).toBe('');
     expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
+  });
+});
+
+/**
+ * KS-3164 (ADR-070 UI): формат номера хода в hint зависит от
+ * `puzzlePhase`. Для preventive solver = сам зевнувший, и формат
+ * совпадает с реальным ходом партии:
+ *  - белый зевок (side-to-move='w' на fenBefore) → «N. san»;
+ *  - чёрный зевок (side-to-move='b' на fenBefore) → «N... san».
+ * Реактивная формула (через противника) даёт обратное и до KS-3164
+ * показывала «38... d6» на превентивном пазле KS-3139, где должно
+ * быть «39. d6».
+ */
+describe('formatBlunderMoveWithNumber KS-3164 — preventive phase', () => {
+  it('preventive + white blunder (sideToMove=w) → «N. san»', () => {
+    // fenBefore KS-3139, ход 39. d6: side='w', fullmove=39.
+    const fenBefore =
+      '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39';
+    expect(
+      formatBlunderMoveWithNumber('d6', fenBefore, 'preventive'),
+    ).toBe('39. d6');
+  });
+
+  it('preventive + black blunder (sideToMove=b) → «N... san»', () => {
+    // Условная позиция: ход 22... Bxc3 (чёрные).
+    const fenBefore =
+      'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22';
+    expect(
+      formatBlunderMoveWithNumber('Bxc3', fenBefore, 'preventive'),
+    ).toBe('22... Bxc3');
+  });
+
+  it('reactive (или без phase) — старая логика через противника', () => {
+    // fenAfter после хода белых 3. d4: side='b', fullmove=3 → «3. d4».
+    const fenAfterWhiteBlunder =
+      'rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 3';
+    expect(
+      formatBlunderMoveWithNumber('d4', fenAfterWhiteBlunder, 'reactive'),
+    ).toBe('3. d4');
+    expect(
+      formatBlunderMoveWithNumber('d4', fenAfterWhiteBlunder),
+    ).toBe('3. d4');
+
+    // fenAfter после хода чёрных 22... f6: side='w', fullmove=23 → «22... f6».
+    const fenAfterBlackBlunder =
+      'rnbqkbnr/ppppp1pp/5p2/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 23';
+    expect(
+      formatBlunderMoveWithNumber('f6', fenAfterBlackBlunder, 'reactive'),
+    ).toBe('22... f6');
+  });
+
+  it('пустой SAN → пустая строка (caller выбирает generic)', () => {
+    expect(formatBlunderMoveWithNumber('', '8/8 w - - 0 1', 'preventive')).toBe(
+      '',
+    );
+    expect(formatBlunderMoveWithNumber('', '8/8 b - - 0 1', 'reactive')).toBe(
+      '',
+    );
+  });
+});
+
+describe('PlayVsEngineRunner KS-3164 — preventive hint содержит правильный move-индекс', () => {
+  it('preventive + white blunder → hint содержит «39. d6», нет «38... d6»', async () => {
+    const puzzle = makePuzzle({
+      // fenBefore KS-3139 (ход 39. d6 белых).
+      fen: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
+      themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
+      playVsEngine: {
+        blunderMove: 'd5d6',
+        // KS-3164: fenBeforeBlunder для preventive не используется
+        // (puzzle.fen уже fenBefore). Передаём ту же позицию.
+        fenBeforeBlunder: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.textContent).toMatch(/39\. d6/);
+    expect(hint.textContent).not.toMatch(/38\.\.\. d6/);
+  });
+
+  it('preventive + black blunder → hint содержит «22... Bxc3»', async () => {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22',
+      themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
+      playVsEngine: {
+        blunderMove: 'f8c3',
+        fenBeforeBlunder:
+          'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.textContent).toMatch(/22\.\.\./);
   });
 });
