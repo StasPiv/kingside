@@ -113,14 +113,30 @@ describe('<ChapterList> (KS-2831)', () => {
     expect(screen.getByTestId('study-chapter-handle-c')).toBeInTheDocument();
   });
 
-  it('ссылки на главы ведут на /studies/:slug/:chapterId', () => {
+  it('KS-3125: главы рендерятся БЕЗ <a> (editor-роут удалён в KS-3014) — не уводят на /play', () => {
     renderWithProviders(
       <ChapterList slug="demo" chapters={CHAPTERS} canEdit={true} />,
     );
-    const link = screen
-      .getByTestId('study-chapter-a')
-      .querySelector('a.study-chapter-item__link');
-    expect(link?.getAttribute('href')).toBe('/studies/demo/a');
+    // editor-роут `/studies/:slug/:chapterId` удалён в KS-3014 (коммит
+    // 4092dd97). До KS-3125 здесь рендерился `<Link>` на этот роут,
+    // и клик уносил пользователя в wildcard fallback → `/play`.
+    // Теперь — некликабельный `<span>` с поясняющим title.
+    const row = screen.getByTestId('study-chapter-a');
+    expect(row.querySelector('a')).toBeNull();
+    const disabled = screen.getByTestId('study-chapter-row-a');
+    expect(disabled.getAttribute('aria-disabled')).toBe('true');
+    expect(disabled.getAttribute('data-chapter-id')).toBe('a');
+  });
+
+  it('KS-3125: read-only (canEdit=false) — главы тоже без <a>, ведут только title', () => {
+    renderWithProviders(
+      <ChapterList slug="demo" chapters={CHAPTERS} canEdit={false} />,
+    );
+    const row = screen.getByTestId('study-chapter-a');
+    expect(row.querySelector('a')).toBeNull();
+    expect(
+      screen.getByTestId('study-chapter-row-a').getAttribute('aria-disabled'),
+    ).toBe('true');
   });
 });
 

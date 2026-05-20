@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -195,6 +194,16 @@ export function ChapterList({
     [order, slug, t, onReorder],
   );
 
+  // KS-3125 (follow-up): editor-роут глав `/studies/:slug/:chapterId`
+  // удалён в KS-3014 (коммит 4092dd97). До восстановления отдельной
+  // страницы прохождения главы (на architect) рендерим главу как
+  // некликабельный блок — иначе `<Link>` уносит в wildcard → `/play`,
+  // что хуже отсутствия перехода. Title объясняет причину.
+  const chapterRowTitle = t(
+    'studies.chapter.openUnavailable',
+    'Opening a chapter is temporarily unavailable while the chapter view is being rebuilt.',
+  );
+
   if (!canEdit) {
     // Read-only: тот же рендер, но без DnD-обёртки.
     return (
@@ -205,14 +214,18 @@ export function ChapterList({
             className="study-chapter-item"
             data-testid={`study-chapter-${ch.id}`}
           >
-            <Link
-              to={`/studies/${encodeURIComponent(slug)}/${encodeURIComponent(ch.id)}`}
-              className="study-chapter-item__link"
+            <span
+              className="study-chapter-item__link study-chapter-item__link--disabled"
+              data-testid={`study-chapter-row-${ch.id}`}
+              data-slug={slug}
+              data-chapter-id={ch.id}
+              title={chapterRowTitle}
+              aria-disabled="true"
             >
               <span className="study-chapter-item__index">{ch.orderIdx}</span>
               <span className="study-chapter-item__name">{ch.name}</span>
               <span className="study-chapter-item__mode">{ch.mode}</span>
-            </Link>
+            </span>
           </li>
         ))}
       </ol>
@@ -254,9 +267,13 @@ export function ChapterList({
                   >
                     ⠿
                   </button>
-                  <Link
-                    to={`/studies/${encodeURIComponent(slug)}/${encodeURIComponent(ch.id)}`}
-                    className="study-chapter-item__link"
+                  <span
+                    className="study-chapter-item__link study-chapter-item__link--disabled"
+                    data-testid={`study-chapter-row-${ch.id}`}
+                    data-slug={slug}
+                    data-chapter-id={ch.id}
+                    title={chapterRowTitle}
+                    aria-disabled="true"
                   >
                     <span className="study-chapter-item__index">
                       {idx + 1}
@@ -265,7 +282,7 @@ export function ChapterList({
                       {ch.name}
                     </span>
                     <span className="study-chapter-item__mode">{ch.mode}</span>
-                  </Link>
+                  </span>
                   {/* KS-2912: delete chapter button — owner/contributor.
                       window.confirm перед deleteChapter API-вызовом. */}
                   <button
