@@ -1,6 +1,8 @@
 import {
   PUZZLE_GEN_DEFAULTS,
-  processGameForPuzzles,
+  analyzePlyForBlunder,
+  buildPuzzlesFromCandidate,
+  replayPgnToSteps,
   wdlSigned,
   wdlSignedFromInfo,
   wdlOrMateFallback,
@@ -292,6 +294,14 @@ export async function generatePuzzlesFromPgn(
   const all: GeneratedPuzzleData[] = [];
   const totalDrops: Partial<Record<AnalyzePlyRejectReason, number>> = {};
 
+  // KS-3163: переход с `processGameForPuzzles` (high-level) на
+  // low-level shared API (`replayPgnToSteps` + `analyzePlyForBlunder` +
+  // `buildPuzzlesFromCandidate`). High-level версия не сообщала
+  // обёртке текущий puzzle count во время прогона — UI-счётчик
+  // «Найдено задач: N» был всегда 0 пока партия анализировалась и
+  // обновлялся только в финале. Тут обёртка сама итерирует по ply,
+  // видит каждый accept и инкрементит `all` ДО следующего вызова
+  // `onProgress`. Получаем real-time счётчик без правки shared.
   for (let gi = 0; gi < games.length; gi++) {
     if (abortSignal?.aborted) break;
     const gamePgn = stripPgnAnnotations(games[gi]);
@@ -305,29 +315,47 @@ export async function generatePuzzlesFromPgn(
       headers,
     };
 
-    const result = await processGameForPuzzles({
-      pgn: gamePgn,
-      gameMeta,
-      engine: sharedEngine,
-      settings: sharedSettings,
-      onProgress: ({ ply, total }) => {
-        onProgress({
-          gameIndex: gi,
-          totalGames: games.length,
-          positionIndex: ply,
-          totalPositions: total,
-          puzzlesFound: all.length,
-        });
-      },
-      abortSignal,
-    });
-
-    for (const sp of result.puzzles) {
-      all.push(adaptSharedPuzzle(sp, headers, depth));
+    const replay = replayPgnToSteps(gamePgn, sharedSettings.startPly);
+    if ('error' in replay) {
+      console.warn(
+        '[PuzzleGen] Game',
+        gi + 1,
+        'replay failed:',
+        replay.error,
+      );
+      continue;
     }
-
-    for (const k of Object.keys(result.stats.drops) as AnalyzePlyRejectReason[]) {
-      totalDrops[k] = (totalDrops[k] ?? 0) + result.stats.drops[k];
+    const totalPositions = replay.steps.length;
+    for (let pi = 0; pi < totalPositions; pi++) {
+      if (abortSignal?.aborted) break;
+      const step = replay.steps[pi];
+      const result = await analyzePlyForBlunder(
+        step,
+        sharedEngine,
+        sharedSettings,
+      );
+      if (result.kind === 'rejected') {
+        totalDrops[result.reason] = (totalDrops[result.reason] ?? 0) + 1;
+      } else {
+        const built = buildPuzzlesFromCandidate(
+          result.candidate,
+          gameMeta,
+          sharedSettings,
+        );
+        for (const sp of built) {
+          all.push(adaptSharedPuzzle(sp, headers, depth));
+        }
+      }
+      // KS-3163: incremental прогресс — счётчик `puzzlesFound` теперь
+      // отражает реальное число накопленных пазлов на момент текущего
+      // ply, а не только пост-партийный итог.
+      onProgress({
+        gameIndex: gi,
+        totalGames: games.length,
+        positionIndex: pi + 1,
+        totalPositions,
+        puzzlesFound: all.length,
+      });
     }
   }
 

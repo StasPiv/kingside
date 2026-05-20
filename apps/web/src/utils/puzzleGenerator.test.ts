@@ -299,4 +299,51 @@ describe('generatePuzzlesFromPgn KS-3160 — обёртка над shared proces
     });
     expect(puzzles).toEqual([]);
   });
+
+  it('KS-3163: onProgress зовётся с растущим puzzlesFound во время прогона (incremental), а не только в финале', async () => {
+    // Mock engine: первая позиция — accept (W+D-зевок 1000/0/0 → 0/941/59),
+    // остальные — ничего. Из shared API эта пара ply создаёт два пазла
+    // (reactive + preventive). Раньше (через processGameForPuzzles)
+    // onProgress видел puzzlesFound=0 до финала партии. Теперь должен
+    // увидеть >0 хотя бы один раз в process'е.
+    let n = 0;
+    const { engine } = makeMockEngine(() => {
+      n++;
+      if (n === 1) return res([line(['a1a8'], { w: 1000, d: 0, l: 0 })]);
+      if (n === 2) return res([line(['b1b8'], { w: 0, d: 941, l: 59 })]);
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+
+    const progressCalls: Array<{ pos: number; total: number; found: number }> = [];
+    const onProgress = vi.fn((p: { positionIndex: number; totalPositions: number; puzzlesFound: number }) => {
+      progressCalls.push({
+        pos: p.positionIndex,
+        total: p.totalPositions,
+        found: p.puzzlesFound,
+      });
+    });
+
+    const puzzles = await generatePuzzlesFromPgn(PGN, onProgress, {
+      engineFactory: () => engine,
+    });
+    // Sanity: пазлы фактически нашлись (двойной зевок KS-3160).
+    expect(puzzles.length).toBe(2);
+
+    // KS-3163 главный assert: в одном из onProgress-вызовов
+    // puzzlesFound уже > 0 ДО конца прогона. До фикса все calls
+    // имели puzzlesFound=0 кроме самого последнего.
+    expect(progressCalls.length).toBeGreaterThan(1);
+    const foundDuringRun = progressCalls
+      .slice(0, -1) // все КРОМЕ последнего ply
+      .some((c) => c.found > 0);
+    expect(foundDuringRun).toBe(true);
+    // Прогресс монотонно растёт (или одинаков), не падает.
+    for (let i = 1; i < progressCalls.length; i++) {
+      expect(progressCalls[i].found).toBeGreaterThanOrEqual(
+        progressCalls[i - 1].found,
+      );
+    }
+    // Финал — фактическое число пазлов.
+    expect(progressCalls.at(-1)?.found).toBe(2);
+  });
 });
