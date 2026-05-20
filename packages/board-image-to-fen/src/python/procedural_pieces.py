@@ -249,42 +249,67 @@ def draw_bishop(canvas: Image.Image, color: str, rng: random.Random,
     fill, stroke = _piece_colors(color, rng, book_style=book_style)
     fill_hex = "#{:02x}{:02x}{:02x}".format(*fill[:3])
     stroke_hex = "#{:02x}{:02x}{:02x}".format(*stroke[:3])
+    # KS-3160 (follow-up KS-3155): для book_style БЕЛОГО слона юбка
+    # (широкая нижняя часть) красится тёмно-серым, а тело (узкое,
+    # сразу под митрой) и сама митра остаются светлыми. Цель: дать
+    # модели «чёрный пиксель» внутри белого слона, чтобы она не путала
+    # цвета. Чёрный слон остаётся сплошным тёмным.
+    if book_style and color == "w":
+        v_skirt = rng.randint(60, 120)
+        skirt_fill_hex = "#{:02x}{:02x}{:02x}".format(v_skirt, v_skirt, v_skirt)
+    else:
+        skirt_fill_hex = fill_hex
     sw = rng.uniform(1.8, 2.6)
 
     cx = 32 + rng.uniform(-1.5, 1.5)
     base_y = 60 + rng.uniform(-2, 0)
 
-    # ── База: двойная плита (как у cburnett-фигур) ─────────────────
-    base_w = rng.uniform(26, 32)
-    base_h = rng.uniform(4, 6)
-    base1_y = base_y - base_h
-    base1_h = base_h * 0.55
-    base2_y = base_y - base_h * 0.35
-    base2_h = base_h * 0.40
+    # ── База: тонкая овальная плитка под юбкой ────────────────────
+    base_w = rng.uniform(22, 28)
+    base_h = rng.uniform(3, 4.5)
+    base_disc_cy = base_y - base_h / 2
 
-    # ── Тело: узкая «талия» с лёгким брюшком ──────────────────────
-    body_bottom_y = base_y - base_h
-    body_h = rng.uniform(14, 18)
-    body_top_y = body_bottom_y - body_h
-    body_bottom_w = base_w * 0.65       # тело чуть уже базы
-    body_belly_w = base_w * 0.55        # брюшко в середине
-    body_top_w = rng.uniform(8, 11)     # шейка наверху
-
-    body_path = (
-        f"M{cx - body_bottom_w/2},{body_bottom_y} "
-        f"C{cx - body_belly_w/2},{body_bottom_y - body_h*0.45} "
-            f"{cx - body_top_w/2 - 1},{body_top_y + 1} "
-            f"{cx - body_top_w/2},{body_top_y} "
-        f"L{cx + body_top_w/2},{body_top_y} "
-        f"C{cx + body_top_w/2 + 1},{body_top_y + 1} "
-            f"{cx + body_belly_w/2},{body_bottom_y - body_h*0.45} "
-            f"{cx + body_bottom_w/2},{body_bottom_y} "
+    # ── Юбка: ШИРОКАЯ нижняя часть слона ──────────────────────────
+    # По анатомии: юбка занимает ~40% высоты фигуры, шире тела вдвое.
+    # Для белого слона — тёмная. Для чёрного — того же цвета, что
+    # и остальное (сплошной силуэт).
+    skirt_bottom_y = base_y - base_h
+    skirt_h = rng.uniform(8, 11)
+    skirt_top_y = skirt_bottom_y - skirt_h
+    skirt_bottom_w = rng.uniform(28, 34)  # шире базы (юбка «висит»)
+    skirt_top_w = rng.uniform(12, 16)     # переход к телу
+    skirt_path = (
+        f"M{cx - skirt_top_w/2},{skirt_top_y} "
+        f"L{cx + skirt_top_w/2},{skirt_top_y} "
+        f"C{cx + skirt_bottom_w/2},{skirt_bottom_y - skirt_h*0.2} "
+            f"{cx + skirt_bottom_w/2},{skirt_bottom_y} "
+            f"{cx + skirt_bottom_w/2},{skirt_bottom_y} "
+        f"L{cx - skirt_bottom_w/2},{skirt_bottom_y} "
+        f"C{cx - skirt_bottom_w/2},{skirt_bottom_y} "
+            f"{cx - skirt_bottom_w/2},{skirt_bottom_y - skirt_h*0.2} "
+            f"{cx - skirt_top_w/2},{skirt_top_y} "
         f"Z"
     )
 
-    # ── Воротник: узкая горизонтальная полоса над телом ───────────
-    collar_h = rng.uniform(2.5, 3.5)
-    collar_w = body_top_w + rng.uniform(3, 5)
+    # ── Тело: УЗКАЯ КОРОТКАЯ часть между юбкой и митрой ───────────
+    # Анатомия: тело — короткое, узкое, явно `светлое` у белого слона
+    # (контрастирует с тёмной юбкой). У чёрного — того же тёмного цвета.
+    body_bottom_y = skirt_top_y
+    body_h = rng.uniform(5, 8)
+    body_top_y = body_bottom_y - body_h
+    body_bottom_w = skirt_top_w * 0.85
+    body_top_w = rng.uniform(8, 11)
+    body_path = (
+        f"M{cx - body_bottom_w/2},{body_bottom_y} "
+        f"L{cx + body_bottom_w/2},{body_bottom_y} "
+        f"L{cx + body_top_w/2},{body_top_y} "
+        f"L{cx - body_top_w/2},{body_top_y} "
+        f"Z"
+    )
+
+    # ── Воротник: тонкая горизонтальная полоса над телом ──────────
+    collar_h = rng.uniform(2.0, 3.0)
+    collar_w = body_top_w + rng.uniform(2, 4)
     collar_y = body_top_y - collar_h
 
     # ── Митра: ОВАЛЬНАЯ (яйцо), округлая сверху ───────────────────
@@ -356,9 +381,9 @@ def draw_bishop(canvas: Image.Image, color: str, rng: random.Random,
     )
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+      <ellipse cx="{cx:.2f}" cy="{base_disc_cy:.2f}" rx="{base_w/2:.2f}" ry="{base_h/2:.2f}" fill="{skirt_fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}"/>
+      <path d="{skirt_path}" fill="{skirt_fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" stroke-linejoin="round"/>
       <path d="{body_path}" fill="{fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" stroke-linejoin="round"/>
-      <rect x="{cx - base_w/2:.2f}" y="{base1_y:.2f}" width="{base_w:.2f}" height="{base1_h:.2f}" fill="{fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" rx="1.2"/>
-      <rect x="{cx - base_w*0.45:.2f}" y="{base2_y:.2f}" width="{base_w*0.9:.2f}" height="{base2_h:.2f}" fill="{fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" rx="1"/>
       <rect x="{cx - collar_w/2:.2f}" y="{collar_y:.2f}" width="{collar_w:.2f}" height="{collar_h:.2f}" fill="{fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" rx="1.2"/>
       <path d="{mitre_path}" fill="{fill_hex}" stroke="{stroke_hex}" stroke-width="{sw}" stroke-linejoin="round"/>
       {slit_svg}
