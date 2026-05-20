@@ -138,7 +138,7 @@ export async function resolveTwicImportId(
       `SELECT id, cursor_after, file_name
        FROM archive_imports
        WHERE source_id = $1
-         AND status = 'success'
+         AND status = 'ok'
          AND (cursor_after = $2 OR file_name LIKE $3)
        ORDER BY started_at DESC
        LIMIT 1`,
@@ -150,7 +150,7 @@ export async function resolveTwicImportId(
     const r = (await pg.query(
       `SELECT id, cursor_after, file_name
        FROM archive_imports
-       WHERE source_id = $1 AND status = 'success'
+       WHERE source_id = $1 AND status = 'ok'
        ORDER BY started_at DESC
        LIMIT 1`,
       [sourceId],
