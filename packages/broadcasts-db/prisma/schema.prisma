@@ -78,28 +78,12 @@ model BroadcastRound {
   /// раунда + `Broadcast.format` + структуре пар в `games`. Для старых
   /// записей остаётся null (фронт рендерит как legacy).
   tournamentType String?   @map("tournament_type")
-  /// KS-2883 / ADR-060 §3.7 B10. Флаг авто-зеркалирования раунда в студию.
-  /// Поднимается админом (см. devtools/admin-page) для раундов, которые
-  /// нужно выставить в каталог студий. При sync-цикле broadcast-service'а:
-  ///   - если `mirrorToStudy=true` и `mirroredStudySlug=NULL` —
-  ///     POST /api/studies/from-broadcast-round, slug сохраняется в
-  ///     `mirroredStudySlug`;
-  ///   - при последующих PGN-обновлениях partий раунда —
-  ///     POST /api/studies/sync-broadcast-round (debounce 30s).
-  mirrorToStudy      Boolean @default(false) @map("mirror_to_study")
-  /// KS-2883. Slug созданной студии-зеркала. Используется как idempotent
-  /// marker (NULL = ещё не создавали, иначе — sync вместо create).
-  mirroredStudySlug  String? @map("mirrored_study_slug")
 
   broadcast Broadcast       @relation(fields: [broadcastId], references: [id])
   games     BroadcastGame[]
 
   @@index([broadcastId])
   @@index([status, updatedAt])
-  /// KS-2883: индекс под фильтр `WHERE mirror_to_study=true AND
-  /// mirrored_study_slug IS NULL` в sync-цикле (потенциально может
-  /// эволюционировать в более частую проверку).
-  @@index([mirrorToStudy], map: "broadcast_rounds_mirror_to_study_idx")
   @@map("broadcast_rounds")
 }
 
