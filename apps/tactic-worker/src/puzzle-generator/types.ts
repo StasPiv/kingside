@@ -188,14 +188,9 @@ export interface GeneratorStats {
      */
     lowWplusDAfter: number;
     /**
-     * play-vs-engine: solvability-check провалился — за halfMovesN
-     * Stockfish-vs-Stockfish решающая не удержала / не реализовала.
-     *
-     * KS-3156: разбито по objective. Агрегат раньше существовал как
-     * `solvabilityFailed`, но маскировал структурный баг (saveEquality
-     * валился 100% из-за signed-WDL критерия, convertAdvantage работал
-     * — в агрегате выглядело «нормально»). Сумма этих двух полей =
-     * исторический `solvabilityFailed`.
+     * KS-3157: solvability-check отключён. Счётчики остаются ради
+     * обратной совместимости JSON-stats (внешние читатели могут
+     * полагаться на форму), но всегда нулевые — Stage 5 пропущен.
      */
     solvabilityFailedConvertAdvantage: number;
     solvabilityFailedSaveEquality: number;

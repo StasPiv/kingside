@@ -244,9 +244,14 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     expect(stats.inserted).toBeGreaterThanOrEqual(1);
   });
 
-  it('solvabilityFailed → drop (WDL падает в solvability)', async () => {
+  it('KS-3157: solvability-check отключён — кандидаты блaндера принимаются без halfMovesN-прогона', async () => {
+    // Изначально (KS-3156) этот тест проверял что при «обвале» WDL в
+    // solvability-цикле кандидат дропается. После KS-3157 Stage 5
+    // отключён: все кандидаты, прошедшие evaluateBlunder, идут в
+    // insert. Мок ниже возвращает -1.0 на ply solvability — теперь
+    // этот вызов не делается; результат — те же 2 пазла, что и в
+    // основном convertAdvantage-кейсе.
     const pgn = buildPgn();
-    // Тот же FEN-keyed подход. На startPly=20 ходит чёрный → solverSide='w'.
     const solverSide: 'w' | 'b' = 'w';
     const engine: EngineApi = {
       analyzePositionWdl: jest.fn(
@@ -255,14 +260,13 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
           const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
           const sideToMove = fen.split(' ')[1] as 'w' | 'b';
           if (multiPV === 2) {
-            // KS-3136 / ADR-068: pre wdl поднят до +0.7 чтобы новая
-            // формула deltaW=(W_до − L_after)/1000 пробивала порог 0.6.
             if (sideToMove === solverSide) {
               return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
             }
             return [pvWdl(alt, 0.7), pvWdl(first, 0.6)];
           }
-          // solvability — обваливается до -1 (фейл).
+          // solvability возвращает «обвал» — но Stage 5 пропущен,
+          // эта ветка теперь недостижима из pipeline.
           return [pvWdl(first, -1.0)];
         },
       ),
@@ -271,11 +275,9 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     const fakePg = makePgRowMock(pgn);
     const opts = defaultGeneratorOptions({
       maxGames: 1,
-      blunderDelta: 0.5,
       halfMovesN: 2,
       failThreshold: -0.5,
       winThreshold: 0.5,
-      minWdlAfterBlunder: 0.5,
       startPly: 20,
       engineLimit: { timeMs: 50 },
     });
@@ -284,14 +286,10 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
       engine,
       options: { ...opts, insertPuzzle },
     });
-    // KS-3156: разбиение по objective; в тесте wdlAfter ≈ +0.85
-    // (convertAdvantage), но solvability падает, потому что мок WDL
-    // на solv-ply резко съезжает. См. setup engine.analyzePositionWdl.
-    const totalSolvabilityFailed =
-      stats.drops.solvabilityFailedConvertAdvantage +
-      stats.drops.solvabilityFailedSaveEquality;
-    expect(totalSolvabilityFailed).toBeGreaterThan(0);
-    expect(stats.inserted).toBe(0);
+    // Кандидаты приняты — solvability-фильтра нет.
+    expect(stats.inserted).toBeGreaterThan(0);
+    expect(stats.drops.solvabilityFailedConvertAdvantage).toBe(0);
+    expect(stats.drops.solvabilityFailedSaveEquality).toBe(0);
   });
 
   it('фильтр: bullet → пропуск партии', async () => {

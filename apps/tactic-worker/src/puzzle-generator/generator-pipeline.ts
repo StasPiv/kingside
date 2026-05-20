@@ -427,60 +427,40 @@ async function processGame(
 
   if (solvabilityCandidates.length === 0) return;
 
-  // KS-3156: objective ОПРЕДЕЛЯЕТСЯ ДО solvability-check, потому что
-  // критерий solvability ВЕТВИТСЯ по objective. До этой задачи
-  // checkSolvability использовал signed-WDL (W − L) ≥ winThreshold,
-  // что структурно не работает для saveEquality (solver держит ничью,
-  // W ≈ 0, L ≈ 0 → signed ≈ 0 < 0.5). Все saveEquality-кандидаты
-  // улетали в drops.solvabilityFailed; банк saveEquality стоял на 0.
+  // KS-3157: Stage 5 (solvability-check) отключён по решению пользователя.
+  //
+  // Раньше каждый кандидат, прошедший evaluateBlunder, прогонялся через
+  // halfMovesN полуходов Stockfish-vs-Stockfish и принимался только если
+  // итоговое значение оценки соответствовало критерию (signed для
+  // convertAdvantage, W+D для saveEquality после KS-3156).
+  //
+  // Аргументы за отключение:
+  //  - Клиентский генератор пазлов (apps/web) работает без solvability-
+  //    проверки по умолчанию (флажок выключен в UI), и продуцирует
+  //    рабочие пазлы — пользователи не жалуются.
+  //  - evaluateBlunder уже жёстко фильтрует: deltaW≥0.6 или deltaD≥0.6,
+  //    плюс after-фильтр W+D solver ≥ 0.5.
+  //  - Проверка занимает ~halfMovesN × time-ms на каждого кандидата —
+  //    основная доля времени генерации.
+  //
+  // Цена: ~5-15 % сохранённых пазлов потенциально низкого качества
+  // (формально проходят фильтр, но в практической игре solver
+  // не реализует/не удерживает оценку).
+  //
+  // Функция `checkSolvability` оставлена в файле без вызова — на случай
+  // если решение откатится.
   const objectivesPerCandidate: PuzzleObjective[] = solvabilityCandidates.map(
     (sc) => determinePuzzleObjective(sc.wdlAfterRaw),
   );
 
-  // ── Stage 5 (parallel between candidates, sequential within): ───
-  // solvability check. Каждый кандидат — halfMovesN последовательных
-  // SF-вызовов (Stockfish-vs-Stockfish), но между разными кандидатами
-  // партии можно параллелить — пул сам сериализует.
-  //
-  // KS-3156: для saveEquality пороги пере-интерпретируются через
-  // (W + D) ≥ threshold, а не signed ≥ threshold. failThreshold по
-  // умолчанию = 0.0 для convertAdvantage; для saveEquality берём
-  // HARD_MIN_WD_AFTER (0.5) чтобы дроп в проигрыш фиксировался.
-  const solvableFlags = await Promise.all(
-    solvabilityCandidates.map((sc, i) =>
-      checkSolvability({
-        engine,
-        startFen: sc.task.fenAfter,
-        solverSide: sc.task.solverSide,
-        halfMovesN: options.halfMovesN,
-        winThreshold: options.winThreshold,
-        failThreshold:
-          objectivesPerCandidate[i] === 'saveEquality'
-            ? HARD_MIN_WD_AFTER
-            : options.failThreshold,
-        objective: objectivesPerCandidate[i],
-        limit: options.engineLimit,
-        gameId: row.id,
-      }),
-    ),
-  );
+  // ── Stage 5 (отключено): solvability-check пропущен ─────────────
+  // Все solvabilityCandidates считаются прошедшими (solvableFlags=[true,...]).
 
   // ── Stage 6 (sequential): tagging + insert ──────────────────────
   // Insert последовательно — на стороне БД скорость не критична,
   // в анализе она не нужна.
   for (let i = 0; i < solvabilityCandidates.length; i++) {
     const sc = solvabilityCandidates[i];
-    if (!solvableFlags[i]) {
-      // KS-3156: per-objective счётчик. Агрегат `solvabilityFailed`
-      // удалён — выводился в лог одной цифрой и маскировал
-      // структурный баг saveEquality=0.
-      if (objectivesPerCandidate[i] === 'saveEquality') {
-        stats.drops.solvabilityFailedSaveEquality++;
-      } else {
-        stats.drops.solvabilityFailedConvertAdvantage++;
-      }
-      continue;
-    }
 
     const tags = computeTags({
       startFen: sc.task.fenAfter,
