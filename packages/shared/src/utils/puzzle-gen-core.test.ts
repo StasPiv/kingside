@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  determinePuzzleObjective,
   evaluateBlunder,
   type BlunderEvalSettings,
 } from './puzzle-gen-core.js';
@@ -250,5 +251,33 @@ describe('evaluateBlunder (KS-3136 / ADR-068, KS-3140 unified after-filter)', ()
     if (result.kind === 'blunder') {
       expect(result.deltaW).toBeCloseTo(0.4);
     }
+  });
+});
+
+describe('determinePuzzleObjective (KS-3144 / ADR-069)', () => {
+  it('39. d6 из KS-3139 — wdlAfter solver = {0, 952, 48} → saveEquality', () => {
+    // Реальный кейс: белые упустили выигрыш в ничью; solver (чёрные) после
+    // хода не выигрывает, но держит ничью.
+    expect(determinePuzzleObjective({ w: 0, d: 952, l: 48 })).toBe('saveEquality');
+  });
+
+  it('классическая convert-позиция — wdlAfter solver = {850, 100, 50} → convertAdvantage', () => {
+    expect(determinePuzzleObjective({ w: 850, d: 100, l: 50 })).toBe('convertAdvantage');
+  });
+
+  it('граница w=0.5 (ровно 500) → convertAdvantage (порог включителен)', () => {
+    expect(determinePuzzleObjective({ w: 500, d: 250, l: 250 })).toBe('convertAdvantage');
+  });
+
+  it('чуть ниже границы w=0.499 → saveEquality', () => {
+    expect(determinePuzzleObjective({ w: 499, d: 251, l: 250 })).toBe('saveEquality');
+  });
+
+  it('mate-after для solver — wdl={1000,0,0} → convertAdvantage', () => {
+    expect(determinePuzzleObjective({ w: 1000, d: 0, l: 0 })).toBe('convertAdvantage');
+  });
+
+  it('абсолютная ничья — wdl={0,1000,0} → saveEquality', () => {
+    expect(determinePuzzleObjective({ w: 0, d: 1000, l: 0 })).toBe('saveEquality');
   });
 });

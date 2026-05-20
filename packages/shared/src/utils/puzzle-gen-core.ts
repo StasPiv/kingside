@@ -153,3 +153,25 @@ export function evaluateBlunder(
     triggerByW && triggerByD ? 'WD' : triggerByW ? 'W' : 'D';
   return { kind: 'blunder', trigger, deltaW, deltaD };
 }
+
+/**
+ * KS-3144 / ADR-069 — жанр пазла для UI/телеметрии. Различает «реализуй
+ * перевес» и «спасение в ничью», глядя на WDL решающего сразу после
+ * хода блaндера.
+ *
+ *   - `convertAdvantage` — solver получил выигрышную позицию
+ *     (`W_after_for_solver ≥ 0.5`). В UI можно подсветить «реализуй
+ *     перевес», цель — добить.
+ *   - `saveEquality` — solver не в выигрыше, но шансы на ничью
+ *     достаточные (after-фильтр `W + D ≥ 0.5` обеспечивает что
+ *     позиция как минимум держится). Цель — удержать ничью.
+ *
+ * Жанр определяется единственным числом — `wdl_after_raw.w`, потому
+ * что на fenAfter side-to-move = решающий и `afterRaw.w = W_solver`.
+ * Поэтому функции достаточно одного аргумента `wdlAfterRaw`.
+ */
+export type PuzzleObjective = 'convertAdvantage' | 'saveEquality';
+
+export function determinePuzzleObjective(wdlAfterRaw: Wdl): PuzzleObjective {
+  return wdlAfterRaw.w / 1000 >= 0.5 ? 'convertAdvantage' : 'saveEquality';
+}

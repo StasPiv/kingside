@@ -1,3 +1,5 @@
+import type { PuzzleObjective } from '../utils/puzzle-gen-core.js';
+
 export type PuzzleTheme =
   | 'advancedPawn'
   | 'advantage'
@@ -155,6 +157,17 @@ export type PuzzleDto = {
      */
     deltaW?: number;
     deltaD?: number;
+    /**
+     * KS-3144 / ADR-069. Жанр пазла, определяется при генерации через
+     * `determinePuzzleObjective(wdlAfterRaw)`:
+     *   - `convertAdvantage` — solver получил выигрышную позицию,
+     *     цель — «реализуй перевес».
+     *   - `saveEquality`     — solver не в выигрыше, но держит ничью,
+     *     цель — «спасение в ничью».
+     * Опциональное: legacy-пазлы поля не имеют — UI fallback'ом не
+     * различает жанры (показывает общий runner).
+     */
+    objective?: PuzzleObjective;
   };
   /**
    * KS-2487. Источник позиции пазла — партия, из которой он сгенерирован.
