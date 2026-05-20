@@ -209,11 +209,15 @@ export async function runBackfillPuzzleObjective(
     }
 
     try {
+      // KS-3148 fix: `puzzles.id` и `source_metadata` имеют тип TEXT в
+      // schema.prisma (`String @id` без `@db.Uuid`, `sourceMetadata
+      // String? @db.Text`). Касты `::uuid` / `::jsonb` ломаются на
+      // `operator does not exist: text = uuid`. Передаём как text.
       await prisma.$executeRawUnsafe(
         `UPDATE puzzles
-         SET source_metadata = $1::jsonb,
+         SET source_metadata = $1,
              themes = $2
-         WHERE id = $3::uuid`,
+         WHERE id = $3`,
         newMeta,
         newThemes,
         row.id,
