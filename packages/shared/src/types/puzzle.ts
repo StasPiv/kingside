@@ -141,6 +141,20 @@ export type PuzzleDto = {
      */
     wdlBefore?: { w: number; d: number; l: number };
     wdlAfter?: { w: number; d: number; l: number };
+    /**
+     * KS-3135 / ADR-068. Новые независимые метрики «насколько ход
+     * блaндера ухудшил его шансы»:
+     *   - `deltaW = (W_до − L_после_raw) / 1000` — падение P(победа);
+     *   - `deltaD = (D_до − D_после) / 1000` — падение P(ничья).
+     * Оба в диапазоне [−1..+1]; положительное = шанс упал. Триггер
+     * генератора — OR двух дельт ≥ `deltaWThreshold` / `deltaDThreshold`.
+     *
+     * Опциональные: legacy-пазлы (отобранные по `blunderDelta`,
+     * до KS-3135) не имеют этих полей — UI продолжает использовать
+     * `wdlBefore` / `wdlAfter` / `wdlAfterBlunder` для отображения шкалы.
+     */
+    deltaW?: number;
+    deltaD?: number;
   };
   /**
    * KS-2487. Источник позиции пазла — партия, из которой он сгенерирован.

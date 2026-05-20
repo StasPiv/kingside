@@ -67,3 +67,61 @@ export function wdlSignedFromInfo(
   if (score.type === 'mate') return score.value > 0 ? 1 : -1;
   return null;
 }
+
+/**
+ * KS-3135 / ADR-068 §2.3. Извлечь `Wdl` объект из Stockfish-инфо с
+ * mate-fallback. Когда WDL отсутствует (старые версии при mate-оценке),
+ * собираем per-mille заглушку POV side-to-move:
+ *   - mate в пользу sideToMove → `{w: 1000, d: 0, l: 0}`
+ *   - mate против sideToMove → `{w: 0, d: 0, l: 1000}`
+ *   - cp без WDL → `null` (caller должен учесть и не считать дельты).
+ *
+ * В отличие от `wdlSignedFromInfo`, которая возвращает signed-скаляр,
+ * эта функция нужна `deltaWFromWdl` / `deltaDFromWdl` — им требуются
+ * полные {w,d,l}-объекты, а не свёртка.
+ */
+export function wdlOrMateFallback(
+  wdl: Wdl | null | undefined,
+  score: WdlScoreInfo,
+): Wdl | null {
+  if (wdl) return wdl;
+  if (score.type === 'mate') {
+    return score.value > 0
+      ? { w: 1000, d: 0, l: 0 }
+      : { w: 0, d: 0, l: 1000 };
+  }
+  return null;
+}
+
+/**
+ * KS-3135 / ADR-068 §2.4. Δ-падение вероятности победы блaндера на ходе.
+ *
+ *   deltaW = (W_до − L_после_raw) / 1000
+ *
+ * Учитывает POV-инверсию после хода: на `fenAfter` side-to-move = соперник
+ * блaндера, поэтому L_решающего_после == W_блaндера_после (зеркало WDL
+ * при смене стороны). Возвращает Δ ∈ [−1..+1]; **положительное = вероятность
+ * победы блaндера упала**, что и нужно как триггер пазла.
+ *
+ * `before` — `Wdl` POV блaндера на fenBefore (как отдал Stockfish для
+ * fenBefore с side-to-move = блaндер).
+ * `afterRaw` — `Wdl` POV решающего на fenAfter (как отдал Stockfish для
+ * fenAfter с side-to-move = решающий).
+ */
+export function deltaWFromWdl(before: Wdl, afterRaw: Wdl): number {
+  return (before.w - afterRaw.l) / 1000;
+}
+
+/**
+ * KS-3135 / ADR-068 §2.4. Δ-падение вероятности ничьи блaндера на ходе.
+ *
+ *   deltaD = (D_до − D_после) / 1000
+ *
+ * Draw-вероятность симметрична при смене стороны (D_решающего_после ==
+ * D_блaндера_после), поэтому POV-инверсия не нужна — `D_after_raw`
+ * равен `D_after_pov_blunder`. Возвращает Δ ∈ [−1..+1]; **положительное =
+ * вероятность ничьи упала**.
+ */
+export function deltaDFromWdl(before: Wdl, afterRaw: Wdl): number {
+  return (before.d - afterRaw.d) / 1000;
+}
