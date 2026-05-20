@@ -30,6 +30,7 @@ import { runValidateEtalons } from './cli/validate-etalons.cli';
 import { runDumpPuzzles } from './cli/dump-puzzles.cli';
 import { runAnalyzePgn } from './cli/analyze-pgn.cli';
 import { runBackfillPuzzleObjective } from './cli/backfill-puzzle-objective.cli';
+import { runGeneratePuzzlesFromTwic } from './cli/generate-puzzles-from-twic.cli';
 
 const SUBCOMMANDS = [
   'index-tactic-drills',
@@ -38,6 +39,7 @@ const SUBCOMMANDS = [
   'dump-puzzles',
   'analyze-pgn',
   'backfill-puzzle-objective',
+  'generate-puzzles-from-twic',
 ] as const;
 
 function printHelp(): void {
@@ -93,6 +95,9 @@ async function main(): Promise<void> {
         break;
       case 'backfill-puzzle-objective':
         await runBackfillPuzzleObjective(app, rest);
+        break;
+      case 'generate-puzzles-from-twic':
+        await runGeneratePuzzlesFromTwic(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.
