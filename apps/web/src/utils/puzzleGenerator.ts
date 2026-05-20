@@ -182,6 +182,17 @@ function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
+/**
+ * KS-3153: компактный формат `W/D/L` для дроп-логов. Per-mille, POV
+ * side-to-move в соответствующей позиции (для `wdlBeforeRaw` — POV
+ * блaндера до хода, для `wdlAfterRaw` — POV решающего после хода).
+ * Свёрнутый wdlSigned не печатаем — он теряет разбивку по W/D/L и
+ * ничего не объясняет.
+ */
+function fmtWdl(w: Wdl): string {
+  return `${w.w}/${w.d}/${w.l}`;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -524,8 +535,11 @@ export async function generatePuzzlesFromPgn(
       const wdlBeforeSigned = wdlSigned(wdlBeforeRaw);
       if (lineBefore.pv[0] === playedUci) {
         countDrop('samePv1');
+        // KS-3153 follow-up: лог в формате per-mille W/D/L (как Stockfish
+        // отдаёт UCI_ShowWDL=true), без свёрнутого wdlSigned-скаляра.
+        // Пользователь хочет видеть конкретное распределение вероятностей.
         console.log(
-          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} SKIP:samePv1`,
+          `${logBase} before=${fmtWdl(wdlBeforeRaw)} SKIP:samePv1`,
         );
         continue;
       }
@@ -571,8 +585,11 @@ export async function generatePuzzlesFromPgn(
       );
       if (result.kind === 'rejected') {
         countDrop(result.reason);
+        // KS-3153 follow-up: лог показывает полные W/D/L от Stockfish
+        // (POV side-to-move в соответствующей позиции) + рассчитанные
+        // дельты. Без свёрнутого wdlSigned — потеря разбивки бесполезна.
         console.log(
-          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:${result.reason}`,
+          `${logBase} before=${fmtWdl(wdlBeforeRaw)} after=${fmtWdl(wdlAfterRaw)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:${result.reason}`,
         );
         continue;
       }
@@ -616,7 +633,7 @@ export async function generatePuzzlesFromPgn(
       );
       const rating = computeStartingRating(wdlAfterSignedForSolver);
       console.log(
-        `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} objective=${objective} ACCEPTED rating=${rating}`,
+        `${logBase} before=${fmtWdl(wdlBeforeRaw)} after=${fmtWdl(wdlAfterRaw)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} objective=${objective} ACCEPTED rating=${rating}`,
       );
 
       // KS-3143: legacy-поле `gap` (наследие cp-алгоритма ADR-050,
