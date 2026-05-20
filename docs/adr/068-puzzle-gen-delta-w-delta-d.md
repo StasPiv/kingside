@@ -9,6 +9,10 @@
   Источник данных (`UCI_ShowWDL`), draft/publish-flow, общее место алгоритма
   (`packages/shared`) — ADR-050 остаётся актуальным. ADR-044 (play-vs-engine
   pivot, WDL) — без изменений.
+- **Follow-up:** ADR-069 (KS-3142) — различение жанра пазла
+  `convertAdvantage` / `saveEquality` (`determinePuzzleObjective` по
+  `wdlAfterRaw`), UI-надписи и фильтрация. Алгоритм отбора в §3.2
+  остаётся, но генератор после accept определяет и записывает `objective`.
 - Авторы: architect
 
 ---
@@ -209,6 +213,13 @@ on each ply (≥ startPly):
       drop lowWDAfter
 
   → solvability check (опц.) → accept
+
+  # KS-3142 / ADR-069 §2.2: после accept определяем жанр пазла.
+  objective = determinePuzzleObjective(wdlAfter_raw)
+              # 'convertAdvantage' если W_after_for_solver ≥ 0.5,
+              # иначе 'saveEquality' (after-фильтр гарантировал W+D ≥ 0.5)
+  записать objective в sourceMetadata.objective и в themes-строку
+  (тег 'convertAdvantage' или 'saveEquality') — для UI и фильтрации.
 ```
 
 **Ключевые отличия:**
