@@ -222,7 +222,13 @@ export interface BatchPuzzleItem {
   fen: string;
   moves: string;
   rating: number;
-  gap: number;
+  /**
+   * KS-3141: legacy cp-разница PV1-PV2. После перехода на WDL-алгоритм
+   * (KS-2584/ADR-050) поле не вычисляется ни клиентским, ни серверным
+   * генератором. Опциональное, разрешено отрицательное (бывает для
+   * пазлов «упустил перевес»). Хранится в БД как Int?.
+   */
+  gap?: number;
   themes: string;
   sourceType: string;
   sourceId?: string | null;

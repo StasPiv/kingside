@@ -472,7 +472,9 @@ export class PuzzleController {
     // одинаковым FEN — поиск по fen становится неоднозначным).
     const rows = puzzles.slice(0, 200).map((p) => ({
       id: randomUUID(),
-      fen: p.fen, moves: p.moves, rating: p.rating, gap: p.gap, themes: p.themes,
+      // KS-3141: gap опционален (legacy cp-метрика, может отсутствовать
+      // у новых WDL-пазлов и быть отрицательным у legacy).
+      fen: p.fen, moves: p.moves, rating: p.rating, gap: p.gap ?? null, themes: p.themes,
       source: 'generated', sourceType: p.sourceType || 'pgn_import',
       sourceId: p.sourceId || null, sourceMoveNum: p.sourceMoveNum ?? 0,
       sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
