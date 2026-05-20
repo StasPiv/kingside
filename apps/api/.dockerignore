@@ -1,4 +1,44 @@
+# KS-3138 — фильтр build context для apps/api образа.
+# Docker build выполняется из корневого контекста (см. apps/api/Dockerfile,
+# `COPY packages/...`), поэтому пути ниже относительно корня репо.
+
+# ── Существующее (KS-2433) ──────────────────────────────────────────
 node_modules
+**/node_modules
 dist
 .env
+**/.env
+**/.env.local
+
+# ── ML-датасеты и обучающие артефакты (KS-3138) ─────────────────────
+# Виновник 7 GB раздувания api-образа. В проде нужны только:
+#   packages/board-image-to-fen/{dist, src/python, src/templates,
+#   package.json, LICENSES.md}
+# Всё, что ниже, — для тренировки / тестов / отладки.
+packages/board-image-to-fen/data
+packages/board-image-to-fen/styles_cache
+packages/board-image-to-fen/test
+packages/board-image-to-fen/scripts
+packages/board-image-to-fen/vitest.config.ts
+packages/board-image-to-fen/tsconfig.tsbuildinfo
+packages/board-image-to-fen/README.md
+# Python-байткод и любые HDF5 (на случай если появятся вне data/).
+**/__pycache__
+**/*.pyc
+**/*.h5
+
+# ── Общая чистка build context ──────────────────────────────────────
+.git
+.github
+**/coverage
+**/.turbo
+**/.cache
+**/tsconfig.tsbuildinfo
+**/*.log
+**/.DS_Store
+**/.eslintcache
+
+# ── Документация ────────────────────────────────────────────────────
+docs
 *.md
+**/*.md
