@@ -3,7 +3,6 @@ import { BroadcastSyncService } from './broadcast-sync.service';
 import { SyncMetricsService } from './sync-metrics';
 import { BroadcastWatchdogService } from './broadcast-watchdog.service';
 import { ChessResultsModule } from '../chess-results/chess-results.module';
-import { KingsideApiClient } from './kingside-api.client';
 import { InternalKeyGuard } from './internal-key.guard';
 import { BroadcastInternalController } from './broadcast-internal.controller';
 
@@ -34,10 +33,9 @@ import { BroadcastInternalController } from './broadcast-internal.controller';
     SyncMetricsService,
     BroadcastSyncService,
     BroadcastWatchdogService,
-    // KS-2883 (B10): клиент api для зеркала студии + guard на internal-эндпоинты.
-    KingsideApiClient,
+    // KS-2883 (B10): guard на internal-эндпоинты.
     InternalKeyGuard,
   ],
-  exports: [BroadcastSyncService, BroadcastWatchdogService, KingsideApiClient],
+  exports: [BroadcastSyncService, BroadcastWatchdogService],
 })
 export class BroadcastSyncModule {}

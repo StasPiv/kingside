@@ -154,8 +154,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       | 'broadcastsEnabled'
       | 'tournamentsEnabled'
       | 'assistantEnabled'
-      | 'drillsEnabled'
-      | 'studiesEnabled';
+      | 'drillsEnabled';
     app = await makeApp({
       admin: true,
       auth: true,
@@ -167,7 +166,6 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
           tournamentsEnabled: true,
           assistantEnabled: false,
           drillsEnabled: false,
-          studiesEnabled: false,
         })),
         listWithMetadata: jest.fn(
           async () =>
@@ -178,7 +176,6 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
               ['tournamentsEnabled', updatedAt],
               ['assistantEnabled', updatedAt],
               ['drillsEnabled', updatedAt],
-              ['studiesEnabled', updatedAt],
             ]),
         ),
       } as never,
@@ -188,7 +185,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(7);
+    expect(res.body).toHaveLength(6);
     const byKey = Object.fromEntries(
       (res.body as Array<{ key: string }>).map((it) => [it.key, it]),
     );
@@ -232,14 +229,6 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       value: false,
       defaultValue: false,
       description: expect.stringContaining('Тренажёры'),
-      updatedAt: '2026-04-28T12:00:00.000Z',
-    });
-    // KS-2823: feature-flag studiesEnabled — default false.
-    expect(byKey.studiesEnabled).toEqual({
-      key: 'studiesEnabled',
-      value: false,
-      defaultValue: false,
-      description: expect.stringContaining('Студии'),
       updatedAt: '2026-04-28T12:00:00.000Z',
     });
   });

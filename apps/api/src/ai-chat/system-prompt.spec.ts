@@ -45,7 +45,6 @@ const ALL_ENABLED_FLAGS: FeatureFlagsSnapshot = {
   tournamentsEnabled: true,
   assistantEnabled: true,
   drillsEnabled: true,
-  studiesEnabled: true,
 };
 
 const ALL_DISABLED_FLAGS: FeatureFlagsSnapshot = {
@@ -55,7 +54,6 @@ const ALL_DISABLED_FLAGS: FeatureFlagsSnapshot = {
   tournamentsEnabled: false,
   assistantEnabled: false,
   drillsEnabled: false,
-  studiesEnabled: false,
 };
 
 describe('buildSystemPrompt (KS-2962 / ADR-062 + KS-2966 / ADR-063)', () => {
@@ -118,14 +116,12 @@ describe('buildSystemPrompt (KS-2962 / ADR-062 + KS-2966 / ADR-063)', () => {
     }
   });
 
-  it('catalog has at least one entry per major section (Precision, Drills, Studies, Mistakes, Lessons, Gamebook reader)', () => {
+  it('catalog has at least one entry per major section (Precision, Drills, Mistakes, Lessons)', () => {
     const ids = new Set(FEATURES.map((f) => f.id));
     expect(ids).toContain('precision');
     expect(ids).toContain('drills');
-    expect(ids).toContain('studies');
     expect(ids).toContain('mistakes');
     expect(ids).toContain('lessons');
-    expect(ids).toContain('gamebook-reader');
   });
 
   it('Precision section is present and recommends the right URLs', () => {

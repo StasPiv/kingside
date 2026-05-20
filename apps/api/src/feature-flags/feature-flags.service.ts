@@ -35,10 +35,6 @@ export const KNOWN_FEATURE_FLAGS: FeatureFlags = {
   // KS-2231 (ADR-035 §7.2): раздел «Тренажёры» в разработке, выключен
   // по умолчанию; включится админом через PATCH.
   drillsEnabled: false,
-  // KS-2815 / ADR-059 (KS-2823 T8): раздел «Студии» в разработке (MVP),
-  // выключен по умолчанию; включится админом через PATCH когда фронт
-  // готов.
-  studiesEnabled: false,
 };
 
 /**
@@ -73,10 +69,6 @@ export const FEATURE_FLAG_METADATA: Record<
   drillsEnabled: {
     description:
       'Показывать раздел «Тренажёры» в UI и пускать на /drills*. По умолчанию выключен — включить через PATCH.',
-  },
-  studiesEnabled: {
-    description:
-      'Показывать раздел «Студии» в UI и пускать на /studies*. По умолчанию выключен — включится после готовности MVP.',
   },
 };
 

@@ -1,16 +1,17 @@
 /**
  * KS-2883 / ADR-060 §3.7 B10. Internal-эндпоинты broadcast-service'а.
  *
- * Контракт зафиксирован в `apps/api/src/study/broadcast/broadcast-service.client.ts`
- * (KS-2884):
+ * Контракт:
  *   GET /internal/rounds/:roundId/with-games
  *   Header: X-Internal-Auth: <SYNTHETIC_BOT_INTERNAL_KEY>
  *   Response 200: { round: {id, name}, games: BroadcastGameDto[] }
  *   404: round не найден.
  *
- * Используется api для:
- *   - `POST /api/studies/from-broadcast-round` (создание зеркала);
- *   - `POST /api/studies/sync-broadcast-round` (idempotent sync PGN).
+ * KS-3128 / ADR-067: ранее эндпоинт использовался для зеркала Studies
+ * (от api → broadcast-service за round+games). Модуль Studies удалён,
+ * клиентских вызовов сейчас нет; контроллер оставлен как
+ * generic-эндпоинт за round/games для возможных будущих внутренних
+ * интеграций.
  */
 import {
   Controller,

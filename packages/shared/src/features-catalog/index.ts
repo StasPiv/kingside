@@ -25,8 +25,6 @@ import { precision } from './precision.js';
 import { mistakes } from './mistakes.js';
 import { analysis } from './analysis.js';
 import { workshop } from './workshop.js';
-import { studies } from './studies.js';
-import { gamebookReader } from './gamebook-reader.js';
 import { drills } from './drills.js';
 import { lessons } from './lessons.js';
 import { tournaments } from './tournaments.js';
@@ -56,8 +54,6 @@ export const FEATURES: readonly AssistantFeature[] = [
   mistakes,
   analysis,
   workshop,
-  studies,
-  gamebookReader,
   drills,
   lessons,
   tournaments,

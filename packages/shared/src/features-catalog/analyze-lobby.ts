@@ -5,7 +5,7 @@ export const analyzeLobby: AssistantFeature = {
   title: 'Analysis hub',
   paths: ['/analyze'],
   summary:
-    'Hub page that aggregates analysis-oriented sections (analysis board, workshop, studies, archive) for picking how to start a session.',
+    'Hub page that aggregates analysis-oriented sections (analysis board, workshop, archive) for picking how to start a session.',
   auth: 'public',
   featureFlag: null,
   mcpSection: null,
