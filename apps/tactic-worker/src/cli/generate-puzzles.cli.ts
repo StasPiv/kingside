@@ -18,7 +18,7 @@
  *       [--half-moves-n=N]         default 6   (полуходов в solvability-check)
  *       [--win-threshold=W]        default 0.5
  *       [--fail-threshold=F]       default 0.0
- *       [--skip-decided-wdl=W]     default 0.95
+           *       [--skip-decided-wdl=W]     KS-3140: игнорируется (фильтр снят)
  *       [--min-rating=N]           default 1400
  *       [--min-ply=N]              default 20
  *       [--start-ply=N]            default 20
@@ -119,6 +119,8 @@ export function parseArgs(argv: string[]): CliFlags {
         opts.failThreshold = parseFloat(v);
         break;
       case 'skip-decided-wdl':
+        // KS-3140: фильтр snyt, флаг сохранён для обратной совместимости
+        // CLI — значение записывается, но pipeline его игнорирует.
         opts.skipDecidedWdl = parseFloat(v);
         break;
       case 'import-id':

@@ -72,8 +72,11 @@ export interface GeneratorOptions {
    */
   failThreshold: number;
   /**
-   * |WDL_before| > этого значения → партия уже решена, ход не считается
-   * зевком (skipDecided). Default 0.95.
+   * @deprecated KS-3140 / ADR-068 (rev2). Фильтр `skipDecided` снят:
+   * он отсекал классические пазлы «реализуй перевес» (форсированный
+   * выигрыш до зевка). Поле сохранено в типе для обратной совместимости
+   * сериализации опций, но в `runPuzzleGenerator` не используется.
+   * CLI-флаг `--skip-decided-wdl` также игнорируется.
    */
   skipDecidedWdl: number;
   /**
@@ -175,19 +178,13 @@ export interface GeneratorStats {
     notBlunder: number;
     /** Ход партии = PV1 движка — не зевок (точно так, как считал движок). */
     samePv1: number;
-    /** |WDL_before| > skipDecidedWdl — партия уже решена. */
-    decided: number;
     /** Игра уже терминальная (мат/пат/ничья) после хода. */
     gameOver: number;
     /**
-     * KS-3136 / ADR-068 §3.2. Триггер по W сработал, но
-     * `W_after_for_solver < HARD_MIN_W_AFTER` — мираж-победа (решающий
-     * не в выигранной позиции после хода блaндера).
-     */
-    lowWAfterForSolver: number;
-    /**
-     * KS-3136 / ADR-068 §3.2. Триггер по D без W, но `W + D after <
-     * HARD_MIN_WD_AFTER` — решающий не держит даже ничью.
+     * KS-3140 / ADR-068 §3.2 (rev2). Единый after-фильтр: `W + D solver
+     * после хода < HARD_MIN_WD_AFTER`. Решающий после зевка ни в выигрыше,
+     * ни в ничьей — пазл не валиден. Покрывает оба сценария
+     * (W-триггер «мираж-победа» и D-триггер «не держит ничью»).
      */
     lowWplusDAfter: number;
     /**
@@ -253,9 +250,7 @@ export function newGeneratorStats(): GeneratorStats {
     drops: {
       notBlunder: 0,
       samePv1: 0,
-      decided: 0,
       gameOver: 0,
-      lowWAfterForSolver: 0,
       lowWplusDAfter: 0,
       solvabilityFailed: 0,
       duplicate: 0,

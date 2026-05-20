@@ -18,7 +18,7 @@
  *
  * Алгоритм фильтров:
  *   a. samePv1 — ход партии = PV1 движка → drop.
- *   b. skipDecided — |wdlBefore| > skipDecidedWdl → drop.
+ *   b. (KS-3140) skipDecided снят — отсекал «реализуй перевес».
  *   c. gameOver — позиция терминальная после хода → drop.
  *   d. KS-3136 / ADR-068: `evaluateBlunder(...)` — единая (server+client)
  *      реализация триггера. Пороги hardcoded ниже как `HARD_*` константы,
@@ -51,20 +51,22 @@ import type { MultiPvLine } from './types';
 import { computeTags } from './tagging';
 
 /**
- * KS-3136 / ADR-068 §1.2: пороги генератора в серверной обёртке —
- * hardcoded в модуле, не из ENV/CLI/options. Клиентский генератор
- * (`apps/web/src/utils/puzzleGenerator.ts`) использует те же дефолты
- * через `PUZZLE_GEN_DEFAULTS`, но допускает их перекрытие в UI.
+ * KS-3136 / ADR-068 §1.2 + KS-3140: пороги генератора в серверной
+ * обёртке — hardcoded в модуле, не из ENV/CLI/options. Клиентский
+ * генератор (`apps/web/src/utils/puzzleGenerator.ts`) использует те же
+ * дефолты через `PUZZLE_GEN_DEFAULTS`, но допускает их перекрытие в UI.
+ *
+ * KS-3140: убрано раздельное `HARD_MIN_W_AFTER` — теперь единый
+ * after-фильтр `HARD_MIN_WD_AFTER` (W+D solver ≥ X), пропускающий и
+ * «реализуй перевес», и «спасение в ничью».
  */
 const HARD_DELTA_W = 0.6;
 const HARD_DELTA_D = 0.6;
-const HARD_MIN_W_AFTER = 0.5;
 const HARD_MIN_WD_AFTER = 0.5;
 
 const BLUNDER_EVAL_SETTINGS: BlunderEvalSettings = {
   deltaWThreshold: HARD_DELTA_W,
   deltaDThreshold: HARD_DELTA_D,
-  minWAfterForSolver: HARD_MIN_W_AFTER,
   minWPlusDAfterForSolver: HARD_MIN_WD_AFTER,
 };
 
@@ -297,8 +299,8 @@ async function processGame(
       // pre упал — не считаем positionsAnalyzed (как в старой логике).
       continue;
     }
-    // KS-3136: берём полный Wdl с mate-фолбэком (нужен в Stage 4 для
-    // evaluateBlunder), signed-проекция — для skipDecided.
+    // KS-3136: полный Wdl с mate-фолбэком — нужен в Stage 4 для
+    // evaluateBlunder. signed-проекция нужна для метаданных/телеметрии.
     const wdlBeforeRaw = wdlOrMateFallback(pre[0].wdl, pre[0].score);
     if (wdlBeforeRaw == null) {
       stats.positionsAnalyzed++;
@@ -319,10 +321,10 @@ async function processGame(
       stats.drops.samePv1++;
       continue;
     }
-    if (Math.abs(wdlBefore) > options.skipDecidedWdl) {
-      stats.drops.decided++;
-      continue;
-    }
+    // KS-3140: skipDecided (|wdlBefore| > 0.95) убран. Он отсекал
+    // классические пазлы «реализуй перевес» (форсированный выигрыш до
+    // зевка). Терминальные позиции (мат/пат) и так покрываются
+    // gameOver-проверкой ниже через chess.js.
     if (t.isGameOverAfter) {
       stats.drops.gameOver++;
       continue;
@@ -400,9 +402,6 @@ async function processGame(
       switch (result.reason) {
         case 'notBlunder':
           stats.drops.notBlunder++;
-          break;
-        case 'lowWAfterForSolver':
-          stats.drops.lowWAfterForSolver++;
           break;
         case 'lowWplusDAfter':
           stats.drops.lowWplusDAfter++;
@@ -748,9 +747,7 @@ function logProgress(
   const drops =
     `notBlunder=${stats.drops.notBlunder} ` +
     `samePv1=${stats.drops.samePv1} ` +
-    `decided=${stats.drops.decided} ` +
     `gameOver=${stats.drops.gameOver} ` +
-    `lowWAfterForSolver=${stats.drops.lowWAfterForSolver} ` +
     `lowWplusDAfter=${stats.drops.lowWplusDAfter} ` +
     `solvabilityFailed=${stats.drops.solvabilityFailed} ` +
     `duplicate=${stats.drops.duplicate} ` +

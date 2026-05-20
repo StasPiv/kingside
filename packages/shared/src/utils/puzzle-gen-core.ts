@@ -37,9 +37,10 @@ export interface BlunderEvalInput {
 }
 
 /**
- * Настройки порогов и after-фильтров. На сервере — hardcoded константы
+ * Настройки порогов и after-фильтра. На сервере — hardcoded константы
  * (`apps/tactic-worker`), на клиенте — пользовательский control
- * (`PuzzleGeneratorModal`). См. ADR-068 §1.2.
+ * (`PuzzleGeneratorModal`). См. ADR-068 §1.2 и KS-3140 (объединённый
+ * after-фильтр).
  */
 export interface BlunderEvalSettings {
   /** Порог `deltaW` для триггера по падению P(победа). Default 0.6. */
@@ -47,15 +48,15 @@ export interface BlunderEvalSettings {
   /** Порог `deltaD` для триггера по падению P(ничья). Default 0.6. */
   deltaDThreshold: number;
   /**
-   * Минимальный `W_after_for_solver` (вероятность победы решающего
-   * сразу после хода) при триггере по W. Если ниже — «шанс на победу»
-   * — мираж, drop. Default 0.5.
-   */
-  minWAfterForSolver: number;
-  /**
-   * Минимальная сумма `W + D` решающего сразу после хода при триггере
-   * по D без W. Решающий должен хотя бы «держать ничью», иначе позиция
-   * проигрышная — drop. Default 0.5.
+   * KS-3140: единый after-фильтр. Минимальная сумма `W + D` решающего
+   * сразу после хода. Покрывает оба сценария «реализуй перевес»
+   * (`W_after ≥ 0.5`) и «спасение в ничью» (`D_after ≥ 0.5` при
+   * `W_after ≈ 0`). Default 0.5.
+   *
+   * KS-3140 / ADR-068 §3.2 (rev2): прежний `minWAfterForSolver`
+   * удалён — раздельные W-/D-фильтры через `if/else if` отсекали
+   * пазлы «триггер по W + solver получает ничью» (W_after мал, D_after
+   * велик). Объединённый фильтр W+D ≥ X пропускает их.
    */
   minWPlusDAfterForSolver: number;
 }
@@ -69,16 +70,13 @@ export interface BlunderEvalSettings {
 export type BlunderTrigger = 'W' | 'D' | 'WD';
 
 /**
- * Причины отклонения. `lowWAfterForSolver` — триггер по W прошёл, но
- * `W_after_for_solver < minWAfterForSolver` (мираж). `lowWplusDAfter` —
- * триггер по D (без W) прошёл, но `W + D < minWPlusDAfterForSolver`
- * (решающий не держит даже ничью). `notBlunder` — обе дельты ниже
- * порогов.
+ * Причины отклонения:
+ *   - `notBlunder`     — обе дельты ниже порогов;
+ *   - `lowWplusDAfter` — KS-3140: единый after-фильтр W+D ≥ X не прошёл,
+ *     решающий после хода не выигрывает И не держит ничью (позиция
+ *     проигрышная для solver'а).
  */
-export type BlunderRejectReason =
-  | 'notBlunder'
-  | 'lowWAfterForSolver'
-  | 'lowWplusDAfter';
+export type BlunderRejectReason = 'notBlunder' | 'lowWplusDAfter';
 
 export type BlunderEvalResult =
   | {
@@ -97,7 +95,7 @@ export type BlunderEvalResult =
 /**
  * Чистая (no I/O, deterministic) оценка одного хода как «зевок».
  *
- * Алгоритм (ADR-068 §3.2):
+ * Алгоритм (ADR-068 §3.2, rev2 — KS-3140):
  *
  * 1. `deltaW = (before.w − after.l) / 1000`. POV-инверсия после хода
  *    учтена: L_after (POV решающего) = W_after (POV блaндера), их
@@ -107,16 +105,19 @@ export type BlunderEvalResult =
  *    смене стороны, инверсия не нужна.
  * 3. Триггер OR: `deltaW ≥ thrW` ИЛИ `deltaD ≥ thrD`. Если ни одно
  *    не выполнено — `rejected/notBlunder`.
- * 4. After-фильтры (POV решающего, как Stockfish отдал на fenAfter):
- *    - триггер по W → `W_after_for_solver = afterRaw.w / 1000` должен
- *      быть ≥ `minWAfterForSolver`. Защита от «мираж-побед» (W упал у
- *      блaндера, но и решающий в выигранной позиции не оказался).
- *    - триггер только по D (без W) → `W_after_for_solver +
- *      D_after_for_solver ≥ minWPlusDAfterForSolver`. Защита от
- *      «упустил ничью в проигранной позиции».
- *    Когда оба триггера сработали одновременно — проверяется только
- *    W-фильтр (более строгий и семантически правильный: «пазл на
- *    реализацию преимущества»).
+ * 4. KS-3140: единый after-фильтр для обоих триггеров:
+ *    `W_after_for_solver + D_after_for_solver ≥ minWPlusDAfterForSolver`.
+ *    Покрывает «реализуй перевес» (W_after велик), «спасение в ничью»
+ *    (D_after велик), смешанные сценарии. Прежний `if/else if`
+ *    раздельный W-/D-фильтр в редакции KS-3136 отсекал реальный жанр
+ *    «триггер по W + solver попадает в ничью» (W_after низкий,
+ *    D_after высокий) — таких пазлов теряли целый класс (см. диагностику
+ *    KS-3139 / 39. d6).
+ *
+ *    POV-замечание: `afterRaw` — POV side-to-move на `fenAfter`, т.е.
+ *    POV решающего (солвера). Поэтому `afterRaw.w` это W_solver,
+ *    `afterRaw.d` — D_solver (draw симметричен), сумма W+D даёт
+ *    «вероятность что solver хотя бы не проиграет».
  *
  * Возвращает `deltaW`/`deltaD` всегда (и в `blunder`, и в `rejected`)
  * — обёртка может использовать их для metadata и drop-логирования.
@@ -137,31 +138,15 @@ export function evaluateBlunder(
     return { kind: 'rejected', reason: 'notBlunder', deltaW, deltaD };
   }
 
+  // KS-3140: единый after-фильтр. afterRaw POV solver, поэтому
+  // afterRaw.w == W_solver, afterRaw.d == D_solver.
   const wAfterForSolver = afterRaw.w / 1000;
   const dAfterForSolver = afterRaw.d / 1000;
-
-  if (triggerByW) {
-    if (wAfterForSolver < settings.minWAfterForSolver) {
-      return {
-        kind: 'rejected',
-        reason: 'lowWAfterForSolver',
-        deltaW,
-        deltaD,
-      };
-    }
-  } else if (triggerByD) {
-    // Триггер только по D — нужен мягкий after-фильтр «хотя бы ничья».
-    if (
-      wAfterForSolver + dAfterForSolver <
-      settings.minWPlusDAfterForSolver
-    ) {
-      return {
-        kind: 'rejected',
-        reason: 'lowWplusDAfter',
-        deltaW,
-        deltaD,
-      };
-    }
+  if (
+    wAfterForSolver + dAfterForSolver <
+    settings.minWPlusDAfterForSolver
+  ) {
+    return { kind: 'rejected', reason: 'lowWplusDAfter', deltaW, deltaD };
   }
 
   const trigger: BlunderTrigger =

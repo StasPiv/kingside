@@ -192,21 +192,40 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     expect(samePv1('e2e4', '')).toBe(false);
   });
 
-  it('skipDecided → drop (|wdlBefore| > 0.95)', async () => {
+  it('KS-3140: skipDecided снят — позиция с |wdlBefore|=0.99 уже не drop\'ается', async () => {
+    // Прежний фильтр skipDecided отбрасывал позиции с
+    // |wdlBefore| > 0.95 («партия уже решена»). Это убивало пазлы
+    // «реализуй перевес» — самый частый учебный жанр. KS-3140 снял
+    // фильтр; теперь позиции с большим wdlBefore проходят дальше в
+    // evaluateBlunder и принимаются по deltaW/deltaD, если есть зевок.
     const pgn = buildPgn();
+    const solverSide: 'w' | 'b' = 'w';
     const engine: EngineApi = {
-      analyzePositionWdl: jest.fn(async (fen: string): Promise<MultiPvLine[]> => {
-        // Партия уже выиграна (wdlBefore = +0.99) — ни один ход не зевок.
-        const first = firstLegalUci(fen);
-        return [pvWdl('b8c6', 0.99), pvWdl(first, 0.95)];
-      }),
+      analyzePositionWdl: jest.fn(
+        async (fen: string, _l, multiPV: number): Promise<MultiPvLine[]> => {
+          const first = firstLegalUci(fen);
+          const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
+          const sideToMove = fen.split(' ')[1] as 'w' | 'b';
+          if (multiPV === 2) {
+            // pre POV блaндера: wdlBefore = +0.99 (раньше → skipDecided).
+            // post POV solver: wdlAfter = +0.85 (= deltaW большой).
+            if (sideToMove === solverSide) {
+              return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
+            }
+            return [pvWdl(alt, 0.99), pvWdl(first, 0.95)];
+          }
+          const wdl = sideToMove === solverSide ? 0.8 : -0.8;
+          return [pvWdl(first, wdl)];
+        },
+      ),
     };
     const insertPuzzle = jest.fn(async () => true);
     const fakePg = makePgRowMock(pgn);
     const opts = defaultGeneratorOptions({
       maxGames: 1,
-      // KS-3136 / ADR-068: blunderDelta убран — пороги hardcoded.
-      skipDecidedWdl: 0.95,
+      halfMovesN: 2,
+      winThreshold: 0.5,
+      failThreshold: 0.0,
       startPly: 20,
       engineLimit: { timeMs: 50 },
     });
@@ -215,8 +234,10 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
       engine,
       options: { ...opts, insertPuzzle },
     });
-    expect(stats.drops.decided).toBeGreaterThan(0);
-    expect(stats.inserted).toBe(0);
+    // skipDecided-drop'а больше не существует — теперь позиции с
+    // высоким wdlBefore доходят до evaluateBlunder и принимаются.
+    expect(stats.drops).not.toHaveProperty('decided');
+    expect(stats.inserted).toBeGreaterThanOrEqual(1);
   });
 
   it('solvabilityFailed → drop (WDL падает в solvability)', async () => {
