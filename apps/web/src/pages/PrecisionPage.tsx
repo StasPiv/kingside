@@ -109,6 +109,15 @@ export function PrecisionPage() {
 
   // KS-2586: URL-state read.
   const mineParam = searchParams.get('mine') === 'true';
+  // KS-3147 (ADR-069 §3.4): segment-control «Тип» — выбор жанра пазла.
+  // Допустимые значения: 'convertAdvantage' | 'saveEquality' | 'all'.
+  // URL-state: `?objective=convertAdvantage`. Передаётся в backend как
+  // `themes=convertAdvantage` (стандартный LIKE-фильтр по строке themes).
+  const objectiveParam = searchParams.get('objective');
+  const objectiveFilter: 'convertAdvantage' | 'saveEquality' | 'all' =
+    objectiveParam === 'convertAdvantage' || objectiveParam === 'saveEquality'
+      ? objectiveParam
+      : 'all';
   const visibilityParam = searchParams.get('visibility');
   const visibility: 'draft' | 'public' | 'all' | undefined = isVisibility(
     visibilityParam,
@@ -178,9 +187,20 @@ export function PrecisionPage() {
       hideSolved: hideSolved ? true : undefined,
       blundererEloMin,
       blundererEloMax,
+      // KS-3147 (ADR-069 §3.4): themes-LIKE по выбранному жанру.
+      // 'all' → undefined (фильтр не передаём, показываем оба).
+      themes:
+        objectiveFilter === 'all' ? undefined : [objectiveFilter],
       limit: LIMIT,
     }),
-    [mineParam, visibility, hideSolved, blundererEloMin, blundererEloMax],
+    [
+      mineParam,
+      visibility,
+      hideSolved,
+      blundererEloMin,
+      blundererEloMax,
+      objectiveFilter,
+    ],
   );
 
   const {
@@ -548,6 +568,51 @@ export function PrecisionPage() {
             </button>
           </nav>
         )}
+        {/* KS-3147 (ADR-069 §3.4): segment-control «Тип» — выбор
+            жанра пазла. Доступен всем (гостям тоже). 'all' — без
+            фильтра, 'convertAdvantage' / 'saveEquality' — соответствующий
+            theme передаётся в `useInfinitePuzzles({themes:[...]})`. */}
+        <nav
+          className="precision-objective-segments"
+          data-testid="precision-objective-segments"
+          aria-label={t('precision.objective.label', 'Puzzle type')}
+          role="tablist"
+        >
+          {(['all', 'convertAdvantage', 'saveEquality'] as const).map(
+            (key) => {
+              const active = objectiveFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`precision-objective-segment${active ? ' precision-objective-segment--active' : ''}`}
+                  data-testid={`precision-objective-${key}`}
+                  data-active={active ? 'true' : 'false'}
+                  onClick={() => {
+                    const sp = new URLSearchParams(searchParams);
+                    if (key === 'all') sp.delete('objective');
+                    else sp.set('objective', key);
+                    setSearchParams(sp, { replace: false });
+                  }}
+                >
+                  {key === 'all'
+                    ? t('precision.objective.all', 'All')
+                    : key === 'convertAdvantage'
+                      ? t(
+                          'puzzle.objective.convertAdvantage',
+                          'Convert the advantage',
+                        )
+                      : t(
+                          'puzzle.objective.saveEquality',
+                          'Save the draw',
+                        )}
+                </button>
+              );
+            },
+          )}
+        </nav>
         {/* KS-2754 follow-up: toggle «Показать решённые» — инверсия
             предыдущего «Скрыть удержанные». По умолчанию скрываем
             удержанные позиции (пользователь видит только новые

@@ -2949,6 +2949,64 @@ body:has(.puzzle-rush-board) {
 }
 
 /* ============================================================
+ * KS-3147 (ADR-069 §3.4) — segment-control «Тип» (convert/save/all).
+ * Стиль зеркалит .precision-tabs (KS-2664), чтобы фильтры на /precision
+ * выглядели единообразно.
+ * ============================================================ */
+.precision-objective-segments {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.precision-objective-segment {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.precision-objective-segment:hover:not(.precision-objective-segment--active) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.precision-objective-segment:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.precision-objective-segment--active {
+  color: var(--text-on-accent, #fff);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+@media (max-width: 480px) {
+  .precision-objective-segments {
+    width: 100%;
+    display: flex;
+  }
+  .precision-objective-segment {
+    flex: 1 1 0;
+    text-align: center;
+  }
+}
+
+/* ============================================================
  * KS-2756 — чекбокс «Показать решённые» (KS-2754 follow-up).
  * Раньше label без стилей жался к табам выше. Делаем компактный
  * pill-toggle: своя полоса под табами, лёгкий бордер и hover,

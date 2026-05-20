@@ -1499,6 +1499,10 @@
       "all": "Все",
       "mine": "Мои пазлы"
     },
+    "objective": {
+      "label": "Тип задачи",
+      "all": "Все"
+    },
     "actions": {
       "copyLink": "Скопировать ссылку",
       "makePublic": "Сделать публичным",
@@ -1667,6 +1671,8 @@
     "themes": {
       "advancedPawn": "Проходная пешка",
       "advantage": "Преимущество",
+      "convertAdvantage": "Реализуй перевес",
+      "saveEquality": "Спасение в ничью",
       "anapierce": "Ана Пирс",
       "arabianMate": "Арабский мат",
       "attackingF2F7": "Атака f2/f7",

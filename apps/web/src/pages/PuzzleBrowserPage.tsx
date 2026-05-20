@@ -35,6 +35,13 @@ const PAGE_SIZE = 30;
  * расширяется массивом ниже.
  */
 const THEME_FILTER_WHITELIST: readonly string[] = [
+  // KS-3147 (ADR-069 §3.4): жанр пазла как фильтр-чип. Backend
+  // (KS-3145 / KS-3146) пишет 'convertAdvantage' / 'saveEquality' в
+  // строку themes; фильтр работает через стандартный LIKE по themes.
+  // До D1 (backfill) фильтр показывает только новые пазлы — это
+  // ожидаемо.
+  'convertAdvantage',
+  'saveEquality',
   'mateIn1',
   'mateIn2',
   'mateIn3',

@@ -1477,6 +1477,10 @@
       "all": "All",
       "mine": "My puzzles"
     },
+    "objective": {
+      "label": "Puzzle type",
+      "all": "All"
+    },
     "actions": {
       "copyLink": "Copy link",
       "makePublic": "Make public",
@@ -1645,6 +1649,8 @@
     "themes": {
       "advancedPawn": "Advanced Pawn",
       "advantage": "Advantage",
+      "convertAdvantage": "Convert the advantage",
+      "saveEquality": "Save the draw",
       "anapierce": "Ana Pierce",
       "arabianMate": "Arabian Mate",
       "attackingF2F7": "Attacking f2/f7",

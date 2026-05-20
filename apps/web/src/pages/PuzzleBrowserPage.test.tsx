@@ -116,6 +116,35 @@ describe('<PuzzleBrowserPage> KS-2561 — фильтры и infinite scroll', ()
     ).toBe('true');
   });
 
+  it('KS-3147 (ADR-069): чип convertAdvantage добавляет ?themes=convertAdvantage в запрос', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PuzzleBrowserPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    await user.click(screen.getByTestId('filter-theme-convertAdvantage'));
+    await waitFor(() => {
+      const lastUrl = apiGet.mock.calls.at(-1)?.[0] as string;
+      expect(lastUrl).toMatch(/themes=convertAdvantage/);
+    });
+    expect(
+      screen
+        .getByTestId('filter-theme-convertAdvantage')
+        .getAttribute('data-active'),
+    ).toBe('true');
+  });
+
+  it('KS-3147 (ADR-069): чип saveEquality добавляет ?themes=saveEquality в запрос', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PuzzleBrowserPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    await user.click(screen.getByTestId('filter-theme-saveEquality'));
+    await waitFor(() => {
+      const lastUrl = apiGet.mock.calls.at(-1)?.[0] as string;
+      expect(lastUrl).toMatch(/themes=saveEquality/);
+    });
+  });
+
   it('filter ratingMin и ratingMax попадают в query', async () => {
     const user = userEvent.setup();
     renderWithProviders(<PuzzleBrowserPage />);
