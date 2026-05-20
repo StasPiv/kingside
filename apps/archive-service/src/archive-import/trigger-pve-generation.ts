@@ -115,18 +115,34 @@ export async function triggerPveGeneration(
 
   // Динамический load пакета — на случай если @aws-sdk/client-ecs
   // не встал в production image (пример из api/ScalingService).
-  let RunTaskCommand: (input: unknown) => unknown;
+  //
+  // KS-3150 fix (20.05.2026): `RunTaskCommand` — это конструктор-класс
+  // в AWS-SDK v3, его НУЖНО вызывать через `new`. Раньше тип был
+  // объявлен как обычная функция и ниже использовался `RunTaskCommand(
+  // input)` без `new` — runtime в проде падал с
+  // `Class constructor RunTaskCommand cannot be invoked without 'new'`.
+  // Сейчас тип объявлен как `new (input: unknown) => unknown` и вызов
+  // ниже идёт через `new RunTaskCommand(input)`.
+  type RunTaskCtor = new (input: unknown) => unknown;
+  let RunTaskCommand: RunTaskCtor;
   let ecsClient: {
     send: (cmd: unknown) => Promise<{ tasks?: Array<{ taskArn?: string }> }>;
   };
   try {
     if (args.ecsClientFactory && args.runTaskCommandFactory) {
       ecsClient = await args.ecsClientFactory();
-      RunTaskCommand = args.runTaskCommandFactory;
+      // Тестовая фабрика — оборачиваем в no-op-конструктор, чтобы
+      // `new` работал единообразно с production-веткой.
+      const factory = args.runTaskCommandFactory;
+      RunTaskCommand = class {
+        constructor(input: unknown) {
+          return factory(input) as object;
+        }
+      } as unknown as RunTaskCtor;
     } else {
       const mod = (await import('@aws-sdk/client-ecs')) as unknown as {
         ECSClient: new (opts: object) => typeof ecsClient;
-        RunTaskCommand: typeof RunTaskCommand;
+        RunTaskCommand: RunTaskCtor;
       };
       ecsClient = new mod.ECSClient({});
       RunTaskCommand = mod.RunTaskCommand;
@@ -160,7 +176,7 @@ export async function triggerPveGeneration(
   };
 
   try {
-    const cmd = RunTaskCommand(input);
+    const cmd = new RunTaskCommand(input);
     const resp = await ecsClient.send(cmd);
     const taskArn = resp.tasks?.[0]?.taskArn;
     if (!taskArn) {
