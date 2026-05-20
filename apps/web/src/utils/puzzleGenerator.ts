@@ -3,6 +3,8 @@ import {
   PUZZLE_GEN_DEFAULTS,
   determinePuzzleObjective,
   evaluateBlunder,
+  holdsSolvabilityIntermediate,
+  meetsSolvabilityFinal,
   wdlOrMateFallback,
   wdlSigned,
   wdlSignedFromInfo,
@@ -249,22 +251,42 @@ function computeStartingRating(wdlAfterForSolver: number): number {
 }
 
 /**
- * Solvability-check (halfMovesN=6 SF-vs-SF от `fenAfter`). Решающий
- * ходит по `analyze(currentFen, depth, multiPv=1)`. На каждом ходу
- * решающего проверяем `wdl ≥ failThreshold`; в конце требуем `wdl ≥
- * winThreshold`. Зеркало `apps/tactic-worker/src/puzzle-generator/
- * generator-pipeline.ts`-passa.
+ * KS-3156 (ADR-069 §4): solvability-check переключён на единые
+ * shared-функции `meetsSolvabilityFinal` / `holdsSolvabilityIntermediate`
+ * (`@kingside/shared/utils/puzzle-gen-core`). Критерий теперь различается
+ * по `objective`:
+ *   - `convertAdvantage` — signed (W − L) ≥ threshold (старая логика);
+ *   - `saveEquality`     — (W + D) ≥ threshold (без этого ничейные
+ *     позиции вечно валили финал signed≈0, см. backend pre-KS-3156).
+ *
+ * До KS-3156 здесь была локальная копия серверной функции (signed-only),
+ * и при `solvabilityCheck=true` saveEquality-кандидаты дропались на
+ * финале даже когда solver реально удерживал ничью. Сейчас обёртка
+ * получает `objective` от caller'а и просто пробрасывает её в shared
+ * helper'ы — обе обёртки (фронт + tactic-worker) ведут одну математику.
+ *
+ * `failThreshold` выбирается по objective: для saveEquality ноль
+ * пропускает фолл в проигрыш, поэтому используем тот же `winThreshold`
+ * (W+D ≥ 0.5 на каждом полуходу = solver не теряет ничью).
  */
 async function solvabilityPasses(
   engine: EngineAdapter,
   fenAfter: string,
   depth: number,
   movetimeMs: number,
+  objective: PuzzleObjective,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
   const halfMoves = PUZZLE_GEN_DEFAULTS.halfMovesN;
   const winT = PUZZLE_GEN_DEFAULTS.winThreshold;
-  const failT = PUZZLE_GEN_DEFAULTS.failThreshold;
+  // KS-3156: для saveEquality `failThreshold=0` бесполезен (W+D≥0 проходит
+  // всегда), поэтому используем тот же `winThreshold` — solver обязан
+  // на каждом полуходу удерживать W+D ≥ 0.5, иначе фолл в проигрыш.
+  // Для convertAdvantage оставляем серверный дефолт failThreshold=0.0.
+  const failT =
+    objective === 'saveEquality'
+      ? PUZZLE_GEN_DEFAULTS.winThreshold
+      : PUZZLE_GEN_DEFAULTS.failThreshold;
   let chess: Chess;
   try {
     chess = new Chess(fenAfter);
@@ -273,14 +295,18 @@ async function solvabilityPasses(
   }
   // На fenAfter сторона на ходу — это решающий (соперник сходившего).
   const solverColor = chess.turn();
-  let lastWdlForSolver = 0;
+  let lastWdlForSolver: Wdl | null = null;
   for (let half = 0; half < halfMoves; half++) {
     if (abortSignal?.aborted) return false;
     if (chess.isGameOver()) {
-      // checkmate решающим — успех; иначе draw — провал.
+      // checkmate решающим — успех при convertAdvantage; для
+      // saveEquality мат соперника тоже хорошо, но обычно solver
+      // ничью держит без мата. Используем shared-критерий по
+      // последнему wdlForSolver.
       if (chess.isCheckmate()) {
         const winnerIsSolver = chess.turn() !== solverColor;
-        return winnerIsSolver && lastWdlForSolver >= winT;
+        if (!winnerIsSolver || !lastWdlForSolver) return false;
+        return meetsSolvabilityFinal(lastWdlForSolver, objective, winT);
       }
       return false;
     }
@@ -288,13 +314,21 @@ async function solvabilityPasses(
     if (result.lines.length === 0) return false;
     const line = result.lines[0];
     const sideOnMove = chess.turn();
-    const wdl = wdlSignedFromInfo(line.wdl, line.score);
-    if (wdl === null) return false;
-    const wdlForSolver = sideOnMove === solverColor ? wdl : -wdl;
+    // KS-3156: shared helper'ы работают с полным `Wdl` объектом POV
+    // solver. `wdlOrMateFallback` собирает Wdl из info / mate-fallback,
+    // потом приводим в POV solver через зеркало W↔L при смене стороны.
+    const rawWdl = wdlOrMateFallback(line.wdl ?? null, line.score);
+    if (!rawWdl) return false;
+    const wdlForSolver: Wdl =
+      sideOnMove === solverColor
+        ? rawWdl
+        : { w: rawWdl.l, d: rawWdl.d, l: rawWdl.w };
     if (sideOnMove === solverColor) {
       lastWdlForSolver = wdlForSolver;
     }
-    if (wdlForSolver < failT) return false;
+    if (!holdsSolvabilityIntermediate(wdlForSolver, objective, failT)) {
+      return false;
+    }
     const move = line.pv[0];
     if (!move) return false;
     try {
@@ -309,7 +343,8 @@ async function solvabilityPasses(
       return false;
     }
   }
-  return lastWdlForSolver >= winT;
+  if (!lastWdlForSolver) return false;
+  return meetsSolvabilityFinal(lastWdlForSolver, objective, winT);
 }
 
 /**
@@ -607,22 +642,32 @@ export async function generatePuzzlesFromPgn(
         }
       }
 
-      if (solvabilityCheck) {
-        const ok = await solvabilityPasses(engine, fenAfter, depth, movetimeMs, abortSignal);
-        if (!ok) {
-          countDrop('solvabilityFailed');
-          console.log(
-            `${logBase} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:solvabilityFailed`,
-          );
-          continue;
-        }
-      }
-
       // KS-3146 (ADR-069 §3.2): жанр пазла из shared-функции (зеркало
       // tactic-worker / KS-3145). `wdlAfterRaw` POV решающего, поэтому
       // `determinePuzzleObjective` корректно различает convertAdvantage
       // (W_solver ≥ 0.5) и saveEquality (W_solver < 0.5, ничья).
+      // KS-3156: вычисляем objective ДО solvability-проверки, чтобы
+      // shared `meetsSolvabilityFinal`/`holdsSolvabilityIntermediate`
+      // выбрали правильную ветку критерия.
       const objective: PuzzleObjective = determinePuzzleObjective(wdlAfterRaw);
+
+      if (solvabilityCheck) {
+        const ok = await solvabilityPasses(
+          engine,
+          fenAfter,
+          depth,
+          movetimeMs,
+          objective,
+          abortSignal,
+        );
+        if (!ok) {
+          countDrop('solvabilityFailed');
+          console.log(
+            `${logBase} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} objective=${objective} SKIP:solvabilityFailed`,
+          );
+          continue;
+        }
+      }
 
       const themes = computeTagsClient(
         fenAfter,
