@@ -205,13 +205,20 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(calls.length).toBeGreaterThan(0);
   });
 
-  it('skipDecided drop — |wdlBefore| > 0.95 → drop', async () => {
-    let firstBefore = true;
+  it('KS-3140: «реализуй перевес» — wdlBefore=+0.97 БОЛЬШЕ не отбрасывается по skipDecided, проходит как зевок если есть deltaW', async () => {
+    let n = 0;
     const { engine } = makeMockEngine(() => {
-      if (firstBefore) {
-        firstBefore = false;
-        // wdlBefore = +0.97 → decided
-        return res([line(['a1a8'], { w: 970, d: 30, l: 0 })]);
+      n++;
+      // KS-3140: даже если позиция изначально «выигрышная» (W=970/L=0,
+      // |signed|=0.97 > 0.95), это НЕ повод пропускать — именно такие
+      // позиции и образуют пазлы «реализуй перевес» когда блaндер
+      // упускает выигрыш.
+      if (n === 1) return res([line(['a1a8'], { w: 970, d: 30, l: 0 })]);
+      if (n === 2) {
+        // wdlAfter POV решателя: W=0, D=900, L=100. Зевок упустил победу в ничью.
+        //   deltaW = (970 − 100)/1000 = 0.87 ≥ 0.6 ✓ (триггер по W)
+        //   W_after + D_after = 0 + 0.9 = 0.9 ≥ 0.5 ✓ (единый after-фильтр KS-3140)
+        return res([line(['b1b8'], { w: 0, d: 900, l: 100 })]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -219,23 +226,27 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     const puzzles = await generatePuzzlesFromPgn(PGN, vi.fn(), {
       engineFactory: () => engine,
     });
-    // Decided + остальные «нулевые» позиции → ноль пазлов.
-    expect(puzzles).toHaveLength(0);
+    expect(puzzles.length).toBeGreaterThanOrEqual(1);
+    expect(puzzles[0].sourceMetadata?.deltaW).toBeCloseTo(0.87, 2);
+    expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('W');
   });
 
-  it('lowWAfterForSolver drop — триггер по W прошёл, но W_after_for_solver=0.3 < 0.5 → drop', async () => {
+  it('KS-3140: lowWplusDAfter drop — триггер по D, но solver в проигрышной позиции → drop', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) {
-        // wdlBefore POV блaндера: W=900, L=100 — не decided (|signed|=0.8 < 0.95).
-        return res([line(['a1a8'], { w: 900, d: 0, l: 100 })]);
+        // wdlBefore POV блaндера: W=0, D=900, L=100 (почти-ничья).
+        return res([line(['a1a8'], { w: 0, d: 900, l: 100 })]);
       }
       if (n === 2) {
-        // wdlAfter POV решателя: W=300, D=400, L=300.
-        // deltaW = (900 − 300)/1000 = 0.6 ≥ 0.6 — триггер по W прошёл.
-        // W_after_for_solver = 0.3 < minWAfterForSolver (0.5) → drop.
-        return res([line(['b1b8'], { w: 300, d: 400, l: 300 })]);
+        // wdlAfter POV решателя: W=0, D=200, L=800.
+        // deltaW = (0 − 800)/1000 = -0.8 — НЕ триггер по W.
+        // deltaD = (900 − 200)/1000 = 0.7 ≥ 0.6 — триггер по D ✓
+        // W+D_after = (0+200)/1000 = 0.2 < 0.5 → drop lowWplusDAfter.
+        // Решающий упустил ничью И оказался в проигрышной позиции —
+        // позиция не годится как пазл «спасение в ничью».
+        return res([line(['b1b8'], { w: 0, d: 200, l: 800 })]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });

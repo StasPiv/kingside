@@ -15,12 +15,18 @@ import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
 export type { BridgeConfig };
 
 /**
- * KS-2584 / KS-3137 (ADR-068 §3.4) — клиентский генератор пазлов на
- * WDL-алгоритме. Зеркало серверного `tactic-worker/puzzle-generator`:
- * обе обёртки вызывают **одну и ту же** `evaluateBlunder` из
- * `@kingside/shared`, отличие только в настройках (на сервере —
- * hardcoded дефолты, на клиенте — пользовательские слайдеры в
- * `PuzzleGeneratorModal`).
+ * KS-2584 / KS-3137 / KS-3140 (ADR-068 §3.4 rev2) — клиентский генератор
+ * пазлов на WDL-алгоритме. Зеркало серверного
+ * `tactic-worker/puzzle-generator`: обе обёртки вызывают **одну и ту же**
+ * `evaluateBlunder` из `@kingside/shared`, отличие только в настройках.
+ *
+ * KS-3140: pre-condition `skipDecided` (|wdlBefore_signed| > 0.95) убран
+ * — он отсекал целый жанр пазлов «реализуй перевес» (см. KS-3139
+ * диагностика). Чтобы упустить позицию, надо сначала её иметь; если
+ * белые в выигрышной позиции зевнули в ничью или проигрыш — это и есть
+ * хороший пазл. После KS-3140 такие позиции проходят через
+ * `evaluateBlunder` и фильтруются единым after-фильтром
+ * `W+D ≥ minWPlusDAfterForSolver`.
  *
  * Псевдокод:
  *
@@ -28,7 +34,6 @@ export type { BridgeConfig };
  *     fenBefore, playedUci = ход партии
  *     [line1, …] = analyze(fenBefore, depth, multiPV=2)
  *     if line1.pv[0] === playedUci          → drop:samePv1
- *     if |wdlBefore_signed| > skipDecidedWdl→ drop:decided
  *     fenAfter = apply(playedUci)
  *     if isGameOver(fenAfter)               → drop:gameOver
  *     [a1, …] = analyze(fenAfter, depth, multiPV=2)
@@ -40,8 +45,8 @@ export type { BridgeConfig };
  *     accept → play-vs-engine puzzle, isPublic=false
  *
  * Дефолты порогов — `PUZZLE_GEN_DEFAULTS` (`deltaWThreshold`,
- * `deltaDThreshold`, `minWAfterForSolver`, `minWPlusDAfterForSolver`),
- * единый источник для server+client (см. ADR-068 §6).
+ * `deltaDThreshold`, `minWPlusDAfterForSolver`), единый источник для
+ * server+client (см. ADR-068 §6).
  *
  * Если у engine info нет `wdl` и score не mate — `wdlOrMateFallback`
  * вернёт `null`, позиция skip:noWdl (старые сборки Stockfish без
@@ -139,14 +144,13 @@ export interface PuzzleGenSettings {
    */
   deltaDThreshold: number;
   /**
-   * KS-3137 (ADR-068 §3.2): защитный after-фильтр для триггера по W —
-   * минимальная вероятность победы решающего сразу после хода. Под UI
-   * не вынесен (defensive), берём из `PUZZLE_GEN_DEFAULTS`.
-   */
-  minWAfterForSolver: number;
-  /**
-   * KS-3137 (ADR-068 §3.2): защитный after-фильтр для триггера только
-   * по D — минимальная сумма W+D решающего после хода. Под UI не вынесен.
+   * KS-3137 / KS-3140 (ADR-068 §3.2 rev2): единый after-фильтр —
+   * минимальная сумма `W + D` решающего сразу после хода блaндера.
+   * Покрывает «реализуй перевес» (W_after велик) и «спасение в ничью»
+   * (D_after велик при W_after≈0). Раньше был раздельный
+   * `minWAfterForSolver` (только W) — KS-3140 объединил, потому что
+   * прежний фильтр терял класс «триггер по W + solver получает ничью».
+   * Под UI не вынесен (defensive), берём из `PUZZLE_GEN_DEFAULTS`.
    */
   minWPlusDAfterForSolver: number;
   /**
@@ -161,7 +165,6 @@ export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   movetimeMs: 1000,
   deltaWThreshold: PUZZLE_GEN_DEFAULTS.deltaWThreshold,
   deltaDThreshold: PUZZLE_GEN_DEFAULTS.deltaDThreshold,
-  minWAfterForSolver: PUZZLE_GEN_DEFAULTS.minWAfterForSolver,
   minWPlusDAfterForSolver: PUZZLE_GEN_DEFAULTS.minWPlusDAfterForSolver,
   solvabilityCheck: false,
 };
@@ -313,12 +316,12 @@ export async function generatePuzzlesFromPgn(
   const { depth, movetimeMs, solvabilityCheck } = settings;
   const { abortSignal, bridgeConfig, engineFactory } = options;
   const startPly = PUZZLE_GEN_DEFAULTS.startPly;
-  const skipDecidedThreshold = PUZZLE_GEN_DEFAULTS.skipDecidedWdl;
-  // KS-3137: настройки порогов передаём прямо в `evaluateBlunder`.
+  // KS-3137 / KS-3140: настройки порогов передаём прямо в `evaluateBlunder`.
+  // Поле `minWAfterForSolver` (KS-3136) убрано в KS-3140 — заменено единым
+  // after-фильтром W+D ≥ minWPlusDAfterForSolver.
   const blunderSettings: BlunderEvalSettings = {
     deltaWThreshold: settings.deltaWThreshold,
     deltaDThreshold: settings.deltaDThreshold,
-    minWAfterForSolver: settings.minWAfterForSolver,
     minWPlusDAfterForSolver: settings.minWPlusDAfterForSolver,
   };
 
@@ -493,12 +496,10 @@ export async function generatePuzzlesFromPgn(
         );
         continue;
       }
-      if (Math.abs(wdlBeforeSigned) > skipDecidedThreshold) {
-        console.log(
-          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} SKIP:decided`,
-        );
-        continue;
-      }
+      // KS-3140: pre-condition `skipDecided` (|wdlBefore_signed|>0.95)
+      // снят — он отрезал жанр «реализуй перевес». Теперь любые
+      // позиции (включая «белые уже выигрывают») идут в evaluateBlunder
+      // и проходят/отбраковываются единым after-фильтром по W+D.
 
       // Анализ after. Side-to-move на fenAfter = РЕШАТЕЛЬ (соперник
       // сходившего). Stockfish отдаёт `Wdl` POV side-to-move, то есть
