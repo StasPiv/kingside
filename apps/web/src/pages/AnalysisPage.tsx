@@ -62,9 +62,10 @@ import { AnalysisBoard } from './analysis/AnalysisBoard';
 // props переедет в AnalysisContext.
 import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 // KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
-// discriminated union review/analysis/puzzle/study. Заменяет
-// разбросанные `params.id`/`params.gameId`/`puzzleFen`/`localId`
-// производные. На FS1/FS2 study-роуты подключатся через wrapper.
+// discriminated union review/analysis/puzzle. Заменяет разбросанные
+// `params.id`/`params.gameId`/`puzzleFen`/`localId` производные.
+// ADR-067 (KS-3131): ветка `kind='study'` удалена в KS-3014, упоминания
+// зачищены здесь.
 import { useAnalysisContext } from './analysis/AnalysisContext';
 type GameData = {
   id: string;
@@ -662,11 +663,10 @@ function AnalysisPageInner({
   // `puzzleFen`/`puzzlePgn` в URL — это явный сигнал «новая ad-hoc
   // сессия с этими данными», восстанавливать чужой снимок нельзя.
   //
-  // KS-2904: тот же баг проявлялся при создании новой главы в студии —
-  // для свежей главы с дефолтным initialFen ad-hoc autosave подгружал
-  // из localStorage чужую партию (последнюю ad-hoc-сессию пользователя
-  // на /analysis). Жёстко выключаем autosave для не-analysis контекста
-  // (review/puzzle/study). Ad-hoc-сценарий — только `ctx.kind==='analysis'`.
+  // KS-2904: жёстко выключаем autosave для не-analysis контекста
+  // (review/puzzle), иначе при возврате в эти режимы из ad-hoc-сессии
+  // localStorage подгружает чужой снимок. Ad-hoc-сценарий —
+  // только `ctx.kind==='analysis'`.
   const stateHasPgn = !!(location.state as { pgn?: string } | null)?.pgn;
   useAdHocAnalysisAutosave({
     enabled:
@@ -1370,8 +1370,7 @@ function AnalysisPageInner({
     onPieceDrop: handleFastDragDrop,
     boardOrientation,
     allowBothColors: true,
-    // KS-2868/KS-2869 (FS1/FS2): read-only mode (publicMode и
-    // study public-readonly/embed) — drag отключён.
+    // KS-2868/KS-2869: read-only mode (publicMode) — drag отключён.
     enabled: !loading && !ctx.readOnly,
   });
 
@@ -1681,12 +1680,12 @@ function AnalysisPageInner({
                     {t('review.copyPgn', 'Copy PGN to clipboard')}
                   </button>
                   {/* KS-2958: «Сгенерировать пазл» — только для kind=analysis|review.
-                      В study/puzzle скрыто (в studies своя задача, в puzzle
-                      нет смысла). Открывает основной PuzzleGeneratorModal
-                      с PGN текущей партии и autoStart=true — то же окно с
-                      прогрессом и пост-flow «My drafts» / «Publish all»,
-                      что и в разделе «Тренировка точности», только без
-                      ручного ввода PGN (он подставляется автоматически). */}
+                      В puzzle скрыто (там нет смысла). Открывает основной
+                      PuzzleGeneratorModal с PGN текущей партии и
+                      autoStart=true — то же окно с прогрессом и пост-flow
+                      «My drafts» / «Publish all», что и в разделе
+                      «Тренировка точности», только без ручного ввода PGN
+                      (он подставляется автоматически). */}
                   {(ctx.kind === 'analysis' || ctx.kind === 'review') && (
                     <button
                       onClick={() => {

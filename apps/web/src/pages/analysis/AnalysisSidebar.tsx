@@ -5,7 +5,6 @@ import { GameMetaBar } from '../../components/GameMetaBar';
 import type { GameMetaInfo } from '../../components/GameMetaBar';
 import { MaterialBalance } from '../../components/MaterialBalance';
 import { ArchiveTreePanel } from '../../components/analysis/ArchiveTreePanel';
-import type { ReactNode } from 'react';
 
 import { ReviewMoveList } from '../../review/components/ReviewMoveList';
 import type { ChessMove, VariationColor } from '../../review/types';
@@ -103,12 +102,6 @@ export interface AnalysisSidebarProps {
    * null = без сокрытия.
    */
   concealAfterPly?: number | null;
-  /**
-   * KS-2873 (FM4): дополнительный блок над moves-panel (например,
-   * AnalysisGamebookEditor в gamebook-режиме). Если undefined — не
-   * рендерится.
-   */
-  extraPanel?: ReactNode;
 }
 
 export function AnalysisSidebar({
@@ -150,7 +143,6 @@ export function AnalysisSidebar({
   onMobileTabChange,
   readOnly = false,
   concealAfterPly = null,
-  extraPanel,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
 
@@ -333,18 +325,6 @@ export function AnalysisSidebar({
           </div>
         )}
       </div>
-
-      {/* KS-2873 (FM4): extraPanel — например AnalysisGamebookEditor для
-          study-роута в gamebook-режиме. Размещён ПЕРЕД ArchiveTreePanel
-          (контент важнее «дерева»). */}
-      {extraPanel && (
-        <div
-          className="analysis-extra-panel"
-          data-testid="analysis-sidebar-extra"
-        >
-          {extraPanel}
-        </div>
-      )}
 
       {/* Desktop: Archive tree panel (Database) */}
       <div className="analysis-desktop-only">

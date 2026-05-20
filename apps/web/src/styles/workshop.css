@@ -983,11 +983,6 @@
   text-decoration: underline;
 }
 
-.analysis-breadcrumbs__right-slot {
-  flex-basis: 100%;
-  margin-top: 4px;
-}
-
 /* Analysis page: editable title */
 .analysis-title {
   padding: 6px 0 8px;

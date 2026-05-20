@@ -14,9 +14,8 @@ import { useLocation, useParams } from 'react-router-dom';
  * `readOnly` — производное от kind/mode. UI-компоненты могут принимать
  * его как один проп вместо «угадывания» по publicMode.
  *
- * KS-3014: вариант `kind='study'` удалён — Studies теперь живут на
- * собственной странице, AnalysisPage обслуживает только review /
- * analysis / puzzle.
+ * ADR-067 (KS-3014/KS-3131): модуль Studies удалён, AnalysisPage
+ * обслуживает только review / analysis / puzzle.
  */
 
 export type AnalysisContext =

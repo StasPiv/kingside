@@ -173,9 +173,6 @@ describe('resolveAnalysisContext (KS-2867)', () => {
     });
   });
 
-  // KS-3014: ветка kind='study' удалена — Studies живут на отдельной
-  // странице, AnalysisPage обслуживает только review/analysis/puzzle.
-
   describe('приоритет веток', () => {
     it('review > analysis (id) > puzzle', () => {
       const ctx = resolveAnalysisContext({
