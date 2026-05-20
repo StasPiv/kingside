@@ -1,6 +1,13 @@
 # ADR-050 — Унификация клиентской генерации пазлов с серверной (WDL-зевок, draft/publish flow)
 
-- Статус: Proposed
+- Статус: **Partially Superseded by ADR-068 (2026-05-20)** — §2.1 (формула
+  `blunderΔ = wdlBefore + wdlAfterForSolver ≥ 0.6`) и §3 #5
+  (`PUZZLE_GEN_DEFAULTS.blunderDelta` / `minWdlAfterBlunder`) заменены
+  парой независимых метрик `deltaW` / `deltaD` с порогами 0.6 / 0.6 и
+  дифференцированным after-фильтром. Остальное (источник `UCI_ShowWDL`,
+  draft/publish-flow, общий код в `packages/shared`, режим
+  `play-vs-engine`) — остаётся актуальным.
+- Статус (исторический): Proposed
 - Дата: 2026-05-07
 - Связанные задачи: KS-2579
 - Связанные ADR: ADR-041 (legacy forced-line generator), ADR-044 (play-vs-engine pivot, WDL), ADR-048 (precision section), ADR-046 (puzzle stats)
