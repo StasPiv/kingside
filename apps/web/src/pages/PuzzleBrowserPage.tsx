@@ -7,6 +7,7 @@ import { api } from '../api';
 // результатом генерации). Импорт `PuzzleGeneratorModal` отсюда удалён.
 import { HelpButton } from '../components/HelpButton';
 import { PuzzleMiniBoard } from '../components/puzzle/PuzzleMiniBoard';
+import { PuzzleObjectiveBadge } from '../components/puzzle/PuzzleObjectiveBadge';
 import {
   useInfinitePuzzles,
   type BrowsePuzzleDto,
@@ -526,6 +527,13 @@ function PuzzleDiagramCard({
         >
           {orientation === 'white' ? '♔' : '♚'}
         </span>
+        {/* KS-3146 (ADR-069): жанровый бейдж — рендерится только при
+            наличии `objective` (legacy-пазлы остаются без него). */}
+        <PuzzleObjectiveBadge
+          objective={puzzle.playVsEngine?.objective ?? null}
+          size="sm"
+          testId="puzzle-card-objective"
+        />
         {puzzle.solvedStatus === 'solved' && (
           <span className="puzzle-card__status puzzle-card__status--solved">
             ✓

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PuzzleObjective } from '@kingside/shared';
 import { api } from '../api';
 
 /**
@@ -53,6 +54,12 @@ export interface BrowsePuzzleDto {
     blunderMove?: string;
     fenBeforeBlunder?: string;
     wdlAfterBlunder?: number;
+    /**
+     * KS-3146 / ADR-069: жанр пазла. Backend (KS-3145) проставляет
+     * `convertAdvantage` | `saveEquality` при генерации. Legacy-пазлы
+     * (до KS-3144) поля не имеют — UI fallback: бейдж не показывается.
+     */
+    objective?: PuzzleObjective | null;
   } | null;
   /**
    * KS-2761: ELO ЗЕВНУВШЕГО игрока — конкретно той стороны, что

@@ -152,8 +152,12 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(p.sourceMetadata?.winThreshold).toBe(0.5);
     expect(p.sourceMetadata?.failThreshold).toBe(0.0);
     expect(p.sourceMetadata?.depth).toBe(DEFAULT_PUZZLE_GEN_SETTINGS.depth);
+    // KS-3146 (ADR-069): жанр пазла. wdlAfterRaw POV solver W=850 ≥ 500
+    // → convertAdvantage.
+    expect(p.sourceMetadata?.playVsEngine?.objective).toBe('convertAdvantage');
     expect(p.themes).toMatch(/playVsEngine/);
     expect(p.themes).toMatch(/advantage|crushing/);
+    expect(p.themes).toMatch(/convertAdvantage/);
     // KS-3143: legacy-поле `gap` (cp-алгоритм ADR-050) больше не пишется
     // в payload — оно опционально на backend (KS-3141), новый WDL-смысл
     // несут deltaW/deltaD в sourceMetadata.
@@ -303,6 +307,39 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(puzzles.length).toBeGreaterThanOrEqual(1);
     expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('D');
     expect(puzzles[0].sourceMetadata?.deltaD).toBeCloseTo(0.65, 2);
+    // KS-3146 (ADR-069): wdlAfter POV solver W=600 ≥ 500 → convertAdvantage.
+    expect(puzzles[0].sourceMetadata?.playVsEngine?.objective).toBe(
+      'convertAdvantage',
+    );
+    expect(puzzles[0].themes).toMatch(/convertAdvantage/);
+  });
+
+  it('KS-3146 (ADR-069): saveEquality — solver спасает ничью (W_after<0.5, W+D_after≥0.5)', async () => {
+    let n = 0;
+    const { engine } = makeMockEngine(() => {
+      n++;
+      // before (POV блaндера): D=900, W=50, L=50 — почти-ничья.
+      if (n === 1) return res([line(['a1a8'], { w: 50, d: 900, l: 50 })]);
+      if (n === 2) {
+        // after (POV solver): W=400, D=200, L=400.
+        //   deltaW = (50 − 400)/1000 = -0.35 — НЕ триггер W.
+        //   deltaD = (900 − 200)/1000 = 0.7 ≥ 0.6 — триггер D ✓.
+        //   W+D_after = 0.4+0.2 = 0.6 ≥ 0.5 ✓ (фильтр прошёл).
+        //   determinePuzzleObjective: W_solver/1000 = 0.4 < 0.5 → saveEquality.
+        return res([line(['b1b8'], { w: 400, d: 200, l: 400 })]);
+      }
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+
+    const puzzles = await generatePuzzlesFromPgn(PGN, vi.fn(), {
+      engineFactory: () => engine,
+    });
+    expect(puzzles.length).toBeGreaterThanOrEqual(1);
+    expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('D');
+    expect(puzzles[0].sourceMetadata?.playVsEngine?.objective).toBe(
+      'saveEquality',
+    );
+    expect(puzzles[0].themes).toMatch(/saveEquality/);
   });
 
   it('mate в score → темы содержат `mate` и `mateInN`', async () => {

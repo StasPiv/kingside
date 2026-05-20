@@ -1,12 +1,14 @@
 import { Chess } from 'chess.js';
 import {
   PUZZLE_GEN_DEFAULTS,
+  determinePuzzleObjective,
   evaluateBlunder,
   wdlOrMateFallback,
   wdlSigned,
   wdlSignedFromInfo,
   type BlunderEvalSettings,
   type BlunderTrigger,
+  type PuzzleObjective,
   type Wdl,
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
@@ -77,6 +79,15 @@ export type SourceMetadata = {
   winThreshold?: number;
   failThreshold?: number;
   depth?: number;
+  /**
+   * KS-3146 / ADR-069: вложенный блок playVsEngine — здесь живёт
+   * `objective` (жанр пазла), который backend `BatchPuzzleItem` миграет
+   * в колонку `puzzles.play_vs_engine.objective`. Структура повторяет
+   * shared DTO.
+   */
+  playVsEngine?: {
+    objective?: PuzzleObjective;
+  };
 };
 
 export type GeneratedPuzzleData = {
@@ -184,8 +195,13 @@ function computeTagsClient(
   wdlAfterForSolver: number,
   isMate: boolean,
   mateDist: number,
+  objective: PuzzleObjective,
 ): string[] {
   const themes: string[] = ['playVsEngine'];
+  // KS-3146 (ADR-069 §3.2): жанр пазла в тегах — для фильтрации в
+  // каталоге и подбора в drills/precision. Зеркало серверного
+  // generator-tagging пайплайна (KS-3145).
+  themes.push(objective);
   if (isMate) {
     themes.push('mate');
     if (mateDist <= 5) themes.push('mateInN');
@@ -558,15 +574,22 @@ export async function generatePuzzlesFromPgn(
         }
       }
 
+      // KS-3146 (ADR-069 §3.2): жанр пазла из shared-функции (зеркало
+      // tactic-worker / KS-3145). `wdlAfterRaw` POV решающего, поэтому
+      // `determinePuzzleObjective` корректно различает convertAdvantage
+      // (W_solver ≥ 0.5) и saveEquality (W_solver < 0.5, ничья).
+      const objective: PuzzleObjective = determinePuzzleObjective(wdlAfterRaw);
+
       const themes = computeTagsClient(
         fenAfter,
         wdlAfterSignedForSolver,
         isMate,
         mateDist,
+        objective,
       );
       const rating = computeStartingRating(wdlAfterSignedForSolver);
       console.log(
-        `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} ACCEPTED rating=${rating}`,
+        `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} objective=${objective} ACCEPTED rating=${rating}`,
       );
 
       // KS-3143: legacy-поле `gap` (наследие cp-алгоритма ADR-050,
@@ -595,6 +618,10 @@ export async function generatePuzzlesFromPgn(
           winThreshold: PUZZLE_GEN_DEFAULTS.winThreshold,
           failThreshold: PUZZLE_GEN_DEFAULTS.failThreshold,
           depth,
+          // KS-3146: backend (KS-3145) читает `sourceMetadata.playVsEngine.objective`
+          // и проставляет в `puzzles.play_vs_engine.objective`. UI на solver-стороне
+          // (KS-3146 F1) разводит тексты «реализуй перевес» / «спасение в ничью».
+          playVsEngine: { objective },
         },
         solutionMode: 'play-vs-engine',
         isPublic: false,

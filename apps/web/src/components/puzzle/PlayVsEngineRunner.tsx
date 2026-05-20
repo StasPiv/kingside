@@ -11,7 +11,9 @@ import type { Square } from 'chess.js';
 import type {
   PuzzleDto,
   PlayVsEnginePuzzleReason,
+  PuzzleObjective,
 } from '@kingside/shared';
+import { PuzzleObjectiveBadge } from './PuzzleObjectiveBadge';
 // KS-3018 hotfix: рассчитываем итоговую 5-балльную оценку прямо во фронте
 // из `userBestLog` — данные уже собраны. Это убирает round-trip к backend
 // после POST attempt и даёт мгновенный результат на финальном экране.
@@ -1368,15 +1370,34 @@ export function PlayVsEngineRunner({
     return computePrecisionScore(buildPrecisionScoreInputs(userBestLog));
   }, [state, userBestLog]);
 
+  // KS-3146 (ADR-069 §3.2): дифференцируем тексты «You held / lost the
+  // advantage» по жанру пазла. convertAdvantage — «реализуй перевес»,
+  // saveEquality — «спасение в ничью». Mate-варианты от жанра не зависят
+  // (мат всегда мат). Если objective undefined (legacy-пазлы до KS-3144)
+  // — fallback на исторические тексты.
+  const objective: PuzzleObjective | undefined =
+    puzzle.playVsEngine?.objective;
   const reasonLabel = (r: PlayVsEnginePuzzleReason | null): string => {
     switch (r) {
       case 'win':
+        if (objective === 'saveEquality') {
+          return t('puzzle.engine.winSave', 'You held the draw');
+        }
+        if (objective === 'convertAdvantage') {
+          return t('puzzle.engine.winConvert', 'You converted the advantage');
+        }
         return t('puzzle.engine.win', 'You held the advantage');
       case 'win-mate':
         return t('puzzle.engine.winMate', 'Checkmate!');
       case 'win-engine-resign':
         return t('puzzle.engine.winResign', 'Engine resigned (sees mate)');
       case 'lose-wdl':
+        if (objective === 'saveEquality') {
+          return t('puzzle.engine.loseWdlSave', 'You let the draw slip');
+        }
+        if (objective === 'convertAdvantage') {
+          return t('puzzle.engine.loseWdlConvert', 'You lost the advantage');
+        }
         return t('puzzle.engine.loseWdl', 'You lost the advantage');
       case 'lose-mate':
         return t('puzzle.engine.loseMate', 'You got mated');
@@ -1466,7 +1487,17 @@ export function PlayVsEngineRunner({
               : '';
             const baselineWdl =
               clientBaselineWdl ?? puzzle.playVsEngine?.wdlAfter ?? null;
-            const goalKind = selectBlunderGoalKey(baselineWdl);
+            // KS-3146 (ADR-069 §3.2): жанр пазла даёт точный hint,
+            // независимо от WDL-эвристики. Если backend проставил
+            // `objective` — берём его (convertAdvantage→advantage,
+            // saveEquality→equality). Иначе fallback на исторический
+            // WDL-based `selectBlunderGoalKey` (KS-3035).
+            const goalKind: 'advantage' | 'equality' | 'defense' =
+              objective === 'convertAdvantage'
+                ? 'advantage'
+                : objective === 'saveEquality'
+                  ? 'equality'
+                  : selectBlunderGoalKey(baselineWdl);
             const goalText = t(`puzzle.engine.blunderGoal.${goalKind}`);
             return (
               <p
@@ -1550,6 +1581,21 @@ export function PlayVsEngineRunner({
 
           {(state === 'win' || state === 'lose') && (
             <div className="puzzle-engine-runner__result" data-testid="puzzle-engine-result">
+              {/* KS-3146 (ADR-069 §3.2): жанровая «шапка» summary —
+                  Badge с иконкой («Реализуй перевес» / «Спасение в
+                  ничью»). Рендерится только при наличии `objective` у
+                  пазла (legacy-пазлы остаются без бейджа). */}
+              {objective && (
+                <div
+                  className="puzzle-engine-runner__objective-row"
+                  data-testid="puzzle-engine-objective-row"
+                >
+                  <PuzzleObjectiveBadge
+                    objective={objective}
+                    testId="puzzle-engine-objective-badge"
+                  />
+                </div>
+              )}
               {/* KS-3018 (ADR-065 §5.1.1): 5-балльная оценка вместо бинарной
                   плашки «You held / lost the advantage». Старый result-label
                   оставлен mate/resign-каёмкой ниже — это игровая концовка,

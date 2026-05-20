@@ -2500,6 +2500,51 @@ body:has(.puzzle-rush-board) {
   border-radius: 8px;
 }
 
+/* KS-3146 (ADR-069 §3.2): badge жанра пазла. Pill-чип над PrecisionScoreBlock. */
+.puzzle-engine-runner__objective-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.puzzle-objective-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--c-1f2244, rgba(124, 131, 255, 0.12));
+  color: var(--c-c0c0e0);
+  border: 1px solid var(--c-7c83ff44, rgba(124, 131, 255, 0.3));
+  white-space: nowrap;
+}
+
+.puzzle-objective-badge--sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.puzzle-objective-badge--convertAdvantage {
+  background: rgba(245, 197, 24, 0.12);
+  border-color: rgba(245, 197, 24, 0.35);
+}
+
+.puzzle-objective-badge--saveEquality {
+  background: rgba(128, 200, 255, 0.12);
+  border-color: rgba(128, 200, 255, 0.35);
+}
+
+.puzzle-objective-badge__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.puzzle-objective-badge__label {
+  letter-spacing: 0.01em;
+}
+
 .puzzle-engine-runner__result-label {
   font-size: 18px;
   font-weight: 800;

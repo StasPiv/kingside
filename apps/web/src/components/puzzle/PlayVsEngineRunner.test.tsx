@@ -1696,3 +1696,71 @@ describe('cpFromScore KS-2505', () => {
     expect(cpFromScore({ type: 'mate', value: -7 })).toBe(-100000);
   });
 });
+
+/**
+ * KS-3146 (ADR-069 §3.2): дифференцированные тексты по `puzzle.playVsEngine.objective`.
+ * - convertAdvantage → hint goal=advantage, label «Hold the advantage».
+ * - saveEquality     → hint goal=equality, label «Hold the balance».
+ * - undefined        → fallback на `selectBlunderGoalKey` (KS-3035).
+ */
+describe('PlayVsEngineRunner KS-3146 — objective-aware texts', () => {
+  it('objective=convertAdvantage → blunder-hint имеет data-blunder-goal="advantage"', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-blunder-goal')).toBe('advantage');
+  });
+
+  it('objective=saveEquality → blunder-hint имеет data-blunder-goal="equality"', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        // wdlAfterBlunder низкое (как бывает в saveEquality), но goal-key
+        // должен прийти от objective, а не от WDL-эвристики.
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: -1.0,
+        halfMovesN: 4,
+        objective: 'saveEquality',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-blunder-goal')).toBe('equality');
+  });
+
+  it('objective отсутствует → fallback на selectBlunderGoalKey (default advantage при отсутствии baseline WDL)', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        // objective не передаём — legacy-пазлы (до KS-3144).
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    // selectBlunderGoalKey(null) → 'advantage' (исторический default).
+    expect(hint.getAttribute('data-blunder-goal')).toBe('advantage');
+  });
+});
