@@ -1831,10 +1831,8 @@ body:has(.puzzle-rush-board) {
   text-align: center;
 }
 
-.puzzle-gap {
-  color: var(--c-888);
-  font-size: 12px;
-}
+/* KS-3143: класс `.puzzle-gap` удалён вместе со span'ом в
+   PuzzleGeneratorModal (legacy cp-алгоритм ADR-050). */
 
 .puzzle-themes-inline {
   color: var(--c-7c83ff);

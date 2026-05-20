@@ -90,11 +90,6 @@ export type GeneratedPuzzleData = {
   /** @deprecated KS-2584: не используется в play-vs-engine. */
   acceptedMoves?: string;
   rating: number;
-  /**
-   * KS-2584: «насколько большой перевес после правильного хода»
-   * (для UX: 0..100). До KS-2584 — gap в сантипешках между линиями.
-   */
-  gap: number;
   themes: string;
   sourceType: string;
   sourceId: string | null;
@@ -574,11 +569,16 @@ export async function generatePuzzlesFromPgn(
         `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} ACCEPTED rating=${rating}`,
       );
 
+      // KS-3143: legacy-поле `gap` (наследие cp-алгоритма ADR-050,
+      // в WDL-pivot пересчитанное в `Math.round(wdlAfterForSolver*100)`)
+      // больше не передаём в payload. Backend `BatchPuzzleItem.gap`
+      // опционален (KS-3141), новый WDL-смысл несут `deltaW`/`deltaD`
+      // в `sourceMetadata`. Для UX «перевес» используется
+      // `wdlAfterBlunder` напрямую.
       puzzles.push({
         fen: fenAfter,
         moves: '',
         rating,
-        gap: Math.round(wdlAfterSignedForSolver * 100),
         themes: themes.join(' '),
         sourceType: 'pgn_import',
         sourceId: null,

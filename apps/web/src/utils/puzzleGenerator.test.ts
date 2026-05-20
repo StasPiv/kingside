@@ -154,7 +154,10 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(p.sourceMetadata?.depth).toBe(DEFAULT_PUZZLE_GEN_SETTINGS.depth);
     expect(p.themes).toMatch(/playVsEngine/);
     expect(p.themes).toMatch(/advantage|crushing/);
-    expect(p.gap).toBe(70); // round(0.7 * 100)
+    // KS-3143: legacy-поле `gap` (cp-алгоритм ADR-050) больше не пишется
+    // в payload — оно опционально на backend (KS-3141), новый WDL-смысл
+    // несут deltaW/deltaD в sourceMetadata.
+    expect((p as unknown as { gap?: number }).gap).toBeUndefined();
     expect(p.rating).toBeGreaterThanOrEqual(800);
     expect(p.rating).toBeLessThanOrEqual(2000);
   });

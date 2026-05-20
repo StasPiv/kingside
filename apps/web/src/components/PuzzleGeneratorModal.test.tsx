@@ -51,11 +51,12 @@ vi.mock('../utils/puzzleGenerator', async (importOriginal) => {
 
 import { PuzzleGeneratorModal } from './PuzzleGeneratorModal';
 
+// KS-3143: поле `gap` (legacy cp-алгоритма) убрано из payload — фикстура
+// больше не содержит его, чтобы не возвращать удалённый ключ.
 const SAMPLE_PUZZLE = {
   fen: '8/8/8/8/4k3/8/4K3/8 w - - 0 1',
   moves: '',
   rating: 1500,
-  gap: 70,
   themes: 'playVsEngine advantage',
   sourceType: 'pgn_import',
   sourceId: null,

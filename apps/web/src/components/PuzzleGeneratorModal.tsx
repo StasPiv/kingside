@@ -480,8 +480,10 @@ export function PuzzleGeneratorModal({
                           пор, пока формула не будет доработана.
                           Поле `p.rating` остаётся в payload save'а
                           (POST /puzzles/batch) — backend получает
-                          рейтинг как и раньше. */}
-                      <span className="puzzle-gap">gap: {p.gap}</span>
+                          рейтинг как и раньше.
+                          KS-3143: span `gap: {p.gap}` снят — поле было
+                          legacy от cp-алгоритма (ADR-050), в payload
+                          его тоже больше не пишем. */}
                       <span className="puzzle-themes-inline">{p.themes}</span>
                     </div>
                   ))}
