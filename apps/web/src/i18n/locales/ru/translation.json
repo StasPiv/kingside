@@ -1187,6 +1187,10 @@
       "halfMovesLeft_other": "{{count}} полуходов осталось",
       "blunderHint": "Соперник допустил неточность ходом {{move}}. {{goal}} {{n}} полуходов против движка.",
       "blunderHintGeneric": "{{goal}} против движка {{n}} полуходов.",
+      "blunderHintPreventiveConvert": "В партии была упущена возможность реализовать перевес ходом {{move}}. А как бы сыграли вы?",
+      "blunderHintPreventiveConvertGeneric": "В партии была упущена возможность реализовать перевес. А как бы сыграли вы?",
+      "blunderHintPreventiveSave": "В партии была допущена неточность {{move}}. А как бы сыграли вы?",
+      "blunderHintPreventiveSaveGeneric": "В партии была допущена неточность. А как бы сыграли вы?",
       "blunderGoal": {
         "advantage": "Удержите преимущество",
         "equality": "Удержите равенство",

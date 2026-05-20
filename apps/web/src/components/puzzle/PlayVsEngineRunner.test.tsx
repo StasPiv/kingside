@@ -1764,3 +1764,113 @@ describe('PlayVsEngineRunner KS-3146 — objective-aware texts', () => {
     expect(hint.getAttribute('data-blunder-goal')).toBe('advantage');
   });
 });
+
+/**
+ * KS-3162 (ADR-070 UI): hint дифференцируется по фазе пазла.
+ * - phase='reactive'  → старая формулировка «Opponent made an
+ *   inaccuracy ... Hold the advantage/balance for N half-moves»
+ *   (раздваивается по `objective` через blunderGoal).
+ * - phase='preventive' → «In the game ... What move would you have
+ *   played?» (4 ключа в i18n: convert/save × move-known/generic).
+ *
+ * `puzzlePhase` детектируется по тегу в `puzzle.themes` (KS-3160 пишет
+ * `'preventive'` / `'reactive'` в массив). DTO-поле появится отдельно
+ * в backend-задаче.
+ */
+describe('PlayVsEngineRunner KS-3162 — phase-aware hint', () => {
+  it('themes содержит "reactive" → data-puzzle-phase="reactive", текст содержит "Opponent made an inaccuracy"', async () => {
+    const puzzle = makePuzzle({
+      themes: ['playVsEngine', 'convertAdvantage', 'reactive'],
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-puzzle-phase')).toBe('reactive');
+    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
+    // Не должно быть preventive-вопроса.
+    expect(hint.textContent).not.toMatch(/What move would you have played/);
+  });
+
+  it('themes содержит "preventive" + convertAdvantage → preventive hint «chance to convert ... missed»', async () => {
+    const puzzle = makePuzzle({
+      themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-puzzle-phase')).toBe('preventive');
+    // Текст: «In the game, the chance to convert the advantage was missed
+    // (...). What move would you have played?» (en-fallback).
+    expect(hint.textContent).toMatch(/chance to convert the advantage/);
+    expect(hint.textContent).toMatch(/What move would you have played/);
+    // Не должно быть реактивной формулировки.
+    expect(hint.textContent).not.toMatch(/Opponent made an inaccuracy/);
+    expect(hint.textContent).not.toMatch(/half-moves against the engine/);
+  });
+
+  it('themes содержит "preventive" + saveEquality → preventive hint «an inaccuracy was played»', async () => {
+    const puzzle = makePuzzle({
+      themes: ['playVsEngine', 'saveEquality', 'preventive'],
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: -1.0,
+        halfMovesN: 4,
+        objective: 'saveEquality',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-puzzle-phase')).toBe('preventive');
+    expect(hint.textContent).toMatch(/an inaccuracy was played/);
+    expect(hint.textContent).toMatch(/What move would you have played/);
+    // Convert-формулировка про «chance to convert» не должна попасть.
+    expect(hint.textContent).not.toMatch(/chance to convert the advantage/);
+  });
+
+  it('themes не содержит phase-тега (legacy-пазл) → data-puzzle-phase="" + reactive формулировка (без регрессии)', async () => {
+    const puzzle = makePuzzle({
+      // KS-3162: legacy-пазлы без тега `'preventive'`/`'reactive'`.
+      themes: ['playVsEngine', 'mateIn2'],
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-puzzle-phase')).toBe('');
+    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
+  });
+});

@@ -1499,23 +1499,66 @@ export function PlayVsEngineRunner({
                   ? 'equality'
                   : selectBlunderGoalKey(baselineWdl);
             const goalText = t(`puzzle.engine.blunderGoal.${goalKind}`);
+            // KS-3162 (ADR-070 UI): дифференциация по фазе пазла.
+            // DTO `PuzzleDto.playVsEngine.puzzlePhase` пока не объявлен в
+            // shared (это backend-скоуп), но KS-3160 проставляет тег
+            // `'preventive'` / `'reactive'` в `themes` (`themes.push(phase)`
+            // в `buildPuzzlesFromCandidate`). Опираемся на theme-флаг —
+            // он уже в проде после backfill (KS-3148). Для legacy-пазлов
+            // без тега — `null` → falsy ветка reactive (старое поведение,
+            // без регрессии для всех существующих пазлов).
+            const themesArr: ReadonlyArray<string> = Array.isArray(
+              puzzle.themes,
+            )
+              ? (puzzle.themes as ReadonlyArray<string>)
+              : [];
+            const puzzlePhase: 'preventive' | 'reactive' | null =
+              themesArr.includes('preventive')
+                ? 'preventive'
+                : themesArr.includes('reactive')
+                  ? 'reactive'
+                  : null;
+            // 4 i18n-ключа для preventive (по objective × move-known):
+            //   preventiveConvert(Generic) — convertAdvantage solver
+            //     (зевнувший был в выигрыше — найди ход который
+            //     реализует перевес);
+            //   preventiveSave(Generic) — saveEquality solver
+            //     (зевнувший держал ничью — найди ход).
+            // Текст оба варианта оканчиваются вопросом «как бы сыграли вы?»
+            // (запрос пользователя KS-3162) вместо инструкции «удержи».
+            let hintText: string;
+            if (puzzlePhase === 'preventive') {
+              const suffix =
+                objective === 'convertAdvantage' ? 'Convert' : 'Save';
+              hintText = moveWithNum
+                ? t(`puzzle.engine.blunderHintPreventive${suffix}`, {
+                    move: moveWithNum,
+                  })
+                : t(
+                    `puzzle.engine.blunderHintPreventive${suffix}Generic`,
+                  );
+            } else {
+              // Реактивный пазл (или legacy без тега). Старое поведение.
+              hintText = moveWithNum
+                ? t('puzzle.engine.blunderHint', {
+                    move: moveWithNum,
+                    n: params.halfMovesN,
+                    goal: goalText,
+                  })
+                : t('puzzle.engine.blunderHintGeneric', {
+                    n: params.halfMovesN,
+                    goal: goalText,
+                  });
+            }
             return (
               <p
                 className="puzzle-engine-runner__hint"
                 data-testid="puzzle-engine-blunder-hint"
                 data-blunder-known={moveWithNum ? 'true' : 'false'}
                 data-blunder-goal={goalKind}
+                data-puzzle-phase={puzzlePhase ?? ''}
               >
-                {moveWithNum
-                  ? t('puzzle.engine.blunderHint', {
-                      move: moveWithNum,
-                      n: params.halfMovesN,
-                      goal: goalText,
-                    })
-                  : t('puzzle.engine.blunderHintGeneric', {
-                      n: params.halfMovesN,
-                      goal: goalText,
-                    })}
+                {hintText}
               </p>
             );
           })()}

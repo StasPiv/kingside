@@ -1169,6 +1169,10 @@
       "halfMovesLeft_other": "{{count}} half-moves left",
       "blunderHint": "Opponent made an inaccuracy ({{move}}). {{goal}} for {{n}} half-moves against the engine.",
       "blunderHintGeneric": "{{goal}} against the engine for {{n}} half-moves.",
+      "blunderHintPreventiveConvert": "In the game, the chance to convert the advantage was missed ({{move}}). What move would you have played?",
+      "blunderHintPreventiveConvertGeneric": "In the game, the chance to convert the advantage was missed. What move would you have played?",
+      "blunderHintPreventiveSave": "In the game, an inaccuracy was played ({{move}}). What move would you have played?",
+      "blunderHintPreventiveSaveGeneric": "In the game, an inaccuracy was played. What move would you have played?",
       "blunderGoal": {
         "advantage": "Hold the advantage",
         "equality": "Hold the balance",
