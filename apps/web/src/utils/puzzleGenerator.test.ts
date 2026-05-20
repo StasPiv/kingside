@@ -154,7 +154,7 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(p.sourceMetadata?.depth).toBe(DEFAULT_PUZZLE_GEN_SETTINGS.depth);
     // KS-3146 (ADR-069): жанр пазла. wdlAfterRaw POV solver W=850 ≥ 500
     // → convertAdvantage.
-    expect(p.sourceMetadata?.playVsEngine?.objective).toBe('convertAdvantage');
+    expect(p.sourceMetadata?.objective).toBe('convertAdvantage');
     expect(p.themes).toMatch(/playVsEngine/);
     expect(p.themes).toMatch(/advantage|crushing/);
     expect(p.themes).toMatch(/convertAdvantage/);
@@ -308,7 +308,7 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('D');
     expect(puzzles[0].sourceMetadata?.deltaD).toBeCloseTo(0.65, 2);
     // KS-3146 (ADR-069): wdlAfter POV solver W=600 ≥ 500 → convertAdvantage.
-    expect(puzzles[0].sourceMetadata?.playVsEngine?.objective).toBe(
+    expect(puzzles[0].sourceMetadata?.objective).toBe(
       'convertAdvantage',
     );
     expect(puzzles[0].themes).toMatch(/convertAdvantage/);
@@ -336,7 +336,7 @@ describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', ()
     });
     expect(puzzles.length).toBeGreaterThanOrEqual(1);
     expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('D');
-    expect(puzzles[0].sourceMetadata?.playVsEngine?.objective).toBe(
+    expect(puzzles[0].sourceMetadata?.objective).toBe(
       'saveEquality',
     );
     expect(puzzles[0].themes).toMatch(/saveEquality/);

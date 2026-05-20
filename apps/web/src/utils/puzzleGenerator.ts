@@ -80,14 +80,15 @@ export type SourceMetadata = {
   failThreshold?: number;
   depth?: number;
   /**
-   * KS-3146 / ADR-069: вложенный блок playVsEngine — здесь живёт
-   * `objective` (жанр пазла), который backend `BatchPuzzleItem` миграет
-   * в колонку `puzzles.play_vs_engine.objective`. Структура повторяет
-   * shared DTO.
+   * KS-3146 / KS-3149 / ADR-069: жанр пазла — пишем ПЛОСКО на верхнем
+   * уровне `sourceMetadata`, как serverный `tactic-worker` (KS-3145).
+   * Backend читает `sourceMetadata.objective` и миграет в
+   * `puzzles.play_vs_engine.objective`. До KS-3149 фронт ошибочно клал
+   * во вложенный объект `sourceMetadata.playVsEngine.objective`, из-за
+   * чего поле терялось при save'е и backfill (KS-3148) — фильтр чипов
+   * показывал расхождение «Все»=2 vs «Convert»+«Save»=0+1 (см. KS-3149).
    */
-  playVsEngine?: {
-    objective?: PuzzleObjective;
-  };
+  objective?: PuzzleObjective;
 };
 
 export type GeneratedPuzzleData = {
@@ -219,7 +220,10 @@ function computeTagsClient(
   } catch {
     /* fenAfter может быть невалиден — без endgame-метки */
   }
-  return themes;
+  // KS-3149: dedup + lexicographic sort, как в серверном
+  // `computeTagsServer` (apps/tactic-worker). Стабильный порядок и
+  // отсутствие дублей упрощают LIKE-фильтрацию и тесты.
+  return Array.from(new Set(themes)).sort();
 }
 
 /**
@@ -618,10 +622,14 @@ export async function generatePuzzlesFromPgn(
           winThreshold: PUZZLE_GEN_DEFAULTS.winThreshold,
           failThreshold: PUZZLE_GEN_DEFAULTS.failThreshold,
           depth,
-          // KS-3146: backend (KS-3145) читает `sourceMetadata.playVsEngine.objective`
-          // и проставляет в `puzzles.play_vs_engine.objective`. UI на solver-стороне
-          // (KS-3146 F1) разводит тексты «реализуй перевес» / «спасение в ничью».
-          playVsEngine: { objective },
+          // KS-3149 (hotfix): backend `tactic-worker` (KS-3145) кладёт
+          // `objective` ПЛОСКО на верхнем уровне `sourceMetadata`. В KS-3146
+          // фронт ошибочно вложил поле в `sourceMetadata.playVsEngine`,
+          // backend save-route не находил его, поле в БД отсутствовало,
+          // backfill (KS-3148) тоже не догнал такие черновики — отсюда
+          // расхождение фильтров в каталоге (см. KS-3149). Возвращаем
+          // плоскую структуру, идентичную серверному payload'у.
+          objective,
         },
         solutionMode: 'play-vs-engine',
         isPublic: false,
