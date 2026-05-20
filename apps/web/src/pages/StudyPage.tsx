@@ -9,6 +9,7 @@ import {
 } from '../api/studiesApi';
 import { ImportPgnDialog } from '../components/studies/ImportPgnDialog';
 import { ChapterList } from '../components/studies/ChapterList';
+import { CreateChapterDialog } from '../components/studies/CreateChapterDialog';
 import { LikeButton } from '../components/studies/LikeButton';
 import { StudyMembersDialog } from '../components/studies/StudyMembersDialog';
 
@@ -38,12 +39,18 @@ export function StudyPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<
-    null | 'create' | 'share' | 'delete'
+    null | 'share' | 'delete'
   >(null);
   // KS-2830: модалка импорта multi-PGN.
   const [importOpen, setImportOpen] = useState<boolean>(false);
   // KS-2892 (FC7): модалка управления соавторами (owner-only).
   const [membersOpen, setMembersOpen] = useState<boolean>(false);
+  // KS-3125: модалка создания главы. До KS-3014 кнопка `+ New chapter`
+  // создавала главу и сразу делала navigate в `/studies/:slug/:chapterId`
+  // (editor-роут AnalysisPage). Этот роут удалён коммитом 4092dd97 —
+  // navigate улетал в wildcard и приземлялся на `/play`. Теперь —
+  // диалог: имя → createChapter → reload без переходов.
+  const [createChapterOpen, setCreateChapterOpen] = useState<boolean>(false);
 
   const reload = useCallback(async () => {
     if (!slug) return;
@@ -99,20 +106,11 @@ export function StudyPage() {
     }
   };
 
-  const handleCreateChapter = async () => {
+  // KS-3125: открываем диалог создания главы вместо немедленного
+  // navigate в удалённый editor-роут (см. KS-3014 / 4092dd97).
+  const handleOpenCreateChapter = () => {
     if (!study) return;
-    setBusyAction('create');
-    try {
-      const ch = await studiesApi.createChapter(study.slug, {
-        name: t('studies.chapter.defaultName', 'New chapter'),
-      });
-      // Сразу ведём в редактор (KS-2827).
-      navigate(`/studies/${encodeURIComponent(study.slug)}/${encodeURIComponent(ch.id)}`);
-    } catch {
-      setError(t('studies.error.createChapter', 'Failed to create chapter.'));
-    } finally {
-      setBusyAction(null);
-    }
+    setCreateChapterOpen(true);
   };
 
   const handleDeleteStudy = async () => {
@@ -248,8 +246,7 @@ export function StudyPage() {
             type="button"
             className="study-page__action"
             data-testid="study-action-create-chapter"
-            disabled={busyAction === 'create'}
-            onClick={handleCreateChapter}
+            onClick={handleOpenCreateChapter}
           >
             {t('studies.action.createChapter', '+ New chapter')}
           </button>
@@ -334,6 +331,19 @@ export function StudyPage() {
         <StudyMembersDialog
           slug={study.slug}
           onClose={() => setMembersOpen(false)}
+        />
+      )}
+
+      {/* KS-3125: модалка создания главы. После успешного создания —
+          reload (chapter появится в списке). Никаких navigate в editor-
+          роут (он удалён в 4092dd97 и сейчас улетал бы на /play). */}
+      {createChapterOpen && (
+        <CreateChapterDialog
+          slug={study.slug}
+          onClose={() => setCreateChapterOpen(false)}
+          onCreated={() => {
+            void reload();
+          }}
         />
       )}
     </div>

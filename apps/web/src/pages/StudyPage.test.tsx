@@ -223,8 +223,7 @@ describe('StudyPage (KS-2826)', () => {
     );
   });
 
-  it('click create chapter → создаёт и navigate в editor', async () => {
-    createChapterMock.mockResolvedValue({ id: 'ch-new' });
+  it('KS-3125: click create chapter → открывает CreateChapterDialog (без navigate)', async () => {
     renderWithProviders(<StudyPage />, { route: '/studies/demo' });
     await waitFor(() =>
       expect(
@@ -232,11 +231,46 @@ describe('StudyPage (KS-2826)', () => {
       ).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByTestId('study-action-create-chapter'));
-    await waitFor(() =>
-      expect(createChapterMock).toHaveBeenCalledWith('demo', expect.any(Object)),
+    // Открылся диалог, API не вызывается до подтверждения.
+    expect(screen.getByTestId('create-chapter-dialog')).toBeInTheDocument();
+    expect(createChapterMock).not.toHaveBeenCalled();
+    // Ключевая регрессия KS-3125: НЕ должно быть редиректа на удалённый
+    // editor-роут `/studies/<slug>/<chapterId>` (он улетал на /play).
+    expect(navigateMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^\/studies\/demo\/[^?]+$/),
     );
+  });
+
+  it('KS-3125: submit в CreateChapterDialog → createChapter + reload, БЕЗ navigate', async () => {
+    createChapterMock.mockResolvedValue({ id: 'ch-new', name: 'My chapter' });
+    renderWithProviders(<StudyPage />, { route: '/studies/demo' });
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/studies/demo/ch-new'),
+      expect(
+        screen.getByTestId('study-action-create-chapter'),
+      ).toBeInTheDocument(),
+    );
+    // Зачищаем счётчик initial reload до клика — нас интересует именно
+    // повторный getBySlug после успешного create.
+    getBySlugMock.mockClear();
+
+    fireEvent.click(screen.getByTestId('study-action-create-chapter'));
+    expect(screen.getByTestId('create-chapter-dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('create-chapter-dialog-submit'));
+    await waitFor(() =>
+      expect(createChapterMock).toHaveBeenCalledWith(
+        'demo',
+        expect.objectContaining({ name: expect.any(String) }),
+      ),
+    );
+    // Диалог закрылся после успеха.
+    await waitFor(() =>
+      expect(screen.queryByTestId('create-chapter-dialog')).toBeNull(),
+    );
+    // Reload произошёл, navigate в editor — нет (роут удалён в KS-3014).
+    await waitFor(() => expect(getBySlugMock).toHaveBeenCalled());
+    expect(navigateMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^\/studies\/demo\/[^?]+$/),
     );
   });
 
