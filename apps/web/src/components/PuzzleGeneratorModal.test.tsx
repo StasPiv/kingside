@@ -4,15 +4,16 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 
 /**
- * KS-2585: тесты `PuzzleGeneratorModal` после переезда на WDL-алгоритм
- * (KS-2584) и draft/publish-flow.
+ * KS-2585 / KS-3137: тесты `PuzzleGeneratorModal` после переезда на
+ * WDL-алгоритм (KS-2584) и ADR-068 `evaluateBlunder`.
  *
  * Что проверяем:
- *  - advanced settings: depth + blunderDelta + solvability;
+ *  - advanced settings: depth + ΔW + ΔD + solvability;
  *  - **отсутствие** legacy-controls (multiPv/gapThreshold/maxSecondCp/
- *    acceptedMoves/skipHanging/skipAttacked/skipUndefended);
- *  - localStorage migration: старые ключи в LS игнорируются;
- *  - blunderDelta слайдер в %, store в долях [0..1];
+ *    acceptedMoves/skipHanging/skipAttacked/skipUndefended/blunderDelta);
+ *  - localStorage migration: старые ключи в LS (включая `blunderDelta`)
+ *    игнорируются;
+ *  - ΔW/ΔD слайдеры в %, store в долях [0..1];
  *  - draft/publish flow: после save видим «N saved as drafts», 2 кнопки;
  *  - «My drafts» → /precision?mine=true&visibility=draft;
  *  - «Publish all» → PATCH /puzzles/publish-all → /precision.
@@ -76,8 +77,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
-  it('по умолчанию advanced скрыт; toggle показывает блок с depth/blunderDelta/solvability', () => {
+describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () => {
+  it('по умолчанию advanced скрыт; toggle показывает блок с depth/ΔW/ΔD/solvability', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     expect(
       screen.queryByTestId('puzzle-generator-advanced-body'),
@@ -88,14 +89,17 @@ describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId('puzzle-generator-depth')).toBeInTheDocument();
     expect(
-      screen.getByTestId('puzzle-generator-blunder-delta'),
+      screen.getByTestId('puzzle-generator-delta-w'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('puzzle-generator-delta-d'),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId('puzzle-generator-solvability'),
     ).toBeInTheDocument();
   });
 
-  it('legacy controls удалены — нет multiPv/gap/maxSecond/acceptedMoves/skip*', () => {
+  it('legacy controls удалены — нет multiPv/gap/maxSecond/acceptedMoves/skip*/единого blunder-delta', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
     // Заголовки CP-эры:
@@ -108,13 +112,20 @@ describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
     expect(
       screen.queryByText(/Skip undefended after move/i),
     ).not.toBeInTheDocument();
+    // KS-3137: одиночный «Minimum blunder strength» / `puzzle-generator-blunder-delta` снят.
+    expect(
+      screen.queryByTestId('puzzle-generator-blunder-delta'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Minimum blunder strength/i),
+    ).not.toBeInTheDocument();
   });
 
-  it('blunderDelta slider 30..90, шаг 5, дефолт 60', () => {
+  it('ΔW slider 30..90, шаг 5, дефолт 60', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
     const slider = screen.getByTestId(
-      'puzzle-generator-blunder-delta',
+      'puzzle-generator-delta-w',
     ) as HTMLInputElement;
     expect(slider.type).toBe('range');
     expect(slider.min).toBe('30');
@@ -123,35 +134,62 @@ describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
     expect(slider.value).toBe('60');
   });
 
-  it('изменение blunderDelta сохраняется в localStorage в долях [0..1]', () => {
+  it('ΔD slider 30..90, шаг 5, дефолт 60', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
     const slider = screen.getByTestId(
-      'puzzle-generator-blunder-delta',
+      'puzzle-generator-delta-d',
     ) as HTMLInputElement;
-    fireEvent.change(slider, { target: { value: '75' } });
-    const stored = JSON.parse(localStorage.getItem('puzzleGenSettings') ?? '{}');
-    expect(stored.blunderDelta).toBeCloseTo(0.75, 5);
+    expect(slider.type).toBe('range');
+    expect(slider.min).toBe('30');
+    expect(slider.max).toBe('90');
+    expect(slider.step).toBe('5');
+    expect(slider.value).toBe('60');
   });
 
-  it('reload модалки восстанавливает blunderDelta из localStorage', () => {
+  it('изменение ΔW/ΔD сохраняется в localStorage в долях [0..1] и независимо', () => {
+    renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
+    const w = screen.getByTestId(
+      'puzzle-generator-delta-w',
+    ) as HTMLInputElement;
+    const d = screen.getByTestId(
+      'puzzle-generator-delta-d',
+    ) as HTMLInputElement;
+    fireEvent.change(w, { target: { value: '75' } });
+    fireEvent.change(d, { target: { value: '45' } });
+    const stored = JSON.parse(localStorage.getItem('puzzleGenSettings') ?? '{}');
+    expect(stored.deltaWThreshold).toBeCloseTo(0.75, 5);
+    expect(stored.deltaDThreshold).toBeCloseTo(0.45, 5);
+  });
+
+  it('reload модалки восстанавливает ΔW/ΔD из localStorage', () => {
     localStorage.setItem(
       'puzzleGenSettings',
-      JSON.stringify({ depth: 16, blunderDelta: 0.45, solvabilityCheck: true }),
+      JSON.stringify({
+        depth: 16,
+        deltaWThreshold: 0.45,
+        deltaDThreshold: 0.7,
+        solvabilityCheck: true,
+      }),
     );
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
-    const slider = screen.getByTestId(
-      'puzzle-generator-blunder-delta',
+    const w = screen.getByTestId(
+      'puzzle-generator-delta-w',
     ) as HTMLInputElement;
-    expect(slider.value).toBe('45');
+    expect(w.value).toBe('45');
+    const d = screen.getByTestId(
+      'puzzle-generator-delta-d',
+    ) as HTMLInputElement;
+    expect(d.value).toBe('70');
     const depth = screen.getByTestId('puzzle-generator-depth') as HTMLInputElement;
     expect(depth.value).toBe('16');
     const solv = screen.getByTestId('puzzle-generator-solvability') as HTMLInputElement;
     expect(solv.checked).toBe(true);
   });
 
-  it('localStorage migration: старые ключи (multiPv/gapThreshold/skipHanging) игнорируются', () => {
+  it('localStorage migration: старые ключи (multiPv/gapThreshold/skipHanging/blunderDelta) игнорируются', () => {
     localStorage.setItem(
       'puzzleGenSettings',
       JSON.stringify({
@@ -160,6 +198,8 @@ describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
         gapThreshold: 100,
         skipHangingCapture: true,
         acceptedMoves: 2,
+        // KS-3137: legacy ключ — должен быть проигнорирован, ΔW остаётся 60%.
+        blunderDelta: 0.8,
       }),
     );
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
@@ -167,11 +207,15 @@ describe('<PuzzleGeneratorModal> KS-2585 — advanced settings', () => {
     // depth восстановлен (он в новой схеме).
     const depth = screen.getByTestId('puzzle-generator-depth') as HTMLInputElement;
     expect(depth.value).toBe('18');
-    // blunderDelta — дефолт 60% (старый ключ gapThreshold проигнорирован).
-    const slider = screen.getByTestId(
-      'puzzle-generator-blunder-delta',
+    // ΔW и ΔD — дефолт 60% (старый `blunderDelta: 0.8` проигнорирован).
+    const w = screen.getByTestId(
+      'puzzle-generator-delta-w',
     ) as HTMLInputElement;
-    expect(slider.value).toBe('60');
+    expect(w.value).toBe('60');
+    const d = screen.getByTestId(
+      'puzzle-generator-delta-d',
+    ) as HTMLInputElement;
+    expect(d.value).toBe('60');
     // solvability — дефолт false.
     const solv = screen.getByTestId('puzzle-generator-solvability') as HTMLInputElement;
     expect(solv.checked).toBe(false);

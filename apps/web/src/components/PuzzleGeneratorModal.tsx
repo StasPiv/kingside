@@ -15,27 +15,28 @@ import {
 import { loadEngineConfigs } from '../hooks/useEngine';
 
 /**
- * KS-2585 (ADR-050 §2.2/§2.3, KS-2579-#6) — UI генератора пазлов
- * после WDL-pivot'а (KS-2584).
+ * KS-2585 / KS-3137 (ADR-068 §3.4) — UI генератора пазлов на shared
+ * `evaluateBlunder`.
  *
- * Изменения по сравнению с CP-эпохой:
- *  - удалены controls `Lines (multiPv)`, `Min gap`, `Max 2nd eval`,
- *    `Accepted moves`, чекбоксы `skipHanging/skipAttacked/skipUndefended`
- *    — они потеряли смысл с переходом на WDL-алгоритм;
- *  - добавлен слайдер «Минимальная сила зевка» (`blunderDelta` 30..90 %
- *    шаг 5 %, дефолт 60 %, маппинг `value / 100`);
- *  - добавлен toggle «Строгая проверка решаемости (медленнее)»
- *    (`solvabilityCheck`); дефолт OFF — на WASM прогоняется ~5 минут на
- *    50 пазлов;
- *  - после сохранения вместо «Solve now / My puzzles» показывается draft/
- *    publish flow: «N saved as drafts» + кнопки «My drafts» / «Publish
- *    all to Precision».
+ * История:
+ *  - KS-2585: уход от CP-эпохи (removed multiPv/gap/maxSecondCp/
+ *    acceptedMoves/skipHanging/skipAttacked/skipUndefended) и
+ *    добавлен слайдер «Минимальная сила зевка» (`blunderDelta`);
+ *  - KS-3137 (ADR-068 §3.4): один порог `blunderDelta` заменён на ДВА
+ *    независимых слайдера ΔW/ΔD — алгоритм триггерит OR-ом, чтобы ловить
+ *    как «упустил победу» (W упал), так и «упустил ничью» (D упал) без
+ *    свёртки в один скаляр. Старое поле `blunderDelta` в localStorage
+ *    игнорируется, дефолты `deltaWThreshold`/`deltaDThreshold` берутся
+ *    из shared `PUZZLE_GEN_DEFAULTS` (60% + 60%).
+ *
+ * Защитные after-фильтры `minWAfterForSolver` / `minWPlusDAfterForSolver`
+ * под UI не вынесены — это «не дать алгоритму записать в пазл позицию,
+ * где решающий после зевка всё равно проигрывает». Юзер их не подбирает.
  *
  * `loadSettings` мигрирует localStorage: старые ключи (`multiPv`/
- * `gapThreshold`/`maxSecondCp`/`acceptedMoves`/`skip*`) игнорируются,
- * берутся только новые поля (depth/blunderDelta/solvabilityCheck) с
- * fallback'ом на `DEFAULT_PUZZLE_GEN_SETTINGS`. Юзер один раз увидит
- * дефолты — это OK (одноразовая миграция).
+ * `gapThreshold`/`maxSecondCp`/`acceptedMoves`/`skip*`/`blunderDelta`)
+ * игнорируются, берутся только новые поля с fallback'ом на
+ * `DEFAULT_PUZZLE_GEN_SETTINGS`.
  */
 
 const LS_KEY = 'puzzleGenSettings';
@@ -53,14 +54,19 @@ function loadSettings(): PuzzleGenSettings {
     if (!raw) return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<PuzzleGenSettings>;
     return {
+      ...DEFAULT_PUZZLE_GEN_SETTINGS,
       depth:
         typeof parsed.depth === 'number'
           ? parsed.depth
           : DEFAULT_PUZZLE_GEN_SETTINGS.depth,
-      blunderDelta:
-        typeof parsed.blunderDelta === 'number'
-          ? parsed.blunderDelta
-          : DEFAULT_PUZZLE_GEN_SETTINGS.blunderDelta,
+      deltaWThreshold:
+        typeof parsed.deltaWThreshold === 'number'
+          ? parsed.deltaWThreshold
+          : DEFAULT_PUZZLE_GEN_SETTINGS.deltaWThreshold,
+      deltaDThreshold:
+        typeof parsed.deltaDThreshold === 'number'
+          ? parsed.deltaDThreshold
+          : DEFAULT_PUZZLE_GEN_SETTINGS.deltaDThreshold,
       solvabilityCheck:
         typeof parsed.solvabilityCheck === 'boolean'
           ? parsed.solvabilityCheck
@@ -233,8 +239,9 @@ export function PuzzleGeneratorModal({
     void handleGenerate();
   }, [autoStart, pgnText, generating, result, handleGenerate]);
 
-  // KS-2585: blunderDelta UI работает в %, а в state — в долях [0..1].
-  const blunderDeltaPct = Math.round(settings.blunderDelta * 100);
+  // KS-3137: оба слайдера в UI работают в %, в state — в долях [0..1].
+  const deltaWPct = Math.round(settings.deltaWThreshold * 100);
+  const deltaDPct = Math.round(settings.deltaDThreshold * 100);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -324,15 +331,21 @@ export function PuzzleGeneratorModal({
                         data-testid="puzzle-generator-depth"
                       />
                     </div>
+                    {/* KS-3137 (ADR-068 §3.4): два независимых слайдера —
+                        алгоритм триггерит «зевок» по OR (ΔW ≥ thrW ИЛИ
+                        ΔD ≥ thrD), это нужно чтобы ловить и «упустил
+                        победу», и «упустил ничью», не сводя их в один
+                        скаляр. Дефолты 60% оба — из shared
+                        `PUZZLE_GEN_DEFAULTS`. */}
                     <div className="puzzle-gen-param">
                       <label>
                         {t(
-                          'puzzleGenerator.blunderDelta',
-                          'Minimum blunder strength',
+                          'puzzleGenerator.deltaW.label',
+                          'Min win-probability drop (ΔW)',
                         )}
                         :{' '}
-                        {t('puzzleGenerator.blunderDeltaValue', '{{percent}}%', {
-                          percent: blunderDeltaPct,
+                        {t('puzzleGenerator.deltaW.value', '{{percent}}%', {
+                          percent: deltaWPct,
                         })}
                       </label>
                       <input
@@ -340,19 +353,51 @@ export function PuzzleGeneratorModal({
                         min={30}
                         max={90}
                         step={5}
-                        value={blunderDeltaPct}
+                        value={deltaWPct}
                         onChange={(e) =>
                           updateSetting(
-                            'blunderDelta',
+                            'deltaWThreshold',
                             Number(e.target.value) / 100,
                           )
                         }
-                        data-testid="puzzle-generator-blunder-delta"
+                        data-testid="puzzle-generator-delta-w"
                       />
                       <p className="puzzle-gen-param-hint">
                         {t(
-                          'puzzleGenerator.blunderDeltaHint',
-                          'Higher means stricter selection. 60% matches the server pipeline.',
+                          'puzzleGenerator.deltaW.hint',
+                          'How much the win probability for the player to move has to fall in one move to count as a blunder. Higher = stricter; 60% matches the server pipeline.',
+                        )}
+                      </p>
+                    </div>
+                    <div className="puzzle-gen-param">
+                      <label>
+                        {t(
+                          'puzzleGenerator.deltaD.label',
+                          'Min draw-probability drop (ΔD)',
+                        )}
+                        :{' '}
+                        {t('puzzleGenerator.deltaD.value', '{{percent}}%', {
+                          percent: deltaDPct,
+                        })}
+                      </label>
+                      <input
+                        type="range"
+                        min={30}
+                        max={90}
+                        step={5}
+                        value={deltaDPct}
+                        onChange={(e) =>
+                          updateSetting(
+                            'deltaDThreshold',
+                            Number(e.target.value) / 100,
+                          )
+                        }
+                        data-testid="puzzle-generator-delta-d"
+                      />
+                      <p className="puzzle-gen-param-hint">
+                        {t(
+                          'puzzleGenerator.deltaD.hint',
+                          'How much the draw probability has to fall — catches "missed a draw" puzzles independently of ΔW. Default 60%.',
                         )}
                       </p>
                     </div>

@@ -1,8 +1,12 @@
 import { Chess } from 'chess.js';
 import {
   PUZZLE_GEN_DEFAULTS,
+  evaluateBlunder,
+  wdlOrMateFallback,
   wdlSigned,
   wdlSignedFromInfo,
+  type BlunderEvalSettings,
+  type BlunderTrigger,
   type Wdl,
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
@@ -11,46 +15,37 @@ import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
 export type { BridgeConfig };
 
 /**
- * KS-2584 / ADR-050 §2.1, §3 #5 — клиентский генератор пазлов на
- * WDL-алгоритме (зеркало серверного `tactic-worker/puzzle-generator`).
+ * KS-2584 / KS-3137 (ADR-068 §3.4) — клиентский генератор пазлов на
+ * WDL-алгоритме. Зеркало серверного `tactic-worker/puzzle-generator`:
+ * обе обёртки вызывают **одну и ту же** `evaluateBlunder` из
+ * `@kingside/shared`, отличие только в настройках (на сервере —
+ * hardcoded дефолты, на клиенте — пользовательские слайдеры в
+ * `PuzzleGeneratorModal`).
  *
- * Прежний CP-алгоритм (gap ≥ 50 cp + эвристики hanging/attacked-by-lesser/
- * undefended) переехал в исторический контекст: он находил «уникальные
- * лучшие ходы» по cp-разнице, что плохо коррелирует с реальной потерей
- * шансов на победу. WDL-алгоритм ловит «зевок» как падение
- * вероятности победы (W − L) ≥ 0.6 от лица сходившего.
- *
- * Псевдокод (исходник в ADR-050 §2.1):
+ * Псевдокод:
  *
  *   для каждой позиции (ply ≥ startPly):
  *     fenBefore, playedUci = ход партии
- *     [line1, line2] = analyze(fenBefore, depth, multiPV=2)
- *     wdlBefore = wdlSignedFromInfo(line1.wdl, line1.score)
- *     if line1.pv[0] === playedUci → drop:samePv1
- *     if |wdlBefore| > 0.95         → drop:decided
+ *     [line1, …] = analyze(fenBefore, depth, multiPV=2)
+ *     if line1.pv[0] === playedUci          → drop:samePv1
+ *     if |wdlBefore_signed| > skipDecidedWdl→ drop:decided
  *     fenAfter = apply(playedUci)
- *     if isGameOver(fenAfter)       → drop:gameOver
- *     [a1, a2] = analyze(fenAfter, depth, multiPV=2)
- *     wdlAfter (POV соперника) = wdlSignedFromInfo(a1.wdl, a1.score)
- *     wdlAfterForSolver = -wdlAfter
- *     blunderΔ = wdlBefore + wdlAfterForSolver
- *     if blunderΔ < blunderDelta(0.6)               → drop:notBlunder
- *     if wdlAfterForSolver < minWdlAfterBlunder(0.5)→ drop:lowWdlAfterBlunder
- *     (опц.) solvability check (halfMovesN=6 SF-vs-SF) → drop:solvabilityFailed
+ *     if isGameOver(fenAfter)               → drop:gameOver
+ *     [a1, …] = analyze(fenAfter, depth, multiPV=2)
+ *     wdlBeforeRaw = wdlOrMateFallback(line1.wdl, line1.score)  // POV блaндера
+ *     wdlAfterRaw  = wdlOrMateFallback(a1.wdl, a1.score)        // POV решателя
+ *     result = evaluateBlunder({wdlBeforeRaw, wdlAfterRaw}, settings)
+ *     if result.kind === 'rejected'         → drop:<result.reason>
+ *     (опц.) solvability check (halfMovesN полу-ходов SF-vs-SF)
  *     accept → play-vs-engine puzzle, isPublic=false
  *
- * Все WDL-пороги — общий `PUZZLE_GEN_DEFAULTS` из `@kingside/shared`
- * (KS-2583 / KS-2579-#4). При отсутствии поля `info.wdl` (старая
- * сборка Stockfish без UCI_ShowWDL) `wdlSignedFromInfo` падает на
- * mate-фоллбек ±1, иначе возвращает `null` — позиция skip:noWdl.
+ * Дефолты порогов — `PUZZLE_GEN_DEFAULTS` (`deltaWThreshold`,
+ * `deltaDThreshold`, `minWAfterForSolver`, `minWPlusDAfterForSolver`),
+ * единый источник для server+client (см. ADR-068 §6).
  *
- * Регрессии cp-алгоритма больше нет: `gapThreshold`/`maxSecondCp`/
- * `topSpread`/`acceptedMoves`/`skipHangingCapture`/`skipAttackedByLesser`/
- * `skipUndefendedAfterMove`/`evalGrowth`/cp-`classifyThemes`/
- * `estimateRating` удалены. UI-поля, читающие старые ключи, остаются в
- * `PuzzleGeneratorModal` до #6 (KS-2584 explicitly не трогает UI). Для
- * этой совместимости старые поля помечены `@deprecated` и игнорируются
- * самим алгоритмом.
+ * Если у engine info нет `wdl` и score не mate — `wdlOrMateFallback`
+ * вернёт `null`, позиция skip:noWdl (старые сборки Stockfish без
+ * `UCI_ShowWDL` или bridge без поддержки опции — см. KS-2690).
  */
 
 export type SourceMetadata = {
@@ -61,9 +56,18 @@ export type SourceMetadata = {
   result?: string;
   // KS-2584: WDL-метаданные пазла (зеркало серверного DTO `playVsEngine`).
   blunderMove?: string;
+  /** `wdlSigned` POV блaндера на fenBefore (для UX «насколько была выгода»). */
   wdlBeforeBlunder?: number;
+  /** `wdlSigned` POV решающего на fenAfter (для UX «насколько перевес после зевка»). */
   wdlAfterBlunder?: number;
-  blunderDelta?: number;
+  /**
+   * KS-3137: дельты из `evaluateBlunder`. `deltaW` — падение P(победы)
+   * блaндера за ход; `deltaD` — падение P(ничьи). `blunderTrigger` —
+   * какая дельта пробила порог ('W' | 'D' | 'WD').
+   */
+  deltaW?: number;
+  deltaD?: number;
+  blunderTrigger?: BlunderTrigger;
   halfMovesN?: number;
   winThreshold?: number;
   failThreshold?: number;
@@ -124,11 +128,27 @@ export interface PuzzleGenSettings {
    */
   movetimeMs: number;
   /**
-   * Минимальная разница `wdlBefore + wdlAfterForSolver` ([0..2]),
-   * чтобы считать ход блaндером. По умолчанию `PUZZLE_GEN_DEFAULTS.
-   * blunderDelta` = 0.6.
+   * KS-3137 (ADR-068 §1.2): порог по падению вероятности победы блaндера
+   * за ход (`deltaW`). Используется как один из двух OR-триггеров в
+   * `evaluateBlunder`. Default `PUZZLE_GEN_DEFAULTS.deltaWThreshold` = 0.6.
    */
-  blunderDelta: number;
+  deltaWThreshold: number;
+  /**
+   * KS-3137 (ADR-068 §1.2): порог по падению вероятности ничьи блaндера
+   * за ход (`deltaD`). Второй OR-триггер. Default 0.6.
+   */
+  deltaDThreshold: number;
+  /**
+   * KS-3137 (ADR-068 §3.2): защитный after-фильтр для триггера по W —
+   * минимальная вероятность победы решающего сразу после хода. Под UI
+   * не вынесен (defensive), берём из `PUZZLE_GEN_DEFAULTS`.
+   */
+  minWAfterForSolver: number;
+  /**
+   * KS-3137 (ADR-068 §3.2): защитный after-фильтр для триггера только
+   * по D — минимальная сумма W+D решающего после хода. Под UI не вынесен.
+   */
+  minWPlusDAfterForSolver: number;
   /**
    * Включить halfMovesN=6 SF-vs-SF проверку решаемости пазла. На
    * MVP по умолчанию выключено (тяжёлый отдельный анализ × N полуходов).
@@ -139,7 +159,10 @@ export interface PuzzleGenSettings {
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   depth: 18,
   movetimeMs: 1000,
-  blunderDelta: PUZZLE_GEN_DEFAULTS.blunderDelta,
+  deltaWThreshold: PUZZLE_GEN_DEFAULTS.deltaWThreshold,
+  deltaDThreshold: PUZZLE_GEN_DEFAULTS.deltaDThreshold,
+  minWAfterForSolver: PUZZLE_GEN_DEFAULTS.minWAfterForSolver,
+  minWPlusDAfterForSolver: PUZZLE_GEN_DEFAULTS.minWPlusDAfterForSolver,
   solvabilityCheck: false,
 };
 
@@ -260,9 +283,13 @@ async function solvabilityPasses(
   return lastWdlForSolver >= winT;
 }
 
-/** Извлечь WDL_signed (POV side-to-move) из info-строки. */
-function extractWdlSigned(line: InfoLine): number | null {
-  return wdlSignedFromInfo(line.wdl ?? null, line.score);
+/**
+ * KS-3137: извлечь сырой `Wdl` (POV side-to-move) из info-строки. На
+ * mate-сценарии возвращает `{w:1000,d:0,l:0}` / `{w:0,d:0,l:1000}`,
+ * на cp без WDL — `null` (caller обязан skip:noWdl).
+ */
+function extractWdlRaw(line: InfoLine): Wdl | null {
+  return wdlOrMateFallback(line.wdl ?? null, line.score);
 }
 
 export async function generatePuzzlesFromPgn(
@@ -283,11 +310,17 @@ export async function generatePuzzlesFromPgn(
     ...DEFAULT_PUZZLE_GEN_SETTINGS,
     ...options,
   };
-  const { depth, movetimeMs, blunderDelta, solvabilityCheck } = settings;
+  const { depth, movetimeMs, solvabilityCheck } = settings;
   const { abortSignal, bridgeConfig, engineFactory } = options;
   const startPly = PUZZLE_GEN_DEFAULTS.startPly;
   const skipDecidedThreshold = PUZZLE_GEN_DEFAULTS.skipDecidedWdl;
-  const minWdlAfterBlunder = PUZZLE_GEN_DEFAULTS.minWdlAfterBlunder;
+  // KS-3137: настройки порогов передаём прямо в `evaluateBlunder`.
+  const blunderSettings: BlunderEvalSettings = {
+    deltaWThreshold: settings.deltaWThreshold,
+    deltaDThreshold: settings.deltaDThreshold,
+    minWAfterForSolver: settings.minWAfterForSolver,
+    minWPlusDAfterForSolver: settings.minWPlusDAfterForSolver,
+  };
 
   const games = splitPgnIntoGames(pgn);
   console.log(
@@ -444,8 +477,8 @@ export async function generatePuzzlesFromPgn(
         continue;
       }
       const lineBefore = beforeRes.lines[0];
-      const wdlBefore = extractWdlSigned(lineBefore);
-      if (wdlBefore === null) {
+      const wdlBeforeRaw = extractWdlRaw(lineBefore);
+      if (wdlBeforeRaw === null) {
         // KS-2690: explicit warn про UCI_ShowWDL — single-shot per
         // session, чтобы пользователь увидел в DevTools реальную
         // причину 0 пазлов на bridge без поддержки опции.
@@ -453,22 +486,23 @@ export async function generatePuzzlesFromPgn(
         console.log(`${logBase} SKIP:noWdlBefore`);
         continue;
       }
+      const wdlBeforeSigned = wdlSigned(wdlBeforeRaw);
       if (lineBefore.pv[0] === playedUci) {
         console.log(
-          `${logBase} wdlBefore=${round3(wdlBefore)} SKIP:samePv1`,
+          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} SKIP:samePv1`,
         );
         continue;
       }
-      if (Math.abs(wdlBefore) > skipDecidedThreshold) {
+      if (Math.abs(wdlBeforeSigned) > skipDecidedThreshold) {
         console.log(
-          `${logBase} wdlBefore=${round3(wdlBefore)} SKIP:decided`,
+          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} SKIP:decided`,
         );
         continue;
       }
 
       // Анализ after. Side-to-move на fenAfter = РЕШАТЕЛЬ (соперник
-      // сходившего). По UCI стандарту Stockfish отдаёт WDL POV
-      // side-to-move → wdlSignedFromInfo возвращает signed POV решателя.
+      // сходившего). Stockfish отдаёт `Wdl` POV side-to-move, то есть
+      // `wdlAfterRaw` — POV решающего.
       let afterRes;
       try {
         afterRes = await engine.analyze(fenAfter, depth, MULTI_PV, movetimeMs);
@@ -481,35 +515,26 @@ export async function generatePuzzlesFromPgn(
         continue;
       }
       const lineAfter = afterRes.lines[0];
-      const wdlAfter = extractWdlSigned(lineAfter);
-      if (wdlAfter === null) {
+      const wdlAfterRaw = extractWdlRaw(lineAfter);
+      if (wdlAfterRaw === null) {
         if (lineAfter.wdl === undefined) warnNoWdlOnce();
         console.log(`${logBase} SKIP:noWdlAfter`);
         continue;
       }
-      // KS-2677: `wdlAfter` УЖЕ POV решателя (side-to-move на fenAfter
-      // = решатель). Раньше код инвертировал знак (`= -wdlAfter`) и
-      // записывал в DB значение POV блaндера — UI потом отображал его
-      // через `wdlSignedToWinChancePercent` как чем-меньше-тем-меньше%
-      // («89% → 39%» при -1.86 eval — артефакт). Согласно
-      // `packages/shared/src/types/puzzle.ts`: `wdlAfterBlunder` =
-      // «WDL_signed для решающей сразу после зевка (от лица решателя)».
-      // Теперь оба `wdlBefore` (POV блaндера до зевка) и
-      // `wdlAfterForSolver` (POV решателя после) — каждый в POV
-      // соответствующей стороны на ходу; их сумма — корректная мера
-      // переворота шансов.
-      const wdlAfterForSolver = wdlAfter;
-      const blunderΔ = wdlBefore + wdlAfter;
+      const wdlAfterSignedForSolver = wdlSigned(wdlAfterRaw);
 
-      if (blunderΔ < blunderDelta) {
+      // KS-3137 / ADR-068 §3.4: единая (server+client) оценка зевка.
+      // Здесь больше не считаем дельты руками — `evaluateBlunder`
+      // возвращает либо `{kind:'blunder', trigger, deltaW, deltaD}`,
+      // либо `{kind:'rejected', reason, deltaW, deltaD}` с теми же
+      // дельтами для drop-логов.
+      const result = evaluateBlunder(
+        { wdlBeforeRaw, wdlAfterRaw },
+        blunderSettings,
+      );
+      if (result.kind === 'rejected') {
         console.log(
-          `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} SKIP:notBlunder`,
-        );
-        continue;
-      }
-      if (wdlAfterForSolver < minWdlAfterBlunder) {
-        console.log(
-          `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} SKIP:lowWdlAfterBlunder`,
+          `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:${result.reason}`,
         );
         continue;
       }
@@ -531,7 +556,7 @@ export async function generatePuzzlesFromPgn(
         const ok = await solvabilityPasses(engine, fenAfter, depth, movetimeMs, abortSignal);
         if (!ok) {
           console.log(
-            `${logBase} blunderΔ=${round3(blunderΔ)} SKIP:solvabilityFailed`,
+            `${logBase} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} SKIP:solvabilityFailed`,
           );
           continue;
         }
@@ -539,20 +564,20 @@ export async function generatePuzzlesFromPgn(
 
       const themes = computeTagsClient(
         fenAfter,
-        wdlAfterForSolver,
+        wdlAfterSignedForSolver,
         isMate,
         mateDist,
       );
-      const rating = computeStartingRating(wdlAfterForSolver);
+      const rating = computeStartingRating(wdlAfterSignedForSolver);
       console.log(
-        `${logBase} wdlBefore=${round3(wdlBefore)} wdlAfter=${round3(wdlAfter)} blunderΔ=${round3(blunderΔ)} ACCEPTED rating=${rating}`,
+        `${logBase} wdlBefore=${round3(wdlBeforeSigned)} wdlAfter=${round3(wdlAfterSignedForSolver)} deltaW=${round3(result.deltaW)} deltaD=${round3(result.deltaD)} trigger=${result.trigger} ACCEPTED rating=${rating}`,
       );
 
       puzzles.push({
         fen: fenAfter,
         moves: '',
         rating,
-        gap: Math.round(wdlAfterForSolver * 100),
+        gap: Math.round(wdlAfterSignedForSolver * 100),
         themes: themes.join(' '),
         sourceType: 'pgn_import',
         sourceId: null,
@@ -560,9 +585,11 @@ export async function generatePuzzlesFromPgn(
         sourceMetadata: {
           ...metadata,
           blunderMove: playedUci,
-          wdlBeforeBlunder: round3(wdlBefore),
-          wdlAfterBlunder: round3(wdlAfterForSolver),
-          blunderDelta: round3(blunderΔ),
+          wdlBeforeBlunder: round3(wdlBeforeSigned),
+          wdlAfterBlunder: round3(wdlAfterSignedForSolver),
+          deltaW: round3(result.deltaW),
+          deltaD: round3(result.deltaD),
+          blunderTrigger: result.trigger,
           halfMovesN: PUZZLE_GEN_DEFAULTS.halfMovesN,
           winThreshold: PUZZLE_GEN_DEFAULTS.winThreshold,
           failThreshold: PUZZLE_GEN_DEFAULTS.failThreshold,
@@ -666,5 +693,5 @@ function splitPgnIntoGames(pgn: string): string[] {
 
 // ─── Test-only re-exports ───
 
-export { wdlSigned, wdlSignedFromInfo };
+export { wdlSigned, wdlSignedFromInfo, wdlOrMateFallback };
 export type { Wdl };

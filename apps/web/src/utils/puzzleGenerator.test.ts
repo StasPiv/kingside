@@ -107,27 +107,25 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
-  it('детектирует blunder при wdlBefore=+0.7 (POV блaндера) / wdlAfter=+0.7 (POV решателя) → blunderΔ=1.4 ≥ 0.6 → принять', async () => {
+describe('generatePuzzlesFromPgn KS-2584 / KS-3137 — WDL-алгоритм', () => {
+  it('детектирует blunder при wdlBefore=+0.7 / wdlAfter=+0.7 (POV решателя) → deltaW=0.85 ≥ 0.6 → принять', async () => {
     let beforeAnalyzed = 0;
     let afterAnalyzed = 0;
     const { engine } = makeMockEngine((call, _idx) => {
-      // KS-2677: входные wdl каждый POV side-to-move (UCI стандарт):
-      //   - на fenBefore side-to-move = блaндер; wdl POV блaндера.
-      //   - на fenAfter side-to-move = решатель; wdl POV решателя.
-      // Корректный blunder-сценарий: блaндер был в выгоде (+0.7), после
-      // зевка решатель тоже в выгоде (+0.7) → blunderΔ = 1.4.
+      // KS-3137: оба wdl POV side-to-move (UCI). evaluateBlunder сам
+      // вычислит deltaW = (before.w − after.l)/1000 и deltaD по разнице
+      // draw-доли. Для пары (W=850/L=150) ↔ (W=850/L=150):
+      //   deltaW = (850 − 150)/1000 = 0.7 ⇒ ≥ 0.6 (триггер по W),
+      //   W_after_for_solver = 850/1000 = 0.85 ≥ minWAfterForSolver(0.5) ✓
       if (beforeAnalyzed === 0 && afterAnalyzed === 0) {
         beforeAnalyzed = 1;
-        // wdlBefore (POV блaндера) = +0.7 (W=850, L=150)
         return res([line(['a1a8'], { w: 850, d: 0, l: 150 })]);
       }
       if (beforeAnalyzed === 1 && afterAnalyzed === 0) {
         afterAnalyzed = 1;
-        // wdlAfter (POV решателя) = +0.7 (W=850, L=150) ⇒ wdlAfterForSolver = +0.7
         return res([line(['b1b8'], { w: 850, d: 0, l: 150 })]);
       }
-      // Остальные позиции — «нет блaндера»: wdlBefore = 0.0, wdlAfter = 0.0.
+      // Остальные позиции — «нет блaндера».
       void call;
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -145,7 +143,11 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     expect(p.sourceMetadata?.blunderMove).toBeDefined();
     expect(p.sourceMetadata?.wdlBeforeBlunder).toBeCloseTo(0.7, 2);
     expect(p.sourceMetadata?.wdlAfterBlunder).toBeCloseTo(0.7, 2);
-    expect(p.sourceMetadata?.blunderDelta).toBeCloseTo(1.4, 2);
+    // KS-3137: вместо свёрнутого `blunderDelta` пишем дельты по отдельности
+    // и триггер. deltaW = (850 − 150)/1000 = 0.7, deltaD = 0.
+    expect(p.sourceMetadata?.deltaW).toBeCloseTo(0.7, 2);
+    expect(p.sourceMetadata?.deltaD).toBeCloseTo(0, 2);
+    expect(p.sourceMetadata?.blunderTrigger).toBe('W');
     expect(p.sourceMetadata?.halfMovesN).toBe(6);
     expect(p.sourceMetadata?.winThreshold).toBe(0.5);
     expect(p.sourceMetadata?.failThreshold).toBe(0.0);
@@ -221,19 +223,19 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     expect(puzzles).toHaveLength(0);
   });
 
-  it('lowWdlAfterBlunder drop — wdlAfterForSolver = 0.3 → drop', async () => {
+  it('lowWAfterForSolver drop — триггер по W прошёл, но W_after_for_solver=0.3 < 0.5 → drop', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) {
-        // wdlBefore (POV блaндера) = +0.4 (не decided)
-        return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]);
+        // wdlBefore POV блaндера: W=900, L=100 — не decided (|signed|=0.8 < 0.95).
+        return res([line(['a1a8'], { w: 900, d: 0, l: 100 })]);
       }
       if (n === 2) {
-        // KS-2677: wdlAfter (POV решателя) = +0.3 ⇒ wdlAfterForSolver = +0.3
-        // blunderΔ = 0.4 + 0.3 = 0.7 ≥ 0.6 — проходит blunderDelta,
-        // но 0.3 < minWdlAfterBlunder (0.5) — drop.
-        return res([line(['b1b8'], { w: 650, d: 0, l: 350 })]);
+        // wdlAfter POV решателя: W=300, D=400, L=300.
+        // deltaW = (900 − 300)/1000 = 0.6 ≥ 0.6 — триггер по W прошёл.
+        // W_after_for_solver = 0.3 < minWAfterForSolver (0.5) → drop.
+        return res([line(['b1b8'], { w: 300, d: 400, l: 300 })]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
@@ -244,13 +246,15 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     expect(puzzles).toHaveLength(0);
   });
 
-  it('notBlunder drop — blunderΔ < 0.6 → drop', async () => {
+  it('notBlunder drop — обе дельты < 0.6 → drop', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
-      if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]); // +0.2
-      if (n === 2) return res([line(['b1b8'], { w: 600, d: 0, l: 400 })]); // wdlAfterForSolver = +0.2
-      // blunderΔ = 0.4 < 0.6
+      // (W=600,L=400) → (W=600,L=400):
+      //   deltaW = (600 − 400)/1000 = 0.2 < 0.6
+      //   deltaD = 0 < 0.6 — ни один триггер не сработал.
+      if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]);
+      if (n === 2) return res([line(['b1b8'], { w: 600, d: 0, l: 400 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
@@ -258,6 +262,33 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
       engineFactory: () => engine,
     });
     expect(puzzles).toHaveLength(0);
+  });
+
+  it('KS-3137: триггер по D (упустил ничью) — drawCheck захватывает позицию', async () => {
+    let n = 0;
+    const { engine } = makeMockEngine(() => {
+      n++;
+      if (n === 1) {
+        // Блaндер POV — почти ничья: W=200, D=700, L=100.
+        // wdlSigned = (200 − 100)/1000 = 0.1, |signed| < 0.95 — не decided.
+        return res([line(['a1a8'], { w: 200, d: 700, l: 100 })]);
+      }
+      if (n === 2) {
+        // После хода: решатель видит W=600, D=50, L=350.
+        //   deltaW = (200 − 350)/1000 = -0.15 < 0.6 — НЕ триггер по W.
+        //   deltaD = (700 − 50)/1000 = 0.65 ≥ 0.6 — триггер по D ✓.
+        //   W+D_after = 0.6 + 0.05 = 0.65 ≥ minWPlusDAfterForSolver (0.5) ✓.
+        return res([line(['b1b8'], { w: 600, d: 50, l: 350 })]);
+      }
+      return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
+    });
+
+    const puzzles = await generatePuzzlesFromPgn(PGN, vi.fn(), {
+      engineFactory: () => engine,
+    });
+    expect(puzzles.length).toBeGreaterThanOrEqual(1);
+    expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('D');
+    expect(puzzles[0].sourceMetadata?.deltaD).toBeCloseTo(0.65, 2);
   });
 
   it('mate в score → темы содержат `mate` и `mateInN`', async () => {
@@ -265,12 +296,12 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     const { engine } = makeMockEngine(() => {
       n++;
       if (n === 1) {
-        return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4
+        return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // wdlSigned=+0.4
       }
       if (n === 2) {
-        // KS-2677: mate value > 0 на fenAfter (POV side-to-move =
-        // решатель) — mate в пользу решающего ✓. wdl=null здесь, но
-        // wdlSignedFromInfo даёт +1 fallback. wdlAfterForSolver = +1.
+        // KS-3137: mate value > 0 на fenAfter (POV решателя) — mate
+        // в пользу решающего. `wdlOrMateFallback` собирает Wdl
+        // {w:1000, d:0, l:0}. deltaW = (700 − 0)/1000 = 0.7 ≥ 0.6 ✓.
         return res([
           line(['b1b8'], null, { type: 'mate', value: 3 }),
         ]);
@@ -357,34 +388,42 @@ describe('generatePuzzlesFromPgn KS-2584 — WDL-алгоритм', () => {
     expect(p.sourceMetadata?.result).toBe('1-0');
   });
 
-  it('настройки blunderDelta переопределяются через options', async () => {
+  it('KS-3137: deltaWThreshold переопределяется через options', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
-      if (n === 1) return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]); // +0.2 POV блaндера
+      if (n === 1) {
+        // wdlBefore POV блaндера: W=600, L=400 (signed=+0.2 — не decided).
+        return res([line(['a1a8'], { w: 600, d: 0, l: 400 })]);
+      }
       if (n === 2) {
-        // KS-2677: wdlAfter POV решателя = +0.6. blunderΔ = 0.2 + 0.6 = 0.8
-        // ≥ 0.7 (override). minWdlAfterBlunder = 0.5 — проходит (0.6 ≥ 0.5).
-        return res([line(['b1b8'], { w: 800, d: 0, l: 200 })]); // +0.6
+        // wdlAfter POV решателя: W=800, L=200.
+        //   deltaW = (600 − 200)/1000 = 0.4. С override=0.3 проходит триггер,
+        //   с дефолтным 0.6 — нет.
+        // W_after_for_solver = 0.8 ≥ 0.5 ✓.
+        return res([line(['b1b8'], { w: 800, d: 0, l: 200 })]);
       }
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });
 
     const puzzles = await generatePuzzlesFromPgn(PGN, vi.fn(), {
       engineFactory: () => engine,
-      blunderDelta: 0.7,
+      deltaWThreshold: 0.3,
     });
     expect(puzzles.length).toBeGreaterThanOrEqual(1);
     // KS-2955: default depth поднят с 14 до 18 для выравнивания с раннером.
     expect(puzzles[0].sourceMetadata?.depth).toBe(18);
+    expect(puzzles[0].sourceMetadata?.deltaW).toBeCloseTo(0.4, 2);
+    expect(puzzles[0].sourceMetadata?.blunderTrigger).toBe('W');
   });
 
   it('crushing-метка при wdlAfterForSolver ≥ 0.95', async () => {
     let n = 0;
     const { engine } = makeMockEngine(() => {
       n++;
-      if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // +0.4 POV блaндера
-      // KS-2677: wdl POV решателя = +0.97 ⇒ wdlAfterForSolver = +0.97 ≥ 0.95.
+      if (n === 1) return res([line(['a1a8'], { w: 700, d: 0, l: 300 })]); // wdlSigned=+0.4
+      // KS-3137: wdl POV решателя = +0.97 (W=970, D=30, L=0).
+      //   deltaW = (700 − 0)/1000 = 0.7 ≥ 0.6 ✓.
       if (n === 2) return res([line(['b1b8'], { w: 970, d: 30, l: 0 })]);
       return res([line(['c1c8'], { w: 500, d: 0, l: 500 })]);
     });

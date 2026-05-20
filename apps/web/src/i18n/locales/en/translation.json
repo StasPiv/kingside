@@ -1930,9 +1930,16 @@
     "engineBridgeHint": "External engine via WebSocket (multi-threaded, faster)",
     "engineBridgeNotConfigured": "Configure external engine in Analysis page first",
     "depth": "Depth",
-    "blunderDelta": "Minimum blunder strength",
-    "blunderDeltaValue": "{{percent}}%",
-    "blunderDeltaHint": "Higher means stricter selection. 60% matches the server pipeline.",
+    "deltaW": {
+      "label": "Min win-probability drop (ΔW)",
+      "value": "{{percent}}%",
+      "hint": "How much the win probability for the player to move has to fall in one move to count as a blunder. Higher = stricter; 60% matches the server pipeline."
+    },
+    "deltaD": {
+      "label": "Min draw-probability drop (ΔD)",
+      "value": "{{percent}}%",
+      "hint": "How much the draw probability has to fall — catches \"missed a draw\" puzzles independently of ΔW. Default 60%."
+    },
     "solvabilityCheck": "Strict solvability check (slower)",
     "solvabilityCheckHint": "Plays out 6 half-moves against the engine. WASM: ~5 min for 50 puzzles.",
     "resetDefaults": "Reset to defaults",

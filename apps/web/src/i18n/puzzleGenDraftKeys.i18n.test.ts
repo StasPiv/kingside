@@ -15,10 +15,13 @@ import ru from './locales/ru/translation.json';
  */
 
 const REQUIRED_KEYS: ReadonlyArray<string> = [
-  // Параметры генератора (KS-2585)
-  'puzzleGenerator.blunderDelta',
-  'puzzleGenerator.blunderDeltaValue',
-  'puzzleGenerator.blunderDeltaHint',
+  // Параметры генератора (KS-2585 / KS-3137)
+  'puzzleGenerator.deltaW.label',
+  'puzzleGenerator.deltaW.value',
+  'puzzleGenerator.deltaW.hint',
+  'puzzleGenerator.deltaD.label',
+  'puzzleGenerator.deltaD.value',
+  'puzzleGenerator.deltaD.hint',
   'puzzleGenerator.solvabilityCheck',
   'puzzleGenerator.solvabilityCheckHint',
 
@@ -57,6 +60,11 @@ const FORBIDDEN_PUZZLE_GENERATOR_KEYS: ReadonlyArray<string> = [
   'skipUndefendedHint',
   'solveNow',
   'myPuzzles',
+  // KS-3137 (ADR-068 §3.4): свёрнутый `blunderDelta` распался на
+  // отдельные deltaW.* / deltaD.* ключи.
+  'blunderDelta',
+  'blunderDeltaValue',
+  'blunderDeltaHint',
 ];
 
 function lookup(obj: unknown, path: string): unknown {
@@ -119,11 +127,17 @@ describe('KS-2587: i18n keys for puzzle generator + draft/publish flow', () => {
     expect(v).toMatch(/Тренировку точности/);
   });
 
-  it('blunderDeltaValue содержит {{percent}} плейсхолдер', () => {
-    expect(lookup(en, 'puzzleGenerator.blunderDeltaValue')).toMatch(
+  it('deltaW.value/deltaD.value содержат {{percent}} плейсхолдер', () => {
+    expect(lookup(en, 'puzzleGenerator.deltaW.value')).toMatch(
       /\{\{percent\}\}/,
     );
-    expect(lookup(ru, 'puzzleGenerator.blunderDeltaValue')).toMatch(
+    expect(lookup(ru, 'puzzleGenerator.deltaW.value')).toMatch(
+      /\{\{percent\}\}/,
+    );
+    expect(lookup(en, 'puzzleGenerator.deltaD.value')).toMatch(
+      /\{\{percent\}\}/,
+    );
+    expect(lookup(ru, 'puzzleGenerator.deltaD.value')).toMatch(
       /\{\{percent\}\}/,
     );
   });
