@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () => {
-  it('по умолчанию advanced скрыт; toggle показывает блок с depth/ΔW/ΔD/solvability', () => {
+  it('по умолчанию advanced скрыт; toggle показывает блок с depth/ΔW/ΔD', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     expect(
       screen.queryByTestId('puzzle-generator-advanced-body'),
@@ -95,9 +95,10 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
     expect(
       screen.getByTestId('puzzle-generator-delta-d'),
     ).toBeInTheDocument();
+    // KS-3160: solvability-toggle снят (shared pipeline без такого этапа).
     expect(
-      screen.getByTestId('puzzle-generator-solvability'),
-    ).toBeInTheDocument();
+      screen.queryByTestId('puzzle-generator-solvability'),
+    ).not.toBeInTheDocument();
   });
 
   it('legacy controls удалены — нет multiPv/gap/maxSecond/acceptedMoves/skip*/единого blunder-delta', () => {
@@ -171,6 +172,8 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
         depth: 16,
         deltaWThreshold: 0.45,
         deltaDThreshold: 0.7,
+        // KS-3160: legacy `solvabilityCheck` молча игнорируется
+        // loadSettings'ом — поле в новой схеме отсутствует.
         solvabilityCheck: true,
       }),
     );
@@ -186,8 +189,10 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
     expect(d.value).toBe('70');
     const depth = screen.getByTestId('puzzle-generator-depth') as HTMLInputElement;
     expect(depth.value).toBe('16');
-    const solv = screen.getByTestId('puzzle-generator-solvability') as HTMLInputElement;
-    expect(solv.checked).toBe(true);
+    // KS-3160: toggle снят, поле в state'е отсутствует.
+    expect(
+      screen.queryByTestId('puzzle-generator-solvability'),
+    ).not.toBeInTheDocument();
   });
 
   it('localStorage migration: старые ключи (multiPv/gapThreshold/skipHanging/blunderDelta) игнорируются', () => {
@@ -217,17 +222,10 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
       'puzzle-generator-delta-d',
     ) as HTMLInputElement;
     expect(d.value).toBe('60');
-    // solvability — дефолт false.
-    const solv = screen.getByTestId('puzzle-generator-solvability') as HTMLInputElement;
-    expect(solv.checked).toBe(false);
-  });
-
-  it('solvability toggle сохраняется в localStorage', () => {
-    renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
-    fireEvent.click(screen.getByTestId('puzzle-generator-solvability'));
-    const stored = JSON.parse(localStorage.getItem('puzzleGenSettings') ?? '{}');
-    expect(stored.solvabilityCheck).toBe(true);
+    // KS-3160: solvability-toggle снят, в state'е поля нет.
+    expect(
+      screen.queryByTestId('puzzle-generator-solvability'),
+    ).not.toBeInTheDocument();
   });
 });
 

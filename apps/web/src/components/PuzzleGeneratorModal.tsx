@@ -67,10 +67,12 @@ function loadSettings(): PuzzleGenSettings {
         typeof parsed.deltaDThreshold === 'number'
           ? parsed.deltaDThreshold
           : DEFAULT_PUZZLE_GEN_SETTINGS.deltaDThreshold,
-      solvabilityCheck:
-        typeof parsed.solvabilityCheck === 'boolean'
-          ? parsed.solvabilityCheck
-          : DEFAULT_PUZZLE_GEN_SETTINGS.solvabilityCheck,
+      // KS-3160 (ADR-070 F1): `solvabilityCheck` снят вместе с локальной
+      // копией `solvabilityPasses`. В shared `processGameForPuzzles`
+      // такого этапа нет — решаемость гарантирует after-фильтр
+      // `evaluateBlunder` (W+D ≥ minWPlusDAfterForSolver). Старое
+      // значение из localStorage молча игнорируется (одноразовая
+      // миграция, как KS-3137 для blunderDelta).
     };
   } catch {
     return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
@@ -401,31 +403,11 @@ export function PuzzleGeneratorModal({
                         )}
                       </p>
                     </div>
-                    <label className="puzzle-gen-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.solvabilityCheck}
-                        onChange={(e) =>
-                          updateSetting(
-                            'solvabilityCheck',
-                            e.target.checked,
-                          )
-                        }
-                        data-testid="puzzle-generator-solvability"
-                      />
-                      <span>
-                        {t(
-                          'puzzleGenerator.solvabilityCheck',
-                          'Strict solvability check (slower)',
-                        )}
-                      </span>
-                      <span className="puzzle-gen-filter-hint">
-                        {t(
-                          'puzzleGenerator.solvabilityCheckHint',
-                          'Plays out 6 half-moves against the engine. WASM: ~5 min for 50 puzzles.',
-                        )}
-                      </span>
-                    </label>
+                    {/* KS-3160 (ADR-070 F1): toggle «Strict solvability
+                        check» снят. В shared `processGameForPuzzles`
+                        такого этапа нет; решаемость гарантирует after-
+                        фильтр evaluateBlunder. Старое поле LS
+                        игнорируется при загрузке (см. loadSettings). */}
                   </div>
 
                   <button
