@@ -61,6 +61,17 @@ export interface PlayVsEngineDto {
    * `wdlAfter.w / 1000 >= 0.5` (или `wdlAfterBlunder >= 0.5`).
    */
   objective?: 'convertAdvantage' | 'saveEquality';
+  /**
+   * KS-3159 / ADR-070. Фаза пазла:
+   *   - `reactive` — стандарт: fen — позиция ПОСЛЕ зевка, solver
+   *     играет за противника зевнувшего (старое поведение KS-3145).
+   *   - `preventive` — fen — позиция ДО зевка, solver играет за
+   *     зевнувшего, цель — найти правильный ход (не зевнуть).
+   * Поле опц.: legacy-пазлы (до ADR-070) в metadata не имели
+   * `puzzlePhase`, для них резолвится фолбэком `'reactive'` (старая
+   * генерация всегда выдавала только реактивный пазл).
+   */
+  puzzlePhase?: 'preventive' | 'reactive';
 }
 
 /**
@@ -1344,6 +1355,15 @@ export class PuzzleService {
         objective =
           wdlAfterBlunder >= 0.5 ? 'convertAdvantage' : 'saveEquality';
       }
+      // KS-3159 / ADR-070. puzzlePhase читается из metadata если есть
+      // ('preventive' | 'reactive'). Legacy-пазлы поля не имеют —
+      // fallback'ом ставим 'reactive', т.к. старая генерация всегда
+      // строила пазл из fenAfter (= реактивный по новой терминологии).
+      const rawPhase = meta.puzzlePhase;
+      const puzzlePhase: 'preventive' | 'reactive' =
+        rawPhase === 'preventive' || rawPhase === 'reactive'
+          ? rawPhase
+          : 'reactive';
       return {
         solutionMode: 'play-vs-engine',
         playVsEngine: {
@@ -1358,6 +1378,7 @@ export class PuzzleService {
           ...(deltaW !== undefined ? { deltaW } : {}),
           ...(deltaD !== undefined ? { deltaD } : {}),
           objective,
+          puzzlePhase,
         },
       };
     } catch (e) {

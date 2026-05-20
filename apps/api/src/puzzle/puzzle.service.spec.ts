@@ -870,8 +870,15 @@ describe('PuzzleService', () => {
       // KS-3145: DTO теперь дополнительно содержит `objective` (fallback
       // по wdlAfterBlunder ≥ 0.5 ⇒ convertAdvantage). Проверяем что
       // исходные поля сохранились + добавилось objective.
-      expect((result as { playVsEngine?: typeof meta & { objective?: string } })
-        .playVsEngine).toEqual({ ...meta, objective: 'convertAdvantage' });
+      // KS-3159 / ADR-070: legacy-пазлы (без `puzzlePhase` в meta)
+      // резолвятся фолбэком как 'reactive' — старая генерация делала
+      // только реактивный пазл.
+      expect((result as { playVsEngine?: typeof meta & { objective?: string; puzzlePhase?: string } })
+        .playVsEngine).toEqual({
+          ...meta,
+          objective: 'convertAdvantage',
+          puzzlePhase: 'reactive',
+        });
     });
 
     it('KS-2665: sourceMetadata только с blunderMove + wdlAfterBlunder → пороги из PUZZLE_GEN_DEFAULTS', async () => {
@@ -1108,6 +1115,116 @@ describe('PuzzleService', () => {
       const pve = (result as { playVsEngine?: { objective?: string } })
         .playVsEngine;
       expect(pve?.objective).toBe('convertAdvantage');
+    });
+
+    it('KS-3159 / ADR-070: новый puzzle с puzzlePhase=preventive → пробрасывается в DTO', async () => {
+      const meta = {
+        blunderMove: 'd6',
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlAfter: { w: 0, d: 952, l: 48 },
+        objective: 'saveEquality' as const,
+        puzzlePhase: 'preventive' as const,
+        preventiveCorrectMoveUci: 'e3e4',
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-prev',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine saveEquality preventive',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+      const result = await service.getPuzzle('pve-prev');
+      const pve = (result as { playVsEngine?: { puzzlePhase?: string } })
+        .playVsEngine;
+      expect(pve?.puzzlePhase).toBe('preventive');
+    });
+
+    it('KS-3159 / ADR-070: новый puzzle с puzzlePhase=reactive → пробрасывается в DTO', async () => {
+      const meta = {
+        blunderMove: 'd5d6',
+        wdlAfterBlunder: 0.0,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        wdlAfter: { w: 0, d: 952, l: 48 },
+        objective: 'saveEquality' as const,
+        puzzlePhase: 'reactive' as const,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-react',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine saveEquality reactive',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+      const result = await service.getPuzzle('pve-react');
+      const pve = (result as { playVsEngine?: { puzzlePhase?: string } })
+        .playVsEngine;
+      expect(pve?.puzzlePhase).toBe('reactive');
+    });
+
+    it('KS-3159 / ADR-070: legacy puzzle без puzzlePhase → fallback "reactive"', async () => {
+      // Старая генерация (до ADR-070) всегда строила пазл из fenAfter
+      // — это реактивный пазл по новой терминологии. Фолбэк гарантирует
+      // обратную совместимость UI: legacy-пазлы видны как `reactive`.
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        // puzzlePhase отсутствует — legacy.
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-legacy',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+      const result = await service.getPuzzle('pve-legacy');
+      const pve = (result as { playVsEngine?: { puzzlePhase?: string } })
+        .playVsEngine;
+      expect(pve?.puzzlePhase).toBe('reactive');
+    });
+
+    it('KS-3159 / ADR-070: невалидное значение puzzlePhase в meta → fallback "reactive"', async () => {
+      // Если в meta пришла строка не из enum (повреждение JSON или
+      // forward-compat случай) — резолвер не падает, ставит reactive.
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+        puzzlePhase: 'unknown-future-phase',
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-bad-phase',
+        fen: 'fen',
+        moves: '',
+        rating: 1700,
+        themes: 'playVsEngine',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+      });
+      const result = await service.getPuzzle('pve-bad-phase');
+      const pve = (result as { playVsEngine?: { puzzlePhase?: string } })
+        .playVsEngine;
+      expect(pve?.puzzlePhase).toBe('reactive');
     });
 
     it('KS-3145: legacy puzzle БЕЗ wdlAfter — fallback по wdlAfterBlunder', async () => {
