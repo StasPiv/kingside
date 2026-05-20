@@ -42,6 +42,7 @@ import {
   resolveLockTimings,
 } from '../archive-import/archive-import-lock';
 import { triggerPveGeneration } from '../archive-import/trigger-pve-generation';
+import { PlayersEventsBackfillService } from '../archive-import/players-events-backfill.service';
 import { randomUUID } from 'node:crypto';
 
 const PROGRESS_TAG = '[cli:import-twic-issue]';
@@ -109,6 +110,15 @@ export interface ImportTwicIssueDeps {
   // и публичной поверхности `RedisService`.
   redis: Pick<Redis, 'set' | 'del' | 'publish' | 'get' | 'eval'>;
   makeImporter: (source: ArchiveSourceRow) => Pick<TwicImporter, 'runAdHoc'>;
+  /**
+   * KS-3154: после успешного ad-hoc-импорта вызываем `syncDelta`,
+   * чтобы свежие партии попали в `archive_events` / `archive_players`
+   * — иначе автокомплит турниров и игроков их не видит. До этой
+   * правки ad-hoc CLI пропускал этот шаг (только scheduled-режим
+   * `archive-import.service.ts` его делал). Опционально: если не
+   * передан — backfill пропускается с warning'ом.
+   */
+  playersEventsBackfill?: Pick<PlayersEventsBackfillService, 'syncDelta'>;
   logger: Pick<Logger, 'log' | 'warn' | 'error'>;
   /** KS-1896: подмена `now`/`sleep` и параметров timeout'а (только для тестов). */
   lockWaitOpts?: {
@@ -135,7 +145,7 @@ export async function runImportTwicIssue(
   deps: ImportTwicIssueDeps,
   args: ImportTwicIssueArgs,
 ): Promise<ImportResult> {
-  const { prisma, redis, makeImporter, logger } = deps;
+  const { prisma, redis, makeImporter, logger, playersEventsBackfill } = deps;
 
   const source = await prisma.archiveSource.findFirst({
     where: { code: 'twic' },
@@ -260,6 +270,56 @@ export async function runImportTwicIssue(
       }
     }
 
+    // KS-3154: после успешного ad-hoc-импорта вытягиваем партии импорта
+    // и вызываем `syncDelta` для `archive_events` / `archive_players` —
+    // без этого автокомплит турниров не увидит свежие имена
+    // (scheduler-режим делает то же в `archive-import.service.ts:
+    // syncPlayersEventsAfterImport`). Сбой backfill'а non-fatal —
+    // лог + продолжаем.
+    if (
+      (result.status === 'ok' || result.status === 'partial') &&
+      result.importId &&
+      result.gamesAdded > 0 &&
+      playersEventsBackfill
+    ) {
+      try {
+        const importedGames = await prisma.archiveGame.findMany({
+          where: { importId: result.importId },
+          select: {
+            whiteName: true,
+            blackName: true,
+            whiteElo: true,
+            blackElo: true,
+            event: true,
+            playedAt: true,
+            date: true,
+          },
+        });
+        if (importedGames.length > 0) {
+          const report = await playersEventsBackfill.syncDelta({
+            games: importedGames.map((g) => ({
+              whiteName: g.whiteName,
+              blackName: g.blackName,
+              whiteElo: g.whiteElo,
+              blackElo: g.blackElo,
+              event: g.event,
+              playedAt: g.playedAt,
+              date: g.date,
+            })),
+          });
+          logger.log(
+            `${PROGRESS_TAG} players/events sync: importId=${result.importId} ` +
+              `players+=${report.upsertedPlayers} events+=${report.upsertedEvents}`,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(
+          `${PROGRESS_TAG} players/events sync failed (non-fatal): ${msg}`,
+        );
+      }
+    }
+
     // KS-2775. Авто-триггер PVE-генерации после успешного импорта.
     // Условия: status='ok'|'partial', есть importId, gamesAdded>0
     // (без новых партий пазлы делать не на чем), feature-flag
@@ -308,6 +368,10 @@ async function main(): Promise<void> {
     const writer = app.get(ArchivePositionWriterService);
     const indexer = app.get(PositionIndexerService);
     const metrics = app.get(ArchiveImportMetricsService);
+    // KS-3154: ad-hoc CLI обновляет archive_events / archive_players
+    // через syncDelta (раньше пропускался — поэтому ROM Classic не
+    // попадал в автокомплит после ad-hoc twic1645).
+    const playersEventsBackfill = app.get(PlayersEventsBackfillService);
 
     const result = await runImportTwicIssue(
       {
@@ -315,6 +379,7 @@ async function main(): Promise<void> {
         redis,
         makeImporter: (source) =>
           new TwicImporter(prisma, source, writer, indexer, metrics),
+        playersEventsBackfill,
         logger,
       },
       args,
