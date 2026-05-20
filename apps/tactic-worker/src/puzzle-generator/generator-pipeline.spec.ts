@@ -68,8 +68,12 @@ function makePgRowMock(pgn: string, opts: Partial<{ ply_count: number; white_elo
           {
             id: '00000000-0000-0000-0000-000000000001',
             pgn,
-            white_elo: opts.white_elo ?? 1800,
-            black_elo: opts.black_elo ?? 1800,
+            // KS-3158 / ADR-070 §2.2: default Elo обновлён до 2800/2780,
+            // чтобы партии проходили серверный фильтр Elo ≥ 2400.
+            // Тесты, которые проверяют сам Elo-фильтр, передают свои
+            // значения через opts.
+            white_elo: opts.white_elo ?? 2800,
+            black_elo: opts.black_elo ?? 2780,
             ply_count: opts.ply_count ?? 22,
             time_control_category: 'classical',
           },
@@ -176,9 +180,15 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
       (meta.wdlBefore.d as number) +
       (meta.wdlBefore.l as number);
     expect(sum).toBe(1000);
-    // accountedFor invariant
+    // KS-3158 / ADR-070: invariant изменён — на каждый принятый ply
+    // строится 1 или 2 пазла (reactive обязателен, preventive — по
+    // pre-filter). Поэтому
+    //   acceptedPly = positionsAnalyzed − sum(drops),
+    //   acceptedPly ≤ inserted ≤ 2 × acceptedPly.
     const sumDrops = Object.values(stats.drops).reduce((a, b) => a + b, 0);
-    expect(stats.inserted + sumDrops).toBe(stats.positionsAnalyzed);
+    const acceptedPly = stats.positionsAnalyzed - sumDrops;
+    expect(stats.inserted).toBeGreaterThanOrEqual(acceptedPly);
+    expect(stats.inserted).toBeLessThanOrEqual(2 * acceptedPly);
     // KS-3145 / ADR-069: objective пишется и в sourceMetadata, и тегом
     // в themes. wdlAfter в моке = +0.85 (W ≈ 925/1000) → convertAdvantage.
     expect(meta.objective).toBe('convertAdvantage');
@@ -322,6 +332,134 @@ describe('runPuzzleGenerator (play-vs-engine, KS-2464 / KS-2470)', () => {
     expect(stats.gamesProcessed).toBe(1);
     expect(stats.positionsAnalyzed).toBe(0);
     expect(insertPuzzle).not.toHaveBeenCalled();
+  });
+
+  it('KS-3158 / ADR-070: на одном зевке генерятся ДВА пазла (preventive + reactive)', async () => {
+    const pgn = buildPgn();
+    const solverSide: 'w' | 'b' = 'w';
+    const engine: EngineApi = {
+      analyzePositionWdl: jest.fn(
+        async (fen: string, _l, multiPV: number): Promise<MultiPvLine[]> => {
+          const first = firstLegalUci(fen);
+          const alt = first === 'a1a1' ? 'b1b1' : 'a1a1';
+          const sideToMove = fen.split(' ')[1] as 'w' | 'b';
+          if (multiPV === 2) {
+            if (sideToMove === solverSide) {
+              return [pvWdl(first, 0.85), pvWdl(alt, 0.75)];
+            }
+            return [pvWdl(alt, 0.7), pvWdl(first, 0.6)];
+          }
+          const wdl = sideToMove === solverSide ? 0.8 : -0.8;
+          return [pvWdl(first, wdl)];
+        },
+      ),
+    };
+    const inserted: PuzzleRecord[] = [];
+    const insertPuzzle = jest.fn(async (p: PuzzleRecord) => {
+      inserted.push(p);
+      return true;
+    });
+    const opts = defaultGeneratorOptions({
+      maxGames: 1,
+      halfMovesN: 2,
+      startPly: 20,
+      engineLimit: { timeMs: 50 },
+    });
+    await runPuzzleGenerator({
+      pg: makePgRowMock(pgn) as never,
+      engine,
+      options: { ...opts, insertPuzzle },
+    });
+    // На каждый принятый зевок 2 пазла: preventive + reactive.
+    const phases = inserted.map(
+      (p) => JSON.parse(p.sourceMetadata).puzzlePhase as string,
+    );
+    expect(phases).toContain('preventive');
+    expect(phases).toContain('reactive');
+    // Количество preventive = reactive (для каждого reactive есть свой
+    // preventive — pre-filter W+D ≥ 0.5 у нас выполнен).
+    const nPrev = phases.filter((p) => p === 'preventive').length;
+    const nReact = phases.filter((p) => p === 'reactive').length;
+    expect(nPrev).toBe(nReact);
+    // FENы preventive ≠ reactive (применили легальный ход).
+    const reactivePuzzle = inserted.find(
+      (p) => JSON.parse(p.sourceMetadata).puzzlePhase === 'reactive',
+    );
+    const preventivePuzzle = inserted.find(
+      (p) => JSON.parse(p.sourceMetadata).puzzlePhase === 'preventive',
+    );
+    expect(reactivePuzzle!.fen).not.toBe(preventivePuzzle!.fen);
+    // Themes: 'reactive' и 'preventive' попадают в themes-list.
+    expect(reactivePuzzle!.themes.split(' ')).toContain('reactive');
+    expect(preventivePuzzle!.themes.split(' ')).toContain('preventive');
+    // Превентив содержит preventiveCorrectMoveUci.
+    expect(
+      JSON.parse(preventivePuzzle!.sourceMetadata).preventiveCorrectMoveUci,
+    ).toBeDefined();
+  });
+
+  it('KS-3158 / ADR-070 §2.2: серверный Elo-фильтр 2400 — партии < 2400 отбрасываются как skippedByEloFilter', async () => {
+    const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+    const engine: EngineApi = { analyzePositionWdl: jest.fn() };
+    const insertPuzzle = jest.fn(async () => true);
+    const fakePg = {
+      query: jest
+        .fn<Promise<{ rows: unknown[] }>, [string, unknown[]]>()
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'g',
+              pgn,
+              white_elo: 2300,
+              black_elo: 2700,
+              ply_count: 60,
+              time_control_category: 'classical',
+            },
+          ],
+        })
+        .mockResolvedValue({ rows: [] }),
+    };
+    // Default minRating уже 2400.
+    const opts = defaultGeneratorOptions({ maxGames: 1, startPly: 1 });
+    const stats = await runPuzzleGenerator({
+      pg: fakePg as never,
+      engine,
+      options: { ...opts, insertPuzzle },
+    });
+    expect(stats.skippedByEloFilter).toBe(1);
+    expect(stats.positionsAnalyzed).toBe(0);
+    expect(engine.analyzePositionWdl).not.toHaveBeenCalled();
+  });
+
+  it('KS-3158 / ADR-070 §2.2: server Elo-фильтр пропускает партии с null Elo', async () => {
+    const pgn = '1. e4 e5 2. Nf3 Nc6';
+    const engine: EngineApi = { analyzePositionWdl: jest.fn() };
+    const insertPuzzle = jest.fn(async () => true);
+    const fakePg = {
+      query: jest
+        .fn<Promise<{ rows: unknown[] }>, [string, unknown[]]>()
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'g',
+              pgn,
+              white_elo: 2700,
+              black_elo: null,
+              ply_count: 60,
+              time_control_category: 'classical',
+            },
+          ],
+        })
+        .mockResolvedValue({ rows: [] }),
+    };
+    const opts = defaultGeneratorOptions({ maxGames: 1 });
+    const stats = await runPuzzleGenerator({
+      pg: fakePg as never,
+      engine,
+      options: { ...opts, insertPuzzle },
+    });
+    // null Elo при minRating>0 = отбрасываем (нет данных = нет гарантии).
+    expect(stats.skippedByEloFilter).toBe(1);
   });
 
   it('фильтр: оба Elo < minRating → пропуск', async () => {

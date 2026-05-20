@@ -169,6 +169,16 @@ export interface GeneratorStats {
   gamesProcessed: number;
   positionsAnalyzed: number;
   inserted: number;
+  /**
+   * KS-3158 / ADR-070 §2.2. Партия отброшена ELO-фильтром на уровне
+   * обёртки (`passesPlayerEloFilter`). Считается ДО replay и ДО любого
+   * SF-вызова — поэтому НЕ входит в `positionsAnalyzed`.
+   *
+   * Default `minPlayerElo` для сервера = 2400 (см.
+   * `generator-pipeline.ts:SERVER_MIN_PLAYER_ELO`). Для клиента
+   * порог 0 — там фильтр пропускает всех (см. ADR-070 §2.2).
+   */
+  skippedByEloFilter: number;
   /** Сумма drops + inserted = positionsAnalyzed (инвариант). */
   drops: {
     /**
@@ -234,7 +244,12 @@ export function defaultGeneratorOptions(
     spreadDelta: 0.3,
     continueSpreadDelta: 0.3,
     forcedSpreadDelta: 0.5,
-    minRating: 1400,
+    // KS-3158 / ADR-070 §2.2: сервер по запросу пользователя фильтрует
+    // партии по Elo ≥ 2400. Поле названо `minRating` для обратной
+    // совместимости с прежним CLI-флагом `--min-rating`; в shared
+    // соответствует `PuzzleGenSettings.minPlayerElo`. Установка через
+    // CLI остаётся (переходный алиас), default — 2400.
+    minRating: 2400,
     minPly: 20,
     minLineLength: 1,
     maxLineLength: 6,
@@ -249,6 +264,7 @@ export function newGeneratorStats(): GeneratorStats {
     gamesProcessed: 0,
     positionsAnalyzed: 0,
     inserted: 0,
+    skippedByEloFilter: 0,
     drops: {
       notBlunder: 0,
       samePv1: 0,
