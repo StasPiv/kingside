@@ -29,8 +29,17 @@ import type { CourseCardFields, LessonStepState, StepPayload } from './lessons.j
  *
  * KS-2570: добавлен `'quiz'` (ADR-049 Tier 1 #2). Backend-whitelist
  * расширен в KS-2569.
+ *
+ * KS-3179 (ADR-072 §7 S1): добавлен `'game'` — read-only просмотр
+ * партии. Backend-whitelist (`ALLOWED_USER_STEP_TYPES`) и UI-редактор
+ * расширяются отдельными тикетами (KS-3180+).
  */
-export type UserStepType = 'text' | 'puzzle' | 'endgame_drill' | 'quiz';
+export type UserStepType =
+  | 'text'
+  | 'puzzle'
+  | 'endgame_drill'
+  | 'quiz'
+  | 'game';
 
 // ─── Core DTOs ────────────────────────────────────────────────────────
 

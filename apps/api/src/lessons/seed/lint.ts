@@ -335,6 +335,13 @@ function collectChessChecks(
       }
       break;
     }
+    case 'game': {
+      // KS-3179 (ADR-072 §7 S1): тип объявлен в shared, валидатор
+      // (chess.js#loadPgn для inline-PGN, проверка `analysisId` для
+      // workshop_analysis) приедет в KS-3180 вместе с DTO. До тех пор
+      // линтер пропускает шаг — seed-фикстур с `type: 'game'` пока нет.
+      break;
+    }
   }
 }
 

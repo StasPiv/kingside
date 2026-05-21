@@ -56,7 +56,14 @@ export type LessonStepType =
    * Использует ту же drill-инфраструктуру (predicates / rating /
    * sprint), что и автономный режим, но рендерится как шаг урока.
    */
-  | 'drill';
+  | 'drill'
+  /**
+   * KS-3179 (ADR-072 §7 S1): шаг «Партия» — read-only просмотр PGN
+   * (своя сохранённая партия из workshop / impоrt либо инлайн-PGN).
+   * Payload — `GameStepPayload`. Не путать с `game_review` (заглушка
+   * под итерацию 3 для авто-разбора).
+   */
+  | 'game';
 
 /** Статус прохождения шага внутри урока (агрегат в `UserLessonProgress.stepsState`). */
 export type LessonStepState = 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
@@ -297,6 +304,60 @@ export interface GameReviewStepPayload {
 }
 
 /**
+ * KS-3179 / ADR-072 §7 S1. Шаг «Партия» — read-only просмотр PGN внутри
+ * урока. В отличие от `game_review` (заглушка под автоматический разбор
+ * итерации 3) — этот шаг просто показывает партию: доска + список ходов
+ * + перемотка. Анализ опционален (ссылка в `analysisId` на сохранённый
+ * анализ из workshop'а, если автор хочет дать готовый разбор).
+ *
+ * Источник партии:
+ *  - `sourceType='pgn'` — инлайн-PGN, валидируется бэкендом через
+ *    chess.js при сохранении шага.
+ *  - `sourceType='workshop_analysis'` — партия импортируется из
+ *    `Analysis` (см. apps/api `analysis` module). PGN сохраняется в
+ *    `pgn` snapshot'ом на момент создания шага; `analysisId` хранит
+ *    ссылку на исходный анализ (для апдейта по кнопке в редакторе).
+ *
+ * `meta` — необязательные шахматные «теги» PGN. Если не переданы,
+ * фронт пытается распарсить их из самого PGN-заголовка (`[White ...]`).
+ */
+export interface GameStepPayload {
+  type: 'game';
+  /** Источник партии — инлайн или из сохранённого workshop-анализа. */
+  sourceType: 'pgn' | 'workshop_analysis';
+  /**
+   * Snapshot PGN партии. Обязателен в обоих режимах: при
+   * `sourceType='workshop_analysis'` бэкенд при создании/обновлении
+   * шага копирует текущий PGN из `Analysis` сюда, чтобы шаг был
+   * самодостаточен (не сломается, если автор удалит анализ).
+   */
+  pgn: string;
+  /**
+   * Шахматные теги для подписи. Если не заданы, фронт парсит из PGN-
+   * заголовка. Поля опциональны и расширяемы (PGN-стандарт допускает
+   * произвольные [Tag "value"]).
+   */
+  meta?: {
+    white?: string;
+    black?: string;
+    result?: string;
+    date?: string;
+    event?: string;
+    site?: string;
+    round?: string;
+    /** Произвольные доп. теги. */
+    [extraTag: string]: string | undefined;
+  };
+  /**
+   * UUID исходного `Analysis` в workshop'е (только при
+   * `sourceType='workshop_analysis'`). Используется редактором шага
+   * для кнопки «Обновить PGN из анализа». Для `sourceType='pgn'`
+   * — отсутствует.
+   */
+  analysisId?: string;
+}
+
+/**
  * Видео-шаг (итерация 3, L-34). Заглушка, появится если методически
  * понадобится.
  */
@@ -462,6 +523,7 @@ export type StepPayload =
   | QuizStepPayload
   | PositionStepPayload
   | GameReviewStepPayload
+  | GameStepPayload
   | VideoStepPayload
   | EndgameDrillStepPayload
   | OpeningDrillStepPayload
@@ -473,6 +535,7 @@ export type PuzzleStep = PuzzleStepPayload;
 export type QuizStep = QuizStepPayload;
 export type PositionStep = PositionStepPayload;
 export type GameReviewStep = GameReviewStepPayload;
+export type GameStep = GameStepPayload;
 export type VideoStep = VideoStepPayload;
 export type EndgameDrillStep = EndgameDrillStepPayload;
 export type OpeningDrillStep = OpeningDrillStepPayload;
