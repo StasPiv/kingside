@@ -20,12 +20,15 @@
  */
 
 import {
+  BadRequestException,
   Injectable,
   Logger,
   OnApplicationBootstrap,
   type Type,
 } from '@nestjs/common';
 import { ModuleRef, ModulesContainer } from '@nestjs/core';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import {
   AnthropicToolDef,
   AssistantToolsProvider,
@@ -107,7 +110,13 @@ export class McpAssistantRegistry
         `Tool '${name}': method ${entry.controllerClass.name}.${entry.methodName} not found`,
       );
     }
-    const args = this.mapHandlerArgs(entry, input, userId);
+    // KS-3207: валидируем input через class-validator на основе типа
+    // первого непримитивного параметра (DTO-класс). Это эмулирует
+    // NestJS ValidationPipe, которую мы обходим при прямом invoke.
+    // Без этой проверки ассистент мог бы прислать поля, не описанные
+    // в схеме, и обойти бизнес-лимиты.
+    const validatedInput = await this.validateInput(entry, input);
+    const args = this.mapHandlerArgs(entry, validatedInput, userId);
     const result = await (method as (...a: unknown[]) => unknown).apply(
       instance,
       args,
@@ -118,21 +127,97 @@ export class McpAssistantRegistry
   }
 
   /**
+   * Прогоняет `input` через class-transformer (`plainToInstance`) и
+   * class-validator на основе типа первого непримитивного параметра.
+   * Если такой параметр — `Object` или примитив (нет DTO-класса), —
+   * возвращает input без изменений.
+   *
+   * Бросает `BadRequestException` с человекочитаемым сообщением, если
+   * валидация не прошла — это улетит в Anthropic как
+   * `tool_result.is_error=true` (см. KS-3205 §loop).
+   */
+  private async validateInput(
+    entry: AssistantToolEntry,
+    input: unknown,
+  ): Promise<unknown> {
+    const inputClass = entry.paramTypes.find(
+      (pt): pt is Type<unknown> =>
+        typeof pt === 'function' &&
+        !PRIMITIVES.has(pt as unknown as new () => unknown) &&
+        pt !== Object,
+    );
+    if (!inputClass) return input;
+    const dto = plainToInstance(
+      inputClass as unknown as new () => unknown,
+      input ?? {},
+    );
+    const errors = await validate(dto as object, {
+      whitelist: true,
+      forbidNonWhitelisted: false,
+    });
+    if (errors.length > 0) {
+      const flat: string[] = [];
+      const walk = (e: { property: string; constraints?: Record<string, string>; children?: unknown[] }, prefix: string): void => {
+        const key = prefix ? `${prefix}.${e.property}` : e.property;
+        for (const msg of Object.values(e.constraints ?? {})) {
+          flat.push(`${key}: ${msg}`);
+        }
+        for (const c of (e.children ?? []) as Array<typeof e>) {
+          walk(c, key);
+        }
+      };
+      for (const e of errors) walk(e as any, '');
+      throw new BadRequestException(
+        `Tool '${entry.def.name}' input validation failed: ${flat.join('; ')}`,
+      );
+    }
+    return dto;
+  }
+
+  /**
    * Build/rebuild реестр. Public только для тестов — обычно вызывается
    * один раз в `onApplicationBootstrap`.
    */
   build(): void {
     this.registry.clear();
     for (const module of this.modules.values()) {
-      for (const wrapper of module.controllers.values()) {
-        const controllerClass = wrapper.metatype as Type<unknown> | undefined;
+      // KS-3207: tools могут жить и на @Controller'ах (для отметки
+      // существующих handler'ов), и на @Injectable() сервисах (адаптеры,
+      // спроектированные под ассистент). Сканируем оба источника.
+      // `controllers` / `providers` могут отсутствовать в тестовых
+      // подделках `ModulesContainer` — защищаемся guard'ами.
+      const controllersIter = module.controllers?.values?.() ?? [];
+      const providersIter = module.providers?.values?.() ?? [];
+      const candidates: Array<{ metatype: unknown }> = [
+        ...controllersIter,
+        ...providersIter,
+      ];
+      const seen = new Set<Type<unknown>>();
+      for (const wrapper of candidates) {
+        const metatype = wrapper.metatype as unknown;
+        const controllerClass =
+          typeof metatype === 'function' ? (metatype as Type<unknown>) : undefined;
         if (!controllerClass) continue;
+        if (seen.has(controllerClass)) continue;
+        seen.add(controllerClass);
         if (Reflect.getMetadata(MCP_EXCLUDE, controllerClass)) continue;
 
-        const proto = controllerClass.prototype as Record<string, unknown>;
-        const methodNames = Object.getOwnPropertyNames(proto).filter(
-          (n) => n !== 'constructor' && typeof proto[n] === 'function',
-        );
+        const proto = (controllerClass.prototype ?? null) as
+          | Record<string, unknown>
+          | null;
+        if (!proto) continue; // useValue-провайдеры, anonymous classes без proto
+        // KS-3207: некоторые NestJS-внутренние провайдеры (ModuleRef и
+        // т.п.) имеют prototype-getter'ы, которые бросают при чтении вне
+        // живого application context'а. Защищаемся try/catch — нас
+        // интересуют только обычные классы с @McpToolForAssistant.
+        const methodNames = Object.getOwnPropertyNames(proto).filter((n) => {
+          if (n === 'constructor') return false;
+          try {
+            return typeof proto[n] === 'function';
+          } catch {
+            return false;
+          }
+        });
 
         for (const methodName of methodNames) {
           const handler = proto[methodName] as (...a: unknown[]) => unknown;

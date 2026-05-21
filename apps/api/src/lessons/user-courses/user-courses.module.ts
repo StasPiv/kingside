@@ -7,6 +7,7 @@ import { UserProgressService } from './user-progress.service';
 import { UserCourseOwnerGuard } from './user-course-owner.guard';
 import { SlugService } from './slug.service';
 import { GameStepHydratorService } from '../dto/game-step.hydrator';
+import { LessonAssistantTools } from './lesson-assistant-tools.service';
 import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
 
 /**
@@ -58,6 +59,9 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserCourseOwnerGuard,
     SlugService,
     GameStepHydratorService,
+    // KS-3207 / ADR-074 §10 B3: assistant-tools для пользовательских
+    // уроков (4 tool'а, авторегистрируются McpAssistantRegistry).
+    LessonAssistantTools,
   ],
   exports: [
     UserCoursesService,
@@ -67,6 +71,7 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserCourseOwnerGuard,
     SlugService,
     GameStepHydratorService,
+    LessonAssistantTools,
   ],
 })
 export class UserCoursesModule {}

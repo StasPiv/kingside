@@ -1,0 +1,352 @@
+/**
+ * KS-3207 / ADR-074 §10 B3 — assistant-tools для пользовательских уроков.
+ *
+ * 4 tool'а, доступные AI-ассистенту через `McpAssistantRegistry`
+ * (KS-3206). Это адаптеры поверх существующих `UserCoursesService` /
+ * `UserLessonsService` со специфичной для ассистента валидацией
+ * (хард-лимиты ADR-074 §10 B3) и whitelist'ом step-типов.
+ *
+ * Tools:
+ *   - `create_user_course`         — создать курс под текущим юзером.
+ *   - `create_user_lesson`         — добавить урок (owner-check).
+ *   - `create_user_lesson_step`    — добавить text/quiz-шаг
+ *     (только эти 2 типа; puzzle/game/endgame_drill запрещены 400).
+ *   - `get_user_course_url`        — UI-ссылка на свой курс.
+ *
+ * Хард-лимиты (ADR-074 §10 B3, ужесточают ADR-026 / ADR-049):
+ *   - text-шаг: `bodyMarkdown` ≤ `ASSISTANT_TEXT_BODY_MAX` (4000) символов.
+ *   - quiz: 1–5 вопросов × 2–4 варианта.
+ *   - В одном уроке через assistant — ≤ `ASSISTANT_STEPS_PER_LESSON_MAX`
+ *     (10) шагов. Системный лимит ADR-026 (50) остаётся как floor —
+ *     ассистенту даём более узкие границы, чтобы он не «накидывал»
+ *     длинные курсы за один заход.
+ */
+
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { PrismaService } from '../../prisma/prisma.service';
+import { McpToolForAssistant } from '../../mcp/decorators';
+import { UserCoursesService } from './user-courses.service';
+import { UserLessonsService } from './user-lessons.service';
+
+export const ASSISTANT_TEXT_BODY_MAX = 4000;
+export const ASSISTANT_QUIZ_QUESTIONS_MIN = 1;
+export const ASSISTANT_QUIZ_QUESTIONS_MAX = 5;
+export const ASSISTANT_QUIZ_OPTIONS_MIN = 2;
+export const ASSISTANT_QUIZ_OPTIONS_MAX = 4;
+export const ASSISTANT_STEPS_PER_LESSON_MAX = 10;
+export const ASSISTANT_ALLOWED_STEP_TYPES = ['text', 'quiz'] as const;
+export type AssistantAllowedStepType =
+  (typeof ASSISTANT_ALLOWED_STEP_TYPES)[number];
+
+// ─── DTOs ────────────────────────────────────────────────────────────
+
+export class CreateUserCourseAssistantInput {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+}
+
+export class CreateUserLessonAssistantInput {
+  @IsUUID()
+  courseId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  title!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  estMinutes?: number;
+}
+
+export class AssistantQuizOption {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  id!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  label!: string;
+}
+
+export class AssistantQuizQuestion {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  id!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  prompt!: string;
+
+  @IsArray()
+  @ArrayMinSize(ASSISTANT_QUIZ_OPTIONS_MIN)
+  @ArrayMaxSize(ASSISTANT_QUIZ_OPTIONS_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => AssistantQuizOption)
+  options!: AssistantQuizOption[];
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  correctOptionIds!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  multi?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  explanation?: string;
+}
+
+export class CreateUserLessonStepAssistantInput {
+  @IsUUID()
+  lessonId!: string;
+
+  /**
+   * Только `text` или `quiz` — других типов через ассистент создавать
+   * нельзя (ADR-074 §10 B3). `puzzle`/`game`/`endgame_drill` валятся
+   * здесь же на `@IsIn`, давая 400 с понятным сообщением.
+   */
+  @IsIn(ASSISTANT_ALLOWED_STEP_TYPES as unknown as string[])
+  type!: AssistantAllowedStepType;
+
+  // type='text':
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(ASSISTANT_TEXT_BODY_MAX)
+  bodyMarkdown?: string;
+
+  // type='quiz':
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(ASSISTANT_QUIZ_QUESTIONS_MIN)
+  @ArrayMaxSize(ASSISTANT_QUIZ_QUESTIONS_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => AssistantQuizQuestion)
+  questions?: AssistantQuizQuestion[];
+}
+
+export class GetUserCourseUrlAssistantInput {
+  @IsUUID()
+  courseId!: string;
+}
+
+// ─── Tool service ────────────────────────────────────────────────────
+
+@Injectable()
+export class LessonAssistantTools {
+  private readonly logger = new Logger(LessonAssistantTools.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly courses: UserCoursesService,
+    private readonly lessons: UserLessonsService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @McpToolForAssistant({
+    name: 'create_user_course',
+    description:
+      'Create a new chess course owned by the current user. ' +
+      'Title is required (1-100 chars); description is optional (≤500). ' +
+      'Use when the user explicitly asks the assistant to build a course. ' +
+      'Returns the new course id and slug.',
+  })
+  async createUserCourse(
+    input: CreateUserCourseAssistantInput,
+    req: { user: { id: string } },
+  ): Promise<{ id: string; slug: string; title: string }> {
+    const dto = await this.courses.create(req.user.id, {
+      title: input.title,
+      description: input.description,
+    });
+    return { id: dto.id, slug: dto.slug, title: dto.title };
+  }
+
+  @McpToolForAssistant({
+    name: 'create_user_lesson',
+    description:
+      'Add a new lesson to one of the current user\'s courses (owner only). ' +
+      'Requires courseId (UUID) and title (1-100 chars). ' +
+      'Optional estMinutes (≥1).',
+  })
+  async createUserLesson(
+    input: CreateUserLessonAssistantInput,
+    req: { user: { id: string } },
+  ): Promise<{ id: string; courseId: string; title: string; order: number }> {
+    const dto = await this.courses.addLesson(req.user.id, input.courseId, {
+      title: input.title,
+      estMinutes: input.estMinutes,
+    });
+    return {
+      id: dto.id,
+      courseId: input.courseId,
+      title: dto.title,
+      order: dto.order,
+    };
+  }
+
+  @McpToolForAssistant({
+    name: 'create_user_lesson_step',
+    description:
+      'Add a learning step to one of the current user\'s lessons (owner only). ' +
+      'Allowed types: "text" (bodyMarkdown ≤4000 chars) or "quiz" ' +
+      '(1-5 questions × 2-4 options each). Puzzle/game/endgame_drill steps ' +
+      'are NOT allowed via the assistant — they must be created in the editor. ' +
+      'Hard cap: ≤10 steps per lesson via the assistant.',
+  })
+  async createUserLessonStep(
+    input: CreateUserLessonStepAssistantInput,
+    req: { user: { id: string } },
+  ): Promise<{ id: string; lessonId: string; type: string; order: number }> {
+    // Дублирующий guard на тип шага — `@IsIn` уже отсекает, но даём
+    // явное сообщение если входной DTO миновал валидацию (e2e/прямой
+    // вызов сервиса).
+    if (!ASSISTANT_ALLOWED_STEP_TYPES.includes(input.type)) {
+      throw new BadRequestException(
+        `Step type '${input.type}' is not allowed via assistant ` +
+          `(allowed: ${ASSISTANT_ALLOWED_STEP_TYPES.join(', ')})`,
+      );
+    }
+
+    // Owner-check + лимит «≤10 шагов через ассистент». UserLessonsService
+    // сам валидирует лимит ADR-026 (50), но мы хотим более строгий
+    // потолок для AI, поэтому считаем сами.
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: input.lessonId },
+      select: {
+        ownerId: true,
+        _count: { select: { steps: true } },
+      },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (lesson.ownerId !== req.user.id) {
+      throw new ForbiddenException('You do not own this lesson');
+    }
+    if (lesson._count.steps >= ASSISTANT_STEPS_PER_LESSON_MAX) {
+      throw new BadRequestException(
+        `Lesson already has ${ASSISTANT_STEPS_PER_LESSON_MAX} steps ` +
+          `(assistant limit; ask the user to remove some before adding more)`,
+      );
+    }
+
+    let payload: unknown;
+    if (input.type === 'text') {
+      if (!input.bodyMarkdown || input.bodyMarkdown.length === 0) {
+        throw new BadRequestException(
+          'text step requires non-empty bodyMarkdown',
+        );
+      }
+      payload = { type: 'text', bodyMarkdown: input.bodyMarkdown };
+    } else {
+      // quiz
+      if (!input.questions || input.questions.length === 0) {
+        throw new BadRequestException(
+          'quiz step requires at least one question',
+        );
+      }
+      // Доп. валидация консистентности: correctOptionIds должны
+      // существовать в options. Это не ловит class-validator на ниже-
+      // лежащем уровне (только cross-field check), но в `LessonsService`
+      // публичный аналог уже есть; мы дублируем для понятной ошибки.
+      for (const q of input.questions) {
+        const ids = new Set(q.options.map((o) => o.id));
+        for (const cid of q.correctOptionIds) {
+          if (!ids.has(cid)) {
+            throw new BadRequestException(
+              `quiz question '${q.id}': correctOptionId '${cid}' is not in options`,
+            );
+          }
+        }
+        if (!q.multi && q.correctOptionIds.length !== 1) {
+          throw new BadRequestException(
+            `quiz question '${q.id}': single-answer must have exactly 1 correctOptionId`,
+          );
+        }
+      }
+      payload = { type: 'quiz', questions: input.questions };
+    }
+
+    const created = await this.lessons.addStep(
+      input.lessonId,
+      {
+        type: input.type,
+        // shape соответствует StepPayload из shared.
+        payload: payload as never,
+      },
+      req.user.id,
+    );
+    return {
+      id: created.id,
+      lessonId: input.lessonId,
+      type: created.type,
+      order: created.order,
+    };
+  }
+
+  @McpToolForAssistant({
+    name: 'get_user_course_url',
+    description:
+      'Get the public URL of one of the current user\'s courses (owner only). ' +
+      'Use after creating a course to share the link back to the user.',
+  })
+  async getUserCourseUrl(
+    input: GetUserCourseUrlAssistantInput,
+    req: { user: { id: string } },
+  ): Promise<{ url: string; slug: string }> {
+    const course = await this.prisma.course.findUnique({
+      where: { id: input.courseId },
+      select: { ownerId: true, slug: true },
+    });
+    if (!course) throw new NotFoundException('Course not found');
+    if (course.ownerId !== req.user.id) {
+      throw new ForbiddenException('You do not own this course');
+    }
+    const base = (
+      this.config.get<string>('SITE_URL', 'https://kingside.site') ?? ''
+    ).replace(/\/+$/, '');
+    return {
+      slug: course.slug,
+      url: `${base}/lessons/courses/${course.slug}`,
+    };
+  }
+}
