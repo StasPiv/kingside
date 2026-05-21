@@ -27,6 +27,18 @@
   padding: 24px 20px 48px;
   color: var(--text-primary);
   box-sizing: border-box;
+  /* KS-3186: `.app-body > .main:has(.lesson-page) { overflow-y: visible }`
+     убирает ограничения у main. Тогда `.lesson-page` (flex-item в
+     main flex column, cross axis = width) расширяется под min-content
+     ребёнка (например, шахматной доски 374px + padding). `min-width: 0`
+     + `width: 100%` + `overflow: hidden auto` (shorthand, не x-only —
+     чтобы default `min-width: auto` в cross axis действительно
+     ушёл в 0) жёстко жмут страницу к ширине main, переполнение
+     обрезается. */
+  min-width: 0;
+  width: 100%;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .lessons-page h1,
@@ -571,6 +583,12 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /* KS-3186: без этого flex-контейнер растягивается от min-content
+     своих children (карточек шага) и тянет всю .lesson-page наружу
+     viewport'а. */
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 
 /* KS-2041: навигация между шагами — «Назад/Далее» + счётчик. Идёт

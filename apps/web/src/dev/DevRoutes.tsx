@@ -17,6 +17,7 @@ import { DevBoardImageDropzoneNotFoundPage } from '../pages/DevBoardImageDropzon
 import { DevBoardImageDropzoneMultiPage } from '../pages/DevBoardImageDropzoneMultiPage';
 import { DevBoardImageDropzone500Page } from '../pages/DevBoardImageDropzone500Page';
 import { DevGameStepPage } from '../pages/DevGameStepPage';
+import { DevLessonGameStepPage } from '../pages/DevLessonGameStepPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -76,6 +77,8 @@ export default function DevRoutes() {
       />
       {/* KS-3183 (ADR-072 §7 L1): визуальная проверка layout шага «Партия». */}
       <Route path="game-step" element={<DevGameStepPage />} />
+      {/* KS-3186: dev-страница, эмулирующая реальный LessonPage с шагом «Партия». */}
+      <Route path="lesson-game-step" element={<DevLessonGameStepPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
