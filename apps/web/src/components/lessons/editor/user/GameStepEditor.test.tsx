@@ -133,15 +133,12 @@ describe('<GameStepEditor> (KS-3181)', () => {
       mkAnalysis({ id: 'a1', title: 'Tal vs Botvinnik', white: 'Tal' }),
       mkAnalysis({ id: 'a2', title: 'Kramnik study', white: 'Kramnik' }),
     ];
-    // KS-3202: pagination-loop делает столько запросов, сколько нужно
-    // (страница меньше 100 — стоп). Здесь 2 элемента → 1 запрос.
     apiGetMock.mockResolvedValue(items);
     const { rerender } = renderWithProviders(
       <GameStepEditor payload={mkPayload()} onChange={onChange} />,
     );
 
     fireEvent.click(screen.getByTestId('game-step-editor-tab-workshop'));
-    // Родитель в реальной жизни обновит payload → имитируем перерендер.
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'game',
@@ -158,11 +155,10 @@ describe('<GameStepEditor> (KS-3181)', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('game-step-editor-workshop-list')).toBeTruthy(),
     );
+    // KS-3202 (v2): пустой поиск → запрос без `?search=`.
     expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=0');
 
     onChange.mockClear();
-    // Кликаем по кнопке внутри строки (li.testid — обёртка, click на ней
-    // не вызывает onClick потомка).
     const row = screen.getByTestId('game-step-editor-workshop-item-a1');
     const btn = row.querySelector('button');
     if (!btn) throw new Error('analysis button missing');
@@ -171,33 +167,8 @@ describe('<GameStepEditor> (KS-3181)', () => {
     const submit = onChange.mock.calls[0][0] as GameStepPayload;
     expect(submit.sourceType).toBe('workshop_analysis');
     expect(submit.analysisId).toBe('a1');
-    // KS-3181: pgn НЕ отправляется в workshop-режиме — backend сам
-    // сделает snapshot. meta берётся из элемента списка для preview.
     expect(submit.pgn).toBeUndefined();
     expect(submit.meta).toEqual({ white: 'Tal' });
-  });
-
-  it('workshop-режим: фильтр поиска отбирает анализы по белым/чёрным/event', async () => {
-    apiGetMock.mockResolvedValue([
-      mkAnalysis({ id: 'a1', title: 'A', white: 'Carlsen', black: 'Anand' }),
-      mkAnalysis({ id: 'a2', title: 'B', white: 'Tal', black: 'Botvinnik' }),
-    ]);
-    renderWithProviders(
-      <GameStepEditor
-        payload={mkPayload({ sourceType: 'workshop_analysis' })}
-        onChange={vi.fn()}
-      />,
-    );
-    await waitFor(() =>
-      expect(screen.queryByTestId('game-step-editor-workshop-list')).toBeTruthy(),
-    );
-
-    fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
-      target: { value: 'tal' },
-    });
-
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a1')).toBeNull();
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a2')).toBeTruthy();
   });
 
   it('workshop-режим без выбора анализа → видна подсказка noSelection', async () => {
@@ -230,29 +201,28 @@ describe('<GameStepEditor> (KS-3181)', () => {
   });
 
   /**
-   * KS-3202: симптом — поиск «Pivovartsev» среди >100 анализов давал
-   * «не найдено», потому что грузилась только первая страница (100). Тут
-   * мочим api.get так, чтобы первый запрос вернул 100 шт. (без искомого
-   * имени), второй — оставшиеся 30 (с «Pivovartsev» среди них). После
-   * загрузки поиск должен найти запись.
+   * KS-3202 (v2 after KS-3203): поиск идёт через server-side
+   * `/analyses?search={q}`. Pagination loop удалён — каждый ввод после
+   * 300ms debounce отправляет ровно один запрос с `?search=...`. Backend
+   * (KS-3203) делает ILIKE по 8 полям. Тест: мочим api.get так, чтобы
+   * запрос с `?search=pivovartsev` вернул запись с этой фамилией,
+   * проверяем что URL содержит закодированный search и запись в списке.
    */
-  it('KS-3202: pagination-loop догружает все страницы, поиск находит запись со 2-й страницы', async () => {
-    const page1 = Array.from({ length: 100 }, (_, i) =>
-      mkAnalysis({ id: `p1-${i}`, title: `Generic ${i}`, white: 'Anon' }),
-    );
-    const page2 = [
-      mkAnalysis({
-        id: 'pivo',
-        title: 'My fave',
-        white: 'Pivovartsev, S.',
-        black: 'Opponent',
-      }),
-      mkAnalysis({ id: 'other', title: 'Other', white: 'X' }),
-    ];
+  it('KS-3202 (v2): ввод поиска → запрос /analyses?search={q}, результат от backend в списке', async () => {
     apiGetMock.mockImplementation((url: string) => {
-      if (url === '/analyses?limit=100&offset=0') return Promise.resolve(page1);
-      if (url === '/analyses?limit=100&offset=100') return Promise.resolve(page2);
-      return Promise.resolve([]);
+      if (url.includes('search=pivovartsev')) {
+        return Promise.resolve([
+          mkAnalysis({
+            id: 'pivo',
+            title: 'My fave',
+            white: 'Pivovartsev, S.',
+          }),
+        ]);
+      }
+      // Пустой search — другая страница.
+      return Promise.resolve([
+        mkAnalysis({ id: 'other', title: 'Other', white: 'Anon' }),
+      ]);
     });
 
     renderWithProviders(
@@ -262,63 +232,50 @@ describe('<GameStepEditor> (KS-3181)', () => {
       />,
     );
 
-    // Ждём, пока вторая страница догрузится — total counter покажет 102.
-    await waitFor(() => {
-      const total = screen.queryByTestId('game-step-editor-workshop-total');
-      expect(total?.textContent ?? '').toMatch(/102/);
-    });
-
-    expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=0');
-    expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=100');
-
-    fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
-      target: { value: 'pivovartsev' },
-    });
-
-    // Запись со второй страницы доступна в поиске.
-    expect(screen.queryByTestId('game-step-editor-workshop-item-pivo')).toBeTruthy();
-  });
-
-  /**
-   * KS-3202: расширенный фильтр включает tags + result. Test покрывает,
-   * что записи с фамилией в `tags` теперь находятся (раньше — нет).
-   */
-  it('KS-3202: поиск по tags находит запись', async () => {
-    apiGetMock.mockResolvedValue([
-      mkAnalysis({
-        id: 'a1',
-        title: 'Game A',
-        white: 'NoMatch',
-        tags: ['Pivovartsev-coach', 'opening-study'],
-      }),
-      mkAnalysis({ id: 'a2', title: 'Game B', white: 'AnotherPlayer' }),
-    ]);
-    renderWithProviders(
-      <GameStepEditor
-        payload={mkPayload({ sourceType: 'workshop_analysis' })}
-        onChange={vi.fn()}
-      />,
-    );
-
+    // Сначала — запрос без search, чтобы видеть начальный список.
     await waitFor(() =>
-      expect(screen.queryByTestId('game-step-editor-workshop-list')).toBeTruthy(),
+      expect(screen.queryByTestId('game-step-editor-workshop-item-other'))
+        .toBeTruthy(),
     );
+    expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=0');
+
+    // Ввод "pivovartsev" → debounce 300ms → новый запрос с ?search=.
     fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
       target: { value: 'pivovartsev' },
     });
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a1')).toBeTruthy();
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a2')).toBeNull();
+
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByTestId('game-step-editor-workshop-item-pivo'),
+        ).toBeTruthy();
+      },
+      { timeout: 1000 },
+    );
+    expect(apiGetMock).toHaveBeenCalledWith(
+      '/analyses?limit=100&offset=0&search=pivovartsev',
+    );
+    // Предыдущий «other» убран — список — это то, что вернул backend.
+    expect(
+      screen.queryByTestId('game-step-editor-workshop-item-other'),
+    ).toBeNull();
   });
 
   /**
-   * KS-3202: empty-state по поиску — счётчик «из N» + кнопка «Сбросить
-   * фильтр». Клик по кнопке очищает search и возвращает полный список.
+   * KS-3202 (v2): пустой результат backend'а при активном поиске →
+   * empty-state с кнопкой «Сбросить фильтр». Клик возвращает search='',
+   * useEffect перезапрашивает /analyses без search и список снова
+   * наполняется.
    */
-  it('KS-3202: при пустом search-result показывает «Сбросить фильтр», клик возвращает полный список', async () => {
-    apiGetMock.mockResolvedValue([
-      mkAnalysis({ id: 'a1', title: 'Game A', white: 'Foo' }),
-      mkAnalysis({ id: 'a2', title: 'Game B', white: 'Bar' }),
-    ]);
+  it('KS-3202 (v2): backend вернул пустой массив на поиск → показывает «Сбросить фильтр»; клик возвращает полный список', async () => {
+    apiGetMock.mockImplementation((url: string) => {
+      if (url.includes('search=')) return Promise.resolve([]);
+      return Promise.resolve([
+        mkAnalysis({ id: 'a1', title: 'A', white: 'Foo' }),
+        mkAnalysis({ id: 'a2', title: 'B', white: 'Bar' }),
+      ]);
+    });
+
     renderWithProviders(
       <GameStepEditor
         payload={mkPayload({ sourceType: 'workshop_analysis' })}
@@ -334,17 +291,60 @@ describe('<GameStepEditor> (KS-3181)', () => {
     ) as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'nomatch' } });
 
-    const empty = await waitFor(() =>
-      screen.getByTestId('game-step-editor-workshop-search-empty'),
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByTestId('game-step-editor-workshop-search-empty'),
+        ).toBeTruthy(),
+      { timeout: 1000 },
     );
-    expect(empty.textContent).toContain('2'); // total в подсказке
 
     fireEvent.click(
       screen.getByTestId('game-step-editor-workshop-reset-filter'),
     );
     expect(searchInput.value).toBe('');
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a1')).toBeTruthy();
-    expect(screen.queryByTestId('game-step-editor-workshop-item-a2')).toBeTruthy();
+
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByTestId('game-step-editor-workshop-item-a1'),
+        ).toBeTruthy();
+        expect(
+          screen.queryByTestId('game-step-editor-workshop-item-a2'),
+        ).toBeTruthy();
+      },
+      { timeout: 1000 },
+    );
+  });
+
+  /**
+   * KS-3202 (v2): спецсимволы в поиске должны корректно URL-кодироваться
+   * (encodeURIComponent). Например пробел между двумя словами становится
+   * `%20`, backend KS-3203 трактует words split by whitespace — мы шлём
+   * как есть, кодируя сам параметр, backend сам сделает split.
+   */
+  it('KS-3202 (v2): спецсимволы в поиске кодируются (encodeURIComponent)', async () => {
+    apiGetMock.mockResolvedValue([]);
+    renderWithProviders(
+      <GameStepEditor
+        payload={mkPayload({ sourceType: 'workshop_analysis' })}
+        onChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
+      target: { value: 'fischer spassky' },
+    });
+
+    await waitFor(
+      () => {
+        expect(apiGetMock).toHaveBeenCalledWith(
+          '/analyses?limit=100&offset=0&search=fischer%20spassky',
+        );
+      },
+      { timeout: 1000 },
+    );
   });
 
   it('PGN > 200 КБ → показывает overLimit и aria-invalid=true', async () => {

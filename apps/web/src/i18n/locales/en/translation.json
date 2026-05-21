@@ -2874,12 +2874,10 @@
             "searchPlaceholder": "White / Black / event / title / tags",
             "empty": "You have no saved analyses yet — open Workshop, save a game, then come back.",
             "searchEmpty": "No analyses match the search.",
-            "searchEmptyWithTotal": "No analyses match the search (out of {{total}} total).",
             "resetFilter": "Reset filter",
             "loadError": "Could not load saved analyses.",
-            "loadingMore": "Loaded {{count}}, still fetching…",
             "total": "{{total}} analyses",
-            "totalFiltered": "{{shown}} of {{total}} matches",
+            "matches": "{{count}} matches",
             "noSelection": "Pick an analysis to attach to this step."
           },
           "preview": {

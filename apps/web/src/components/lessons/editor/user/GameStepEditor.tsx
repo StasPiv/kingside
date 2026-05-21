@@ -8,6 +8,7 @@ import type {
 } from '@kingside/shared';
 
 import { api } from '../../../../api';
+import { useDebouncedValue } from '../../../../hooks/useDebouncedValue';
 
 /**
  * KS-3181 / ADR-072 §7 F1 — редактор шага «Партия» для пользовательских
@@ -191,105 +192,56 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
   );
 
   // ── workshop_analysis: список анализов ─────────────────────────────
+  /**
+   * KS-3202 (v2 after KS-3203): server-side поиск через
+   * `GET /analyses?search={q}`. Backend (KS-3203, коммит dd163305)
+   * делает ILIKE по 8 полям (`headline / title / opening / event /
+   * white / black / site / tags`), AND между словами, OR между полями,
+   * case-insensitive. Pagination loop из первой итерации KS-3202
+   * полностью удалён — теперь сервер всегда возвращает релевантные
+   * анализы внутри обычного limit/offset (top-100 совпадений).
+   *
+   * `search` (raw) обновляется при каждом keypress'е (для контролируемого
+   * input'а); `debouncedSearch` (300ms) триггерит сетевой запрос —
+   * чтобы каждое нажатие не дёргало backend.
+   */
   const [analyses, setAnalyses] = useState<AnalysisListItem[] | null>(null);
-  // KS-3202: фактическое число загруженных при активной пагинации
-  // (показывается в подсказке «Loaded N…», чтобы автор видел прогресс
-  // и не нажимал refresh при медленном соединении).
-  const [loadingCount, setLoadingCount] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  /**
-   * KS-3202: загружаем ВСЕ страницы анализов цикл'ом по 100 штук.
-   *
-   * Симптом: автор курса (Pivovartsev) искал свою фамилию в анализах,
-   * получал «не найдено», хотя в БД анализов с этим именем много. Корень
-   * — раньше делался один запрос `/analyses?limit=100&offset=0`, а
-   * клиентский поиск фильтровал только эти 100. Если у пользователя
-   * >100 анализов, остальные за пределами окна и не попадали в поиск.
-   *
-   * Сейчас (до server-side search в backend — см. отдельная backend-
-   * задача): подгружаем все страницы. Bound — `MAX_PAGES=50` (5000
-   * анализов), чтобы случайный bug в pagination'е не повесил клиент в
-   * бесконечном цикле. Реальный автор курса вряд ли держит >5000
-   * сохранённых анализов; если когда-то будет — переключимся на
-   * server-side search через `?search=` (backend task в очереди).
-   *
-   * Загрузка инкрементальная: после каждой страницы обновляем `analyses`
-   * накопительно, чтобы UI начал показывать результаты сразу (типичные
-   * первые 100 приходят за <500ms), пока подкачиваются остальные.
-   */
   useEffect(() => {
     if (payload.sourceType !== 'workshop_analysis') return;
-    if (analyses !== null) return; // уже загружено
     let cancelled = false;
-    const PAGE = 100;
-    const MAX_PAGES = 50;
-    const acc: AnalysisListItem[] = [];
-
-    async function loadAll() {
-      try {
-        for (let page = 0; page < MAX_PAGES; page++) {
-          if (cancelled) return;
-          const offset = page * PAGE;
-          const res = await api.get<AnalysisListItem[]>(
-            `/analyses?limit=${PAGE}&offset=${offset}`,
-          );
-          if (cancelled) return;
-          acc.push(...res);
-          // Инкрементальный апдейт — UI показывает первую страницу
-          // мгновенно, остальные «дотекают» в фоне.
-          setAnalyses([...acc]);
-          setLoadingCount(acc.length);
-          // Если страница меньше PAGE — это последняя.
-          if (res.length < PAGE) break;
-        }
+    const q = debouncedSearch.trim();
+    const url =
+      q.length > 0
+        ? `/analyses?limit=100&offset=0&search=${encodeURIComponent(q)}`
+        : `/analyses?limit=100&offset=0`;
+    setLoading(true);
+    api
+      .get<AnalysisListItem[]>(url)
+      .then((res) => {
+        if (cancelled) return;
+        setAnalyses(res);
         setLoadError(null);
-      } catch (err: unknown) {
+      })
+      .catch((err: unknown) => {
         if (cancelled) return;
         setLoadError(
           err instanceof Error ? err.message : String(err ?? 'unknown'),
         );
-        // Если первая страница успела залиться — оставляем её; иначе
-        // ставим пустой массив, чтобы UI вышел из loading-state.
-        setAnalyses(acc.length > 0 ? acc : []);
-      }
-    }
-
-    loadAll();
+        setAnalyses([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [payload.sourceType, analyses]);
-
-  const filteredAnalyses = useMemo(() => {
-    if (!analyses) return null;
-    const q = search.trim().toLowerCase();
-    if (!q) return analyses;
-    return analyses.filter((a) => {
-      // KS-3202: расширенные поля для поиска. К старым (title/white/
-      // black/event/opening/headline) добавлены `result` (например «1-0»
-      // / «1/2-1/2») и `tags` — пользовательские пометки, которые часто
-      // содержат имена соперников или название турнира. Имена игроков
-      // в БД хранятся как один string (см. AnalysisListItem.white) —
-      // фамилия будет найдена через `includes`, независимо от формата
-      // «Pivovartsev, S.» / «S. Pivovartsev» / «Pivovartsev».
-      const haystack = [
-        a.title,
-        a.white,
-        a.black,
-        a.event,
-        a.opening,
-        a.headline,
-        a.result,
-        ...(a.tags ?? []),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [analyses, search]);
+  }, [payload.sourceType, debouncedSearch]);
 
   const onPickAnalysis = useCallback(
     (analysis: AnalysisListItem) => {
@@ -445,27 +397,6 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
             </p>
           )}
 
-          {/* KS-3202: подсказка «Загружено N…» во время инкрементальной
-              догрузки страниц. Скрывается, когда первая страница ещё не
-              пришла (выше работает обычный «Loading…») и когда все
-              страницы догружены (loadingCount === analyses.length, см.
-              ниже total-counter). */}
-          {analyses !== null &&
-            loadingCount > 0 &&
-            loadingCount === analyses.length &&
-            loadingCount % 100 === 0 &&
-            !loadError && (
-              <p
-                className="game-step-editor__hint"
-                data-testid="game-step-editor-workshop-loading-more"
-              >
-                {t('lessons.my.editor.game.workshop.loadingMore', {
-                  defaultValue: 'Loaded {{count}}, still fetching…',
-                  count: loadingCount,
-                })}
-              </p>
-            )}
-
           {loadError && (
             <p
               className="game-step-editor__error"
@@ -479,24 +410,28 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
             </p>
           )}
 
-          {analyses && analyses.length === 0 && !loadError && (
-            <p
-              className="game-step-editor__hint"
-              data-testid="game-step-editor-workshop-empty"
-            >
-              {t(
-                'lessons.my.editor.game.workshop.empty',
-                'You have no saved analyses yet — open Workshop, save a game, then come back.',
-              )}
-            </p>
-          )}
+          {analyses &&
+            analyses.length === 0 &&
+            !loadError &&
+            debouncedSearch.trim() === '' && (
+              <p
+                className="game-step-editor__hint"
+                data-testid="game-step-editor-workshop-empty"
+              >
+                {t(
+                  'lessons.my.editor.game.workshop.empty',
+                  'You have no saved analyses yet — open Workshop, save a game, then come back.',
+                )}
+              </p>
+            )}
 
-          {filteredAnalyses && filteredAnalyses.length > 0 && (
+          {analyses && analyses.length > 0 && (
             <ul
               className="game-step-editor__analyses-list"
               data-testid="game-step-editor-workshop-list"
+              data-loading={loading ? 'true' : 'false'}
             >
-              {filteredAnalyses.map((a) => {
+              {analyses.map((a) => {
                 const selected = payload.analysisId === a.id;
                 const subtitle = [a.white, a.black]
                   .filter(Boolean)
@@ -534,25 +469,25 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
             </ul>
           )}
 
-          {filteredAnalyses &&
-            filteredAnalyses.length === 0 &&
-            analyses &&
-            analyses.length > 0 && (
+          {/* KS-3202 (v2): empty-state при server-side поиске. Кнопка
+              «Сбросить фильтр» очищает search → useEffect перезапросит
+              `/analyses` без `?search=` (весь список, top-100). Под
+              «total» теперь подразумеваем «совпадений сейчас» — backend
+              не возвращает общее количество, и мы намеренно его не
+              запрашиваем (KS-3203 контракт: search OR limit/offset, без
+              total-count). */}
+          {analyses &&
+            analyses.length === 0 &&
+            !loadError &&
+            debouncedSearch.trim() !== '' && (
               <div
                 className="game-step-editor__hint"
                 data-testid="game-step-editor-workshop-search-empty"
               >
-                {/* KS-3202: при пустом результате — счётчик «из N» и
-                    кнопка «Сбросить фильтр». Помогает понять, что список
-                    реально не пуст, и легко вернуться к полному виду. */}
                 <p style={{ margin: 0 }}>
                   {t(
-                    'lessons.my.editor.game.workshop.searchEmptyWithTotal',
-                    {
-                      defaultValue:
-                        'No analyses match the search (out of {{total}} total).',
-                      total: analyses.length,
-                    },
+                    'lessons.my.editor.game.workshop.searchEmpty',
+                    'No analyses match the search.',
                   )}
                 </p>
                 <button
@@ -570,20 +505,22 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
               </div>
             )}
 
-          {/* KS-3202: total counter (всегда виден когда есть анализы),
-              даёт автору ориентир — особенно полезно при поиске, чтобы
-              понимать «отфильтровано 12 из 234». */}
-          {analyses && analyses.length > 0 && filteredAnalyses && (
+          {/* KS-3202 (v2): counter «N результатов» при активном поиске.
+              Помогает автору понять «нашёл 7 совпадений» без ручного
+              пересчёта. Когда поиск пуст — показываем «N анализов»
+              (это top-100 первой страницы; реальное общее количество
+              backend не возвращает, и для UX редактора курса этого
+              достаточно — автор найдёт нужное через поиск). */}
+          {analyses && analyses.length > 0 && (
             <p
               className="game-step-editor__total"
               data-testid="game-step-editor-workshop-total"
               style={{ fontSize: 12, opacity: 0.7, margin: '4px 0 0' }}
             >
-              {search.trim() !== '' && filteredAnalyses.length > 0
-                ? t('lessons.my.editor.game.workshop.totalFiltered', {
-                    defaultValue: '{{shown}} of {{total}} matches',
-                    shown: filteredAnalyses.length,
-                    total: analyses.length,
+              {debouncedSearch.trim() !== ''
+                ? t('lessons.my.editor.game.workshop.matches', {
+                    defaultValue: '{{count}} matches',
+                    count: analyses.length,
                   })
                 : t('lessons.my.editor.game.workshop.total', {
                     defaultValue: '{{total}} analyses',
