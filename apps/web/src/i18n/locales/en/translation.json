@@ -2185,6 +2185,7 @@
     "stepNavLabel": "Step navigation",
     "stepCounter": "{{current}}/{{total}}",
     "lessonProgressWithStep": "Step {{current}}/{{total}} — {{done}} done ({{percent}}%)",
+    "lessonProgressShort": "Step {{current}}/{{total}}",
     "emptyLesson": {
       "title": "This lesson has no steps yet",
       "body": "The author hasn't added any steps yet. Check back later.",

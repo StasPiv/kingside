@@ -8112,3 +8112,84 @@
   border-radius: 8px;
   color: var(--text-muted, #888);
 }
+
+/* KS-3189 (ADR-073 §7 F2): мини-pill прогресса (alt-вариант
+   `.lesson-progress-sticky`). По умолчанию скрыт — рендерится только
+   при focus-mode. */
+.lesson-progress-pill {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--c-0f0f1e);
+  position: sticky;
+  top: 40px; /* высота compact-header'а из KS-3188 */
+  z-index: 90;
+}
+.lesson-progress-pill__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  white-space: nowrap;
+}
+.lesson-progress-pill__bar {
+  flex: 1 1 auto;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.lesson-progress-pill__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent-primary, #7c83ff);
+  border-radius: 2px;
+  transition: width 200ms ease-out;
+}
+
+/* KS-3189: focus-mode скрывает декорации урока (breadcrumbs/заголовок/
+   sticky-прогресс/бейдж шага) и показывает мини-pill. На desktop класс
+   `.user-lesson-page--focus` ничего не делает (Desktop не трогаем). */
+@media (max-width: 767px) {
+  .user-lesson-page--focus .user-lesson-page__breadcrumbs,
+  .user-lesson-page--focus .user-lesson-page__header,
+  .user-lesson-page--focus .lesson-progress-sticky,
+  .user-lesson-page--focus .lesson-step__header {
+    display: none;
+  }
+  .user-lesson-page--focus .lesson-progress-pill {
+    display: flex;
+  }
+  /* CTA «Я разобрал партию» в focus-mode становится sticky-внизу с
+     учётом safe-area-inset-bottom (iPhone notch / Android-nav). До
+     этого блок плыл в потоке после viewer'а и на узких экранах был
+     не виден, пользователь сильно скроллил. */
+  .user-lesson-page--focus .lesson-game-step__actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--c-0f0f1e);
+    border-top: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+    margin: 0;
+    justify-content: stretch;
+  }
+  .user-lesson-page--focus .lesson-game-step__done {
+    width: 100%;
+  }
+  /* Убираем верхние отступы у списка шагов и самого <li>, чтобы
+     суммарная top-зона ≤ 126px (40 compact-header + 28 pill + ≈8px) и
+     доска получила ≈570px (см. ADR-073 §3.2). */
+  .user-lesson-page--focus .lesson-step-list,
+  .user-lesson-page--focus .lesson-step {
+    margin: 0;
+    padding: 0;
+  }
+}
+

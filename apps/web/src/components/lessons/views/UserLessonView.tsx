@@ -11,6 +11,7 @@ import type {
 import { StepRenderer } from '../StepRenderer';
 import { useStockfish } from '../../../hooks/useStockfish';
 import { useLessonProgress } from '../../../hooks/useLessonProgress';
+import { useFocusMode } from '../../../context/FocusModeContext';
 
 /**
  * `UserLessonView` — UI прохождения одного урока пользовательского курса.
@@ -178,9 +179,19 @@ export function UserLessonView({
   };
 
   const donePercent = Math.round(progress.score * 100);
+  // KS-3189 (ADR-073 §7 F2): в focus-mode урок скрывает breadcrumbs,
+  // заголовок, бейдж шага и обычный sticky-прогресс — освобождает ≈100px
+  // вертикали под доску. Реальное переключение делает CSS через класс
+  // `.user-lesson-page--focus` + `@media (max-width: 767px)`. На desktop
+  // active=true ничего не меняет (как и в KS-3188).
+  const { active: focusModeActive } = useFocusMode();
 
   return (
-    <div className="user-lesson-page" data-testid="user-lesson-page">
+    <div
+      className={`user-lesson-page${focusModeActive ? ' user-lesson-page--focus' : ''}`}
+      data-testid="user-lesson-page"
+      data-focus-mode={focusModeActive ? 'true' : 'false'}
+    >
       <nav className="user-lesson-page__breadcrumbs">
         <Link to="/lessons">{t('lessons.title')}</Link>
         <span className="user-lesson-page__sep">/</span>
@@ -193,7 +204,10 @@ export function UserLessonView({
         <h1 data-testid="user-lesson-title">{lesson.title}</h1>
       </header>
 
-      {/* KS-1991: прогресс «прилипает» под глобальный fixed-header. */}
+      {/* KS-1991: прогресс «прилипает» под глобальный fixed-header.
+          KS-3189: в focus-mode этот блок скрывается через CSS
+          (`.user-lesson-page--focus .lesson-progress-sticky { display:none }`),
+          вместо него ниже рендерится мини-pill 28px. */}
       {sortedSteps.length > 0 && (
         <div
           className="lesson-progress-sticky"
@@ -212,6 +226,41 @@ export function UserLessonView({
                 'Step {{current}}/{{total}} — {{done}}/{{total}} done ({{percent}}%)',
             })}
           </div>
+        </div>
+      )}
+
+      {/* KS-3189 (ADR-073 §7 F2): мини-pill прогресса для focus-mode.
+          На обычном layout скрыт CSS'ом; в focus-mode виден вместо
+          `.lesson-progress-sticky`. ~28px высоты — текст «Шаг N/M» +
+          узкий progress-bar. */}
+      {sortedSteps.length > 0 && (
+        <div
+          className="lesson-progress-pill"
+          data-testid="user-lesson-progress-pill"
+          aria-hidden={!focusModeActive}
+        >
+          <span
+            className="lesson-progress-pill__label"
+            data-testid="user-lesson-progress-pill-label"
+          >
+            {t('lessons.lessonProgressShort', {
+              current: currentStepIndex + 1,
+              total: progress.totalSteps,
+              defaultValue: 'Step {{current}}/{{total}}',
+            })}
+          </span>
+          <span
+            className="lesson-progress-pill__bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={donePercent}
+          >
+            <span
+              className="lesson-progress-pill__fill"
+              style={{ width: `${donePercent}%` }}
+            />
+          </span>
         </div>
       )}
 

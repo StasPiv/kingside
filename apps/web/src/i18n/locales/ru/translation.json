@@ -2207,6 +2207,7 @@
     "stepNavLabel": "Навигация по шагам",
     "stepCounter": "{{current}}/{{total}}",
     "lessonProgressWithStep": "Шаг {{current}}/{{total}} — {{done}} пройдено ({{percent}}%)",
+    "lessonProgressShort": "Шаг {{current}}/{{total}}",
     "emptyLesson": {
       "title": "Урок ещё не наполнен",
       "body": "Автор пока не добавил шаги. Загляните позже.",
