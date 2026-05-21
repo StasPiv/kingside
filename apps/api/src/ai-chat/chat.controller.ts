@@ -69,12 +69,27 @@ export class ChatController {
     res.flushHeaders();
 
     try {
-      for await (const chunk of this.chatService.streamResponse(userId, body.message, conversationId, siteUrl)) {
-        res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+      // KS-3205: streamResponse теперь yield'ит ChatStreamEvent
+      // (см. assistant-tools.ts). Каждый event сериализуется в
+      // одну SSE-строку. Финальное `[DONE]`-сообщение шлёт сам
+      // generator (`event.type === 'done'`); добавляем conversationId
+      // для UX.
+      for await (const event of this.chatService.streamResponse(
+        userId,
+        body.message,
+        conversationId,
+        siteUrl,
+      )) {
+        if (event.type === 'done') {
+          res.write(
+            `data: ${JSON.stringify({ done: true, conversationId })}\n\n`,
+          );
+        } else {
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
       }
-      res.write(`data: ${JSON.stringify({ done: true, conversationId })}\n\n`);
     } catch (e: any) {
-      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
     }
 
     res.end();

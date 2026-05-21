@@ -4,6 +4,10 @@ import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { ContextCollectorService } from './context-collector.service';
 import { ChatAssistantService } from './chat-assistant.service';
 import { ChatController } from './chat.controller';
+import {
+  ASSISTANT_TOOLS_PROVIDER,
+  NoOpAssistantToolsProvider,
+} from './assistant-tools';
 import { McpExclude } from '../mcp/decorators';
 
 // KS-2954 (ADR-061 §8): AiChatModule — это и есть сам ассистент.
@@ -12,11 +16,22 @@ import { McpExclude } from '../mcp/decorators';
 //
 // KS-2962 / ADR-062: FeatureFlagsModule подключён для проброса runtime
 // snapshot'а флагов в `buildSystemPrompt` (раздел availability).
+//
+// KS-3205 / ADR-074 §10 B1: ASSISTANT_TOOLS_PROVIDER регистрируется
+// как `NoOpAssistantToolsProvider` (без tool'ов) — поведение чата без
+// регрессии. KS-3206 заменит провайдера на `McpAssistantRegistry`.
 @McpExclude()
 @Module({
   imports: [AuthModule, FeatureFlagsModule],
   controllers: [ChatController],
-  providers: [ContextCollectorService, ChatAssistantService],
+  providers: [
+    ContextCollectorService,
+    ChatAssistantService,
+    {
+      provide: ASSISTANT_TOOLS_PROVIDER,
+      useClass: NoOpAssistantToolsProvider,
+    },
+  ],
   exports: [ContextCollectorService, ChatAssistantService],
 })
 export class AiChatModule {}

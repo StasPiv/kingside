@@ -1,4 +1,11 @@
-import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +13,12 @@ import { RedisService } from '../redis/redis.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { ContextCollectorService } from './context-collector.service';
 import { buildSystemPrompt } from './system-prompt';
+import {
+  ASSISTANT_TOOLS_PROVIDER,
+  AssistantToolsProvider,
+  ChatStreamEvent,
+  MAX_TOOL_TURNS,
+} from './assistant-tools';
 
 const MAX_MESSAGES_PER_CONVERSATION = 50;
 const MAX_CONVERSATIONS_PER_USER = 10;
@@ -31,6 +44,8 @@ export class ChatAssistantService {
     private readonly jwtService: JwtService,
     private readonly contextCollector: ContextCollectorService,
     private readonly featureFlags: FeatureFlagsService,
+    @Inject(ASSISTANT_TOOLS_PROVIDER)
+    private readonly toolsProvider: AssistantToolsProvider,
   ) {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '');
     this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
@@ -195,14 +210,39 @@ export class ChatAssistantService {
     return messages.reverse();
   }
 
+  /**
+   * KS-3205 / ADR-074 §10 B1. SSE-генератор ответа ассистента с
+   * поддержкой tool-use loop'а.
+   *
+   * Контракт: yield'ит `ChatStreamEvent`-ы:
+   *   - `text`     — токены финального assistant-сообщения (или сообщение
+   *                  об ошибке инициализации, если ANTHROPIC_API_KEY пуст).
+   *   - `tool_call`— фазы tool-use (`running` → `ok`/`error`).
+   *   - `error`    — фатальная ошибка (MAX_TOOL_TURNS, исключение из SDK).
+   *   - `done`     — конец stream'а.
+   *
+   * Loop: каждый turn вызывает `messages.create` с tools. Если
+   * `stop_reason==='tool_use'` — выполняем все `tool_use`-блоки,
+   * пушим `assistant`+`tool_result` в messages, повторяем (макс.
+   * `MAX_TOOL_TURNS` итераций). На `end_turn`/`stop_sequence` —
+   * стримим текст финального ответа.
+   *
+   * Tools берутся из `AssistantToolsProvider` (KS-3206 подключит
+   * `McpAssistantRegistry`; до тех пор NoOp = пусто, loop сразу
+   * вырождается в один обычный turn).
+   */
   async *streamResponse(
     userId: string,
     message: string,
     conversationId: string,
     siteUrl?: string,
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<ChatStreamEvent> {
     if (!this.apiKey) {
-      yield 'AI chat is not configured. Please set ANTHROPIC_API_KEY.';
+      yield {
+        type: 'text',
+        text: 'AI chat is not configured. Please set ANTHROPIC_API_KEY.',
+      };
+      yield { type: 'done' };
       return;
     }
 
@@ -216,37 +256,167 @@ export class ChatAssistantService {
 
     // Get conversation history
     const history = await this.getHistory(conversationId);
-    const messages = [
-      ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    // messages в формате Anthropic Messages API: assistant-ответы с
+    // tool_use и user-ответы с tool_result хранятся внутри loop'а как
+    // массив content-блоков. История из БД — простые text-сообщения.
+    const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+      ...history.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
       { role: 'user' as const, content: message },
     ];
+
+    // Список tool'ов для текущего пользователя.
+    let tools: Awaited<ReturnType<AssistantToolsProvider['listTools']>>;
+    try {
+      tools = await this.toolsProvider.listTools(userId);
+    } catch (e) {
+      this.logger.warn(
+        `toolsProvider.listTools failed for user=${userId}: ${(e as Error).message}`,
+      );
+      tools = [];
+    }
 
     // Dynamic import Anthropic SDK
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey: this.apiKey });
 
-    const stream = client.messages.stream({
-      model: this.model,
-      max_tokens: this.maxTokens,
-      system: systemPrompt,
-      messages,
-    });
-
     let fullResponse = '';
+    let turn = 0;
+    try {
+      while (turn < MAX_TOOL_TURNS) {
+        turn += 1;
+        // Если tools пуст — Anthropic SDK не примет пустой массив для
+        // tools в свежих ревизиях API. Опускаем поле полностью.
+        const createParams: {
+          model: string;
+          max_tokens: number;
+          system: string;
+          messages: Array<{ role: 'user' | 'assistant'; content: unknown }>;
+          tools?: typeof tools;
+        } = {
+          model: this.model,
+          max_tokens: this.maxTokens,
+          system: systemPrompt,
+          messages,
+        };
+        if (tools.length > 0) createParams.tools = tools;
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && 'delta' in event) {
-        const delta = event.delta as { type: string; text?: string };
-        if (delta.type === 'text_delta' && delta.text) {
-          fullResponse += delta.text;
-          yield delta.text;
+        const response = await client.messages.create(
+          createParams as Parameters<typeof client.messages.create>[0],
+        );
+
+        const stopReason = (response as { stop_reason?: string }).stop_reason ?? null;
+        const content = (response as { content?: Array<Record<string, unknown>> }).content ?? [];
+
+        // Если модель не вызывает tools — нормальный финальный turn.
+        // Стримим текст блок-за-блоком (без content_block_delta — SDK
+        // нам уже отдал полное сообщение). Для UX это «псевдо-стрим»,
+        // но в B1 фокус на tool-use loop'е; реальный SSE streaming
+        // конкретного финального turn'а можно подключить отдельно.
+        if (stopReason !== 'tool_use') {
+          for (const block of content) {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              fullResponse += block.text;
+              yield { type: 'text', text: block.text };
+            }
+          }
+          break;
         }
+
+        // stop_reason === 'tool_use'. Сохраняем assistant-сообщение
+        // (со ВСЕМИ content-блоками — text/tool_use), затем для каждого
+        // tool_use-блока выполняем tool и собираем tool_result-блоки в
+        // следующее user-сообщение.
+        messages.push({ role: 'assistant', content });
+        // Текст перед tool_use — тоже стримим (модель часто пишет
+        // «сейчас посмотрю …» прежде чем дёрнуть tool).
+        for (const block of content) {
+          if (block.type === 'text' && typeof block.text === 'string') {
+            fullResponse += block.text;
+            yield { type: 'text', text: block.text };
+          }
+        }
+
+        const toolResults: Array<Record<string, unknown>> = [];
+        for (const block of content) {
+          if (block.type !== 'tool_use') continue;
+          const toolUseId = String(block.id ?? '');
+          const toolName = String(block.name ?? '');
+          const toolInput = block.input ?? {};
+          yield {
+            type: 'tool_call',
+            id: toolUseId,
+            name: toolName,
+            input: toolInput,
+            status: 'running',
+          };
+          try {
+            const output = await this.toolsProvider.execute(
+              userId,
+              toolName,
+              toolInput,
+            );
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUseId,
+              content: output,
+            });
+            yield {
+              type: 'tool_call',
+              id: toolUseId,
+              name: toolName,
+              input: toolInput,
+              status: 'ok',
+              output,
+            };
+          } catch (e) {
+            const errMsg = (e as Error).message ?? String(e);
+            this.logger.warn(
+              `tool '${toolName}' failed for user=${userId}: ${errMsg}`,
+            );
+            // Пробрасываем ошибку обратно модели — она сможет
+            // отрепортовать пользователю / попробовать другой tool.
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUseId,
+              is_error: true,
+              content: errMsg,
+            });
+            yield {
+              type: 'tool_call',
+              id: toolUseId,
+              name: toolName,
+              input: toolInput,
+              status: 'error',
+              error: errMsg,
+            };
+          }
+        }
+        messages.push({ role: 'user', content: toolResults });
       }
+
+      if (turn >= MAX_TOOL_TURNS) {
+        // Hit лимит — не дали финальный текст. Сообщаем фронту явной
+        // ошибкой; assistant-сообщение в БД сохраним как fullResponse
+        // (то, что модель успела сгенерировать в тексте до tool_use'ов).
+        const errMsg = `tool-use loop exceeded MAX_TOOL_TURNS=${MAX_TOOL_TURNS}`;
+        this.logger.warn(`${errMsg} for user=${userId}`);
+        yield { type: 'error', error: errMsg };
+      }
+    } catch (e) {
+      const errMsg = (e as Error).message ?? String(e);
+      this.logger.error(`streamResponse failed for user=${userId}: ${errMsg}`);
+      yield { type: 'error', error: errMsg };
     }
 
-    // Save both messages
+    // Save both messages (даже при ошибке — fullResponse может быть
+    // не пуст, и его лучше сохранить).
     await this.saveMessage(conversationId, 'user', message);
-    await this.saveMessage(conversationId, 'assistant', fullResponse);
+    if (fullResponse.length > 0) {
+      await this.saveMessage(conversationId, 'assistant', fullResponse);
+    }
 
     // Auto-title: use first message as title if conversation is new
     const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
@@ -257,6 +427,8 @@ export class ChatAssistantService {
         data: { title },
       });
     }
+
+    yield { type: 'done' };
   }
 
   async getResponse(
