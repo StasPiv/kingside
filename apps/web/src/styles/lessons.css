@@ -7968,6 +7968,19 @@
    * Top/bottom оставляем, чтобы board-controls не липли к низу. */
   padding: 0 0 8px;
 }
+/* KS-3201: в focus-mode убираем нижний padding analysis-page
+   и gap board-wrapper — каждый пиксель важен для вертикали доски. */
+@media (max-width: 767px) {
+  .user-lesson-page--focus .lesson-game-step__viewer > .analysis-page {
+    padding: 0;
+  }
+  .user-lesson-page--focus .lesson-game-step__viewer .analysis-board-wrapper {
+    gap: 0;
+  }
+  .user-lesson-page--focus .lesson-game-step__viewer .analysis-board-area {
+    gap: 0;
+  }
+}
 @media (max-width: 768px) {
   /* KS-3186 (регрессия KS-3183): фиксированная высота viewer'а на
    * мобильном вызывала «прыжки» вёрстки — при запуске Stockfish или
@@ -8025,6 +8038,8 @@
     max-width: 100%;
     width: 100%;
     overflow: visible;
+    /* KS-3201: убираем gap между meta-bar и board-wrapper. */
+    gap: 0;
   }
   /* Wrapper доски тоже растягивается, без overflow:hidden. */
   .lesson-game-step__viewer .analysis-board-wrapper {
@@ -8190,6 +8205,13 @@
   }
   .user-lesson-page--focus .lesson-progress-pill {
     display: flex;
+    /* KS-3201: убираем sticky в focus-mode — внутри flex-column sticky
+       создаёт «дыру» в потоке (Chromium-quirk), ol и board съезжают
+       вверх и pill перекрывает верх доски. В focus-mode весь layout
+       уже строится через fixed compact-header + sheet, sticky-pill не
+       нужен — она просто остаётся в потоке после compact-header. */
+    position: static;
+    top: auto;
   }
   /* CTA «Я разобрал партию» в focus-mode становится sticky-внизу с
      учётом safe-area-inset-bottom (iPhone notch / Android-nav). До

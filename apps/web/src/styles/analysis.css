@@ -3315,11 +3315,16 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
      применяется в lessons.css через `.lesson-game-step__viewer
      .board-container` с повышенной специфичностью (см. там). */
   .lesson-game-step[data-sheet-snap='peek'] {
-    /* KS-3200: top-зона = 44 (compact-header) + 28 (pill) + 18 (meta) = 90px. */
-    --focus-board-h: calc(100dvh - 90px - 44px - 56px - 64px - env(safe-area-inset-bottom, 0px) - 14px);
+    /* KS-3200: top-зона = 44 (compact-header) + 28 (pill) + 18 (meta) = 90px.
+       KS-3201: убрали `cta 56px` из формулы — CTA sticky-bottom z=80 над
+       sheet'ом z=70, не съедает вертикаль доски. */
+    --focus-board-h: calc(100dvh - 90px - 44px - 64px - env(safe-area-inset-bottom, 0px) - 14px);
   }
   .lesson-game-step[data-sheet-snap='half'] {
-    --focus-board-h: calc(50dvh - 90px - 44px - 56px - 14px);
+    /* KS-3201: формула = 50dvh - top(90) - nav(44) - резерв(2). На
+       viewport 844: 422 - 136 = 286. Доска должна влезть полностью
+       над nav-controls без перекрытия. */
+    --focus-board-h: calc(50dvh - 90px - 44px - 2px);
   }
   .lesson-game-step[data-sheet-snap='full'] {
     /* В full sheet берёт 85dvh, под доской остаётся ~15dvh минус
@@ -3327,7 +3332,7 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
        пользователь видит уменьшенную доску в верхней части экрана,
        sheet (85dvh = высота movestack) — снизу. ADR-073 §3.2 ожидает
        «доска ~256px в full», 200 — близкая нижняя граница. */
-    --focus-board-h: max(200px, calc(15dvh - 86px - 44px - 56px));
+    --focus-board-h: max(200px, calc(15dvh - 90px - 44px));
   }
   .lesson-game-step[data-sheet-snap] .analysis-eval-board-row {
     flex: 0 0 auto;
