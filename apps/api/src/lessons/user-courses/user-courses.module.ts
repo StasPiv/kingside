@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { PuzzleModule } from '../../puzzle/puzzle.module';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
 import { UserLessonStepsService } from './user-lesson-steps.service';
@@ -49,7 +50,8 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
   defaultAuth: 'optional',
 })
 @Module({
-  imports: [PrismaModule],
+  // KS-3221: PuzzleModule нужен для `find_puzzles_preview` (PuzzleService.findPuzzles).
+  imports: [PrismaModule, PuzzleModule],
   // KS-3213: LessonAssistantTools — теперь @Controller с HTTP-роутами
   // под `/lessons/ai-tools/*`. @McpTool на каждом методе включает их в
   // /_mcp/tools, чтобы внешний webhook-MCP-сервер видел tools.

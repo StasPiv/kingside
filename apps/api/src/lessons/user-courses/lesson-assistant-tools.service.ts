@@ -51,6 +51,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -59,6 +60,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { McpToolForAssistant } from '../../mcp/decorators';
+import { PuzzleService } from '../../puzzle/puzzle.service';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
 
@@ -81,6 +83,47 @@ export const ASSISTANT_CREATE_COURSE_RATE_LIMIT = {
   maxRequests: 5,
   windowSec: 60 * 60,
 } as const;
+
+/**
+ * KS-3221 / ADR-075 §7 B1. Хард-лимиты puzzle-инструментов ассистента:
+ *  - в одном шаге `puzzle/filter` — ≤ `ASSISTANT_PUZZLE_LIMIT_MAX` пазлов;
+ *  - в одном уроке ≤ `ASSISTANT_PUZZLE_STEPS_PER_LESSON_MAX` puzzle-шагов
+ *    (отдельный потолок шире `create_user_lesson_step`-овых 10: тренировка
+ *    с пазлами осмысленнее в наборах по 8-15 шт.);
+ *  - 1-3 темы на фильтр;
+ *  - preview ≤ `ASSISTANT_PUZZLE_PREVIEW_MAX` (показ без записи в БД).
+ */
+export const ASSISTANT_PUZZLE_THEMES_MIN = 1;
+export const ASSISTANT_PUZZLE_THEMES_MAX = 3;
+export const ASSISTANT_PUZZLE_LIMIT_MAX = 10;
+export const ASSISTANT_PUZZLE_PREVIEW_MAX = 5;
+export const ASSISTANT_PUZZLE_STEPS_PER_LESSON_MAX = 15;
+
+/**
+ * KS-3221 / ADR-075 §7 B1. Whitelist `PuzzleTheme`-значений (RUntime-
+ * массив), который class-validator `@IsIn` применяет к каждому
+ * элементу `themes[]`. Источник истины — `PuzzleTheme` union в
+ * `packages/shared/src/types/puzzle.ts`. При расширении/удалении тем
+ * в shared нужно обновлять этот массив (compile-time assertion в
+ * spec проверяет покрытие основных тем).
+ */
+export const PUZZLE_THEME_WHITELIST: readonly string[] = [
+  'advancedPawn', 'advantage', 'anapierce', 'arabianMate',
+  'attackingF2F7', 'attraction', 'backRankMate', 'bishopEndgame',
+  'bodenMate', 'capturingDefender', 'castling', 'clearance',
+  'crushing', 'defensiveMove', 'deflection', 'discoveredAttack',
+  'doubleBishopMate', 'doubleCheck', 'dovetailMate', 'enPassant',
+  'endgame', 'equality', 'exposedKing', 'fork',
+  'hangingPiece', 'hookMate', 'interference', 'intermezzo',
+  'kingsideAttack', 'knightEndgame', 'long', 'master',
+  'masterVsMaster', 'mate', 'mateIn1', 'mateIn2',
+  'mateIn3', 'mateIn4', 'mateIn5', 'middlegame',
+  'oneMove', 'opening', 'pawnEndgame', 'pin',
+  'promotion', 'queenEndgame', 'queenRookEndgame', 'queensideAttack',
+  'quietMove', 'rookEndgame', 'sacrifice', 'short',
+  'skewer', 'smotheredMate', 'superGM', 'trappedPiece',
+  'underPromotion', 'veryLong', 'xRayAttack', 'zugzwang',
+] as const;
 
 // ─── DTOs ────────────────────────────────────────────────────────────
 
@@ -190,6 +233,82 @@ export class GetUserCourseUrlAssistantInput {
   courseId!: string;
 }
 
+/**
+ * KS-3221 / ADR-075 §7 B1. Input для `add_puzzle_step_filter` —
+ * добавляет в урок шаг типа `puzzle` с режимом фильтра (themes + rating
+ * range + limit). Сам список пазлов вычисляется фронтом на ходу при
+ * прохождении шага через PuzzleService.findPuzzles.
+ */
+export class AddPuzzleStepFilterAssistantInput {
+  @IsUUID()
+  lessonId!: string;
+
+  /**
+   * 1-3 темы (из PuzzleTheme enum). Внутри puzzle.service строит
+   * AND-условие — все темы должны присутствовать у пазла. Поэтому
+   * слишком узкая комбинация может дать пустую выдачу; рекомендуем
+   * модели брать 1-2 темы.
+   */
+  @IsArray()
+  @ArrayMinSize(ASSISTANT_PUZZLE_THEMES_MIN)
+  @ArrayMaxSize(ASSISTANT_PUZZLE_THEMES_MAX)
+  @IsIn(PUZZLE_THEME_WHITELIST, { each: true })
+  themes!: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(400)
+  ratingMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(400)
+  ratingMax?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(ASSISTANT_PUZZLE_LIMIT_MAX)
+  limit!: number;
+
+  /**
+   * Опциональный заголовок шага / вступительный текст. UI пока его
+   * не использует (PuzzleStepPayload не содержит явного поля), но
+   * храним в `payload.instruction` на будущее.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instruction?: string;
+}
+
+/**
+ * KS-3221 / ADR-075 §7 B1. Input для `find_puzzles_preview` — показывает
+ * примеры пазлов без записи в БД. Лимит 1-5 (защита от token-bloat в
+ * tool_result).
+ */
+export class FindPuzzlesPreviewAssistantInput {
+  @IsArray()
+  @ArrayMinSize(ASSISTANT_PUZZLE_THEMES_MIN)
+  @ArrayMaxSize(ASSISTANT_PUZZLE_THEMES_MAX)
+  @IsIn(PUZZLE_THEME_WHITELIST, { each: true })
+  themes!: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(400)
+  ratingMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(400)
+  ratingMax?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(ASSISTANT_PUZZLE_PREVIEW_MAX)
+  limit!: number;
+}
+
 // ─── Tool controller ─────────────────────────────────────────────────
 //
 // KS-3213: класс теперь @Controller с HTTP-эндпоинтами под
@@ -210,6 +329,7 @@ export class LessonAssistantTools {
     private readonly lessons: UserLessonsService,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly puzzles: PuzzleService,
   ) {}
 
   /**
@@ -496,6 +616,180 @@ export class LessonAssistantTools {
     return {
       slug: course.slug,
       url: `${base}/lessons/courses/${course.slug}`,
+    };
+  }
+
+  // ─── KS-3221 / ADR-075 §7 B1 — puzzle-инструменты ─────────────────
+
+  @Post('add_puzzle_step_filter')
+  @McpTool({
+    name: 'add_puzzle_step_filter',
+    description:
+      'Add a puzzle-step to the current user\'s lesson (owner only) with a ' +
+      'theme+rating filter. The actual puzzles are selected dynamically at ' +
+      'runtime by the puzzle service, so the lesson stays fresh as the puzzle ' +
+      'database grows. Input: lessonId (UUID), themes (1-3 from PuzzleTheme ' +
+      'enum), optional ratingMin/ratingMax, limit (1-10). Hard cap: ' +
+      '≤15 puzzle-steps per lesson via the assistant.',
+  })
+  @McpToolForAssistant({
+    name: 'add_puzzle_step_filter',
+    description:
+      'Add a puzzle-step to the current user\'s lesson (owner only) with a ' +
+      'theme+rating filter. Themes whitelist: PuzzleTheme enum. Limit 1-10.',
+  })
+  async addPuzzleStepFilter(
+    @Body() input: AddPuzzleStepFilterAssistantInput,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{
+    id: string;
+    lessonId: string;
+    type: string;
+    order: number;
+    themes: string[];
+    limit: number;
+  }> {
+    // Owner-check + лимит «≤15 puzzle-шагов через ассистент». В отличие
+    // от text/quiz (KS-3207's 10) для puzzle даём более широкий потолок —
+    // тренировочный сет имеет смысл от 8 шагов.
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: input.lessonId },
+      select: {
+        ownerId: true,
+        steps: {
+          where: { type: 'puzzle' },
+          select: { id: true },
+        },
+      },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (lesson.ownerId !== req.user.id) {
+      throw new ForbiddenException('You do not own this lesson');
+    }
+    if (lesson.steps.length >= ASSISTANT_PUZZLE_STEPS_PER_LESSON_MAX) {
+      throw new BadRequestException(
+        `Lesson already has ${ASSISTANT_PUZZLE_STEPS_PER_LESSON_MAX} puzzle steps ` +
+          `(assistant limit; ask the user to remove some before adding more)`,
+      );
+    }
+
+    if (
+      input.ratingMin !== undefined &&
+      input.ratingMax !== undefined &&
+      input.ratingMin > input.ratingMax
+    ) {
+      throw new BadRequestException(
+        `ratingMin (${input.ratingMin}) > ratingMax (${input.ratingMax})`,
+      );
+    }
+
+    const selection: Record<string, unknown> = {
+      mode: 'filter',
+      themes: input.themes,
+      limit: input.limit,
+    };
+    if (input.ratingMin !== undefined) selection.ratingMin = input.ratingMin;
+    if (input.ratingMax !== undefined) selection.ratingMax = input.ratingMax;
+
+    const payload: Record<string, unknown> = {
+      type: 'puzzle',
+      selection,
+    };
+    // `instruction` храним для будущего UI-использования. PuzzleStepPayload
+    // (shared) не описывает поле, но JSONB переживёт extra-keys.
+    if (input.instruction) {
+      payload.instruction = input.instruction;
+    }
+
+    const created = await this.lessons.addStep(
+      input.lessonId,
+      {
+        type: 'puzzle',
+        payload: payload as never,
+      },
+      req.user.id,
+    );
+    return {
+      id: created.id,
+      lessonId: input.lessonId,
+      type: created.type,
+      order: created.order,
+      themes: input.themes,
+      limit: input.limit,
+    };
+  }
+
+  @Post('find_puzzles_preview')
+  @McpTool({
+    name: 'find_puzzles_preview',
+    description:
+      'Preview puzzles matching a theme+rating filter WITHOUT adding them ' +
+      'to any lesson. Returns up to 5 puzzles with id, fen, first solution ' +
+      'move (UCI), and matching themes. Use to verify a filter is reasonable ' +
+      'before calling add_puzzle_step_filter.',
+  })
+  @McpToolForAssistant({
+    name: 'find_puzzles_preview',
+    description:
+      'Preview puzzles for a theme+rating filter. No DB writes. limit 1-5.',
+  })
+  async findPuzzlesPreview(
+    @Body() input: FindPuzzlesPreviewAssistantInput,
+    @Request() _req: AuthenticatedRequest,
+  ): Promise<{
+    puzzles: Array<{
+      puzzleId: string;
+      fen: string;
+      bestMove: string;
+      themes: string[];
+      rating: number | null;
+    }>;
+    appliedFilter: {
+      themes: string[];
+      ratingMin?: number;
+      ratingMax?: number;
+      limit: number;
+    };
+  }> {
+    if (
+      input.ratingMin !== undefined &&
+      input.ratingMax !== undefined &&
+      input.ratingMin > input.ratingMax
+    ) {
+      throw new BadRequestException(
+        `ratingMin (${input.ratingMin}) > ratingMax (${input.ratingMax})`,
+      );
+    }
+
+    const found = await this.puzzles.findPuzzles({
+      themes: input.themes,
+      ratingMin: input.ratingMin,
+      ratingMax: input.ratingMax,
+      limit: input.limit,
+      orderBy: 'random',
+      // assistant-preview всегда показывает обычные forced-line задачи
+      // (PVE — отдельная фича, требует свой scope обсуждения с моделью).
+      solutionMode: 'forced-line',
+    });
+
+    return {
+      puzzles: found.map((p) => ({
+        puzzleId: p.id,
+        fen: p.fen,
+        // `moves` приходит как уже распакованный массив UCI после
+        // formatPuzzle. Первый — setup или ход решающего (зависит от
+        // firstMoveIsUser); для preview достаточно показать первый ход
+        // как намёк.
+        bestMove: (p.moves ?? [])[0] ?? '',
+        themes: p.themes ?? [],
+        rating: p.rating ?? null,
+      })),
+      appliedFilter: {
+        themes: input.themes,
+        ratingMin: input.ratingMin,
+        ratingMax: input.ratingMax,
+        limit: input.limit,
+      },
     };
   }
 }

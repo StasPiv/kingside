@@ -37,15 +37,23 @@ const LESSON_ID = '00000000-0000-4000-a000-000000000020';
 const STEP_ID = '00000000-0000-4000-a000-000000000030';
 
 function makeTools(overrides: {
-  lesson?: { ownerId: string; stepCount: number } | null;
+  lesson?: { ownerId: string; stepCount: number; puzzleStepCount?: number } | null;
   course?: { ownerId: string; slug: string } | null;
   redisIncrSeq?: number[];
+  puzzleSearch?: Array<{
+    id: string;
+    fen: string;
+    moves: string[];
+    themes: string[];
+    rating: number | null;
+  }>;
 } = {}): {
   tools: LessonAssistantTools;
   coursesMock: jest.Mocked<UserCoursesService>;
   lessonsMock: jest.Mocked<UserLessonsService>;
   prismaMock: PrismaService;
   redisMock: { incr: jest.Mock; expire: jest.Mock; ttl: jest.Mock };
+  puzzlesMock: { findPuzzles: jest.Mock };
 } {
   const lesson = overrides.lesson;
   const course = overrides.course;
@@ -62,6 +70,11 @@ function makeTools(overrides: {
             : {
                 ownerId: lesson.ownerId,
                 _count: { steps: lesson.stepCount },
+                // KS-3221: puzzle path requests `steps: { where: type='puzzle' }`.
+                steps: Array.from(
+                  { length: lesson.puzzleStepCount ?? 0 },
+                  (_, i) => ({ id: `puzzle-step-${i}` }),
+                ),
               },
       ),
     },
@@ -113,14 +126,20 @@ function makeTools(overrides: {
       key === 'SITE_URL' ? 'https://kingside.site/' : def ?? '',
   } as unknown as ConfigService;
 
+  // KS-3221: PuzzleService mock для find_puzzles_preview / add_puzzle_step_filter.
+  const puzzlesMock = {
+    findPuzzles: jest.fn().mockResolvedValue(overrides.puzzleSearch ?? []),
+  } as any;
+
   const tools = new LessonAssistantTools(
     prisma,
     coursesMock,
     lessonsMock,
     config,
     redisMock as any,
+    puzzlesMock,
   );
-  return { tools, coursesMock, lessonsMock, prismaMock: prisma, redisMock };
+  return { tools, coursesMock, lessonsMock, prismaMock: prisma, redisMock, puzzlesMock };
 }
 
 describe('LessonAssistantTools (KS-3207)', () => {
@@ -445,6 +464,186 @@ describe('LessonAssistantTools (KS-3207)', () => {
           { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  // ─── KS-3221 / ADR-075 §7 B1 ─────────────────────────────────────
+
+  describe('add_puzzle_step_filter (KS-3221)', () => {
+    const baseInput = {
+      lessonId: LESSON_ID,
+      themes: ['fork'],
+      limit: 6,
+    };
+
+    it('создаёт puzzle-шаг с mode=filter; payload включает themes/limit', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 2 },
+      });
+      const out = await tools.addPuzzleStepFilter(
+        { ...baseInput, ratingMin: 1200, ratingMax: 1800 } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const call = (lessonsMock.addStep as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe(LESSON_ID);
+      expect(call[1].type).toBe('puzzle');
+      expect(call[1].payload).toMatchObject({
+        type: 'puzzle',
+        selection: {
+          mode: 'filter',
+          themes: ['fork'],
+          limit: 6,
+          ratingMin: 1200,
+          ratingMax: 1800,
+        },
+      });
+      expect(call[2]).toBe(USER_ID);
+      expect(out).toMatchObject({
+        id: STEP_ID,
+        lessonId: LESSON_ID,
+        themes: ['fork'],
+        limit: 6,
+      });
+    });
+
+    it('instruction (опц.) попадает в payload.instruction', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.addPuzzleStepFilter(
+        { ...baseInput, instruction: 'Найди вилку коня' } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1]
+        .payload;
+      expect(payload.instruction).toBe('Найди вилку коня');
+    });
+
+    it('чужой урок → 403', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: STRANGER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.addPuzzleStepFilter(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('урок не найден → 404', async () => {
+      const { tools } = makeTools({ lesson: null });
+      await expect(
+        tools.addPuzzleStepFilter(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('≥15 puzzle-шагов в уроке → 400', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 15 },
+      });
+      await expect(
+        tools.addPuzzleStepFilter(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('ratingMin > ratingMax → 400', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.addPuzzleStepFilter(
+          { ...baseInput, ratingMin: 1800, ratingMax: 1200 } as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('find_puzzles_preview (KS-3221)', () => {
+    const baseInput = { themes: ['fork'], limit: 3 };
+
+    it('возвращает примеры без записи в БД (lessons.addStep не дёргается)', async () => {
+      const { tools, lessonsMock, puzzlesMock } = makeTools({
+        puzzleSearch: [
+          {
+            id: 'p1',
+            fen: '8/8/8/8/8/8/PPP5/K7 w - - 0 1',
+            moves: ['a2a4', 'a7a5'],
+            themes: ['fork', 'middlegame'],
+            rating: 1450,
+          },
+          {
+            id: 'p2',
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            moves: ['e2e4', 'e7e5'],
+            themes: ['fork', 'opening'],
+            rating: 1500,
+          },
+        ],
+      });
+      const out = await tools.findPuzzlesPreview(
+        baseInput as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(lessonsMock.addStep).not.toHaveBeenCalled();
+      expect(puzzlesMock.findPuzzles).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themes: ['fork'],
+          limit: 3,
+          orderBy: 'random',
+          solutionMode: 'forced-line',
+        }),
+      );
+      expect(out.puzzles).toHaveLength(2);
+      expect(out.puzzles[0]).toEqual({
+        puzzleId: 'p1',
+        fen: '8/8/8/8/8/8/PPP5/K7 w - - 0 1',
+        bestMove: 'a2a4',
+        themes: ['fork', 'middlegame'],
+        rating: 1450,
+      });
+      expect(out.appliedFilter).toMatchObject({
+        themes: ['fork'],
+        limit: 3,
+      });
+    });
+
+    it('ratingMin/Max прокидываются в PuzzleService.findPuzzles', async () => {
+      const { tools, puzzlesMock } = makeTools();
+      await tools.findPuzzlesPreview(
+        { ...baseInput, ratingMin: 1300, ratingMax: 1600 } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(puzzlesMock.findPuzzles).toHaveBeenCalledWith(
+        expect.objectContaining({ ratingMin: 1300, ratingMax: 1600 }),
+      );
+    });
+
+    it('ratingMin > ratingMax → 400 (без вызова PuzzleService)', async () => {
+      const { tools, puzzlesMock } = makeTools();
+      await expect(
+        tools.findPuzzlesPreview(
+          { ...baseInput, ratingMin: 1800, ratingMax: 1200 } as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(puzzlesMock.findPuzzles).not.toHaveBeenCalled();
+    });
+
+    it('пустой результат пазлов → puzzles=[]', async () => {
+      const { tools } = makeTools({ puzzleSearch: [] });
+      const out = await tools.findPuzzlesPreview(
+        baseInput as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(out.puzzles).toEqual([]);
     });
   });
 });
