@@ -7896,13 +7896,46 @@
   flex-direction: column;
   gap: 16px;
 }
+/* KS-3183 (ADR-072 §7 L1): viewer-обёртка для AnalysisPage в embedded.
+ * - Desktop: высота фиксирована — даёт `.analysis-page` корректную
+ *   высоту flex-row контейнера (board слева, sidebar справа).
+ * - Mobile: высота тоже фиксирована, но меньше — внутри AnalysisPage
+ *   срабатывает `@media (max-width: 768px)` и показывает таб-панель
+ *   (Доска / Варианты / Движок).
+ * - Доска внутри ограничена контейнером, не вылезает за viewport.
+ */
 .lesson-game-step__viewer {
-  /* KS-3182: убираем default-вертикальный padding из AnalysisPage —
-     внутри урока у нас уже есть свои отступы, второй слой делает
-     карточку слишком разрежённой. */
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Desktop по умолчанию: высота под viewport, чтобы board+sidebar
+   * влезли без вертикального скролла. min гарантирует пользуемый
+   * размер на коротких страницах. */
+  height: min(720px, calc(100vh - 220px));
+  min-height: 480px;
+}
+.lesson-game-step__viewer > .analysis-page {
+  /* Сбрасываем left/right padding `.analysis-page` (8px) — у viewer'а
+   * есть свой border + radius, дополнительный padding выглядит лишним.
+   * Top/bottom оставляем, чтобы board-controls не липли к низу. */
+  padding: 0 0 8px;
+}
+@media (max-width: 768px) {
+  .lesson-game-step__viewer {
+    /* На мобильном даём больше места под доску+табы. Доска внутри
+     * `.board-container` всё равно ограничена `min-width: 0` и
+     * `flex: 1 1 0%`, поэтому не выйдет за пределы карточки. */
+    height: min(680px, calc(100vh - 160px));
+    min-height: 420px;
+  }
+  /* В embedded-режиме `.analysis-board-area` теряет `max-width: 65%`
+   * и `.analysis-mobile-panel` уже сам растягивается на 100%. */
+  .lesson-game-step__viewer .analysis-board-area {
+    max-width: 100%;
+    flex: 0 0 auto;
+  }
 }
 .lesson-game-step__actions {
   display: flex;
