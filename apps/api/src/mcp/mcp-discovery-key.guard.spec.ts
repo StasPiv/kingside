@@ -1,10 +1,10 @@
 /**
- * KS-2952 / ADR-061 §5 lvl 5 + §6.
+ * KS-2952 / ADR-061 §5 lvl 5 + §6, ослаблено в KS-3218.
  * Юнит-тесты McpDiscoveryKeyGuard:
  *  - dev (NODE_ENV != production) → пускает всех;
- *  - prod без MCP_DISCOVERY_KEY → 403;
- *  - prod + правильный заголовок → ок;
- *  - prod + неверный/отсутствующий заголовок → 403.
+ *  - prod **без** MCP_DISCOVERY_KEY → пускает (no-op, /_mcp/tools публичен);
+ *  - prod + ключ задан + правильный заголовок → ок;
+ *  - prod + ключ задан + неверный/отсутствующий заголовок → 403.
  */
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -31,13 +31,20 @@ describe('McpDiscoveryKeyGuard (KS-2952)', () => {
     expect(g.canActivate(ctxWithHeader(undefined))).toBe(true);
   });
 
-  it('prod без MCP_DISCOVERY_KEY → 403', () => {
+  // KS-3218: ослабление — env не задан → guard no-op (раньше было 403).
+  it('prod без MCP_DISCOVERY_KEY → allow (KS-3218 ослабление, /_mcp/tools публичен)', () => {
     const g = new McpDiscoveryKeyGuard(
       makeConfig({ NODE_ENV: 'production', MCP_DISCOVERY_KEY: '' }),
     );
-    expect(() => g.canActivate(ctxWithHeader('xxx'))).toThrow(
-      ForbiddenException,
+    expect(g.canActivate(ctxWithHeader('xxx'))).toBe(true);
+    expect(g.canActivate(ctxWithHeader(undefined))).toBe(true);
+  });
+
+  it('prod без MCP_DISCOVERY_KEY (env вообще отсутствует) → allow', () => {
+    const g = new McpDiscoveryKeyGuard(
+      makeConfig({ NODE_ENV: 'production' /* MCP_DISCOVERY_KEY undefined */ }),
     );
+    expect(g.canActivate(ctxWithHeader(undefined))).toBe(true);
   });
 
   it('prod + правильный ключ → allow', () => {
