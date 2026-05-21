@@ -3293,23 +3293,49 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
     .analysis-mobile-panel[data-focus-sheet='true'][data-snap='peek'] {
     /* peek = 64px → доска ≈ 100dvh - 72 (top) - 64 (sheet) ≈ 644px на Pixel 7. */
   }
-  /* JS-вариант синхронизации (используется когда CSS sibling не помогает):
-     `data-snap` снимается из .analysis-mobile-panel и читается через
-     CSS-var на родительском `.lesson-game-step` — см. атрибут
-     `data-sheet-snap` в `GameStep.tsx`. */
-  .lesson-game-step[data-sheet-snap='peek'] .analysis-board-wrapper {
-    max-height: calc(100dvh - 72px - 64px - 56px);
+  /* KS-3199: доска должна **уменьшаться** под sheet, а не обрезаться.
+     Решение: задаём `max-height` на сам `.board-container` (не wrapper),
+     убираем `flex: 1 1 0%` (форсировал width=100% и aspect-ratio выдавал
+     слишком большую высоту), даём `width: auto + aspect-ratio: 1/1`.
+     Тогда квадрат = min(max-width, max-height).
+
+     Вертикальный баланс focus-mode на 100dvh:
+       top-зона (compact-header 40 + safe-area + pill 28 + meta-bar 18) ≈ 86px
+       board-controls 44px
+       lesson-game-step__actions (CTA sticky) ≈ 56px (button 44 + padding 8)
+       sheet — переменная: peek 64, half 50dvh, full 85dvh
+     Резерв 8px на borders/gaps. Финальные формулы:
+       peek:   100dvh - 86 - 44 - 56 - 64  - safe-area-bottom ≈ 100dvh - 250
+       half:   100dvh - 86 - 44 - 56 - 50dvh ≈ 50dvh - 186
+       full:   100dvh - 86 - 44 - 56 - 85dvh ≈ 15dvh - 186 (может быть <0,
+               тогда доска сожмётся до 0; в full sheet и так покрывает почти
+               всё — пользователь видит movestack, доска не критична).
+     */
+  /* KS-3199: формулу для --focus-board-h задаём на .lesson-game-step;
+     применяется в lessons.css через `.lesson-game-step__viewer
+     .board-container` с повышенной специфичностью (см. там). */
+  .lesson-game-step[data-sheet-snap='peek'] {
+    --focus-board-h: calc(100dvh - 86px - 44px - 56px - 64px - env(safe-area-inset-bottom, 0px) - 14px);
   }
-  .lesson-game-step[data-sheet-snap='half'] .analysis-board-wrapper {
-    max-height: calc(100dvh - 72px - 50dvh - 56px);
+  .lesson-game-step[data-sheet-snap='half'] {
+    --focus-board-h: calc(50dvh - 86px - 44px - 56px - 14px);
   }
-  .lesson-game-step[data-sheet-snap='full'] .analysis-board-wrapper {
-    max-height: calc(100dvh - 72px - 85dvh - 56px);
+  .lesson-game-step[data-sheet-snap='full'] {
+    /* В full sheet берёт 85dvh, под доской остаётся ~15dvh минус
+       top-зона. Реально это <0 на mobile, поэтому даём минимум 200px —
+       пользователь видит уменьшенную доску в верхней части экрана,
+       sheet (85dvh = высота movestack) — снизу. ADR-073 §3.2 ожидает
+       «доска ~256px в full», 200 — близкая нижняя граница. */
+    --focus-board-h: max(200px, calc(15dvh - 86px - 44px - 56px));
   }
-  /* Доска квадратная — задаём через ratio. */
+  .lesson-game-step[data-sheet-snap] .analysis-eval-board-row {
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: stretch;
+    width: 100%;
+  }
   .lesson-game-step[data-sheet-snap] .analysis-board-wrapper {
-    aspect-ratio: 1 / 1;
-    width: auto;
+    width: 100%;
     margin: 0 auto;
   }
 }

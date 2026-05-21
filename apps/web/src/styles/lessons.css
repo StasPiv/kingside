@@ -8049,6 +8049,27 @@
     max-width: 100%;
     align-self: flex-start;
   }
+  /* KS-3199: в focus-mode доска должна **уменьшаться** под доступную
+   * вертикаль (sheet half/full съедают экран). Через CSS-переменную
+   * `--focus-board-h` (задана в analysis.css по data-sheet-snap):
+   * width = min(целевая высота, 100% row); aspect-ratio даёт height = width.
+   *
+   * Конкурирует с правилом KS-3186 выше (`.lesson-game-step__viewer
+   * .board-container { flex: 1 1 0% }`) и базовым `.analysis-page
+   * .board-container { flex: 1 1 0%; max-width: calc((100vh-240px)*0.92) }`
+   * — оба ровно той же специфичности (0,2,1). Чтобы гарантированно
+   * переопределить в focus-mode, используем `!important`. Без него
+   * `flex: 1 1 0%` форсирует ширину доски = ширине row, и доска
+   * обрезается, а не масштабируется. */
+  .lesson-game-step[data-sheet-snap] .board-container {
+    flex: 0 0 auto !important;
+    width: min(var(--focus-board-h, 100%), 100%) !important;
+    height: auto !important;
+    max-width: 100% !important;
+    aspect-ratio: 1 / 1 !important;
+    min-width: 0 !important;
+    align-self: center !important;
+  }
   /* Eval-board row жмём по краю viewer'а, без правого padding. */
   .lesson-game-step__viewer .analysis-eval-board-row {
     flex: 0 0 auto;
