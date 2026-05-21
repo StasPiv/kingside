@@ -19,6 +19,7 @@ import {
   EndgameDrillStepPayloadDto,
   QuizStepPayloadDto,
   GameStepPayloadDto,
+  DrillStepPayloadDto,
   PuzzleSelectionIdsDto,
   PuzzleSelectionCustomDto,
 } from '../../dto/step-payload.dto';
@@ -145,6 +146,8 @@ export const USER_STEP_PAYLOAD_SUBTYPES = [
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
   { value: QuizStepPayloadDto, name: 'quiz' },
   { value: GameStepPayloadDto, name: 'game' },
+  // KS-3225 (ADR-075 §7 B5): тактический drill в пользовательских курсах.
+  { value: DrillStepPayloadDto, name: 'drill' },
 ] as const;
 
 export type UserStepPayloadDto =
@@ -152,7 +155,8 @@ export type UserStepPayloadDto =
   | UserPuzzleStepPayloadDto
   | EndgameDrillStepPayloadDto
   | QuizStepPayloadDto
-  | GameStepPayloadDto;
+  | GameStepPayloadDto
+  | DrillStepPayloadDto;
 
 /**
  * Проверка type на whitelist до того, как class-transformer попробует

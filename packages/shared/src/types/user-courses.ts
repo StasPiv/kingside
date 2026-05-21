@@ -39,7 +39,11 @@ export type UserStepType =
   | 'puzzle'
   | 'endgame_drill'
   | 'quiz'
-  | 'game';
+  | 'game'
+  // KS-3225 (ADR-075 §7 B5): тактический drill — `LessonStep.kind='drill'`
+  // (см. `DrillStepPayload` в ./lessons). Backend-whitelist расширен в
+  // user-courses-limits.ts (KS-3225).
+  | 'drill';
 
 // ─── Core DTOs ────────────────────────────────────────────────────────
 

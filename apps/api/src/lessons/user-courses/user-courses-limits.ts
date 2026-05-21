@@ -43,6 +43,9 @@ export const ALLOWED_USER_STEP_TYPES = [
   'quiz',
   // KS-3179/3180 (ADR-072 §7 B1): шаг «Партия» в пользовательских курсах.
   'game',
+  // KS-3225 (ADR-075 §7 B5): тактический drill-шаг через ассистента.
+  // Использует ту же drill-инфру (random / by drillType+bucket).
+  'drill',
 ] as const;
 
 export type AllowedUserStepType = (typeof ALLOWED_USER_STEP_TYPES)[number];

@@ -182,7 +182,8 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
 
   // ─── Whitelist «запрещены» → 400 ─────────────────────────────────
 
-  it.each(['video', 'game_review', 'opening_drill', 'position', 'drill'])(
+  // KS-3225: `drill` теперь в whitelist (был запрещён ранее).
+  it.each(['video', 'game_review', 'opening_drill', 'position'])(
     'type=%s (вне whitelist) — ошибка на свойстве type',
     async (type) => {
       const errors = await validateDto(CreateUserLessonStepDto, {

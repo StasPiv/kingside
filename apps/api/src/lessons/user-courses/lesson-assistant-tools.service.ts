@@ -356,6 +356,53 @@ export class GameStepMetaAssistantInput {
   round?: string;
 }
 
+// ─── KS-3225 / ADR-075 §7 B5 — тактический drill ─────────────────────
+
+export const ASSISTANT_DRILL_COUNT_MAX = 5;
+export const ASSISTANT_DRILL_STEPS_PER_LESSON_MAX = 10;
+
+/**
+ * KS-3225. 7 типов drill'ов из methodology §2 (см. `TacticDrillType`
+ * union в `@kingside/shared`). Whitelist для `@IsIn` валидации.
+ */
+export const TACTIC_DRILL_TYPE_WHITELIST: readonly string[] = [
+  'find-hanging-piece',
+  'find-loose-piece',
+  'find-pin',
+  'find-fork',
+  'count-attackers',
+  'find-all-checks',
+  'find-undefended-attack',
+] as const;
+
+export const DRILL_DIFFICULTY_BUCKET_WHITELIST: readonly string[] = [
+  'easy',
+  'medium',
+  'hard',
+] as const;
+
+export class AddTacticalDrillStepAssistantInput {
+  @IsUUID()
+  lessonId!: string;
+
+  @IsIn(TACTIC_DRILL_TYPE_WHITELIST)
+  drillType!: string;
+
+  @IsOptional()
+  @IsIn(DRILL_DIFFICULTY_BUCKET_WHITELIST)
+  bucket?: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(ASSISTANT_DRILL_COUNT_MAX)
+  count!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instruction?: string;
+}
+
 export class AddGameStepFromPgnAssistantInput {
   @IsUUID()
   lessonId!: string;
@@ -1168,6 +1215,84 @@ export class LessonAssistantTools {
       lessonId: input.lessonId,
       type: created.type,
       order: created.order,
+    };
+  }
+
+  @Post('add_tactical_drill_step')
+  @McpTool({
+    name: 'add_tactical_drill_step',
+    description:
+      'Add a tactical drill step to a user lesson (owner only). Drills are ' +
+      'small, focused exercises — find a fork, count attackers, spot a pin — ' +
+      'with positions selected dynamically at runtime from the drill pool. ' +
+      'Input: lessonId (UUID), drillType (one of: find-hanging-piece, ' +
+      'find-loose-piece, find-pin, find-fork, count-attackers, ' +
+      'find-all-checks, find-undefended-attack), optional bucket ' +
+      '(easy|medium|hard), count (1-5), optional instruction (≤300). ' +
+      'Hard cap: ≤10 drill steps per lesson via the assistant.',
+  })
+  @McpToolForAssistant({
+    name: 'add_tactical_drill_step',
+    description:
+      'Add a tactical drill step (random selection by drillType + optional difficulty bucket).',
+  })
+  async addTacticalDrillStep(
+    @Body() input: AddTacticalDrillStepAssistantInput,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{
+    id: string;
+    lessonId: string;
+    type: string;
+    order: number;
+    drillType: string;
+  }> {
+    // Owner-check + лимит ≤10 drill-шагов через ассистента.
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: input.lessonId },
+      select: {
+        ownerId: true,
+        steps: {
+          where: { type: 'drill' },
+          select: { id: true },
+        },
+      },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (lesson.ownerId !== req.user.id) {
+      throw new ForbiddenException('You do not own this lesson');
+    }
+    if (lesson.steps.length >= ASSISTANT_DRILL_STEPS_PER_LESSON_MAX) {
+      throw new BadRequestException(
+        `Lesson already has ${ASSISTANT_DRILL_STEPS_PER_LESSON_MAX} drill steps ` +
+          `(assistant limit; ask the user to remove some before adding more)`,
+      );
+    }
+
+    // Random-режим: drillId не указываем — drill подбирается из пула при
+    // каждом прохождении (см. DrillStepPayload в shared, `mode=random`
+    // = отсутствие drillId, см. ADR-035 §11 / KS-2249).
+    const payload: Record<string, unknown> = {
+      type: 'drill',
+      drillType: input.drillType,
+      count: input.count,
+    };
+    if (input.bucket) payload.difficultyBucket = input.bucket;
+    if (input.instruction) payload.instruction = input.instruction;
+
+    const created = await this.lessons.addStep(
+      input.lessonId,
+      {
+        type: 'drill',
+        payload: payload as never,
+      },
+      req.user.id,
+    );
+    return {
+      id: created.id,
+      lessonId: input.lessonId,
+      type: created.type,
+      order: created.order,
+      drillType: input.drillType,
     };
   }
 

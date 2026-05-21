@@ -839,6 +839,74 @@ describe('LessonAssistantTools (KS-3207)', () => {
     });
   });
 
+  // ─── KS-3225 / ADR-075 §7 B5 — add_tactical_drill_step ──────────
+
+  describe('add_tactical_drill_step (KS-3225)', () => {
+    const base = { lessonId: LESSON_ID, drillType: 'find-fork', count: 3 };
+
+    it('создаёт drill-шаг с drillType + count (без bucket)', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      const out = await tools.addTacticalDrillStep(
+        base as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const call = (lessonsMock.addStep as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe(LESSON_ID);
+      expect(call[1].type).toBe('drill');
+      expect(call[1].payload).toMatchObject({
+        type: 'drill',
+        drillType: 'find-fork',
+        count: 3,
+      });
+      expect(call[1].payload.difficultyBucket).toBeUndefined();
+      expect(call[2]).toBe(USER_ID);
+      expect(out).toMatchObject({
+        id: STEP_ID,
+        lessonId: LESSON_ID,
+        type: 'drill',
+        drillType: 'find-fork',
+      });
+    });
+
+    it('bucket попадает в payload.difficultyBucket', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.addTacticalDrillStep(
+        { ...base, bucket: 'easy', instruction: 'Найди вилку!' } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1]
+        .payload;
+      expect(payload.difficultyBucket).toBe('easy');
+      expect(payload.instruction).toBe('Найди вилку!');
+    });
+
+    it('чужой урок → 403', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: STRANGER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.addTacticalDrillStep(
+          base as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('урок не найден → 404', async () => {
+      const { tools } = makeTools({ lesson: null });
+      await expect(
+        tools.addTacticalDrillStep(
+          base as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('find_puzzles_preview (KS-3221)', () => {
     const baseInput = { themes: ['fork'], limit: 3 };
 
