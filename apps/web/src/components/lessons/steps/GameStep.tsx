@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GameStepPayload, LessonStepState } from '@kingside/shared';
 
 import { AnalysisPage } from '../../../pages/AnalysisPage';
+import { useFocusMode } from '../../../context/FocusModeContext';
 
 /**
  * KS-3182 (ADR-072 §7 F2): шаг «Партия» — read-only просмотр PGN внутри
@@ -57,6 +58,24 @@ export function GameStep({
   // на backend).
   const [confirmed, setConfirmed] = useState(false);
   const isDone = stepState === 'done' || confirmed;
+
+  /**
+   * KS-3188 (ADR-073 §7 F1): на mobile-экранах шаг «Партия» съедает почти
+   * весь viewport (доска + tree/explorer/SF внутри embedded AnalysisPage).
+   * Активируем focus-mode на время монтирования компонента — CSS
+   * скрывает MobileBottomBar и переключает header в compact-вариант.
+   * Логика viewport (<768px) полностью в CSS через `@media`; в JS
+   * `enable()` вызываем всегда, чтобы не зависеть от `matchMedia` в
+   * jsdom-тестах и от race condition'ов resize. `hideNext` (preview-
+   * режим в редакторе шага) — НЕ активируем focus, иначе автор курса в
+   * выпадающем preview увидит compact-layout вместо обычного редактора.
+   */
+  const { enable: enableFocusMode, disable: disableFocusMode } = useFocusMode();
+  useEffect(() => {
+    if (hideNext) return undefined;
+    enableFocusMode();
+    return () => disableFocusMode();
+  }, [hideNext, enableFocusMode, disableFocusMode]);
 
   if (!pgn) {
     return (

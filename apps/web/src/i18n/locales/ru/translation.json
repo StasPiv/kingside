@@ -78,6 +78,9 @@
     "home": "Главная",
     "puzzleN": "Задача #{{id}}"
   },
+  "focusMode": {
+    "backToLesson": "← Назад к уроку"
+  },
   "nav": {
     "settings": "Настройки",
     "logout": "Выход",

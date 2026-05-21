@@ -78,6 +78,9 @@
     "home": "Home",
     "puzzleN": "Puzzle #{{id}}"
   },
+  "focusMode": {
+    "backToLesson": "← Back to lesson"
+  },
   "nav": {
     "settings": "Settings",
     "logout": "Logout",

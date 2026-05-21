@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { ChatProvider } from './context/ChatContext';
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
+import { FocusModeProvider } from './context/FocusModeContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
@@ -79,7 +80,9 @@ createRoot(document.getElementById('root')!).render(
           <FeatureFlagsProvider>
             <ChatProvider>
               <BoardSettingsProvider>
-                <App />
+                <FocusModeProvider>
+                  <App />
+                </FocusModeProvider>
               </BoardSettingsProvider>
             </ChatProvider>
           </FeatureFlagsProvider>

@@ -262,7 +262,12 @@ export function UserLessonView({
                 data-step-state={progress.stepsState[step.id] ?? 'pending'}
               >
                 <header className="lesson-step__header">
-                  <span className="lesson-step-order">#{step.order}</span>
+                  {/* KS-3192: `step.order` хранится 0-based в БД (первый
+                      шаг = 0); ученик видит «#0 ПАРТИЯ» — выглядит как
+                      баг. Отображаемая нумерация 1-based, без правок API.
+                      `data-testid` остаётся по сырому `step.order`, чтобы
+                      существующие e2e/unit тесты по нему не сломались. */}
+                  <span className="lesson-step-order">#{step.order + 1}</span>
                   <span className="lesson-step-type">
                     {t(`lessons.stepType.${step.type}`, step.type)}
                   </span>

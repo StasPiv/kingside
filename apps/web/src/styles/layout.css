@@ -1326,3 +1326,50 @@ button.sidebar-item {
     display: none;
   }
 }
+
+/* KS-3188 (ADR-073 §7 F1): focus-mode для шага «Партия» на mobile.
+   - На desktop класс `.focus-mode-active` ничего не делает (по условию
+     задачи «Desktop не трогаем»).
+   - На mobile (<=767px): обычный header сжимается до compact-варианта
+     (одна кнопка «← Назад к уроку»), MobileBottomBar скрыт. Это
+     освобождает почти весь viewport под доску + tree/explorer/SF
+     внутри embedded AnalysisPage. */
+.header--focus-compact {
+  display: none;
+}
+@media (max-width: 767px) {
+  .app.focus-mode-active > .header:not(.header--focus-compact) {
+    display: none;
+  }
+  .app.focus-mode-active > .header.header--focus-compact {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 8px 12px;
+    min-height: 40px;
+    background: var(--c-0f0f1e);
+    border-bottom: 1px solid var(--c-2a2a4e);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header--focus-compact__back {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--c-e0e0e0);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .app.focus-mode-active .mobile-bottom-bar {
+    display: none;
+  }
+  /* Снимаем нижний паддинг `.main`, добавленный для bottom-bar — он
+     теперь не виден, лишний padding съедал бы место под доску. */
+  .app.focus-mode-active .main {
+    padding-bottom: 0;
+  }
+}
+

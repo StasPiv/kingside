@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+import { useFocusMode } from '../context/FocusModeContext';
 import { api } from '../api';
 import { useChallenge } from '../hooks/useChallenge';
 import { useNotifications } from '../hooks/useNotifications';
@@ -35,6 +36,11 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
 export function MainLayout() {
   const { user, logout } = useAuth();
   const { t, i18n } = useTranslation();
+  // KS-3188 (ADR-073 §7 F1): focus-mode для шагов вроде game-партии на
+  // mobile. Активность — глобальный контекст, реальное визуальное
+  // переключение делает CSS через `@media (max-width: 767px)` на классе
+  // `.app.focus-mode-active`. Desktop не трогаем по условию задачи.
+  const { active: focusModeActive, disable: disableFocusMode } = useFocusMode();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { incoming, acceptChallenge, declineChallenge } = useChallenge();
@@ -121,7 +127,29 @@ export function MainLayout() {
   const hideBottomBar = location.pathname.startsWith('/game/');
 
   return (
-    <div className="app">
+    <div
+      className={`app${focusModeActive ? ' focus-mode-active' : ''}`}
+      data-focus-mode={focusModeActive ? 'true' : 'false'}
+    >
+      {/* KS-3188: compact-header виден только на mobile при focus-mode-
+          active (см. CSS). Один пункт «← Назад к уроку» отключает фокус-
+          режим — у пользователя нет других обязательных действий внутри
+          шага game (Stockfish/tree/explorer уже на странице урока), а
+          обычный header остаётся одной кнопкой возврата. */}
+      <header
+        className="header header--focus-compact"
+        data-testid="main-layout-focus-compact-header"
+        aria-hidden={!focusModeActive}
+      >
+        <button
+          type="button"
+          className="header--focus-compact__back"
+          data-testid="main-layout-focus-back"
+          onClick={disableFocusMode}
+        >
+          {t('focusMode.backToLesson', '← Back to lesson')}
+        </button>
+      </header>
       <header className="header">
         <nav className="header-nav">
           {/* LEFT: Logo */}
