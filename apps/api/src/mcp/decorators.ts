@@ -18,6 +18,17 @@ export const MCP_MODULE_META = 'mcp:module-meta';
 export const MCP_TOOL_META = 'mcp:tool-meta';
 export const MCP_EXCLUDE = 'mcp:exclude';
 
+/**
+ * KS-3206 / ADR-074 §10 B2. Маркер «доступен AI-ассистенту».
+ *
+ * Параллельный канал к `@McpTool` (ADR-061): тот же метод-handler может
+ * быть и MCP-tool'ом, и assistant-tool'ом — это разные потребители
+ * (внешний MCP-сервер vs in-process Anthropic loop). Метаданные
+ * хранятся отдельным ключом, чтобы `McpDiscoveryService` (ADR-061) и
+ * `McpAssistantRegistry` (ADR-074) ничего не знали друг про друга.
+ */
+export const MCP_ASSISTANT_TOOL_META = 'mcp:assistant-tool-meta';
+
 export type McpAuth = 'user' | 'public' | 'optional';
 
 export interface McpModuleMeta {
@@ -63,6 +74,50 @@ export interface McpToolMeta {
 export function McpModule(meta: McpModuleMeta): ClassDecorator {
   return (target) => {
     Reflect.defineMetadata(MCP_MODULE_META, meta, target);
+  };
+}
+
+/**
+ * KS-3206 / ADR-074 §10 B2. Метаданные `@McpToolForAssistant`.
+ *
+ * `description` — что делает tool и когда вызывать (читает модель,
+ * критично для качества tool-выбора). `name` — необязательное явное имя
+ * (snake_case); по умолчанию `McpAssistantRegistry` строит его из
+ * имени контроллера и метода. `inputSchema` опционально переопределяет
+ * автоматический JSON-schema из @Body DTO; в чистом виде задаётся,
+ * когда у tool'а нет DTO-аргумента или нужна более жёсткая валидация.
+ */
+export interface McpAssistantToolMeta {
+  /** Описание для модели (1-3 предложения, RU/EN). Обязательно. */
+  description: string;
+  /** Явное имя tool'а (snake_case). По умолчанию автогенерируется. */
+  name?: string;
+  /**
+   * JSON-schema аргументов. Если не задано — регистратор попытается
+   * вывести из @Body DTO (class-validator → JSON Schema).
+   */
+  inputSchema?: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+    [extra: string]: unknown;
+  };
+}
+
+/**
+ * `@McpToolForAssistant({ description, name?, inputSchema? })` — помечает
+ * метод-handler доступным AI-ассистенту (ADR-074). Параллельно к
+ * `@McpTool` (ADR-061) — те 80+ маркеров не трогаем.
+ *
+ * Регистрация автоматическая: `McpAssistantRegistry` на bootstrap'е
+ * обходит controllers и собирает все методы с этим маркером.
+ */
+export function McpToolForAssistant(meta: McpAssistantToolMeta): MethodDecorator {
+  return (_target, _propertyKey, descriptor) => {
+    const value = (descriptor as PropertyDescriptor)?.value;
+    if (value) {
+      Reflect.defineMetadata(MCP_ASSISTANT_TOOL_META, meta, value);
+    }
   };
 }
 

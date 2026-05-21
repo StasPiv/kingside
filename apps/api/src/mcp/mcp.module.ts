@@ -13,10 +13,17 @@ import { Module } from '@nestjs/common';
 import { McpDiscoveryService } from './discovery.service';
 import { McpDiscoveryController } from './discovery.controller';
 import { McpDiscoveryKeyGuard } from './mcp-discovery-key.guard';
+import { McpAssistantRegistry } from './assistant-registry.service';
 
 @Module({
   controllers: [McpDiscoveryController],
-  providers: [McpDiscoveryService, McpDiscoveryKeyGuard],
-  exports: [McpDiscoveryService],
+  providers: [
+    McpDiscoveryService,
+    McpDiscoveryKeyGuard,
+    // KS-3206 / ADR-074 §10 B2: реестр assistant-tools для
+    // `ChatAssistantService` (in-process Anthropic loop).
+    McpAssistantRegistry,
+  ],
+  exports: [McpDiscoveryService, McpAssistantRegistry],
 })
 export class McpModule {}
