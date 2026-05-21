@@ -62,11 +62,16 @@ export class AnalysisController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('withPgn') withPgn?: string,
+    // KS-3203: подстрока для ILIKE по headline/title/opening/event/
+    // white/black/site/tags. Drop-in замена для frontend-loop'а из
+    // KS-3202.
+    @Query('search') search?: string,
   ) {
     return this.analysisService.findAll(req.user.id, {
       limit: limit !== undefined ? parseInt(limit, 10) : undefined,
       offset: offset !== undefined ? parseInt(offset, 10) : undefined,
       withPgn: withPgn === 'true' || withPgn === '1',
+      search,
     });
   }
 

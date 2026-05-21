@@ -197,7 +197,7 @@ export class AnalysisService implements OnModuleInit {
    */
   async findAll(
     userId: string,
-    options?: { limit?: number; offset?: number; withPgn?: boolean },
+    options?: { limit?: number; offset?: number; withPgn?: boolean; search?: string },
   ) {
     const DEFAULT_LIMIT = 20;
     const MAX_LIMIT = 100;
@@ -234,8 +234,23 @@ export class AnalysisService implements OnModuleInit {
         }
       : baseSelect;
 
+    // KS-3203: серверный ILIKE-поиск по своим анализам. Слова в `search`
+    // разбиваются по whitespace; каждое слово должно совпасть хотя бы с
+    // одним из полей headline/title/opening/event/white/black/site/tags
+    // (AND между словами, OR между полями) — drop-in замена для
+    // фронт-loop'а из KS-3202. Пустая/whitespace-only строка → фильтр
+    // не применяется (старое поведение).
+    const searchWords =
+      typeof options?.search === 'string'
+        ? options.search.trim().split(/\s+/).filter(Boolean)
+        : [];
+    const wordFilters = searchWords.map((w) => this.buildWordFilter(w));
+
     const analyses = await this.prisma.analysis.findMany({
-      where: { userId },
+      where: {
+        userId,
+        ...(wordFilters.length > 0 && { AND: wordFilters }),
+      },
       select,
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -257,6 +272,9 @@ export class AnalysisService implements OnModuleInit {
         { white: { contains: word, mode: 'insensitive' as const } },
         { black: { contains: word, mode: 'insensitive' as const } },
         { site: { contains: word, mode: 'insensitive' as const } },
+        // KS-3203: tags хранится строкой (space-separated). ILIKE %word%
+        // ловит совпадение токена внутри строки тегов.
+        { tags: { contains: word, mode: 'insensitive' as const } },
       ],
     };
   }

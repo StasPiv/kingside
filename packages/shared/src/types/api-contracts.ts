@@ -1406,6 +1406,16 @@ export type AnalysisListQuery = {
   offset?: number;
   /** Дефолт false. При true добавляет `pgn`/`fen`/`currentPosition` в каждую запись. */
   withPgn?: boolean;
+  /**
+   * KS-3203: server-side поиск по своим анализам. Подстрока, совпадение
+   * по любому из полей `headline / title / opening / event / white /
+   * black / site / tags` через PG ILIKE (case-insensitive). Слова в
+   * запросе разбиваются по whitespace; каждое слово должно совпасть как
+   * минимум с одним из полей (AND между словами, OR между полями).
+   * Пустая строка / whitespace-only → игнорируется. Применяется поверх
+   * `limit`/`offset` — drop-in замена для frontend-loop'а из KS-3202.
+   */
+  search?: string;
 };
 
 export const BroadcastEvents = {

@@ -277,6 +277,112 @@ describe('AnalysisService', () => {
         expect(prisma.analysis.findMany.mock.calls[0][0].take).toBe(12);
       });
     });
+
+    // KS-3203: server-side ILIKE-поиск как drop-in для frontend-loop'а.
+    describe('KS-3203 ?search=', () => {
+      it('search undefined → where только { userId }, без AND', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, {});
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where).toEqual({ userId });
+        expect(call.where.AND).toBeUndefined();
+      });
+
+      it('search="" → старое поведение (без AND)', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: '' });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where).toEqual({ userId });
+      });
+
+      it('search="   " (whitespace) → без AND', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: '   ' });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where).toEqual({ userId });
+      });
+
+      it('одно слово → AND с одним фильтром, OR по 8 полям с mode=insensitive', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: 'Pivovartsev' });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where.userId).toBe(userId);
+        expect(call.where.AND).toHaveLength(1);
+        const or = call.where.AND[0].OR;
+        const fields = or.map((c: Record<string, unknown>) => Object.keys(c)[0]);
+        expect(fields.sort()).toEqual(
+          ['black', 'event', 'headline', 'opening', 'site', 'tags', 'title', 'white'].sort(),
+        );
+        for (const clause of or) {
+          const [, cond] = Object.entries(clause)[0] as [
+            string,
+            { contains: string; mode: 'insensitive' },
+          ];
+          expect(cond.contains).toBe('Pivovartsev');
+          expect(cond.mode).toBe('insensitive');
+        }
+      });
+
+      it('несколько слов → AND по словам, каждый — OR по полям', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: 'Fischer Spassky' });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where.AND).toHaveLength(2);
+        const word1 = call.where.AND[0].OR[0];
+        const word2 = call.where.AND[1].OR[0];
+        expect(Object.values(word1)[0]).toMatchObject({ contains: 'Fischer' });
+        expect(Object.values(word2)[0]).toMatchObject({ contains: 'Spassky' });
+      });
+
+      it('search применяется поверх limit/offset/withPgn', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, {
+          search: 'fork',
+          limit: 50,
+          offset: 100,
+          withPgn: true,
+        });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.take).toBe(50);
+        expect(call.skip).toBe(100);
+        expect(call.select.pgn).toBe(true);
+        expect(call.where.AND).toHaveLength(1);
+      });
+
+      it('повторяющиеся пробелы между словами не плодят пустых фильтров', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: 'foo    bar' });
+
+        const call = prisma.analysis.findMany.mock.calls[0][0];
+        expect(call.where.AND).toHaveLength(2);
+      });
+
+      it('tags входит в OR-набор полей (KS-3203)', async () => {
+        prisma.analysis.findMany.mockResolvedValue([]);
+
+        await service.findAll(userId, { search: 'endgame' });
+
+        const or = prisma.analysis.findMany.mock.calls[0][0].where.AND[0].OR;
+        const tagsClause = or.find(
+          (c: Record<string, unknown>) => Object.keys(c)[0] === 'tags',
+        );
+        expect(tagsClause).toBeDefined();
+        expect((tagsClause as any).tags.contains).toBe('endgame');
+      });
+    });
   });
 
   describe('findOne', () => {
