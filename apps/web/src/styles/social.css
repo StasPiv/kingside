@@ -133,8 +133,10 @@
 }
 
 .players-tab.active {
-  color: var(--c-7c83ff);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
 }
 
 .players-section {
@@ -165,9 +167,9 @@
 }
 
 .players-rating-btn.active {
-  background: var(--c-3a3a6e);
-  color: var(--c-fff);
-  border-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 
 .players-table {
@@ -1657,9 +1659,9 @@
 }
 
 .challenge-preset-btn.active {
-  background: var(--c-7c83ff);
-  color: var(--c-fff);
-  border-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 
 .challenge-modal__error {
@@ -1804,6 +1806,9 @@
 }
 
 .rating-history__filter.active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
   border-width: 2px;
 }
 

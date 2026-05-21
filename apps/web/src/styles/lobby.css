@@ -339,10 +339,11 @@
 }
 
 .lobby-mode-tab.active {
-  /* KS-2113: var(--c-fff) → var(--c-e0e0e0): белый на светлом фоне модала
-     становился невидимым в light-теме. */
-  color: var(--c-e0e0e0);
-  border-bottom-color: var(--c-7c83ff);
+  /* KS-3174: единый active-state — фон + текст через токены. */
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
 }
 
 .lobby-mode-tab:hover:not(.active) {
@@ -427,15 +428,15 @@
 }
 
 .tc-btn.active {
-  background: var(--c-7c83ff);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
   font-weight: 600;
 }
 
 .tc-btn.active:hover:not(:disabled) {
-  background: var(--c-6366f1);
-  border-color: var(--c-6366f1);
+  background: var(--tab-active-hover-bg);
+  border-color: var(--tab-active-border);
 }
 
 .play-btn {
@@ -461,11 +462,12 @@
   font-size: 14px;
 }
 
-/* KS-2113: было `color: var(--c-fff)` — на светлой теме давало белый текст
-   на светлом фоне модала, активная вкладка не считывалась. */
+/* KS-3174: единый active-state через токены. */
 .tc-tab.active {
-  color: var(--c-e0e0e0);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
   font-weight: 600;
 }
 
@@ -655,9 +657,9 @@
 }
 
 .rating-filter__mode-btn.active {
-  color: var(--c-fff);
-  border-color: var(--c-7c83ff);
-  background: var(--ov-accent-10);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
+  background: var(--tab-active-bg);
 }
 
 .rating-filter__fields {
@@ -739,8 +741,9 @@
 }
 
 .color-btn.active {
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  border-color: var(--tab-active-border);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
   box-shadow: 0 0 0 3px var(--ov-accent-35);
 }
 

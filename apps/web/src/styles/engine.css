@@ -51,9 +51,9 @@
 }
 
 .engine-source-btn.active {
-  background: var(--c-3a3a6e);
-  color: var(--c-fff);
-  border-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 
 .engine-settings-form {

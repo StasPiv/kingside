@@ -300,7 +300,7 @@ input[type="range"] {
   flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--c-334155);
   background: var(--c-1e293b); color: var(--c-e2e8f0); font-size: 13px; cursor: pointer;
 }
-.feedback-type-btn.active { border-color: var(--c-7c83ff); background: var(--c-1e2a4a); }
+.feedback-type-btn.active { border-color: var(--tab-active-border); background: var(--tab-active-bg); color: var(--tab-active-fg); }
 .feedback-submit-btn {
   background: var(--c-7c83ff); color: var(--c-fff); border: none; padding: 10px; border-radius: 6px;
   font-size: 14px; font-weight: 600; cursor: pointer;

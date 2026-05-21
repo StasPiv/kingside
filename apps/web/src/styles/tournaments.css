@@ -219,7 +219,7 @@
 .tnr-filters { margin-bottom: 12px; }
 .tnr-status-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--c-333); margin-bottom: 8px; }
 .tnr-status-tab { padding: 8px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--c-888); font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 0; }
-.tnr-status-tab.active { color: var(--c-7c83ff); border-bottom-color: var(--c-7c83ff); }
+.tnr-status-tab.active { background: var(--tab-active-bg); color: var(--tab-active-fg); border-bottom-color: var(--tab-active-border); border-radius: 6px 6px 0 0; }
 .tnr-chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .tnr-chip {
   padding: 4px 12px;
@@ -237,9 +237,9 @@
 }
 
 .tnr-chip.active {
-  background: var(--c-7c83ff);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
 }
 .tnr-chips-sep { width: 1px; height: 16px; background: var(--c-333); margin: 0 4px; }
 
@@ -457,13 +457,13 @@
 /* TC categories */
 .tcm-tc-cats { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--c-333); margin-bottom: 8px; }
 .tcm-tc-cat { flex: 1; padding: 6px 8px; background: transparent; border: none; color: var(--c-888); font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 0; transition: background 0.15s, color 0.15s; }
-.tcm-tc-cat.active { background: var(--ov-accent-20); color: var(--c-7c83ff); }
+.tcm-tc-cat.active { background: var(--tab-active-bg); color: var(--tab-active-fg); }
 
 /* Presets */
 .tcm-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .tcm-preset { padding: 6px 14px; background: var(--ov-white-06); border: 1px solid var(--c-333); border-radius: 14px; color: var(--c-ccc); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
 .tcm-preset:hover { border-color: var(--c-555); }
-.tcm-preset.active { background: var(--c-7c83ff); border-color: var(--c-7c83ff); color: var(--c-fff); }
+.tcm-preset.active { background: var(--tab-active-bg); border-color: var(--tab-active-border); color: var(--tab-active-fg); }
 
 /* Custom sliders (KS-1058) */
 .tcm-custom { display: flex; flex-direction: column; gap: 10px; }
@@ -719,13 +719,13 @@
 /* Type tabs in create modal */
 .tournament-type-tabs { display: flex; gap: 0; margin-bottom: 12px; border-radius: 6px; overflow: hidden; border: 1px solid var(--c-333); }
 .tournament-type-tab { flex: 1; padding: 8px; background: transparent; border: none; color: var(--c-888); font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 0; }
-.tournament-type-tab.active { background: var(--ov-accent-20); color: var(--c-7c83ff); }
+.tournament-type-tab.active { background: var(--tab-active-bg); color: var(--tab-active-fg); }
 
 /* Round tabs */
 .tournament-rounds-section { margin-bottom: 20px; }
 .tournament-round-tabs { display: flex; gap: 0; margin-bottom: 12px; border-bottom: 1px solid var(--c-333); }
 .tournament-round-tab { padding: 6px 14px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--c-888); font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 0; }
-.tournament-round-tab.active { color: var(--c-7c83ff); border-bottom-color: var(--c-7c83ff); }
+.tournament-round-tab.active { background: var(--tab-active-bg); color: var(--tab-active-fg); border-bottom-color: var(--tab-active-border); border-radius: 6px 6px 0 0; }
 
 /* Round view */
 .tournament-round-view { }
@@ -933,8 +933,10 @@
 }
 
 .tournament-tab--active {
-  color: var(--c-7c83ff);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
 }
 
 .tournament-tab-content {

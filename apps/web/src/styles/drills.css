@@ -343,9 +343,9 @@ html[data-theme="light"] {
 
 .drill-count-attackers__btn--active,
 .drill-count-attackers__btn[data-active="true"] {
-  background: var(--accent-soft-strong);
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
 }
 
 .drill-count-attackers__btn:disabled {
@@ -1677,9 +1677,9 @@ html[data-theme="light"] {
 
 .drill-leaderboard__filter-btn[aria-pressed="true"],
 .drill-leaderboard__filter-btn--active {
-  background: var(--accent-soft);
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
 }
 
 .drill-leaderboard__loading,

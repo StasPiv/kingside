@@ -73,15 +73,15 @@
 }
 
 .play-tc-btn.active {
-  background: var(--c-7c83ff);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
   box-shadow: 0 0 0 2px var(--ov-accent-35);
 }
 
 .play-tc-btn.active:hover {
-  background: var(--c-6366f1);
-  border-color: var(--c-6366f1);
+  background: var(--tab-active-hover-bg);
+  border-color: var(--tab-active-border);
 }
 
 /* Selected TC display */

@@ -1719,8 +1719,10 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .set-position-tab.active {
-  color: var(--c-c0c0ff);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
 }
 
 .set-position-editor {
@@ -2178,11 +2180,11 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 
   .analysis-mobile-tab.active {
-    /* KS-2205: явно сбрасываем фон глобального button-стиля (#7c83ff),
-       иначе текст (тоже #7c83ff) сливается с фоном и не виден. */
-    background: transparent;
-    color: var(--c-7c83ff);
-    border-bottom-color: var(--c-7c83ff);
+    /* KS-3174: единый active-state. */
+    background: var(--tab-active-bg);
+    color: var(--tab-active-fg);
+    border-bottom-color: var(--tab-active-border);
+    border-radius: 6px 6px 0 0;
   }
 
   /* KS-2205: на мобильном размер доски фиксирован — скрываем S/M/L. */

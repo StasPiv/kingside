@@ -231,9 +231,9 @@
 }
 
 .broadcast-round-btn--active {
-  background: var(--ov-accent-15);
-  border-color: var(--c-7c83ff);
-  color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
 }
 
 .broadcast-round-btn:disabled {
@@ -678,8 +678,8 @@
 }
 
 .broadcast-round-tab--active {
-  background: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 
 .broadcast-round-boards {
@@ -1122,7 +1122,7 @@
 }
 
 .broadcast-tab:hover { color: var(--c-e0e0e0); }
-.broadcast-tab--active { color: var(--c-7c83ff); border-bottom-color: var(--c-7c83ff); }
+.broadcast-tab--active { background: var(--tab-active-bg); color: var(--tab-active-fg); border-bottom-color: var(--tab-active-border); border-radius: 6px 6px 0 0; }
 
 .broadcast-tab-content { min-height: 200px; }
 .broadcast-tab-panel { animation: tab-fade-in 0.15s ease; }

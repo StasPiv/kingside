@@ -2237,8 +2237,8 @@
 }
 
 .players-authors-tab__sort-btn.active {
-  background: var(--accent, #4d8aff);
-  color: var(--accent-contrast, #fff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 
 .players-authors-tab__total {
@@ -4157,8 +4157,8 @@
   }
 
   .user-course-editor__mobile-tabs button[aria-selected="true"] {
-    background: var(--bg-surface);
-    color: var(--accent-primary);
+    background: var(--tab-active-bg);
+    color: var(--tab-active-fg);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
@@ -6776,14 +6776,14 @@
 }
 
 .diagram-editor__mode-btn--active {
-  background: var(--accent, #3b82f6);
-  color: var(--accent-text, #ffffff);
-  border-color: var(--accent, #3b82f6);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 
 .diagram-editor__mode-btn--active:hover:not(:disabled) {
-  background: var(--accent, #3b82f6);
-  color: var(--accent-text, #ffffff);
+  background: var(--tab-active-hover-bg);
+  color: var(--tab-active-fg);
 }
 
 .diagram-editor__tools {
@@ -7748,9 +7748,9 @@
 }
 
 .lessons-tab--active {
-  color: var(--text-on-accent, #fff);
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--tab-active-fg);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
 }
 
 @media (max-width: 480px) {

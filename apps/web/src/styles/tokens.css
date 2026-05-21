@@ -369,6 +369,15 @@
   --scrollbar-thumb: var(--c-4a4a7e);
   --scrollbar-thumb-hover: var(--c-7c83ff);
 
+  /* ---------- Tab active-state (KS-3174) ----------
+   * Единое правило подсветки активной вкладки/таба/segment/pill.
+   * Dark: светлый фон + синий текст. Light: синий фон + светлый текст.
+   * Использовать в любом active-state переключателя.            */
+  --tab-active-bg: #ffffff;
+  --tab-active-fg: #4f46e5;
+  --tab-active-border: #ffffff;
+  --tab-active-hover-bg: #f1f5f9;
+
   /* ---------- Mainline / variation lines (KS-2273, ADR-037 §4) ----------
    * Семантические алиасы для цвета mainline-ходов и подвариантов по
    * глубине вложенности. Указывают на raw colour tokens, которые сами
@@ -699,6 +708,12 @@
   --scrollbar-track: #eef0f5;
   --scrollbar-thumb: #b0b6c4;
   --scrollbar-thumb-hover: #4f46e5;
+
+  /* Tab active-state (KS-3174): light theme — синий фон + светлый текст */
+  --tab-active-bg: #4f46e5;
+  --tab-active-fg: #ffffff;
+  --tab-active-border: #4f46e5;
+  --tab-active-hover-bg: #4338ca;
 }
 
 /* ============================================================
