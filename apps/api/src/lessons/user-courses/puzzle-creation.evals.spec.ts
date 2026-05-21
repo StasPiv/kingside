@@ -116,6 +116,10 @@ function makeTools(
     findPuzzles: jest.fn().mockResolvedValue(puzzleSearch),
   } as any;
 
+  const analyses = {
+    findAll: jest.fn().mockResolvedValue([]),
+  } as any;
+
   const tools = new LessonAssistantTools(
     prisma,
     coursesMock,
@@ -123,6 +127,7 @@ function makeTools(
     config,
     redis,
     puzzles,
+    analyses,
   );
   return { tools, prismaMock: prisma, lessonsMock, puzzlesMock: puzzles };
 }

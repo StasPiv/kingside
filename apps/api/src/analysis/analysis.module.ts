@@ -23,5 +23,9 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 @Module({
   controllers: [AnalysisController, AnalysisPublicController],
   providers: [AnalysisService],
+  // KS-3224 / ADR-075 §7 B4: AnalysisService используется
+  // `LessonAssistantTools.listMyAnalyses` (поиск партий пользователя
+  // для добавления game-шагов через ассистент).
+  exports: [AnalysisService],
 })
 export class AnalysisModule {}

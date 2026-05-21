@@ -54,6 +54,7 @@ function makeTools(overrides: {
   prismaMock: PrismaService;
   redisMock: { incr: jest.Mock; expire: jest.Mock; ttl: jest.Mock };
   puzzlesMock: { findPuzzles: jest.Mock };
+  analysesMock: { findAll: jest.Mock };
 } {
   const lesson = overrides.lesson;
   const course = overrides.course;
@@ -116,9 +117,13 @@ function makeTools(overrides: {
   } as unknown as jest.Mocked<UserCoursesService>;
 
   const lessonsMock = {
-    addStep: jest
-      .fn()
-      .mockResolvedValue({ id: STEP_ID, type: 'text', order: 0 }),
+    addStep: jest.fn().mockImplementation((_lessonId, body) =>
+      Promise.resolve({
+        id: STEP_ID,
+        type: body?.type ?? 'text',
+        order: 0,
+      }),
+    ),
   } as unknown as jest.Mocked<UserLessonsService>;
 
   const config: ConfigService = {
@@ -131,6 +136,11 @@ function makeTools(overrides: {
     findPuzzles: jest.fn().mockResolvedValue(overrides.puzzleSearch ?? []),
   } as any;
 
+  // KS-3224: AnalysisService mock для list_my_analyses.
+  const analysesMock = {
+    findAll: jest.fn().mockResolvedValue([]),
+  } as any;
+
   const tools = new LessonAssistantTools(
     prisma,
     coursesMock,
@@ -138,8 +148,17 @@ function makeTools(overrides: {
     config,
     redisMock as any,
     puzzlesMock,
+    analysesMock,
   );
-  return { tools, coursesMock, lessonsMock, prismaMock: prisma, redisMock, puzzlesMock };
+  return {
+    tools,
+    coursesMock,
+    lessonsMock,
+    prismaMock: prisma,
+    redisMock,
+    puzzlesMock,
+    analysesMock,
+  };
 }
 
 describe('LessonAssistantTools (KS-3207)', () => {
@@ -669,6 +688,154 @@ describe('LessonAssistantTools (KS-3207)', () => {
       );
       const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1].payload;
       expect(payload.diagrams).toBeUndefined();
+    });
+  });
+
+  // ─── KS-3224 / ADR-075 §7 B4 — game-step инструменты ───────────
+
+  describe('list_my_analyses (KS-3224)', () => {
+    it('делегирует в AnalysisService.findAll с search/limit', async () => {
+      const { tools, analysesMock } = makeTools();
+      (analysesMock.findAll as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'a1', title: 'My Game', headline: 'Fischer 1-0 Spassky',
+          opening: 'Sicilian', event: 'WCC', white: 'Fischer', black: 'Spassky',
+          result: '1-0', createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]);
+      const out = await tools.listMyAnalyses(
+        { search: 'Fischer', limit: 5 } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(analysesMock.findAll).toHaveBeenCalledWith(USER_ID, {
+        limit: 5,
+        offset: 0,
+        withPgn: false,
+        search: 'Fischer',
+      });
+      expect(out.analyses).toHaveLength(1);
+      expect(out.analyses[0]).toMatchObject({
+        id: 'a1',
+        title: 'My Game',
+        white: 'Fischer',
+        black: 'Spassky',
+        result: '1-0',
+      });
+      expect(out.analyses[0].createdAt).toBe('2026-01-01T00:00:00.000Z');
+    });
+
+    it('limit по умолчанию = 10', async () => {
+      const { tools, analysesMock } = makeTools();
+      await tools.listMyAnalyses(
+        {} as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(analysesMock.findAll).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ limit: 10 }),
+      );
+    });
+  });
+
+  describe('add_game_step_from_analysis (KS-3224)', () => {
+    const ANALYSIS_ID = '00000000-0000-4000-a000-000000000050';
+    const baseInput = { lessonId: LESSON_ID, analysisId: ANALYSIS_ID };
+
+    it('создаёт game-шаг с sourceType=workshop_analysis + analysisId', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      const out = await tools.addGameStepFromAnalysis(
+        { ...baseInput, instruction: 'Разбери эту партию' } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const call = (lessonsMock.addStep as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe(LESSON_ID);
+      expect(call[1].type).toBe('game');
+      expect(call[1].payload).toMatchObject({
+        type: 'game',
+        sourceType: 'workshop_analysis',
+        analysisId: ANALYSIS_ID,
+        instruction: 'Разбери эту партию',
+      });
+      expect(call[2]).toBe(USER_ID);
+      expect(out).toMatchObject({ id: STEP_ID, lessonId: LESSON_ID, type: 'game' });
+    });
+
+    it('чужой урок → 403', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: STRANGER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.addGameStepFromAnalysis(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('урок не найден → 404', async () => {
+      const { tools } = makeTools({ lesson: null });
+      await expect(
+        tools.addGameStepFromAnalysis(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('add_game_step_from_pgn (KS-3224)', () => {
+    const PGN = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+    const baseInput = { lessonId: LESSON_ID, pgn: PGN };
+
+    it('создаёт game-шаг с sourceType=pgn + inline PGN + meta', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.addGameStepFromPgn(
+        {
+          ...baseInput,
+          meta: { white: 'Fischer', black: 'Spassky', result: '1-0' },
+          instruction: 'Просто посмотри',
+        } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1]
+        .payload;
+      expect(payload).toMatchObject({
+        type: 'game',
+        sourceType: 'pgn',
+        pgn: PGN,
+        meta: { white: 'Fischer', black: 'Spassky', result: '1-0' },
+        instruction: 'Просто посмотри',
+      });
+    });
+
+    it('без meta — поле отсутствует в payload', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.addGameStepFromPgn(
+        baseInput as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1]
+        .payload;
+      expect(payload.meta).toBeUndefined();
+      expect(payload.instruction).toBeUndefined();
+    });
+
+    it('чужой урок → 403', async () => {
+      const { tools } = makeTools({
+        lesson: { ownerId: STRANGER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.addGameStepFromPgn(
+          baseInput as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

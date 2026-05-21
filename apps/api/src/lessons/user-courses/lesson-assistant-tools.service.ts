@@ -62,6 +62,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { McpToolForAssistant } from '../../mcp/decorators';
 import { PuzzleService } from '../../puzzle/puzzle.service';
+import { AnalysisService } from '../../analysis/analysis.service';
 import { isValidFen } from '../dto/position-step.validators';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
@@ -279,6 +280,104 @@ export class ValidateFenAssistantInput {
   fen!: string;
 }
 
+// ─── KS-3224 / ADR-075 §7 B4 — game-step инструменты ─────────────────
+
+/**
+ * KS-3224. Хард-лимит на game-шаги через ассистент. Партия — тяжёлый
+ * step (PGN + UI player), осмысленно ≤10 за один курс-сеанс.
+ */
+export const ASSISTANT_GAME_STEPS_PER_LESSON_MAX = 10;
+/** KS-3224. Лимит PGN в inline-режиме (тот же, что KS-3180 в DTO). */
+export const ASSISTANT_GAME_PGN_MAX = 200 * 1024;
+/** KS-3224. Лимит выдачи `list_my_analyses` (защита от token-bloat). */
+export const ASSISTANT_LIST_ANALYSES_MAX = 20;
+export const ASSISTANT_LIST_ANALYSES_DEFAULT = 10;
+
+export class ListMyAnalysesAssistantInput {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(ASSISTANT_LIST_ANALYSES_MAX)
+  limit?: number;
+}
+
+export class AddGameStepFromAnalysisAssistantInput {
+  @IsUUID()
+  lessonId!: string;
+
+  @IsUUID()
+  analysisId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instruction?: string;
+}
+
+export class GameStepMetaAssistantInput {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  white?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  black?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  result?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  event?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  site?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  round?: string;
+}
+
+export class AddGameStepFromPgnAssistantInput {
+  @IsUUID()
+  lessonId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(ASSISTANT_GAME_PGN_MAX, {
+    message: `pgn exceeds ${ASSISTANT_GAME_PGN_MAX} bytes (200 КБ)`,
+  })
+  pgn!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GameStepMetaAssistantInput)
+  meta?: GameStepMetaAssistantInput;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instruction?: string;
+}
+
 export class GetUserCourseUrlAssistantInput {
   @IsUUID()
   courseId!: string;
@@ -381,6 +480,7 @@ export class LessonAssistantTools {
     private readonly config: ConfigService,
     private readonly redis: RedisService,
     private readonly puzzles: PuzzleService,
+    private readonly analyses: AnalysisService,
   ) {}
 
   /**
@@ -933,6 +1033,197 @@ export class LessonAssistantTools {
         ratingMax: input.ratingMax,
         limit: input.limit,
       },
+    };
+  }
+
+  // ─── KS-3224 / ADR-075 §7 B4 — game-step инструменты ──────────────
+
+  @Post('list_my_analyses')
+  @McpTool({
+    name: 'list_my_analyses',
+    description:
+      'List the current user\'s saved game analyses (workshop). Optional ' +
+      '`search` filters by player names/title/event/opening/headline (ILIKE, ' +
+      'case-insensitive, multi-word). Returns slim metadata WITHOUT PGN — ' +
+      'use it to find an analysisId for `add_game_step_from_analysis`. ' +
+      'Default limit 10, max 20.',
+  })
+  @McpToolForAssistant({
+    name: 'list_my_analyses',
+    description:
+      'List user\'s saved analyses (metadata only). Use to find analysisId for game-step.',
+  })
+  async listMyAnalyses(
+    @Body() input: ListMyAnalysesAssistantInput,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{
+    analyses: Array<{
+      id: string;
+      title: string;
+      headline: string | null;
+      opening: string | null;
+      event: string | null;
+      white: string | null;
+      black: string | null;
+      result: string | null;
+      createdAt: string;
+    }>;
+  }> {
+    const limit = input.limit ?? ASSISTANT_LIST_ANALYSES_DEFAULT;
+    const rows = await this.analyses.findAll(req.user.id, {
+      limit,
+      offset: 0,
+      withPgn: false,
+      search: input.search,
+    });
+    return {
+      analyses: rows.map((a) => ({
+        id: a.id,
+        title: a.title ?? '',
+        headline: a.headline ?? null,
+        opening: a.opening ?? null,
+        event: a.event ?? null,
+        white: a.white ?? null,
+        black: a.black ?? null,
+        result: a.result ?? null,
+        createdAt:
+          typeof a.createdAt === 'string'
+            ? a.createdAt
+            : (a.createdAt as Date).toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * Общий guard на лимит game-шагов в уроке (KS-3224). Считаем
+   * `Lesson.steps WHERE type='game'`; ≥ASSISTANT_GAME_STEPS_PER_LESSON_MAX
+   * → BadRequest. Owner-check тоже здесь — на одном findUnique.
+   */
+  private async assertGameStepQuota(
+    lessonId: string,
+    userId: string,
+  ): Promise<void> {
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: {
+        ownerId: true,
+        steps: {
+          where: { type: 'game' },
+          select: { id: true },
+        },
+      },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (lesson.ownerId !== userId) {
+      throw new ForbiddenException('You do not own this lesson');
+    }
+    if (lesson.steps.length >= ASSISTANT_GAME_STEPS_PER_LESSON_MAX) {
+      throw new BadRequestException(
+        `Lesson already has ${ASSISTANT_GAME_STEPS_PER_LESSON_MAX} game steps ` +
+          `(assistant limit; ask the user to remove some before adding more)`,
+      );
+    }
+  }
+
+  @Post('add_game_step_from_analysis')
+  @McpTool({
+    name: 'add_game_step_from_analysis',
+    description:
+      'Add a "game" step to a user lesson, copying PGN + metadata from one ' +
+      'of the user\'s saved analyses. Input: lessonId (UUID), analysisId ' +
+      '(UUID — must belong to the current user, server enforces 403 ' +
+      'otherwise), optional `instruction` (≤300 chars). The backend ' +
+      'hydrates the step with a PGN snapshot at creation time, so deleting ' +
+      'the source analysis later does NOT break the lesson. Hard cap: ' +
+      '≤10 game steps per lesson via the assistant.',
+  })
+  @McpToolForAssistant({
+    name: 'add_game_step_from_analysis',
+    description: 'Add a game-step to a lesson by referencing one of the user\'s saved analyses.',
+  })
+  async addGameStepFromAnalysis(
+    @Body() input: AddGameStepFromAnalysisAssistantInput,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{ id: string; lessonId: string; type: string; order: number }> {
+    await this.assertGameStepQuota(input.lessonId, req.user.id);
+
+    // owner-check на Analysis выполнит GameStepHydrator (KS-3180).
+    const payload: Record<string, unknown> = {
+      type: 'game',
+      sourceType: 'workshop_analysis',
+      analysisId: input.analysisId,
+    };
+    if (input.instruction) payload.instruction = input.instruction;
+
+    const created = await this.lessons.addStep(
+      input.lessonId,
+      {
+        type: 'game',
+        payload: payload as never,
+      },
+      req.user.id,
+    );
+    return {
+      id: created.id,
+      lessonId: input.lessonId,
+      type: created.type,
+      order: created.order,
+    };
+  }
+
+  @Post('add_game_step_from_pgn')
+  @McpTool({
+    name: 'add_game_step_from_pgn',
+    description:
+      'Add a "game" step to a user lesson with an inline PGN. Input: ' +
+      'lessonId (UUID), pgn (string ≤200 КБ — chess.js#loadPgn must accept ' +
+      'it), optional `meta` (white/black/result/date/event/site/round), ' +
+      'optional `instruction` (≤300). Hard cap: ≤10 game steps per lesson ' +
+      'via the assistant.',
+  })
+  @McpToolForAssistant({
+    name: 'add_game_step_from_pgn',
+    description: 'Add a game-step with inline PGN. Limit 200 KB; chess.js parse on server.',
+  })
+  async addGameStepFromPgn(
+    @Body() input: AddGameStepFromPgnAssistantInput,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{ id: string; lessonId: string; type: string; order: number }> {
+    await this.assertGameStepQuota(input.lessonId, req.user.id);
+
+    // chess.js parse выполняется DTO-валидатором `@IsGamePgn` через
+    // `GameStepPayloadDto`-схему в `step-payload.dto.ts`. Здесь нам
+    // достаточно построить payload — `UserLessonsService.addStep`
+    // прогонит его через class-validator при необходимости (см.
+    // McpAssistantRegistry.execute), и hydrator no-op для sourceType=pgn.
+    const payload: Record<string, unknown> = {
+      type: 'game',
+      sourceType: 'pgn',
+      pgn: input.pgn,
+    };
+    if (input.meta) {
+      const meta: Record<string, string> = {};
+      for (const key of ['white', 'black', 'result', 'date', 'event', 'site', 'round'] as const) {
+        const v = (input.meta as Record<string, string | undefined>)[key];
+        if (v) meta[key] = v;
+      }
+      if (Object.keys(meta).length > 0) payload.meta = meta;
+    }
+    if (input.instruction) payload.instruction = input.instruction;
+
+    const created = await this.lessons.addStep(
+      input.lessonId,
+      {
+        type: 'game',
+        payload: payload as never,
+      },
+      req.user.id,
+    );
+    return {
+      id: created.id,
+      lessonId: input.lessonId,
+      type: created.type,
+      order: created.order,
     };
   }
 }
