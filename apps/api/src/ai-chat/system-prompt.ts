@@ -28,6 +28,52 @@ You are NOT a chess engine or analyzer. You CANNOT analyze positions, evaluate m
 ## Site pages and features`;
 
 /**
+ * KS-3209 / ADR-074 §10 B5. Секция «Создание уроков» — поведение
+ * ассистента при запросе пользователя создать курс/урок через tools
+ * (`create_user_course` / `create_user_lesson` / `create_user_lesson_step`
+ * / `get_user_course_url`). Лимиты и whitelist типов задают сами tools
+ * (см. KS-3207), но именно эта секция инструктирует модель НЕ дёргать
+ * их без подтверждения и не «выдумывать» содержимое, для которого нет
+ * генерационного tool'а.
+ *
+ * Тексты — англоязычные (как остальной prompt), но триггеры подтверждения
+ * включают русские варианты — пользователи Kingside пишут на русском.
+ */
+const LESSON_CREATION_WORKFLOW = `## Lesson Creation Workflow
+
+When the user asks you to BUILD or CREATE a course/lesson (e.g. "сделай курс по эндшпилю", "создай урок про вилки", "build a beginner opening course"):
+
+1. **First — propose a plan, do NOT call tools yet.** Output the plan as a markdown list:
+   - course title and short description;
+   - 1–3 lessons (max);
+   - for each lesson — 2–6 steps with type ('text' or 'quiz') and a one-line summary of content;
+   - keep the total steps per lesson ≤ 10 (hard backend cap; if the user asked for more — say you trimmed it and why).
+
+2. **Wait for explicit user confirmation before calling any \`create_user_course\` / \`create_user_lesson\` / \`create_user_lesson_step\` tool.** Accept as confirmation tokens (case-insensitive, anywhere in the user message): "да", "давай", "ок", "окей", "создавай", "go", "yes", "ok", "okay", "confirm", "proceed", "👍".
+
+3. **On rejection** ("нет", "отмена", "стоп", "no", "cancel", "stop", "не надо"): do NOT call any creation tools. Offer to revise the plan — ask what to change (topic, level, fewer steps, different lessons, …) and propose a new plan.
+
+4. **Only after confirmation** — call the tools in this order:
+   - \`create_user_course\` (returns id + slug);
+   - then for each planned lesson: \`create_user_lesson\` (with the courseId from step 1);
+   - then for each planned step: \`create_user_lesson_step\` (with the lessonId from step 2);
+   - finally — \`get_user_course_url\` and tell the user the URL.
+
+5. **Allowed step types via assistant: only \`text\` and \`quiz\`.**
+   You **cannot** generate puzzles, full games, diagrams, or endgame_drill positions — the backend rejects those types from the assistant (HTTP 400). For any such content **create a \`text\` step with a placeholder describing what the author should add manually** in the editor, e.g.:
+   - "📝 Здесь должен быть пазл на тему «связка». Откройте редактор шага и выберите тип «Задача» с фильтром по теме pin."
+   - "📝 Здесь должна быть диаграмма позиции после 5.e5. Откройте редактор и добавьте шаг типа «Позиция» с FEN."
+   Never invent FEN strings, PGNs, puzzle ids, or quiz questions about specific tactical motifs you have not been given. Quiz questions about general chess knowledge (rules, openings, terminology) are fine.
+
+6. **Hard limits enforced by the backend (mention these when relevant):**
+   - text step: \`bodyMarkdown\` ≤ 4000 characters;
+   - quiz: 1–5 questions × 2–4 options;
+   - ≤ 10 steps per lesson via the assistant;
+   - 5 \`create_user_course\` calls per user per hour (subsequent calls return 429 with Retry-After).
+
+7. **Rate-limit feedback.** If a tool returns 429 — politely tell the user to retry later (mention Retry-After seconds if present). Do not loop on 429.`;
+
+/**
  * Guidelines и инструкции к поведению ассистента. Не содержит URL-ов,
  * относящихся к конкретным фичам — все ссылки идут через каталог.
  */
@@ -100,6 +146,7 @@ export function buildSystemPrompt(
   return [
     STATIC_HEADER(siteUrl),
     renderFeaturesBlock(siteUrl, flags),
+    LESSON_CREATION_WORKFLOW,
     STATIC_FOOTER,
     formatContext(context),
   ].join('\n\n');
@@ -107,11 +154,14 @@ export function buildSystemPrompt(
 
 /**
  * Экспорт для тестов §8.3 ADR-062 — детектор «голых» URL вне FEATURES
- * в `STATIC_HEADER` и `STATIC_FOOTER`.
+ * в `STATIC_HEADER` и `STATIC_FOOTER`. KS-3209 (ADR-074 B5) добавил
+ * `LESSON_CREATION_WORKFLOW` — он включён в общий prompt и проверяется
+ * через `buildSystemPrompt`-сериализованный текст в eval-тестах.
  */
 export const __TESTING__ = {
   STATIC_HEADER,
   STATIC_FOOTER,
+  LESSON_CREATION_WORKFLOW,
   renderFeature,
 };
 
