@@ -97,5 +97,11 @@ export type ChatStreamEvent =
   | { type: 'error'; error: string }
   | { type: 'done' };
 
-/** KS-3205 / ADR-074 §10 B1. Лимит итераций tool-use loop'а. */
-export const MAX_TOOL_TURNS = 8;
+/**
+ * KS-3205 / ADR-074 §10 B1. Лимит итераций tool-use loop'а.
+ *
+ * KS-3226 / ADR-075 §7 B6: поднят 8 → 16. M2-сценарии (mixed-урок:
+ * create_user_course → create_user_lesson → 5-15 step-вызовов разных
+ * типов → get_user_course_url) легко выходят за 8 turn'ов.
+ */
+export const MAX_TOOL_TURNS = 16;

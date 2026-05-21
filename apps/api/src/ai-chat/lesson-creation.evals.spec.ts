@@ -288,33 +288,41 @@ describe('KS-3209 eval 3: отмена → нет tools + предложение
   });
 });
 
-// ── Eval 4: пазл-генерация → text-плейсхолдер, не выдумывать ───────
+// ── Eval 4: запрет на выдумывание FEN/PGN/puzzle-id (KS-3226 v3) ───
+//
+// V2 ассистент мог создавать только text/quiz и для остального делал
+// text-placeholder. V3 (KS-3226) добавил отдельные tool'ы для puzzle/
+// game/drill/diagram — теперь правило формулируется не как
+// «использовай text-placeholder», а как «не выдумывай позиции» (FEN/
+// PGN/puzzleId). Этот блок переоформлен под новый словарь.
 
-describe('KS-3209 eval 4: puzzle/game/diagram → text-плейсхолдер', () => {
-  it('prompt запрещает выдумывать FEN/PGN/puzzle-id и предписывает text-placeholder', () => {
-    expect(PROMPT).toMatch(/Allowed step types via assistant: only [`']?text[`']? and [`']?quiz[`']?/i);
-    expect(PROMPT).toMatch(/cannot[^.]*generate puzzles/i);
-    expect(PROMPT).toMatch(/create a [`']?text[`']? step with a placeholder/i);
-    expect(PROMPT).toMatch(/Never invent FEN strings, PGNs, puzzle ids/i);
+describe('KS-3209 eval 4: запрет на выдумывание FEN/PGN/puzzle-id (KS-3226 v3)', () => {
+  it('prompt явно запрещает выдумывать FEN', () => {
+    expect(PROMPT).toMatch(/НЕ выдумывай FEN/);
   });
 
-  it('prompt содержит конкретные примеры placeholder-текстов', () => {
-    expect(PROMPT).toMatch(/📝/);
-    expect(PROMPT).toMatch(/пазл/i);
+  it('prompt явно запрещает выдумывать PGN', () => {
+    expect(PROMPT).toMatch(/НЕ выдумывай PGN/);
+  });
+
+  it('prompt явно запрещает выдумывать puzzleId', () => {
+    expect(PROMPT).toMatch(/НЕ выдумывай puzzleId/);
   });
 });
 
-// ── Eval 5: превышение лимита → план урезается до 10 ────────────────
+// ── Eval 5: превышение лимита → план урезается до 15 ────────────────
+//
+// KS-3226 поднял лимит шагов 10 → 15.
 
-describe('KS-3209 eval 5: >10 шагов → план урезается до 10', () => {
-  it('prompt обозначает hard cap ≤10 шагов/урок и требует объяснения trim', () => {
-    expect(PROMPT).toMatch(/≤\s*10|<=\s*10|10 steps per lesson/i);
+describe('KS-3209 eval 5: >15 шагов → план урезается до 15 (KS-3226)', () => {
+  it('prompt обозначает hard cap ≤15 шагов/урок и требует объяснения trim', () => {
+    expect(PROMPT).toMatch(/≤\s*15|<=\s*15|15 steps per lesson/i);
     expect(PROMPT).toMatch(/trimmed|trim|hard backend cap/i);
   });
 
-  it('prompt описывает backend-лимиты явно (text 4000, quiz 1-5×2-4, 10 steps, 5/час)', () => {
-    expect(PROMPT).toMatch(/4000 characters/i);
-    expect(PROMPT).toMatch(/1.{0,5}5 questions/i); // "1–5 questions" or "1-5 questions"
+  it('prompt описывает backend-лимиты явно (text 4000, quiz 1-5×2-4, 5 курсов/час, 429)', () => {
+    expect(PROMPT).toMatch(/4000/);
+    expect(PROMPT).toMatch(/1.{0,5}5 questions/i);
     expect(PROMPT).toMatch(/2.{0,5}4 options/i);
     expect(PROMPT).toMatch(/5\s+`?create_user_course`?\s+calls per user per hour/i);
     expect(PROMPT).toMatch(/429/);

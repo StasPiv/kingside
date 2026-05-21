@@ -1108,6 +1108,14 @@ model AiLessonGeneration {
   status          String
   createdCourseId String?  @map("created_course_id") @db.Uuid
   error           String?
+  /// KS-3226 / ADR-075 §7 B6. Audit-журнал всех tool-call'ов, сделанных
+  /// Anthropic-сессией для этой генерации (включая
+  /// create_user_lesson, create_user_lesson_step, add_puzzle_step_filter,
+  /// add_game_step_from_analysis, add_tactical_drill_step, ...). Поле
+  /// опциональное (исторические записи остаются NULL); заполняется
+  /// webhook'ом / backend'ом постепенно. Shape: `Array<{ name, input,
+  /// status: 'ok'|'error', output?, error?, ts }>`.
+  toolCalls       Json?    @map("tool_calls")
   createdAt       DateTime @default(now()) @map("created_at")
 
   user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)

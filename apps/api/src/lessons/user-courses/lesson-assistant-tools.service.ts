@@ -72,7 +72,12 @@ export const ASSISTANT_QUIZ_QUESTIONS_MIN = 1;
 export const ASSISTANT_QUIZ_QUESTIONS_MAX = 5;
 export const ASSISTANT_QUIZ_OPTIONS_MIN = 2;
 export const ASSISTANT_QUIZ_OPTIONS_MAX = 4;
-export const ASSISTANT_STEPS_PER_LESSON_MAX = 10;
+/**
+ * KS-3207 / ADR-074 §10 B3: лимит «text/quiz» шагов в уроке через
+ * ассистента. KS-3226 / ADR-075 §7 B6: 10 → 15 (mixed-урок с
+ * text-«теорией» + quiz-чекапами вырастает до десятка шагов спокойно).
+ */
+export const ASSISTANT_STEPS_PER_LESSON_MAX = 15;
 export const ASSISTANT_ALLOWED_STEP_TYPES = ['text', 'quiz'] as const;
 export type AssistantAllowedStepType =
   (typeof ASSISTANT_ALLOWED_STEP_TYPES)[number];
