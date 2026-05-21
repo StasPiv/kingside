@@ -497,15 +497,21 @@ export class ChatAssistantService {
       { expiresIn: '15m' },
     );
 
-    // KS-3219: tool-using turns (создание курса/уроков/шагов через
-    // ассистента — KS-3207 lesson-tools) делают цепочку из 4–8 tool-call'ов
-    // + соответствующие round-trip'ы к Anthropic. Сумма легко переваливает
-    // за 45 c, ChatDaemon на webhook'е делает retry с новым PID и доедает
-    // ещё ~45 c. Чтобы api не аборти fetch раньше webhook'а — поднимаем
-    // таймаут до 120 c. Само ограничение «нельзя ждать бесконечно»
-    // остаётся (защита от зависших daemon'ов).
+    // KS-3219 / KS-3227: tool-using turns (создание курса/уроков/шагов
+    // через ассистента) делают цепочку из 5–10+ tool-call'ов. ADR-075
+    // M2-сценарий «добавь всего понемногу» = list_my_analyses +
+    // find_puzzles_preview×2 + add_puzzle_step_filter + add_tactical_drill_step×2
+    // + add_game_step_from_analysis + get_user_course_url = 8 tool-call'ов,
+    // время ~70-90c (~8-10c на turn).
+    //
+    // Webhook'овый ChatDaemon имеет свой 45c таймаут — на одну попытку.
+    // При timeout webhook делает retry (--resume того же session_id),
+    // и общее время становится ~90c. KS-3219 поднял api-fetch до 120c;
+    // KS-3227 наблюдал 78c сценарий, поднимаем дополнительный буфер
+    // до 180c — чтобы api гарантированно дождался webhook'а на длинных
+    // цепочках без abort.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const timer = setTimeout(() => controller.abort(), 180_000);
     let responseText: string;
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
