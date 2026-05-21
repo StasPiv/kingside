@@ -20,6 +20,35 @@ export type InputMode = 'drag' | 'click';
 export type BoardSizeId = 'sm' | 'md' | 'lg';
 
 /**
+ * KS-3198: скорость авто-повтора при long-press на кнопках навигации
+ * по ходам (`←` / `→` / `⇤` / `⇥`). Значение — это `tickInterval` в мс.
+ * `slow`/`medium`/`fast` сохраняется в localStorage; в `useLongPress`
+ * передаётся как число.
+ */
+export type NavAutoRepeatSpeedId = 'slow' | 'medium' | 'fast';
+
+export interface NavAutoRepeatSpeedPreset {
+  id: NavAutoRepeatSpeedId;
+  /** Короткая метка для select / button (S/M/F). */
+  shortLabel: string;
+  /** Полное название (Slow / Medium / Fast). */
+  label: string;
+  /** Интервал tick'а в мс. */
+  intervalMs: number;
+}
+
+/**
+ * KS-3198: пресеты скорости. `medium` — дефолт, ≈7 ходов/сек.
+ * `fast` — 75ms, ≈13 ходов/сек (для длинных партий); `slow` — 250ms,
+ * 4 хода/сек (комфорт для обучения).
+ */
+export const NAV_AUTO_REPEAT_SPEEDS: NavAutoRepeatSpeedPreset[] = [
+  { id: 'slow',   shortLabel: 'S', label: 'Slow',   intervalMs: 250 },
+  { id: 'medium', shortLabel: 'M', label: 'Medium', intervalMs: 150 },
+  { id: 'fast',   shortLabel: 'F', label: 'Fast',   intervalMs: 75 },
+];
+
+/**
  * KS-3099: размер шрифта правой панели анализа (Stockfish/нотация/
  * «База партий»). Аналогично `boardSize`: переключатель S/M/L пишет
  * `data-sidebar-font-size` на body, CSS-переменная
@@ -98,6 +127,11 @@ const LS_SIDEBAR_FONT_SIZE_KEY = 'analysisSidebarFontSize';
  * Default `false`.
  */
 const LS_AUTO_PROMOTE_QUEEN_KEY = 'autoPromoteToQueen';
+/**
+ * KS-3198: скорость авто-повтора long-press на кнопках навигации.
+ * Значения 'slow' | 'medium' | 'fast' (см. NAV_AUTO_REPEAT_SPEEDS).
+ */
+const LS_NAV_AUTO_REPEAT_SPEED_KEY = 'navAutoRepeatSpeed';
 
 function readTheme(): BoardThemeId {
   const stored = localStorage.getItem(LS_THEME_KEY) as BoardThemeId | null;
@@ -167,6 +201,25 @@ function readAutoPromoteToQueen(): boolean {
   }
 }
 
+/**
+ * KS-3198: чтение navAutoRepeatSpeed. Default 'medium' (150ms).
+ * Если в localStorage лежит мусор (например legacy-ключ из другой
+ * сборки) — fallback на default, как и остальные read* функции.
+ */
+function readNavAutoRepeatSpeed(): NavAutoRepeatSpeedId {
+  try {
+    const stored = localStorage.getItem(
+      LS_NAV_AUTO_REPEAT_SPEED_KEY,
+    ) as NavAutoRepeatSpeedId | null;
+    if (stored && NAV_AUTO_REPEAT_SPEEDS.some((s) => s.id === stored)) {
+      return stored;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'medium';
+}
+
 type PieceRenderer = (props?: {
   fill?: string;
   square?: string;
@@ -209,6 +262,8 @@ interface BoardSettingsContextValue {
   sidebarFontSize: SidebarFontSizeId;
   /** KS-2970: автопромоушн в ферзя в режиме игры. */
   autoPromoteToQueen: boolean;
+  /** KS-3198: скорость long-press авто-повтора навигации по ходам. */
+  navAutoRepeatSpeed: NavAutoRepeatSpeedId;
   selectTheme: (id: BoardThemeId) => void;
   selectPieceSet: (id: PieceSetId) => void;
   setShowNotation: (value: boolean) => void;
@@ -216,6 +271,7 @@ interface BoardSettingsContextValue {
   setBoardSize: (size: BoardSizeId) => void;
   setSidebarFontSize: (size: SidebarFontSizeId) => void;
   setAutoPromoteToQueen: (value: boolean) => void;
+  setNavAutoRepeatSpeed: (id: NavAutoRepeatSpeedId) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
   darkSquareStyle: React.CSSProperties;
@@ -236,6 +292,8 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [autoPromoteToQueen, setAutoPromoteToQueenState] = useState<boolean>(
     readAutoPromoteToQueen,
   );
+  const [navAutoRepeatSpeed, setNavAutoRepeatSpeedState] =
+    useState<NavAutoRepeatSpeedId>(readNavAutoRepeatSpeed);
 
   useEffect(() => {
     document.body.setAttribute('data-board-theme', boardTheme);
@@ -307,6 +365,20 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
     setAutoPromoteToQueenState(value);
   }, []);
 
+  /**
+   * KS-3198: setter навAutoRepeatSpeed с persist в localStorage.
+   * Падение setItem (Safari Private Mode, переполненный storage) не
+   * блокирует обновление state — UI всё равно меняется.
+   */
+  const setNavAutoRepeatSpeed = useCallback((id: NavAutoRepeatSpeedId) => {
+    try {
+      localStorage.setItem(LS_NAV_AUTO_REPEAT_SPEED_KEY, id);
+    } catch {
+      /* ignore */
+    }
+    setNavAutoRepeatSpeedState(id);
+  }, []);
+
   const currentTheme = useMemo(
     () => BOARD_THEMES.find((t) => t.id === boardTheme) ?? BOARD_THEMES[0],
     [boardTheme],
@@ -336,6 +408,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardSize,
       sidebarFontSize,
       autoPromoteToQueen,
+      navAutoRepeatSpeed,
       selectTheme,
       selectPieceSet,
       setShowNotation,
@@ -343,6 +416,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       setBoardSize,
       setSidebarFontSize,
       setAutoPromoteToQueen,
+      setNavAutoRepeatSpeed,
       currentTheme,
       customPieces,
       darkSquareStyle,
@@ -356,6 +430,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardSize,
       sidebarFontSize,
       autoPromoteToQueen,
+      navAutoRepeatSpeed,
       selectTheme,
       selectPieceSet,
       setShowNotation,
@@ -363,6 +438,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       setBoardSize,
       setSidebarFontSize,
       setAutoPromoteToQueen,
+      setNavAutoRepeatSpeed,
       currentTheme,
       customPieces,
       darkSquareStyle,

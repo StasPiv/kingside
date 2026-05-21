@@ -5,7 +5,13 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
 import { useSounds, SOUND_THEMES, previewSound, type SoundTheme } from '../hooks/useSounds';
-import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
+import {
+  useBoardSettings,
+  BOARD_THEMES,
+  PIECE_SETS,
+  NAV_AUTO_REPEAT_SPEEDS,
+  type NavAutoRepeatSpeedId,
+} from '../hooks/useBoardSettings';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
 // KS-2423: drill-only mute для звуков тренажёров.
@@ -22,6 +28,8 @@ export function SettingsPage() {
     selectPieceSet,
     autoPromoteToQueen,
     setAutoPromoteToQueen,
+    navAutoRepeatSpeed,
+    setNavAutoRepeatSpeed,
   } = useBoardSettings();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
@@ -200,6 +208,43 @@ export function SettingsPage() {
             {t(
               'settings.autoPromoteQueen.hint',
               'Game mode only. A pawn reaching the last rank becomes a queen automatically.',
+            )}
+          </p>
+        </div>
+
+        {/* KS-3198: скорость авто-перемотки при long-press на кнопках
+            навигации по ходам (`←` / `→` / `⇤` / `⇥`). Сохраняется в
+            localStorage. Пресеты: Slow (250ms), Medium (150ms), Fast
+            (75ms). См. NAV_AUTO_REPEAT_SPEEDS. */}
+        <div
+          className="settings-field"
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 16 }}
+          data-testid="settings-nav-auto-repeat-speed-field"
+        >
+          <label htmlFor="nav-auto-repeat-speed">
+            {t('settings.navAutoRepeat.label', 'Move navigation auto-repeat speed')}
+          </label>
+          <select
+            id="nav-auto-repeat-speed"
+            data-testid="settings-nav-auto-repeat-speed"
+            value={navAutoRepeatSpeed}
+            onChange={(e) =>
+              setNavAutoRepeatSpeed(e.target.value as NavAutoRepeatSpeedId)
+            }
+          >
+            {NAV_AUTO_REPEAT_SPEEDS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {t(
+                  `settings.navAutoRepeat.${preset.id}`,
+                  `${preset.label} (${preset.intervalMs}ms)`,
+                )}
+              </option>
+            ))}
+          </select>
+          <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+            {t(
+              'settings.navAutoRepeat.hint',
+              'Hold the arrow button to fast-forward through moves. This sets how fast moves advance during hold.',
             )}
           </p>
         </div>

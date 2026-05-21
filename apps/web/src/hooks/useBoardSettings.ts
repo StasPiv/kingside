@@ -6,6 +6,7 @@ export {
   PIECE_SETS,
   BOARD_SIZES,
   SIDEBAR_FONT_SIZES,
+  NAV_AUTO_REPEAT_SPEEDS,
 } from '../context/BoardSettingsContext';
 export type {
   BoardThemeId,
@@ -17,4 +18,6 @@ export type {
   BoardSizePreset,
   SidebarFontSizeId,
   SidebarFontSizePreset,
+  NavAutoRepeatSpeedId,
+  NavAutoRepeatSpeedPreset,
 } from '../context/BoardSettingsContext';

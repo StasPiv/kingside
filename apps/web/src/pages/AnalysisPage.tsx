@@ -67,6 +67,9 @@ import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 // ADR-067 (KS-3131): ветка `kind='study'` удалена в KS-3014, упоминания
 // зачищены здесь.
 import { useAnalysisContext } from './analysis/AnalysisContext';
+// KS-3198: NavButton с long-press авто-повтором — заменяет inline
+// <button> для ⇤ ← → ⇥ в `.analysis-board-controls`.
+import { NavButton } from './analysis/NavButton';
 type GameData = {
   id: string;
   white: { id: string; username: string };
@@ -1603,10 +1606,14 @@ function AnalysisPageInner({
           />
 
           <div className="analysis-board-controls">
-            <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
-            <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
-            <button onClick={handleArrowRight} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
-            <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
+            {/* KS-3198: NavButton добавляет long-press авто-перемотку.
+                Поведение onClick (single tap) полностью совместимо со
+                старой обычной <button>. Скорость авто-tick'а берётся
+                из `BoardSettingsContext.navAutoRepeatSpeed` (настройки). */}
+            <NavButton onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')} testId="analysis-nav-first">&#x21E4;</NavButton>
+            <NavButton onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')} testId="analysis-nav-prev">&#x2190;</NavButton>
+            <NavButton onClick={handleArrowRight} disabled={isAtEnd} title={t('review.forward')} testId="analysis-nav-next">&#x2192;</NavButton>
+            <NavButton onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')} testId="analysis-nav-last">&#x21E5;</NavButton>
             <button
               className="analysis-flip-btn"
               onClick={flipBoardOrientation}
