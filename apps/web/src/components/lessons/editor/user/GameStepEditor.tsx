@@ -192,27 +192,71 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
 
   // ── workshop_analysis: список анализов ─────────────────────────────
   const [analyses, setAnalyses] = useState<AnalysisListItem[] | null>(null);
+  // KS-3202: фактическое число загруженных при активной пагинации
+  // (показывается в подсказке «Loaded N…», чтобы автор видел прогресс
+  // и не нажимал refresh при медленном соединении).
+  const [loadingCount, setLoadingCount] = useState<number>(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
+  /**
+   * KS-3202: загружаем ВСЕ страницы анализов цикл'ом по 100 штук.
+   *
+   * Симптом: автор курса (Pivovartsev) искал свою фамилию в анализах,
+   * получал «не найдено», хотя в БД анализов с этим именем много. Корень
+   * — раньше делался один запрос `/analyses?limit=100&offset=0`, а
+   * клиентский поиск фильтровал только эти 100. Если у пользователя
+   * >100 анализов, остальные за пределами окна и не попадали в поиск.
+   *
+   * Сейчас (до server-side search в backend — см. отдельная backend-
+   * задача): подгружаем все страницы. Bound — `MAX_PAGES=50` (5000
+   * анализов), чтобы случайный bug в pagination'е не повесил клиент в
+   * бесконечном цикле. Реальный автор курса вряд ли держит >5000
+   * сохранённых анализов; если когда-то будет — переключимся на
+   * server-side search через `?search=` (backend task в очереди).
+   *
+   * Загрузка инкрементальная: после каждой страницы обновляем `analyses`
+   * накопительно, чтобы UI начал показывать результаты сразу (типичные
+   * первые 100 приходят за <500ms), пока подкачиваются остальные.
+   */
   useEffect(() => {
     if (payload.sourceType !== 'workshop_analysis') return;
     if (analyses !== null) return; // уже загружено
     let cancelled = false;
-    api
-      .get<AnalysisListItem[]>('/analyses?limit=100&offset=0')
-      .then((res) => {
-        if (cancelled) return;
-        setAnalyses(res);
+    const PAGE = 100;
+    const MAX_PAGES = 50;
+    const acc: AnalysisListItem[] = [];
+
+    async function loadAll() {
+      try {
+        for (let page = 0; page < MAX_PAGES; page++) {
+          if (cancelled) return;
+          const offset = page * PAGE;
+          const res = await api.get<AnalysisListItem[]>(
+            `/analyses?limit=${PAGE}&offset=${offset}`,
+          );
+          if (cancelled) return;
+          acc.push(...res);
+          // Инкрементальный апдейт — UI показывает первую страницу
+          // мгновенно, остальные «дотекают» в фоне.
+          setAnalyses([...acc]);
+          setLoadingCount(acc.length);
+          // Если страница меньше PAGE — это последняя.
+          if (res.length < PAGE) break;
+        }
         setLoadError(null);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         setLoadError(
           err instanceof Error ? err.message : String(err ?? 'unknown'),
         );
-        setAnalyses([]);
-      });
+        // Если первая страница успела залиться — оставляем её; иначе
+        // ставим пустой массив, чтобы UI вышел из loading-state.
+        setAnalyses(acc.length > 0 ? acc : []);
+      }
+    }
+
+    loadAll();
     return () => {
       cancelled = true;
     };
@@ -223,6 +267,13 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
     const q = search.trim().toLowerCase();
     if (!q) return analyses;
     return analyses.filter((a) => {
+      // KS-3202: расширенные поля для поиска. К старым (title/white/
+      // black/event/opening/headline) добавлены `result` (например «1-0»
+      // / «1/2-1/2») и `tags` — пользовательские пометки, которые часто
+      // содержат имена соперников или название турнира. Имена игроков
+      // в БД хранятся как один string (см. AnalysisListItem.white) —
+      // фамилия будет найдена через `includes`, независимо от формата
+      // «Pivovartsev, S.» / «S. Pivovartsev» / «Pivovartsev».
       const haystack = [
         a.title,
         a.white,
@@ -230,6 +281,8 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
         a.event,
         a.opening,
         a.headline,
+        a.result,
+        ...(a.tags ?? []),
       ]
         .filter(Boolean)
         .join(' ')
@@ -392,6 +445,27 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
             </p>
           )}
 
+          {/* KS-3202: подсказка «Загружено N…» во время инкрементальной
+              догрузки страниц. Скрывается, когда первая страница ещё не
+              пришла (выше работает обычный «Loading…») и когда все
+              страницы догружены (loadingCount === analyses.length, см.
+              ниже total-counter). */}
+          {analyses !== null &&
+            loadingCount > 0 &&
+            loadingCount === analyses.length &&
+            loadingCount % 100 === 0 &&
+            !loadError && (
+              <p
+                className="game-step-editor__hint"
+                data-testid="game-step-editor-workshop-loading-more"
+              >
+                {t('lessons.my.editor.game.workshop.loadingMore', {
+                  defaultValue: 'Loaded {{count}}, still fetching…',
+                  count: loadingCount,
+                })}
+              </p>
+            )}
+
           {loadError && (
             <p
               className="game-step-editor__error"
@@ -464,16 +538,59 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
             filteredAnalyses.length === 0 &&
             analyses &&
             analyses.length > 0 && (
-              <p
+              <div
                 className="game-step-editor__hint"
                 data-testid="game-step-editor-workshop-search-empty"
               >
-                {t(
-                  'lessons.my.editor.game.workshop.searchEmpty',
-                  'No analyses match the search.',
-                )}
-              </p>
+                {/* KS-3202: при пустом результате — счётчик «из N» и
+                    кнопка «Сбросить фильтр». Помогает понять, что список
+                    реально не пуст, и легко вернуться к полному виду. */}
+                <p style={{ margin: 0 }}>
+                  {t(
+                    'lessons.my.editor.game.workshop.searchEmptyWithTotal',
+                    {
+                      defaultValue:
+                        'No analyses match the search (out of {{total}} total).',
+                      total: analyses.length,
+                    },
+                  )}
+                </p>
+                <button
+                  type="button"
+                  className="game-step-editor__reset-filter"
+                  data-testid="game-step-editor-workshop-reset-filter"
+                  onClick={() => setSearch('')}
+                  style={{ marginTop: 4 }}
+                >
+                  {t(
+                    'lessons.my.editor.game.workshop.resetFilter',
+                    'Reset filter',
+                  )}
+                </button>
+              </div>
             )}
+
+          {/* KS-3202: total counter (всегда виден когда есть анализы),
+              даёт автору ориентир — особенно полезно при поиске, чтобы
+              понимать «отфильтровано 12 из 234». */}
+          {analyses && analyses.length > 0 && filteredAnalyses && (
+            <p
+              className="game-step-editor__total"
+              data-testid="game-step-editor-workshop-total"
+              style={{ fontSize: 12, opacity: 0.7, margin: '4px 0 0' }}
+            >
+              {search.trim() !== '' && filteredAnalyses.length > 0
+                ? t('lessons.my.editor.game.workshop.totalFiltered', {
+                    defaultValue: '{{shown}} of {{total}} matches',
+                    shown: filteredAnalyses.length,
+                    total: analyses.length,
+                  })
+                : t('lessons.my.editor.game.workshop.total', {
+                    defaultValue: '{{total}} analyses',
+                    total: analyses.length,
+                  })}
+            </p>
+          )}
 
           {!payload.analysisId && (
             <p

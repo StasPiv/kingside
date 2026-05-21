@@ -133,6 +133,8 @@ describe('<GameStepEditor> (KS-3181)', () => {
       mkAnalysis({ id: 'a1', title: 'Tal vs Botvinnik', white: 'Tal' }),
       mkAnalysis({ id: 'a2', title: 'Kramnik study', white: 'Kramnik' }),
     ];
+    // KS-3202: pagination-loop делает столько запросов, сколько нужно
+    // (страница меньше 100 — стоп). Здесь 2 элемента → 1 запрос.
     apiGetMock.mockResolvedValue(items);
     const { rerender } = renderWithProviders(
       <GameStepEditor payload={mkPayload()} onChange={onChange} />,
@@ -225,6 +227,124 @@ describe('<GameStepEditor> (KS-3181)', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('game-step-editor-workshop-error')).toBeTruthy(),
     );
+  });
+
+  /**
+   * KS-3202: симптом — поиск «Pivovartsev» среди >100 анализов давал
+   * «не найдено», потому что грузилась только первая страница (100). Тут
+   * мочим api.get так, чтобы первый запрос вернул 100 шт. (без искомого
+   * имени), второй — оставшиеся 30 (с «Pivovartsev» среди них). После
+   * загрузки поиск должен найти запись.
+   */
+  it('KS-3202: pagination-loop догружает все страницы, поиск находит запись со 2-й страницы', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) =>
+      mkAnalysis({ id: `p1-${i}`, title: `Generic ${i}`, white: 'Anon' }),
+    );
+    const page2 = [
+      mkAnalysis({
+        id: 'pivo',
+        title: 'My fave',
+        white: 'Pivovartsev, S.',
+        black: 'Opponent',
+      }),
+      mkAnalysis({ id: 'other', title: 'Other', white: 'X' }),
+    ];
+    apiGetMock.mockImplementation((url: string) => {
+      if (url === '/analyses?limit=100&offset=0') return Promise.resolve(page1);
+      if (url === '/analyses?limit=100&offset=100') return Promise.resolve(page2);
+      return Promise.resolve([]);
+    });
+
+    renderWithProviders(
+      <GameStepEditor
+        payload={mkPayload({ sourceType: 'workshop_analysis' })}
+        onChange={vi.fn()}
+      />,
+    );
+
+    // Ждём, пока вторая страница догрузится — total counter покажет 102.
+    await waitFor(() => {
+      const total = screen.queryByTestId('game-step-editor-workshop-total');
+      expect(total?.textContent ?? '').toMatch(/102/);
+    });
+
+    expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=0');
+    expect(apiGetMock).toHaveBeenCalledWith('/analyses?limit=100&offset=100');
+
+    fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
+      target: { value: 'pivovartsev' },
+    });
+
+    // Запись со второй страницы доступна в поиске.
+    expect(screen.queryByTestId('game-step-editor-workshop-item-pivo')).toBeTruthy();
+  });
+
+  /**
+   * KS-3202: расширенный фильтр включает tags + result. Test покрывает,
+   * что записи с фамилией в `tags` теперь находятся (раньше — нет).
+   */
+  it('KS-3202: поиск по tags находит запись', async () => {
+    apiGetMock.mockResolvedValue([
+      mkAnalysis({
+        id: 'a1',
+        title: 'Game A',
+        white: 'NoMatch',
+        tags: ['Pivovartsev-coach', 'opening-study'],
+      }),
+      mkAnalysis({ id: 'a2', title: 'Game B', white: 'AnotherPlayer' }),
+    ]);
+    renderWithProviders(
+      <GameStepEditor
+        payload={mkPayload({ sourceType: 'workshop_analysis' })}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('game-step-editor-workshop-list')).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByTestId('game-step-editor-workshop-search'), {
+      target: { value: 'pivovartsev' },
+    });
+    expect(screen.queryByTestId('game-step-editor-workshop-item-a1')).toBeTruthy();
+    expect(screen.queryByTestId('game-step-editor-workshop-item-a2')).toBeNull();
+  });
+
+  /**
+   * KS-3202: empty-state по поиску — счётчик «из N» + кнопка «Сбросить
+   * фильтр». Клик по кнопке очищает search и возвращает полный список.
+   */
+  it('KS-3202: при пустом search-result показывает «Сбросить фильтр», клик возвращает полный список', async () => {
+    apiGetMock.mockResolvedValue([
+      mkAnalysis({ id: 'a1', title: 'Game A', white: 'Foo' }),
+      mkAnalysis({ id: 'a2', title: 'Game B', white: 'Bar' }),
+    ]);
+    renderWithProviders(
+      <GameStepEditor
+        payload={mkPayload({ sourceType: 'workshop_analysis' })}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('game-step-editor-workshop-list')).toBeTruthy(),
+    );
+    const searchInput = screen.getByTestId(
+      'game-step-editor-workshop-search',
+    ) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: 'nomatch' } });
+
+    const empty = await waitFor(() =>
+      screen.getByTestId('game-step-editor-workshop-search-empty'),
+    );
+    expect(empty.textContent).toContain('2'); // total в подсказке
+
+    fireEvent.click(
+      screen.getByTestId('game-step-editor-workshop-reset-filter'),
+    );
+    expect(searchInput.value).toBe('');
+    expect(screen.queryByTestId('game-step-editor-workshop-item-a1')).toBeTruthy();
+    expect(screen.queryByTestId('game-step-editor-workshop-item-a2')).toBeTruthy();
   });
 
   it('PGN > 200 КБ → показывает overLimit и aria-invalid=true', async () => {
