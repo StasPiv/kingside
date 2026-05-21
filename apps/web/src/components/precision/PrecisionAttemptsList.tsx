@@ -202,10 +202,28 @@ export function PrecisionAttemptsList({
     }
   }, [loading, loadingMore, canLoadMore, items.length]);
 
+  /**
+   * KS-3173: «эффективный» признак успеха для UI. До этого тикета цвет
+   * левого бордера и фильтр Preserved/Lost определялись строго по
+   * `a.solved`. Из-за фикса KS-3169 (saveEquality начал засчитываться
+   * как solved=true только для НОВЫХ попыток) у legacy-записей с
+   * идеальным удержанием ничьи `solved=false`, при этом `score=5` и
+   * `accuracy=100%`. Пользователь видел две идентичные на вид 5★ попытки
+   * с разным цветом бордера.
+   *
+   * Решение (вариант B1 из задачи): на UI считать «успехом» либо
+   * настоящий `solved=true`, либо `score === 5` (полный 5★ — accuracy
+   * ≥ 95% по KS-3000 / ADR-065 §4). До backend-backfill это снимает
+   * визуальный рассинхрон; после backfill условие останется корректным
+   * (5★-попытки точно solved=true).
+   */
+  const isEffectivelySolved = (a: PrecisionAttemptListItem): boolean =>
+    a.solved || a.score === 5;
+
   const filteredItems = useMemo(() => {
     if (filter === 'all') return items;
-    if (filter === 'preserved') return items.filter((a) => a.solved);
-    return items.filter((a) => !a.solved);
+    if (filter === 'preserved') return items.filter(isEffectivelySolved);
+    return items.filter((a) => !isEffectivelySolved(a));
   }, [items, filter]);
 
   const formatDate = (iso: string): string => {
@@ -383,13 +401,18 @@ export function PrecisionAttemptsList({
           // KS-3077: scorePct теперь приходит в list-DTO. Синхрон со
           // звёздами и detail-страницей через общую утилиту (KS-3075).
           const accuracyText = `${Math.round(pickDisplayedAccuracyPct(a))}%`;
+          // KS-3173: см. `isEffectivelySolved` выше — 5★ попытки с
+          // `solved=false` (legacy до KS-3169) тоже считаются успехом
+          // для бордера и фильтра, чтобы UI не противоречил accuracy.
+          const effectiveSolved = isEffectivelySolved(a);
           return (
             <li
               key={a.attemptId}
-              className={`precision-attempts__row precision-attempts__row--${a.solved ? 'preserved' : 'lost'}`}
+              className={`precision-attempts__row precision-attempts__row--${effectiveSolved ? 'preserved' : 'lost'}`}
               data-testid={`precision-attempts-row-${a.attemptId}`}
               data-attempt-id={a.attemptId}
               data-solved={a.solved ? 'true' : 'false'}
+              data-effective-solved={effectiveSolved ? 'true' : 'false'}
             >
               {/* KS-3171: вся карточка — единый <Link>. До этого тикета
                   карточка была <button> с внутренним «Review →» текстом-

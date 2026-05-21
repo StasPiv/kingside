@@ -29,6 +29,8 @@ function makeItem(
     classCounts: { best: number; good: number; inaccuracy: number; mistake: number; blunder: number };
     endReason: string;
     attemptedAt: string;
+    score: number | null;
+    scorePct: number | null;
   }> = {},
 ): PrecisionAttemptsListResponse['items'][number] {
   return {
@@ -47,6 +49,10 @@ function makeItem(
       mistake: 1,
       blunder: 0,
     },
+    // KS-3173: score нужен в тестах эффективного solved (5★ → success
+    // даже при solved=false для legacy saveEquality-попыток до KS-3169).
+    score: overrides.score === undefined ? null : overrides.score,
+    scorePct: overrides.scorePct === undefined ? null : overrides.scorePct,
   };
 }
 
@@ -190,6 +196,108 @@ describe('<PrecisionAttemptsList>', () => {
     expect(screen.queryByTestId('precision-attempts-row-a1')).toBeTruthy();
     expect(screen.queryByTestId('precision-attempts-row-a2')).toBeNull();
     expect(screen.queryByTestId('precision-attempts-row-a3')).toBeTruthy();
+  });
+
+  /**
+   * KS-3173: рассинхрон UI-цвета с accuracy для legacy saveEquality-
+   * попыток (solved=false при score=5/accuracy=100%). UI считает
+   * «успехом» либо настоящий `solved=true`, либо `score === 5` — иначе
+   * пользователь видел две 5★-карточки с разным цветом бордера.
+   */
+  describe('KS-3173: effectiveSolved = solved || score===5', () => {
+    it('solved=false + score=5 → row помечен как preserved (зелёный бордер → красный через KS-3172)', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          // legacy saveEquality: backend проставил solved=false, но звезда 5★.
+          makeItem('legacy-5star', false, { score: 5, scorePct: 96, endReason: 'lose-wdl' }),
+        ],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+
+      const row = await waitFor(() =>
+        screen.getByTestId('precision-attempts-row-legacy-5star'),
+      );
+      // data-solved сохраняет «честный» БД-флаг для диагностики.
+      expect(row.getAttribute('data-solved')).toBe('false');
+      // data-effective-solved — derived флаг для UI/фильтра.
+      expect(row.getAttribute('data-effective-solved')).toBe('true');
+      // Класс — preserved (после KS-3172 это красный левый бордер).
+      expect(row.className).toContain('precision-attempts__row--preserved');
+      expect(row.className).not.toContain('precision-attempts__row--lost');
+    });
+
+    it('solved=false + score=4 → row остаётся lost (4★ не считаем успехом)', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [makeItem('4star-lost', false, { score: 4, scorePct: 88 })],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+
+      const row = await waitFor(() =>
+        screen.getByTestId('precision-attempts-row-4star-lost'),
+      );
+      expect(row.getAttribute('data-effective-solved')).toBe('false');
+      expect(row.className).toContain('precision-attempts__row--lost');
+    });
+
+    it('solved=true + score=null → preserved (без регрессии для legacy без score)', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [makeItem('legacy-no-score', true, { score: null, scorePct: null })],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+
+      const row = await waitFor(() =>
+        screen.getByTestId('precision-attempts-row-legacy-no-score'),
+      );
+      expect(row.getAttribute('data-effective-solved')).toBe('true');
+      expect(row.className).toContain('precision-attempts__row--preserved');
+    });
+
+    it('фильтр Preserved включает 5★ + solved=false (legacy saveEquality)', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('legacy-5star', false, { score: 5 }),
+          makeItem('honest-fail', false, { score: 2 }),
+          makeItem('honest-win', true, { score: 4 }),
+        ],
+        total: 3,
+      } satisfies PrecisionAttemptsListResponse);
+
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      await waitFor(() => screen.getByTestId('precision-attempts-row-legacy-5star'));
+
+      fireEvent.click(screen.getByTestId('precision-attempts-filter-preserved'));
+
+      // 5★ legacy с solved=false попадает в Preserved (effectiveSolved=true).
+      expect(screen.queryByTestId('precision-attempts-row-legacy-5star')).toBeTruthy();
+      // honest-win solved=true → тоже здесь.
+      expect(screen.queryByTestId('precision-attempts-row-honest-win')).toBeTruthy();
+      // 2★ + solved=false → нет.
+      expect(screen.queryByTestId('precision-attempts-row-honest-fail')).toBeNull();
+    });
+
+    it('фильтр Lost исключает 5★ + solved=false', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('legacy-5star', false, { score: 5 }),
+          makeItem('honest-fail', false, { score: 2 }),
+        ],
+        total: 2,
+      } satisfies PrecisionAttemptsListResponse);
+
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      await waitFor(() => screen.getByTestId('precision-attempts-row-legacy-5star'));
+
+      fireEvent.click(screen.getByTestId('precision-attempts-filter-lost'));
+
+      expect(screen.queryByTestId('precision-attempts-row-legacy-5star')).toBeNull();
+      expect(screen.queryByTestId('precision-attempts-row-honest-fail')).toBeTruthy();
+    });
   });
 
   it('KS-3076: items.length < total → рендерится sentinel для infinite-scroll', async () => {
