@@ -8266,5 +8266,19 @@
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
+  /* KS-3195: CTA «Я разобрал партию» — `position: sticky; bottom: 0`
+     внутри потока шага. При поднятом bottom-sheet (half/full) sheet
+     перекрывает поток, и CTA внутри sheet'а закрывает первые строки
+     списка ходов (см. /tmp/telegram/326129891_0.jpg). Скрываем CTA
+     когда sheet ≠ peek — пользователь сначала свернёт sheet, потом
+     отметит шаг. В peek CTA как и раньше видна и кликается. */
+  .user-lesson-page--focus
+    .lesson-game-step[data-sheet-snap='half']
+    .lesson-game-step__actions,
+  .user-lesson-page--focus
+    .lesson-game-step[data-sheet-snap='full']
+    .lesson-game-step__actions {
+    display: none;
+  }
 }
 
