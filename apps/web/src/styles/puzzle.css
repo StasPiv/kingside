@@ -3988,6 +3988,10 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 }
 .precision-attempts__row--preserved { border-left: 3px solid #4ade80; }
 .precision-attempts__row--lost { border-left: 3px solid #f87171; }
+/* KS-3171: до этого тикета `.precision-attempts__row-btn` был <button>;
+   теперь это <Link> → <a>, поэтому нужно явно сбросить подчёркивание,
+   а также добавить focus-visible (нативный браузерный outline у <a>
+   внутри карточки выглядел рассинхронно с hover-эффектом самой карточки). */
 .precision-attempts__row-btn {
   display: flex;
   flex-direction: column;
@@ -3999,9 +4003,15 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   text-align: left;
   cursor: pointer;
   color: inherit;
+  text-decoration: none;
 }
 .precision-attempts__row-btn:hover {
   background: rgba(124, 131, 255, 0.06);
+}
+.precision-attempts__row-btn:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 .precision-attempts__preview {
   display: block;
@@ -4054,11 +4064,8 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-attempts__badge--inaccuracy { background: #f1c40f; }
 .precision-attempts__badge--mistake { background: #e67e22; }
 .precision-attempts__badge--blunder { background: #c0392b; color: #fef2f2; }
-.precision-attempts__cta {
-  color: var(--accent-primary, #7c83ff);
-  font-size: 13px;
-  font-weight: 600;
-}
+/* KS-3171: `.precision-attempts__cta` («Review →» как отдельный CTA-текст)
+   удалён — вся карточка теперь линк, дублирующая ссылка не нужна. */
 .precision-attempts__more {
   margin: 12px auto 0 auto;
   display: block;

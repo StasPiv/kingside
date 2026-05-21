@@ -7,15 +7,11 @@ import { PrecisionAttemptsList } from './PrecisionAttemptsList';
 /**
  * KS-2724 — список попыток в /precision.
  * Через DI `fetcher` мокаем endpoint без global api.
+ *
+ * KS-3171: карточка попытки превращена из <button onClick={navigate}> в
+ * <Link to=...>, поэтому `useNavigate` больше не мокается — навигация
+ * проверяется через `href` ссылки (нативная семантика react-router).
  */
-
-const navigateMock = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>(
-    'react-router-dom',
-  );
-  return { ...actual, useNavigate: () => navigateMock };
-});
 
 // Chessboard в jsdom тяжёл и не нужен — рендерим пустой div вместо него.
 vi.mock('react-chessboard', () => ({
@@ -56,7 +52,7 @@ function makeItem(
 
 describe('<PrecisionAttemptsList>', () => {
   beforeEach(() => {
-    navigateMock.mockReset();
+    // KS-3171: navigateMock больше не используется — карточка стала <Link>.
   });
 
   it('рендерит 3 попытки с разными endReason', async () => {
@@ -89,7 +85,7 @@ describe('<PrecisionAttemptsList>', () => {
     ).toBe('false');
   });
 
-  it('клик по строке вызывает navigate("/precision/attempts/<id>")', async () => {
+  it('KS-3171: карточка — <a href="/precision/attempts/<id>"> (вся кликабельна, без отдельного «Review →» CTA)', async () => {
     const fetcher = vi.fn().mockResolvedValue({
       items: [makeItem('att-42', true)],
       total: 1,
@@ -100,9 +96,15 @@ describe('<PrecisionAttemptsList>', () => {
     const link = await waitFor(() =>
       screen.getByTestId('precision-attempts-link-att-42'),
     );
-    fireEvent.click(link);
-
-    expect(navigateMock).toHaveBeenCalledWith('/precision/attempts/att-42');
+    // Карточка теперь — нативный <a> (от <Link>), а не <button>.
+    // Tab-focus / правый-клик «Открыть в новой вкладке» работают сами,
+    // отдельный CTA «Review →» удалён.
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/precision/attempts/att-42');
+    // KS-3171: «Review →» как отдельная подпись внутри карточки удалена —
+    // дублирующего CTA быть не должно. Аria-label на ссылке остался
+    // ('Open review') — он не виден глазам.
+    expect(link.textContent).not.toMatch(/Review →|Разбор →/);
   });
 
   it('пустой ответ → empty-state', async () => {

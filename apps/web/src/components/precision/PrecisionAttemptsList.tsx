@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import type {
@@ -97,7 +97,6 @@ export function PrecisionAttemptsList({
   hideTitle = false,
 }: PrecisionAttemptsListProps = {}) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
 
   const [items, setItems] = useState<PrecisionAttemptListItem[]>([]);
   const [total, setTotal] = useState<number>(0);
@@ -384,7 +383,6 @@ export function PrecisionAttemptsList({
           // KS-3077: scorePct теперь приходит в list-DTO. Синхрон со
           // звёздами и detail-страницей через общую утилиту (KS-3075).
           const accuracyText = `${Math.round(pickDisplayedAccuracyPct(a))}%`;
-          const onClick = () => navigate(`/precision/attempts/${a.attemptId}`);
           return (
             <li
               key={a.attemptId}
@@ -393,10 +391,19 @@ export function PrecisionAttemptsList({
               data-attempt-id={a.attemptId}
               data-solved={a.solved ? 'true' : 'false'}
             >
-              <button
-                type="button"
+              {/* KS-3171: вся карточка — единый <Link>. До этого тикета
+                  карточка была <button> с внутренним «Review →» текстом-
+                  CTA. Пользователь на мобильном (см. жалобу в KS-3171:
+                  /tmp/telegram/326129867_0.jpg) воспринимал «Разбор →»
+                  как отдельную ссылку под доской, а саму доску — как
+                  не кликабельную картинку. Замена на <Link to=...> даёт:
+                   - Tab-focus + Enter (нативная семантика ссылки);
+                   - правый-клик «Открыть в новой вкладке» / Ctrl+click;
+                   - preview URL в hover'е браузера;
+                   - один target — доска + метаданные — без дубля «Разбор →». */}
+              <Link
+                to={`/precision/attempts/${a.attemptId}`}
                 className="precision-attempts__row-btn"
-                onClick={onClick}
                 data-testid={`precision-attempts-link-${a.attemptId}`}
                 aria-label={t('precisionAttempts.openReview', 'Open review')}
               >
@@ -455,10 +462,9 @@ export function PrecisionAttemptsList({
                     {formatDate(a.attemptedAt)}
                   </span>
                 </span>
-                <span className="precision-attempts__cta">
-                  {t('precisionAttempts.review', 'Review')} →
-                </span>
-              </button>
+                {/* KS-3171: «Review →» как отдельный CTA-текст удалён —
+                    вся карточка теперь линк. */}
+              </Link>
             </li>
           );
         })}
