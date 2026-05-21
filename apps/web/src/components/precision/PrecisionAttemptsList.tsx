@@ -411,7 +411,22 @@ export function PrecisionAttemptsList({
                     квадрат во всю ширину карточки, без notation (мелкая
                     нечитаемая на 64px она была), правильный orientation
                     из side-to-move в FEN. */}
-                <span className="precision-attempts__preview">
+                {/* KS-3171 follow-up: `react-chessboard` навешивает
+                    pointer/touch handlers на КАЖДУЮ клетку (даже при
+                    `allowDragging: false`) — тапы по доске НЕ доходили
+                    до родительского `<Link>`, пользователь думал, что
+                    доска не кликается. `pointerEvents: 'none'` на
+                    обёртке полностью блокирует pointer-обработку
+                    превью; событие проваливается на ближайший
+                    pointer-receiving элемент — Link.
+                    Inline-style дублирует правило из puzzle.css, чтобы
+                    тест в jsdom мог прочитать `el.style.pointerEvents`
+                    без парсинга глобальных CSS-rules. */}
+                <span
+                  className="precision-attempts__preview"
+                  style={{ pointerEvents: 'none', touchAction: 'manipulation' }}
+                  aria-hidden="true"
+                >
                   <Chessboard
                     options={{
                       position: a.puzzleFen,

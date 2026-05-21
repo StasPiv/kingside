@@ -4019,6 +4019,15 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   aspect-ratio: 1 / 1;
   flex-shrink: 0;
   background: var(--c-0f172a, #0f172a);
+  /* KS-3171 follow-up: react-chessboard перехватывает pointer/touch на
+     каждой клетке (через delegate-handler внутри). Из-за этого тап по
+     доске НЕ доходил до родительского <Link>, и пользователь видел,
+     что «доска не кликается». `pointer-events: none` на превью-обёртке
+     полностью блокирует pointer-обработку доски — события идут на
+     ближайший pointer-receiving элемент (Link). Drag-n-drop фигур мы
+     и так уже выключили через `allowDragging: false`. */
+  pointer-events: none;
+  touch-action: manipulation;
 }
 .precision-attempts__main {
   display: flex;

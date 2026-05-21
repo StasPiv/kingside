@@ -107,6 +107,39 @@ describe('<PrecisionAttemptsList>', () => {
     expect(link.textContent).not.toMatch(/Review →|Разбор →/);
   });
 
+  /**
+   * KS-3171 follow-up: первая итерация фикса оставила доску внутри
+   * `<Link>`, но `react-chessboard` навешивает pointer-handlers на каждую
+   * клетку — реальный пользователь на мобильном тапал «мимо» (event
+   * проваливался в обработчик клетки, а не в Link).
+   *
+   * Превью-обёртка обязана быть `pointer-events: none`, чтобы touch/click
+   * прошли до родительского <a>. В jsdom глобальный CSS из puzzle.css не
+   * парсится, поэтому проверяем inline-style (дублирует CSS-правило
+   * именно по этой причине; см. комментарий в `PrecisionAttemptsList.tsx`).
+   */
+  it('KS-3171 follow-up: превью-доска имеет pointer-events:none — тап уходит к Link', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      items: [makeItem('att-42', true)],
+      total: 1,
+    } satisfies PrecisionAttemptsListResponse);
+
+    renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+
+    const link = await waitFor(() =>
+      screen.getByTestId('precision-attempts-link-att-42'),
+    );
+    const preview = link.querySelector(
+      '.precision-attempts__preview',
+    ) as HTMLElement | null;
+    expect(preview).not.toBeNull();
+    expect(preview!.style.pointerEvents).toBe('none');
+    // aria-hidden: содержимое доски (длинные alt'ы у каждой клетки от
+    // react-chessboard) — шум для скринридеров; aria-label ссылки
+    // достаточен для семантики.
+    expect(preview!.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('пустой ответ → empty-state', async () => {
     const fetcher = vi.fn().mockResolvedValue({
       items: [],
