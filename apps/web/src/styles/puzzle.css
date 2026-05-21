@@ -1037,8 +1037,9 @@ body:has(.puzzle-rush-board) {
 }
 
 .filter-btn.active {
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  border-color: var(--tab-active-border);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 
 .filter-btn:hover:not(.active) {
@@ -1448,11 +1449,13 @@ body:has(.puzzle-rush-board) {
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
+  border-radius: 6px;
 }
 
 .puzzle-browser-tab.active {
-  color: var(--c-7c83ff);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
 }
 
 .generate-puzzles-section {
@@ -1907,12 +1910,13 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 0;
+  border-radius: 6px;
 }
 
 .puzzle-browser-tab.active {
-  color: var(--c-7c83ff);
-  border-bottom-color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
 }
 
 .puzzle-share-btn {
@@ -1975,8 +1979,9 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-sort-btn.active {
-  border-color: var(--c-7c83ff);
-  color: var(--c-7c83ff);
+  border-color: var(--tab-active-border);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 
 /* Puzzle pagination */
@@ -2067,8 +2072,8 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-gen-engine-tab.active {
-  background: var(--ov-accent-20);
-  color: var(--c-7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 
 .puzzle-gen-engine-tab:disabled {
@@ -2932,9 +2937,9 @@ body:has(.puzzle-rush-board) {
 }
 
 .precision-tab--active {
-  color: var(--text-on-accent, #fff);
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--tab-active-fg);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
 }
 
 @media (max-width: 480px) {
@@ -2990,9 +2995,9 @@ body:has(.puzzle-rush-board) {
 }
 
 .precision-objective-segment--active {
-  color: var(--text-on-accent, #fff);
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--tab-active-fg);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
 }
 
 @media (max-width: 480px) {
@@ -3399,13 +3404,16 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 
 .precision-subnav__item--active,
 .precision-subnav__item[data-active='true'] {
-  color: var(--accent-primary);
-  border-bottom-color: var(--accent-primary);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
 }
 
-.precision-subnav__item--active:hover {
-  color: var(--accent-primary);
-  background: var(--ov-accent-08);
+.precision-subnav__item--active:hover,
+.precision-subnav__item[data-active='true']:hover {
+  background: var(--tab-active-hover-bg);
+  color: var(--tab-active-fg);
 }
 
 @media (max-width: 640px) {
@@ -3799,8 +3807,8 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   cursor: pointer;
 }
 .precision-trends__toggle-btn--active {
-  background: var(--bg-muted);
-  color: var(--text-primary);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 .precision-trends__svg {
   width: 100%;
@@ -3949,8 +3957,8 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   cursor: pointer;
 }
 .precision-attempts__filter--active {
-  background: var(--c-2a2a4e, #2a2a4e);
-  color: var(--c-e2e8f0);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
 }
 /* KS-3076: история попыток теперь в grid-карточках по образцу /precision
    (`.play-vs-engine-card`). Превью доски — квадратное во всю ширину
@@ -3990,13 +3998,14 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   from { opacity: 0.35; }
   to { opacity: 0.65; }
 }
-/* KS-3172: акцентный левый бордер инвертирован.
-   До: solved (preserved) → зелёный, lost → красный — пользователь хочет
-   обратную семантику (см. жалобу /tmp/telegram/326129870_0.jpg). Цвета
-   из семантических токенов `--danger` / `--success`, чтобы оставаться
-   консистентно с palette проекта в обеих темах. */
-.precision-attempts__row--preserved { border-left: 3px solid var(--danger); }
-.precision-attempts__row--lost { border-left: 3px solid var(--success); }
+/* KS-3176: возвращена стандартная семантика после короткой инверсии
+   KS-3172 — зелёный = решено, красный = не решено. Класс выбирается
+   по `effectiveSolved` (KS-3173: `solved || score === 5`), поэтому
+   legacy saveEquality-попытки с solved=false/score=5 тоже зелёные
+   (как все идеально сыгранные). Цвета из семантических токенов
+   `--success` / `--danger` — консистентно в обеих темах. */
+.precision-attempts__row--preserved { border-left: 3px solid var(--success); }
+.precision-attempts__row--lost { border-left: 3px solid var(--danger); }
 /* KS-3171: до этого тикета `.precision-attempts__row-btn` был <button>;
    теперь это <Link> → <a>, поэтому нужно явно сбросить подчёркивание,
    а также добавить focus-visible (нативный браузерный outline у <a>
@@ -5267,9 +5276,9 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   border-color: var(--c-475569, #475569);
 }
 .puzzle-filters__theme-chip.active {
-  background: var(--accent-primary, #7c83ff);
-  color: #fff;
-  border-color: var(--accent-primary, #7c83ff);
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 
 /* KS-2561: грид карточек-диаграмм. Размер ячейки делает 4 колонки
