@@ -9,15 +9,18 @@ import { StepTypePicker, USER_STEP_TYPES } from './StepTypePicker';
  */
 
 describe('<StepTypePicker>', () => {
-  it('рендерит ровно 4 опции (whitelist UserStepType): text/puzzle/endgame_drill/quiz', () => {
+  it('рендерит ровно 5 опций (whitelist UserStepType): text/puzzle/endgame_drill/quiz/game', () => {
     // KS-2574: добавлен `quiz` в USER_STEP_TYPES после расширения
     // shared union (KS-2570) и появления `<QuizStepEditor>` (KS-2573).
+    // KS-3181 (ADR-072 §7 F1): добавлен `game` — read-only PGN-партия
+    // как шаг урока, редактор `GameStepEditor`.
     renderWithProviders(<StepTypePicker value={null} onSelect={vi.fn()} />);
     expect(USER_STEP_TYPES).toEqual([
       'text',
       'puzzle',
       'endgame_drill',
       'quiz',
+      'game',
     ]);
     for (const type of USER_STEP_TYPES) {
       expect(

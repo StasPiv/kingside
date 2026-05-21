@@ -33,12 +33,17 @@ interface StepTypePickerProps {
  * Порядок и набор типов — единый источник истины для user-курсов
  * (ADR-026 §2.3 whitelist). Меняется только вместе с `UserStepType`
  * в shared и с валидацией BE-3.
+ *
+ * KS-3181 (ADR-072 §7 F1): добавлен `'game'` — read-only просмотр
+ * PGN-партии внутри урока (инлайн-PGN или ссылка на сохранённый
+ * workshop-анализ).
  */
 export const USER_STEP_TYPES: readonly UserStepType[] = [
   'text',
   'puzzle',
   'endgame_drill',
   'quiz',
+  'game',
 ];
 
 const ICONS: Record<UserStepType, string> = {
@@ -46,6 +51,8 @@ const ICONS: Record<UserStepType, string> = {
   puzzle: '♟️',
   endgame_drill: '⚔️',
   quiz: '❓',
+  // KS-3181: «партия» — шахматные часы как символ просмотра целой партии.
+  game: '⏱️',
 };
 
 // KS-2575: ключи под `lessons.my.editor.stepType.*` (нагруженный блок
@@ -66,6 +73,10 @@ const I18N_KEY: Record<UserStepType, { title: string; description: string }> = {
   quiz: {
     title: 'lessons.my.editor.stepType.quiz',
     description: 'lessons.my.editor.stepType.quizDescription',
+  },
+  game: {
+    title: 'lessons.my.editor.stepType.game',
+    description: 'lessons.my.editor.stepType.gameDescription',
   },
 };
 

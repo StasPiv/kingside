@@ -32,6 +32,17 @@ vi.mock('./QuizStepEditor', () => ({
     <div data-testid={`quiz-step-editor`} data-payload-type={payload.type} />
   ),
 }));
+// KS-3181: GameStepEditor дергает GET /analyses при workshop-режиме;
+// в StepCard-тестах не интересует — мокаем.
+vi.mock('./GameStepEditor', () => ({
+  GameStepEditor: ({ payload }: { payload: { type: string; sourceType?: string } }) => (
+    <div
+      data-testid="game-step-editor"
+      data-payload-type={payload.type}
+      data-source-type={payload.sourceType ?? ''}
+    />
+  ),
+}));
 
 function mkStep(over: Partial<UserLessonStepDto> = {}): UserLessonStepDto {
   return {

@@ -118,6 +118,26 @@ function isStepPayloadAutoSavable(payload: StepPayload): boolean {
       return false;
     }
   }
+  // KS-3181 (ADR-072 §7 F1): шаг «Партия» отправляем только когда
+  // payload реально пригоден для backend'а:
+  //  - sourceType='pgn' без непустого `pgn` ⇒ backend ответит 400
+  //    «PGN is required», UI заставит автора заполнить поле раньше.
+  //    Невалидность PGN (chess.js loadPgn → throw) ловится в самом
+  //    редакторе как inline-ошибка; здесь не дублируем проверку.
+  //  - sourceType='workshop_analysis' без `analysisId` ⇒ backend
+  //    ответит 400 «analysisId is required». До выбора анализа PATCH'и
+  //    не шлём.
+  if (payload.type === 'game') {
+    if (payload.sourceType === 'pgn' && !(payload.pgn ?? '').trim()) {
+      return false;
+    }
+    if (
+      payload.sourceType === 'workshop_analysis' &&
+      !payload.analysisId
+    ) {
+      return false;
+    }
+  }
   return true;
 }
 

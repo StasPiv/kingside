@@ -2340,10 +2340,12 @@
       "game_review": "Game review",
       "video": "Video",
       "endgameDrill": "Position vs. engine",
+      "game": "Game",
       "textDescription": "Text with diagrams to explain theory or ideas.",
       "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
       "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
-      "quizDescription": "Multiple-choice questions with optional position; for self-checks."
+      "quizDescription": "Multiple-choice questions with optional position; for self-checks.",
+      "gameDescription": "A read-only game viewer with move list and board navigation."
     },
     "badge": {
       "mastered": "Mastered",
@@ -2830,7 +2832,34 @@
           "endgameDrill": "Position vs. engine",
           "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition).",
           "quiz": "Quiz",
-          "quizDescription": "Multiple-choice questions with optional position; for self-checks."
+          "quizDescription": "Multiple-choice questions with optional position; for self-checks.",
+          "game": "Game",
+          "gameDescription": "Paste a PGN or pick a saved analysis to show a complete game."
+        },
+        "game": {
+          "sourceTabs": {
+            "label": "Game source",
+            "pgn": "PGN",
+            "workshop": "From my analyses"
+          },
+          "pgn": {
+            "label": "PGN",
+            "placeholder": "[Event \"...\"]\n[White \"...\"]\n[Black \"...\"]\n\n1. e4 e5 2. Nf3 Nc6 ...",
+            "invalid": "PGN is invalid — chess.js cannot parse it.",
+            "overLimit": "PGN exceeds 200 KB limit (current: {{kb}} KB).",
+            "ok": "PGN parsed successfully."
+          },
+          "workshop": {
+            "search": "Search analyses",
+            "searchPlaceholder": "White / Black / event / title",
+            "empty": "You have no saved analyses yet — open Workshop, save a game, then come back.",
+            "searchEmpty": "No analyses match the search.",
+            "loadError": "Could not load saved analyses.",
+            "noSelection": "Pick an analysis to attach to this step."
+          },
+          "preview": {
+            "workshopEmpty": "From my analyses"
+          }
         },
         "text": {
           "diagrams": {

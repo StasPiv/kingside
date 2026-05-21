@@ -2,6 +2,7 @@ import type {
   CourseLevel,
   EndgameDrillStepPayload,
   GameReviewStepPayload,
+  GameStepPayload,
   LessonKind,
   LessonStepType,
   PositionStepPayload,
@@ -139,6 +140,18 @@ export function emptyStepPayload(type: LessonStepType): StepPayload {
         skillLevel: 5,
         winCondition: { kind: 'promote' },
       } satisfies EndgameDrillStepPayload;
+    case 'game':
+      // KS-3181 (ADR-072 §7 F1): дефолт «Партия» — PGN-режим с пустым
+      // полем. Автор начинает с быстрого варианта (вставить PGN); при
+      // переключении на 'workshop_analysis' редактор подменяет payload
+      // на `{ sourceType: 'workshop_analysis', analysisId }`. Backend
+      // на сохранение workshop_analysis сделает snapshot PGN из
+      // `Analysis` (KS-3180 / ADR-072 §7 B1).
+      return {
+        type: 'game',
+        sourceType: 'pgn',
+        pgn: '',
+      } satisfies GameStepPayload;
   }
 }
 

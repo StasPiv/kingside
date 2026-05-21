@@ -22,6 +22,7 @@ import {
   TextFields,
 } from '../fields';
 import { QuizStepEditor } from './QuizStepEditor';
+import { GameStepEditor } from './GameStepEditor';
 
 /**
  * `StepCard` — компактная карточка шага в user-редакторе курса
@@ -84,6 +85,8 @@ const TYPE_ICONS: Record<UserStepType, string> = {
   puzzle: '♟️',
   endgame_drill: '⚔️',
   quiz: '❓',
+  // KS-3181: «партия» (read-only PGN-просмотр).
+  game: '⏱️',
 };
 
 const TYPE_LABEL_KEY: Record<UserStepType, string> = {
@@ -91,6 +94,8 @@ const TYPE_LABEL_KEY: Record<UserStepType, string> = {
   puzzle: 'lessons.my.stepType.puzzle',
   endgame_drill: 'lessons.my.stepType.endgameDrill',
   quiz: 'lessons.my.stepType.quiz',
+  // KS-3181: используем тот же ключ, что и в picker'е.
+  game: 'lessons.my.editor.stepType.game',
 };
 
 /** Длина превью текста заголовка. */
@@ -101,7 +106,9 @@ function isUserStepType(type: string): type is UserStepType {
     type === 'text' ||
     type === 'puzzle' ||
     type === 'endgame_drill' ||
-    type === 'quiz'
+    type === 'quiz' ||
+    // KS-3181: новый тип шага «Партия».
+    type === 'game'
   );
 }
 
@@ -158,6 +165,32 @@ function payloadPreview(
     return fen.length > PREVIEW_CHARS
       ? `${fen.slice(0, PREVIEW_CHARS)}…`
       : fen;
+  }
+  if (payload.type === 'game') {
+    // KS-3181: превью «Партия» — meta-теги (White - Black, Result) или
+    // короткий fallback. Если meta пустая — пытаемся вытащить из PGN
+    // заголовка. PGN может быть пустым (только-что созданный шаг).
+    const meta = payload.meta ?? {};
+    let white = meta.white ?? '';
+    let black = meta.black ?? '';
+    let result = meta.result ?? '';
+    if (!white || !black) {
+      // Парсим PGN-теги ровно тем же regex'ом, что `parsePgnHeaders`.
+      const tagRe = /\[(\w+)\s+"([^"]*)"\]/g;
+      let m: RegExpExecArray | null;
+      while ((m = tagRe.exec(payload.pgn ?? '')) !== null) {
+        if (m[1] === 'White' && !white) white = m[2];
+        else if (m[1] === 'Black' && !black) black = m[2];
+        else if (m[1] === 'Result' && !result) result = m[2];
+      }
+    }
+    if (!white && !black && !result) {
+      return payload.sourceType === 'workshop_analysis'
+        ? t('lessons.my.editor.game.preview.workshopEmpty', 'From my analyses')
+        : '';
+    }
+    const players = white && black ? `${white} — ${black}` : white || black;
+    return result ? `${players} (${result})` : players;
   }
   return '';
 }
@@ -410,6 +443,12 @@ export function StepCard({
           )}
           {step.payload.type === 'quiz' && (
             <QuizStepEditor
+              payload={step.payload}
+              onChange={onPayloadChange}
+            />
+          )}
+          {step.payload.type === 'game' && (
+            <GameStepEditor
               payload={step.payload}
               onChange={onPayloadChange}
             />
