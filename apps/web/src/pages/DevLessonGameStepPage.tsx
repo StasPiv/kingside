@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { GameStepPayload } from '@kingside/shared';
 
 import { GameStep } from '../components/lessons/steps/GameStep';
@@ -40,7 +41,17 @@ export function DevLessonGameStepPage() {
   // `user-lesson-page--focus` при active, как делает реальная UserLessonView.
   // Это позволяет dev-странице воспроизводить полный focus-mode UI без
   // авторизованного пользователя.
-  const { active: focusActive } = useFocusMode();
+  // KS-3196: реальная UserLessonView вызывает enableFocusMode() через
+  // useEffect при currentStep.type==='game'. Dev-страница это тоже
+  // должна делать, иначе focus-mode UI (compact header, mini-pill,
+  // bottom-sheet, fixed-bar навигации) не активируется и Playwright
+  // снимает «обычный» mobile layout. Этот эффект — точная копия
+  // эффекта из UserLessonView.tsx (строки 197-204).
+  const { active: focusActive, enable, disable } = useFocusMode();
+  useEffect(() => {
+    enable();
+    return () => disable();
+  }, [enable, disable]);
   const payload: GameStepPayload = {
     type: 'game',
     sourceType: 'pgn',

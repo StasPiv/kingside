@@ -8305,9 +8305,19 @@
   .user-lesson-page--focus .lesson-game-step[data-sheet-snap='half'] {
     --lesson-sheet-h: 50dvh;
   }
+  /* KS-3196: full=75dvh (раньше 85dvh) — оставляем под bar навигации
+     минимум 68px над sheet'ом, чтобы он не залезал в зону compact-
+     header (40px) + mini-pill (28px). При 85dvh top of bar получался
+     ≈84px и нижняя часть pill (z-index 90 > 75) перекрывала bar
+     сверху. 75dvh: sheet 633px → top bar ≈167px → видим целиком. */
   .user-lesson-page--focus .lesson-game-step[data-sheet-snap='full'] {
-    --lesson-sheet-h: 85dvh;
+    --lesson-sheet-h: 75dvh;
   }
+  /* KS-3196: z-index 95 > mini-pill (90) и compact-header (100? нет,
+     bar лежит ниже header'а — top ≥ 40 + pill 28 = 68px). Bar НЕ
+     должен перекрывать compact-header (на peek bar в самом низу,
+     не пересекается). На full bar top ≈167px — заведомо ниже
+     pill, перекрытия нет. z-index 95 защищает от sheet'а (70). */
   .user-lesson-page--focus
     .lesson-game-step
     .analysis-board-controls {
@@ -8318,7 +8328,7 @@
     bottom: calc(
       var(--lesson-sheet-h, 64px) + env(safe-area-inset-bottom, 0px)
     );
-    z-index: 75;
+    z-index: 95;
     background: var(--c-0f0f1e);
     border-top: 1px solid var(--border-subtle);
     padding: 4px 6px;
