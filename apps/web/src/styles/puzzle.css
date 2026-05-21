@@ -3968,7 +3968,11 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 }
 .precision-attempts__row {
   background: var(--c-1e293b);
-  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  /* KS-3172: внешний бордер карточки — нейтрально-серый. До этого тикета
+     использовался `--c-2a2a4e` (в light-теме `#ebedf5` — слегка
+     розовато-фиолетовый, не серый). Семантический токен `--border-subtle`
+     корректно мапится на серый и в dark, и в light темах. */
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   overflow: hidden;
   transition: transform 120ms ease, box-shadow 120ms ease;
@@ -3986,8 +3990,13 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   from { opacity: 0.35; }
   to { opacity: 0.65; }
 }
-.precision-attempts__row--preserved { border-left: 3px solid #4ade80; }
-.precision-attempts__row--lost { border-left: 3px solid #f87171; }
+/* KS-3172: акцентный левый бордер инвертирован.
+   До: solved (preserved) → зелёный, lost → красный — пользователь хочет
+   обратную семантику (см. жалобу /tmp/telegram/326129870_0.jpg). Цвета
+   из семантических токенов `--danger` / `--success`, чтобы оставаться
+   консистентно с palette проекта в обеих темах. */
+.precision-attempts__row--preserved { border-left: 3px solid var(--danger); }
+.precision-attempts__row--lost { border-left: 3px solid var(--success); }
 /* KS-3171: до этого тикета `.precision-attempts__row-btn` был <button>;
    теперь это <Link> → <a>, поэтому нужно явно сбросить подчёркивание,
    а также добавить focus-visible (нативный браузерный outline у <a>
