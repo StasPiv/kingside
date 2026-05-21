@@ -142,24 +142,67 @@ type MoveData = {
  */
 interface AnalysisPageProps {
   publicMode?: boolean;
+  /**
+   * KS-3182 (ADR-072 §7 F2): embedded-режим — AnalysisPage встроен в
+   * другой контейнер (шаг урока «Партия»). Поведение:
+   *  - PGN приходит из `embeddedPgn` пропа, а не из URL/state/БД;
+   *  - все мутации/persistence выключены (трактуем как `publicMode=true`
+   *    внутри: autosave, share, edit-title, position-update, fetch by id
+   *    подавлены теми же гейтами, что и в публичном режиме);
+   *  - `<AnalysisHeader>` (breadcrumb + title-edit) и overflow-меню
+   *    (Share / Export / Import) НЕ рендерятся — авторам шага не нужны;
+   *  - сайдбар, дерево вариантов, opening explorer и Stockfish работают
+   *    как обычно (read-only консистентно с publicMode).
+   */
+  embedded?: boolean;
+  embeddedPgn?: string;
 }
 
 export function AnalysisPage({
   publicMode = false,
+  embedded = false,
+  embeddedPgn,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
     gameId?: string;
   }>();
-  const key = params.id ?? params.gameId ?? '__none__';
-  return <AnalysisPageInner key={key} publicMode={publicMode} />;
+  // KS-3182: embedded-инстанс монтируется вне аналитического роута;
+  // useParams вернёт undefined, поэтому key основан на pgn (смена PGN
+  // должна пересоздавать всё внутреннее состояние, иначе history
+  // первой партии останется во второй карточке шага).
+  const key =
+    params.id ?? params.gameId ?? (embedded ? `embedded:${embeddedPgn ?? ''}` : '__none__');
+  return (
+    <AnalysisPageInner
+      key={key}
+      publicMode={publicMode}
+      embedded={embedded}
+      embeddedPgn={embeddedPgn}
+    />
+  );
 }
 
 function AnalysisPageInner({
-  publicMode = false,
+  publicMode: publicModeProp = false,
+  embedded = false,
+  embeddedPgn,
 }: AnalysisPageProps) {
+  // KS-3182: embedded === read-only во всех точках, где `publicMode`
+  // используется как гейт мутаций (autosave, share, title-edit,
+  // position update, fetch by id, drag disabled, JSX-кнопки действий).
+  // Чтобы не переписывать каждый use-site, переопределяем локальный
+  // `publicMode = publicModeProp || embedded`. Все существующие гейты
+  // (~15 use-sites) автоматически захватят embedded как read-only.
+  const publicMode = publicModeProp || embedded;
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
+    // KS-3182: body-class `has-analysis-page` нужна mobile-layout'у
+    // analysis-страницы. В embedded-режиме (внутри урока) она бы
+    // приклеилась к body всей страницы урока — это перебивает CSS
+    // lesson-layout'а. Эффект полностью отключаем для embedded;
+    // mobile-layout в шаге урока подстраивает GameStep локально.
+    if (embedded) return undefined;
     document.body.classList.add('has-analysis-page');
     const app = document.querySelector('.app');
     app?.classList.add('has-analysis-page');
@@ -167,7 +210,7 @@ function AnalysisPageInner({
       document.body.classList.remove('has-analysis-page');
       app?.classList.remove('has-analysis-page');
     };
-  }, []);
+  }, [embedded]);
 
   // KS-2867 (FR4): единый AnalysisContext вместо разбросанных derivations.
   // Backwards-compatible локальные алиасы — оставлены чтобы не переписывать
@@ -544,7 +587,13 @@ function AnalysisPageInner({
   // --- Data loading ---
   useEffect(() => {
     if (!gameId) {
-      const pgn = (location.state as { pgn?: string } | null)?.pgn;
+      // KS-3182: embedded-инстанс получает PGN из пропа (а не из URL/
+      // location.state/БД). Тот же inline-PGN путь, что используется при
+      // открытии PGN-файла через `navigate('/analysis', { state: { pgn } })`
+      // — отсюда и старшинство `embeddedPgn` над `location.state.pgn`.
+      const pgn =
+        embeddedPgn ??
+        (location.state as { pgn?: string } | null)?.pgn;
       if (pgn) {
         // KS-2502 fix: новая ad-hoc сессия из `state.pgn` (например
         // клик «Открыть партию» из загруженного PGN-файла →
@@ -640,7 +689,11 @@ function AnalysisPageInner({
     // обёртки (теоретический edge-case к KS-2403) этот effect перезапустит
     // `getById` с актуальным id, иначе stale-state предыдущей партии
     // оставался бы при любом открытии следующей.
-  }, [gameId, analysisId, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen, analysisSearchParams]);
+    // KS-3182: `embeddedPgn` тоже в deps — смена PGN в embedded-инстансе
+    // должна перезагрузить history. Сам инстанс пересоздаётся через
+    // `key={...embedded:embeddedPgn}` в `AnalysisPage`, но deps оставляем
+    // ради явности (effect повторно вызовется даже без remount).
+  }, [gameId, analysisId, embeddedPgn, location.state, t, loadMoves, loadFromPgn, getById, setInitialFen, analysisSearchParams, publicMode, getPublicById]);
 
   useAnalysisPersistenceResolver(
     ctx,
@@ -1500,7 +1553,10 @@ function AnalysisPageInner({
       ref={analysisPageRef}
     >
       <div className="analysis-board-area">
-        {!gameId && (
+        {/* KS-3182: в embedded-режиме шапка не нужна — шаг урока сам
+            подписан, breadcrumb/title-edit/Share — это не контекст
+            ученика. */}
+        {!gameId && !embedded && (
           <AnalysisHeader
             context={{
               mode: 'analysis',
@@ -1606,6 +1662,11 @@ function AnalysisPageInner({
                 {pgnCopyMsg}
               </span>
             )}
+            {/* KS-3182: overflow-меню (Share / Export / Import / FEN /
+                Find games) бесполезно ученику внутри шага урока — он не
+                автор анализа и не должен экспортировать чужую партию.
+                В embedded-режиме wrapper полностью убран из дерева. */}
+            {!embedded && (
             <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
               <button
                 className="analysis-overflow-btn"
@@ -1726,6 +1787,7 @@ function AnalysisPageInner({
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       </div>

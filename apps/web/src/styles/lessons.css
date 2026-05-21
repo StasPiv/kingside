@@ -7889,3 +7889,44 @@
   font-size: 11px;
   color: var(--text-muted, #888);
 }
+
+/* KS-3182 (ADR-072 §7 F2): рендер шага «Партия» в lesson view. */
+.lesson-game-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lesson-game-step__viewer {
+  /* KS-3182: убираем default-вертикальный padding из AnalysisPage —
+     внутри урока у нас уже есть свои отступы, второй слой делает
+     карточку слишком разрежённой. */
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lesson-game-step__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.lesson-game-step__done {
+  appearance: none;
+  background: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lesson-game-step__done:disabled {
+  background: var(--success);
+  color: var(--text-on-accent, #fff);
+  cursor: default;
+}
+.lesson-game-step--empty {
+  padding: 12px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-muted, #888);
+}

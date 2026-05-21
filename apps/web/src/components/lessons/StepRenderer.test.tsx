@@ -53,6 +53,37 @@ vi.mock('./steps/GameReviewStep', () => ({
   ),
 }));
 
+// KS-3182 (ADR-072 §7 F2): GameStep тянет AnalysisPage (тяжёлый mount
+// со Stockfish), нам в unit-тесте достаточно подтвердить, что
+// диспетчер кладёт правильный payload в правильный компонент.
+vi.mock('./steps/GameStep', () => ({
+  GameStep: ({
+    payload,
+    onStepDone,
+    hideNext,
+  }: {
+    payload: { sourceType?: string; pgn?: string; analysisId?: string };
+    onStepDone?: () => void;
+    hideNext?: boolean;
+  }) => (
+    <div
+      data-testid="lesson-game-step-mock"
+      data-source-type={payload.sourceType ?? ''}
+      data-pgn-len={String((payload.pgn ?? '').length)}
+      data-analysis-id={payload.analysisId ?? ''}
+      data-hide-next={hideNext ? 'true' : 'false'}
+    >
+      <button
+        type="button"
+        data-testid="lesson-game-step-mock-done"
+        onClick={() => onStepDone?.()}
+      >
+        done
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock('./steps/EndgameDrillStep', () => ({
   EndgameDrillStep: ({
     payload,
@@ -209,6 +240,51 @@ describe('<StepRenderer>', () => {
       'data-count',
       '2',
     );
+  });
+
+  /**
+   * KS-3182 (ADR-072 §7 F2): диспетчер должен делегировать type='game'
+   * новому `<GameStep>`. Прокидка `payload.pgn` и `onStepDone` —
+   * критичная часть: первая отвечает за рендер партии в embedded
+   * AnalysisPage, вторая дёргает progress-API при нажатии «Я разобрал».
+   */
+  it('делегирует game-шаг компоненту GameStep с прокинутым payload + onStepDone', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'game',
+      payload: {
+        type: 'game',
+        sourceType: 'pgn',
+        pgn: '[White "A"]\n[Black "B"]\n\n1. e4 e5 2. Nf3',
+      },
+    };
+    const onStepDone = vi.fn();
+    renderWithProviders(<StepRenderer step={step} onStepDone={onStepDone} />);
+    const node = screen.getByTestId('lesson-game-step-mock');
+    expect(node).toHaveAttribute('data-source-type', 'pgn');
+    expect(Number(node.getAttribute('data-pgn-len'))).toBeGreaterThan(0);
+
+    // onStepDone пробрасывается до компонента: клик внутри мока зовёт
+    // переданный callback — это и есть путь до POST /lessons/progress/step.
+    screen.getByTestId('lesson-game-step-mock-done').click();
+    expect(onStepDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('делегирует game-шаг (workshop_analysis) с прокинутым analysisId', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'game',
+      payload: {
+        type: 'game',
+        sourceType: 'workshop_analysis',
+        analysisId: 'a-42',
+        pgn: '[White "X"]\n[Black "Y"]\n\n1. d4',
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    const node = screen.getByTestId('lesson-game-step-mock');
+    expect(node).toHaveAttribute('data-source-type', 'workshop_analysis');
+    expect(node).toHaveAttribute('data-analysis-id', 'a-42');
   });
 
   it('неизвестный тип шага → stepUnknown stub', () => {

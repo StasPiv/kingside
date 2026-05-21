@@ -7,6 +7,9 @@ import { QuizStep } from './steps/QuizStep';
 import { PositionStep } from './steps/PositionStep';
 import { VideoStep } from './steps/VideoStep';
 import { GameReviewStep } from './steps/GameReviewStep';
+// KS-3182 (ADR-072 §7 F2): новый шаг «Партия» — read-only viewer через
+// embedded AnalysisPage.
+import { GameStep } from './steps/GameStep';
 import { EndgameDrillStep } from './steps/EndgameDrillStep';
 import { OpeningDrillStep } from './steps/OpeningDrillStep';
 // KS-2249: drill-step (tactic drill встраивается в lesson).
@@ -109,6 +112,19 @@ export function StepRenderer({ step, onStepDone, hideNext, stepState }: StepRend
           onStepDone={onStepDone}
           stepId={step.id}
           hideNext={hideNext}
+        />
+      );
+
+    case 'game':
+      // KS-3182 (ADR-072 §7 F2): read-only PGN-viewer на базе embedded
+      // AnalysisPage; CTA «Я разобрал партию» → onStepDone (LessonPage
+      // вызывает POST /api/lessons/progress/step { state: 'done' }).
+      return (
+        <GameStep
+          payload={payload}
+          onStepDone={onStepDone}
+          hideNext={hideNext}
+          stepState={stepState}
         />
       );
 

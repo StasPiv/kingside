@@ -2237,6 +2237,11 @@
       "openLibrary": "My games",
       "importDoneNote": "Games imported. Open them in Workshop and return here for the review step."
     },
+    "game": {
+      "markDone": "I've reviewed the game",
+      "doneConfirmed": "Marked as reviewed ✓",
+      "emptyPgn": "This game step has no PGN attached. Ask the author to fix it."
+    },
     "puzzleProgress": "Puzzle {{current}}/{{total}}",
     "puzzleCounters": "Solved {{solved}} • Failed {{failed}} • Need {{min}}",
     "puzzleCorrect": "Correct!",
