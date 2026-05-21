@@ -3152,3 +3152,116 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
     font-size: 14px;
   }
 }
+
+/* KS-3190 (ADR-073 §7 F3): bottom-sheet вариант `.analysis-mobile-panel`.
+   Активируется через `data-focus-sheet="true"` (выставляется в JSX,
+   когда `useFocusMode().active === true`). Стили живут под mobile-
+   media-query, поэтому на desktop никаких эффектов нет. */
+.analysis-mobile-panel__handle {
+  /* По умолчанию (вне focus-mode) handle не рендерится в DOM, но если
+     внезапно появится — оставляем visible:none, чтобы не сломать
+     layout. Внутри bottom-sheet ниже включаем `display: flex`. */
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'] {
+    /* Sheet прижат к нижней кромке viewport'а, доска размещается над
+       ним; высота управляется `data-snap` атрибутом (см. ниже). */
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-top: 1px solid var(--border-subtle, #2a2a4e);
+    background: var(--c-0f0f1e, #0f0f1e);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 70;
+    /* Плавная анимация высоты при переключении snap. Drag без
+       реалтайма (см. useBottomSheet), но финальный snap-jump приятнее
+       с анимацией. */
+    transition: height 200ms ease-out;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  /* Snap heights: peek = только handle + tabs (~64px), half ≈ 50%
+     viewport, full ≈ 85%. Используем `dvh`, чтобы корректно работало
+     с динамической iOS-toolbar высотой. */
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'][data-snap='peek'] {
+    height: 64px;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'][data-snap='half'] {
+    height: 50dvh;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'][data-snap='full'] {
+    height: 85dvh;
+  }
+
+  /* Handle (drag-ручка) — серая горизонтальная полоска сверху панели. */
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    flex-shrink: 0;
+    touch-action: none; /* отключаем встроенный pan-y браузера на handle */
+    cursor: ns-resize;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__handle-bar {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--c-555, #555);
+  }
+
+  /* Размер доски синхронно меняется по snap. Внутри embedded
+     AnalysisPage `.analysis-board-area` сидит над sidebar'ом; в
+     focus-mode задаём ему `max-height = 100dvh - top-зона - sheet`.
+     Top-зона ≈ 40 compact-header + 28 progress-pill + 4px зазор = 72px. */
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'][data-snap='peek']
+    ~ .analysis-board-area,
+  .app.focus-mode-active
+    .lesson-game-step__viewer
+    [data-snap='peek']
+    ~ .analysis-board-area {
+    /* Селекторы оба варианта (sibling и data-attr-based) — для
+       устойчивости к будущим DOM-перестановкам. */
+  }
+  .app.focus-mode-active .lesson-game-step__viewer {
+    /* Зарезервируем место для sheet'а в самом viewer'е, чтобы
+       вертикальная навигация AnalysisPage не уезжала под sheet. */
+    --sheet-h: 64px;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true'][data-snap='peek'] {
+    /* peek = 64px → доска ≈ 100dvh - 72 (top) - 64 (sheet) ≈ 644px на Pixel 7. */
+  }
+  /* JS-вариант синхронизации (используется когда CSS sibling не помогает):
+     `data-snap` снимается из .analysis-mobile-panel и читается через
+     CSS-var на родительском `.lesson-game-step` — см. атрибут
+     `data-sheet-snap` в `GameStep.tsx`. */
+  .lesson-game-step[data-sheet-snap='peek'] .analysis-board-wrapper {
+    max-height: calc(100dvh - 72px - 64px - 56px);
+  }
+  .lesson-game-step[data-sheet-snap='half'] .analysis-board-wrapper {
+    max-height: calc(100dvh - 72px - 50dvh - 56px);
+  }
+  .lesson-game-step[data-sheet-snap='full'] .analysis-board-wrapper {
+    max-height: calc(100dvh - 72px - 85dvh - 56px);
+  }
+  /* Доска квадратная — задаём через ratio. */
+  .lesson-game-step[data-sheet-snap] .analysis-board-wrapper {
+    aspect-ratio: 1 / 1;
+    width: auto;
+    margin: 0 auto;
+  }
+}
+

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +14,8 @@ import type { useEngineConfig } from '../../hooks/useEngineConfig';
 import { formatEval, formatPv } from '../../utils/chessFormat';
 import { EngineLoader } from '../../components/EngineLoader';
 import { SidebarFontSizeButton } from '../../components/SidebarFontSizeButton';
+import { useBottomSheet } from '../../hooks/useBottomSheet';
+import { useFocusMode } from '../../context/FocusModeContext';
 
 /**
  * KS-2866 (ADR-060 §10.1 FR3) — извлечённый sidebar `AnalysisPage`.
@@ -145,6 +148,44 @@ export function AnalysisSidebar({
   concealAfterPly = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
+  // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
+  // focus-mode (внутри шага game). Snap-state и drag-handle — здесь.
+  // На desktop и вне focus-mode hook вызывается, но `data-snap` атрибут
+  // ниже подставляется в `.analysis-mobile-panel` только когда нужно
+  // (`focusModeActive`), а CSS-правила висят под `@media (max-width:
+  // 767px) .focus-mode-active .analysis-mobile-panel` — это исключает
+  // регрессии на обычном /analysis.
+  const {
+    active: focusModeActive,
+    sheetSnap,
+    setSheetSnap,
+  } = useFocusMode();
+  // KS-3190: useBottomSheet даёт handleProps для drag-жестов; `snap`
+  // здесь — это «теневое» состояние внутри хука, реальный snap живёт в
+  // `FocusModeContext.sheetSnap`. Через колбэк `onChange` ниже мы
+  // синхронизируем оба: жест меняет `sheetSnap` в контексте, тот
+  // используется и здесь (через `data-snap`), и в `GameStep` (для
+  // `data-sheet-snap` на корне → CSS подстраивает high доски).
+  const sheet = useBottomSheet({ initial: sheetSnap });
+  // Прокинем «текущий снап» обратно в context при каждом изменении
+  // внутри хука. Делаем через `useEffect`, чтобы не дёргать сеттер
+  // в render-фазе. См. ниже.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (sheet.snap !== sheetSnap) setSheetSnap(sheet.snap);
+  }, [sheet.snap]);
+  // Если кто-то ещё изменит context.sheetSnap (например tap по табу
+  // ниже зовёт sheet.setSnap → context update → ререндер → внутренний
+  // state хука уже синхрон). Дополнительной обратной синхронизации
+  // тут не нужно: единственный writer внешний — handleTabTap, который
+  // зовёт sheet.setSnap напрямую.
+
+  // Tap по табу должен подтянуть sheet в `half`, если он в `peek`.
+  // В `half`/`full` оставляем как есть, чтобы лишний tap не сворачивал.
+  const handleTabTap = (tab: AnalysisMobileTab) => {
+    onMobileTabChange(tab);
+    if (focusModeActive && sheet.snap === 'peek') sheet.setSnap('half');
+  };
 
   return (
     <div className="analysis-sidebar" data-testid="analysis-sidebar">
@@ -374,14 +415,38 @@ export function AnalysisSidebar({
         <MaterialBalance fen={currentFen} />
       </div>
 
-      {/* ===== Mobile: Single panel with tabs ===== */}
-      <div className="analysis-mobile-panel">
+      {/* ===== Mobile: Single panel with tabs =====
+          KS-3190 (ADR-073 §7 F3): в focus-mode на mobile панель ведёт
+          себя как bottom-sheet с 3 snap-точками. `data-focus-sheet` +
+          `data-snap` управляют CSS-стилем (`@media (max-width: 767px)
+          .focus-mode-active .analysis-mobile-panel[data-focus-sheet="true"]
+          { ... }`). Stockfish-worker не зависит от этого DOM —
+          init/анализ продолжаются через useStockfish, видимость UI
+          лишь скрывает его панель. */}
+      <div
+        className="analysis-mobile-panel"
+        data-focus-sheet={focusModeActive ? 'true' : 'false'}
+        data-snap={focusModeActive ? sheet.snap : undefined}
+        data-testid="analysis-mobile-panel"
+      >
+        {focusModeActive && (
+          <div
+            className="analysis-mobile-panel__handle"
+            data-testid="analysis-mobile-panel-handle"
+            role="separator"
+            aria-label={t('focusMode.sheet.handle', 'Drag to resize')}
+            {...handleProps}
+          >
+            <span className="analysis-mobile-panel__handle-bar" aria-hidden="true" />
+          </div>
+        )}
         <div className="analysis-mobile-panel__tabs">
           <button
             className={`analysis-mobile-tab${
               mobileTab === 'moves' ? ' active' : ''
             }`}
-            onClick={() => onMobileTabChange('moves')}
+            data-testid="analysis-mobile-tab-moves"
+            onClick={() => handleTabTap('moves')}
           >
             {t('review.moves', 'Moves')}
           </button>
@@ -389,7 +454,8 @@ export function AnalysisSidebar({
             className={`analysis-mobile-tab${
               mobileTab === 'engine' ? ' active' : ''
             }`}
-            onClick={() => onMobileTabChange('engine')}
+            data-testid="analysis-mobile-tab-engine"
+            onClick={() => handleTabTap('engine')}
           >
             {t('analysis.engine', 'Engine')}
           </button>
@@ -397,7 +463,8 @@ export function AnalysisSidebar({
             className={`analysis-mobile-tab${
               mobileTab === 'tree' ? ' active' : ''
             }`}
-            onClick={() => onMobileTabChange('tree')}
+            data-testid="analysis-mobile-tab-tree"
+            onClick={() => handleTabTap('tree')}
           >
             {t('archive.tree', 'Tree')}
           </button>

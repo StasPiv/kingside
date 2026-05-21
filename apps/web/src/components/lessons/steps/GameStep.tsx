@@ -70,7 +70,11 @@ export function GameStep({
    * режим в редакторе шага) — НЕ активируем focus, иначе автор курса в
    * выпадающем preview увидит compact-layout вместо обычного редактора.
    */
-  const { enable: enableFocusMode, disable: disableFocusMode } = useFocusMode();
+  const {
+    enable: enableFocusMode,
+    disable: disableFocusMode,
+    sheetSnap,
+  } = useFocusMode();
   useEffect(() => {
     if (hideNext) return undefined;
     enableFocusMode();
@@ -94,7 +98,16 @@ export function GameStep({
   }
 
   return (
-    <div className="lesson-game-step" data-testid="lesson-game-step">
+    <div
+      className="lesson-game-step"
+      data-testid="lesson-game-step"
+      // KS-3190 (ADR-073 §7 F3): пробрасываем snap-точку bottom-sheet'а
+      // как data-атрибут на корень шага — CSS подстраивает `max-height`
+      // у `.analysis-board-wrapper` по этому селектору (см. analysis.css).
+      // Доска синхронно меняет размер с sheet'ом: peek → ≈644px, half →
+      // ≈половина viewport'а, full → ≈малая доска вверху.
+      data-sheet-snap={sheetSnap}
+    >
       <div
         className="lesson-game-step__viewer"
         data-testid="lesson-game-step-viewer"

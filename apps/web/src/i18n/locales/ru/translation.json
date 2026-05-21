@@ -79,7 +79,10 @@
     "puzzleN": "Задача #{{id}}"
   },
   "focusMode": {
-    "backToLesson": "← Назад к уроку"
+    "backToLesson": "← Назад к уроку",
+    "sheet": {
+      "handle": "Потяните, чтобы изменить размер"
+    }
   },
   "nav": {
     "settings": "Настройки",

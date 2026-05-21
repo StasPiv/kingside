@@ -79,7 +79,10 @@
     "puzzleN": "Puzzle #{{id}}"
   },
   "focusMode": {
-    "backToLesson": "← Back to lesson"
+    "backToLesson": "← Back to lesson",
+    "sheet": {
+      "handle": "Drag to resize"
+    }
   },
   "nav": {
     "settings": "Settings",

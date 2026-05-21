@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import type { BottomSheetSnap } from '../hooks/useBottomSheet';
+
 /**
  * KS-3188 (ADR-073 §7 F1) — глобальный контекст «фокус-режима» layout'а.
  *
@@ -35,6 +37,15 @@ interface FocusModeContextValue {
   active: boolean;
   enable: () => void;
   disable: () => void;
+  /**
+   * KS-3190 (ADR-073 §7 F3): текущая snap-точка bottom-sheet'а внутри
+   * focus-mode. Хранится в контексте, чтобы `AnalysisSidebar` (где
+   * физически живёт sheet) и `GameStep` / `UserLessonView` (где
+   * подстраивается высота доски и layout) видели одно и то же
+   * значение без prop-drilling'а через 3-4 компонента.
+   */
+  sheetSnap: BottomSheetSnap;
+  setSheetSnap: (next: BottomSheetSnap) => void;
 }
 
 const FocusModeContext = createContext<FocusModeContextValue | null>(null);
@@ -45,11 +56,17 @@ interface FocusModeProviderProps {
 
 export function FocusModeProvider({ children }: FocusModeProviderProps) {
   const [active, setActive] = useState(false);
+  const [sheetSnap, setSheetSnap] = useState<BottomSheetSnap>('peek');
   const enable = useCallback(() => setActive(true), []);
-  const disable = useCallback(() => setActive(false), []);
+  const disable = useCallback(() => {
+    setActive(false);
+    // KS-3190: при выходе из focus-mode сбрасываем snap к дефолту,
+    // чтобы повторное включение начало с peek (а не с last-used full).
+    setSheetSnap('peek');
+  }, []);
   const value = useMemo<FocusModeContextValue>(
-    () => ({ active, enable, disable }),
-    [active, enable, disable],
+    () => ({ active, enable, disable, sheetSnap, setSheetSnap }),
+    [active, enable, disable, sheetSnap],
   );
   return (
     <FocusModeContext.Provider value={value}>
@@ -69,6 +86,8 @@ const NOOP_CONTEXT: FocusModeContextValue = {
   active: false,
   enable: () => undefined,
   disable: () => undefined,
+  sheetSnap: 'peek',
+  setSheetSnap: () => undefined,
 };
 
 export function useFocusMode(): FocusModeContextValue {
