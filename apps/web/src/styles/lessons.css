@@ -628,6 +628,14 @@
      header) + 48 (sticky-progress-sticky) ≈ 100px. */
   scroll-margin-top: 100px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  /* KS-3186: карточка шага — flex-item внутри `.lesson-step-list`
+     (или его mobile-аналога). Без `min-width: 0` длинные строки
+     внутри (Stockfish PV в game-step) расширяют карточку наружу
+     viewport'а, доска вылезает за пределы экрана. `overflow-x: hidden`
+     гарантирует, что любой растущий контент обрежется по правому
+     краю карточки, а не растянет родительский layout. */
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 /* Состояния шага по data-step-state */
@@ -7895,6 +7903,15 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  /* KS-3186: критично для mobile — без `overflow-x: hidden` длинные
+   * Stockfish PV-линии (white-space: nowrap) растягивают `.lesson-
+   * game-step` и всю цепочку родителей наружу viewport'а, доска
+   * уезжает за пределы экрана. Содержимое (PV-линии) обрежется по
+   * правому краю `.lesson-game-step`. */
+  overflow-x: hidden;
 }
 /* KS-3183 (ADR-072 §7 L1): viewer-обёртка для AnalysisPage в embedded.
  * - Desktop: высота фиксирована — даёт `.analysis-page` корректную
@@ -7923,19 +7940,122 @@
   padding: 0 0 8px;
 }
 @media (max-width: 768px) {
+  /* KS-3186 (регрессия KS-3183): фиксированная высота viewer'а на
+   * мобильном вызывала «прыжки» вёрстки — при запуске Stockfish или
+   * переключении табов нижняя панель (3 PV-линии / d15 metrics)
+   * растёт, board-area внутри `.analysis-page` (flex: 0 0 auto, но без
+   * `flex-shrink: 0` у board-container) ужимается и доска обрезается
+   * сверху/сбоку.
+   *
+   * Фикс: отдаём вёрстку естественному потоку. Доска — квадрат с
+   * `aspect-ratio: 1/1` фиксированной ширины (= ширине viewer'а),
+   * нижняя часть растёт под содержимое, страница (LessonPage)
+   * скроллится снаружи. CTA «Я разобрал партию» — снаружи viewer'а
+   * в `.lesson-game-step__actions`, она и так не перекрывает доску.
+   */
   .lesson-game-step__viewer {
-    /* На мобильном даём больше места под доску+табы. Доска внутри
-     * `.board-container` всё равно ограничена `min-width: 0` и
-     * `flex: 1 1 0%`, поэтому не выйдет за пределы карточки. */
-    height: min(680px, calc(100vh - 160px));
-    min-height: 420px;
-  }
-  /* В embedded-режиме `.analysis-board-area` теряет `max-width: 65%`
-   * и `.analysis-mobile-panel` уже сам растягивается на 100%. */
-  .lesson-game-step__viewer .analysis-board-area {
+    height: auto;
+    min-height: 0;
+    /* overflow-x: hidden + min-width: 0 — критично, иначе длинные PV-
+     * линии Stockfish (white-space: nowrap) растягивают viewer и всех
+     * родителей наружу viewport'а, доска выезжает за пределы. */
+    overflow-x: hidden;
+    overflow-y: visible;
+    min-width: 0;
     max-width: 100%;
-    flex: 0 0 auto;
   }
+  /* `.analysis-page` отдаёт flex-стратегию — больше не растягивается
+   * под фиксированную высоту, а растёт под контент. Главное:
+   * переключаем flex-direction: column — на mobile board сверху,
+   * sidebar с табами под ней (а не справа). Это убирает `min-width:
+   * 280px` у sidebar из конкуренции за горизонтальное место и доска
+   * получает полную ширину viewer'а. */
+  .lesson-game-step__viewer .analysis-page {
+    flex: 0 0 auto;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    gap: 0;
+  }
+  /* Sidebar — снимаем min-width 280px (бессмыслен в column-layout на
+   * мобильном) и overflow: hidden (для естественной высоты mobile-
+   * панели). На mobile видимая часть sidebar'а — только
+   * `.analysis-mobile-panel`. */
+  .lesson-game-step__viewer .analysis-sidebar {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    align-self: stretch;
+  }
+  /* Board-area — растягивается на полную ширину viewer'а. */
+  .lesson-game-step__viewer .analysis-board-area {
+    flex: 0 0 100%;
+    max-width: 100%;
+    width: 100%;
+    overflow: visible;
+  }
+  /* Wrapper доски тоже растягивается, без overflow:hidden. */
+  .lesson-game-step__viewer .analysis-board-wrapper {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 0;
+    overflow: visible;
+  }
+  /* Главный фикс: board-container — строгий квадрат через
+   * `aspect-ratio: 1/1`. Ширина = доступная ширина row минус eval-bar
+   * (44px). Дополнительный `max-width: calc(100vw - 80px)` страхует от
+   * случая, когда родительская ширина не определена (intrinsic) и
+   * квадрат вырастает за пределы viewport'а. */
+  .lesson-game-step__viewer .board-container {
+    flex: 1 1 0%;
+    aspect-ratio: 1 / 1;
+    width: auto;
+    min-width: 0;
+    /* Без явного max-width: пусть растягивается до полной ширины
+     * eval-board-row минус eval-bar. На mobile viewport-height
+     * нерелевантен — высота получится по aspect-ratio. */
+    max-width: 100%;
+    align-self: flex-start;
+  }
+  /* Eval-board row жмём по краю viewer'а, без правого padding. */
+  .lesson-game-step__viewer .analysis-eval-board-row {
+    flex: 0 0 auto;
+    width: 100%;
+    padding-right: 0;
+    box-sizing: border-box;
+  }
+  /* Mobile-panel с табами растёт под содержимое естественно, но width
+   * жёстко ограничена 100% — внутри PV-линии Stockfish получают
+   * горизонтальный скролл/ellipsis, parent layout не растягивается. */
+  .lesson-game-step__viewer .analysis-mobile-panel {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .lesson-game-step__viewer .analysis-mobile-panel__content {
+    overflow-x: hidden;
+    overflow-y: visible;
+    max-height: none;
+    min-width: 0;
+    width: 100%;
+  }
+  .lesson-game-step__viewer .analysis-mobile-panel__content .analysis-panel-body,
+  .lesson-game-step__viewer .analysis-mobile-panel__content .analysis-panel-body--scroll {
+    overflow-x: hidden;
+    overflow-y: visible;
+    max-height: none;
+    min-width: 0;
+    width: 100%;
+  }
+  /* PV-линии (`.stockfish-pv`) уже имеют `white-space: nowrap` +
+   * `text-overflow: ellipsis` в analysis.css — оставляем как есть,
+   * длинные строки обрежутся по правому краю mobile-panel'а. */
 }
 .lesson-game-step__actions {
   display: flex;

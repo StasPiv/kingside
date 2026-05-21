@@ -30,7 +30,21 @@ export function DevGameStepPage() {
     pgn: SAMPLE_PGN,
   };
   return (
-    <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
+    <div
+      style={{
+        padding: 16,
+        maxWidth: 1200,
+        margin: '0 auto',
+        // KS-3186: dev-страница живёт внутри `.app-body` flex-контейнера,
+        // у flex-item-а default `min-width: min-content`, что заставляет
+        // dev div растягиваться от длинных Stockfish PV-линий ниже.
+        // Явный min-width: 0 + width: 100% удерживает его в ширине
+        // viewport'а — в реальном LessonPage эту роль выполняет `.lesson-step`.
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
       <h2 style={{ marginTop: 0 }}>Dev · GameStep (KS-3183)</h2>
       <GameStep payload={payload} hideNext={false} />
     </div>
