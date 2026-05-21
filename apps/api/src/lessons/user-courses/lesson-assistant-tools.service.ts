@@ -25,6 +25,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -48,6 +50,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { McpToolForAssistant } from '../../mcp/decorators';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
@@ -61,6 +64,16 @@ export const ASSISTANT_STEPS_PER_LESSON_MAX = 10;
 export const ASSISTANT_ALLOWED_STEP_TYPES = ['text', 'quiz'] as const;
 export type AssistantAllowedStepType =
   (typeof ASSISTANT_ALLOWED_STEP_TYPES)[number];
+
+/**
+ * KS-3208 / ADR-074 §10 B4. Лимит на создание курса через ассистента —
+ * 5 курсов в час с одного userId. Системный `coursesPerUser=20`
+ * (ADR-026) остаётся как страховка верхнего потолка.
+ */
+export const ASSISTANT_CREATE_COURSE_RATE_LIMIT = {
+  maxRequests: 5,
+  windowSec: 60 * 60,
+} as const;
 
 // ─── DTOs ────────────────────────────────────────────────────────────
 
@@ -181,7 +194,52 @@ export class LessonAssistantTools {
     private readonly courses: UserCoursesService,
     private readonly lessons: UserLessonsService,
     private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {}
+
+  /**
+   * KS-3208: ручная проверка rate-limit (декоратор `@UserRateLimit` —
+   * для HTTP-роутов, а ассистент дёргает метод напрямую через
+   * `McpAssistantRegistry`). Семантика идентична `UserRateLimitGuard`:
+   * INCR + EXPIRE; превышение → 429 с `Retry-After`. Fail-open при
+   * сбое Redis (логируем) — не валим UX из-за временного глюка кеша.
+   */
+  private async enforceAssistantRateLimit(
+    userId: string,
+    op: string,
+    cfg: { maxRequests: number; windowSec: number },
+  ): Promise<void> {
+    const key = `ratelimit:assistant:${op}:${userId}`;
+    try {
+      const current = await this.redis.incr(key);
+      if (current === 1) {
+        await this.redis.expire(key, cfg.windowSec);
+      }
+      if (current > cfg.maxRequests) {
+        let retryAfter = cfg.windowSec;
+        try {
+          const ttl = await this.redis.ttl(key);
+          if (ttl > 0) retryAfter = ttl;
+        } catch {
+          /* fall through with windowSec */
+        }
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.TOO_MANY_REQUESTS,
+            message: `Assistant rate limit exceeded for '${op}' (max ${cfg.maxRequests} per ${cfg.windowSec}s)`,
+            retryAfter,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      this.logger.warn(
+        `assistant rate-limit Redis error for op='${op}' user=${userId}: ${(e as Error).message}`,
+      );
+      // fail-open
+    }
+  }
 
   @McpToolForAssistant({
     name: 'create_user_course',
@@ -189,17 +247,58 @@ export class LessonAssistantTools {
       'Create a new chess course owned by the current user. ' +
       'Title is required (1-100 chars); description is optional (≤500). ' +
       'Use when the user explicitly asks the assistant to build a course. ' +
-      'Returns the new course id and slug.',
+      'Returns the new course id and slug. ' +
+      'Rate limit: 5 courses per hour per user; subsequent calls return 429.',
   })
   async createUserCourse(
     input: CreateUserCourseAssistantInput,
     req: { user: { id: string } },
   ): Promise<{ id: string; slug: string; title: string }> {
-    const dto = await this.courses.create(req.user.id, {
-      title: input.title,
-      description: input.description,
+    const userId = req.user.id;
+
+    // KS-3208: rate-limit 5/час на ассистент-создание курса. Проверяем
+    // ДО записи в audit, чтобы 429 не плодил pending-строки.
+    await this.enforceAssistantRateLimit(
+      userId,
+      'create_user_course',
+      ASSISTANT_CREATE_COURSE_RATE_LIMIT,
+    );
+
+    // KS-3208: audit-журнал. Пишем `pending` с исходным input'ом до
+    // вызова сервиса; после успеха обновляем status+createdCourseId,
+    // при ошибке — status=failed + error (и rethrow'аем).
+    const generation = await this.prisma.aiLessonGeneration.create({
+      data: {
+        userId,
+        planJson: { ...input } as object,
+        status: 'pending',
+      },
+      select: { id: true },
     });
-    return { id: dto.id, slug: dto.slug, title: dto.title };
+    try {
+      const dto = await this.courses.create(userId, {
+        title: input.title,
+        description: input.description,
+      });
+      await this.prisma.aiLessonGeneration.update({
+        where: { id: generation.id },
+        data: { status: 'created', createdCourseId: dto.id },
+      });
+      return { id: dto.id, slug: dto.slug, title: dto.title };
+    } catch (e) {
+      const errMsg = (e as Error).message ?? String(e);
+      await this.prisma.aiLessonGeneration
+        .update({
+          where: { id: generation.id },
+          data: { status: 'failed', error: errMsg.slice(0, 4000) },
+        })
+        .catch((updErr) => {
+          this.logger.warn(
+            `failed to mark generation ${generation.id} as failed: ${(updErr as Error).message}`,
+          );
+        });
+      throw e;
+    }
   }
 
   @McpToolForAssistant({

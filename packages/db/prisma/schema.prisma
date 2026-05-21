@@ -110,6 +110,8 @@ model User {
   // KS-2373: статистика посещений разделов для динамического
   // MobileBottomBar (top-3 разделы → нижняя панель, остальные в «Ещё»).
   navStats               UserNavStat[]
+  // KS-3208 / ADR-074 §10 B4: audit-журнал AI-генераций курсов.
+  aiLessonGenerations    AiLessonGeneration[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1063,6 +1065,10 @@ model Course {
   /// KS-2095: self-relation для языковых вариантов.
   parent       Course?   @relation("CourseTranslations", fields: [parentCourseId], references: [id], onDelete: SetNull)
   translations Course[]  @relation("CourseTranslations")
+  /// KS-3208 / ADR-074 §10 B4. Audit-журнал AI-генераций, в которых
+  /// этот курс — результирующий (status='created'). Удаление курса
+  /// зануляет `createdCourseId` в записи, но саму запись не удаляет.
+  aiGenerations AiLessonGeneration[]
 
   /// KS-2639 / ADR-054 §3.2 Phase A. Slug-namespace по владельцу:
   /// уникальность `(slug, lang)` для системных и `(owner_id, slug)`
@@ -1082,6 +1088,36 @@ model Course {
   /// по `updatedAt` — индекс покрывает запрос автора.
   @@index([ownerId, updatedAt])
   @@map("courses")
+}
+
+/// KS-3208 / ADR-074 §10 B4. Audit-журнал генераций курсов через AI-
+/// ассистента. Каждый вызов tool'а `create_user_course` пишет строку
+/// `pending` с исходным `planJson` (вход модели); после успешного
+/// создания статус переключается на `created` и `createdCourseId` ←
+/// id нового `Course`; при ошибке — `failed` + `error`.
+///
+/// Шкала состояний (хранится как String, без Prisma-enum — добавление
+/// новых статусов не должно тянуть миграцию):
+///   - `pending`  — заявка принята, курс ещё не создан.
+///   - `created`  — `createdCourseId` указывает на готовый курс.
+///   - `failed`   — `error` содержит причину; курс не создан.
+model AiLessonGeneration {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  planJson        Json     @map("plan_json")
+  status          String
+  createdCourseId String?  @map("created_course_id") @db.Uuid
+  error           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// KS-3208: связь не cascade — удалять курс не должно сносить
+  /// audit-запись. На уровне БД FK ON DELETE SET NULL.
+  createdCourse Course? @relation(fields: [createdCourseId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("ai_lesson_generations")
 }
 
 model Lesson {

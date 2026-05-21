@@ -39,14 +39,19 @@ const STEP_ID = '00000000-0000-4000-a000-000000000030';
 function makeTools(overrides: {
   lesson?: { ownerId: string; stepCount: number } | null;
   course?: { ownerId: string; slug: string } | null;
+  redisIncrSeq?: number[];
 } = {}): {
   tools: LessonAssistantTools;
   coursesMock: jest.Mocked<UserCoursesService>;
   lessonsMock: jest.Mocked<UserLessonsService>;
+  prismaMock: PrismaService;
+  redisMock: { incr: jest.Mock; expire: jest.Mock; ttl: jest.Mock };
 } {
   const lesson = overrides.lesson;
   const course = overrides.course;
 
+  const aiCreate = jest.fn().mockResolvedValue({ id: 'gen-1' });
+  const aiUpdate = jest.fn().mockResolvedValue({});
   const prisma = {
     lesson: {
       findUnique: jest.fn().mockImplementation(() =>
@@ -65,7 +70,26 @@ function makeTools(overrides: {
         course === undefined ? null : course,
       ),
     },
+    aiLessonGeneration: {
+      create: aiCreate,
+      update: aiUpdate,
+    },
   } as unknown as PrismaService;
+
+  // KS-3208: rate-limit поверх Redis. По умолчанию INCR возвращает
+  // последовательно 1, 2, 3... — лимит не превышен. Тест 429 подаёт
+  // последовательность, где последнее значение > maxRequests.
+  const seq = overrides.redisIncrSeq ?? [1, 2, 3, 4, 5];
+  let incrCallIdx = 0;
+  const redisMock = {
+    incr: jest.fn().mockImplementation(() => {
+      const val = seq[Math.min(incrCallIdx, seq.length - 1)] ?? 1;
+      incrCallIdx += 1;
+      return Promise.resolve(val);
+    }),
+    expire: jest.fn().mockResolvedValue(1),
+    ttl: jest.fn().mockResolvedValue(3600),
+  };
 
   const coursesMock = {
     create: jest
@@ -94,8 +118,9 @@ function makeTools(overrides: {
     coursesMock,
     lessonsMock,
     config,
+    redisMock as any,
   );
-  return { tools, coursesMock, lessonsMock };
+  return { tools, coursesMock, lessonsMock, prismaMock: prisma, redisMock };
 }
 
 describe('LessonAssistantTools (KS-3207)', () => {
@@ -111,6 +136,76 @@ describe('LessonAssistantTools (KS-3207)', () => {
         description: 'Desc',
       });
       expect(out).toEqual({ id: COURSE_ID, slug: 'my-course', title: 'Hello' });
+    });
+
+    // KS-3208: audit-журнал + rate-limit.
+    it('пишет ai_lesson_generations pending → created при успехе', async () => {
+      const { tools, prismaMock } = makeTools();
+      await tools.createUserCourse(
+        { title: 'Hello' } as any,
+        { user: { id: USER_ID } },
+      );
+      const aiCreate = (prismaMock as any).aiLessonGeneration.create as jest.Mock;
+      const aiUpdate = (prismaMock as any).aiLessonGeneration.update as jest.Mock;
+      expect(aiCreate).toHaveBeenCalledWith({
+        data: {
+          userId: USER_ID,
+          planJson: { title: 'Hello' },
+          status: 'pending',
+        },
+        select: { id: true },
+      });
+      expect(aiUpdate).toHaveBeenCalledWith({
+        where: { id: 'gen-1' },
+        data: { status: 'created', createdCourseId: COURSE_ID },
+      });
+    });
+
+    it('пишет failed + error при ошибке UserCoursesService.create', async () => {
+      const { tools, coursesMock, prismaMock } = makeTools();
+      (coursesMock.create as jest.Mock).mockRejectedValueOnce(new Error('boom'));
+      await expect(
+        tools.createUserCourse(
+          { title: 'Hello' } as any,
+          { user: { id: USER_ID } },
+        ),
+      ).rejects.toThrow('boom');
+      const aiUpdate = (prismaMock as any).aiLessonGeneration.update as jest.Mock;
+      expect(aiUpdate).toHaveBeenCalledWith({
+        where: { id: 'gen-1' },
+        data: { status: 'failed', error: 'boom' },
+      });
+    });
+
+    it('6-й вызов в окне → 429 TOO_MANY_REQUESTS, аудит не пишется', async () => {
+      const { tools, prismaMock, coursesMock } = makeTools({
+        redisIncrSeq: [6], // первый же incr вернёт 6 > 5
+      });
+      let thrown: any;
+      try {
+        await tools.createUserCourse(
+          { title: 'Hello' } as any,
+          { user: { id: USER_ID } },
+        );
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeDefined();
+      expect(thrown.getStatus()).toBe(429);
+      const aiCreate = (prismaMock as any).aiLessonGeneration.create as jest.Mock;
+      // 429 ДО создания audit-записи и до вызова сервиса.
+      expect(aiCreate).not.toHaveBeenCalled();
+      expect(coursesMock.create).not.toHaveBeenCalled();
+    });
+
+    it('5-й вызов в окне ещё проходит (граница включительно)', async () => {
+      const { tools } = makeTools({ redisIncrSeq: [5] });
+      await expect(
+        tools.createUserCourse(
+          { title: 'Hello' } as any,
+          { user: { id: USER_ID } },
+        ),
+      ).resolves.toBeDefined();
     });
   });
 
