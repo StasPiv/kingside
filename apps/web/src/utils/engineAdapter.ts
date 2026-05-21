@@ -134,23 +134,177 @@ function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
 
 // ─── WASM Adapter ───
 
+/**
+ * KS-3170 (регрессия KS-3067): причина init-фейла, прокидываемая наружу
+ * через `onError` callback. Совпадает по семантике с `EngineErrorReason`
+ * из `useStockfish`, чтобы `<EngineLoader>` рендерил один и тот же набор
+ * сообщений независимо от того, каким путём загружался движок.
+ */
+export type WasmEngineErrorReason =
+  | 'no_coi'
+  | 'load_failed'
+  | 'init_timeout'
+  | 'worker_error';
+
+export interface WasmEngineAdapterOptions {
+  /**
+   * KS-3170. Прогресс предзагрузки wasm (0..1). Вызывается во время
+   * `fetch + ReadableStream` чтения lite-сборки. Если поток `total=0`
+   * (CDN не вернул content-length) — колбэк может не вызываться вообще,
+   * UI должен отрисовать «идёт загрузка» без процентов.
+   */
+  onProgress?: (loaded: number, total: number) => void;
+  /**
+   * KS-3170. Колбэк-причина при неудачной инициализации. Вызывается
+   * ОДИН раз перед тем, как `init()` бросает Error — UI читает причину,
+   * чтобы вывести `<EngineLoader>` с понятным текстом и retry.
+   */
+  onError?: (reason: WasmEngineErrorReason) => void;
+}
+
+/** KS-3170: 30 секунд — синхронизировано с useStockfish.INIT_TIMEOUT_MS. */
+const WASM_INIT_TIMEOUT_MS = 30_000;
+
+/**
+ * KS-3170 (регрессия KS-3067): пользователь Realme снова получал
+ * «Stockfish init timeout» в `/precision`. Корень — `PlayVsEngineRunner`
+ * шёл через `WasmEngineAdapter`, минуя хук `useStockfish` (а KS-3067
+ * чинил UI прогресса именно в хуке). Адаптер при этом загружал
+ * `stockfish-18-single.js` → 113 МБ wasm, 15-секундный таймаут и ноль
+ * визуальной обратной связи.
+ *
+ * Что изменилось:
+ *  - Переключение на `stockfish-18-lite.js` (7 МБ wasm) — тот же файл,
+ *    что грузит `useStockfish` после KS-3067.
+ *  - Pre-fetch wasm через `fetch + ReadableStream` с прогрессом (`onProgress`).
+ *    Worker создаётся только после успешной предзагрузки — wasm берётся
+ *    из HTTP-кеша браузера (S3 отдаёт ETag/Last-Modified).
+ *  - Гейт `crossOriginIsolated` — без SharedArrayBuffer lite-сборка не
+ *    стартует, отдаём `no_coi` сразу, без 30-секундного ожидания.
+ *  - Таймаут поднят до 30 с (как у `useStockfish`); 15 с не хватало
+ *    мобильному CPU на uci-handshake + wasm compile даже при кешированном
+ *    wasm.
+ *  - `onError(reason)` для UI: `no_coi` / `load_failed` / `init_timeout`
+ *    / `worker_error`.
+ */
+function isWasmMultiThreaded(): boolean {
+  return (
+    typeof SharedArrayBuffer !== 'undefined' &&
+    typeof crossOriginIsolated !== 'undefined' &&
+    crossOriginIsolated
+  );
+}
+
+async function fetchWasmWithProgress(
+  url: string,
+  signal: AbortSignal,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
+  const response = await fetch(url, { signal, credentials: 'same-origin' });
+  if (!response.ok) throw new Error(`fetch ${url} → HTTP ${response.status}`);
+  const totalHeader = response.headers.get('content-length');
+  const total = totalHeader ? Number(totalHeader) : 0;
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    // Старая платформа без ReadableStream — читаем целиком, прогресс 0→100
+    // только в самом конце.
+    await response.arrayBuffer();
+    onProgress?.(total || 1, total || 1);
+    return;
+  }
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      loaded += value.byteLength;
+      onProgress?.(loaded, total || loaded);
+    }
+  }
+  onProgress?.(total || loaded, total || loaded);
+}
+
+const ENGINE_JS_URL = '/stockfish/stockfish-18-lite.js';
+const ENGINE_WASM_URL = '/stockfish/stockfish-18-lite.wasm';
+
 export class WasmEngineAdapter implements EngineAdapter {
   private worker: Worker | null = null;
+  private abortController: AbortController | null = null;
+  private readonly onProgress?: (loaded: number, total: number) => void;
+  private readonly onError?: (reason: WasmEngineErrorReason) => void;
+
+  constructor(options: WasmEngineAdapterOptions = {}) {
+    this.onProgress = options.onProgress;
+    this.onError = options.onError;
+  }
 
   async init(): Promise<void> {
-    this.worker = new Worker('/stockfish/stockfish-18-single.js');
+    // KS-3170: гейт crossOriginIsolated. lite-сборка без COI не стартует,
+    // single-fallback на S3 убран в KS-3067 — нет смысла 30 с крутить
+    // таймаут, сразу отдаём понятную причину наверх.
+    if (!isWasmMultiThreaded()) {
+      this.onError?.('no_coi');
+      throw new Error('Stockfish init failed: no_coi');
+    }
 
+    this.abortController = new AbortController();
+
+    // 1) Предзагрузка wasm с прогрессом. На lite это ≈7 МБ, на 4G мобильном
+    //    Realme ≈10–15 с — без прогресс-бара UX неотличим от зависания.
+    try {
+      await fetchWasmWithProgress(
+        ENGINE_WASM_URL,
+        this.abortController.signal,
+        this.onProgress,
+      );
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') {
+        // destroy() во время загрузки — нормальный путь, не сообщаем UI.
+        throw err;
+      }
+      console.error('[WasmEngine] Failed to fetch wasm:', err);
+      this.onError?.('load_failed');
+      throw new Error('Stockfish init failed: load_failed');
+    }
+
+    // 2) Создаём worker — он внутри сам сделает fetch wasm и подхватит
+    //    из HTTP-кеша браузера (S3 отдаёт ETag + Last-Modified).
+    try {
+      this.worker = new Worker(ENGINE_JS_URL);
+    } catch (err) {
+      console.error('[WasmEngine] Failed to create worker:', err);
+      this.onError?.('worker_error');
+      throw new Error('Stockfish init failed: worker_error');
+    }
+
+    // 3) UCI handshake с 30-секундным таймаутом (sync с useStockfish).
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Stockfish init timeout')), 15000);
+      const timer = setTimeout(() => {
+        this.onError?.('init_timeout');
+        this.worker?.removeEventListener('message', handler);
+        reject(new Error('Stockfish init timeout'));
+      }, WASM_INIT_TIMEOUT_MS);
+
+      const errorHandler = (err: ErrorEvent) => {
+        console.error('[WasmEngine] Worker error during init:', err);
+        clearTimeout(timer);
+        this.onError?.('worker_error');
+        this.worker?.removeEventListener('message', handler);
+        this.worker?.removeEventListener('error', errorHandler);
+        reject(new Error('Stockfish init failed: worker_error'));
+      };
+
       const handler = (e: MessageEvent) => {
         if (typeof e.data === 'string' && e.data.includes('uciok')) {
           clearTimeout(timer);
           this.worker!.removeEventListener('message', handler);
+          this.worker!.removeEventListener('error', errorHandler);
           console.log('[WasmEngine] Stockfish ready');
           resolve();
         }
       };
       this.worker!.addEventListener('message', handler);
+      this.worker!.addEventListener('error', errorHandler);
       this.worker!.postMessage('uci');
     });
 
@@ -218,6 +372,12 @@ export class WasmEngineAdapter implements EngineAdapter {
   }
 
   destroy(): void {
+    // KS-3170: при destroy во время предзагрузки wasm — прервать fetch,
+    // иначе он висит в очереди браузера и тратит трафик мобильного.
+    if (this.abortController) {
+      try { this.abortController.abort(); } catch { /* ignore */ }
+      this.abortController = null;
+    }
     this.worker?.terminate();
     this.worker = null;
   }

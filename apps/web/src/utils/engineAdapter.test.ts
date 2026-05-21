@@ -54,10 +54,39 @@ describe('WasmEngineAdapter KS-2525', () => {
     MockWorker.sent = [];
     // @ts-expect-error replace global Worker for the test
     globalThis.Worker = MockWorker;
+    // KS-3170: новый адаптер гейтит init по `crossOriginIsolated` и
+    // предзагружает wasm через `fetch + ReadableStream`. В jsdom оба
+    // окружения по умолчанию выключены — мокаем явно.
+    Object.defineProperty(globalThis, 'crossOriginIsolated', {
+      value: true,
+      configurable: true,
+    });
+    (globalThis as unknown as { SharedArrayBuffer: unknown }).SharedArrayBuffer =
+      function SharedArrayBuffer(_size: number) {
+        return new ArrayBuffer(_size);
+      } as unknown as SharedArrayBufferConstructor;
+    globalThis.fetch = vi.fn(async () => {
+      // KS-3170: возвращаем минимально валидный Response для wasm-fetch'а
+      // без ReadableStream — адаптер пойдёт по fallback-ветке через
+      // `response.arrayBuffer()` и сразу позовёт onProgress(1, 1).
+      return {
+        ok: true,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === 'content-length' ? '0' : null,
+        },
+        body: null,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete (globalThis as unknown as { crossOriginIsolated?: boolean })
+      .crossOriginIsolated;
+    delete (globalThis as unknown as { SharedArrayBuffer?: unknown })
+      .SharedArrayBuffer;
   });
 
   it('init() после uciok отправляет setoption name UCI_ShowWDL value true', async () => {
@@ -81,6 +110,60 @@ describe('WasmEngineAdapter KS-2525', () => {
     );
     const uciIdx = MockWorker.sent.indexOf('uci');
     expect(wdlIdx).toBeGreaterThan(uciIdx);
+  });
+
+  /**
+   * KS-3170 (регрессия KS-3067): адаптер должен гейтить init по
+   * `crossOriginIsolated` и пробрасывать наружу причину `no_coi` через
+   * `onError`. Без этого пользователь без COI получал 30-секундный
+   * таймаут вместо мгновенной плашки «обнови браузер».
+   */
+  it('KS-3170: без crossOriginIsolated → onError("no_coi") + throw "no_coi"', async () => {
+    Object.defineProperty(globalThis, 'crossOriginIsolated', {
+      value: false,
+      configurable: true,
+    });
+    const onError = vi.fn();
+    const adapter = new WasmEngineAdapter({ onError });
+    await expect(adapter.init()).rejects.toThrow(/no_coi/);
+    expect(onError).toHaveBeenCalledWith('no_coi');
+    // Worker не должен быть создан, fetch — не вызван.
+    expect(MockWorker.sent.length).toBe(0);
+  });
+
+  /**
+   * KS-3170: при успешной предзагрузке адаптер вызывает `onProgress`
+   * хотя бы один раз с финальным значением — UI обновляет прогресс-бар.
+   * (Промежуточные вызовы зависят от наличия `ReadableStream` в mock'е;
+   * минимум что мы гарантируем — финальный (1, 1) перед созданием Worker.)
+   */
+  it('KS-3170: успешная предзагрузка wasm вызывает onProgress', async () => {
+    const onProgress = vi.fn();
+    const adapter = new WasmEngineAdapter({ onProgress });
+    await adapter.init();
+    expect(onProgress).toHaveBeenCalled();
+    // Последний вызов — финальный, loaded === total > 0.
+    const lastCall = onProgress.mock.calls[onProgress.mock.calls.length - 1];
+    expect(lastCall[0]).toBeGreaterThanOrEqual(lastCall[1]);
+  });
+
+  /**
+   * KS-3170: 404 на wasm → `onError('load_failed')` + throw "load_failed".
+   * (Раньше fetch вообще отсутствовал; новый путь должен сообщать о
+   * сетевых проблемах внятно.)
+   */
+  it('KS-3170: ошибка fetch wasm → onError("load_failed")', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      body: null,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    } as unknown as Response)) as unknown as typeof fetch;
+    const onError = vi.fn();
+    const adapter = new WasmEngineAdapter({ onError });
+    await expect(adapter.init()).rejects.toThrow(/load_failed/);
+    expect(onError).toHaveBeenCalledWith('load_failed');
   });
 });
 

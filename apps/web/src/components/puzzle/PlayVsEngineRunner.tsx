@@ -58,6 +58,7 @@ import { EvalBar } from '../EvalBar';
 import { PromotionPicker, type PromotionPiece } from '../PromotionPicker';
 import { PostGameReview } from './PostGameReview';
 import { PrecisionScoreBlock } from '../precision/PrecisionScoreBlock';
+import { EngineLoader } from '../EngineLoader';
 import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import { permilleToPercent } from '../../utils/chessFormat';
 import {
@@ -65,8 +66,9 @@ import {
   type EngineAdapter,
   type AnalysisResult,
   type WdlDistribution,
+  type WasmEngineErrorReason,
 } from '../../utils/engineAdapter';
-import type { EvalLine } from '../../hooks/useStockfish';
+import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import {
   shouldFinishLose,
   isWinDropExcessive,
@@ -629,6 +631,24 @@ export function PlayVsEngineRunner({
   const [reviewFen, setReviewFen] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
+  /**
+   * KS-3170 (регрессия KS-3067): UI-состояние загрузки/ошибки движка.
+   * До этого тикета `PlayVsEngineRunner` создавал `WasmEngineAdapter`
+   * напрямую через `new WasmEngineAdapter()`, в обход `useStockfish` —
+   * соответственно `<EngineLoader>` (KS-3067) на /precision не рендерился,
+   * пользователь видел немой спиннер до 30 с таймаута (а на single-сборке
+   * 113 МБ — гарантированно до таймаута на 4G мобильном).
+   *
+   * Теперь адаптер пробрасывает прогресс предзагрузки lite-wasm (7 МБ)
+   * и причину ошибки наружу через колбэки конструктора, а раннер рендерит
+   * EngineLoader в block-варианте при `loading`/`error`.
+   */
+  const [engineLoadState, setEngineLoadState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [engineLoadProgress, setEngineLoadProgress] = useState(0);
+  const [engineErrorReason, setEngineErrorReason] = useState<EngineErrorReason>(null);
+
   const startTimeRef = useRef(Date.now());
   const submittedRef = useRef(false);
   const engineRef = useRef<EngineAdapter | null>(null);
@@ -648,18 +668,69 @@ export function PlayVsEngineRunner({
   const lastMoveUciRef = useRef<string | null>(null);
 
   // ── Engine init / cleanup ─────────────────────────────────────────────
+  /**
+   * KS-3170: `WasmEngineAdapter` теперь принимает колбэки `onProgress` /
+   * `onError` и предзагружает lite-сборку (7 МБ) с прогрессом. Раннер
+   * пробрасывает эти сигналы в локальное состояние, чтобы `<EngineLoader>`
+   * мог отрисовать прогресс-плашку (loading) или ошибку с retry. Старая
+   * single-сборка (113 МБ) и 15-секундный таймаут — отменены в адаптере.
+   */
   const ensureEngine = useCallback((): Promise<EngineAdapter> => {
     if (engineRef.current) return Promise.resolve(engineRef.current);
     if (engineInitPromiseRef.current) return engineInitPromiseRef.current;
+    setEngineLoadState('loading');
+    setEngineLoadProgress(0);
+    setEngineErrorReason(null);
     const promise = (async () => {
-      const engine = engineFactory ? engineFactory() : new WasmEngineAdapter();
-      await engine.init();
+      const engine = engineFactory
+        ? engineFactory()
+        : new WasmEngineAdapter({
+            onProgress: (loaded, total) => {
+              if (total > 0) {
+                setEngineLoadProgress(Math.min(0.99, loaded / total));
+              }
+            },
+            onError: (reason: WasmEngineErrorReason) => {
+              setEngineErrorReason(reason);
+              setEngineLoadState('error');
+            },
+          });
+      try {
+        await engine.init();
+      } catch (err) {
+        // KS-3170: причина ошибки уже выставлена внутри onError; здесь
+        // только страхуем случай, когда фабрика тестового движка кинула
+        // без вызова onError (старые моки).
+        if ((err as Error)?.name !== 'AbortError') {
+          setEngineLoadState((prev) => (prev === 'loading' ? 'error' : prev));
+        }
+        engineInitPromiseRef.current = null;
+        throw err;
+      }
       engineRef.current = engine;
+      setEngineLoadProgress(1);
+      setEngineLoadState('ready');
       return engine;
     })();
     engineInitPromiseRef.current = promise;
     return promise;
   }, [engineFactory]);
+
+  /**
+   * KS-3170: «Попробовать снова» для `<EngineLoader>`. Сбрасывает init-
+   * promise и движок, дёргает `ensureEngine` повторно. Если пользователь
+   * жмёт retry до того как раннер успел инициировать ход — следующий
+   * ensureEngine стартует с чистого листа.
+   */
+  const retryEngineInit = useCallback(() => {
+    try { engineRef.current?.destroy(); } catch { /* ignore */ }
+    engineRef.current = null;
+    engineInitPromiseRef.current = null;
+    setEngineErrorReason(null);
+    setEngineLoadState('idle');
+    setEngineLoadProgress(0);
+    void ensureEngine().catch(() => undefined);
+  }, [ensureEngine]);
 
   /**
    * KS-2473: сериализованный вызов analyze. Ставит запрос в очередь и
@@ -1553,6 +1624,27 @@ export function PlayVsEngineRunner({
         <EvalBar lines={evalLines} isBlackTurn={evalSide === 'b'} />
 
         <div className="puzzle-engine-runner__board-col">
+          {/* KS-3170 (регрессия KS-3067): UI прогресса/ошибки загрузки
+              движка. Рендерится поверх board-col при loading/error и
+              автоматически исчезает при ready. До этого тикета на
+              /precision не было индикатора, и пользователь Realme на
+              4G видел немой спиннер до 30-секундного таймаута. EngineLoader
+              сам решает рендерить ли себя (null при !loading/!error). */}
+          <EngineLoader
+            state={
+              engineLoadState === 'loading'
+                ? 'loading'
+                : engineLoadState === 'error'
+                ? 'error'
+                : 'ready'
+            }
+            loadProgress={engineLoadProgress}
+            errorReason={engineErrorReason}
+            onRetry={retryEngineInit}
+            variant="inline"
+            className="puzzle-engine-runner__engine-loader"
+          />
+
           <div className="puzzle-engine-runner__progress" data-testid="puzzle-engine-progress">
             {/* KS-2923: подпись над progress-bar. Место под неё уже
                 зарезервировано CSS-правкой KS-2922 (074b2edb). */}
