@@ -40,7 +40,13 @@ describe('LessonsAdminService — courses (KS-1967)', () => {
       },
       $transaction: jest.fn(async (ops: any) => Promise.all(ops)),
     };
-    service = new LessonsAdminService(prisma);
+    // KS-3180: gameStepHydrator используется при создании/обновлении
+    // шага типа `game`. Для остальных тестов hydrate должен быть
+    // no-op — возвращаем payload как есть.
+    const gameStepHydrator = {
+      hydrate: jest.fn(async (payload: any) => payload),
+    } as any;
+    service = new LessonsAdminService(prisma, gameStepHydrator);
   });
 
   // ─── list ──────────────────────────────────────────────────────────

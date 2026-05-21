@@ -304,6 +304,21 @@ export interface GameReviewStepPayload {
 }
 
 /**
+ * KS-3180 / ADR-072 §7 B1. Метаданные партии (стандартные PGN-теги) для
+ * подписи карточки в UI. Все поля опциональны; UI парсит недостающие
+ * из PGN-заголовка.
+ */
+export interface GameStepMeta {
+  white?: string;
+  black?: string;
+  result?: string;
+  date?: string;
+  event?: string;
+  site?: string;
+  round?: string;
+}
+
+/**
  * KS-3179 / ADR-072 §7 S1. Шаг «Партия» — read-only просмотр PGN внутри
  * урока. В отличие от `game_review` (заглушка под автоматический разбор
  * итерации 3) — этот шаг просто показывает партию: доска + список ходов
@@ -326,28 +341,32 @@ export interface GameStepPayload {
   /** Источник партии — инлайн или из сохранённого workshop-анализа. */
   sourceType: 'pgn' | 'workshop_analysis';
   /**
-   * Snapshot PGN партии. Обязателен в обоих режимах: при
-   * `sourceType='workshop_analysis'` бэкенд при создании/обновлении
-   * шага копирует текущий PGN из `Analysis` сюда, чтобы шаг был
-   * самодостаточен (не сломается, если автор удалит анализ).
+   * Snapshot PGN партии.
+   *
+   * Входной контракт API (`POST/PATCH lesson-step`):
+   *   - `sourceType='pgn'` → `pgn` обязателен (валидируется chess.js
+   *     и лимитом 200 КБ).
+   *   - `sourceType='workshop_analysis'` → `pgn` опционален; backend
+   *     перезапишет его snapshot'ом из `Analysis`. Клиенту разрешено
+   *     не присылать поле вовсе.
+   *
+   * Выходной контракт (хранится в БД, возвращается API на GET):
+   *   - Всегда строка — после snapshot'а backend гарантирует, что
+   *     `pgn` присутствует. Несмотря на это, поле объявлено как
+   *     опциональное, чтобы один тип покрывал и input-, и storage-shape;
+   *     потребитель использует `payload.pgn ?? ''` или sanity-check.
    */
-  pgn: string;
+  pgn?: string;
   /**
-   * Шахматные теги для подписи. Если не заданы, фронт парсит из PGN-
-   * заголовка. Поля опциональны и расширяемы (PGN-стандарт допускает
-   * произвольные [Tag "value"]).
+   * Шахматные теги для подписи карточки партии. Все поля опциональны;
+   * если не заданы — фронт парсит их из PGN-заголовка `[Tag "value"]`.
+   *
+   * KS-3180: набор полей фиксированный (white/black/result/date/event/
+   * site/round). PGN-стандарт допускает произвольные теги, но передавать
+   * их в `meta` смысла нет — payload и так содержит весь PGN-текст,
+   * откуда фронт всегда может вытащить нестандартный тег.
    */
-  meta?: {
-    white?: string;
-    black?: string;
-    result?: string;
-    date?: string;
-    event?: string;
-    site?: string;
-    round?: string;
-    /** Произвольные доп. теги. */
-    [extraTag: string]: string | undefined;
-  };
+  meta?: GameStepMeta;
   /**
    * UUID исходного `Analysis` в workshop'е (только при
    * `sourceType='workshop_analysis'`). Используется редактором шага

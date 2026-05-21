@@ -18,6 +18,7 @@ import { UserCoursesService } from '../lessons/user-courses/user-courses.service
 import { UserLessonsService } from '../lessons/user-courses/user-lessons.service';
 import { UserProgressService } from '../lessons/user-courses/user-progress.service';
 import { SlugService } from '../lessons/user-courses/slug.service';
+import { GameStepHydratorService } from '../lessons/dto/game-step.hydrator';
 import type { CacheService } from '../common/cache.service';
 import type { PrismaService } from '../prisma/prisma.service';
 
@@ -42,7 +43,11 @@ async function main(): Promise<void> {
 
   const slug = new SlugService(prismaSvc);
   const userCoursesSvc = new UserCoursesService(prismaSvc, slug, cache);
-  const userLessonsSvc = new UserLessonsService(prismaSvc);
+  // KS-3180: для verify-скрипта game-step гидратор не нужен (фикстуры
+  // используют только text/puzzle/quiz), но конструктор требует
+  // зависимость — передаём инстанс с тем же PrismaService.
+  const gameStepHydrator = new GameStepHydratorService(prismaSvc);
+  const userLessonsSvc = new UserLessonsService(prismaSvc, gameStepHydrator);
   const userProgressSvc = new UserProgressService(prismaSvc);
 
   let anyFailure = false;

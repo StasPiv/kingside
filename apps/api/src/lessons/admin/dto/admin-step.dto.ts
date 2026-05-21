@@ -42,6 +42,8 @@ const LESSON_STEP_TYPES: ReadonlyArray<LessonStepType> = [
   'opening_drill',
   // KS-2249: тактический drill (8 типов из methodology §2) в составе урока.
   'drill',
+  // KS-3179/3180 (ADR-072 §7): шаг «Партия» — read-only PGN просмотр.
+  'game',
 ];
 
 export class CreateAdminStepDto {

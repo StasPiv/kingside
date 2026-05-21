@@ -22,6 +22,7 @@ import {
   ReorderAdminStepsDto,
   UpdateAdminStepDto,
 } from './dto/admin-step.dto';
+import { GameStepHydratorService } from '../dto/game-step.hydrator';
 
 /**
  * KS-1962/B-5: сервис админ-CRUD для system courses.
@@ -37,7 +38,10 @@ import {
  */
 @Injectable()
 export class LessonsAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gameStepHydrator: GameStepHydratorService,
+  ) {}
 
   // ─── List ────────────────────────────────────────────────────────
 
@@ -306,7 +310,7 @@ export class LessonsAdminService {
 
   // ═══ Steps (KS-1969 / B-7) ═════════════════════════════════════════
 
-  async createStep(lessonId: string, dto: CreateAdminStepDto) {
+  async createStep(lessonId: string, dto: CreateAdminStepDto, userId: string | null = null) {
     await this.assertLessonExists(lessonId);
 
     if (dto.type !== dto.payload.type) {
@@ -315,6 +319,11 @@ export class LessonsAdminService {
       );
     }
 
+    // KS-3180 (ADR-072 §7 B1): для `game` со sourceType=workshop_analysis
+    // снимаем snapshot PGN+meta из Analysis (owner-check, 403 на чужой).
+    // Для остальных типов hydrate — no-op.
+    const hydratedPayload = await this.gameStepHydrator.hydrate(dto.payload, userId);
+
     const order = dto.order ?? (await this.computeNextStepOrder(lessonId));
 
     return this.prisma.lessonStep.create({
@@ -322,12 +331,12 @@ export class LessonsAdminService {
         lessonId,
         order,
         type: dto.type,
-        payload: dto.payload as unknown as Prisma.InputJsonValue,
+        payload: hydratedPayload as unknown as Prisma.InputJsonValue,
       },
     });
   }
 
-  async updateStep(id: string, dto: UpdateAdminStepDto) {
+  async updateStep(id: string, dto: UpdateAdminStepDto, userId: string | null = null) {
     const existing = await this.prisma.lessonStep.findUnique({
       where: { id },
       select: { id: true, type: true },
@@ -358,7 +367,9 @@ export class LessonsAdminService {
     if (dto.order !== undefined) data.order = dto.order;
     if (dto.type !== undefined) data.type = dto.type;
     if (dto.payload !== undefined) {
-      data.payload = dto.payload as unknown as Prisma.InputJsonValue;
+      // KS-3180: snapshot для game/workshop_analysis (см. createStep).
+      const hydratedPayload = await this.gameStepHydrator.hydrate(dto.payload, userId);
+      data.payload = hydratedPayload as unknown as Prisma.InputJsonValue;
     }
 
     return this.prisma.lessonStep.update({ where: { id }, data });

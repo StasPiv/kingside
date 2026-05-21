@@ -24,6 +24,8 @@ import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 import { ActiveCoursesService } from './active-courses.service';
 import { LessonsAdminService } from './admin/lessons-admin.service';
 import { LessonsAdminImportService } from './admin/lessons-admin-import.service';
+// KS-3180 / ADR-072 §7 B1 — snapshot Analysis → GameStepPayload.
+import { GameStepHydratorService } from './dto/game-step.hydrator';
 // KS-2642 / ADR-054 Phase C — единый guard доступа.
 import { LessonsAccessGuard } from './lessons-access.guard';
 // KS-2643 / ADR-054 Phase C2 — унифицированные роуты `/lessons/*`.
@@ -118,6 +120,8 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
     // навешивании `@UseGuards(LessonsAccessGuard)` на унифицированных
     // роутах, которые добавляются в следующих подзадачах Phase C.
     LessonsAccessGuard,
+    // KS-3180 / ADR-072 §7 B1 — snapshot Analysis для GameStep'а в admin-CRUD.
+    GameStepHydratorService,
   ],
   exports: [
     CoursesService,

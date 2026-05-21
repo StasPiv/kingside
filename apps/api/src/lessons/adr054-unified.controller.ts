@@ -201,8 +201,14 @@ export class Adr054UnifiedLessonsController {
     USER_COURSES_RATE_LIMITS.addStep.maxRequests,
     USER_COURSES_RATE_LIMITS.addStep.windowSec,
   )
-  addStep(@Param('id') id: string, @Body() body: CreateUserLessonStepDto) {
-    return this.service.addStep(id, body);
+  addStep(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: CreateUserLessonStepDto,
+  ) {
+    // KS-3180: userId — для owner-check'а Analysis при snapshot'е
+    // `game/workshop_analysis`. Для остальных типов hydrate — no-op.
+    return this.service.addStep(id, body, req.user.id);
   }
 
   /** POST /lessons/lessons/:id/steps/reorder — массовый reorder. */
@@ -224,8 +230,12 @@ export class Adr054UnifiedLessonStepsController {
   @Patch(':id')
   @UseGuards(UserCourseOwnerGuard)
   @UserCourseResource('step')
-  update(@Param('id') id: string, @Body() body: UpdateUserLessonStepDto) {
-    return this.service.update(id, body);
+  update(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateUserLessonStepDto,
+  ) {
+    return this.service.update(id, body, req.user.id);
   }
 
   /** DELETE /lessons/steps/:id. 204. */

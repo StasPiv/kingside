@@ -96,6 +96,31 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
     expect(errors).toHaveLength(0);
   });
 
+  // KS-3180 (ADR-072 §7 B1): `game` добавлен в whitelist.
+  it('type=game (sourceType=pgn) с валидным PGN — без ошибок', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'game',
+      payload: {
+        type: 'game',
+        sourceType: 'pgn',
+        pgn: '1. e4 e5 2. Nf3 Nc6',
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('type=game (sourceType=workshop_analysis) с analysisId — без ошибок', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'game',
+      payload: {
+        type: 'game',
+        sourceType: 'workshop_analysis',
+        analysisId: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
   // KS-2590 (hotfix): пустой questions[] разрешён — это draft-flow
   // редактора. Запрет переехал в PUBLISH-валидацию (отдельный шаг).
   it('type=quiz с пустым questions[] — без ошибок (draft-flow KS-2590)', async () => {

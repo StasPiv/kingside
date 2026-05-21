@@ -41,6 +41,8 @@ export const ALLOWED_USER_STEP_TYPES = [
   'puzzle',
   'endgame_drill',
   'quiz',
+  // KS-3179/3180 (ADR-072 §7 B1): шаг «Партия» в пользовательских курсах.
+  'game',
 ] as const;
 
 export type AllowedUserStepType = (typeof ALLOWED_USER_STEP_TYPES)[number];

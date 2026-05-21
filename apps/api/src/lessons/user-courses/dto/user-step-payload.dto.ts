@@ -18,6 +18,7 @@ import {
   TextStepPayloadDto,
   EndgameDrillStepPayloadDto,
   QuizStepPayloadDto,
+  GameStepPayloadDto,
   PuzzleSelectionIdsDto,
   PuzzleSelectionCustomDto,
 } from '../../dto/step-payload.dto';
@@ -123,24 +124,35 @@ export class UserPuzzleStepPayloadDto implements PuzzleStepPayload {
 
 // Реэкспорт системных DTO, которые используем как есть — чтобы импорты
 // в Create/Update DTO собирались из одного места.
-export { TextStepPayloadDto, EndgameDrillStepPayloadDto, QuizStepPayloadDto };
+export {
+  TextStepPayloadDto,
+  EndgameDrillStepPayloadDto,
+  QuizStepPayloadDto,
+  GameStepPayloadDto,
+};
 
 /**
  * Whitelist discriminator subtypes для `@Type` на `payload` в
  * `CreateUserLessonStepDto` и `UpdateUserLessonStepDto`.
+ *
+ * KS-3180 (ADR-072 §7 B1): добавлен `game` — переиспользуем системный
+ * `GameStepPayloadDto` без отдельного user-варианта. Лимит 200 КБ PGN
+ * и owner-check на `analysisId` одинаковы для обоих контекстов.
  */
 export const USER_STEP_PAYLOAD_SUBTYPES = [
   { value: TextStepPayloadDto, name: 'text' },
   { value: UserPuzzleStepPayloadDto, name: 'puzzle' },
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
   { value: QuizStepPayloadDto, name: 'quiz' },
+  { value: GameStepPayloadDto, name: 'game' },
 ] as const;
 
 export type UserStepPayloadDto =
   | TextStepPayloadDto
   | UserPuzzleStepPayloadDto
   | EndgameDrillStepPayloadDto
-  | QuizStepPayloadDto;
+  | QuizStepPayloadDto
+  | GameStepPayloadDto;
 
 /**
  * Проверка type на whitelist до того, как class-transformer попробует

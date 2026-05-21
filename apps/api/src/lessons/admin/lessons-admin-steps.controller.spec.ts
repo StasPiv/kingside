@@ -5,6 +5,10 @@ describe('LessonsAdminStepsController (KS-1969)', () => {
   let controller: LessonsAdminStepsController;
   const lessonId = '00000000-0000-4000-a000-000000000001';
   const stepId = '00000000-0000-4000-a000-000000000002';
+  // KS-3180: контроллер теперь принимает `req` для owner-check'а
+  // Analysis при snapshot'е `game/workshop_analysis`.
+  const userId = '00000000-0000-4000-a000-000000000099';
+  const fakeReq = { user: { id: userId } } as any;
 
   beforeEach(() => {
     service = {
@@ -16,15 +20,15 @@ describe('LessonsAdminStepsController (KS-1969)', () => {
     controller = new LessonsAdminStepsController(service);
   });
 
-  it('POST /lessons/:lessonId/steps → service.createStep(lessonId, dto)', async () => {
+  it('POST /lessons/:lessonId/steps → service.createStep(lessonId, dto, userId)', async () => {
     const dto = { type: 'text', payload: { type: 'text', bodyMarkdown: '# Hi' } };
-    await controller.create(lessonId, dto as any);
-    expect(service.createStep).toHaveBeenCalledWith(lessonId, dto);
+    await controller.create(fakeReq, lessonId, dto as any);
+    expect(service.createStep).toHaveBeenCalledWith(lessonId, dto, userId);
   });
 
-  it('PATCH /steps/:id → service.updateStep(id, dto)', async () => {
-    await controller.update(stepId, { order: 2 } as any);
-    expect(service.updateStep).toHaveBeenCalledWith(stepId, { order: 2 });
+  it('PATCH /steps/:id → service.updateStep(id, dto, userId)', async () => {
+    await controller.update(fakeReq, stepId, { order: 2 } as any);
+    expect(service.updateStep).toHaveBeenCalledWith(stepId, { order: 2 }, userId);
   });
 
   it('DELETE /steps/:id → service.deleteStep(id)', async () => {

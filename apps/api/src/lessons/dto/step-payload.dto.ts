@@ -23,6 +23,7 @@ import type {
   QuizStepPayload,
   PositionStepPayload,
   GameReviewStepPayload,
+  GameStepPayload,
   VideoStepPayload,
   EndgameDrillStepPayload,
   EndgameWinCondition,
@@ -38,6 +39,11 @@ import type {
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
 import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
+import {
+  IsGamePgn,
+  IsGameStepConsistent,
+  MAX_GAME_PGN_BYTES,
+} from './game-step.validators';
 import { IsEndgameWinCondition } from './endgame-drill-step.validators';
 import { IsDrillPgn } from './opening-drill-step.validators';
 import { IsCustomPuzzlesArray } from './custom-puzzle.validators';
@@ -341,6 +347,105 @@ class GameReviewStepPayloadDto implements GameReviewStepPayload {
 }
 
 /**
+ * KS-3180 / ADR-072 §7 B1 — шаг «Партия» (read-only просмотр PGN).
+ *
+ * Источник партии — `sourceType`:
+ *   - `'pgn'` — инлайн-PGN в `payload.pgn`. Валидируется через
+ *     chess.js#loadPgn (`@IsGamePgn`) + лимит 200 КБ.
+ *   - `'workshop_analysis'` — `analysisId` (UUID) указывает на
+ *     `Analysis` пользователя; сервер сам читает PGN и `meta`,
+ *     проверяет owner-check (403 на чужой) и snapshot'ом копирует
+ *     в payload (см. `GameStepHydratorService`).
+ *
+ * XOR `sourceType ↔ pgn/analysisId` гарантирует `@IsGameStepConsistent()`,
+ * висящий на поле `type`. Кросс-поле сообщение об ошибке селектится
+ * одним именем в тестах.
+ *
+ * `meta` — необязательные стандартные PGN-теги (для подписи на фронте);
+ * фронт умеет извлечь их из самого PGN, поэтому поле опционально.
+ */
+class GameStepMetaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  white?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  black?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  result?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  event?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  site?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  round?: string;
+
+  /**
+   * KS-3180. PGN-стандарт допускает произвольные `[Tag "value"]`. На
+   * этапе DTO мы не запрещаем дополнительные поля — `class-validator`
+   * без `forbidNonWhitelisted` пропускает их, на выходе фронт сам
+   * решает, что с ними делать. Жёсткое ограничение по shape'у `meta`
+   * не оправдано: контракт обещает «расширяемый record».
+   */
+}
+
+class GameStepPayloadDto implements GameStepPayload {
+  @IsIn(['game'])
+  @IsGameStepConsistent()
+  type!: 'game';
+
+  @IsIn(['pgn', 'workshop_analysis'])
+  sourceType!: 'pgn' | 'workshop_analysis';
+
+  /**
+   * Snapshot PGN. Для `sourceType='pgn'` — обязателен (см. XOR-декоратор
+   * выше). Для `sourceType='workshop_analysis'` — опционален, сервер
+   * перезапишет результатом snapshot'а из `Analysis`.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_GAME_PGN_BYTES, {
+    message: `pgn exceeds ${MAX_GAME_PGN_BYTES} bytes (200 КБ)`,
+  })
+  @IsGamePgn()
+  pgn?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GameStepMetaDto)
+  meta?: GameStepMetaDto;
+
+  /**
+   * UUID `Analysis`. Обязателен для `sourceType='workshop_analysis'`
+   * (контроль — class-level `@IsGameStepConsistent`), запрещён для
+   * `sourceType='pgn'`.
+   */
+  @IsOptional()
+  @IsUUID()
+  analysisId?: string;
+}
+
+/**
  * Видео-шаг (L-34 / KS-1796 / KS-1808). `url` ограничен whitelist'ом
  * хостов YouTube/Vimeo и http(s)-схемой — чтобы iframe на фронте не
  * рендерил произвольные ресурсы. Сам словарь хостов — в
@@ -491,6 +596,7 @@ export const STEP_PAYLOAD_SUBTYPES = [
   { value: QuizStepPayloadDto, name: 'quiz' },
   { value: PositionStepPayloadDto, name: 'position' },
   { value: GameReviewStepPayloadDto, name: 'game_review' },
+  { value: GameStepPayloadDto, name: 'game' },
   { value: VideoStepPayloadDto, name: 'video' },
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
   { value: OpeningDrillStepPayloadDto, name: 'opening_drill' },
@@ -503,6 +609,7 @@ export type StepPayloadDto =
   | QuizStepPayloadDto
   | PositionStepPayloadDto
   | GameReviewStepPayloadDto
+  | GameStepPayloadDto
   | VideoStepPayloadDto
   | EndgameDrillStepPayloadDto
   | OpeningDrillStepPayloadDto
@@ -514,6 +621,8 @@ export {
   QuizStepPayloadDto,
   PositionStepPayloadDto,
   GameReviewStepPayloadDto,
+  GameStepPayloadDto,
+  GameStepMetaDto,
   VideoStepPayloadDto,
   EndgameDrillStepPayloadDto,
   OpeningDrillStepPayloadDto,

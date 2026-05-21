@@ -20,6 +20,7 @@ import {
   ALLOWED_USER_STEP_TYPES,
   USER_COURSES_LIMITS,
 } from './user-courses-limits';
+import { GameStepHydratorService } from '../dto/game-step.hydrator';
 
 /**
  * UserLessonsService — CRUD уроков пользовательского курса + добавление
@@ -44,7 +45,10 @@ import {
  */
 @Injectable()
 export class UserLessonsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gameStepHydrator: GameStepHydratorService,
+  ) {}
 
   // ─── Read ─────────────────────────────────────────────────────────
 
@@ -111,6 +115,7 @@ export class UserLessonsService {
   async addStep(
     lessonId: string,
     body: CreateUserLessonStepRequest,
+    userId: string | null = null,
   ): Promise<UserLessonStepDto> {
     if (!body || typeof body.type !== 'string') {
       throw new BadRequestException('type is required');
@@ -123,6 +128,15 @@ export class UserLessonsService {
         `Step type '${body.type}' not allowed in user courses. Allowed: ${ALLOWED_USER_STEP_TYPES.join(', ')}`,
       );
     }
+
+    // KS-3180 (ADR-072 §7 B1): для `game` со sourceType=workshop_analysis
+    // снимаем snapshot из Analysis (owner-check, 403 на чужой). Hydrate
+    // делаем ДО открытия транзакции — он сам делает SELECT по другой
+    // таблице, не нужно держать lock'и.
+    const hydratedPayload = await this.gameStepHydrator.hydrate(
+      body.payload as any,
+      userId,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       // Лимит 50 шагов/урок (ADR-026 §2.2). Проверка в транзакции —
@@ -155,7 +169,7 @@ export class UserLessonsService {
           ownerId: lesson.ownerId,
           order: next,
           type: body.type,
-          payload: body.payload as any,
+          payload: hydratedPayload as any,
         },
       });
       return toStepDto(created);

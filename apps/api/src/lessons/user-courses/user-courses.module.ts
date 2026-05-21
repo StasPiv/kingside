@@ -6,6 +6,7 @@ import { UserLessonStepsService } from './user-lesson-steps.service';
 import { UserProgressService } from './user-progress.service';
 import { UserCourseOwnerGuard } from './user-course-owner.guard';
 import { SlugService } from './slug.service';
+import { GameStepHydratorService } from '../dto/game-step.hydrator';
 import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
 
 /**
@@ -56,6 +57,7 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserProgressService,
     UserCourseOwnerGuard,
     SlugService,
+    GameStepHydratorService,
   ],
   exports: [
     UserCoursesService,
@@ -64,6 +66,7 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserProgressService,
     UserCourseOwnerGuard,
     SlugService,
+    GameStepHydratorService,
   ],
 })
 export class UserCoursesModule {}

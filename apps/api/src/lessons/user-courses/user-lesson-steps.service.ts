@@ -6,6 +6,7 @@ import type {
   UserStepType,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GameStepHydratorService } from '../dto/game-step.hydrator';
 
 /**
  * UserLessonStepsService — отдельные шаги (PATCH/DELETE) пользовательских
@@ -24,17 +25,27 @@ import { PrismaService } from '../../prisma/prisma.service';
  */
 @Injectable()
 export class UserLessonStepsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gameStepHydrator: GameStepHydratorService,
+  ) {}
 
   async update(
     stepId: string,
     body: UpdateUserLessonStepRequest,
+    userId: string | null = null,
   ): Promise<UserLessonStepDto> {
+    // KS-3180 (ADR-072 §7 B1): snapshot для `game/workshop_analysis`.
+    const hydratedPayload =
+      body.payload !== undefined
+        ? await this.gameStepHydrator.hydrate(body.payload as any, userId)
+        : undefined;
+
     const updated = await this.prisma.lessonStep.update({
       where: { id: stepId },
       data: {
-        ...(body.payload !== undefined
-          ? { payload: body.payload as any }
+        ...(hydratedPayload !== undefined
+          ? { payload: hydratedPayload as any }
           : {}),
         ...(body.order !== undefined ? { order: body.order } : {}),
       },
