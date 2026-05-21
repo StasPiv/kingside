@@ -107,6 +107,18 @@ function parsePgnMeta(pgn: string): GameStepMeta {
 
 const MAX_PGN_BYTES = 200 * 1024; // ADR-072 §7 B1 / KS-3180
 
+/**
+ * KS-3184: placeholder PGN, который мы создаём при добавлении нового
+ * шага «Партия» (`emptyStepPayload('game')` → `pgn: '*'`). Это валидный
+ * PGN (chess.js принимает; `IsNotEmpty` тоже — 1 символ), но семантически
+ * пустой. В редакторе показываем такой PGN как чистое поле — иначе
+ * автор увидит загадочную звёздочку в textarea.
+ */
+const PGN_PLACEHOLDER = '*';
+function isPgnPlaceholder(pgn: string): boolean {
+  return pgn.trim() === PGN_PLACEHOLDER;
+}
+
 export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
   const { t } = useTranslation();
 
@@ -115,12 +127,21 @@ export function GameStepEditor({ payload, onChange }: GameStepEditorProps) {
   // прокидываем в родительский payload только когда оно валидно (для
   // backend'а — иначе он отбросит 400; pre-validation в UserCourseEditor
   // дополнительно фильтрует пустой PGN, см. ниже).
-  const [pgnDraft, setPgnDraft] = useState<string>(payload.pgn ?? '');
+  //
+  // KS-3184: новый шаг приходит с placeholder pgn=`*` (см. `emptyStepPayload`).
+  // В UI это значение скрываем — автор должен видеть пустое поле, а не
+  // загадочную звёздочку. При вводе реального PGN autosave заменит
+  // placeholder обычным путём.
+  const [pgnDraft, setPgnDraft] = useState<string>(() =>
+    isPgnPlaceholder(payload.pgn ?? '') ? '' : payload.pgn ?? '',
+  );
 
   // Если из родителя пришёл другой payload (sourceType переключился извне
   // или загружен другой шаг) — синхронизируем буфер.
   useEffect(() => {
-    setPgnDraft(payload.pgn ?? '');
+    setPgnDraft(
+      isPgnPlaceholder(payload.pgn ?? '') ? '' : payload.pgn ?? '',
+    );
   }, [payload.pgn]);
 
   const validation = useMemo(() => validatePgn(pgnDraft), [pgnDraft]);

@@ -347,11 +347,34 @@ export function UserCourseEditor() {
 
   // ── Step actions ──────────────────────────────────────────────────
   const addStep = async (lessonId: string, type: UserStepType) => {
+    // KS-3184: до этого тикета `createStep` бросал на 4xx (например 400
+    // от backend KS-3180 на game-шаг с пустым PGN), и поскольку
+    // `addStep` НЕ ловил исключение, клик «Добавить первый шаг» молча
+    // терялся в promise rejection. Сейчас:
+    //  1) дефолт game-payload содержит placeholder PGN `*` (см.
+    //     `emptyStepPayload`) — backend проходит, шаг создаётся;
+    //  2) try/catch ловит любые будущие ошибки и показывает их
+    //     через `stepSaveError` (тот же floating-toast, что и у
+    //     `updateStepPayload`). Без этого даже после фикса любая
+    //     новая регрессия в createStep была бы невидимой.
     const payload = emptyStepPayload(type) as StepPayload;
-    const created = await lessonsApi.createStep(lessonId, {
-      type,
-      payload,
-    });
+    let created;
+    try {
+      created = await lessonsApi.createStep(lessonId, {
+        type,
+        payload,
+      });
+    } catch (err: unknown) {
+      const rawMessage =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : t('lessons.my.editor.addStepError', 'Could not add step');
+      const message = localizeQuizSaveError(t, rawMessage);
+      setStepSaveError(message);
+      return;
+    }
     actions.addStep(lessonId, created);
     setExpandedStepIds((prev) => {
       const next = new Set(prev);

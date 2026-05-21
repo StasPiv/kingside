@@ -2746,6 +2746,7 @@
         "savedAt": "Saved at {{time}}",
         "saveError": "Failed to save",
         "stepSaveError": "Could not save changes — {{message}}",
+        "addStepError": "Could not add step",
         "saveErrorRetry": "Retry",
         "saveIdle": "Ready to save",
         "discard": "Discard changes",

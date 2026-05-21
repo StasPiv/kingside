@@ -141,16 +141,20 @@ export function emptyStepPayload(type: LessonStepType): StepPayload {
         winCondition: { kind: 'promote' },
       } satisfies EndgameDrillStepPayload;
     case 'game':
-      // KS-3181 (ADR-072 §7 F1): дефолт «Партия» — PGN-режим с пустым
-      // полем. Автор начинает с быстрого варианта (вставить PGN); при
-      // переключении на 'workshop_analysis' редактор подменяет payload
-      // на `{ sourceType: 'workshop_analysis', analysisId }`. Backend
-      // на сохранение workshop_analysis сделает snapshot PGN из
-      // `Analysis` (KS-3180 / ADR-072 §7 B1).
+      // KS-3181 (ADR-072 §7 F1): дефолт «Партия» — PGN-режим.
+      // KS-3184: пустой `pgn` приводил к 400 от backend KS-3180
+      // (class-validator `IsNotEmpty` на string-поле), а `addStep` в
+      // UserCourseEditor не имел catch — клик «Добавить первый шаг»
+      // молча терялся. Стандартная PGN-метка `*` («результат
+      // неизвестен / партия не завершена») удовлетворяет и chess.js
+      // (валидный PGN), и IsNotEmpty (1 символ). Это placeholder,
+      // который автор сразу заменит реальным PGN — `GameStepEditor`
+      // распознаёт его (`isPgnPlaceholder`) и показывает textarea
+      // пустой, не выдавая placeholder в UI.
       return {
         type: 'game',
         sourceType: 'pgn',
-        pgn: '',
+        pgn: '*',
       } satisfies GameStepPayload;
   }
 }

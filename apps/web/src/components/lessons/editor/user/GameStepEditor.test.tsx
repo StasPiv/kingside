@@ -63,6 +63,22 @@ describe('<GameStepEditor> (KS-3181)', () => {
     ).toBe('');
   });
 
+  /**
+   * KS-3184: новый game-шаг приходит с placeholder `pgn: '*'` (backend
+   * требует non-empty PGN при createStep). В UI «*» бесполезен — автор
+   * должен видеть чистое поле «вставьте PGN». Редактор детектирует
+   * placeholder и сбрасывает textarea на пустую.
+   */
+  it('KS-3184: placeholder pgn="*" → textarea пустая (a не отображает звёздочку)', () => {
+    renderWithProviders(
+      <GameStepEditor payload={mkPayload({ pgn: '*' })} onChange={vi.fn()} />,
+    );
+    const ta = screen.getByTestId(
+      'game-step-editor-pgn-textarea',
+    ) as HTMLTextAreaElement;
+    expect(ta.value).toBe('');
+  });
+
   it('валидный PGN → onChange отдаёт распарсенный meta + show OK hint', async () => {
     const onChange = vi.fn();
     renderWithProviders(
