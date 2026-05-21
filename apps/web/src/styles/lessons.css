@@ -8148,8 +8148,8 @@
      в обеих темах (раньше был захардкожен `--c-0f0f1e`). */
   background: var(--bg-surface);
   position: sticky;
-  /* KS-3191: высота compact-header'а + safe-area-inset-top. */
-  top: calc(40px + env(safe-area-inset-top, 0px));
+  /* KS-3191/3200: высота compact-header'а 44px + safe-area-inset-top. */
+  top: calc(44px + env(safe-area-inset-top, 0px));
   z-index: 90;
 }
 .lesson-progress-pill__label {

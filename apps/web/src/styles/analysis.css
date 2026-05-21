@@ -3315,10 +3315,11 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
      применяется в lessons.css через `.lesson-game-step__viewer
      .board-container` с повышенной специфичностью (см. там). */
   .lesson-game-step[data-sheet-snap='peek'] {
-    --focus-board-h: calc(100dvh - 86px - 44px - 56px - 64px - env(safe-area-inset-bottom, 0px) - 14px);
+    /* KS-3200: top-зона = 44 (compact-header) + 28 (pill) + 18 (meta) = 90px. */
+    --focus-board-h: calc(100dvh - 90px - 44px - 56px - 64px - env(safe-area-inset-bottom, 0px) - 14px);
   }
   .lesson-game-step[data-sheet-snap='half'] {
-    --focus-board-h: calc(50dvh - 86px - 44px - 56px - 14px);
+    --focus-board-h: calc(50dvh - 90px - 44px - 56px - 14px);
   }
   .lesson-game-step[data-sheet-snap='full'] {
     /* В full sheet берёт 85dvh, под доской остаётся ~15dvh минус
