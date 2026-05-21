@@ -243,14 +243,15 @@ describe('GameStepHydratorService (KS-3180)', () => {
     expect(result.pgn).toBe(VALID_PGN);
   });
 
-  it('workshop_analysis: analysisId отсутствует → 400 (защита от вызова в обход DTO)', async () => {
+  // KS-3185: draft-режим — без analysisId hydrator возвращает payload
+  // как есть, никаких ошибок. Snapshot подтянется при следующем PATCH.
+  it('workshop_analysis: без analysisId → draft, no-op (KS-3185)', async () => {
     const hydrator = makeHydrator(null);
     const payload = {
       type: 'game',
       sourceType: 'workshop_analysis',
     } as GameStepPayload;
-    await expect(hydrator.hydrate(payload, OWNER_ID)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    const result = await hydrator.hydrate(payload, OWNER_ID);
+    expect(result).toBe(payload);
   });
 });

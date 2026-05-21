@@ -121,6 +121,31 @@ describe('CreateUserLessonStepDto — whitelist типов (KS-1830)', () => {
     expect(errors).toHaveLength(0);
   });
 
+  // KS-3185: draft-flow — фронт создаёт шаг сразу после выбора типа.
+  it('type=game (sourceType=pgn) без pgn — draft, без ошибок (KS-3185)', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'game',
+      payload: { type: 'game', sourceType: 'pgn' },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("type=game (sourceType=pgn) с pgn='*' (placeholder) — без ошибок (KS-3185)", async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'game',
+      payload: { type: 'game', sourceType: 'pgn', pgn: '*' },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('type=game (sourceType=workshop_analysis) без analysisId — draft, без ошибок (KS-3185)', async () => {
+    const errors = await validateDto(CreateUserLessonStepDto, {
+      type: 'game',
+      payload: { type: 'game', sourceType: 'workshop_analysis' },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
   // KS-2590 (hotfix): пустой questions[] разрешён — это draft-flow
   // редактора. Запрет переехал в PUBLISH-валидацию (отдельный шаг).
   it('type=quiz с пустым questions[] — без ошибок (draft-flow KS-2590)', async () => {

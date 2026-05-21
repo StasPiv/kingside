@@ -49,12 +49,11 @@ export class GameStepHydratorService {
 
     const analysisId = payload.analysisId;
     if (!analysisId) {
-      // DTO-валидатор @IsGameStepConsistent должен был это отловить — но
-      // защищаемся ещё раз на случай, если payload подсунули в обход
-      // ValidationPipe (e2e / прямой вызов сервиса).
-      throw new BadRequestException(
-        `GameStepPayload(sourceType='workshop_analysis') requires analysisId`,
-      );
+      // KS-3185: draft-режим — автор только что выбрал
+      // sourceType=workshop_analysis, но ещё не указал, какой именно
+      // анализ. Шаг сохраняется как заглушка, snapshot подтянем при
+      // следующем PATCH с analysisId. Возвращаем payload как есть.
+      return payload;
     }
     if (!userId) {
       throw new ForbiddenException(

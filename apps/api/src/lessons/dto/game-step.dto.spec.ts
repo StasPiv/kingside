@@ -74,22 +74,35 @@ describe('GameStepPayloadDto (KS-3180)', () => {
       expect(errors).toEqual([]);
     });
 
-    it('без pgn — XOR ошибка на type', async () => {
+    // KS-3185: pgn необязателен на этапе создания шага-черновика.
+    it('без pgn — draft, без ошибок (KS-3185)', async () => {
       const errors = await validatePayload({
         type: 'game',
         sourceType: 'pgn',
       });
-      expect(errors.some((m) => m.startsWith('type:') && m.includes('requires non-empty pgn'))).toBe(true);
+      expect(errors).toEqual([]);
     });
 
-    it('pgn + analysisId — XOR ошибка', async () => {
+    // KS-3185: placeholder `*` (PGN без ходов) проходит как draft.
+    it("pgn='*' (placeholder без ходов) — без ошибок (KS-3185)", async () => {
+      const errors = await validatePayload({
+        type: 'game',
+        sourceType: 'pgn',
+        pgn: '*',
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('pgn + analysisId — структурная ошибка (analysisId запрещён)', async () => {
       const errors = await validatePayload({
         type: 'game',
         sourceType: 'pgn',
         pgn: VALID_PGN,
         analysisId: VALID_UUID,
       });
-      expect(errors.some((m) => m.startsWith('type:') && m.includes('no analysisId'))).toBe(true);
+      expect(
+        errors.some((m) => m.startsWith('type:') && m.includes('must not include analysisId')),
+      ).toBe(true);
     });
 
     it('невалидный pgn — ошибка @IsGamePgn', async () => {
@@ -112,13 +125,14 @@ describe('GameStepPayloadDto (KS-3180)', () => {
       expect(errors.some((m) => m.startsWith('pgn:'))).toBe(true);
     });
 
-    it('пустая строка pgn — XOR ошибка (трактуется как «нет»)', async () => {
+    // KS-3185: пустая строка трактуется как «не задано» (draft).
+    it('пустая строка pgn — без ошибок (draft, KS-3185)', async () => {
       const errors = await validatePayload({
         type: 'game',
         sourceType: 'pgn',
         pgn: '',
       });
-      expect(errors.some((m) => m.startsWith('type:') && m.includes('non-empty pgn'))).toBe(true);
+      expect(errors).toEqual([]);
     });
   });
 
@@ -132,12 +146,13 @@ describe('GameStepPayloadDto (KS-3180)', () => {
       expect(errors).toEqual([]);
     });
 
-    it('без analysisId — XOR ошибка', async () => {
+    // KS-3185: analysisId необязателен на этапе draft.
+    it('без analysisId — draft, без ошибок (KS-3185)', async () => {
       const errors = await validatePayload({
         type: 'game',
         sourceType: 'workshop_analysis',
       });
-      expect(errors.some((m) => m.startsWith('type:') && m.includes('requires analysisId'))).toBe(true);
+      expect(errors).toEqual([]);
     });
 
     it('невалидный UUID — ошибка @IsUUID', async () => {
