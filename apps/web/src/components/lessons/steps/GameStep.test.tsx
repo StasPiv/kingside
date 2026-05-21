@@ -111,46 +111,38 @@ describe('<GameStep> (KS-3182)', () => {
   });
 
   /**
-   * KS-3188 (ADR-073 §7 F1): mount → focus-mode active=true,
-   * unmount → false. `hideNext` (preview-режим в редакторе шага)
-   * пропускает активацию, чтобы редактор курса не уходил в compact
-   * layout пока автор пишет.
+   * KS-3188 / KS-3194: focus-mode активация перенесена из `GameStep`
+   * в `UserLessonView` (`useEffect` по `currentStep.type === 'game'`).
+   * GameStep сам по себе больше НЕ дёргает enable/disable. Здесь
+   * проверяем, что хук `useFocusMode().sheetSnap` нормально читается
+   * (для проброса `data-sheet-snap`).
    */
-  describe('KS-3188: focus-mode integration', () => {
+  describe('KS-3194: GameStep читает sheetSnap, focus enable вынесен наверх', () => {
     function FocusActiveProbe() {
       const { active } = useFocusMode();
       return <span data-testid="probe-active">{String(active)}</span>;
     }
 
-    it('mount GameStep → focus-mode active=true; unmount → false', () => {
-      const { getByTestId, unmount, rerender } = render(
+    it('GameStep сам не активирует focus-mode (active=false при mount)', () => {
+      const { getByTestId } = render(
         <FocusModeProvider>
           <FocusActiveProbe />
           <GameStep payload={mkPayload()} onStepDone={vi.fn()} />
         </FocusModeProvider>,
       );
-      expect(getByTestId('probe-active').textContent).toBe('true');
-
-      // Размонтировать GameStep — Probe остаётся.
-      rerender(
-        <FocusModeProvider>
-          <FocusActiveProbe />
-        </FocusModeProvider>,
-      );
-      // Provider пересоздался при rerender — упрощённый кейс: пробуем
-      // через unmount всего дерева тоже, чтобы убедиться что cleanup
-      // не падает.
-      unmount();
+      // KS-3194: enable теперь в UserLessonView, не в GameStep.
+      expect(getByTestId('probe-active').textContent).toBe('false');
     });
 
-    it('GameStep с hideNext=true → focus-mode НЕ активируется (preview-режим)', () => {
+    it('GameStep пробрасывает data-sheet-snap из context', () => {
       const { getByTestId } = render(
         <FocusModeProvider>
-          <FocusActiveProbe />
-          <GameStep payload={mkPayload()} onStepDone={vi.fn()} hideNext />
+          <GameStep payload={mkPayload()} onStepDone={vi.fn()} />
         </FocusModeProvider>,
       );
-      expect(getByTestId('probe-active').textContent).toBe('false');
+      expect(
+        getByTestId('lesson-game-step').getAttribute('data-sheet-snap'),
+      ).toBe('peek');
     });
   });
 });

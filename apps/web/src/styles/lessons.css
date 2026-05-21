@@ -8237,5 +8237,34 @@
     border: 0;
     border-radius: 0;
   }
+  /* KS-3194: ограничиваем высоту viewer'а под доступный экран —
+     иначе embedded AnalysisPage растягивается на весь viewport и
+     контролы навигации съезжают под bottom-sheet (см.
+     /tmp/telegram/326129890_0.jpg). Высота:
+     100dvh − 40 (compact-header) − 28 (pill) − sheet-peek (64px) −
+     56 (CTA). На half/full доска сжимается через `--data-sheet-snap`
+     селекторы в `analysis.css`. */
+  .user-lesson-page--focus .lesson-game-step__viewer {
+    max-height: calc(100dvh - 40px - 28px - 64px - 56px);
+    overflow: hidden;
+  }
+  /* KS-3194: внутри bottom-sheet вкладка с ходами должна скроллиться
+     вертикально — раньше `overflow: hidden` на mobile-panel блокировал
+     скролл, пользователь видел только начало списка ходов (жалоба
+     «у ходов нет вертикального скролла»). Возвращаем скролл через
+     `min-height: 0; overflow-y: auto` на активной секции. */
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-section.active {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 

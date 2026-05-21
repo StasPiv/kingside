@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GameStepPayload, LessonStepState } from '@kingside/shared';
 
@@ -60,26 +60,18 @@ export function GameStep({
   const isDone = stepState === 'done' || confirmed;
 
   /**
-   * KS-3188 (ADR-073 §7 F1): на mobile-экранах шаг «Партия» съедает почти
-   * весь viewport (доска + tree/explorer/SF внутри embedded AnalysisPage).
-   * Активируем focus-mode на время монтирования компонента — CSS
-   * скрывает MobileBottomBar и переключает header в compact-вариант.
-   * Логика viewport (<768px) полностью в CSS через `@media`; в JS
-   * `enable()` вызываем всегда, чтобы не зависеть от `matchMedia` в
-   * jsdom-тестах и от race condition'ов resize. `hideNext` (preview-
-   * режим в редакторе шага) — НЕ активируем focus, иначе автор курса в
-   * выпадающем preview увидит compact-layout вместо обычного редактора.
+   * KS-3188 (ADR-073 §7 F1) — focus-mode для шага «Партия» на mobile.
+   * KS-3194: enable/disable перенесён в `UserLessonView` (по
+   * `currentStep.type === 'game'`), потому что mount-effect здесь
+   * конфликтовал со StrictMode-двойными mount'ами и race'ами unmount'а
+   * embedded AnalysisPage — в production focus-mode на проде не
+   * активировался. Здесь GameStep только читает `sheetSnap` для
+   * прокидки в `data-sheet-snap` (CSS подгоняет высоту доски).
+   *
+   * `hideNext` (preview-режим в редакторе шага) — focus-mode не
+   * активируется (см. UserLessonView не вызывает enable для не-game).
    */
-  const {
-    enable: enableFocusMode,
-    disable: disableFocusMode,
-    sheetSnap,
-  } = useFocusMode();
-  useEffect(() => {
-    if (hideNext) return undefined;
-    enableFocusMode();
-    return () => disableFocusMode();
-  }, [hideNext, enableFocusMode, disableFocusMode]);
+  const { sheetSnap } = useFocusMode();
 
   if (!pgn) {
     return (

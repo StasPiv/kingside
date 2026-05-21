@@ -184,7 +184,24 @@ export function UserLessonView({
   // вертикали под доску. Реальное переключение делает CSS через класс
   // `.user-lesson-page--focus` + `@media (max-width: 767px)`. На desktop
   // active=true ничего не меняет (как и в KS-3188).
-  const { active: focusModeActive } = useFocusMode();
+  // KS-3194: focus-mode активируется ЗДЕСЬ по типу текущего шага, а не
+  // в `GameStep.useEffect` — раньше effect (enable→cleanup→enable) при
+  // переключении step'ов мог конкурировать с unmount embedded
+  // AnalysisPage и оставлять active=false (вероятная причина регрессии
+  // на проде, см. /tmp/telegram/326129890_0.jpg). Прямой эффект в
+  // UserLessonView гарантирует, что класс `.user-lesson-page--focus`
+  // навесится сразу как только `currentStep.type === 'game'`.
+  const { active: focusModeActive, enable: enableFocusMode, disable: disableFocusMode } =
+    useFocusMode();
+  const currentStepType = sortedSteps[currentStepIndex]?.type;
+  useEffect(() => {
+    if (currentStepType === 'game') {
+      enableFocusMode();
+      return () => disableFocusMode();
+    }
+    disableFocusMode();
+    return undefined;
+  }, [currentStepType, enableFocusMode, disableFocusMode]);
 
   return (
     <div
