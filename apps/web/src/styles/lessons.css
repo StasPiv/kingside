@@ -8237,16 +8237,16 @@
     border: 0;
     border-radius: 0;
   }
-  /* KS-3194: ограничиваем высоту viewer'а под доступный экран —
-     иначе embedded AnalysisPage растягивается на весь viewport и
-     контролы навигации съезжают под bottom-sheet (см.
-     /tmp/telegram/326129890_0.jpg). Высота:
-     100dvh − 40 (compact-header) − 28 (pill) − sheet-peek (64px) −
-     56 (CTA). На half/full доска сжимается через `--data-sheet-snap`
-     селекторы в `analysis.css`. */
+  /* KS-3194 / KS-3196: viewer ограничивается по высоте, чтобы embedded
+     AnalysisPage не растягивался на весь viewport.
+     KS-3196: `overflow: visible` (раньше `hidden`) — `overflow: hidden`
+     обрезал `.analysis-board-controls` под доской, кнопки навигации
+     ⇤ ← → ⇥ ⇅ исчезали визуально (см. /tmp/telegram/326129893_0.jpg).
+     Position:fixed-bar для controls ниже возвращает их над bottom-
+     sheet'ом во всех snap-точках. */
   .user-lesson-page--focus .lesson-game-step__viewer {
     max-height: calc(100dvh - 40px - 28px - 64px - 56px);
-    overflow: hidden;
+    overflow: visible;
   }
   /* KS-3194: внутри bottom-sheet вкладка с ходами должна скроллиться
      вертикально — раньше `overflow: hidden` на mobile-panel блокировал
@@ -8279,6 +8279,43 @@
     .lesson-game-step[data-sheet-snap='full']
     .lesson-game-step__actions {
     display: none;
+  }
+
+  /* KS-3196: кнопки навигации по ходам (⇤ ← → ⇥ ⇅ flip + size + …)
+     внутри embedded AnalysisPage живут в `.analysis-board-controls` под
+     доской. В focus-mode bottom-sheet (`position: fixed; bottom: 0`)
+     перекрывал их. Дополнительно `overflow: hidden` у viewer'а
+     обрезал их визуально даже в peek (см. /tmp/telegram/326129893_0.jpg).
+     Решение — fixed-bar над sheet'ом во ВСЕХ snap-точках:
+     `bottom = sheet-h + safe-area`. Z-index 75 выше sheet'а (70).
+     CSS-var `--lesson-sheet-h` меняется по data-snap. */
+  .user-lesson-page--focus .lesson-game-step[data-sheet-snap='peek'] {
+    --lesson-sheet-h: 64px;
+  }
+  .user-lesson-page--focus .lesson-game-step[data-sheet-snap='half'] {
+    --lesson-sheet-h: 50dvh;
+  }
+  .user-lesson-page--focus .lesson-game-step[data-sheet-snap='full'] {
+    --lesson-sheet-h: 85dvh;
+  }
+  .user-lesson-page--focus
+    .lesson-game-step
+    .analysis-board-controls {
+    position: fixed !important;
+    display: flex !important;
+    left: 0;
+    right: 0;
+    bottom: calc(
+      var(--lesson-sheet-h, 64px) + env(safe-area-inset-bottom, 0px)
+    );
+    z-index: 75;
+    background: var(--c-0f0f1e);
+    border-top: 1px solid var(--border-subtle);
+    padding: 4px 6px;
+    height: 44px;
+    /* Анимация совпадает с sheet'ом (200ms), чтобы bar не «отставал»
+       при смене snap. */
+    transition: bottom 200ms ease-out;
   }
 }
 
