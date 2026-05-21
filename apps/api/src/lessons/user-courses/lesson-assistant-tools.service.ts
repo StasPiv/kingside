@@ -24,15 +24,22 @@
 
 import {
   BadRequestException,
+  Body,
+  Controller,
   ForbiddenException,
   HttpException,
   HttpStatus,
-  Injectable,
   Logger,
   NotFoundException,
+  Post,
+  Request,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Type } from 'class-transformer';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { AuthenticatedRequest } from '../../common/authenticated-request';
+import { McpTool } from '../../mcp/decorators';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -183,9 +190,17 @@ export class GetUserCourseUrlAssistantInput {
   courseId!: string;
 }
 
-// ─── Tool service ────────────────────────────────────────────────────
+// ─── Tool controller ─────────────────────────────────────────────────
+//
+// KS-3213: класс теперь @Controller с HTTP-эндпоинтами под
+// `/lessons/ai-tools/*`. Каждый метод помечен @McpTool, чтобы
+// `McpDiscoveryService` (ADR-061) включил их в `/_mcp/tools` — оттуда
+// внешний webhook-MCP-сервер забирает каталог tools для Anthropic.
+// Параллельно сохранён @McpToolForAssistant — для in-process tool-loop
+// в dev/локальном режиме (когда `AI_CHAT_WEBHOOK_URL` пуст, KS-3205).
 
-@Injectable()
+@Controller('lessons/ai-tools')
+@UseGuards(JwtAuthGuard)
 export class LessonAssistantTools {
   private readonly logger = new Logger(LessonAssistantTools.name);
 
@@ -241,6 +256,16 @@ export class LessonAssistantTools {
     }
   }
 
+  @Post('create_user_course')
+  @McpTool({
+    name: 'create_user_course',
+    description:
+      'Create a new chess course owned by the current user. ' +
+      'Title is required (1-100 chars); description is optional (≤500). ' +
+      'Use when the user explicitly asks the assistant to build a course. ' +
+      'Returns the new course id and slug. ' +
+      'Rate limit: 5 courses per hour per user; subsequent calls return 429.',
+  })
   @McpToolForAssistant({
     name: 'create_user_course',
     description:
@@ -251,8 +276,8 @@ export class LessonAssistantTools {
       'Rate limit: 5 courses per hour per user; subsequent calls return 429.',
   })
   async createUserCourse(
-    input: CreateUserCourseAssistantInput,
-    req: { user: { id: string } },
+    @Body() input: CreateUserCourseAssistantInput,
+    @Request() req: AuthenticatedRequest,
   ): Promise<{ id: string; slug: string; title: string }> {
     const userId = req.user.id;
 
@@ -301,6 +326,14 @@ export class LessonAssistantTools {
     }
   }
 
+  @Post('create_user_lesson')
+  @McpTool({
+    name: 'create_user_lesson',
+    description:
+      'Add a new lesson to one of the current user\'s courses (owner only). ' +
+      'Requires courseId (UUID) and title (1-100 chars). ' +
+      'Optional estMinutes (≥1).',
+  })
   @McpToolForAssistant({
     name: 'create_user_lesson',
     description:
@@ -309,8 +342,8 @@ export class LessonAssistantTools {
       'Optional estMinutes (≥1).',
   })
   async createUserLesson(
-    input: CreateUserLessonAssistantInput,
-    req: { user: { id: string } },
+    @Body() input: CreateUserLessonAssistantInput,
+    @Request() req: AuthenticatedRequest,
   ): Promise<{ id: string; courseId: string; title: string; order: number }> {
     const dto = await this.courses.addLesson(req.user.id, input.courseId, {
       title: input.title,
@@ -324,6 +357,16 @@ export class LessonAssistantTools {
     };
   }
 
+  @Post('create_user_lesson_step')
+  @McpTool({
+    name: 'create_user_lesson_step',
+    description:
+      'Add a learning step to one of the current user\'s lessons (owner only). ' +
+      'Allowed types: "text" (bodyMarkdown ≤4000 chars) or "quiz" ' +
+      '(1-5 questions × 2-4 options each). Puzzle/game/endgame_drill steps ' +
+      'are NOT allowed via the assistant — they must be created in the editor. ' +
+      'Hard cap: ≤10 steps per lesson via the assistant.',
+  })
   @McpToolForAssistant({
     name: 'create_user_lesson_step',
     description:
@@ -334,8 +377,8 @@ export class LessonAssistantTools {
       'Hard cap: ≤10 steps per lesson via the assistant.',
   })
   async createUserLessonStep(
-    input: CreateUserLessonStepAssistantInput,
-    req: { user: { id: string } },
+    @Body() input: CreateUserLessonStepAssistantInput,
+    @Request() req: AuthenticatedRequest,
   ): Promise<{ id: string; lessonId: string; type: string; order: number }> {
     // Дублирующий guard на тип шага — `@IsIn` уже отсекает, но даём
     // явное сообщение если входной DTO миновал валидацию (e2e/прямой
@@ -422,6 +465,13 @@ export class LessonAssistantTools {
     };
   }
 
+  @Post('get_user_course_url')
+  @McpTool({
+    name: 'get_user_course_url',
+    description:
+      'Get the public URL of one of the current user\'s courses (owner only). ' +
+      'Use after creating a course to share the link back to the user.',
+  })
   @McpToolForAssistant({
     name: 'get_user_course_url',
     description:
@@ -429,8 +479,8 @@ export class LessonAssistantTools {
       'Use after creating a course to share the link back to the user.',
   })
   async getUserCourseUrl(
-    input: GetUserCourseUrlAssistantInput,
-    req: { user: { id: string } },
+    @Body() input: GetUserCourseUrlAssistantInput,
+    @Request() req: AuthenticatedRequest,
   ): Promise<{ url: string; slug: string }> {
     const course = await this.prisma.course.findUnique({
       where: { id: input.courseId },

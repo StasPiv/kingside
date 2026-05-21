@@ -129,7 +129,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       const { tools, coursesMock } = makeTools();
       const out = await tools.createUserCourse(
         { title: 'Hello', description: 'Desc' } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       expect(coursesMock.create).toHaveBeenCalledWith(USER_ID, {
         title: 'Hello',
@@ -143,7 +143,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       const { tools, prismaMock } = makeTools();
       await tools.createUserCourse(
         { title: 'Hello' } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       const aiCreate = (prismaMock as any).aiLessonGeneration.create as jest.Mock;
       const aiUpdate = (prismaMock as any).aiLessonGeneration.update as jest.Mock;
@@ -167,7 +167,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       await expect(
         tools.createUserCourse(
           { title: 'Hello' } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toThrow('boom');
       const aiUpdate = (prismaMock as any).aiLessonGeneration.update as jest.Mock;
@@ -185,7 +185,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       try {
         await tools.createUserCourse(
           { title: 'Hello' } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         );
       } catch (e) {
         thrown = e;
@@ -203,7 +203,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       await expect(
         tools.createUserCourse(
           { title: 'Hello' } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).resolves.toBeDefined();
     });
@@ -214,7 +214,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       const { tools, coursesMock } = makeTools();
       await tools.createUserLesson(
         { courseId: COURSE_ID, title: 'Lesson 1', estMinutes: 15 } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       expect(coursesMock.addLesson).toHaveBeenCalledWith(USER_ID, COURSE_ID, {
         title: 'Lesson 1',
@@ -234,7 +234,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
           type: 'text',
           bodyMarkdown: '# Header\nHello',
         } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       expect(lessonsMock.addStep).toHaveBeenCalledWith(
         LESSON_ID,
@@ -254,7 +254,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       await expect(
         tools.createUserLessonStep(
           { lessonId: LESSON_ID, type: 'text', bodyMarkdown: '' } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -281,7 +281,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
             },
           ],
         } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       const call = (lessonsMock.addStep as jest.Mock).mock.calls[0];
       expect(call[0]).toBe(LESSON_ID);
@@ -310,7 +310,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
               },
             ],
           } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toThrow(/correctOptionId/);
     });
@@ -336,7 +336,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
               },
             ],
           } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toThrow(/single-answer/);
     });
@@ -352,7 +352,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
         await expect(
           tools.createUserLessonStep(
             { lessonId: LESSON_ID, type } as any,
-            { user: { id: USER_ID } },
+            { user: { id: USER_ID, username: 'tester' } } as any,
           ),
         ).rejects.toBeInstanceOf(BadRequestException);
       },
@@ -371,7 +371,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
             type: 'text',
             bodyMarkdown: 'hi',
           } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
@@ -385,7 +385,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
             type: 'text',
             bodyMarkdown: 'hi',
           } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
@@ -404,7 +404,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
             type: 'text',
             bodyMarkdown: 'hi',
           } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -417,7 +417,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       });
       const out = await tools.getUserCourseUrl(
         { courseId: COURSE_ID } as any,
-        { user: { id: USER_ID } },
+        { user: { id: USER_ID, username: 'tester' } } as any,
       );
       expect(out).toEqual({
         slug: 'my-course',
@@ -432,7 +432,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       await expect(
         tools.getUserCourseUrl(
           { courseId: COURSE_ID } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
@@ -442,7 +442,7 @@ describe('LessonAssistantTools (KS-3207)', () => {
       await expect(
         tools.getUserCourseUrl(
           { courseId: COURSE_ID } as any,
-          { user: { id: USER_ID } },
+          { user: { id: USER_ID, username: 'tester' } } as any,
         ),
       ).rejects.toBeInstanceOf(NotFoundException);
     });

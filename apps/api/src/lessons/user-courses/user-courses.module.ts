@@ -50,7 +50,10 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
 })
 @Module({
   imports: [PrismaModule],
-  controllers: [],
+  // KS-3213: LessonAssistantTools — теперь @Controller с HTTP-роутами
+  // под `/lessons/ai-tools/*`. @McpTool на каждом методе включает их в
+  // /_mcp/tools, чтобы внешний webhook-MCP-сервер видел tools.
+  controllers: [LessonAssistantTools],
   providers: [
     UserCoursesService,
     UserLessonsService,
@@ -59,9 +62,6 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserCourseOwnerGuard,
     SlugService,
     GameStepHydratorService,
-    // KS-3207 / ADR-074 §10 B3: assistant-tools для пользовательских
-    // уроков (4 tool'а, авторегистрируются McpAssistantRegistry).
-    LessonAssistantTools,
   ],
   exports: [
     UserCoursesService,
@@ -71,7 +71,6 @@ import { McpModule as McpDiscoveryModule } from '../../mcp/decorators';
     UserCourseOwnerGuard,
     SlugService,
     GameStepHydratorService,
-    LessonAssistantTools,
   ],
 })
 export class UserCoursesModule {}
