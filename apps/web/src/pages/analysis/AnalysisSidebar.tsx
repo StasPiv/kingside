@@ -435,7 +435,7 @@ export function AnalysisSidebar({
             data-testid="analysis-mobile-panel-handle"
             role="separator"
             aria-label={t('focusMode.sheet.handle', 'Drag to resize')}
-            {...handleProps}
+            {...sheet.handleProps}
           >
             <span className="analysis-mobile-panel__handle-bar" aria-hidden="true" />
           </div>
