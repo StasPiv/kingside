@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   shouldFinishLose,
   isWinDropExcessive,
+  meetsFinalObjective,
   PRESERVED_WIN_DROP_THRESHOLD_PERMILLE,
 } from './precisionVerdict';
 
@@ -119,5 +120,81 @@ describe('isWinDropExcessive (KS-2968)', () => {
     const start = { w: 400, d: 500, l: 100 };
     const final = { w: 900, d: 100, l: 0 };
     expect(isWinDropExcessive(start, final)).toBe(false);
+  });
+});
+
+/**
+ * KS-3169: финальный успех решателя зависит от жанра пазла.
+ *
+ * Жалоба пользователя (Telegram, 2026-05-21): saveEquality-пазл, точность
+ * 100%, блок «Ничья удержана идеально», но звук «неправильно». Корень —
+ * `effWdl >= winThreshold` для ничейного финала (signed≈0 < 0.5) выпадал
+ * в `lose-wdl`, отсюда звук `puzzle-incorrect`. `meetsFinalObjective`
+ * выправляет вердикт по objective; звук/state/reasonLabel выравниваются
+ * автоматически.
+ */
+describe('meetsFinalObjective (KS-3169)', () => {
+  const WIN_THR = 0.5;
+
+  it('saveEquality + (w=0, d=1000, l=0) → успех (главный кейс жалобы)', () => {
+    // Идеальная ничья: (w+d)/1000 = 1.0 ≥ 0.5.
+    const wdl = { w: 0, d: 1000, l: 0 };
+    expect(meetsFinalObjective(wdl, 0, 'saveEquality', WIN_THR)).toBe(true);
+  });
+
+  it('saveEquality + (w=10, d=970, l=20) → успех (мизерный риск проигрыша)', () => {
+    // (10 + 970)/1000 = 0.98 ≥ 0.5.
+    const wdl = { w: 10, d: 970, l: 20 };
+    expect(meetsFinalObjective(wdl, 0, 'saveEquality', WIN_THR)).toBe(true);
+  });
+
+  it('saveEquality + (w=0, d=300, l=700) → провал (солвер скатился в проигрыш)', () => {
+    // (0 + 300)/1000 = 0.3 < 0.5 → не удержал.
+    const wdl = { w: 0, d: 300, l: 700 };
+    expect(meetsFinalObjective(wdl, -0.7, 'saveEquality', WIN_THR)).toBe(false);
+  });
+
+  it('saveEquality без wdlObj: signed≈0 → fallback на signed ≥ -winThreshold → успех', () => {
+    expect(meetsFinalObjective(null, 0, 'saveEquality', WIN_THR)).toBe(true);
+    expect(meetsFinalObjective(null, -0.49, 'saveEquality', WIN_THR)).toBe(true);
+  });
+
+  it('saveEquality без wdlObj: signed < -winThreshold → провал', () => {
+    expect(meetsFinalObjective(null, -0.6, 'saveEquality', WIN_THR)).toBe(false);
+  });
+
+  it('convertAdvantage + signed≥winThreshold → успех (без регрессии)', () => {
+    const wdl = { w: 800, d: 150, l: 50 };
+    expect(meetsFinalObjective(wdl, 0.75, 'convertAdvantage', WIN_THR)).toBe(true);
+  });
+
+  it('convertAdvantage + ничья signed≈0 → провал (старое поведение)', () => {
+    // Конкретно тот кейс, который ломал saveEquality, для
+    // convertAdvantage ДОЛЖЕН оставаться провалом — солвер не реализовал
+    // преимущество.
+    const wdl = { w: 0, d: 1000, l: 0 };
+    expect(meetsFinalObjective(wdl, 0, 'convertAdvantage', WIN_THR)).toBe(false);
+  });
+
+  it('objective=null (legacy-пазлы без жанра) → ведёт себя как convertAdvantage', () => {
+    expect(meetsFinalObjective(null, 0, null, WIN_THR)).toBe(false);
+    expect(meetsFinalObjective(null, 0.6, null, WIN_THR)).toBe(true);
+  });
+
+  it('objective=undefined → ведёт себя как convertAdvantage', () => {
+    expect(meetsFinalObjective(null, 0, undefined, WIN_THR)).toBe(false);
+    expect(meetsFinalObjective(null, 0.6, undefined, WIN_THR)).toBe(true);
+  });
+
+  it('saveEquality на границе: (w+d)/1000 = winThreshold → успех (нестрогое ≥)', () => {
+    const wdl = { w: 100, d: 400, l: 500 };
+    // (100+400)/1000 = 0.5 == winThreshold.
+    expect(meetsFinalObjective(wdl, -0.4, 'saveEquality', WIN_THR)).toBe(true);
+  });
+
+  it('saveEquality на грани снизу: (w+d)/1000 = 0.499 → провал', () => {
+    const wdl = { w: 99, d: 400, l: 501 };
+    // (99+400)/1000 = 0.499 < 0.5.
+    expect(meetsFinalObjective(wdl, -0.402, 'saveEquality', WIN_THR)).toBe(false);
   });
 });

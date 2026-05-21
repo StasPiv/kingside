@@ -1,3 +1,4 @@
+import type { PuzzleObjective } from '@kingside/shared';
 import type { WdlDistribution } from '../../utils/engineAdapter';
 
 /**
@@ -94,6 +95,58 @@ export function shouldFinishLose(
     return false;
   }
   return effWdlUser < failThreshold;
+}
+
+/**
+ * KS-3169 (ADR-070): финальный успех решателя зависит от жанра пазла.
+ *
+ * До этого тикета все три финальные точки в `PlayVsEngineRunner`
+ * (userMovesTarget, halfMovesN, last-user-move) сравнивали `effWdlUser`
+ * с `winThreshold` и считали успехом «формально в выигрышной зоне».
+ * Для `saveEquality` (спасение в ничью) этот критерий неверен: ничейный
+ * финал `(w≈0, d≈1000, l≈0)` даёт signed≈0, что < `winThreshold=0.5`,
+ * — и идеально удержанная ничья квалифицировалась как `lose-wdl`. Внешне
+ * это проявлялось как звук «неправильно» поверх блока «Ничья удержана
+ * идеально» (5★ от `PrecisionScoreBlock`, который интерпретирует score
+ * через accuracy-loss и не зависит от win/lose-вердикта).
+ *
+ * Правило (согласовано с `meetsSolvabilityFinal` из shared
+ * `puzzle-gen-core.ts`):
+ *  - `convertAdvantage` / `undefined` — `signed >= winThreshold` (старое
+ *    поведение, без регрессии для исторических пазлов).
+ *  - `saveEquality` — `(W + D) / 1000 >= winThreshold` (суммарная
+ *    не-проигрышная доля). Если `wdlObj` не пришёл (engine не отдал
+ *    distribution), fallback на `signed >= -winThreshold` — т.е. «не
+ *    скатился глубоко в минус».
+ *
+ * `dropTooHigh` (KS-2968) — отдельный признак потери преимущества по
+ * Δwin% относительно baseline. Для saveEquality он бессмысленен (baseline
+ * уже близкий к 0 по win), и применять его нельзя — иначе любая ничья
+ * с положительным стартовым win% выпадет в lose. В вызывающем коде
+ * `dropTooHigh` должен зануляться для saveEquality.
+ *
+ * @param wdlObj  W/D/L POV solver'а на финальной позиции (если есть).
+ * @param effWdl  signed WDL POV solver'а в [-1..+1] (fallback при отсутствии wdlObj).
+ * @param objective жанр пазла (`convertAdvantage` / `saveEquality` / `null`).
+ * @param winThreshold порог из `params.winThreshold` (по умолчанию 0.5).
+ */
+export function meetsFinalObjective(
+  wdlObj: WdlDistribution | null | undefined,
+  effWdl: number,
+  objective: PuzzleObjective | null | undefined,
+  winThreshold: number,
+): boolean {
+  if (objective === 'saveEquality') {
+    if (wdlObj) {
+      return (wdlObj.w + wdlObj.d) / 1000 >= winThreshold;
+    }
+    // Fallback без W/D/L: «не проиграл по signed». Симметричный порог
+    // вокруг нуля — `-winThreshold` (для winThreshold=0.5 это -0.5,
+    // что соответствует доле не-проигрыша ≥ 50% при равных W и D).
+    return effWdl >= -winThreshold;
+  }
+  // convertAdvantage и legacy (objective undefined) — старая логика.
+  return effWdl >= winThreshold;
 }
 
 /**

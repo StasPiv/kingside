@@ -67,7 +67,11 @@ import {
   type WdlDistribution,
 } from '../../utils/engineAdapter';
 import type { EvalLine } from '../../hooks/useStockfish';
-import { shouldFinishLose, isWinDropExcessive } from './precisionVerdict';
+import {
+  shouldFinishLose,
+  isWinDropExcessive,
+  meetsFinalObjective,
+} from './precisionVerdict';
 
 /**
  * KS-2466 / ADR-044 §5. Раннер пазла-«удержания преимущества» против
@@ -467,6 +471,14 @@ export function PlayVsEngineRunner({
     };
   }, [puzzle]);
 
+  // KS-3169: жанр пазла нужен и в финальном вердикте win/lose
+  // (saveEquality считает «удержание ничьи» успехом), и в reasonLabel
+  // ниже по дереву. Раньше определялся локально внутри return — поднят
+  // на уровень компонента, чтобы `runEngineCycle` и last-user-move
+  // могли применить objective-aware критерий через `meetsFinalObjective`.
+  const objective: PuzzleObjective | null | undefined =
+    puzzle.playVsEngine?.objective;
+
   // Сторона решателя — ходит первым после blunder.
   const userSide = useMemo<'w' | 'b'>(() => sideFromFen(puzzle.fen), [puzzle.fen]);
   const orientation = userSide === 'w' ? 'white' : 'black';
@@ -848,10 +860,26 @@ export function PlayVsEngineRunner({
         // win% упал сильнее порога — это потеря преимущества, плашка
         // должна быть «потеряно». Baseline — клиентский SF (KS-2960)
         // с fallback'ом на серверный wdlAfter.
+        //
+        // KS-3169: drop-check применим только к convertAdvantage —
+        // для saveEquality стартовый baseline уже близок к ничье и
+        // любая ничья выпадала бы в lose. Финальный вердикт
+        // считается через `meetsFinalObjective`, учитывающую objective.
         const baseline =
           clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
-        const dropTooHigh = isWinDropExcessive(baseline, wdlUserObj);
-        if (effWdlUser >= params.winThreshold && !dropTooHigh) {
+        const dropTooHigh =
+          objective === 'saveEquality'
+            ? false
+            : isWinDropExcessive(baseline, wdlUserObj);
+        if (
+          meetsFinalObjective(
+            wdlUserObj,
+            effWdlUser,
+            objective ?? null,
+            params.winThreshold,
+          ) &&
+          !dropTooHigh
+        ) {
           finishWin('win', effWdlUser, halfAfterUser);
         } else {
           finishLose('lose-wdl', effWdlUser, halfAfterUser);
@@ -922,10 +950,24 @@ export function PlayVsEngineRunner({
           // KS-2968: дополнительный критерий — drop по win относительно
           // baseline. При формальном плюсе (>= winThreshold) но падении
           // win% > 15 п.п. ставим «потеряно».
+          // KS-3169: drop-check отключаем для saveEquality (baseline
+          // близок к ничье → любое удержание выпадало бы как «потеря
+          // win%»). Финальный успех решается через `meetsFinalObjective`.
           const baselineFinal =
             clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
-          const dropTooHighFinal = isWinDropExcessive(baselineFinal, finalWdlObj);
-          if (effWdlFinal >= params.winThreshold && !dropTooHighFinal) {
+          const dropTooHighFinal =
+            objective === 'saveEquality'
+              ? false
+              : isWinDropExcessive(baselineFinal, finalWdlObj);
+          if (
+            meetsFinalObjective(
+              finalWdlObj,
+              effWdlFinal,
+              objective ?? null,
+              params.winThreshold,
+            ) &&
+            !dropTooHighFinal
+          ) {
             finishWin('win', effWdlFinal, halfAfterEngine);
           } else {
             finishLose('lose-wdl', effWdlFinal, halfAfterEngine);
@@ -933,11 +975,22 @@ export function PlayVsEngineRunner({
         } catch {
           // Если final analyze упал — судим по последнему effWdlUser
           // и последнему wdlUserObj (после user-хода, до engine-ответа).
-          // KS-2968: тот же drop-check.
+          // KS-2968: тот же drop-check. KS-3169: см. main-ветку выше.
           const baselineFallback =
             clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
-          const dropTooHighFallback = isWinDropExcessive(baselineFallback, wdlUserObj);
-          if (effWdlUser >= params.winThreshold && !dropTooHighFallback) {
+          const dropTooHighFallback =
+            objective === 'saveEquality'
+              ? false
+              : isWinDropExcessive(baselineFallback, wdlUserObj);
+          if (
+            meetsFinalObjective(
+              wdlUserObj,
+              effWdlUser,
+              objective ?? null,
+              params.winThreshold,
+            ) &&
+            !dropTooHighFallback
+          ) {
             finishWin('win', effWdlUser, halfAfterEngine);
           } else {
             finishLose('lose-wdl', effWdlUser, halfAfterEngine);
@@ -961,6 +1014,9 @@ export function PlayVsEngineRunner({
       updateUserBestLog,
       // KS-2968: серверный wdlAfter — fallback baseline для drop-check.
       puzzle.playVsEngine?.wdlAfter,
+      // KS-3169: жанр задачи влияет на финальный win/lose-вердикт
+      // (meetsFinalObjective) и на применение drop-check'а.
+      objective,
     ],
   );
 
@@ -1098,13 +1154,23 @@ export function PlayVsEngineRunner({
             // KS-2968: drop-check на финальный полуход (без engine-ответа).
             // Если win% упал относительно baseline сильнее порога — ставим
             // «потеряно», даже если effWdlUser формально в плюсе.
+            // KS-3169: для saveEquality drop-check отключаем (см. ветки
+            // выше); финальный успех — `meetsFinalObjective`.
             const baselineLastUser =
               clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
-            const dropTooHighLastUser = isWinDropExcessive(
-              baselineLastUser,
-              wdlUserObj,
-            );
-            if (effWdlUser >= params.winThreshold && !dropTooHighLastUser)
+            const dropTooHighLastUser =
+              objective === 'saveEquality'
+                ? false
+                : isWinDropExcessive(baselineLastUser, wdlUserObj);
+            if (
+              meetsFinalObjective(
+                wdlUserObj,
+                effWdlUser,
+                objective ?? null,
+                params.winThreshold,
+              ) &&
+              !dropTooHighLastUser
+            )
               finishWin('win', effWdlUser, halfAfterUser);
             else finishLose('lose-wdl', effWdlUser, halfAfterUser);
           } catch (e) {
@@ -1135,6 +1201,9 @@ export function PlayVsEngineRunner({
       // KS-2968: серверный wdlAfter — fallback baseline для drop-check
       // в финальной точке решения внутри last-user-move ветки.
       puzzle.playVsEngine?.wdlAfter,
+      // KS-3169: жанр задачи участвует в финальном вердикте
+      // (meetsFinalObjective) и отключает drop-check для saveEquality.
+      objective,
     ],
   );
 
@@ -1391,8 +1460,10 @@ export function PlayVsEngineRunner({
   // saveEquality — «спасение в ничью». Mate-варианты от жанра не зависят
   // (мат всегда мат). Если objective undefined (legacy-пазлы до KS-3144)
   // — fallback на исторические тексты.
-  const objective: PuzzleObjective | undefined =
-    puzzle.playVsEngine?.objective;
+  //
+  // KS-3169: `objective` поднята на уровень компонента (объявлена выше
+  // вместе с `userSide`), чтобы тот же признак использовался в финальном
+  // win/lose-вердикте `meetsFinalObjective`.
   const reasonLabel = (r: PlayVsEnginePuzzleReason | null): string => {
     switch (r) {
       case 'win':
