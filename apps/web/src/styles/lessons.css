@@ -4747,6 +4747,17 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* KS-3186: то же ограничение что и для `.lesson-page`. UserLessonView
+     рендерит `.user-lesson-page` (другой класс, чем legacy LessonPage)
+     — без `min-width: 0 + width: 100% + overflow-x: clip` шахматная
+     доска внутри game-step растягивает страницу шире viewport'а на
+     mobile (cross-axis `min-width: auto` flex-item) и доска уезжает
+     за правый край. `overflow-y: visible` сохраняет sticky-прогресс
+     (KS-1991). */
+  min-width: 0;
+  width: 100%;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .user-lesson-page__breadcrumbs {

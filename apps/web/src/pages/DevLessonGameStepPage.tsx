@@ -41,15 +41,21 @@ export function DevLessonGameStepPage() {
     pgn: SAMPLE_PGN,
   };
   return (
-    <div className="lesson-page" data-testid="dev-lesson-page">
+    // KS-3186 v3: реальная пользовательская страница урока использует
+    // `<div class="user-lesson-page">` (UserLessonView), а НЕ
+    // `.lesson-page` (legacy LessonPage). Поэтому фикс должен быть на
+    // user-lesson-page тоже. Здесь рендерим эквивалентный wrapper.
+    <div className="user-lesson-page" data-testid="dev-user-lesson-page">
       <nav className="user-lesson-page__breadcrumbs">
         <a href="#">Уроки</a>
         <span className="user-lesson-page__sep"> / </span>
         <a href="#">Все курсы</a>
       </nav>
-      <h1>Новый урок</h1>
-      <div className="lesson-progress-sticky" style={{ marginBottom: 12 }}>
-        <div style={{ padding: '8px 12px', background: 'var(--bg-muted)', borderRadius: 8 }}>
+      <header className="user-lesson-page__header">
+        <h1>Новый урок</h1>
+      </header>
+      <div className="lesson-progress-sticky">
+        <div className="user-lesson-page__progress">
           Шаг 1/2 — 2 пройдено (100%)
         </div>
       </div>
