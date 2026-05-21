@@ -2102,7 +2102,13 @@
   },
   "chat": {
     "rateLimited": "Limit reached. Try again in {{seconds}}s",
-    "rateLimitedShort": "Limit reached"
+    "rateLimitedShort": "Limit reached",
+    "toolCalls": {
+      "label": "Tool calls",
+      "running": "🛠 {{name}} — running…",
+      "ok": "✓ Completed: {{name}}",
+      "error": "❌ Error in {{name}}: {{message}}"
+    }
   },
   "archive": {
     "database": "Database",

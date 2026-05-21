@@ -1,5 +1,9 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import type { ChatMessage } from '../hooks/useChatStream';
+import type {
+  ChatMessage,
+  ToolCallEvent,
+  ToolCallStatus,
+} from '../hooks/useChatStream';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -112,14 +116,91 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (!line.startsWith('data: ')) continue;
             try {
               const data = JSON.parse(line.slice(6));
-              if (data.text) {
+              // KS-3210 (ADR-074 §10 F1): SSE-event'ы от backend (KS-3205,
+              // fc1ad043) дискриминируются по `type`. До F1 — обрабатывался
+              // только `text` (через `data.text`-проверку) и фатальные
+              // ошибки. Сейчас явно ветвим:
+              //   - `type:'text'` → продолжаем стримить content.
+              //   - `type:'tool_call'` → апсёртим toolCalls в последнем
+              //     assistant-сообщении (по `id`).
+              //   - `type:'error'` → фатальная ошибка цикла, шлём в чат.
+              //   - `done:true` (без `type`, исторический маркер из
+              //     chat.controller.ts) → conversationId обогащается.
+              // Старый код матчил `data.text` и `data.error` без
+              // `type` — оставляем fallback для обратной совместимости
+              // (на случай, если кто-то локально откатил backend).
+              if (data.type === 'tool_call' && typeof data.id === 'string') {
+                const event: ToolCallEvent = {
+                  id: data.id,
+                  name: String(data.name ?? ''),
+                  status: (data.status as ToolCallStatus) ?? 'running',
+                  input: data.input,
+                  output:
+                    typeof data.output === 'string' ? data.output : undefined,
+                  error:
+                    typeof data.error === 'string' ? data.error : undefined,
+                };
+                setMessages((prev) => {
+                  const u = [...prev];
+                  const lastIdx = u.length - 1;
+                  if (lastIdx < 0) return u;
+                  const last = u[lastIdx];
+                  const existing = last.toolCalls ?? [];
+                  const idx = existing.findIndex((tc) => tc.id === event.id);
+                  const nextCalls =
+                    idx >= 0
+                      ? existing.map((tc, i) => (i === idx ? event : tc))
+                      : [...existing, event];
+                  u[lastIdx] = { ...last, toolCalls: nextCalls };
+                  return u;
+                });
+                continue;
+              }
+              if (data.type === 'error' && typeof data.error === 'string') {
+                fullText += `\n\n⚠️ ${data.error}`;
+                setMessages((prev) => {
+                  const u = [...prev];
+                  const lastIdx = u.length - 1;
+                  if (lastIdx < 0) return u;
+                  u[lastIdx] = { ...u[lastIdx], content: fullText };
+                  return u;
+                });
+                continue;
+              }
+              if (data.type === 'text' && typeof data.text === 'string') {
                 fullText += data.text;
-                setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
+                setMessages((prev) => {
+                  const u = [...prev];
+                  const lastIdx = u.length - 1;
+                  if (lastIdx < 0) return u;
+                  u[lastIdx] = { ...u[lastIdx], content: fullText };
+                  return u;
+                });
+              } else if (data.text) {
+                // Legacy fallback (см. комментарий выше).
+                fullText += data.text;
+                setMessages((prev) => {
+                  const u = [...prev];
+                  const lastIdx = u.length - 1;
+                  if (lastIdx < 0) return u;
+                  u[lastIdx] = { ...u[lastIdx], content: fullText };
+                  return u;
+                });
               }
               if (data.conversationId) setConversationId(data.conversationId);
-              if (data.error) {
+              if (
+                data.error &&
+                data.type !== 'error' &&
+                data.type !== 'tool_call'
+              ) {
                 fullText += `\n\n⚠️ ${data.error}`;
-                setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
+                setMessages((prev) => {
+                  const u = [...prev];
+                  const lastIdx = u.length - 1;
+                  if (lastIdx < 0) return u;
+                  u[lastIdx] = { ...u[lastIdx], content: fullText };
+                  return u;
+                });
               }
             } catch { /* ignore */ }
           }

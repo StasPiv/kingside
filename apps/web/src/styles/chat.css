@@ -214,3 +214,55 @@
   color: var(--c-f59e0b);
   padding: 4px 8px;
 }
+
+/* KS-3210 (ADR-074 §10 F1): инлайн-tool-calls внутри assistant-сообщения.
+   Список выше текста ответа, приглушённый (border-left + opacity), чтобы
+   не конкурировать с самим текстом. */
+.chat-tool-calls {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--c-3a3a4e, #3a3a4e);
+  background: var(--c-2a2a3e, rgba(255, 255, 255, 0.04));
+  border-radius: 4px;
+  font-size: 12px;
+  opacity: 0.92;
+}
+.chat-tool-call {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+.chat-tool-call__icon { flex-shrink: 0; }
+.chat-tool-call__icon--ok { color: var(--c-4ade80, #4ade80); }
+.chat-tool-call__icon--error { color: var(--c-ef4444, #ef4444); }
+.chat-tool-call__text {
+  /* Имя tool / сообщение об ошибке — может быть длинным; ужимаем
+     через ellipsis, полный текст доступен в data-output / data-name. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.chat-tool-call--error .chat-tool-call__text {
+  color: var(--c-ef4444, #ef4444);
+}
+/* CSS-only спиннер. Размер совпадает с эмодзи (~14px), вращается 0.9s. */
+.chat-tool-call__spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--c-555, #555);
+  border-top-color: var(--c-7c83ff, #7c83ff);
+  border-radius: 50%;
+  animation: chat-tool-call-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes chat-tool-call-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-call__spinner { animation: none; }
+}

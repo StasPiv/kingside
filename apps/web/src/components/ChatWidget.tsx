@@ -6,6 +6,7 @@ import { useChat } from '../context/ChatContext';
 import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import { api } from '../api';
 import { renderMarkdown } from '../utils/simpleMarkdown';
+import { ChatToolCalls } from './ChatToolCalls';
 
 type Conversation = { id: string; title: string | null; updatedAt: string };
 
@@ -129,6 +130,16 @@ export function ChatWidget() {
                 )}
                 {messages.map((msg, i) => (
                   <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
+                    {/* KS-3210: tool-calls внутри ответа ассистента
+                        рендерятся ПЕРЕД текстом — пользователь видит
+                        «🛠 create_user_course — выполняется…» сразу как
+                        backend пришлёт `running`, до того как модель
+                        дойдёт до финального text-chunk'а. */}
+                    {msg.role === 'assistant' &&
+                      msg.toolCalls &&
+                      msg.toolCalls.length > 0 && (
+                        <ChatToolCalls items={msg.toolCalls} />
+                      )}
                     {msg.role === 'assistant' ? (
                       <div className="chat-msg__content chat-msg__md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content || (streaming && i === messages.length - 1 ? '...' : '')) }} />
                     ) : (

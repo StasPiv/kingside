@@ -2124,7 +2124,13 @@
   },
   "chat": {
     "rateLimited": "Лимит исчерпан. Повторите через {{seconds}} сек.",
-    "rateLimitedShort": "Лимит исчерпан"
+    "rateLimitedShort": "Лимит исчерпан",
+    "toolCalls": {
+      "label": "Вызовы инструментов",
+      "running": "🛠 {{name}} — выполняется…",
+      "ok": "✓ Выполнено: {{name}}",
+      "error": "❌ Ошибка в {{name}}: {{message}}"
+    }
   },
   "archive": {
     "database": "База партий",

@@ -2,9 +2,49 @@ import { useState, useCallback, useRef } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
+/**
+ * KS-3210 (ADR-074 §10 F1): инлайн-tool-calls внутри assistant-сообщения.
+ *
+ * Backend (KS-3205, fc1ad043) шлёт три статуса по одному `id`:
+ *   - `running` — tool стартовал, в UI спиннер «🛠 {name} — выполняется…».
+ *   - `ok` — успех, в UI «✓ выполнено: {name}». `output` строка от tool —
+ *     показывать не обязательно (часто это длинный JSON), оставляем
+ *     `output` в типе для будущих use-case'ов и в `data-output` атрибут.
+ *   - `error` — провал, в UI «❌ ошибка: {error}». `error` всегда есть.
+ *
+ * `id` стабильный — running/ok/error матчатся по нему (см. парсер в
+ * ChatContext). `input` — аргументы вызова (для tooltip/debug, в UI
+ * не показываем, чтобы не утечь служебные детали в чат).
+ *
+ * Поле живёт ВНУТРИ сообщения (а не отдельным массивом), чтобы при
+ * прокрутке/перезагрузке диалога порядок tool-вызов → ответ модели
+ * сохранялся: один assistant-msg = один turn модели, где могло быть
+ * 0..N tool-калов.
+ */
+export type ToolCallStatus = 'running' | 'ok' | 'error';
+
+export type ToolCallEvent = {
+  id: string;
+  name: string;
+  status: ToolCallStatus;
+  /** Аргументы tool-use, как Anthropic их вернул. Не показываем в UI. */
+  input?: unknown;
+  /** Сериализованный результат tool'а; присутствует только при status=ok. */
+  output?: string;
+  /** Сообщение ошибки; присутствует только при status=error. */
+  error?: string;
+};
+
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * KS-3210: tool-calls, выполненные ассистентом в рамках этого
+   * turn'а. Render-порядок — как пришли (push в массив на `running`,
+   * mutate по id на `ok`/`error`). Undefined для message'ей без
+   * tool-use (обычный текстовый ответ).
+   */
+  toolCalls?: ToolCallEvent[];
 };
 
 export function useChatStream() {
