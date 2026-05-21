@@ -1392,9 +1392,13 @@ button.sidebar-item {
     display: none;
   }
   /* Снимаем нижний паддинг `.main`, добавленный для bottom-bar — он
-     теперь не виден, лишний padding съедал бы место под доску. */
+     теперь не виден, лишний padding съедал бы место под доску.
+     KS-3197: убираем ВЕСЬ padding `.main` в focus-mode — sticky
+     compact-header и mini-pill уже сами имеют свой padding, а
+     дополнительные 24px сверху/сбоку создавали лишние пустоты над
+     доской. */
   .app.focus-mode-active .main {
-    padding-bottom: 0;
+    padding: 0;
   }
 }
 

@@ -8205,6 +8205,16 @@
   .user-lesson-page--focus .lesson-step {
     margin: 0;
     padding: 0;
+    gap: 0;
+  }
+  /* KS-3197: убираем padding/gap у самой `.user-lesson-page` в focus-mode
+     — `padding: 24px 20px 48px` + `gap: 20px` (по умолчанию) создавали
+     значительную пустоту над compact-header'ом и между mini-pill /
+     meta-bar / доской. В focus-mode внешний chrome (header, pill, sheet)
+     уже даёт свой visual-spacing — внутренний gap не нужен. */
+  .user-lesson-page--focus {
+    padding: 0;
+    gap: 0;
   }
   /* KS-3191: убираем border + background у карточки шага в focus-mode —
      карточка-обёртка лишняя, доска должна сидеть «без рамок». Сама
