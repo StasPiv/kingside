@@ -51,8 +51,14 @@ export class ChatController {
     // Get or create conversation
     const conversationId = await this.chatService.getOrCreateConversation(userId, body.conversationId);
 
-    // Webhook mode: return JSON response
-    if (this.chatService.isWebhookMode) {
+    // KS-3211: если у юзера есть @McpToolForAssistant tools (ADR-074),
+    // обходим webhook-маршрут — внешний MCP-сервер их не видит, и
+    // модель без tools отвечает «не умею». Используем in-process SSE
+    // путь с tool-loop'ом из KS-3205. Webhook остаётся как legacy
+    // fallback для tools-less юзеров (если фича-флаг ассистента
+    // выключит наши tools для какой-то когорты).
+    const hasTools = await this.chatService.hasAssistantTools(userId);
+    if (this.chatService.isWebhookMode && !hasTools) {
       try {
         const response = await this.chatService.getResponse(userId, body.message, conversationId, siteUrl);
         return res.json({ conversationId, response });
@@ -61,7 +67,7 @@ export class ChatController {
       }
     }
 
-    // Fallback: SSE stream via Anthropic API
+    // SSE stream: in-process Anthropic SDK с tool-use loop'ом (KS-3205).
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

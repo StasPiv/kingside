@@ -353,6 +353,36 @@ describe('ChatAssistantService.streamResponse — tool-use loop (KS-3205)', () =
     expect(errorEvent!.error).toContain(`MAX_TOOL_TURNS=${MAX_TOOL_TURNS}`);
   });
 
+  // KS-3211: controller использует это, чтобы обойти legacy webhook-
+  // маршрут когда у юзера есть @McpToolForAssistant tools.
+  describe('hasAssistantTools (KS-3211)', () => {
+    it('возвращает true, если провайдер отдаёт хотя бы один tool', async () => {
+      const service = makeService({
+        listTools: async () => [FAKE_TOOL],
+        execute: async () => 'x',
+      });
+      await expect(service.hasAssistantTools('u')).resolves.toBe(true);
+    });
+
+    it('возвращает false при пустом каталоге', async () => {
+      const service = makeService({
+        listTools: async () => [],
+        execute: async () => 'x',
+      });
+      await expect(service.hasAssistantTools('u')).resolves.toBe(false);
+    });
+
+    it('возвращает false при ошибке listTools (fail-safe)', async () => {
+      const service = makeService({
+        listTools: async () => {
+          throw new Error('redis down');
+        },
+        execute: async () => 'x',
+      });
+      await expect(service.hasAssistantTools('u')).resolves.toBe(false);
+    });
+  });
+
   it('ANTHROPIC_API_KEY пуст → дружелюбное сообщение, без вызова SDK', async () => {
     const service = makeService({
       listTools: async () => [],

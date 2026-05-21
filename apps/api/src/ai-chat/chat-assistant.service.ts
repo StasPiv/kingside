@@ -62,6 +62,30 @@ export class ChatAssistantService {
     return !!this.webhookUrl;
   }
 
+  /**
+   * KS-3211 / регрессия ADR-074. Webhook-режим (KS-1481) делегирует
+   * запрос внешнему MCP-серверу, у которого свой `tools[]` — наши
+   * `@McpToolForAssistant` (in-process) туда не попадают. Controller
+   * использует этот метод чтобы решить: если у текущего юзера есть
+   * хотя бы один assistant-tool, нужно идти через `streamResponse`
+   * (in-process Anthropic SDK с tool-use loop'ом из KS-3205), даже если
+   * `AI_CHAT_WEBHOOK_URL` задан.
+   *
+   * Fail-safe: при ошибке listTools (Redis/DI/что-то ещё) — возвращаем
+   * false и оставляем legacy webhook-маршрут, чтобы не уронить чат.
+   */
+  async hasAssistantTools(userId: string): Promise<boolean> {
+    try {
+      const tools = await this.toolsProvider.listTools(userId);
+      return tools.length > 0;
+    } catch (e) {
+      this.logger.warn(
+        `hasAssistantTools failed for user=${userId}: ${(e as Error).message}`,
+      );
+      return false;
+    }
+  }
+
   validateMessageLength(message: string): void {
     if (message.length > this.maxMsgLength) {
       throw new BadRequestException(`Message too long: max ${this.maxMsgLength} characters`);
