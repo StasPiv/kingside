@@ -566,6 +566,112 @@ describe('LessonAssistantTools (KS-3207)', () => {
     });
   });
 
+  // ─── KS-3223 / ADR-075 §7 B3 — validate_fen + diagrams hook ─────
+
+  describe('validate_fen (KS-3223)', () => {
+    const VALID_START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const VALID_WHITE_UP = '8/8/8/8/8/8/4P3/4K2k w - - 0 1';
+
+    it('начальная позиция → valid, sideToMove=white, materialBalance=0', async () => {
+      const { tools } = makeTools();
+      const out = await tools.validateFen(
+        { fen: VALID_START } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(out.valid).toBe(true);
+      expect(out.sideToMove).toBe('white');
+      expect(out.materialBalance).toBe(0);
+      expect(out.piecesByColor!.white.p).toBe(8);
+      expect(out.piecesByColor!.black.p).toBe(8);
+    });
+
+    it('эндшпиль K+P vs K → materialBalance=1 в пользу белых', async () => {
+      const { tools } = makeTools();
+      const out = await tools.validateFen(
+        { fen: VALID_WHITE_UP } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(out.valid).toBe(true);
+      expect(out.materialBalance).toBe(1);
+    });
+
+    it('невалидный FEN → valid=false + error', async () => {
+      const { tools } = makeTools();
+      const out = await tools.validateFen(
+        { fen: 'totally not a fen' } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      expect(out.valid).toBe(false);
+      expect(out.error).toBeTruthy();
+    });
+  });
+
+  describe('text-step diagrams server-side hook (KS-3223)', () => {
+    const VALID_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const INVALID_FEN = 'garbage';
+
+    it('валидные diagrams → попадают в payload.diagrams', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.createUserLessonStep(
+        {
+          lessonId: LESSON_ID,
+          type: 'text',
+          bodyMarkdown: '# Начальная позиция',
+          diagrams: [
+            { fen: VALID_FEN, caption: 'старт', orientation: 'white' },
+            { fen: VALID_FEN },
+          ],
+        } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1].payload;
+      expect(payload.type).toBe('text');
+      expect(payload.diagrams).toHaveLength(2);
+      expect(payload.diagrams[0]).toEqual({
+        fen: VALID_FEN,
+        caption: 'старт',
+        orientation: 'white',
+      });
+      expect(payload.diagrams[1]).toEqual({ fen: VALID_FEN });
+    });
+
+    it('невалидный FEN в diagrams → BadRequest, addStep НЕ вызывается', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await expect(
+        tools.createUserLessonStep(
+          {
+            lessonId: LESSON_ID,
+            type: 'text',
+            bodyMarkdown: '# bad',
+            diagrams: [{ fen: INVALID_FEN }],
+          } as any,
+          { user: { id: USER_ID, username: 'tester' } } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(lessonsMock.addStep).not.toHaveBeenCalled();
+    });
+
+    it('пустой diagrams (или отсутствует) → payload без поля diagrams', async () => {
+      const { tools, lessonsMock } = makeTools({
+        lesson: { ownerId: USER_ID, stepCount: 0, puzzleStepCount: 0 },
+      });
+      await tools.createUserLessonStep(
+        {
+          lessonId: LESSON_ID,
+          type: 'text',
+          bodyMarkdown: '# no diagrams',
+        } as any,
+        { user: { id: USER_ID, username: 'tester' } } as any,
+      );
+      const payload = (lessonsMock.addStep as jest.Mock).mock.calls[0][1].payload;
+      expect(payload.diagrams).toBeUndefined();
+    });
+  });
+
   describe('find_puzzles_preview (KS-3221)', () => {
     const baseInput = { themes: ['fork'], limit: 3 };
 

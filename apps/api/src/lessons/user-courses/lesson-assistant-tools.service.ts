@@ -57,10 +57,12 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { Chess } from 'chess.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { McpToolForAssistant } from '../../mcp/decorators';
 import { PuzzleService } from '../../puzzle/puzzle.service';
+import { isValidFen } from '../dto/position-step.validators';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
 
@@ -199,6 +201,31 @@ export class AssistantQuizQuestion {
   explanation?: string;
 }
 
+/**
+ * KS-3223 / ADR-075 §7 B3. Диаграмма в text-шаге — FEN + опц. caption +
+ * ориентация. Валидируется серверным hook'ом через chess.js перед
+ * записью. Лимит — `ASSISTANT_TEXT_DIAGRAMS_MAX` (5) штук на шаг (UI
+ * вмещает несколько, но 5 — потолок для удобства просмотра в одном
+ * tile'е).
+ */
+export class AssistantTextDiagram {
+  @IsString()
+  @MinLength(15)
+  @MaxLength(120)
+  fen!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  caption?: string;
+
+  @IsOptional()
+  @IsIn(['white', 'black'])
+  orientation?: 'white' | 'black';
+}
+
+export const ASSISTANT_TEXT_DIAGRAMS_MAX = 5;
+
 export class CreateUserLessonStepAssistantInput {
   @IsUUID()
   lessonId!: string;
@@ -218,6 +245,19 @@ export class CreateUserLessonStepAssistantInput {
   @MaxLength(ASSISTANT_TEXT_BODY_MAX)
   bodyMarkdown?: string;
 
+  /**
+   * KS-3223 / ADR-075 §7 B3. Опциональные FEN-диаграммы в text-шаге.
+   * Каждый FEN дополнительно проверяется chess.js'ом серверным hook'ом
+   * перед записью — даже если ассистент пропустил `validate_fen`,
+   * мусорный FEN не доедет до БД.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(ASSISTANT_TEXT_DIAGRAMS_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => AssistantTextDiagram)
+  diagrams?: AssistantTextDiagram[];
+
   // type='quiz':
   @IsOptional()
   @IsArray()
@@ -226,6 +266,17 @@ export class CreateUserLessonStepAssistantInput {
   @ValidateNested({ each: true })
   @Type(() => AssistantQuizQuestion)
   questions?: AssistantQuizQuestion[];
+}
+
+/**
+ * KS-3223 / ADR-075 §7 B3. Input для `validate_fen` — проверяет FEN
+ * через chess.js и возвращает мета-информацию для ассистента.
+ */
+export class ValidateFenAssistantInput {
+  @IsString()
+  @MinLength(15)
+  @MaxLength(200)
+  fen!: string;
 }
 
 export class GetUserCourseUrlAssistantInput {
@@ -538,7 +589,34 @@ export class LessonAssistantTools {
           'text step requires non-empty bodyMarkdown',
         );
       }
-      payload = { type: 'text', bodyMarkdown: input.bodyMarkdown };
+      // KS-3223 / ADR-075 §7 B3. Серверный hook: каждый FEN в
+      // diagrams[] валидируем chess.js'ом перед записью. Даже если
+      // ассистент не вызвал `validate_fen`, мусор не попадёт в БД.
+      const diagrams: Array<{
+        fen: string;
+        caption?: string;
+        orientation?: 'white' | 'black';
+      }> = [];
+      if (input.diagrams && input.diagrams.length > 0) {
+        for (let i = 0; i < input.diagrams.length; i++) {
+          const d = input.diagrams[i];
+          if (!isValidFen(d.fen)) {
+            throw new BadRequestException(
+              `diagrams[${i}].fen is not a valid FEN (chess.js rejected it)`,
+            );
+          }
+          diagrams.push({
+            fen: d.fen,
+            ...(d.caption ? { caption: d.caption } : {}),
+            ...(d.orientation ? { orientation: d.orientation } : {}),
+          });
+        }
+      }
+      payload = {
+        type: 'text',
+        bodyMarkdown: input.bodyMarkdown,
+        ...(diagrams.length > 0 ? { diagrams } : {}),
+      };
     } else {
       // quiz
       if (!input.questions || input.questions.length === 0) {
@@ -716,6 +794,71 @@ export class LessonAssistantTools {
       order: created.order,
       themes: input.themes,
       limit: input.limit,
+    };
+  }
+
+  @Post('validate_fen')
+  @McpTool({
+    name: 'validate_fen',
+    description:
+      'Validate a FEN string via chess.js. Returns { valid: true, sideToMove, ' +
+      'materialBalance, piecesByColor } on success, or { valid: false, error } ' +
+      'on failure. ALWAYS call this before adding a diagram to a text-step — ' +
+      'mistyped FEN strings are rejected at the server side anyway, but the ' +
+      'check helps assistant give an immediate response.',
+  })
+  @McpToolForAssistant({
+    name: 'validate_fen',
+    description: 'Validate a FEN string via chess.js before using it in a diagram.',
+  })
+  async validateFen(
+    @Body() input: ValidateFenAssistantInput,
+    @Request() _req: AuthenticatedRequest,
+  ): Promise<{
+    valid: boolean;
+    error?: string;
+    sideToMove?: 'white' | 'black';
+    materialBalance?: number;
+    piecesByColor?: {
+      white: Record<string, number>;
+      black: Record<string, number>;
+    };
+  }> {
+    if (!isValidFen(input.fen)) {
+      return {
+        valid: false,
+        error: 'FEN cannot be parsed by chess.js — check piece placement and turn.',
+      };
+    }
+    const chess = new Chess();
+    try {
+      chess.load(input.fen);
+    } catch (e) {
+      return { valid: false, error: (e as Error).message };
+    }
+    const turn = chess.turn(); // 'w' | 'b'
+    const sideToMove: 'white' | 'black' = turn === 'w' ? 'white' : 'black';
+    // Material: pawn=1, knight=3, bishop=3, rook=5, queen=9.
+    const VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+    const piecesByColor: { white: Record<string, number>; black: Record<string, number> } = {
+      white: { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 },
+      black: { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 },
+    };
+    let materialBalance = 0;
+    for (const row of chess.board()) {
+      for (const sq of row) {
+        if (!sq) continue;
+        const color: 'white' | 'black' = sq.color === 'w' ? 'white' : 'black';
+        piecesByColor[color][sq.type] = (piecesByColor[color][sq.type] ?? 0) + 1;
+        const v = VALUE[sq.type] ?? 0;
+        materialBalance += sq.color === 'w' ? v : -v;
+      }
+    }
+    return {
+      valid: true,
+      sideToMove,
+      materialBalance,
+      piecesByColor,
     };
   }
 
