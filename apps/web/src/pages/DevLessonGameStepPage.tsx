@@ -1,6 +1,7 @@
 import type { GameStepPayload } from '@kingside/shared';
 
 import { GameStep } from '../components/lessons/steps/GameStep';
+import { useFocusMode } from '../context/FocusModeContext';
 
 /**
  * KS-3186: dev-страница, повторяющая реальную цепочку контейнеров
@@ -35,6 +36,11 @@ a6 9. Bxc6 bxc6 10. d4 Re8 11. dxe5 dxe5 12. Nc4 Bb6 13. a4 a5 14. Be3 Bxe3
 27. Nh4 Kh7 28. Nf3 1/2-1/2`;
 
 export function DevLessonGameStepPage() {
+  // KS-3191: подписываемся на focus-mode и добавляем класс
+  // `user-lesson-page--focus` при active, как делает реальная UserLessonView.
+  // Это позволяет dev-странице воспроизводить полный focus-mode UI без
+  // авторизованного пользователя.
+  const { active: focusActive } = useFocusMode();
   const payload: GameStepPayload = {
     type: 'game',
     sourceType: 'pgn',
@@ -45,7 +51,10 @@ export function DevLessonGameStepPage() {
     // `<div class="user-lesson-page">` (UserLessonView), а НЕ
     // `.lesson-page` (legacy LessonPage). Поэтому фикс должен быть на
     // user-lesson-page тоже. Здесь рендерим эквивалентный wrapper.
-    <div className="user-lesson-page" data-testid="dev-user-lesson-page">
+    <div
+      className={`user-lesson-page${focusActive ? ' user-lesson-page--focus' : ''}`}
+      data-testid="dev-user-lesson-page"
+    >
       <nav className="user-lesson-page__breadcrumbs">
         <a href="#">Уроки</a>
         <span className="user-lesson-page__sep"> / </span>
@@ -58,6 +67,24 @@ export function DevLessonGameStepPage() {
         <div className="user-lesson-page__progress">
           Шаг 1/2 — 2 пройдено (100%)
         </div>
+      </div>
+      {/* KS-3191: mini-pill — отображается только в focus-mode (CSS
+       * `.user-lesson-page--focus .lesson-progress-pill { display: flex }`).
+       * На dev-странице добавлен для скриншотов KS-3191. */}
+      <div className="lesson-progress-pill" aria-hidden={!focusActive}>
+        <span className="lesson-progress-pill__label">Шаг 1/2</span>
+        <span
+          className="lesson-progress-pill__bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={50}
+        >
+          <span
+            className="lesson-progress-pill__fill"
+            style={{ width: '50%' }}
+          />
+        </span>
       </div>
       <ol className="lesson-step-list" data-testid="lesson-step-list">
         <li

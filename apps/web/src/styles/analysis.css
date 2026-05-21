@@ -3173,23 +3173,30 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
     left: 0;
     right: 0;
     bottom: 0;
-    border-top: 1px solid var(--border-subtle, #2a2a4e);
-    background: var(--c-0f0f1e, #0f0f1e);
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    border-top: 1px solid var(--border-subtle);
+    /* KS-3191: semantic background-token — sheet корректно выглядит и
+       в light, и в dark (раньше был захардкожен `--c-0f0f1e`). */
+    background: var(--bg-surface);
+    /* KS-3191: token-based shadow — в light темнее (slate-tinted),
+       в dark — мягкий чёрный. */
+    box-shadow: 0 -8px 24px var(--ov-black-40);
     z-index: 70;
     /* Плавная анимация высоты при переключении snap. Drag без
        реалтайма (см. useBottomSheet), но финальный snap-jump приятнее
        с анимацией. */
-    transition: height 200ms ease-out;
+    transition: height 220ms cubic-bezier(0.32, 0.72, 0, 1);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-sizing: border-box;
+    /* KS-3191: верхние скругления — sheet выглядит как «выезжающая
+       панель» из нижнего края, а не как фиксированный block. */
+    border-radius: 14px 14px 0 0;
   }
   /* Snap heights: peek = только handle + tabs (~64px), half ≈ 50%
      viewport, full ≈ 85%. Используем `dvh`, чтобы корректно работало
      с динамической iOS-toolbar высотой. */
   .app.focus-mode-active
     .analysis-mobile-panel[data-focus-sheet='true'][data-snap='peek'] {
-    height: 64px;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
   }
   .app.focus-mode-active
     .analysis-mobile-panel[data-focus-sheet='true'][data-snap='half'] {
@@ -3200,25 +3207,67 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
     height: 85dvh;
   }
 
-  /* Handle (drag-ручка) — серая горизонтальная полоска сверху панели. */
+  /* Handle (drag-ручка) — серая горизонтальная полоска сверху панели.
+     KS-3191: высота 32px — WCAG touch-target. Сама визуальная «полоска»
+     остаётся 4px, но кликабельная зона расширена padding'ом. */
   .app.focus-mode-active
     .analysis-mobile-panel[data-focus-sheet='true']
     .analysis-mobile-panel__handle {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 18px;
+    height: 32px;
     flex-shrink: 0;
     touch-action: none; /* отключаем встроенный pan-y браузера на handle */
     cursor: ns-resize;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__handle:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -4px;
+    border-radius: 14px 14px 0 0;
   }
   .app.focus-mode-active
     .analysis-mobile-panel[data-focus-sheet='true']
     .analysis-mobile-panel__handle-bar {
-    width: 40px;
+    width: 44px;
     height: 4px;
     border-radius: 2px;
-    background: var(--c-555, #555);
+    /* KS-3191: token-based «handle-bar» — в light это тёмно-серый,
+       в dark — светло-серый, контрастирует с background sheet'а. */
+    background: var(--text-muted);
+    opacity: 0.55;
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__handle:hover
+    .analysis-mobile-panel__handle-bar,
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__handle:active
+    .analysis-mobile-panel__handle-bar {
+    opacity: 0.85;
+    transform: scaleX(1.05);
+  }
+
+  /* KS-3191: внутри bottom-sheet ряд табов даём чуть больше touch-area
+     (target ≥ 44px по высоте). По умолчанию `.analysis-mobile-panel__tabs`
+     30px line-height — не WCAG-compliant в focus-mode на touch-устройстве. */
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-panel__tabs {
+    height: 44px;
+  }
+  .app.focus-mode-active
+    .analysis-mobile-panel[data-focus-sheet='true']
+    .analysis-mobile-tab {
+    line-height: 42px;
+    font-size: 14px;
+    min-height: 44px;
   }
 
   /* Размер доски синхронно меняется по snap. Внутри embedded

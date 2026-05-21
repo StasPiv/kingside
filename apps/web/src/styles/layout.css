@@ -1345,23 +1345,48 @@ button.sidebar-item {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    padding: 8px 12px;
+    padding: 0 8px;
     min-height: 40px;
-    background: var(--c-0f0f1e);
-    border-bottom: 1px solid var(--c-2a2a4e);
+    /* KS-3191: semantic tokens — корректно переключаются между темами
+       (раньше был захардкожен `--c-0f0f1e`, в light совпадал с фоном
+       страницы и compact-header «терялся»). */
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
     position: sticky;
     top: 0;
     z-index: 100;
+    /* iOS safe-area — на iPhone с notch верхняя «уха» накладывается
+       поверх sticky header'а. Дополнительный отступ убирает это. */
+    padding-top: env(safe-area-inset-top, 0px);
+    min-height: calc(40px + env(safe-area-inset-top, 0px));
   }
   .header--focus-compact__back {
     appearance: none;
     background: transparent;
     border: 0;
-    color: var(--c-e0e0e0);
+    color: var(--text-primary);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    padding: 4px 8px;
+    /* KS-3191: WCAG 2.5.5 / Material — touch-target ≥ 44×44px. */
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 6px;
+    transition: background-color 120ms ease;
+  }
+  .header--focus-compact__back:hover {
+    background: var(--ov-white-08);
+  }
+  .header--focus-compact__back:active {
+    background: var(--ov-white-15);
+  }
+  .header--focus-compact__back:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
   }
   .app.focus-mode-active .mobile-bottom-bar {
     display: none;

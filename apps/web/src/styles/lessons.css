@@ -8123,9 +8123,12 @@
   height: 28px;
   padding: 4px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--c-0f0f1e);
+  /* KS-3191: semantic background-token — pill корректно отображается
+     в обеих темах (раньше был захардкожен `--c-0f0f1e`). */
+  background: var(--bg-surface);
   position: sticky;
-  top: 40px; /* высота compact-header'а из KS-3188 */
+  /* KS-3191: высота compact-header'а + safe-area-inset-top. */
+  top: calc(40px + env(safe-area-inset-top, 0px));
   z-index: 90;
 }
 .lesson-progress-pill__label {
@@ -8137,7 +8140,9 @@
 .lesson-progress-pill__bar {
   flex: 1 1 auto;
   height: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  /* KS-3191: token-based subtle track — `ov-white-10` в dark, slate-tinted
+     в light (см. tokens.css), контраст с fill сохраняется. */
+  background: var(--ov-white-10);
   border-radius: 2px;
   overflow: hidden;
   position: relative;
@@ -8172,8 +8177,11 @@
   .user-lesson-page--focus .lesson-game-step__actions {
     position: sticky;
     bottom: 0;
-    background: var(--c-0f0f1e);
+    /* KS-3191: semantic token + shadow сверху, чтобы sticky-bar отчётливо
+       отделялся от прокручиваемого контента. */
+    background: var(--bg-surface);
     border-top: 1px solid var(--border-subtle);
+    box-shadow: 0 -4px 16px var(--ov-black-20);
     padding: 8px 12px;
     padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     z-index: 80;
@@ -8182,6 +8190,13 @@
   }
   .user-lesson-page--focus .lesson-game-step__done {
     width: 100%;
+    /* KS-3191: WCAG 2.5.5 — touch target ≥ 44×44px. */
+    min-height: 44px;
+    font-size: 15px;
+  }
+  .user-lesson-page--focus .lesson-game-step__done:focus-visible {
+    outline: 2px solid var(--text-on-accent, #fff);
+    outline-offset: -4px;
   }
   /* Убираем верхние отступы у списка шагов и самого <li>, чтобы
      суммарная top-зона ≤ 126px (40 compact-header + 28 pill + ≈8px) и
@@ -8190,6 +8205,37 @@
   .user-lesson-page--focus .lesson-step {
     margin: 0;
     padding: 0;
+  }
+  /* KS-3191: убираем border + background у карточки шага в focus-mode —
+     карточка-обёртка лишняя, доска должна сидеть «без рамок». Сама
+     карточка занимает всю ширину viewport'а. */
+  .user-lesson-page--focus .lesson-step {
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+  }
+  /* KS-3191: compact AnalysisHeader (`.game-meta-bar__mobile`) — сжимаем
+     до 18px (по умолчанию 20px), single-row, без opening/event. Внутри
+     focus-mode каждый пиксель важен — суммарная top-зона ≤ 126px. */
+  .user-lesson-page--focus .game-meta-bar__mobile {
+    height: 18px;
+    font-size: 11px;
+    padding: 1px 8px;
+  }
+  .user-lesson-page--focus .game-meta-bar__mobile .game-meta-bar__name {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 30vw;
+  }
+  /* KS-3191: убираем gap у viewer'а внутри focus-mode-game-step — доска
+     сразу под compact-bar'ом. */
+  .user-lesson-page--focus .lesson-game-step {
+    gap: 0;
+  }
+  .user-lesson-page--focus .lesson-game-step__viewer {
+    border: 0;
+    border-radius: 0;
   }
 }
 
