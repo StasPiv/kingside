@@ -230,6 +230,8 @@ describe('AnalysisService', () => {
           sourceHash: 'lichess:LhpNkgC9',
         };
         prisma.analysis.findFirst = jest.fn().mockResolvedValue(existing);
+        // KS-3262: create возвращает то, что вернул update — мокаем явно.
+        prisma.analysis.update.mockResolvedValue(existing);
 
         const result = await service.create(userId, {
           pgn: '1. e4',
@@ -237,7 +239,7 @@ describe('AnalysisService', () => {
         });
 
         expect(prisma.analysis.findFirst).toHaveBeenCalledWith({
-          where: { userId, sourceHash: 'lichess:LhpNkgC9' },
+          where: { userId, sourceHash: { in: ['lichess:LhpNkgC9'] } },
         });
         expect(prisma.analysis.create).not.toHaveBeenCalled();
         expect(prisma.analysis.update).toHaveBeenCalledWith({
@@ -247,6 +249,75 @@ describe('AnalysisService', () => {
           }),
         });
         expect(result).toMatchObject({ id: 'a-existing', existing: true });
+      });
+
+      it('KS-3262: dedup находит legacy-запись с pgn-hash, когда пришёл lichessGameId, и апгрейдит её', async () => {
+        // Legacy: запись создана ДО KS-3261 deploy без lichessGameId,
+        // имеет source_hash='pgn:<headers-hash>' и lichess_game_id=NULL.
+        const legacyRecord = {
+          ...mockAnalysis,
+          id: 'a-legacy',
+          sourceHash: 'pgn:dc72a7cc467f212a95fe88964b3c4e09f528f39bce5f2c244448e80a3d9e9570',
+          lichessGameId: null as string | null,
+          archiveGameId: null as string | null,
+        };
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(legacyRecord);
+        prisma.analysis.update.mockResolvedValue({
+          ...legacyRecord,
+          sourceHash: 'lichess:7qKxg3w1',
+          lichessGameId: '7qKxg3w1',
+        });
+
+        const pgnWithHeaders =
+          '[White "Deac, Bogdan-Daniel"]\n[Black "Caruana, F"]\n[Date "2026.05.18"]\n[Event "GCT"]\n[Round "5.2"]\n\n1. d4 *';
+
+        const result = await service.create(userId, {
+          pgn: pgnWithHeaders,
+          lichessGameId: '7qKxg3w1',
+        });
+
+        // Lookup делается по IN [lichess:7qKxg3w1, pgn:<sha>] — оба
+        // applicable хеша, поэтому legacy с pgn-hash находится.
+        expect(prisma.analysis.findFirst).toHaveBeenCalledWith({
+          where: {
+            userId,
+            sourceHash: { in: expect.arrayContaining([
+              'lichess:7qKxg3w1',
+              expect.stringMatching(/^pgn:[0-9a-f]{64}$/),
+            ]) },
+          },
+        });
+        // Upgrade: sourceHash + lichessGameId перезаписываются на preferred.
+        expect(prisma.analysis.update).toHaveBeenCalledWith({
+          where: { id: 'a-legacy' },
+          data: expect.objectContaining({
+            sourceHash: 'lichess:7qKxg3w1',
+            lichessGameId: '7qKxg3w1',
+            lastOpenedAt: expect.any(Date),
+          }),
+        });
+        expect(prisma.analysis.create).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ id: 'a-legacy', existing: true });
+      });
+
+      it('KS-3262: если existing уже с lichess-hash и lichessGameId — upgrade не делается (только lastOpenedAt)', async () => {
+        const alreadyUpgraded = {
+          ...mockAnalysis,
+          id: 'a-upgraded',
+          sourceHash: 'lichess:7qKxg3w1',
+          lichessGameId: '7qKxg3w1',
+        };
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(alreadyUpgraded);
+        prisma.analysis.update.mockResolvedValue(alreadyUpgraded);
+
+        await service.create(userId, {
+          lichessGameId: '7qKxg3w1',
+        });
+
+        // Update data содержит ТОЛЬКО lastOpenedAt — sourceHash/lichessGameId
+        // не перезаписываются если уже совпадают.
+        const updateCall = prisma.analysis.update.mock.calls[0][0];
+        expect(Object.keys(updateCall.data)).toEqual(['lastOpenedAt']);
       });
 
       it('create с lichessGameId + НЕ найден → создаёт нового с sourceHash и lichessGameId', async () => {

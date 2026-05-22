@@ -155,42 +155,83 @@ export class AnalysisService implements OnModuleInit {
   }
 
   /**
-   * KS-3261. Детерминированный source_hash для дедупа при открытии партии
-   * «В мастерской». Приоритет:
-   *   1. Lichess broadcast (`lichessGameId`) → `'lichess:<id>'`.
-   *   2. Архив (`archiveGameId`) → `'archive:<uuid>'`.
-   *   3. PGN-headers `White|Black|Date|Event|Round` (lower, trim) → sha256.
-   *      Если хотя бы один из white/black/date пуст → `null` (не дедупим,
-   *      лучше создать дубль чем заблокировать сохранение неполного PGN).
+   * KS-3261. Преференциальный source_hash (для записи в БД): первый
+   * непустой из приоритетной цепочки lichess → archive → pgn-headers.
    *
-   * Pure-функция (статик), не зависит от prisma — удобно для тестов.
+   * KS-3262: для lookup'а отдельная функция `computeAllSourceHashes`,
+   * которая возвращает ВСЕ возможные хеши одновременно — нужно матчить
+   * legacy-записи с pgn-hash против нового lichess-hash при повторном
+   * открытии той же партии (см. описание в `computeAllSourceHashes`).
    */
   static computeSourceHash(input: {
     lichessGameId?: string | null;
     archiveGameId?: string | null;
     pgn?: string | null;
   }): string | null {
+    return AnalysisService.computeAllSourceHashes(input).preferred;
+  }
+
+  /**
+   * KS-3262. Возвращает все возможные source_hash'и для текущего
+   * запроса + preferred (для записи). Зачем все:
+   *
+   * Сценарий, который сломался в KS-3262 prod:
+   *   Шаг 1. Фронт делает POST /analyses БЕЗ `lichessGameId` (старый
+   *          callsite). Backend вычисляет `source_hash='pgn:<sha256>'`
+   *          → создаёт запись A.
+   *   Шаг 2. Пользователь добавляет вариант — PATCH обновляет pgn.
+   *   Шаг 3. Фронт повторно открывает партию, теперь С `lichessGameId`.
+   *          Backend вычисляет `source_hash='lichess:<id>'`.
+   *          findFirst по `lichess:...` → не находит запись A (у неё
+   *          `pgn:...`) → создаёт новую B, вариант теряется в UX.
+   *
+   * Фикс: lookup ищет ЛЮБОЙ из applicable хешей. Если найдена legacy-
+   * запись с `pgn:`-hash, а в текущем запросе пришёл `lichessGameId` —
+   * сервис делает upgrade: обновляет колонки `source_hash` на
+   * lichess-вариант + `lichess_game_id` (backfill). Следующий lookup
+   * найдёт её уже по preferred-хешу.
+   *
+   * Возвращает массив `applicable` (только не-null, дедуплицированный)
+   * и `preferred` (то что пишется в новую запись или после upgrade'а).
+   */
+  static computeAllSourceHashes(input: {
+    lichessGameId?: string | null;
+    archiveGameId?: string | null;
+    pgn?: string | null;
+  }): { applicable: string[]; preferred: string | null } {
+    const hashes: string[] = [];
+    let preferred: string | null = null;
+
     if (input.lichessGameId) {
-      return `lichess:${input.lichessGameId}`;
+      const h = `lichess:${input.lichessGameId}`;
+      hashes.push(h);
+      preferred ??= h;
     }
     if (input.archiveGameId) {
-      return `archive:${input.archiveGameId}`;
+      const h = `archive:${input.archiveGameId}`;
+      hashes.push(h);
+      preferred ??= h;
     }
-    if (!input.pgn) return null;
-    const extract = (key: string): string | null => {
-      const re = new RegExp(`\\[${key}\\s+"([^"]*)"\\]`);
-      const m = input.pgn!.match(re);
-      return m ? m[1] : null;
-    };
-    const white = extract('White');
-    const black = extract('Black');
-    const date = extract('Date');
-    const event = extract('Event');
-    const round = extract('Round');
-    if (!white || !black || !date) return null;
-    const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
-    const key = `${norm(white)}|${norm(black)}|${date}|${norm(event)}|${norm(round)}`;
-    return `pgn:${createHash('sha256').update(key).digest('hex')}`;
+    if (input.pgn) {
+      const extract = (key: string): string | null => {
+        const re = new RegExp(`\\[${key}\\s+"([^"]*)"\\]`);
+        const m = input.pgn!.match(re);
+        return m ? m[1] : null;
+      };
+      const white = extract('White');
+      const black = extract('Black');
+      const date = extract('Date');
+      const event = extract('Event');
+      const round = extract('Round');
+      if (white && black && date) {
+        const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
+        const key = `${norm(white)}|${norm(black)}|${date}|${norm(event)}|${norm(round)}`;
+        const h = `pgn:${createHash('sha256').update(key).digest('hex')}`;
+        hashes.push(h);
+        preferred ??= h;
+      }
+    }
+    return { applicable: hashes, preferred };
   }
 
   /**
@@ -214,26 +255,48 @@ export class AnalysisService implements OnModuleInit {
     const headline = this.buildHeadline(dto.pgn);
     const meta = this.extractMetadata(dto.pgn);
 
-    const sourceHash = AnalysisService.computeSourceHash({
-      lichessGameId: dto.lichessGameId ?? null,
-      archiveGameId: dto.archiveGameId ?? null,
-      pgn: dto.pgn ?? null,
-    });
+    // KS-3262: вычисляем ВСЕ возможные source_hash'и, чтобы dedup нашёл
+    // legacy-записи созданные ранее с другим типом ключа (например с
+    // pgn-headers-hash до того, как фронт начал передавать lichessGameId).
+    const { applicable: applicableHashes, preferred: sourceHash } =
+      AnalysisService.computeAllSourceHashes({
+        lichessGameId: dto.lichessGameId ?? null,
+        archiveGameId: dto.archiveGameId ?? null,
+        pgn: dto.pgn ?? null,
+      });
 
-    // Dedup lookup — только если source_hash определён.
-    if (sourceHash) {
+    // Dedup lookup — только если есть хотя бы один applicable hash.
+    if (applicableHashes.length > 0) {
       const existing = await this.prisma.analysis.findFirst({
-        where: { userId, sourceHash },
+        where: { userId, sourceHash: { in: applicableHashes } },
       });
       if (existing) {
-        await this.prisma.analysis.update({
+        // KS-3262: upgrade legacy-записи. Если найденная запись имеет
+        // source_hash отличный от preferred (например в БД 'pgn:...'
+        // а в запросе пришёл lichessGameId → preferred = 'lichess:...'),
+        // или не заполнены lichess_game_id / archive_game_id — обновляем
+        // их сейчас. Следующий lookup найдёт запись уже по preferred.
+        const updateData: Record<string, unknown> = { lastOpenedAt: now };
+        if (sourceHash && existing.sourceHash !== sourceHash) {
+          updateData.sourceHash = sourceHash;
+        }
+        if (dto.lichessGameId && !existing.lichessGameId) {
+          updateData.lichessGameId = dto.lichessGameId;
+        }
+        if (dto.archiveGameId && !existing.archiveGameId) {
+          updateData.archiveGameId = dto.archiveGameId;
+        }
+        const updated = await this.prisma.analysis.update({
           where: { id: existing.id },
-          data: { lastOpenedAt: now },
+          data: updateData,
         });
+        const upgraded = Object.keys(updateData).length > 1; // не только lastOpenedAt
         this.logger.log(
-          `Analysis dedup hit user=${userId.slice(0, 8)} sourceHash=${sourceHash.slice(0, 24)} → existing=${existing.id}`,
+          `Analysis dedup hit user=${userId.slice(0, 8)} ` +
+            `matchedHash=${(existing.sourceHash ?? '∅').slice(0, 24)} → existing=${existing.id}` +
+            (upgraded ? ` (upgraded to ${sourceHash?.slice(0, 24) ?? '∅'})` : ''),
         );
-        return { ...existing, lastOpenedAt: now, existing: true };
+        return { ...updated, existing: true };
       }
     }
 
