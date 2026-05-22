@@ -180,4 +180,131 @@ describe('<PrecisionScoreBlock>', () => {
       ).toContain('Score unavailable');
     });
   });
+
+  /**
+   * KS-3248 (ADR-076 §7 F3): рендер по матрице 5×2 от backend.
+   */
+  describe('verdictKey + objectiveAchieved (KS-3248)', () => {
+    it('verdictKey=flawless → "Flawless solution"', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock score={5} scorePct={97} verdictKey="flawless" />,
+      );
+      expect(
+        screen.getByTestId('precision-score-block-interpretation').textContent,
+      ).toMatch(/Flawless solution/);
+      expect(
+        screen
+          .getByTestId('precision-score-block')
+          .getAttribute('data-verdict-key'),
+      ).toBe('flawless');
+    });
+
+    it('verdictKey=with-blunders → "Goal achieved, but with blunders"', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={1}
+          scorePct={20}
+          verdictKey="with-blunders"
+        />,
+      );
+      expect(
+        screen.getByTestId('precision-score-block-interpretation').textContent,
+      ).toMatch(/with blunders/);
+    });
+
+    it('verdictKey=goal-missed-mistakes → "Goal not reached, mistakes were made"', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={2}
+          scorePct={40}
+          verdictKey="goal-missed-mistakes"
+        />,
+      );
+      expect(
+        screen.getByTestId('precision-score-block-interpretation').textContent,
+      ).toMatch(/Goal not reached, mistakes were made/);
+    });
+
+    it('без verdictKey + objectiveAchieved=true → computeVerdictKey(score,true)', () => {
+      // score=4 + achieved=true → 'confident'.
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={4}
+          scorePct={85}
+          objectiveAchieved={true}
+        />,
+      );
+      const block = screen.getByTestId('precision-score-block');
+      expect(block.getAttribute('data-verdict-key')).toBe('confident');
+      expect(block.getAttribute('data-objective-achieved')).toBe('true');
+      expect(
+        screen.getByTestId('precision-score-block-interpretation').textContent,
+      ).toMatch(/Confident solution/);
+    });
+
+    it('без verdictKey + objectiveAchieved=false + score=2 → goal-missed-mistakes', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={2}
+          scorePct={40}
+          objectiveAchieved={false}
+        />,
+      );
+      const block = screen.getByTestId('precision-score-block');
+      expect(block.getAttribute('data-verdict-key')).toBe('goal-missed-mistakes');
+      expect(block.getAttribute('data-objective-achieved')).toBe('false');
+    });
+
+    it('без verdictKey и без objectiveAchieved → fallback на старый interpretation', () => {
+      renderWithProviders(<PrecisionScoreBlock score={3} scorePct={60} />);
+      const block = screen.getByTestId('precision-score-block');
+      expect(block.getAttribute('data-verdict-key')).toBe('');
+      expect(block.getAttribute('data-objective-achieved')).toBe('');
+      expect(
+        screen.getByTestId('precision-score-block-interpretation').textContent,
+      ).toMatch(/Solved, but with noticeable mistakes/);
+    });
+
+    it('objective=convertAdvantage + achieved=true → подзаголовок "Advantage converted"', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={5}
+          scorePct={95}
+          objective="convertAdvantage"
+          objectiveAchieved={true}
+        />,
+      );
+      expect(
+        screen.getByTestId('precision-score-block-subtitle').textContent,
+      ).toMatch(/Advantage converted/);
+    });
+
+    it('objective=saveEquality + achieved=false → подзаголовок "Equality not held"', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={1}
+          scorePct={20}
+          objective="saveEquality"
+          objectiveAchieved={false}
+        />,
+      );
+      expect(
+        screen.getByTestId('precision-score-block-subtitle').textContent,
+      ).toMatch(/Equality not held/);
+    });
+
+    it('objective=null или objectiveAchieved=null → подзаголовок не рисуется', () => {
+      renderWithProviders(
+        <PrecisionScoreBlock
+          score={3}
+          scorePct={60}
+          objective={null}
+          objectiveAchieved={true}
+        />,
+      );
+      expect(
+        screen.queryByTestId('precision-score-block-subtitle'),
+      ).toBeNull();
+    });
+  });
 });

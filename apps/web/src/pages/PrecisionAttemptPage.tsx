@@ -617,9 +617,17 @@ export function PrecisionAttemptPage() {
           Заменяет старую бинарную «Preserved/Lost» Result-cell в summary.
           Для legacy attempt'ов без WDL/cp (`score===null`) блок рисует
           null-state «—» с подписью «Score unavailable». */}
+      {/* KS-3248 (ADR-076 §7 F3): backend (KS-3246/3247) теперь отдаёт
+          verdictKey + objectiveAchieved в PrecisionAttemptDetail —
+          плашка рисуется по матрице 5×2 вместо универсального текста.
+          `objective` берём из PuzzleDto.playVsEngine.objective для
+          подзаголовка («Перевес реализован» / «Равенство удержано»). */}
       <PrecisionScoreBlock
         score={data.score ?? null}
         scorePct={data.scorePct ?? null}
+        verdictKey={data.verdictKey ?? null}
+        objectiveAchieved={data.objectiveAchieved ?? null}
+        objective={puzzle?.playVsEngine?.objective ?? null}
       />
 
       <section className="precision-attempt-page__review">

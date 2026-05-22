@@ -1486,6 +1486,23 @@
         "3": "Solved, but with noticeable mistakes.",
         "4": "Almost flawless — one minor inaccuracy.",
         "5": "Flawless solution."
+      },
+      "verdict": {
+        "flawless": "Flawless solution",
+        "confident": "Confident solution. Minor inaccuracies.",
+        "suboptimal": "Solved, but not the best way",
+        "with-mistakes": "Solved, but with mistakes",
+        "with-blunders": "Goal achieved, but with blunders",
+        "goal-missed-clean": "Good play, but the goal wasn't reached",
+        "goal-missed": "Goal not reached",
+        "goal-missed-mistakes": "Goal not reached, mistakes were made",
+        "goal-missed-blunders": "Not solved. Blunders made"
+      },
+      "subtitle": {
+        "convertAdvantage-achieved": "Advantage converted",
+        "convertAdvantage-missed": "Advantage missed",
+        "saveEquality-achieved": "Equality held",
+        "saveEquality-missed": "Equality not held"
       }
     },
     "hidePreserved": "Hide preserved",

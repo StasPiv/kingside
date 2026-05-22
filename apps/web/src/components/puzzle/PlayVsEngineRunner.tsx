@@ -1810,9 +1810,22 @@ export function PlayVsEngineRunner({
                   плашки «You held / lost the advantage». Старый result-label
                   оставлен mate/resign-каёмкой ниже — это игровая концовка,
                   не «итог попытки» (её показывает PrecisionScoreBlock). */}
+              {/* KS-3248: передаём `objective` (жанр пазла) и
+                  `objectiveAchieved` — для верных текста плашки и
+                  подзаголовка по матрице 5×2. Используем `state`-флаги:
+                  `complete` ('win') означает achieved=true,
+                  `failed` ('lose') → false. */}
               <PrecisionScoreBlock
                 score={precisionScore.stars}
                 scorePct={precisionScore.scorePct}
+                objective={objective ?? null}
+                objectiveAchieved={
+                  state === 'complete'
+                    ? true
+                    : state === 'failed'
+                      ? false
+                      : null
+                }
               />
               {(reason === 'win-mate' ||
                 reason === 'win-engine-resign' ||

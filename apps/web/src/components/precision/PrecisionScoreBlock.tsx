@@ -1,16 +1,33 @@
 import { useTranslation } from 'react-i18next';
+import {
+  computeVerdictKey,
+  type PrecisionVerdictKey,
+} from '@kingside/shared';
+import type { PuzzleObjective } from '@kingside/shared';
 
 /**
  * KS-3002 (ADR-065 §5.1.1, Этап 3 F1) — итоговый блок 5-балльной оценки
  * precision-попытки.
  *
- * Заменяет бинарную плашку «Удержано / Потеряно» из
- * `PrecisionAttemptReview`. F2 встраивает этот блок туда.
+ * KS-3248 (ADR-076 §7 F3): текст плашки теперь рисуется по матрице 5×2
+ * (звёзды × objectiveAchieved) через `verdictKey` от backend
+ * (PrecisionAttemptListItem / Detail). Если `verdictKey` не передан, но
+ * есть `objectiveAchieved` — вычисляем через `computeVerdictKey` shared-
+ * helper'а (PlayVsEngineRunner так делает локально до отправки попытки
+ * на backend). Если ни того, ни другого — старый универсальный INTERP_KEY
+ * (legacy attempt'ы / null-state).
+ *
+ * Опц. подзаголовок (по `objective` + `objectiveAchieved`):
+ *  - convertAdvantage achieved → «Перевес реализован»
+ *  - convertAdvantage missed   → «Перевес упущен»
+ *  - saveEquality achieved     → «Равенство удержано»
+ *  - saveEquality missed       → «Равенство не удержано»
  *
  * Состав по §5.1.1:
  *  - 5 SVG-звёзд, заполненных по `score`;
  *  - accuracy в процентах (`scorePct`);
- *  - короткая текстовая интерпретация.
+ *  - текст по verdictKey (или старый interp при отсутствии данных);
+ *  - опц. подзаголовок об objective.
  *
  * Цвета (ADR-065 §4.2):
  *  5★ → emerald, 4★ → lime, 3★ → amber, 2★ → orange, 1★ → red.
@@ -61,6 +78,10 @@ const STARS_KEY: Record<PrecisionScoreValue, string> = {
  * был отдельный `INTERP_KEY_SAVE` (KS-3165) для saveEquality. По
  * запросу пользователя — нейтральный текст «оценка позиции» / «решено»
  * подходит обоим жанрам и не путает.
+ *
+ * KS-3248: эти ключи используются ТОЛЬКО как fallback когда нет
+ * verdictKey и objectiveAchieved (legacy-attempt'ы до KS-3246/3247).
+ * Основной путь — `VERDICT_KEY_TO_I18N` ниже.
  */
 const INTERP_KEY: Record<PrecisionScoreValue, string> = {
   1: 'precision.score.interpretation.1',
@@ -69,6 +90,46 @@ const INTERP_KEY: Record<PrecisionScoreValue, string> = {
   4: 'precision.score.interpretation.4',
   5: 'precision.score.interpretation.5',
 };
+
+/**
+ * KS-3248 (ADR-076 §7 F3): сопоставление 9 verdict-keys → i18n.
+ * Матрица 5×2 от chess-expert (см. computeVerdictKey в shared
+ * `precision-score.ts`).
+ */
+const VERDICT_KEY_TO_I18N: Record<PrecisionVerdictKey, string> = {
+  flawless: 'precision.score.verdict.flawless',
+  confident: 'precision.score.verdict.confident',
+  suboptimal: 'precision.score.verdict.suboptimal',
+  'with-mistakes': 'precision.score.verdict.with-mistakes',
+  'with-blunders': 'precision.score.verdict.with-blunders',
+  'goal-missed-clean': 'precision.score.verdict.goal-missed-clean',
+  'goal-missed': 'precision.score.verdict.goal-missed',
+  'goal-missed-mistakes': 'precision.score.verdict.goal-missed-mistakes',
+  'goal-missed-blunders': 'precision.score.verdict.goal-missed-blunders',
+};
+
+/**
+ * KS-3248: i18n-ключ подзаголовка плашки по objective + objectiveAchieved.
+ * `null` для legacy / случаев без данных — подзаголовок не рисуется.
+ */
+function subtitleKey(
+  objective: PuzzleObjective | null | undefined,
+  achieved: boolean | null | undefined,
+): string | null {
+  if (objective === undefined || objective === null) return null;
+  if (achieved === undefined || achieved === null) return null;
+  if (objective === 'convertAdvantage') {
+    return achieved
+      ? 'precision.score.subtitle.convertAdvantage-achieved'
+      : 'precision.score.subtitle.convertAdvantage-missed';
+  }
+  if (objective === 'saveEquality') {
+    return achieved
+      ? 'precision.score.subtitle.saveEquality-achieved'
+      : 'precision.score.subtitle.saveEquality-missed';
+  }
+  return null;
+}
 
 function clampPct(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
@@ -92,11 +153,34 @@ export interface PrecisionScoreBlockProps {
    * Не-integer/выход за диапазон округляется и зажимается.
    */
   scorePct: number | null;
+  /**
+   * KS-3248: backend (KS-3246/3247) отдаёт явный verdict-key. Если
+   * передан — текст плашки берётся напрямую из `VERDICT_KEY_TO_I18N`,
+   * `objectiveAchieved` используется только для подзаголовка.
+   */
+  verdictKey?: PrecisionVerdictKey | null;
+  /**
+   * KS-3248: достигнута ли цель пазла. Если `verdictKey` не передан,
+   * но `objectiveAchieved !== null/undefined` — вычисляем verdictKey
+   * через shared `computeVerdictKey(score, objectiveAchieved)`. Это
+   * нужно `PlayVsEngineRunner` для финального экрана сразу после
+   * последнего хода (backend ещё не вернул attempt-detail).
+   */
+  objectiveAchieved?: boolean | null;
+  /**
+   * KS-3248: жанр пазла. Используется для подзаголовка («Перевес
+   * реализован» / «Равенство удержано» и т.п.). Если не передан —
+   * подзаголовок не рисуется.
+   */
+  objective?: PuzzleObjective | null;
 }
 
 export function PrecisionScoreBlock({
   score,
   scorePct,
+  verdictKey,
+  objectiveAchieved,
+  objective,
 }: PrecisionScoreBlockProps) {
   const { t } = useTranslation();
 
@@ -147,6 +231,21 @@ export function PrecisionScoreBlock({
   const safePct = clampPct(scorePct);
   const tone = TONE_BY_SCORE[safeScore];
 
+  // KS-3248: 1) если backend прислал verdictKey — берём текст напрямую.
+  // 2) иначе вычисляем через shared `computeVerdictKey(score, achieved)`
+  //    (PlayVsEngineRunner — сразу после последнего хода).
+  // 3) иначе fallback на старый универсальный INTERP_KEY (legacy attempts
+  //    без objectiveAchieved).
+  const effectiveVerdictKey: PrecisionVerdictKey | null =
+    verdictKey ??
+    (objectiveAchieved !== undefined && objectiveAchieved !== null
+      ? computeVerdictKey(safeScore, objectiveAchieved)
+      : null);
+  const verdictI18nKey = effectiveVerdictKey
+    ? VERDICT_KEY_TO_I18N[effectiveVerdictKey]
+    : INTERP_KEY[safeScore];
+  const subtitleI18nKey = subtitleKey(objective, objectiveAchieved);
+
   return (
     <div
       className={`precision-score-block precision-score-block--${tone}`}
@@ -154,6 +253,14 @@ export function PrecisionScoreBlock({
       data-score={safeScore}
       data-tone={tone}
       data-score-pct={safePct}
+      data-verdict-key={effectiveVerdictKey ?? ''}
+      data-objective-achieved={
+        objectiveAchieved === undefined || objectiveAchieved === null
+          ? ''
+          : objectiveAchieved
+            ? 'true'
+            : 'false'
+      }
     >
       <div className="precision-score-block__row">
         <div
@@ -188,8 +295,16 @@ export function PrecisionScoreBlock({
         className="precision-score-block__interpretation"
         data-testid="precision-score-block-interpretation"
       >
-        {t(INTERP_KEY[safeScore])}
+        {t(verdictI18nKey)}
       </p>
+      {subtitleI18nKey && (
+        <p
+          className="precision-score-block__subtitle"
+          data-testid="precision-score-block-subtitle"
+        >
+          {t(subtitleI18nKey)}
+        </p>
+      )}
     </div>
   );
 }

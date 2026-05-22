@@ -4473,6 +4473,16 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   line-height: 1.45;
   color: var(--text-secondary, var(--c-94a3b8));
 }
+/* KS-3248 (ADR-076 §7 F3): подзаголовок «Перевес реализован» /
+   «Равенство удержано» под основным текстом плашки. Чуть мельче,
+   менее яркий — это контекстная пометка о жанре пазла. */
+.precision-score-block__subtitle {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted, var(--c-64748b));
+  font-style: italic;
+}
 
 @media (max-width: 480px) {
   .precision-score-block { padding: 12px 14px; }
