@@ -2344,3 +2344,28 @@
   font-size: 12px;
   color: var(--text-muted, var(--c-64748b, #64748b));
 }
+
+/* KS-3258 (3rd attempt): full-page forfeit для партий, в которые
+   нет смысла открывать AnalysisPage (нет ходов). */
+.broadcast-game-forfeit-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 20px 32px;
+}
+.broadcast-game-forfeit-page__breadcrumbs {
+  font-size: 13px;
+  color: var(--c-94a3b8, #94a3b8);
+  margin-bottom: 12px;
+}
+.broadcast-game-forfeit-page__breadcrumbs a {
+  color: inherit;
+  text-decoration: underline;
+}
+.broadcast-game-forfeit-page__breadcrumbs a:hover {
+  color: var(--c-e2e8f0, #e2e8f0);
+}
+.broadcast-game-forfeit-page__title {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+}

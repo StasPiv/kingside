@@ -19,6 +19,7 @@ import { DevBoardImageDropzone500Page } from '../pages/DevBoardImageDropzone500P
 import { DevGameStepPage } from '../pages/DevGameStepPage';
 import { DevLessonGameStepPage } from '../pages/DevLessonGameStepPage';
 import { DevChatToolCallsPage } from '../pages/DevChatToolCallsPage';
+import { DevBroadcastForfeitPage } from '../pages/DevBroadcastForfeitPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -82,6 +83,8 @@ export default function DevRoutes() {
       <Route path="lesson-game-step" element={<DevLessonGameStepPage />} />
       {/* KS-3210 (ADR-074 §10 F1): 3 состояния tool_call для скриншотов. */}
       <Route path="chat-tool-calls" element={<DevChatToolCallsPage />} />
+      {/* KS-3258 (3rd attempt): forfeit-плашка для broadcast game flow. */}
+      <Route path="broadcast-forfeit" element={<DevBroadcastForfeitPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
