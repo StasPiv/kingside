@@ -51,7 +51,6 @@ const TICK_LOCK_TTL_SEC = 50;
 export interface RoundMismatch {
   broadcastId: string;
   broadcastTitle: string;
-  broadcastSlug: string | null;
   lichessBroadcastId: string;
   roundId: string;
   lichessRoundId: string;
@@ -128,11 +127,16 @@ export async function runGameCountCheckTick(
   // Активные broadcast'ы с их раундами (только не-pending — у pending
   // партий быть не должно). roundId = наш UUID, lichessRoundId — id для
   // Lichess-запросов. our_count — количество партий уже импортированных.
+  // KS-3252: в `broadcasts` нет колонки `slug` (см. packages/broadcasts-db
+  // schema.prisma — поля `title`, `lichess_id`, `url`, и т.д., но не slug).
+  // Раньше в SQL стоял `b.slug AS broadcast_slug` — postgres валил весь
+  // tick'ом ошибкой `42703 column b.slug does not exist`, метрика не
+  // работала. Убираем поле — оно нигде не использовалось дальше первого
+  // mapping'а, telegram-сообщение строится по title + lichess_id.
   const rows = await deps.prisma.$queryRawUnsafe<
     Array<{
       broadcast_id: string;
       broadcast_title: string;
-      broadcast_slug: string | null;
       lichess_broadcast_id: string;
       round_id: string;
       lichess_round_id: string;
@@ -142,7 +146,6 @@ export async function runGameCountCheckTick(
   >(
     `SELECT b.id::text          AS broadcast_id,
             b.title             AS broadcast_title,
-            b.slug              AS broadcast_slug,
             b.lichess_id        AS lichess_broadcast_id,
             r.id::text          AS round_id,
             r.lichess_round_id  AS lichess_round_id,
@@ -183,7 +186,6 @@ export async function runGameCountCheckTick(
     mismatches.push({
       broadcastId: row.broadcast_id,
       broadcastTitle: row.broadcast_title,
-      broadcastSlug: row.broadcast_slug,
       lichessBroadcastId: row.lichess_broadcast_id,
       roundId: row.round_id,
       lichessRoundId: row.lichess_round_id,

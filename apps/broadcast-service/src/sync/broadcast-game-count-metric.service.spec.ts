@@ -29,7 +29,6 @@ import type {
 interface FakeRow {
   broadcast_id: string;
   broadcast_title: string;
-  broadcast_slug: string | null;
   lichess_broadcast_id: string;
   round_id: string;
   lichess_round_id: string;
@@ -101,7 +100,6 @@ function makeRow(
   return {
     broadcast_id: overrides.broadcast_id ?? 'b-romania',
     broadcast_title: overrides.broadcast_title ?? 'GCT Romania 2026',
-    broadcast_slug: overrides.broadcast_slug ?? 'gct-romania-2026',
     lichess_broadcast_id: overrides.lichess_broadcast_id ?? 'p3ctK4xS',
     round_id: overrides.roundId,
     lichess_round_id: overrides.lichessRoundId,
@@ -321,7 +319,6 @@ describe('KS-3231 formatTelegramMessage', () => {
       {
         broadcastId: 'b1',
         broadcastTitle: 'GCT Romania 2026',
-        broadcastSlug: 'gct-romania',
         lichessBroadcastId: 'p3ctK4xS',
         roundId: 'r1',
         lichessRoundId: 'Vos7UzKR',
@@ -344,7 +341,6 @@ describe('KS-3231 formatTelegramMessage', () => {
       {
         broadcastId: 'b1',
         broadcastTitle: 'Test *bold* _italic_ [link]',
-        broadcastSlug: null,
         lichessBroadcastId: 'X',
         roundId: 'r1',
         lichessRoundId: 'L1',
