@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   ParseUUIDPipe,
   Post,
@@ -16,6 +17,7 @@ import { ChatAssistantService } from './chat-assistant.service';
 
 @Controller('chat')
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
   constructor(private readonly chatService: ChatAssistantService) {}
 
   /**
@@ -60,7 +62,17 @@ export class ChatController {
         const response = await this.chatService.getResponse(userId, body.message, conversationId, siteUrl);
         return res.json({ conversationId, response });
       } catch (e: any) {
-        return res.status(500).json({ error: e.message, conversationId });
+        // KS-3228: логируем error + stack — без этого 500 в проде
+        // приходилось диагностировать по косвенным признакам. Сервис
+        // уже логирует stage-detail; здесь — итоговая фиксация.
+        this.logger.error(
+          `chat[user=${userId.slice(0, 8)}] failed: ${e?.message ?? e}`,
+          (e as Error)?.stack,
+        );
+        return res.status(500).json({
+          error: e?.message ?? 'Internal error',
+          conversationId,
+        });
       }
     }
 

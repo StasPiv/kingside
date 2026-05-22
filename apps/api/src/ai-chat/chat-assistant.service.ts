@@ -461,16 +461,35 @@ export class ChatAssistantService {
     conversationId: string,
     siteUrl?: string,
   ): Promise<string> {
-    // Collect context and build system prompt.
-    // KS-2962 / ADR-062 §9: snapshot флагов читается на каждый запрос,
-    // не кэшируется в самом промте (флаги runtime-меняемые).
-    const context = await this.contextCollector.collectContext(userId);
-    const flags = await this.featureFlags.getFlags();
-    const resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
-    const systemPrompt = buildSystemPrompt(context, flags, resolvedSiteUrl);
+    // KS-3228: на простом «Ты тут?» прилетал HTTP 500, причина не была
+    // видна в логах — getResponse не логировал стейдж, на котором
+    // упало. Помечаем каждый «шаг» — при следующем 500 в логах будет
+    // понятно: collectContext / getFlags / getHistory / user.findUnique /
+    // jwt.sign / fetch(webhook) / saveMessage / chatConversation.update.
+    const stage = (s: string) => `getResponse[user=${userId.slice(0, 8)} stage=${s}]`;
+    let context, flags, resolvedSiteUrl, systemPrompt, history, user, userToken;
+    try {
+      context = await this.contextCollector.collectContext(userId);
+    } catch (e) {
+      this.logger.error(`${stage('collectContext')} failed: ${(e as Error).message}`, (e as Error).stack);
+      throw e;
+    }
+    try {
+      flags = await this.featureFlags.getFlags();
+    } catch (e) {
+      this.logger.error(`${stage('getFlags')} failed: ${(e as Error).message}`, (e as Error).stack);
+      throw e;
+    }
+    resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
+    systemPrompt = buildSystemPrompt(context, flags, resolvedSiteUrl);
 
     // Get conversation history
-    const history = await this.getHistory(conversationId);
+    try {
+      history = await this.getHistory(conversationId);
+    } catch (e) {
+      this.logger.error(`${stage('getHistory')} failed: ${(e as Error).message}`, (e as Error).stack);
+      throw e;
+    }
     const messages = [
       ...history.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: message },
@@ -488,14 +507,24 @@ export class ChatAssistantService {
     //     возвращал `req.user.username = undefined`; endpoint'ы,
     //     полагающиеся на username (не критичные для MCP, но
     //     всё-таки), могли падать. Прокидываем username из БД.
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { username: true },
-    });
-    const userToken = this.jwtService.sign(
-      { sub: userId, username: user?.username ?? null },
-      { expiresIn: '15m' },
-    );
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      });
+    } catch (e) {
+      this.logger.error(`${stage('user.findUnique')} failed: ${(e as Error).message}`, (e as Error).stack);
+      throw e;
+    }
+    try {
+      userToken = this.jwtService.sign(
+        { sub: userId, username: user?.username ?? null },
+        { expiresIn: '15m' },
+      );
+    } catch (e) {
+      this.logger.error(`${stage('jwt.sign')} failed: ${(e as Error).message}`, (e as Error).stack);
+      throw e;
+    }
 
     // KS-3219 / KS-3227: tool-using turns (создание курса/уроков/шагов
     // через ассистента) делают цепочку из 5–10+ tool-call'ов. ADR-075
@@ -521,27 +550,54 @@ export class ChatAssistantService {
         body: JSON.stringify({ message, systemPrompt, history: messages, userId, userToken }),
       });
       if (!res.ok) {
-        this.logger.warn(`AI webhook failed: ${res.status}`);
-        throw new Error(`AI webhook returned ${res.status}`);
+        // KS-3228: добавляем body в лог — без него не отличить «webhook
+        // отдал 500 со stack'ом» от «webhook вернул 500 без тела».
+        const errBody = await res.text().catch(() => '<no-body>');
+        this.logger.warn(
+          `${stage('webhook.fetch')} non-OK ${res.status}: ${errBody.slice(0, 500)}`,
+        );
+        throw new Error(`AI webhook returned ${res.status}: ${errBody.slice(0, 200)}`);
       }
       const data = await res.json() as { response?: string };
       responseText = data.response ?? '';
+    } catch (e) {
+      // AbortError (timeout) / network error / non-OK выше — всё сюда.
+      this.logger.error(
+        `${stage('webhook.fetch')} failed: ${(e as Error).message}`,
+        (e as Error).stack,
+      );
+      throw e;
     } finally {
       clearTimeout(timer);
     }
 
     // Save both messages
-    await this.saveMessage(conversationId, 'user', message);
-    await this.saveMessage(conversationId, 'assistant', responseText);
+    try {
+      await this.saveMessage(conversationId, 'user', message);
+      await this.saveMessage(conversationId, 'assistant', responseText);
+    } catch (e) {
+      this.logger.error(
+        `${stage('saveMessage')} failed: ${(e as Error).message}`,
+        (e as Error).stack,
+      );
+      throw e;
+    }
 
     // Auto-title
-    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
-    if (conv && !conv.title) {
-      const title = message.slice(0, 100);
-      await this.prisma.chatConversation.update({
-        where: { id: conversationId },
-        data: { title },
-      });
+    try {
+      const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+      if (conv && !conv.title) {
+        const title = message.slice(0, 100);
+        await this.prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: { title },
+        });
+      }
+    } catch (e) {
+      // Auto-title не должна валить весь чат. Логируем и идём дальше.
+      this.logger.warn(
+        `${stage('autoTitle')} failed (non-fatal): ${(e as Error).message}`,
+      );
     }
 
     return responseText;
