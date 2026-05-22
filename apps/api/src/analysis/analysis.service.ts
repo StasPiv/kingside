@@ -5,6 +5,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
@@ -153,13 +154,90 @@ export class AnalysisService implements OnModuleInit {
     return `New analysis ${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
   }
 
-  async create(userId: string, dto: CreateAnalysisDto) {
+  /**
+   * KS-3261. Детерминированный source_hash для дедупа при открытии партии
+   * «В мастерской». Приоритет:
+   *   1. Lichess broadcast (`lichessGameId`) → `'lichess:<id>'`.
+   *   2. Архив (`archiveGameId`) → `'archive:<uuid>'`.
+   *   3. PGN-headers `White|Black|Date|Event|Round` (lower, trim) → sha256.
+   *      Если хотя бы один из white/black/date пуст → `null` (не дедупим,
+   *      лучше создать дубль чем заблокировать сохранение неполного PGN).
+   *
+   * Pure-функция (статик), не зависит от prisma — удобно для тестов.
+   */
+  static computeSourceHash(input: {
+    lichessGameId?: string | null;
+    archiveGameId?: string | null;
+    pgn?: string | null;
+  }): string | null {
+    if (input.lichessGameId) {
+      return `lichess:${input.lichessGameId}`;
+    }
+    if (input.archiveGameId) {
+      return `archive:${input.archiveGameId}`;
+    }
+    if (!input.pgn) return null;
+    const extract = (key: string): string | null => {
+      const re = new RegExp(`\\[${key}\\s+"([^"]*)"\\]`);
+      const m = input.pgn!.match(re);
+      return m ? m[1] : null;
+    };
+    const white = extract('White');
+    const black = extract('Black');
+    const date = extract('Date');
+    const event = extract('Event');
+    const round = extract('Round');
+    if (!white || !black || !date) return null;
+    const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
+    const key = `${norm(white)}|${norm(black)}|${date}|${norm(event)}|${norm(round)}`;
+    return `pgn:${createHash('sha256').update(key).digest('hex')}`;
+  }
+
+  /**
+   * KS-3261. Создание анализа с дедупом.
+   *
+   * Если для (userId, source_hash) уже существует анализ — НЕ создаём
+   * новый, не перезаписываем PGN (там у пользователя могут быть варианты,
+   * NAG, стрелки), просто обновляем `last_opened_at = now()` и возвращаем
+   * существующий. В response добавляется `existing: true` — фронт может
+   * показать toast «открыли существующий анализ».
+   *
+   * Если source_hash = null (headers неполные, нет source-id) — создаём
+   * как раньше.
+   */
+  async create(
+    userId: string,
+    dto: CreateAnalysisDto,
+  ): Promise<Record<string, unknown> & { existing: boolean }> {
     const now = new Date();
     const title = dto.title ?? this.defaultTitle(now);
     const headline = this.buildHeadline(dto.pgn);
     const meta = this.extractMetadata(dto.pgn);
 
-    return this.prisma.analysis.create({
+    const sourceHash = AnalysisService.computeSourceHash({
+      lichessGameId: dto.lichessGameId ?? null,
+      archiveGameId: dto.archiveGameId ?? null,
+      pgn: dto.pgn ?? null,
+    });
+
+    // Dedup lookup — только если source_hash определён.
+    if (sourceHash) {
+      const existing = await this.prisma.analysis.findFirst({
+        where: { userId, sourceHash },
+      });
+      if (existing) {
+        await this.prisma.analysis.update({
+          where: { id: existing.id },
+          data: { lastOpenedAt: now },
+        });
+        this.logger.log(
+          `Analysis dedup hit user=${userId.slice(0, 8)} sourceHash=${sourceHash.slice(0, 24)} → existing=${existing.id}`,
+        );
+        return { ...existing, lastOpenedAt: now, existing: true };
+      }
+    }
+
+    const created = await this.prisma.analysis.create({
       data: {
         userId,
         title,
@@ -177,8 +255,63 @@ export class AnalysisService implements OnModuleInit {
         blackElo: meta.blackElo ?? null,
         result: meta.result ?? null,
         category: dto.category ?? 'analysis',
+        // KS-3261. Source-привязка для дедупа и bulk-check архив-карточек.
+        sourceHash,
+        lichessGameId: dto.lichessGameId ?? null,
+        archiveGameId: dto.archiveGameId ?? null,
+        // lastOpenedAt = createdAt по default'у схемы, но фиксируем явно
+        // чтобы сразу попасть в LRU-сортировку.
+        lastOpenedAt: now,
       },
     });
+    return { ...created, existing: false };
+  }
+
+  /**
+   * KS-3261. Bulk-check: для архив-странички — пометки «уже в мастерской»
+   * на карточках партий. Возвращает map sourceId → analysisId | null.
+   */
+  async checkExistingBySource(
+    userId: string,
+    sources: {
+      lichessGameIds?: string[];
+      archiveGameIds?: string[];
+    },
+  ): Promise<{
+    lichess: Record<string, string | null>;
+    archive: Record<string, string | null>;
+  }> {
+    const lichessIds = (sources.lichessGameIds ?? []).filter(
+      (s) => typeof s === 'string' && s.length > 0,
+    );
+    const archiveIds = (sources.archiveGameIds ?? []).filter(
+      (s) => typeof s === 'string' && s.length > 0,
+    );
+
+    const lichessResult: Record<string, string | null> = {};
+    const archiveResult: Record<string, string | null> = {};
+
+    if (lichessIds.length > 0) {
+      const rows = await this.prisma.analysis.findMany({
+        where: { userId, lichessGameId: { in: lichessIds } },
+        select: { id: true, lichessGameId: true },
+      });
+      for (const id of lichessIds) lichessResult[id] = null;
+      for (const r of rows) {
+        if (r.lichessGameId) lichessResult[r.lichessGameId] = r.id;
+      }
+    }
+    if (archiveIds.length > 0) {
+      const rows = await this.prisma.analysis.findMany({
+        where: { userId, archiveGameId: { in: archiveIds } },
+        select: { id: true, archiveGameId: true },
+      });
+      for (const id of archiveIds) archiveResult[id] = null;
+      for (const r of rows) {
+        if (r.archiveGameId) archiveResult[r.archiveGameId] = r.id;
+      }
+    }
+    return { lichess: lichessResult, archive: archiveResult };
   }
 
   /**
@@ -252,7 +385,10 @@ export class AnalysisService implements OnModuleInit {
         ...(wordFilters.length > 0 && { AND: wordFilters }),
       },
       select,
-      orderBy: { createdAt: 'desc' },
+      // KS-3261. LRU-сортировка: последний открытый — наверху.
+      // Для legacy-записей last_opened_at был выставлен в created_at
+      // миграцией, так что порядок старого хвоста сохраняется.
+      orderBy: { lastOpenedAt: 'desc' },
       take: limit,
       skip: offset,
     });
@@ -315,6 +451,15 @@ export class AnalysisService implements OnModuleInit {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
+    // KS-3261. LRU bump: открытие существующего анализа поднимает его
+    // в верх списка. Async-update без ожидания — не блокирует ответ.
+    void this.prisma.analysis
+      .update({ where: { id }, data: { lastOpenedAt: new Date() } })
+      .catch((e) =>
+        this.logger.warn(
+          `KS-3261 lastOpenedAt bump failed for ${id}: ${(e as Error).message}`,
+        ),
+      );
     return {
       ...analysis,
       tags: analysis.tags ? analysis.tags.split(' ').filter(Boolean) : [],

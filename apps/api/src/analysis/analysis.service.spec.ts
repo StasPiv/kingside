@@ -36,7 +36,10 @@ describe('AnalysisService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
-        update: jest.fn(),
+        // KS-3261: default update mock — findOne делает async LRU bump
+        // через update(); если mock не возвращает promise, .catch() в
+        // service'е валится с "Cannot read properties of undefined".
+        update: jest.fn().mockResolvedValue({}),
         delete: jest.fn(),
       },
     };
@@ -157,6 +160,154 @@ describe('AnalysisService', () => {
       expect(data.black).toBe('Nepo');
     });
 
+    // ── KS-3261: дедуп по source_hash при повторном открытии партии ──
+
+    describe('KS-3261 dedup', () => {
+      it('lichessGameId — source_hash="lichess:<id>"', () => {
+        const h = AnalysisService.computeSourceHash({
+          lichessGameId: 'abc12345',
+        });
+        expect(h).toBe('lichess:abc12345');
+      });
+
+      it('archiveGameId — source_hash="archive:<uuid>"', () => {
+        const h = AnalysisService.computeSourceHash({
+          archiveGameId: 'e1b8aaa0-1111-4444-8888-cccccccccccc',
+        });
+        expect(h).toBe('archive:e1b8aaa0-1111-4444-8888-cccccccccccc');
+      });
+
+      it('PGN-headers — детерминированный sha256 (одинаковые headers → один hash)', () => {
+        const pgn1 = '[White "Lu Shanglei"]\n[Black "Bortnyk, Olexandr"]\n[Date "2026.05.22"]\n[Event "Test"]\n[Round "1"]';
+        const pgn2 = '[White "  LU SHANGLEI  "]\n[Black "BORTNYK, OLEXANDR"]\n[Date "2026.05.22"]\n[Event "test"]\n[Round "1"]\n\n1. e4 c5'; // normalize trim+lower; movetext игнорируется
+        const h1 = AnalysisService.computeSourceHash({ pgn: pgn1 });
+        const h2 = AnalysisService.computeSourceHash({ pgn: pgn2 });
+        expect(h1).toBe(h2);
+        expect(h1).toMatch(/^pgn:[0-9a-f]{64}$/);
+      });
+
+      it('PGN без White → null (не дедупим, headers неполные)', () => {
+        const pgn = '[Black "X"]\n[Date "2026.01.01"]';
+        expect(AnalysisService.computeSourceHash({ pgn })).toBeNull();
+      });
+
+      it('PGN без Black → null', () => {
+        const pgn = '[White "X"]\n[Date "2026.01.01"]';
+        expect(AnalysisService.computeSourceHash({ pgn })).toBeNull();
+      });
+
+      it('PGN без Date → null', () => {
+        const pgn = '[White "X"]\n[Black "Y"]';
+        expect(AnalysisService.computeSourceHash({ pgn })).toBeNull();
+      });
+
+      it('пустой input → null', () => {
+        expect(AnalysisService.computeSourceHash({})).toBeNull();
+      });
+
+      it('приоритет: lichessGameId > archiveGameId > PGN', () => {
+        const all = AnalysisService.computeSourceHash({
+          lichessGameId: 'LCH',
+          archiveGameId: 'arch-uuid',
+          pgn: '[White "A"]\n[Black "B"]\n[Date "2026.01.01"]',
+        });
+        expect(all).toBe('lichess:LCH');
+        const noLichess = AnalysisService.computeSourceHash({
+          archiveGameId: 'arch-uuid',
+          pgn: '[White "A"]\n[Black "B"]\n[Date "2026.01.01"]',
+        });
+        expect(noLichess).toBe('archive:arch-uuid');
+      });
+
+      it('create с lichessGameId + найден существующий → возвращает existing, не создаёт новый', async () => {
+        const existing = {
+          ...mockAnalysis,
+          id: 'a-existing',
+          lichessGameId: 'LhpNkgC9',
+          sourceHash: 'lichess:LhpNkgC9',
+        };
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(existing);
+
+        const result = await service.create(userId, {
+          pgn: '1. e4',
+          lichessGameId: 'LhpNkgC9',
+        });
+
+        expect(prisma.analysis.findFirst).toHaveBeenCalledWith({
+          where: { userId, sourceHash: 'lichess:LhpNkgC9' },
+        });
+        expect(prisma.analysis.create).not.toHaveBeenCalled();
+        expect(prisma.analysis.update).toHaveBeenCalledWith({
+          where: { id: 'a-existing' },
+          data: expect.objectContaining({
+            lastOpenedAt: expect.any(Date),
+          }),
+        });
+        expect(result).toMatchObject({ id: 'a-existing', existing: true });
+      });
+
+      it('create с lichessGameId + НЕ найден → создаёт нового с sourceHash и lichessGameId', async () => {
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        prisma.analysis.create.mockResolvedValue({
+          ...mockAnalysis,
+          id: 'a-new',
+          sourceHash: 'lichess:NEW123',
+          lichessGameId: 'NEW123',
+        });
+
+        const result = await service.create(userId, {
+          lichessGameId: 'NEW123',
+        });
+
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            sourceHash: 'lichess:NEW123',
+            lichessGameId: 'NEW123',
+            lastOpenedAt: expect.any(Date),
+          }),
+        });
+        expect(result).toMatchObject({ id: 'a-new', existing: false });
+      });
+
+      it('create без source-данных и неполных headers → создаёт нового с sourceHash=null', async () => {
+        prisma.analysis.create.mockResolvedValue({ ...mockAnalysis, sourceHash: null });
+
+        await service.create(userId, { pgn: '1. e4' });
+
+        // findFirst НЕ вызван (нечего искать)
+        expect(prisma.analysis.findFirst).toBeUndefined();
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ sourceHash: null }),
+        });
+      });
+    });
+
+    describe('KS-3261 checkExistingBySource (bulk-check)', () => {
+      it('возвращает map lichessId→analysisId для найденных и null для не найденных', async () => {
+        prisma.analysis.findMany.mockResolvedValue([
+          { id: 'a1', lichessGameId: 'X1' },
+          { id: 'a2', lichessGameId: 'X3' },
+        ]);
+
+        const result = await service.checkExistingBySource(userId, {
+          lichessGameIds: ['X1', 'X2', 'X3'],
+        });
+
+        expect(result.lichess).toEqual({ X1: 'a1', X2: null, X3: 'a2' });
+        expect(result.archive).toEqual({});
+        expect(prisma.analysis.findMany).toHaveBeenCalledWith({
+          where: { userId, lichessGameId: { in: ['X1', 'X2', 'X3'] } },
+          select: { id: true, lichessGameId: true },
+        });
+      });
+
+      it('пустые массивы → пустые map (без запросов в БД)', async () => {
+        const result = await service.checkExistingBySource(userId, {});
+        expect(result).toEqual({ lichess: {}, archive: {} });
+        expect(prisma.analysis.findMany).not.toHaveBeenCalled();
+      });
+    });
+
     // ── KS-2600 (ADR-051 §3 share-1): новая запись по умолчанию
     // приватная (`isPublic=false`). Контракт: backend не передаёт
     // явное значение в Prisma при create — поле получает `false` из
@@ -173,7 +324,10 @@ describe('AnalysisService', () => {
   });
 
   describe('findAll', () => {
-    it('should return analyses for user ordered by date desc', async () => {
+    it('KS-3261: should return analyses for user ordered by lastOpenedAt DESC', async () => {
+      // KS-3261: orderBy переехал с createdAt на lastOpenedAt (LRU).
+      // Для legacy-записей миграция выставила lastOpenedAt = createdAt,
+      // так что порядок старого хвоста сохраняется.
       prisma.analysis.findMany.mockResolvedValue([mockAnalysis]);
 
       const result = await service.findAll(userId);
@@ -182,7 +336,7 @@ describe('AnalysisService', () => {
       expect(prisma.analysis.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { lastOpenedAt: 'desc' },
         }),
       );
     });

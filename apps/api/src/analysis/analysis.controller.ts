@@ -20,6 +20,7 @@ import { AnalysisService } from './analysis.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 import { ShareAnalysisDto } from './dto/share-analysis.dto';
+import { CheckExistingDto } from './dto/check-existing.dto';
 import { McpTool } from '../mcp/decorators';
 
 /**
@@ -36,6 +37,30 @@ export class AnalysisController {
   @Post()
   create(@Request() req: AuthenticatedRequest, @Body() dto: CreateAnalysisDto) {
     return this.analysisService.create(req.user.id, dto);
+  }
+
+  /**
+   * KS-3261. Bulk-check «уже в мастерской». Для архив-карточек и broadcast-
+   * списков: фронт собирает Lichess game-id'ы и/или наш archive game-id'ы
+   * партий на странице и спрашивает у backend — на какие из них у юзера
+   * уже есть анализ. Возвращает map sourceId → analysisId | null.
+   *
+   * Объявлен ДО `@Get(':id')` чтобы статический сегмент `check` матчился
+   * раньше параметрического (Nest сам предпочитает статические, но
+   * порядок объявления делает поведение детерминированным).
+   */
+  @Post('check')
+  check(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: CheckExistingDto,
+  ): Promise<{
+    lichess: Record<string, string | null>;
+    archive: Record<string, string | null>;
+  }> {
+    return this.analysisService.checkExistingBySource(req.user.id, {
+      lichessGameIds: dto.lichessGameIds,
+      archiveGameIds: dto.archiveGameIds,
+    });
   }
 
   // KS-2948: список анализов пользователя.
