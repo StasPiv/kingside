@@ -340,7 +340,14 @@ function AnalysisPageInner({
   const puzzleSide: 'white' | 'black' | null =
     ctx.kind === 'puzzle' && ctx.side ? ctx.side : null;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
-    const state = location.state as { title?: string } | null;
+    // KS-3262: при openedExisting (dedup-hit) игнорируем state.title —
+    // он передан из source (broadcast/archive). Реальный title придёт
+    // из getById ответа ниже.
+    const state = location.state as {
+      title?: string;
+      openedExisting?: boolean;
+    } | null;
+    if (state?.openedExisting) return getDefaultTitle();
     return state?.title ?? getDefaultTitle();
   });
   // KS-3261: toast «Открыли существующий анализ». Триггерится из state
@@ -358,7 +365,13 @@ function AnalysisPageInner({
     return () => window.clearTimeout(id);
   }, [openedExistingToast]);
   const [pgnHeaders, setPgnHeaders] = useState<Record<string, string>>(() => {
-    const state = location.state as { pgn?: string } | null;
+    // KS-3262: при openedExisting headers тоже игнорируем — реальные
+    // придут из getById(saved.pgn) после ответа сервера.
+    const state = location.state as {
+      pgn?: string;
+      openedExisting?: boolean;
+    } | null;
+    if (state?.openedExisting) return {};
     return state?.pgn ? parsePgnHeaders(state.pgn) : {};
   });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -608,9 +621,21 @@ function AnalysisPageInner({
       // location.state/БД). Тот же inline-PGN путь, что используется при
       // открытии PGN-файла через `navigate('/analysis', { state: { pgn } })`
       // — отсюда и старшинство `embeddedPgn` над `location.state.pgn`.
-      const pgn =
-        embeddedPgn ??
-        (location.state as { pgn?: string } | null)?.pgn;
+      //
+      // KS-3262: при dedup-hit (`openedExisting === true` в state)
+      // ИГНОРИРУЕМ state.pgn — это входящий source-pgn от broadcast/
+      // archive (movetext без сохранённых вариантов/NAG/стрелок).
+      // Существующий analysis в БД имеет полный PGN с аннотациями,
+      // его подгружает getById-ветка ниже. Двойная линия защиты к
+      // фиксу в openAnalysis (он pgn в state не кладёт), на случай
+      // если другой кодпуть положит state.pgn вместе с openedExisting.
+      const openedExisting =
+        (location.state as { openedExisting?: boolean } | null)
+          ?.openedExisting === true;
+      const pgn = openedExisting
+        ? undefined
+        : embeddedPgn ??
+          (location.state as { pgn?: string } | null)?.pgn;
       if (pgn) {
         // KS-2502 fix: новая ad-hoc сессия из `state.pgn` (например
         // клик «Открыть партию» из загруженного PGN-файла →

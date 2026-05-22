@@ -156,8 +156,19 @@ export async function openAnalysis(
     );
     // KS-3261: при dedup-hit — кладём флаг в state, AnalysisPage покажет
     // toast «Открыли существующий анализ».
+    //
+    // KS-3262: при existing=true ВЫРЕЗАЕМ pgn/title из state. Иначе
+    // AnalysisPage в useState initial читает state.pgn (входящий PGN
+    // из source — broadcast/archive movetext без аннотаций) и
+    // инициализирует board из него, теряя сохранённые варианты/NAG/
+    // стрелки. Сам PGN в БД цел (backend не перезаписывает при dedup-
+    // hit), но фронт-render идёт из state.pgn до getById ответа. Без
+    // pgn в state AnalysisPage сразу делает getById(id) и
+    // рендерит сохранённый PGN с аннотациями.
     if (created.existing) {
-      navOpts.state = { ...navOpts.state, openedExisting: true };
+      const { pgn: _droppedPgn, title: _droppedTitle, ...rest } =
+        navOpts.state as { pgn?: string; title?: string };
+      navOpts.state = { ...rest, openedExisting: true };
     }
     navigate(`/analysis/${created.id}`, navOpts);
   } catch (err) {
