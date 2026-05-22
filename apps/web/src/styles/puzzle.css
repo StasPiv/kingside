@@ -5794,9 +5794,19 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   max-width: 100%;
   background: var(--bg-surface, #1a1a2e);
   border-radius: 14px 14px 0 0;
-  /* KS-3245: safe-area-inset на всех 3 сторонах + safe-area-inset-bottom
-     в padding-bottom. */
-  padding: 16px max(16px, env(safe-area-inset-left, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-right, 0px));
+  /* KS-3245/3251: safe-area-inset на всех 3 сторонах.
+     padding-bottom учитывает:
+       16px — внутренний отступ кнопки от низа,
+       56px — высота `.mobile-bottom-bar` (см. layout.css:916),
+       env(safe-area-inset-bottom) — iPhone home-indicator.
+     Это поднимает кнопку «Применить» над фиксированной нижней
+     навигацией; bar остаётся видим (z=90) и кликабелен, но не
+     перекрывает CTA панели (KS-3251). */
+  padding:
+    16px
+    max(16px, env(safe-area-inset-right, 0px))
+    calc(16px + 56px + env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
   box-shadow: 0 -8px 24px var(--ov-black-40, rgba(0, 0, 0, 0.4));
   display: flex;
   flex-direction: column;
