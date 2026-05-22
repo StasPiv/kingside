@@ -1285,7 +1285,11 @@
 
 .broadcast-xt-th-name,
 .broadcast-xt-td-name {
+  /* KS-3235: добавили `width` + `max-width` — без них колонка съедала
+     остаток `width: 100%` table и result-колонки (1..N) сжимались. */
+  width: 200px;
   min-width: 160px;
+  max-width: 220px;
   text-align: left;
   font-weight: 500;
 }
@@ -1385,8 +1389,10 @@
 }
 
 .broadcast-xt-cell {
-  width: 34px;
-  min-width: 34px;
+  /* KS-3235: result-колонки 1..N в round-robin — расширили с 34 до 42px,
+     цифры и значки не сжимаются. Mobile-override ниже сохраняет 34px. */
+  width: 42px;
+  min-width: 42px;
   padding: 6px 4px;
   border-left: 1px solid var(--ov-white-04);
   font-variant-numeric: tabular-nums;
