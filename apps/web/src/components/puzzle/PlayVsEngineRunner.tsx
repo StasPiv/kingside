@@ -908,6 +908,10 @@ export function PlayVsEngineRunner({
             : null,
           effWdlUser,
           params.failThreshold,
+          // KS-3248: для saveEquality промежуточный fail-check
+          // отключаем — финал решает meetsFinalObjective ниже, чтобы
+          // вся серия успела отыграться (см. /tmp/telegram/326129994_0.jpg).
+          objective ?? null,
         )
       ) {
         finishLose('lose-wdl', effWdlUser, halfAfterUser);
@@ -1213,6 +1217,10 @@ export function PlayVsEngineRunner({
                   : null,
                 effWdlUser,
                 params.failThreshold,
+                // KS-3248: см. комментарий в основном code-path выше —
+                // для saveEquality fail-check отключаем, финал через
+                // meetsFinalObjective ниже.
+                objective ?? null,
               )
             ) {
               finishLose('lose-wdl', effWdlUser, halfAfterUser);

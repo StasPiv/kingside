@@ -50,6 +50,56 @@ describe('shouldFinishLose (KS-2955)', () => {
     expect(shouldFinishLose(null, -0.4, -0.5)).toBe(false);
     expect(shouldFinishLose(null, -0.6, -0.5)).toBe(true);
   });
+
+  /**
+   * KS-3248: saveEquality-пазл (Telegram /tmp/telegram/326129994_0.jpg)
+   * завершался после 1 хода (26... Nxe4) как `lose-wdl`. В saveEquality
+   * стартовый baseline уже близок к нулю / отрицательный — любой
+   * промежуточный полуход спокойно попадал под `effWdl < failThreshold`
+   * и пазл закрывался, не дав сыграть серию из 3+ ходов.
+   *
+   * Фикс: при `objective='saveEquality'` shouldFinishLose ВСЕГДА
+   * возвращает false. Финал решает `meetsFinalObjective` на последнем
+   * полуходе.
+   */
+  describe('saveEquality (KS-3248)', () => {
+    it('saveEquality + effWdl < failThreshold → НЕ потеря (главный кейс KS-3248)', () => {
+      // Тот самый кейс с прода: лучший ход в проигрышной позиции,
+      // signed просел до -0.5, в convertAdvantage это finishLose.
+      const snapshot = { bestUci: 'a2b4', playedUci: 'a2b4' };
+      expect(
+        shouldFinishLose(snapshot, -0.5, FAIL_THRESHOLD, 'saveEquality'),
+      ).toBe(false);
+    });
+
+    it('saveEquality + plyed != best + просел в минус → ВСЁ РАВНО НЕ потеря (серия должна доиграться)', () => {
+      // Промежуточный плохой ход в saveEquality — финал решит
+      // meetsFinalObjective. shouldFinishLose не выкидывает.
+      const snapshot = { bestUci: 'a2b4', playedUci: 'e2e4' };
+      expect(
+        shouldFinishLose(snapshot, -0.9, FAIL_THRESHOLD, 'saveEquality'),
+      ).toBe(false);
+    });
+
+    it('saveEquality + snapshot=null + signed=-0.9 → НЕ потеря', () => {
+      expect(
+        shouldFinishLose(null, -0.9, FAIL_THRESHOLD, 'saveEquality'),
+      ).toBe(false);
+    });
+
+    it('convertAdvantage сохраняет старое поведение (regression-guard)', () => {
+      const snapshot = { bestUci: 'a2b4', playedUci: 'e2e4' };
+      expect(
+        shouldFinishLose(snapshot, -0.5, FAIL_THRESHOLD, 'convertAdvantage'),
+      ).toBe(true);
+    });
+
+    it('objective=null (legacy) ведёт себя как convertAdvantage', () => {
+      const snapshot = { bestUci: 'a2b4', playedUci: 'e2e4' };
+      expect(shouldFinishLose(snapshot, -0.5, FAIL_THRESHOLD, null)).toBe(true);
+      expect(shouldFinishLose(snapshot, -0.5, FAIL_THRESHOLD)).toBe(true);
+    });
+  });
 });
 
 /**

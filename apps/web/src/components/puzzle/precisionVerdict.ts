@@ -83,12 +83,26 @@ export function isWinDropExcessive(
  * @param effWdlUser эффективный signed-WDL POV юзера после фактического
  *   хода (см. `effectiveSignedWdl`). Диапазон [-1..+1].
  * @param failThreshold абсолютный порог «потери» из параметров задачи.
+ * @param objective жанр пазла (KS-3248): для `saveEquality` функция
+ *   ВСЕГДА возвращает `false`. Причина — `failThreshold` сравнивает
+ *   с абсолютным signed-WDL, а в saveEquality стартовый baseline уже
+ *   близок к нулю или даже отрицательный (сторона защищает ничью из
+ *   проигрышной позиции). Любой промежуточный полуход легко попадает
+ *   под `effWdl < failThreshold` и пазл закрывается как `lose-wdl`
+ *   ПОСЛЕ ПЕРВОГО ХОДА, не дав сыграть серию (см. /tmp/telegram/
+ *   326129994_0.jpg — 26... Nxe4, верный ход, runner выкинул). Финал
+ *   saveEquality решает только `meetsFinalObjective` в конце серии.
+ *   Если `objective` не передан или `convertAdvantage` — старое поведение.
  */
 export function shouldFinishLose(
   snapshot: PrecisionVerdictSnapshot | null,
   effWdlUser: number,
   failThreshold: number,
+  objective: PuzzleObjective | null | undefined = null,
 ): boolean {
+  // KS-3248: saveEquality — финал считается через meetsFinalObjective,
+  // никогда не fail'имся по «промежуточному» effWdl < failThreshold.
+  if (objective === 'saveEquality') return false;
   if (snapshot && uciSquares(snapshot.playedUci) === uciSquares(snapshot.bestUci)) {
     // Юзер сыграл лучший ход из доступных — даже если позиция объективно
     // проиграна, «потерянного» хода нет.
