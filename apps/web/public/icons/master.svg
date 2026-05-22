@@ -1,24 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  KS-3240: master source for PWA raster icons (apps/web/public/icons/icon-*.png).
-  Separate from /apps/web/public/icon.svg which is the brand favicon and
-  must stay untouched (text-glyph ♔, font-family=serif — see KS-576).
+  KS-3241: master source for PWA raster icons (apps/web/public/icons/icon-*.png).
 
-  This master uses a deterministic vector path for the ♔ glyph (so that
-  PNG output is identical on every OS / chromium build, no system-font
-  dependency). Path data extracted from DejaVu Sans Bold via
-  fontTools.pens.svgPathPen (units_per_em=2048, bbox 201..1635 × 0..1496).
+  ♔ (U+2654 WHITE CHESS KING) extracted as deterministic vector path
+  from **Noto Sans Symbols 2 Regular** via fontTools.pens.svgPathPen.
+  This is the same glyph Android Chrome (and many Linux distros via
+  fonts-noto-cjk) renders for the user when they open /icon.svg — so
+  the resulting PNG matches what the user actually sees on Android home
+  screen / Chrome address bar / share preview.
 
-  Visual design (background #1a1a2e rounded-rect, fill #f0d9b5, ~21px
-  glyph height in 32×32 viewBox) mirrors the original icon.svg as it
-  renders in DejaVu Sans Bold — keeps PNG output close to what most
-  desktop / Android users see when their browser opens icon.svg.
+  Font: Noto Sans Symbols 2 — SIL Open Font License 1.1.
+  Source: https://github.com/googlefonts/noto-fonts (Google Fonts).
 
-  License: DejaVu fonts are derived from Bitstream Vera Fonts, free
-  for any use. https://dejavu-fonts.github.io/License.html
+  Glyph metrics: units_per_em=1000, bbox 203..797 × -34..753.
+  Transform: translate(2.65 25.6) scale(0.0267 -0.0267) — flip Y
+  (font baseline-up → SVG top-down), scale to ≈21px glyph height,
+  centre in viewBox 32×32.
+
+  NOTE: основной apps/web/public/icon.svg остаётся брендовым favicon
+  с `<text>♔</text>` font-family="serif" (KS-576 / KS-3240) и НЕ
+  модифицируется. Этот master.svg — отдельный source-of-truth только
+  для PNG-конвейера (apps/web/scripts/render-pwa-icons.cjs).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <rect width="32" height="32" rx="6" fill="#1a1a2e"/>
-  <path fill="#f0d9b5" transform="translate(3.11 26.5) scale(0.01404 -0.01404)"
-        d="M848 967Q849 970 851 973Q816 1016 765 1044Q691 1085 613.0 1085.0Q535 1085 461.5 1044.5Q388 1004 346.0 929.5Q304 855 304 775Q304 694 345.0 621.0Q386 548 460 508Q482 494 505 486H848ZM989 486H1331Q1355 494 1377 508Q1451 548 1491.5 621.0Q1532 694 1532 775Q1532 855 1490.5 929.5Q1449 1004 1375.5 1044.5Q1302 1085 1223 1085Q1146 1085 1072 1044Q1020 1016 986 973Q988 970 989 967ZM540 383V80H1297V383ZM458 0V383Q416 396 378 418Q309 472 255.0 570.0Q201 668 201 775Q201 883 256.0 981.5Q311 1080 410.0 1133.0Q509 1186 613 1186Q693 1186 769 1155V1157Q769 1193 787.0 1224.5Q805 1256 837 1274Q850 1281 866 1285V1339H758V1409H866V1496H971V1409H1079V1339H971V1285Q987 1281 1000 1274Q1031 1256 1049.5 1224.5Q1068 1193 1068 1157V1155Q1144 1186 1223 1186Q1327 1186 1426.0 1133.0Q1525 1080 1580.0 981.5Q1635 883 1635 775Q1635 668 1581.0 570.0Q1527 472 1459 418Q1420 396 1379 383V0ZM825 1149Q825 1124 837.5 1102.5Q850 1081 872.5 1068.5Q895 1056 918 1056Q942 1056 964.5 1068.5Q987 1081 999.0 1102.5Q1011 1124 1011 1149Q1011 1173 999.0 1195.5Q987 1218 964.5 1229.5Q942 1241 918 1241Q895 1241 872.5 1229.5Q850 1218 837.5 1195.5Q825 1173 825 1149Z"/>
+  <path fill="#f0d9b5" transform="translate(2.65 25.6) scale(0.0267 -0.0267)"
+        d="M500 -34Q454 -34 417.0 -29.5Q380 -25 353 -18Q299 -3 299 24L313 227Q203 343 203 436Q203 499 235.5 536.0Q268 573 325 573Q391 573 439 525L435 591Q432 628 483 636V692H442V716H483V753H517V716H558V692H517V636Q568 628 565 589L561 525Q608 573 675 573Q732 573 764.5 536.0Q797 499 797 436Q797 393 772.5 342.5Q748 292 687 227L701 24Q701 -4 647 -19Q592 -34 500 -34ZM500 422Q512 459 528 483V578Q528 611 500 611Q472 611 472 578V483Q485 462 500 422ZM347 247Q422 262 479 262V294Q479 338 467.5 380.0Q456 422 435.0 456.0Q414 490 386.5 510.5Q359 531 327 531Q290 531 269.0 504.5Q248 478 248 431Q248 393 276.0 342.0Q304 291 347 247ZM653 247Q697 293 724.5 343.0Q752 393 752 431Q752 476 732.0 503.5Q712 531 673 531Q641 531 613.0 510.5Q585 490 564.5 456.0Q544 422 532.5 380.5Q521 339 521 298V262Q545 262 583.0 257.5Q621 253 653 247ZM353 155Q363 159 386.5 163.0Q410 167 440.5 169.5Q471 172 500 172Q528 172 557.5 169.5Q587 167 611.5 163.0Q636 159 647 155L642 213Q609 221 573.5 225.5Q538 230 500 230Q461 230 425.5 225.5Q390 221 358 213ZM348 68Q401 86 500 86Q598 86 652 68L649 123Q578 143 500 143Q460 143 419.5 137.0Q379 131 351 123ZM500 -5Q658 -5 658 26Q658 41 617 49Q596 53 567.0 55.0Q538 57 500 57Q463 57 434.0 55.5Q405 54 384 49Q342 40 342 26Q342 -5 500 -5Z"/>
 </svg>
