@@ -736,3 +736,82 @@
 * {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
+
+/* ============================================================
+ * KS-3233: фиксирование цвета активной вкладки на :hover / :active /
+ * :focus / :focus-visible.
+ *
+ * В KS-3174 ввели токены `--tab-active-bg / --tab-active-fg / -border`
+ * и применили их к 35 классам активных переключателей. Но у каждого
+ * компонента есть свои базовые правила `:hover` / `:active` / `:focus`,
+ * которые перебивают цвет (например `.broadcast-tab:hover { color: var(--c-e0e0e0) }`)
+ * — на mobile при tap'е (sticky :hover до release + native :active)
+ * текст активной вкладки кратковременно становился «тёмным» / неактивным.
+ *
+ * Здесь — единый блок, который для всех 35 классов жёстко задаёт
+ * background / color / border-color на любом интерактивном state.
+ * `:is()` позволяет один селектор × один блок без дублирования.
+ * `!important` — необходимый каскад-override, специфичность многих
+ * базовых правил совпадает.
+ *
+ * `-webkit-tap-highlight-color: transparent` — убирает системную
+ * браузерную полупрозрачную подсветку при tap'е на iOS / Android.
+ * ============================================================ */
+:is(
+  .precision-tab--active,
+  .precision-objective-segment--active,
+  .precision-subnav__item--active,
+  .precision-subnav__item[data-active='true'],
+  .precision-attempts__filter--active,
+  .precision-trends__toggle-btn--active,
+  .puzzle-browser-tab.active,
+  .puzzle-gen-engine-tab.active,
+  .puzzle-filters__theme-chip.active,
+  .filter-btn.active,
+  .puzzle-sort-btn.active,
+  .players-tab.active,
+  .players-rating-btn.active,
+  .challenge-preset-btn.active,
+  .rating-history__filter.active,
+  .workshop-section-tab.active,
+  .workshop-mode-tab.active,
+  .workshop-category-tab.active,
+  .workshop-tag-chip--active,
+  .lobby-mode-tab.active,
+  .tc-btn.active,
+  .tc-tab.active,
+  .rating-filter__mode-btn.active,
+  .color-btn.active,
+  .tnr-status-tab.active,
+  .tnr-chip.active,
+  .tcm-tc-cat.active,
+  .tcm-preset.active,
+  .tournament-type-tab.active,
+  .tournament-round-tab.active,
+  .tournament-tab--active,
+  .set-position-tab.active,
+  .analysis-mobile-tab.active,
+  .lessons-tab--active,
+  .players-authors-tab__sort-btn.active,
+  .user-course-editor__mobile-tabs button[aria-selected='true'],
+  .diagram-editor__mode-btn--active,
+  .broadcast-round-btn--active,
+  .broadcast-round-tab--active,
+  .broadcast-tab--active,
+  .drill-count-attackers__btn--active,
+  .drill-count-attackers__btn[data-active='true'],
+  .drill-leaderboard__filter-btn[aria-pressed='true'],
+  .drill-leaderboard__filter-btn--active,
+  .engine-source-btn.active,
+  .play-tc-btn.active,
+  .feedback-type-btn.active
+):is(:hover, :active, :focus, :focus-visible) {
+  background: var(--tab-active-bg) !important;
+  color: var(--tab-active-fg) !important;
+  border-color: var(--tab-active-border) !important;
+  /* `-webkit-tap-highlight-color: transparent` — гасит системный
+   * полупрозрачный slate-overlay при tap'е на Android Chrome / iOS Safari.
+   * Без этого пользователь видит мерцание цвета даже если CSS-color
+   * зафиксирован. */
+  -webkit-tap-highlight-color: transparent;
+}
