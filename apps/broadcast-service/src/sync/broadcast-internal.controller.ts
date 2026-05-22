@@ -19,10 +19,12 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InternalKeyGuard } from './internal-key.guard';
+import { BroadcastSyncService } from './broadcast-sync.service';
 
 export interface InternalRoundWithGames {
   round: { id: string; name: string };
@@ -38,7 +40,33 @@ export interface InternalRoundWithGames {
 @Controller('internal/rounds')
 @UseGuards(InternalKeyGuard)
 export class BroadcastInternalController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncService: BroadcastSyncService,
+  ) {}
+
+  /**
+   * KS-3254. Принудительный re-sync раунда — для одноразового
+   * устранения legacy-расхождений после KS-3229 (broken-записи из-за
+   * Site=URL split-bug в parsePgnGames). Не нужен в обычной эксплуатации:
+   * автополлинг подхватит новые ходы сам. Но для раундов где у нас
+   * было сохранено меньше партий из-за бага парсера, обычный поллинг
+   * НЕ дотягивает (skip по pgn-hash / cooldown / total>0).
+   *
+   * Принимает lichess_round_id (Base62-id из Lichess), не наш UUID,
+   * — потому что наша БД индексирована по lichess_round_id для PGN-poll'а.
+   */
+  @Post(':lichessRoundId/force-resync')
+  async forceResync(
+    @Param('lichessRoundId') lichessRoundId: string,
+  ): Promise<{ fetched: boolean; gamesBefore: number; gamesAfter: number }> {
+    if (!/^[A-Za-z0-9]+$/.test(lichessRoundId) || lichessRoundId.length > 16) {
+      throw new NotFoundException(
+        `Invalid lichessRoundId format: ${lichessRoundId}`,
+      );
+    }
+    return this.syncService.forceResyncRound(lichessRoundId);
+  }
 
   @Get(':roundId/with-games')
   async getRoundWithGames(

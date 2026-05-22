@@ -836,6 +836,63 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * KS-3254. Принудительный re-sync раунда: сбрасывает cooldown +
+   * PGN-hash ключи в Redis (иначе `fetchAndProcessRoundPgn` решит, что
+   * содержимое не менялось со времени прошлого poll'а), и стучится в
+   * Lichess за PGN снова. Используется для устранения legacy-расхождений
+   * после KS-3229 — в раундах с broken-записями (1 партия из 5+ из-за
+   * Site=URL split-bug) повторный sync через нормальный poll-цикл не
+   * проходит, потому что cooldown / hash скипают fetch.
+   *
+   * Вызывается через `POST /internal/rounds/:lichessRoundId/force-resync`.
+   */
+  async forceResyncRound(lichessRoundId: string): Promise<{
+    fetched: boolean;
+    gamesBefore: number;
+    gamesAfter: number;
+  }> {
+    const round = await this.prisma.broadcastRound.findUnique({
+      where: { lichessRoundId },
+    });
+    if (!round) {
+      throw new Error(`Round ${lichessRoundId} not found in DB`);
+    }
+    const gamesBefore = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id },
+    });
+
+    // Сбрасываем Redis-ключи, которые иначе делают early-return:
+    //   - pgn-hash (одинаковый PGN не перепарсивается)
+    //   - pgn-fetch-cooldown (после 4xx/empty Lichess мы ставим cooldown,
+    //     чтобы не долбить впустую)
+    await this.redis
+      .del(
+        `broadcast:pgn-hash:${lichessRoundId}`,
+        `broadcast:pgn-fetch-cooldown:${lichessRoundId}`,
+      )
+      .catch(() => {});
+
+    let fetched = true;
+    try {
+      await this.fetchAndProcessRoundPgn(lichessRoundId);
+    } catch (e: unknown) {
+      this.logger.error(
+        `[broadcast-sync] KS-3254 force-resync ${lichessRoundId} failed: ${(e as Error).message}`,
+      );
+      fetched = false;
+    }
+
+    const gamesAfter = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id },
+    });
+    this.logger.log(
+      `[broadcast-sync] KS-3254 force-resync ${lichessRoundId}: ` +
+        `games ${gamesBefore} → ${gamesAfter} (fetched=${fetched})`,
+    );
+    return { fetched, gamesBefore, gamesAfter };
+  }
+
   private async fetchAndProcessRoundPgn(lichessRoundId: string): Promise<void> {
     const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
     const res = await this.lichessFetch(url, {

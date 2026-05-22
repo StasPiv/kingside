@@ -144,6 +144,14 @@ export async function runGameCountCheckTick(
       our_count: bigint;
     }>
   >(
+    // KS-3254: фильтр по variant. В `broadcasts.variant` (KS-2780)
+    // лежит lower-case значение `[Variant "..."]` PGN-header'а от
+    // Lichess; NULL значит стандартные шахматы. Non-standard (chess960,
+    // fischerandom, crazyhouse, antichess, ...) — наш viewer их не
+    // поддерживает, api guard их фильтрует из списка broadcast'ов, и
+    // PGN partii в БД мы не пишем (broadcast-record есть, games нет).
+    // Без этого фильтра TCEC Fischer Random Chess (chess960) выдавал
+    // 9 mismatches за tick. Исключаем такие из метрики целиком.
     `SELECT b.id::text          AS broadcast_id,
             b.title             AS broadcast_title,
             b.lichess_id        AS lichess_broadcast_id,
@@ -158,6 +166,7 @@ export async function runGameCountCheckTick(
        JOIN broadcast_rounds r ON r.broadcast_id = b.id
       WHERE b.is_active = TRUE
         AND r.status IN ('ongoing', 'finished')
+        AND (b.variant IS NULL OR b.variant = 'standard')
       ORDER BY b.updated_at DESC, r.starts_at ASC
       LIMIT $1::int`,
     maxBroadcasts * 15, // примерно по 15 раундов на broadcast
