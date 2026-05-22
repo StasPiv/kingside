@@ -46,7 +46,12 @@
 -- Это приемлемо разово в обмен на устранение 40-секундного слоу-запроса
 -- /puzzles/browse?themes=saveEquality.
 
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- KS-3234 (deploy fail #2): убираю `CREATE EXTENSION pg_trgm` из миграции.
+-- На RDS это требует rds_superuser, у prisma-роли его нет — миграция
+-- падала. Если extension не активен — миграция упадёт на `gin_trgm_ops
+-- does not exist`, тогда devops выполнит `CREATE EXTENSION pg_trgm;` в
+-- DB один раз руками. После этого следующий deploy успешно прокинет
+-- индекс.
 
 CREATE INDEX IF NOT EXISTS puzzles_themes_trgm_idx
   ON puzzles USING gin (themes gin_trgm_ops);
