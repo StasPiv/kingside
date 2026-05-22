@@ -1,4 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KS-3239: brand icon for Kingside.
+  ♔ (U+2654 WHITE CHESS KING) glyph from DejaVu Sans Bold,
+  extracted as deterministic vector path via fontTools so that the
+  rasterized PNG (apps/web/public/icons/*.png) is identical to the
+  SVG rendered on any browser/OS — no system-font dependency.
+
+  DejaVu fonts are derived from Bitstream Vera Fonts.
+  License: free for any use. https://dejavu-fonts.github.io/License.html
+-->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <rect width="32" height="32" rx="6" fill="#1a1a2e"/>
-  <text x="16" y="23" font-size="20" text-anchor="middle" font-family="serif" fill="#f0d9b5" font-weight="bold">♔</text>
+  <!--
+    Glyph in font units (units_per_em=2048, bbox 201..1635 x 0..1496).
+    Transform: translate(3.11 26.5) scale(0.01404 -0.01404)
+    — flips Y (font baseline-up to SVG top-down), scales so glyph
+    height ≈ 21px, centers horizontally in viewBox 32×32.
+  -->
+  <path fill="#f0d9b5" transform="translate(3.11 26.5) scale(0.01404 -0.01404)"
+        d="M848 967Q849 970 851 973Q816 1016 765 1044Q691 1085 613.0 1085.0Q535 1085 461.5 1044.5Q388 1004 346.0 929.5Q304 855 304 775Q304 694 345.0 621.0Q386 548 460 508Q482 494 505 486H848ZM989 486H1331Q1355 494 1377 508Q1451 548 1491.5 621.0Q1532 694 1532 775Q1532 855 1490.5 929.5Q1449 1004 1375.5 1044.5Q1302 1085 1223 1085Q1146 1085 1072 1044Q1020 1016 986 973Q988 970 989 967ZM540 383V80H1297V383ZM458 0V383Q416 396 378 418Q309 472 255.0 570.0Q201 668 201 775Q201 883 256.0 981.5Q311 1080 410.0 1133.0Q509 1186 613 1186Q693 1186 769 1155V1157Q769 1193 787.0 1224.5Q805 1256 837 1274Q850 1281 866 1285V1339H758V1409H866V1496H971V1409H1079V1339H971V1285Q987 1281 1000 1274Q1031 1256 1049.5 1224.5Q1068 1193 1068 1157V1155Q1144 1186 1223 1186Q1327 1186 1426.0 1133.0Q1525 1080 1580.0 981.5Q1635 883 1635 775Q1635 668 1581.0 570.0Q1527 472 1459 418Q1420 396 1379 383V0ZM825 1149Q825 1124 837.5 1102.5Q850 1081 872.5 1068.5Q895 1056 918 1056Q942 1056 964.5 1068.5Q987 1081 999.0 1102.5Q1011 1124 1011 1149Q1011 1173 999.0 1195.5Q987 1218 964.5 1229.5Q942 1241 918 1241Q895 1241 872.5 1229.5Q850 1218 837.5 1195.5Q825 1173 825 1149Z"/>
 </svg>
