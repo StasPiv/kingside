@@ -26,6 +26,16 @@
     <title>Kingside</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <!-- KS-3237: PWA-иконки для Add-to-Home-Screen.
+         - apple-touch-icon: 180×180 PNG для iOS Safari «На экран Домой».
+           iOS не читает manifest.icons; обязательная отдельная ссылка.
+         - link rel="icon" 192/512: некоторые Android-лаунчеры (Pixel,
+           Samsung) при отсутствии установленной PWA берут icon-link
+           по `sizes`. Канонический набор — в manifest.webmanifest
+           (генерируется vite-plugin-pwa, см. vite.config.ts). -->
+    <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
 
     <!-- KS-1693: Resolve theme before first paint to prevent FOUC.
          Reads localStorage.theme (set by ThemeContext), falls back to

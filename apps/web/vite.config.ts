@@ -55,7 +55,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      // KS-3237: includeAssets копирует файлы в dist/. Иконки лежат в
+      // public/icons/, vite сам кладёт их в корень dist/icons/ — для
+      // manifest достаточно указать относительные пути ниже.
+      // icon.svg остаётся как fallback для favicon.
+      includeAssets: ['icon.svg', 'favicon.ico', 'icons/*.png'],
       devOptions: {
         enabled: false,
       },
@@ -69,12 +73,38 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         scope: '/',
+        // KS-3237: PNG-иконки для Add-to-Home-Screen (Android Chrome
+        // 192/512, iOS Safari 180 — последнее задаётся отдельно через
+        // apple-touch-icon в index.html, в manifest icons помещён 192
+        // и 512 для Android + maskable-512 для адаптивных лаунчеров
+        // (Pixel Launcher, OneUI и пр., см. web.dev/maskable-icon).
+        // SVG оставляем `any` — современные браузеры всё ещё используют
+        // его в табе и истории, а Android, согласно спеке, выбирает
+        // ближайший по `sizes` среди PNG.
         icons: [
           {
-            src: 'icon.svg',
+            src: '/icons/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/icon-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: '/icon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any maskable',
+            purpose: 'any',
           },
         ],
       },
