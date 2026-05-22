@@ -314,3 +314,147 @@ export function computePrecisionScore(
   }
   return aggregateAccuracies(accuracies, worstClassification(moves));
 }
+
+// ─── KS-3246: цель пазла + ось goal_achieved ──────────────────────
+
+// Жанр пазла (ADR-069). Тип определён в `./puzzle-gen-core.ts` —
+// импортируем оттуда чтобы не дублировать определение и не плодить
+// конфликт re-export'ов в `src/index.ts`.
+import type { PuzzleObjective } from './puzzle-gen-core.js';
+
+/**
+ * KS-3246. Пороги «снисхождения» для goal_achieved.
+ *
+ * Дельты small-positive: end_E может быть чуть меньше start_E из-за
+ * приближения движка (depth↑ → eval колеблется на ±0.01..0.02), это
+ * не означает «упустил перевес». Для saveEquality зона шире — там цель
+ * «не дать упасть», объяснимое колебание выше.
+ *
+ * Числа из chess-expert review (KS-3246). Калибровка возможна после
+ * 7-14 дней живых данных, см. ADR-065 §5 (этап A1).
+ */
+export const OBJECTIVE_TOLERANCE: Record<PuzzleObjective, number> = {
+  convertAdvantage: 0.02,
+  saveEquality: 0.05,
+};
+
+/**
+ * KS-3246. Достигнута ли цель пазла. Чистая функция от пары E-значений
+ * и жанра. Используется и при создании attempt'а в сервисе, и при
+ * backfill (тогда вместо real-time данных берётся из БД).
+ *
+ * Аргументы:
+ *  - `startE`, `endE` ∈ [0..1] — expected-score POV игрока в начале
+ *    и в конце attempt'а: `E = (W + D/2) / 1000`.
+ *  - `objective` — `convertAdvantage` или `saveEquality`.
+ *
+ * Правила:
+ *  - convertAdvantage: end_E ≥ start_E − OBJECTIVE_TOLERANCE.convert
+ *  - saveEquality:     end_E ≥ start_E − OBJECTIVE_TOLERANCE.save
+ *
+ * Возвращает `null` если данных нет (любой из E === null).
+ */
+export function evaluateObjectiveAchieved(
+  startE: number | null | undefined,
+  endE: number | null | undefined,
+  objective: PuzzleObjective,
+): boolean | null {
+  if (typeof startE !== 'number' || typeof endE !== 'number') return null;
+  if (!Number.isFinite(startE) || !Number.isFinite(endE)) return null;
+  const tolerance = OBJECTIVE_TOLERANCE[objective];
+  return endE >= startE - tolerance;
+}
+
+/**
+ * KS-3246. Wrapper: достаёт start_E / end_E из массива user-полуходов
+ * (`PrecisionMoveInput[]` — те же, что для `computePrecisionScore`) и
+ * вычисляет `objectiveAchieved`. Берёт первый move с непустым
+ * `wdlBefore` для start_E и последний move с непустым `wdlAfter` для
+ * end_E.
+ *
+ * Возвращает `null` если данных нет (legacy без WDL).
+ */
+export function computeAttemptObjectiveAchieved(
+  moves: PrecisionMoveInput[],
+  objective: PuzzleObjective,
+): boolean | null {
+  let startE: number | null = null;
+  for (const m of moves) {
+    if (m.wdlBefore) {
+      startE = (m.wdlBefore.w + m.wdlBefore.d / 2) / 1000;
+      break;
+    }
+  }
+  let endE: number | null = null;
+  for (let i = moves.length - 1; i >= 0; i--) {
+    const wdlAfter = moves[i].wdlAfter;
+    if (wdlAfter) {
+      endE = (wdlAfter.w + wdlAfter.d / 2) / 1000;
+      break;
+    }
+  }
+  return evaluateObjectiveAchieved(startE, endE, objective);
+}
+
+/**
+ * KS-3246 / KS-3248. Verdict-key для frontend-плашки. Матрица 5×2
+ * (звёзды × goal_achieved). Текст самой плашки рендерится фронтом
+ * (i18n, KS-3248), backend отдаёт только key.
+ *
+ * GOAL_ACHIEVED = true:
+ *   5★ → 'flawless'         — «Идеально решено»
+ *   4★ → 'confident'        — «Уверенно решено. Есть мелкие неточности»
+ *   3★ → 'suboptimal'       — «Решено, но не лучшим путём»
+ *   2★ → 'with-mistakes'    — «Решено, но с ошибками»
+ *   1★ → 'with-blunders'    — «Цель достигнута, но с грубыми ошибками»
+ *
+ * GOAL_ACHIEVED = false:
+ *   5★ → 'flawless' (с warn — теоретически невозможно, см. ниже)
+ *   4★ → 'goal-missed-clean'    — «Хорошее исполнение, но цель не достигнута»
+ *   3★ → 'goal-missed'          — «Цель не достигнута»
+ *   2★ → 'goal-missed-mistakes' — «Цель не достигнута, были ошибки»
+ *   1★ → 'goal-missed-blunders' — «Не решено. Грубые ошибки»
+ *
+ * GOAL_ACHIEVED = null: используется ветка `true` (legacy без данных
+ * — фронт ведёт себя как раньше).
+ *
+ * Защитный fallback: 5★ + goal_achieved=false комбинация теоретически
+ * невозможна (5 звёзд требует accuracy ≥95, что подразумевает ходы PV1,
+ * и goal должен быть достигнут). Если всё-таки возникает (баг данных) —
+ * возвращаем 'flawless', понижение делает сервис с warn в логе.
+ */
+export type PrecisionVerdictKey =
+  | 'flawless'
+  | 'confident'
+  | 'suboptimal'
+  | 'with-mistakes'
+  | 'with-blunders'
+  | 'goal-missed-clean'
+  | 'goal-missed'
+  | 'goal-missed-mistakes'
+  | 'goal-missed-blunders';
+
+export function computeVerdictKey(
+  stars: 1 | 2 | 3 | 4 | 5 | null,
+  objectiveAchieved: boolean | null,
+): PrecisionVerdictKey | null {
+  if (stars === null) return null;
+  // null = нет данных о goal: рендерим как «достигнуто» (legacy).
+  const achieved = objectiveAchieved === false ? false : true;
+  if (achieved) {
+    switch (stars) {
+      case 5: return 'flawless';
+      case 4: return 'confident';
+      case 3: return 'suboptimal';
+      case 2: return 'with-mistakes';
+      case 1: return 'with-blunders';
+    }
+  }
+  switch (stars) {
+    case 5: return 'flawless'; // теоретически невозможно
+    case 4: return 'goal-missed-clean';
+    case 3: return 'goal-missed';
+    case 2: return 'goal-missed-mistakes';
+    case 1: return 'goal-missed-blunders';
+  }
+}

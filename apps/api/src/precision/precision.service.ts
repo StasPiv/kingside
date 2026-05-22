@@ -25,6 +25,7 @@ import type {
 import {
   classifyMove,
   computePrecisionScore,
+  computeVerdictKey,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateTestFixtureAttemptDto } from './dto/test-fixture.dto';
@@ -263,6 +264,13 @@ export class PrecisionService {
           // фронт показывает его на карточке вместо accuracyPercent
           // (синхрон со звёздами и detail-страницей).
           scorePct: pa.scorePct,
+          // KS-3246. Ось «цель пазла достигнута».
+          objectiveAchieved: pa.objectiveAchieved,
+          // KS-3246 / KS-3248. Verdict-key для плашки.
+          verdictKey: computeVerdictKey(
+            pa.score as 1 | 2 | 3 | 4 | 5 | null,
+            pa.objectiveAchieved,
+          ),
         };
       }
       // Legacy/без moves[]-snapshot — дефолтные агрегаты.
@@ -284,6 +292,8 @@ export class PrecisionService {
         },
         score: null,
         scorePct: null,
+        objectiveAchieved: null,
+        verdictKey: null,
       };
     });
 
@@ -347,6 +357,12 @@ export class PrecisionService {
       // KS-3000 / ADR-065 §6.1.
       score: pa.score,
       scorePct: pa.scorePct,
+      // KS-3246. Goal-achieved + verdict для плашки (KS-3248).
+      objectiveAchieved: pa.objectiveAchieved,
+      verdictKey: computeVerdictKey(
+        pa.score as 1 | 2 | 3 | 4 | 5 | null,
+        pa.objectiveAchieved,
+      ),
       moves: pa.moves.map((m) => ({
         ply: m.ply,
         fenBefore: m.fenBefore,

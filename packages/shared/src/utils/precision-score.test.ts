@@ -619,3 +619,202 @@ describe('KS-3033: computePrecisionScore на 1-ходовом attempt', () => {
     expect(r.scorePct).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// KS-3246: evaluateObjectiveAchieved / computeAttemptObjectiveAchieved /
+// computeVerdictKey
+// ─────────────────────────────────────────────────────────────────
+
+import {
+  evaluateObjectiveAchieved,
+  computeAttemptObjectiveAchieved,
+  computeVerdictKey,
+  OBJECTIVE_TOLERANCE,
+} from './precision-score.js';
+
+describe('KS-3246 evaluateObjectiveAchieved', () => {
+  describe('convertAdvantage (tolerance=0.02)', () => {
+    it('end_E > start_E → true', () => {
+      expect(evaluateObjectiveAchieved(0.75, 0.87, 'convertAdvantage')).toBe(
+        true,
+      );
+    });
+    it('end_E = start_E → true', () => {
+      expect(evaluateObjectiveAchieved(0.8, 0.8, 'convertAdvantage')).toBe(
+        true,
+      );
+    });
+    it('end_E = start_E − 0.02 (граница) → true', () => {
+      expect(
+        evaluateObjectiveAchieved(0.8, 0.78, 'convertAdvantage'),
+      ).toBe(true);
+    });
+    it('end_E = start_E − 0.03 → false', () => {
+      expect(
+        evaluateObjectiveAchieved(0.8, 0.77, 'convertAdvantage'),
+      ).toBe(false);
+    });
+  });
+
+  describe('saveEquality (tolerance=0.05)', () => {
+    it('end_E = start_E − 0.05 (граница) → true', () => {
+      expect(evaluateObjectiveAchieved(0.5, 0.45, 'saveEquality')).toBe(true);
+    });
+    it('end_E = start_E − 0.06 → false', () => {
+      expect(evaluateObjectiveAchieved(0.5, 0.44, 'saveEquality')).toBe(false);
+    });
+    it('KS-3247 кейс: 59% → 46% draw, +14% loss → end_E ≈ 0.23 vs start ≈ 0.295 → false', () => {
+      // W=0, D=590, L=410 → E = (0 + 295) / 1000 = 0.295
+      // W=0, D=460, L=540 → E = 0.23
+      // ΔE = −0.065 — больше tolerance 0.05 → goal NOT achieved.
+      expect(evaluateObjectiveAchieved(0.295, 0.23, 'saveEquality')).toBe(
+        false,
+      );
+    });
+  });
+
+  it('null/undefined аргумент → null', () => {
+    expect(evaluateObjectiveAchieved(null, 0.5, 'convertAdvantage')).toBeNull();
+    expect(evaluateObjectiveAchieved(0.5, null, 'saveEquality')).toBeNull();
+    expect(
+      evaluateObjectiveAchieved(undefined, undefined, 'convertAdvantage'),
+    ).toBeNull();
+  });
+
+  it('NaN → null (защита от мусорных данных)', () => {
+    expect(
+      evaluateObjectiveAchieved(NaN, 0.5, 'convertAdvantage'),
+    ).toBeNull();
+    expect(evaluateObjectiveAchieved(0.5, NaN, 'saveEquality')).toBeNull();
+  });
+
+  it('OBJECTIVE_TOLERANCE экспортирован и содержит обе цели', () => {
+    expect(OBJECTIVE_TOLERANCE.convertAdvantage).toBe(0.02);
+    expect(OBJECTIVE_TOLERANCE.saveEquality).toBe(0.05);
+  });
+});
+
+describe('KS-3246 computeAttemptObjectiveAchieved', () => {
+  it('KS-3246 кейс: convertAdvantage, ΔE = +0.12 (Win 75 → 87) → true', () => {
+    // start: W=750, D=250, L=0 → E = 0.875
+    // end:   W=870, D=130, L=0 → E = 0.935
+    // ΔE = +0.06 → true (для convertAdvantage tolerance 0.02)
+    const moves: PrecisionMoveInput[] = [
+      {
+        wdlBefore: { w: 750, d: 250, l: 0 },
+        wdlAfter: { w: 870, d: 130, l: 0 },
+        classification: 'inaccuracy',
+      },
+    ];
+    expect(computeAttemptObjectiveAchieved(moves, 'convertAdvantage')).toBe(
+      true,
+    );
+  });
+
+  it('KS-3247 кейс: saveEquality, single move, end_E < start_E − tolerance → false', () => {
+    const moves: PrecisionMoveInput[] = [
+      {
+        wdlBefore: { w: 0, d: 590, l: 410 },
+        wdlAfter: { w: 0, d: 460, l: 540 },
+        classification: 'inaccuracy',
+      },
+    ];
+    expect(computeAttemptObjectiveAchieved(moves, 'saveEquality')).toBe(false);
+  });
+
+  it('берёт первый move с wdlBefore и последний с wdlAfter', () => {
+    const moves: PrecisionMoveInput[] = [
+      {
+        wdlBefore: { w: 750, d: 250, l: 0 },
+        wdlAfter: null,
+        classification: 'best',
+      },
+      {
+        wdlBefore: { w: 800, d: 200, l: 0 },
+        wdlAfter: { w: 900, d: 100, l: 0 },
+        classification: 'best',
+      },
+    ];
+    // start_E = (750+125)/1000 = 0.875 (из первого move's wdlBefore)
+    // end_E = (900+50)/1000 = 0.95 (из последнего move's wdlAfter)
+    // ΔE = +0.075 → true
+    expect(computeAttemptObjectiveAchieved(moves, 'convertAdvantage')).toBe(
+      true,
+    );
+  });
+
+  it('null если нет ни одного wdlBefore', () => {
+    const moves: PrecisionMoveInput[] = [
+      { classification: 'inaccuracy', cpBefore: 100, cpAfter: 80 },
+    ];
+    expect(
+      computeAttemptObjectiveAchieved(moves, 'convertAdvantage'),
+    ).toBeNull();
+  });
+
+  it('пустой массив → null', () => {
+    expect(computeAttemptObjectiveAchieved([], 'saveEquality')).toBeNull();
+  });
+});
+
+describe('KS-3246 / KS-3248 computeVerdictKey', () => {
+  it('null stars → null verdict', () => {
+    expect(computeVerdictKey(null, true)).toBeNull();
+    expect(computeVerdictKey(null, false)).toBeNull();
+    expect(computeVerdictKey(null, null)).toBeNull();
+  });
+
+  describe('GOAL_ACHIEVED = true', () => {
+    it('5★ → flawless', () => {
+      expect(computeVerdictKey(5, true)).toBe('flawless');
+    });
+    it('4★ → confident', () => {
+      expect(computeVerdictKey(4, true)).toBe('confident');
+    });
+    it('3★ → suboptimal', () => {
+      expect(computeVerdictKey(3, true)).toBe('suboptimal');
+    });
+    it('2★ → with-mistakes', () => {
+      expect(computeVerdictKey(2, true)).toBe('with-mistakes');
+    });
+    it('1★ → with-blunders', () => {
+      expect(computeVerdictKey(1, true)).toBe('with-blunders');
+    });
+  });
+
+  describe('GOAL_ACHIEVED = false', () => {
+    it('5★ → flawless (защитный fallback, не должен возникать)', () => {
+      expect(computeVerdictKey(5, false)).toBe('flawless');
+    });
+    it('4★ → goal-missed-clean', () => {
+      expect(computeVerdictKey(4, false)).toBe('goal-missed-clean');
+    });
+    it('3★ → goal-missed', () => {
+      expect(computeVerdictKey(3, false)).toBe('goal-missed');
+    });
+    it('2★ → goal-missed-mistakes', () => {
+      expect(computeVerdictKey(2, false)).toBe('goal-missed-mistakes');
+    });
+    it('1★ → goal-missed-blunders', () => {
+      expect(computeVerdictKey(1, false)).toBe('goal-missed-blunders');
+    });
+  });
+
+  it('GOAL_ACHIEVED = null → ведём как true (legacy fallback)', () => {
+    expect(computeVerdictKey(5, null)).toBe('flawless');
+    expect(computeVerdictKey(4, null)).toBe('confident');
+    expect(computeVerdictKey(3, null)).toBe('suboptimal');
+    expect(computeVerdictKey(2, null)).toBe('with-mistakes');
+    expect(computeVerdictKey(1, null)).toBe('with-blunders');
+  });
+
+  it('KS-3246 матрица соответствует chess-expert review (5×2)', () => {
+    // Сценарий из задачи: 3★ + goal_achieved=true →
+    // «не лучшим путём», НЕ «с заметными ошибками»
+    expect(computeVerdictKey(3, true)).toBe('suboptimal');
+    // Старая плашка ассоциировалась с этим verdictKey'ом ='with-mistakes'
+    // — это теперь 2★ + goal_achieved=true. Если фронт получит
+    // 3★ + true и нарисует «с заметными ошибками» — это баг фронта.
+    expect(computeVerdictKey(2, true)).toBe('with-mistakes');
+  });
+});

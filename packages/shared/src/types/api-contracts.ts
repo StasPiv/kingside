@@ -13,6 +13,7 @@ import type { PieceColor, GameStatus, GameResult } from './game.js';
 import type { PuzzleDto, PuzzleAttemptResult } from './puzzle.js';
 import type { Locale, User } from './user.js';
 import type { BoardTheme, PieceSet } from '../constants.js';
+import type { PrecisionVerdictKey } from '../utils/precision-score.js';
 
 export * from './archive.js';
 
@@ -428,6 +429,20 @@ export interface PrecisionAttemptListItem {
    * detail-страницей.
    */
   scorePct?: number | null;
+  /**
+   * KS-3246. Достигнута ли цель пазла. `true` — convertAdvantage
+   * реализован / saveEquality удержан; `false` — упущен; `null` —
+   * legacy без per-move WDL или objective пазла неизвестен.
+   * Используется фронтом (KS-3248) совместно со `score` для выбора
+   * текста плашки по матрице 5×2.
+   */
+  objectiveAchieved?: boolean | null;
+  /**
+   * KS-3246 / KS-3248. Verdict-key для плашки. См. `computeVerdictKey`
+   * в `@kingside/shared/utils/precision-score`.
+   * `null` синхронно со `score=null`.
+   */
+  verdictKey?: PrecisionVerdictKey | null;
 }
 
 /**
@@ -523,6 +538,15 @@ export interface PrecisionAttemptDetail {
    * для подписи «87% точности» в `<PrecisionScoreBlock>`.
    */
   scorePct?: number | null;
+  /**
+   * KS-3246. Достигнута ли цель пазла (см. PrecisionAttemptListItem).
+   */
+  objectiveAchieved?: boolean | null;
+  /**
+   * KS-3246 / KS-3248. Verdict-key для плашки. `null` синхронно со
+   * `score=null`.
+   */
+  verdictKey?: PrecisionVerdictKey | null;
 }
 
 export type PuzzleAttemptResponse = {

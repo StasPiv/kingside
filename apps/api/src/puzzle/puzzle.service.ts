@@ -15,6 +15,7 @@ import type {
 import {
   PUZZLE_GEN_DEFAULTS,
   classifyMove,
+  computeAttemptObjectiveAchieved,
   computePrecisionScore,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -667,6 +668,11 @@ export class PuzzleService {
         hintsUsed: hintsUsed ?? 0,
         ratingChange,
         playVsEngine: playVsEngine!,
+        // KS-3246: objective пазла (convertAdvantage/saveEquality) —
+        // источник правды о цели; нужен для расчёта objectiveAchieved.
+        // mode.playVsEngine.objective резолвится из source_metadata
+        // через resolveSolutionMode (см. начало submitAttempt).
+        objective: mode.playVsEngine?.objective ?? null,
       });
     } else {
       await this.prisma.puzzleAttempt.create({
@@ -747,6 +753,9 @@ export class PuzzleService {
       reason?: PlayVsEnginePuzzleReason;
       moves?: PrecisionMoveSnapshot[];
     };
+    // KS-3246: жанр пазла, из puzzle source_metadata.objective.
+    // `null` для legacy без objective (тогда objectiveAchieved тоже null).
+    objective?: 'convertAdvantage' | 'saveEquality' | null;
   }): Promise<void> {
     const moves = args.playVsEngine.moves ?? [];
 
@@ -880,15 +889,43 @@ export class PuzzleService {
     //
     // halfMovesPlayed < 2 или > 50% gaps без WDL/cp → `{stars:null, scorePct:null}`,
     // что и пишем в БД (legacy fallback на бинарную плашку, ADR §6.2).
-    const precisionScore = computePrecisionScore(
-      classified.map(({ m, klass }) => ({
-        wdlBefore: m.wdlBefore ?? null,
-        wdlAfter: m.wdlAfter ?? null,
-        cpBefore: m.cpBefore ?? null,
-        cpAfter: m.cpAfter ?? null,
-        classification: klass,
-      })),
-    );
+    const scoreInputs = classified.map(({ m, klass }) => ({
+      wdlBefore: m.wdlBefore ?? null,
+      wdlAfter: m.wdlAfter ?? null,
+      cpBefore: m.cpBefore ?? null,
+      cpAfter: m.cpAfter ?? null,
+      classification: klass,
+    }));
+    const precisionScore = computePrecisionScore(scoreInputs);
+
+    // KS-3246. Goal_achieved — отдельная ось (ADR-065 §3.4 → дополнение).
+    // По объективному WDL-исходу пазла, независимо от score:
+    //   convertAdvantage → end_E ≥ start_E − 0.02 (реализация перевеса);
+    //   saveEquality     → end_E ≥ start_E − 0.05 (удержание ничьи).
+    // `null` если objective пазла неизвестен (legacy) или нет per-move WDL.
+    // Фронт-плашка (KS-3248) использует (stars, objectiveAchieved) пару.
+    const objectiveAchieved = args.objective
+      ? computeAttemptObjectiveAchieved(scoreInputs, args.objective)
+      : null;
+
+    // Защитный fallback: 5★ + goal_missed теоретически невозможно
+    // (5★ требует accuracy ≥95, ходы PV1 → ΔE ≤ 0 на каждом → goal
+    // достигнут). Если возникает — это баг данных, понижаем до 4★ и
+    // логируем.
+    let finalScore = precisionScore.stars;
+    let finalScorePct = precisionScore.scorePct;
+    if (finalScore === 5 && objectiveAchieved === false) {
+      this.logger.warn(
+        `KS-3246 inconsistency: puzzle=${args.puzzleId} user=${args.userId} ` +
+          `score=5★ but objectiveAchieved=false. Объективно невозможно при ` +
+          `корректных данных; понижаю до 4★. moves=${classified.length} ` +
+          `objective=${args.objective ?? 'null'}`,
+      );
+      finalScore = 4;
+      // scorePct оставляем как есть (может быть 95.0+) — это не
+      // источник истины для звёзд после понижения, но полезно для
+      // диагностики того что попытка была близка к идеалу по accuracy.
+    }
 
     // 5. Транзакция: PuzzleAttempt → PrecisionAttempt → moves.
     await this.prisma.$transaction(async (tx) => {
@@ -923,8 +960,10 @@ export class PuzzleService {
           wdlLeakSum,
           endReason,
           // KS-2999 / ADR-065 §6.1: 5-балльная оценка.
-          score: precisionScore.stars,
-          scorePct: precisionScore.scorePct,
+          score: finalScore,
+          scorePct: finalScorePct,
+          // KS-3246: цель пазла достигнута? (вторая ось для плашки).
+          objectiveAchieved,
         },
       });
 

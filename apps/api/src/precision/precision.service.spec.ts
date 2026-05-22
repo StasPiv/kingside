@@ -227,6 +227,11 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         // KS-3077: scorePct из той же WDL/cp-шкалы — фронт показывает
         // его на карточке вместо accuracyPercent.
         scorePct: 87.5,
+        // KS-3246: objectiveAchieved в этом mock'е не задан → undefined
+        // (legacy без поля). verdictKey вычисляется computeVerdictKey
+        // (null → fallback ветка goal_achieved=true): 4★+null → 'confident'.
+        objectiveAchieved: undefined,
+        verdictKey: 'confident',
       });
       expect(r.items[1].endReason).toBe('lose-wdl');
       expect(r.items[1].classCounts.blunder).toBe(1);

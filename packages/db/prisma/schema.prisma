@@ -413,6 +413,17 @@ model PrecisionAttempt {
   /// `null` синхронно со `score`.
   scorePct Float?  @map("score_pct")
 
+  /// KS-3246. Достигнута ли цель пазла (по objective из source_metadata).
+  /// Правила (E = (W + D/2) / 1000, POV игрока):
+  ///   - convertAdvantage: end_E ≥ start_E − 0.02 (зона округления);
+  ///   - saveEquality:     end_E ≥ start_E − 0.05.
+  /// `null` для legacy-attempt'ов без per-move WDL (backfill в миграции
+  /// проставит для тех, у кого данные есть). Колонка нужна для:
+  ///   1) frontend-плашки KS-3248 (терминологически корректный текст
+  ///      по матрице star × goal_achieved);
+  ///   2) аналитики «доля решённых-но-не-точных», «упустил перевес» и т.п.
+  objectiveAchieved Boolean? @map("objective_achieved")
+
   attempt PuzzleAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   moves   PrecisionAttemptMove[]
 
@@ -422,6 +433,9 @@ model PrecisionAttempt {
   /// KS-2998 / ADR-065 §6.1. Индекс для агрегатов «средний балл /
   /// распределение по звёздам» в Уровне А и trend-графиков.
   @@index([score])
+  /// KS-3246. Агрегаты «решено vs цель достигнута», фильтры на
+  /// /precision/history по поведению пользователя.
+  @@index([objectiveAchieved])
 }
 
 /// KS-2717 / ADR-056 §3.2. Per-move детализация — для PostGameReview
