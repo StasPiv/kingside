@@ -21,6 +21,11 @@ import { extractTournamentFormatFromTitle } from '../crosstable/extract-tourname
 import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
 import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
 import { applyBracketLinks } from '../crosstable/apply-bracket-links';
+import {
+  parsePgnGames as parsePgnGamesPure,
+  findDuplicateGameIds,
+  type ParsedGame as ParsedGamePure,
+} from './pgn-parser';
 
 /**
  * Sync-сервис Lichess broadcasts (ADR-022 §2.6 шаг 0).
@@ -115,27 +120,9 @@ interface LichessRound {
   finished?: boolean;
 }
 
-interface ParsedGame {
-  index: number;
-  white: string;
-  black: string;
-  whiteElo: number | null;
-  blackElo: number | null;
-  result: string;
-  fen: string;
-  uci: string;
-  pgn: string;
-  lichessGameId: string | null;
-  /**
-   * KS-2699: оставшееся время белых на момент последнего хода, мс.
-   * Извлечено из `%clk H:MM:SS` PGN-комментариев (Lichess broadcast стандарт).
-   * `null` если в текущем PGN нет ни одного `%clk` для белых
-   * (партия до старта / источник без clocks).
-   */
-  whiteClockMs: number | null;
-  /** KS-2699: то же для чёрных. */
-  blackClockMs: number | null;
-}
+// KS-3230: ParsedGame теперь экспортируется из ./pgn-parser.
+// Здесь оставлен alias, чтобы не править остальной код.
+type ParsedGame = ParsedGamePure;
 
 /**
  * KS-2699 / KS-2720: извлечь оставшееся время игроков из PGN-комментариев.
@@ -1320,6 +1307,25 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       `[broadcast-sync] processPgnUpdate: round=${roundId.slice(0, 8)} games=${games.length} withUci=${games.filter((g) => g.uci).length}`,
     );
 
+    // KS-3230 strict mode: проверяем уникальность lichessGameId в пакете
+    // до upsert'ов. До KS-3229 баг с Site=venue приводил к тому, что все
+    // 5 партий получали один id и upsert по (roundId, lichessGameId)
+    // молча перезаписывал одну запись 5 раз. Теперь — warn + skip
+    // раунда: лучше остаться с уже сохранёнными данными, чем продолжать
+    // схлопывать партии. На следующей итерации Lichess может прислать
+    // корректный PGN (например после фикса парсера), и мы догоним.
+    const duplicateIds = findDuplicateGameIds(games);
+    if (duplicateIds.length > 0) {
+      this.logger.warn(
+        `[broadcast-sync] KS-3230 strict-mode: round=${roundId.slice(0, 8)} ` +
+          `broadcast=${round.broadcastId.slice(0, 8)} has ${duplicateIds.length} ` +
+          `duplicate lichessGameId(s) in PGN batch — SKIP. ` +
+          `Dupes: ${duplicateIds.slice(0, 3).join(', ')}${duplicateIds.length > 3 ? ', ...' : ''}. ` +
+          `Likely PGN parser regression (см. KS-3229).`,
+      );
+      return;
+    }
+
     // KS-2780. Извлекаем PGN-header [Variant "..."] — источник правды
     // от Lichess. Если variant non-standard (Chess960, FischerRandom,
     // etc.) — сохраняем у broadcast'а. API guard фильтрует эти
@@ -1624,122 +1630,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   }
 
-  private parsePgnGames(rawPgn: string): ParsedGame[] {
-    const cleanedPgn = rawPgn
-      .split('\n')
-      .filter((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return true;
-        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-          try {
-            JSON.parse(trimmed);
-            return false;
-          } catch {
-            return true;
-          }
-        }
-        return true;
-      })
-      .join('\n');
-
-    const gameSections = cleanedPgn.split(/\n\n(?=\[)/);
-    const games: ParsedGame[] = [];
-    let index = 0;
-
-    for (const section of gameSections) {
-      if (!section.trim()) continue;
-      const headerMap: Record<string, string> = {};
-      const headerLines = section.match(/\[(\w+)\s+"([^"]*)"\]/g) ?? [];
-      if (headerLines.length === 0) continue;
-      for (const line of headerLines) {
-        const m = line.match(/\[(\w+)\s+"([^"]*)"\]/);
-        if (m) headerMap[m[1]] = m[2];
-      }
-
-      const fenValue = headerMap['FEN'] ?? '';
-      const white = headerMap['White'] ?? 'Unknown';
-      const black = headerMap['Black'] ?? 'Unknown';
-      const whiteElo = this.parseElo(headerMap['WhiteElo']);
-      const blackElo = this.parseElo(headerMap['BlackElo']);
-      const result = headerMap['Result'] ?? '';
-      const lastMove = headerMap['LastMove'] ?? '';
-      // KS-3229: id партии берём из GameURL (надёжный URL вида
-      // https://lichess.org/broadcast/<slug>/round-X/<ROUND_ID>/<GAME_ID>).
-      // Раньше парсили из [Site "..."] — у части трансляций (например
-      // GCT Romania 2026) Site содержит физический адрес ("Bucharest,
-      // Romania"), и `site.split('/').pop()` возвращал строку без слэша
-      // для всех 5 партий раунда → один lichessGameId на всех →
-      // findFirst в processPgnUpdate находил уже созданную запись и
-      // 5 раз её перезаписывал. В итоге в БД оставалась 1 партия из 5.
-      // Fallback на Site сохранён для старых broadcast'ов, где URL
-      // приходил именно в Site. Дополнительный fallback на
-      // [Round "X.Y"] — чтобы партии без обоих headers'ов не схлопывались.
-      const gameUrl = headerMap['GameURL'] ?? '';
-      const site = headerMap['Site'] ?? '';
-      const roundTag = headerMap['Round'] ?? '';
-      const urlSource = gameUrl || (site.includes('/') ? site : '');
-      let lichessGameId: string | null = urlSource
-        ? (urlSource.split('/').pop() ?? null)
-        : null;
-      if (!lichessGameId && roundTag) {
-        // pseudo-id: "round:1.2" — стабилен в рамках одного раунда,
-        // не пересекается с реальными lichess id (Base62, без двоеточия).
-        lichessGameId = `round:${roundTag}`;
-      }
-
-      const { fen: computedFen, lastUci } = this.computeFenAndLastUci(section);
-      const fen = fenValue || computedFen || STARTING_FEN;
-      const uci = lastMove || lastUci;
-
-      // KS-2699: clocks извлекаются из %clk-комментариев PGN-секции.
-      const { whiteMs, blackMs } = extractClocksFromPgn(section);
-
-      games.push({
-        index,
-        white,
-        black,
-        whiteElo,
-        blackElo,
-        result,
-        fen,
-        uci,
-        pgn: section.trim(),
-        lichessGameId: lichessGameId || null,
-        whiteClockMs: whiteMs,
-        blackClockMs: blackMs,
-      });
-      index++;
-    }
-    return games;
-  }
-
-  private parseElo(raw: string | undefined): number | null {
-    if (!raw) return null;
-    const trimmed = raw.trim();
-    if (!trimmed || trimmed === '?' || trimmed === '-') return null;
-    const n = parseInt(trimmed, 10);
-    if (isNaN(n) || n <= 0 || n > 4000) return null;
-    return n;
-  }
-
-  private computeFenAndLastUci(pgnText: string): {
-    fen: string | null;
-    lastUci: string;
-  } {
-    const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
-    try {
-      const chess = new Chess();
-      chess.loadPgn(cleaned);
-      const history = chess.history({ verbose: true });
-      if (history.length > 0) {
-        const last = history[history.length - 1];
-        const uci = last.from + last.to + (last.promotion ?? '');
-        return { fen: chess.fen(), lastUci: uci };
-      }
-    } catch {
-      /* loadPgn failed */
-    }
-    return { fen: null, lastUci: '' };
+  /**
+   * KS-3230: parsePgnGames + parseElo + computeFenAndLastUci вынесены в
+   * ./pgn-parser как чистые функции для регрессионного тестирования.
+   * Здесь оставлен тонкий method-wrapper, чтобы внешний API класса не
+   * менялся, а вызов внутри processPgnUpdate шёл через единый источник.
+   */
+  private parsePgnGames(rawPgn: string): ParsedGamePure[] {
+    return parsePgnGamesPure(rawPgn);
   }
 
   private sleep(ms: number, signal: AbortSignal): Promise<void> {
