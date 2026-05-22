@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BroadcastSyncService } from './broadcast-sync.service';
 import { SyncMetricsService } from './sync-metrics';
 import { BroadcastWatchdogService } from './broadcast-watchdog.service';
+import { BroadcastGameCountMetricService } from './broadcast-game-count-metric.service';
 import { ChessResultsModule } from '../chess-results/chess-results.module';
 import { InternalKeyGuard } from './internal-key.guard';
 import { BroadcastInternalController } from './broadcast-internal.controller';
@@ -33,9 +34,16 @@ import { BroadcastInternalController } from './broadcast-internal.controller';
     SyncMetricsService,
     BroadcastSyncService,
     BroadcastWatchdogService,
+    // KS-3231: cron-метрика «партий в раунде меньше чем у lichess».
+    // Опт-ин через env BROADCAST_GAME_COUNT_CHECK_ENABLED=true.
+    BroadcastGameCountMetricService,
     // KS-2883 (B10): guard на internal-эндпоинты.
     InternalKeyGuard,
   ],
-  exports: [BroadcastSyncService, BroadcastWatchdogService],
+  exports: [
+    BroadcastSyncService,
+    BroadcastWatchdogService,
+    BroadcastGameCountMetricService,
+  ],
 })
 export class BroadcastSyncModule {}
