@@ -31,12 +31,22 @@
 -- — devops может выполнить `CREATE EXTENSION pg_trgm;` руками один раз,
 -- следующий `prisma migrate deploy` повторно безопасно перепустит.
 --
--- CONCURRENTLY обязательно: `puzzles` — большая prod-таблица (~6M строк
--- после lichess-импорта KS-2556), ACCESS EXCLUSIVE lock минуты-десятки
--- минут недопустим. Prisma migrate deploy выполняет statement'ы
--- PostgreSQL-миграций вне транзакции (auto-commit), что совместимо.
+-- Первый деплой этой миграции упал: Prisma migrate (kingside DB)
+-- оборачивает .sql целиком в транзакцию — CREATE INDEX CONCURRENTLY
+-- запрещён в транзакции (`PG: CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction block`). У archive-db (KS-2093) поведение
+-- другое, поэтому пример оттуда не сработал.
+--
+-- Делаем обычный CREATE INDEX. Он берёт SHARE lock — блокирует только
+-- writes на `puzzles` (INSERT/UPDATE/DELETE), SELECT'ы идут.
+-- Writes в puzzles нечастые: batch-импорт (CLI generate-puzzles-from-twic,
+-- запускается оператором) и POST /puzzles/batch от клиентского
+-- генератора. На время сборки индекса (минуты на 6M строк) импорты
+-- встанут в очередь, юзерский read-трафик /puzzles/* не пострадает.
+-- Это приемлемо разово в обмен на устранение 40-секундного слоу-запроса
+-- /puzzles/browse?themes=saveEquality.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS puzzles_themes_trgm_idx
+CREATE INDEX IF NOT EXISTS puzzles_themes_trgm_idx
   ON puzzles USING gin (themes gin_trgm_ops);
