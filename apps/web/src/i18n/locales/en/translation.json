@@ -219,6 +219,8 @@
     "title": "Broadcasts",
     "empty": "No broadcasts available",
     "error": "Failed to load broadcasts",
+    "loading": "Loading broadcasts…",
+    "loadError": "Could not load broadcasts.",
     "statusActive": "Active",
     "statusInactive": "Ended",
     "colTitle": "Tournament",

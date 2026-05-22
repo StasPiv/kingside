@@ -2205,3 +2205,93 @@
    BroadcastLiveFeed — последний ход теперь показывается под каждой
    мини-доской прямо в карточке (.broadcast-board-last-move). */
 
+
+/* ───────────────────────────────────────────────────────────────────
+   KS-3249: loading-skeleton + error-state для /broadcasts.
+
+   До этого тикета empty-state «No broadcasts available» рендерился
+   сразу при заходе (initial state = []), и держался секунды до
+   прихода ответа GET /broadcasts. См. /tmp/telegram/326129995_0.jpg.
+   --------------------------------------------------------------- */
+
+.broadcasts-loading {
+  margin-top: 16px;
+}
+/* Сообщение для screen-reader'ов; визуально скрываем, чтобы spinner
+   не дублировался текстом «Loading…» — пользователь видит
+   skeleton-карточки, а AT — слышит aria-label контейнера. */
+.broadcasts-loading__sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.broadcasts-skeleton-card {
+  background: var(--c-1e293b, #1e293b);
+  border: 1px solid var(--c-2a2a3e, #2a2a3e);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 64px;
+}
+.broadcasts-skeleton-line {
+  height: 14px;
+  background: linear-gradient(
+    90deg,
+    var(--c-2a2a3e, #2a2a3e) 0%,
+    var(--c-3a3a4e, #3a3a4e) 50%,
+    var(--c-2a2a3e, #2a2a3e) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: broadcasts-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.broadcasts-skeleton-line--title {
+  width: 70%;
+}
+.broadcasts-skeleton-line--subtitle {
+  width: 45%;
+  height: 11px;
+  opacity: 0.85;
+}
+@keyframes broadcasts-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .broadcasts-skeleton-line { animation: none; }
+}
+
+.broadcasts-error {
+  margin-top: 24px;
+  padding: 16px 20px;
+  background: var(--c-1e293b, #1e293b);
+  border: 1px solid var(--c-ef4444-30, rgba(239, 68, 68, 0.3));
+  border-radius: 8px;
+  color: var(--c-e2e8f0, #e2e8f0);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.broadcasts-error p {
+  margin: 0;
+}
+.broadcasts-error__retry {
+  appearance: none;
+  background: var(--accent-primary, #7c83ff);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+}
+.broadcasts-error__retry:hover {
+  background: var(--accent-primary-hover, #6b73ff);
+}

@@ -108,11 +108,36 @@ export function BroadcastsPage() {
   const { t } = useTranslation();
   const [lichessBroadcasts, setLichessBroadcasts] = useState<LichessBroadcast[]>([]);
   const [showFinished, setShowFinished] = useState(false);
+  // KS-3249: три состояния (loading / ready / error). До этого тикета
+  // `lichessBroadcasts` инициализировался пустым массивом и сразу же
+  // ниже `length === 0` рендерил «No broadcasts available» — у юзера
+  // на /broadcasts несколько секунд висела ложная пустая страница, пока
+  // не приходил GET /broadcasts (скриншоты в задаче). Loading-skeleton
+  // решает: пока state='loading' рисуем шапку + 3 серых заглушки в
+  // grid; empty-state показывается ТОЛЬКО при state='ready' &&
+  // lichessBroadcasts.length===0.
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
-    broadcastApi.get<BroadcastListResponse>('/?limit=100')
-      .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
-      .catch(() => {});
+    let cancelled = false;
+    broadcastApi
+      .get<BroadcastListResponse>('/?limit=100')
+      .then((res) => {
+        if (cancelled) return;
+        setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []);
+        setState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // KS-3249: раньше ошибка молча проглатывалась через `.catch(() => {})`
+        // → empty-state поверх упавшего API. Теперь явный error-state с
+        // retry-кнопкой; список не сбрасываем (если был — оставим устаревший
+        // вид, лучше чем «пусто»).
+        setState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // KS-1700 Part C: Featured / Live / Upcoming / Finished секции.
@@ -255,8 +280,65 @@ export function BroadcastsPage() {
         </div>
       )}
 
-      {lichessBroadcasts.length === 0 && (
-        <div className="players-empty">{t('broadcasts.empty', 'No broadcasts available')}</div>
+      {/* KS-3249: loading-skeleton — 3 заглушки-карточки. До этого
+          здесь сразу появлялся empty-state, пока fetch был в полёте. */}
+      {state === 'loading' && (
+        <div
+          className="broadcasts-loading"
+          data-testid="broadcasts-loading"
+          role="status"
+          aria-live="polite"
+          aria-label={t('broadcasts.loading', 'Loading broadcasts…')}
+        >
+          <div className="broadcasts-loading__sr">
+            {t('broadcasts.loading', 'Loading broadcasts…')}
+          </div>
+          <div className="broadcasts-lichess-grid">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="broadcasts-skeleton-card"
+                data-testid={`broadcasts-skeleton-${i}`}
+                aria-hidden="true"
+              >
+                <div className="broadcasts-skeleton-line broadcasts-skeleton-line--title" />
+                <div className="broadcasts-skeleton-line broadcasts-skeleton-line--subtitle" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* KS-3249: empty-state только когда fetch ЗАКОНЧЕН успешно
+          и список пуст (раньше рисовался по `length === 0` всегда). */}
+      {state === 'ready' && lichessBroadcasts.length === 0 && (
+        <div
+          className="players-empty"
+          data-testid="broadcasts-empty"
+        >
+          {t('broadcasts.empty', 'No broadcasts available')}
+        </div>
+      )}
+
+      {/* KS-3249: error-state с retry. Раньше ошибка fetch проглатывалась
+          молча и пользователь видел тот же empty-state — неотличимо от
+          реально пустого ответа. */}
+      {state === 'error' && lichessBroadcasts.length === 0 && (
+        <div
+          className="broadcasts-error"
+          data-testid="broadcasts-error"
+          role="alert"
+        >
+          <p>{t('broadcasts.loadError', 'Could not load broadcasts.')}</p>
+          <button
+            type="button"
+            className="broadcasts-error__retry"
+            data-testid="broadcasts-error-retry"
+            onClick={() => window.location.reload()}
+          >
+            {t('common.retry', 'Retry')}
+          </button>
+        </div>
       )}
     </div>
   );

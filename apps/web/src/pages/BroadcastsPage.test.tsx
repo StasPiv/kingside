@@ -223,6 +223,72 @@ describe('BroadcastsPage KS-2449 top players line', () => {
     ).toBeNull();
   });
 
+  /**
+   * KS-3249: разнесение loading / loaded-empty / loaded-list / error.
+   * До этого тикета empty-state «No broadcasts available» рендерился
+   * до завершения GET /broadcasts (initial state = []).
+   */
+  describe('KS-3249 loading / empty / error states', () => {
+    it('во время fetch виден skeleton, empty НЕ виден', async () => {
+      // Бесконечный promise — fetch висит, не резолвится.
+      let resolveLater: ((v: unknown) => void) | undefined;
+      mockBroadcastApi.get.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveLater = resolve;
+        }),
+      );
+
+      renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+
+      // Skeleton отрисован, empty — нет.
+      expect(screen.getByTestId('broadcasts-loading')).toBeInTheDocument();
+      expect(screen.queryByTestId('broadcasts-skeleton-0')).toBeInTheDocument();
+      expect(screen.queryByTestId('broadcasts-empty')).toBeNull();
+      // Ярлык «Нет трансляций» не должен висеть на экране.
+      expect(
+        screen.queryByText(/No broadcasts available|Нет доступных/i),
+      ).toBeNull();
+
+      // Резолвим — skeleton уходит, empty показывается.
+      resolveLater?.({ data: [], total: 0, limit: 100, offset: 0 });
+      await waitFor(() =>
+        expect(screen.getByTestId('broadcasts-empty')).toBeInTheDocument(),
+      );
+      expect(screen.queryByTestId('broadcasts-loading')).toBeNull();
+    });
+
+    it('успешный fetch с непустым data → list, skeleton/empty скрыты', async () => {
+      mockBroadcastApi.get.mockResolvedValueOnce({
+        data: [
+          makeBroadcast({ id: 'l1', title: 'Live A', lifecycleStatus: 'live' }),
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
+      renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+      await waitFor(() =>
+        expect(screen.getByTestId('broadcasts-live')).toBeInTheDocument(),
+      );
+      expect(screen.queryByTestId('broadcasts-loading')).toBeNull();
+      expect(screen.queryByTestId('broadcasts-empty')).toBeNull();
+      expect(screen.queryByTestId('broadcasts-error')).toBeNull();
+    });
+
+    it('fetch упал → error-state с retry-кнопкой, empty НЕ виден', async () => {
+      mockBroadcastApi.get.mockRejectedValueOnce(new Error('boom'));
+      renderWithProviders(<BroadcastsPage />, { route: '/broadcasts' });
+      await waitFor(() =>
+        expect(screen.getByTestId('broadcasts-error')).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByTestId('broadcasts-error-retry'),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId('broadcasts-empty')).toBeNull();
+      expect(screen.queryByTestId('broadcasts-loading')).toBeNull();
+    });
+  });
+
   it('если игрок один — показываем одного', async () => {
     const data: BroadcastFixture[] = [
       makeBroadcast({
