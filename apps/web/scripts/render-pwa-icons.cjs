@@ -1,29 +1,34 @@
 /**
- * KS-3238: рендер PWA-иконок (192/512/180/maskable-512) из оригинального
- * apps/web/public/icon.svg через chromium headless (playwright).
+ * KS-3240: рендер PWA-иконок (192/512/180/maskable-512) из ОТДЕЛЬНОГО
+ * мастер-SVG `apps/web/public/icons/master.svg` через chromium headless.
+ *
+ * **Не** использует `apps/web/public/icon.svg` — это брендовый favicon,
+ * содержит `<text>♔</text>` и должен оставаться нетронутым (см. KS-3240,
+ * KS-576). Растеризация `<text>` зависит от системного шрифта (iOS /
+ * Android / Linux fallback), а PWA-PNG нужно генерить детерминированно —
+ * поэтому используется master.svg с pre-converted vector path.
  *
  * Почему chromium, а не ImageMagick / rsvg-convert / inkscape:
- *   - ImageMagick 6 на dev-машине НЕ рендерит text-emoji `♔` из SVG —
- *     для chess-glyph'а внутри `<text>` без font-stack делается пустой
- *     прямоугольник (см. KS-3237 регрессия).
+ *   - ImageMagick 6 на dev-машине не рендерит text-glyph ♔ внутри SVG
+ *     без font-stack (см. KS-3237 регрессия — был получен пустой
+ *     прямоугольник).
  *   - rsvg-convert / inkscape на dev-машине не установлены.
- *   - playwright + chromium есть как dev-зависимость, рендерит SVG как
- *     полноценный браузер с системным serif-шрифтом (DejaVu Serif) —
- *     ♔ отрисовывается корректно.
+ *   - playwright + chromium уже в dev-зависимостях, корректно
+ *     рендерит SVG-path'ы.
  *
  * Запуск (из корня репо или apps/web):
  *   node apps/web/scripts/render-pwa-icons.cjs
  *
- * Источник `apps/web/public/icon.svg` НЕ модифицируется. Maskable-512
- * получает 64px padding и #1a1a2e background (safe-zone ~75% по спеке
- * web.dev/maskable-icon), сам SVG-glyph остаётся идентичным.
+ * Maskable-512 получает 64px padding и #1a1a2e background (safe-zone
+ * ~75% по спеке web.dev/maskable-icon), сам SVG-glyph не модифицируется.
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const ICON_SVG_PATH = path.join(REPO_ROOT, 'public/icon.svg');
+// KS-3240: источник — отдельный мастер, не основной icon.svg.
+const ICON_SVG_PATH = path.join(REPO_ROOT, 'public/icons/master.svg');
 const OUT_DIR = path.join(REPO_ROOT, 'public/icons');
 
 const ICON_SVG = fs.readFileSync(ICON_SVG_PATH, 'utf-8');
