@@ -1,4 +1,9 @@
 {
+  "forfeit": {
+    "title": "Game not played (forfeit)",
+    "result": "Result: {{value}}",
+    "hint": "No moves were played — one of the players forfeited (no-show, walkover or rules infraction)."
+  },
   "train": {
     "lobby": {
       "title": "Train",

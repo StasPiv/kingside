@@ -2295,3 +2295,52 @@
 .broadcasts-error__retry:hover {
   background: var(--accent-primary-hover, #6b73ff);
 }
+
+/* ───────────────────────────────────────────────────────────────────
+   KS-3258: forfeit-плашка вместо «No moves» для партий с
+   [Termination "Unplayed"] / Result != '*' и пустым movetext.
+
+   Нейтральная палитра (slate, не red) — это валидный исход партии,
+   не ошибка/баг импорта.
+   --------------------------------------------------------------- */
+.forfeit-placeholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--c-1e293b, #1e293b);
+  border: 1px solid var(--c-2a2a3e, #2a2a3e);
+  border-left: 3px solid var(--c-94a3b8, #94a3b8);
+  border-radius: 6px;
+  color: var(--c-e2e8f0, #e2e8f0);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.forfeit-placeholder__icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--c-94a3b8, #94a3b8);
+  margin-top: 2px;
+}
+.forfeit-placeholder__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.forfeit-placeholder__text strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-e2e8f0, #e2e8f0);
+}
+.forfeit-placeholder__result {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-94a3b8, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
+.forfeit-placeholder__hint {
+  font-size: 12px;
+  color: var(--text-muted, var(--c-64748b, #64748b));
+}

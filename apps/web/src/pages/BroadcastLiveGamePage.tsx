@@ -12,6 +12,10 @@ import {
   useBroadcastClock,
 } from '../hooks/useBroadcastClock';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
+// KS-3258: forfeit-плашка вместо «Партия ещё не началась» для
+// `[Termination "Unplayed"]` PGN'ов из lichess.
+import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
+import { isForfeitGame } from '../utils/forfeitTermination';
 
 /**
  * KS-2448: live-режим просмотра партии трансляции.
@@ -468,9 +472,22 @@ export function BroadcastLiveGamePage() {
           <div className="broadcast-live-game__moves-block">
             <h3>{t('broadcastLive.movesTitle', 'Ходы')}</h3>
             {parsed.history.length === 0 ? (
-              <p className="broadcast-live-game__moves-empty">
-                {t('broadcastLive.noMovesYet', 'Партия ещё не началась')}
-              </p>
+              // KS-3258: при `[Termination "Unplayed"]` или `[Result]`
+              // != '*' с пустыми ходами — это техническое поражение
+              // (forfeit/walkover), показываем понятную плашку вместо
+              // «Партия ещё не началась», иначе пользователь думает что
+              // импорт сломан (см. lichessGameId=NZDd3BWL,
+              // /tmp/telegram/326130014_0.jpg).
+              isForfeitGame(game.pgn ?? '', parsed.history.length) ? (
+                <ForfeitPlaceholder
+                  pgn={game.pgn ?? ''}
+                  testId="broadcast-live-game-forfeit"
+                />
+              ) : (
+                <p className="broadcast-live-game__moves-empty">
+                  {t('broadcastLive.noMovesYet', 'Партия ещё не началась')}
+                </p>
+              )
             ) : (
               <ol className="broadcast-live-game__moves">
                 {parsed.history.map((m, i) => {

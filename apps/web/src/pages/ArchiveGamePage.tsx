@@ -10,6 +10,9 @@ import type {
 import { archiveApi } from '../api/archive';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { ArchiveOtherGamesBlock } from '../components/archive/ArchiveOtherGamesBlock';
+// KS-3258: forfeit-плашка для PGN'ов с [Termination "Unplayed"].
+import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
+import { isForfeitGame } from '../utils/forfeitTermination';
 
 /**
  * KS-2070 (F4 / ADR-033 §5.2): страница одной архивной партии.
@@ -487,9 +490,21 @@ function ArchiveGamePageInner() {
               с задачей «список SAN-ходов с подсветкой текущего ply». */}
           <ol className="archive-game-page__moves" data-testid="archive-game-page-moves">
             {moves.length === 0 && (
-              <li className="archive-game-page__moves-empty" data-testid="archive-game-page-moves-empty">
-                {t('gamePage.noMoves', 'No moves recorded for this game.')}
-              </li>
+              // KS-3258: forfeit-плашка для PGN'ов с [Termination "Unplayed"]
+              // / Result != '*' без ходов. Иначе — старое сообщение
+              // «No moves recorded for this game.».
+              isForfeitGame(game?.pgn ?? '', 0) ? (
+                <li
+                  className="archive-game-page__moves-empty"
+                  data-testid="archive-game-page-forfeit"
+                >
+                  <ForfeitPlaceholder pgn={game?.pgn ?? ''} />
+                </li>
+              ) : (
+                <li className="archive-game-page__moves-empty" data-testid="archive-game-page-moves-empty">
+                  {t('gamePage.noMoves', 'No moves recorded for this game.')}
+                </li>
+              )
             )}
             {moves.map((m, idx) => {
               const moveNumber = Math.floor(idx / 2) + 1;
