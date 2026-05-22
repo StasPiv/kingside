@@ -41,7 +41,16 @@ const LICHESS_API = 'https://lichess.org/api';
 
 const DEFAULT_TICK_INTERVAL_MS = 600_000; // 10 минут
 const DEFAULT_ALERT_TTL_SEC = 3600; // 1 час
-const DEFAULT_MAX_BROADCASTS = 20;
+// KS-3256: поднял с 20 до 50. На 20 metric покрывал только 20×15=300
+// строк (ORDER BY b.updated_at DESC) — это давало срез топ-53 broadcast'а
+// в первом tick, остальные ~230 активных были невидимы. Полный скан
+// нашёл 180 mismatches (vs metric видел 23). 50 × 15 = 750 строк ≈
+// 50 broadcast'ов × ~15 раундов — покрывает практически все active
+// broadcast'ы на сегодня. Дальше можно повышать, но bottleneck — PGN-
+// fetch Lichess (1.5с rate-limit на запрос); при 1000 строк tick
+// займёт ~25 мин и упрётся в TICK_LOCK_KEY (50с TTL) только если
+// разделить tick на под-задачи (KS-3257, если понадобится).
+const DEFAULT_MAX_BROADCASTS = 50;
 const LICHESS_TIMEOUT_MS = 15_000;
 const LICHESS_RATE_LIMIT_DELAY_MS = 1500;
 const ALERT_KEY_PREFIX = 'broadcast:metric:alerted:';
