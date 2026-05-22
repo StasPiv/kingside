@@ -343,6 +343,20 @@ function AnalysisPageInner({
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
   });
+  // KS-3261: toast «Открыли существующий анализ». Триггерится из state
+  // (openAnalysisFromPgn кладёт `openedExisting: true` когда backend
+  // вернул `existing: true` по dedup). Скрывается через 3 секунды.
+  const [openedExistingToast, setOpenedExistingToast] = useState<boolean>(
+    () => {
+      const state = location.state as { openedExisting?: boolean } | null;
+      return Boolean(state?.openedExisting);
+    },
+  );
+  useEffect(() => {
+    if (!openedExistingToast) return;
+    const id = window.setTimeout(() => setOpenedExistingToast(false), 3000);
+    return () => window.clearTimeout(id);
+  }, [openedExistingToast]);
   const [pgnHeaders, setPgnHeaders] = useState<Record<string, string>>(() => {
     const state = location.state as { pgn?: string } | null;
     return state?.pgn ? parsePgnHeaders(state.pgn) : {};
@@ -1580,6 +1594,24 @@ function AnalysisPageInner({
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
           />
+        )}
+        {/* KS-3261: toast «Открыли существующий анализ» — показывается
+            после dedup-hit'а на backend (POST /analyses вернул
+            existing=true). Скрывается автоматом через 3 секунды.
+            Источник — `location.state.openedExisting`, выставленный
+            `openAnalysisFromPgn`. */}
+        {openedExistingToast && (
+          <div
+            className="analysis-existing-toast"
+            data-testid="analysis-opened-existing-toast"
+            role="status"
+            aria-live="polite"
+          >
+            {t(
+              'analysis.openedExisting',
+              'Opened your existing analysis for this game',
+            )}
+          </div>
         )}
         {/* KS-2674: Share-кнопка УБРАНА из шапки. Теперь это пункт
             в action-bar под доской (desktop) и в overflow-menu

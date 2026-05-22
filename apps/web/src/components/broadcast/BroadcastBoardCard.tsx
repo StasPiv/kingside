@@ -57,6 +57,13 @@ interface BroadcastBoardCardProps {
    * анализ ещё не выполнен; bar рисует серый плейсхолдер.
    */
   evalSnap?: EvalSnapshot | null;
+  /**
+   * KS-3261: показать бейдж «В мастерской», если у пользователя уже
+   * есть analysis для этой партии (lichessGameId match). Родитель
+   * подтягивает map через `POST /analyses/check` batch и передаёт
+   * `true` для совпавших партий.
+   */
+  inWorkshop?: boolean;
 }
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -186,6 +193,7 @@ export function BroadcastBoardCard({
   showLastMoveHighlight = false,
   lastMoveUci,
   evalSnap,
+  inWorkshop = false,
 }: BroadcastBoardCardProps) {
   // KS-2774: карточка кликабельна только если у партии есть `id` —
   // иначе click уведёт на `/broadcasts/.../undefined/live`. Backend
@@ -274,7 +282,18 @@ export function BroadcastBoardCard({
       tabIndex={isClickable ? 0 : undefined}
       onKeyDown={handleKey}
       data-testid={`broadcast-board-card-${game.id}`}
+      data-in-workshop={inWorkshop ? 'true' : 'false'}
     >
+      {/* KS-3261: бейдж «В мастерской» — партия уже есть у юзера. */}
+      {inWorkshop && (
+        <span
+          className="broadcast-board-card__workshop-badge"
+          data-testid="broadcast-board-card-in-workshop"
+          title={t('analysis.inWorkshopBadge', 'In Workshop')}
+        >
+          ✓ {t('analysis.inWorkshopBadge', 'In Workshop')}
+        </span>
+      )}
       <div className="broadcast-board-players">
         <span className="broadcast-player broadcast-player--black">
           &#9823; {game.blackPlayer ?? '—'}

@@ -314,6 +314,11 @@ export function BroadcastLiveGamePage() {
     void openAnalysisFromPgn(navigate, {
       pgn: game.pgn,
       title: `${game.whitePlayer ?? ''} vs ${game.blackPlayer ?? ''}`,
+      // KS-3261: dedup по lichessGameId. Если юзер уже открывал эту
+      // партию в мастерской — backend вернёт existing analysis, не
+      // создаст дубль.
+      lichessGameId:
+        (game as { lichessGameId?: string }).lichessGameId ?? undefined,
       state: {
         breadcrumbRootTitle: broadcast?.title ?? '',
         breadcrumbRootUrl: `/broadcasts/${tournamentId}`,

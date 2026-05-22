@@ -3346,3 +3346,25 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 }
 
+
+/* KS-3261: toast «Открыли существующий анализ» — компактная плашка
+   над доской (4-секундный fade-out). */
+.analysis-existing-toast {
+  margin: 8px 0;
+  padding: 8px 14px;
+  background: var(--c-1e293b, #1e293b);
+  border: 1px solid var(--c-7c83ff-30, rgba(124, 131, 255, 0.3));
+  border-left: 3px solid var(--accent-primary, #7c83ff);
+  border-radius: 6px;
+  color: var(--c-e2e8f0, #e2e8f0);
+  font-size: 13px;
+  line-height: 1.4;
+  animation: analysis-existing-toast-in 200ms ease-out;
+}
+@keyframes analysis-existing-toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .analysis-existing-toast { animation: none; }
+}

@@ -44,6 +44,14 @@ import { api } from '../api';
  * Опц. `t` — i18n-функция, помогающая собрать сообщение. Если не задана,
  * используется fallback EN-строка.
  */
+/**
+ * KS-3261: source-game идентификаторы для dedup. Если бэкенд найдёт
+ * существующий analysis того же пользователя с тем же lichessGameId
+ * или archiveGameId — он вернёт `{id, existing: true}` без записи
+ * новой строки + обновит `lastOpenedAt`. Helper кладёт `openedExisting:
+ * true` в `state` навигации; AnalysisPage показывает toast «Открыли
+ * существующий анализ».
+ */
 export interface OpenAnalysisArgs {
   /**
    * Если задан — navigate сразу на `/analysis/<existingId>` без POST.
@@ -88,6 +96,16 @@ export interface OpenAnalysisArgs {
    * показать initial-render по `state.pgn` до прихода ответа GET.
    */
   includePgnInState?: boolean;
+  /**
+   * KS-3261: lichess game id (например `Iw3wAwFB`) для dedup. Передаётся
+   * legacy-callsite'ами Broadcast (BroadcastGamePage / BroadcastLiveGamePage).
+   * Backend сравнивает с `analyses.lichessGameId` индексом.
+   */
+  lichessGameId?: string;
+  /**
+   * KS-3261: archive game UUID для dedup. Передаётся `ArchiveGamePage`.
+   */
+  archiveGameId?: string;
 }
 
 const DEFAULT_TITLE = 'New analysis';
@@ -120,11 +138,27 @@ export async function openAnalysis(
   }
 
   try {
-    const created = await api.post<{ id: string }>('/analyses', {
-      pgn,
-      title,
-      category: 'analysis',
-    });
+    // KS-3261: пробрасываем source-IDs, если переданы. Backend (commit
+    // 1b18d16f, task-def 290) делает dedup-lookup и возвращает `existing:
+    // true` если у пользователя уже есть analysis по этому источнику.
+    const body: {
+      pgn: string;
+      title: string;
+      category: string;
+      lichessGameId?: string;
+      archiveGameId?: string;
+    } = { pgn, title, category: 'analysis' };
+    if (args.lichessGameId) body.lichessGameId = args.lichessGameId;
+    if (args.archiveGameId) body.archiveGameId = args.archiveGameId;
+    const created = await api.post<{ id: string; existing?: boolean }>(
+      '/analyses',
+      body,
+    );
+    // KS-3261: при dedup-hit — кладём флаг в state, AnalysisPage покажет
+    // toast «Открыли существующий анализ».
+    if (created.existing) {
+      navOpts.state = { ...navOpts.state, openedExisting: true };
+    }
     navigate(`/analysis/${created.id}`, navOpts);
   } catch (err) {
     const message = args.t

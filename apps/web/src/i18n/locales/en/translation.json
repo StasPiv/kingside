@@ -739,6 +739,8 @@
   },
   "analysis": {
     "openError": "Could not open analysis. Please try again.",
+    "openedExisting": "Opened your existing analysis for this game",
+    "inWorkshopBadge": "In Workshop",
     "depth": "Depth",
     "backToLobby": "Back to lobby",
     "stop": "Stop",

@@ -2369,3 +2369,24 @@
   font-size: 22px;
   font-weight: 700;
 }
+
+/* KS-3261: бейдж «В мастерской» на карточке партии в BroadcastRoundPage.
+   Положение: верхний правый угол поверх доски-превью. */
+.broadcast-board-card {
+  position: relative;
+}
+.broadcast-board-card__workshop-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--c-7c83ff-20, rgba(124, 131, 255, 0.2));
+  color: var(--c-7c83ff, #7c83ff);
+  border: 1px solid var(--c-7c83ff-40, rgba(124, 131, 255, 0.4));
+  white-space: nowrap;
+  pointer-events: none;
+}

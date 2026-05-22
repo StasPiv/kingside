@@ -34,6 +34,8 @@ type LichessGame = {
   result: string | null;
   pgn: string | null;
   currentFen: string | null;
+  /** KS-3261: lichess id для dedup на backend'е. */
+  lichessGameId?: string | null;
 };
 
 type BroadcastMeta = {
@@ -107,10 +109,17 @@ export function BroadcastGamePage() {
         // запись. Если pgn нет (game не нашёлся) — переход на пустой
         // /analysis, как было.
         if (game?.pgn) {
+          // KS-3261: пробрасываем lichessGameId для dedup. Backend
+          // (1b18d16f) проверит — если у юзера уже есть analysis с тем
+          // же lichessGameId, вернёт existing=true и обновит
+          // lastOpenedAt, не создаст дубль.
+          const lichessGameId =
+            (game as { lichessGameId?: string }).lichessGameId ?? undefined;
           void openAnalysisFromPgn(navigate, {
             pgn: game.pgn,
             title: `${game.whitePlayer} vs ${game.blackPlayer}`,
             replace: true,
+            lichessGameId,
             state: {
               breadcrumbRootTitle: meta.title,
               breadcrumbRootUrl: `/broadcasts/${tournamentId}`,

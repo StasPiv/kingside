@@ -13,6 +13,9 @@ import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
+// KS-3261: batch-проверка «В мастерской» через POST /analyses/check.
+import { checkAnalyses } from '../api/checkAnalyses';
+import { useAuth } from '../context/AuthContext';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
 // регрессией (вкладка Rounds всегда должна показывать доски партий).
 // Компонент остаётся в репо — он будет использован на вкладке
@@ -115,6 +118,34 @@ export function BroadcastRoundPage() {
 
   // KS-2708: один shared WASM Stockfish + FIFO очередь анализа.
   const { evals: evalsByKey, enqueue: enqueueEval } = useBroadcastEvalQueue();
+
+  // KS-3261: map lichessGameId → есть ли у пользователя analysis.
+  // Заполняется
+  // через batch POST /analyses/check после загрузки списка партий раунда.
+  // Бейдж «В мастерской» виден только авторизованным; гостям не дёргаем.
+  const { user } = useAuth();
+  const [inWorkshopMap, setInWorkshopMap] = useState<Record<string, boolean>>(
+    () => ({}),
+  );
+  useEffect(() => {
+    if (!user) return;
+    const lichessIds = games
+      .map((g) => (g as { lichessGameId?: string }).lichessGameId)
+      .filter((v): v is string => Boolean(v));
+    if (lichessIds.length === 0) return;
+    let cancelled = false;
+    void checkAnalyses({ lichessGameIds: lichessIds }).then((res) => {
+      if (cancelled) return;
+      const next: Record<string, boolean> = {};
+      for (const id of lichessIds) {
+        next[id] = Boolean(res.lichess?.[id]);
+      }
+      setInWorkshopMap(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, games]);
 
   // Initial load: broadcast meta + rounds + games
   useEffect(() => {
@@ -401,6 +432,10 @@ export function BroadcastRoundPage() {
     void openAnalysisFromPgn(navigate, {
       pgn: game.pgn,
       title: `${game.whitePlayer} vs ${game.blackPlayer}`,
+      // KS-3261: lichessGameId для dedup. Backend (1b18d16f) при повторном
+      // открытии той же партии вернёт existing analysis-id, не создаст дубль.
+      lichessGameId:
+        (game as { lichessGameId?: string }).lichessGameId ?? undefined,
       state: {
         breadcrumbRootTitle: broadcast?.title ?? '',
         breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
@@ -507,6 +542,7 @@ export function BroadcastRoundPage() {
           <div className="broadcast-boards-grid">
             {games.map((game) => {
               const k = gameKey(game);
+              const lichessId = (game as { lichessGameId?: string }).lichessGameId;
               return (
                 <BroadcastBoardCard
                   key={game.id}
@@ -517,6 +553,9 @@ export function BroadcastRoundPage() {
                   }
                   lastMoveUci={lastMoveUciMap[k] ?? null}
                   evalSnap={evalsByKey[k] ?? null}
+                  inWorkshop={
+                    lichessId ? Boolean(inWorkshopMap[lichessId]) : false
+                  }
                 />
               );
             })}

@@ -13,6 +13,8 @@ import { ArchiveOtherGamesBlock } from '../components/archive/ArchiveOtherGamesB
 // KS-3258: forfeit-плашка для PGN'ов с [Termination "Unplayed"].
 import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
 import { isForfeitGame } from '../utils/forfeitTermination';
+// KS-3261: dedup-открытие через backend (POST /analyses {archiveGameId}).
+import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 
 /**
  * KS-2070 (F4 / ADR-033 §5.2): страница одной архивной партии.
@@ -264,14 +266,19 @@ function ArchiveGamePageInner() {
   }, [ply, goTo, moves.length]);
 
   // ─── Actions ─────────────────────────────────────────────────────
+  // KS-3261: переключено с прямого `navigate('/analysis', state)` на
+  // `openAnalysisFromPgn(archiveGameId)` — backend дедуплицирует и
+  // возвращает существующий analysis-id вместо создания дубля + обновляет
+  // lastOpenedAt → партия поднимается вверх «Моих анализов».
   const handleOpenInAnalysis = () => {
     if (!game) return;
     const whiteLabel = game.white.name ?? '—';
     const blackLabel = game.black.name ?? '—';
-    navigate('/analysis', {
+    void openAnalysisFromPgn(navigate, {
+      pgn: game.pgn,
+      title: `${whiteLabel} vs ${blackLabel}`,
+      archiveGameId: game.id,
       state: {
-        pgn: game.pgn,
-        title: `${whiteLabel} vs ${blackLabel}`,
         breadcrumbSection: t('gamePage.breadcrumb', 'Archive'),
         breadcrumbBackUrl: `/archive/games/${game.id}`,
       },

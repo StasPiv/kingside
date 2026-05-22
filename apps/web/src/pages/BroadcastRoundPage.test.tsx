@@ -20,6 +20,19 @@ vi.mock('../api/broadcastApi', () => ({
   },
 }));
 
+// KS-3261: useAuth используется для condition'а на batch /analyses/check.
+// Тесту достаточно `user: null` (гость, batch не дёргается).
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    token: null,
+    login: vi.fn(),
+    register: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 vi.mock('react-chessboard', () => ({
   Chessboard: ({ options }: { options: { position?: string } }) => (
     <div data-testid="chessboard-mock" data-position={options.position ?? ''} />

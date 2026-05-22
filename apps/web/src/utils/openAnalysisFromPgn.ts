@@ -32,6 +32,14 @@ export async function openAnalysisFromPgn(
     /** Переход через `replace`, а не push (например, для редиректа из
      *  legacy URL `/broadcasts/<t>/<r>/<g>` на `/analysis/<id>`). */
     replace?: boolean;
+    /**
+     * KS-3261: source-game идентификатор для dedup. Lichess broadcast'ы
+     * передают `lichessGameId`, ArchiveGamePage — `archiveGameId`. При
+     * совпадении backend возвращает существующий analysis-id и обновляет
+     * `lastOpenedAt`, новую запись не создаёт.
+     */
+    lichessGameId?: string;
+    archiveGameId?: string;
   },
 ): Promise<void> {
   await openAnalysis(navigate, {
@@ -39,6 +47,8 @@ export async function openAnalysisFromPgn(
     title: args.title,
     state: args.state,
     replace: args.replace,
+    lichessGameId: args.lichessGameId,
+    archiveGameId: args.archiveGameId,
     // KS-2605: legacy callsite'ы (Archive/Broadcast) рассчитывают, что
     // `AnalysisPage` сделает быстрый initial-render по `state.pgn` до
     // прихода GET /analyses/:id. Сохраняем старый контракт через флаг.
