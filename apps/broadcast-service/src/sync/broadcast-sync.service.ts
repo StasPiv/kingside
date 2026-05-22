@@ -440,6 +440,42 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // KS-3229: one-shot cleanup сломанных записей. До фикса parsePgnGames
+    // некорректно брал lichess_game_id из [Site "..."] — для broadcast'ов,
+    // где Site содержит физический адрес (например "Bucharest, Romania",
+    // GCT Romania 2026), это давало один и тот же lichessGameId для всех
+    // 5 партий раунда, и upsert по (roundId, lichessGameId) перезаписывал
+    // одну запись 5 раз. В БД оставалась 1 партия из 5.
+    //
+    // Признак broken-записи: lichess_game_id содержит запятую, пробел или
+    // не похож на base62. Реальный lichess id — 8 символов [A-Za-z0-9].
+    // Удаляем такие записи; следующий sync пересоздаст их корректно с
+    // настоящими id из [GameURL "..."].
+    //
+    // Идемпотентно: после первого прогона строк не остаётся, повторный
+    // запуск даёт 0 deleted и просто логируется.
+    try {
+      const broken = await this.prisma.$executeRawUnsafe(
+        `DELETE FROM broadcast_games
+         WHERE lichess_game_id IS NOT NULL
+           AND (lichess_game_id ~ '[^A-Za-z0-9]'
+                AND lichess_game_id NOT LIKE 'round:%')`,
+      );
+      if (broken > 0) {
+        this.logger.warn(
+          `[broadcast-sync] KS-3229 cleanup: deleted ${broken} broken games (non-base62 lichess_game_id, e.g. "Bucharest, Romania")`,
+        );
+      } else {
+        this.logger.log(
+          '[broadcast-sync] KS-3229 cleanup: 0 broken games (already clean)',
+        );
+      }
+    } catch (e: unknown) {
+      this.logger.error(
+        `[broadcast-sync] KS-3229 cleanup failed: ${(e as Error).message}`,
+      );
+    }
+
     // KS-2450 (deploy-fix): инициальный sync — fire-and-forget. До этого
     // блокировал OnModuleInit на ~4 минуты (100 broadcasts), из-за чего
     // app.listen() не успевал открыть порт 3004 раньше ALB health-check
@@ -1627,8 +1663,29 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const blackElo = this.parseElo(headerMap['BlackElo']);
       const result = headerMap['Result'] ?? '';
       const lastMove = headerMap['LastMove'] ?? '';
+      // KS-3229: id партии берём из GameURL (надёжный URL вида
+      // https://lichess.org/broadcast/<slug>/round-X/<ROUND_ID>/<GAME_ID>).
+      // Раньше парсили из [Site "..."] — у части трансляций (например
+      // GCT Romania 2026) Site содержит физический адрес ("Bucharest,
+      // Romania"), и `site.split('/').pop()` возвращал строку без слэша
+      // для всех 5 партий раунда → один lichessGameId на всех →
+      // findFirst в processPgnUpdate находил уже созданную запись и
+      // 5 раз её перезаписывал. В итоге в БД оставалась 1 партия из 5.
+      // Fallback на Site сохранён для старых broadcast'ов, где URL
+      // приходил именно в Site. Дополнительный fallback на
+      // [Round "X.Y"] — чтобы партии без обоих headers'ов не схлопывались.
+      const gameUrl = headerMap['GameURL'] ?? '';
       const site = headerMap['Site'] ?? '';
-      const lichessGameId = site.split('/').pop() ?? null;
+      const roundTag = headerMap['Round'] ?? '';
+      const urlSource = gameUrl || (site.includes('/') ? site : '');
+      let lichessGameId: string | null = urlSource
+        ? (urlSource.split('/').pop() ?? null)
+        : null;
+      if (!lichessGameId && roundTag) {
+        // pseudo-id: "round:1.2" — стабилен в рамках одного раунда,
+        // не пересекается с реальными lichess id (Base62, без двоеточия).
+        lichessGameId = `round:${roundTag}`;
+      }
 
       const { fen: computedFen, lastUci } = this.computeFenAndLastUci(section);
       const fen = fenValue || computedFen || STARTING_FEN;
