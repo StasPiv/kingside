@@ -804,7 +804,8 @@
   .drill-leaderboard__filter-btn--active,
   .engine-source-btn.active,
   .play-tc-btn.active,
-  .feedback-type-btn.active
+  .feedback-type-btn.active,
+  .precision-chip--active
 ):is(:hover, :active, :focus, :focus-visible) {
   background: var(--tab-active-bg) !important;
   color: var(--tab-active-fg) !important;

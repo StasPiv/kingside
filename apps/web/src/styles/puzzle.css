@@ -5652,8 +5652,9 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
     display: flex;
     gap: 8px;
     align-items: center;
-    padding: 8px 12px;
+    padding: 8px max(12px, env(safe-area-inset-left, 0px)) 8px max(12px, env(safe-area-inset-right, 0px));
     overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
     background: var(--bg-surface, #1a1a2e);
@@ -5661,9 +5662,15 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
     position: sticky;
     top: 0;
     z-index: 30;
+    /* KS-3245: лёгкий fade-edge справа намекает на скролл (overflow
+       hint). mask-image — поддерживается всеми современными mobile-
+       браузерами; fallback — без эффекта. */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
   .precision-filter-chips-bar::-webkit-scrollbar {
     display: none;
+    height: 0;
   }
 
   /* KS-3244: ⓘ + ⋮ icon-buttons видны только на mobile. */
@@ -5728,9 +5735,12 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   background: var(--bg-hover, #2c2c47);
 }
 .precision-chip--active {
-  background: var(--accent-primary, #7c83ff);
-  color: #fff;
-  border-color: var(--accent-primary, #7c83ff);
+  /* KS-3245: используем токены `--tab-active-*` (KS-3174) — единое
+     правило active-state. Dark: светлый фон + синий текст. Light:
+     синий фон + светлый текст. */
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
 }
 .precision-chip--rating {
   font-weight: 500;
@@ -5757,6 +5767,12 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   display: flex;
   align-items: flex-end;
   justify-content: stretch;
+  /* KS-3245: backdrop fade-in 180ms — smooth open. */
+  animation: precision-rating-sheet-fade 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes precision-rating-sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .precision-rating-sheet__backdrop {
   position: absolute;
@@ -5765,6 +5781,8 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   border: 0;
   padding: 0;
   cursor: pointer;
+  /* KS-3245: позволяет нативный touch-event без задержки на iOS. */
+  touch-action: none;
 }
 .precision-rating-sheet__panel {
   position: relative;
@@ -5772,11 +5790,21 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   max-width: 100%;
   background: var(--bg-surface, #1a1a2e);
   border-radius: 14px 14px 0 0;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  /* KS-3245: safe-area-inset на всех 3 сторонах + safe-area-inset-bottom
+     в padding-bottom. */
+  padding: 16px max(16px, env(safe-area-inset-left, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-right, 0px));
   box-shadow: 0 -8px 24px var(--ov-black-40, rgba(0, 0, 0, 0.4));
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* KS-3245: плавный slide-up 220ms spring-cubic-bezier (как
+     bottom-sheet KS-3191 для focus-mode). */
+  animation: precision-rating-sheet-slide 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+@keyframes precision-rating-sheet-slide {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 .precision-rating-sheet__header {
   display: flex;
