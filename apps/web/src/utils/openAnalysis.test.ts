@@ -181,7 +181,7 @@ describe('openAnalysis (KS-2603)', () => {
    * lichess_game_id=NULL). Тесты явно фиксируют контракт body.
    */
   describe('KS-3261 source-IDs in POST body', () => {
-    it('lichessGameId передан → попадает в body POST /analyses', async () => {
+    it('lichessGameId передан → попадает в body, pgn НЕ в body (KS-3263)', async () => {
       (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: 'broadcast-id-1',
       });
@@ -196,15 +196,18 @@ describe('openAnalysis (KS-2603)', () => {
       const [path, body] = (api.post as ReturnType<typeof vi.fn>).mock
         .calls[0];
       expect(path).toBe('/analyses');
+      // KS-3263: backend сам резолвит PGN из broadcast_games по lichessGameId.
+      // Фронт pgn в body НЕ шлёт — это убирает класс багов «расхождение
+      // PGN-headers → другой sha256 → промах dedup».
       expect(body).toEqual({
-        pgn: '1. e4 e5',
         title: 'Deac vs Caruana',
         category: 'analysis',
         lichessGameId: '7qKxg3w1',
       });
+      expect('pgn' in body).toBe(false);
     });
 
-    it('archiveGameId передан → попадает в body POST /analyses', async () => {
+    it('archiveGameId передан → попадает в body, pgn НЕ в body (KS-3263)', async () => {
       (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: 'archive-id-1',
       });
@@ -219,28 +222,63 @@ describe('openAnalysis (KS-2603)', () => {
         'd99714c9-8903-401e-9e2f-423fc6523b85',
       );
       expect(body.lichessGameId).toBeUndefined();
+      // KS-3263: backend подгрузит PGN из archive_games_remote по archiveGameId.
+      expect('pgn' in body).toBe(false);
     });
 
-    it('source-IDs не переданы → body без lichessGameId/archiveGameId', async () => {
+    it('source-IDs не переданы → pgn ОСТАЁТСЯ в body (paste-PGN flow, KS-3263 exemption)', async () => {
+      // KS-3263: callsite (6) `useSavedAnalyses.createAnalysis` (Lobby /
+      // WorkshopAnalysisList / PGN-import) — у пользователя нет
+      // source-id, source PGN он paste'ит вручную. Здесь pgn ОБЯЗАН быть
+      // в body, иначе backend не может создать запись.
       (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        id: 'plain-1',
+        id: 'paste-1',
       });
-      await openAnalysis(navigate, { pgn: '' });
+      await openAnalysis(navigate, { pgn: '1. e4 e5', title: 'Pasted' });
       const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(body.pgn).toBe('1. e4 e5');
       expect('lichessGameId' in body).toBe(false);
       expect('archiveGameId' in body).toBe(false);
     });
 
-    it('lichessGameId=undefined → ключ в body отсутствует (не undefined)', async () => {
+    it('пустой PGN без source-id → pgn:"" в body (свободный анализ)', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'empty-1',
+      });
+      await openAnalysis(navigate, { pgn: '' });
+      const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(body.pgn).toBe('');
+    });
+
+    it('lichessGameId=undefined → ключ в body отсутствует, pgn попадает (paste-flow)', async () => {
       (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: 'plain-2',
       });
       await openAnalysis(navigate, {
-        pgn: '',
+        pgn: '1. e4',
         lichessGameId: undefined,
       });
       const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
       expect('lichessGameId' in body).toBe(false);
+      // lichessGameId=undefined → hasSourceId=false → pgn в body есть.
+      expect(body.pgn).toBe('1. e4');
+    });
+
+    it('KS-3263: includePgnInState=true + source-id → pgn НЕ в state', async () => {
+      // Если есть source-id, PGN в navigation state также не нужен:
+      // у нас будет /analysis/:id, AnalysisPage загрузит через getById.
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'src-state-1',
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. e4',
+        title: 'Src',
+        lichessGameId: 'abc',
+        includePgnInState: true,
+      });
+      const opts = (navigate as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect('pgn' in opts.state).toBe(false);
+      expect('title' in opts.state).toBe(false);
     });
   });
 

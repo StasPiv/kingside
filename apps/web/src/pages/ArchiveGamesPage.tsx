@@ -934,35 +934,32 @@ function ArchiveMetadataMode() {
           const plyQuery =
             typeof initialPly === 'number' ? `?ply=${initialPly}` : '';
           try {
-            // KS-3261/3262: пробрасываем `archiveGameId` для dedup.
-            // Без него backend падает на 3-й уровень fallback (sha256
-            // от PGN-headers) и колонка `analyses.archive_game_id`
-            // остаётся NULL — повторное открытие той же партии из
-            // другого источника не находит запись по archiveGameId
-            // index. KS-3261 контракт part-2.
+            // KS-3263: body минимальный — backend (commit d557dd3a)
+            // сам резолвит PGN из archive_games_remote по archiveGameId.
+            // Это убирает класс багов «фронт прислал чуть-чуть другой
+            // PGN → другой source_hash → промах dedup'а».
             //
-            // При `existing: true` от backend выкидываем `pgn`/`title`
+            // KS-3261/3262: при `existing: true` выкидываем `pgn`/`title`
             // из navState — AnalysisPage загрузит сохранённый PGN
-            // (с вариантами/NAG) через getById, а не source-movetext.
+            // через getById, а не source-movetext.
             const created = await api.post<{ id: string; existing?: boolean }>(
               '/analyses',
               {
-                pgn: game.pgn,
                 title,
                 category: 'analysis',
                 archiveGameId: item.id,
               },
             );
+            // KS-3263: pgn в navState также не нужен — есть analysisId
+            // в URL, AnalysisPage пойдёт в getById. Выкидываем сразу.
+            const {
+              pgn: _droppedPgn,
+              title: _droppedTitle,
+              ...stateRest
+            } = navState as { pgn?: string; title?: string };
             const finalState: Record<string, unknown> = created.existing
-              ? (() => {
-                  const {
-                    pgn: _droppedPgn,
-                    title: _droppedTitle,
-                    ...rest
-                  } = navState as { pgn?: string; title?: string };
-                  return { ...rest, openedExisting: true };
-                })()
-              : navState;
+              ? { ...stateRest, openedExisting: true }
+              : stateRest;
             navigate(`/analysis/${created.id}${plyQuery}`, {
               state: finalState,
             });

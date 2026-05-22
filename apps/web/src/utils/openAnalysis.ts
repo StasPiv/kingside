@@ -129,11 +129,19 @@ export async function openAnalysis(
   // 2. POST /analyses (pgn — может быть '' для «свободного анализа»).
   const pgn = args.pgn ?? '';
   const title = args.title ?? DEFAULT_TITLE;
+  // KS-3263: при наличии source-id (lichessGameId/archiveGameId) PGN
+  // в body НЕ нужен — backend (commit d557dd3a) сам резолвит PGN из
+  // broadcast-service / archive_games_remote по id. Это убирает
+  // нестабильность dedup'а из-за расхождения PGN-headers (пробел в
+  // Site/Round → другой sha256 → промах).
+  const hasSourceId = Boolean(args.lichessGameId || args.archiveGameId);
   // KS-2605: pgn/title в state — только если явно запрошено через
   // `includePgnInState`. По умолчанию state не содержит PGN — id в URL
   // уникальный, AnalysisPage подгружает по id (GET /analyses/:id).
   // Legacy-обёртка `openAnalysisFromPgn` задаёт флаг для back-compat.
-  if (args.includePgnInState) {
+  // KS-3263: при source-id вообще не кладём pgn в state — он уже не
+  // нужен ни для initial-render (AnalysisPage будет ждать getById).
+  if (args.includePgnInState && !hasSourceId) {
     navOpts.state = { ...navOpts.state, pgn, title };
   }
 
@@ -141,13 +149,17 @@ export async function openAnalysis(
     // KS-3261: пробрасываем source-IDs, если переданы. Backend (commit
     // 1b18d16f, task-def 290) делает dedup-lookup и возвращает `existing:
     // true` если у пользователя уже есть analysis по этому источнику.
+    //
+    // KS-3263: при наличии source-id `pgn` в body НЕ отправляем —
+    // backend сам подгрузит PGN из своих таблиц.
     const body: {
-      pgn: string;
+      pgn?: string;
       title: string;
       category: string;
       lichessGameId?: string;
       archiveGameId?: string;
-    } = { pgn, title, category: 'analysis' };
+    } = { title, category: 'analysis' };
+    if (!hasSourceId) body.pgn = pgn;
     if (args.lichessGameId) body.lichessGameId = args.lichessGameId;
     if (args.archiveGameId) body.archiveGameId = args.archiveGameId;
     const created = await api.post<{ id: string; existing?: boolean }>(

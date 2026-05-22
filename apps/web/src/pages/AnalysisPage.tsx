@@ -626,13 +626,18 @@ function AnalysisPageInner({
       // ИГНОРИРУЕМ state.pgn — это входящий source-pgn от broadcast/
       // archive (movetext без сохранённых вариантов/NAG/стрелок).
       // Существующий analysis в БД имеет полный PGN с аннотациями,
-      // его подгружает getById-ветка ниже. Двойная линия защиты к
-      // фиксу в openAnalysis (он pgn в state не кладёт), на случай
-      // если другой кодпуть положит state.pgn вместе с openedExisting.
+      // его подгружает getById-ветка ниже.
+      //
+      // KS-3263: ВСЕГДА игнорируем state.pgn если у нас есть
+      // `analysisId` в URL — это значит запись точно есть в БД
+      // (openAnalysis уже сделал POST и navigate'нул на `/analysis/:id`).
+      // PGN читаем только через `getById(analysisId)`. state.pgn
+      // остаётся актуальным только для no-id flow (paste-PGN из
+      // LobbyPage / `navigate('/analysis', { state: { pgn } })` без id).
       const openedExisting =
         (location.state as { openedExisting?: boolean } | null)
           ?.openedExisting === true;
-      const pgn = openedExisting
+      const pgn = openedExisting || analysisId
         ? undefined
         : embeddedPgn ??
           (location.state as { pgn?: string } | null)?.pgn;
