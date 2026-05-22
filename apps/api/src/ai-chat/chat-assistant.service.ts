@@ -539,36 +539,77 @@ export class ChatAssistantService {
     // KS-3227 наблюдал 78c сценарий, поднимаем дополнительный буфер
     // до 180c — чтобы api гарантированно дождался webhook'а на длинных
     // цепочках без abort.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 180_000);
+    // KS-3228 part 2: между api (ECS) и webhook'ом стоит прокси/туннель
+    // (devops подтвердил, api получал 502 от upstream при недоступности
+    // webhook'а — в логах webhook соответствующего AI chat-события нет,
+    // значит request даже не дошёл). Туннель может flap'нуть → один 502.
+    // Добавляем 1 retry на gateway-ошибки (502/503/504) с короткой
+    // паузой. На 5xx из body (реальная ошибка приложения) и 4xx не
+    // ретраим — там retry не поможет.
+    const callWebhookOnce = async (): Promise<{
+      status: number;
+      bodyText: string;
+      bodyJson: { response?: string } | null;
+    }> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 180_000);
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
+        const res = await fetch(this.webhookUrl, {
+          method: 'POST',
+          headers,
+          signal: controller.signal,
+          body: JSON.stringify({
+            message,
+            systemPrompt,
+            history: messages,
+            userId,
+            userToken,
+          }),
+        });
+        const ct = res.headers.get('content-type') || '';
+        const bodyText = ct.includes('json')
+          ? ''
+          : await res.text().catch(() => '<no-body>');
+        const bodyJson = ct.includes('json')
+          ? ((await res.json().catch(() => null)) as { response?: string } | null)
+          : null;
+        return { status: res.status, bodyText, bodyJson };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const GATEWAY_5XX = new Set([502, 503, 504]);
     let responseText: string;
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
-      const res = await fetch(this.webhookUrl, {
-        method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ message, systemPrompt, history: messages, userId, userToken }),
-      });
-      if (!res.ok) {
-        // KS-3228: добавляем body в лог — без него не отличить «webhook
-        // отдал 500 со stack'ом» от «webhook вернул 500 без тела».
-        const errBody = await res.text().catch(() => '<no-body>');
+      let attempt = await callWebhookOnce();
+      if (!attempt.bodyJson && GATEWAY_5XX.has(attempt.status)) {
+        // Транзиентный gateway-ответ → одна повторная попытка через 1c.
         this.logger.warn(
-          `${stage('webhook.fetch')} non-OK ${res.status}: ${errBody.slice(0, 500)}`,
+          `${stage('webhook.fetch')} gateway ${attempt.status}: ` +
+            `${attempt.bodyText.slice(0, 300)} — retrying once in 1s`,
         );
-        throw new Error(`AI webhook returned ${res.status}: ${errBody.slice(0, 200)}`);
+        await new Promise((r) => setTimeout(r, 1000));
+        attempt = await callWebhookOnce();
       }
-      const data = await res.json() as { response?: string };
-      responseText = data.response ?? '';
+      if (attempt.status >= 400 || (!attempt.bodyJson && attempt.bodyText)) {
+        const summary = attempt.bodyJson
+          ? JSON.stringify(attempt.bodyJson).slice(0, 200)
+          : attempt.bodyText.slice(0, 200);
+        this.logger.warn(
+          `${stage('webhook.fetch')} non-OK ${attempt.status}: ${summary}`,
+        );
+        throw new Error(`AI webhook returned ${attempt.status}: ${summary}`);
+      }
+      responseText = attempt.bodyJson?.response ?? '';
     } catch (e) {
-      // AbortError (timeout) / network error / non-OK выше — всё сюда.
       this.logger.error(
         `${stage('webhook.fetch')} failed: ${(e as Error).message}`,
         (e as Error).stack,
       );
       throw e;
-    } finally {
-      clearTimeout(timer);
     }
 
     // Save both messages
