@@ -225,6 +225,10 @@ export function WorkshopAnalysisList() {
     findWorkshopMatchingFilter,
   ]);
 
+  // KS-3259: счётчик retry-попыток для useEffect ниже. setRetryNonce(n+1)
+  // — кнопка «Повторить» в error-state.
+  const [retryNonce, setRetryNonce] = useState(0);
+
   useEffect(() => {
     if (!user) return;
     setLoading(true);
@@ -238,12 +242,18 @@ export function WorkshopAnalysisList() {
         setAllAnalyses(data);
         setServerHasMore(data.length === SERVER_PAGE_SIZE);
       })
-      .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
+      // KS-3259: локализованное сообщение об ошибке. До этого тикета
+      // English fallback показывался поверх русского UI — плохой UX.
+      .catch(() =>
+        setError(
+          t('workshop.myAnalyses.loadError', 'Failed to load analyses'),
+        ),
+      )
       .finally(() => setLoading(false));
     // KS-2933 (B3): загрузка saved-filters и миграция legacy
     // `localStorage['workshopSavedFilters']` теперь — забота
     // `useSavedFilters('workshop')` внутри SavedFiltersDropdown.
-  }, [user, t]);
+  }, [user, t, retryNonce]);
 
   /**
    * KS-2950: догрузить следующую серверную страницу анализов. Используется
@@ -555,7 +565,25 @@ export function WorkshopAnalysisList() {
       ) : loading ? (
         <p className="workshop-section-block__empty">{t('common.loading')}</p>
       ) : error ? (
-        <p className="workshop-section-block__empty">{error}</p>
+        // KS-3259: добавлена кнопка «Повторить» (раньше был просто
+        // текст ошибки — пользователю приходилось руками reload'ить
+        // страницу).
+        <div
+          className="workshop-section-block__empty"
+          data-testid="workshop-analyses-error"
+          role="alert"
+        >
+          <p style={{ margin: 0 }}>{error}</p>
+          <button
+            type="button"
+            className="workshop-analyses-retry"
+            data-testid="workshop-analyses-retry"
+            onClick={() => setRetryNonce((n) => n + 1)}
+            style={{ marginTop: 8 }}
+          >
+            {t('common.retry', 'Retry')}
+          </button>
+        </div>
       ) : allAnalyses.length === 0 ? (
         <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
       ) : (

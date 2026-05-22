@@ -16,8 +16,18 @@ import { readPgnHeader } from '../utils/forfeitTermination';
  *     : <p>{t('broadcastLive.noMovesYet', '…')}</p>}
  */
 export interface ForfeitPlaceholderProps {
-  /** Raw PGN — нужен для извлечения result + termination для подсказки. */
-  pgn: string | null | undefined;
+  /**
+   * Raw PGN — нужен для извлечения result + termination для подсказки.
+   * Альтернативно можно передать `headers` напрямую (см. ниже), если
+   * PGN уже распарсен (AnalysisPage хранит только headers, не сам PGN).
+   */
+  pgn?: string | null | undefined;
+  /**
+   * KS-3258 follow-up: уже распарсенные PGN-headers. Имеет приоритет
+   * над `pgn` если оба переданы. Используется в AnalysisPage, где
+   * raw PGN не доступен после initial-parse.
+   */
+  headers?: Record<string, string> | null;
   /** Доп. CSS-класс (если callsite хочет интегрировать в свой layout). */
   className?: string;
   testId?: string;
@@ -25,12 +35,21 @@ export interface ForfeitPlaceholderProps {
 
 export function ForfeitPlaceholder({
   pgn,
+  headers,
   className,
   testId,
 }: ForfeitPlaceholderProps) {
   const { t } = useTranslation();
-  const termination = pgn ? readPgnHeader(pgn, 'Termination') : null;
-  const result = pgn ? readPgnHeader(pgn, 'Result') : null;
+  const termination = headers
+    ? (headers.Termination ?? headers.termination ?? null)
+    : pgn
+      ? readPgnHeader(pgn, 'Termination')
+      : null;
+  const result = headers
+    ? (headers.Result ?? headers.result ?? null)
+    : pgn
+      ? readPgnHeader(pgn, 'Result')
+      : null;
   return (
     <div
       className={`forfeit-placeholder${className ? ' ' + className : ''}`}

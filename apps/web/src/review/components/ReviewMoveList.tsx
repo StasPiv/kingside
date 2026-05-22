@@ -95,6 +95,13 @@ interface ReviewMoveListProps {
    * `null`/`undefined` — обычный режим без сокрытия.
    */
   concealAfterPly?: number | null;
+  /**
+   * KS-3258 follow-up: кастомный fallback для пустой истории. Если не
+   * передан — рисуется обычный `<div class="review-no-moves">No moves</div>`.
+   * Используется в AnalysisPage / Broadcast / Archive для отображения
+   * `<ForfeitPlaceholder>` вместо «No moves» на forfeit-партиях.
+   */
+  emptyState?: React.ReactNode;
 }
 
 export function ReviewMoveList({
@@ -109,6 +116,7 @@ export function ReviewMoveList({
   onSetVariationColor,
   readOnly = false,
   concealAfterPly = null,
+  emptyState,
 }: ReviewMoveListProps) {
   const editable = !readOnly && Boolean(
     onPromoteVariation ||
@@ -600,7 +608,10 @@ export function ReviewMoveList({
     <div className="review-move-list-wrapper">
       <div ref={movesContainerRef} className="review-moves-container">
         {!history || history.length === 0 ? (
-          <div className="review-no-moves">No moves</div>
+          // KS-3258 follow-up: если callsite передал кастомный emptyState
+          // (например <ForfeitPlaceholder> для партий с [Termination
+          // "Unplayed"]) — рендерим его. Иначе fallback на «No moves».
+          (emptyState ?? <div className="review-no-moves">No moves</div>)
         ) : (
           <div className="review-moves-list">{renderMovesList()}</div>
         )}

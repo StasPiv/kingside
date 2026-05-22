@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  isForfeitFromHeaders,
   isForfeitGame,
   isForfeitTermination,
   readPgnHeader,
@@ -86,5 +87,39 @@ describe('isForfeitGame', () => {
       const pgn = `[Result "${result}"]\n[Termination "Walkover"]\n\n*`;
       expect(isForfeitGame(pgn, 0)).toBe(true);
     }
+  });
+});
+
+describe('isForfeitFromHeaders (KS-3258 follow-up)', () => {
+  it('Termination=Unplayed + 0 ходов → true', () => {
+    expect(
+      isForfeitFromHeaders(
+        { Termination: 'Unplayed', Result: '0-1' },
+        0,
+      ),
+    ).toBe(true);
+  });
+  it('Result != "*" + 0 ходов + нет Termination → fallback true', () => {
+    expect(
+      isForfeitFromHeaders({ Result: '1-0' }, 0),
+    ).toBe(true);
+  });
+  it('Result = "*" + 0 ходов → false (live ещё не началась)', () => {
+    expect(
+      isForfeitFromHeaders({ Result: '*' }, 0),
+    ).toBe(false);
+  });
+  it('history > 0 → всегда false', () => {
+    expect(
+      isForfeitFromHeaders(
+        { Termination: 'Unplayed', Result: '0-1' },
+        5,
+      ),
+    ).toBe(false);
+  });
+  it('null/undefined headers → false', () => {
+    expect(isForfeitFromHeaders(null, 0)).toBe(false);
+    expect(isForfeitFromHeaders(undefined, 0)).toBe(false);
+    expect(isForfeitFromHeaders({}, 0)).toBe(false);
   });
 });

@@ -1359,7 +1359,8 @@
       "clearTags": "Очистить",
       "saveFilter": "Сохранить фильтр",
       "saveFilterPrompt": "Название фильтра:",
-      "savedFilters": "Сохранённые:"
+      "savedFilters": "Сохранённые:",
+      "loadError": "Не удалось загрузить анализы"
     },
     "tournaments": {
       "title": "Топ активных турниров",

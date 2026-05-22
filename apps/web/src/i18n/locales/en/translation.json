@@ -1337,7 +1337,8 @@
       "clearTags": "Clear",
       "saveFilter": "Save filter",
       "saveFilterPrompt": "Filter name:",
-      "savedFilters": "Saved:"
+      "savedFilters": "Saved:",
+      "loadError": "Failed to load analyses"
     },
     "tournaments": {
       "title": "Top Active Tournaments",

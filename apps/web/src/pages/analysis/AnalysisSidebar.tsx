@@ -8,6 +8,9 @@ import { MaterialBalance } from '../../components/MaterialBalance';
 import { ArchiveTreePanel } from '../../components/analysis/ArchiveTreePanel';
 
 import { ReviewMoveList } from '../../review/components/ReviewMoveList';
+// KS-3258 follow-up: forfeit-плашка для broadcast-партий без ходов.
+import { ForfeitPlaceholder } from '../../components/ForfeitPlaceholder';
+import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import type { useEngineConfig } from '../../hooks/useEngineConfig';
@@ -105,6 +108,13 @@ export interface AnalysisSidebarProps {
    * null = без сокрытия.
    */
   concealAfterPly?: number | null;
+  /**
+   * KS-3258 follow-up: распарсенные PGN-headers. Если `history` пустая
+   * и headers содержат [Termination "Unplayed"]/[Result] != '*' —
+   * вместо «No moves» в moves-панели (desktop + mobile-tab "Ходы")
+   * рендерится `<ForfeitPlaceholder>` (см. AnalysisPage.tsx).
+   */
+  pgnHeaders?: Record<string, string> | null;
 }
 
 export function AnalysisSidebar({
@@ -146,6 +156,7 @@ export function AnalysisSidebar({
   onMobileTabChange,
   readOnly = false,
   concealAfterPly = null,
+  pgnHeaders = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -160,6 +171,15 @@ export function AnalysisSidebar({
     sheetSnap,
     setSheetSnap,
   } = useFocusMode();
+
+  // KS-3258 follow-up: forfeit-fallback. Если history пуста и headers
+  // указывают на [Termination "Unplayed"] / Result != "*" — рендерим
+  // <ForfeitPlaceholder> вместо «No moves». Иначе передаём undefined и
+  // ReviewMoveList фолбэчится на стандартное сообщение.
+  const forfeitEmpty =
+    isForfeitFromHeaders(pgnHeaders, history.length) ? (
+      <ForfeitPlaceholder headers={pgnHeaders} />
+    ) : undefined;
   // KS-3190: useBottomSheet даёт handleProps для drag-жестов; `snap`
   // здесь — это «теневое» состояние внутри хука, реальный snap живёт в
   // `FocusModeContext.sheetSnap`. Через колбэк `onChange` ниже мы
@@ -409,6 +429,7 @@ export function AnalysisSidebar({
               onSetVariationColor={onSetVariationColor}
               readOnly={readOnly}
               concealAfterPly={concealAfterPly}
+              emptyState={forfeitEmpty}
             />
           </div>
         )}
@@ -586,6 +607,7 @@ export function AnalysisSidebar({
                 onSetNag={onSetNag}
                 onSetComment={onSetComment}
                 onSetVariationColor={onSetVariationColor}
+                emptyState={forfeitEmpty}
               />
             </div>
           </div>

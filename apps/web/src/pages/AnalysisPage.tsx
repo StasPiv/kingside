@@ -1841,6 +1841,12 @@ function AnalysisPageInner({
         onMobileTabChange={setMobileTab}
         readOnly={ctx.readOnly}
         concealAfterPly={null}
+        // KS-3258 follow-up: пробрасываем headers, чтобы при пустой
+        // history и [Termination "Unplayed"] / Result != "*" вместо
+        // «No moves» отрисовался <ForfeitPlaceholder>. PGN-headers
+        // парсятся в initial-state из location.state.pgn (см. строку
+        // ~346).
+        pgnHeaders={pgnHeaders}
       />
 
       {ec.showEngineModal && (

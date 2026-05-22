@@ -80,3 +80,30 @@ export function isForfeitGame(
   }
   return false;
 }
+
+/**
+ * KS-3258 follow-up: вариант детектора для уже распарсенных headers
+ * (`{ [tag]: value }`). Используется в `AnalysisPage`, у которой PGN
+ * не хранится после initial-parse — есть только `pgnHeaders` через
+ * `parsePgnHeaders(location.state.pgn)`.
+ *
+ * Логика идентична `isForfeitGame`, но без regex-парсинга.
+ */
+export function isForfeitFromHeaders(
+  headers: Record<string, string> | null | undefined,
+  historyLen: number,
+): boolean {
+  if (historyLen > 0) return false;
+  if (!headers) return false;
+  const termination = headers.Termination ?? headers.termination ?? null;
+  if (isForfeitTermination(termination)) return true;
+  const result = headers.Result ?? headers.result ?? null;
+  if (
+    result &&
+    result !== '*' &&
+    (result.includes('1-0') || result.includes('0-1') || result.includes('1/2'))
+  ) {
+    return true;
+  }
+  return false;
+}
