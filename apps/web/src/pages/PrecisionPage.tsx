@@ -23,6 +23,13 @@ import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
 // — на главной их больше нет, чтобы сетка позиций была видна на первом
 // экране без скролла.
 import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
+// KS-3243 (ADR-076 §7 F1): mobile-only chips-bar + bottom-sheet для
+// фильтров. На desktop оба компонента скрыты CSS-ом (см. puzzle.css).
+import { PrecisionFilterChipsBar } from '../components/precision/PrecisionFilterChipsBar';
+import {
+  PrecisionRatingSheet,
+  ratingLabelFromUrl,
+} from '../components/precision/PrecisionRatingSheet';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -307,6 +314,11 @@ export function PrecisionPage() {
   // фильтров (в текущем сеансе показ свежесгенерированных идёт через
   // отдельный success-screen внутри модалки → KS-2585/86).
   const [showGenerator, setShowGenerator] = useState(false);
+  // KS-3243: открыт ли mobile bottom-sheet с фильтром рейтинга.
+  // Управляется из chips-bar (pill «+ Рейтинг»). На desktop никто не
+  // вызывает setRatingSheetOpen(true), sheet никогда не рендерится.
+  const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
+  const ratingLabel = ratingLabelFromUrl(searchParams);
 
   const handlePublish = useCallback(
     async (puzzleId: string) => {
@@ -503,7 +515,18 @@ export function PrecisionPage() {
       {/* KS-2746 / ADR-057 §3: SubNav сверху для всех 3 precision-страниц.
           Активный пункт «Тренировка» вычисляется внутри SubNav по
           useLocation. */}
-      <PrecisionSubNav />
+      {/* KS-3244 (ADR-076 §7 F2): на mobile SubNav обрастает ⓘ + ⋮.
+          onGenerateClick передаём только когда юзер авторизован — гостям
+          dropdown «Генерация» бессмыслен (как и desktop-кнопка раньше). */}
+      <PrecisionSubNav
+        onGenerateClick={user ? () => setShowGenerator(true) : undefined}
+      />
+      {/* KS-3243 (ADR-076 §7 F1): mobile-only chips-bar. На desktop
+          скрыт CSS-ом (display:none), фильтры остаются inline в header. */}
+      <PrecisionFilterChipsBar
+        onOpenRatingSheet={() => setRatingSheetOpen(true)}
+        ratingLabel={ratingLabel}
+      />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('precision.title', 'Precision training')}</h1>
         <p className="play-vs-engine-puzzles__intro">
@@ -1234,6 +1257,14 @@ export function PrecisionPage() {
           }}
         />
       )}
+
+      {/* KS-3243 (ADR-076 §7 F1): bottom-sheet с ELO-slider'ом. Открывается
+          из chips-bar. Backdrop / Esc / «Готово» закрывают. URL-state и
+          slider-метрики — те же что в desktop-inline-фильтре. */}
+      <PrecisionRatingSheet
+        open={ratingSheetOpen}
+        onClose={() => setRatingSheetOpen(false)}
+      />
 
       {/* KS-2663: floating toast для действий автора (copy link /
           visibility / delete). Образец из MyCoursesView (KS-2621). */}

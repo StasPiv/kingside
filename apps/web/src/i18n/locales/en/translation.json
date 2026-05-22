@@ -1405,7 +1405,15 @@
       "label": "Precision sections",
       "training": "Training",
       "progress": "Progress",
-      "history": "History"
+      "history": "History",
+      "about": "About precision training",
+      "moreActions": "More actions"
+    },
+    "filterChips": {
+      "label": "Filters",
+      "ratingOpen": "+ Rating",
+      "ratingActive": "Rating: {{range}}",
+      "reset": "Reset filters"
     },
     "card": {
       "blunder": "Blunder"

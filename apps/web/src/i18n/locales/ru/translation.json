@@ -1427,7 +1427,15 @@
       "label": "Разделы тренировки точности",
       "training": "Тренировка",
       "progress": "Прогресс",
-      "history": "История"
+      "history": "История",
+      "about": "О тренировке точности",
+      "moreActions": "Действия"
+    },
+    "filterChips": {
+      "label": "Фильтры",
+      "ratingOpen": "+ Рейтинг",
+      "ratingActive": "Рейтинг: {{range}}",
+      "reset": "Сбросить фильтры"
     },
     "card": {
       "blunder": "Зевок"

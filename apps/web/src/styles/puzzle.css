@@ -5604,3 +5604,272 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
     display: none;
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────
+   KS-3243 + KS-3244 (ADR-076 §7 F1/F2): mobile-only chips-bar +
+   bottom-sheet + SubNav popover/dropdown + скрытие desktop-фильтров /
+   header'а на mobile.
+
+   Стратегия: компоненты PrecisionFilterChipsBar / PrecisionRatingSheet /
+   SubNav-mobile-actions рендерятся ВСЕГДА (упрощает URL-state и тесты),
+   видимость переключается этой секцией CSS.
+   --------------------------------------------------------------- */
+
+/* По умолчанию (desktop) chips-bar скрыт. */
+.precision-filter-chips-bar {
+  display: none;
+}
+.precision-subnav__mobile-actions {
+  display: none;
+  position: relative;
+}
+
+@media (max-width: 767px) {
+  /* KS-3244: скрываем H1 / описание / action-кнопки в header'е
+     PrecisionPage. Они дублируют сab/popover в SubNav (⋮ + ⓘ). */
+  .play-vs-engine-puzzles__header h1,
+  .play-vs-engine-puzzles__intro,
+  .play-vs-engine-puzzles__nav {
+    display: none;
+  }
+
+  /* KS-3243: desktop-фильтры скрываем — их заменяет chips-bar. */
+  .precision-tabs,
+  .precision-objective-segments,
+  .precision-show-solved,
+  .precision-elo-filter {
+    /* `.precision-elo-filter` рендерится ещё и внутри bottom-sheet
+       (PrecisionRatingSheet) — там селектор `.precision-rating-sheet
+       .precision-elo-filter` ниже включает его обратно. */
+    display: none;
+  }
+  .precision-rating-sheet .precision-elo-filter {
+    display: block;
+  }
+
+  /* KS-3243: chips-bar — horizontal scroll, sticky под SubNav. */
+  .precision-filter-chips-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    background: var(--bg-surface, #1a1a2e);
+    border-bottom: 1px solid var(--border-subtle, #2a2a3e);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .precision-filter-chips-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* KS-3244: ⓘ + ⋮ icon-buttons видны только на mobile. */
+  .precision-subnav__mobile-actions {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: auto;
+    align-items: center;
+  }
+
+  /* KS-3244: compact-stats — одна строка вместо grid'а. */
+  .precision-compact-stats {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .precision-compact-stats__cell {
+    display: inline;
+    margin: 0;
+  }
+  .precision-compact-stats__value {
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .precision-compact-stats__label {
+    opacity: 0.75;
+    font-size: 12px;
+  }
+  /* Разделитель «·» между ячейками (имитирует «62% точность · 116/151
+     удержано · Полная статистика →»). После последнего cell — нет. */
+  .precision-compact-stats__cell::after {
+    content: ' · ';
+    margin-left: 4px;
+    opacity: 0.5;
+  }
+  .precision-compact-stats__cell:last-of-type::after {
+    content: '';
+  }
+}
+
+/* ───────────────────────── chip stylings ─────────────────────────── */
+.precision-chip {
+  appearance: none;
+  background: var(--bg-elevated, #25253d);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-subtle, #2a2a3e);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  flex-shrink: 0;
+  min-height: 32px;
+}
+.precision-chip:hover {
+  background: var(--bg-hover, #2c2c47);
+}
+.precision-chip--active {
+  background: var(--accent-primary, #7c83ff);
+  color: #fff;
+  border-color: var(--accent-primary, #7c83ff);
+}
+.precision-chip--rating {
+  font-weight: 500;
+}
+.precision-chip--reset {
+  font-size: 16px;
+  padding: 6px 10px;
+  min-width: 32px;
+}
+.precision-chips__separator {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle, #2a2a3e);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ──────────────── bottom-sheet (PrecisionRatingSheet) ────────────── */
+.precision-rating-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+}
+.precision-rating-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ov-black-40, rgba(0, 0, 0, 0.5));
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.precision-rating-sheet__panel {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  background: var(--bg-surface, #1a1a2e);
+  border-radius: 14px 14px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 24px var(--ov-black-40, rgba(0, 0, 0, 0.4));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.precision-rating-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.precision-rating-sheet__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+.precision-rating-sheet__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 24px;
+  line-height: 1;
+  padding: 4px 12px;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+}
+.precision-rating-sheet__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+.precision-rating-sheet__done {
+  appearance: none;
+  background: var(--accent-primary, #7c83ff);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+/* ──────────────── SubNav popover / dropdown ──────────────────────── */
+.precision-subnav__icon-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 6px;
+}
+.precision-subnav__icon-btn:hover {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+}
+.precision-subnav__popover,
+.precision-subnav__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  max-width: 280px;
+  background: var(--bg-elevated, #25253d);
+  border: 1px solid var(--border-subtle, #2a2a3e);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 18px var(--ov-black-40, rgba(0, 0, 0, 0.4));
+  z-index: 60;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary, #e0e0e0);
+}
+.precision-subnav__menu {
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+.precision-subnav__menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: block;
+}
+.precision-subnav__menu-item:hover,
+.precision-subnav__menu-item:focus-visible {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  outline: none;
+}
