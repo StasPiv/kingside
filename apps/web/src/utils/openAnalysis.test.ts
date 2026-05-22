@@ -175,6 +175,134 @@ describe('openAnalysis (KS-2603)', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  /**
+   * KS-3261/3262 — диагностика для жалобы пользователя, что lichessGameId
+   * якобы не доходит до POST /analyses (запись 8c451a11 в БД с
+   * lichess_game_id=NULL). Тесты явно фиксируют контракт body.
+   */
+  describe('KS-3261 source-IDs in POST body', () => {
+    it('lichessGameId передан → попадает в body POST /analyses', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'broadcast-id-1',
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. e4 e5',
+        title: 'Deac vs Caruana',
+        lichessGameId: '7qKxg3w1',
+        includePgnInState: true,
+        state: { breadcrumbRootTitle: 'Broadcast' },
+      });
+      expect(api.post).toHaveBeenCalledTimes(1);
+      const [path, body] = (api.post as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(path).toBe('/analyses');
+      expect(body).toEqual({
+        pgn: '1. e4 e5',
+        title: 'Deac vs Caruana',
+        category: 'analysis',
+        lichessGameId: '7qKxg3w1',
+      });
+    });
+
+    it('archiveGameId передан → попадает в body POST /analyses', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'archive-id-1',
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. d4 d5',
+        title: 'Archive game',
+        archiveGameId: 'd99714c9-8903-401e-9e2f-423fc6523b85',
+        includePgnInState: true,
+      });
+      const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(body.archiveGameId).toBe(
+        'd99714c9-8903-401e-9e2f-423fc6523b85',
+      );
+      expect(body.lichessGameId).toBeUndefined();
+    });
+
+    it('source-IDs не переданы → body без lichessGameId/archiveGameId', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'plain-1',
+      });
+      await openAnalysis(navigate, { pgn: '' });
+      const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect('lichessGameId' in body).toBe(false);
+      expect('archiveGameId' in body).toBe(false);
+    });
+
+    it('lichessGameId=undefined → ключ в body отсутствует (не undefined)', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'plain-2',
+      });
+      await openAnalysis(navigate, {
+        pgn: '',
+        lichessGameId: undefined,
+      });
+      const body = (api.post as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect('lichessGameId' in body).toBe(false);
+    });
+  });
+
+  /**
+   * KS-3262: existing=true → выкидываем pgn/title из state, добавляем
+   * openedExisting. Без этого AnalysisPage инициализирует board из
+   * source-pgn (movetext без вариантов).
+   */
+  describe('KS-3262 existing=true dedup-hit', () => {
+    it('existing=true + includePgnInState=true → pgn/title удалены из state, openedExisting=true', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'existing-1',
+        existing: true,
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. d4',
+        title: 'Deac vs Caruana',
+        lichessGameId: '7qKxg3w1',
+        includePgnInState: true,
+        state: { breadcrumbRootTitle: 'Broadcast' },
+      });
+      const [path, opts] = (navigate as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(path).toBe('/analysis/existing-1');
+      expect(opts.state).toEqual({
+        breadcrumbRootTitle: 'Broadcast',
+        openedExisting: true,
+      });
+      expect('pgn' in opts.state).toBe(false);
+      expect('title' in opts.state).toBe(false);
+    });
+
+    it('existing=false (новый) + includePgnInState=true → pgn/title остаются, openedExisting НЕ ставится', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'new-1',
+        existing: false,
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. d4',
+        title: 'New game',
+        includePgnInState: true,
+      });
+      const opts = (navigate as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(opts.state.pgn).toBe('1. d4');
+      expect(opts.state.title).toBe('New game');
+      expect(opts.state.openedExisting).toBeUndefined();
+    });
+
+    it('existing field отсутствует → backwards-compat, openedExisting НЕ ставится', async () => {
+      (api.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'legacy-1',
+      });
+      await openAnalysis(navigate, {
+        pgn: '1. e4',
+        includePgnInState: true,
+      });
+      const opts = (navigate as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(opts.state.openedExisting).toBeUndefined();
+      expect(opts.state.pgn).toBe('1. e4');
+    });
+  });
+
   it('error: дефолтный onError — window.alert', async () => {
     // jsdom в vitest по умолчанию не определяет `window.alert` —
     // навешиваем как обычное property, потом восстанавливаем undefined.

@@ -934,13 +934,37 @@ function ArchiveMetadataMode() {
           const plyQuery =
             typeof initialPly === 'number' ? `?ply=${initialPly}` : '';
           try {
-            const created = await api.post<{ id: string }>('/analyses', {
-              pgn: game.pgn,
-              title,
-              category: 'analysis',
-            });
+            // KS-3261/3262: пробрасываем `archiveGameId` для dedup.
+            // Без него backend падает на 3-й уровень fallback (sha256
+            // от PGN-headers) и колонка `analyses.archive_game_id`
+            // остаётся NULL — повторное открытие той же партии из
+            // другого источника не находит запись по archiveGameId
+            // index. KS-3261 контракт part-2.
+            //
+            // При `existing: true` от backend выкидываем `pgn`/`title`
+            // из navState — AnalysisPage загрузит сохранённый PGN
+            // (с вариантами/NAG) через getById, а не source-movetext.
+            const created = await api.post<{ id: string; existing?: boolean }>(
+              '/analyses',
+              {
+                pgn: game.pgn,
+                title,
+                category: 'analysis',
+                archiveGameId: item.id,
+              },
+            );
+            const finalState: Record<string, unknown> = created.existing
+              ? (() => {
+                  const {
+                    pgn: _droppedPgn,
+                    title: _droppedTitle,
+                    ...rest
+                  } = navState as { pgn?: string; title?: string };
+                  return { ...rest, openedExisting: true };
+                })()
+              : navState;
             navigate(`/analysis/${created.id}${plyQuery}`, {
-              state: navState,
+              state: finalState,
             });
           } catch {
             // Если создать запись не удалось (offline/auth) — fallback
