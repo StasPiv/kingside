@@ -8,6 +8,9 @@ describe('AnalysisService', () => {
       create: jest.Mock;
       findMany: jest.Mock;
       findUnique: jest.Mock;
+      // KS-3261: findFirst используется в dedup-lookup (опц. — добавляется
+      // динамически в тестах, поэтому Mock | undefined).
+      findFirst?: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
     };
