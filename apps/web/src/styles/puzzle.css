@@ -3375,7 +3375,11 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   border-bottom: 1px solid var(--border-subtle);
   position: sticky;
   top: 0;
-  z-index: 5;
+  /* KS-3250: z-index 40 — выше chips-bar (30, KS-3243). Subnav создаёт
+     stacking context (sticky + z-index), все его потомки рисуются ВНУТРИ
+     этого context — без поднятия subnav выше chips-bar three-dots menu
+     внутри subnav никогда не сможет перекрыть chips-bar (даже с z: 200). */
+  z-index: 40;
 }
 
 .precision-subnav__item {
@@ -5869,12 +5873,15 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   top: calc(100% + 6px);
   min-width: 220px;
   max-width: 280px;
-  background: var(--bg-elevated, #25253d);
-  border: 1px solid var(--border-subtle, #2a2a3e);
+  /* KS-3250: плотный фон через semantic token (--bg-surface) — корректно
+     меняется между темами и не просвечивает chips-bar/контент под собой. */
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 10px 12px;
   box-shadow: 0 6px 18px var(--ov-black-40, rgba(0, 0, 0, 0.4));
-  z-index: 60;
+  /* KS-3250: z-index 200 — выше chips-bar (30) и любых sticky-баров. */
+  z-index: 200;
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-primary, #e0e0e0);
