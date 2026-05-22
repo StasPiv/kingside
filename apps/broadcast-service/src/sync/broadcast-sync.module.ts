@@ -6,6 +6,7 @@ import { BroadcastGameCountMetricService } from './broadcast-game-count-metric.s
 import { ChessResultsModule } from '../chess-results/chess-results.module';
 import { InternalKeyGuard } from './internal-key.guard';
 import { BroadcastInternalController } from './broadcast-internal.controller';
+import { BroadcastInternalGamesController } from './internal-games.controller';
 
 /**
  * Sync-модуль broadcast-service (ADR-022 §2.2).
@@ -29,7 +30,9 @@ import { BroadcastInternalController } from './broadcast-internal.controller';
   imports: [ChessResultsModule],
   // KS-2883 (B10): BroadcastInternalController обслуживает api-вызовы
   // за round+games (контракт зафиксирован KS-2884).
-  controllers: [BroadcastInternalController],
+  // KS-3263: BroadcastInternalGamesController — резолвер PGN партии
+  // по lichess_game_id для AnalysisService.create (api).
+  controllers: [BroadcastInternalController, BroadcastInternalGamesController],
   providers: [
     SyncMetricsService,
     BroadcastSyncService,

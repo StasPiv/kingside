@@ -300,6 +300,77 @@ describe('AnalysisService', () => {
         expect(result).toMatchObject({ id: 'a-legacy', existing: true });
       });
 
+      it('KS-3263: source-id без pgn + удачный резолв из archive_games_remote → создаётся анализ с резолвленным pgn', async () => {
+        // dto без pgn, только archiveGameId. Резолвер пойдёт в FDW
+        // archive_games_remote (мокаем $queryRawUnsafe).
+        const archiveGameUuid = 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a';
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        (prisma.analysis as unknown as { $queryRawUnsafe?: jest.Mock }).$queryRawUnsafe;
+        // PrismaService.$queryRawUnsafe — на уровне prisma root, не на analysis:
+        (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe = jest
+          .fn()
+          .mockResolvedValue([
+            {
+              pgn: '[White "A"]\n[Black "B"]\n[Date "2026.05.18"]\n\n1. e4 *',
+              white_name: 'A',
+              black_name: 'B',
+              white_elo: 2700,
+              black_elo: 2700,
+              result: '1-0',
+            },
+          ]);
+        prisma.analysis.create.mockResolvedValue({
+          ...mockAnalysis,
+          id: 'a-resolved',
+          pgn: '[White "A"]...',
+        });
+
+        const result = await service.create(userId, {
+          archiveGameId: archiveGameUuid,
+        });
+
+        // FDW-резолвер был вызван.
+        expect(
+          (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe,
+        ).toHaveBeenCalledWith(
+          expect.stringContaining('archive_games_remote'),
+          archiveGameUuid,
+        );
+        // create вызван с resolvedPgn и archiveGameId.
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            archiveGameId: archiveGameUuid,
+            sourceHash: `archive:${archiveGameUuid}`,
+            pgn: expect.stringContaining('1. e4'),
+          }),
+        });
+        expect(result).toMatchObject({ id: 'a-resolved', existing: false });
+      });
+
+      it('KS-3263: source-id без pgn + резолв упал → создаётся анализ с pgn=null', async () => {
+        // archive_games_remote не нашёл — return null, create без pgn.
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe = jest
+          .fn()
+          .mockResolvedValue([]); // пустой результат
+        prisma.analysis.create.mockResolvedValue({
+          ...mockAnalysis,
+          id: 'a-stub',
+        });
+
+        await service.create(userId, {
+          archiveGameId: 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a',
+        });
+
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            pgn: null,
+            archiveGameId: 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a',
+            sourceHash: 'archive:f18fbe5a-6e97-455b-a3a4-37cd13c60e6a',
+          }),
+        });
+      });
+
       it('KS-3262: если existing уже с lichess-hash и lichessGameId — upgrade не делается (только lastOpenedAt)', async () => {
         const alreadyUpgraded = {
           ...mockAnalysis,

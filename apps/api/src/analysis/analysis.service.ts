@@ -10,6 +10,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 
+/**
+ * KS-3263. Метаданные партии из источника (broadcast/archive) для
+ * заполнения нового анализа без передачи PGN от фронта.
+ */
+interface ResolvedSourceGame {
+  pgn: string;
+  white?: string | null;
+  black?: string | null;
+  whiteElo?: number | null;
+  blackElo?: number | null;
+  result?: string | null;
+}
+
 @Injectable()
 export class AnalysisService implements OnModuleInit {
   private readonly logger = new Logger(AnalysisService.name);
@@ -246,14 +259,140 @@ export class AnalysisService implements OnModuleInit {
    * Если source_hash = null (headers неполные, нет source-id) — создаём
    * как раньше.
    */
+  /**
+   * KS-3263. Резолвер PGN партии из источника (broadcast / archive)
+   * для случая, когда фронт передал только `lichessGameId` /
+   * `archiveGameId` без `pgn`. Это убирает класс багов «фронт прислал
+   * чуть-чуть другой PGN → другой headers-hash → dedup промахнулся →
+   * дубль» — теперь источник истины один (наша БД).
+   *
+   * Источники:
+   *   - `lichessGameId` → broadcast-service HTTP
+   *     `GET /internal/games/by-lichess/:id` (за InternalKeyGuard).
+   *   - `archiveGameId` → FDW `archive_games_remote` (KS-2760, у api
+   *     подключён к archive-db через postgres_fdw).
+   *
+   * Возвращает `null` если источник недоступен / партия не найдена /
+   * env не сконфигурирован (broadcast_service_url или internal-key
+   * отсутствуют на проде). Тогда caller использует pgn из dto если он
+   * есть, иначе создаёт пустой анализ.
+   */
+  private async resolveSourceGame(input: {
+    lichessGameId?: string | null;
+    archiveGameId?: string | null;
+  }): Promise<ResolvedSourceGame | null> {
+    if (input.lichessGameId) {
+      const url = process.env.BROADCAST_SERVICE_URL;
+      const key = process.env.SYNTHETIC_BOT_INTERNAL_KEY;
+      if (!url || !key) {
+        this.logger.warn(
+          `KS-3263: BROADCAST_SERVICE_URL or SYNTHETIC_BOT_INTERNAL_KEY not configured; ` +
+            `cannot resolve lichessGameId=${input.lichessGameId}`,
+        );
+        return null;
+      }
+      try {
+        const res = await fetch(
+          `${url}/internal/games/by-lichess/${encodeURIComponent(input.lichessGameId)}`,
+          {
+            headers: { 'X-Internal-Auth': key },
+            signal: AbortSignal.timeout(8_000),
+          },
+        );
+        if (!res.ok) {
+          this.logger.warn(
+            `KS-3263: broadcast-service /by-lichess/${input.lichessGameId} HTTP ${res.status}`,
+          );
+          return null;
+        }
+        const data = (await res.json()) as {
+          pgn: string;
+          whitePlayer: string | null;
+          blackPlayer: string | null;
+          whiteElo: number | null;
+          blackElo: number | null;
+          result: string | null;
+        };
+        if (!data.pgn) return null;
+        return {
+          pgn: data.pgn,
+          white: data.whitePlayer,
+          black: data.blackPlayer,
+          whiteElo: data.whiteElo,
+          blackElo: data.blackElo,
+          result: data.result,
+        };
+      } catch (e: unknown) {
+        this.logger.warn(
+          `KS-3263: broadcast resolve error for ${input.lichessGameId}: ${(e as Error).message}`,
+        );
+        return null;
+      }
+    }
+    if (input.archiveGameId) {
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{
+            pgn: string | null;
+            white_name: string | null;
+            black_name: string | null;
+            white_elo: number | null;
+            black_elo: number | null;
+            result: string | null;
+          }>
+        >(
+          `SELECT pgn, white_name, black_name, white_elo, black_elo, result
+             FROM archive_games_remote
+            WHERE id = $1::uuid
+            LIMIT 1`,
+          input.archiveGameId,
+        );
+        const row = rows[0];
+        if (!row || !row.pgn) return null;
+        return {
+          pgn: row.pgn,
+          white: row.white_name,
+          black: row.black_name,
+          whiteElo: row.white_elo,
+          blackElo: row.black_elo,
+          result: row.result,
+        };
+      } catch (e: unknown) {
+        this.logger.warn(
+          `KS-3263: archive_games_remote resolve error for ${input.archiveGameId}: ${(e as Error).message}`,
+        );
+        return null;
+      }
+    }
+    return null;
+  }
+
   async create(
     userId: string,
     dto: CreateAnalysisDto,
   ): Promise<Record<string, unknown> & { existing: boolean }> {
     const now = new Date();
+
+    // KS-3263: если фронт прислал source-id без PGN — резолвим pgn из
+    // источника. Это устраняет дрифт PGN-headers между фронтом и БД.
+    let resolvedPgn = dto.pgn ?? null;
+    if (!resolvedPgn && (dto.lichessGameId || dto.archiveGameId)) {
+      const resolved = await this.resolveSourceGame({
+        lichessGameId: dto.lichessGameId ?? null,
+        archiveGameId: dto.archiveGameId ?? null,
+      });
+      if (resolved) {
+        resolvedPgn = resolved.pgn;
+        this.logger.log(
+          `KS-3263 PGN resolved from source: ${dto.lichessGameId ? `lichess:${dto.lichessGameId}` : `archive:${dto.archiveGameId}`} ` +
+            `→ pgnLen=${resolved.pgn.length}`,
+        );
+      }
+    }
+
     const title = dto.title ?? this.defaultTitle(now);
-    const headline = this.buildHeadline(dto.pgn);
-    const meta = this.extractMetadata(dto.pgn);
+    const headline = this.buildHeadline(resolvedPgn ?? undefined);
+    const meta = this.extractMetadata(resolvedPgn ?? undefined);
 
     // KS-3262: вычисляем ВСЕ возможные source_hash'и, чтобы dedup нашёл
     // legacy-записи созданные ранее с другим типом ключа (например с
@@ -262,7 +401,11 @@ export class AnalysisService implements OnModuleInit {
       AnalysisService.computeAllSourceHashes({
         lichessGameId: dto.lichessGameId ?? null,
         archiveGameId: dto.archiveGameId ?? null,
-        pgn: dto.pgn ?? null,
+        // KS-3263: используем resolvedPgn (если фронт прислал source-id
+        // без pgn — здесь уже из broadcast_games/archive_games). Это
+        // делает pgn-hash детерминированным от нашей БД, а не от того,
+        // что прислал фронт.
+        pgn: resolvedPgn,
       });
 
     // Dedup lookup — только если есть хотя бы один applicable hash.
@@ -305,7 +448,9 @@ export class AnalysisService implements OnModuleInit {
         userId,
         title,
         headline,
-        pgn: dto.pgn ?? null,
+        // KS-3263: пишем resolvedPgn (если был source-id и резолв сработал
+        // — это pgn из broadcast/archive; иначе dto.pgn от фронта; иначе null).
+        pgn: resolvedPgn,
         fen: dto.fen ?? null,
         opening: meta.opening ?? null,
         event: meta.event ?? null,
