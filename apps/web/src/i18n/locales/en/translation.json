@@ -3071,5 +3071,106 @@
     "untilShort": "Until",
     "prevMonth": "Previous month",
     "nextMonth": "Next month"
+  },
+  "openingTrainer": {
+    "lobby": {
+      "title": "Opening Trainer",
+      "subtitle": "Train your opening repertoire from your own PGN.",
+      "newCta": "+ New repertoire",
+      "empty": "You don't have any repertoires yet. Start with your first PGN."
+    },
+    "card": {
+      "nodes": "{{count}} positions",
+      "edges": "{{count}} moves",
+      "depth": "depth {{count}}"
+    },
+    "new": {
+      "title": "New repertoire",
+      "subtitle": "Upload a PGN with all your opening variations. Transpositions will be collapsed automatically.",
+      "submit": "Create",
+      "submitting": "Creating…",
+      "fields": {
+        "title": "Title",
+        "description": "Description (optional)",
+        "pgn": "PGN"
+      },
+      "placeholders": {
+        "title": "e.g. Caro-Kann for Black",
+        "description": "Short note about this repertoire"
+      },
+      "drop": {
+        "label": "Drop a .pgn file here or click to browse"
+      },
+      "errors": {
+        "titleRequired": "Title is required.",
+        "pgnRequired": "PGN is required.",
+        "tooLarge": "PGN file is too large (max 500KB).",
+        "createFailed": "Failed to create repertoire."
+      }
+    },
+    "detail": {
+      "backToList": "All repertoires",
+      "confirmDelete": "Delete this repertoire?",
+      "delete": "Delete repertoire",
+      "starting": "Starting…",
+      "startCta": "Train",
+      "stats": {
+        "positions": "Positions",
+        "moves": "Moves",
+        "depth": "Max depth"
+      },
+      "start": {
+        "title": "Start training",
+        "side": "Play as",
+        "white": "White",
+        "black": "Black",
+        "mode": "Mode",
+        "mode.learn": "Learn (new lines)",
+        "mode.free": "Free practice",
+        "mode.mistakes": "Mistakes only",
+        "mode.review": "Review (M2)"
+      }
+    },
+    "session": {
+      "title": "Opening training",
+      "score": "Score",
+      "correct": "Correct",
+      "wrong": "Not in the repertoire",
+      "expected": "Expected",
+      "lineComplete": "Line completed",
+      "hint": "Hint",
+      "hintBtn": "Hint",
+      "undo": "Undo",
+      "giveup": "Show answer",
+      "finish": "Finish session",
+      "finishing": "Finishing…"
+    },
+    "result": {
+      "title": "Session complete",
+      "score": "Score",
+      "again": "Train again",
+      "dashboard": "All repertoires",
+      "stats": {
+        "moves": "Moves played",
+        "correct": "Correct",
+        "wrong": "Mistakes",
+        "hints": "Hints used",
+        "accuracy": "Accuracy",
+        "lines": "Lines completed"
+      }
+    },
+    "errors": {
+      "loadFailed": "Failed to load repertoires",
+      "notFound": "Not found",
+      "startFailed": "Failed to start session",
+      "deleteFailed": "Failed to delete repertoire",
+      "loadSessionFailed": "Failed to load session",
+      "invalidFen": "Invalid position from server",
+      "moveFailed": "Move failed",
+      "hintFailed": "Hint failed",
+      "undoFailed": "Undo failed",
+      "giveupFailed": "Giveup failed",
+      "finishFailed": "Finish failed"
+    }
   }
 }

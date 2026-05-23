@@ -74,6 +74,12 @@ import { DrillSprintResultsPage } from './pages/DrillSprintResultsPage';
 import { DrillLeaderboardPage } from './pages/DrillLeaderboardPage';
 // KS-2418: публичная страница «Как работают тренажёры».
 import { DrillsAboutPage } from './pages/DrillsAboutPage';
+// KS-3273 (ADR-077): Opening Trainer — 5 страниц.
+import { OpeningTrainerLobbyPage } from './pages/openingTrainer/OpeningTrainerLobbyPage';
+import { OpeningTrainerNewPage } from './pages/openingTrainer/OpeningTrainerNewPage';
+import { OpeningTrainerDetailPage } from './pages/openingTrainer/OpeningTrainerDetailPage';
+import { OpeningTrainerSessionPage } from './pages/openingTrainer/OpeningTrainerSessionPage';
+import { OpeningTrainerResultPage } from './pages/openingTrainer/OpeningTrainerResultPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
@@ -563,6 +569,28 @@ export function App() {
           }
         />
         <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
+        {/* KS-3273 (ADR-077): Opening Trainer. ProtectedRoute — все
+            операции требуют user-id на бэке. */}
+        <Route
+          path="/opening-trainer"
+          element={<ProtectedRoute><OpeningTrainerLobbyPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/opening-trainer/new"
+          element={<ProtectedRoute><OpeningTrainerNewPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/opening-trainer/:id"
+          element={<ProtectedRoute><OpeningTrainerDetailPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/opening-trainer/:id/session/:sid"
+          element={<ProtectedRoute><OpeningTrainerSessionPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/opening-trainer/:id/session/:sid/result"
+          element={<ProtectedRoute><OpeningTrainerResultPage /></ProtectedRoute>}
+        />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
