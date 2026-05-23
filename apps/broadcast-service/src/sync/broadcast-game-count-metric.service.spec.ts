@@ -336,7 +336,7 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(redis._store.get('broadcast:auto-resync:failures:PersistRid')).toBe('2');
   });
 
-  it('KS-3265: успех после серии неудач сбрасывает counter и cooldown', async () => {
+  it('KS-3265: успех после серии неудач — cooldown сброшен, counter живёт в grace (default 600s)', async () => {
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'Recover', ourCount: 1 }),
     ]);
@@ -361,6 +361,7 @@ describe('KS-3231 runGameCountCheckTick', () => {
     // Симулируем cooldown expiry + успешный resync на следующем tick'е.
     redis._store.delete('broadcast:auto-resync:cooldown:Recover');
     autoResyncReturn = { fetched: true, gamesBefore: 1, gamesAfter: 5 };
+    (redis.expire as jest.Mock).mockClear();
 
     const r2 = await runGameCountCheckTick({
       prisma, redis, logger: makeLogger(),
@@ -368,9 +369,108 @@ describe('KS-3231 runGameCountCheckTick', () => {
       telegramFn, autoResyncFn, sleepFn: async () => {},
     });
     expect(r2.autoResyncStats.succeeded).toBe(1);
-    // Counter и cooldown сброшены.
-    expect(redis._store.has('broadcast:auto-resync:failures:Recover')).toBe(false);
+    // Cooldown DEL'ится (mock map очищает) — discard cooldown.
     expect(redis._store.has('broadcast:auto-resync:cooldown:Recover')).toBe(false);
+    // KS-3265 ext: failures-counter НЕ DEL'ится, а EXPIRE'ится на 600s.
+    // Mock map не expire'ит ключи — counter всё ещё в store со значением '1'.
+    expect(redis._store.get('broadcast:auto-resync:failures:Recover')).toBe('1');
+    expect(redis.expire).toHaveBeenCalledWith(
+      'broadcast:auto-resync:failures:Recover',
+      600,
+    );
+  });
+
+  it('KS-3265 ext: flap «success → fail в grace-окне» — silenced, без telegram', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Flap', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    // Tick 1: failure (INCR counter до 1, telegram уходит).
+    let autoResyncReturn: { fetched: boolean; gamesBefore: number; gamesAfter: number } = {
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    };
+    const autoResyncFn = jest.fn(async () => autoResyncReturn);
+
+    const r1 = await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+    });
+    expect(r1.telegramSent).toBe(true);
+    expect(r1.autoResyncStats.errors).toBe(1);
+    expect(r1.autoResyncStats.silencedByRetryLimit).toBe(0);
+
+    // Tick 2: cooldown снят, success (counter получает grace TTL).
+    redis._store.delete('broadcast:auto-resync:cooldown:Flap');
+    autoResyncReturn = { fetched: true, gamesBefore: 1, gamesAfter: 5 };
+    telegramFn.mockClear();
+
+    await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+    });
+    // Counter живёт в grace (mock не expire'ит — но реальный Redis
+    // EXPIRE'нет, значение '1' остаётся).
+    expect(redis._store.get('broadcast:auto-resync:failures:Flap')).toBe('1');
+
+    // Tick 3: ВНУТРИ grace'а — новая failure. INCR даёт 2 → silenced.
+    redis._store.delete('broadcast:auto-resync:cooldown:Flap');
+    autoResyncReturn = { fetched: false, gamesBefore: 5, gamesAfter: 5 };
+    telegramFn.mockClear();
+
+    const r3 = await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+    });
+
+    expect(redis._store.get('broadcast:auto-resync:failures:Flap')).toBe('2');
+    expect(r3.telegramSent).toBe(false); // <<< grace-окно подавило flap-телеграмму
+    expect(r3.autoResyncStats.silencedByRetryLimit).toBe(1);
+    expect(r3.autoResyncStats.errors).toBe(0);
+    expect(telegramFn).not.toHaveBeenCalled();
+  });
+
+  it('KS-3265 ext: successGraceSec env-override применяется', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'CustomGrace', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    let autoResyncReturn: { fetched: boolean; gamesBefore: number; gamesAfter: number } = {
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    };
+    const autoResyncFn = jest.fn(async () => autoResyncReturn);
+    // Tick 1 → failure.
+    await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+      successGraceSec: 1800,
+    });
+    redis._store.delete('broadcast:auto-resync:cooldown:CustomGrace');
+    autoResyncReturn = { fetched: true, gamesBefore: 1, gamesAfter: 5 };
+    (redis.expire as jest.Mock).mockClear();
+
+    // Tick 2 → success, ожидаем EXPIRE(failuresKey, 1800).
+    await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+      successGraceSec: 1800,
+    });
+    expect(redis.expire).toHaveBeenCalledWith(
+      'broadcast:auto-resync:failures:CustomGrace',
+      1800,
+    );
   });
 
   it('KS-3265: ladder применяется по failures-counter (1→3600, 2→10800, 3→43200, 4+→86400)', async () => {

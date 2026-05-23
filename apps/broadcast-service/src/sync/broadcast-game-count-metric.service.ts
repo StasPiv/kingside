@@ -47,6 +47,23 @@ const DEFAULT_ALERT_TTL_SEC = 3600; // 1 час
 // resync (Lichess отдал partial, ждём следующий полный snapshot).
 // Используется как TTL для FIRST attempt'а (failures=1).
 const DEFAULT_AUTO_RESYNC_COOLDOWN_SEC = 3600;
+/**
+ * KS-3265 (extension). Grace TTL для failures-counter после успешного
+ * auto-resync'а. Раньше на success мы DEL'или счётчик — серия мгновенно
+ * закрывалась, и любая последующая неудача (flap «success → fail» в
+ * течение минут) считалась НОВОЙ серией → отправляла telegram.
+ *
+ * Теперь на success делаем EXPIRE counter'а на `SUCCESS_GRACE_SEC` (10
+ * мин по умолчанию). Если в течение grace происходит новая неудача —
+ * INCR счётчика даёт `failuresCount >= 2`, что отрабатывает по той же
+ * silenced-логике. После grace-окна счётчик исчезает естественно,
+ * серия закрывается, новые неудачи начинают новую серию.
+ *
+ * Cooldown-ключ на success ВСЁ ЕЩЁ DEL'ится — нужно дать механизму
+ * возможность сразу retry'нуть, если Lichess дотечёт ещё партий через
+ * минуту. Только counter получает grace.
+ */
+const DEFAULT_AUTO_RESYNC_SUCCESS_GRACE_SEC = 600;
 const AUTO_RESYNC_KEY_PREFIX = 'broadcast:auto-resync:cooldown:';
 
 // KS-3265: эскалирующий cooldown для persistent-failed раундов.
@@ -157,6 +174,12 @@ export interface MetricCheckDeps {
    * следующим. Default `[3600, 10800, 43200, 86400]` (1ч → 3ч → 12ч → 24ч).
    */
   failureCooldownLadderSec?: number[];
+  /**
+   * KS-3265 (extension). Grace TTL для failures-counter после success.
+   * Default 600s (10 мин). Env-override:
+   * `BROADCAST_AUTO_RESYNC_SUCCESS_GRACE_SEC`.
+   */
+  successGraceSec?: number;
 }
 
 export interface MetricCheckSummary {
@@ -303,6 +326,8 @@ export async function runGameCountCheckTick(
     deps.autoResyncCooldownSec ?? DEFAULT_AUTO_RESYNC_COOLDOWN_SEC;
   const ladder =
     deps.failureCooldownLadderSec ?? DEFAULT_FAILURE_COOLDOWN_LADDER_SEC;
+  const successGraceSec =
+    deps.successGraceSec ?? DEFAULT_AUTO_RESYNC_SUCCESS_GRACE_SEC;
   const autoResyncFn = deps.autoResyncFn;
   const stats = {
     attempted: 0,
@@ -422,12 +447,22 @@ export async function runGameCountCheckTick(
           );
           continue;
         }
-        // Успех. Сбрасываем счётчик failures и cooldown — серия закрыта.
-        await deps.redis.del(failuresKey).catch(() => {});
+        // Успех. KS-3265 extension: вместо DEL failuresKey'я даём ему
+        // grace-окно (`successGraceSec`, default 600s). Если в течение
+        // grace'а тот же rid снова сбойнёт — INCR даст counter ≥ 2 и
+        // отработает silenced-веткой (flap «success → fail» не шумит
+        // в telegram). По истечении grace'а ключ испаряется естественно
+        // и серия закрывается.
+        //
+        // Cooldown DEL'им сразу — после успеха надо разрешить мгновенный
+        // retry, если Lichess дотечёт ещё партий через минуту.
+        await deps.redis
+          .expire(failuresKey, successGraceSec)
+          .catch(() => {});
         await deps.redis.del(cooldownKey).catch(() => {});
         stats.succeeded++;
         deps.logger.log(
-          `[auto-resync] roundId=${m.lichessRoundId} status=ok before=${r.gamesBefore} after=${r.gamesAfter}`,
+          `[auto-resync] roundId=${m.lichessRoundId} status=ok before=${r.gamesBefore} after=${r.gamesAfter} grace=${successGraceSec}s`,
         );
       } catch (err) {
         await onFailure('error', `exception: ${(err as Error).message}`);
@@ -694,6 +729,13 @@ export class BroadcastGameCountMetricService
         failureCooldownLadderSec: parseEnvCsvInt(
           'BROADCAST_GAME_COUNT_FAILURE_COOLDOWN_LADDER_SEC',
           DEFAULT_FAILURE_COOLDOWN_LADDER_SEC,
+        ),
+        // KS-3265 (extension): grace-окно после success'а — failures-
+        // counter живёт ещё `successGraceSec` секунд вместо мгновенного
+        // DEL. Подавляет flap «success → fail в течение grace».
+        successGraceSec: parseEnvInt(
+          'BROADCAST_AUTO_RESYNC_SUCCESS_GRACE_SEC',
+          DEFAULT_AUTO_RESYNC_SUCCESS_GRACE_SEC,
         ),
         maxBroadcasts: parseEnvInt(
           'BROADCAST_GAME_COUNT_MAX_BROADCASTS',
