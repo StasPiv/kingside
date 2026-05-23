@@ -11,6 +11,8 @@ export * from './types/synthetic.js';
 export * from './types/internal-auth.js';
 export * from './types/tactic-drill.js';
 export * from './types/saved-filters.js';
+// KS-3269 (ADR-077): Opening Trainer.
+export * from './types/opening-trainer.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
