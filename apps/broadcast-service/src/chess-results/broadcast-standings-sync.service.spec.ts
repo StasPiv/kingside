@@ -33,6 +33,7 @@ const TTL_LIVE_MS = 5 * 60 * 1000;
 
 interface MockPrisma {
   broadcastFindUnique: jest.Mock;
+  broadcastUpdate: jest.Mock;
   standingsFindUnique: jest.Mock;
   standingsUpsert: jest.Mock;
   queryRaw: jest.Mock;
@@ -58,6 +59,7 @@ function makePrisma(opts: {
   ]);
   return {
     broadcastFindUnique: jest.fn().mockResolvedValue(opts.broadcast ?? null),
+    broadcastUpdate: jest.fn().mockResolvedValue({}),
     standingsFindUnique: jest.fn().mockResolvedValue(opts.standings ?? null),
     standingsUpsert: jest.fn().mockResolvedValue({}),
     queryRaw,
@@ -74,10 +76,15 @@ function makeRedis(opts: { lockAcquired?: boolean } = {}): MockRedis {
   };
 }
 
-function makeFetcher(impl?: jest.Mock): ChessResultsFetcher {
+function makeFetcher(
+  impl?: jest.Mock,
+  searchImpl?: jest.Mock,
+): ChessResultsFetcher {
   const fetcher = {
     fetchPage:
       impl ?? jest.fn().mockResolvedValue('<html></html>'),
+    searchTournamentByTitle:
+      searchImpl ?? jest.fn().mockResolvedValue([]),
   };
   return fetcher as unknown as ChessResultsFetcher;
 }
@@ -90,7 +97,10 @@ function makeService(opts: {
 }): BroadcastStandingsSyncService {
   const metrics = new MetricsService();
   const prismaShim = {
-    broadcast: { findUnique: opts.prisma.broadcastFindUnique },
+    broadcast: {
+      findUnique: opts.prisma.broadcastFindUnique,
+      update: opts.prisma.broadcastUpdate,
+    },
     broadcastStandings: {
       findUnique: opts.prisma.standingsFindUnique,
       upsert: opts.prisma.standingsUpsert,
@@ -109,6 +119,7 @@ function makeService(opts: {
 
 const baseBroadcast = {
   id: 'bc-1',
+  title: 'Test Broadcast',
   format: '12-player round-robin',
   teamTable: false,
   chessResultsTournamentId: '1395782',
@@ -1086,3 +1097,273 @@ describe('KS-2214: round-robin matrix — placeholder не затирает ре
     expect(carlsen?.points).toBe(2);
   });
 });
+
+describe('BroadcastStandingsSyncService — KS-3266 chess-results title-fallback', () => {
+  /**
+   * Сценарий Halocher: tnr1349842 от Lichess → «Record not found».
+   * Search по title возвращает один кандидат → принимаем без verification,
+   * UPDATE'аем broadcast.standings_url и chess_results_tournament_id,
+   * retry build на новом id. Ответ — chess-results swiss.
+   */
+  it('TournamentNotFoundError → single search-кандидат → UPDATE broadcast + retry build', async () => {
+    const swissRankingHtml = loadFixture('swiss-art1-ranking.html');
+    const swissPairingsHtml = loadFixture('swiss-art2-pairings.html');
+
+    // fetchPage: первый вызов — TournamentNotFoundError, потом — норм HTML.
+    const fetchPage = jest
+      .fn()
+      .mockImplementationOnce(async () => {
+        const { TournamentNotFoundError } = await import(
+          './chess-results-fetcher'
+        );
+        throw new TournamentNotFoundError(
+          '1349842',
+          'https://chess-results.com/tnr1349842.aspx?lan=1&art=1',
+        );
+      })
+      .mockImplementation(async (tid: string, art: number) => {
+        if (art === 1) return swissRankingHtml;
+        if (art === 2) return swissPairingsHtml;
+        return '<html></html>';
+      });
+
+    const searchTournamentByTitle = jest.fn().mockResolvedValue([
+      { tournamentId: '1422274', title: '39. Internationale Hasslocher Schachtage' },
+    ]);
+    const fetcher = makeFetcher(fetchPage, searchTournamentByTitle);
+
+    const broadcast = {
+      ...baseBroadcast,
+      id: 'bc-halocher',
+      title: '39. Internationale Haßlocher Schachtage',
+      format: 'swiss',
+      teamTable: false,
+      chessResultsTournamentId: '1349842',
+      rounds: [
+        {
+          id: 'r1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          tournamentType: 'swiss',
+          games: [],
+        },
+      ],
+    };
+
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher });
+
+    const r = await svc.refresh('bc-halocher');
+
+    // Verify: search был вызван, UPDATE прошёл с новым id, retry build вернул chess-results.
+    expect(searchTournamentByTitle).toHaveBeenCalledWith(
+      '39. Internationale Haßlocher Schachtage',
+    );
+    expect(prisma.broadcastUpdate).toHaveBeenCalledWith({
+      where: { id: 'bc-halocher' },
+      data: {
+        chessResultsTournamentId: '1422274',
+        standingsUrl: 'https://chess-results.com/tnr1422274.aspx',
+      },
+    });
+    expect(r.sourceType).toBe('chess-results');
+    expect(r.tournamentType).toBe('swiss');
+    expect(r.sourceUrl).toBe('https://chess-results.com/tnr1422274.aspx');
+  });
+
+  it('TournamentNotFoundError → search вернул 0 кандидатов → internal-fallback', async () => {
+    const fetchPage = jest.fn().mockImplementation(async () => {
+      const { TournamentNotFoundError } = await import(
+        './chess-results-fetcher'
+      );
+      throw new TournamentNotFoundError(
+        '999999',
+        'https://chess-results.com/tnr999999.aspx?lan=1&art=1',
+      );
+    });
+    const searchTournamentByTitle = jest.fn().mockResolvedValue([]);
+    const fetcher = makeFetcher(fetchPage, searchTournamentByTitle);
+
+    const broadcast = {
+      ...baseBroadcast,
+      id: 'bc-notfound',
+      title: 'Unknown Tournament XYZ',
+      format: 'swiss',
+      chessResultsTournamentId: '999999',
+      rounds: [{ id: 'r1', name: 'R1', startsAt: null, tournamentType: 'swiss', games: [] }],
+    };
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher });
+
+    const r = await svc.refresh('bc-notfound');
+
+    expect(searchTournamentByTitle).toHaveBeenCalled();
+    // Broadcast НЕ должен быть UPDATE'нут — кандидатов не нашли.
+    expect(prisma.broadcastUpdate).not.toHaveBeenCalled();
+    // Падаем на internal-fallback.
+    expect(r.sourceType).toBe('internal-fallback');
+  });
+
+  it('TournamentNotFoundError → multi-кандидаты, нет players в broadcast_games → skip (без подмены)', async () => {
+    const fetchPage = jest.fn().mockImplementation(async () => {
+      const { TournamentNotFoundError } = await import(
+        './chess-results-fetcher'
+      );
+      throw new TournamentNotFoundError(
+        '111111',
+        'https://chess-results.com/tnr111111.aspx?lan=1&art=1',
+      );
+    });
+    const searchTournamentByTitle = jest.fn().mockResolvedValue([
+      { tournamentId: '222222', title: 'Tournament A 2026' },
+      { tournamentId: '333333', title: 'Tournament A 2025' },
+      { tournamentId: '444444', title: 'Tournament A 2024' },
+    ]);
+    const fetcher = makeFetcher(fetchPage, searchTournamentByTitle);
+
+    const broadcast = {
+      ...baseBroadcast,
+      id: 'bc-multi',
+      title: 'Tournament A',
+      format: 'swiss',
+      chessResultsTournamentId: '111111',
+      rounds: [{ id: 'r1', name: 'R1', startsAt: null, tournamentType: 'swiss', games: [] }],
+    };
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher });
+
+    const r = await svc.refresh('bc-multi');
+
+    // Ни verify-fetch'ей, ни UPDATE — нечем верифицировать.
+    expect(prisma.broadcastUpdate).not.toHaveBeenCalled();
+    expect(r.sourceType).toBe('internal-fallback');
+  });
+
+  it('TournamentNotFoundError → multi-кандидаты, верификация прошла на первом', async () => {
+    const swissRankingHtml = loadFixture('swiss-art1-ranking.html');
+    const swissPairingsHtml = loadFixture('swiss-art2-pairings.html');
+
+    // 1. Первый fetchPage (originalTid, art=1) — NotFound.
+    // 2-N. После title-search + UPDATE — обычные art=1/art=2 для нового tid.
+    //      Для верификации (counts player overlap) — fetchPage(tnr=222222, art=1) → swiss-art1-ranking.
+    let firstCalled = false;
+    const fetchPage = jest.fn().mockImplementation(
+      async (tid: string, art: number) => {
+        if (!firstCalled) {
+          firstCalled = true;
+          const { TournamentNotFoundError } = await import(
+            './chess-results-fetcher'
+          );
+          throw new TournamentNotFoundError(
+            String(tid),
+            `https://chess-results.com/tnr${tid}.aspx?lan=1&art=${art}`,
+          );
+        }
+        if (art === 1) return swissRankingHtml;
+        if (art === 2) return swissPairingsHtml;
+        return '<html></html>';
+      },
+    );
+    const searchTournamentByTitle = jest.fn().mockResolvedValue([
+      { tournamentId: '222222', title: 'Real Match' },
+      { tournamentId: '333333', title: 'Other Match' },
+    ]);
+    const fetcher = makeFetcher(fetchPage, searchTournamentByTitle);
+
+    // Игроки из swiss-art1-ranking.html фикстуры — берём первые имена.
+    // Чтобы countPlayerOverlap нашёл ≥3 общих имён, broadcast_games
+    // содержат тех же игроков.
+    // Простые имена из реальной chess-results swiss-ranking фикстуры:
+    const fixturePlayerNames = extractTopNamesFromSwissRanking(swissRankingHtml, 5);
+    expect(fixturePlayerNames.length).toBeGreaterThanOrEqual(3);
+
+    const broadcast = {
+      ...baseBroadcast,
+      id: 'bc-verify',
+      title: 'Tournament X',
+      format: 'swiss',
+      chessResultsTournamentId: '111111',
+      rounds: [
+        {
+          id: 'r1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T10:00:00Z'),
+          tournamentType: 'swiss',
+          games: fixturePlayerNames.slice(0, 3).map((n, i) => ({
+            id: `g-${i}`,
+            roundId: 'r1',
+            whitePlayer: n,
+            blackPlayer: fixturePlayerNames[(i + 1) % fixturePlayerNames.length],
+            whiteElo: null,
+            blackElo: null,
+            result: '1-0',
+            pgn: null,
+          })),
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast, lifecycle: 'finished' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher });
+
+    const r = await svc.refresh('bc-verify');
+
+    expect(prisma.broadcastUpdate).toHaveBeenCalledWith({
+      where: { id: 'bc-verify' },
+      data: {
+        chessResultsTournamentId: '222222',
+        standingsUrl: 'https://chess-results.com/tnr222222.aspx',
+      },
+    });
+    expect(r.sourceType).toBe('chess-results');
+  });
+
+  it('не-NotFound ошибка fetcher → НЕ запускает title-search, прямой internal-fallback', async () => {
+    const fetchPage = jest
+      .fn()
+      .mockRejectedValue(new Error('upstream 500'));
+    const searchTournamentByTitle = jest.fn();
+    const fetcher = makeFetcher(fetchPage, searchTournamentByTitle);
+
+    const broadcast = {
+      ...baseBroadcast,
+      title: 'Some Tournament',
+      format: 'swiss',
+      chessResultsTournamentId: '123',
+      rounds: [{ id: 'r1', name: 'R1', startsAt: null, tournamentType: 'swiss', games: [] }],
+    };
+    const prisma = makePrisma({ broadcast });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher });
+
+    const r = await svc.refresh('bc-1');
+
+    expect(searchTournamentByTitle).not.toHaveBeenCalled();
+    expect(prisma.broadcastUpdate).not.toHaveBeenCalled();
+    expect(r.sourceType).toBe('internal-fallback');
+  });
+});
+
+/**
+ * Хелпер для KS-3266 теста: извлекает имена топ-N игроков из HTML
+ * swiss-art1-ranking фикстуры (table → first column with players).
+ * Простая parsable structure: ищем строки таблицы, в которых есть
+ * link на player-profile, и берём текст из соседней колонки.
+ */
+function extractTopNamesFromSwissRanking(html: string, n: number): string[] {
+  const names: string[] = [];
+  // Ищем `<td>...</td>` блоки в строке игрока. Дёшево и сердито —
+  // chess-results ranking-table обычно структурирована как
+  // `<tr class="CRng1/CRng2"><td>rank</td>...<td>Name</td>...</tr>`.
+  const rowRe = /<tr[^>]*class="CRn[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(html)) !== null && names.length < n) {
+    const cells = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((c) =>
+      c[1].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(),
+    );
+    // Имя обычно во 2-3 колонке (после rank/title или start-no).
+    const candidate = cells.find(
+      (c) => /[A-Za-zА-Яа-я]/.test(c) && c.length >= 4 && !/^\d+$/.test(c),
+    );
+    if (candidate) names.push(candidate);
+  }
+  return names;
+}

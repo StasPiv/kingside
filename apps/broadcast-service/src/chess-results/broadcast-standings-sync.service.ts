@@ -8,6 +8,8 @@ import {
   CircuitOpenError,
   HttpThrottleError,
   RateLimitedLocalError,
+  TournamentNotFoundError,
+  type ChessResultsSearchCandidate,
   type Lifecycle,
 } from './chess-results-fetcher';
 import {
@@ -332,23 +334,50 @@ export class BroadcastStandingsSyncService {
 
     let response: CrosstableResponse;
     let fetchErrReason: string | null = null;
+    let effectiveTid = tid;
     try {
-      switch (tournamentType) {
-        case 'round-robin':
-          response = await this.buildRoundRobin(broadcast, tid, lifecycle);
-          break;
-        case 'swiss':
-          response = await this.buildSwiss(broadcast, tid, lifecycle);
-          break;
-        case 'team-swiss':
-        case 'team-round-robin':
-          response = await this.buildTeam(
+      try {
+        response = await this.buildByType(
+          broadcast,
+          effectiveTid,
+          lifecycle,
+          tournamentType,
+        );
+      } catch (innerErr: unknown) {
+        // KS-3266: chess-results вернул «Record not found» на tnrXXXXXX,
+        // который пришёл от Lichess broadcast metadata. Пробуем найти
+        // турнир по названию через SearchTournament.aspx и подменить id.
+        if (innerErr instanceof TournamentNotFoundError) {
+          const resolved = await this.tryResolveTournamentIdByTitle(
             broadcast,
+            tournamentType,
+          );
+          if (!resolved) {
+            // Search ничего не дал / неоднозначно / verification fail →
+            // не подменяем, пробрасываем дальше — фолбэк на internal.
+            throw innerErr;
+          }
+          await this.applyResolvedTournamentId(
+            broadcast.id,
             tid,
+            resolved.tournamentId,
+          );
+          effectiveTid = resolved.tournamentId;
+          broadcast.chessResultsTournamentId = resolved.tournamentId;
+          this.logger.log(
+            `[standings] tnr-fallback applied: broadcast=${broadcast.id.slice(0, 8)} ` +
+              `title="${broadcast.title}" tnr${tid} → tnr${resolved.tournamentId} ` +
+              `(${resolved.matchedCount > 0 ? `${resolved.matchedCount} players verified` : 'single candidate'})`,
+          );
+          response = await this.buildByType(
+            broadcast,
+            effectiveTid,
             lifecycle,
             tournamentType,
           );
-          break;
+        } else {
+          throw innerErr;
+        }
       }
       this.refreshTotal.inc({ status: 'ok', type: tournamentType });
     } catch (err: unknown) {
@@ -381,6 +410,206 @@ export class BroadcastStandingsSyncService {
   }
 
   // ── Builders по типам турниров ─────────────────────────────────────
+
+  /**
+   * Диспетчер по `tournamentType`. Вынесен в отдельный метод, чтобы
+   * KS-3266 fallback мог дёрнуть его повторно с новым `effectiveTid`
+   * после успешного title-search resolution.
+   */
+  private async buildByType(
+    broadcast: BroadcastWithRounds,
+    tid: string,
+    lifecycle: Lifecycle,
+    tournamentType: Exclude<TournamentType, 'unknown'>,
+  ): Promise<CrosstableResponse> {
+    switch (tournamentType) {
+      case 'round-robin':
+        return this.buildRoundRobin(broadcast, tid, lifecycle);
+      case 'swiss':
+        return this.buildSwiss(broadcast, tid, lifecycle);
+      case 'team-swiss':
+      case 'team-round-robin':
+        return this.buildTeam(broadcast, tid, lifecycle, tournamentType);
+    }
+  }
+
+  /**
+   * KS-3266. Fallback по title: chess-results.com/SearchTournament.aspx.
+   *
+   *   1. `searchTournamentByTitle(broadcast.title)` — список кандидатов
+   *      (`tnr-id` + название) с нормализацией диакритики.
+   *   2. 0 кандидатов → null (без подмены).
+   *   3. 1 кандидат → принимаем без верификации (chess-results нашёл
+   *      единственное соответствие — доверяем).
+   *   4. >1 кандидатов → берём ПЕРВЫЙ (chess-results сортирует по
+   *      релевантности) и верифицируем сверкой имён игроков с
+   *      `broadcast_games`. Минимум 3 общих имени → accept.
+   *      Если первый не верифицирован, берём второй; до `MAX_VERIFY=3`.
+   *   5. Если ни один не прошёл verification → null с WARN, без
+   *      telegram-алерта.
+   *
+   * Verification fetcher art=1 (универсальная страница со списком
+   * игроков — есть и в swiss-ranking, и в team-composition, и в
+   * round-robin top-players). HTML парсится regex'ом по нашему
+   * normalized-player-name'у — без специализированных парсеров
+   * (минимум зависимостей; verify не зависит от типа турнира).
+   */
+  private async tryResolveTournamentIdByTitle(
+    broadcast: BroadcastWithRounds,
+    tournamentType: Exclude<TournamentType, 'unknown'>,
+  ): Promise<{ tournamentId: string; matchedCount: number } | null> {
+    const title = broadcast.title?.trim();
+    if (!title) return null;
+    let candidates: ChessResultsSearchCandidate[];
+    try {
+      candidates = await this.fetcher.searchTournamentByTitle(title);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[standings] title-search for "${title}" failed: ${(err as Error).message}`,
+      );
+      return null;
+    }
+    if (candidates.length === 0) {
+      this.logger.warn(
+        `[standings] title-search for "${title}" returned no candidates`,
+      );
+      return null;
+    }
+    if (candidates.length === 1) {
+      return { tournamentId: candidates[0].tournamentId, matchedCount: 0 };
+    }
+    // >1 кандидатов: верифицируем по именам игроков.
+    const ourPlayers = this.collectKnownPlayerNames(broadcast);
+    if (ourPlayers.size < 3) {
+      // Нечем верифицировать (broadcast только-только создан, ещё нет
+      // партий) → не подменяем вслепую.
+      this.logger.warn(
+        `[standings] title-search for "${title}" returned ${candidates.length} candidates ` +
+          `but only ${ourPlayers.size} known players in broadcast_games — skip substitution`,
+      );
+      return null;
+    }
+    const MAX_VERIFY = 3;
+    for (let i = 0; i < Math.min(candidates.length, MAX_VERIFY); i++) {
+      const cand = candidates[i];
+      try {
+        const html = await this.fetcher.fetchPage(cand.tournamentId, 1, 'live');
+        const matched = this.countPlayerOverlap(html, ourPlayers);
+        this.logger.log(
+          `[standings] verify candidate ${i + 1}/${candidates.length} ` +
+            `tnr${cand.tournamentId} "${cand.title}": ${matched}/${ourPlayers.size} known players found in HTML`,
+        );
+        if (matched >= 3) {
+          return {
+            tournamentId: cand.tournamentId,
+            matchedCount: matched,
+          };
+        }
+      } catch (err: unknown) {
+        this.logger.warn(
+          `[standings] verify candidate tnr${cand.tournamentId} fetch failed: ${(err as Error).message}`,
+        );
+      }
+    }
+    this.logger.warn(
+      `[standings] title-search for "${title}" returned ${candidates.length} candidates, ` +
+        `none passed player-verification (need ≥3 overlap) — skip substitution. type=${tournamentType}`,
+    );
+    return null;
+  }
+
+  /**
+   * KS-3266. Собирает нормализованные имена игроков из `broadcast_games`
+   * (white_player / black_player) текущего broadcast'а. Используется как
+   * baseline для verification в `tryResolveTournamentIdByTitle`.
+   */
+  private collectKnownPlayerNames(
+    broadcast: BroadcastWithRounds,
+  ): Set<string> {
+    const names = new Set<string>();
+    for (const r of broadcast.rounds) {
+      for (const g of r.games) {
+        const w = normalizePlayerName(g.whitePlayer);
+        const b = normalizePlayerName(g.blackPlayer);
+        if (w) names.add(w);
+        if (b) names.add(b);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * KS-3266. Считает сколько из `knownNames` присутствует в `html`
+   * (например, в `art=1` chess-results ranking). Сравнение по
+   * нормализованным именам — text content страницы преобразуется в
+   * lowercased substring search.
+   *
+   * Простая эвристика, не претендующая на полное name-matching: тут
+   * достаточно «совпало 3+ имён → это явно тот турнир».
+   */
+  private countPlayerOverlap(html: string, knownNames: Set<string>): number {
+    if (!html) return 0;
+    // Strip tags + lowercase для substring search.
+    const text = html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+    // normalizePlayerName уже lowercased, осталось проверить вхождение.
+    let count = 0;
+    for (const name of knownNames) {
+      if (!name) continue;
+      // Имя на странице может быть «Lastname, Firstname», у нас «firstname lastname».
+      // Проверяем оба варианта: целиком и по частям (≥2 слова, оба длиной ≥3
+      // — иначе много ложных совпадений на простых фамилиях).
+      if (text.includes(name)) {
+        count += 1;
+        continue;
+      }
+      const parts = name.split(' ').filter((p) => p.length >= 3);
+      if (parts.length >= 2) {
+        const allMatch = parts.every((p) => text.includes(p));
+        if (allMatch) count += 1;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * KS-3266. UPDATE `broadcasts.standings_url` + `chess_results_tournament_id`
+   * после успешного title-search resolution. Идемпотентно: вызывается
+   * только когда фактический id меняется.
+   *
+   * `standingsUrl` ставим в канонический шаблон `https://chess-results.com/
+   * tnrXXX.aspx` (без `lan` параметра — формат совпадает с тем, что пишет
+   * broadcast-worker на upsert'е).
+   */
+  private async applyResolvedTournamentId(
+    broadcastId: string,
+    oldTid: string,
+    newTid: string,
+  ): Promise<void> {
+    const newUrl = `https://chess-results.com/tnr${newTid}.aspx`;
+    try {
+      await this.prisma.broadcast.update({
+        where: { id: broadcastId },
+        data: {
+          chessResultsTournamentId: newTid,
+          standingsUrl: newUrl,
+        },
+      });
+      this.logger.log(
+        `[standings] UPDATE broadcasts SET chess_results_tournament_id=${newTid}, ` +
+          `standings_url='${newUrl}' WHERE id='${broadcastId}' (was tnr${oldTid})`,
+      );
+    } catch (err: unknown) {
+      // Не критично — fallback всё равно отработает на следующем sync'е.
+      this.logger.warn(
+        `[standings] failed to UPDATE broadcasts for ${broadcastId}: ${(err as Error).message}`,
+      );
+    }
+  }
 
   private async buildRoundRobin(
     broadcast: BroadcastWithRounds,
@@ -1407,6 +1636,9 @@ export class BroadcastStandingsSyncService {
 /** Тип Broadcast с подгруженными rounds+games (Prisma include). */
 type BroadcastWithRounds = {
   id: string;
+  /** KS-3266: используется fallback'ом `tryResolveTournamentIdByTitle`,
+   *  когда Lichess metadata указывает на устаревший tnrXXXXXX. */
+  title: string;
   format: string | null;
   teamTable: boolean;
   chessResultsTournamentId: string | null;

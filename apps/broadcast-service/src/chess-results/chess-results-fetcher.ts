@@ -116,6 +116,29 @@ export class HttpThrottleError extends Error {
 }
 
 /**
+ * KS-3266. chess-results возвращает HTTP 200 с HTML, содержащим
+ * `<div id="P_Error" class="error"><h3>Record not found </h3></div>`,
+ * когда `tnrXXXXXX` не существует (organizer удалил / переименовал /
+ * Lichess указал устаревший id). Это не сетевая ошибка — обычный
+ * текстовый маркер на странице.
+ *
+ * Бросаем отдельный класс, чтобы `BroadcastStandingsSyncService` мог
+ * поймать его и запустить fallback-поиск по title (`SearchTournament.aspx`).
+ */
+export class TournamentNotFoundError extends Error {
+  readonly code = 'TOURNAMENT_NOT_FOUND' as const;
+  constructor(
+    public readonly tournamentId: string,
+    public readonly url: string,
+  ) {
+    super(
+      `chess-results tournament ${tournamentId} not found at ${url} (Record not found)`,
+    );
+    this.name = 'TournamentNotFoundError';
+  }
+}
+
+/**
  * Outcome для метрики `chess_results_request_total{outcome}`. Перечисление
  * закрытое — расширение требует обновления dashboard.
  */
@@ -257,9 +280,23 @@ export class ChessResultsFetcher {
         await this.redis
           .set(lastFetchKey, String(this.now()), 'EX', ttlSec)
           .catch(() => {});
+        // KS-3266: chess-results на несуществующий tnr отдаёт 200 OK
+        // c маркером `Record not found` внутри HTML. Это не сетевая
+        // ошибка — детектим её здесь и бросаем `TournamentNotFoundError`,
+        // чтобы caller (standings-sync) запустил fallback по title.
+        if (isTournamentNotFoundHtml(html)) {
+          this.logger.warn(
+            `chess-results tnr ${tid} returns «Record not found» at ${url}`,
+          );
+          throw new TournamentNotFoundError(tid, url);
+        }
         return html;
       } catch (err: unknown) {
         lastError = err;
+        // KS-3266: «Record not found» — не транзиент, не ретраим.
+        if (err instanceof TournamentNotFoundError) {
+          throw err;
+        }
         if (err instanceof HttpThrottleError) {
           // 429/503 — circuit-кандидат. Ретрай не делаем (если upstream
           // throttle'ит — бессмысленно повторять моментально).
@@ -395,6 +432,56 @@ export class ChessResultsFetcher {
     }
   }
 
+  /**
+   * KS-3266. Поиск турнира на chess-results по названию через
+   * `/SearchTournament.aspx?lan=1&Search=<query>`. Используется в
+   * `BroadcastStandingsSyncService` как fallback, когда `tnrXXXXXX`,
+   * сохранённый в `broadcasts.standings_url` (получен от Lichess
+   * broadcast metadata), отдаёт «Record not found».
+   *
+   * Не использует rate-limit Redis (это не per-tournament запрос, а
+   * один-два поиска на проблемный broadcast). Circuit-breaker уважается —
+   * если основной upstream throttle'ит, поиск тоже не делаем.
+   *
+   * Возвращает массив кандидатов в порядке их появления на странице.
+   * Caller сам решает, как верифицировать (например — сверка имён
+   * игроков с PGN-headers партий).
+   *
+   * Throws:
+   *   - `CircuitOpenError` — если circuit-breaker открыт.
+   *   - `HttpThrottleError` — 429/503 от chess-results.
+   *   - `TimeoutError` / network — прочие сетевые ошибки.
+   */
+  async searchTournamentByTitle(
+    title: string,
+  ): Promise<ChessResultsSearchCandidate[]> {
+    const normalized = normalizeTitleForSearch(title);
+    if (!normalized) {
+      return [];
+    }
+    // Уважаем circuit-breaker.
+    const circuitTtl = await this.redis.ttl(CIRCUIT_OPEN_KEY).catch(() => -2);
+    if (circuitTtl > 0) {
+      throw new CircuitOpenError(circuitTtl);
+    }
+    const url = `${BASE_URL}/SearchTournament.aspx?lan=1&Search=${encodeURIComponent(normalized)}`;
+    try {
+      const html = await this.doFetch(url);
+      const candidates = parseSearchResults(html);
+      this.logger.log(
+        `chess-results search "${normalized}" → ${candidates.length} candidate(s)`,
+      );
+      // Успешный fetch — сбрасываем счётчик подряд-фейлов.
+      await this.redis.del(CIRCUIT_FAILS_KEY).catch(() => {});
+      return candidates;
+    } catch (err: unknown) {
+      if (err instanceof HttpThrottleError) {
+        await this.recordThrottleAndMaybeOpenCircuit();
+      }
+      throw err;
+    }
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => this.setTimeoutImpl(resolve, ms));
   }
@@ -417,4 +504,95 @@ class HttpStatusError extends Error {
     super(`HTTP ${status} for ${url}`);
     this.name = 'HttpStatusError';
   }
+}
+
+/**
+ * KS-3266. Детектит маркер «Record not found» на странице chess-results.
+ *
+ * Реальный HTML на несуществующий tnr:
+ *
+ *   <div id="P_Error" class="error"><h3>Record not found </h3></div>
+ *
+ * Хвостовой пробел в `Record not found ` присутствует в источнике —
+ * не trim'аем чтобы случайно не съесть его. Также допускаем варианты
+ * c/без атрибута class и с любым `id`-значением (chess-results
+ * выдаёт стабильно `P_Error`, но не закладываемся на это).
+ */
+export function isTournamentNotFoundHtml(html: string): boolean {
+  if (!html) return false;
+  // Дешёвый pre-check: ищем подстроку, не запуская regex на 100KB HTML.
+  if (!html.includes('Record not found')) return false;
+  return /<h\d[^>]*>\s*Record not found\s*<\/h\d>/i.test(html);
+}
+
+/**
+ * KS-3266. Парсит HTML страницы `SearchTournament.aspx?lan=1&Search=<query>`.
+ * Возвращает кандидаты на матч `{tournamentId, title, location?}` в порядке
+ * как они появились на странице (chess-results сортирует по релевантности).
+ *
+ * Формат строки результата (упрощённо):
+ *
+ *   <a href="tnr1422274.aspx?lan=1">39. Internationale Hasslocher Schachtage A</a>
+ *
+ * Может быть вложен в td/tr таблицы. Регулярка достаточно либеральна, чтобы
+ * захватить и относительный (`tnr…aspx`) и абсолютный (`https://…/tnr…aspx`)
+ * варианты, и не зависит от наличия `lan=1`.
+ */
+export interface ChessResultsSearchCandidate {
+  tournamentId: string;
+  title: string;
+}
+
+export function parseSearchResults(
+  html: string,
+): ChessResultsSearchCandidate[] {
+  if (!html) return [];
+  const candidates: ChessResultsSearchCandidate[] = [];
+  const seen = new Set<string>();
+  // Захватываем `href=...tnr<digits>.aspx...` и текст внутри <a>...</a>.
+  const re =
+    /<a\s+[^>]*href\s*=\s*["'][^"']*tnr(\d+)\.aspx[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const tid = m[1];
+    if (seen.has(tid)) continue;
+    seen.add(tid);
+    // Убираем теги внутри <a> и нормализуем whitespace.
+    const inner = m[2]
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!inner) continue;
+    candidates.push({ tournamentId: tid, title: inner });
+  }
+  return candidates;
+}
+
+/**
+ * KS-3266. Нормализация диакритики для поискового запроса. chess-results
+ * умеет искать по подстроке, но `Haßlocher` ≠ `Hasslocher` для их движка
+ * (наблюдалось эмпирически на тестовом запросе). Снижаем строку до ASCII
+ * через NFKD + удаление combining marks + замены немецких/специфических
+ * лигатур.
+ */
+export function normalizeTitleForSearch(title: string): string {
+  if (!title) return '';
+  return title
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '') // combining diacritics
+    .replace(/ß/g, 'ss')
+    .replace(/Æ/g, 'AE')
+    .replace(/æ/g, 'ae')
+    .replace(/Œ/g, 'OE')
+    .replace(/œ/g, 'oe')
+    .replace(/Ø/g, 'O')
+    .replace(/ø/g, 'o')
+    .replace(/Đ/g, 'D')
+    .replace(/đ/g, 'd')
+    .replace(/Ł/g, 'L')
+    .replace(/ł/g, 'l')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

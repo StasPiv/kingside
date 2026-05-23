@@ -3,6 +3,10 @@ import {
   CircuitOpenError,
   HttpThrottleError,
   RateLimitedLocalError,
+  TournamentNotFoundError,
+  isTournamentNotFoundHtml,
+  parseSearchResults,
+  normalizeTitleForSearch,
   type FetcherDeps,
 } from './chess-results-fetcher';
 import { MetricsService } from '../metrics/metrics.service';
@@ -475,6 +479,177 @@ describe('ChessResultsFetcher', () => {
       await fetcher.fetchPage(1, 1, 'live');
       const init = (fetchImpl.mock.calls[0] as [string, RequestInit])[1];
       expect(init.redirect).toBe('follow');
+    });
+  });
+
+  describe('KS-3266: «Record not found» → TournamentNotFoundError', () => {
+    function mockFetchNotFoundHtml(): jest.Mock {
+      return jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<html><body><div id="P_Error" class="error"><h3>Record not found </h3></div></body></html>',
+      })) as unknown as jest.Mock;
+    }
+
+    it('200 OK с «Record not found» в HTML → TournamentNotFoundError', async () => {
+      const fetchImpl = mockFetchNotFoundHtml();
+      const { fetcher } = setup({ fetchImpl });
+
+      await expect(fetcher.fetchPage(1349842, 1, 'live')).rejects.toBeInstanceOf(
+        TournamentNotFoundError,
+      );
+      // Не ретраим — только один call.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('TournamentNotFoundError не ретраится (атомарный фейл)', async () => {
+      const fetchImpl = mockFetchNotFoundHtml();
+      const { fetcher } = setup({ fetchImpl });
+
+      try {
+        await fetcher.fetchPage(1, 1, 'live');
+        fail('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(TournamentNotFoundError);
+      }
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('KS-3266: searchTournamentByTitle', () => {
+    function mockFetchSearchOk(html: string): jest.Mock {
+      return jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => html,
+      })) as unknown as jest.Mock;
+    }
+
+    it('кодирует title в query-string и нормализует диакритику', async () => {
+      const fetchImpl = mockFetchSearchOk('<html></html>');
+      const { fetcher } = setup({ fetchImpl });
+
+      await fetcher.searchTournamentByTitle('39. Internationale Haßlocher Schachtage');
+
+      const url = (fetchImpl.mock.calls[0] as [string, RequestInit])[0];
+      expect(url).toContain('SearchTournament.aspx');
+      // Haßlocher → Hasslocher
+      expect(decodeURIComponent(url)).toContain('Hasslocher');
+    });
+
+    it('парсит tnr-ссылки из HTML результата', async () => {
+      const html = `
+        <html><body>
+          <table>
+            <tr><td><a href="tnr1422274.aspx?lan=1">39. Internationale Hasslocher Schachtage A</a></td></tr>
+            <tr><td><a href="https://chess-results.com/tnr1422264.aspx?lan=1">39. Internationale Hasslocher Schachtage B</a></td></tr>
+          </table>
+        </body></html>
+      `;
+      const fetchImpl = mockFetchSearchOk(html);
+      const { fetcher } = setup({ fetchImpl });
+
+      const candidates = await fetcher.searchTournamentByTitle('Hasslocher');
+
+      expect(candidates).toHaveLength(2);
+      expect(candidates[0].tournamentId).toBe('1422274');
+      expect(candidates[0].title).toContain('Hasslocher Schachtage A');
+      expect(candidates[1].tournamentId).toBe('1422264');
+    });
+
+    it('пустой title → []', async () => {
+      const fetchImpl = jest.fn();
+      const { fetcher } = setup({ fetchImpl });
+
+      const candidates = await fetcher.searchTournamentByTitle('');
+
+      expect(candidates).toEqual([]);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('respects circuit-breaker', async () => {
+      const fetchImpl = jest.fn();
+      const { fetcher } = setup({
+        fetchImpl,
+        initialRedis: {
+          'chess-results:circuit:open': { value: '1', ttlMs: 60_000 },
+        },
+      });
+
+      await expect(
+        fetcher.searchTournamentByTitle('any'),
+      ).rejects.toBeInstanceOf(CircuitOpenError);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('KS-3266: parseSearchResults helper', () => {
+    it('извлекает множественные tnr-ссылки', () => {
+      const html = `
+        <a href="tnr111.aspx?lan=1">First</a>
+        <a href="https://chess-results.com/tnr222.aspx">Second</a>
+        <a href="other.aspx">Skipped</a>
+      `;
+      const result = parseSearchResults(html);
+      expect(result).toEqual([
+        { tournamentId: '111', title: 'First' },
+        { tournamentId: '222', title: 'Second' },
+      ]);
+    });
+
+    it('дедуплицирует одинаковые tnr', () => {
+      const html = `
+        <a href="tnr111.aspx?lan=1">First</a>
+        <a href="tnr111.aspx?lan=1&art=0">First again</a>
+      `;
+      const result = parseSearchResults(html);
+      expect(result).toHaveLength(1);
+      expect(result[0].tournamentId).toBe('111');
+    });
+
+    it('пустой / без ссылок → []', () => {
+      expect(parseSearchResults('')).toEqual([]);
+      expect(parseSearchResults('<html><body>no links</body></html>')).toEqual([]);
+    });
+  });
+
+  describe('KS-3266: isTournamentNotFoundHtml helper', () => {
+    it('детектит «Record not found» внутри h3', () => {
+      const html = '<div id="P_Error" class="error"><h3>Record not found </h3></div>';
+      expect(isTournamentNotFoundHtml(html)).toBe(true);
+    });
+
+    it('игнорирует обычный текст «Record not found» вне заголовка', () => {
+      const html = '<p>Some text Record not found in description</p>';
+      expect(isTournamentNotFoundHtml(html)).toBe(false);
+    });
+
+    it('пустой HTML → false', () => {
+      expect(isTournamentNotFoundHtml('')).toBe(false);
+    });
+
+    it('обычный standings HTML → false', () => {
+      const html = '<table><tr><td>1</td><td>Player A</td></tr></table>';
+      expect(isTournamentNotFoundHtml(html)).toBe(false);
+    });
+  });
+
+  describe('KS-3266: normalizeTitleForSearch helper', () => {
+    it('Haßlocher → Hasslocher', () => {
+      expect(normalizeTitleForSearch('Haßlocher')).toBe('Hasslocher');
+    });
+
+    it('убирает umlaut diacritics', () => {
+      expect(normalizeTitleForSearch('Düsseldorf Open')).toBe('Dusseldorf Open');
+    });
+
+    it('сжимает whitespace', () => {
+      expect(normalizeTitleForSearch('  A  B   C  ')).toBe('A B C');
+    });
+
+    it('пустая строка → пустая', () => {
+      expect(normalizeTitleForSearch('')).toBe('');
     });
   });
 });
