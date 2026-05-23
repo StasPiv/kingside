@@ -436,6 +436,60 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(telegramFn).not.toHaveBeenCalled();
   });
 
+  it('KS-3265 kill-switch: telegramFailuresEnabled=false — telegram не вызывается, auto-resync работает', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'KillSwitch', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    }));
+
+    const r = await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+      telegramFailuresEnabled: false,
+    });
+
+    // auto-resync был вызван (механизм работает).
+    expect(autoResyncFn).toHaveBeenCalledWith('KillSwitch');
+    // failure зарегистрирован в stats (счётчики не подавлены).
+    expect(r.autoResyncStats.attempted).toBe(1);
+    expect(r.autoResyncStats.errors).toBe(1);
+    // НО telegram НЕ отправлен.
+    expect(telegramFn).not.toHaveBeenCalled();
+    expect(r.telegramSent).toBe(false);
+  });
+
+  it('KS-3265 kill-switch: telegramFailuresEnabled=true (default) — telegram отправляется', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'TelegramOn', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    }));
+
+    const r = await runGameCountCheckTick({
+      prisma, redis, logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn, autoResyncFn, sleepFn: async () => {},
+      // telegramFailuresEnabled опущен → default true
+    });
+
+    expect(telegramFn).toHaveBeenCalledTimes(1);
+    expect(r.telegramSent).toBe(true);
+  });
+
   it('KS-3265 ext: successGraceSec env-override применяется', async () => {
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'CustomGrace', ourCount: 1 }),

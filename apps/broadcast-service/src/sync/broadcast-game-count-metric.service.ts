@@ -180,6 +180,15 @@ export interface MetricCheckDeps {
    * `BROADCAST_AUTO_RESYNC_SUCCESS_GRACE_SEC`.
    */
   successGraceSec?: number;
+  /**
+   * KS-3265 «kill-switch» для telegram-алертов. Когда `false` —
+   * telegram-сообщения по auto-resync failures (errors/persistent/
+   * exception) НЕ отправляются. Авто-resync продолжает работать как
+   * обычно, события пишутся в логи broadcast-service. Default `true`
+   * (обратная совместимость). Env-override:
+   * `BROADCAST_GAME_COUNT_TELEGRAM_FAILURES_ENABLED`.
+   */
+  telegramFailuresEnabled?: boolean;
 }
 
 export interface MetricCheckSummary {
@@ -472,18 +481,34 @@ export async function runGameCountCheckTick(
 
   // Telegram только на failures (errors + persistent). Успешные
   // auto-resync'и тихие — пользователь видит результат в БД.
+  //
+  // KS-3265 kill-switch: если `telegramFailuresEnabled === false` —
+  // telegram не отправляем независимо от количества failures. События
+  // продолжают писаться в логи через `[auto-resync] … status=…` выше,
+  // мониторинг по ECS-логам / Loki не теряется.
   let telegramSent = false;
+  const telegramEnabled = deps.telegramFailuresEnabled ?? true;
   if (failures.length > 0) {
-    const text = formatAutoResyncFailureMessage(failures);
-    telegramSent = await telegramFn(text).catch(() => false);
-    if (!telegramSent) {
+    if (!telegramEnabled) {
       deps.logger.warn(
-        `[broadcast-metric] telegram send failed for ${failures.length} auto-resync failure(s)`,
+        `[broadcast-metric] telegram alerts DISABLED (BROADCAST_GAME_COUNT_TELEGRAM_FAILURES_ENABLED=false). ` +
+          `Skipped ${failures.length} auto-resync failure(s): ` +
+          failures
+            .map((f) => `${f.mismatch.lichessRoundId}=${f.kind}`)
+            .join(', '),
       );
     } else {
-      deps.logger.log(
-        `[broadcast-metric] telegram alert sent for ${failures.length} auto-resync failure(s)`,
-      );
+      const text = formatAutoResyncFailureMessage(failures);
+      telegramSent = await telegramFn(text).catch(() => false);
+      if (!telegramSent) {
+        deps.logger.warn(
+          `[broadcast-metric] telegram send failed for ${failures.length} auto-resync failure(s)`,
+        );
+      } else {
+        deps.logger.log(
+          `[broadcast-metric] telegram alert sent for ${failures.length} auto-resync failure(s)`,
+        );
+      }
     }
   }
 
@@ -737,6 +762,11 @@ export class BroadcastGameCountMetricService
           'BROADCAST_AUTO_RESYNC_SUCCESS_GRACE_SEC',
           DEFAULT_AUTO_RESYNC_SUCCESS_GRACE_SEC,
         ),
+        // KS-3265 kill-switch: если env = 'false' — telegram-алерты
+        // отключаются полностью (auto-resync продолжает работать).
+        telegramFailuresEnabled:
+          (process.env.BROADCAST_GAME_COUNT_TELEGRAM_FAILURES_ENABLED ?? 'true') !==
+          'false',
         maxBroadcasts: parseEnvInt(
           'BROADCAST_GAME_COUNT_MAX_BROADCASTS',
           DEFAULT_MAX_BROADCASTS,
