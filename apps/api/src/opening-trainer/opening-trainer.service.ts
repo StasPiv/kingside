@@ -300,6 +300,9 @@ export class OpeningTrainerService {
         wrongMoves: session.wrongMoves + 1,
         currentStreak: scoreRes.newStreak,
         pendingHintFen: null,
+        // KS-3277: помечаем линию как «грязную» — она не попадёт в
+        // cleanPlayedLines при line-complete, останется в очереди.
+        currentLineHadWrong: true,
         lastActivityAt: now,
       });
       return {
@@ -328,16 +331,26 @@ export class OpeningTrainerService {
       matched.moveUci,
     ];
     const playedLines = readPlayedLines(session.playedLines);
+    const cleanLines = readPlayedLines(session.cleanPlayedLines);
     const fenAfterUser = matched.childFen;
 
-    // Бот-ход.
-    const botEdges = tree.nodes[fenAfterUser]?.edges ?? [];
+    // KS-3277: бот выбирает ТОЛЬКО из непройденных-чисто edges. Если
+    // все edges позиции уже clean — этот узел полностью изучен, бот не
+    // должен туда возвращаться → trigger line-restart.
+    const allBotEdges = tree.nodes[fenAfterUser]?.edges ?? [];
+    const cleanFromHere = cleanLines[fenAfterUser] ?? [];
+    const uncleanEdges = allBotEdges.filter(
+      (e) => !cleanFromHere.includes(e.childFen),
+    );
     const playedFromHere = playedLines[fenAfterUser] ?? [];
-    const botPick = pickBotMove({
-      edges: botEdges,
-      playedChildFens: playedFromHere,
-      repeatMode: session.repeatMode as 'cycle' | 'complete',
-    });
+    const botPick =
+      uncleanEdges.length > 0
+        ? pickBotMove({
+            edges: uncleanEdges,
+            playedChildFens: playedFromHere,
+            repeatMode: session.repeatMode as 'cycle' | 'complete',
+          })
+        : { pick: null, cycled: false, lineComplete: true };
 
     await this.repo.createAttempt({
       sessionId,
@@ -363,6 +376,7 @@ export class OpeningTrainerService {
     };
 
     if (botPick.pick) {
+      // Линия продолжается — бот сделал свой ход.
       const newPlayedLines = {
         ...playedLines,
         [fenAfterUser]: botPick.cycled
@@ -390,20 +404,161 @@ export class OpeningTrainerService {
       };
     }
 
-    // Line complete (нет edges из позиции после нашего хода, либо все
-    // пройдены при repeatMode='complete'). Финишируем сессию.
-    const updated = await this.repo.updateSession(sessionId, {
+    // KS-3277: line-complete — бот не нашёл непройденного варианта.
+    // Если линия была clean — записываем её edges в cleanPlayedLines.
+    // Затем ищем следующую развилку с непройденными edges. Если нашли —
+    // line-restart. Если всё дерево clean — tree-complete.
+    return this.handleLineComplete({
+      session,
+      tree,
+      newPath: newPathAfterUser,
+      fenAfterUser,
+      cleanLines,
+      baseUpdate,
+      scoreDelta: scoreRes.scoreDelta,
+      now,
+    });
+  }
+
+  /**
+   * KS-3277. Логика «линия закончилась — что дальше».
+   *
+   * Шаги:
+   *   1. Если в текущей линии не было ошибок (`!currentLineHadWrong`),
+   *      проходим по `newPath[lineStartIndex..]`, добавляем каждый edge
+   *      в `cleanPlayedLines`. Линия зарегистрирована как пройденная.
+   *   2. `findNextUnexploredBranch` — walk currentPath сверху-вниз,
+   *      ищем позицию, у которой ещё есть непройденные (не clean) edges.
+   *   3. Если нашли — line-restart: currentFen/path/lineStartIndex
+   *      обновляются, бот делает ход из новой позиции (если ему ходить).
+   *   4. Если нет — tree-complete: status=finished, finishedAt=now.
+   */
+  private async handleLineComplete(args: {
+    session: {
+      id: string;
+      side: string;
+      currentLineHadWrong: boolean;
+      lineStartIndex: number;
+      playedLines: unknown;
+      repeatMode: string;
+    };
+    tree: RepertoireTree;
+    /** currentPath после применения user-хода (но без bot-хода). */
+    newPath: string[];
+    /** FEN после user-хода — позиция, в которой бот не нашёл ходов. */
+    fenAfterUser: string;
+    cleanLines: Record<string, string[]>;
+    baseUpdate: Record<string, unknown>;
+    scoreDelta: number;
+    now: Date;
+  }): Promise<OpeningTrainerMoveResponse> {
+    const { session, tree, newPath, fenAfterUser, baseUpdate, scoreDelta, now } =
+      args;
+    let cleanLines = args.cleanLines;
+
+    // 1. Если линия чистая — добавляем edges в cleanPlayedLines.
+    if (!session.currentLineHadWrong) {
+      cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
+    }
+
+    // 2. Ищем следующую развилку.
+    const next = findNextUnexploredBranch(tree, newPath, cleanLines);
+
+    if (!next) {
+      // tree-complete: всё дерево clean.
+      const updated = await this.repo.updateSession(session.id, {
+        ...baseUpdate,
+        currentFen: fenAfterUser,
+        currentPath: newPath,
+        cleanPlayedLines: cleanLines,
+        currentLineHadWrong: false,
+        status: 'finished',
+        finishedAt: now,
+      });
+      return {
+        result: 'tree-complete',
+        applied: true,
+        scoreDelta,
+        newFen: fenAfterUser,
+        session: sessionRowToDto(updated),
+      };
+    }
+
+    // 3. line-restart: откатываем доску к next.fen.
+    const restartPath = newPath.slice(0, next.depth);
+    const playedLines = readPlayedLines(session.playedLines);
+
+    // Бот должен сделать ход, если в restart-позиции его очередь.
+    // Очередь определяется длиной пути и стороной пользователя:
+    //   userSide='white' → user играет на чётных индексах (0, 2, ...).
+    //     Бот ходит, если restartPath.length % 2 === 1
+    //     ... нет, если path длина 0 — ход белых, играет ЮЗЕР (если он white).
+    //     Игрок играет когда path.length % 2 === 0 для white, == 1 для black.
+    //   userSide='black' → инверсно.
+    const userPliesAreEven = session.side === 'white';
+    const isUserTurn =
+      restartPath.length % 2 === (userPliesAreEven ? 0 : 1);
+
+    let finalFen = next.fen;
+    let finalPath = restartPath;
+    let initialBotMove: {
+      moveUci: string;
+      moveSan: string;
+      newFen: string;
+    } | null = null;
+    let updatedPlayedLines = playedLines;
+
+    if (!isUserTurn) {
+      // Бот делает первый ход из restart-позиции.
+      const botEdges = tree.nodes[next.fen]?.edges ?? [];
+      const cleanFromHere = cleanLines[next.fen] ?? [];
+      const uncleanEdges = botEdges.filter(
+        (e) => !cleanFromHere.includes(e.childFen),
+      );
+      const sessionPlayedFromHere = playedLines[next.fen] ?? [];
+      const botPick = pickBotMove({
+        edges: uncleanEdges,
+        playedChildFens: sessionPlayedFromHere,
+        repeatMode: session.repeatMode as 'cycle' | 'complete',
+      });
+      if (botPick.pick) {
+        updatedPlayedLines = {
+          ...playedLines,
+          [next.fen]: botPick.cycled
+            ? [botPick.pick.childFen]
+            : [...sessionPlayedFromHere, botPick.pick.childFen],
+        };
+        finalFen = botPick.pick.childFen;
+        finalPath = [...restartPath, botPick.pick.moveUci];
+        initialBotMove = {
+          moveUci: botPick.pick.moveUci,
+          moveSan: botPick.pick.moveSan,
+          newFen: botPick.pick.childFen,
+        };
+      }
+      // Если botPick.pick === null — мы пришли в позицию, где у бота
+      // тоже нет ходов. Реверсивно triggerим handleLineComplete... но
+      // это unlikely (findNextUnexploredBranch уже отфильтровал такие).
+      // Безопасно: просто оставляем пользователю эту fen (он сделает
+      // что-то и снова попадём в handleLineComplete).
+    }
+
+    const updated = await this.repo.updateSession(session.id, {
       ...baseUpdate,
-      currentFen: fenAfterUser,
-      currentPath: newPathAfterUser,
-      status: 'finished',
-      finishedAt: now,
+      currentFen: finalFen,
+      currentPath: finalPath,
+      cleanPlayedLines: cleanLines,
+      playedLines: updatedPlayedLines,
+      currentLineHadWrong: false,
+      lineStartIndex: restartPath.length,
     });
     return {
-      result: 'line-complete',
+      result: 'line-restart',
       applied: true,
-      scoreDelta: scoreRes.scoreDelta,
-      newFen: fenAfterUser,
+      scoreDelta,
+      newFen: finalFen,
+      newPath: finalPath,
+      botMove: initialBotMove,
       session: sessionRowToDto(updated),
     };
   }
@@ -689,6 +844,10 @@ interface SessionRow {
   currentStreak: number;
   streakMax: number;
   pendingHintFen: string | null;
+  // KS-3277:
+  cleanPlayedLines: unknown;
+  currentLineHadWrong: boolean;
+  lineStartIndex: number;
   startedAt: Date;
   lastActivityAt: Date;
   finishedAt: Date | null;
@@ -770,6 +929,110 @@ function readPlayedLines(json: unknown): Record<string, string[]> {
 function readUciArray(json: unknown): string[] {
   if (Array.isArray(json)) return json as string[];
   return [];
+}
+
+/**
+ * KS-3277. Добавляет edges из `path[lineStartIndex..]` в
+ * `cleanPlayedLines`. Для каждого ply: получаем FEN _до_ хода через
+ * chess.js, применяем ход, получаем FEN _после_. `cleanLines[fenBefore]`
+ * пополняется значением `fenAfter`.
+ *
+ * Используется при чистом line-complete (без wrong-attempts).
+ */
+export function addLineToClean(
+  cleanLines: Record<string, string[]>,
+  path: string[],
+  lineStartIndex: number,
+): Record<string, string[]> {
+  const result: Record<string, string[]> = { ...cleanLines };
+  const chess = new Chess();
+  for (let i = 0; i < path.length; i++) {
+    const fenBefore = chess.fen();
+    let move: ReturnType<Chess['move']>;
+    try {
+      move = chess.move(uciToSan(chess, path[i]));
+    } catch {
+      // Невалидный путь — должен быть невозможен (мы сами его записали),
+      // но на всякий случай прерываемся, не мутируя.
+      return cleanLines;
+    }
+    if (!move) return cleanLines;
+    if (i >= lineStartIndex) {
+      const fenAfter = chess.fen();
+      const arr = result[fenBefore] ?? [];
+      if (!arr.includes(fenAfter)) {
+        result[fenBefore] = [...arr, fenAfter];
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * KS-3277. Walk `path` от конца к началу: возвращает первую (наиближайшую
+ * к концу) позицию, в которой есть edges, не покрытые `cleanLines[fen]`.
+ *
+ * Возвращает `{fen, depth}`, где `depth` = длина `path` до этой
+ * позиции (т.е. `path.slice(0, depth)` — точный prefix до новой
+ * стартовой fen).
+ *
+ * `null` — все edges на пути уже clean (tree-complete).
+ */
+export function findNextUnexploredBranch(
+  tree: RepertoireTree,
+  path: string[],
+  cleanLines: Record<string, string[]>,
+): { fen: string; depth: number } | null {
+  // Сначала вычисляем FEN на каждой глубине (включая depth=0=rootFen).
+  const fens: string[] = [tree.rootFen];
+  const chess = new Chess();
+  for (let i = 0; i < path.length; i++) {
+    try {
+      chess.move(uciToSan(chess, path[i]));
+    } catch {
+      break;
+    }
+    fens.push(chess.fen());
+  }
+  // Walk от конца (path.length) к началу (0).
+  for (let depth = fens.length - 1; depth >= 0; depth--) {
+    const fen = fens[depth];
+    const edges = tree.nodes[fen]?.edges ?? [];
+    const cleanHere = cleanLines[fen] ?? [];
+    const uncleanCount = edges.filter(
+      (e) => !cleanHere.includes(e.childFen),
+    ).length;
+    if (uncleanCount > 0) return { fen, depth };
+  }
+  return null;
+}
+
+/**
+ * KS-3277 helper: chess.move() принимает SAN, а мы храним UCI.
+ * Конвертация: chess.moves({verbose:true}) даёт все ходы в текущей
+ * позиции с `from`/`to`/`promotion`/`san`; находим тот, у которого
+ * совпадает UCI.
+ */
+function uciToSan(chess: Chess, uci: string): string {
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion = uci.length > 4 ? uci[4] : undefined;
+  const moves = chess.moves({ verbose: true }) as Array<{
+    from: string;
+    to: string;
+    promotion?: string;
+    san: string;
+  }>;
+  const found = moves.find(
+    (m) =>
+      m.from === from &&
+      m.to === to &&
+      (promotion ? m.promotion === promotion : !m.promotion),
+  );
+  if (!found) {
+    throw new Error(`UCI ${uci} not legal at ${chess.fen()}`);
+  }
+  return found.san;
 }
 
 // Re-export типы для тестов / других модулей.

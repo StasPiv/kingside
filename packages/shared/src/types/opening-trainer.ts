@@ -35,8 +35,26 @@ export type OpeningTrainerRepeatMode = 'cycle' | 'complete';
 /** Статус сессии для UX. */
 export type OpeningTrainerSessionStatus = 'active' | 'finished' | 'expired';
 
-/** Результат проверки хода пользователя. */
-export type OpeningTrainerMoveResult = 'correct' | 'wrong' | 'line-complete';
+/**
+ * Результат проверки хода пользователя.
+ *
+ * KS-3277 расширение для «учить дерево до полного освоения»:
+ *   - `line-restart`  — линия закончилась, сессия не финиширует,
+ *     бек откатывает доску к ближайшей развилке с непройденными
+ *     вариантами и продолжает.
+ *   - `tree-complete` — всё дерево пройдено без ошибок, сессия
+ *     автоматически финишируется.
+ *
+ * `line-complete` оставлен для обратной совместимости и редких краевых
+ * случаев; в основном flow KS-3277 фронт получает `line-restart` или
+ * `tree-complete`.
+ */
+export type OpeningTrainerMoveResult =
+  | 'correct'
+  | 'wrong'
+  | 'line-complete'
+  | 'line-restart'
+  | 'tree-complete';
 
 // ─── Tree (ADR-077 §2.2) ──────────────────────────────────────────────
 
@@ -397,10 +415,51 @@ export interface OpeningTrainerMoveLineCompleteResponse
   newFen: string;
 }
 
+/**
+ * KS-3277. Линия закончилась (или бот не нашёл непройденный вариант
+ * в текущей позиции), бекенд автоматически откатил доску к ближайшей
+ * развилке с непройденными edges. Сессия НЕ финиширует — пользователь
+ * продолжает играть из нового стартового FEN'а.
+ */
+export interface OpeningTrainerMoveLineRestartResponse
+  extends OpeningTrainerMoveBaseResponse {
+  result: 'line-restart';
+  applied: true;
+  scoreDelta: number;
+  /** FEN, в который перенесли доску (новая branch-стартовая позиция). */
+  newFen: string;
+  /** UCI-путь от root до `newFen` — фронт ре-рендерит доску по этому пути. */
+  newPath: string[];
+  /**
+   * Опц. бот-ход из новой позиции (если сейчас очередь бота). Когда
+   * `null` — ожидаем ход пользователя из `newFen`.
+   */
+  botMove: {
+    moveUci: string;
+    moveSan: string;
+    newFen: string;
+  } | null;
+}
+
+/**
+ * KS-3277. Всё дерево репертуара пройдено без ошибок — финал-экран
+ * «дерево выучено». Сессия автоматически финиширована (`status='finished'`).
+ */
+export interface OpeningTrainerMoveTreeCompleteResponse
+  extends OpeningTrainerMoveBaseResponse {
+  result: 'tree-complete';
+  applied: true;
+  scoreDelta: number;
+  /** Финальная FEN — позиция, в которой завершилось дерево. */
+  newFen: string;
+}
+
 export type OpeningTrainerMoveResponse =
   | OpeningTrainerMoveCorrectResponse
   | OpeningTrainerMoveWrongResponse
-  | OpeningTrainerMoveLineCompleteResponse;
+  | OpeningTrainerMoveLineCompleteResponse
+  | OpeningTrainerMoveLineRestartResponse
+  | OpeningTrainerMoveTreeCompleteResponse;
 
 /** `POST /opening-trainer/sessions/:sid/hint`. */
 export interface OpeningTrainerHintResponse {
@@ -489,4 +548,18 @@ export function isLineCompleteMove(
   r: OpeningTrainerMoveResponse,
 ): r is OpeningTrainerMoveLineCompleteResponse {
   return r.result === 'line-complete';
+}
+
+/** KS-3277. Type guard для `line-restart`. */
+export function isLineRestartMove(
+  r: OpeningTrainerMoveResponse,
+): r is OpeningTrainerMoveLineRestartResponse {
+  return r.result === 'line-restart';
+}
+
+/** KS-3277. Type guard для `tree-complete`. */
+export function isTreeCompleteMove(
+  r: OpeningTrainerMoveResponse,
+): r is OpeningTrainerMoveTreeCompleteResponse {
+  return r.result === 'tree-complete';
 }

@@ -3,6 +3,8 @@ import {
   isCorrectMove,
   isWrongMove,
   isLineCompleteMove,
+  isLineRestartMove,
+  isTreeCompleteMove,
   OPENING_REPERTOIRE_LIMITS,
   OPENING_TRAINER_SCORING,
   OPENING_LINE_MASTERY_THRESHOLD,
@@ -10,6 +12,8 @@ import {
   type OpeningTrainerMoveCorrectResponse,
   type OpeningTrainerMoveWrongResponse,
   type OpeningTrainerMoveLineCompleteResponse,
+  type OpeningTrainerMoveLineRestartResponse,
+  type OpeningTrainerMoveTreeCompleteResponse,
   type OpeningTrainerSessionDto,
 } from './opening-trainer.js';
 
@@ -139,6 +143,41 @@ describe('OpeningTrainerMoveResponse — discriminated union', () => {
     expect(isLineCompleteMove(line)).toBe(true);
   });
 
+  it('KS-3277: narrows to LineRestart via isLineRestartMove guard', () => {
+    const r: OpeningTrainerMoveResponse = {
+      result: 'line-restart',
+      applied: true,
+      scoreDelta: 10,
+      newFen: 'restart-fen',
+      newPath: ['e2e4', 'e7e5'],
+      botMove: { moveUci: 'g1f3', moveSan: 'Nf3', newFen: 'after-bot' },
+      session: baseSession,
+    };
+    if (isLineRestartMove(r)) {
+      expect(r.newPath).toEqual(['e2e4', 'e7e5']);
+      expect(r.botMove?.moveSan).toBe('Nf3');
+      expect(r.applied).toBe(true);
+    } else {
+      throw new Error('guard should narrow line-restart branch');
+    }
+  });
+
+  it('KS-3277: narrows to TreeComplete via isTreeCompleteMove guard', () => {
+    const r: OpeningTrainerMoveResponse = {
+      result: 'tree-complete',
+      applied: true,
+      scoreDelta: 10,
+      newFen: 'final-fen',
+      session: baseSession,
+    };
+    if (isTreeCompleteMove(r)) {
+      expect(r.applied).toBe(true);
+      expect(r.newFen).toBe('final-fen');
+    } else {
+      throw new Error('guard should narrow tree-complete branch');
+    }
+  });
+
   it('switch на result даёт exhaustive coverage', () => {
     const handler = (r: OpeningTrainerMoveResponse): string => {
       switch (r.result) {
@@ -148,6 +187,10 @@ describe('OpeningTrainerMoveResponse — discriminated union', () => {
           return `wrong expected=${r.expectedMoves.length}`;
         case 'line-complete':
           return 'done';
+        case 'line-restart':
+          return `restart path=${r.newPath.length}`;
+        case 'tree-complete':
+          return 'tree-done';
         default: {
           // Если добавится новый member union'а — TS пометит ошибкой.
           const _exhaustive: never = r;

@@ -164,6 +164,10 @@ export class OpeningTrainerRepository {
       streakMax?: number;
       currentStreak?: number;
       pendingHintFen?: string | null;
+      // KS-3277:
+      cleanPlayedLines?: Prisma.InputJsonValue;
+      currentLineHadWrong?: boolean;
+      lineStartIndex?: number;
       lastActivityAt?: Date;
       finishedAt?: Date | null;
     },

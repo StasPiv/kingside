@@ -1638,6 +1638,21 @@ model OpeningTrainerSession {
   /// scoreDelta уменьшается до +5 вместо +10 (ADR-077 §2.7). После
   /// любого /move сбрасывается в NULL.
   pendingHintFen  String?  @map("pending_hint_fen")
+  /// KS-3277: edges, пройденные В ТЕКУЩЕЙ СЕССИИ без единой ошибки в
+  /// рамках линии (от line-restart до line-complete). Формат тот же,
+  /// что у playedLines: `{[fen]: childFen[]}`. Когда вся структура
+  /// `cleanPlayedLines` покрывает дерево репертуара → сессия завершается
+  /// статусом `tree-complete`. Edges с ошибочными ходами в линии НЕ
+  /// добавляются — линия попадает в очередь повторения.
+  cleanPlayedLines     Json @default("{}") @map("clean_played_lines")
+  /// KS-3277: флаг «в текущей линии была хотя бы одна ошибка». Сбрасывается
+  /// в `false` при line-restart / tree-complete. Используется чтобы решить —
+  /// помечать ли линию clean при достижении line-complete.
+  currentLineHadWrong  Boolean @default(false) @map("current_line_had_wrong")
+  /// KS-3277: индекс в `currentPath`, с которого началась текущая линия
+  /// (после последнего line-restart). Edges в `currentPath[lineStartIndex..]`
+  /// — кандидаты для добавления в cleanPlayedLines при clean line-complete.
+  lineStartIndex       Int @default(0) @map("line_start_index")
   startedAt       DateTime @default(now()) @map("started_at")
   lastActivityAt  DateTime @default(now()) @map("last_activity_at")
   finishedAt      DateTime? @map("finished_at")
