@@ -548,9 +548,8 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     expect(correct.result).toBe('line-restart');
     if (correct.result === 'line-restart') {
       expect(correct.session.status).toBe('active');
-      expect(correct.session.currentLineHadWrong).toBeUndefined();
-      // ^ currentLineHadWrong не в публичном DTO; флаг сбрасывается внутри,
-      //   видно по тому что следующее проигрывание без ошибок даст tree-complete.
+      // currentLineHadWrong не в публичном DTO; флаг сбрасывается внутри,
+      // верифицируется тем что следующий чистый заход даст tree-complete.
     }
 
     // Третий заход — теперь без ошибок.
