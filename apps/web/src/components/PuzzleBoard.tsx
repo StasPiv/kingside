@@ -9,6 +9,12 @@ import { useStablePosition } from '../hooks/useStablePosition';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 
+interface PuzzleBoardArrow {
+  startSquare: string;
+  endSquare: string;
+  color: string;
+}
+
 interface PuzzleBoardProps {
   game: Chess | null;
   boardOrientation: 'white' | 'black';
@@ -18,6 +24,12 @@ interface PuzzleBoardProps {
   suppressAnimation?: boolean;
   boardKey?: string | number;
   status?: 'thinking' | 'checking' | 'correct' | 'incorrect' | null;
+  /**
+   * KS-3274: дополнительные стрелки от вызывающего кода (hint в
+   * opening-trainer). Сливаются с внутренними suggested-стрелками из
+   * `useBoardHighlights` — добавляются в конец, чтобы рисовались поверх.
+   */
+  customArrows?: PuzzleBoardArrow[];
   children?: ReactNode;
 }
 
@@ -30,6 +42,7 @@ export function PuzzleBoard({
   suppressAnimation = false,
   boardKey,
   status,
+  customArrows,
   children,
 }: PuzzleBoardProps) {
   const { t } = useTranslation();
@@ -41,12 +54,23 @@ export function PuzzleBoard({
     [onPieceDrop],
   );
 
-  const { squareStyles, setLastMove, clearLastMove, onSquareClick } = useBoardHighlights({
+  const { squareStyles, arrows: internalArrows, setLastMove, clearLastMove, onSquareClick } = useBoardHighlights({
     game: game ?? null,
     playerColor: boardOrientation,
     enabled,
     onMove: onClickMove,
   });
+
+  // KS-3274: сливаем кастомные стрелки (hint в opening-trainer) с
+  // внутренними suggested-стрелками. `useMemo` — чтобы не было ре-рендеров
+  // MemoChessboard при неизменных входах.
+  const arrows = useMemo(
+    () =>
+      customArrows && customArrows.length > 0
+        ? [...internalArrows, ...customArrows]
+        : internalArrows,
+    [internalArrows, customArrows],
+  );
 
   // Sync last move highlight
   const lastMoveRef = useRef(lastMoveUci);
@@ -94,13 +118,14 @@ export function PuzzleBoard({
       allowDragging: false,
       showNotation: true,
       squareStyles,
+      arrows,
       onSquareClick: handleSquareClick,
       onPieceClick: handlePieceClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick, handlePieceClick, suppressAnimation],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, arrows, handleSquareClick, handlePieceClick, suppressAnimation],
   );
 
   return (

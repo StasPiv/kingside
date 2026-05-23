@@ -1,27 +1,24 @@
 /**
- * KS-3273 (ADR-077 §2.8 #4). Сессия тренировки — доска + бот + контролы.
+ * KS-3273 (ADR-077 §2.8 #4) + KS-3274 (UX polish). Сессия тренировки —
+ * доска + бот + контролы + UX.
  *
- * Flow:
- *  1. Mount — берём `session` + `initialBotMove` из location.state (если
- *     пришли через DetailPage.start). Если state пуст (refresh, прямая
- *     ссылка) — GET /opening-trainer/sessions/:sid и восстанавливаем
- *     `currentFen`.
- *  2. Если играем чёрными и `initialBotMove != null` — отрисуем сначала
- *     ход бота. У бэка currentFen УЖЕ после бот-хода, поэтому строим
- *     Chess из currentFen и проигрываем «анимацию» через короткую паузу
- *     (визуально показывает что бот сходил — UX). Источник истины fen —
- *     `session.currentFen`.
- *  3. onPieceDrop → POST /move. По дискриминатору `result`:
- *      - correct: обновляем fen, если botMove есть — анимируем после
- *        короткой паузы; обновляем session.
- *      - wrong: показываем popup с expected, fen не двигаем (бэк не применил).
- *      - line-complete: финиш линии, предлагаем «продолжить» (получить
- *        новую линию через POST /move невозможно — переходим на result-
- *        страницу через finish).
- *  4. Hint / Undo / Giveup / Finish — кнопки в боковой колонке.
+ * UX-полировка (KS-3274):
+ *  - Hint показывает стрелку лучшего хода на доске (`customArrows` в
+ *    `PuzzleBoard`), стрелка живёт до следующего хода/undo/giveup.
+ *  - Wrong-popup: при попытке `wrong` поверх доски открывается модалка
+ *    с ожидаемыми ходами и CTA «Попробовать ещё раз» / «Показать ответ».
+ *  - Streak-индикатор: цвет меняется по длине (3→зелёный, 4→синий,
+ *    5+ → фиолетовый + ×1.2 badge), вычисляем локально по correctMoves
+ *    с обнулением на любой wrong.
+ *  - Анимация бот-хода: задержка `BOT_DELAY_MS` после применения нашего
+ *    хода + sound `move/capture`.
+ *  - Auto-flip: orientation берётся ровно из `session.side`.
+ *  - Sounds: useSounds — `puzzle-correct` для правильного хода,
+ *    `puzzle-incorrect` для ошибки, `move`/`capture` для бота.
  *
- * Запоминаем время показа позиции в `positionShownAtRef` → передаём в
- * `responseTimeMs` для fast-bonus и SRS (M2).
+ * Поток без изменений из M1: discriminated union `/move` обрабатываем
+ * через типгварды (`isCorrectMove`/`isWrongMove`/`isLineCompleteMove`),
+ * `responseTimeMs = now − positionShownAtRef` для fast-bonus/SRS.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -30,10 +27,12 @@ import { Chess } from 'chess.js';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
 import { PuzzleBoard } from '../../components/PuzzleBoard';
+import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import {
   isCorrectMove,
   isLineCompleteMove,
   isWrongMove,
+  OPENING_TRAINER_SCORING,
 } from '@kingside/shared';
 import type {
   OpeningTrainerMoveResponse,
@@ -53,11 +52,52 @@ type Feedback =
   | { kind: 'hint'; moveSan: string }
   | null;
 
+const BOT_DELAY_MS = 420;
+const HINT_ARROW_COLOR = 'rgba(56, 189, 248, 0.75)';
+
+function uciSquares(uci: string): { from: string; to: string } | null {
+  if (!uci || uci.length < 4) return null;
+  return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
+}
+
+/**
+ * KS-3274: streak — мы не получаем явный counter от бэка в M1, поэтому
+ * аппроксимируем: длинной последовательности `correctMoves` без новых
+ * `wrongMoves`. Сбрасываем при изменении wrongMoves. Источник истины
+ * остаётся `score` (KS-3272 backend применяет multiplier там).
+ */
+function useLocalStreak(session: OpeningTrainerSessionDto | null): number {
+  const lastWrongRef = useRef<number>(session?.wrongMoves ?? 0);
+  const streakRef = useRef<number>(0);
+  const baselineCorrectRef = useRef<number>(session?.correctMoves ?? 0);
+
+  if (!session) return 0;
+  if (session.wrongMoves > lastWrongRef.current) {
+    // Был новый wrong — обнулить
+    streakRef.current = 0;
+    baselineCorrectRef.current = session.correctMoves;
+  }
+  streakRef.current = Math.max(0, session.correctMoves - baselineCorrectRef.current);
+  lastWrongRef.current = session.wrongMoves;
+  return streakRef.current;
+}
+
+function streakColor(streak: number): { color: string; bonus: boolean } {
+  if (streak >= OPENING_TRAINER_SCORING.streakThreshold) {
+    return { color: '#facc15', bonus: true }; // golden + multiplier
+  }
+  if (streak >= 4) return { color: '#a78bfa', bonus: false }; // violet
+  if (streak >= 3) return { color: '#38bdf8', bonus: false }; // sky
+  if (streak >= 2) return { color: '#4ade80', bonus: false }; // green
+  return { color: '#9ca3af', bonus: false }; // gray
+}
+
 export function OpeningTrainerSessionPage() {
   const { t } = useTranslation();
   const { id, sid } = useParams<{ id: string; sid: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { playSound } = useSounds();
   const incoming = (location.state as LocationState | null) ?? null;
 
   const [session, setSession] = useState<OpeningTrainerSessionDto | null>(
@@ -69,15 +109,15 @@ export function OpeningTrainerSessionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [hintArrowUci, setHintArrowUci] = useState<string | null>(null);
+  const [wrongModalOpen, setWrongModalOpen] = useState(false);
   const positionShownAtRef = useRef<number>(Date.now());
+  const streak = useLocalStreak(session);
 
   // Bootstrap — если пришли без state, грузим сессию.
   useEffect(() => {
     if (!sid) return;
-    if (incoming?.session) {
-      // ничего грузить не нужно
-      return;
-    }
+    if (incoming?.session) return;
     let cancelled = false;
     openingTrainerApi
       .getSession(sid)
@@ -104,11 +144,10 @@ export function OpeningTrainerSessionPage() {
     try {
       const chess = new Chess(session.currentFen);
       setGame(chess);
-      // Last-move highlight — берём последний UCI из currentPath, если есть.
       const last = session.currentPath[session.currentPath.length - 1];
       setLastMoveUci(last ?? null);
       positionShownAtRef.current = Date.now();
-    } catch (e) {
+    } catch {
       setLoadError(
         t('openingTrainer.errors.invalidFen', 'Invalid position from server'),
       );
@@ -137,45 +176,47 @@ export function OpeningTrainerSessionPage() {
   );
 
   const applyServerResponseAfterCorrect = useCallback(
-    (newFen: string, botMove: { moveUci: string; newFen: string } | null) => {
-      // Сразу показываем нашу позицию (newFen без бот-хода), потом через
-      // паузу — после бот-хода. Без задержки игрок не увидит, что бот
-      // сходил.
+    (newFen: string, botMove: { moveUci: string; moveSan: string; newFen: string } | null) => {
       try {
         const afterOurs = new Chess(newFen);
         setGame(afterOurs);
       } catch {
-        // ignore — на следующем шаге доска перерисуется по getSession()
+        /* ignore */
       }
       if (botMove) {
+        // KS-3274: анимация — короткая пауза + звук, чтобы пользователь
+        // визуально успел увидеть наш ход до бот-ответа.
         setTimeout(() => {
           try {
             const afterBot = new Chess(botMove.newFen);
             setGame(afterBot);
             setLastMoveUci(botMove.moveUci);
+            playSound(soundEventFromSan(botMove.moveSan));
             positionShownAtRef.current = Date.now();
           } catch {
             /* ignore */
           }
-        }, 400);
+        }, BOT_DELAY_MS);
       } else {
         positionShownAtRef.current = Date.now();
       }
     },
-    [],
+    [playSound],
   );
 
   const handleMoveResponse = useCallback(
     (res: OpeningTrainerMoveResponse) => {
       setSession(res.session);
+      setHintArrowUci(null); // любой ход скрывает hint-стрелку
       if (isCorrectMove(res)) {
         setLastMoveUci(null);
         setFeedback({ kind: 'correct', scoreDelta: res.scoreDelta });
+        playSound('puzzle-correct');
         applyServerResponseAfterCorrect(res.newFen, res.botMove);
       } else if (isWrongMove(res)) {
         setFeedback({ kind: 'wrong', expected: res.expectedMoves });
-        // fen не двигаем — у game уже была попытка пользователя в локальном
-        // стейте, откатим до currentFen из session:
+        setWrongModalOpen(true);
+        playSound('puzzle-incorrect');
         try {
           setGame(new Chess(res.session.currentFen));
         } catch {
@@ -183,6 +224,7 @@ export function OpeningTrainerSessionPage() {
         }
       } else if (isLineCompleteMove(res)) {
         setFeedback({ kind: 'line-complete' });
+        playSound('game-end');
         try {
           setGame(new Chess(res.newFen));
         } catch {
@@ -190,7 +232,7 @@ export function OpeningTrainerSessionPage() {
         }
       }
     },
-    [applyServerResponseAfterCorrect],
+    [playSound, applyServerResponseAfterCorrect],
   );
 
   const sendMove = useCallback(
@@ -210,9 +252,7 @@ export function OpeningTrainerSessionPage() {
           err instanceof ApiError
             ? err.message
             : t('openingTrainer.errors.moveFailed', 'Move failed');
-        setFeedback({ kind: 'wrong', expected: [] });
         setLoadError(msg);
-        // Откатываем доску до серверного currentFen.
         if (session) {
           try {
             setGame(new Chess(session.currentFen));
@@ -238,8 +278,6 @@ export function OpeningTrainerSessionPage() {
       if (!targetSquare || !game || submitting || session?.status !== 'active') {
         return false;
       }
-      // Auto-promotion в ферзя в M1 (popup не делаем — лимит scope).
-      // Если ход — повышение, всегда промоутим в ферзя.
       const promotion = isPromotionMove(sourceSquare, targetSquare) ? 'q' : undefined;
       const test = new Chess(game.fen());
       const result = test.move({
@@ -251,10 +289,11 @@ export function OpeningTrainerSessionPage() {
       setGame(test);
       const uci = sourceSquare + targetSquare + (promotion ?? '');
       setLastMoveUci(uci);
+      playSound(soundEventFromSan(result.san));
       void sendMove(uci);
       return true;
     },
-    [game, submitting, session?.status, isPromotionMove, sendMove],
+    [game, submitting, session?.status, isPromotionMove, sendMove, playSound],
   );
 
   const handleHint = useCallback(async () => {
@@ -264,6 +303,7 @@ export function OpeningTrainerSessionPage() {
       const res = await openingTrainerApi.hint(sid);
       setSession(res.session);
       setFeedback({ kind: 'hint', moveSan: res.hint.moveSan });
+      setHintArrowUci(res.hint.moveUci);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -279,6 +319,7 @@ export function OpeningTrainerSessionPage() {
     if (!sid || submitting) return;
     setSubmitting(true);
     setFeedback(null);
+    setHintArrowUci(null);
     try {
       const res = await openingTrainerApi.undo(sid);
       setSession(res.session);
@@ -302,14 +343,17 @@ export function OpeningTrainerSessionPage() {
   const handleGiveup = useCallback(async () => {
     if (!sid || submitting) return;
     setSubmitting(true);
+    setWrongModalOpen(false);
     try {
       const res = await openingTrainerApi.giveup(sid);
       setSession(res.session);
       setFeedback({ kind: 'wrong', expected: res.expectedMoves });
+      setHintArrowUci(null);
       try {
         if (res.botMove) {
           setGame(new Chess(res.botMove.newFen));
           setLastMoveUci(res.botMove.moveUci);
+          playSound(soundEventFromSan(res.botMove.moveSan));
         } else {
           setGame(new Chess(res.newFen));
         }
@@ -326,14 +370,17 @@ export function OpeningTrainerSessionPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [sid, submitting, t]);
+  }, [sid, submitting, t, playSound]);
 
   const handleFinish = useCallback(async () => {
     if (!sid || finishing) return;
     setFinishing(true);
     try {
-      await openingTrainerApi.finish(sid);
-      navigate(`/opening-trainer/${id}/session/${sid}/result`, { replace: true });
+      const res = await openingTrainerApi.finish(sid);
+      navigate(`/opening-trainer/${id}/session/${sid}/result`, {
+        replace: true,
+        state: { session: res.session, summary: res.summary },
+      });
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -344,7 +391,20 @@ export function OpeningTrainerSessionPage() {
     }
   }, [sid, finishing, navigate, id, t]);
 
+  const handleRetryAfterWrong = useCallback(() => {
+    setWrongModalOpen(false);
+    setFeedback(null);
+  }, []);
+
+  // KS-3274: auto-flip — берём ровно session.side.
   const orientation: 'white' | 'black' = session?.side ?? 'white';
+
+  const customArrows = useMemo(() => {
+    const sq = hintArrowUci ? uciSquares(hintArrowUci) : null;
+    if (!sq) return undefined;
+    return [{ startSquare: sq.from, endSquare: sq.to, color: HINT_ARROW_COLOR }];
+  }, [hintArrowUci]);
+
   const boardEnabled = useMemo(
     () => Boolean(session && session.status === 'active' && !submitting && game),
     [session, submitting, game],
@@ -366,6 +426,8 @@ export function OpeningTrainerSessionPage() {
       ? game.turn() === 'w'
       : game.turn() === 'b';
 
+  const streakStyle = streakColor(streak);
+
   return (
     <div className="opening-trainer-session" data-testid="opening-trainer-session">
       <header className="opening-trainer-session__header">
@@ -373,6 +435,22 @@ export function OpeningTrainerSessionPage() {
         <div className="opening-trainer-session__counters">
           <span data-testid="opening-trainer-score">
             {t('openingTrainer.session.score', 'Score')}: <b>{session.score}</b>
+          </span>
+          <span
+            className="opening-trainer-streak"
+            data-testid="opening-trainer-streak"
+            data-bonus={streakStyle.bonus ? 'true' : 'false'}
+            style={{ color: streakStyle.color }}
+          >
+            🔥 <b>{streak}</b>
+            {streakStyle.bonus && (
+              <span
+                className="opening-trainer-streak__badge"
+                data-testid="opening-trainer-streak-bonus"
+              >
+                ×{OPENING_TRAINER_SCORING.streakMultiplier}
+              </span>
+            )}
           </span>
           <span>
             ✓ <b>{session.correctMoves}</b>
@@ -391,9 +469,10 @@ export function OpeningTrainerSessionPage() {
           <PuzzleBoard
             game={game}
             boardOrientation={orientation}
-            enabled={boardEnabled && expectedSide}
+            enabled={boardEnabled && expectedSide && !wrongModalOpen}
             onPieceDrop={onPieceDrop}
             lastMoveUci={lastMoveUci}
+            customArrows={customArrows}
             status={
               feedback?.kind === 'correct'
                 ? 'correct'
@@ -402,6 +481,53 @@ export function OpeningTrainerSessionPage() {
                 : null
             }
           />
+          {wrongModalOpen && feedback?.kind === 'wrong' && (
+            <div
+              className="opening-trainer-wrong-modal"
+              role="dialog"
+              aria-modal="true"
+              data-testid="opening-trainer-wrong-modal"
+            >
+              <div className="opening-trainer-wrong-modal__card">
+                <h3>
+                  {t(
+                    'openingTrainer.session.wrongModal.title',
+                    'Not in the repertoire',
+                  )}
+                </h3>
+                <p>
+                  {t(
+                    'openingTrainer.session.wrongModal.hint',
+                    'Try the move that matches your prepared line.',
+                  )}
+                </p>
+                {feedback.expected.length > 0 && (
+                  <div className="opening-trainer-wrong-modal__expected">
+                    {t('openingTrainer.session.expected', 'Expected')}:{' '}
+                    <b>{feedback.expected.map((m) => m.moveSan).join(', ')}</b>
+                  </div>
+                )}
+                <div className="opening-trainer-wrong-modal__actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleRetryAfterWrong}
+                    data-testid="opening-trainer-wrong-retry"
+                  >
+                    {t('openingTrainer.session.wrongModal.retry', 'Try again')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleGiveup}
+                    data-testid="opening-trainer-wrong-giveup"
+                  >
+                    {t('openingTrainer.session.wrongModal.giveup', 'Show answer')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <aside className="opening-trainer-session__sidebar">
@@ -411,7 +537,7 @@ export function OpeningTrainerSessionPage() {
               {feedback.scoreDelta > 0 ? ` (+${feedback.scoreDelta})` : ''}
             </div>
           )}
-          {feedback?.kind === 'wrong' && (
+          {feedback?.kind === 'wrong' && !wrongModalOpen && (
             <div
               className="opening-trainer-feedback opening-trainer-feedback--wrong"
               data-testid="opening-trainer-wrong"
@@ -443,6 +569,10 @@ export function OpeningTrainerSessionPage() {
               onClick={handleHint}
               disabled={submitting}
               data-testid="opening-trainer-hint"
+              title={t(
+                'openingTrainer.session.hintTooltip',
+                'Highlight the best move on the board (half points).',
+              )}
             >
               💡 {t('openingTrainer.session.hintBtn', 'Hint')}
             </button>

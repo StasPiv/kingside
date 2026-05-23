@@ -3140,10 +3140,17 @@
       "lineComplete": "Line completed",
       "hint": "Hint",
       "hintBtn": "Hint",
+      "hintTooltip": "Highlight the best move on the board (half points).",
       "undo": "Undo",
       "giveup": "Show answer",
       "finish": "Finish session",
-      "finishing": "Finishing…"
+      "finishing": "Finishing…",
+      "wrongModal": {
+        "title": "Not in the repertoire",
+        "hint": "Try the move that matches your prepared line.",
+        "retry": "Try again",
+        "giveup": "Show answer"
+      }
     },
     "result": {
       "title": "Session complete",
