@@ -285,6 +285,21 @@ export class ChessResultsFetcher {
         const html = await this.doFetch(url);
         const durMs = this.now() - startTs;
         this.fetchMs.observe({ art: artLabel }, durMs);
+        // KS-3266: чекаем «Record not found» ДО того как обновим
+        // last-fetch ключ. Иначе rate-limit залочит caller'а от
+        // повторных попыток fallback'а на 5+ мин (live TTL), а наш
+        // search-by-title fallback в standings-sync.refresh вообще не
+        // сможет фактически дёрнуть art=1 для верификации кандидата —
+        // получит RateLimitedLocalError. NotFound — это «ошибочный»
+        // ответ, не должен «бронировать» rate-limit slot.
+        if (isTournamentNotFoundHtml(html)) {
+          this.requestTotal.inc({ art: artLabel, outcome: 'ok' });
+          await this.redis.del(CIRCUIT_FAILS_KEY).catch(() => {});
+          this.logger.warn(
+            `chess-results tnr ${tid} returns «Record not found» at ${url}`,
+          );
+          throw new TournamentNotFoundError(tid, url);
+        }
         this.requestTotal.inc({ art: artLabel, outcome: 'ok' });
         // Сбрасываем счётчик подряд-фейлов и обновляем last-fetch.
         await this.redis.del(CIRCUIT_FAILS_KEY).catch(() => {});
@@ -292,16 +307,6 @@ export class ChessResultsFetcher {
         await this.redis
           .set(lastFetchKey, String(this.now()), 'EX', ttlSec)
           .catch(() => {});
-        // KS-3266: chess-results на несуществующий tnr отдаёт 200 OK
-        // c маркером `Record not found` внутри HTML. Это не сетевая
-        // ошибка — детектим её здесь и бросаем `TournamentNotFoundError`,
-        // чтобы caller (standings-sync) запустил fallback по title.
-        if (isTournamentNotFoundHtml(html)) {
-          this.logger.warn(
-            `chess-results tnr ${tid} returns «Record not found» at ${url}`,
-          );
-          throw new TournamentNotFoundError(tid, url);
-        }
         return html;
       } catch (err: unknown) {
         lastError = err;
