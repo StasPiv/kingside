@@ -112,6 +112,9 @@ model User {
   navStats               UserNavStat[]
   // KS-3208 / ADR-074 §10 B4: audit-журнал AI-генераций курсов.
   aiLessonGenerations    AiLessonGeneration[]
+  // KS-3270 / ADR-077: репертуары и сессии Opening Trainer'а.
+  openingRepertoires       OpeningRepertoire[]
+  openingTrainerSessions   OpeningTrainerSession[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1524,5 +1527,156 @@ model UserNavStat {
   @@id([userId, route])
   @@index([userId, count(sort: Desc)])
   @@map("user_nav_stats")
+}
+
+/**
+ * KS-3270 (ADR-077 §2.1, §2.2, §2.6). Дебютный репертуар пользователя —
+ * структурированное PGN-дерево для тренировки. Источник истины для
+ * Opening Trainer'а (отдельный продукт от `Analysis`, см. §2.1).
+ *
+ * Парсинг PGN → tree происходит на бэке при INSERT/UPDATE'е (KS-3271).
+ * Транспозиции схлопываются по FEN — одна позиция = один node в `tree.nodes`.
+ *
+ * Лимиты (валидируются в DTO, KS-3272):
+ *   - `nodeCount ≤ 2000`
+ *   - `edgeCount ≤ 5000`
+ *   - `maxDepth ≤ 80` полуходов
+ *   - размер `pgn` ≤ 500 КБ
+ *   - максимум 50 репертуаров на пользователя
+ *
+ * Soft-delete через `deletedAt` (ADR §3 / §8): окно восстановления 30 дней,
+ * после чего hard-delete отдельным job'ом. `is_public` (M3) добавится
+ * отдельной миграцией когда подключим sharing.
+ */
+model OpeningRepertoire {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  title       String
+  /// Описание (опц.) — отображается на карточке репертуара.
+  description String?
+  /// Исходный PGN, который загрузил пользователь. Хранится «как есть»
+  /// для экспорта и повторной сборки tree при изменении парсера.
+  pgn         String   @db.Text
+  /// Структурированное дерево (FEN-keyed). Shape: `RepertoireTree` из
+  /// `@kingside/shared/types/opening-trainer.ts`. Парсится на бэке
+  /// `pgn-to-tree.service.ts` (KS-3271).
+  tree        Json
+  /// Денормализация `tree.meta.*` — для быстрого вывода в лобби-списке
+  /// без чтения JSONB-поля.
+  nodeCount   Int      @default(0) @map("node_count")
+  edgeCount   Int      @default(0) @map("edge_count")
+  maxDepth    Int      @default(0) @map("max_depth")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  /// KS-3270: soft-delete. NULL = активен, не-NULL = удалён, 30-дн окно
+  /// до hard-delete (отдельным cleanup job'ом, M2).
+  deletedAt   DateTime? @map("deleted_at")
+
+  user     User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions OpeningTrainerSession[]
+
+  /// Лобби-выборка: `WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC`.
+  @@index([userId, createdAt(sort: Desc)])
+  /// Cleanup job'у нужен индекс по deleted_at для hard-delete (M2).
+  @@index([deletedAt])
+  @@map("opening_repertoires")
+}
+
+/**
+ * KS-3270 (ADR-077 §2.6). Сессия тренировки — long-lived (минуты-часы),
+ * переживает refresh браузера и возврат через дни. `currentFen` +
+ * `currentPath` позволяют продолжить с той же позиции.
+ *
+ * `playedLines: Json` = `{[fen: string]: string[]}` — per-position
+ * массив `childFen`, уже сыгранных ботом. См. ADR §2.3 (random-without-
+ * repeat).
+ *
+ * `status`:
+ *   - `'active'`   — сессия идёт, finishedAt=NULL
+ *   - `'finished'` — пользователь нажал finish или прошёл все линии
+ *   - `'expired'`  — auto-close через 24 ч неактивности
+ *
+ * `mode` whitelist на backend (KS-3272): 'learn' | 'review' | 'mistakes' | 'free'.
+ * `repeatMode`: 'cycle' (обнуляем playedLines после прохода) | 'complete'
+ * (финишируем сессию).
+ *
+ * `mode = 'free'` пишет attempts, но НЕ обновляет статистику линий (M2).
+ */
+model OpeningTrainerSession {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  repertoireId    String   @map("repertoire_id") @db.Uuid
+  /// 'white' | 'black' — какой стороной играет пользователь.
+  side            String
+  /// 'learn' | 'review' | 'mistakes' | 'free'. Whitelist на backend.
+  mode            String
+  /// 'cycle' | 'complete'. Default 'complete'.
+  repeatMode      String   @default("complete") @map("repeat_mode")
+  /// 'active' | 'finished' | 'expired'. Whitelist на backend.
+  status          String   @default("active")
+  /// `{[fen: string]: string[]}` — какие childFen бот уже сыграл per-position.
+  /// Растёт по мере прохождения; squash periodically не нужен (см. ADR §6.8).
+  playedLines     Json     @default("{}") @map("played_lines")
+  /// Текущая FEN позиция (на чей ход — определяется парсингом FEN'а).
+  currentFen      String   @map("current_fen")
+  /// `string[]` — UCI-путь от корня до `currentFen` для line-progress
+  /// агрегатов на финале (M2) и для отображения «последнего хода» в UI.
+  currentPath     Json     @default("[]") @map("current_path")
+  score           Int      @default(0)
+  movesPlayed     Int      @default(0) @map("moves_played")
+  correctMoves    Int      @default(0) @map("correct_moves")
+  wrongMoves      Int      @default(0) @map("wrong_moves")
+  hintsUsed       Int      @default(0) @map("hints_used")
+  /// Максимальный streak (для финал-экрана). Текущий streak не
+  /// сохраняем в БД — пересчитывается из последних attempts.
+  streakMax       Int      @default(0) @map("streak_max")
+  startedAt       DateTime @default(now()) @map("started_at")
+  lastActivityAt  DateTime @default(now()) @map("last_activity_at")
+  finishedAt      DateTime? @map("finished_at")
+
+  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repertoire OpeningRepertoire       @relation(fields: [repertoireId], references: [id], onDelete: Cascade)
+  attempts   OpeningTrainerAttempt[]
+
+  /// Лобби-вкладка «мои сессии», resume-список активных.
+  @@index([userId, repertoireId, finishedAt])
+  /// Аналитика per-репертуар, auto-expire job'у нужен (status, lastActivityAt).
+  @@index([repertoireId, status])
+  @@index([status, lastActivityAt])
+  @@map("opening_trainer_sessions")
+}
+
+/**
+ * KS-3270 (ADR-077 §2.6). Одна попытка пользователя в рамках сессии.
+ * Логируется и для аналитики (tree-view ошибок, M2) и для агрегации
+ * в `OpeningLineProgress` (M2). В M1 — раз-логирование без агрегатов
+ * за пределами session-счётчиков.
+ *
+ * `expectedMoves` хранится как `Json` (массив UCI-строк) — не Postgres
+ * `Text[]`, для совместимости с Prisma-паттерном остального проекта
+ * (см. `TacticDrillAttempt.answerGiven`).
+ */
+model OpeningTrainerAttempt {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId       String   @map("session_id") @db.Uuid
+  /// FEN позиции, в которой пользователь делал ход.
+  positionFen     String   @map("position_fen")
+  /// `string[]` — UCI-варианты, которые считались правильными.
+  expectedMoves   Json     @map("expected_moves")
+  /// UCI пользовательского хода (что фактически прислали).
+  userMove        String   @map("user_move")
+  correct         Boolean
+  /// `true` если пользователь видел подсказку на этой позиции (KS-3272
+  /// hint endpoint). Влияет на scoreDelta: +5 вместо +10.
+  hintUsed        Boolean  @default(false) @map("hint_used")
+  scoreDelta      Int      @map("score_delta")
+  /// Миллисекунды от показа позиции до отправки хода.
+  responseTimeMs  Int      @map("response_time_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  session OpeningTrainerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("opening_trainer_attempts")
 }
 
