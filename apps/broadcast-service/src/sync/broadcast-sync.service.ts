@@ -1026,6 +1026,40 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // KS-3266: если в БД уже лежит chessResultsTournamentId, который
+    // отличается от свежеизвлечённого из Lichess metadata — это значит,
+    // `BroadcastStandingsSyncService.tryResolveTournamentIdByTitle`
+    // запускался ранее и нашёл правильный tnr-id по title (Lichess
+    // отдаёт «битый» tnr1349842 для Halocher Schachtage, мы фолбэком
+    // нашли правильный tnr1422274). Не перезаписываем — иначе loop:
+    // sync → reset → /crosstable → fallback → UPDATE → sync → reset...
+    //
+    // Логика: если DB-значение divergent от Lichess-извлечения —
+    // считаем что DB-значение «победитель» (его поставил наш fallback
+    // намеренно). Сохраняем И chessResultsTournamentId, И standingsUrl
+    // (canonical URL `https://chess-results.com/tnrXXX.aspx`, который
+    // fallback тоже пишет).
+    const existing = await this.prisma.broadcast.findUnique({
+      where: { lichessId: bc.tour.id },
+      select: { chessResultsTournamentId: true, standingsUrl: true },
+    });
+    const useOverride =
+      existing?.chessResultsTournamentId != null &&
+      existing.chessResultsTournamentId !== extracted.tournamentId;
+    if (useOverride) {
+      this.logger.log(
+        `[broadcast-sync] preserve override for ${bc.tour.id}: ` +
+          `DB tnr=${existing.chessResultsTournamentId} vs Lichess tnr=${extracted.tournamentId ?? 'null'}. ` +
+          `Likely set by KS-3266 title-fallback — skip overwrite.`,
+      );
+    }
+    const effectiveChessResultsTid = useOverride
+      ? existing.chessResultsTournamentId
+      : extracted.tournamentId;
+    const effectiveStandingsUrl = useOverride
+      ? existing.standingsUrl
+      : standingsUrl;
+
     // KS-2474: Lichess не всегда отдаёт `tour.info.format`. Для таких
     // трансляций (Sardinia World Chess Festival 2026 | Open A | 9-round
     // Swiss) format сидит в хвосте `tour.name`. Без явного формата
@@ -1045,12 +1079,12 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       location: info?.location ?? null,
       players: info?.players ?? null,
       website: info?.website ?? null,
-      standingsUrl,
+      standingsUrl: effectiveStandingsUrl,
       imageUrl: bc.tour.image ?? null,
       startDate: dates?.[0] ? new Date(dates[0]) : null,
       endDate: dates?.[1] ? new Date(dates[1]) : null,
       // KS-1735 — поля для crosstable-фичи (ADR-023 §2.3).
-      chessResultsTournamentId: extracted.tournamentId,
+      chessResultsTournamentId: effectiveChessResultsTid,
       teamTable: bc.tour.teamTable ?? false,
       showTeamScores: bc.tour.showTeamScores ?? false,
     };
