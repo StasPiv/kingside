@@ -36,11 +36,17 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { BroadcastSyncService } from './broadcast-sync.service';
 
 const LICHESS_API = 'https://lichess.org/api';
 
 const DEFAULT_TICK_INTERVAL_MS = 600_000; // 10 минут
 const DEFAULT_ALERT_TTL_SEC = 3600; // 1 час
+// KS-3264: cooldown между авто-resync'ами одного и того же раунда.
+// Защищает Lichess от спама запросов, если mismatch остаётся после
+// resync (Lichess отдал partial, ждём следующий полный snapshot).
+const DEFAULT_AUTO_RESYNC_COOLDOWN_SEC = 3600;
+const AUTO_RESYNC_KEY_PREFIX = 'broadcast:auto-resync:cooldown:';
 // KS-3256: поднял с 20 до 50. На 20 metric покрывал только 20×15=300
 // строк (ORDER BY b.updated_at DESC) — это давало срез топ-53 broadcast'а
 // в первом tick, остальные ~230 активных были невидимы. Полный скан
@@ -104,8 +110,24 @@ export interface MetricCheckDeps {
   telegramFn?: (text: string) => Promise<boolean>;
   /** Подменяемый sleep для тестов. */
   sleepFn?: (ms: number) => Promise<void>;
+  /**
+   * KS-3264. Резолвер авто-resync — вызывает
+   * `BroadcastSyncService.forceResyncRound(lichessRoundId)`. NestJS-
+   * обёртка `BroadcastGameCountMetricService` инжектирует SyncService
+   * и передаёт сюда метод. В тестах — подменяемый mock.
+   *
+   * Возвращает `{fetched, gamesBefore, gamesAfter}` от force-resync.
+   * Если throw — расценивается как ошибка, идёт в telegram.
+   */
+  autoResyncFn?: (lichessRoundId: string) => Promise<{
+    fetched: boolean;
+    gamesBefore: number;
+    gamesAfter: number;
+  }>;
   alertTtlSec?: number;
   maxBroadcasts?: number;
+  /** KS-3264. Cooldown между авто-resync'ами одного раунда. */
+  autoResyncCooldownSec?: number;
 }
 
 export interface MetricCheckSummary {
@@ -114,6 +136,23 @@ export interface MetricCheckSummary {
   mismatches: RoundMismatch[];
   newAlerts: RoundMismatch[];
   telegramSent: boolean;
+  /** KS-3264: статистика авто-resync. */
+  autoResyncStats: {
+    attempted: number;
+    succeeded: number; // gamesAfter ≥ lichess
+    persistentMismatches: number; // resync прошёл, но всё ещё < lichess
+    errors: number; // throw / fetched=false
+    skippedByCooldown: number; // ключ NX не приобретён
+  };
+}
+
+/** KS-3264: запись об ошибке авто-resync для telegram-summary. */
+interface AutoResyncFailure {
+  mismatch: RoundMismatch;
+  kind: 'error' | 'persistent';
+  reason: string;
+  gamesBefore?: number;
+  gamesAfter?: number;
 }
 
 /**
@@ -213,39 +252,7 @@ export async function runGameCountCheckTick(
     });
   }
 
-  // Дедупликация. Для каждого mismatch'а — пытаемся выставить
-  // alert-ключ NX. Если ключ уже был — пропускаем (значит за последний
-  // час уже алертили).
-  const newAlerts: RoundMismatch[] = [];
-  for (const m of mismatches) {
-    const key = `${ALERT_KEY_PREFIX}${m.broadcastId}:${m.roundId}`;
-    const r = await deps.redis.set(key, '1', 'EX', alertTtl, 'NX');
-    if (r === 'OK') {
-      newAlerts.push(m);
-    }
-  }
-
-  let telegramSent = false;
-  if (newAlerts.length > 0) {
-    const text = formatTelegramMessage(newAlerts);
-    telegramSent = await telegramFn(text).catch(() => false);
-    if (!telegramSent) {
-      // Откатываем дедуп-ключи: если telegram упал, на следующем tick'е
-      // снова попробуем алертить (иначе час молчания при недоступном
-      // телеграме = потерянная регрессия).
-      deps.logger.warn(
-        `[broadcast-metric] telegram send failed for ${newAlerts.length} alert(s); ` +
-          `dedup keys NOT released (TTL=${alertTtl}s) — мы избегаем спама на ` +
-          `flapping. Лог mismatches остаётся.`,
-      );
-    } else {
-      deps.logger.log(
-        `[broadcast-metric] telegram alert sent for ${newAlerts.length} new mismatch(es)`,
-      );
-    }
-  }
-
-  // Лог всех mismatch'ей (включая old, для долгосрочной аналитики).
+  // Лог всех mismatch'ей (включая cooldowned, для долгосрочной аналитики).
   for (const m of mismatches) {
     deps.logger.warn(
       `[broadcast-metric] MISMATCH broadcast="${m.broadcastTitle}" ` +
@@ -254,12 +261,135 @@ export async function runGameCountCheckTick(
     );
   }
 
+  // KS-3264. Авто-resync вместо telegram-алерта на mismatch. Каждый
+  // расходящийся раунд получает попытку `forceResyncRound` (с cooldown
+  // 1 час на raunday, чтобы не долбить Lichess в случае persistent-
+  // ошибки). Telegram остаётся только для ошибок resync — администратор
+  // вмешается только когда автомата не справился.
+  const autoResyncCooldown =
+    deps.autoResyncCooldownSec ?? DEFAULT_AUTO_RESYNC_COOLDOWN_SEC;
+  const autoResyncFn = deps.autoResyncFn;
+  const stats = {
+    attempted: 0,
+    succeeded: 0,
+    persistentMismatches: 0,
+    errors: 0,
+    skippedByCooldown: 0,
+  };
+  const failures: AutoResyncFailure[] = [];
+  // KS-3264: newAlerts больше не имеет прямой связи с telegram-алертом
+  // (тот теперь идёт только на failures). Оставляем массив для обратной
+  // совместимости с тестами/каллерами: фиксируем сюда mismatches с
+  // которых сняли cooldown и которые попали в auto-resync attempt.
+  const newAlerts: RoundMismatch[] = [];
+
+  if (!autoResyncFn) {
+    // Нет резолвера — нечего auto-resync'ить. Логируем и возвращаем
+    // как раньше (тоже что было до KS-3264, для тестов).
+    deps.logger.warn(
+      `[broadcast-metric] no autoResyncFn provided; ${mismatches.length} mismatches NOT auto-resynced`,
+    );
+  } else if (mismatches.length > 0) {
+    let firstAttempt = true;
+    for (const m of mismatches) {
+      // Cooldown через Redis NX. Ключ привязан к lichess_round_id —
+      // переживает рестарт сервиса, не сбрасывается между tick'ами.
+      const cooldownKey = `${AUTO_RESYNC_KEY_PREFIX}${m.lichessRoundId}`;
+      const acquired = await deps.redis
+        .set(cooldownKey, String(Date.now()), 'EX', autoResyncCooldown, 'NX')
+        .catch(() => null);
+      if (acquired !== 'OK') {
+        stats.skippedByCooldown++;
+        deps.logger.log(
+          `[auto-resync] roundId=${m.lichessRoundId} status=skipped-cooldown`,
+        );
+        continue;
+      }
+      newAlerts.push(m);
+      stats.attempted++;
+
+      // Rate-limit gap между resync'ами (force-resync дёргает Lichess
+      // PGN). Между mismatch'ами в одном tick'е держим 1.5с — sleepFn
+      // тот же, что для PGN-counter'ов выше.
+      if (!firstAttempt) await sleepFn(LICHESS_RATE_LIMIT_DELAY_MS);
+      firstAttempt = false;
+
+      try {
+        const r = await autoResyncFn(m.lichessRoundId);
+        if (!r.fetched) {
+          stats.errors++;
+          failures.push({
+            mismatch: m,
+            kind: 'error',
+            reason: 'force-resync fetched=false (Lichess недоступен)',
+            gamesBefore: r.gamesBefore,
+            gamesAfter: r.gamesAfter,
+          });
+          deps.logger.warn(
+            `[auto-resync] roundId=${m.lichessRoundId} status=fetch-failed before=${r.gamesBefore} after=${r.gamesAfter}`,
+          );
+          continue;
+        }
+        if (r.gamesAfter < m.lichessCount) {
+          // Resync прошёл, но число партий всё ещё ниже — это
+          // persistent mismatch. Возможные причины: Lichess PGN-snapshot
+          // ещё не полный, наш parsePgnGames что-то отбрасывает,
+          // collision-кейс KS-3229. Сообщаем оператору.
+          stats.persistentMismatches++;
+          failures.push({
+            mismatch: m,
+            kind: 'persistent',
+            reason: `после resync gamesAfter=${r.gamesAfter} < lichessCount=${m.lichessCount}`,
+            gamesBefore: r.gamesBefore,
+            gamesAfter: r.gamesAfter,
+          });
+          deps.logger.warn(
+            `[auto-resync] roundId=${m.lichessRoundId} status=persistent-mismatch before=${r.gamesBefore} after=${r.gamesAfter} lichess=${m.lichessCount}`,
+          );
+          continue;
+        }
+        stats.succeeded++;
+        deps.logger.log(
+          `[auto-resync] roundId=${m.lichessRoundId} status=ok before=${r.gamesBefore} after=${r.gamesAfter}`,
+        );
+      } catch (err) {
+        stats.errors++;
+        failures.push({
+          mismatch: m,
+          kind: 'error',
+          reason: `exception: ${(err as Error).message}`,
+        });
+        deps.logger.error(
+          `[auto-resync] roundId=${m.lichessRoundId} status=exception ${(err as Error).message}`,
+        );
+      }
+    }
+  }
+
+  // Telegram только на failures (errors + persistent). Успешные
+  // auto-resync'и тихие — пользователь видит результат в БД.
+  let telegramSent = false;
+  if (failures.length > 0) {
+    const text = formatAutoResyncFailureMessage(failures);
+    telegramSent = await telegramFn(text).catch(() => false);
+    if (!telegramSent) {
+      deps.logger.warn(
+        `[broadcast-metric] telegram send failed for ${failures.length} auto-resync failure(s)`,
+      );
+    } else {
+      deps.logger.log(
+        `[broadcast-metric] telegram alert sent for ${failures.length} auto-resync failure(s)`,
+      );
+    }
+  }
+
   return {
     scannedBroadcasts,
     scannedRounds: rows.length,
     mismatches,
     newAlerts,
     telegramSent,
+    autoResyncStats: stats,
   };
 }
 
@@ -346,6 +476,49 @@ function escapeMd(s: string): string {
 }
 
 /**
+ * KS-3264. Telegram-сообщение об ошибках авто-resync. Шлётся ТОЛЬКО
+ * когда automated recovery не справился (Lichess недоступен, persistent
+ * mismatch после resync, exception). Успешный auto-resync — тихий,
+ * никаких уведомлений.
+ */
+export function formatAutoResyncFailureMessage(
+  failures: AutoResyncFailure[],
+): string {
+  const errors = failures.filter((f) => f.kind === 'error');
+  const persistent = failures.filter((f) => f.kind === 'persistent');
+  const lines: string[] = [
+    `⚠️ *Auto-resync failures* (${failures.length})`,
+    '',
+  ];
+  if (errors.length > 0) {
+    lines.push(`❌ *Errors* (${errors.length}) — Lichess/exception:`);
+    for (const f of errors) {
+      lines.push(
+        `   • ${escapeMd(f.mismatch.broadcastTitle)} / ${escapeMd(f.mismatch.roundName)} ` +
+          `(lichess=\`${f.mismatch.lichessBroadcastId}\`/\`${f.mismatch.lichessRoundId}\`) — ${escapeMd(f.reason)}`,
+      );
+    }
+    lines.push('');
+  }
+  if (persistent.length > 0) {
+    lines.push(
+      `🔁 *Persistent mismatch after resync* (${persistent.length}):`,
+    );
+    for (const f of persistent) {
+      lines.push(
+        `   • ${escapeMd(f.mismatch.broadcastTitle)} / ${escapeMd(f.mismatch.roundName)}: ` +
+          `${f.gamesBefore ?? '?'} → *${f.gamesAfter ?? '?'}*, lichess=*${f.mismatch.lichessCount}*`,
+      );
+    }
+    lines.push('');
+  }
+  lines.push(
+    '_На каждый раунд держится 1-часовой cooldown. Если ошибка системная — нужен ручной разбор; если transient (Lichess 429) — на следующем tick auto-resync попробует снова._',
+  );
+  return lines.join('\n');
+}
+
+/**
  * Дефолтная telegram-отправка через Bot API. Возвращает false если env
  * не сконфигурирован или API упал. Не throw'ит — cron должен идти дальше.
  */
@@ -386,6 +559,8 @@ export class BroadcastGameCountMetricService
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    // KS-3264: для auto-resync вместо telegram-алерта на mismatch.
+    private readonly syncService: BroadcastSyncService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -434,20 +609,31 @@ export class BroadcastGameCountMetricService
           error: (m) => this.logger.error(m),
         },
         telegramFn: defaultTelegramSend,
+        // KS-3264: auto-resync через прямой вызов сервиса (внутри одного
+        // процесса). HTTP к самому себе не нужен.
+        autoResyncFn: (lichessRoundId) =>
+          this.syncService.forceResyncRound(lichessRoundId),
         alertTtlSec: parseEnvInt(
           'BROADCAST_GAME_COUNT_ALERT_TTL_SEC',
           DEFAULT_ALERT_TTL_SEC,
+        ),
+        autoResyncCooldownSec: parseEnvInt(
+          'BROADCAST_GAME_COUNT_AUTO_RESYNC_COOLDOWN_SEC',
+          DEFAULT_AUTO_RESYNC_COOLDOWN_SEC,
         ),
         maxBroadcasts: parseEnvInt(
           'BROADCAST_GAME_COUNT_MAX_BROADCASTS',
           DEFAULT_MAX_BROADCASTS,
         ),
       });
+      const ar = r.autoResyncStats;
       this.logger.log(
         `[broadcast-metric] tick scanned=${r.scannedRounds} rounds in ` +
           `${r.scannedBroadcasts} broadcasts; mismatches=${r.mismatches.length} ` +
-          `newAlerts=${r.newAlerts.length} telegramSent=${r.telegramSent} ` +
-          `durationMs=${Date.now() - start}`,
+          `autoResync attempted=${ar.attempted} succeeded=${ar.succeeded} ` +
+          `persistent=${ar.persistentMismatches} errors=${ar.errors} ` +
+          `skippedByCooldown=${ar.skippedByCooldown} ` +
+          `telegramSent=${r.telegramSent} durationMs=${Date.now() - start}`,
       );
     } catch (err) {
       this.logger.error(

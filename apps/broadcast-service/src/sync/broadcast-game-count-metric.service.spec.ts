@@ -129,7 +129,7 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(telegramFn).not.toHaveBeenCalled();
   });
 
-  it('mismatch=1, telegram вызван с корректным payload (Romania-сценарий)', async () => {
+  it('KS-3264: mismatch=1 + успешный auto-resync → telegram НЕ вызывается', async () => {
     const prisma = makePrisma([
       makeRow({
         roundId: 'r1',
@@ -141,34 +141,43 @@ describe('KS-3231 runGameCountCheckTick', () => {
     const redis = makeRedis();
     const fetchFn = jest.fn(async () => makePgnResponse(5));
     const telegramFn = jest.fn(async () => true);
+    // auto-resync поднял gamesAfter до 5 (=lichess), значит mismatch
+    // закрыт — telegram молчит.
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: true,
+      gamesBefore: 1,
+      gamesAfter: 5,
+    }));
     const r = await runGameCountCheckTick({
       prisma,
       redis,
       logger: makeLogger(),
       fetchFn: fetchFn as unknown as typeof fetch,
       telegramFn,
+      autoResyncFn,
       sleepFn: async () => {},
     });
     expect(r.mismatches).toHaveLength(1);
-    expect(r.mismatches[0].ourCount).toBe(1);
-    expect(r.mismatches[0].lichessCount).toBe(5);
-    expect(r.newAlerts).toHaveLength(1);
-    expect(r.telegramSent).toBe(true);
-    expect(telegramFn).toHaveBeenCalledTimes(1);
-    const [msg] = telegramFn.mock.calls[0] as [string];
-    expect(msg).toContain('GCT Romania 2026');
-    expect(msg).toContain('Round 1');
-    expect(msg).toContain('*1*');
-    expect(msg).toContain('*5*');
+    expect(autoResyncFn).toHaveBeenCalledWith('Vos7UzKR');
+    expect(r.autoResyncStats.attempted).toBe(1);
+    expect(r.autoResyncStats.succeeded).toBe(1);
+    expect(r.autoResyncStats.errors).toBe(0);
+    expect(r.telegramSent).toBe(false);
+    expect(telegramFn).not.toHaveBeenCalled();
   });
 
-  it('повторный tick с тем же mismatch → telegram НЕ вызывается (dedup)', async () => {
+  it('KS-3264: повторный tick с тем же mismatch → cooldown скипает auto-resync', async () => {
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'Vos7UzKR', ourCount: 1 }),
     ]);
     const redis = makeRedis();
     const fetchFn = jest.fn(async () => makePgnResponse(5));
     const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: true,
+      gamesBefore: 1,
+      gamesAfter: 5,
+    }));
 
     const r1 = await runGameCountCheckTick({
       prisma,
@@ -176,23 +185,112 @@ describe('KS-3231 runGameCountCheckTick', () => {
       logger: makeLogger(),
       fetchFn: fetchFn as unknown as typeof fetch,
       telegramFn,
+      autoResyncFn,
       sleepFn: async () => {},
     });
-    expect(r1.newAlerts).toHaveLength(1);
-    expect(telegramFn).toHaveBeenCalledTimes(1);
+    expect(r1.autoResyncStats.attempted).toBe(1);
+    expect(autoResyncFn).toHaveBeenCalledTimes(1);
 
-    // Второй tick — те же данные. Дедуп-ключ держит.
+    // Второй tick: cooldown держится, auto-resync пропускается.
     const r2 = await runGameCountCheckTick({
       prisma,
       redis,
       logger: makeLogger(),
       fetchFn: fetchFn as unknown as typeof fetch,
       telegramFn,
+      autoResyncFn,
       sleepFn: async () => {},
     });
-    expect(r2.mismatches).toHaveLength(1); // mismatch ещё есть
-    expect(r2.newAlerts).toHaveLength(0); // но он не новый
-    expect(telegramFn).toHaveBeenCalledTimes(1); // telegram не вызвали второй раз
+    expect(r2.mismatches).toHaveLength(1);
+    expect(r2.autoResyncStats.attempted).toBe(0);
+    expect(r2.autoResyncStats.skippedByCooldown).toBe(1);
+    expect(autoResyncFn).toHaveBeenCalledTimes(1); // не вызвался второй раз
+    expect(telegramFn).not.toHaveBeenCalled();
+  });
+
+  it('KS-3264: auto-resync вернул fetched=false → telegram-ошибка', async () => {
+    // Lichess 429 backoff в SyncService → forceResyncRound возвращает
+    // fetched=false. Это error-сценарий, идёт в telegram.
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Vos7UzKR', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    }));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn,
+      autoResyncFn,
+      sleepFn: async () => {},
+    });
+    expect(r.autoResyncStats.errors).toBe(1);
+    expect(r.telegramSent).toBe(true);
+    const [msg] = telegramFn.mock.calls[0] as [string];
+    expect(msg).toContain('Auto-resync failures');
+    expect(msg).toContain('Errors');
+    expect(msg).toContain('fetched=false');
+  });
+
+  it('KS-3264: auto-resync прошёл (fetched=true) но gamesAfter всё ещё < lichess → persistent telegram', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Vos7UzKR', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: true,
+      gamesBefore: 1,
+      gamesAfter: 3, // < lichess=5
+    }));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn,
+      autoResyncFn,
+      sleepFn: async () => {},
+    });
+    expect(r.autoResyncStats.persistentMismatches).toBe(1);
+    expect(r.telegramSent).toBe(true);
+    const [msg] = telegramFn.mock.calls[0] as [string];
+    expect(msg).toContain('Persistent mismatch');
+    expect(msg).toContain('1 → *3*');
+    expect(msg).toContain('lichess=*5*');
+  });
+
+  it('KS-3264: auto-resync кинул exception → error telegram', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Vos7UzKR', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => {
+      throw new Error('boom');
+    });
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      telegramFn,
+      autoResyncFn,
+      sleepFn: async () => {},
+    });
+    expect(r.autoResyncStats.errors).toBe(1);
+    expect(r.telegramSent).toBe(true);
+    const [msg] = telegramFn.mock.calls[0] as [string];
+    expect(msg).toContain('exception: boom');
   });
 
   it('lichess HTTP 503 — раунд тихо скипается, без mismatch', async () => {
@@ -230,17 +328,20 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(r.mismatches).toEqual([]);
   });
 
-  it('telegram упал → dedup-ключи НЕ освобождаются (anti-spam)', async () => {
-    // KS-3231: если telegramFn вернула false, ключи дедупа уже выставлены
-    // (мы делаем set NX до telegram). Это сознательный trade-off:
-    // лучше потерять алерт на 1 час, чем спамить пользователю
-    // 6 одинаковых сообщений в час при flapping телеграма.
+  it('KS-3264: telegram упал → cooldown НЕ освобождается (anti-spam)', async () => {
+    // KS-3264: cooldown ключ держится 1 час даже если telegram failed.
+    // Иначе при flapping telegram мы бы спамили auto-resync и Lichess.
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'Vos7UzKR', ourCount: 1 }),
     ]);
     const redis = makeRedis();
     const fetchFn = jest.fn(async () => makePgnResponse(5));
     const telegramFn = jest.fn(async () => false);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    }));
     const logger = makeLogger();
     const r = await runGameCountCheckTick({
       prisma,
@@ -248,16 +349,22 @@ describe('KS-3231 runGameCountCheckTick', () => {
       logger,
       fetchFn: fetchFn as unknown as typeof fetch,
       telegramFn,
+      autoResyncFn,
       sleepFn: async () => {},
     });
     expect(r.telegramSent).toBe(false);
-    expect(redis._store.size).toBe(1); // ключ остался
+    // Cooldown-ключ остался (auto-resync уже attempted, второй tick его пропустит).
+    expect(
+      [...redis._store.keys()].some((k) =>
+        k.startsWith('broadcast:auto-resync:cooldown:'),
+      ),
+    ).toBe(true);
     expect(logger._lines.some((l) => l.includes('telegram send failed'))).toBe(
       true,
     );
   });
 
-  it('агрегация по broadcast: 2 раунда одного broadcast — одно сообщение, 2 строки', async () => {
+  it('KS-3264: 2 failed auto-resync разных broadcast → одно telegram-сообщение со списком', async () => {
     const prisma = makePrisma([
       makeRow({
         roundId: 'r1',
@@ -275,20 +382,30 @@ describe('KS-3231 runGameCountCheckTick', () => {
     const redis = makeRedis();
     const fetchFn = jest.fn(async () => makePgnResponse(5));
     const telegramFn = jest.fn(async () => true);
+    const autoResyncFn = jest.fn(async () => ({
+      fetched: false,
+      gamesBefore: 1,
+      gamesAfter: 1,
+    }));
     const r = await runGameCountCheckTick({
       prisma,
       redis,
       logger: makeLogger(),
       fetchFn: fetchFn as unknown as typeof fetch,
       telegramFn,
+      autoResyncFn,
       sleepFn: async () => {},
     });
-    expect(r.newAlerts).toHaveLength(2);
+    expect(r.autoResyncStats.errors).toBe(2);
     expect(telegramFn).toHaveBeenCalledTimes(1); // одно сообщение
     const [msg] = telegramFn.mock.calls[0] as [string];
-    expect(msg).toContain('GCT Romania 2026');
-    expect(msg).toContain('Round 1');
-    expect(msg).toContain('Round 2');
+    // escapeMd-формат: «*Auto-resync failures* (2)» — текст содержит и
+    // emoji и количество, проверяем по подстрокам без зависимости от
+    // расположения markdown-звёздочек.
+    expect(msg).toContain('Auto-resync failures');
+    expect(msg).toContain('(2)');
+    expect(msg).toContain('Vos7UzKR');
+    expect(msg).toContain('FDb3eO7v');
   });
 
   it('rate-limit gap между Lichess-запросами вызывает sleepFn', async () => {
