@@ -1627,9 +1627,17 @@ model OpeningTrainerSession {
   correctMoves    Int      @default(0) @map("correct_moves")
   wrongMoves      Int      @default(0) @map("wrong_moves")
   hintsUsed       Int      @default(0) @map("hints_used")
-  /// Максимальный streak (для финал-экрана). Текущий streak не
-  /// сохраняем в БД — пересчитывается из последних attempts.
+  /// KS-3272: текущая серия подряд правильных ходов. Сбрасывается на 0
+  /// при wrong-ходе. Используется в `scoring.ts` для streak-multiplier
+  /// (ADR-077 §2.7: ×1.2 после 5 подряд).
+  currentStreak   Int      @default(0) @map("current_streak")
+  /// Максимальный streak в сессии (для финал-экрана).
   streakMax       Int      @default(0) @map("streak_max")
+  /// KS-3272: FEN-позиция, для которой только что вызывался `/hint`.
+  /// Следующий /move из этой позиции считается «после подсказки» —
+  /// scoreDelta уменьшается до +5 вместо +10 (ADR-077 §2.7). После
+  /// любого /move сбрасывается в NULL.
+  pendingHintFen  String?  @map("pending_hint_fen")
   startedAt       DateTime @default(now()) @map("started_at")
   lastActivityAt  DateTime @default(now()) @map("last_activity_at")
   finishedAt      DateTime? @map("finished_at")

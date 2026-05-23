@@ -162,11 +162,29 @@ export class OpeningTrainerRepository {
       wrongMoves?: number;
       hintsUsed?: number;
       streakMax?: number;
+      currentStreak?: number;
+      pendingHintFen?: string | null;
       lastActivityAt?: Date;
       finishedAt?: Date | null;
     },
   ) {
     return this.prisma.openingTrainerSession.update({ where: { id }, data });
+  }
+
+  /**
+   * KS-3272: удаление одной (последней) attempt'ы по id — для /undo.
+   * Caller сначала находит её через listAttemptsBySession (или
+   * `findLastAttempt`).
+   */
+  async deleteAttempt(id: string) {
+    return this.prisma.openingTrainerAttempt.delete({ where: { id } });
+  }
+
+  async findLastAttempt(sessionId: string) {
+    return this.prisma.openingTrainerAttempt.findFirst({
+      where: { sessionId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   // ── OpeningTrainerAttempt ────────────────────────────────────────

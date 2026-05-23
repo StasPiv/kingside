@@ -36,6 +36,7 @@ import { UserCoursesModule } from './lessons/user-courses/user-courses.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ProfileModule } from './profile/profile.module';
 import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
+import { OpeningTrainerModule } from './opening-trainer/opening-trainer.module';
 import { McpModule } from './mcp/mcp.module';
 import { BoardRecognitionModule } from './board-recognition/board-recognition.module';
 // KS-2967 / ADR-063 Phase 2 — KnowledgeModule временно отключён от
@@ -99,6 +100,8 @@ import { HealthController } from './health.controller';
     FeatureFlagsModule,
     ProfileModule,
     TacticDrillModule,
+    // KS-3272 / ADR-077: Opening Trainer (тренировка дебютов из PGN).
+    OpeningTrainerModule,
     // KS-2952 / ADR-061 этап A. MCP auto-discovery: GET /_mcp/tools.
     McpModule,
     // KS-2363 / ADR-040 §5.1. POST /api/board-recognition. На проде
