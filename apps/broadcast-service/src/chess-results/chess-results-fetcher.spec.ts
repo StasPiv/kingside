@@ -6,6 +6,7 @@ import {
   TournamentNotFoundError,
   isTournamentNotFoundHtml,
   parseSearchResults,
+  parseDdgChessResults,
   normalizeTitleForSearch,
   type FetcherDeps,
 } from './chess-results-fetcher';
@@ -517,7 +518,7 @@ describe('ChessResultsFetcher', () => {
     });
   });
 
-  describe('KS-3266: searchTournamentByTitle', () => {
+  describe('KS-3266: searchTournamentByTitle (via DuckDuckGo)', () => {
     function mockFetchSearchOk(html: string): jest.Mock {
       return jest.fn(async () => ({
         ok: true,
@@ -526,39 +527,41 @@ describe('ChessResultsFetcher', () => {
       })) as unknown as jest.Mock;
     }
 
-    it('кодирует title в query-string и нормализует диакритику', async () => {
+    it('делает GET на duckduckgo HTML с site:chess-results.com и нормализованным title', async () => {
       const fetchImpl = mockFetchSearchOk('<html></html>');
       const { fetcher } = setup({ fetchImpl });
 
-      await fetcher.searchTournamentByTitle('39. Internationale Haßlocher Schachtage');
+      await fetcher.searchTournamentByTitle(
+        '39. Internationale Haßlocher Schachtage',
+      );
 
       const url = (fetchImpl.mock.calls[0] as [string, RequestInit])[0];
-      expect(url).toContain('SearchTournament.aspx');
+      expect(url).toContain('duckduckgo.com');
+      // Site-фильтр на chess-results
+      expect(decodeURIComponent(url)).toContain('site:chess-results.com');
       // Haßlocher → Hasslocher
       expect(decodeURIComponent(url)).toContain('Hasslocher');
     });
 
-    it('парсит tnr-ссылки из HTML результата', async () => {
-      const html = `
+    it('парсит DDG HTML и извлекает tnr-id\'шники из uddg-обёртки', async () => {
+      const ddgHtml = `
         <html><body>
-          <table>
-            <tr><td><a href="tnr1422274.aspx?lan=1">39. Internationale Hasslocher Schachtage A</a></td></tr>
-            <tr><td><a href="https://chess-results.com/tnr1422264.aspx?lan=1">39. Internationale Hasslocher Schachtage B</a></td></tr>
-          </table>
+          <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr1422274.aspx%3Flan%3D1&amp;rut=abc">39. Internationale Hasslocher Schachtage, A-Turnier</a>
+          <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr1422264.aspx%3Flan%3D1&amp;rut=def">39. Internationale Hasslocher Schachtage, B-Turnier</a>
         </body></html>
       `;
-      const fetchImpl = mockFetchSearchOk(html);
+      const fetchImpl = mockFetchSearchOk(ddgHtml);
       const { fetcher } = setup({ fetchImpl });
 
       const candidates = await fetcher.searchTournamentByTitle('Hasslocher');
 
       expect(candidates).toHaveLength(2);
       expect(candidates[0].tournamentId).toBe('1422274');
-      expect(candidates[0].title).toContain('Hasslocher Schachtage A');
+      expect(candidates[0].title).toContain('A-Turnier');
       expect(candidates[1].tournamentId).toBe('1422264');
     });
 
-    it('пустой title → []', async () => {
+    it('пустой title → [] без fetch', async () => {
       const fetchImpl = jest.fn();
       const { fetcher } = setup({ fetchImpl });
 
@@ -567,24 +570,9 @@ describe('ChessResultsFetcher', () => {
       expect(candidates).toEqual([]);
       expect(fetchImpl).not.toHaveBeenCalled();
     });
-
-    it('respects circuit-breaker', async () => {
-      const fetchImpl = jest.fn();
-      const { fetcher } = setup({
-        fetchImpl,
-        initialRedis: {
-          'chess-results:circuit:open': { value: '1', ttlMs: 60_000 },
-        },
-      });
-
-      await expect(
-        fetcher.searchTournamentByTitle('any'),
-      ).rejects.toBeInstanceOf(CircuitOpenError);
-      expect(fetchImpl).not.toHaveBeenCalled();
-    });
   });
 
-  describe('KS-3266: parseSearchResults helper', () => {
+  describe('KS-3266: parseSearchResults (плоский chess-results HTML, на случай legacy)', () => {
     it('извлекает множественные tnr-ссылки', () => {
       const html = `
         <a href="tnr111.aspx?lan=1">First</a>
@@ -611,6 +599,41 @@ describe('ChessResultsFetcher', () => {
     it('пустой / без ссылок → []', () => {
       expect(parseSearchResults('')).toEqual([]);
       expect(parseSearchResults('<html><body>no links</body></html>')).toEqual([]);
+    });
+  });
+
+  describe('KS-3266: parseDdgChessResults (DuckDuckGo HTML)', () => {
+    it('извлекает tnr-id из uddg-обёрнутых ссылок', () => {
+      const html = `
+        <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr1422274.aspx%3Flan%3D1&amp;rut=abc">First</a>
+        <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr1422264.aspx%3Flan%3D1&amp;rut=def">Second</a>
+      `;
+      const result = parseDdgChessResults(html);
+      expect(result).toEqual([
+        { tournamentId: '1422274', title: 'First' },
+        { tournamentId: '1422264', title: 'Second' },
+      ]);
+    });
+
+    it('дедупликация по tnr-id', () => {
+      const html = `
+        <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr111.aspx&amp;rut=a">First</a>
+        <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr111.aspx%3Fart%3D1&amp;rut=b">Same again</a>
+      `;
+      const result = parseDdgChessResults(html);
+      expect(result).toHaveLength(1);
+      expect(result[0].tournamentId).toBe('111');
+    });
+
+    it('игнорирует не-chess-results ссылки', () => {
+      const html = `
+        <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fsome-other.com%2Ftnr999.aspx&amp;rut=x">Other</a>
+      `;
+      expect(parseDdgChessResults(html)).toEqual([]);
+    });
+
+    it('пустой HTML → []', () => {
+      expect(parseDdgChessResults('')).toEqual([]);
     });
   });
 

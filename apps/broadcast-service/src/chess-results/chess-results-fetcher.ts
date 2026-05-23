@@ -78,6 +78,18 @@ const BASE_URL = 'https://chess-results.com';
 const USER_AGENT =
   'Kingside/1.0 (chess platform; broadcast sync; ops@kingside.tld)';
 
+/**
+ * KS-3266. HTML-эндпоинт DuckDuckGo (без JS). Используется как поисковая
+ * прокладка для chess-results.com, потому что родной поиск
+ * chess-results — ASP.NET WebForms с session-bound VIEWSTATE, не поддаётся
+ * стабильному server-side scraping'у.
+ *
+ * DDG HTML стабилен, не требует API-key, не имеет rate-limit для редких
+ * запросов (мы дёргаем его только когда chess-results вернул NotFound,
+ * то есть ~1 раз на проблемный broadcast).
+ */
+const DDG_SEARCH_URL = 'https://html.duckduckgo.com/html/';
+
 export class RateLimitedLocalError extends Error {
   readonly code = 'RATE_LIMITED_LOCAL' as const;
   constructor(
@@ -433,24 +445,29 @@ export class ChessResultsFetcher {
   }
 
   /**
-   * KS-3266. Поиск турнира на chess-results по названию через
-   * `/SearchTournament.aspx?lan=1&Search=<query>`. Используется в
-   * `BroadcastStandingsSyncService` как fallback, когда `tnrXXXXXX`,
-   * сохранённый в `broadcasts.standings_url` (получен от Lichess
-   * broadcast metadata), отдаёт «Record not found».
+   * KS-3266. Поиск турнира на chess-results по названию.
    *
-   * Не использует rate-limit Redis (это не per-tournament запрос, а
-   * один-два поиска на проблемный broadcast). Circuit-breaker уважается —
-   * если основной upstream throttle'ит, поиск тоже не делаем.
+   * **Почему DuckDuckGo, а не chess-results SearchTournament?**
+   * Родной поиск chess-results.com (`TurnierSuche.aspx`) — это
+   * ASP.NET WebForms с session-bound `__VIEWSTATE` + machineKey-MAC.
+   * Стабильно сделать server-side POST невозможно — VIEWSTATE привязан
+   * к конкретной серверной ноде (S1/S2/S3) и сессии, а chess-results
+   * балансирует по нодам прозрачно. Простой GET с `?Search=…` они НЕ
+   * поддерживают (страница `SearchTournament.aspx?Search=…` отдаёт 404,
+   * `Default.aspx?lan=1&search=…` игнорирует параметр).
    *
-   * Возвращает массив кандидатов в порядке их появления на странице.
-   * Caller сам решает, как верифицировать (например — сверка имён
-   * игроков с PGN-headers партий).
+   * Используем DuckDuckGo HTML endpoint c `site:chess-results.com` —
+   * он стабильный, не требует API-key, отдаёт результаты в JSON-free
+   * HTML формате, легко парсится regex'ом по `uddg=…tnr<id>.aspx`.
+   * Нагрузка минимальная (вызов ТОЛЬКО на NotFound, редкое событие).
+   *
+   * Не использует rate-limit Redis (это не per-tournament запрос).
+   * Circuit-breaker chess-results тут НЕ применяем — это другой upstream
+   * (duckduckgo). Если DDG упадёт — кидаем ошибку, caller fallback'ает
+   * на internal-fallback.
    *
    * Throws:
-   *   - `CircuitOpenError` — если circuit-breaker открыт.
-   *   - `HttpThrottleError` — 429/503 от chess-results.
-   *   - `TimeoutError` / network — прочие сетевые ошибки.
+   *   - `HttpThrottleError` / network — DDG недоступен.
    */
   async searchTournamentByTitle(
     title: string,
@@ -459,27 +476,15 @@ export class ChessResultsFetcher {
     if (!normalized) {
       return [];
     }
-    // Уважаем circuit-breaker.
-    const circuitTtl = await this.redis.ttl(CIRCUIT_OPEN_KEY).catch(() => -2);
-    if (circuitTtl > 0) {
-      throw new CircuitOpenError(circuitTtl);
-    }
-    const url = `${BASE_URL}/SearchTournament.aspx?lan=1&Search=${encodeURIComponent(normalized)}`;
-    try {
-      const html = await this.doFetch(url);
-      const candidates = parseSearchResults(html);
-      this.logger.log(
-        `chess-results search "${normalized}" → ${candidates.length} candidate(s)`,
-      );
-      // Успешный fetch — сбрасываем счётчик подряд-фейлов.
-      await this.redis.del(CIRCUIT_FAILS_KEY).catch(() => {});
-      return candidates;
-    } catch (err: unknown) {
-      if (err instanceof HttpThrottleError) {
-        await this.recordThrottleAndMaybeOpenCircuit();
-      }
-      throw err;
-    }
+    // Query: site:chess-results.com "<normalized title>"
+    const q = `site:chess-results.com "${normalized}"`;
+    const url = `${DDG_SEARCH_URL}?q=${encodeURIComponent(q)}`;
+    const html = await this.doFetch(url);
+    const candidates = parseDdgChessResults(html);
+    this.logger.log(
+      `ddg search site:chess-results.com "${normalized}" → ${candidates.length} candidate(s)`,
+    );
+    return candidates;
   }
 
   private delay(ms: number): Promise<void> {
@@ -558,6 +563,55 @@ export function parseSearchResults(
     if (seen.has(tid)) continue;
     seen.add(tid);
     // Убираем теги внутри <a> и нормализуем whitespace.
+    const inner = m[2]
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!inner) continue;
+    candidates.push({ tournamentId: tid, title: inner });
+  }
+  return candidates;
+}
+
+/**
+ * KS-3266. Парсит результаты DuckDuckGo HTML-поиска и извлекает
+ * chess-results tnr-id'шники. DDG оборачивает реальные URL в
+ * `https://duckduckgo.com/l/?uddg=<url-encoded-target>&rut=…`. Мы
+ * декодируем `uddg` и ищем в нём `tnr<digits>.aspx`.
+ *
+ * Title для кандидата берём из текста ссылки (то, что после `</a>`-close),
+ * но фильтруем только те, где DDG-результат явно от chess-results
+ * (хотя `site:chess-results.com` уже фильтрует, на всякий случай).
+ *
+ * Дедуплицируем по tournament-id (DDG может вернуть один и тот же tnr
+ * через несколько разных URL/snippet'ов).
+ */
+export function parseDdgChessResults(
+  html: string,
+): ChessResultsSearchCandidate[] {
+  if (!html) return [];
+  const candidates: ChessResultsSearchCandidate[] = [];
+  const seen = new Set<string>();
+  // <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fchess%2Dresults.com%2Ftnr1422274.aspx%3F...&amp;rut=...">Title</a>
+  const re =
+    /<a\s+[^>]*href\s*=\s*["'][^"']*[?&]uddg=([^"'&]+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const decoded = (() => {
+      try {
+        return decodeURIComponent(m[1]);
+      } catch {
+        return '';
+      }
+    })();
+    if (!decoded.includes('chess-results.com')) continue;
+    const tidMatch = /tnr(\d+)\.aspx/i.exec(decoded);
+    if (!tidMatch) continue;
+    const tid = tidMatch[1];
+    if (seen.has(tid)) continue;
+    seen.add(tid);
     const inner = m[2]
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/g, ' ')
