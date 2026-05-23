@@ -216,10 +216,12 @@ export class OpeningTrainerService {
       null;
     if (dto.side === 'black') {
       const rootEdges = tree.nodes[tree.rootFen]?.edges ?? [];
+      // KS-3278: всегда cycle (см. handleLineComplete) — на старте сессии
+      // playedLines пустой, разница не критична, но соблюдаем единый паттерн.
       const pick = pickBotMove({
         edges: rootEdges,
         playedChildFens: [],
-        repeatMode: session.repeatMode as 'cycle' | 'complete',
+        repeatMode: 'cycle',
       });
       if (pick.pick) {
         const newPlayedLines = {
@@ -343,12 +345,16 @@ export class OpeningTrainerService {
       (e) => !cleanFromHere.includes(e.childFen),
     );
     const playedFromHere = playedLines[fenAfterUser] ?? [];
+    // KS-3278: всегда cycle. Если есть unclean edges, бот ОБЯЗАН что-то
+    // сыграть — иначе мы вернёмся через handleLineComplete и зацикливаемся
+    // на том же fen. SessionPlayedLines только для разнообразия в пределах
+    // одной серии вариантов, не для условия завершения.
     const botPick =
       uncleanEdges.length > 0
         ? pickBotMove({
             edges: uncleanEdges,
             playedChildFens: playedFromHere,
-            repeatMode: session.repeatMode as 'cycle' | 'complete',
+            repeatMode: 'cycle',
           })
         : { pick: null, cycled: false, lineComplete: true };
 
@@ -516,10 +522,11 @@ export class OpeningTrainerService {
         (e) => !cleanFromHere.includes(e.childFen),
       );
       const sessionPlayedFromHere = playedLines[next.fen] ?? [];
+      // KS-3278: всегда cycle на restart-bot-play; см. комментарий выше.
       const botPick = pickBotMove({
         edges: uncleanEdges,
         playedChildFens: sessionPlayedFromHere,
-        repeatMode: session.repeatMode as 'cycle' | 'complete',
+        repeatMode: 'cycle',
       });
       if (botPick.pick) {
         updatedPlayedLines = {
@@ -632,7 +639,8 @@ export class OpeningTrainerService {
     const botPick = pickBotMove({
       edges: botEdges,
       playedChildFens: playedFromHere,
-      repeatMode: session.repeatMode as 'cycle' | 'complete',
+      // KS-3278: cycle для bot moves (см. handleLineComplete).
+      repeatMode: 'cycle',
     });
 
     const newPath = [
@@ -994,8 +1002,12 @@ export function findNextUnexploredBranch(
     }
     fens.push(chess.fen());
   }
-  // Walk от конца (path.length) к началу (0).
-  for (let depth = fens.length - 1; depth >= 0; depth--) {
+  // Walk от ПРЕДПОСЛЕДНЕЙ позиции (path.length − 1) к корню. Текущий
+  // конец (path.length) пропускаем намеренно: KS-3278 — мы попали сюда
+  // потому что бот не нашёл хода из current end. Возвращать туда же =
+  // зацикливание (newFen == прежний currentFen → доска не двигается).
+  // Всегда ищем точку ВЫШЕ по path.
+  for (let depth = fens.length - 2; depth >= 0; depth--) {
     const fen = fens[depth];
     const edges = tree.nodes[fen]?.edges ?? [];
     const cleanHere = cleanLines[fen] ?? [];
