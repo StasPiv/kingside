@@ -43,7 +43,7 @@ beforeEach(() => {
  * с гридом карточек.
  */
 describe('TrainLobbyPage (KS-2796) — mobile render', () => {
-  it('все флаги включены → 4 карточки', () => {
+  it('все флаги включены → 5 карточек (включая Opening Trainer KS-3276)', () => {
     renderWithProviders(<TrainLobbyPage />, { route: '/train' });
     expect(screen.getByTestId('train-lobby-page')).toBeInTheDocument();
     expect(screen.getByTestId('train-lobby-grid')).toBeInTheDocument();
@@ -51,6 +51,9 @@ describe('TrainLobbyPage (KS-2796) — mobile render', () => {
     expect(screen.getByTestId('train-lobby-card-puzzle-rush')).toBeInTheDocument();
     expect(screen.getByTestId('train-lobby-card-drills')).toBeInTheDocument();
     expect(screen.getByTestId('train-lobby-card-precision')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('train-lobby-card-opening-trainer'),
+    ).toBeInTheDocument();
     expect(
       screen.queryByTestId('train-lobby-coming-soon'),
     ).not.toBeInTheDocument();
@@ -80,11 +83,14 @@ describe('TrainLobbyPage (KS-2796) — mobile render', () => {
     expect(screen.getByTestId('train-lobby-card-puzzle-rush')).toBeInTheDocument();
   });
 
-  it('все флаги выключены, Rush всегда видим → 1 карточка, без coming-soon', () => {
+  it('все флаги выключены → Rush и Opening Trainer всё равно видны, без coming-soon', () => {
     flagsState.puzzlesEnabled = false;
     flagsState.drillsEnabled = false;
     renderWithProviders(<TrainLobbyPage />, { route: '/train' });
     expect(screen.getByTestId('train-lobby-card-puzzle-rush')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('train-lobby-card-opening-trainer'),
+    ).toBeInTheDocument();
     expect(
       screen.queryByTestId('train-lobby-coming-soon'),
     ).not.toBeInTheDocument();
@@ -104,6 +110,11 @@ describe('TrainLobbyPage (KS-2796) — mobile render', () => {
     expect(
       screen.getByTestId('train-lobby-card-precision').getAttribute('href'),
     ).toBe('/precision');
+    expect(
+      screen
+        .getByTestId('train-lobby-card-opening-trainer')
+        .getAttribute('href'),
+    ).toBe('/opening-trainer');
   });
 });
 

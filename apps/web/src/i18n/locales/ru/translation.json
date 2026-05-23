@@ -24,6 +24,10 @@
       "precision": {
         "title": "Точность",
         "desc": "Доигрывайте позиции против Stockfish — измерьте точность."
+      },
+      "openingTrainer": {
+        "title": "Дебюты",
+        "desc": "Тренировка вариантов своего репертуара."
       }
     }
   },
@@ -98,6 +102,7 @@
     "puzzleRush": "Puzzle Rush",
     "rushLeaderboard": "Таблица лидеров",
     "train": "Тренировка",
+    "openingTrainer": "Дебюты",
     "profile": "Профиль",
     "players": "Игроки",
     "messages": "Сообщения",

@@ -135,8 +135,11 @@ const NAV_ITEMS: NavItem[] = [
     path: '/train',
     icon: '🧠',
     i18nKey: 'nav.train',
-    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision'],
-    customGate: (flags) => flags.puzzlesEnabled || flags.drillsEnabled,
+    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer'],
+    // KS-3276: Opening Trainer всегда доступен (нет отдельного флага),
+    // поэтому пункт «Тренировка» теперь виден даже если
+    // puzzlesEnabled=false и drillsEnabled=false.
+    customGate: () => true,
     // KS-2840 (ADR-058 §11.1): подменю Train. На desktop открывается
     // поповером по hover/click; на mobile submenu не активен — клик
     // ведёт на лобби /train (Sidebar решает по `useIsMobile()`).
@@ -174,6 +177,18 @@ const NAV_ITEMS: NavItem[] = [
         i18nFallback: 'Precision',
         match: ['/precision'],
         featureFlag: 'puzzlesEnabled',
+      },
+      {
+        // KS-3276: Opening Trainer (ADR-077 M1). Без feature-flag'а —
+        // фича доступна всем авторизованным (внутри страниц
+        // ProtectedRoute уже стоит). Если потребуется gating без
+        // редеплоя — backend заведёт `openingTrainerEnabled` в
+        // shared FeatureFlags.
+        path: '/opening-trainer',
+        icon: '♔',
+        i18nKey: 'nav.openingTrainer',
+        i18nFallback: 'Openings',
+        match: ['/opening-trainer'],
       },
     ],
   },

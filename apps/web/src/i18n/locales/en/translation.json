@@ -24,6 +24,10 @@
       "precision": {
         "title": "Precision",
         "desc": "Play out puzzles vs Stockfish — measure precision."
+      },
+      "openingTrainer": {
+        "title": "Openings",
+        "desc": "Train your own repertoire variations."
       }
     }
   },
@@ -98,6 +102,7 @@
     "puzzleRush": "Puzzle Rush",
     "rushLeaderboard": "Leaderboard",
     "train": "Train",
+    "openingTrainer": "Openings",
     "profile": "Profile",
     "players": "Players",
     "messages": "Messages",

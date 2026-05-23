@@ -21,7 +21,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
  */
 
 interface LobbyCardItem {
-  id: 'puzzles' | 'puzzle-rush' | 'drills' | 'precision';
+  id: 'puzzles' | 'puzzle-rush' | 'drills' | 'precision' | 'opening-trainer';
   to: string;
   icon: string;
   titleKey: string;
@@ -107,6 +107,22 @@ export function TrainLobbyPage() {
       descKey: 'train.lobby.precision.desc',
       descDefault: 'Play out puzzles vs Stockfish — measure precision.',
       enabled: puzzlesEnabled,
+    },
+    {
+      // KS-3276 (ADR-077 M1): новая точка входа в Opening Trainer.
+      // Feature-flag `openingTrainerEnabled` отдельно НЕ заводили —
+      // фича уже под `ProtectedRoute`, доступ ограничен авторизацией.
+      // Если потребуется gating без redeploy — backend добавит флаг в
+      // FeatureFlags (нужен PR в packages/shared + config-service), и
+      // тут `enabled: useFeatureFlag('openingTrainerEnabled')`.
+      id: 'opening-trainer',
+      to: '/opening-trainer',
+      icon: '♔',
+      titleKey: 'train.lobby.openingTrainer.title',
+      titleDefault: 'Openings',
+      descKey: 'train.lobby.openingTrainer.desc',
+      descDefault: 'Train your own repertoire variations.',
+      enabled: true,
     },
   ];
 
