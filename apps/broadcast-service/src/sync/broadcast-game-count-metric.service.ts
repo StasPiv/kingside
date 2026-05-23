@@ -45,8 +45,23 @@ const DEFAULT_ALERT_TTL_SEC = 3600; // 1 час
 // KS-3264: cooldown между авто-resync'ами одного и того же раунда.
 // Защищает Lichess от спама запросов, если mismatch остаётся после
 // resync (Lichess отдал partial, ждём следующий полный snapshot).
+// Используется как TTL для FIRST attempt'а (failures=1).
 const DEFAULT_AUTO_RESYNC_COOLDOWN_SEC = 3600;
 const AUTO_RESYNC_KEY_PREFIX = 'broadcast:auto-resync:cooldown:';
+
+// KS-3265: эскалирующий cooldown для persistent-failed раундов.
+// При повторных fetched=false TTL растёт по таблице, telegram замолкает
+// после первой неудачи в серии. Сбрасывается на любой успех (либо при
+// исчезновении mismatch'а из metric'а — когда counter тоже expires).
+//
+// Failures-counter: `broadcast:auto-resync:failures:{lichessRoundId}` →
+// INCR на каждой неудаче, EXPIRE syncнут с cooldown'ом. Когда cooldown
+// истечёт — counter тоже исчезнет, серия начнётся заново.
+const FAILURES_KEY_PREFIX = 'broadcast:auto-resync:failures:';
+// Таблица «номер неудачи → cooldown TTL в секундах». Index 0 — первая
+// неудача (1ч), index 1 — вторая (3ч), index 2 — третья (12ч), всё что
+// дальше — 24ч.
+const DEFAULT_FAILURE_COOLDOWN_LADDER_SEC = [3600, 10800, 43200, 86400];
 // KS-3256: поднял с 20 до 50. На 20 metric покрывал только 20×15=300
 // строк (ORDER BY b.updated_at DESC) — это давало срез топ-53 broadcast'а
 // в первом tick, остальные ~230 активных были невидимы. Полный скан
@@ -87,6 +102,10 @@ export interface MetricCheckRedis {
     nx?: 'NX',
   ): Promise<'OK' | null>;
   get(key: string): Promise<string | null>;
+  // KS-3265: счётчик failures для эскалирующего cooldown'а.
+  incr(key: string): Promise<number>;
+  expire(key: string, ttl: number): Promise<number | 'OK'>;
+  del(key: string): Promise<number>;
 }
 
 export interface MetricCheckLogger {
@@ -126,8 +145,18 @@ export interface MetricCheckDeps {
   }>;
   alertTtlSec?: number;
   maxBroadcasts?: number;
-  /** KS-3264. Cooldown между авто-resync'ами одного раунда. */
+  /**
+   * KS-3264. Cooldown между авто-resync'ами одного раунда — используется
+   * только для FIRST attempt'а (failures=1). Дальше — KS-3265 ladder.
+   */
   autoResyncCooldownSec?: number;
+  /**
+   * KS-3265. Таблица эскалирующего cooldown'а по номеру неудачи в серии.
+   * `failures=1 → ladder[0]`, `failures=2 → ladder[1]`, ..., после
+   * последнего индекса — последнее значение применяется ко всем
+   * следующим. Default `[3600, 10800, 43200, 86400]` (1ч → 3ч → 12ч → 24ч).
+   */
+  failureCooldownLadderSec?: number[];
 }
 
 export interface MetricCheckSummary {
@@ -136,13 +165,17 @@ export interface MetricCheckSummary {
   mismatches: RoundMismatch[];
   newAlerts: RoundMismatch[];
   telegramSent: boolean;
-  /** KS-3264: статистика авто-resync. */
+  /** KS-3264 / KS-3265: статистика авто-resync. */
   autoResyncStats: {
     attempted: number;
     succeeded: number; // gamesAfter ≥ lichess
     persistentMismatches: number; // resync прошёл, но всё ещё < lichess
     errors: number; // throw / fetched=false
     skippedByCooldown: number; // ключ NX не приобретён
+    // KS-3265: failure произошёл, но telegram не послан — потому что
+    // counter > 1 (повтор в той же серии). Отделено от `errors` —
+    // помогает в логах отличить «новый сбой» от «продолжается».
+    silencedByRetryLimit: number;
   };
 }
 
@@ -268,6 +301,8 @@ export async function runGameCountCheckTick(
   // вмешается только когда автомата не справился.
   const autoResyncCooldown =
     deps.autoResyncCooldownSec ?? DEFAULT_AUTO_RESYNC_COOLDOWN_SEC;
+  const ladder =
+    deps.failureCooldownLadderSec ?? DEFAULT_FAILURE_COOLDOWN_LADDER_SEC;
   const autoResyncFn = deps.autoResyncFn;
   const stats = {
     attempted: 0,
@@ -275,6 +310,7 @@ export async function runGameCountCheckTick(
     persistentMismatches: 0,
     errors: 0,
     skippedByCooldown: 0,
+    silencedByRetryLimit: 0,
   };
   const failures: AutoResyncFailure[] = [];
   // KS-3264: newAlerts больше не имеет прямой связи с telegram-алертом
@@ -314,54 +350,87 @@ export async function runGameCountCheckTick(
       if (!firstAttempt) await sleepFn(LICHESS_RATE_LIMIT_DELAY_MS);
       firstAttempt = false;
 
+      // KS-3265: эскалирующий cooldown — общая логика для всех failure-
+      // веток (fetched=false / persistent / exception). Шаги:
+      //   1. INCR failures-counter (его текущее значение = «номер неудачи в серии»).
+      //   2. Выбрать TTL из ladder по этому номеру (overflow → последний).
+      //   3. EXPIRE failures-counter тем же TTL → счётчик исчезнет вместе
+      //      с cooldown'ом, серия начнётся с 1 заново.
+      //   4. Cooldown-ключ уже был выставлен через NX выше (cooldownKey);
+      //      обновим его TTL через EXPIRE на новый, эскалированный.
+      //   5. Если failures===1 — отправляем telegram. Иначе silenced.
+      // На success — DEL обоих ключей (счётчик и cooldown), серия закрыта.
+      const failuresKey = `${FAILURES_KEY_PREFIX}${m.lichessRoundId}`;
+
+      const onFailure = async (
+        kind: AutoResyncFailure['kind'],
+        reason: string,
+        gamesBefore?: number,
+        gamesAfter?: number,
+      ): Promise<void> => {
+        const failuresCount = await deps.redis
+          .incr(failuresKey)
+          .catch(() => 1);
+        // Wraparound на overflow ladder'а — берём последнее значение.
+        const idx = Math.min(failuresCount - 1, ladder.length - 1);
+        const newTtl = ladder[Math.max(0, idx)];
+        await deps.redis.expire(failuresKey, newTtl).catch(() => {});
+        await deps.redis.expire(cooldownKey, newTtl).catch(() => {});
+
+        if (failuresCount === 1) {
+          // Первая неудача в серии — telegram + counted в stats.
+          stats.errors++; // для совместимости со счётчиком общих ошибок
+          failures.push({
+            mismatch: m,
+            kind,
+            reason,
+            gamesBefore,
+            gamesAfter,
+          });
+          deps.logger.warn(
+            `[auto-resync] roundId=${m.lichessRoundId} status=${kind === 'persistent' ? 'persistent-mismatch' : kind === 'error' ? 'fetch-failed' : kind} ` +
+              `failures=1 cooldown=${newTtl}s ${reason}`,
+          );
+        } else {
+          // Повтор в серии — silenced, без telegram.
+          stats.silencedByRetryLimit++;
+          deps.logger.log(
+            `[auto-resync] roundId=${m.lichessRoundId} status=persistent_silenced ` +
+              `failures=${failuresCount} cooldown=${newTtl}s ${reason}`,
+          );
+        }
+      };
+
       try {
         const r = await autoResyncFn(m.lichessRoundId);
         if (!r.fetched) {
-          stats.errors++;
-          failures.push({
-            mismatch: m,
-            kind: 'error',
-            reason: 'force-resync fetched=false (Lichess недоступен)',
-            gamesBefore: r.gamesBefore,
-            gamesAfter: r.gamesAfter,
-          });
-          deps.logger.warn(
-            `[auto-resync] roundId=${m.lichessRoundId} status=fetch-failed before=${r.gamesBefore} after=${r.gamesAfter}`,
+          await onFailure(
+            'error',
+            'force-resync fetched=false (Lichess недоступен или PGN пуст)',
+            r.gamesBefore,
+            r.gamesAfter,
           );
           continue;
         }
         if (r.gamesAfter < m.lichessCount) {
-          // Resync прошёл, но число партий всё ещё ниже — это
-          // persistent mismatch. Возможные причины: Lichess PGN-snapshot
-          // ещё не полный, наш parsePgnGames что-то отбрасывает,
-          // collision-кейс KS-3229. Сообщаем оператору.
           stats.persistentMismatches++;
-          failures.push({
-            mismatch: m,
-            kind: 'persistent',
-            reason: `после resync gamesAfter=${r.gamesAfter} < lichessCount=${m.lichessCount}`,
-            gamesBefore: r.gamesBefore,
-            gamesAfter: r.gamesAfter,
-          });
-          deps.logger.warn(
-            `[auto-resync] roundId=${m.lichessRoundId} status=persistent-mismatch before=${r.gamesBefore} after=${r.gamesAfter} lichess=${m.lichessCount}`,
+          await onFailure(
+            'persistent',
+            `после resync gamesAfter=${r.gamesAfter} < lichessCount=${m.lichessCount}`,
+            r.gamesBefore,
+            r.gamesAfter,
           );
           continue;
         }
+        // Успех. Сбрасываем счётчик failures и cooldown — серия закрыта.
+        await deps.redis.del(failuresKey).catch(() => {});
+        await deps.redis.del(cooldownKey).catch(() => {});
         stats.succeeded++;
         deps.logger.log(
           `[auto-resync] roundId=${m.lichessRoundId} status=ok before=${r.gamesBefore} after=${r.gamesAfter}`,
         );
       } catch (err) {
-        stats.errors++;
-        failures.push({
-          mismatch: m,
-          kind: 'error',
-          reason: `exception: ${(err as Error).message}`,
-        });
-        deps.logger.error(
-          `[auto-resync] roundId=${m.lichessRoundId} status=exception ${(err as Error).message}`,
-        );
+        await onFailure('error', `exception: ${(err as Error).message}`);
       }
     }
   }
@@ -621,6 +690,11 @@ export class BroadcastGameCountMetricService
           'BROADCAST_GAME_COUNT_AUTO_RESYNC_COOLDOWN_SEC',
           DEFAULT_AUTO_RESYNC_COOLDOWN_SEC,
         ),
+        // KS-3265: эскалирующий cooldown через CSV `1ч,3ч,12ч,24ч` (sec).
+        failureCooldownLadderSec: parseEnvCsvInt(
+          'BROADCAST_GAME_COUNT_FAILURE_COOLDOWN_LADDER_SEC',
+          DEFAULT_FAILURE_COOLDOWN_LADDER_SEC,
+        ),
         maxBroadcasts: parseEnvInt(
           'BROADCAST_GAME_COUNT_MAX_BROADCASTS',
           DEFAULT_MAX_BROADCASTS,
@@ -632,6 +706,7 @@ export class BroadcastGameCountMetricService
           `${r.scannedBroadcasts} broadcasts; mismatches=${r.mismatches.length} ` +
           `autoResync attempted=${ar.attempted} succeeded=${ar.succeeded} ` +
           `persistent=${ar.persistentMismatches} errors=${ar.errors} ` +
+          `silencedByRetryLimit=${ar.silencedByRetryLimit} ` +
           `skippedByCooldown=${ar.skippedByCooldown} ` +
           `telegramSent=${r.telegramSent} durationMs=${Date.now() - start}`,
       );
@@ -663,4 +738,18 @@ function parseEnvInt(name: string, def: number): number {
   if (!raw) return def;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : def;
+}
+
+/**
+ * KS-3265. Парсит CSV из env в массив положительных целых.
+ * Невалидные значения / пустая env → fallback на default.
+ */
+function parseEnvCsvInt(name: string, def: number[]): number[] {
+  const raw = process.env[name];
+  if (!raw) return def;
+  const parts = raw
+    .split(',')
+    .map((s) => Number.parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return parts.length > 0 ? parts : def;
 }
