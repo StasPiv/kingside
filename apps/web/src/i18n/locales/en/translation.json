@@ -3143,6 +3143,8 @@
       "wrong": "Not in the repertoire",
       "expected": "Expected",
       "lineComplete": "Line completed",
+      "lineRestart": "Line done — switching to the next variation.",
+      "treeComplete": "Entire repertoire learned without errors.",
       "hint": "Hint",
       "hintBtn": "Hint",
       "hintTooltip": "Highlight the best move on the board (half points).",

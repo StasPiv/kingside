@@ -31,6 +31,8 @@ import { useSounds, soundEventFromSan } from '../../hooks/useSounds';
 import {
   isCorrectMove,
   isLineCompleteMove,
+  isLineRestartMove,
+  isTreeCompleteMove,
   isWrongMove,
   OPENING_TRAINER_SCORING,
 } from '@kingside/shared';
@@ -49,6 +51,12 @@ type Feedback =
   | { kind: 'correct'; scoreDelta: number }
   | { kind: 'wrong'; expected: Array<{ moveUci: string; moveSan: string }> }
   | { kind: 'line-complete' }
+  // KS-3277: бэк автоматически перенёс доску на ближайшую развилку
+  // с непройденными ходами — продолжаем сессию.
+  | { kind: 'line-restart' }
+  // KS-3277: всё дерево пройдено без ошибок — сессия закрыта на бэке,
+  // фронт показывает финал и редиректит на /result.
+  | { kind: 'tree-complete' }
   | { kind: 'hint'; moveSan: string }
   | null;
 
@@ -222,7 +230,49 @@ export function OpeningTrainerSessionPage() {
         } catch {
           /* ignore */
         }
+      } else if (isLineRestartMove(res)) {
+        // KS-3277: бэк автоматически откатил доску на развилку с
+        // непройденными вариантами. Перерисовываем по newFen, ставим
+        // lastMoveUci из newPath (последний UCI пути), если есть
+        // botMove — анимируем после паузы как обычный correct flow.
+        setFeedback({ kind: 'line-restart' });
+        playSound('game-start');
+        try {
+          setGame(new Chess(res.newFen));
+        } catch {
+          /* ignore */
+        }
+        const lastInPath = res.newPath[res.newPath.length - 1];
+        setLastMoveUci(lastInPath ?? null);
+        if (res.botMove) {
+          const bot = res.botMove;
+          setTimeout(() => {
+            try {
+              setGame(new Chess(bot.newFen));
+              setLastMoveUci(bot.moveUci);
+              playSound(soundEventFromSan(bot.moveSan));
+              positionShownAtRef.current = Date.now();
+            } catch {
+              /* ignore */
+            }
+          }, BOT_DELAY_MS);
+        } else {
+          positionShownAtRef.current = Date.now();
+        }
+      } else if (isTreeCompleteMove(res)) {
+        // KS-3277: всё дерево пройдено без ошибок. Бэк уже выставил
+        // session.status='finished', поэтому useEffect ниже сам
+        // редиректит на /result. Тут только UX-feedback + звук.
+        setFeedback({ kind: 'tree-complete' });
+        playSound('puzzle-gameover');
+        try {
+          setGame(new Chess(res.newFen));
+        } catch {
+          /* ignore */
+        }
       } else if (isLineCompleteMove(res)) {
+        // Legacy variant (до KS-3277). В новом flow не приходит,
+        // но обработчик оставлен на случай rollback'а контракта.
         setFeedback({ kind: 'line-complete' });
         playSound('game-end');
         try {
@@ -554,6 +604,30 @@ export function OpeningTrainerSessionPage() {
           {feedback?.kind === 'line-complete' && (
             <div className="opening-trainer-feedback opening-trainer-feedback--done">
               ✓ {t('openingTrainer.session.lineComplete', 'Line completed')}
+            </div>
+          )}
+          {feedback?.kind === 'line-restart' && (
+            <div
+              className="opening-trainer-feedback opening-trainer-feedback--done"
+              data-testid="opening-trainer-line-restart"
+            >
+              ↪{' '}
+              {t(
+                'openingTrainer.session.lineRestart',
+                'Line done — switching to the next variation.',
+              )}
+            </div>
+          )}
+          {feedback?.kind === 'tree-complete' && (
+            <div
+              className="opening-trainer-feedback opening-trainer-feedback--done"
+              data-testid="opening-trainer-tree-complete"
+            >
+              🏆{' '}
+              {t(
+                'openingTrainer.session.treeComplete',
+                'Entire repertoire learned without errors.',
+              )}
             </div>
           )}
           {feedback?.kind === 'hint' && (

@@ -21,20 +21,28 @@ vi.mock('../../api/openingTrainerApi', () => ({
 const mockedApi = vi.mocked(openingTrainerApi);
 
 // PuzzleBoard uses react-chessboard which crashes in JSDOM; stub it.
+// KS-3277: пробросили onPieceDrop в data-attribute, чтобы тесты могли
+// триггерить sendMove через ref на функцию.
+const boardCapture: { onPieceDrop?: (args: { sourceSquare: string; targetSquare: string }) => boolean } = {};
 vi.mock('../../components/PuzzleBoard', () => ({
   PuzzleBoard: ({
     customArrows,
     boardOrientation,
+    onPieceDrop,
   }: {
     customArrows?: Array<{ startSquare: string; endSquare: string; color: string }>;
     boardOrientation: string;
-  }) => (
-    <div
-      data-testid="puzzle-board-stub"
-      data-orientation={boardOrientation}
-      data-arrows={JSON.stringify(customArrows ?? [])}
-    />
-  ),
+    onPieceDrop: (args: { sourceSquare: string; targetSquare: string }) => boolean;
+  }) => {
+    boardCapture.onPieceDrop = onPieceDrop;
+    return (
+      <div
+        data-testid="puzzle-board-stub"
+        data-orientation={boardOrientation}
+        data-arrows={JSON.stringify(customArrows ?? [])}
+      />
+    );
+  },
 }));
 
 // AudioContext isn't in JSDOM/happy-dom; useSounds must not throw.
@@ -181,6 +189,57 @@ describe('OpeningTrainerSessionPage — KS-3274 UX', () => {
     // initial mount streak starts at 0. To assert UI presence of indicator:
     expect(screen.getAllByTestId('opening-trainer-streak').length).toBeGreaterThan(
       0,
+    );
+  });
+});
+
+describe('OpeningTrainerSessionPage — KS-3277 new variants', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    boardCapture.onPieceDrop = undefined;
+  });
+
+  it('line-restart: ре-рендерит доску и показывает фидбек', async () => {
+    renderSession('white');
+    await waitFor(() => expect(boardCapture.onPieceDrop).toBeDefined());
+
+    const lineRestart: OpeningTrainerMoveResponse = {
+      result: 'line-restart',
+      applied: true,
+      scoreDelta: 10,
+      newFen: 'rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+      newPath: ['e2e4'],
+      botMove: null,
+      session: makeSession({ correctMoves: 5, movesPlayed: 5 }),
+    };
+    mockedApi.sendMove.mockResolvedValue(lineRestart);
+
+    boardCapture.onPieceDrop!({ sourceSquare: 'e2', targetSquare: 'e4' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-line-restart')).toBeInTheDocument(),
+    );
+  });
+
+  it('tree-complete: показывает финал-фидбек и не падает', async () => {
+    renderSession('white');
+    await waitFor(() => expect(boardCapture.onPieceDrop).toBeDefined());
+
+    const treeComplete: OpeningTrainerMoveResponse = {
+      result: 'tree-complete',
+      applied: true,
+      scoreDelta: 10,
+      newFen: 'rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+      // KS-3277: бэк выставляет status=finished. В тесте проверяем
+      // отображение фидбека, навигацию на /result покрывает интеграция.
+      session: makeSession({ correctMoves: 99, movesPlayed: 100, status: 'active' }),
+    };
+    mockedApi.sendMove.mockResolvedValue(treeComplete);
+
+    boardCapture.onPieceDrop!({ sourceSquare: 'e2', targetSquare: 'e4' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-tree-complete')).toBeInTheDocument(),
     );
   });
 });
