@@ -648,7 +648,32 @@ export class OpeningTrainerService {
         });
     }
 
-    // 2. Ищем следующую развилку.
+    // KS-3316: review/mistakes — одна сессия = одна линия. После её
+    // прохождения НЕ ищем next-branch и не делаем line-restart на root
+    // (иначе бот сыграет первый ход репертуара, и пользователь увидит
+    // ту же стартовую позицию что в начале сессии — баг «один и тот же
+    // ход дважды»). Финишируем сессию; UI предлагает «взять следующую
+    // due-линию» или «вернуться на главную».
+    if (session.mode === 'mistakes' || session.mode === 'review') {
+      const updated = await this.repo.updateSession(session.id, {
+        ...baseUpdate,
+        currentFen: fenAfterUser,
+        currentPath: newPath,
+        cleanPlayedLines: cleanLines,
+        currentLineHadWrong: false,
+        status: 'finished',
+        finishedAt: now,
+      });
+      return {
+        result: 'tree-complete',
+        applied: true,
+        scoreDelta,
+        newFen: fenAfterUser,
+        session: sessionRowToDto(updated),
+      };
+    }
+
+    // 2. Ищем следующую развилку (learn / free — обход всего дерева).
     const next = findNextUnexploredBranch(tree, newPath, cleanLines);
 
     if (!next) {

@@ -1299,6 +1299,60 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
       // reviewLinePathUci НЕ заполняется (mistakes не апдейтит SM-2 как review).
     });
 
+    // KS-3316: после прохождения mistake-линии до конца сессия должна
+    // финишироваться (tree-complete), а НЕ перезапускаться line-restart'ом
+    // на root. Иначе пользователь видит, что бот опять играет первый ход
+    // (то же что в начале сессии) — баг «один и тот же ход дважды».
+    it('KS-3316: mistakes-mode после прохождения линии до конца → tree-complete, без line-restart на root', async () => {
+      const { svc, repo } = makeReviewService();
+      // Репертуар у user'а black: 1.e4 e5 2.Nf3 Nc6.
+      // Mistake-линия = ['e2e4'] (after-e4, ход чёрных).
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 e5 2. Nf3 Nc6',
+        side: 'black',
+      });
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: pathHashFn(['e2e4']),
+        pathUci: ['e2e4'],
+        pathLength: 1,
+        correctCount: 0,
+        wrongCount: 1,
+        consecutiveCorrect: 0,
+        lastPlayedAt: new Date(),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+      const start = await svc.startSession('u-1', r.id, {
+        mode: 'mistakes',
+      });
+      expect(start.session.currentPath).toEqual(['e2e4']);
+      // Юзер (black) играет e7e5 — бот отвечает Nf3 (correct, next bot move).
+      const m1 = await svc.makeMove('u-1', start.session.id, {
+        moveUci: 'e7e5',
+        responseTimeMs: 3000,
+      });
+      expect(m1.result).toBe('correct');
+      // Юзер играет Nc6. У белых после Nc6 edges нет → line-complete.
+      // В learn-mode это была бы line-restart на root, но в mistakes mode
+      // должно быть tree-complete (сессия выполнена).
+      const m2 = await svc.makeMove('u-1', start.session.id, {
+        moveUci: 'b8c6',
+        responseTimeMs: 3000,
+      });
+      // Ожидаемое: tree-complete (mistake-линия пройдена, дальше нечего).
+      // Сейчас (баг KS-3316) backend возвращает line-restart на root,
+      // бот играет первый ход — пользователь видит то же что в начале.
+      expect(m2.result).toBe('tree-complete');
+      expect(m2.session.status).toBe('finished');
+    });
+
     it('orphaned-линии не попадают в mistakes-выборку', async () => {
       const { svc, repo } = makeReviewService();
       const r = await svc.createRepertoire('u-1', {
