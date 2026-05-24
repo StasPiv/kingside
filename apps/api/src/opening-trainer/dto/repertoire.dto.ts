@@ -82,3 +82,22 @@ export class MoveDto {
   @Min(0)
   responseTimeMs!: number;
 }
+
+/**
+ * KS-3293 (M2 B7). Body для `POST /opening-trainer/repertoires/from-analysis`.
+ */
+export class CreateRepertoireFromAnalysisDto {
+  @IsString()
+  @MaxLength(40)
+  analysisId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+}

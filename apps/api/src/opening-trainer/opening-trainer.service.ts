@@ -981,6 +981,41 @@ export class OpeningTrainerService {
     return chess.fen();
   }
 
+  // ── KS-3293 (M2 B7): POST /opening-trainer/repertoires/from-analysis ──
+
+  /**
+   * Конверсия из мастерской: создаёт репертуар из существующего
+   * `Analysis.pgn` (текущего юзера). Owner-check, лимиты, PGN-парсинг —
+   * все те же что и в `createRepertoire`.
+   *
+   * Title по умолчанию = `analysis.title` или `analysis.headline` или
+   * fallback `'Опенинг из анализа'`.
+   */
+  async createRepertoireFromAnalysis(
+    userId: string,
+    input: { analysisId: string; title?: string; description?: string },
+  ): Promise<OpeningRepertoireDetailDto> {
+    const analysis = await this.repo.findAnalysisById(input.analysisId);
+    if (!analysis || analysis.userId !== userId) {
+      throw new NotFoundException(`Analysis ${input.analysisId} not found`);
+    }
+    if (!analysis.pgn || analysis.pgn.trim().length === 0) {
+      throw new BadRequestException(
+        'Analysis has no PGN content to import as repertoire',
+      );
+    }
+    const title =
+      input.title?.trim() ||
+      analysis.title?.trim() ||
+      analysis.headline?.trim() ||
+      'Опенинг из анализа';
+    return this.createRepertoire(userId, {
+      title,
+      description: input.description,
+      pgn: analysis.pgn,
+    });
+  }
+
   // ── KS-3292 (M2 B6): GET /opening-trainer/repertoires/:id/progress ──
 
   /**

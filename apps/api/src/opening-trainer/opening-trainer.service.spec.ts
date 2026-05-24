@@ -35,6 +35,7 @@ class FakeRepo {
   private sessions: any[] = [];
   private attempts: any[] = [];
   private lineProgress: any[] = [];
+  private analyses: any[] = [];
 
   async listRepertoires(userId: string) {
     return this.repos
@@ -214,6 +215,14 @@ class FakeRepo {
   // Helper для тестов: вручную засеить line-progress row.
   _seedLineProgress(row: any) {
     this.lineProgress.push(row);
+  }
+
+  // ── KS-3293 (B7) Analysis lookup ──
+  async findAnalysisById(id: string) {
+    return this.analyses.find((a) => a.id === id) ?? null;
+  }
+  _seedAnalysis(row: any) {
+    this.analyses.push(row);
   }
 }
 
@@ -1364,6 +1373,86 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
       });
       const result = await svc.listRepertoireProgress('u-1', r.id);
       expect(result.lines).toEqual([]);
+    });
+  });
+
+  describe('KS-3293 (M2 B7): createRepertoireFromAnalysis', () => {
+    it('из своего analysis → создаёт репертуар с PGN из analysis', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-1',
+        title: 'My Caro-Kann',
+        headline: null,
+        pgn: '1. e4 c6 2. d4 d5',
+      });
+      const r = await svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+      });
+      expect(r.title).toBe('My Caro-Kann');
+      expect(r.pgn).toBe('1. e4 c6 2. d4 d5');
+      expect(r.nodeCount).toBe(5);
+    });
+
+    it('из своего analysis с явным title → используется явный title', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-1',
+        title: 'My Game',
+        headline: null,
+        pgn: '1. e4 e5',
+      });
+      const r = await svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+        title: 'Open Game (custom)',
+        description: 'Imported from analysis',
+      });
+      expect(r.title).toBe('Open Game (custom)');
+      expect(r.description).toBe('Imported from analysis');
+    });
+
+    it('fallback title: headline → "Опенинг из анализа"', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-1',
+        title: null,
+        headline: 'Magnus vs Hikaru — Sicilian',
+        pgn: '1. e4 c5',
+      });
+      const r = await svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+      });
+      expect(r.title).toBe('Magnus vs Hikaru — Sicilian');
+    });
+
+    it('чужой analysisId → 404 NotFoundException', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-other',
+        title: 'Not mine',
+        headline: null,
+        pgn: '1. e4',
+      });
+      await expect(
+        svc.createRepertoireFromAnalysis('u-1', { analysisId: 'a-1' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('analysis без pgn → 400 BadRequestException', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-1',
+        title: 'Empty',
+        headline: null,
+        pgn: null,
+      });
+      await expect(
+        svc.createRepertoireFromAnalysis('u-1', { analysisId: 'a-1' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

@@ -17,6 +17,7 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { OpeningTrainerService } from './opening-trainer.service';
 import {
   CreateRepertoireDto,
+  CreateRepertoireFromAnalysisDto,
   ListRepertoiresQueryDto,
   MoveDto,
   StartSessionDto,
@@ -47,6 +48,16 @@ export class OpeningTrainerController {
     @Body() body: CreateRepertoireDto,
   ) {
     return this.service.createRepertoire(requireUserId(req), body);
+  }
+
+  // ── KS-3293 (M2 B7): POST /repertoires/from-analysis ───────────
+
+  @Post('repertoires/from-analysis')
+  async createFromAnalysis(
+    @Req() req: Request,
+    @Body() body: CreateRepertoireFromAnalysisDto,
+  ) {
+    return this.service.createRepertoireFromAnalysis(requireUserId(req), body);
   }
 
   @Get('repertoires')

@@ -422,4 +422,17 @@ export class OpeningTrainerRepository {
       orderBy: { lastActivityAt: 'desc' },
     });
   }
+
+  // ── KS-3293 (B7) from-analysis ─────────────────────────────────
+
+  /**
+   * Тонкий обёртка над `prisma.analysis.findUnique` для конверсии
+   * из мастерской. Owner-check делает сервис.
+   */
+  async findAnalysisById(id: string) {
+    return this.prisma.analysis.findUnique({
+      where: { id },
+      select: { id: true, userId: true, title: true, headline: true, pgn: true },
+    });
+  }
 }
