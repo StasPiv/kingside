@@ -743,6 +743,11 @@
     "clear": "Clear Board"
   },
   "analysis": {
+    "useAsRepertoire": {
+      "menuItem": "Use as repertoire",
+      "creating": "Creating…",
+      "error": "Failed to create repertoire from this analysis."
+    },
     "openError": "Could not open analysis. Please try again.",
     "openedExisting": "Opened your existing analysis for this game",
     "inWorkshopBadge": "In Workshop",

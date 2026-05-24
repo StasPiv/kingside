@@ -44,6 +44,9 @@ import { formatEval, formatCompact } from '../utils/chessFormat';
 import { parseInitialPly } from './utils/initialPly';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
+// KS-3299 (M2 F5): создание репертуара из анализа.
+import { openingTrainerApi } from '../api/openingTrainerApi';
+import { ApiError as ApiErrorClass } from '../ApiError';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 // KS-2863 (ADR-060 §10.1 FR1): извлечённый header — workshop-shortcut +
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
@@ -1133,6 +1136,34 @@ function AnalysisPageInner({
     pgnCopyTimerRef.current = window.setTimeout(() => setPgnCopyMsg(null), 1800);
   }, [buildAnalysisPgn, t]);
 
+  // KS-3299 (M2 F5): «Использовать как репертуар». POST
+  // /opening-trainer/repertoires/from-analysis передаёт только id —
+  // backend сам берёт PGN из Analysis (owner-check). При успехе
+  // редиректим на /opening-trainer/:id. При ошибке — alert.
+  const [creatingRepertoire, setCreatingRepertoire] = useState(false);
+  const handleUseAsRepertoire = useCallback(async () => {
+    if (creatingRepertoire) return;
+    if (!localIdRef.current) return;
+    setCreatingRepertoire(true);
+    try {
+      const repertoire = await openingTrainerApi.createRepertoireFromAnalysis({
+        analysisId: localIdRef.current,
+        title: analysisTitle || undefined,
+      });
+      navigate(`/opening-trainer/${repertoire.id}`);
+    } catch (err) {
+      const msg =
+        err instanceof ApiErrorClass
+          ? err.message
+          : t(
+              'analysis.useAsRepertoire.error',
+              'Failed to create repertoire from this analysis.',
+            );
+      window.alert(msg);
+      setCreatingRepertoire(false);
+    }
+  }, [creatingRepertoire, analysisTitle, navigate, t]);
+
   // Очистка таймера при unmount, чтобы setState не дёргался на размонтированный компонент.
   useEffect(() => {
     return () => {
@@ -1831,6 +1862,33 @@ function AnalysisPageInner({
                       {t('analysis.generatePuzzle', 'Generate puzzle')}
                     </button>
                   )}
+                  {/* KS-3299 (M2 F5): «Использовать как репертуар».
+                      Виден только для своих анализов (savedOwnerId ===
+                      user.id) с непустым PGN (history.length > 0).
+                      Не показываем в publicMode, puzzle / в read-only
+                      view чужой shared-ссылки. */}
+                  {!publicMode &&
+                    user &&
+                    localIdRef.current &&
+                    savedOwnerId === user.id &&
+                    ctx.kind === 'analysis' &&
+                    history.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setShowOverflowMenu(false);
+                          void handleUseAsRepertoire();
+                        }}
+                        disabled={creatingRepertoire}
+                        data-testid="analysis-use-as-repertoire"
+                      >
+                        {creatingRepertoire
+                          ? t('analysis.useAsRepertoire.creating', 'Creating…')
+                          : t(
+                              'analysis.useAsRepertoire.menuItem',
+                              'Use as repertoire',
+                            )}
+                      </button>
+                    )}
                   {/* KS-2674: «Поделиться» — пункт меню для mobile.
                       Клик открывает тот же popup, что Share-кнопка на
                       desktop, через ref на ShareAnalysisButton. Виден
