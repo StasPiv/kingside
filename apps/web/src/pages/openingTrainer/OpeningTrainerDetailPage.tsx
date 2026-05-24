@@ -25,6 +25,7 @@ import type {
   OpeningTrainerMode,
   OpeningTrainerSessionDto,
   StartOpeningTrainerSessionResponse,
+  TrainerColor,
 } from '@kingside/shared';
 
 interface ModeInfo {
@@ -100,6 +101,10 @@ export function OpeningTrainerDetailPage() {
   // (фиксируется при создании). Селектор стороны удалён.
   const [starting, setStarting] = useState<OpeningTrainerMode | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+
+  // KS-3315: смена стороны через PATCH /repertoires/:id {side}.
+  const [sidePickerOpen, setSidePickerOpen] = useState(false);
+  const [switchingSide, setSwitchingSide] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -189,6 +194,42 @@ export function OpeningTrainerDetailPage() {
     if (!activeSession || !id) return;
     navigate(`/opening-trainer/${id}/session/${activeSession.id}`);
   }, [activeSession, id, navigate]);
+
+  /**
+   * KS-3315: сменить сторону репертуара. Backend (commit b...) принимает
+   * `PATCH /opening-trainer/repertoires/:id` с body `{side}` и возвращает
+   * обновлённый detail-DTO. После успеха обновляем local state без
+   * перезагрузки страницы — детальный объект приходит свежим.
+   */
+  const handleSwitchSide = useCallback(
+    async (newSide: TrainerColor) => {
+      if (!id || switchingSide) return;
+      if (newSide === repertoire?.side) {
+        setSidePickerOpen(false);
+        return;
+      }
+      setSwitchingSide(true);
+      try {
+        const updated = await openingTrainerApi.updateRepertoire(id, {
+          side: newSide,
+        });
+        setRepertoire(updated);
+        setSidePickerOpen(false);
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : t(
+                'openingTrainer.detail.switchSide.error',
+                'Failed to change side',
+              );
+        setStartError(msg);
+      } finally {
+        setSwitchingSide(false);
+      }
+    },
+    [id, repertoire?.side, switchingSide, t],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!id) return;
@@ -326,21 +367,117 @@ export function OpeningTrainerDetailPage() {
       <section className="opening-trainer-detail__start">
         <h2>{t('openingTrainer.detail.start.title', 'Start training')}</h2>
 
-        {/* KS-3302: side зафиксирован при создании репертуара —
-            показываем readonly-чип, не селектор. */}
+        {/* KS-3302 + KS-3315: side фиксируется при создании репертуара,
+            но при необходимости меняется через кнопку «Сменить сторону». */}
         <div
           className="opening-trainer-detail__side"
           data-testid="opening-trainer-detail-side"
           data-side={repertoire.side}
-          style={{ marginBottom: 12, fontSize: 14 }}
+          style={{
+            marginBottom: 12,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
         >
-          {t('openingTrainer.detail.trainingAs', 'Training as')}:{' '}
-          <strong>
-            {repertoire.side === 'white'
-              ? t('openingTrainer.detail.start.white', 'White')
-              : t('openingTrainer.detail.start.black', 'Black')}
-          </strong>
+          <span>
+            {t('openingTrainer.detail.trainingAs', 'Training as')}:{' '}
+            <strong>
+              {repertoire.side === 'white'
+                ? t('openingTrainer.detail.start.white', 'White')
+                : t('openingTrainer.detail.start.black', 'Black')}
+            </strong>
+          </span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setSidePickerOpen(true)}
+            disabled={switchingSide}
+            data-testid="opening-trainer-detail-switch-side"
+            style={{ fontSize: 12, padding: '4px 10px' }}
+          >
+            {t('openingTrainer.detail.switchSide.cta', 'Change side')}
+          </button>
         </div>
+        {sidePickerOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            data-testid="opening-trainer-detail-side-picker"
+            onClick={() => !switchingSide && setSidePickerOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9000,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-surface, #1f2937)',
+                color: 'var(--text-primary, #fff)',
+                border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))',
+                borderRadius: 8,
+                padding: '18px 20px',
+                maxWidth: 360,
+                width: '90%',
+                textAlign: 'center',
+              }}
+            >
+              <h3 style={{ margin: '0 0 8px' }}>
+                {t('openingTrainer.detail.switchSide.title', 'Change training side')}
+              </h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.75 }}>
+                {t(
+                  'openingTrainer.detail.switchSide.hint',
+                  'Statistics and progress are kept — only the side flips.',
+                )}
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={switchingSide || repertoire.side === 'white'}
+                  onClick={() => void handleSwitchSide('white')}
+                  data-testid="opening-trainer-detail-side-picker-white"
+                >
+                  {t('openingTrainer.detail.start.white', 'White')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={switchingSide || repertoire.side === 'black'}
+                  onClick={() => void handleSwitchSide('black')}
+                  data-testid="opening-trainer-detail-side-picker-black"
+                >
+                  {t('openingTrainer.detail.start.black', 'Black')}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidePickerOpen(false)}
+                disabled={switchingSide}
+                style={{
+                  marginTop: 12,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  opacity: 0.7,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                {t('common.cancel', 'Cancel')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* KS-3295 (F1): 4 кнопки режимов с counter'ами. Заменяет старый
             select на учёный grid. */}

@@ -3144,6 +3144,12 @@
       "startCta": "Train",
       "trainingAs": "Training as",
       "viewStats": "View statistics",
+      "switchSide": {
+        "cta": "Change side",
+        "title": "Change training side",
+        "hint": "Statistics and progress are kept — only the side flips.",
+        "error": "Failed to change side"
+      },
       "stats": {
         "positions": "Positions",
         "moves": "Moves",
