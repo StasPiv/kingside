@@ -782,6 +782,192 @@
 }
 
 /* ============================================================
+ * KS-3300 (M2 L1) — RepertoireTreeView.
+ *
+ * DOM (см. `RepertoireTreeView.tsx`):
+ *   <ol class="opening-trainer-tree">
+ *     <li class="opening-trainer-tree__row" style="padding-left: depth*12">
+ *       <button class="opening-trainer-tree__edge" data-status data-uci aria-expanded>
+ *         <span class="opening-trainer-tree__chip" style="background: COLOR"/>
+ *         <span class="opening-trainer-tree__move">1. e4</span>
+ *         <span class="opening-trainer-tree__status">mastered</span>
+ *       </button>
+ *       <div class="opening-trainer-tree__tooltip" role="tooltip">...</div>
+ *     </li>
+ *   </ol>
+ *
+ * Frontend (F2) задаёт цвет chip'а inline-style по hardcoded hex.
+ * Layout перекрывает их через `[data-status]` attribute selector с
+ * `!important` — нужно чтобы chip-цвет тянулся из theme-токенов
+ * (WCAG-контраст в обеих темах).
+ * ============================================================ */
+.opening-trainer-tree {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  /* На длинных линиях не растягиваем родителя. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+}
+.opening-trainer-tree--empty {
+  list-style: none;
+  margin: 0;
+  padding: 24px 16px;
+  background: var(--bg-surface);
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 13px;
+}
+.opening-trainer-tree__row {
+  /* padding-left устанавливается inline через `depth * 12px`. */
+  padding-right: 8px;
+  position: relative;
+}
+/* KS-3300: визуальные «ножки» дерева — тонкая accent-линия слева
+   у вложенных row'ов (depth > 0). Без depth = 0 line не нужна. */
+.opening-trainer-tree__row[style*='padding-left: 0px']::before {
+  display: none;
+}
+.opening-trainer-tree__row::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-subtle);
+  opacity: 0.6;
+}
+
+.opening-trainer-tree__edge {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.opening-trainer-tree__edge:hover {
+  background: var(--ov-white-05);
+}
+.opening-trainer-tree__edge:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15);
+}
+.opening-trainer-tree__edge[aria-expanded='true'] {
+  background: var(--ov-accent-08);
+  border-color: var(--ov-accent-15);
+}
+
+/* Chip — круглая точка 10px с цветом статуса.
+   KS-3300: Frontend задаёт background inline-style по hex (см.
+   RepertoireTreeView.tsx:49 STATUS_COLOR). Перекрываем через
+   `[data-status]` attribute selector с `!important` — токены
+   адаптируются к light/dark, контраст ≥ 4.5:1. */
+.opening-trainer-tree__chip {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  /* Граница chip'а — для контраста на близких к chip-color фонах. */
+  box-shadow: inset 0 0 0 1px var(--ov-black-15);
+}
+.opening-trainer-tree__edge[data-status='mastered'] .opening-trainer-tree__chip {
+  background: var(--success) !important;
+}
+.opening-trainer-tree__edge[data-status='due'] .opening-trainer-tree__chip {
+  background: var(--info) !important;
+}
+.opening-trainer-tree__edge[data-status='learning'] .opening-trainer-tree__chip {
+  background: var(--warning) !important;
+}
+.opening-trainer-tree__edge[data-status='wrong'] .opening-trainer-tree__chip {
+  background: var(--danger) !important;
+}
+.opening-trainer-tree__edge[data-status='not-played'] .opening-trainer-tree__chip {
+  background: var(--text-muted) !important;
+  opacity: 0.6;
+}
+
+.opening-trainer-tree__move {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 56px;
+}
+.opening-trainer-tree__status {
+  flex: 1;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.opening-trainer-tree__edge[data-status='mastered'] .opening-trainer-tree__status {
+  color: var(--success);
+}
+.opening-trainer-tree__edge[data-status='due'] .opening-trainer-tree__status {
+  color: var(--info);
+}
+.opening-trainer-tree__edge[data-status='learning'] .opening-trainer-tree__status {
+  color: var(--warning);
+}
+.opening-trainer-tree__edge[data-status='wrong'] .opening-trainer-tree__status {
+  color: var(--danger);
+}
+
+/* Orphan (предусмотрено в M3+, но визуал готов). */
+.opening-trainer-tree__row[data-orphan='true'] {
+  opacity: 0.5;
+}
+.opening-trainer-tree__row[data-orphan='true'] .opening-trainer-tree__edge {
+  text-decoration: line-through;
+}
+
+/* Tooltip — popup под edge'ом с counters. */
+.opening-trainer-tree__tooltip {
+  margin: 4px 0 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  box-shadow: 0 4px 12px var(--ov-black-20);
+  animation: opening-trainer-tooltip-fade 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes opening-trainer-tooltip-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.opening-trainer-tree__tooltip div {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
  * Mobile (≤ 767px) — full-width, sticky controls, FAB.
  * ============================================================ */
 @media (max-width: 767px) {
@@ -945,5 +1131,48 @@
   .opening-trainer-result__actions .btn {
     width: 100%;
     min-height: 44px;
+  }
+
+  /* ── /tree-view ─────────────────────────────────────────────
+     KS-3300: на 360×844 не должно быть горизонтального скролла.
+     Уменьшаем depth-step (12px → 6px inline-style фронта менять
+     нельзя, но мы добавляем `max-width: 100%` + `overflow-x: auto`
+     на саму `ol` и компактим font. ───────────────────────────── */
+  .opening-trainer-tree {
+    border-radius: 8px;
+  }
+  .opening-trainer-tree__edge {
+    font-size: 12px;
+    padding: 6px 8px;
+    /* Минимальный touch-target: 44px высота кнопки на мобайле. */
+    min-height: 44px;
+  }
+  .opening-trainer-tree__chip {
+    width: 12px;
+    height: 12px;
+  }
+  .opening-trainer-tree__move {
+    min-width: 48px;
+    font-size: 13px;
+  }
+  .opening-trainer-tree__status {
+    font-size: 10px;
+    /* На узком экране показываем только цветной chip — статус-text
+     * визуально дублирует chip-color, на mobile прячем. */
+    display: none;
+  }
+  .opening-trainer-tree__tooltip {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+  /* KS-3300: F2 даёт `padding-left: depth*12px` inline-стилем — на узких
+     viewport'ах это режется при глубине > 8 ходов. Применяем `max-width:
+     100%` + `overflow-x: auto` на самой `ol` (см. desktop-блок выше),
+     дополнительно перебиваем inline-style через `:where()` (specificity 0)
+     — нельзя, inline-style побеждает. Вместо этого даём `.opening-
+     trainer-tree__row` flex с `min-width: 0` чтобы текст обрезался
+     ellipsis'ом, а padding-left остаётся под отступы. */
+  .opening-trainer-tree__row {
+    min-width: 0;
   }
 }
