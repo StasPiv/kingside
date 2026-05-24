@@ -18,6 +18,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
+import { RepertoireTreeView } from './RepertoireTreeView';
 import type {
   OpeningLineProgressDto,
   OpeningRepertoireDetailDto,
@@ -397,6 +398,12 @@ export function OpeningTrainerDetailPage() {
         </div>
 
         {startError && <div className="error">{startError}</div>}
+      </section>
+
+      {/* KS-3296 (F2): дерево репертуара с покраской по статусу линий. */}
+      <section className="opening-trainer-detail__tree">
+        <h2>{t('openingTrainer.tree.title', 'Repertoire')}</h2>
+        <RepertoireTreeView tree={repertoire.tree} lines={progress ?? []} />
       </section>
 
       <section className="opening-trainer-detail__danger">

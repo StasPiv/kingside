@@ -3160,6 +3160,25 @@
         "cta": "Continue"
       }
     },
+    "tree": {
+      "title": "Repertoire",
+      "aria": "Repertoire tree",
+      "empty": "No moves in this repertoire yet.",
+      "status": {
+        "mastered": "Mastered",
+        "due": "Due",
+        "learning": "Learning",
+        "wrong": "Mistakes",
+        "notPlayed": "New"
+      },
+      "tooltip": {
+        "correct": "Correct: {{count}}",
+        "wrong": "Wrong: {{count}}",
+        "toMastery": "{{count}} more in a row to master",
+        "dueAt": "Next review: {{date}}",
+        "notPlayed": "You haven’t played this line yet."
+      }
+    },
     "session": {
       "title": "Opening training",
       "score": "Score",
