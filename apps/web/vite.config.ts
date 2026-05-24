@@ -111,6 +111,15 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
+        // KS-3315: cleanupOutdatedCaches удаляет старые precache-кеши
+        // от прошлых SW-сборок при активации нового SW. Без этого
+        // workbox мог отдавать пользователю старый index.html (и через
+        // него старые asset-ссылки), даже после деплоя нового бандла —
+        // именно это привело к жалобам пользователя на стейл-UI
+        // (доска не повёрнута по repertoire.side; gap на /stats после
+        // KS-3314 фикса) — фактически фикс уже был на проде, но SW
+        // отдавал предыдущую версию.
+        cleanupOutdatedCaches: true,
         // KS-2917: index.html ДОЛЖЕН быть в precache. По умолчанию vite-pwa
         // выставляет workbox.navigateFallback = "index.html", и worbox-build
         // в шаблоне sw.js рендерит
@@ -138,14 +147,21 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//, /^\/assets\//, /\/sw\.js$/],
         runtimeCaching: [
           {
-            // JS and CSS: network first, fall back to cache
+            // JS and CSS: network first, fall back to cache.
+            // KS-3315: maxAgeSeconds снижен 86400 → 300 (5 минут).
+            // Раньше старый JS/CSS жил в SW-кеше до суток, и если
+            // пользователь оставил вкладку открытой и SW сходил
+            // offline-fallback после первого таймаута — он получал
+            // вчерашний код. Для NetworkFirst expiration — лимит
+            // хранения, не TTL запроса; быстрая ротация важнее
+            // экономии оффлайн-данных (фронт не оффлайн-критичный).
             urlPattern: /\.(?:js|css)$/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'assets-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 86400,
+                maxAgeSeconds: 300,
               },
             },
           },

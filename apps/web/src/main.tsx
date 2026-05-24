@@ -43,6 +43,32 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 // неустранимо без перезагрузки — index.html в памяти уже старый. Решение:
 // поймать ошибку на window.onerror / unhandledrejection и сделать
 // одноразовый location.reload() с querystring-меткой, чтобы не зациклиться.
+// KS-3315: после обновления Service Worker'а через skipWaiting+clientsClaim
+// в workbox config, активная вкладка остаётся на старых JS-модулях
+// (импортированы в память). Reload нужен чтобы подхватить свежий бандл.
+// Слушаем `controllerchange` — событие срабатывает в момент, когда
+// новый SW стал контролировать клиента (после `clients.claim()`).
+// Делаем один reload, флаг через sessionStorage чтобы не зациклиться,
+// если SW активируется несколько раз за сессию.
+if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in navigator) {
+  let reloadedOnce = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedOnce) return;
+    // Если в сессии уже релоадились по этой причине — пропускаем
+    // (защита от циклических SW-апдейтов в редких edge case'ах).
+    try {
+      if (sessionStorage.getItem('ks3315-sw-reloaded')) return;
+      sessionStorage.setItem('ks3315-sw-reloaded', '1');
+    } catch {
+      /* ignore — без sessionStorage всё равно reload один раз через флаг */
+    }
+    reloadedOnce = true;
+    // eslint-disable-next-line no-console
+    console.info('[ks3315] new Service Worker activated → reload for fresh bundle');
+    window.location.reload();
+  });
+}
+
 if (typeof window !== 'undefined' && import.meta.env.PROD) {
   const RELOAD_MARK = 'ks2917-stale-chunk-reload';
   const isStaleChunkError = (msg: string): boolean =>
