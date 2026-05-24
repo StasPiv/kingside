@@ -1147,6 +1147,106 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
     expect(r2.lines[0].pathUci).toEqual(['e2e4']);
   });
 
+  describe('KS-3291 (M2 B5) mistakes-mode', () => {
+    it('startSession(mistakes) без wrongCount>0 → 400 no_mistakes', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 e5',
+      });
+      await expect(
+        svc.startSession('u-1', r.id, {
+          side: 'white',
+          mode: 'mistakes',
+        }),
+      ).rejects.toThrow(/no_mistakes/);
+    });
+
+    it('startSession(mistakes) с линиями wrongCount>0 → стартует с последней по lastPlayedAt', async () => {
+      const { svc, repo } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 e5 2. Nf3',
+      });
+      // Старая линия с ошибкой.
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'old-h',
+        pathUci: ['e2e4'],
+        pathLength: 1,
+        correctCount: 1,
+        wrongCount: 2,
+        consecutiveCorrect: 0,
+        lastPlayedAt: new Date('2026-05-20T00:00:00Z'),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+      // Свежая линия с ошибкой.
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'new-h',
+        pathUci: ['e2e4', 'e7e5'],
+        pathLength: 2,
+        correctCount: 2,
+        wrongCount: 1,
+        consecutiveCorrect: 1,
+        lastPlayedAt: new Date('2026-05-23T00:00:00Z'),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+      const start = await svc.startSession('u-1', r.id, {
+        side: 'white',
+        mode: 'mistakes',
+      });
+      // Берётся свежая (по lastPlayedAt DESC).
+      expect(start.session.currentPath).toEqual(['e2e4', 'e7e5']);
+      expect(start.session.mode).toBe('mistakes');
+      // reviewLinePathUci НЕ заполняется (mistakes не апдейтит SM-2 как review).
+    });
+
+    it('orphaned-линии не попадают в mistakes-выборку', async () => {
+      const { svc, repo } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      // Линия с ошибкой, но orphaned=true.
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'orph-h',
+        pathUci: ['e2e4'],
+        pathLength: 1,
+        correctCount: 0,
+        wrongCount: 5,
+        consecutiveCorrect: 0,
+        lastPlayedAt: new Date(),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: true,
+      });
+      await expect(
+        svc.startSession('u-1', r.id, {
+          side: 'white',
+          mode: 'mistakes',
+        }),
+      ).rejects.toThrow(/no_mistakes/);
+    });
+  });
+
   it('listDueReviews фильтрует по repertoireId если задан', async () => {
     const { svc, repo } = makeReviewService();
     const r1 = await svc.createRepertoire('u-1', {
