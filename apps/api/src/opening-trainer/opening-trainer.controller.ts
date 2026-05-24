@@ -186,6 +186,16 @@ export class OpeningTrainerController {
   ) {
     return this.service.getActiveSession(requireUserId(req), id);
   }
+
+  // ── KS-3283 (M2 stats): GET /repertoires/:id/stats ─────────────
+
+  @Get('repertoires/:id/stats')
+  async repertoireStats(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.service.getRepertoireStats(requireUserId(req), id);
+  }
 }
 
 function requireUserId(req: Request): string {

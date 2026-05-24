@@ -226,6 +226,41 @@ class FakeRepo {
     this.analyses.push(row);
   }
 
+  // ── KS-3283 (M2 stats) ──
+  async listSessionsForRepertoire(userId: string, repertoireId: string) {
+    return this.sessions
+      .filter((s) => s.userId === userId && s.repertoireId === repertoireId)
+      .map((s) => ({
+        id: s.id,
+        status: s.status,
+        finishedAt: s.finishedAt,
+        startedAt: s.startedAt,
+        score: s.score,
+        movesPlayed: s.movesPlayed,
+        correctMoves: s.correctMoves,
+        wrongMoves: s.wrongMoves,
+        hintsUsed: s.hintsUsed,
+      }))
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  }
+  async listAttemptsForRepertoire(userId: string, repertoireId: string) {
+    // session-id of all sessions for this user+repertoire.
+    const sessionIds = new Set(
+      this.sessions
+        .filter((s) => s.userId === userId && s.repertoireId === repertoireId)
+        .map((s) => s.id),
+    );
+    return this.attempts
+      .filter((a) => sessionIds.has(a.sessionId))
+      .map((a) => ({
+        positionFen: a.positionFen,
+        expectedMoves: a.expectedMoves,
+        userMove: a.userMove,
+        correct: a.correct,
+        hintUsed: a.hintUsed,
+      }));
+  }
+
   // ── KS-3294 (B8) markOrphans + findLatestActiveSession ──
   async markOrphans(repertoireId: string, validHashes: string[]) {
     let markedOrphan = 0;
@@ -1721,6 +1756,156 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
     const filtered = await svc.listDueReviews('u-1', { repertoireId: r1.id });
     expect(filtered.lines).toHaveLength(1);
     expect(filtered.lines[0].repertoireTitle).toBe('A');
+  });
+});
+
+describe('KS-3283 (M2 stats): GET /repertoires/:id/stats', () => {
+  function makeService() {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    return { svc, repo };
+  }
+
+  it('пустой репертуар (нет сессий) → все нули', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const stats = await svc.getRepertoireStats('u-1', r.id);
+    expect(stats.totalSessions).toBe(0);
+    expect(stats.completedSessions).toBe(0);
+    expect(stats.totalAttempts).toBe(0);
+    expect(stats.correctAttempts).toBe(0);
+    expect(stats.wrongAttempts).toBe(0);
+    expect(stats.hintsUsed).toBe(0);
+    expect(stats.accuracyPercent).toBe(0);
+    expect(stats.topErrorPositions).toEqual([]);
+    expect(stats.lastSessions).toEqual([]);
+  });
+
+  it('owner-check: чужой репертуар → 404', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    await expect(svc.getRepertoireStats('u-2', r.id)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('агрегация: 2 сессии, разные attempts → корректные totals + accuracy + topError', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5 2. Nf3 Nc6', // 2 user-correct'а до tree-complete
+    });
+    const s1 = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    const s2 = await svc.startSession('u-1', r.id, { mode: 'learn' });
+
+    // s1: user white. Bot не ходит на старте. Юзер делает:
+    //   1) e2e4 (correct, бот отвечает e7e5)
+    //   2) wrong (a7a6 на after-e5)
+    //   3) wrong (a7a6 снова — same wrong move)
+    //   4) g1f3 (correct, бот отвечает b8c6, tree-complete)
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'g1f3',
+      responseTimeMs: 3000,
+    });
+    // s2: user white. 1 user-correct (e2e4 + бот e7e5).
+    await svc.makeMove('u-1', s2.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    await svc.finish('u-1', s2.session.id);
+
+    const stats = await svc.getRepertoireStats('u-1', r.id);
+    expect(stats.totalSessions).toBe(2);
+    expect(stats.completedSessions).toBeGreaterThanOrEqual(1);
+    expect(stats.totalAttempts).toBe(5); // 4 в s1 + 1 в s2
+    expect(stats.correctAttempts).toBe(3); // e2e4, g1f3 в s1 + e2e4 в s2
+    expect(stats.wrongAttempts).toBe(2); // 2 раза a7a6 в s1
+    expect(stats.accuracyPercent).toBe(60); // 3/5 = 60%
+
+    // Top error positions: after-e5 имеет 2 wrong (a7a6) + 1 correct
+    // (g1f3) = 3 totalCount, 2 wrong.
+    expect(stats.topErrorPositions.length).toBeGreaterThanOrEqual(1);
+    const topErr = stats.topErrorPositions[0];
+    expect(topErr.wrongCount).toBe(2);
+    expect(topErr.totalCount).toBe(3);
+    expect(topErr.errorRate).toBeCloseTo(2 / 3, 3);
+    expect(topErr.mostFrequentWrongMove).toBe('a7a6');
+    expect(topErr.expectedMoves).toContain('g1f3');
+  });
+
+  it('mostFrequentWrongMove=null если нет одного явного mode', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5 2. Nf3 Nc6',
+    });
+    const s1 = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    // 2 разных wrong moves на after-e5: a7a6 и b7b6 (по 1 разу).
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s1.session.id, {
+      moveUci: 'b7b6',
+      responseTimeMs: 3000,
+    });
+    const stats = await svc.getRepertoireStats('u-1', r.id);
+    const topErr = stats.topErrorPositions[0];
+    expect(topErr.wrongCount).toBe(2);
+    expect(topErr.mostFrequentWrongMove).toBeNull(); // tie → null
+  });
+
+  it('lastSessions: последние 10, сортировка по startedAt DESC, accuracy = correctMoves/movesPlayed', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    // 3 сессии с разным результатом.
+    for (let i = 0; i < 3; i++) {
+      const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+      await svc.makeMove('u-1', s.session.id, {
+        moveUci: 'e2e4',
+        responseTimeMs: 3000,
+      });
+    }
+    const stats = await svc.getRepertoireStats('u-1', r.id);
+    expect(stats.lastSessions).toHaveLength(3);
+    // Все сессии должны иметь accuracy=1 (1 correct, 0 wrongs).
+    for (const s of stats.lastSessions) {
+      expect(s.accuracy).toBeGreaterThan(0);
+    }
   });
 });
 

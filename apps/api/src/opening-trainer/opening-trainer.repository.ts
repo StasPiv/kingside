@@ -428,6 +428,47 @@ export class OpeningTrainerRepository {
     });
   }
 
+  // ── KS-3283 (M2 stats) ─────────────────────────────────────────
+
+  /**
+   * Все сессии пользователя по репертуару (для агрегатов в /stats).
+   * Selected поля — только те, что нужны для статистики.
+   */
+  async listSessionsForRepertoire(userId: string, repertoireId: string) {
+    return this.prisma.openingTrainerSession.findMany({
+      where: { userId, repertoireId },
+      select: {
+        id: true,
+        status: true,
+        finishedAt: true,
+        startedAt: true,
+        score: true,
+        movesPlayed: true,
+        correctMoves: true,
+        wrongMoves: true,
+        hintsUsed: true,
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Все attempts пользователя по репертуару (через JOIN на session).
+   * Selected поля — для top-error-positions агрегации.
+   */
+  async listAttemptsForRepertoire(userId: string, repertoireId: string) {
+    return this.prisma.openingTrainerAttempt.findMany({
+      where: { session: { userId, repertoireId } },
+      select: {
+        positionFen: true,
+        expectedMoves: true,
+        userMove: true,
+        correct: true,
+        hintUsed: true,
+      },
+    });
+  }
+
   // ── KS-3293 (B7) from-analysis ─────────────────────────────────
 
   /**

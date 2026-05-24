@@ -1017,6 +1017,130 @@ export class OpeningTrainerService {
     return chess.fen();
   }
 
+  // ── KS-3283 (M2 stats): GET /opening-trainer/repertoires/:id/stats ──
+
+  /**
+   * Агрегатная статистика прохождения репертуара для текущего юзера.
+   * Used by frontend stats-страницы (KS-3273 follow-up).
+   *
+   * Загружает все sessions + attempts в память для агрегации
+   * (типичный объём — сотни attempts на репертуар, тысячи — overkill
+   * но не блокер). Если в будущем станет hot-path → переход на raw
+   * SQL aggregate / materialized view.
+   */
+  async getRepertoireStats(userId: string, repertoireId: string) {
+    await this.requireRepertoire(userId, repertoireId);
+
+    const sessions = await this.repo.listSessionsForRepertoire(
+      userId,
+      repertoireId,
+    );
+    const allAttempts = await this.repo.listAttemptsForRepertoire(
+      userId,
+      repertoireId,
+    );
+
+    // Session aggregates.
+    const totalSessions = sessions.length;
+    const completedSessions = sessions.filter(
+      (s) => s.status === 'finished',
+    ).length;
+    const hintsUsed = sessions.reduce((sum, s) => sum + s.hintsUsed, 0);
+
+    // Attempt aggregates.
+    const totalAttempts = allAttempts.length;
+    const correctAttempts = allAttempts.filter((a) => a.correct).length;
+    const wrongAttempts = totalAttempts - correctAttempts;
+    const accuracyPercent =
+      totalAttempts > 0
+        ? Math.round((correctAttempts / totalAttempts) * 100)
+        : 0;
+
+    // Top error positions: group by positionFen, count wrong/total,
+    // find most-frequent wrong move (mode).
+    type PositionAcc = {
+      positionFen: string;
+      expectedMoves: string[];
+      wrongCount: number;
+      totalCount: number;
+      wrongMoveCounts: Map<string, number>;
+    };
+    const byPosition = new Map<string, PositionAcc>();
+    for (const a of allAttempts) {
+      let acc = byPosition.get(a.positionFen);
+      if (!acc) {
+        acc = {
+          positionFen: a.positionFen,
+          expectedMoves: (a.expectedMoves as unknown as string[]) ?? [],
+          wrongCount: 0,
+          totalCount: 0,
+          wrongMoveCounts: new Map(),
+        };
+        byPosition.set(a.positionFen, acc);
+      }
+      acc.totalCount++;
+      if (!a.correct) {
+        acc.wrongCount++;
+        acc.wrongMoveCounts.set(
+          a.userMove,
+          (acc.wrongMoveCounts.get(a.userMove) ?? 0) + 1,
+        );
+      }
+    }
+    const topErrorPositions = Array.from(byPosition.values())
+      .filter((p) => p.wrongCount > 0)
+      .sort((a, b) => {
+        if (b.wrongCount !== a.wrongCount) return b.wrongCount - a.wrongCount;
+        return b.wrongCount / b.totalCount - a.wrongCount / a.totalCount;
+      })
+      .slice(0, 10)
+      .map((p) => {
+        // Find mode of wrong-moves. Если несколько вариантов с
+        // одинаковым max count — null (нет clear mode).
+        let maxCount = 0;
+        let mostFrequent: string | null = null;
+        for (const [move, count] of p.wrongMoveCounts.entries()) {
+          if (count > maxCount) {
+            maxCount = count;
+            mostFrequent = move;
+          }
+        }
+        const tieCount = Array.from(p.wrongMoveCounts.values()).filter(
+          (c) => c === maxCount,
+        ).length;
+        const mode = tieCount === 1 ? mostFrequent : null;
+        return {
+          positionFen: p.positionFen,
+          expectedMoves: p.expectedMoves,
+          mostFrequentWrongMove: mode,
+          wrongCount: p.wrongCount,
+          totalCount: p.totalCount,
+          errorRate: p.wrongCount / p.totalCount,
+        };
+      });
+
+    // Last sessions (already sorted desc by startedAt; берём 10).
+    const lastSessions = sessions.slice(0, 10).map((s) => ({
+      id: s.id,
+      finishedAt: s.finishedAt?.toISOString() ?? null,
+      score: s.score,
+      accuracy: s.movesPlayed > 0 ? s.correctMoves / s.movesPlayed : 0,
+    }));
+
+    return {
+      repertoireId,
+      totalSessions,
+      completedSessions,
+      totalAttempts,
+      correctAttempts,
+      wrongAttempts,
+      hintsUsed,
+      accuracyPercent,
+      topErrorPositions,
+      lastSessions,
+    };
+  }
+
   // ── KS-3294 (M2 B8): GET /opening-trainer/repertoires/:id/active-session ──
 
   /**

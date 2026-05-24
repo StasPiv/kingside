@@ -612,6 +612,60 @@ export interface GetOpeningRepertoireActiveSessionResponse {
   session: OpeningTrainerSessionDto | null;
 }
 
+/**
+ * KS-3283. Топ-N позиций по числу wrong-attempts. Используется в
+ * `GET /repertoires/:id/stats` для UI «где ты чаще всего ошибаешься».
+ *
+ *   - `positionFen` — позиция, где совершались ошибки.
+ *   - `expectedMoves` — UCI-варианты, которые считаются правильными
+ *     (для этой позиции в репертуаре).
+ *   - `mostFrequentWrongMove` — UCI хода, который пользователь чаще
+ *     всего играл неправильно (для подсказки «вот этот ход опять не
+ *     тот»). `null` если все wrong-moves разные (нет moda).
+ *   - `wrongCount` — число wrong-attempts.
+ *   - `totalCount` — общее число attempts (correct + wrong).
+ *   - `errorRate` — `wrongCount / totalCount` ∈ [0..1].
+ */
+export interface OpeningRepertoireErrorPosition {
+  positionFen: string;
+  expectedMoves: string[];
+  mostFrequentWrongMove: string | null;
+  wrongCount: number;
+  totalCount: number;
+  errorRate: number;
+}
+
+/**
+ * KS-3283. Запись последней сессии для lastSessions[] в stats.
+ */
+export interface OpeningRepertoireRecentSession {
+  id: string;
+  finishedAt: string | null;
+  score: number;
+  /** `correctMoves / movesPlayed` ∈ [0..1]. */
+  accuracy: number;
+}
+
+/**
+ * KS-3283. `GET /opening-trainer/repertoires/:id/stats` — агрегатная
+ * статистика прохождения для текущего пользователя по этому репертуару.
+ */
+export interface GetOpeningRepertoireStatsResponse {
+  repertoireId: string;
+  totalSessions: number;
+  completedSessions: number;
+  totalAttempts: number;
+  correctAttempts: number;
+  wrongAttempts: number;
+  hintsUsed: number;
+  /** `correctAttempts / totalAttempts * 100`, 0 если attempts нет. */
+  accuracyPercent: number;
+  /** Топ-10 проблемных позиций по wrongCount, desc. */
+  topErrorPositions: OpeningRepertoireErrorPosition[];
+  /** Последние 10 сессий по finishedAt DESC (включая active с null). */
+  lastSessions: OpeningRepertoireRecentSession[];
+}
+
 /** `GET /opening-trainer/reviews/due` (M2 — SRS-очередь). */
 export interface GetOpeningReviewsDueResponse {
   lines: Array<
