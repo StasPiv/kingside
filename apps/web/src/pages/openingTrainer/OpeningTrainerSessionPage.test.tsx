@@ -23,23 +23,33 @@ const mockedApi = vi.mocked(openingTrainerApi);
 // PuzzleBoard uses react-chessboard which crashes in JSDOM; stub it.
 // KS-3277: пробросили onPieceDrop в data-attribute, чтобы тесты могли
 // триггерить sendMove через ref на функцию.
-const boardCapture: { onPieceDrop?: (args: { sourceSquare: string; targetSquare: string }) => boolean } = {};
+// KS-3280: ловим game.fen() в data-attribute, чтобы тесты могли
+// убедиться что доска перерисовалась на newFen.
+import type { Chess } from 'chess.js';
+const boardCapture: {
+  onPieceDrop?: (args: { sourceSquare: string; targetSquare: string }) => boolean;
+  lastFen?: string;
+} = {};
 vi.mock('../../components/PuzzleBoard', () => ({
   PuzzleBoard: ({
     customArrows,
     boardOrientation,
     onPieceDrop,
+    game,
   }: {
     customArrows?: Array<{ startSquare: string; endSquare: string; color: string }>;
     boardOrientation: string;
     onPieceDrop: (args: { sourceSquare: string; targetSquare: string }) => boolean;
+    game: Chess | null;
   }) => {
     boardCapture.onPieceDrop = onPieceDrop;
+    boardCapture.lastFen = game?.fen();
     return (
       <div
         data-testid="puzzle-board-stub"
         data-orientation={boardOrientation}
         data-arrows={JSON.stringify(customArrows ?? [])}
+        data-fen={game?.fen() ?? ''}
       />
     );
   },
@@ -203,14 +213,26 @@ describe('OpeningTrainerSessionPage — KS-3277 new variants', () => {
     renderSession('white');
     await waitFor(() => expect(boardCapture.onPieceDrop).toBeDefined());
 
+    // KS-3280: критично — `session.currentFen` в ответе ОТЛИЧАЕТСЯ от
+    // `newFen` (бэк-hotfix KS-3278). До фикса frontend useEffect на
+    // session перетирал доску на старую `currentFen`. Симулируем эту
+    // ситуацию.
+    const NEW_FEN =
+      'rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const STALE_FEN =
+      'rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2';
     const lineRestart: OpeningTrainerMoveResponse = {
       result: 'line-restart',
       applied: true,
       scoreDelta: 10,
-      newFen: 'rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+      newFen: NEW_FEN,
       newPath: ['e2e4'],
       botMove: null,
-      session: makeSession({ correctMoves: 5, movesPlayed: 5 }),
+      session: makeSession({
+        correctMoves: 5,
+        movesPlayed: 5,
+        currentFen: STALE_FEN, // намеренно отличается от newFen
+      }),
     };
     mockedApi.sendMove.mockResolvedValue(lineRestart);
 
@@ -218,6 +240,13 @@ describe('OpeningTrainerSessionPage — KS-3277 new variants', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('opening-trainer-line-restart')).toBeInTheDocument(),
+    );
+    // Доска должна показать newFen, а НЕ session.currentFen.
+    await waitFor(() =>
+      expect(screen.getByTestId('puzzle-board-stub')).toHaveAttribute(
+        'data-fen',
+        NEW_FEN,
+      ),
     );
   });
 

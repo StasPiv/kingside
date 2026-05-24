@@ -214,14 +214,15 @@ export function OpeningTrainerSessionPage() {
 
   const handleMoveResponse = useCallback(
     (res: OpeningTrainerMoveResponse) => {
-      setSession(res.session);
       setHintArrowUci(null); // любой ход скрывает hint-стрелку
       if (isCorrectMove(res)) {
+        setSession(res.session);
         setLastMoveUci(null);
         setFeedback({ kind: 'correct', scoreDelta: res.scoreDelta });
         playSound('puzzle-correct');
         applyServerResponseAfterCorrect(res.newFen, res.botMove);
       } else if (isWrongMove(res)) {
+        setSession(res.session);
         setFeedback({ kind: 'wrong', expected: res.expectedMoves });
         setWrongModalOpen(true);
         playSound('puzzle-incorrect');
@@ -231,17 +232,21 @@ export function OpeningTrainerSessionPage() {
           /* ignore */
         }
       } else if (isLineRestartMove(res)) {
-        // KS-3277: бэк автоматически откатил доску на развилку с
-        // непройденными вариантами. Перерисовываем по newFen, ставим
-        // lastMoveUci из newPath (последний UCI пути), если есть
-        // botMove — анимируем после паузы как обычный correct flow.
+        // KS-3280 (fix регрессии KS-3277): бэк в KS-3278 hotfix
+        // специально гарантирует `newFen != session.currentFen` для
+        // line-restart (см. backend `handleLineComplete`). При наивном
+        // `setSession(res.session)` срабатывает наш useEffect на
+        // session-change и пересобирает game из `session.currentFen` —
+        // т.е. на промежуточную (старую) позицию, а НЕ на newFen.
+        // Доска не двигается, хотя UI показывает фидбек «↪ переходим
+        // к следующему варианту».
+        //
+        // Патчим `currentFen = newFen` перед setSession: тогда useEffect
+        // соберёт Chess из правильной fen. setGame в этой ветке больше
+        // не нужен — useEffect сделает это сам.
+        setSession({ ...res.session, currentFen: res.newFen });
         setFeedback({ kind: 'line-restart' });
         playSound('game-start');
-        try {
-          setGame(new Chess(res.newFen));
-        } catch {
-          /* ignore */
-        }
         const lastInPath = res.newPath[res.newPath.length - 1];
         setLastMoveUci(lastInPath ?? null);
         if (res.botMove) {
@@ -260,9 +265,11 @@ export function OpeningTrainerSessionPage() {
           positionShownAtRef.current = Date.now();
         }
       } else if (isTreeCompleteMove(res)) {
-        // KS-3277: всё дерево пройдено без ошибок. Бэк уже выставил
-        // session.status='finished', поэтому useEffect ниже сам
-        // редиректит на /result. Тут только UX-feedback + звук.
+        // KS-3277: всё дерево пройдено без ошибок. Бэк выставил
+        // session.status='finished' (подтверждено backend ACK), наш
+        // useEffect ниже редиректит на /result, страница unmount'ится —
+        // race с useEffect-на-session не страшен. Тут только UX.
+        setSession(res.session);
         setFeedback({ kind: 'tree-complete' });
         playSound('puzzle-gameover');
         try {
@@ -271,6 +278,7 @@ export function OpeningTrainerSessionPage() {
           /* ignore */
         }
       } else if (isLineCompleteMove(res)) {
+        setSession(res.session);
         // Legacy variant (до KS-3277). В новом flow не приходит,
         // но обработчик оставлен на случай rollback'а контракта.
         setFeedback({ kind: 'line-complete' });
