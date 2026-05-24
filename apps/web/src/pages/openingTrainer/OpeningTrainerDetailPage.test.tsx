@@ -16,12 +16,14 @@ vi.mock('../../api/openingTrainerApi', () => ({
 }));
 const mockedApi = vi.mocked(openingTrainerApi);
 
-function makeRepertoire(overrides: Partial<{ nodeCount: number; edgeCount: number; maxDepth: number; nodes: Record<string, { fen: string; edges: never[] }> }> = {}) {
+function makeRepertoire(overrides: Partial<{ nodeCount: number; edgeCount: number; maxDepth: number; nodes: Record<string, { fen: string; edges: never[] }>; side: 'white' | 'black' }> = {}) {
   return {
     id: 'r1',
     ownerId: 'u1',
     title: 'Caro-Kann',
     description: null,
+    // KS-3302: side теперь обязательное поле в OpeningRepertoireDto.
+    side: overrides.side ?? ('white' as const),
     nodeCount: overrides.nodeCount ?? 42,
     edgeCount: overrides.edgeCount ?? 60,
     maxDepth: overrides.maxDepth ?? 12,
@@ -157,8 +159,8 @@ describe('OpeningTrainerDetailPage', () => {
     );
     await userEvent.click(screen.getByTestId('opening-trainer-mode-learn'));
     await waitFor(() =>
+      // KS-3302: side не отправляется (бэк берёт из repertoire).
       expect(mockedApi.startSession).toHaveBeenCalledWith('r1', {
-        side: 'white',
         mode: 'learn',
         repeatMode: 'complete',
       }),

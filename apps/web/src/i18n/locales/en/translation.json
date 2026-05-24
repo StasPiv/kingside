@@ -746,7 +746,9 @@
     "useAsRepertoire": {
       "menuItem": "Use as repertoire",
       "creating": "Creating…",
-      "error": "Failed to create repertoire from this analysis."
+      "error": "Failed to create repertoire from this analysis.",
+      "pickerTitle": "Train as",
+      "pickerHint": "Which side will you train this repertoire for?"
     },
     "openError": "Could not open analysis. Please try again.",
     "openedExisting": "Opened your existing analysis for this game",
@@ -3113,7 +3115,12 @@
       "fields": {
         "title": "Title",
         "description": "Description (optional)",
-        "pgn": "PGN"
+        "pgn": "PGN",
+        "side": "Train as"
+      },
+      "side": {
+        "white": "White",
+        "black": "Black"
       },
       "placeholders": {
         "title": "e.g. Caro-Kann for Black",
@@ -3135,6 +3142,7 @@
       "delete": "Delete repertoire",
       "starting": "Starting…",
       "startCta": "Train",
+      "trainingAs": "Training as",
       "stats": {
         "positions": "Positions",
         "moves": "Moves",

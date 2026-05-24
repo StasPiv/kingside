@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
 import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
+import type { TrainerColor } from '@kingside/shared';
 
 export function OpeningTrainerNewPage() {
   const { t } = useTranslation();
@@ -21,6 +22,8 @@ export function OpeningTrainerNewPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [pgn, setPgn] = useState('');
+  // KS-3302: сторона фиксируется при создании репертуара. Default white.
+  const [side, setSide] = useState<TrainerColor>('white');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,9 +84,11 @@ export function OpeningTrainerNewPage() {
 
       setSubmitting(true);
       try {
+        // KS-3302: side фиксируется при создании.
         const body = {
           title: trimmedTitle,
           pgn: trimmedPgn,
+          side,
           ...(description.trim() ? { description: description.trim() } : {}),
         };
         const created = await openingTrainerApi.createRepertoire(body);
@@ -143,6 +148,37 @@ export function OpeningTrainerNewPage() {
             data-testid="opening-trainer-new-description"
           />
         </label>
+
+        {/* KS-3302: фиксируем сторону репертуара здесь, один раз. */}
+        <div className="form-field" data-testid="opening-trainer-new-side">
+          <span className="form-field__label">
+            {t('openingTrainer.new.fields.side', 'Train as')}
+          </span>
+          <div className="radio-group" role="radiogroup">
+            <label style={{ marginRight: 16 }}>
+              <input
+                type="radio"
+                name="repertoire-side"
+                value="white"
+                checked={side === 'white'}
+                onChange={() => setSide('white')}
+                data-testid="opening-trainer-new-side-white"
+              />{' '}
+              {t('openingTrainer.new.side.white', 'White')}
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="repertoire-side"
+                value="black"
+                checked={side === 'black'}
+                onChange={() => setSide('black')}
+                data-testid="opening-trainer-new-side-black"
+              />{' '}
+              {t('openingTrainer.new.side.black', 'Black')}
+            </label>
+          </div>
+        </div>
 
         <label
           className="opening-trainer-new__drop"

@@ -89,8 +89,8 @@ describe('OpeningTrainerReviewsPage (KS-3298 F4)', () => {
       .querySelector('button')!;
     await userEvent.click(btn);
     await waitFor(() =>
+      // KS-3302: side больше не отправляется — бэк берёт из repertoire.
       expect(mockedApi.startSession).toHaveBeenCalledWith('r1', {
-        side: 'white',
         mode: 'review',
         repeatMode: 'complete',
       }),

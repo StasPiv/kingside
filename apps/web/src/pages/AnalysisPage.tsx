@@ -1136,33 +1136,42 @@ function AnalysisPageInner({
     pgnCopyTimerRef.current = window.setTimeout(() => setPgnCopyMsg(null), 1800);
   }, [buildAnalysisPgn, t]);
 
-  // KS-3299 (M2 F5): «Использовать как репертуар». POST
-  // /opening-trainer/repertoires/from-analysis передаёт только id —
+  // KS-3299 (M2 F5) + KS-3302: «Использовать как репертуар». POST
+  // /opening-trainer/repertoires/from-analysis передаёт id + side —
   // backend сам берёт PGN из Analysis (owner-check). При успехе
   // редиректим на /opening-trainer/:id. При ошибке — alert.
+  //
+  // KS-3302: открываем небольшой inline-picker для выбора стороны
+  // (side фиксируется при создании репертуара).
   const [creatingRepertoire, setCreatingRepertoire] = useState(false);
-  const handleUseAsRepertoire = useCallback(async () => {
-    if (creatingRepertoire) return;
-    if (!localIdRef.current) return;
-    setCreatingRepertoire(true);
-    try {
-      const repertoire = await openingTrainerApi.createRepertoireFromAnalysis({
-        analysisId: localIdRef.current,
-        title: analysisTitle || undefined,
-      });
-      navigate(`/opening-trainer/${repertoire.id}`);
-    } catch (err) {
-      const msg =
-        err instanceof ApiErrorClass
-          ? err.message
-          : t(
-              'analysis.useAsRepertoire.error',
-              'Failed to create repertoire from this analysis.',
-            );
-      window.alert(msg);
-      setCreatingRepertoire(false);
-    }
-  }, [creatingRepertoire, analysisTitle, navigate, t]);
+  const [sidePickerOpen, setSidePickerOpen] = useState(false);
+  const handleUseAsRepertoire = useCallback(
+    async (side: 'white' | 'black') => {
+      if (creatingRepertoire) return;
+      if (!localIdRef.current) return;
+      setCreatingRepertoire(true);
+      setSidePickerOpen(false);
+      try {
+        const repertoire = await openingTrainerApi.createRepertoireFromAnalysis({
+          analysisId: localIdRef.current,
+          title: analysisTitle || undefined,
+          side,
+        });
+        navigate(`/opening-trainer/${repertoire.id}`);
+      } catch (err) {
+        const msg =
+          err instanceof ApiErrorClass
+            ? err.message
+            : t(
+                'analysis.useAsRepertoire.error',
+                'Failed to create repertoire from this analysis.',
+              );
+        window.alert(msg);
+        setCreatingRepertoire(false);
+      }
+    },
+    [creatingRepertoire, analysisTitle, navigate, t],
+  );
 
   // Очистка таймера при unmount, чтобы setState не дёргался на размонтированный компонент.
   useEffect(() => {
@@ -1876,7 +1885,10 @@ function AnalysisPageInner({
                       <button
                         onClick={() => {
                           setShowOverflowMenu(false);
-                          void handleUseAsRepertoire();
+                          // KS-3302: открываем picker стороны вместо
+                          // прямого вызова — side фиксируется при
+                          // создании репертуара.
+                          setSidePickerOpen(true);
                         }}
                         disabled={creatingRepertoire}
                         data-testid="analysis-use-as-repertoire"
@@ -2031,6 +2043,88 @@ function AnalysisPageInner({
           autoStart
           onClose={() => setShowPuzzleGen(false)}
         />
+      )}
+      {/* KS-3302: picker стороны при конверсии анализа в репертуар. */}
+      {sidePickerOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          data-testid="analysis-use-as-repertoire-picker"
+          onClick={() => setSidePickerOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-surface, #1f2937)',
+              color: 'var(--text-primary, #fff)',
+              border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))',
+              borderRadius: 8,
+              padding: '18px 20px',
+              maxWidth: 320,
+              width: '90%',
+              textAlign: 'center',
+            }}
+          >
+            <h3 style={{ margin: '0 0 8px' }}>
+              {t('analysis.useAsRepertoire.pickerTitle', 'Train as')}
+            </h3>
+            <p
+              style={{
+                margin: '0 0 16px',
+                fontSize: 13,
+                opacity: 0.75,
+              }}
+            >
+              {t(
+                'analysis.useAsRepertoire.pickerHint',
+                'Which side will you train this repertoire for?',
+              )}
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => void handleUseAsRepertoire('white')}
+                disabled={creatingRepertoire}
+                data-testid="analysis-use-as-repertoire-white"
+              >
+                {t('openingTrainer.detail.start.white', 'White')}
+              </button>
+              <button
+                className="btn"
+                onClick={() => void handleUseAsRepertoire('black')}
+                disabled={creatingRepertoire}
+                data-testid="analysis-use-as-repertoire-black"
+              >
+                {t('openingTrainer.detail.start.black', 'Black')}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSidePickerOpen(false)}
+              disabled={creatingRepertoire}
+              style={{
+                marginTop: 12,
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                opacity: 0.7,
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

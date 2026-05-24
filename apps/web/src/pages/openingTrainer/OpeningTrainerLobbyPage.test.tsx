@@ -38,6 +38,8 @@ describe('OpeningTrainerLobbyPage', () => {
           ownerId: 'u1',
           title: 'Caro-Kann',
           description: 'For Black',
+          // KS-3302: side обязателен в OpeningRepertoireDto.
+          side: 'black',
           nodeCount: 42,
           edgeCount: 60,
           maxDepth: 12,

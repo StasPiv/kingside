@@ -25,7 +25,6 @@ import type {
   OpeningTrainerMode,
   OpeningTrainerSessionDto,
   StartOpeningTrainerSessionResponse,
-  TrainerColor,
 } from '@kingside/shared';
 
 interface ModeInfo {
@@ -97,8 +96,8 @@ export function OpeningTrainerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Side stays as a single selector — режим теперь задаёт кнопка.
-  const [side, setSide] = useState<TrainerColor>('white');
+  // KS-3302: side больше не state'а — берётся из repertoire.side
+  // (фиксируется при создании). Селектор стороны удалён.
   const [starting, setStarting] = useState<OpeningTrainerMode | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -165,9 +164,11 @@ export function OpeningTrainerDetailPage() {
       setStarting(mode);
       setStartError(null);
       try {
+        // KS-3302: side НЕ отправляем — бэк берёт из repertoire.side.
+        // StartOpeningTrainerSessionRequest.side помечен @deprecated.
         const res: StartOpeningTrainerSessionResponse = await openingTrainerApi.startSession(
           id,
-          { side, mode, repeatMode: 'complete' },
+          { mode, repeatMode: 'complete' },
         );
         navigate(`/opening-trainer/${id}/session/${res.session.id}`, {
           state: { initialBotMove: res.initialBotMove, session: res.session },
@@ -181,7 +182,7 @@ export function OpeningTrainerDetailPage() {
         setStarting(null);
       }
     },
-    [id, starting, side, navigate, t],
+    [id, starting, navigate, t],
   );
 
   const handleContinue = useCallback(() => {
@@ -325,34 +326,20 @@ export function OpeningTrainerDetailPage() {
       <section className="opening-trainer-detail__start">
         <h2>{t('openingTrainer.detail.start.title', 'Start training')}</h2>
 
-        <div className="form-field">
-          <span className="form-field__label">
-            {t('openingTrainer.detail.start.side', 'Play as')}
-          </span>
-          <div className="radio-group">
-            <label>
-              <input
-                type="radio"
-                name="side"
-                value="white"
-                checked={side === 'white'}
-                onChange={() => setSide('white')}
-                data-testid="opening-trainer-side-white"
-              />
-              {t('openingTrainer.detail.start.white', 'White')}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="side"
-                value="black"
-                checked={side === 'black'}
-                onChange={() => setSide('black')}
-                data-testid="opening-trainer-side-black"
-              />
-              {t('openingTrainer.detail.start.black', 'Black')}
-            </label>
-          </div>
+        {/* KS-3302: side зафиксирован при создании репертуара —
+            показываем readonly-чип, не селектор. */}
+        <div
+          className="opening-trainer-detail__side"
+          data-testid="opening-trainer-detail-side"
+          data-side={repertoire.side}
+          style={{ marginBottom: 12, fontSize: 14 }}
+        >
+          {t('openingTrainer.detail.trainingAs', 'Training as')}:{' '}
+          <strong>
+            {repertoire.side === 'white'
+              ? t('openingTrainer.detail.start.white', 'White')
+              : t('openingTrainer.detail.start.black', 'Black')}
+          </strong>
         </div>
 
         {/* KS-3295 (F1): 4 кнопки режимов с counter'ами. Заменяет старый

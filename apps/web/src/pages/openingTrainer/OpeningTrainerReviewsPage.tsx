@@ -131,8 +131,8 @@ export function OpeningTrainerReviewsPage() {
       if (startingFor) return;
       setStartingFor(line.id);
       try {
+        // KS-3302: side НЕ отправляем — бэк берёт из repertoire.side.
         const res = await openingTrainerApi.startSession(line.repertoireId, {
-          side: 'white',
           mode: 'review',
           repeatMode: 'complete',
         });
