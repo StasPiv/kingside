@@ -146,9 +146,20 @@ export function OpeningTrainerSessionPage() {
     };
   }, [sid, incoming?.session, t]);
 
-  // Init Chess board from session.currentFen.
+  // KS-3282: ТОЛЬКО initial load из bootstrap. Раньше этот useEffect
+  // срабатывал на КАЖДОМ setSession (из handleMoveResponse) и пересобирал
+  // game из session.currentFen, конкурируя с явным setGame в handler.
+  // Race-condition приводил к багу «после wrong корректный ход требует
+  // двух вводов» (KS-3282) и аналогичному с line-restart (KS-3280).
+  //
+  // Теперь handler полностью владеет game-state: setSession обновляет
+  // только счётчики/score/path, а game обновляется явным setGame в
+  // соответствующей ветке handler'а.
+  const initializedRef = useRef(false);
   useEffect(() => {
     if (!session) return;
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     try {
       const chess = new Chess(session.currentFen);
       setGame(chess);
@@ -232,21 +243,17 @@ export function OpeningTrainerSessionPage() {
           /* ignore */
         }
       } else if (isLineRestartMove(res)) {
-        // KS-3280 (fix регрессии KS-3277): бэк в KS-3278 hotfix
-        // специально гарантирует `newFen != session.currentFen` для
-        // line-restart (см. backend `handleLineComplete`). При наивном
-        // `setSession(res.session)` срабатывает наш useEffect на
-        // session-change и пересобирает game из `session.currentFen` —
-        // т.е. на промежуточную (старую) позицию, а НЕ на newFen.
-        // Доска не двигается, хотя UI показывает фидбек «↪ переходим
-        // к следующему варианту».
-        //
-        // Патчим `currentFen = newFen` перед setSession: тогда useEffect
-        // соберёт Chess из правильной fen. setGame в этой ветке больше
-        // не нужен — useEffect сделает это сам.
-        setSession({ ...res.session, currentFen: res.newFen });
+        // KS-3282: handler — единственный источник истины для game-state
+        // (useEffect на session больше не дёргает setGame). Просто
+        // ставим session как есть и явно обновляем доску до newFen.
+        setSession(res.session);
         setFeedback({ kind: 'line-restart' });
         playSound('game-start');
+        try {
+          setGame(new Chess(res.newFen));
+        } catch {
+          /* ignore */
+        }
         const lastInPath = res.newPath[res.newPath.length - 1];
         setLastMoveUci(lastInPath ?? null);
         if (res.botMove) {

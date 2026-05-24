@@ -250,6 +250,85 @@ describe('OpeningTrainerSessionPage — KS-3277 new variants', () => {
     );
   });
 
+  it('KS-3282: после wrong корректный ход засчитывается с ПЕРВОГО ввода', async () => {
+    const START_FEN =
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    mockedApi.getSession.mockResolvedValue({
+      session: makeSession({ currentFen: START_FEN }),
+    });
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/opening-trainer/:id/session/:sid"
+          element={<OpeningTrainerSessionPage />}
+        />
+      </Routes>,
+      { route: '/opening-trainer/r1/session/s1' },
+    );
+    await waitFor(() => expect(boardCapture.onPieceDrop).toBeDefined());
+
+    // 1. WRONG: пользователь играет g1f3 вместо e2e4.
+    const wrongRes: OpeningTrainerMoveResponse = {
+      result: 'wrong',
+      applied: false,
+      scoreDelta: -5,
+      expectedMoves: [{ moveUci: 'e2e4', moveSan: 'e4' }],
+      session: makeSession({
+        currentFen: START_FEN, // бэк не двигал
+        wrongMoves: 1,
+      }),
+    };
+    mockedApi.sendMove.mockResolvedValueOnce(wrongRes);
+    boardCapture.onPieceDrop!({ sourceSquare: 'g1', targetSquare: 'f3' });
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-wrong-modal')).toBeInTheDocument(),
+    );
+
+    // Доска должна вернуться на START_FEN (бэк applied=false).
+    expect(screen.getByTestId('puzzle-board-stub')).toHaveAttribute(
+      'data-fen',
+      START_FEN,
+    );
+
+    // 2. Юзер нажимает «Try again» — модалка закрывается, доска enabled.
+    await userEvent.click(screen.getByTestId('opening-trainer-wrong-retry'));
+    expect(screen.queryByTestId('opening-trainer-wrong-modal')).toBeNull();
+
+    // 3. CORRECT: пользователь играет e2e4. Должно засчитаться с первого раза.
+    const E4_FEN =
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const correctRes: OpeningTrainerMoveResponse = {
+      result: 'correct',
+      applied: true,
+      scoreDelta: 10,
+      newFen: E4_FEN,
+      botMove: null,
+      session: makeSession({
+        currentFen: E4_FEN,
+        correctMoves: 1,
+        wrongMoves: 1,
+        movesPlayed: 1,
+      }),
+    };
+    mockedApi.sendMove.mockResolvedValueOnce(correctRes);
+
+    // КЛЮЧЕВОЙ assertion: после клика onPieceDrop возвращает true
+    // (test.move валиден из START_FEN) И sendMove зовётся с UCI='e2e4'.
+    const accepted = boardCapture.onPieceDrop!({
+      sourceSquare: 'e2',
+      targetSquare: 'e4',
+    });
+    expect(accepted).toBe(true);
+
+    await waitFor(() =>
+      expect(mockedApi.sendMove).toHaveBeenCalledTimes(2),
+    );
+    const lastCall = mockedApi.sendMove.mock.calls[1];
+    expect(lastCall[1]).toEqual(
+      expect.objectContaining({ moveUci: 'e2e4' }),
+    );
+  });
+
   it('tree-complete: показывает финал-фидбек и не падает', async () => {
     renderSession('white');
     await waitFor(() => expect(boardCapture.onPieceDrop).toBeDefined());
