@@ -155,6 +155,16 @@ export class OpeningTrainerController {
   ) {
     return this.service.listDueReviews(requireUserId(req), { repertoireId });
   }
+
+  // ── KS-3292 (M2 B6): GET /repertoires/:id/progress ─────────────
+
+  @Get('repertoires/:id/progress')
+  async repertoireProgress(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.service.listRepertoireProgress(requireUserId(req), id);
+  }
 }
 
 function requireUserId(req: Request): string {

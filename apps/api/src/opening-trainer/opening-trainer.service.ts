@@ -981,6 +981,51 @@ export class OpeningTrainerService {
     return chess.fen();
   }
 
+  // ── KS-3292 (M2 B6): GET /opening-trainer/repertoires/:id/progress ──
+
+  /**
+   * Список прогресса по линиям репертуара с derived `status:
+   * OpeningLineStatus` (ADR-077 §5 / KS-3286 shared types).
+   *
+   * Status-rules:
+   *   - `mastered`: masteredAt && (!sm2DueAt || sm2DueAt > now).
+   *   - `due`: sm2DueAt && sm2DueAt <= now (mastered + просрочено).
+   *   - `wrong`: wrongCount > correctCount.
+   *   - `learning`: есть попытки, но не подпадает под выше.
+   *   - `not-played` НЕ возвращается — записи создаются только при
+   *     первой попытке. Фронт вычисляет 'not-played' для edges из
+   *     `tree.nodes`, которых нет в массиве `lines`.
+   *
+   * Orphaned не фильтруются — фронт скрывает по `orphaned: true` сам.
+   * Owner-check через `requireRepertoire` (404 для чужого).
+   */
+  async listRepertoireProgress(userId: string, repertoireId: string) {
+    await this.requireRepertoire(userId, repertoireId);
+    const rows = await this.repo.listLineProgress(userId, repertoireId);
+    const now = new Date();
+    return {
+      repertoireId,
+      lines: rows.map((r) => ({
+        id: r.id,
+        repertoireId: r.repertoireId,
+        pathHash: r.pathHash,
+        pathUci: (r.pathUci as unknown as string[]) ?? [],
+        pathLength: r.pathLength,
+        correctCount: r.correctCount,
+        wrongCount: r.wrongCount,
+        consecutiveCorrect: r.consecutiveCorrect,
+        lastPlayedAt: r.lastPlayedAt.toISOString(),
+        masteredAt: r.masteredAt?.toISOString() ?? null,
+        sm2DueAt: r.sm2DueAt?.toISOString() ?? null,
+        sm2Interval: r.sm2Interval ?? null,
+        sm2Easiness: r.sm2Easiness ?? null,
+        sm2Reps: r.sm2Reps ?? null,
+        orphaned: r.orphaned,
+        status: deriveLineStatus(r, now),
+      })),
+    };
+  }
+
   // ── KS-3290 (M2 B4): GET /opening-trainer/reviews/due ──────────
 
   /**
@@ -1158,6 +1203,38 @@ function readPlayedLines(json: unknown): Record<string, string[]> {
 function readUciArray(json: unknown): string[] {
   if (Array.isArray(json)) return json as string[];
   return [];
+}
+
+/**
+ * KS-3292 (M2 B6). Derive `OpeningLineStatus` из row+now.
+ * Правила:
+ *   - `mastered`: masteredAt && (!sm2DueAt || sm2DueAt > now).
+ *   - `due`: masteredAt && sm2DueAt && sm2DueAt <= now.
+ *   - `wrong`: wrongCount > correctCount.
+ *   - `learning`: всё остальное (есть попытки, но не mastered/wrong).
+ *
+ * `not-played` НЕ возвращается — фронт вычисляет для edges из
+ * `tree.nodes`, которых нет в массиве `lines`.
+ */
+function deriveLineStatus(
+  row: {
+    correctCount: number;
+    wrongCount: number;
+    masteredAt: Date | null;
+    sm2DueAt: Date | null;
+  },
+  now: Date,
+): 'learning' | 'wrong' | 'mastered' | 'due' {
+  if (row.masteredAt) {
+    if (row.sm2DueAt && row.sm2DueAt.getTime() <= now.getTime()) {
+      return 'due';
+    }
+    return 'mastered';
+  }
+  if (row.wrongCount > row.correctCount) {
+    return 'wrong';
+  }
+  return 'learning';
 }
 
 /**

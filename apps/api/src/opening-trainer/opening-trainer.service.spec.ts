@@ -1247,6 +1247,126 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
     });
   });
 
+  describe('KS-3292 (M2 B6): listRepertoireProgress + status derive', () => {
+    it('derive 4 status-варианта (mastered / due / wrong / learning)', async () => {
+      const { svc, repo } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      const past = new Date('2026-05-20T00:00:00Z');
+      const future = new Date('2026-06-01T00:00:00Z');
+
+      // 1. mastered (sm2DueAt в будущем)
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'h-mastered',
+        pathUci: ['m1'],
+        pathLength: 1,
+        correctCount: 5,
+        wrongCount: 0,
+        consecutiveCorrect: 5,
+        lastPlayedAt: past,
+        masteredAt: past,
+        sm2DueAt: future,
+        sm2Easiness: 2.6,
+        sm2Interval: 30,
+        sm2Reps: 5,
+        orphaned: false,
+      });
+
+      // 2. due (mastered + sm2DueAt в прошлом)
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'h-due',
+        pathUci: ['d1'],
+        pathLength: 1,
+        correctCount: 5,
+        wrongCount: 0,
+        consecutiveCorrect: 5,
+        lastPlayedAt: past,
+        masteredAt: past,
+        sm2DueAt: past,
+        sm2Easiness: 2.6,
+        sm2Interval: 1,
+        sm2Reps: 1,
+        orphaned: false,
+      });
+
+      // 3. wrong (wrongCount > correctCount, не mastered)
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'h-wrong',
+        pathUci: ['w1'],
+        pathLength: 1,
+        correctCount: 1,
+        wrongCount: 5,
+        consecutiveCorrect: 0,
+        lastPlayedAt: past,
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+
+      // 4. learning (есть попытки, не mastered, не wrong)
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: 'h-learning',
+        pathUci: ['l1'],
+        pathLength: 1,
+        correctCount: 2,
+        wrongCount: 0,
+        consecutiveCorrect: 2,
+        lastPlayedAt: past,
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+
+      const result = await svc.listRepertoireProgress('u-1', r.id);
+      expect(result.repertoireId).toBe(r.id);
+      expect(result.lines).toHaveLength(4);
+      const byHash = Object.fromEntries(
+        result.lines.map((l) => [l.pathHash, l.status]),
+      );
+      expect(byHash['h-mastered']).toBe('mastered');
+      expect(byHash['h-due']).toBe('due');
+      expect(byHash['h-wrong']).toBe('wrong');
+      expect(byHash['h-learning']).toBe('learning');
+    });
+
+    it('owner-check: чужой репертуар → 404 NotFound', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      await expect(
+        svc.listRepertoireProgress('u-2', r.id),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('пустой репертуар (нет линий) → lines=[]', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      const result = await svc.listRepertoireProgress('u-1', r.id);
+      expect(result.lines).toEqual([]);
+    });
+  });
+
   it('listDueReviews фильтрует по repertoireId если задан', async () => {
     const { svc, repo } = makeReviewService();
     const r1 = await svc.createRepertoire('u-1', {
