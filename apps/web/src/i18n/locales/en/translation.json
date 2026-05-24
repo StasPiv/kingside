@@ -3082,7 +3082,17 @@
       "title": "Opening Trainer",
       "subtitle": "Train your opening repertoire from your own PGN.",
       "newCta": "+ New repertoire",
+      "reviewsCta": "Reviews due",
       "empty": "You don't have any repertoires yet. Start with your first PGN."
+    },
+    "reviews": {
+      "title": "Reviews due",
+      "subtitle": "Mastered lines ready for repetition (SRS).",
+      "empty": "Nothing to review right now. Come back later.",
+      "lineCount": "{{count}} lines",
+      "errors": {
+        "loadFailed": "Failed to load due reviews"
+      }
     },
     "card": {
       "nodes": "{{count}} positions",

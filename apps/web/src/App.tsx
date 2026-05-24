@@ -80,6 +80,7 @@ import { OpeningTrainerNewPage } from './pages/openingTrainer/OpeningTrainerNewP
 import { OpeningTrainerDetailPage } from './pages/openingTrainer/OpeningTrainerDetailPage';
 import { OpeningTrainerSessionPage } from './pages/openingTrainer/OpeningTrainerSessionPage';
 import { OpeningTrainerResultPage } from './pages/openingTrainer/OpeningTrainerResultPage';
+import { OpeningTrainerReviewsPage } from './pages/openingTrainer/OpeningTrainerReviewsPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
@@ -578,6 +579,13 @@ export function App() {
         <Route
           path="/opening-trainer/new"
           element={<ProtectedRoute><OpeningTrainerNewPage /></ProtectedRoute>}
+        />
+        {/* KS-3298 (F4): кросс-репертуарная очередь SRS — ставим выше
+            wildcard `/opening-trainer/:id`, иначе React Router сматчит
+            «reviews» как id репертуара. */}
+        <Route
+          path="/opening-trainer/reviews"
+          element={<ProtectedRoute><OpeningTrainerReviewsPage /></ProtectedRoute>}
         />
         <Route
           path="/opening-trainer/:id"

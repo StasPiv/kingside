@@ -59,13 +59,23 @@ export function OpeningTrainerLobbyPage() {
             'Train your opening repertoire from your own PGN.',
           )}
         </p>
-        <Link
-          to="/opening-trainer/new"
-          className="btn btn-primary"
-          data-testid="opening-trainer-lobby-new"
-        >
-          {t('openingTrainer.lobby.newCta', '+ New repertoire')}
-        </Link>
+        <div className="opening-trainer-lobby__cta">
+          <Link
+            to="/opening-trainer/new"
+            className="btn btn-primary"
+            data-testid="opening-trainer-lobby-new"
+          >
+            {t('openingTrainer.lobby.newCta', '+ New repertoire')}
+          </Link>
+          {/* KS-3298 (F4): ссылка в SRS-очередь. */}
+          <Link
+            to="/opening-trainer/reviews"
+            className="btn"
+            data-testid="opening-trainer-lobby-reviews"
+          >
+            {t('openingTrainer.lobby.reviewsCta', 'Reviews due')}
+          </Link>
+        </div>
       </header>
 
       {error && (
