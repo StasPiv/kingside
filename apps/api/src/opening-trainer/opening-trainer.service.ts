@@ -552,17 +552,44 @@ export class OpeningTrainerService {
     };
 
     if (botPick.pick) {
-      // Линия продолжается — бот сделал свой ход.
+      const newPath = [...newPathAfterUser, botPick.pick.moveUci];
+      const newCurrentFen = botPick.pick.childFen;
       const newPlayedLines = {
         ...playedLines,
         [fenAfterUser]: botPick.cycled
           ? [botPick.pick.childFen]
           : [...playedFromHere, botPick.pick.childFen],
       };
-      const newPath = [...newPathAfterUser, botPick.pick.moveUci];
+
+      // KS-3318: бот мог привести в листовую позицию (нет edges в дереве).
+      // Если оставить сессию active с currentFen=лист — юзер застрянет:
+      //   - hint бросает «No hint available» (edges пустой).
+      //   - любой следующий ход юзера → result='wrong' (matched=undefined).
+      // Поэтому триггерим handleLineComplete с новой fenAfterUser
+      // (это лист) и обновлёнными playedLines/path. Для learn/free —
+      // line-restart на root / next-branch; для mistakes/review —
+      // tree-complete (KS-3316).
+      const newPosEdges = tree.nodes[newCurrentFen]?.edges ?? [];
+      if (newPosEdges.length === 0) {
+        return this.handleLineComplete({
+          session: {
+            ...session,
+            playedLines: newPlayedLines as unknown as object,
+          },
+          tree,
+          newPath,
+          fenAfterUser: newCurrentFen,
+          cleanLines,
+          baseUpdate,
+          scoreDelta: scoreRes.scoreDelta,
+          now,
+        });
+      }
+
+      // Линия продолжается — бот сделал свой ход, новая позиция не лист.
       const updated = await this.repo.updateSession(sessionId, {
         ...baseUpdate,
-        currentFen: botPick.pick.childFen,
+        currentFen: newCurrentFen,
         currentPath: newPath,
         playedLines: newPlayedLines,
       });
@@ -570,11 +597,11 @@ export class OpeningTrainerService {
         result: 'correct',
         applied: true,
         scoreDelta: scoreRes.scoreDelta,
-        newFen: botPick.pick.childFen,
+        newFen: newCurrentFen,
         botMove: {
           moveUci: botPick.pick.moveUci,
           moveSan: botPick.pick.moveSan,
-          newFen: botPick.pick.childFen,
+          newFen: newCurrentFen,
         },
         session: sessionRowToDto(updated),
       };
