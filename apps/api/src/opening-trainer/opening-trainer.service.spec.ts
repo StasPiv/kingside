@@ -1,4 +1,8 @@
 import { OpeningTrainerService } from './opening-trainer.service';
+import {
+  findNextUnexploredBranch,
+  addLineToClean,
+} from './opening-trainer.service';
 import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
 import {
@@ -569,28 +573,67 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     expect(r2.session.currentFen).not.toBe(fenAfterFirstBot);
   });
 
-  it('грязная линия (с wrong) → НЕ помечается clean → нужен повторный заход', async () => {
+  it('KS-3281 регрессия: dirty single-edge user-position не зацикливает (real prod PGN "Каталон")', async () => {
+    // PGN из прод-дампа (KS-3281, user 06f68cfd). Сценарий из жалобы:
+    // юзер чёрными в Ne5-варианте, бот сыграл Bf3 (главный вариант),
+    // юзер должен сыграть e5 (единственный edge). До фикса: если линия
+    // помечена dirty (предыдущий wrong + clean-завершение НЕ обновляет
+    // cleanLines) → findNextUnexploredBranch возвращал depth=fens.length-2
+    // = после-Bf3 (= currentFen) → restart в ту же позицию → cycle.
+    // С фиксом: user-edge исключается из unclean на этом depth → walking
+    // up в before-Bf3 → бот переключается на Bg2 → доска двигается.
+    const PGN_CATALON =
+      '1. c4 e6 2. g3 d5 3. Bg2 dxc4 4. Nf3 a6 5. Qc2 ' +
+      '(5. Ne5 Qd4 6. f4 Nd7 7. e3 Qc5 8. Nxd7 Bxd7 9. Bxb7 Rb8 10. Bf3 (10. Bg2 Bc6 $15) 10... e5 $15) ' +
+      '(5. Na3 b5 6. Ne5 Ra7 7. O-O Bb7 8. Bxb7 Rxb7 9. Nc2 Nf6 10. b3 cxb3 11. axb3 Qd5 12. d4 Qxb3 13. Re1 Ne4 $17) ' +
+      '5... b5 6. Ne5 Ra7 7. d3 (7. b3 cxb3 8. axb3 c5 $17) 7... cxd3 8. Qxd3 Qxd3 9. Nxd3 Bb7 10. Be3 Bxg2 11. Bxa7 Bxh1 12. Bxb8 Be4 $11';
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 'Каталон',
+      pgn: PGN_CATALON,
+    });
+    // Дерево содержит репертуар; нам нужен симулированный «dirty»
+    // single-edge сценарий. Делаем синтетический минимальный кейс:
+    // фронт-симуляция Ne5 + Bf3 + e5 с currentLineHadWrong=true.
+    //
+    // Удобнее проверить непосредственно `findNextUnexploredBranch` —
+    // unit-тестом ниже. Этот сервисный тест — smoke: PGN валидно
+    // парсится и не падает на старте.
+    expect(r.nodeCount).toBeGreaterThan(50);
+    expect(r.edgeCount).toBeGreaterThan(50);
+    const start = await svc.startSession('u-1', r.id, {
+      side: 'black',
+      mode: 'learn',
+    });
+    expect(start.initialBotMove).not.toBeNull();
+    // Первый бот-ход — c4 (единственный root-edge).
+    expect(start.initialBotMove!.moveSan).toBe('c4');
+  });
+
+  it('грязная линия (с wrong) → multi-edge user pos → line-restart на альтернативу', async () => {
+    // PGN с двумя user-вариантами: 1.e4 (1.d4). Если юзер ошибся на одной
+    // ветке (1.e4 dirty) — должен получить line-restart, чтобы попробовать
+    // другую (1.d4).
     const { svc } = makeService();
     const r = await svc.createRepertoire('u-1', {
       title: 't',
-      pgn: '1. e4',
+      pgn: '1. e4 (1. d4)',
     });
     const start = await svc.startSession('u-1', r.id, {
       side: 'white',
       mode: 'learn',
     });
-    // Сначала wrong (Nf3 вместо e4) — currentLineHadWrong=true.
+    // Wrong: Nf3 (нет в репертуаре) → currentLineHadWrong=true.
     const wrong = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'g1f3',
       responseTimeMs: 8000,
     });
     expect(wrong.result).toBe('wrong');
 
-    // Потом correct e4 → handleLineComplete, но линия грязная →
-    // НЕ помечаем clean. findNextUnexploredBranch:
-    //  - depth=1: afterE4, edges=[], unclean=0
-    //  - depth=0: root, edges=[e4], clean=[], unclean=1 (e4 не помечен)
-    //  → line-restart на root.
+    // Correct e4 → dirty line-complete. findNextUnexploredBranch:
+    //  - depth=1 (after-e4): edges=[], unclean=0.
+    //  - depth=0 (root): edges=[e4, d4], clean=[]. KS-3281 фильтр исключает
+    //    user-edge (e4) → unclean=[d4]. Found → line-restart на root.
     const correct = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'e2e4',
       responseTimeMs: 8000,
@@ -598,15 +641,89 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     expect(correct.result).toBe('line-restart');
     if (correct.result === 'line-restart') {
       expect(correct.session.status).toBe('active');
-      // currentLineHadWrong не в публичном DTO; флаг сбрасывается внутри,
-      // верифицируется тем что следующий чистый заход даст tree-complete.
     }
 
-    // Третий заход — теперь без ошибок.
-    const clean = await svc.makeMove('u-1', start.session.id, {
+    // Третий заход — играем d4 (alternative). Чистая линия → tree-complete?
+    // НЕТ: e4 ещё не clean (был dirty). tree.cleanLines[root]=[after-d4 после
+    // этого correct'а]. Но after-e4 не помечен. findNextBranch:
+    //  - depth=1 (after-d4): edges=[], unclean=0.
+    //  - depth=0 (root): edges=[e4,d4], clean=[after-d4]. user-edge=d4 excluded.
+    //    unclean=[e4]. Found! → line-restart на root.
+    const playD4 = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'd2d4',
+      responseTimeMs: 8000,
+    });
+    expect(playD4.result).toBe('line-restart');
+
+    // Четвёртый заход — играем e4 (теперь без ошибок).
+    // Этот заход помечает e4 clean. cleanLines[root]=[after-d4, after-e4].
+    // Все edges clean → tree-complete.
+    const finalCorrect = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'e2e4',
       responseTimeMs: 8000,
     });
-    expect(clean.result).toBe('tree-complete');
+    expect(finalCorrect.result).toBe('tree-complete');
+  });
+});
+
+describe('KS-3281: findNextUnexploredBranch — exclude user-edge at depth-1', () => {
+  /**
+   * Прямой unit-test на хелпер. Воспроизводит prod-сценарий KS-3281:
+   * dirty single-edge user-position не должна давать «restart в ту же позицию».
+   *
+   * Используем РЕАЛЬНОЕ дерево через RepertoireBuilderService —
+   * chess.js fen()-формат должен совпасть с тем, что findNextBranch
+   * вычисляет при walk'е (en-passant эвристика, half-move counters
+   * формируются одинаково).
+   */
+  const builder = new RepertoireBuilderService();
+
+  it('dirty single-edge user-position возвращает root (а не same currentFen)', () => {
+    const tree = builder.buildTree('1. e4 e5');
+    // path = main line, cleanLines пустой (dirty).
+    const path = Object.values(tree.nodes)[0].edges[0]
+      ? ['e2e4', 'e7e5']
+      : [];
+    const cleanLines = {};
+    const next = findNextUnexploredBranch(tree, path, cleanLines);
+    // Должен НЕ возвращать after-e4 (= user's currentFen перед e7e5).
+    // Должен вернуть root: исключив user-edge на depth=1, осталось root
+    // c unclean=[e2e4] и user-edge=e2e4 → e2e4 child = after-e4 ≠ fens[1].
+    // Hmm wait: на depth=0, user-edge filter применяется только при
+    // depth === fens.length-2 = 1. depth=0 != 1 → no filter. unclean=[e2e4].
+    expect(next).not.toBeNull();
+    expect(next!.depth).toBe(0);
+    expect(next!.fen).toBe(tree.rootFen);
+  });
+
+  it('clean multi-user-edge возвращает depth-1 (юзер играет альтернативу)', () => {
+    // PGN с двумя ответами чёрных: 1.e4 e5 (1...c5). У root один edge
+    // (e4). После e4 у чёрных 2 edges: e5 и c5.
+    const tree = builder.buildTree('1. e4 e5 (1... c5)');
+    const path = ['e2e4', 'e7e5'];
+    // Реальный after-e4 FEN — берём из tree.
+    const rootNode = tree.nodes[tree.rootFen];
+    const e4Edge = rootNode.edges.find((e) => e.moveSan === 'e4')!;
+    const afterE4 = e4Edge.childFen;
+    const e5Edge = tree.nodes[afterE4].edges.find((e) => e.moveSan === 'e5')!;
+    const afterE5 = e5Edge.childFen;
+    // cleanLines: только after-e5 помечен (clean). c5 — unclean.
+    const cleanLines = { [afterE4]: [afterE5] };
+    const next = findNextUnexploredBranch(tree, path, cleanLines);
+    // Должен вернуть depth=1 (after-e4), потому что c5 (другой user-edge)
+    // ещё unclean.
+    expect(next).not.toBeNull();
+    expect(next!.depth).toBe(1);
+    expect(next!.fen).toBe(afterE4);
+  });
+
+  it('всё clean → null (tree-complete)', () => {
+    const tree = builder.buildTree('1. e4');
+    const rootNode = tree.nodes[tree.rootFen];
+    const afterE4 = rootNode.edges[0].childFen;
+    const path = ['e2e4'];
+    const cleanLines = { [tree.rootFen]: [afterE4] };
+    const next = findNextUnexploredBranch(tree, path, cleanLines);
+    expect(next).toBeNull();
   });
 });

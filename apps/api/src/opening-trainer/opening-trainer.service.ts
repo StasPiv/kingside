@@ -1004,17 +1004,31 @@ export function findNextUnexploredBranch(
   }
   // Walk от ПРЕДПОСЛЕДНЕЙ позиции (path.length − 1) к корню. Текущий
   // конец (path.length) пропускаем намеренно: KS-3278 — мы попали сюда
-  // потому что бот не нашёл хода из current end. Возвращать туда же =
-  // зацикливание (newFen == прежний currentFen → доска не двигается).
-  // Всегда ищем точку ВЫШЕ по path.
+  // потому что бот не нашёл хода из current end.
+  //
+  // KS-3281: при depth=fens.length-2 (позиция ОТКУДА юзер только что
+  // сделал ход) — исключаем user-edge из unclean-кандидатов. Иначе
+  // dirty-сценарий (`!currentLineHadWrong`-ветка выше пропустила
+  // addLineToClean) даст unclean=[user-edge] → return same position →
+  // restart в ту же позицию = doski_не_двигается = бесконечный цикл.
+  // Исключение user-edge даёт корректную семантику: если у юзера
+  // несколько unclean-альтернатив — рестарт сюда (юзер выбирает другой
+  // вариант); если только user-edge unclean → walking up.
   for (let depth = fens.length - 2; depth >= 0; depth--) {
     const fen = fens[depth];
     const edges = tree.nodes[fen]?.edges ?? [];
     const cleanHere = cleanLines[fen] ?? [];
-    const uncleanCount = edges.filter(
+    let uncleanEdges = edges.filter(
       (e) => !cleanHere.includes(e.childFen),
-    ).length;
-    if (uncleanCount > 0) return { fen, depth };
+    );
+    if (depth === fens.length - 2) {
+      // childFen user-edge'а = позиция, в которую попал ход = fens[depth+1].
+      const userEdgeChildFen = fens[depth + 1];
+      uncleanEdges = uncleanEdges.filter(
+        (e) => e.childFen !== userEdgeChildFen,
+      );
+    }
+    if (uncleanEdges.length > 0) return { fen, depth };
   }
   return null;
 }
