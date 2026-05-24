@@ -1,20 +1,23 @@
 /* ============================================================
- * KS-3275 (ADR-077 §7, M1) — стили Opening Trainer.
+ * KS-3279 (полный визуальный редизайн KS-3275/M1) — Opening Trainer.
  *
  * Покрывает 5 страниц от KS-3273:
- *   1. `/opening-trainer`             — лобби (список репертуаров).
+ *   1. `/opening-trainer`             — лобби.
  *   2. `/opening-trainer/new`         — форма импорта PGN.
- *   3. `/opening-trainer/:id`         — детальная карточка + кнопка Start.
- *   4. `/opening-trainer/:id/session/:sid` — игра (доска + контролы).
+ *   3. `/opening-trainer/:id`         — детальная карточка + Start.
+ *   4. `/opening-trainer/:id/session/:sid` — игра.
  *   5. `/opening-trainer/.../result`  — сводка.
  *
- * Desktop layout (≥ 768px) — стандартная компоновка с центром по
- * 1040px max-width. Mobile (≤ 767px) — full-width контейнеры, sticky
- * controls, single-column карточки, fixed CTA-bar внизу.
+ * Design system выровнен с разделами precision / lessons / drills:
+ *   - Card-grid `auto-fill minmax(280px, 1fr)`, hover + translateY.
+ *   - Stat-блоки с большими числами (28-32px) + uppercase labels.
+ *   - Pill-кнопки (color toggle) + radio-style.
+ *   - Дроп-зона с иконкой 📥, dashed → solid accent при hover.
+ *   - Empty state с большой эмодзи + CTA.
+ *   - Sticky controls на mobile, FAB-кнопка «+ Новый репертуар».
  *
- * Все цвета — через semantic tokens (`--bg-*`, `--text-*`, `--accent-*`,
- * `--border-*`). Active-state pills/buttons использует токены
- * `--tab-active-*` из KS-3174 (где применимо).
+ * Все цвета через semantic tokens (`--bg-*`, `--text-*`, `--accent-*`,
+ * `--border-*`, `--ov-*`). Никакого хардкода.
  * ============================================================ */
 
 /* ───────────────────── общий контейнер ────────────────────── */
@@ -25,79 +28,173 @@
 .opening-trainer-result {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
+  padding: 28px 20px 48px;
   color: var(--text-primary);
   box-sizing: border-box;
-  /* KS-3275: на mobile содержимое не должно растягивать страницу через
-     длинные PGN / movestack — clip горизонтальное переполнение. */
   min-width: 0;
   overflow-x: clip;
 }
 
+/* Общая типография H1. */
 .opening-trainer-lobby h1,
 .opening-trainer-new h1,
 .opening-trainer-detail h1,
 .opening-trainer-session h1,
 .opening-trainer-result h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
+  margin: 0 0 6px;
+  font-size: 28px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
-/* ─────────────────────────── лобби ────────────────────────── */
+/* Back-link на /detail и /new. */
+.opening-trainer-detail .back-link,
+.opening-trainer-new .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+.opening-trainer-detail .back-link:hover,
+.opening-trainer-new .back-link:hover {
+  color: var(--accent-primary);
+}
+
+/* ─────────────────────────── ЛОББИ ────────────────────────── */
 .opening-trainer-lobby__header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 6px;
+  margin-bottom: 24px;
+  /* hero-плашка с акцентной полосой слева */
+  padding: 18px 20px;
+  background: linear-gradient(
+    135deg,
+    var(--ov-accent-08),
+    var(--ov-accent-15)
+  );
+  border: 1px solid var(--ov-accent-15);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.opening-trainer-lobby__header::before {
+  /* визуальный «корешок книги» — акцентная полоса слева */
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent-primary);
+}
+.opening-trainer-lobby__header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.opening-trainer-lobby__header h1::before {
+  content: '📖';
+  font-size: 28px;
+  filter: grayscale(0.2);
 }
 .opening-trainer-lobby__subtitle {
   margin: 0;
   font-size: 14px;
   color: var(--text-secondary);
+  line-height: 1.5;
 }
 .opening-trainer-lobby__header .btn-primary {
   align-self: flex-start;
-  margin-top: 8px;
+  margin-top: 14px;
+  padding: 10px 18px;
+  font-size: 14px;
+  border-radius: 8px;
 }
+
+/* Empty state — крупная плашка с emoji-иллюстрацией. */
+.opening-trainer-lobby .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 20px;
+  background: var(--bg-surface);
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.opening-trainer-lobby .empty-state::before {
+  content: '♟';
+  font-size: 56px;
+  opacity: 0.4;
+  line-height: 1;
+}
+.opening-trainer-lobby .empty-state p {
+  margin: 0;
+  font-size: 15px;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* Card-grid. */
 .opening-trainer-lobby__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 .opening-trainer-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  transition: border-color 120ms ease, transform 120ms ease;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 .opening-trainer-card:hover {
   border-color: var(--accent-primary);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 18px var(--ov-black-20);
+  transform: translateY(-2px);
 }
 .opening-trainer-card__link {
   display: block;
-  padding: 14px 16px;
+  padding: 16px 18px;
   color: inherit;
   text-decoration: none;
 }
+.opening-trainer-card__link::before {
+  /* маленькая иконка-маркер сверху-слева */
+  content: '♟';
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 16px;
+  color: var(--accent-primary);
+  vertical-align: -1px;
+}
 .opening-trainer-card__title {
-  margin: 0 0 4px;
+  display: inline;
+  margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+  line-height: 1.3;
 }
 .opening-trainer-card__description {
-  margin: 0 0 8px;
+  margin: 8px 0 12px;
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.4;
-  /* 2-line clamp на длинных описаниях. */
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -106,25 +203,46 @@
 .opening-trainer-card__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
+  gap: 4px 6px;
+  font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.opening-trainer-card__meta span:not(:first-child):not(:last-child) {
+  opacity: 0.5;
 }
 
 /* ─────────────────────────── /new ─────────────────────────── */
+.opening-trainer-new > header {
+  margin-bottom: 18px;
+}
+.opening-trainer-new > header p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 .opening-trainer-new__form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   max-width: 720px;
 }
-.opening-trainer-new__form label {
+.opening-trainer-new__form .form-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+.opening-trainer-new__form .form-field > span {
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
 }
 .opening-trainer-new__form input,
 .opening-trainer-new__form textarea {
@@ -132,108 +250,287 @@
   border: 1px solid var(--border-subtle);
   background: var(--bg-input, var(--bg-muted));
   color: var(--text-primary);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 10px 12px;
   font: inherit;
   font-size: 14px;
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .opening-trainer-new__form textarea {
-  min-height: 220px;
+  min-height: 240px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
   resize: vertical;
 }
 .opening-trainer-new__form input:focus,
 .opening-trainer-new__form textarea:focus {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--ov-accent-15);
 }
+
+/* Drop-zone — большая, с иконкой 📥. */
 .opening-trainer-new__drop {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 18px 16px;
+  gap: 6px;
+  padding: 24px 16px;
   border: 1.5px dashed var(--border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   color: var(--text-secondary);
   font-size: 13px;
   text-align: center;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+.opening-trainer-new__drop::before {
+  content: '📥';
+  font-size: 28px;
+  line-height: 1;
+  opacity: 0.7;
 }
 .opening-trainer-new__drop:hover {
   border-color: var(--accent-primary);
   background: var(--ov-accent-08);
+  color: var(--accent-primary);
+}
+.opening-trainer-new__drop:hover::before {
+  opacity: 1;
 }
 .opening-trainer-new__drop input[type='file'] {
   display: none;
 }
+.opening-trainer-new__drop-label {
+  font-weight: 500;
+}
+
+.opening-trainer-new__form .form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
 
 /* ─────────────────────── /detail карточка ──────────────────── */
-.opening-trainer-detail__header h1 {
-  margin-bottom: 4px;
+.opening-trainer-detail__header {
+  margin-bottom: 18px;
 }
 .opening-trainer-detail__description {
-  margin: 0 0 16px;
-  font-size: 14px;
+  margin: 4px 0 0;
+  font-size: 15px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
+
+/* Stats — крупные карточки с числом сверху, label снизу. */
 .opening-trainer-detail__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  padding: 12px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-.opening-trainer-detail__start {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 24px;
 }
-.opening-trainer-detail__danger {
-  margin-top: 24px;
-  padding: 14px 16px;
-  border: 1px dashed var(--danger);
-  border-radius: 8px;
-  color: var(--danger);
-  font-size: 13px;
+.opening-trainer-detail__stats .stat {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.opening-trainer-detail__stats .stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+}
+.opening-trainer-detail__stats .stat__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.opening-trainer-detail__stats .stat__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+/* Start блок — карточка с настройками. */
+.opening-trainer-detail__start {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.opening-trainer-detail__start h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.opening-trainer-detail__start .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.opening-trainer-detail__start .form-field__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+/* Радио color — pill-стайл. */
+.opening-trainer-detail__start .radio-group {
+  display: inline-flex;
+  gap: 8px;
+}
+.opening-trainer-detail__start .radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.opening-trainer-detail__start .radio-group label:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+.opening-trainer-detail__start .radio-group label:has(input:checked) {
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+  color: var(--tab-active-fg);
+}
+.opening-trainer-detail__start .radio-group input[type='radio'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Select для mode. */
+.opening-trainer-detail__start select {
+  appearance: none;
+  background: var(--bg-input, var(--bg-muted));
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 36px 10px 12px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  /* Стрелка вниз через background-image (data-uri SVG). */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='%23808098'><path d='M1 1l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px;
+  min-width: 180px;
+}
+.opening-trainer-detail__start select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--ov-accent-15);
+}
+
+.opening-trainer-detail__start .form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.opening-trainer-detail__start .form-actions .btn-primary {
+  padding: 11px 22px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Danger зона. */
+.opening-trainer-detail__danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: center;
+  padding: 14px 16px;
+  border: 1px dashed var(--danger);
+  border-radius: 10px;
+  background: var(--ov-danger-08-r400);
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 16px;
+}
+.opening-trainer-detail__danger::before {
+  content: '⚠️';
+  font-size: 18px;
+  flex-shrink: 0;
 }
 
 /* ─────────────────────── /session игра ─────────────────────── */
 .opening-trainer-session__header {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px 18px;
   margin-bottom: 16px;
 }
+.opening-trainer-session__header h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+/* Counters — chips в едином стиле platform. */
 .opening-trainer-session__counters {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 6px;
   font-size: 13px;
-  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+}
+.opening-trainer-session__counters > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 .opening-trainer-session__counters b {
   color: var(--text-primary);
+  font-weight: 700;
 }
 
 .opening-trainer-session__body {
@@ -243,11 +540,11 @@
   align-items: start;
 }
 .opening-trainer-session__board {
-  /* Доска занимает всю свою колонку, aspect-ratio гарантирует квадрат. */
   width: 100%;
   max-width: min(560px, 100%);
   aspect-ratio: 1 / 1;
   margin: 0 auto;
+  position: relative;
 }
 .opening-trainer-session__sidebar {
   display: flex;
@@ -259,17 +556,26 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
 }
 .opening-trainer-session__controls .btn {
   width: 100%;
-  min-height: 40px;
+  min-height: 42px;
+  font-size: 13px;
+  border-radius: 8px;
 }
 
+/* Feedback. */
 .opening-trainer-feedback {
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
+  border-left: 4px solid currentColor;
 }
 .opening-trainer-feedback--correct {
   background: var(--ov-success-15);
@@ -288,15 +594,14 @@
   color: var(--warning);
 }
 .opening-trainer-feedback__expected {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   opacity: 0.9;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
-/* ─────────────── KS-3274 UX polish ────────────── */
-
-/* Streak-индикатор: цвет приходит inline-style по уровню. */
+/* Streak (KS-3274 polish). */
 .opening-trainer-streak {
   display: inline-flex;
   align-items: center;
@@ -315,18 +620,15 @@
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 999px;
-  background: rgba(250, 204, 21, 0.18);
-  color: #facc15;
+  background: var(--ov-warning-15);
+  color: var(--warning);
 }
 @keyframes opening-trainer-streak-pulse {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.06); }
 }
 
-/* Wrong-popup поверх доски. Absolute, ловит клики внутрь карточки. */
-.opening-trainer-session__board {
-  position: relative;
-}
+/* Wrong-modal. */
 .opening-trainer-wrong-modal {
   position: absolute;
   inset: 0;
@@ -334,23 +636,36 @@
   align-items: center;
   justify-content: center;
   background: var(--ov-black-50, rgba(0, 0, 0, 0.45));
-  border-radius: 6px;
+  border-radius: 8px;
   z-index: 30;
+  animation: opening-trainer-wrong-modal-fade 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes opening-trainer-wrong-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .opening-trainer-wrong-modal__card {
   max-width: 90%;
   background: var(--bg-surface);
   color: var(--text-primary);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 16px 18px;
-  box-shadow: 0 8px 24px var(--ov-black-40, rgba(0, 0, 0, 0.45));
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 12px 32px var(--ov-black-50, rgba(0, 0, 0, 0.5));
   text-align: center;
 }
 .opening-trainer-wrong-modal__card h3 {
   margin: 0 0 6px;
-  font-size: 16px;
+  font-size: 17px;
   color: var(--danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.opening-trainer-wrong-modal__card h3::before {
+  content: '✗';
+  font-size: 20px;
 }
 .opening-trainer-wrong-modal__card p {
   margin: 0 0 10px;
@@ -358,9 +673,10 @@
   color: var(--text-secondary);
 }
 .opening-trainer-wrong-modal__expected {
-  margin: 0 0 12px;
-  font-size: 13px;
+  margin: 0 0 14px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 .opening-trainer-wrong-modal__actions {
   display: flex;
@@ -369,36 +685,104 @@
 }
 
 /* ─────────────────────── /result сводка ────────────────────── */
+.opening-trainer-result > header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 24px 20px;
+  background: linear-gradient(
+    135deg,
+    var(--ov-accent-08),
+    var(--ov-accent-15)
+  );
+  border: 1px solid var(--ov-accent-15);
+  border-radius: 12px;
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.opening-trainer-result > header::before {
+  content: '🎉';
+  font-size: 36px;
+  margin-bottom: 2px;
+  line-height: 1;
+}
+.opening-trainer-result > header h1 {
+  margin: 0;
+  font-size: 24px;
+}
 .opening-trainer-result__score {
-  margin: 4px 0 16px;
-  font-size: 18px;
+  margin: 4px 0 0;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 .opening-trainer-result__score b {
-  color: var(--text-primary);
-  font-size: 28px;
+  color: var(--accent-primary);
+  font-size: 32px;
   font-variant-numeric: tabular-nums;
-  margin-left: 4px;
+  margin-left: 6px;
+  font-weight: 800;
+  vertical-align: -2px;
 }
+
 .opening-trainer-result__stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
+  margin-bottom: 22px;
+}
+.opening-trainer-result__stats .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   padding: 14px 16px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  margin-bottom: 20px;
-  font-size: 14px;
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
 }
+.opening-trainer-result__stats .stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+}
+.opening-trainer-result__stats .stat__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.opening-trainer-result__stats .stat__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
 .opening-trainer-result__actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.opening-trainer-result__actions .btn {
+  padding: 11px 22px;
+  min-width: 160px;
+  font-size: 14px;
 }
 
 /* ============================================================
- * Mobile (≤ 767px) — full-width, sticky controls.
+ * Mobile (≤ 767px) — full-width, sticky controls, FAB.
  * ============================================================ */
 @media (max-width: 767px) {
   .opening-trainer-lobby,
@@ -408,54 +792,83 @@
   .opening-trainer-result {
     padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px));
   }
+  .opening-trainer-lobby h1,
+  .opening-trainer-new h1,
+  .opening-trainer-detail h1,
+  .opening-trainer-session h1,
+  .opening-trainer-result h1 {
+    font-size: 22px;
+  }
 
-  /* ── лобби: одна колонка карточек, FAB-кнопка «+ New» ─────── */
+  /* ── ЛОББИ ───────────────────────────────────────────────── */
+  .opening-trainer-lobby__header {
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
   .opening-trainer-lobby__list {
     grid-template-columns: 1fr;
   }
+  .opening-trainer-lobby .empty-state {
+    padding: 36px 16px;
+  }
+  /* Кнопка «+ Новый репертуар» становится fixed FAB. */
   .opening-trainer-lobby__header .btn-primary {
-    /* KS-3275: на mobile «+ New» становится fixed FAB-кнопкой в нижнем
-       правом углу, чтобы не занимать вертикаль в header'е. Учитывает
-       высоту `.mobile-bottom-bar` (56px) + safe-area. */
     position: fixed;
     right: 16px;
     bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
     z-index: 50;
     border-radius: 999px;
     padding: 12px 18px;
-    box-shadow: 0 4px 14px var(--ov-black-40);
+    box-shadow: 0 6px 18px var(--ov-black-40);
     align-self: auto;
     margin: 0;
     min-height: 48px;
+    font-weight: 600;
   }
 
-  /* ── /new: textarea без горизонтального скролла ──────────── */
+  /* ── /new ────────────────────────────────────────────────── */
   .opening-trainer-new__form {
     max-width: 100%;
   }
   .opening-trainer-new__form textarea {
-    min-height: 180px;
-    /* PGN-строки на mobile переносим по словам, иначе горизонтальный
-       скролл textarea. */
+    min-height: 200px;
     white-space: pre-wrap;
     word-break: break-word;
   }
   .opening-trainer-new__drop {
-    padding: 14px 12px;
-    font-size: 12px;
+    padding: 18px 14px;
   }
-
-  /* ── /detail: статы вертикально, действия full-width ─────── */
-  .opening-trainer-detail__stats {
-    flex-direction: column;
-    gap: 6px;
+  .opening-trainer-new__form .form-actions {
+    flex-direction: column-reverse;
   }
-  .opening-trainer-detail__start {
-    flex-direction: column;
-  }
-  .opening-trainer-detail__start .btn {
+  .opening-trainer-new__form .form-actions .btn {
     width: 100%;
     min-height: 44px;
+  }
+
+  /* ── /detail ─────────────────────────────────────────────── */
+  .opening-trainer-detail__stats {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .opening-trainer-detail__stats .stat {
+    padding: 10px 12px;
+  }
+  .opening-trainer-detail__stats .stat__value {
+    font-size: 20px;
+  }
+  .opening-trainer-detail__start {
+    padding: 14px 16px;
+  }
+  .opening-trainer-detail__start .form-actions {
+    flex-direction: column;
+  }
+  .opening-trainer-detail__start .form-actions .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  .opening-trainer-detail__start select {
+    width: 100%;
   }
   .opening-trainer-detail__danger {
     flex-direction: column;
@@ -463,24 +876,23 @@
   }
   .opening-trainer-detail__danger .btn {
     width: 100%;
+    min-height: 44px;
   }
 
-  /* ── /session: доска full-width, sticky controls внизу ────── */
+  /* ── /session ────────────────────────────────────────────── */
   .opening-trainer-session__header h1 {
-    /* Скрываем заголовок «Opening training» на mobile — экономия места. */
     display: none;
   }
   .opening-trainer-session__counters {
     width: 100%;
     justify-content: space-between;
-    padding: 8px 0;
+    padding: 0;
   }
   .opening-trainer-session__body {
     grid-template-columns: 1fr;
     gap: 12px;
   }
   .opening-trainer-session__board {
-    /* KS-3275: доска во весь width экрана (минус container padding). */
     max-width: 100%;
   }
   .opening-trainer-session__sidebar {
@@ -494,9 +906,10 @@
     flex-direction: row;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 8px 0;
+    padding: 8px;
     background: var(--bg-surface);
     border-top: 1px solid var(--border-subtle);
+    border-radius: 0;
     box-shadow: 0 -4px 12px var(--ov-black-20);
     margin: 0 -12px;
     padding-left: max(12px, env(safe-area-inset-left, 0px));
@@ -513,9 +926,18 @@
     flex-basis: 100%;
   }
 
-  /* ── /result: одна колонка статов, full-width CTA ────────── */
+  /* ── /result ─────────────────────────────────────────────── */
+  .opening-trainer-result > header {
+    padding: 20px 16px;
+  }
+  .opening-trainer-result > header h1 {
+    font-size: 20px;
+  }
+  .opening-trainer-result__score b {
+    font-size: 28px;
+  }
   .opening-trainer-result__stats {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
   .opening-trainer-result__actions {
     flex-direction: column;
