@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
+import { useIsMobile } from '../../hooks/useIsMobile';
 // KS-3310: используем готовый PuzzleMiniBoard из раздела задач —
 // лёгкая SVG-доска с подсветкой клеток/стрелок и orientation prop.
 // Раньше был свой MemoChessboard-обёртка без orientation и в стандартной
@@ -56,15 +57,12 @@ interface ErrorRowProps {
   row: OpeningRepertoireErrorPosition;
   /** KS-3310: ориентация доски — повторяет сторону репертуара. */
   orientation: TrainerColor;
-  /**
-   * KS-3310: подсветка позиции — выделяем целевую клетку (куда
-   * пользователь должен был пойти) и квадрат с неправильным ходом
-   * (куда пошёл вместо). Помогает зрительно понять «вот тут промах».
-   */
+  /** KS-3314: mobile → стек column, desktop → row. */
+  isMobile: boolean;
   t: TFunction;
 }
 
-function ErrorRow({ row, orientation, t }: ErrorRowProps) {
+function ErrorRow({ row, orientation, isMobile, t }: ErrorRowProps) {
   const expectedSan = useMemo(
     () => row.expectedMoves.map((u) => uciToSan(row.positionFen, u)).join(', '),
     [row.expectedMoves, row.positionFen],
@@ -79,23 +77,23 @@ function ErrorRow({ row, orientation, t }: ErrorRowProps) {
       className="opening-trainer-stats__error-row"
       data-testid="opening-trainer-stats-error-row"
       style={{
-        // KS-3313: flex-wrap + min-width ниже → текст «падает» под доску
-        // когда строка не помещается (на mobile ~390px доска ~50vw +
-        // 220px текста > 390 → wrap). На desktop оба inline.
+        // KS-3314: на mobile — column-стек (доска сверху, текст под);
+        // на desktop — row inline. Раньше использовали flex-wrap, но
+        // высота `<li>` подсасывалась из flex-line-stretch — оставался
+        // пустой воздух под текстом, равный высоте доски-220px.
         display: 'flex',
-        flexWrap: 'wrap',
+        flexDirection: isMobile ? 'column' : 'row',
         gap: 16,
         padding: '14px 14px',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
         alignItems: 'flex-start',
       }}
     >
-      {/* KS-3313: размер доски clamp(220px, 50vw, 320px). На mobile
-          (~390px viewport) ≈ 195px, но не меньше 220. На desktop —
-          320px. Aspect-ratio фиксирует квадрат. */}
+      {/* KS-3313: размер доски clamp(220px, 50vw, 320px) на desktop,
+          full-width на mobile. Aspect-ratio фиксирует квадрат. */}
       <div
         style={{
-          width: 'clamp(220px, 50vw, 320px)',
+          width: isMobile ? '100%' : 'clamp(220px, 50vw, 320px)',
           maxWidth: '100%',
           aspectRatio: '1 / 1',
           flexShrink: 0,
@@ -175,6 +173,7 @@ function ErrorRow({ row, orientation, t }: ErrorRowProps) {
 export function OpeningTrainerStatsPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  const isMobile = useIsMobile();
   const [repertoire, setRepertoire] = useState<GetOpeningRepertoireResponse | null>(null);
   const [stats, setStats] = useState<GetOpeningRepertoireStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -388,6 +387,7 @@ export function OpeningTrainerStatsPage() {
                     key={`${row.positionFen}-${idx}`}
                     row={row}
                     orientation={repertoire?.side ?? 'white'}
+                    isMobile={isMobile}
                     t={t}
                   />
                 ))}
