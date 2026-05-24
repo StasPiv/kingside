@@ -145,6 +145,16 @@ export class OpeningTrainerController {
   ) {
     return this.service.finish(requireUserId(req), sid);
   }
+
+  // ── KS-3290 (M2 B4): GET /reviews/due ──────────────────────────
+
+  @Get('reviews/due')
+  async dueReviews(
+    @Req() req: Request,
+    @Query('repertoireId') repertoireId?: string,
+  ) {
+    return this.service.listDueReviews(requireUserId(req), { repertoireId });
+  }
 }
 
 function requireUserId(req: Request): string {

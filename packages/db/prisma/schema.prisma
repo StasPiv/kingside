@@ -1657,6 +1657,12 @@ model OpeningTrainerSession {
   /// (после последнего line-restart). Edges в `currentPath[lineStartIndex..]`
   /// — кандидаты для добавления в cleanPlayedLines при clean line-complete.
   lineStartIndex       Int @default(0) @map("line_start_index")
+  /// KS-3290 (M2 B4): UCI-путь review-линии для `mode='review'`. При
+  /// старте сессии заполняется из `OpeningLineProgress.pathUci` —
+  /// идентифицирует ИМЕННО ТУ линию, к которой применяется SM-2
+  /// `applyReview(quality=1|5)` на wrong / clean-line-complete.
+  /// `null` для не-review сессий и legacy-записей.
+  reviewLinePathUci    Json? @map("review_line_path_uci")
   startedAt       DateTime @default(now()) @map("started_at")
   lastActivityAt  DateTime @default(now()) @map("last_activity_at")
   finishedAt      DateTime? @map("finished_at")

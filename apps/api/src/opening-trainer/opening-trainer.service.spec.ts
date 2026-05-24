@@ -34,6 +34,7 @@ class FakeRepo {
   private repos: any[] = [];
   private sessions: any[] = [];
   private attempts: any[] = [];
+  private lineProgress: any[] = [];
 
   async listRepertoires(userId: string) {
     return this.repos
@@ -75,7 +76,8 @@ class FakeRepo {
       id: `s-${this.sessions.length + 1}`,
       status: 'active',
       playedLines: {},
-      currentPath: [],
+      currentPath: data.initialPath ?? [],
+      reviewLinePathUci: data.reviewLinePathUci ?? null,
       score: 0,
       movesPlayed: 0,
       correctMoves: 0,
@@ -136,6 +138,82 @@ class FakeRepo {
     const i = this.attempts.findIndex((a) => a.id === id);
     if (i >= 0) this.attempts.splice(i, 1);
     return null;
+  }
+
+  // ── KS-3287 (B1) line-progress ──
+  async findLineProgress(userId: string, repertoireId: string, pathHash: string) {
+    return (
+      this.lineProgress.find(
+        (l) =>
+          l.userId === userId &&
+          l.repertoireId === repertoireId &&
+          l.pathHash === pathHash,
+      ) ?? null
+    );
+  }
+  async upsertLineProgress(
+    userId: string,
+    repertoireId: string,
+    pathHash: string,
+    createData: any,
+    updateData: any,
+  ) {
+    const existing = this.lineProgress.find(
+      (l) =>
+        l.userId === userId &&
+        l.repertoireId === repertoireId &&
+        l.pathHash === pathHash,
+    );
+    if (existing) {
+      Object.assign(existing, updateData);
+      return existing;
+    }
+    const row = {
+      id: `lp-${this.lineProgress.length + 1}`,
+      userId,
+      repertoireId,
+      pathHash,
+      orphaned: false,
+      ...createData,
+    };
+    this.lineProgress.push(row);
+    return row;
+  }
+  async listLineProgress(userId: string, repertoireId: string) {
+    return this.lineProgress.filter(
+      (l) => l.userId === userId && l.repertoireId === repertoireId,
+    );
+  }
+  async listDueLineProgress(
+    userId: string,
+    opts: { now: Date; repertoireId?: string },
+  ) {
+    return this.lineProgress
+      .filter(
+        (l) =>
+          l.userId === userId &&
+          !l.orphaned &&
+          l.sm2DueAt != null &&
+          l.sm2DueAt <= opts.now &&
+          (!opts.repertoireId || l.repertoireId === opts.repertoireId),
+      )
+      .sort((a, b) => a.sm2DueAt.getTime() - b.sm2DueAt.getTime());
+  }
+  async listMistakeLineProgress(userId: string, repertoireId: string) {
+    return this.lineProgress
+      .filter(
+        (l) =>
+          l.userId === userId &&
+          l.repertoireId === repertoireId &&
+          !l.orphaned &&
+          (l.wrongCount ?? 0) > 0,
+      )
+      .sort((a, b) => b.lastPlayedAt.getTime() - a.lastPlayedAt.getTime());
+  }
+
+  // Helper для тестов: вручную засеить line-progress row.
+  _seedLineProgress(row: any) {
+    this.lineProgress.push(row);
   }
 }
 
@@ -888,5 +966,235 @@ describe('KS-3289 (M2 B3): integration recordAttempt в makeMove', () => {
     expect(lp.consecutiveCorrect).toBe(3);
     expect(lp.masteredAt).not.toBeNull();
     expect(lp.sm2Easiness).toBeCloseTo(2.6, 5);
+  });
+});
+
+describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
+  function makeReviewService() {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    return { svc, repo, progress };
+  }
+
+  it('startSession(mode=review) без due-линий → 400 no_lines_due', async () => {
+    const { svc } = makeReviewService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    await expect(
+      svc.startSession('u-1', r.id, {
+        side: 'white',
+        mode: 'review',
+      }),
+    ).rejects.toThrow(/no_lines_due/);
+  });
+
+  it('startSession(mode=review) с due-линией → стартует с replayed FEN', async () => {
+    const { svc, repo } = makeReviewService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5 2. Nf3',
+    });
+    // Засеиваем due line (path = [e2e4]).
+    const dueAt = new Date('2026-05-23T00:00:00Z'); // в прошлом → due
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: 'hash-e4',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date('2026-05-22T00:00:00Z'),
+      masteredAt: new Date('2026-05-22T00:00:00Z'),
+      sm2DueAt: dueAt,
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+
+    const session = await svc.startSession('u-1', r.id, {
+      side: 'black', // user играет дальше после e4
+      mode: 'review',
+    });
+    expect(session.session.mode).toBe('review');
+    expect(session.session.currentPath).toEqual(['e2e4']);
+    // currentFen — позиция после e4 (replayed).
+    expect(session.session.currentFen).toContain('PPPP1PPP'); // pawn pattern after e4
+    expect(session.initialBotMove).toBeNull();
+  });
+
+  it('wrong на review-линии → applyReviewResult(quality=1)', async () => {
+    const { svc, repo, progress } = makeReviewService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const dueAt = new Date('2026-05-23T00:00:00Z');
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: 'hash-e4',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date('2026-05-22T00:00:00Z'),
+      masteredAt: new Date('2026-05-22T00:00:00Z'),
+      sm2DueAt: dueAt,
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    const session = await svc.startSession('u-1', r.id, {
+      side: 'black',
+      mode: 'review',
+    });
+    // Wrong move (a7a6 не в репертуаре, в репертуаре e7e5).
+    await svc.makeMove('u-1', session.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    expect(progress.applyReviewResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathUci: ['e2e4'],
+        quality: 1,
+      }),
+    );
+  });
+
+  it('clean line-complete на review → applyReviewResult(quality=5)', async () => {
+    const { svc, repo, progress } = makeReviewService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const dueAt = new Date('2026-05-23T00:00:00Z');
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: 'hash-e4',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date('2026-05-22T00:00:00Z'),
+      masteredAt: new Date('2026-05-22T00:00:00Z'),
+      sm2DueAt: dueAt,
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    const session = await svc.startSession('u-1', r.id, {
+      side: 'black',
+      mode: 'review',
+    });
+    // Correct: e7e5 (in репертуар). Бот не может больше → line-complete.
+    await svc.makeMove('u-1', session.session.id, {
+      moveUci: 'e7e5',
+      responseTimeMs: 3000,
+    });
+    expect(progress.applyReviewResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathUci: ['e2e4'],
+        quality: 5,
+      }),
+    );
+  });
+
+  it('listDueReviews возвращает линии с repertoireTitle denorm', async () => {
+    const { svc, repo } = makeReviewService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 'My Caro',
+      pgn: '1. e4 c6',
+    });
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: 'hash-1',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date('2026-05-22T00:00:00Z'),
+      masteredAt: new Date('2026-05-22T00:00:00Z'),
+      sm2DueAt: new Date('2026-05-23T00:00:00Z'),
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    const r2 = await svc.listDueReviews('u-1');
+    expect(r2.lines).toHaveLength(1);
+    expect(r2.lines[0].repertoireTitle).toBe('My Caro');
+    expect(r2.lines[0].pathUci).toEqual(['e2e4']);
+  });
+
+  it('listDueReviews фильтрует по repertoireId если задан', async () => {
+    const { svc, repo } = makeReviewService();
+    const r1 = await svc.createRepertoire('u-1', {
+      title: 'A',
+      pgn: '1. e4',
+    });
+    const r2 = await svc.createRepertoire('u-1', {
+      title: 'B',
+      pgn: '1. d4',
+    });
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r1.id,
+      pathHash: 'h1',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date(),
+      masteredAt: new Date(),
+      sm2DueAt: new Date('2026-05-23T00:00:00Z'),
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r2.id,
+      pathHash: 'h2',
+      pathUci: ['d2d4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date(),
+      masteredAt: new Date(),
+      sm2DueAt: new Date('2026-05-23T00:00:00Z'),
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    const all = await svc.listDueReviews('u-1');
+    expect(all.lines).toHaveLength(2);
+    const filtered = await svc.listDueReviews('u-1', { repertoireId: r1.id });
+    expect(filtered.lines).toHaveLength(1);
+    expect(filtered.lines[0].repertoireTitle).toBe('A');
   });
 });

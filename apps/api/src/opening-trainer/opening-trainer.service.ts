@@ -206,6 +206,65 @@ export class OpeningTrainerService {
     }
 
     const tree = jsonToTree(repertoire.tree);
+
+    // KS-3290 (M2 B4): review-режим — выбираем due-линию, replay PGN
+    // до её позиции и стартуем сессию С НЕЙ.
+    if (dto.mode === 'review') {
+      const due = await this.repo.listDueLineProgress(userId, {
+        now: new Date(),
+        repertoireId,
+      });
+      if (due.length === 0) {
+        throw new BadRequestException('no_lines_due');
+      }
+      const line = due[0];
+      const pathUci = (line.pathUci as unknown as string[]) ?? [];
+      const replayFen = this.replayPathToFen(tree.rootFen, pathUci);
+      const session = await this.repo.createSession({
+        userId,
+        repertoireId,
+        side: dto.side,
+        mode: 'review',
+        repeatMode: dto.repeatMode,
+        currentFen: replayFen,
+        initialPath: pathUci,
+        lineStartIndex: pathUci.length,
+        reviewLinePathUci: pathUci,
+      });
+      return {
+        session: sessionRowToDto(session),
+        initialBotMove: null,
+      };
+    }
+
+    // KS-3291 (M2 B5): mistakes-режим — выбираем линию с ошибками.
+    if (dto.mode === 'mistakes') {
+      const mistakes = await this.repo.listMistakeLineProgress(
+        userId,
+        repertoireId,
+      );
+      if (mistakes.length === 0) {
+        throw new BadRequestException('no_mistakes');
+      }
+      const line = mistakes[0];
+      const pathUci = (line.pathUci as unknown as string[]) ?? [];
+      const replayFen = this.replayPathToFen(tree.rootFen, pathUci);
+      const session = await this.repo.createSession({
+        userId,
+        repertoireId,
+        side: dto.side,
+        mode: 'mistakes',
+        repeatMode: dto.repeatMode,
+        currentFen: replayFen,
+        initialPath: pathUci,
+        lineStartIndex: pathUci.length,
+      });
+      return {
+        session: sessionRowToDto(session),
+        initialBotMove: null,
+      };
+    }
+
     let session = await this.repo.createSession({
       userId,
       repertoireId,
@@ -316,6 +375,24 @@ export class OpeningTrainerService {
           .catch((err) => {
             this.logger.warn(
               `[makeMove] recordAttempt(wrong) failed for session=${sessionId.slice(0, 8)}: ${(err as Error).message}`,
+            );
+          });
+      }
+      // KS-3290 (M2 B4): review-режим — wrong на review-линии → SM-2
+      // applyReview(quality=1) сразу. Не дожидаемся line-complete.
+      if (session.mode === 'review' && session.reviewLinePathUci) {
+        const reviewPath = readUciArray(session.reviewLinePathUci);
+        await this.progress
+          .applyReviewResult({
+            userId,
+            repertoireId: session.repertoireId,
+            pathUci: reviewPath,
+            quality: 1,
+            now,
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `[makeMove] applyReviewResult(q=1) failed for session=${sessionId.slice(0, 8)}: ${(err as Error).message}`,
             );
           });
       }
@@ -483,11 +560,15 @@ export class OpeningTrainerService {
   private async handleLineComplete(args: {
     session: {
       id: string;
+      userId: string;
+      repertoireId: string;
       side: string;
+      mode: string;
       currentLineHadWrong: boolean;
       lineStartIndex: number;
       playedLines: unknown;
       repeatMode: string;
+      reviewLinePathUci: unknown;
     };
     tree: RepertoireTree;
     /** currentPath после применения user-хода (но без bot-хода). */
@@ -506,6 +587,29 @@ export class OpeningTrainerService {
     // 1. Если линия чистая — добавляем edges в cleanPlayedLines.
     if (!session.currentLineHadWrong) {
       cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
+    }
+
+    // KS-3290 (M2 B4): review-режим — clean line-complete без ошибок
+    // → SM-2 applyReview(quality=5) на review-линию (продвигает interval).
+    if (
+      session.mode === 'review' &&
+      !session.currentLineHadWrong &&
+      session.reviewLinePathUci
+    ) {
+      const reviewPath = readUciArray(session.reviewLinePathUci);
+      await this.progress
+        .applyReviewResult({
+          userId: session.userId,
+          repertoireId: session.repertoireId,
+          pathUci: reviewPath,
+          quality: 5,
+          now: args.now,
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `[handleLineComplete] applyReviewResult(q=5) failed for session=${session.id.slice(0, 8)}: ${(err as Error).message}`,
+          );
+        });
     }
 
     // 2. Ищем следующую развилку.
@@ -855,6 +959,81 @@ export class OpeningTrainerService {
     }
     return row;
   }
+
+  /**
+   * KS-3290 (M2 B4). Прогоняет PGN-путь от root через chess.js, возвращая
+   * FEN финальной позиции. Используется для review/mistakes mode'ов,
+   * где сессия должна стартовать в середине дерева.
+   */
+  private replayPathToFen(rootFen: string, path: string[]): string {
+    const chess = new Chess(rootFen);
+    for (const uci of path) {
+      try {
+        const san = uciToSan(chess, uci);
+        chess.move(san);
+      } catch {
+        // Корруптный path — fail loud (это inconsistency с tree).
+        throw new BadRequestException(
+          `Invalid path in repertoire progress: ${uci} not legal at ${chess.fen()}`,
+        );
+      }
+    }
+    return chess.fen();
+  }
+
+  // ── KS-3290 (M2 B4): GET /opening-trainer/reviews/due ──────────
+
+  /**
+   * Список линий «к повтору сегодня» — SRS-выборка по `sm2DueAt <= now`.
+   * Без `repertoireId` — across all my repertoires; денормализуем
+   * `repertoireTitle` для UI.
+   */
+  async listDueReviews(
+    userId: string,
+    opts: { repertoireId?: string } = {},
+  ) {
+    const now = new Date();
+    const rows = await this.repo.listDueLineProgress(userId, {
+      now,
+      repertoireId: opts.repertoireId,
+    });
+    // Денормализуем repertoireTitle (один запрос на все уникальные
+    // repertoireId — N+1 не страшен на типичных 5-20 линий).
+    const repertoireIds = Array.from(new Set(rows.map((r) => r.repertoireId)));
+    const repertoires = await Promise.all(
+      repertoireIds.map(async (id) => {
+        const r = await this.repo.findRepertoireById(id);
+        return r && r.userId === userId
+          ? { id: r.id, title: r.title }
+          : null;
+      }),
+    );
+    const titleById = new Map(
+      repertoires
+        .filter((x): x is { id: string; title: string } => x !== null)
+        .map((r) => [r.id, r.title]),
+    );
+    return {
+      lines: rows.map((r) => ({
+        id: r.id,
+        repertoireId: r.repertoireId,
+        pathHash: r.pathHash,
+        pathUci: (r.pathUci as unknown as string[]) ?? [],
+        pathLength: r.pathLength,
+        correctCount: r.correctCount,
+        wrongCount: r.wrongCount,
+        consecutiveCorrect: r.consecutiveCorrect,
+        lastPlayedAt: r.lastPlayedAt.toISOString(),
+        masteredAt: r.masteredAt?.toISOString() ?? null,
+        sm2DueAt: r.sm2DueAt?.toISOString() ?? null,
+        sm2Interval: r.sm2Interval ?? null,
+        sm2Easiness: r.sm2Easiness ?? null,
+        sm2Reps: r.sm2Reps ?? null,
+        orphaned: r.orphaned,
+        repertoireTitle: titleById.get(r.repertoireId) ?? '',
+      })),
+    };
+  }
 }
 
 // ─── Mappers (Prisma row → shared DTO) ─────────────────────────────
@@ -897,6 +1076,7 @@ interface SessionRow {
   cleanPlayedLines: unknown;
   currentLineHadWrong: boolean;
   lineStartIndex: number;
+  reviewLinePathUci: unknown;
   startedAt: Date;
   lastActivityAt: Date;
   finishedAt: Date | null;

@@ -115,6 +115,10 @@ export class OpeningTrainerRepository {
     mode: 'learn' | 'review' | 'mistakes' | 'free';
     repeatMode?: 'cycle' | 'complete';
     currentFen: string;
+    // KS-3290 (B4): для review-режима — начальный path и review-line.
+    initialPath?: string[];
+    lineStartIndex?: number;
+    reviewLinePathUci?: string[] | null;
   }) {
     return this.prisma.openingTrainerSession.create({
       data: {
@@ -126,7 +130,14 @@ export class OpeningTrainerRepository {
         status: 'active',
         playedLines: {},
         currentFen: data.currentFen,
-        currentPath: [],
+        currentPath: (data.initialPath ?? []) as unknown as Prisma.InputJsonValue,
+        lineStartIndex: data.lineStartIndex ?? 0,
+        ...(data.reviewLinePathUci !== undefined
+          ? {
+              reviewLinePathUci:
+                data.reviewLinePathUci as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
   }
@@ -168,11 +179,18 @@ export class OpeningTrainerRepository {
       cleanPlayedLines?: Prisma.InputJsonValue;
       currentLineHadWrong?: boolean;
       lineStartIndex?: number;
+      // KS-3290 (B4): pathUci review-линии для SM-2 callbacks.
+      reviewLinePathUci?: Prisma.InputJsonValue;
       lastActivityAt?: Date;
       finishedAt?: Date | null;
     },
   ) {
-    return this.prisma.openingTrainerSession.update({ where: { id }, data });
+    return this.prisma.openingTrainerSession.update({
+      where: { id },
+      data: data as Parameters<
+        typeof this.prisma.openingTrainerSession.update
+      >[0]['data'],
+    });
   }
 
   /**
