@@ -106,6 +106,18 @@ interface Props {
   onPromoteVariation: (move: GameMove) => void;
   onDeleteVariation: (move: GameMove) => void;
   onTruncateRemaining: (move: GameMove) => void;
+  /**
+   * KS-3305: optional hook для добавления дополнительных классов/атрибутов
+   * на каждый рендеримый ход. Используется в Opening Trainer для
+   * status-покраски (data-status="mastered|due|learning|wrong|not-played").
+   * Если не задан — render как обычно.
+   */
+  getMoveExtra?: (move: GameMove) => { className?: string; data?: Record<string, string> };
+  /**
+   * KS-3305: скрыть editor-panel (Promote / Delete / Truncate variation).
+   * Используется в read-only вьюхах (Opening Trainer репертуар).
+   */
+  hideEditor?: boolean;
 }
 
 export function ReviewMoveList({
@@ -116,6 +128,8 @@ export function ReviewMoveList({
   onPromoteVariation,
   onDeleteVariation,
   onTruncateRemaining,
+  getMoveExtra,
+  hideEditor = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -175,11 +189,14 @@ export function ReviewMoveList({
           }
 
           const { move, display, isCurrent, isVariation, level } = item;
+          // KS-3305: extra-классы и data-атрибуты от вызывающего кода.
+          const extra = getMoveExtra ? getMoveExtra(move) : undefined;
           const classes = [
             'review-move',
             isCurrent ? 'active' : '',
             isVariation ? 'variation' : '',
             level > 0 ? `review-level-${Math.min(level, 4)}` : '',
+            extra?.className ?? '',
           ]
             .filter(Boolean)
             .join(' ');
@@ -189,6 +206,7 @@ export function ReviewMoveList({
               key={item.key}
               className={classes}
               onClick={() => handleClick(move)}
+              {...(extra?.data ?? {})}
             >
               {display}
             </span>
@@ -197,7 +215,7 @@ export function ReviewMoveList({
       </div>
 
       {/* Editor panel for variation moves */}
-      {currentIsVariation && currentMove && (
+      {!hideEditor && currentIsVariation && currentMove && (
         <div className="review-editor-panel">
           <button
             className="review-editor-btn"

@@ -71,9 +71,12 @@ function MiniBoard({ fen, size = 88 }: MiniBoardProps) {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TFunction = any;
+
 interface ErrorRowProps {
   row: OpeningRepertoireErrorPosition;
-  t: (key: string, fallback?: string, opts?: Record<string, unknown>) => string;
+  t: TFunction;
 }
 
 function ErrorRow({ row, t }: ErrorRowProps) {

@@ -180,7 +180,6 @@ export function OpeningTrainerNewPage() {
                 data-testid="opening-trainer-new-side-white"
                 style={{
                   appearance: 'auto',
-                  WebkitAppearance: 'auto',
                   width: 'auto',
                   border: 'none',
                   background: 'transparent',
@@ -208,7 +207,6 @@ export function OpeningTrainerNewPage() {
                 data-testid="opening-trainer-new-side-black"
                 style={{
                   appearance: 'auto',
-                  WebkitAppearance: 'auto',
                   width: 'auto',
                   border: 'none',
                   background: 'transparent',

@@ -601,6 +601,30 @@
   font-weight: 600;
 }
 
+/* KS-3305: окраска ходов репертуара через ReviewMoveList.
+   Каждый ход рендерится как `<span class="review-move">` (см.
+   `apps/web/src/components/ReviewMoveList.tsx`). Opening Trainer
+   передаёт через `getMoveExtra` prop класс `repertoire-move--<status>`,
+   и эти селекторы окрашивают цвет текста по статусу линии. */
+.opening-trainer-tree .review-move.repertoire-move--mastered {
+  color: #22c55e;
+}
+.opening-trainer-tree .review-move.repertoire-move--due {
+  color: #3b82f6;
+}
+.opening-trainer-tree .review-move.repertoire-move--learning {
+  color: #eab308;
+}
+.opening-trainer-tree .review-move.repertoire-move--wrong {
+  color: #ef4444;
+}
+.opening-trainer-tree .review-move.repertoire-move--not-played {
+  /* default — не переопределяем. */
+}
+.opening-trainer-tree .review-move {
+  cursor: default; /* read-only — ходы не интерактивны в M2 */
+}
+
 /* Streak (KS-3274 polish). */
 .opening-trainer-streak {
   display: inline-flex;

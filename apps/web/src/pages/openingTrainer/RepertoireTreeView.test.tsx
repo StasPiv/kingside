@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderWithProviders, screen, userEvent } from '../../test/test-utils';
+import { renderWithProviders, screen } from '../../test/test-utils';
 import { RepertoireTreeView } from './RepertoireTreeView';
 import type {
   OpeningLineProgressDto,
@@ -11,9 +11,7 @@ const makeTree = (): RepertoireTree => ({
   nodes: {
     start: {
       fen: 'start',
-      edges: [
-        { moveUci: 'e2e4', moveSan: 'e4', childFen: 'after-e4' },
-      ],
+      edges: [{ moveUci: 'e2e4', moveSan: 'e4', childFen: 'after-e4' }],
     },
     'after-e4': {
       fen: 'after-e4',
@@ -50,55 +48,65 @@ function makeLine(overrides: Partial<OpeningLineProgressDto>): OpeningLineProgre
   };
 }
 
-describe('RepertoireTreeView (KS-3296 F2)', () => {
-  it('рендерит каждый edge как строку с цвет-чипом по статусу', () => {
+describe('RepertoireTreeView (KS-3305 — via ReviewMoveList)', () => {
+  it('рендерит главную линию inline и альтернативу в скобках', () => {
     const lines: OpeningLineProgressDto[] = [
       makeLine({ pathUci: ['e2e4'], status: 'mastered' }),
       makeLine({ pathUci: ['e2e4', 'c7c5'], status: 'due' }),
       makeLine({ pathUci: ['e2e4', 'e7e5'], status: 'wrong' }),
     ];
-    renderWithProviders(<RepertoireTreeView tree={makeTree()} lines={lines} />);
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={makeTree()} lines={lines} />,
+    );
     expect(screen.getByTestId('opening-trainer-tree')).toBeInTheDocument();
-    expect(screen.getByTestId('opening-trainer-tree-row-mastered')).toBeInTheDocument();
-    expect(screen.getByTestId('opening-trainer-tree-row-due')).toBeInTheDocument();
-    expect(screen.getByTestId('opening-trainer-tree-row-wrong')).toBeInTheDocument();
+    // Главная линия: 1.e4 1...c5 (первый edge каждого node как main).
+    const moveSpans = Array.from(container.querySelectorAll('.review-move'));
+    const moveTexts = moveSpans.map((el) => el.textContent ?? '');
+    expect(moveTexts.some((t) => t.includes('e4'))).toBe(true);
+    expect(moveTexts.some((t) => t.includes('c5'))).toBe(true);
+    expect(moveTexts.some((t) => t.includes('e5'))).toBe(true);
+    // Альтернатива в скобках — DOM имеет review-bracket span'ы.
+    const brackets = container.querySelectorAll('.review-bracket');
+    expect(brackets.length).toBeGreaterThan(0);
   });
 
-  it('линии без записи в lines имеют статус not-played', () => {
-    renderWithProviders(<RepertoireTreeView tree={makeTree()} lines={[]} />);
-    // 3 edges всего, без progress = все not-played.
-    expect(
-      screen.getAllByTestId('opening-trainer-tree-row-not-played').length,
-    ).toBeGreaterThanOrEqual(3);
+  it('у каждого хода data-status соответствует прогрессу', () => {
+    const lines: OpeningLineProgressDto[] = [
+      makeLine({ pathUci: ['e2e4'], status: 'mastered' }),
+      makeLine({ pathUci: ['e2e4', 'c7c5'], status: 'due' }),
+    ];
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={makeTree()} lines={lines} />,
+    );
+    const moves = Array.from(container.querySelectorAll('.review-move'));
+    const statuses = moves
+      .map((el) => el.getAttribute('data-status'))
+      .filter(Boolean);
+    expect(statuses).toContain('mastered');
+    expect(statuses).toContain('due');
+  });
+
+  it('линии без записи имеют data-status="not-played"', () => {
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={makeTree()} lines={[]} />,
+    );
+    const moves = Array.from(container.querySelectorAll('.review-move'));
+    const notPlayed = moves.filter(
+      (el) => el.getAttribute('data-status') === 'not-played',
+    );
+    expect(notPlayed.length).toBeGreaterThanOrEqual(3);
   });
 
   it('orphan-линии не отрисовываются', () => {
     const lines: OpeningLineProgressDto[] = [
       makeLine({ pathUci: ['e2e4'], status: 'mastered', orphaned: true }),
     ];
-    renderWithProviders(<RepertoireTreeView tree={makeTree()} lines={lines} />);
-    expect(
-      screen.queryByTestId('opening-trainer-tree-row-mastered'),
-    ).toBeNull();
-  });
-
-  it('клик по edge открывает tooltip с counters', async () => {
-    const lines: OpeningLineProgressDto[] = [
-      makeLine({
-        pathUci: ['e2e4'],
-        status: 'learning',
-        correctCount: 2,
-        wrongCount: 1,
-        consecutiveCorrect: 1,
-      }),
-    ];
-    renderWithProviders(<RepertoireTreeView tree={makeTree()} lines={lines} />);
-    const row = screen.getByTestId('opening-trainer-tree-row-learning');
-    const btn = row.querySelector('button')!;
-    await userEvent.click(btn);
-    const tip = screen.getByTestId('opening-trainer-tree-tooltip');
-    expect(tip.textContent).toContain('2'); // correctCount
-    expect(tip.textContent).toContain('1'); // wrongCount
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={makeTree()} lines={lines} />,
+    );
+    // Если корневой 1.e4 orphan'ный — всё дерево пустое после фильтра.
+    const moves = container.querySelectorAll('.review-move');
+    expect(moves.length).toBe(0);
   });
 
   it('пустое дерево показывает плашку empty', () => {
@@ -109,5 +117,45 @@ describe('RepertoireTreeView (KS-3296 F2)', () => {
     };
     renderWithProviders(<RepertoireTreeView tree={empty} lines={[]} />);
     expect(screen.getByTestId('opening-trainer-tree-empty')).toBeInTheDocument();
+  });
+
+  it('KS-3305 acceptance: длинная главная линия без альтернатив рендерится плоско', () => {
+    // 10-ходовая линия 1.c4 e6 2.g3 d5 3.Bg2 dxc4 4.Nf3 a6 5.Qc2 b5 …
+    const buildLongTree = (): RepertoireTree => {
+      const edges = [
+        { moveUci: 'c2c4', moveSan: 'c4', childFen: 'f1' },
+        { moveUci: 'e7e6', moveSan: 'e6', childFen: 'f2' },
+        { moveUci: 'g2g3', moveSan: 'g3', childFen: 'f3' },
+        { moveUci: 'd7d5', moveSan: 'd5', childFen: 'f4' },
+        { moveUci: 'f1g2', moveSan: 'Bg2', childFen: 'f5' },
+        { moveUci: 'd5c4', moveSan: 'dxc4', childFen: 'f6' },
+        { moveUci: 'g1f3', moveSan: 'Nf3', childFen: 'f7' },
+        { moveUci: 'a7a6', moveSan: 'a6', childFen: 'f8' },
+        { moveUci: 'd1c2', moveSan: 'Qc2', childFen: 'f9' },
+        { moveUci: 'b7b5', moveSan: 'b5', childFen: 'f10' },
+      ];
+      const nodes: RepertoireTree['nodes'] = {
+        start: { fen: 'start', edges: [edges[0]] },
+      };
+      for (let i = 0; i < edges.length; i++) {
+        const nextEdges = i + 1 < edges.length ? [edges[i + 1]] : [];
+        nodes[edges[i].childFen] = { fen: edges[i].childFen, edges: nextEdges };
+      }
+      return {
+        rootFen: 'start',
+        nodes,
+        meta: { nodeCount: 11, edgeCount: 10, maxDepth: 10 },
+      };
+    };
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={buildLongTree()} lines={[]} />,
+    );
+    const moves = container.querySelectorAll('.review-move');
+    // Все 10 ходов в одном flex-flow без вложенных контейнеров с
+    // padding-left на каждом уровне (это и есть отказ от «лесенки»).
+    expect(moves.length).toBe(10);
+    // Нет brackets — нет альтернатив.
+    const brackets = container.querySelectorAll('.review-bracket');
+    expect(brackets.length).toBe(0);
   });
 });
