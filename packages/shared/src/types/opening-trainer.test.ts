@@ -261,3 +261,116 @@ describe('OPENING_LINE_MASTERY_THRESHOLD', () => {
     expect(OPENING_LINE_MASTERY_THRESHOLD).toBe(3);
   });
 });
+
+describe('KS-3286 (M2): OpeningLineStatus + новые DTO', () => {
+  it('OpeningLineStatus содержит 5 ожидаемых значений (compile-time)', async () => {
+    const { type } = await import('node:os');
+    void type;
+    // Compile-time check через assignment — TS-ошибка если значение
+    // не в union.
+    const allValues: import('./opening-trainer.js').OpeningLineStatus[] = [
+      'not-played',
+      'learning',
+      'wrong',
+      'mastered',
+      'due',
+    ];
+    expect(allValues).toHaveLength(5);
+  });
+
+  it('exhaustive switch на OpeningLineStatus с never-проверкой', async () => {
+    type Status = import('./opening-trainer.js').OpeningLineStatus;
+    const colorFor = (s: Status): string => {
+      switch (s) {
+        case 'not-played':
+          return 'gray';
+        case 'learning':
+          return 'yellow';
+        case 'wrong':
+          return 'red';
+        case 'mastered':
+          return 'green';
+        case 'due':
+          return 'blue';
+        default: {
+          const _exhaustive: never = s;
+          return _exhaustive;
+        }
+      }
+    };
+    expect(colorFor('mastered')).toBe('green');
+    expect(colorFor('due')).toBe('blue');
+    expect(colorFor('not-played')).toBe('gray');
+  });
+
+  it('OpeningLineProgressDto допускает opц. orphaned и status', async () => {
+    type Dto = import('./opening-trainer.js').OpeningLineProgressDto;
+    const base: Dto = {
+      id: 'p-1',
+      repertoireId: 'r-1',
+      pathHash: 'abc',
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 1,
+      wrongCount: 0,
+      consecutiveCorrect: 1,
+      lastPlayedAt: '2026-05-24T00:00:00Z',
+      masteredAt: null,
+      sm2DueAt: null,
+      sm2Interval: null,
+      sm2Easiness: null,
+      sm2Reps: null,
+    };
+    expect(base.orphaned).toBeUndefined();
+    expect(base.status).toBeUndefined();
+
+    const extended: Dto = { ...base, orphaned: true, status: 'mastered' };
+    expect(extended.orphaned).toBe(true);
+    expect(extended.status).toBe('mastered');
+  });
+
+  it('CreateOpeningRepertoireFromAnalysisRequest минимально содержит analysisId', async () => {
+    type Req =
+      import('./opening-trainer.js').CreateOpeningRepertoireFromAnalysisRequest;
+    const minimal: Req = { analysisId: 'a-1' };
+    expect(minimal.analysisId).toBe('a-1');
+    expect(minimal.title).toBeUndefined();
+
+    const full: Req = {
+      analysisId: 'a-1',
+      title: 'Caro-Kann from my game',
+      description: 'Imported from analysis on 2026-05-24',
+    };
+    expect(full.title).toBe('Caro-Kann from my game');
+  });
+
+  it('GetOpeningRepertoireActiveSessionResponse: session либо DTO либо null', async () => {
+    type Resp =
+      import('./opening-trainer.js').GetOpeningRepertoireActiveSessionResponse;
+    const noActive: Resp = { session: null };
+    expect(noActive.session).toBeNull();
+
+    const active: Resp = {
+      session: {
+        id: 's-1',
+        repertoireId: 'r-1',
+        side: 'white',
+        mode: 'learn',
+        repeatMode: 'complete',
+        status: 'active',
+        currentFen:
+          'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        currentPath: [],
+        score: 50,
+        movesPlayed: 5,
+        correctMoves: 5,
+        wrongMoves: 0,
+        hintsUsed: 0,
+        startedAt: '2026-05-23T20:00:00Z',
+        lastActivityAt: '2026-05-23T20:15:00Z',
+        finishedAt: null,
+      },
+    };
+    expect(active.session?.score).toBe(50);
+  });
+});

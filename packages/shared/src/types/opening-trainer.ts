@@ -252,9 +252,34 @@ export interface OpeningTrainerAttemptDto {
 }
 
 /**
+ * KS-3286 (M2). Статус линии для tree-view покраски и лобби-счётчиков.
+ *
+ *   - `not-played` — нет записи в OpeningLineProgress (computed на фронте
+ *     сопоставлением tree.nodes с массивом lines). Серый цвет.
+ *   - `learning`   — есть попытки, но не mastered. Жёлтый.
+ *   - `wrong`      — `wrongCount > correctCount` (преобладают ошибки). Красный.
+ *   - `mastered`   — `masteredAt != null && (!sm2DueAt || sm2DueAt > now)`.
+ *     Зелёный.
+ *   - `due`        — mastered + `sm2DueAt <= now` (пора повторить). Синий.
+ *
+ * Backend вычисляет в `GET /opening-trainer/repertoires/:id/progress`
+ * (KS-3292 / B6).
+ */
+export type OpeningLineStatus =
+  | 'not-played'
+  | 'learning'
+  | 'wrong'
+  | 'mastered'
+  | 'due';
+
+/**
  * Прогресс по конкретной линии (от root до точки замера). Per-path, не
- * per-edge — мастеринг оценивается по полной цепочке. M2 (DTO определён
- * здесь, чтобы фронт уже не блокировался при добавлении SRS).
+ * per-edge — мастеринг оценивается по полной цепочке. M2.
+ *
+ * KS-3286: добавлено `status` (derived backend'ом) и `orphaned` —
+ * флаг что линия из старого PGN больше не существует в репертуаре
+ * после редактирования (M2 §2.5). Orphan не учитывается в SRS-выборках
+ * и не рендерится в tree-view (KS-3294 / B8 orphan-pruning).
  */
 export interface OpeningLineProgressDto {
   id: string;
@@ -274,6 +299,21 @@ export interface OpeningLineProgressDto {
   sm2Interval: number | null;
   sm2Easiness: number | null;
   sm2Reps: number | null;
+  /**
+   * KS-3286 (M2 §2.5). `true` если линия из старого PGN больше не
+   * существует в дереве (после `PATCH /repertoires/:id` с новым PGN).
+   * Backend проставляет в KS-3294 (B8) при пересборке tree. Orphan'ы
+   * не учитываются в SRS-выборках и не рендерятся в tree-view.
+   * Default `false` — поле опц. для backward-compat (старые записи
+   * без поля считаются не-orphan).
+   */
+  orphaned?: boolean;
+  /**
+   * KS-3286. Derived статус для UI — вычисляется backend'ом в
+   * `GET /repertoires/:id/progress` (KS-3292). Опц. потому что
+   * raw-row из БД не имеет этого поля; присутствует только в DTO.
+   */
+  status?: OpeningLineStatus;
 }
 
 // ─── Request bodies ───────────────────────────────────────────────────
@@ -293,6 +333,21 @@ export interface UpdateOpeningRepertoireRequest {
   description?: string | null;
   /** Если задан — пересборка дерева; прогресс НЕ сбрасывается. */
   pgn?: string;
+}
+
+/**
+ * KS-3286 (M2 §5 / KS-3293 B7). `POST /opening-trainer/repertoires/
+ * from-analysis` — конверсия из мастерской («использовать как
+ * репертуар» в карточке анализа).
+ *
+ * Backend берёт `Analysis.pgn` из текущего юзера (owner-check), парсит
+ * через тот же repertoire-builder. `title` по умолчанию = `Analysis.title`
+ * или его `headline`. Чужой analysisId → 404, пустой PGN → 400.
+ */
+export interface CreateOpeningRepertoireFromAnalysisRequest {
+  analysisId: string;
+  title?: string;
+  description?: string;
 }
 
 /** `POST /opening-trainer/repertoires/:id/sessions`. */
@@ -518,6 +573,17 @@ export interface OpeningTrainerFinishResponse {
 export interface GetOpeningRepertoireProgressResponse {
   repertoireId: string;
   lines: OpeningLineProgressDto[];
+}
+
+/**
+ * KS-3286 (M2 §5 / KS-3294 B8). `GET /opening-trainer/repertoires/:id/
+ * active-session` — последняя неоконченная сессия пользователя по этому
+ * репертуару с `finishedAt IS NULL AND lastActivityAt > now - 7d`,
+ * иначе `null`. Используется для sticky-карточки «продолжить
+ * тренировку» на странице репертуара.
+ */
+export interface GetOpeningRepertoireActiveSessionResponse {
+  session: OpeningTrainerSessionDto | null;
 }
 
 /** `GET /opening-trainer/reviews/due` (M2 — SRS-очередь). */
