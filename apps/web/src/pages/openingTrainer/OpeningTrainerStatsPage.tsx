@@ -21,12 +21,17 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
-import { MemoChessboard } from '../../components/MemoChessboard';
-import { useStablePosition } from '../../hooks/useStablePosition';
+// KS-3310: используем готовый PuzzleMiniBoard из раздела задач —
+// лёгкая SVG-доска с подсветкой клеток/стрелок и orientation prop.
+// Раньше был свой MemoChessboard-обёртка без orientation и в стандартной
+// ориентации — пользователь, тренирующий за чёрных, видел доски
+// «вверх ногами».
+import { PuzzleMiniBoard } from '../../components/puzzle/PuzzleMiniBoard';
 import type {
   GetOpeningRepertoireResponse,
   GetOpeningRepertoireStatsResponse,
   OpeningRepertoireErrorPosition,
+  TrainerColor,
 } from '@kingside/shared';
 
 function uciToSan(fen: string, uci: string | null): string {
@@ -44,42 +49,22 @@ function uciToSan(fen: string, uci: string | null): string {
   }
 }
 
-interface MiniBoardProps {
-  fen: string;
-  size?: number;
-}
-
-function MiniBoard({ fen, size = 88 }: MiniBoardProps) {
-  const position = useStablePosition(fen);
-  const options = useMemo(
-    () => ({
-      position,
-      allowDragging: false,
-      showNotation: false,
-      animationDurationInMs: 0,
-      boardStyle: { width: size, height: size },
-    }),
-    [position, size],
-  );
-  return (
-    <div
-      style={{ width: size, height: size, flexShrink: 0 }}
-      data-testid="opening-trainer-stats-mini-board"
-    >
-      <MemoChessboard options={options} />
-    </div>
-  );
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TFunction = any;
 
 interface ErrorRowProps {
   row: OpeningRepertoireErrorPosition;
+  /** KS-3310: ориентация доски — повторяет сторону репертуара. */
+  orientation: TrainerColor;
+  /**
+   * KS-3310: подсветка позиции — выделяем целевую клетку (куда
+   * пользователь должен был пойти) и квадрат с неправильным ходом
+   * (куда пошёл вместо). Помогает зрительно понять «вот тут промах».
+   */
   t: TFunction;
 }
 
-function ErrorRow({ row, t }: ErrorRowProps) {
+function ErrorRow({ row, orientation, t }: ErrorRowProps) {
   const expectedSan = useMemo(
     () => row.expectedMoves.map((u) => uciToSan(row.positionFen, u)).join(', '),
     [row.expectedMoves, row.positionFen],
@@ -101,7 +86,42 @@ function ErrorRow({ row, t }: ErrorRowProps) {
         alignItems: 'center',
       }}
     >
-      <MiniBoard fen={row.positionFen} />
+      {/* KS-3310: PuzzleMiniBoard с orientation и подсветкой клеток —
+          ожидаемый ход зелёным (куда юзер должен был пойти), фактический
+          неправильный ход красной стрелкой. */}
+      <div
+        style={{ width: 96, height: 96, flexShrink: 0 }}
+        data-testid="opening-trainer-stats-mini-board"
+      >
+        <PuzzleMiniBoard
+          fen={row.positionFen}
+          orientation={orientation}
+          arrows={[
+            // Ожидаемые ходы — зелёные стрелки.
+            ...row.expectedMoves
+              .map((u) =>
+                u.length >= 4
+                  ? {
+                      from: u.slice(0, 2),
+                      to: u.slice(2, 4),
+                      color: 'green' as const,
+                    }
+                  : null,
+              )
+              .filter((a): a is NonNullable<typeof a> => a !== null),
+            // Самый частый неправильный ход — красная стрелка.
+            ...(row.mostFrequentWrongMove && row.mostFrequentWrongMove.length >= 4
+              ? [
+                  {
+                    from: row.mostFrequentWrongMove.slice(0, 2),
+                    to: row.mostFrequentWrongMove.slice(2, 4),
+                    color: 'red' as const,
+                  },
+                ]
+              : []),
+          ]}
+        />
+      </div>
       <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
         <div>
           <strong>{t('openingTrainer.stats.errorRow.expected', 'Expected')}:</strong>{' '}
@@ -346,7 +366,12 @@ export function OpeningTrainerStatsPage() {
                 }}
               >
                 {stats.topErrorPositions.map((row, idx) => (
-                  <ErrorRow key={`${row.positionFen}-${idx}`} row={row} t={t} />
+                  <ErrorRow
+                    key={`${row.positionFen}-${idx}`}
+                    row={row}
+                    orientation={repertoire?.side ?? 'white'}
+                    t={t}
+                  />
                 ))}
               </ol>
             )}
