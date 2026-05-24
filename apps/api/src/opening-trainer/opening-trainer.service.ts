@@ -102,6 +102,8 @@ export class OpeningTrainerService {
       nodeCount: tree.meta.nodeCount,
       edgeCount: tree.meta.edgeCount,
       maxDepth: tree.meta.maxDepth,
+      // KS-3302: фиксируем сторону при создании. Default 'white' если фронт не прислал.
+      side: dto.side ?? 'white',
     });
 
     return rowToRepertoireDetailDto(row, tree);
@@ -151,6 +153,7 @@ export class OpeningTrainerService {
     const updateData: Parameters<typeof this.repo.updateRepertoire>[1] = {};
     if (dto.title !== undefined) updateData.title = dto.title;
     if (dto.description !== undefined) updateData.description = dto.description;
+    if (dto.side !== undefined) updateData.side = dto.side;
     if (dto.pgn !== undefined && dto.pgn !== row.pgn) {
       try {
         tree = this.builder.buildTree(dto.pgn);
@@ -221,6 +224,10 @@ export class OpeningTrainerService {
 
     const tree = jsonToTree(repertoire.tree);
 
+    // KS-3302: side фиксируется на репертуаре, dto.side ИГНОРИРУЕТСЯ.
+    // Старые клиенты могут прислать `side` — мы пропустим.
+    const side = (repertoire as { side?: 'white' | 'black' }).side ?? 'white';
+
     // KS-3290 (M2 B4): review-режим — выбираем due-линию, replay PGN
     // до её позиции и стартуем сессию С НЕЙ.
     if (dto.mode === 'review') {
@@ -237,7 +244,7 @@ export class OpeningTrainerService {
       const session = await this.repo.createSession({
         userId,
         repertoireId,
-        side: dto.side,
+        side,
         mode: 'review',
         repeatMode: dto.repeatMode,
         currentFen: replayFen,
@@ -266,7 +273,7 @@ export class OpeningTrainerService {
       const session = await this.repo.createSession({
         userId,
         repertoireId,
-        side: dto.side,
+        side,
         mode: 'mistakes',
         repeatMode: dto.repeatMode,
         currentFen: replayFen,
@@ -282,7 +289,7 @@ export class OpeningTrainerService {
     let session = await this.repo.createSession({
       userId,
       repertoireId,
-      side: dto.side,
+      side,
       mode: dto.mode,
       repeatMode: dto.repeatMode,
       currentFen: tree.rootFen,
@@ -291,7 +298,7 @@ export class OpeningTrainerService {
     // Если играем чёрными — бот делает первый ход (белыми).
     let initialBotMove: StartOpeningTrainerSessionResponse['initialBotMove'] =
       null;
-    if (dto.side === 'black') {
+    if (side === 'black') {
       const rootEdges = tree.nodes[tree.rootFen]?.edges ?? [];
       // KS-3278: всегда cycle (см. handleLineComplete) — на старте сессии
       // playedLines пустой, разница не критична, но соблюдаем единый паттерн.
@@ -1030,7 +1037,12 @@ export class OpeningTrainerService {
    */
   async createRepertoireFromAnalysis(
     userId: string,
-    input: { analysisId: string; title?: string; description?: string },
+    input: {
+      analysisId: string;
+      title?: string;
+      description?: string;
+      side?: 'white' | 'black';
+    },
   ): Promise<OpeningRepertoireDetailDto> {
     const analysis = await this.repo.findAnalysisById(input.analysisId);
     if (!analysis || analysis.userId !== userId) {
@@ -1050,6 +1062,8 @@ export class OpeningTrainerService {
       title,
       description: input.description,
       pgn: analysis.pgn,
+      // KS-3302: side из request'а; createRepertoire default'ит к 'white'.
+      side: input.side,
     });
   }
 
@@ -1165,6 +1179,7 @@ interface RepertoireRow {
   nodeCount: number;
   edgeCount: number;
   maxDepth: number;
+  side?: string; // KS-3302; опц. для legacy-rows
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -1205,6 +1220,8 @@ function rowToRepertoireDto(row: RepertoireRow): OpeningRepertoireDto {
     ownerId: row.userId,
     title: row.title,
     description: row.description,
+    // KS-3302: side из row. Default 'white' для legacy.
+    side: (row.side as 'white' | 'black' | undefined) ?? 'white',
     nodeCount: row.nodeCount,
     edgeCount: row.edgeCount,
     maxDepth: row.maxDepth,

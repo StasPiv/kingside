@@ -32,6 +32,11 @@ export class CreateRepertoireDto {
   @IsString()
   @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
   pgn!: string;
+
+  /** KS-3302. Сторона тренировки. Default 'white' если не задано. */
+  @IsOptional()
+  @IsIn(['white', 'black'])
+  side?: 'white' | 'black';
 }
 
 export class UpdateRepertoireDto {
@@ -49,6 +54,11 @@ export class UpdateRepertoireDto {
   @IsString()
   @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
   pgn?: string;
+
+  /** KS-3302. Допустимо менять, но UI обычно не показывает. */
+  @IsOptional()
+  @IsIn(['white', 'black'])
+  side?: 'white' | 'black';
 }
 
 export class ListRepertoiresQueryDto {
@@ -58,8 +68,14 @@ export class ListRepertoiresQueryDto {
 }
 
 export class StartSessionDto {
+  /**
+   * KS-3302: side игнорируется backend'ом — фактический берётся из
+   * `repertoire.side`. Поле опц. оставлено для backward-compat
+   * со старыми клиентами.
+   */
+  @IsOptional()
   @IsIn(['white', 'black'])
-  side!: 'white' | 'black';
+  side?: 'white' | 'black';
 
   @IsIn(['learn', 'review', 'mistakes', 'free'])
   mode!: 'learn' | 'review' | 'mistakes' | 'free';
@@ -100,4 +116,9 @@ export class CreateRepertoireFromAnalysisDto {
   @IsString()
   @MaxLength(1000)
   description?: string;
+
+  /** KS-3302. Сторона тренировки. Default 'white' если не задано. */
+  @IsOptional()
+  @IsIn(['white', 'black'])
+  side?: 'white' | 'black';
 }

@@ -1568,6 +1568,12 @@ model OpeningRepertoire {
   nodeCount   Int      @default(0) @map("node_count")
   edgeCount   Int      @default(0) @map("edge_count")
   maxDepth    Int      @default(0) @map("max_depth")
+  /// KS-3302: сторона за которую пользователь тренирует этот репертуар.
+  /// Один репертуар = одна сторона (репертуар за белых vs за чёрных —
+  /// разные сущности). Селектор стороны убран из startSession UI —
+  /// берётся отсюда. Default 'white' для backward-compat (KS-3286 / M2
+  /// репертуары без явного side восстанавливаются в 'white').
+  side        String   @default("white")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
   /// KS-3270: soft-delete. NULL = активен, не-NULL = удалён, 30-дн окно

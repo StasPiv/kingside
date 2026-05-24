@@ -169,6 +169,12 @@ export interface OpeningRepertoireDto {
   ownerId: string;
   title: string;
   description: string | null;
+  /**
+   * KS-3302. Сторона за которую пользователь тренирует репертуар
+   * (white/black). Фиксируется при создании, не выбирается при
+   * старте сессии. Один репертуар = одна сторона.
+   */
+  side: TrainerColor;
   /** Из `tree.meta`, дубликат для лобби-списка. */
   nodeCount: number;
   edgeCount: number;
@@ -324,6 +330,12 @@ export interface CreateOpeningRepertoireRequest {
   description?: string;
   /** Исходный PGN. Лимит `OPENING_REPERTOIRE_LIMITS.maxPgnBytes`. */
   pgn: string;
+  /**
+   * KS-3302. Сторона тренировки (white/black). Опц. — default 'white'
+   * (backward-compat: старые клиенты, которые не знают про это поле,
+   * получат white-репертуар).
+   */
+  side?: TrainerColor;
 }
 
 /** `PATCH /opening-trainer/repertoires/:id`. Все поля опциональны. */
@@ -333,6 +345,11 @@ export interface UpdateOpeningRepertoireRequest {
   description?: string | null;
   /** Если задан — пересборка дерева; прогресс НЕ сбрасывается. */
   pgn?: string;
+  /**
+   * KS-3302. Смена стороны репертуара. Допустимо, но обычно делается
+   * один раз при создании. UI не показывает поле в edit-форме.
+   */
+  side?: TrainerColor;
 }
 
 /**
@@ -348,11 +365,20 @@ export interface CreateOpeningRepertoireFromAnalysisRequest {
   analysisId: string;
   title?: string;
   description?: string;
+  /** KS-3302. Сторона тренировки. Default 'white'. */
+  side?: TrainerColor;
 }
 
-/** `POST /opening-trainer/repertoires/:id/sessions`. */
+/**
+ * `POST /opening-trainer/repertoires/:id/sessions`.
+ *
+ * KS-3302: `side` помечен опц. и backend'ом ИГНОРИРУЕТСЯ — фактический
+ * side берётся из `repertoire.side` (фиксируется при создании). Старые
+ * клиенты, отправляющие `side`, не сломаются.
+ */
 export interface StartOpeningTrainerSessionRequest {
-  side: TrainerColor;
+  /** @deprecated KS-3302: игнорируется backend'ом, берётся из repertoire. */
+  side?: TrainerColor;
   mode: OpeningTrainerMode;
   /** Default `complete`. */
   repeatMode?: OpeningTrainerRepeatMode;

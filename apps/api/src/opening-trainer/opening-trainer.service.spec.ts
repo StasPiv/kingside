@@ -372,14 +372,15 @@ describe('OpeningTrainerService — full flow (KS-3272)', () => {
     expect(start.session.currentFen).toBe(r.tree.rootFen);
   });
 
-  it('start session играя чёрными — бот делает первый ход', async () => {
+  it('start session играя чёрными — бот делает первый ход (KS-3302: side из repertoire)', async () => {
     const { svc } = makeService();
     const r = await svc.createRepertoire('u-1', {
       title: 't',
       pgn: SAMPLE_PGN,
+      side: 'black', // KS-3302: side фиксируется на репертуаре
     });
     const start = await svc.startSession('u-1', r.id, {
-      side: 'black',
+      // KS-3302: side в startSession игнорируется (backward-compat).
       mode: 'learn',
     });
     expect(start.initialBotMove).not.toBeNull();
@@ -593,10 +594,10 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     const r = await svc.createRepertoire('u-1', {
       title: 't',
       pgn: '1. e4 (1. d4)',
+      side: 'black', // KS-3302: side в репертуаре
     });
     // Играем чёрными — бот делает первый ход. Бот выберет один из e4/d4.
     const start = await svc.startSession('u-1', r.id, {
-      side: 'black',
       mode: 'learn',
     });
     // Бот сыграл — после его хода у нас черная позиция БЕЗ ходов в репертуаре.
@@ -728,6 +729,7 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     const r = await svc.createRepertoire('u-1', {
       title: 'Каталон',
       pgn: PGN_CATALON,
+      side: 'black', // KS-3302: side в репертуаре
     });
     // Дерево содержит репертуар; нам нужен симулированный «dirty»
     // single-edge сценарий. Делаем синтетический минимальный кейс:
@@ -739,7 +741,6 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     expect(r.nodeCount).toBeGreaterThan(50);
     expect(r.edgeCount).toBeGreaterThan(50);
     const start = await svc.startSession('u-1', r.id, {
-      side: 'black',
       mode: 'learn',
     });
     expect(start.initialBotMove).not.toBeNull();
@@ -1586,6 +1587,56 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
       );
       expect(byPath['e2e4'].orphaned).toBe(false);
       expect(byPath['d2d4'].orphaned).toBe(true);
+    });
+
+    it('KS-3302: startSession игнорирует dto.side, берёт из repertoire', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 e5',
+        side: 'black', // фиксируем за чёрных
+      });
+      // dto.side = 'white' должен быть проигнорирован.
+      const start = await svc.startSession('u-1', r.id, {
+        side: 'white' as 'white' | 'black',
+        mode: 'learn',
+      });
+      // Сторона должна быть 'black' (из репертуара).
+      expect(start.session.side).toBe('black');
+      // Поскольку играем чёрными, бот сделал первый ход.
+      expect(start.initialBotMove).not.toBeNull();
+    });
+
+    it('KS-3302: createRepertoire сохраняет side (default white)', async () => {
+      const { svc } = makeReviewService();
+      const r1 = await svc.createRepertoire('u-1', {
+        title: 'whites',
+        pgn: '1. e4',
+      });
+      expect(r1.side).toBe('white');
+
+      const r2 = await svc.createRepertoire('u-1', {
+        title: 'blacks',
+        pgn: '1. e4',
+        side: 'black',
+      });
+      expect(r2.side).toBe('black');
+    });
+
+    it('KS-3302: from-analysis с side=black создаёт чёрный репертуар', async () => {
+      const { svc, repo } = makeReviewService();
+      repo._seedAnalysis({
+        id: 'a-1',
+        userId: 'u-1',
+        title: 'My Black Defense',
+        headline: null,
+        pgn: '1. e4 c6',
+      });
+      const r = await svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+        side: 'black',
+      });
+      expect(r.side).toBe('black');
     });
 
     it('orphan-resurrection: PATCH pgn возвращает удалённый вариант → orphaned=false', async () => {

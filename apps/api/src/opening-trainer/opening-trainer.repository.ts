@@ -65,6 +65,8 @@ export class OpeningTrainerRepository {
     nodeCount: number;
     edgeCount: number;
     maxDepth: number;
+    // KS-3302: сторона тренировки (default 'white' в schema).
+    side?: 'white' | 'black';
   }) {
     return this.prisma.openingRepertoire.create({
       data: {
@@ -76,6 +78,7 @@ export class OpeningTrainerRepository {
         nodeCount: data.nodeCount,
         edgeCount: data.edgeCount,
         maxDepth: data.maxDepth,
+        ...(data.side ? { side: data.side } : {}),
       },
     });
   }
@@ -90,6 +93,8 @@ export class OpeningTrainerRepository {
       nodeCount?: number;
       edgeCount?: number;
       maxDepth?: number;
+      // KS-3302: смена стороны (редкий случай).
+      side?: 'white' | 'black';
     },
   ) {
     return this.prisma.openingRepertoire.update({ where: { id }, data });
