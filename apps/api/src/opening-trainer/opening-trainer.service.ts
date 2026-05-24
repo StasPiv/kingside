@@ -605,10 +605,25 @@ export class OpeningTrainerService {
       args;
     let cleanLines = args.cleanLines;
 
-    // 1. Если линия чистая — добавляем edges в cleanPlayedLines.
-    if (!session.currentLineHadWrong) {
-      cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
-    }
+    // KS-3301 (re-apply aa2cd5 fix): ВСЕГДА маркируем edges в cleanLines,
+    // даже если в линии были wrong-attempts. Раньше `currentLineHadWrong`
+    // гейтил addLineToClean — но это причина прод-бага «два раза один и
+    // тот же ход»:
+    //   * user играет правильный ход в линии, у бота нет ходов →
+    //     handleLineComplete с currentLineHadWrong=true (был wrong раньше).
+    //   * addLineToClean skipped → cleanLines не обновляется.
+    //   * findNextUnexploredBranch видит user-edge как unclean (только
+    //     KS-3281 фильтр исключает его на depth=fens.length-2),
+    //     возвращает корневую позицию.
+    //   * Бот replays первый ход → user видит ту же позицию.
+    //
+    // Trade-off: «грязные линии остаются в очереди» (KS-3277 design intent)
+    // частично теряется. Multi-edge dirty-replay сохраняется через
+    // KS-3281 filter (rest line на ALTERNATIVNUYU ветку); single-edge
+    // dirty проходит сразу. Полную dirty-queue с per-line wrong-
+    // tracking — в M3 (нужен per-line attempt-counter, не одна
+    // session-флаг).
+    cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
 
     // KS-3290 (M2 B4): review-режим — clean line-complete без ошибок
     // → SM-2 applyReview(quality=5) на review-линию (продвигает interval).

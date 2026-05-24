@@ -1723,3 +1723,227 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
     expect(filtered.lines[0].repertoireTitle).toBe('A');
   });
 });
+
+describe('KS-3301 (M2 regression): wrong + correct засчитывается с первого ввода во всех 3 режимах', () => {
+  /**
+   * KS-3301 — пользователь жалуется что после M2 deploy «два раза
+   * предлагает один и тот же ход». Воспроизводим сценарий на
+   * упрощённом PGN (минимум 2 ply, чтобы был user-move):
+   *
+   *   1.e4 e5 — bot:e4, user:e5.
+   *
+   * В каждом режиме (learn, review, mistakes) проверяем:
+   *   1. User делает wrong (a7a6 не в репертуаре).
+   *   2. Сразу следом делает correct (e7e5).
+   *   3. Backend должен засчитать correct СРАЗУ (not 'wrong'),
+   *      session.currentFen двигается, correctMoves увеличивается.
+   */
+
+  const SIMPLE_PGN = '1. e4 e5';
+
+  it('learn mode: wrong + correct → correct засчитан с первого ввода', async () => {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: SIMPLE_PGN,
+      side: 'black', // user plays black (отвечает на e4)
+    });
+    const start = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // Bot уже сыграл e4. Юзеру надо сыграть e5.
+    expect(start.initialBotMove).not.toBeNull();
+    expect(start.session.currentPath).toEqual(['e2e4']);
+
+    // Шаг 1: wrong (a7a6 не в репертуаре).
+    const wrong = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    expect(wrong.result).toBe('wrong');
+    expect(wrong.session.currentFen).toBe(start.session.currentFen);
+
+    // Шаг 2: correct (e7e5). Должен быть успех с первого ввода.
+    const correct = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e7e5',
+      responseTimeMs: 3000,
+    });
+    expect(correct.result).not.toBe('wrong');
+    expect(correct.session.correctMoves).toBe(1);
+    expect(correct.session.wrongMoves).toBe(1);
+    // currentFen двигается (или сразу tree-complete если линия закончилась).
+    expect(correct.session.currentFen).not.toBe(start.session.currentFen);
+  });
+
+  it('mistakes mode: wrong + correct засчитывается с первого ввода', async () => {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: SIMPLE_PGN,
+      side: 'black',
+    });
+    // Seed mistake-линию.
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: pathHashFn(['e2e4']),
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 0,
+      wrongCount: 2,
+      consecutiveCorrect: 0,
+      lastPlayedAt: new Date(),
+      masteredAt: null,
+      sm2DueAt: null,
+      sm2Easiness: null,
+      sm2Interval: null,
+      sm2Reps: null,
+      orphaned: false,
+    });
+    const start = await svc.startSession('u-1', r.id, { mode: 'mistakes' });
+    expect(start.session.currentPath).toEqual(['e2e4']);
+    // Юзер играет с позиции after-e4.
+
+    // Wrong (a7a6).
+    const wrong = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    expect(wrong.result).toBe('wrong');
+
+    // Correct (e7e5) — должен сразу пройти.
+    const correct = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e7e5',
+      responseTimeMs: 3000,
+    });
+    expect(correct.result).not.toBe('wrong');
+    expect(correct.session.correctMoves).toBe(1);
+  });
+
+  it('review mode: wrong + correct засчитывается с первого ввода, applyReviewResult вызывается правильно', async () => {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: SIMPLE_PGN,
+      side: 'black',
+    });
+    // Seed due-линию.
+    repo._seedLineProgress({
+      userId: 'u-1',
+      repertoireId: r.id,
+      pathHash: pathHashFn(['e2e4']),
+      pathUci: ['e2e4'],
+      pathLength: 1,
+      correctCount: 3,
+      wrongCount: 0,
+      consecutiveCorrect: 3,
+      lastPlayedAt: new Date('2026-05-22T00:00:00Z'),
+      masteredAt: new Date('2026-05-22T00:00:00Z'),
+      sm2DueAt: new Date('2026-05-23T00:00:00Z'), // в прошлом → due
+      sm2Easiness: 2.6,
+      sm2Interval: 1,
+      sm2Reps: 1,
+      orphaned: false,
+    });
+    const start = await svc.startSession('u-1', r.id, { mode: 'review' });
+    expect(start.session.currentPath).toEqual(['e2e4']);
+
+    // Wrong.
+    const wrong = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    expect(wrong.result).toBe('wrong');
+    // applyReviewResult(q=1) вызван — линия отмечена как нужная повторению.
+    expect(progress.applyReviewResult).toHaveBeenCalledWith(
+      expect.objectContaining({ pathUci: ['e2e4'], quality: 1 }),
+    );
+
+    (progress.applyReviewResult as jest.Mock).mockClear();
+
+    // Correct сразу следом — должен пройти.
+    const correct = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e7e5',
+      responseTimeMs: 3000,
+    });
+    expect(correct.result).not.toBe('wrong');
+    expect(correct.session.correctMoves).toBe(1);
+    // Линия dirty (был wrong), поэтому applyReviewResult q=5 НЕ вызывается.
+    expect(progress.applyReviewResult).not.toHaveBeenCalled();
+  });
+
+  it('Каталон PGN: глубокий wrong+correct в Ne5 варианте', async () => {
+    const PGN_CATALON =
+      '1. c4 e6 2. g3 d5 3. Bg2 dxc4 4. Nf3 a6 5. Qc2 ' +
+      '(5. Ne5 Qd4 6. f4 Nd7 7. e3 Qc5 8. Nxd7 Bxd7 9. Bxb7 Rb8 10. Bf3 (10. Bg2 Bc6 $15) 10... e5 $15) ' +
+      '(5. Na3 b5 6. Ne5 Ra7 7. O-O Bb7 8. Bxb7 Rxb7 9. Nc2 Nf6 10. b3 cxb3 11. axb3 Qd5 12. d4 Qxb3 13. Re1 Ne4 $17) ' +
+      '5... b5 6. Ne5 Ra7 7. d3 (7. b3 cxb3 8. axb3 c5 $17) 7... cxd3 8. Qxd3 Qxd3 9. Nxd3 Bb7 10. Be3 Bxg2 11. Bxa7 Bxh1 12. Bxb8 Be4 $11';
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    const r = await svc.createRepertoire('u-1', {
+      title: 'Каталон',
+      pgn: PGN_CATALON,
+      side: 'black',
+    });
+    const start = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // Bot играет c4. Юзер должен e6.
+    expect(start.initialBotMove?.moveSan).toBe('c4');
+    expect(start.session.currentPath).toEqual(['c2c4']);
+
+    // Wrong: a7a6 не в репертуаре чёрных на этой позиции.
+    const wrong = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    expect(wrong.result).toBe('wrong');
+    expect(wrong.session.currentFen).toBe(start.session.currentFen);
+
+    // Correct: e7e6 (правильный ответ на c4 в Каталоне).
+    const correct = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e7e6',
+      responseTimeMs: 3000,
+    });
+    expect(correct.result).not.toBe('wrong');
+    expect(correct.session.correctMoves).toBe(1);
+    expect(correct.session.wrongMoves).toBe(1);
+    // currentFen двигается.
+    expect(correct.session.currentFen).not.toBe(start.session.currentFen);
+  });
+});
