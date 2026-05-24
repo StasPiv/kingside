@@ -3185,6 +3185,34 @@
         "cta": "Continue"
       }
     },
+    "stats": {
+      "title": "Statistics",
+      "back": "Back to repertoire",
+      "accuracy": "Accuracy",
+      "sessionsTotal": "Sessions",
+      "sessionsCompleted": "Completed",
+      "attempts": "Attempts",
+      "correct": "Correct",
+      "wrong": "Wrong",
+      "hints": "Hints",
+      "topErrors": "Where you make the most mistakes",
+      "topErrorsEmpty": "No mistakes recorded yet — keep training.",
+      "lastSessions": "Recent sessions",
+      "lastSessionsEmpty": "No sessions yet.",
+      "errorRow": {
+        "expected": "Expected",
+        "wrong": "Your move",
+        "counts": "{{wrong}} of {{total}} attempts wrong ({{pct}}%)"
+      },
+      "session": {
+        "score": "Score",
+        "accuracy": "Accuracy",
+        "active": "in progress"
+      },
+      "errors": {
+        "loadFailed": "Failed to load stats"
+      }
+    },
     "tree": {
       "title": "Repertoire",
       "aria": "Repertoire tree",

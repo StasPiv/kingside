@@ -26,6 +26,7 @@ import type {
   GetOpeningRepertoireActiveSessionResponse,
   GetOpeningRepertoireProgressResponse,
   GetOpeningRepertoireResponse,
+  GetOpeningRepertoireStatsResponse,
   GetOpeningReviewsDueResponse,
   GetOpeningTrainerSessionResponse,
   ListOpeningRepertoiresResponse,
@@ -75,6 +76,12 @@ export const openingTrainerApi = {
   getRepertoireProgress(id: string): Promise<GetOpeningRepertoireProgressResponse> {
     return api.get<GetOpeningRepertoireProgressResponse>(
       `${BASE}/repertoires/${id}/progress`,
+    );
+  },
+  /** KS-3283. GET /repertoires/:id/stats — агрегатная статистика прохождения. */
+  getRepertoireStats(id: string): Promise<GetOpeningRepertoireStatsResponse> {
+    return api.get<GetOpeningRepertoireStatsResponse>(
+      `${BASE}/repertoires/${id}/stats`,
     );
   },
   /** KS-3297 (F3). GET /repertoires/:id/active-session — sticky-карточка «продолжить». */

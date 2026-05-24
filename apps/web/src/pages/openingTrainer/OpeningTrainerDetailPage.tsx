@@ -411,6 +411,20 @@ export function OpeningTrainerDetailPage() {
         {startError && <div className="error">{startError}</div>}
       </section>
 
+      {/* KS-3283: ссылка на страницу статистики прохождения. */}
+      <section
+        className="opening-trainer-detail__stats-link"
+        style={{ margin: '12px 0' }}
+      >
+        <Link
+          to={`/opening-trainer/${id}/stats`}
+          className="btn"
+          data-testid="opening-trainer-detail-stats-link"
+        >
+          📊 {t('openingTrainer.detail.viewStats', 'View statistics')}
+        </Link>
+      </section>
+
       {/* KS-3296 (F2): дерево репертуара с покраской по статусу линий. */}
       <section className="opening-trainer-detail__tree">
         <h2>{t('openingTrainer.tree.title', 'Repertoire')}</h2>

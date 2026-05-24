@@ -81,6 +81,7 @@ import { OpeningTrainerDetailPage } from './pages/openingTrainer/OpeningTrainerD
 import { OpeningTrainerSessionPage } from './pages/openingTrainer/OpeningTrainerSessionPage';
 import { OpeningTrainerResultPage } from './pages/openingTrainer/OpeningTrainerResultPage';
 import { OpeningTrainerReviewsPage } from './pages/openingTrainer/OpeningTrainerReviewsPage';
+import { OpeningTrainerStatsPage } from './pages/openingTrainer/OpeningTrainerStatsPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
@@ -590,6 +591,13 @@ export function App() {
         <Route
           path="/opening-trainer/:id"
           element={<ProtectedRoute><OpeningTrainerDetailPage /></ProtectedRoute>}
+        />
+        {/* KS-3283: страница статистики прохождения. Ставим между
+            `/:id` и `/:id/session/:sid` — порядок не имеет значения,
+            React Router сначала проверяет точное совпадение. */}
+        <Route
+          path="/opening-trainer/:id/stats"
+          element={<ProtectedRoute><OpeningTrainerStatsPage /></ProtectedRoute>}
         />
         <Route
           path="/opening-trainer/:id/session/:sid"

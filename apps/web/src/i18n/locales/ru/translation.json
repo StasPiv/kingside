@@ -3227,6 +3227,34 @@
         "cta": "Продолжить"
       }
     },
+    "stats": {
+      "title": "Статистика",
+      "back": "Назад к репертуару",
+      "accuracy": "Точность",
+      "sessionsTotal": "Сессий",
+      "sessionsCompleted": "Завершено",
+      "attempts": "Попыток",
+      "correct": "Верно",
+      "wrong": "Ошибок",
+      "hints": "Подсказок",
+      "topErrors": "Где вы чаще всего ошибаетесь",
+      "topErrorsEmpty": "Ошибок пока нет — продолжайте тренировку.",
+      "lastSessions": "Последние сессии",
+      "lastSessionsEmpty": "Сессий пока нет.",
+      "errorRow": {
+        "expected": "Ожидалось",
+        "wrong": "Ваш ход",
+        "counts": "{{wrong}} из {{total}} попыток с ошибкой ({{pct}}%)"
+      },
+      "session": {
+        "score": "Счёт",
+        "accuracy": "Точность",
+        "active": "в процессе"
+      },
+      "errors": {
+        "loadFailed": "Не удалось загрузить статистику"
+      }
+    },
     "tree": {
       "title": "Репертуар",
       "aria": "Дерево репертуара",
