@@ -1,55 +1,136 @@
 /**
- * KS-3273 (ADR-077 §2.8 #3). Карточка репертуара — заголовок, описание,
- * счётчики (nodes/edges/depth), кнопка «Тренироваться» с выбором цвета и
- * режима, кнопка «Удалить».
+ * KS-3273 (ADR-077 §2.8 #3) + KS-3295 (M2 F1) + KS-3297 (M2 F3).
  *
- * Старт тренировки: POST /opening-trainer/repertoires/:id/sessions →
- * navigate(`/opening-trainer/:id/session/:sid`). При side='black' бэк
- * сразу возвращает `initialBotMove` — пробрасываем через location.state,
- * чтобы SessionPage отрисовал первый ход бота без лишнего getSession().
+ * Карточка репертуара:
+ *   - Заголовок/описание/счётчики (nodes/edges/depth).
+ *   - Sticky-карточка «Продолжить тренировку» (F3) если есть active-session.
+ *   - 4 кнопки режимов с counter'ами (F1): «Новые», «По расписанию»,
+ *     «Ошибки», «Свободно». Counter — кол-во линий с соответствующим
+ *     статусом из GET /progress. Disabled если counter == 0.
+ *   - Кнопка «Удалить».
+ *
+ * Старт тренировки: POST /repertoires/:id/sessions → navigate(`/session/:sid`).
+ * При side='black' бэк сразу возвращает initialBotMove → пробрасываем
+ * через location.state.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
 import type {
+  OpeningLineProgressDto,
   OpeningRepertoireDetailDto,
   OpeningTrainerMode,
+  OpeningTrainerSessionDto,
   StartOpeningTrainerSessionResponse,
   TrainerColor,
 } from '@kingside/shared';
+
+interface ModeInfo {
+  mode: OpeningTrainerMode;
+  count: number;
+  titleKey: string;
+  titleDefault: string;
+  descKey: string;
+  descDefault: string;
+  icon: string;
+}
+
+/**
+ * KS-3295. Вычисляем counter'ы режимов из progress.lines:
+ *  - learn:    not-played + learning (новые / в процессе изучения)
+ *  - review:   due (mastered с истёкшим SRS-интервалом)
+ *  - mistakes: wrong (преобладают ошибки)
+ *  - free:     все не-orphan линии (свободная прогонка по дереву)
+ *
+ * Не считаем orphan'ы (старые линии из удалённого PGN).
+ */
+function countLines(
+  lines: OpeningLineProgressDto[],
+  totalLeafLines: number,
+): Record<OpeningTrainerMode, number> {
+  let learn = 0;
+  let review = 0;
+  let mistakes = 0;
+  let touched = 0;
+  for (const l of lines) {
+    if (l.orphaned) continue;
+    touched += 1;
+    switch (l.status) {
+      case 'not-played':
+      case 'learning':
+        learn += 1;
+        break;
+      case 'due':
+        review += 1;
+        break;
+      case 'wrong':
+        mistakes += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  // Линии, ещё не получившие записи в progress, — это «новые». Сервер
+  // отдаёт записи только для тех линий, по которым были попытки;
+  // «новые» приходят как not-played или вовсе отсутствуют в массиве.
+  // totalLeafLines (если знаем общее число листьев в дереве) даёт
+  // правильную нижнюю границу для learn-счётчика.
+  const untouched = Math.max(0, totalLeafLines - touched);
+  return {
+    learn: learn + untouched,
+    review,
+    mistakes,
+    free: totalLeafLines, // free — по всему дереву
+  };
+}
 
 export function OpeningTrainerDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [repertoire, setRepertoire] = useState<OpeningRepertoireDetailDto | null>(null);
+  const [progress, setProgress] = useState<OpeningLineProgressDto[] | null>(null);
+  const [activeSession, setActiveSession] = useState<OpeningTrainerSessionDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Settings
+  // Side stays as a single selector — режим теперь задаёт кнопка.
   const [side, setSide] = useState<TrainerColor>('white');
-  const [mode, setMode] = useState<OpeningTrainerMode>('learn');
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState<OpeningTrainerMode | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     setLoading(true);
-    openingTrainerApi
-      .getRepertoire(id)
-      .then((r) => {
-        if (!cancelled) setRepertoire(r);
-      })
-      .catch((err: unknown) => {
+    // KS-3295/3297: параллельно тянем repertoire + progress + active-session.
+    // Progress и active-session не критичны (M2-фича) — при ошибке
+    // отрисовываем без счётчиков/sticky-карточки.
+    Promise.allSettled([
+      openingTrainerApi.getRepertoire(id),
+      openingTrainerApi.getRepertoireProgress(id),
+      openingTrainerApi.getRepertoireActiveSession(id),
+    ])
+      .then(([rRes, pRes, sRes]) => {
         if (cancelled) return;
-        const msg =
-          err instanceof ApiError
-            ? err.message
-            : t('openingTrainer.errors.loadFailed', 'Failed to load repertoire');
-        setError(msg);
+        if (rRes.status === 'fulfilled') {
+          setRepertoire(rRes.value);
+        } else {
+          const err = rRes.reason;
+          const msg =
+            err instanceof ApiError
+              ? err.message
+              : t('openingTrainer.errors.loadFailed', 'Failed to load repertoire');
+          setError(msg);
+        }
+        if (pRes.status === 'fulfilled') {
+          setProgress(pRes.value.lines);
+        }
+        if (sRes.status === 'fulfilled') {
+          setActiveSession(sRes.value.session);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -59,27 +140,53 @@ export function OpeningTrainerDetailPage() {
     };
   }, [id, t]);
 
-  const handleStart = useCallback(async () => {
-    if (!id || starting) return;
-    setStarting(true);
-    setStartError(null);
-    try {
-      const res: StartOpeningTrainerSessionResponse = await openingTrainerApi.startSession(
-        id,
-        { side, mode, repeatMode: 'complete' },
-      );
-      navigate(`/opening-trainer/${id}/session/${res.session.id}`, {
-        state: { initialBotMove: res.initialBotMove, session: res.session },
-      });
-    } catch (err) {
-      const msg =
-        err instanceof ApiError
-          ? err.message
-          : t('openingTrainer.errors.startFailed', 'Failed to start session');
-      setStartError(msg);
-      setStarting(false);
+  const totalLeafLines = useMemo(() => {
+    // Грубая оценка: листовые ноды (без edges) — концы вариантов.
+    // Не идеально для tree-view с транспозициями, но подходит для
+    // counter'а «всего линий». Backend в L1 может дать точный
+    // totalLines в progress-response, тогда заменим.
+    if (!repertoire) return 0;
+    let leaves = 0;
+    for (const node of Object.values(repertoire.tree.nodes)) {
+      if (node.edges.length === 0) leaves += 1;
     }
-  }, [id, starting, side, mode, navigate, t]);
+    return leaves;
+  }, [repertoire]);
+
+  const counters = useMemo(
+    () => countLines(progress ?? [], totalLeafLines),
+    [progress, totalLeafLines],
+  );
+
+  const handleStart = useCallback(
+    async (mode: OpeningTrainerMode) => {
+      if (!id || starting) return;
+      setStarting(mode);
+      setStartError(null);
+      try {
+        const res: StartOpeningTrainerSessionResponse = await openingTrainerApi.startSession(
+          id,
+          { side, mode, repeatMode: 'complete' },
+        );
+        navigate(`/opening-trainer/${id}/session/${res.session.id}`, {
+          state: { initialBotMove: res.initialBotMove, session: res.session },
+        });
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : t('openingTrainer.errors.startFailed', 'Failed to start session');
+        setStartError(msg);
+        setStarting(null);
+      }
+    },
+    [id, starting, side, navigate, t],
+  );
+
+  const handleContinue = useCallback(() => {
+    if (!activeSession || !id) return;
+    navigate(`/opening-trainer/${id}/session/${activeSession.id}`);
+  }, [activeSession, id, navigate]);
 
   const handleDelete = useCallback(async () => {
     if (!id) return;
@@ -110,6 +217,45 @@ export function OpeningTrainerDetailPage() {
       </div>
     );
   }
+
+  const modes: ModeInfo[] = [
+    {
+      mode: 'learn',
+      count: counters.learn,
+      titleKey: 'openingTrainer.detail.modes.learn.title',
+      titleDefault: 'New lines',
+      descKey: 'openingTrainer.detail.modes.learn.desc',
+      descDefault: 'Lines you haven’t finished yet.',
+      icon: '✨',
+    },
+    {
+      mode: 'review',
+      count: counters.review,
+      titleKey: 'openingTrainer.detail.modes.review.title',
+      titleDefault: 'Scheduled',
+      descKey: 'openingTrainer.detail.modes.review.desc',
+      descDefault: 'Mastered lines due for review (SRS).',
+      icon: '🔁',
+    },
+    {
+      mode: 'mistakes',
+      count: counters.mistakes,
+      titleKey: 'openingTrainer.detail.modes.mistakes.title',
+      titleDefault: 'Mistakes',
+      descKey: 'openingTrainer.detail.modes.mistakes.desc',
+      descDefault: 'Lines where wrongs prevail over corrects.',
+      icon: '⚠️',
+    },
+    {
+      mode: 'free',
+      count: counters.free,
+      titleKey: 'openingTrainer.detail.modes.free.title',
+      titleDefault: 'Free practice',
+      descKey: 'openingTrainer.detail.modes.free.desc',
+      descDefault: 'Walk through any line without scoring.',
+      icon: '🎲',
+    },
+  ];
 
   return (
     <div className="opening-trainer-detail" data-testid="opening-trainer-detail">
@@ -145,6 +291,36 @@ export function OpeningTrainerDetailPage() {
         </div>
       </section>
 
+      {/* KS-3297 (F3): sticky-карточка «Продолжить тренировку». Появляется
+          если backend вернул active-session (lastActivityAt > now-7d,
+          finishedAt IS NULL). Клик ведёт прямо в /session/:sid. */}
+      {activeSession && (
+        <section
+          className="opening-trainer-detail__continue"
+          data-testid="opening-trainer-continue"
+        >
+          <div className="opening-trainer-detail__continue-text">
+            <strong>
+              {t('openingTrainer.detail.continue.title', 'Continue training')}
+            </strong>
+            <span className="opening-trainer-detail__continue-meta">
+              {t('openingTrainer.detail.continue.meta', 'Score {{score}} · {{moves}} moves', {
+                score: activeSession.score,
+                moves: activeSession.movesPlayed,
+              })}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleContinue}
+            data-testid="opening-trainer-continue-btn"
+          >
+            {t('openingTrainer.detail.continue.cta', 'Continue')}
+          </button>
+        </section>
+      )}
+
       <section className="opening-trainer-detail__start">
         <h2>{t('openingTrainer.detail.start.title', 'Start training')}</h2>
 
@@ -178,45 +354,49 @@ export function OpeningTrainerDetailPage() {
           </div>
         </div>
 
-        <div className="form-field">
-          <span className="form-field__label">
-            {t('openingTrainer.detail.start.mode', 'Mode')}
-          </span>
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as OpeningTrainerMode)}
-            data-testid="opening-trainer-mode"
-          >
-            <option value="learn">
-              {t('openingTrainer.detail.start.mode.learn', 'Learn (new lines)')}
-            </option>
-            <option value="free">
-              {t('openingTrainer.detail.start.mode.free', 'Free practice')}
-            </option>
-            <option value="mistakes">
-              {t('openingTrainer.detail.start.mode.mistakes', 'Mistakes only')}
-            </option>
-            <option value="review" disabled>
-              {t('openingTrainer.detail.start.mode.review', 'Review (M2)')}
-            </option>
-          </select>
+        {/* KS-3295 (F1): 4 кнопки режимов с counter'ами. Заменяет старый
+            select на учёный grid. */}
+        <div
+          className="opening-trainer-detail__modes"
+          data-testid="opening-trainer-modes"
+        >
+          {modes.map((m) => {
+            const disabled = m.count === 0 || starting !== null;
+            const isStarting = starting === m.mode;
+            return (
+              <button
+                key={m.mode}
+                type="button"
+                className="opening-trainer-mode-button"
+                disabled={disabled}
+                onClick={() => handleStart(m.mode)}
+                data-testid={`opening-trainer-mode-${m.mode}`}
+                data-count={m.count}
+              >
+                <span className="opening-trainer-mode-button__icon" aria-hidden="true">
+                  {m.icon}
+                </span>
+                <span className="opening-trainer-mode-button__body">
+                  <span className="opening-trainer-mode-button__title">
+                    {t(m.titleKey, m.titleDefault)}
+                  </span>
+                  <span className="opening-trainer-mode-button__desc">
+                    {t(m.descKey, m.descDefault)}
+                  </span>
+                  <span className="opening-trainer-mode-button__count">
+                    {isStarting
+                      ? t('openingTrainer.detail.starting', 'Starting…')
+                      : t('openingTrainer.detail.modes.count', '{{count}} lines', {
+                          count: m.count,
+                        })}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {startError && <div className="error">{startError}</div>}
-
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleStart}
-            disabled={starting}
-            data-testid="opening-trainer-start"
-          >
-            {starting
-              ? t('openingTrainer.detail.starting', 'Starting…')
-              : t('openingTrainer.detail.startCta', 'Train')}
-          </button>
-        </div>
       </section>
 
       <section className="opening-trainer-detail__danger">

@@ -19,10 +19,14 @@
  */
 import { api } from '../api';
 import type {
+  CreateOpeningRepertoireFromAnalysisRequest,
   CreateOpeningRepertoireRequest,
   CreateOpeningRepertoireResponse,
   DeleteOpeningRepertoireResponse,
+  GetOpeningRepertoireActiveSessionResponse,
+  GetOpeningRepertoireProgressResponse,
   GetOpeningRepertoireResponse,
+  GetOpeningReviewsDueResponse,
   GetOpeningTrainerSessionResponse,
   ListOpeningRepertoiresResponse,
   OpeningTrainerFinishResponse,
@@ -64,6 +68,35 @@ export const openingTrainerApi = {
   },
   deleteRepertoire(id: string): Promise<DeleteOpeningRepertoireResponse> {
     return api.delete<DeleteOpeningRepertoireResponse>(`${BASE}/repertoires/${id}`);
+  },
+
+  // ── M2 (KS-3286) ──────────────────────────────────────────────────
+  /** KS-3295 (F1). GET /repertoires/:id/progress — per-line статусы для счётчиков/tree-view. */
+  getRepertoireProgress(id: string): Promise<GetOpeningRepertoireProgressResponse> {
+    return api.get<GetOpeningRepertoireProgressResponse>(
+      `${BASE}/repertoires/${id}/progress`,
+    );
+  },
+  /** KS-3297 (F3). GET /repertoires/:id/active-session — sticky-карточка «продолжить». */
+  getRepertoireActiveSession(
+    id: string,
+  ): Promise<GetOpeningRepertoireActiveSessionResponse> {
+    return api.get<GetOpeningRepertoireActiveSessionResponse>(
+      `${BASE}/repertoires/${id}/active-session`,
+    );
+  },
+  /** KS-3298 (F4). GET /reviews/due — список линий по SRS-очереди, кросс-репертуарный. */
+  getReviewsDue(): Promise<GetOpeningReviewsDueResponse> {
+    return api.get<GetOpeningReviewsDueResponse>(`${BASE}/reviews/due`);
+  },
+  /** KS-3299 (F5). POST /repertoires/from-analysis — конверсия из мастерской. */
+  createRepertoireFromAnalysis(
+    body: CreateOpeningRepertoireFromAnalysisRequest,
+  ): Promise<CreateOpeningRepertoireResponse> {
+    return api.post<CreateOpeningRepertoireResponse>(
+      `${BASE}/repertoires/from-analysis`,
+      body,
+    );
   },
 
   // --- Sessions ---

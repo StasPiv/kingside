@@ -3134,6 +3134,30 @@
         "mode.free": "Free practice",
         "mode.mistakes": "Mistakes only",
         "mode.review": "Review (M2)"
+      },
+      "modes": {
+        "count": "{{count}} lines",
+        "learn": {
+          "title": "New lines",
+          "desc": "Lines you haven’t finished yet."
+        },
+        "review": {
+          "title": "Scheduled",
+          "desc": "Mastered lines due for review (SRS)."
+        },
+        "mistakes": {
+          "title": "Mistakes",
+          "desc": "Lines where wrongs prevail over corrects."
+        },
+        "free": {
+          "title": "Free practice",
+          "desc": "Walk through any line without scoring."
+        }
+      },
+      "continue": {
+        "title": "Continue training",
+        "meta": "Score {{score}} · {{moves}} moves",
+        "cta": "Continue"
       }
     },
     "session": {
