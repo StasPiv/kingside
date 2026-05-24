@@ -5,6 +5,7 @@ import {
 } from './opening-trainer.service';
 import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
+import { OpeningLineProgressService } from './opening-line-progress.service';
 import {
   BadRequestException,
   ConflictException,
@@ -141,11 +142,20 @@ class FakeRepo {
 function makeService() {
   const repo = new FakeRepo();
   const builder = new RepertoireBuilderService();
+  // KS-3289 (M2 B3): мок OpeningLineProgressService — для большинства
+  // тестов нам всё равно, реальная запись прогресса не критична.
+  // Кейсы B3 (integration) подменяют это на spy/real, чтобы проверить
+  // вызовы.
+  const progress = {
+    recordAttempt: jest.fn(async () => null),
+    applyReviewResult: jest.fn(async () => null),
+  } as unknown as OpeningLineProgressService;
   const svc = new OpeningTrainerService(
     repo as unknown as OpeningTrainerRepository,
     builder,
+    progress,
   );
-  return { svc, repo };
+  return { svc, repo, progress };
 }
 
 const SAMPLE_PGN = '1. e4 e5 2. Nf3 Nc6 3. Bb5';
@@ -745,5 +755,138 @@ describe('KS-3281: findNextUnexploredBranch — exclude user-edge at depth-1', (
     const cleanLines = { [tree.rootFen]: [afterE4] };
     const next = findNextUnexploredBranch(tree, path, cleanLines);
     expect(next).toBeNull();
+  });
+});
+
+describe('KS-3289 (M2 B3): integration recordAttempt в makeMove', () => {
+  it('correct user-move → recordAttempt с pathUci=currentPath+move correct=true', async () => {
+    const { svc, progress } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5 2. Nf3',
+    });
+    const start = await svc.startSession('u-1', r.id, {
+      side: 'white',
+      mode: 'learn',
+    });
+    await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    expect(progress.recordAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathUci: ['e2e4'],
+        correct: true,
+      }),
+    );
+  });
+
+  it('wrong user-move → recordAttempt с pathUci=currentPath correct=false (без applied-move)', async () => {
+    const { svc, progress } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const start = await svc.startSession('u-1', r.id, {
+      side: 'white',
+      mode: 'learn',
+    });
+    await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'g1f3', // не в репертуаре
+      responseTimeMs: 3000,
+    });
+    expect(progress.recordAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathUci: [], // currentPath на старте сессии = []
+        correct: false,
+      }),
+    );
+  });
+
+  it('mode=free → recordAttempt НЕ вызывается (§2.7)', async () => {
+    const { svc, progress } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    const start = await svc.startSession('u-1', r.id, {
+      side: 'white',
+      mode: 'free',
+    });
+    await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    expect(progress.recordAttempt).not.toHaveBeenCalled();
+  });
+
+  it('mastered после 3 подряд correct (integration с REAL OpeningLineProgressService)', async () => {
+    // Используем настоящий progress service с in-memory mock-repo.
+    const repo = new FakeRepo();
+    const lineProgressRows: any[] = [];
+    const fakeProgressRepo = {
+      findLineProgress: jest.fn(async (uid, rid, hash) =>
+        lineProgressRows.find(
+          (r) => r.userId === uid && r.repertoireId === rid && r.pathHash === hash,
+        ) ?? null,
+      ),
+      upsertLineProgress: jest.fn(
+        async (uid, rid, hash, createData, updateData) => {
+          const existing = lineProgressRows.find(
+            (r) =>
+              r.userId === uid &&
+              r.repertoireId === rid &&
+              r.pathHash === hash,
+          );
+          if (existing) {
+            Object.assign(existing, updateData);
+            return existing;
+          }
+          const row = {
+            id: `lp-${lineProgressRows.length + 1}`,
+            userId: uid,
+            repertoireId: rid,
+            pathHash: hash,
+            ...createData,
+          };
+          lineProgressRows.push(row);
+          return row;
+        },
+      ),
+    };
+    const realProgress = new OpeningLineProgressService(
+      fakeProgressRepo as unknown as OpeningTrainerRepository,
+    );
+    const builder = new RepertoireBuilderService();
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      realProgress,
+    );
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    // 3 раза проходим одну и ту же линию (1 ply): e2e4.
+    // Каждый раз startSession создаёт новую сессию, makeMove e2e4 → tree-complete.
+    for (let i = 0; i < 3; i++) {
+      const session = await svc.startSession('u-1', r.id, {
+        side: 'white',
+        mode: 'learn',
+      });
+      await svc.makeMove('u-1', session.session.id, {
+        moveUci: 'e2e4',
+        responseTimeMs: 3000,
+      });
+    }
+    // 3 correct attempts → должен быть mastered.
+    expect(lineProgressRows).toHaveLength(1);
+    const lp = lineProgressRows[0];
+    expect(lp.correctCount).toBe(3);
+    expect(lp.consecutiveCorrect).toBe(3);
+    expect(lp.masteredAt).not.toBeNull();
+    expect(lp.sm2Easiness).toBeCloseTo(2.6, 5);
   });
 });

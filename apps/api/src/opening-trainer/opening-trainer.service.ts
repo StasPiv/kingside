@@ -33,6 +33,7 @@ import {
 } from './repertoire-builder.service';
 import { pickBotMove } from './bot-picker';
 import { computeScoreDelta } from './scoring';
+import { OpeningLineProgressService } from './opening-line-progress.service';
 import {
   CreateRepertoireDto,
   MoveDto,
@@ -58,6 +59,9 @@ export class OpeningTrainerService {
   constructor(
     private readonly repo: OpeningTrainerRepository,
     private readonly builder: RepertoireBuilderService,
+    // KS-3289 (M2 B3): per-path прогресс линий. Записывает на каждый
+    // user-attempt КРОМЕ mode='free' (§2.7).
+    private readonly progress: OpeningLineProgressService,
   ) {}
 
   // ── Repertoire CRUD ────────────────────────────────────────────
@@ -297,6 +301,24 @@ export class OpeningTrainerService {
         responseTimeMs: dto.responseTimeMs,
       });
       const newScore = Math.max(0, session.score + scoreRes.scoreDelta);
+      // KS-3289 (M2 B3): per-path прогресс. Для wrong — pathUci =
+      // currentPath без applied-move'а (move не применён). Mode='free'
+      // не учитываем (§2.7 ADR-077).
+      if (session.mode !== 'free') {
+        await this.progress
+          .recordAttempt({
+            userId,
+            repertoireId: session.repertoireId,
+            pathUci: readUciArray(session.currentPath),
+            correct: false,
+            now,
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `[makeMove] recordAttempt(wrong) failed for session=${sessionId.slice(0, 8)}: ${(err as Error).message}`,
+            );
+          });
+      }
       const updated = await this.repo.updateSession(sessionId, {
         score: newScore,
         wrongMoves: session.wrongMoves + 1,
@@ -368,6 +390,25 @@ export class OpeningTrainerService {
       scoreDelta: scoreRes.scoreDelta,
       responseTimeMs: dto.responseTimeMs,
     });
+
+    // KS-3289 (M2 B3): per-path прогресс. Для correct — pathUci =
+    // currentPath + appliedMove (это путь от root до позиции ПОСЛЕ
+    // нашего хода). Mode='free' не учитываем (§2.7).
+    if (session.mode !== 'free') {
+      await this.progress
+        .recordAttempt({
+          userId,
+          repertoireId: session.repertoireId,
+          pathUci: newPathAfterUser,
+          correct: true,
+          now,
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `[makeMove] recordAttempt(correct) failed for session=${sessionId.slice(0, 8)}: ${(err as Error).message}`,
+          );
+        });
+    }
 
     const newStreak = scoreRes.newStreak;
     const newStreakMax = Math.max(session.streakMax, newStreak);
