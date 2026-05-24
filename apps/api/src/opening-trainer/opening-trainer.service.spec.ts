@@ -1886,7 +1886,7 @@ describe('KS-3283 (M2 stats): GET /repertoires/:id/stats', () => {
     expect(topErr.mostFrequentWrongMove).toBeNull(); // tie → null
   });
 
-  it('lastSessions: последние 10, сортировка по startedAt DESC, accuracy = correctMoves/movesPlayed', async () => {
+  it('lastSessions: последние 10, сортировка по startedAt DESC, accuracy = correct/(correct+wrong)', async () => {
     const { svc } = makeService();
     const r = await svc.createRepertoire('u-1', {
       title: 't',
@@ -1904,8 +1904,108 @@ describe('KS-3283 (M2 stats): GET /repertoires/:id/stats', () => {
     expect(stats.lastSessions).toHaveLength(3);
     // Все сессии должны иметь accuracy=1 (1 correct, 0 wrongs).
     for (const s of stats.lastSessions) {
-      expect(s.accuracy).toBeGreaterThan(0);
+      expect(s.accuracy).toBe(1);
     }
+  });
+
+  // KS-3307: формула accuracy = correct / (correct + wrong), не / movesPlayed.
+  it('KS-3307: lastSessions.accuracy учитывает wrong-попытки (3 correct + 2 wrong = 0.6)', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5 2. Nf3 Nc6',
+    });
+    const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // 1 correct e2e4 (→ bot e7e5), 2 wrong a7a6, 1 correct g1f3 (→ bot b8c6, tree-complete).
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'a7a6',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'g1f3',
+      responseTimeMs: 3000,
+    });
+    const stats = await svc.getRepertoireStats('u-1', r.id);
+    expect(stats.lastSessions).toHaveLength(1);
+    // 2 correct (e2e4, g1f3) / (2 correct + 2 wrong) = 0.5.
+    expect(stats.lastSessions[0].accuracy).toBeCloseTo(0.5, 3);
+  });
+});
+
+describe('KS-3307: SessionDto.accuracyPercent', () => {
+  function makeService() {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    return { svc, repo };
+  }
+
+  it('пустая сессия → accuracyPercent = 0', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    expect(s.session.accuracyPercent).toBe(0);
+  });
+
+  it('после wrong+correct accuracyPercent = 50 (1/(1+1))', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // 1 wrong (a2a3 не в репертуаре, ход белых).
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'a2a3',
+      responseTimeMs: 3000,
+    });
+    // 1 correct e2e4 → bot отвечает e7e5, tree-complete.
+    const r2 = await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    expect(r2.session.accuracyPercent).toBe(50);
+  });
+
+  it('finish.summary.accuracyPercent совпадает с session.accuracyPercent', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // 1 wrong + 1 correct.
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'a2a3',
+      responseTimeMs: 3000,
+    });
+    await svc.makeMove('u-1', s.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 3000,
+    });
+    const fin = await svc.finish('u-1', s.session.id);
+    // 1 correct / (1 + 1 wrong) = 50%.
+    expect(fin.summary.accuracyPercent).toBe(50);
+    expect(fin.session.accuracyPercent).toBe(50);
   });
 });
 

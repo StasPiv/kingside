@@ -964,6 +964,11 @@ export class OpeningTrainerService {
         correctMoves: updated.correctMoves,
         wrongMoves: updated.wrongMoves,
         hintsUsed: updated.hintsUsed,
+        // KS-3307. См. computeAccuracyPercent.
+        accuracyPercent: computeAccuracyPercent(
+          updated.correctMoves,
+          updated.wrongMoves,
+        ),
         linesCompleted: 0,
       },
     };
@@ -1120,12 +1125,17 @@ export class OpeningTrainerService {
       });
 
     // Last sessions (already sorted desc by startedAt; берём 10).
-    const lastSessions = sessions.slice(0, 10).map((s) => ({
-      id: s.id,
-      finishedAt: s.finishedAt?.toISOString() ?? null,
-      score: s.score,
-      accuracy: s.movesPlayed > 0 ? s.correctMoves / s.movesPlayed : 0,
-    }));
+    // KS-3307. accuracy = correct / (correct + wrong); раньше делили на
+    // movesPlayed → wrong-attempts не учитывались (movesPlayed === correct).
+    const lastSessions = sessions.slice(0, 10).map((s) => {
+      const totalAttempts = s.correctMoves + s.wrongMoves;
+      return {
+        id: s.id,
+        finishedAt: s.finishedAt?.toISOString() ?? null,
+        score: s.score,
+        accuracy: totalAttempts > 0 ? s.correctMoves / totalAttempts : 0,
+      };
+    });
 
     return {
       repertoireId,
@@ -1395,10 +1405,24 @@ function sessionRowToDto(row: SessionRow): OpeningTrainerSessionDto {
     correctMoves: row.correctMoves,
     wrongMoves: row.wrongMoves,
     hintsUsed: row.hintsUsed,
+    // KS-3307. accuracyPercent = correct / (correct + wrong) * 100.
+    // НЕ correct / movesPlayed: wrong-attempts не двигают movesPlayed,
+    // потому давали 100% при любом числе ошибок.
+    accuracyPercent: computeAccuracyPercent(row.correctMoves, row.wrongMoves),
     startedAt: row.startedAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * KS-3307. Единая формула accuracy для session DTO / finish summary /
+ * stats lastSessions. Округление до целого (UI показывает %).
+ */
+function computeAccuracyPercent(correct: number, wrong: number): number {
+  const total = correct + wrong;
+  if (total <= 0) return 0;
+  return Math.round((correct / total) * 100);
 }
 
 function jsonToTree(json: unknown): RepertoireTree {

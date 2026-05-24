@@ -228,10 +228,23 @@ export interface OpeningTrainerSessionDto {
   /** UCI-путь от корня до `currentFen` — для рисования стрелок последнего хода. */
   currentPath: string[];
   score: number;
+  /**
+   * Количество примененных к доске ходов (только correct — wrong-попытки
+   * отвергаются и доску не двигают). НЕ ИСПОЛЬЗОВАТЬ для accuracy:
+   * `movesPlayed === correctMoves` всегда. Для процента точности —
+   * `accuracyPercent` (см. ниже).
+   */
   movesPlayed: number;
   correctMoves: number;
   wrongMoves: number;
   hintsUsed: number;
+  /**
+   * KS-3307. Точность как процент: `correctMoves / (correctMoves +
+   * wrongMoves) * 100`, округлено до целого. 0 если попыток не было.
+   * Backend вычисляет — фронт берёт готовое (старая локальная формула
+   * `correctMoves / movesPlayed` давала 100% при наличии ошибок).
+   */
+  accuracyPercent: number;
   startedAt: string;
   lastActivityAt: string;
   finishedAt: string | null;
@@ -590,6 +603,12 @@ export interface OpeningTrainerFinishResponse {
     correctMoves: number;
     wrongMoves: number;
     hintsUsed: number;
+    /**
+     * KS-3307. `correctMoves / (correctMoves + wrongMoves) * 100`,
+     * округлено до целого. 0 если попыток не было. Дубликат
+     * `session.accuracyPercent` для удобства Result-страницы.
+     */
+    accuracyPercent: number;
     /** Количество линий, дошедших до line-complete за сессию. */
     linesCompleted: number;
   };
@@ -642,7 +661,11 @@ export interface OpeningRepertoireRecentSession {
   id: string;
   finishedAt: string | null;
   score: number;
-  /** `correctMoves / movesPlayed` ∈ [0..1]. */
+  /**
+   * KS-3307. `correctMoves / (correctMoves + wrongMoves)` ∈ [0..1].
+   * Раньше считалось `correctMoves / movesPlayed`, что давало 1.0 при
+   * любом числе ошибок (wrong не входит в movesPlayed).
+   */
   accuracy: number;
 }
 
