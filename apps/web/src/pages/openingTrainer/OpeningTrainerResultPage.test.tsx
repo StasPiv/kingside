@@ -25,6 +25,8 @@ function makeSession(overrides: Partial<OpeningTrainerSessionDto> = {}): Opening
     correctMoves: 8,
     wrongMoves: 2,
     hintsUsed: 1,
+    // KS-3307: backend теперь отдаёт accuracyPercent готовым (8/10 = 80).
+    accuracyPercent: 80,
     startedAt: '2026-05-23T00:00:00Z',
     lastActivityAt: '2026-05-23T00:01:00Z',
     finishedAt: '2026-05-23T00:01:00Z',

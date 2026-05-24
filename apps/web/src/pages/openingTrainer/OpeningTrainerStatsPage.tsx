@@ -79,18 +79,27 @@ function ErrorRow({ row, orientation, t }: ErrorRowProps) {
       className="opening-trainer-stats__error-row"
       data-testid="opening-trainer-stats-error-row"
       style={{
+        // KS-3313: flex-wrap + min-width ниже → текст «падает» под доску
+        // когда строка не помещается (на mobile ~390px доска ~50vw +
+        // 220px текста > 390 → wrap). На desktop оба inline.
         display: 'flex',
-        gap: 12,
-        padding: '10px 12px',
+        flexWrap: 'wrap',
+        gap: 16,
+        padding: '14px 14px',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
-        alignItems: 'center',
+        alignItems: 'flex-start',
       }}
     >
-      {/* KS-3310: PuzzleMiniBoard с orientation и подсветкой клеток —
-          ожидаемый ход зелёным (куда юзер должен был пойти), фактический
-          неправильный ход красной стрелкой. */}
+      {/* KS-3313: размер доски clamp(220px, 50vw, 320px). На mobile
+          (~390px viewport) ≈ 195px, но не меньше 220. На desktop —
+          320px. Aspect-ratio фиксирует квадрат. */}
       <div
-        style={{ width: 96, height: 96, flexShrink: 0 }}
+        style={{
+          width: 'clamp(220px, 50vw, 320px)',
+          maxWidth: '100%',
+          aspectRatio: '1 / 1',
+          flexShrink: 0,
+        }}
         data-testid="opening-trainer-stats-mini-board"
       >
         <PuzzleMiniBoard
@@ -122,7 +131,16 @@ function ErrorRow({ row, orientation, t }: ErrorRowProps) {
           ]}
         />
       </div>
-      <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+      <div
+        style={{
+          // KS-3313: min-width 220 → срабатывает flex-wrap на mobile
+          // (общая ширина превышает viewport, текст падает вниз).
+          flex: '1 1 220px',
+          minWidth: 220,
+          fontSize: 14,
+          lineHeight: 1.5,
+        }}
+      >
         <div>
           <strong>{t('openingTrainer.stats.errorRow.expected', 'Expected')}:</strong>{' '}
           <span data-testid="opening-trainer-stats-error-expected">
@@ -138,7 +156,7 @@ function ErrorRow({ row, orientation, t }: ErrorRowProps) {
             {wrongSan}
           </span>
         </div>
-        <div style={{ opacity: 0.75 }}>
+        <div style={{ opacity: 0.75, marginTop: 4 }}>
           {t(
             'openingTrainer.stats.errorRow.counts',
             '{{wrong}} of {{total}} attempts wrong ({{pct}}%)',

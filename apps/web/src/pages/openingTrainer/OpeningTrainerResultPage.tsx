@@ -71,9 +71,17 @@ export function OpeningTrainerResultPage() {
     );
   }
 
-  const total = session.movesPlayed;
+  // KS-3307: accuracy берём готовый из backend (commit 819b08f0, td 305).
+  // Старая локальная формула `correctMoves / movesPlayed` всегда давала
+  // 100%, потому что movesPlayed считает ТОЛЬКО applied (correct) ходы —
+  // wrong-попытки в этом счётчике не учитываются. Backend вычисляет
+  // `correctMoves / (correctMoves + wrongMoves) * 100`.
+  //
+  // Приоритет: `summary.accuracyPercent` (из finish-response), затем
+  // `session.accuracyPercent` (из ре-загрузки getSession через
+  // initializedRef-bootstrap), fallback на 0.
   const accuracy =
-    total > 0 ? Math.round((session.correctMoves * 100) / total) : 0;
+    summary?.accuracyPercent ?? session.accuracyPercent ?? 0;
 
   return (
     <div className="opening-trainer-result" data-testid="opening-trainer-result">
