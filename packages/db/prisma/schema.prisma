@@ -115,6 +115,8 @@ model User {
   // KS-3270 / ADR-077: репертуары и сессии Opening Trainer'а.
   openingRepertoires       OpeningRepertoire[]
   openingTrainerSessions   OpeningTrainerSession[]
+  // KS-3287 (M2 §2.5): per-path прогресс линий.
+  openingLineProgress      OpeningLineProgress[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -1572,8 +1574,10 @@ model OpeningRepertoire {
   /// до hard-delete (отдельным cleanup job'ом, M2).
   deletedAt   DateTime? @map("deleted_at")
 
-  user     User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessions OpeningTrainerSession[]
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    OpeningTrainerSession[]
+  // KS-3287 (M2): per-path прогресс линий этого репертуара.
+  lineProgress OpeningLineProgress[]
 
   /// Лобби-выборка: `WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC`.
   @@index([userId, createdAt(sort: Desc)])
@@ -1701,5 +1705,73 @@ model OpeningTrainerAttempt {
 
   @@index([sessionId, createdAt])
   @@map("opening_trainer_attempts")
+}
+
+/**
+ * KS-3287 (ADR-077 §2.5, M2). Per-path прогресс пользователя по линии
+ * репертуара. `pathHash` = sha1(join('|', pathUci)) — короткий уникальный
+ * ключ (UCI-пути могут быть длинными, ≤ 80 полуходов).
+ *
+ * Мастеринг: `consecutiveCorrect >= OPENING_LINE_MASTERY_THRESHOLD` (3)
+ * → `masteredAt = now`, инициализация SM-2 (`Sm2Service` через адаптер,
+ * KS-3288 B2). После mastered SM-2 управляет `sm2DueAt`; review-mode
+ * (KS-3290 B4) выбирает линии с `sm2DueAt <= now`.
+ *
+ * `orphaned=true` — линия из старого PGN, которой больше нет в дереве
+ * после `PATCH /repertoires/:id`. Не учитывается в SRS-выборках, не
+ * рендерится в tree-view (KS-3294 B8 orphan-pruning).
+ *
+ * Unique (userId, repertoireId, pathHash) — одна запись на pat'h
+ * пользователя. Concurrent upsert через PostgreSQL ON CONFLICT
+ * (`prisma.openingLineProgress.upsert`).
+ *
+ * Индексы:
+ *   - (userId, repertoireId) — выборка прогресса репертуара (`/progress`).
+ *   - (userId, sm2DueAt) — SRS-очередь «к повтору сегодня» (`/reviews/due`).
+ */
+model OpeningLineProgress {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  repertoireId String   @map("repertoire_id") @db.Uuid
+
+  /// sha1(join('|', pathUci)). Короткий уникальный ключ.
+  pathHash     String   @map("path_hash")
+  /// UCI-путь от корня до точки замера. JSONB `string[]`.
+  pathUci      Json     @map("path_uci")
+  /// Длина пути в полуходах (= pathUci.length). Денормализация для
+  /// быстрых WHERE-фильтров без JSONB-парсинга.
+  pathLength   Int      @map("path_length")
+
+  correctCount       Int @default(0) @map("correct_count")
+  wrongCount         Int @default(0) @map("wrong_count")
+  consecutiveCorrect Int @default(0) @map("consecutive_correct")
+
+  lastPlayedAt DateTime  @map("last_played_at")
+  /// `null` пока не достигнут мастеринг. NON-null = `now()` момента
+  /// перехода в mastered. SM-2-поля заполняются ОДНОВРЕМЕННО с этим.
+  masteredAt   DateTime? @map("mastered_at")
+
+  /// SM-2 ease-factor (от 1.3 до ~2.5+). NULL до mastered.
+  sm2Easiness  Float?    @map("sm2_easiness")
+  /// SM-2 interval в днях.
+  sm2Interval  Int?      @map("sm2_interval")
+  /// SM-2 due-timestamp (= masteredAt + sm2Interval).
+  sm2DueAt     DateTime? @map("sm2_due_at")
+  /// SM-2 repetition number (0 при первом review, инкремент на correct).
+  sm2Reps      Int?      @map("sm2_reps")
+
+  /// KS-3286 / KS-3294 (B8). Линия больше не существует в дереве —
+  /// `PATCH /repertoires/:id` с новым PGN не покрыл этот pathHash.
+  /// SRS-выборки фильтруют по `orphaned=false`. Если линия возвращается
+  /// (новый PGN снова её содержит) — поле сбрасывается в false.
+  orphaned     Boolean   @default(false)
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repertoire OpeningRepertoire @relation(fields: [repertoireId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, repertoireId, pathHash])
+  @@index([userId, repertoireId])
+  @@index([userId, sm2DueAt])
+  @@map("opening_line_progress")
 }
 

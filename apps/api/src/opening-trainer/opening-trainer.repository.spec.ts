@@ -22,15 +22,25 @@ function makePrisma() {
     },
     openingTrainerSession: {
       findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 's-1' }),
       update: jest.fn().mockResolvedValue({ id: 's-1' }),
     },
     openingTrainerAttempt: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 'a-1' }),
+      delete: jest.fn().mockResolvedValue({ id: 'a-1' }),
     },
+    openingLineProgress: {
+      upsert: jest.fn().mockResolvedValue({ id: 'lp-1' }),
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   } as unknown as PrismaService & Record<string, never>;
 }
 
@@ -347,6 +357,167 @@ describe('OpeningTrainerRepository', () => {
         where: { sessionId: 's-1' },
       });
       expect(n).toBe(15);
+    });
+  });
+
+  // ── KS-3287 (M2 §2.5): OpeningLineProgress repo CRUD ─────────
+
+  describe('upsertLineProgress', () => {
+    it('создаёт запись с pathUci/length/counters/lastPlayedAt', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      const now = new Date('2026-05-24T00:00:00Z');
+
+      await repo.upsertLineProgress(
+        'u-1',
+        'r-1',
+        'hash-abc',
+        {
+          pathUci: ['e2e4', 'e7e5'],
+          pathLength: 2,
+          lastPlayedAt: now,
+          correctCount: 1,
+          wrongCount: 0,
+          consecutiveCorrect: 1,
+        },
+        { lastPlayedAt: now },
+      );
+
+      expect(prisma.openingLineProgress.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_repertoireId_pathHash: {
+            userId: 'u-1',
+            repertoireId: 'r-1',
+            pathHash: 'hash-abc',
+          },
+        },
+        create: expect.objectContaining({
+          userId: 'u-1',
+          repertoireId: 'r-1',
+          pathHash: 'hash-abc',
+          pathLength: 2,
+          correctCount: 1,
+          wrongCount: 0,
+          consecutiveCorrect: 1,
+          pathUci: ['e2e4', 'e7e5'],
+        }),
+        update: { lastPlayedAt: now },
+      });
+    });
+  });
+
+  describe('listLineProgress', () => {
+    it('default: без orphan-фильтра, orderBy lastPlayedAt DESC', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      await repo.listLineProgress('u-1', 'r-1');
+      expect(prisma.openingLineProgress.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u-1', repertoireId: 'r-1' },
+        orderBy: { lastPlayedAt: 'desc' },
+      });
+    });
+
+    it('excludeOrphaned: true → фильтрует orphaned=false', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      await repo.listLineProgress('u-1', 'r-1', { excludeOrphaned: true });
+      expect(prisma.openingLineProgress.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u-1', repertoireId: 'r-1', orphaned: false },
+        orderBy: { lastPlayedAt: 'desc' },
+      });
+    });
+  });
+
+  describe('listDueLineProgress', () => {
+    it('фильтрует sm2DueAt <= now AND orphaned=false', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      const now = new Date('2026-05-24T10:00:00Z');
+      await repo.listDueLineProgress('u-1', { now });
+      expect(prisma.openingLineProgress.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'u-1',
+          orphaned: false,
+          sm2DueAt: { lte: now, not: null },
+        },
+        orderBy: { sm2DueAt: 'asc' },
+      });
+    });
+
+    it('с repertoireId — фильтр уточняется', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      const now = new Date('2026-05-24T10:00:00Z');
+      await repo.listDueLineProgress('u-1', { now, repertoireId: 'r-1' });
+      expect(prisma.openingLineProgress.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ repertoireId: 'r-1' }),
+        }),
+      );
+    });
+  });
+
+  describe('listMistakeLineProgress', () => {
+    it('фильтрует wrongCount > 0 AND orphaned=false', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      await repo.listMistakeLineProgress('u-1', 'r-1');
+      expect(prisma.openingLineProgress.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'u-1',
+          repertoireId: 'r-1',
+          orphaned: false,
+          wrongCount: { gt: 0 },
+        },
+        orderBy: { lastPlayedAt: 'desc' },
+      });
+    });
+  });
+
+  describe('markOrphans', () => {
+    it('пустой validHashes → все непомеченные становятся orphan', async () => {
+      const prisma = makePrisma();
+      (prisma.openingLineProgress.updateMany as jest.Mock).mockResolvedValueOnce({
+        count: 7,
+      });
+      const repo = makeRepo(prisma);
+      const r = await repo.markOrphans('r-1', []);
+      expect(r).toEqual({ markedOrphan: 7, resurrected: 0 });
+      expect(prisma.openingLineProgress.updateMany).toHaveBeenCalledWith({
+        where: { repertoireId: 'r-1', orphaned: false },
+        data: { orphaned: true },
+      });
+    });
+
+    it('с validHashes → транзакция (mark + resurrect)', async () => {
+      const prisma = makePrisma();
+      // Mock $transaction: возвращаем результаты двух updateMany.
+      (prisma.$transaction as jest.Mock).mockResolvedValueOnce([
+        { count: 3 }, // marked orphan
+        { count: 2 }, // resurrected
+      ]);
+      const repo = makeRepo(prisma);
+      const r = await repo.markOrphans('r-1', ['h1', 'h2', 'h3']);
+      expect(r).toEqual({ markedOrphan: 3, resurrected: 2 });
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('findLatestActiveSession', () => {
+    it('ищет finishedAt=null + lastActivityAt > sevenDaysAgo', async () => {
+      const prisma = makePrisma();
+      const repo = makeRepo(prisma);
+      const sevenDaysAgo = new Date('2026-05-17T00:00:00Z');
+      await repo.findLatestActiveSession('u-1', 'r-1', sevenDaysAgo);
+      expect(prisma.openingTrainerSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'u-1',
+          repertoireId: 'r-1',
+          finishedAt: null,
+          lastActivityAt: { gt: sevenDaysAgo },
+        },
+        orderBy: { lastActivityAt: 'desc' },
+      });
     });
   });
 });

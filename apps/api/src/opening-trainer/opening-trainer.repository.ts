@@ -227,4 +227,181 @@ export class OpeningTrainerRepository {
   async countAttemptsBySession(sessionId: string): Promise<number> {
     return this.prisma.openingTrainerAttempt.count({ where: { sessionId } });
   }
+
+  // ── OpeningLineProgress (KS-3287 M2 §2.5) ──────────────────────
+
+  /**
+   * Upsert по уникальному `(userId, repertoireId, pathHash)`. Caller
+   * (KS-3288 B2 `OpeningLineProgressService`) формирует data — здесь
+   * только тонкий wrap-перевод в prisma.
+   *
+   * Concurrent upsert безопасен через UNIQUE constraint + ON CONFLICT.
+   */
+  async upsertLineProgress(
+    userId: string,
+    repertoireId: string,
+    pathHash: string,
+    createData: {
+      pathUci: string[];
+      pathLength: number;
+      lastPlayedAt: Date;
+      correctCount: number;
+      wrongCount: number;
+      consecutiveCorrect: number;
+      masteredAt?: Date | null;
+      sm2Easiness?: number | null;
+      sm2Interval?: number | null;
+      sm2DueAt?: Date | null;
+      sm2Reps?: number | null;
+      orphaned?: boolean;
+    },
+    updateData: {
+      lastPlayedAt: Date;
+      correctCount?: number;
+      wrongCount?: number;
+      consecutiveCorrect?: number;
+      masteredAt?: Date | null;
+      sm2Easiness?: number | null;
+      sm2Interval?: number | null;
+      sm2DueAt?: Date | null;
+      sm2Reps?: number | null;
+      orphaned?: boolean;
+    },
+  ) {
+    return this.prisma.openingLineProgress.upsert({
+      where: {
+        userId_repertoireId_pathHash: { userId, repertoireId, pathHash },
+      },
+      create: {
+        userId,
+        repertoireId,
+        pathHash,
+        ...createData,
+        pathUci: createData.pathUci as unknown as Prisma.InputJsonValue,
+      },
+      update: updateData,
+    });
+  }
+
+  async findLineProgress(
+    userId: string,
+    repertoireId: string,
+    pathHash: string,
+  ) {
+    return this.prisma.openingLineProgress.findUnique({
+      where: {
+        userId_repertoireId_pathHash: { userId, repertoireId, pathHash },
+      },
+    });
+  }
+
+  /**
+   * Все линии репертуара пользователя. Опц. `excludeOrphaned: true`
+   * — фильтр для SRS-выборок и нормальных листингов.
+   */
+  async listLineProgress(
+    userId: string,
+    repertoireId: string,
+    opts: { excludeOrphaned?: boolean } = {},
+  ) {
+    return this.prisma.openingLineProgress.findMany({
+      where: {
+        userId,
+        repertoireId,
+        ...(opts.excludeOrphaned ? { orphaned: false } : {}),
+      },
+      orderBy: { lastPlayedAt: 'desc' },
+    });
+  }
+
+  /**
+   * SRS-выборка «к повтору сегодня» (KS-3290 B4). Без `repertoireId`
+   * — across all my repertoires. Сортировка по `sm2DueAt ASC`.
+   */
+  async listDueLineProgress(
+    userId: string,
+    opts: { now: Date; repertoireId?: string },
+  ) {
+    return this.prisma.openingLineProgress.findMany({
+      where: {
+        userId,
+        orphaned: false,
+        sm2DueAt: { lte: opts.now, not: null },
+        ...(opts.repertoireId ? { repertoireId: opts.repertoireId } : {}),
+      },
+      orderBy: { sm2DueAt: 'asc' },
+    });
+  }
+
+  /**
+   * KS-3291 (B5): линии репертуара с ошибками для mistakes-режима.
+   */
+  async listMistakeLineProgress(userId: string, repertoireId: string) {
+    return this.prisma.openingLineProgress.findMany({
+      where: {
+        userId,
+        repertoireId,
+        orphaned: false,
+        wrongCount: { gt: 0 },
+      },
+      orderBy: { lastPlayedAt: 'desc' },
+    });
+  }
+
+  /**
+   * KS-3294 (B8) orphan-pruning: bulk-update в одной транзакции.
+   * `validHashes` — pathHash'и текущего дерева (после rebuild).
+   */
+  async markOrphans(
+    repertoireId: string,
+    validHashes: string[],
+  ): Promise<{ markedOrphan: number; resurrected: number }> {
+    if (validHashes.length === 0) {
+      const r = await this.prisma.openingLineProgress.updateMany({
+        where: { repertoireId, orphaned: false },
+        data: { orphaned: true },
+      });
+      return { markedOrphan: r.count, resurrected: 0 };
+    }
+    const [markedOrphan, resurrected] = await this.prisma.$transaction([
+      this.prisma.openingLineProgress.updateMany({
+        where: {
+          repertoireId,
+          orphaned: false,
+          pathHash: { notIn: validHashes },
+        },
+        data: { orphaned: true },
+      }),
+      this.prisma.openingLineProgress.updateMany({
+        where: {
+          repertoireId,
+          orphaned: true,
+          pathHash: { in: validHashes },
+        },
+        data: { orphaned: false },
+      }),
+    ]);
+    return {
+      markedOrphan: markedOrphan.count,
+      resurrected: resurrected.count,
+    };
+  }
+
+  // ── Active session (KS-3294 B8) ────────────────────────────────
+
+  async findLatestActiveSession(
+    userId: string,
+    repertoireId: string,
+    sevenDaysAgo: Date,
+  ) {
+    return this.prisma.openingTrainerSession.findFirst({
+      where: {
+        userId,
+        repertoireId,
+        finishedAt: null,
+        lastActivityAt: { gt: sevenDaysAgo },
+      },
+      orderBy: { lastActivityAt: 'desc' },
+    });
+  }
 }
