@@ -806,6 +806,245 @@
 }
 
 /* ============================================================
+ * KS-3306 — /opening-trainer/:id/stats страница.
+ *
+ * Frontend (KS-3283) разметил inline-style. Применяем единый
+ * card-style platform: stat-блоки KS-3279 (accent-stripe слева,
+ * uppercase label), error-list как карточки с mini-board, sessions —
+ * таблица-like карточка. Все цвета через токены.
+ *
+ * Frontend inline-style (style={{...}}) выигрывает по специфичности —
+ * перекрываем через `!important` где нужно.
+ * ============================================================ */
+.opening-trainer-stats {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-x: clip;
+}
+.opening-trainer-stats h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.opening-trainer-stats > header {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  background: linear-gradient(
+    135deg,
+    var(--ov-accent-08),
+    var(--ov-accent-15)
+  );
+  border: 1px solid var(--ov-accent-15);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.opening-trainer-stats > header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent-primary);
+}
+.opening-trainer-stats > header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.opening-trainer-stats > header h1::before {
+  content: '📊';
+  font-size: 26px;
+}
+.opening-trainer-stats .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+.opening-trainer-stats .back-link:hover {
+  color: var(--accent-primary);
+}
+
+/* Summary stat-блоки (KS-3279 unified). Перекрываем frontend inline-
+ * style — display: block 28px fontSize → переопределяем через
+ * `!important` (inline-style specificity). */
+.opening-trainer-stats__summary {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  gap: 10px !important;
+  margin-bottom: 24px !important;
+}
+.opening-trainer-stats__summary .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.opening-trainer-stats__summary .stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+}
+/* Перекрываем inline-style { fontSize: 28, fontWeight: 700 }. */
+.opening-trainer-stats__summary .stat__value {
+  display: block !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.opening-trainer-stats__summary .stat__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+/* Section headers (h2). */
+.opening-trainer-stats__errors,
+.opening-trainer-stats__sessions {
+  margin-bottom: 24px !important;
+}
+.opening-trainer-stats__errors h2,
+.opening-trainer-stats__sessions h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.opening-trainer-stats__errors h2::before {
+  content: '⚠️ ';
+  margin-right: 4px;
+}
+.opening-trainer-stats__sessions h2::before {
+  content: '⏱ ';
+  margin-right: 4px;
+}
+
+/* Empty-state — карточка с emoji-иллюстрацией. */
+.opening-trainer-stats [data-testid='opening-trainer-stats-errors-empty'],
+.opening-trainer-stats [data-testid='opening-trainer-stats-sessions-empty'] {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 20px !important;
+  background: var(--bg-surface);
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-secondary) !important;
+  text-align: center;
+  font-size: 13px;
+  margin: 0;
+  opacity: 1 !important;
+}
+.opening-trainer-stats [data-testid='opening-trainer-stats-errors-empty']::before {
+  content: '🎯';
+  font-size: 32px;
+  opacity: 0.5;
+}
+.opening-trainer-stats [data-testid='opening-trainer-stats-sessions-empty']::before {
+  content: '🕒';
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+/* Error-list — карточка с mini-board слева и details справа.
+ * Перекрываем inline-style frontend'а на красивые токены. */
+.opening-trainer-stats__errors ol {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px !important;
+}
+.opening-trainer-stats__error-row {
+  padding: 12px 14px !important;
+  gap: 14px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  transition: background 120ms ease;
+}
+.opening-trainer-stats__error-row:last-child {
+  border-bottom: 0 !important;
+}
+.opening-trainer-stats__error-row:hover {
+  background: var(--ov-white-05);
+}
+.opening-trainer-stats__error-row > div {
+  font-size: 13px !important;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.opening-trainer-stats__error-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-right: 6px;
+}
+.opening-trainer-stats__error-row [data-testid='opening-trainer-stats-error-expected'] {
+  color: var(--success);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.opening-trainer-stats__error-row [data-testid='opening-trainer-stats-error-wrong'] {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sessions list — карточка-таблица. */
+.opening-trainer-stats__sessions ul {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px !important;
+}
+.opening-trainer-stats__sessions li {
+  padding: 10px 14px !important;
+  gap: 12px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  font-size: 13px !important;
+  transition: background 120ms ease;
+}
+.opening-trainer-stats__sessions li:last-child {
+  border-bottom: 0 !important;
+}
+.opening-trainer-stats__sessions li:hover {
+  background: var(--ov-white-05);
+}
+.opening-trainer-stats__sessions li strong {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.opening-trainer-stats__sessions li > span:first-child {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
  * KS-3300 (M2 L1) — RepertoireTreeView.
  *
  * DOM (см. `RepertoireTreeView.tsx`):
@@ -1155,6 +1394,43 @@
   .opening-trainer-result__actions .btn {
     width: 100%;
     min-height: 44px;
+  }
+
+  /* ── /stats ────────────────────────────────────────────────
+     KS-3306: компакт на mobile — 2-col stat grid, error/session rows
+     перестраиваются в вертикаль. */
+  .opening-trainer-stats {
+    padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  .opening-trainer-stats h1 {
+    font-size: 22px;
+  }
+  .opening-trainer-stats > header {
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .opening-trainer-stats__summary {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .opening-trainer-stats__summary .stat {
+    padding: 10px 12px;
+  }
+  .opening-trainer-stats__summary .stat__value {
+    font-size: 20px !important;
+  }
+  .opening-trainer-stats__error-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .opening-trainer-stats__error-row > div {
+    width: 100%;
+  }
+  .opening-trainer-stats__sessions li {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
   }
 
   /* ── /tree-view ─────────────────────────────────────────────
