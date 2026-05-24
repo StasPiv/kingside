@@ -208,7 +208,9 @@ class FakeRepo {
           l.userId === userId &&
           l.repertoireId === repertoireId &&
           !l.orphaned &&
-          (l.wrongCount ?? 0) > 0,
+          (l.wrongCount ?? 0) > 0 &&
+          // KS-3317: линия в очереди только если последняя попытка была wrong.
+          (l.consecutiveCorrect ?? 0) === 0,
       )
       .sort((a, b) => b.lastPlayedAt.getTime() - a.lastPlayedAt.getTime());
   }
@@ -1271,7 +1273,7 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
         sm2Reps: null,
         orphaned: false,
       });
-      // Свежая линия с ошибкой.
+      // Свежая линия с ошибкой (consecutiveCorrect=0 — KS-3317 фильтр).
       repo._seedLineProgress({
         userId: 'u-1',
         repertoireId: r.id,
@@ -1280,7 +1282,7 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
         pathLength: 2,
         correctCount: 2,
         wrongCount: 1,
-        consecutiveCorrect: 1,
+        consecutiveCorrect: 0,
         lastPlayedAt: new Date('2026-05-23T00:00:00Z'),
         masteredAt: null,
         sm2DueAt: null,
@@ -1351,6 +1353,64 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
       // бот играет первый ход — пользователь видит то же что в начале.
       expect(m2.result).toBe('tree-complete');
       expect(m2.session.status).toBe('finished');
+    });
+
+    // KS-3317: после успешного прохождения mistake-линии она НЕ должна
+    // повторно предлагаться в следующей mistakes-сессии. Сейчас баг:
+    // recordAttempt(correct) пишет в pathUci=currentPath+move (дочерний
+    // путь), а mistake-линия (родительский pathUci) остаётся
+    // wrongCount>0 + consecutiveCorrect=0 → всегда первая в выборке.
+    //
+    // Используем настоящий OpeningLineProgressService (а не jest.fn-мок),
+    // чтобы апдейты mistake-pathUci действительно записывались в FakeRepo.
+    it('KS-3317: после correct на mistake-линии следующая mistakes-сессия её не предлагает', async () => {
+      const repo = new FakeRepo();
+      const builder = new RepertoireBuilderService();
+      const realProgress = new OpeningLineProgressService(
+        repo as unknown as OpeningTrainerRepository,
+      );
+      const svc = new OpeningTrainerService(
+        repo as unknown as OpeningTrainerRepository,
+        builder,
+        realProgress,
+      );
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 e5 2. Nf3 Nc6',
+        side: 'black',
+      });
+      // Одна mistake-линия pathUci=['e2e4'] (after-e4, юзер сыграл что-то
+      // не e5 и получил wrong).
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: pathHashFn(['e2e4']),
+        pathUci: ['e2e4'],
+        pathLength: 1,
+        correctCount: 0,
+        wrongCount: 1,
+        consecutiveCorrect: 0,
+        lastPlayedAt: new Date('2026-05-23T00:00:00Z'),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+      // 1. Стартуем mistakes-сессию.
+      const s1 = await svc.startSession('u-1', r.id, { mode: 'mistakes' });
+      expect(s1.session.currentPath).toEqual(['e2e4']);
+      // 2. Юзер играет correct (e7e5) — должен «исправить» mistake.
+      await svc.makeMove('u-1', s1.session.id, {
+        moveUci: 'e7e5',
+        responseTimeMs: 3000,
+      });
+      // 3. Стартуем mistakes-сессию опять — ожидаем no_mistakes
+      // (mistake-линия теперь consecutiveCorrect=1, не попадает в выборку).
+      await expect(
+        svc.startSession('u-1', r.id, { mode: 'mistakes' }),
+      ).rejects.toThrow(/no_mistakes/);
     });
 
     it('orphaned-линии не попадают в mistakes-выборку', async () => {

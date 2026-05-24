@@ -508,6 +508,37 @@ export class OpeningTrainerService {
         });
     }
 
+    // KS-3317: в mistakes-mode при correct первого хода (когда юзер
+    // отвечает на исходную mistake-позицию) — дополнительный апдейт
+    // самой mistake-pathUci (равной session.currentPath на момент хода).
+    // Без этого `wrongCount > 0` остаётся forever, линия каждую новую
+    // mistakes-сессию первая в выборке `listMistakeLineProgress` (баг:
+    // «при каждом заходе одна и та же позиция»).
+    //
+    // Парный фикс — фильтр `consecutiveCorrect: 0` в
+    // `listMistakeLineProgress`. После этого recordAttempt(correct) на
+    // mistake-pathUci сделает `consecutiveCorrect = 1`, и линия выйдет
+    // из mistakes-pool в следующих сессиях.
+    if (
+      session.mode === 'mistakes' &&
+      readUciArray(session.currentPath).length === session.lineStartIndex
+    ) {
+      const mistakePath = readUciArray(session.currentPath);
+      await this.progress
+        .recordAttempt({
+          userId,
+          repertoireId: session.repertoireId,
+          pathUci: mistakePath,
+          correct: true,
+          now,
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `[makeMove] recordAttempt(mistake-fix) failed for session=${sessionId.slice(0, 8)}: ${(err as Error).message}`,
+          );
+        });
+    }
+
     const newStreak = scoreRes.newStreak;
     const newStreakMax = Math.max(session.streakMax, newStreak);
     const baseUpdate = {

@@ -458,7 +458,7 @@ describe('OpeningTrainerRepository', () => {
   });
 
   describe('listMistakeLineProgress', () => {
-    it('фильтрует wrongCount > 0 AND orphaned=false', async () => {
+    it('фильтрует wrongCount > 0 AND orphaned=false AND consecutiveCorrect=0 (KS-3317)', async () => {
       const prisma = makePrisma();
       const repo = makeRepo(prisma);
       await repo.listMistakeLineProgress('u-1', 'r-1');
@@ -468,6 +468,7 @@ describe('OpeningTrainerRepository', () => {
           repertoireId: 'r-1',
           orphaned: false,
           wrongCount: { gt: 0 },
+          consecutiveCorrect: 0,
         },
         orderBy: { lastPlayedAt: 'desc' },
       });

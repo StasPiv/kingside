@@ -358,6 +358,13 @@ export class OpeningTrainerRepository {
 
   /**
    * KS-3291 (B5): линии репертуара с ошибками для mistakes-режима.
+   *
+   * KS-3317: добавлен фильтр `consecutiveCorrect = 0` — линия в очереди
+   * только если ПОСЛЕДНЯЯ попытка была wrong (не исправлена). После
+   * успешного прохода в mistakes-сессии `recordAttempt` инкрементирует
+   * consecutiveCorrect → линия выходит из выборки в следующих сессиях.
+   * Если юзер потом снова ошибётся на этой позиции — wrongCount++ и
+   * consecutiveCorrect=0 → линия возвращается.
    */
   async listMistakeLineProgress(userId: string, repertoireId: string) {
     return this.prisma.openingLineProgress.findMany({
@@ -366,6 +373,7 @@ export class OpeningTrainerRepository {
         repertoireId,
         orphaned: false,
         wrongCount: { gt: 0 },
+        consecutiveCorrect: 0,
       },
       orderBy: { lastPlayedAt: 'desc' },
     });
