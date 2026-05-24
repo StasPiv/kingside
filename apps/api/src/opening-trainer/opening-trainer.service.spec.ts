@@ -610,10 +610,10 @@ describe('KS-3277: auto-restart до tree-complete', () => {
     expect(start.initialBotMove!.moveSan).toBe('c4');
   });
 
-  it('грязная линия (с wrong) → multi-edge user pos → line-restart на альтернативу', async () => {
-    // PGN с двумя user-вариантами: 1.e4 (1.d4). Если юзер ошибся на одной
-    // ветке (1.e4 dirty) — должен получить line-restart, чтобы попробовать
-    // другую (1.d4).
+  it('KS-3282: грязная линия (с wrong) → теперь маркируется clean → tree-complete срабатывает', async () => {
+    // PGN с двумя user-вариантами: 1.e4 (1.d4). Юзер ошибается на e4,
+    // потом правильно играет. После KS-3282 фикса дерево ВСЕГДА маркируется
+    // clean (даже dirty линии), tree-complete срабатывает корректно.
     const { svc } = makeService();
     const r = await svc.createRepertoire('u-1', {
       title: 't',
@@ -623,46 +623,70 @@ describe('KS-3277: auto-restart до tree-complete', () => {
       side: 'white',
       mode: 'learn',
     });
-    // Wrong: Nf3 (нет в репертуаре) → currentLineHadWrong=true.
+    // Wrong: Nf3.
     const wrong = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'g1f3',
       responseTimeMs: 8000,
     });
     expect(wrong.result).toBe('wrong');
 
-    // Correct e4 → dirty line-complete. findNextUnexploredBranch:
-    //  - depth=1 (after-e4): edges=[], unclean=0.
-    //  - depth=0 (root): edges=[e4, d4], clean=[]. KS-3281 фильтр исключает
-    //    user-edge (e4) → unclean=[d4]. Found → line-restart на root.
+    // Correct e4. С KS-3282 фиксом: cleanLines[root]+=[after-e4] (always
+    // mark). findNextBranch: depth=1 unclean=0; depth=0 user-edge=e4
+    // excluded → unclean=[d4]. → line-restart на root.
     const correct = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'e2e4',
       responseTimeMs: 8000,
     });
     expect(correct.result).toBe('line-restart');
-    if (correct.result === 'line-restart') {
-      expect(correct.session.status).toBe('active');
-    }
 
-    // Третий заход — играем d4 (alternative). Чистая линия → tree-complete?
-    // НЕТ: e4 ещё не clean (был dirty). tree.cleanLines[root]=[after-d4 после
-    // этого correct'а]. Но after-e4 не помечен. findNextBranch:
-    //  - depth=1 (after-d4): edges=[], unclean=0.
-    //  - depth=0 (root): edges=[e4,d4], clean=[after-d4]. user-edge=d4 excluded.
-    //    unclean=[e4]. Found! → line-restart на root.
+    // Финальный заход — играем d4. cleanLines[root]=[after-e4, after-d4].
+    // Все edges clean → tree-complete (раньше с dirty-skip-логикой
+    // tree-complete не срабатывал).
     const playD4 = await svc.makeMove('u-1', start.session.id, {
       moveUci: 'd2d4',
       responseTimeMs: 8000,
     });
-    expect(playD4.result).toBe('line-restart');
+    expect(playD4.result).toBe('tree-complete');
+    if (playD4.result === 'tree-complete') {
+      expect(playD4.session.status).toBe('finished');
+    }
+  });
 
-    // Четвёртый заход — играем e4 (теперь без ошибок).
-    // Этот заход помечает e4 clean. cleanLines[root]=[after-d4, after-e4].
-    // Все edges clean → tree-complete.
-    const finalCorrect = await svc.makeMove('u-1', start.session.id, {
-      moveUci: 'e2e4',
-      responseTimeMs: 8000,
+  it('KS-3282: wrong + correct корректно засчитывается с первого ввода', async () => {
+    // Проверяет issue 1 (KS-3282): backend не требует двух correct'ов
+    // после wrong'а. Если этот тест проходит на бэке — баг во фронте.
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
     });
-    expect(finalCorrect.result).toBe('tree-complete');
+    const start = await svc.startSession('u-1', r.id, {
+      side: 'white',
+      mode: 'learn',
+    });
+    // Wrong move.
+    const wrong = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'g1f3',
+      responseTimeMs: 1000,
+    });
+    expect(wrong.result).toBe('wrong');
+    // session.currentFen НЕ изменился после wrong:
+    expect(wrong.session.currentFen).toBe(start.session.currentFen);
+
+    // Correct move сразу после wrong. Должен быть correct с первого ввода.
+    const correct = await svc.makeMove('u-1', start.session.id, {
+      moveUci: 'e2e4',
+      responseTimeMs: 1000,
+    });
+    // Должен быть correct (не wrong), session двигается дальше.
+    expect(correct.result).not.toBe('wrong');
+    if (correct.result === 'correct' || correct.result === 'line-restart' || correct.result === 'tree-complete') {
+      // Любой из этих успешных исходов — ход засчитан.
+      expect(correct.session.correctMoves).toBe(1);
+      expect(correct.session.wrongMoves).toBe(1);
+    } else {
+      throw new Error(`expected success result, got ${correct.result}`);
+    }
   });
 });
 
