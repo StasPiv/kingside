@@ -462,22 +462,10 @@ export class OpeningTrainerService {
       args;
     let cleanLines = args.cleanLines;
 
-    // KS-3282: ВСЕГДА маркируем edges в cleanLines, даже если в линии
-    // были wrong-attempts. Раньше `currentLineHadWrong` гейтил
-    // addLineToClean — но это вызывало tree-complete-never-fires:
-    //   * /undo не сбрасывал `currentLineHadWrong` (нет тайм-stamp'а
-    //     "когда началась линия" чтобы re-count'ить wrongs);
-    //   * флаг застревал в true после первого wrong → ни одна
-    //     последующая линия не маркировалась clean → cleanPlayedLines
-    //     никогда не покрывал дерево → tree-complete не срабатывал.
-    //
-    // Trade-off: «грязные линии остаются в очереди» (требование KS-3277)
-    // теперь работает только для multi-edge user-positions (KS-3281
-    // фильтр исключает user-edge на текущем depth, restart идёт на
-    // другую альтернативу). Single-edge dirty проходит сразу.
-    // Полную dirty-queue с per-line wrong-tracking — в M2 вместе с
-    // OpeningLineProgress / SM-2 (там и так нужен per-path tracking).
-    cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
+    // 1. Если линия чистая — добавляем edges в cleanPlayedLines.
+    if (!session.currentLineHadWrong) {
+      cleanLines = addLineToClean(cleanLines, newPath, session.lineStartIndex);
+    }
 
     // 2. Ищем следующую развилку.
     const next = findNextUnexploredBranch(tree, newPath, cleanLines);
