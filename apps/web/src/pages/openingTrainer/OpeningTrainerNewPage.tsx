@@ -149,13 +149,28 @@ export function OpeningTrainerNewPage() {
           />
         </label>
 
-        {/* KS-3302: фиксируем сторону репертуара здесь, один раз. */}
+        {/* KS-3302: фиксируем сторону репертуара здесь, один раз.
+            Inline appearance: auto на radio'ах — общий CSS
+            `.opening-trainer-new__form input` (layout-agent) применяет
+            text-input стили (appearance: none + border + padding), что
+            ломает radio. Перебиваем locally до KS-3300 follow-up'а. */}
         <div className="form-field" data-testid="opening-trainer-new-side">
-          <span className="form-field__label">
+          <span className="form-field__label" style={{ display: 'block', marginBottom: 6 }}>
             {t('openingTrainer.new.fields.side', 'Train as')}
           </span>
-          <div className="radio-group" role="radiogroup">
-            <label style={{ marginRight: 16 }}>
+          <div
+            className="radio-group"
+            role="radiogroup"
+            style={{ display: 'flex', gap: 24, alignItems: 'center' }}
+          >
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+              }}
+            >
               <input
                 type="radio"
                 name="repertoire-side"
@@ -163,10 +178,27 @@ export function OpeningTrainerNewPage() {
                 checked={side === 'white'}
                 onChange={() => setSide('white')}
                 data-testid="opening-trainer-new-side-white"
-              />{' '}
+                style={{
+                  appearance: 'auto',
+                  WebkitAppearance: 'auto',
+                  width: 'auto',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  margin: 0,
+                  minWidth: 0,
+                }}
+              />
               {t('openingTrainer.new.side.white', 'White')}
             </label>
-            <label>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+              }}
+            >
               <input
                 type="radio"
                 name="repertoire-side"
@@ -174,7 +206,17 @@ export function OpeningTrainerNewPage() {
                 checked={side === 'black'}
                 onChange={() => setSide('black')}
                 data-testid="opening-trainer-new-side-black"
-              />{' '}
+                style={{
+                  appearance: 'auto',
+                  WebkitAppearance: 'auto',
+                  width: 'auto',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  margin: 0,
+                  minWidth: 0,
+                }}
+              />
               {t('openingTrainer.new.side.black', 'Black')}
             </label>
           </div>
