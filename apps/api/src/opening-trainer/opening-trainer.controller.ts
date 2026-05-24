@@ -176,6 +176,16 @@ export class OpeningTrainerController {
   ) {
     return this.service.listRepertoireProgress(requireUserId(req), id);
   }
+
+  // ── KS-3294 (M2 B8): GET /repertoires/:id/active-session ───────
+
+  @Get('repertoires/:id/active-session')
+  async activeSession(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.service.getActiveSession(requireUserId(req), id);
+  }
 }
 
 function requireUserId(req: Request): string {

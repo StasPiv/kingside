@@ -34,6 +34,7 @@ import {
 import { pickBotMove } from './bot-picker';
 import { computeScoreDelta } from './scoring';
 import { OpeningLineProgressService } from './opening-line-progress.service';
+import { pathHash } from './path-hash';
 import {
   CreateRepertoireDto,
   MoveDto,
@@ -170,6 +171,19 @@ export class OpeningTrainerService {
     }
 
     const updated = await this.repo.updateRepertoire(id, updateData);
+
+    // KS-3294 (M2 B8): orphan-pruning. Если PGN изменился, перечисляем
+    // все валидные pathHash'и нового дерева и помечаем устаревшие
+    // line-progress как orphaned=true (resurrect наоборот).
+    if (tree !== null) {
+      const validHashes = Array.from(enumerateTreePathHashes(tree));
+      const r = await this.repo.markOrphans(id, validHashes);
+      this.logger.log(
+        `[updateRepertoire] orphan-pruning rep=${id.slice(0, 8)}: ` +
+          `markedOrphan=${r.markedOrphan} resurrected=${r.resurrected}`,
+      );
+    }
+
     return rowToRepertoireDetailDto(
       updated,
       tree ?? jsonToTree(updated.tree),
@@ -981,6 +995,29 @@ export class OpeningTrainerService {
     return chess.fen();
   }
 
+  // ── KS-3294 (M2 B8): GET /opening-trainer/repertoires/:id/active-session ──
+
+  /**
+   * Последняя неоконченная сессия пользователя по репертуару с
+   * `lastActivityAt > now - 7d`, иначе null. Используется для
+   * sticky-карточки «продолжить тренировку».
+   */
+  async getActiveSession(
+    userId: string,
+    repertoireId: string,
+  ): Promise<{ session: OpeningTrainerSessionDto | null }> {
+    await this.requireRepertoire(userId, repertoireId);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const session = await this.repo.findLatestActiveSession(
+      userId,
+      repertoireId,
+      sevenDaysAgo,
+    );
+    return {
+      session: session ? sessionRowToDto(session) : null,
+    };
+  }
+
   // ── KS-3293 (M2 B7): POST /opening-trainer/repertoires/from-analysis ──
 
   /**
@@ -1238,6 +1275,49 @@ function readPlayedLines(json: unknown): Record<string, string[]> {
 function readUciArray(json: unknown): string[] {
   if (Array.isArray(json)) return json as string[];
   return [];
+}
+
+/**
+ * KS-3294 (M2 B8). DFS через tree → set всех pathHash'ей, которые
+ * соответствуют валидным линиям в текущем дереве. Используется в
+ * `updateRepertoire` для orphan-pruning.
+ *
+ * Включает:
+ *   - пустой path (root) — `pathHash([])`.
+ *   - все prefix-paths по edges (любой intermediate node — это
+ *     потенциальная line endpoint).
+ *
+ * Транспозиции (один fen достижим через разные пути) дают разные
+ * pathHash'и — все валидные. `visited` set по `(fenFrom, moveUci)`
+ * предотвращает бесконечный обход.
+ *
+ * Сложность: O(edges) ≤ 5000 итераций + 5000 sha1 — десятки
+ * миллисекунд max (admin-операция, не hot-path).
+ */
+function enumerateTreePathHashes(tree: RepertoireTree): Set<string> {
+  const hashes = new Set<string>();
+  hashes.add(pathHash([])); // root itself
+
+  const stack: Array<{ fen: string; path: string[] }> = [
+    { fen: tree.rootFen, path: [] },
+  ];
+  const visited = new Set<string>();
+
+  while (stack.length > 0) {
+    const { fen, path } = stack.pop()!;
+    const node = tree.nodes[fen];
+    if (!node) continue;
+    for (const edge of node.edges) {
+      const edgeKey = `${fen}|${edge.moveUci}`;
+      if (visited.has(edgeKey)) continue;
+      visited.add(edgeKey);
+      const newPath = [...path, edge.moveUci];
+      hashes.add(pathHash(newPath));
+      stack.push({ fen: edge.childFen, path: newPath });
+    }
+  }
+
+  return hashes;
 }
 
 /**

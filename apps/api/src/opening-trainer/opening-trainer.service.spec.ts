@@ -6,6 +6,7 @@ import {
 import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
 import { OpeningLineProgressService } from './opening-line-progress.service';
+import { pathHash as pathHashFn } from './path-hash';
 import {
   BadRequestException,
   ConflictException,
@@ -223,6 +224,45 @@ class FakeRepo {
   }
   _seedAnalysis(row: any) {
     this.analyses.push(row);
+  }
+
+  // ── KS-3294 (B8) markOrphans + findLatestActiveSession ──
+  async markOrphans(repertoireId: string, validHashes: string[]) {
+    let markedOrphan = 0;
+    let resurrected = 0;
+    const valid = new Set(validHashes);
+    for (const lp of this.lineProgress) {
+      if (lp.repertoireId !== repertoireId) continue;
+      const inValid = valid.has(lp.pathHash);
+      if (!lp.orphaned && !inValid) {
+        lp.orphaned = true;
+        markedOrphan++;
+      } else if (lp.orphaned && inValid) {
+        lp.orphaned = false;
+        resurrected++;
+      }
+    }
+    return { markedOrphan, resurrected };
+  }
+  async findLatestActiveSession(
+    userId: string,
+    repertoireId: string,
+    sevenDaysAgo: Date,
+  ) {
+    return (
+      [...this.sessions]
+        .filter(
+          (s) =>
+            s.userId === userId &&
+            s.repertoireId === repertoireId &&
+            s.finishedAt == null &&
+            s.lastActivityAt > sevenDaysAgo,
+        )
+        .sort(
+          (a, b) =>
+            b.lastActivityAt.getTime() - a.lastActivityAt.getTime(),
+        )[0] ?? null
+    );
   }
 }
 
@@ -1453,6 +1493,131 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
       await expect(
         svc.createRepertoireFromAnalysis('u-1', { analysisId: 'a-1' }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('KS-3294 (M2 B8): getActiveSession + orphan-pruning', () => {
+    it('нет активной сессии → session=null', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      const r2 = await svc.getActiveSession('u-1', r.id);
+      expect(r2.session).toBeNull();
+    });
+
+    it('есть активная сессия → возвращается DTO', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      const start = await svc.startSession('u-1', r.id, {
+        side: 'white',
+        mode: 'learn',
+      });
+      const r2 = await svc.getActiveSession('u-1', r.id);
+      expect(r2.session).not.toBeNull();
+      expect(r2.session?.id).toBe(start.session.id);
+    });
+
+    it('owner-check: чужой репертуар → 404', async () => {
+      const { svc } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      await expect(svc.getActiveSession('u-2', r.id)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('orphan-pruning: PATCH pgn удаляет вариант → старые pathHash → orphaned=true', async () => {
+      const { svc, repo } = makeReviewService();
+      // PGN с двумя вариантами: 1.e4 (1.d4).
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4 (1. d4)',
+      });
+      // Засеиваем line-progress для e2e4 и d2d4.
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: pathHashFn(['e2e4']),
+        pathUci: ['e2e4'],
+        pathLength: 1,
+        correctCount: 3,
+        wrongCount: 0,
+        consecutiveCorrect: 3,
+        lastPlayedAt: new Date(),
+        masteredAt: new Date(),
+        sm2DueAt: null,
+        sm2Easiness: 2.6,
+        sm2Interval: 1,
+        sm2Reps: 1,
+        orphaned: false,
+      });
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: pathHashFn(['d2d4']),
+        pathUci: ['d2d4'],
+        pathLength: 1,
+        correctCount: 2,
+        wrongCount: 0,
+        consecutiveCorrect: 2,
+        lastPlayedAt: new Date(),
+        masteredAt: null,
+        sm2DueAt: null,
+        sm2Easiness: null,
+        sm2Interval: null,
+        sm2Reps: null,
+        orphaned: false,
+      });
+
+      // PATCH pgn — удаляем 1.d4 вариант.
+      await svc.updateRepertoire('u-1', r.id, { pgn: '1. e4' });
+
+      // Записи: e2e4 валиден → НЕ orphan; d2d4 невалиден → orphan=true.
+      const all = await svc.listRepertoireProgress('u-1', r.id);
+      const byPath = Object.fromEntries(
+        all.lines.map((l) => [l.pathUci.join(','), l]),
+      );
+      expect(byPath['e2e4'].orphaned).toBe(false);
+      expect(byPath['d2d4'].orphaned).toBe(true);
+    });
+
+    it('orphan-resurrection: PATCH pgn возвращает удалённый вариант → orphaned=false', async () => {
+      const { svc, repo } = makeReviewService();
+      const r = await svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+      });
+      // Засеиваем линию d2d4 как orphan'a (мол, был в старом PGN).
+      repo._seedLineProgress({
+        userId: 'u-1',
+        repertoireId: r.id,
+        pathHash: pathHashFn(['d2d4']),
+        pathUci: ['d2d4'],
+        pathLength: 1,
+        correctCount: 3,
+        wrongCount: 0,
+        consecutiveCorrect: 3,
+        lastPlayedAt: new Date(),
+        masteredAt: new Date(),
+        sm2DueAt: null,
+        sm2Easiness: 2.6,
+        sm2Interval: 1,
+        sm2Reps: 1,
+        orphaned: true,
+      });
+      // PATCH pgn — добавляем d4 как вариант.
+      await svc.updateRepertoire('u-1', r.id, { pgn: '1. e4 (1. d4)' });
+      // d2d4 валиден → orphaned=false (resurrected).
+      const all = await svc.listRepertoireProgress('u-1', r.id);
+      const d4Line = all.lines.find((l) => l.pathUci.join(',') === 'd2d4');
+      expect(d4Line?.orphaned).toBe(false);
     });
   });
 
