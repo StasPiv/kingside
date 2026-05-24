@@ -119,6 +119,53 @@ describe('RepertoireTreeView (KS-3305 — via ReviewMoveList)', () => {
     expect(screen.getByTestId('opening-trainer-tree-empty')).toBeInTheDocument();
   });
 
+  it('KS-3308: при side=black белые ходы (бот) имеют data-status="bot", чёрные — реальный статус', () => {
+    // Простое дерево: 1.e4 (бот) → 1...c5 (юзер) → 2.Nf3 (бот) → 2...d6 (юзер).
+    const lines: OpeningLineProgressDto[] = [
+      makeLine({ pathUci: ['e2e4', 'c7c5'], status: 'mastered' }),
+    ];
+    const tree: RepertoireTree = {
+      rootFen: 'start',
+      nodes: {
+        start: { fen: 'start', edges: [{ moveUci: 'e2e4', moveSan: 'e4', childFen: 'a' }] },
+        a: { fen: 'a', edges: [{ moveUci: 'c7c5', moveSan: 'c5', childFen: 'b' }] },
+        b: { fen: 'b', edges: [] },
+      },
+      meta: { nodeCount: 3, edgeCount: 2, maxDepth: 2 },
+    };
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={tree} lines={lines} side="black" />,
+    );
+    const moves = Array.from(container.querySelectorAll('.review-move'));
+    // 2 хода: 1.e4 (бот для black-user), 1...c5 (user).
+    const statuses = moves.map((el) => el.getAttribute('data-status'));
+    expect(statuses).toContain('bot'); // ход белых
+    expect(statuses).toContain('mastered'); // ход чёрных = user, статус из progress
+    expect(statuses).not.toContain('not-played'); // мы поставили статус для c5
+  });
+
+  it('KS-3308: при side=white всё наоборот — белые ходы user, чёрные нейтральные', () => {
+    const lines: OpeningLineProgressDto[] = [
+      makeLine({ pathUci: ['e2e4'], status: 'mastered' }),
+    ];
+    const tree: RepertoireTree = {
+      rootFen: 'start',
+      nodes: {
+        start: { fen: 'start', edges: [{ moveUci: 'e2e4', moveSan: 'e4', childFen: 'a' }] },
+        a: { fen: 'a', edges: [{ moveUci: 'c7c5', moveSan: 'c5', childFen: 'b' }] },
+        b: { fen: 'b', edges: [] },
+      },
+      meta: { nodeCount: 3, edgeCount: 2, maxDepth: 2 },
+    };
+    const { container } = renderWithProviders(
+      <RepertoireTreeView tree={tree} lines={lines} side="white" />,
+    );
+    const moves = Array.from(container.querySelectorAll('.review-move'));
+    const statuses = moves.map((el) => el.getAttribute('data-status'));
+    expect(statuses).toContain('mastered'); // 1.e4 user
+    expect(statuses).toContain('bot');       // 1...c5 нейтральный
+  });
+
   it('KS-3305 acceptance: длинная главная линия без альтернатив рендерится плоско', () => {
     // 10-ходовая линия 1.c4 e6 2.g3 d5 3.Bg2 dxc4 4.Nf3 a6 5.Qc2 b5 …
     const buildLongTree = (): RepertoireTree => {

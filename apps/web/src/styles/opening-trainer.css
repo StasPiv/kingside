@@ -621,6 +621,12 @@
 .opening-trainer-tree .review-move.repertoire-move--not-played {
   /* default — не переопределяем. */
 }
+/* KS-3308: ходы бота (когда передан repertoire.side) — нейтральные,
+   не подкрашиваются. Чтобы они визуально отличались от user-ходов и не
+   создавали ложного сигнала про прогресс — приглушаем opacity. */
+.opening-trainer-tree .review-move.repertoire-move--bot {
+  opacity: 0.55;
+}
 .opening-trainer-tree .review-move {
   cursor: default; /* read-only — ходы не интерактивны в M2 */
 }

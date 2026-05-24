@@ -27,6 +27,7 @@ import type {
   OpeningLineProgressDto,
   OpeningLineStatus,
   OpeningRepertoireDetailDto,
+  TrainerColor,
 } from '@kingside/shared';
 import type { GameMove } from '../../hooks/useChessGame';
 import { ReviewMoveList } from '../../components/ReviewMoveList';
@@ -36,6 +37,17 @@ interface Props {
   tree: OpeningRepertoireDetailDto['tree'];
   /** Per-line прогресс из GET /repertoires/:id/progress (KS-3292). */
   lines: OpeningLineProgressDto[];
+  /**
+   * KS-3308. Сторона, за которую пользователь тренирует репертуар.
+   * Используется чтобы покрасить ТОЛЬКО ходы пользователя — ходы
+   * бота остаются нейтральными (default цвет). Без этого пропа
+   * покрашены оба цвета (старое поведение KS-3305).
+   *
+   * Логика по ply (1-based, 1 = первый ход белых):
+   *   - side='white' → user-ходы на нечётных ply (1, 3, 5…)
+   *   - side='black' → user-ходы на чётных ply (2, 4, 6…)
+   */
+  side?: TrainerColor;
 }
 
 const STATUS_COLOR: Record<OpeningLineStatus, string> = {
@@ -74,7 +86,7 @@ function buildPathByGlobalIndex(
   }
 }
 
-export function RepertoireTreeView({ tree, lines }: Props) {
+export function RepertoireTreeView({ tree, lines, side }: Props) {
   const { t } = useTranslation();
 
   const history: GameMove[] = useMemo(
@@ -99,6 +111,21 @@ export function RepertoireTreeView({ tree, lines }: Props) {
 
   const getMoveExtra = useCallback(
     (move: GameMove) => {
+      // KS-3308: ход бота — нейтральный, не подкрашиваем. ply 1-based:
+      //   side='white' → user-ходы на нечётных ply, бот на чётных;
+      //   side='black' → user-ходы на чётных, бот на нечётных.
+      // Без `side` (back-compat) красим все ходы как раньше.
+      if (side) {
+        const isWhiteMove = move.ply % 2 === 1;
+        const isUserMove =
+          side === 'white' ? isWhiteMove : !isWhiteMove;
+        if (!isUserMove) {
+          return {
+            className: 'repertoire-move--bot',
+            data: { 'data-status': 'bot' },
+          };
+        }
+      }
       const path = pathsByIdx.get(move.globalIndex);
       const status: OpeningLineStatus = path
         ? statusByPathKey.get(pathKey(path)) ?? 'not-played'
@@ -110,7 +137,7 @@ export function RepertoireTreeView({ tree, lines }: Props) {
         },
       };
     },
-    [pathsByIdx, statusByPathKey],
+    [pathsByIdx, statusByPathKey, side],
   );
 
   if (history.length === 0) {

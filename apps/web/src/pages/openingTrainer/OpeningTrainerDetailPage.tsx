@@ -425,10 +425,16 @@ export function OpeningTrainerDetailPage() {
         </Link>
       </section>
 
-      {/* KS-3296 (F2): дерево репертуара с покраской по статусу линий. */}
+      {/* KS-3296 (F2): дерево репертуара с покраской по статусу линий.
+          KS-3308: side прокидывается, чтобы покраска применялась только
+          к ходам пользователя (бот-ходы остаются нейтральными). */}
       <section className="opening-trainer-detail__tree">
         <h2>{t('openingTrainer.tree.title', 'Repertoire')}</h2>
-        <RepertoireTreeView tree={repertoire.tree} lines={progress ?? []} />
+        <RepertoireTreeView
+          tree={repertoire.tree}
+          lines={progress ?? []}
+          side={repertoire.side}
+        />
       </section>
 
       <section className="opening-trainer-detail__danger">
