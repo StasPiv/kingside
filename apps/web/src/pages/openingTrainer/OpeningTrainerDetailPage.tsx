@@ -374,21 +374,45 @@ export function OpeningTrainerDetailPage() {
                 data-testid={`opening-trainer-mode-${m.mode}`}
                 data-count={m.count}
               >
-                <span className="opening-trainer-mode-button__icon" aria-hidden="true">
+                {/* KS-3303: явный inline `display: block` на каждой
+                    строке. Раньше все элементы были `<span>` (inline)
+                    и без CSS-классов от layout-агента title и
+                    description слипались в одну строку. */}
+                <span
+                  className="opening-trainer-mode-button__icon"
+                  aria-hidden="true"
+                  style={{ display: 'block' }}
+                >
                   {m.icon}
                 </span>
-                <span className="opening-trainer-mode-button__body">
-                  <span className="opening-trainer-mode-button__title">
+                <span
+                  className="opening-trainer-mode-button__body"
+                  style={{ display: 'block' }}
+                >
+                  <span
+                    className="opening-trainer-mode-button__title"
+                    style={{ display: 'block', fontWeight: 600 }}
+                  >
                     {t(m.titleKey, m.titleDefault)}
                   </span>
-                  <span className="opening-trainer-mode-button__desc">
+                  <span
+                    className="opening-trainer-mode-button__desc"
+                    style={{ display: 'block', opacity: 0.75, marginTop: 2 }}
+                  >
                     {t(m.descKey, m.descDefault)}
                   </span>
-                  <span className="opening-trainer-mode-button__count">
+                  <span
+                    className="opening-trainer-mode-button__count"
+                    style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+                  >
                     {isStarting
                       ? t('openingTrainer.detail.starting', 'Starting…')
-                      : t('openingTrainer.detail.modes.count', '{{count}} lines', {
+                      : // KS-3303: count с plural-rules (i18next выберет
+                        // _one / _few / _many / _other по locale).
+                        t('openingTrainer.detail.modes.count', {
                           count: m.count,
+                          defaultValue: '{{count}} lines',
+                          defaultValue_one: '{{count}} line',
                         })}
                   </span>
                 </span>

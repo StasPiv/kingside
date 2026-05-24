@@ -3132,7 +3132,10 @@
       "title": "К повторению",
       "subtitle": "Освоенные линии, готовые к повторению (SRS).",
       "empty": "Сейчас нечего повторять. Загляните позже.",
-      "lineCount": "{{count}} линий",
+      "lineCount_one": "{{count}} линия",
+      "lineCount_few": "{{count}} линии",
+      "lineCount_many": "{{count}} линий",
+      "lineCount_other": "{{count}} линии",
       "errors": {
         "loadFailed": "Не удалось загрузить очередь повторений"
       }
@@ -3189,7 +3192,10 @@
         "mode.review": "Повторение (M2)"
       },
       "modes": {
-        "count": "{{count}} линий",
+        "count_one": "{{count}} линия",
+        "count_few": "{{count}} линии",
+        "count_many": "{{count}} линий",
+        "count_other": "{{count}} линии",
         "learn": {
           "title": "Новые",
           "desc": "Линии, которые вы ещё не закрепили."

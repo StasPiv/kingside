@@ -3094,7 +3094,8 @@
       "title": "Reviews due",
       "subtitle": "Mastered lines ready for repetition (SRS).",
       "empty": "Nothing to review right now. Come back later.",
-      "lineCount": "{{count}} lines",
+      "lineCount_one": "{{count}} line",
+      "lineCount_other": "{{count}} lines",
       "errors": {
         "loadFailed": "Failed to load due reviews"
       }
@@ -3151,7 +3152,8 @@
         "mode.review": "Review (M2)"
       },
       "modes": {
-        "count": "{{count}} lines",
+        "count_one": "{{count}} line",
+        "count_other": "{{count}} lines",
         "learn": {
           "title": "New lines",
           "desc": "Lines you haven’t finished yet."

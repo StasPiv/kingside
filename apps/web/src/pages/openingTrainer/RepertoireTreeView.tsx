@@ -1,21 +1,26 @@
 /**
- * KS-3296 (M2 F2). RepertoireTreeView — вертикальный DFS-обход дерева
- * репертуара. Каждый edge раскрашен по статусу линии (пути от root до
- * childFen):
- *   - mastered  — зелёный (✓ освоено)
- *   - due       — синий   (🔁 пора повторить)
- *   - learning  — жёлтый  (в процессе изучения)
- *   - wrong     — красный (преобладают ошибки)
- *   - not-played — серый  (ещё не пробовали)
+ * KS-3296 (M2 F2) + KS-3304 (rewrite). RepertoireTreeView — nested
+ * tree-структура с visual hierarchy.
  *
- * Orphan-линии (из старого PGN до пересборки) НЕ рендерим. Статус
- * приходит per-line в `OpeningLineProgressDto.status` (бэк KS-3286/B6
- * вычисляет в /progress). Сопоставление по `pathHash` (SHA-1 от
- * `pathUci.join('|')`) — формула гарантируется backend'ом, фронт её
- * только сравнивает.
+ * Прошлая реализация (KS-3296) была плоским DFS-списком с indent по
+ * depth — пользователь видел «простыню» сверху вниз и не понимал где
+ * развилки.
  *
- * Tooltip по клику на edge: counters {correct, wrong, mastery
- * threshold remaining}. Mobile + desktop одинаково — кликом, не hover.
+ * Теперь — настоящий tree: каждый node репертуара рендерится с
+ * ВСЕМИ его edges как siblings (если у позиции 3 ответа, видим 3
+ * строки рядом, не лесенкой). Главная линия (первый edge) выделена
+ * жирнее; альтернативы менее яркие. Под каждым edge'ом рекурсивно
+ * нестится поддерево достижимой позиции.
+ *
+ * Каждый edge раскрашен по статусу пути от root до childFen:
+ *   mastered (зелёный) / due (синий) / learning (жёлтый) /
+ *   wrong (красный) / not-played (серый).
+ *
+ * Orphan-линии (M2 §2.5) не рендерятся. Транспозиции (тот же FEN из
+ * разных путей) — schenken visited-set по веткам, чтобы не зациклиться.
+ *
+ * Клик по edge — раскрывает inline-tooltip с counters: correctCount,
+ * wrongCount, оставшихся подряд до мастеринга, sm2DueAt.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -31,19 +36,6 @@ interface Props {
   tree: OpeningRepertoireDetailDto['tree'];
   /** Per-line прогресс из GET /repertoires/:id/progress (KS-3292). */
   lines: OpeningLineProgressDto[];
-}
-
-interface EdgeRowInfo {
-  /** UCI-путь от root до childFen (включительно). */
-  pathUci: string[];
-  moveSan: string;
-  childFen: string;
-  /** Только для отрисовки — глубина (полуходы от корня). */
-  depth: number;
-  /** Статус, дедуцированный по pathHash сопоставлению. */
-  status: OpeningLineStatus;
-  /** Если есть progress-запись — даём её для tooltip'а. */
-  progress: OpeningLineProgressDto | null;
 }
 
 const STATUS_COLOR: Record<OpeningLineStatus, string> = {
@@ -62,197 +54,259 @@ const STATUS_LABEL_KEY: Record<OpeningLineStatus, string> = {
   'not-played': 'openingTrainer.tree.status.notPlayed',
 };
 
-/**
- * KS-3296. Хэш path-uci совпадает с backend'ом (KS-3286 §3.1):
- *   sha1(pathUci.join('|'))
- * Используем Web Crypto API. Возвращаем hex-строку как у бэка.
- *
- * Внимание: SubtleCrypto.digest async — поэтому строим карту lines
- * по pathHash, а сами edge-paths сравниваем по pathUci через
- * pre-computed lookup (бэк отдаёт pathUci в DTO — сравниваем напрямую).
- */
-function makePathKey(pathUci: string[]): string {
+function pathKey(pathUci: string[]): string {
   return pathUci.join('|');
 }
 
-/**
- * KS-3296. DFS по дереву от rootFen, накапливаем pathUci до каждого
- * edge'а. Возвращаем плоский массив EdgeRowInfo'в в порядке обхода
- * для вертикального рендера.
- *
- * Защита от циклов — set посещённых FEN'ов в текущей ветке.
- * Транспозиции: если childFen уже встречался — рисуем edge как
- * терминальный, без углубления (бэк уже схлопнул).
- */
-function flattenTree(
-  tree: RepertoireTree,
-  linesByPath: Map<string, OpeningLineProgressDto>,
-): EdgeRowInfo[] {
-  const out: EdgeRowInfo[] = [];
-  const seenInBranch = new Set<string>();
+function moveLabel(pathLength: number, san: string): string {
+  // KS-3304. Полуход pathLength (1-based for white, 2-based for black, …).
+  // 1 → 1.   2 → 1…   3 → 2.   4 → 2…
+  const moveNumber = Math.floor((pathLength - 1) / 2) + 1;
+  const isWhite = pathLength % 2 === 1;
+  return isWhite ? `${moveNumber}.${san}` : `${moveNumber}…${san}`;
+}
 
-  function visit(fen: string, pathUci: string[], depth: number): void {
-    const node = tree.nodes[fen];
-    if (!node) return;
-    if (seenInBranch.has(fen)) return;
-    seenInBranch.add(fen);
-    for (const edge of node.edges) {
-      const nextPath = [...pathUci, edge.moveUci];
-      const key = makePathKey(nextPath);
-      const line = linesByPath.get(key) ?? null;
-      // orphan'ы не рендерим — backend проставляет orphaned: true для
-      // линий из старого PGN. M2 §2.5.
-      if (line?.orphaned) continue;
-      const status: OpeningLineStatus = line?.status ?? 'not-played';
-      out.push({
-        pathUci: nextPath,
-        moveSan: edge.moveSan,
-        childFen: edge.childFen,
-        depth,
-        status,
-        progress: line,
-      });
-      visit(edge.childFen, nextPath, depth + 1);
-    }
-    seenInBranch.delete(fen);
-  }
-  visit(tree.rootFen, [], 0);
-  return out;
+interface EdgeNodeProps {
+  tree: RepertoireTree;
+  linesByPath: Map<string, OpeningLineProgressDto>;
+  childFen: string;
+  pathUci: string[];
+  moveSan: string;
+  /** Зрительный приоритет: первый edge родителя — главная линия. */
+  isMainLine: boolean;
+  /** Set посещённых FEN'ов в текущей ветке (защита от циклов). */
+  seenInBranch: Set<string>;
+  openedPathKey: string | null;
+  setOpenedPathKey: (key: string | null) => void;
+}
+
+function EdgeNode({
+  tree,
+  linesByPath,
+  childFen,
+  pathUci,
+  moveSan,
+  isMainLine,
+  seenInBranch,
+  openedPathKey,
+  setOpenedPathKey,
+}: EdgeNodeProps) {
+  const { t } = useTranslation();
+  const key = pathKey(pathUci);
+  const line = linesByPath.get(key) ?? null;
+  const status: OpeningLineStatus = line?.status ?? 'not-played';
+  const color = STATUS_COLOR[status];
+  const statusLabel = t(STATUS_LABEL_KEY[status], status);
+  const opened = openedPathKey === key;
+  const label = moveLabel(pathUci.length, moveSan);
+
+  // KS-3304. Рендерим children — все edges из childFen. На развилках
+  // они видны как соседние строки одного уровня, не как лесенка.
+  const childNode = tree.nodes[childFen];
+  const cycle = seenInBranch.has(childFen);
+  const nextSeen = useMemo(() => {
+    const s = new Set(seenInBranch);
+    s.add(childFen);
+    return s;
+  }, [seenInBranch, childFen]);
+  const visibleEdges = useMemo(() => {
+    if (!childNode || cycle) return [];
+    return childNode.edges.filter((edge) => {
+      const childKey = pathKey([...pathUci, edge.moveUci]);
+      const childLine = linesByPath.get(childKey);
+      return !childLine?.orphaned;
+    });
+  }, [childNode, cycle, pathUci, linesByPath]);
+
+  return (
+    <li
+      className="opening-trainer-tree__node"
+      data-testid={`opening-trainer-tree-row-${status}`}
+      data-main-line={isMainLine ? 'true' : 'false'}
+    >
+      <button
+        type="button"
+        className="opening-trainer-tree__edge"
+        onClick={() => setOpenedPathKey(opened ? null : key)}
+        data-status={status}
+        data-uci={pathUci[pathUci.length - 1]}
+        aria-expanded={opened}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '2px 6px',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'inherit',
+          fontWeight: isMainLine ? 600 : 400,
+          opacity: isMainLine ? 1 : 0.78,
+        }}
+      >
+        <span
+          className="opening-trainer-tree__chip"
+          style={{
+            display: 'inline-block',
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: color,
+          }}
+          aria-hidden="true"
+          title={statusLabel}
+        />
+        <span className="opening-trainer-tree__move">{label}</span>
+      </button>
+      {opened && (
+        <div
+          className="opening-trainer-tree__tooltip"
+          role="tooltip"
+          data-testid="opening-trainer-tree-tooltip"
+          style={{
+            margin: '4px 0 4px 16px',
+            padding: '8px 10px',
+            borderRadius: 6,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            fontSize: 12,
+          }}
+        >
+          <div>
+            <strong>{statusLabel}</strong>
+          </div>
+          {line ? (
+            <>
+              <div>
+                {t('openingTrainer.tree.tooltip.correct', 'Correct: {{count}}', {
+                  count: line.correctCount,
+                })}
+              </div>
+              <div>
+                {t('openingTrainer.tree.tooltip.wrong', 'Wrong: {{count}}', {
+                  count: line.wrongCount,
+                })}
+              </div>
+              {line.masteredAt == null && (
+                <div>
+                  {t(
+                    'openingTrainer.tree.tooltip.toMastery',
+                    '{{count}} more in a row to master',
+                    {
+                      count: Math.max(
+                        0,
+                        OPENING_LINE_MASTERY_THRESHOLD - line.consecutiveCorrect,
+                      ),
+                    },
+                  )}
+                </div>
+              )}
+              {line.sm2DueAt && (
+                <div>
+                  {t('openingTrainer.tree.tooltip.dueAt', 'Next review: {{date}}', {
+                    date: new Date(line.sm2DueAt).toLocaleString(),
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div>
+              {t(
+                'openingTrainer.tree.tooltip.notPlayed',
+                'You haven’t played this line yet.',
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {/* KS-3304. Дочерние edges (siblings'ы на развилках) — nested
+          <ul>, indent через padding-left. Без CSS они всё равно
+          стекают вертикально (block) и сохраняют отступ. */}
+      {visibleEdges.length > 0 && (
+        <ul
+          className="opening-trainer-tree__children"
+          style={{
+            margin: 0,
+            paddingLeft: 16,
+            borderLeft: '1px solid rgba(255,255,255,0.08)',
+            listStyle: 'none',
+          }}
+        >
+          {visibleEdges.map((edge, idx) => (
+            <EdgeNode
+              key={pathKey([...pathUci, edge.moveUci])}
+              tree={tree}
+              linesByPath={linesByPath}
+              childFen={edge.childFen}
+              pathUci={[...pathUci, edge.moveUci]}
+              moveSan={edge.moveSan}
+              isMainLine={isMainLine && idx === 0}
+              seenInBranch={nextSeen}
+              openedPathKey={openedPathKey}
+              setOpenedPathKey={setOpenedPathKey}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
 }
 
 export function RepertoireTreeView({ tree, lines }: Props) {
   const { t } = useTranslation();
   const [openedPathKey, setOpenedPathKey] = useState<string | null>(null);
 
-  // KS-3296. Карта pathUci.join('|') → progress, для O(1) lookup'а
-  // при DFS. Backend гарантирует тот же separator.
+  // KS-3296. pathUci.join('|') → progress, для O(1) lookup'а.
   const linesByPath = useMemo(() => {
     const m = new Map<string, OpeningLineProgressDto>();
     for (const l of lines) {
-      m.set(makePathKey(l.pathUci), l);
+      m.set(pathKey(l.pathUci), l);
     }
     return m;
   }, [lines]);
 
-  const rows = useMemo(
-    () => flattenTree(tree, linesByPath),
-    [tree, linesByPath],
-  );
+  const rootNode = tree.nodes[tree.rootFen];
+  const rootEdges = useMemo(() => {
+    if (!rootNode) return [];
+    return rootNode.edges.filter((edge) => {
+      const childKey = pathKey([edge.moveUci]);
+      const childLine = linesByPath.get(childKey);
+      return !childLine?.orphaned;
+    });
+  }, [rootNode, linesByPath]);
 
-  if (rows.length === 0) {
+  if (rootEdges.length === 0) {
     return (
       <div
         className="opening-trainer-tree opening-trainer-tree--empty"
         data-testid="opening-trainer-tree-empty"
       >
-        {t(
-          'openingTrainer.tree.empty',
-          'No moves in this repertoire yet.',
-        )}
+        {t('openingTrainer.tree.empty', 'No moves in this repertoire yet.')}
       </div>
     );
   }
 
   return (
-    <ol
+    <ul
       className="opening-trainer-tree"
       data-testid="opening-trainer-tree"
       aria-label={t('openingTrainer.tree.aria', 'Repertoire tree')}
+      style={{ margin: 0, padding: 0, listStyle: 'none' }}
     >
-      {rows.map((row, idx) => {
-        const key = makePathKey(row.pathUci);
-        const opened = openedPathKey === key;
-        const color = STATUS_COLOR[row.status];
-        const statusLabel = t(STATUS_LABEL_KEY[row.status], row.status);
-        const moveNumber = Math.floor(row.pathUci.length / 2) + 1;
-        const isWhite = row.pathUci.length % 2 === 1;
-        const prefix = isWhite
-          ? `${moveNumber}.`
-          : `${moveNumber}…`;
-        return (
-          <li
-            key={`${key}-${idx}`}
-            className="opening-trainer-tree__row"
-            data-testid={`opening-trainer-tree-row-${row.status}`}
-            style={{ paddingLeft: `${row.depth * 12}px` }}
-          >
-            <button
-              type="button"
-              className="opening-trainer-tree__edge"
-              onClick={() => setOpenedPathKey(opened ? null : key)}
-              data-status={row.status}
-              data-uci={row.pathUci[row.pathUci.length - 1]}
-              aria-expanded={opened}
-            >
-              <span
-                className="opening-trainer-tree__chip"
-                style={{ background: color }}
-                aria-hidden="true"
-                title={statusLabel}
-              />
-              <span className="opening-trainer-tree__move">
-                {prefix} {row.moveSan}
-              </span>
-              <span className="opening-trainer-tree__status">{statusLabel}</span>
-            </button>
-            {opened && (
-              <div
-                className="opening-trainer-tree__tooltip"
-                role="tooltip"
-                data-testid="opening-trainer-tree-tooltip"
-              >
-                {row.progress ? (
-                  <>
-                    <div>
-                      {t('openingTrainer.tree.tooltip.correct', 'Correct: {{count}}', {
-                        count: row.progress.correctCount,
-                      })}
-                    </div>
-                    <div>
-                      {t('openingTrainer.tree.tooltip.wrong', 'Wrong: {{count}}', {
-                        count: row.progress.wrongCount,
-                      })}
-                    </div>
-                    {row.progress.masteredAt == null && (
-                      <div>
-                        {t(
-                          'openingTrainer.tree.tooltip.toMastery',
-                          '{{count}} more in a row to master',
-                          {
-                            count: Math.max(
-                              0,
-                              OPENING_LINE_MASTERY_THRESHOLD -
-                                row.progress.consecutiveCorrect,
-                            ),
-                          },
-                        )}
-                      </div>
-                    )}
-                    {row.progress.sm2DueAt && (
-                      <div>
-                        {t(
-                          'openingTrainer.tree.tooltip.dueAt',
-                          'Next review: {{date}}',
-                          {
-                            date: new Date(row.progress.sm2DueAt).toLocaleString(),
-                          },
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div>
-                    {t(
-                      'openingTrainer.tree.tooltip.notPlayed',
-                      'You haven’t played this line yet.',
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ol>
+      {rootEdges.map((edge, idx) => (
+        <EdgeNode
+          key={edge.moveUci}
+          tree={tree}
+          linesByPath={linesByPath}
+          childFen={edge.childFen}
+          pathUci={[edge.moveUci]}
+          moveSan={edge.moveSan}
+          isMainLine={idx === 0}
+          seenInBranch={new Set([tree.rootFen])}
+          openedPathKey={openedPathKey}
+          setOpenedPathKey={setOpenedPathKey}
+        />
+      ))}
+    </ul>
   );
 }
