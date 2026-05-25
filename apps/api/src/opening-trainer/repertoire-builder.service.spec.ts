@@ -320,12 +320,19 @@ describe('KS-3325: splitPgnIntoGames', () => {
     ]);
   });
 
-  it('Headers сохраняются с партией', () => {
+  it('Headers стрипаются ДО разделения (фикс прод-бага KS-3325 follow-up)', () => {
+    // После фикса splitPgnIntoGames первым шагом удаляет PGN-headers,
+    // иначе result-token в `[Result "1-0"]` ошибочно режет PGN. Раньше
+    // headers оставались в game-строках; теперь нет. На UI fallback
+    // (`[Event]` → имя источника) это пока не влияет — фронт ещё не
+    // использует header-parsing.
     const pgn = '[Event "Game 1"]\n1. e4 e5 1-0\n[Event "Game 2"]\n1. d4 d5 0-1';
     const games = splitPgnIntoGames(pgn);
     expect(games).toHaveLength(2);
-    expect(games[0]).toContain('[Event "Game 1"]');
-    expect(games[1]).toContain('[Event "Game 2"]');
+    expect(games[0]).not.toContain('[Event');
+    expect(games[1]).not.toContain('[Event');
+    expect(games[0]).toMatch(/1\. e4 e5 1-0/);
+    expect(games[1]).toMatch(/1\. d4 d5 0-1/);
   });
 
   it('Result-token внутри {comment} НЕ разделитель', () => {
@@ -338,6 +345,28 @@ describe('KS-3325: splitPgnIntoGames', () => {
   it('Пустая строка → пустой массив', () => {
     expect(splitPgnIntoGames('')).toEqual([]);
     expect(splitPgnIntoGames('   \n\n   ')).toEqual([]);
+  });
+
+  // KS-3325 follow-up regression (production bug):
+  // Result-токен внутри `[Result "1-0"]` header'а ранее считался
+  // разделителем партий → builder получал `[Event ...] [Result "1-0"`
+  // без movetext → `Illegal move "[Result"`.
+  it('Result-token внутри [Result "1-0"] header — НЕ разделитель (фикс прод-бага backfill)', () => {
+    const pgn = '[Event "x"]\n[Result "1-0"]\n\n1. e4 e5 1-0';
+    const games = splitPgnIntoGames(pgn);
+    expect(games).toHaveLength(1);
+    expect(games[0]).toMatch(/1\. e4 e5 1-0/);
+    // Header [Result "1-0"] не должен попасть в выход (stripHeaders убрал).
+    expect(games[0]).not.toContain('[Result');
+  });
+
+  it('Multi-game с headers второй партии — корректно разделяется', () => {
+    const pgn =
+      '[Event "G1"]\n[Result "1-0"]\n\n1. e4 e5 1-0\n\n[Event "G2"]\n[Result "0-1"]\n\n1. d4 d5 0-1';
+    const games = splitPgnIntoGames(pgn);
+    expect(games).toHaveLength(2);
+    expect(games[0]).toMatch(/1\. e4 e5 1-0/);
+    expect(games[1]).toMatch(/1\. d4 d5 0-1/);
   });
 });
 

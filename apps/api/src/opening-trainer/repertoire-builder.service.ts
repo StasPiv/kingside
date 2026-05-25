@@ -91,6 +91,15 @@ function stripHeaders(pgn: string): string {
  */
 export function splitPgnIntoGames(pgn: string): string[] {
   if (typeof pgn !== 'string' || pgn.trim().length === 0) return [];
+  // KS-3325 fix (KS-3325 follow-up): сначала убираем PGN-headers
+  // ([Event "..."], [Result "1-0"], …) — иначе result-token внутри
+  // `[Result "1-0"]` regex'ом ниже считается разделителем и режет
+  // PGN неправильно (фактическое падение builder'а в проде: вместо
+  // movetext попадал кусок `[Event ...] [Site ...] [Result "1-0"` без
+  // ходов → `Illegal move "[Result"`). После strip'а headers'ы исчезают,
+  // и result-токен `1-0` встречается только в реальном завершении партии.
+  pgn = stripHeaders(pgn);
+  if (pgn.trim().length === 0) return [];
   const games: string[] = [];
   let lastIdx = 0;
   RESULT_TOKENS_RE.lastIndex = 0;
