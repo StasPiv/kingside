@@ -75,6 +75,12 @@ export const OPENING_REPERTOIRE_LIMITS = {
   maxRepertoiresPerUser: 50,
   /** Максимум активных (незакрытых) сессий на пользователя. */
   maxActiveSessionsPerUser: 10,
+  /**
+   * KS-3324 / ADR-078. Максимум источников (PGN-блоков) в одном
+   * репертуаре. Превышение → 400/409 при `POST /repertoires` или
+   * `POST /repertoires/:id/sources`.
+   */
+  maxSourcesPerRepertoire: 20,
 } as const;
 
 /**
@@ -125,6 +131,19 @@ export interface RepertoireEdge {
   nag?: number[];
   /** Авторский комментарий из PGN (`{ ... }`). */
   comment?: string;
+  /**
+   * KS-3324 / ADR-078. UUID источников (`OpeningRepertoireSourceDto.id`),
+   * которые «закодировали» этот edge. При транспозиции (один и тот же
+   * UCI из одного FEN'а пришёл из нескольких источников) — массив
+   * содержит все эти ID. После удаления источника edges, оставшиеся с
+   * пустым `sourceIds`, удаляются из дерева; orphan-pruning срабатывает
+   * на линиях которые больше нечем поддерживать.
+   *
+   * Опц. (`?`) для backward-compat: старые JSONB-tree, созданные до
+   * миграции multi-source, не содержат поля. После миграции legacy-
+   * репертуары получают `sourceIds = [<legacy-source-id>]`.
+   */
+  sourceIds?: string[];
 }
 
 /**
@@ -204,11 +223,67 @@ export interface OpeningRepertoireWithStatsDto extends OpeningRepertoireDto {
   stats: OpeningRepertoireStats;
 }
 
-/** Полный вид: карточка + сохранённый PGN + дерево. */
+/**
+ * KS-3324 / ADR-078 §2.1. Источник репертуара (один PGN-блок).
+ * Один репертуар может содержать 1..`maxSourcesPerRepertoire` источников.
+ *
+ *   - `pgn-upload`         — загружен пользователем через форму.
+ *   - `workshop-analysis`  — конверсия из мастерской (KS-3293
+ *                            `POST /repertoires/from-analysis`).
+ *   - `legacy-import`      — миграция из старого `OpeningRepertoire.pgn`
+ *                            (один-source-fallback для существующих
+ *                            до multi-source репертуаров).
+ */
+export type OpeningRepertoireSourceKind =
+  | 'pgn-upload'
+  | 'workshop-analysis'
+  | 'legacy-import';
+
+export interface OpeningRepertoireSourceDto {
+  id: string;
+  repertoireId: string;
+  /**
+   * UI-имя источника. Опц. — если null, фронт показывает fallback
+   * (`[Event]` из PGN-header'а или `PGN N` по порядковому номеру).
+   */
+  name: string | null;
+  /** Исходный PGN этого блока. */
+  pgn: string;
+  sourceKind: OpeningRepertoireSourceKind;
+  /**
+   * Если `sourceKind === 'workshop-analysis'` — UUID анализа из
+   * мастерской. Опц. для прочих kinds.
+   */
+  sourceAnalysisId: string | null;
+  /**
+   * Стабильный sort-order (0..N). Не пересчитывается при удалении
+   * соседних источников; фронт сортирует по этому полю.
+   */
+  order: number;
+  /** ISO-8601 UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Полный вид: карточка + дерево + список источников.
+ *
+ * Поле `pgn` оставлено для backward-compat — это денормализованный
+ * concat всех `sources[].pgn` (стабильный порядок по `order`). Старые
+ * клиенты, которые читают `pgn` напрямую, продолжают работать.
+ */
 export interface OpeningRepertoireDetailDto extends OpeningRepertoireDto {
-  /** Исходный PGN (как пользователь загрузил). Для редактирования/экспорта. */
+  /**
+   * Денормализованный concat всех `sources[].pgn` (для backward-compat
+   * и экспорта). После KS-3324/ADR-078 — derived поле, не источник истины.
+   */
   pgn: string;
   tree: RepertoireTree;
+  /**
+   * KS-3324 / ADR-078. Источники, из которых собрано дерево. Минимум
+   * один (репертуар не может быть пустым после миграции legacy-import).
+   */
+  sources: OpeningRepertoireSourceDto[];
 }
 
 /**
@@ -337,18 +412,86 @@ export interface OpeningLineProgressDto {
 
 // ─── Request bodies ───────────────────────────────────────────────────
 
-/** `POST /opening-trainer/repertoires`. */
+/**
+ * KS-3324 / ADR-078 §4. Один блок-источник внутри
+ * `CreateOpeningRepertoireRequest.sources` или
+ * `CreateRepertoireSourceRequest`. Лимит размера PGN —
+ * `OPENING_REPERTOIRE_LIMITS.maxPgnBytes` (применяется per-source).
+ */
+export interface OpeningRepertoireSourceInput {
+  pgn: string;
+  /**
+   * UI-подпись источника. Опц. — backend проставляет fallback (`[Event]`
+   * из PGN-header'а или `PGN N`).
+   */
+  name?: string;
+}
+
+/**
+ * `POST /opening-trainer/repertoires`.
+ *
+ * KS-3324 / ADR-078. Поддерживает оба формата body:
+ *   - **Новый (рекомендуется):** `{ title, sources: [{ pgn, name? }, ...] }`
+ *     — minimum 1 source, maximum `maxSourcesPerRepertoire`.
+ *   - **Legacy (deprecated):** `{ title, pgn }` — backend конвертирует
+ *     в `sources: [{ pgn, name: null }]` с `sourceKind='pgn-upload'`.
+ *
+ * Указывать одновременно `pgn` и `sources` — 400 BadRequest.
+ */
 export interface CreateOpeningRepertoireRequest {
   title: string;
   description?: string;
-  /** Исходный PGN. Лимит `OPENING_REPERTOIRE_LIMITS.maxPgnBytes`. */
-  pgn: string;
+  /**
+   * @deprecated KS-3324. Используй `sources`. Поле сохранено для
+   * backward-compat со старыми клиентами; backend конвертирует в
+   * single-source. Указывать одновременно с `sources` нельзя.
+   */
+  pgn?: string;
+  /**
+   * KS-3324 / ADR-078. Массив источников (1..`maxSourcesPerRepertoire`).
+   * Каждый source создаёт запись в `opening_repertoire_sources` с
+   * `sourceKind='pgn-upload'`.
+   */
+  sources?: OpeningRepertoireSourceInput[];
   /**
    * KS-3302. Сторона тренировки (white/black). Опц. — default 'white'
    * (backward-compat: старые клиенты, которые не знают про это поле,
    * получат white-репертуар).
    */
   side?: TrainerColor;
+}
+
+/**
+ * KS-3324 / ADR-078 §4. `POST /opening-trainer/repertoires/:id/sources`.
+ * Добавить ещё один источник в существующий репертуар. Триггерит
+ * пересборку tree (через builder с union-edges по sourceIds) и
+ * orphan-pruning прогресса.
+ *
+ * 409 Conflict если уже достигнут `maxSourcesPerRepertoire`.
+ */
+export interface CreateRepertoireSourceRequest {
+  pgn: string;
+  name?: string;
+  /**
+   * Опц. — backend по умолчанию проставит `'pgn-upload'`. Передаётся
+   * `'workshop-analysis'` при использовании конверсии из мастерской
+   * через KS-3293 расширение (см. `CreateOpeningRepertoireFromAnalysisRequest.repertoireId`).
+   */
+  sourceKind?: OpeningRepertoireSourceKind;
+  /** Для `sourceKind='workshop-analysis'` — UUID анализа. */
+  sourceAnalysisId?: string;
+}
+
+/**
+ * KS-3324 / ADR-078 §4. `PATCH /opening-trainer/repertoires/:id/sources/:sourceId`.
+ * Все поля опциональны; нужно прислать хотя бы одно. Если меняется
+ * `pgn` — backend пересобирает tree и делает orphan-pruning. Изменение
+ * только `name` — без пересборки.
+ */
+export interface UpdateRepertoireSourceRequest {
+  pgn?: string;
+  /** `null` чтобы очистить и вернуться к fallback. */
+  name?: string | null;
 }
 
 /** `PATCH /opening-trainer/repertoires/:id`. Все поля опциональны. */
@@ -380,6 +523,17 @@ export interface CreateOpeningRepertoireFromAnalysisRequest {
   description?: string;
   /** KS-3302. Сторона тренировки. Default 'white'. */
   side?: TrainerColor;
+  /**
+   * KS-3324 / ADR-078. Если задан — добавляет PGN анализа КАК ИСТОЧНИК
+   * в существующий репертуар (вместо создания нового). Backend проверяет
+   * ownership репертуара (404 для чужого), лимит `maxSourcesPerRepertoire`
+   * (409 при превышении). Возвращает обновлённый `OpeningRepertoireDetailDto`
+   * существующего репертуара (а не свежесозданный).
+   *
+   * Опц. для backward-compat: без него — старое поведение (новый
+   * репертуар, KS-3293).
+   */
+  repertoireId?: string;
 }
 
 /**
@@ -441,6 +595,17 @@ export interface DeleteOpeningRepertoireResponse {
   id: string;
   deletedAt: string;
 }
+
+/**
+ * KS-3324 / ADR-078. Response для всех source-endpoints
+ * (`POST/PATCH/DELETE /repertoires/:id/sources[/:sourceId]`) — возвращаем
+ * полный обновлённый `OpeningRepertoireDetailDto` (с пересобранным tree
+ * и актуальным списком `sources`). Это позволяет фронту обновить state
+ * атомарно без дополнительного GET.
+ */
+export type CreateRepertoireSourceResponse = OpeningRepertoireDetailDto;
+export type UpdateRepertoireSourceResponse = OpeningRepertoireDetailDto;
+export type DeleteRepertoireSourceResponse = OpeningRepertoireDetailDto;
 
 /**
  * `POST /opening-trainer/repertoires/:id/sessions`.

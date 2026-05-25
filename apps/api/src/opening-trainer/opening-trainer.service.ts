@@ -1470,6 +1470,11 @@ function rowToRepertoireDetailDto(
     ...rowToRepertoireDto(row),
     pgn: row.pgn,
     tree,
+    // KS-3324 / ADR-078: новое поле, временно пустой массив. Реальный
+    // список заполнится в KS-3326 (endpoints с источниками) после
+    // миграции (KS-3325) — legacy-репертуары получат один source
+    // через legacy-import. До тех пор фронт видит [] (типобезопасно).
+    sources: [],
   };
 }
 
