@@ -398,7 +398,11 @@ function AnalysisPageInner({
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(boardContainerRef);
   const boardWidth = Math.min(containerSize.width, containerSize.height);
-  const { boardThemeOptions } = useBoardTheme();
+  // KS-3320 follow-up: customPieces ОБЯЗАТЕЛЬНО передавать в
+  // boardOptions, иначе react-chessboard рендерит свой default-pieceset
+  // (внешне как старый cburnett) — пользователь видит «фигуры не
+  // изменились» при смене темы в /settings.
+  const { boardThemeOptions, customPieces } = useBoardTheme();
 
   const {
     history, currentMove, currentGlobalIndex, currentFen, initialFen,
@@ -1555,8 +1559,10 @@ function AnalysisPageInner({
       onArrowsChange: handleArrowsChange,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
+      // KS-3320 follow-up: подключаем выбранный piece-set (из настроек).
+      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, handleArrowsChange, previewDefaultColor],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, handleArrowsChange, previewDefaultColor],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).

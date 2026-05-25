@@ -7,6 +7,8 @@ import type { BroadcastGameSummary } from '@kingside/shared';
 import { broadcastApi } from '../api/broadcastApi';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+// KS-3320 follow-up: подключить выбранный piece-set из настроек.
+import { useBoardTheme } from '../hooks/useBoardTheme';
 import {
   formatBroadcastClock,
   useBroadcastClock,
@@ -108,6 +110,7 @@ export function BroadcastLiveGamePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { playSound, unlocked: soundUnlocked, unlockSounds } = useSounds();
+  const { customPieces } = useBoardTheme();
   // KS-2774: невалидный gameId (literal "undefined" / не-UUID) — это
   // битая ссылка из бага race на странице тура. До исправлений в
   // BroadcastRoundPage URL мог выглядеть как
@@ -418,6 +421,8 @@ export function BroadcastLiveGamePage() {
                 showNotation: true,
                 animationDurationInMs: 0,
                 squareStyles,
+                // KS-3320 follow-up: piece-set из настроек.
+                ...(customPieces && { pieces: customPieces }),
               }}
             />
           </div>

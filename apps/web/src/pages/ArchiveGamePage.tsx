@@ -9,6 +9,8 @@ import type {
 
 import { archiveApi } from '../api/archive';
 import { MemoChessboard } from '../components/MemoChessboard';
+// KS-3320 follow-up: piece-set из настроек.
+import { useBoardTheme } from '../hooks/useBoardTheme';
 import { ArchiveOtherGamesBlock } from '../components/archive/ArchiveOtherGamesBlock';
 // KS-3258: forfeit-плашка для PGN'ов с [Termination "Unplayed"].
 import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
@@ -174,6 +176,7 @@ function ArchiveGamePageInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation('archive');
+  const { customPieces } = useBoardTheme();
 
   const [game, setGame] = useState<ArchiveGameDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -371,6 +374,8 @@ function ArchiveGamePageInner() {
                 position: currentFen,
                 allowDragging: false,
                 animationDurationInMs: 0,
+                // KS-3320 follow-up: piece-set из настроек.
+                ...(customPieces && { pieces: customPieces }),
               }}
             />
           </div>
