@@ -81,6 +81,8 @@ import { OpeningTrainerDetailPage } from './pages/openingTrainer/OpeningTrainerD
 import { OpeningTrainerSessionPage } from './pages/openingTrainer/OpeningTrainerSessionPage';
 import { OpeningTrainerResultPage } from './pages/openingTrainer/OpeningTrainerResultPage';
 import { OpeningTrainerReviewsPage } from './pages/openingTrainer/OpeningTrainerReviewsPage';
+// KS-3320: страница атрибуции открытых ассетов (piece-sets).
+import { CreditsPage } from './pages/CreditsPage';
 import { OpeningTrainerStatsPage } from './pages/openingTrainer/OpeningTrainerStatsPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
@@ -345,6 +347,8 @@ export function App() {
         {/* KS-2169 (F4): публичные условия использования. */}
         <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+        {/* KS-3320: атрибуция авторов piece-set'ов. */}
+        <Route path="/credits" element={<CreditsPage />} />
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />

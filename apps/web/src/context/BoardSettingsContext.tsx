@@ -9,7 +9,39 @@ import {
 } from 'react';
 
 export type BoardThemeId = 'default' | 'green' | 'blue' | 'brown';
-export type PieceSetId = 'standard' | 'cburnett' | 'alpha' | 'merida';
+/**
+ * KS-3320: расширенный список piece-sets из lichess-org/lila/public/piece.
+ * Только permissive лицензии (Apache 2.0 / MIT / CC0 / CC BY 4.0 / CC BY-SA 4.0).
+ *
+ * НЕ ВКЛЮЧЕНЫ:
+ * - GPL/AGPL (вирусная copyleft, спред на наш не-AGPL фронт):
+ *   cburnett, merida, mono, pirouetti, letter, pixel, mpchess.
+ * - CC BY-NC-SA (Non-Commercial, конфликт с Patron/premium):
+ *   horsey, california, caliente, maestro, fresca, cardinal, icpieces,
+ *   gioco, tatiana, staunty, dubrovny, anarcandy, disguised, cooke,
+ *   monarchy, xkcd.
+ * - freeware/non-derivative/undefined:
+ *   alpha, chess7, companion, leipzig, shahi-ivory-brown, reillycraig,
+ *   riohacha.
+ *
+ * Источник классификации:
+ *   https://github.com/lichess-org/lila/blob/master/COPYING.md
+ *   («Exceptions (free)» / «Exceptions (non-free)» секции).
+ *
+ * `cburnett` и `merida` исторически были в коде до KS-3320 (под GPL).
+ * Удалены вместе с поддержкой в `PIECE_SETS`. `alpha` — non-commercial.
+ */
+export type PieceSetId =
+  | 'standard'
+  | 'chessnut'
+  | 'fantasy'
+  | 'spatial'
+  | 'celtic'
+  | 'shapes'
+  | 'kiwen-suwi'
+  | 'firi'
+  | 'totoy'
+  | 'rhosgfx';
 export type InputMode = 'drag' | 'click';
 /**
  * KS-2114: размер доски на странице анализа.
@@ -71,16 +103,130 @@ export const BOARD_THEMES: BoardTheme[] = [
   { id: 'brown',   label: 'Brown',   light: '#d4b896', dark: '#6b3a2a' },
 ];
 
+/**
+ * KS-3320. Лицензия piece-set. Используется в credits-странице и
+ * для предупреждения пользователю при выборе сета.
+ */
+export interface PieceSetLicense {
+  /** Spdx-like идентификатор: 'apache-2.0' | 'mit' | 'cc0-1.0' | 'cc-by-4.0' | 'cc-by-sa-4.0'. */
+  spdx: 'apache-2.0' | 'mit' | 'cc0-1.0' | 'cc-by-4.0' | 'cc-by-sa-4.0';
+  /** Человекочитаемое имя. */
+  name: string;
+  /** Canonical URL текста лицензии. */
+  url: string;
+  /** Автор / автор(ы) — для атрибуции (CC-BY*) или признания (MIT/Apache). */
+  author: string;
+  /** Ссылка на профиль автора (при наличии). */
+  authorUrl?: string;
+}
+
 export interface PieceSet {
   id: PieceSetId;
   label: string;
+  /** KS-3320: лицензия и автор. Для 'standard' — null (внутренняя тема). */
+  license: PieceSetLicense | null;
 }
 
 export const PIECE_SETS: PieceSet[] = [
-  { id: 'standard', label: 'Standard' },
-  { id: 'cburnett', label: 'Cburnett' },
-  { id: 'alpha',    label: 'Alpha' },
-  { id: 'merida',   label: 'Merida' },
+  { id: 'standard', label: 'Standard', license: null },
+  {
+    id: 'chessnut',
+    label: 'Chessnut',
+    license: {
+      spdx: 'apache-2.0',
+      name: 'Apache 2.0',
+      url: 'https://www.apache.org/licenses/LICENSE-2.0',
+      author: 'Alexis Luengas',
+      authorUrl: 'https://github.com/LexLuengas',
+    },
+  },
+  {
+    id: 'fantasy',
+    label: 'Fantasy',
+    license: {
+      spdx: 'mit',
+      name: 'MIT',
+      url: 'https://opensource.org/license/mit',
+      author: 'Maurizio Monge',
+      authorUrl: 'https://github.com/maurimo/chess-art',
+    },
+  },
+  {
+    id: 'spatial',
+    label: 'Spatial',
+    license: {
+      spdx: 'mit',
+      name: 'MIT',
+      url: 'https://opensource.org/license/mit',
+      author: 'Maurizio Monge',
+      authorUrl: 'https://github.com/maurimo/chess-art',
+    },
+  },
+  {
+    id: 'celtic',
+    label: 'Celtic',
+    license: {
+      spdx: 'mit',
+      name: 'MIT',
+      url: 'https://opensource.org/license/mit',
+      author: 'Maurizio Monge',
+      authorUrl: 'https://github.com/maurimo/chess-art',
+    },
+  },
+  {
+    id: 'shapes',
+    label: 'Shapes',
+    license: {
+      spdx: 'cc-by-sa-4.0',
+      name: 'CC BY-SA 4.0',
+      url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+      author: 'flugsio',
+      authorUrl: 'https://github.com/flugsio/chess_shapes',
+    },
+  },
+  {
+    id: 'kiwen-suwi',
+    label: 'Kiwen Suwi',
+    license: {
+      spdx: 'cc-by-4.0',
+      name: 'CC BY 4.0',
+      url: 'https://creativecommons.org/licenses/by/4.0/',
+      author: 'neverRare',
+      authorUrl: 'https://github.com/neverRare',
+    },
+  },
+  {
+    id: 'firi',
+    label: 'Firi',
+    license: {
+      spdx: 'cc-by-4.0',
+      name: 'CC BY 4.0',
+      url: 'https://creativecommons.org/licenses/by/4.0/',
+      author: 'James Faure',
+      authorUrl: 'https://github.com/jfaure/Firi-pieceset',
+    },
+  },
+  {
+    id: 'totoy',
+    label: 'Totoy',
+    license: {
+      spdx: 'cc-by-4.0',
+      name: 'CC BY 4.0',
+      url: 'https://creativecommons.org/licenses/by/4.0/',
+      author: 'Kosal Sen',
+    },
+  },
+  {
+    id: 'rhosgfx',
+    label: 'RhosGFX',
+    license: {
+      spdx: 'cc0-1.0',
+      name: 'CC0 1.0 (Public Domain)',
+      url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+      author: 'RhosGFX',
+      authorUrl: 'https://rhosgfx.itch.io/',
+    },
+  },
 ];
 
 export interface BoardSizePreset {
@@ -142,7 +288,13 @@ function readTheme(): BoardThemeId {
 function readPieceSet(): PieceSetId {
   const stored = localStorage.getItem(LS_PIECE_SET_KEY) as PieceSetId | null;
   if (stored && PIECE_SETS.some((s) => s.id === stored)) return stored;
-  return 'standard';
+  // KS-3320: default — chessnut (Apache 2.0, классический Staunton-look).
+  // Раньше дефолт был 'standard' — internal react-chessboard default,
+  // но у нас теперь есть полноценный open-license набор.
+  // Старые `cburnett` (GPL) / `alpha` (NC) / `merida` (GPL) / `standard`
+  // в localStorage остаются проигнорированными (нет в PIECE_SETS) —
+  // пользователь получит chessnut автоматически.
+  return 'chessnut';
 }
 
 function readShowNotation(): boolean {

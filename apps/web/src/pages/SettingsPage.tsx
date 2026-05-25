@@ -167,6 +167,7 @@ export function SettingsPage() {
                 key={set.id}
                 className={`piece-set-option${pieceSet === set.id ? ' active' : ''}`}
                 onClick={() => selectPieceSet(set.id)}
+                title={set.license ? `${set.license.author} — ${set.license.name}` : undefined}
               >
                 <span className="piece-set-preview">
                   {set.id === 'standard' ? (
@@ -182,6 +183,16 @@ export function SettingsPage() {
               </label>
             ))}
           </div>
+          {/* KS-3320: ссылка на /credits — атрибуция авторов всех
+              piece-sets и их лицензий. Обязательная по требованиям CC BY 4.0
+              для kiwen-suwi/firi/totoy и CC BY-SA 4.0 для shapes. */}
+          <a
+            href="/credits"
+            style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}
+            data-testid="settings-piece-set-credits-link"
+          >
+            Авторы и лицензии →
+          </a>
         </div>
 
         {/* KS-2970: toggle «Автопревращение в ферзя». Действует только
