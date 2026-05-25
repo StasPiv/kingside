@@ -984,6 +984,214 @@
 }
 
 /* ============================================================
+ * KS-3330 — Multi-source UI (ADR-078 §5).
+ *
+ * Покрывает 3 места:
+ *   - /new: `.opening-trainer-new__sources` — список PGN-блоков с
+ *     кнопкой «+ Add another PGN».
+ *   - /:id: `.opening-trainer-detail__sources` — секция «Источники» с
+ *     карточками + Edit/Delete + «+ Add PGN».
+ *   - Модалки `[data-testid='opening-trainer-source-modal']` —
+ *     add/edit source: desktop центр, mobile fullscreen.
+ *
+ * Frontend (KS-3328/3329) использует inline-стили — перебиваем через
+ * семантические токены и `!important` где нужно.
+ * ============================================================ */
+
+/* ── /new sources list ─────────────────────────────────────── */
+.opening-trainer-new__sources {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  margin-bottom: 4px;
+}
+.opening-trainer-new__sources > fieldset {
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px !important;
+  padding: 14px 16px !important;
+  background: var(--bg-surface);
+  margin: 0 !important;
+}
+.opening-trainer-new__sources > fieldset[data-error='true'] {
+  border-color: var(--danger) !important;
+  background: var(--ov-danger-08-r400);
+}
+.opening-trainer-new__sources > fieldset > legend {
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.4px !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+  padding: 0 6px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.opening-trainer-new__sources > fieldset > legend .btn-danger {
+  font-size: 11px;
+  padding: 2px 8px;
+  min-height: 24px;
+  border-radius: 6px;
+}
+
+/* «+ Add another PGN» кнопка — обычный inline-стиль на desktop. */
+.opening-trainer-new [data-testid='opening-trainer-new-add-source'] {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+/* ── /:id sources section ──────────────────────────────────── */
+.opening-trainer-detail__sources {
+  margin-top: 24px;
+  padding: 18px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+.opening-trainer-detail__sources h2 {
+  margin: 0 0 14px !important;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.opening-trainer-detail__sources h2 span {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: var(--text-muted) !important;
+  opacity: 1 !important;
+  margin-left: 0 !important;
+}
+.opening-trainer-detail__sources ul {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+.opening-trainer-detail__sources li {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px 14px !important;
+  background: var(--bg-muted) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px !important;
+  transition: border-color 120ms ease;
+}
+.opening-trainer-detail__sources li:hover {
+  border-color: var(--accent-primary);
+}
+/* Иконка sourceKind — увеличена + tinted background. */
+.opening-trainer-detail__sources li > span:first-of-type {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--ov-accent-08);
+  font-size: 18px !important;
+}
+.opening-trainer-detail__sources li > div {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.opening-trainer-detail__sources li > div > div:first-child {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.opening-trainer-detail__sources li > div > div:last-child {
+  font-size: 12px !important;
+  color: var(--text-muted);
+  opacity: 1 !important;
+  margin-top: 2px;
+}
+.opening-trainer-detail__sources li .btn {
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  min-height: 32px;
+  border-radius: 6px;
+}
+.opening-trainer-detail__sources
+  [data-testid='opening-trainer-detail-source-add'] {
+  margin-top: 12px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+}
+
+/* ── Modal add/edit source ─────────────────────────────────── */
+[data-testid='opening-trainer-source-modal'] {
+  background: var(--ov-black-55) !important;
+  z-index: 9000 !important;
+}
+[data-testid='opening-trainer-source-modal'] form {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 12px !important;
+  padding: 20px !important;
+  box-shadow: 0 12px 32px var(--ov-black-50);
+  gap: 12px !important;
+}
+[data-testid='opening-trainer-source-modal'] form h3 {
+  font-size: 17px !important;
+  font-weight: 600;
+  margin: 0 0 4px !important;
+}
+[data-testid='opening-trainer-source-modal'] form label {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+[data-testid='opening-trainer-source-modal'] form input,
+[data-testid='opening-trainer-source-modal'] form textarea {
+  background: var(--bg-input, var(--bg-muted));
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+[data-testid='opening-trainer-source-modal'] form textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  min-height: 220px;
+  resize: vertical;
+}
+[data-testid='opening-trainer-source-modal'] form input:focus,
+[data-testid='opening-trainer-source-modal'] form textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--ov-accent-15);
+}
+
+/* ============================================================
  * KS-3306 — /opening-trainer/:id/stats страница.
  *
  * Frontend (KS-3283) разметил inline-style. Применяем единый
@@ -1572,6 +1780,74 @@
   .opening-trainer-result__actions .btn {
     width: 100%;
     min-height: 44px;
+  }
+
+  /* ── KS-3330 multi-source mobile ───────────────────────────
+     /new: компактные блоки, FAB «+ Добавить» fixed снизу.
+     /detail: карточки sources в столбик, кнопки крупнее. */
+  .opening-trainer-new__sources > fieldset {
+    padding: 12px 14px !important;
+  }
+  .opening-trainer-new__sources > fieldset > legend {
+    font-size: 10px !important;
+  }
+  .opening-trainer-new__sources > fieldset textarea {
+    min-height: 140px !important;
+  }
+  /* «+ Add another PGN» на mobile — full-width inline. */
+  .opening-trainer-new [data-testid='opening-trainer-new-add-source'] {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
+    min-height: 44px;
+    border-radius: 10px;
+  }
+
+  .opening-trainer-detail__sources {
+    padding: 14px 16px;
+    margin-top: 18px;
+  }
+  .opening-trainer-detail__sources h2 {
+    font-size: 15px;
+  }
+  .opening-trainer-detail__sources li {
+    flex-wrap: wrap !important;
+    padding: 12px 14px !important;
+    row-gap: 10px !important;
+  }
+  .opening-trainer-detail__sources li > div {
+    flex: 1 1 calc(100% - 48px) !important;
+    min-width: 0;
+  }
+  .opening-trainer-detail__sources li .btn {
+    min-height: 36px !important;
+    font-size: 13px !important;
+    flex: 1;
+  }
+  .opening-trainer-detail__sources
+    [data-testid='opening-trainer-detail-source-add'] {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  /* Mobile modal — fullscreen. */
+  [data-testid='opening-trainer-source-modal'] form {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    padding: 16px !important;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  [data-testid='opening-trainer-source-modal'] form textarea {
+    min-height: 160px;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   /* ── /detail mode-buttons (KS-3312) ─────────────────────── */
