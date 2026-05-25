@@ -37,6 +37,9 @@ export class RepertoirePgnError extends Error {
   }
 }
 
+// KS-3335: 'depth' оставлен в union как deprecated значение
+// (на случай если где-то старый код матчится на это значение).
+// Реально новый код его не использует — проверка глубины убрана.
 export type RepertoireLimitKind = 'pgn-size' | 'nodes' | 'edges' | 'depth';
 
 export class RepertoireLimitExceededError extends Error {
@@ -356,13 +359,8 @@ function parseTokens(
     }
     const childFen = ctx.chess.fen();
     currentDepth++;
-    if (currentDepth > OPENING_REPERTOIRE_LIMITS.maxDepthHalfMoves) {
-      throw new RepertoireLimitExceededError(
-        'depth',
-        currentDepth,
-        OPENING_REPERTOIRE_LIMITS.maxDepthHalfMoves,
-      );
-    }
+    // KS-3335: depth-лимит снят. maxDepth поле tree.meta остаётся
+    // (используется UI), но без throw на превышении.
     if (currentDepth > ctx.root.meta.maxDepth) {
       ctx.root.meta.maxDepth = currentDepth;
     }

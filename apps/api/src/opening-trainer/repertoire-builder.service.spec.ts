@@ -236,8 +236,11 @@ describe('RepertoireBuilderService — лимиты (ADR §3.2)', () => {
     }
   });
 
-  it('depth > 80 → RepertoireLimitExceededError (depth)', () => {
-    // 50 ходов «туда-обратно» одной лошадью = 100 полуходов > 80.
+  // KS-3335: depth-лимит снят (пользователи добавляют целые партии,
+  // не только дебют). Теперь PGN глубиной > 80 полуходов парсится
+  // штатно, без throw. nodeCount/edgeCount/pgnBytes продолжают
+  // защищать от патологических объёмов.
+  it('KS-3335: depth > 80 — НЕ бросает (лимит снят, длинные партии OK)', () => {
     const moves: string[] = [];
     for (let m = 1; m <= 50; m++) {
       const wMove = m % 2 === 1 ? 'Nf3' : 'Ng1';
@@ -245,19 +248,9 @@ describe('RepertoireBuilderService — лимиты (ADR §3.2)', () => {
       moves.push(`${m}. ${wMove} ${bMove}`);
     }
     const pgn = moves.join(' ');
-    expect(() => builder.buildTree(pgn)).toThrow(
-      RepertoireLimitExceededError,
-    );
-    try {
-      builder.buildTree(pgn);
-    } catch (e) {
-      if (e instanceof RepertoireLimitExceededError) {
-        expect(e.limit).toBe('depth');
-        expect(e.max).toBe(OPENING_REPERTOIRE_LIMITS.maxDepthHalfMoves);
-      } else {
-        throw e;
-      }
-    }
+    const tree = builder.buildTree(pgn);
+    expect(tree.meta.maxDepth).toBeGreaterThan(80);
+    expect(tree.meta.edgeCount).toBeGreaterThan(0);
   });
 });
 
