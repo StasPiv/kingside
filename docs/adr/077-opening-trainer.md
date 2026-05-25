@@ -101,10 +101,19 @@ interface RepertoireEdge {
 
 - `nodeCount ≤ 2000`
 - `edgeCount ≤ 5000`
-- `maxDepth ≤ 80` полуходов (= 40 ходов)
 - размер исходного PGN ≤ 500 КБ
 
 Превышение — 400 «Репертуар слишком велик, разбейте на несколько».
+
+> **KS-3335 (2026-05-25):** лимит `maxDepth ≤ 80 полуходов` снят.
+> Пользователи добавляли реальные партии длиннее 40 полных ходов
+> (81+ полуходов), упирались в 400. Поле `tree.meta.maxDepth`
+> остаётся в дереве как **информационное** (используется UI для
+> отображения «макс. глубина: N полуходов»), но `throw` в
+> `RepertoireBuilderService` на превышении убран. Константа
+> `OPENING_REPERTOIRE_LIMITS.maxDepthHalfMoves` удалена из shared.
+> Защита от runaway-PGN остаётся через лимиты `maxNodes` / `maxEdges`
+> / `maxPgnBytes`.
 
 ### 2.3 Логика бота — server-side, не client-side
 
