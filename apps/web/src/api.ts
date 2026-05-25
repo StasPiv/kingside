@@ -19,6 +19,38 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 let refreshPromise: Promise<string> | null = null;
 
+/**
+ * KS-3333. Single-source — сообщаем приложению что сессия истекла.
+ * AuthContext подписан на `kingside:session-expired` и выполняет
+ * cleanup tokens + redirect на /login (с сохранением returnUrl).
+ *
+ * Используем CustomEvent а не прямой импорт AuthContext'a — `api.ts`
+ * находится в module-scope, React-context оттуда недоступен. Event
+ * decoupling также удобен для тестов и для повторного использования
+ * из других слоёв (websocket-gateway тоже может триггерить).
+ *
+ * Защита от спама: один dispatch за tick (если 401-ов несколько
+ * параллельно, все попадают в catch, но обработчик внутри AuthContext
+ * идемпотентен — повторный logout/redirect не вредит).
+ */
+function notifySessionExpired(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const here = window.location.pathname + window.location.search;
+    // Сохраняем returnUrl только если юзер не на /login (иначе
+    // зациклимся: logout → /login → logout → /login). Sessionstorage —
+    // тот же ключ что использует `setAuthReturnUrl`/`consumeAuthReturnUrl`
+    // (см. utils/authReturnUrl.ts).
+    if (!here.startsWith('/login') && !here.startsWith('/register')) {
+      sessionStorage.setItem('authReturnUrl', here);
+    }
+  } catch {
+    /* sessionStorage недоступен — не критично, пользователь после
+       логина просто попадёт на главную. */
+  }
+  window.dispatchEvent(new CustomEvent('kingside:session-expired'));
+}
+
 async function fetchWithTimeout(
   input: string,
   init: RequestInit | undefined,
@@ -116,6 +148,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       );
       if (!retry.ok) {
         const body = await retry.json().catch(() => ({}));
+        // KS-3333: повтор после refresh всё ещё 401 → session реально
+        // невалидна (например, refresh-token валиден, но access-token
+        // запретили). Триггерим тот же session-expired flow.
+        if (retry.status === 401) {
+          notifySessionExpired();
+          throw new ApiError(
+            body.message ?? 'Session expired',
+            'SESSION_EXPIRED',
+            401,
+          );
+        }
         throw new ApiError(
           body.message ?? `Request failed: ${retry.status}`,
           body.errorCode,
@@ -128,7 +171,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       // UI должен видеть `REQUEST_TIMEOUT`/`NETWORK_ERROR` отдельно от
       // реального истечения сессии, чтобы предложить retry, а не редирект на login.
       if (e instanceof ApiError) throw e;
-      throw new Error('Session expired');
+      // KS-3333: refreshAccessToken упал (refresh-token истёк или сам
+      // /auth/refresh вернул не-2xx). Раньше throw'или plain Error и
+      // пользователь видел EN-alert «Could not open analysis», оставаясь
+      // на текущей странице с протухшей сессией — никакого редиректа
+      // на /login не происходило. Теперь:
+      //   1. Сохраняем текущий URL в sessionStorage (через util
+      //      `setAuthReturnUrl` подключенный к LoginPage flow).
+      //   2. Диспатчим CustomEvent 'kingside:session-expired'.
+      //      AuthContext подписан и сделает: clear tokens + state.user=null
+      //      + redirect на /login.
+      //   3. Бросаем ApiError со специальным errorCode='SESSION_EXPIRED' —
+      //      вызывающие места (openAnalysis catch и т.п.) могут отличить
+      //      этот случай и не показывать alert поверх редиректа.
+      notifySessionExpired();
+      throw new ApiError('Session expired', 'SESSION_EXPIRED', 401);
     }
   }
 

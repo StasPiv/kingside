@@ -1,6 +1,7 @@
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../api';
+import { ApiError } from '../ApiError';
 
 /**
  * KS-2603 (ADR-051 §4 этап B1): унифицированный helper перехода в
@@ -184,6 +185,15 @@ export async function openAnalysis(
     }
     navigate(`/analysis/${created.id}`, navOpts);
   } catch (err) {
+    // KS-3333. Если api.ts уже задиспатчил session-expired event и
+    // AuthContext делает редирект на /login, alert поверх loading-стейта
+    // — лишний шум. ApiError с errorCode='SESSION_EXPIRED' маркирует
+    // именно этот случай (refresh-flow упал, 401 после retry). Молча
+    // выходим: AuthContext редиректнет, юзер увидит /login.
+    if (err instanceof ApiError && err.errorCode === 'SESSION_EXPIRED') {
+      console.warn('[openAnalysis] session expired, redirect handled by AuthContext');
+      return;
+    }
     const message = args.t
       ? args.t('analysis.openError', DEFAULT_ERROR_FALLBACK_EN)
       : DEFAULT_ERROR_FALLBACK_EN;

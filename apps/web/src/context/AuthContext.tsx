@@ -40,9 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const user = await api.get<User | null>('/auth/me');
       const currentToken = localStorage.getItem('token');
       console.log('[AuthContext] fetchMe success', { userId: user?.id, username: user?.username, tokenChanged: tokenAtStart !== currentToken });
-      // Only apply server locale if user has explicitly chosen one
-      // (localStorage already has a locale). Otherwise, keep browser-detected language.
-      if (user?.locale && localStorage.getItem('locale')) {
+      // KS-1782: применяем server-locale ТОЛЬКО если пользователь ещё не
+      // выбирал язык на этом устройстве (localStorage пуст). Иначе ручной
+      // выбор через переключатель в шапке имеет приоритет — иначе после
+      // F5 локаль каждый раз сбрасывается на user.locale, и QA не может
+      // воспроизвести ru-сценарий на DEV-учётке (у DEV user.locale='en').
+      if (user?.locale && !localStorage.getItem('locale')) {
         i18n.changeLanguage(user.locale);
         localStorage.setItem('locale', user.locale);
       }
@@ -71,6 +74,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       isFetchingRef.current = false;
     }
+  }, []);
+
+  // KS-3333. Подписка на window-event `kingside:session-expired`,
+  // диспатчится из api.ts когда refresh-flow упал (refresh-token истёк
+  // или /auth/refresh вернул не-2xx). До этого фикса фронт показывал
+  // EN-alert «Could not open analysis» и оставался на текущей странице
+  // с протухшей сессией — юзер не понимал что нужно перелогиниться.
+  // Теперь:
+  //   1. Чистим localStorage и state.user (полный logout-эффект).
+  //   2. Hard-redirect через `window.location.assign` на /login.
+  //      `setAuthReturnUrl` уже сохранил исходный URL в sessionStorage,
+  //      LoginPage его подхватит и вернёт пользователя обратно.
+  // Hard-redirect (не useNavigate) — потому что AuthProvider находится
+  // outside Router, useNavigate тут не доступен. Также hard-reload
+  // гарантирует чистый initial state (особенно для PWA / open contexts).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSessionExpired = () => {
+      console.log('[AuthContext] session expired event received');
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      setState({ user: null, token: null, loading: false });
+      // Идемпотентность: если мы уже на /login — не редиректим повторно.
+      if (
+        !window.location.pathname.startsWith('/login') &&
+        !window.location.pathname.startsWith('/register')
+      ) {
+        window.location.assign('/login');
+      }
+    };
+    window.addEventListener('kingside:session-expired', onSessionExpired);
+    return () =>
+      window.removeEventListener('kingside:session-expired', onSessionExpired);
   }, []);
 
   useEffect(() => {
