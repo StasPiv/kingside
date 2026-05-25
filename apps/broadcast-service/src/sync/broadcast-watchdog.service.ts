@@ -95,6 +95,14 @@ export interface WatchdogPrisma {
       data: { status: string };
     }): Promise<unknown>;
   };
+  // KS-3332: для tour-API guard перед failed-transition нужно получить
+  // lichessId родительского broadcast'а.
+  broadcast: {
+    findUnique(args: {
+      where: { id: string };
+      select: { lichessId: true };
+    }): Promise<{ lichessId: string } | null>;
+  };
 }
 
 export interface WatchdogRedis {
@@ -264,6 +272,63 @@ async function checkLichessRound(
 }
 
 /**
+ * KS-3332. Tour-API guard: запрашиваем `/api/broadcast/{tourId}` (тонкий
+ * JSON по броадкасту со всеми round'ами и их флагами `ongoing/finished`).
+ * Возвращает:
+ *   - `ongoing`              — Lichess сам говорит этот round `ongoing: true`.
+ *   - `finished-or-unknown`  — round есть и НЕ ongoing (finished, pending,
+ *                              отсутствует — пусть watchdog продолжит как
+ *                              обычно с PGN-based решением).
+ *   - `fetch-failed`         — не смогли получить tour-API (network / 429 /
+ *                              timeout). По безопасности возвращаем как
+ *                              `finished-or-unknown` через caller, чтобы
+ *                              fail-transition сохранил поведение.
+ *
+ * Один extra-fetch за tick на failed-кандидата — не нагрузка (tour-API
+ * лёгкий, ~5KB JSON, без rate-limit для read-only).
+ */
+async function checkRoundStatusInTour(
+  tourLichessId: string,
+  lichessRoundId: string,
+  fetchFn: typeof fetch,
+  logger: WatchdogLogger,
+): Promise<'ongoing' | 'finished-or-unknown' | 'fetch-failed'> {
+  const url = `${LICHESS_API}/broadcast/${tourLichessId}`;
+  try {
+    const res = await fetchFn(url, {
+      headers: {
+        'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(LICHESS_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      logger.warn(
+        `[broadcast-watchdog] tour-API ${tourLichessId} returned HTTP ${res.status}`,
+      );
+      return 'fetch-failed';
+    }
+    const payload = (await res.json()) as {
+      rounds?: Array<{
+        id?: string;
+        ongoing?: boolean;
+        finished?: boolean;
+      }>;
+    };
+    if (!payload || !Array.isArray(payload.rounds)) return 'fetch-failed';
+    const r = payload.rounds.find((x) => x?.id === lichessRoundId);
+    if (!r) return 'finished-or-unknown';
+    if (r.ongoing === true) return 'ongoing';
+    return 'finished-or-unknown';
+  } catch (err) {
+    logger.warn(
+      `[broadcast-watchdog] tour-API fetch failed for ${tourLichessId}: ${(err as Error).message}`,
+    );
+    return 'fetch-failed';
+  }
+}
+
+/**
  * Применяет решение к round'у: либо UPDATE status, либо инкремент
  * fail-counter, либо reset на live.
  */
@@ -318,6 +383,49 @@ async function applyDecision(
   }
 
   if (fails >= unreachableThreshold) {
+    // KS-3332: ДО transition в failed — guard через tour-API. PGN-stream
+    // конкретного round'а у Lichess может быть 429-throttled / network
+    // flap, при этом сам round в tour-API `/api/broadcast/{tourId}` всё
+    // ещё `ongoing: true`. Если так — НЕ закрываем round (это false-
+    // positive, race c main-sync который через минуту опять поставит
+    // ongoing). Прод-баг: 39. Internationale Haßlocher Schachtage,
+    // Runde 6 мерцал между failed и ongoing.
+    let tourCheck: 'ongoing' | 'finished-or-unknown' | 'fetch-failed' =
+      'fetch-failed';
+    try {
+      const bc = await prisma.broadcast.findUnique({
+        where: { id: round.broadcastId },
+        select: { lichessId: true },
+      });
+      if (bc?.lichessId) {
+        tourCheck = await checkRoundStatusInTour(
+          bc.lichessId,
+          round.lichessRoundId,
+          deps.fetchFn ?? fetch,
+          logger,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `[broadcast-watchdog] tour-API guard failed for ${round.id}: ${(err as Error).message}`,
+      );
+    }
+    if (tourCheck === 'ongoing') {
+      logger.warn(
+        `broadcast watchdog: SKIP failed-transition for ${round.id} — ` +
+          `PGN unreachable ${fails}× но tour-API говорит ongoing ` +
+          `(false-positive, race c main-sync). Reason: ${source.reason}`,
+      );
+      // Сбрасываем fail-counter — даём watchdog'у начать заново через час
+      // если ситуация повторится. НЕ DEL чтобы не давать infinite loop
+      // (failed-fetch x3 → reset → x3 → reset → ...) на постоянном 429.
+      // Просто оставляем как есть; fail-key истечёт сам по TTL=4h.
+      return {
+        roundId: round.id,
+        outcome: 'stuck-unreachable',
+        reason: `unreachable ${fails}× but tour-API says ongoing (skip failed)`,
+      };
+    }
     await prisma.broadcastRound.update({
       where: { id: round.id },
       data: { status: 'failed' },

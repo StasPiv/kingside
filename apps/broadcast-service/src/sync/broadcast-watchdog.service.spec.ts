@@ -25,7 +25,10 @@ interface FakeRound {
   last_update_at: Date;
 }
 
-function makePrisma(rounds: FakeRound[]) {
+function makePrisma(
+  rounds: FakeRound[],
+  broadcasts: Record<string, { lichessId: string }> = {},
+) {
   const updates: Array<{ id: string; data: { status: string } }> = [];
   return {
     _updates: updates,
@@ -36,6 +39,15 @@ function makePrisma(rounds: FakeRound[]) {
           updates.push({ id: args.where.id, data: args.data });
           return { id: args.where.id, ...args.data };
         },
+      ),
+    },
+    // KS-3332: для tour-API guard в applyDecision.
+    broadcast: {
+      findUnique: jest.fn(
+        async (args: {
+          where: { id: string };
+          select: { lichessId: true };
+        }) => broadcasts[args.where.id] ?? null,
       ),
     },
   } as unknown as WatchdogPrisma & { _updates: typeof updates };
@@ -396,6 +408,111 @@ describe('runWatchdogTick — KS-2158', () => {
     );
     // lock не получен — основной путь не запускался, $queryRawUnsafe не дёргали
     expect(fakePrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  // KS-3332: tour-API guard — PGN-stream Lichess может быть 429-throttled
+  // для конкретного round'а, при этом сам round в tour-API ongoing.
+  // Watchdog не должен переводить такие round'ы в failed.
+  it('KS-3332: PGN unreachable 3× НО tour-API говорит ongoing → НЕ closed-failed', async () => {
+    const prisma = makePrisma([fakeRound()], {
+      'b-1': { lichessId: 'tour-1' },
+    });
+    const redis = makeRedis();
+    redis._counts['broadcast:watchdog:fail-count:round-1'] = 2; // следующий incr = 3
+    const logger = makeLogger();
+    // 1-й fetch — PGN endpoint (429), 2-й — tour-API (200 + ongoing для round).
+    const fetchFn = jest
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429 })) // PGN throttled
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            tour: { id: 'tour-1' },
+            rounds: [
+              { id: 'lichess-r1', ongoing: true },
+              { id: 'lichess-r2', finished: true },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+    const r = await runWatchdogTick({
+      prisma,
+      redis,
+      logger,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    // Round НЕ закрыт в failed.
+    expect(r.outcomes[0].outcome).toBe('stuck-unreachable');
+    expect(r.outcomes[0].reason).toMatch(/tour-API says ongoing/);
+    expect(
+      (prisma as unknown as { _updates: unknown[] })._updates,
+    ).toHaveLength(0);
+    expect(
+      logger._lines.find((l) =>
+        l.includes('SKIP failed-transition'),
+      ),
+    ).toBeTruthy();
+  });
+
+  it('KS-3332: PGN unreachable 3× + tour-API не говорит ongoing → обычный closed-failed', async () => {
+    const prisma = makePrisma([fakeRound()], {
+      'b-1': { lichessId: 'tour-1' },
+    });
+    const redis = makeRedis();
+    redis._counts['broadcast:watchdog:fail-count:round-1'] = 2;
+    const logger = makeLogger();
+    // tour-API отвечает что round finished (или его нет) — guard не блокирует.
+    const fetchFn = jest
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            tour: { id: 'tour-1' },
+            rounds: [{ id: 'lichess-r1', finished: true }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+    const r = await runWatchdogTick({
+      prisma,
+      redis,
+      logger,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    expect(r.outcomes[0].outcome).toBe('closed-failed');
+    expect(
+      (prisma as unknown as { _updates: { data: { status: string } }[] })
+        ._updates[0].data.status,
+    ).toBe('failed');
+  });
+
+  it('KS-3332: PGN unreachable 3× + tour-API сам недоступен → fallback на закрытие (safety)', async () => {
+    const prisma = makePrisma([fakeRound()], {
+      'b-1': { lichessId: 'tour-1' },
+    });
+    const redis = makeRedis();
+    redis._counts['broadcast:watchdog:fail-count:round-1'] = 2;
+    const logger = makeLogger();
+    const fetchFn = jest
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429 })) // PGN
+      .mockResolvedValueOnce(new Response('', { status: 503 })); // tour-API
+
+    const r = await runWatchdogTick({
+      prisma,
+      redis,
+      logger,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    // tour-API недоступен → guard не сработал → закрываем как обычно.
+    expect(r.outcomes[0].outcome).toBe('closed-failed');
   });
 
   it('параметр unreachableFailThreshold перебивает дефолт', async () => {
