@@ -114,6 +114,8 @@ export function BroadcastStandings({
         breadcrumbRootTitle: broadcastTitle,
         breadcrumbRootUrl: `/broadcasts/${broadcastId}`,
       },
+      // KS-3333: локализация alert при ошибке POST /analyses.
+      t,
     });
   };
 

@@ -285,6 +285,8 @@ function ArchiveGamePageInner() {
         breadcrumbSection: t('gamePage.breadcrumb', 'Archive'),
         breadcrumbBackUrl: `/archive/games/${game.id}`,
       },
+      // KS-3333: локализация alert при ошибке POST /analyses.
+      t,
     });
   };
 

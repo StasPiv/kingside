@@ -40,6 +40,12 @@ export async function openAnalysisFromPgn(
      */
     lichessGameId?: string;
     archiveGameId?: string;
+    /**
+     * KS-3333. i18n t-функция для локализации alert при ошибке POST.
+     * Без неё `openAnalysis` падает в EN fallback «Could not open
+     * analysis. Please try again.» — на ru-локали юзер видит англ. текст.
+     */
+    t?: (key: string, defaultValue: string) => string;
   },
 ): Promise<void> {
   await openAnalysis(navigate, {
@@ -49,6 +55,7 @@ export async function openAnalysisFromPgn(
     replace: args.replace,
     lichessGameId: args.lichessGameId,
     archiveGameId: args.archiveGameId,
+    t: args.t,
     // KS-2605: legacy callsite'ы (Archive/Broadcast) рассчитывают, что
     // `AnalysisPage` сделает быстрый initial-render по `state.pgn` до
     // прихода GET /analyses/:id. Сохраняем старый контракт через флаг.

@@ -328,6 +328,8 @@ export function BroadcastLiveGamePage() {
         breadcrumbSection: round?.name,
         breadcrumbBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
       },
+      // KS-3333: локализация alert при ошибке POST /analyses.
+      t,
     });
   };
 

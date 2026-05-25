@@ -93,6 +93,8 @@ export function LegacyStandings({ tournamentId, broadcastTitle }: LegacyStanding
               breadcrumbRootTitle: broadcastTitle,
               breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
             },
+            // KS-3333: локализация alert при ошибке POST /analyses.
+            t,
           });
           return;
         }

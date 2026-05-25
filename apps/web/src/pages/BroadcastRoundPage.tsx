@@ -442,6 +442,8 @@ export function BroadcastRoundPage() {
         breadcrumbSection: currentRound?.name,
         breadcrumbBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
       },
+      // KS-3333: передаём t для локализации alert при ошибке POST.
+      t,
     });
   };
 
