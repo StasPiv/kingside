@@ -22,7 +22,10 @@ import type {
   CreateOpeningRepertoireFromAnalysisRequest,
   CreateOpeningRepertoireRequest,
   CreateOpeningRepertoireResponse,
+  CreateRepertoireSourceRequest,
+  CreateRepertoireSourceResponse,
   DeleteOpeningRepertoireResponse,
+  DeleteRepertoireSourceResponse,
   GetOpeningRepertoireActiveSessionResponse,
   GetOpeningRepertoireProgressResponse,
   GetOpeningRepertoireResponse,
@@ -40,6 +43,8 @@ import type {
   StartOpeningTrainerSessionResponse,
   UpdateOpeningRepertoireRequest,
   UpdateOpeningRepertoireResponse,
+  UpdateRepertoireSourceRequest,
+  UpdateRepertoireSourceResponse,
 } from '@kingside/shared';
 
 const BASE = '/opening-trainer';
@@ -103,6 +108,38 @@ export const openingTrainerApi = {
     return api.post<CreateOpeningRepertoireResponse>(
       `${BASE}/repertoires/from-analysis`,
       body,
+    );
+  },
+
+  // ── KS-3324/3326 Multi-Source (ADR-078) ───────────────────────────
+  /** POST /repertoires/:id/sources — добавить новый источник в существующий репертуар. */
+  createRepertoireSource(
+    repertoireId: string,
+    body: CreateRepertoireSourceRequest,
+  ): Promise<CreateRepertoireSourceResponse> {
+    return api.post<CreateRepertoireSourceResponse>(
+      `${BASE}/repertoires/${repertoireId}/sources`,
+      body,
+    );
+  },
+  /** PATCH /repertoires/:id/sources/:sourceId — обновить имя/PGN источника. */
+  updateRepertoireSource(
+    repertoireId: string,
+    sourceId: string,
+    body: UpdateRepertoireSourceRequest,
+  ): Promise<UpdateRepertoireSourceResponse> {
+    return api.patch<UpdateRepertoireSourceResponse>(
+      `${BASE}/repertoires/${repertoireId}/sources/${sourceId}`,
+      body,
+    );
+  },
+  /** DELETE /repertoires/:id/sources/:sourceId — удалить источник (если не последний). */
+  deleteRepertoireSource(
+    repertoireId: string,
+    sourceId: string,
+  ): Promise<DeleteRepertoireSourceResponse> {
+    return api.delete<DeleteRepertoireSourceResponse>(
+      `${BASE}/repertoires/${repertoireId}/sources/${sourceId}`,
     );
   },
 

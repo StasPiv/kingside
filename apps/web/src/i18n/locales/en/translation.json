@@ -3129,10 +3129,18 @@
       "drop": {
         "label": "Drop a .pgn file here or click to browse"
       },
+      "addSource": "Add another PGN",
+      "removeSource": "Remove this PGN block",
+      "source": {
+        "heading": "Source",
+        "name": "Name (optional)",
+        "namePlaceholder": "e.g. Sicilian Najdorf 6.Be3"
+      },
       "errors": {
         "titleRequired": "Title is required.",
         "pgnRequired": "PGN is required.",
         "tooLarge": "PGN file is too large (max 500KB).",
+        "tooManySources": "Too many sources (max {{max}}).",
         "createFailed": "Failed to create repertoire."
       }
     },
@@ -3149,6 +3157,27 @@
         "title": "Change training side",
         "hint": "Statistics and progress are kept — only the side flips.",
         "error": "Failed to change side"
+      },
+      "sources": {
+        "title": "Sources",
+        "fallbackName": "Source #{{n}}",
+        "add": "Add PGN source",
+        "edit": "Edit",
+        "delete": "Delete",
+        "modalAddTitle": "Add PGN source",
+        "modalEditTitle": "Edit source",
+        "modalSave": "Save",
+        "confirmDelete": "Delete this source? Lines from it will be removed from the repertoire tree.",
+        "cantDeleteLast": "At least one source is required.",
+        "atLimit": "Source limit reached ({{max}}).",
+        "kind.pgn-upload": "PGN upload",
+        "kind.workshop-analysis": "From Workshop",
+        "kind.legacy-import": "Legacy import",
+        "errors": {
+          "addFailed": "Failed to add source",
+          "updateFailed": "Failed to update source",
+          "deleteFailed": "Failed to delete source"
+        }
       },
       "stats": {
         "positions": "Positions",

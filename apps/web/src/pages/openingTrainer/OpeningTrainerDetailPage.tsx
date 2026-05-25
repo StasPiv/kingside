@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
 import { RepertoireTreeView } from './RepertoireTreeView';
+import { RepertoireSourcesSection } from './RepertoireSourcesSection';
 import type {
   OpeningLineProgressDto,
   OpeningRepertoireDetailDto,
@@ -561,6 +562,18 @@ export function OpeningTrainerDetailPage() {
           📊 {t('openingTrainer.detail.viewStats', 'View statistics')}
         </Link>
       </section>
+
+      {/* KS-3329 (ADR-078 §5.2): секция «Источники» — список PGN-блоков,
+          CRUD-кнопки. На каждом обновлении backend возвращает свежий
+          detail-DTO с пересобранным деревом — пишем в local state,
+          tree-view ниже автоматически перерисуется. */}
+      {repertoire.sources && repertoire.sources.length > 0 && (
+        <RepertoireSourcesSection
+          repertoireId={repertoire.id}
+          sources={repertoire.sources}
+          onUpdate={(next) => setRepertoire(next)}
+        />
+      )}
 
       {/* KS-3296 (F2): дерево репертуара с покраской по статусу линий.
           KS-3308: side прокидывается, чтобы покраска применялась только

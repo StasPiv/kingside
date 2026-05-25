@@ -30,6 +30,20 @@ function makeRepertoire(overrides: Partial<{ nodeCount: number; edgeCount: numbe
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-01T00:00:00Z',
     pgn: '',
+    // KS-3324: multi-source — sources обязателен в DetailDto.
+    sources: [
+      {
+        id: 'src-legacy',
+        repertoireId: 'r1',
+        name: null,
+        pgn: '',
+        sourceKind: 'legacy-import' as const,
+        sourceAnalysisId: null,
+        order: 0,
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      },
+    ],
     tree: {
       rootFen: 'start',
       nodes: overrides.nodes ?? {
@@ -183,6 +197,7 @@ describe('OpeningTrainerDetailPage', () => {
       correctMoves: 8,
       wrongMoves: 2,
       hintsUsed: 0,
+      accuracyPercent: 80,
       startedAt: '2026-05-23T00:00:00Z',
       lastActivityAt: '2026-05-23T00:01:00Z',
       finishedAt: null,

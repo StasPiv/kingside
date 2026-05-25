@@ -86,6 +86,7 @@ function makeSession(
     correctMoves: 0,
     wrongMoves: 0,
     hintsUsed: 0,
+    accuracyPercent: 0,
     startedAt: '2026-05-23T00:00:00Z',
     lastActivityAt: '2026-05-23T00:00:00Z',
     finishedAt: null,
