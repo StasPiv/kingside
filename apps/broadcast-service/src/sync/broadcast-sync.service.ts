@@ -80,7 +80,16 @@ const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
 const PINNED_LOCK_TTL = 50;
 const PGN_HASH_TTL = 300;
 const RATE_LIMIT_DELAY_MS = 1500;
-const RATE_LIMIT_429_BACKOFF_TTL = 60;
+// KS-3334 (replaces KS-1219). Per-endpoint backoff: глобальный 60-сек
+// блокировал все Lichess-запросы, когда у нас persistent 429 на ОДНОМ
+// round-PGN endpoint'е. Теперь backoff трекается отдельно по ключу
+// (URL hostname + path), failures-счётчик растёт, TTL экспоненциально
+// эскалирует. Таким образом 429 на одном round'е не блокирует tour-API
+// и другие round-endpoint'ы.
+const RATE_LIMIT_429_BACKOFF_BASE_TTL_SEC = 60;
+const RATE_LIMIT_429_BACKOFF_LADDER_SEC = [60, 180, 600, 1800]; // 1м/3м/10м/30м
+const RATE_LIMIT_429_BACKOFF_MAX_TTL_SEC = 1800;
+const RATE_LIMIT_429_JITTER_PCT = 0.3; // ±30% jitter чтобы не синхронизировать retry'и реплик
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -329,6 +338,42 @@ export function extractVariantFromPgn(pgn: string): string | null {
  * Остальное (chess960, fischerandom, crazyhouse, antichess, ...) —
  * варианты, broadcast скрываем.
  */
+/**
+ * KS-3334: ключ для per-endpoint backoff'а. Hostname + pathname без
+ * query (rate-limit Lichess'а обычно per-path). Для round-PGN URL
+ * (`/api/broadcast/round/<id>.pgn`) даёт уникальный backoff на каждый
+ * roundId — один проблемный round не блокирует tour-API и другие.
+ */
+export function fetchKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * KS-3334: TTL backoff'а после очередного 429. Эскалирует по лестнице
+ * `RATE_LIMIT_429_BACKOFF_LADDER_SEC` (1м/3м/10м/30м). Plus ±30% jitter
+ * чтобы реплики не синхронизировались на retry'ях.
+ */
+export function computeBackoffTtlSec(failures: number): number {
+  const idx = Math.min(
+    failures - 1,
+    RATE_LIMIT_429_BACKOFF_LADDER_SEC.length - 1,
+  );
+  const base = RATE_LIMIT_429_BACKOFF_LADDER_SEC[Math.max(0, idx)];
+  const jitter = (Math.random() * 2 - 1) * RATE_LIMIT_429_JITTER_PCT;
+  return Math.max(
+    RATE_LIMIT_429_BACKOFF_BASE_TTL_SEC,
+    Math.min(
+      RATE_LIMIT_429_BACKOFF_MAX_TTL_SEC,
+      Math.round(base * (1 + jitter)),
+    ),
+  );
+}
+
 export function isStandardVariant(variant: string | null): boolean {
   if (variant === null) return true;
   const v = variant.trim().toLowerCase();
@@ -344,7 +389,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private pinnedPollTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private pollOffset = 0;
-  private rateLimitBackoffUntil = 0;
+  // KS-3334: per-endpoint backoff (replaces глобальный rateLimitBackoffUntil
+  // из KS-1219). Ключ — fetchKey(url) (hostname + pathname без query).
+  private readonly endpointBackoffUntil = new Map<string, number>();
+  private readonly endpointBackoffFails = new Map<string, number>();
   private stopped = false;
   private started = false;
 
@@ -521,25 +569,54 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   // --- Lichess fetch ---
 
+  private fetchKey(url: string): string {
+    return fetchKey(url);
+  }
+
+  private computeBackoffTtlSec(failures: number): number {
+    return computeBackoffTtlSec(failures);
+  }
+
   private async lichessFetch(url: string, init?: RequestInit): Promise<Response> {
-    if (Date.now() < this.rateLimitBackoffUntil) {
-      const secsLeft = Math.ceil(
-        (this.rateLimitBackoffUntil - Date.now()) / 1000,
-      );
-      throw new Error(`Lichess 429 backoff active (${secsLeft}s left)`);
+    const key = this.fetchKey(url);
+    const until = this.endpointBackoffUntil.get(key) ?? 0;
+    if (Date.now() < until) {
+      const secsLeft = Math.ceil((until - Date.now()) / 1000);
+      throw new Error(`Lichess 429 backoff active for ${key} (${secsLeft}s left)`);
     }
     try {
+      // KS-3334: опциональный bearer-токен для повышенных rate-лимитов
+      // (Lichess: ~8000 req/h authenticated vs ~800 anonymous). Токен
+      // через env `LICHESS_API_TOKEN`. Не задан → анонимные запросы.
+      const token = process.env.LICHESS_API_TOKEN;
+      const headers: Record<string, string> = {
+        ...(init?.headers as Record<string, string> | undefined),
+      };
+      if (token && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       const res = await fetch(url, {
         ...init,
+        headers,
         signal: init?.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (res.status === 429) {
-        this.rateLimitBackoffUntil =
-          Date.now() + RATE_LIMIT_429_BACKOFF_TTL * 1000;
+        const failures = (this.endpointBackoffFails.get(key) ?? 0) + 1;
+        this.endpointBackoffFails.set(key, failures);
+        const ttlSec = this.computeBackoffTtlSec(failures);
+        this.endpointBackoffUntil.set(key, Date.now() + ttlSec * 1000);
         this.logger.warn(
-          `[broadcast-sync] Lichess 429 on ${url}. Backing off ${RATE_LIMIT_429_BACKOFF_TTL}s`,
+          `[broadcast-sync] Lichess 429 on ${url}. ` +
+            `Per-endpoint backoff: key=${key} failures=${failures} ttl=${ttlSec}s`,
         );
         throw new Error('Lichess 429 Too Many Requests');
+      }
+      // KS-3334: успех → сбрасываем failures-счётчик (но не до 0 сразу —
+      // оставляем 1 на короткий grace period, чтобы flap success→fail не
+      // сразу опускал лестницу обратно к 1 минуте). Хотя нам легче
+      // сбросить в 0 — следующий 429 даст 1 минуту, что нормально.
+      if (this.endpointBackoffFails.has(key)) {
+        this.endpointBackoffFails.delete(key);
       }
       return res;
     } catch (e: unknown) {
@@ -1346,10 +1423,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
     while (!signal.aborted && !this.stopped) {
       try {
-        const res = await fetch(url, {
-          headers: { Accept: 'application/x-ndjson' },
-          signal,
-        });
+        // KS-3334: bearer-токен и для SSE-стрима — для повышенных лимитов.
+        const token = process.env.LICHESS_API_TOKEN;
+        const headers: Record<string, string> = {
+          Accept: 'application/x-ndjson',
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(url, { headers, signal });
         if (res.status === 429) {
           this.logger.warn(
             `[broadcast-sync] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`,

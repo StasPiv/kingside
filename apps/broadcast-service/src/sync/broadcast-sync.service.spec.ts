@@ -16,6 +16,8 @@ import {
   shouldCloseRoundAsFinished,
   extractClocksFromPgn,
   detectLastMoveAt,
+  fetchKey,
+  computeBackoffTtlSec,
 } from './broadcast-sync.service';
 
 function game(result: string): { result: string } {
@@ -289,5 +291,65 @@ describe('shouldCloseRoundAsFinished — KS-2722', () => {
         'ongoing',
       ),
     ).toBe(false);
+  });
+});
+
+describe('KS-3334: per-endpoint backoff helpers', () => {
+  describe('fetchKey', () => {
+    it('даёт стабильный ключ host+path без query', () => {
+      expect(fetchKey('https://lichess.org/api/broadcast/round/abc.pgn')).toBe(
+        'lichess.org/api/broadcast/round/abc.pgn',
+      );
+    });
+
+    it('query-параметры не влияют на ключ', () => {
+      const a = fetchKey('https://lichess.org/api/broadcast?nb=50');
+      const b = fetchKey('https://lichess.org/api/broadcast?nb=100');
+      expect(a).toBe(b);
+    });
+
+    it('разные roundId → разные ключи (один проблемный не блокирует другой)', () => {
+      const a = fetchKey('https://lichess.org/api/broadcast/round/AAA.pgn');
+      const b = fetchKey('https://lichess.org/api/broadcast/round/BBB.pgn');
+      expect(a).not.toBe(b);
+    });
+
+    it('round-PGN endpoint и tour-API — разные ключи', () => {
+      const round = fetchKey('https://lichess.org/api/broadcast/round/X.pgn');
+      const tour = fetchKey('https://lichess.org/api/broadcast/Y');
+      expect(round).not.toBe(tour);
+    });
+
+    it('невалидный URL → возвращает строку как есть (не падает)', () => {
+      expect(fetchKey('not-a-url')).toBe('not-a-url');
+    });
+  });
+
+  describe('computeBackoffTtlSec', () => {
+    it('первая неудача → ~60 сек (с jitter)', () => {
+      const ttl = computeBackoffTtlSec(1);
+      // 60 ± 30% = [42, 78].
+      expect(ttl).toBeGreaterThanOrEqual(60); // clamp на BASE_TTL минимум
+      expect(ttl).toBeLessThanOrEqual(78);
+    });
+
+    it('эскалация: 4-я и далее неудача → ~1800 сек (30 мин)', () => {
+      const ttl = computeBackoffTtlSec(10);
+      // 1800 ± 30% clamp до MAX = 1800.
+      expect(ttl).toBeGreaterThanOrEqual(1260);
+      expect(ttl).toBeLessThanOrEqual(1800);
+    });
+
+    it('failures=2 → ~180 сек (3 мин)', () => {
+      const ttl = computeBackoffTtlSec(2);
+      expect(ttl).toBeGreaterThanOrEqual(126); // 180 - 30%
+      expect(ttl).toBeLessThanOrEqual(234); // 180 + 30%
+    });
+
+    it('failures=3 → ~600 сек (10 мин)', () => {
+      const ttl = computeBackoffTtlSec(3);
+      expect(ttl).toBeGreaterThanOrEqual(420);
+      expect(ttl).toBeLessThanOrEqual(780);
+    });
   });
 });
