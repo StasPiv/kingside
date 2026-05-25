@@ -1,11 +1,17 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
 
 /**
@@ -14,6 +20,21 @@ import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
  * `RepertoireBuilderService.buildTree` — здесь только сырая валидация
  * формата (строка / длина title).
  */
+
+/**
+ * KS-3326 / ADR-078. Один блок-источник внутри
+ * `CreateRepertoireDto.sources` или `CreateRepertoireSourceDto`.
+ */
+export class RepertoireSourceInputDto {
+  @IsString()
+  @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
+  pgn!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+}
 
 export class CreateRepertoireDto {
   @IsString()
@@ -26,17 +47,75 @@ export class CreateRepertoireDto {
   description?: string;
 
   /**
+   * @deprecated KS-3324/3326 (ADR-078): используй `sources`. Поле
+   * сохранено для backward-compat — backend конвертирует в
+   * single-source с `sourceKind='pgn-upload'`. Указывать одновременно
+   * с `sources` — 400.
+   *
    * Сырой PGN. Размер до 500 КБ — проверяется в builder, тут только
    * грубый upper-bound, чтобы не загружать гигантские строки в память.
    */
+  @IsOptional()
   @IsString()
   @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
-  pgn!: string;
+  pgn?: string;
+
+  /**
+   * KS-3326 / ADR-078. Массив источников (1..maxSourcesPerRepertoire).
+   * Новый формат. Указывать одновременно с `pgn` нельзя (см. service-
+   * level валидацию).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire)
+  @ValidateNested({ each: true })
+  @Type(() => RepertoireSourceInputDto)
+  sources?: RepertoireSourceInputDto[];
 
   /** KS-3302. Сторона тренировки. Default 'white' если не задано. */
   @IsOptional()
   @IsIn(['white', 'black'])
   side?: 'white' | 'black';
+}
+
+/**
+ * KS-3326 / ADR-078. Body для `POST /repertoires/:id/sources`.
+ * Добавить ещё один источник в существующий репертуар.
+ */
+export class CreateRepertoireSourceDto {
+  @IsString()
+  @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
+  pgn!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+
+  @IsOptional()
+  @IsIn(['pgn-upload', 'workshop-analysis', 'legacy-import'])
+  sourceKind?: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+
+  @IsOptional()
+  @IsUUID()
+  sourceAnalysisId?: string;
+}
+
+/**
+ * KS-3326 / ADR-078. Body для `PATCH /repertoires/:id/sources/:sourceId`.
+ */
+export class UpdateRepertoireSourceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(OPENING_REPERTOIRE_LIMITS.maxPgnBytes * 2)
+  pgn?: string;
+
+  /** `null` чтобы очистить и вернуть fallback. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string | null;
 }
 
 export class UpdateRepertoireDto {
@@ -101,6 +180,10 @@ export class MoveDto {
 
 /**
  * KS-3293 (M2 B7). Body для `POST /opening-trainer/repertoires/from-analysis`.
+ *
+ * KS-3327 / ADR-078 §4: добавлено опц. `repertoireId` — если задан,
+ * PGN анализа добавляется КАК ИСТОЧНИК в существующий репертуар вместо
+ * создания нового.
  */
 export class CreateRepertoireFromAnalysisDto {
   @IsString()
@@ -121,4 +204,13 @@ export class CreateRepertoireFromAnalysisDto {
   @IsOptional()
   @IsIn(['white', 'black'])
   side?: 'white' | 'black';
+
+  /**
+   * KS-3327 / ADR-078. Опц. — UUID существующего репертуара. Если задан,
+   * вместо создания нового репертуара добавляем source в этот. Owner-
+   * check + лимит maxSourcesPerRepertoire применяются.
+   */
+  @IsOptional()
+  @IsUUID()
+  repertoireId?: string;
 }

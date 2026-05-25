@@ -79,34 +79,241 @@ export class OpeningTrainerService {
       );
     }
 
-    // Парсим PGN → tree (бросает RepertoirePgnError / RepertoireLimitExceededError).
-    let tree: RepertoireTree;
-    try {
-      tree = this.builder.buildTree(dto.pgn);
-    } catch (err) {
-      if (err instanceof RepertoirePgnError) {
-        throw new BadRequestException(err.message);
+    // KS-3326 / ADR-078: поддержка двух форматов body.
+    // 1. New: { sources: [...] }
+    // 2. Legacy: { pgn } → конвертируем в [{ pgn, name: null }]
+    // Указывать одновременно → 400.
+    if (dto.pgn !== undefined && dto.sources !== undefined) {
+      throw new BadRequestException(
+        'Specify either `pgn` (legacy) or `sources` (new), not both',
+      );
+    }
+    const sourceInputs: Array<{ pgn: string; name?: string | null }> = [];
+    if (dto.sources && dto.sources.length > 0) {
+      for (const s of dto.sources) {
+        sourceInputs.push({ pgn: s.pgn, name: s.name ?? null });
       }
-      if (err instanceof RepertoireLimitExceededError) {
+    } else if (dto.pgn !== undefined && dto.pgn.length > 0) {
+      sourceInputs.push({ pgn: dto.pgn, name: null });
+    } else {
+      throw new BadRequestException(
+        'At least one source is required (use `sources` array or legacy `pgn`)',
+      );
+    }
+    if (
+      sourceInputs.length > OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire
+    ) {
+      throw new BadRequestException(
+        `Too many sources: ${sourceInputs.length} > ${OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire}`,
+      );
+    }
+
+    // Создаём репертуар-shell (без tree пока), потом INSERT всех sources,
+    // потом rebuild tree через builder с реальными sourceId'ями, потом
+    // update tree-полей в репертуаре.
+    const concatPgn = sourceInputs
+      .map((s) => s.pgn)
+      .join('\n\n')
+      .trim();
+    const shell = await this.repo.createRepertoire({
+      userId,
+      title: dto.title,
+      description: dto.description ?? null,
+      pgn: concatPgn,
+      tree: { rootFen: '', nodes: {}, meta: { nodeCount: 0, edgeCount: 0, maxDepth: 0 } } as unknown as object,
+      nodeCount: 0,
+      edgeCount: 0,
+      maxDepth: 0,
+      side: dto.side ?? 'white',
+    });
+
+    try {
+      const sources = [];
+      for (const s of sourceInputs) {
+        const row = await this.repo.createSource({
+          repertoireId: shell.id,
+          pgn: s.pgn,
+          name: s.name ?? null,
+          sourceKind: 'pgn-upload',
+        });
+        sources.push(row);
+      }
+      const tree = this.buildTreeOrThrow(
+        sources.map((s) => ({ sourceId: s.id, pgn: s.pgn })),
+      );
+      const updated = await this.repo.updateRepertoire(shell.id, {
+        pgn: concatPgn,
+        tree: tree as unknown as object,
+        nodeCount: tree.meta.nodeCount,
+        edgeCount: tree.meta.edgeCount,
+        maxDepth: tree.meta.maxDepth,
+      });
+      return rowToRepertoireDetailDto(updated, tree, sources);
+    } catch (err) {
+      // Атомарность: если builder упал — откатываем репертуар.
+      // (CASCADE удалит созданные sources вместе с ним.)
+      await this.repo
+        .softDeleteRepertoire(shell.id, new Date())
+        .catch(() => null);
+      throw err;
+    }
+  }
+
+  /**
+   * KS-3326. Обёртка над builder с конвертацией ошибок в HTTP 400.
+   */
+  private buildTreeOrThrow(
+    sources: Array<{ sourceId: string; pgn: string }>,
+  ): RepertoireTree {
+    try {
+      return this.builder.buildTreeFromSources(sources);
+    } catch (err) {
+      if (
+        err instanceof RepertoirePgnError ||
+        err instanceof RepertoireLimitExceededError
+      ) {
         throw new BadRequestException(err.message);
       }
       throw err;
     }
+  }
 
-    const row = await this.repo.createRepertoire({
-      userId,
-      title: dto.title,
-      description: dto.description ?? null,
-      pgn: dto.pgn,
+  /**
+   * KS-3326. После любой source-операции (add/edit/delete) — пересобрать
+   * tree, обновить репертуар (tree + denormalized pgn + meta) и
+   * прогнать orphan-pruning по новым validHashes.
+   */
+  private async rebuildAndSyncTree(
+    repertoireId: string,
+  ): Promise<{ row: RepertoireRow; tree: RepertoireTree; sources: SourceRow[] }> {
+    const sources = await this.repo.listSourcesByRepertoire(repertoireId);
+    if (sources.length === 0) {
+      throw new BadRequestException(
+        'Repertoire has no sources — cannot rebuild tree',
+      );
+    }
+    const tree = this.buildTreeOrThrow(
+      sources.map((s) => ({ sourceId: s.id, pgn: s.pgn })),
+    );
+    const concatPgn = sources
+      .map((s) => s.pgn)
+      .join('\n\n')
+      .trim();
+    const updated = await this.repo.updateRepertoire(repertoireId, {
+      pgn: concatPgn,
       tree: tree as unknown as object,
       nodeCount: tree.meta.nodeCount,
       edgeCount: tree.meta.edgeCount,
       maxDepth: tree.meta.maxDepth,
-      // KS-3302: фиксируем сторону при создании. Default 'white' если фронт не прислал.
-      side: dto.side ?? 'white',
     });
+    // Orphan-pruning: legacy-линии могли стать orphan'ами / воскреснуть.
+    const validHashes = Array.from(enumerateTreePathHashes(tree));
+    const r = await this.repo.markOrphans(repertoireId, validHashes);
+    this.logger.log(
+      `[rebuildAndSyncTree] rep=${repertoireId.slice(0, 8)}: ` +
+        `markedOrphan=${r.markedOrphan} resurrected=${r.resurrected}`,
+    );
+    return { row: updated as RepertoireRow, tree, sources };
+  }
 
-    return rowToRepertoireDetailDto(row, tree);
+  // ── KS-3326 / ADR-078: source endpoints ────────────────────────
+
+  async listRepertoireSources(
+    userId: string,
+    repertoireId: string,
+  ): Promise<import('@kingside/shared').OpeningRepertoireSourceDto[]> {
+    await this.requireRepertoire(userId, repertoireId);
+    const rows = await this.repo.listSourcesByRepertoire(repertoireId);
+    return rows.map((r, idx) => sourceRowToDto(r, idx));
+  }
+
+  async getRepertoireSource(
+    userId: string,
+    repertoireId: string,
+    sourceId: string,
+  ): Promise<import('@kingside/shared').OpeningRepertoireSourceDto> {
+    await this.requireRepertoire(userId, repertoireId);
+    const rows = await this.repo.listSourcesByRepertoire(repertoireId);
+    const idx = rows.findIndex((r) => r.id === sourceId);
+    if (idx === -1) {
+      throw new NotFoundException(`Source ${sourceId} not found`);
+    }
+    return sourceRowToDto(rows[idx], idx);
+  }
+
+  async addRepertoireSource(
+    userId: string,
+    repertoireId: string,
+    input: {
+      pgn: string;
+      name?: string | null;
+      sourceKind?: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+      sourceAnalysisId?: string | null;
+    },
+  ): Promise<OpeningRepertoireDetailDto> {
+    await this.requireRepertoire(userId, repertoireId);
+    const existing = await this.repo.countSourcesByRepertoire(repertoireId);
+    if (existing >= OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire) {
+      throw new ConflictException(
+        `Source limit reached: ${OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire} per repertoire`,
+      );
+    }
+    await this.repo.createSource({
+      repertoireId,
+      pgn: input.pgn,
+      name: input.name ?? null,
+      sourceKind: input.sourceKind ?? 'pgn-upload',
+      sourceAnalysisId: input.sourceAnalysisId ?? null,
+    });
+    const { row, tree, sources } = await this.rebuildAndSyncTree(repertoireId);
+    return rowToRepertoireDetailDto(row, tree, sources);
+  }
+
+  async updateRepertoireSource(
+    userId: string,
+    repertoireId: string,
+    sourceId: string,
+    input: { pgn?: string; name?: string | null },
+  ): Promise<OpeningRepertoireDetailDto> {
+    await this.requireRepertoire(userId, repertoireId);
+    const src = await this.repo.findSourceById(sourceId);
+    if (!src || src.repertoireId !== repertoireId) {
+      throw new NotFoundException(`Source ${sourceId} not found`);
+    }
+    if (input.pgn === undefined && input.name === undefined) {
+      throw new BadRequestException(
+        'Specify at least one of: pgn, name',
+      );
+    }
+    await this.repo.updateSource(sourceId, {
+      ...(input.pgn !== undefined ? { pgn: input.pgn } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
+    });
+    // Если только name изменилось — пересборка не нужна, но мы всё равно
+    // прогоняем для атомарности и единообразия (cheap для маленьких tree'ев).
+    const { row, tree, sources } = await this.rebuildAndSyncTree(repertoireId);
+    return rowToRepertoireDetailDto(row, tree, sources);
+  }
+
+  async deleteRepertoireSource(
+    userId: string,
+    repertoireId: string,
+    sourceId: string,
+  ): Promise<OpeningRepertoireDetailDto> {
+    await this.requireRepertoire(userId, repertoireId);
+    const src = await this.repo.findSourceById(sourceId);
+    if (!src || src.repertoireId !== repertoireId) {
+      throw new NotFoundException(`Source ${sourceId} not found`);
+    }
+    const count = await this.repo.countSourcesByRepertoire(repertoireId);
+    if (count <= 1) {
+      throw new ConflictException(
+        'Cannot delete the last source — at least one is required',
+      );
+    }
+    await this.repo.deleteSource(sourceId);
+    const { row, tree, sources } = await this.rebuildAndSyncTree(repertoireId);
+    return rowToRepertoireDetailDto(row, tree, sources);
   }
 
   async listRepertoires(
@@ -139,7 +346,8 @@ export class OpeningTrainerService {
   ): Promise<OpeningRepertoireDetailDto> {
     const row = await this.requireRepertoire(userId, id);
     const tree = jsonToTree(row.tree);
-    return rowToRepertoireDetailDto(row, tree);
+    const sources = await this.repo.listSourcesByRepertoire(id);
+    return rowToRepertoireDetailDto(row, tree, sources);
   }
 
   async updateRepertoire(
@@ -149,48 +357,52 @@ export class OpeningTrainerService {
   ): Promise<OpeningRepertoireDetailDto> {
     const row = await this.requireRepertoire(userId, id);
 
-    let tree: RepertoireTree | null = null;
-    const updateData: Parameters<typeof this.repo.updateRepertoire>[1] = {};
-    if (dto.title !== undefined) updateData.title = dto.title;
-    if (dto.description !== undefined) updateData.description = dto.description;
-    if (dto.side !== undefined) updateData.side = dto.side;
+    // Meta-поля (title/description/side) — простой update.
+    const metaUpdate: Parameters<typeof this.repo.updateRepertoire>[1] = {};
+    if (dto.title !== undefined) metaUpdate.title = dto.title;
+    if (dto.description !== undefined) metaUpdate.description = dto.description;
+    if (dto.side !== undefined) metaUpdate.side = dto.side;
+
+    // KS-3326 / ADR-078: deprecated path. Если приходит `pgn` —
+    // это означает «заменить все sources на один новый» (legacy
+    // совместимость для существующих клиентов, которые ещё не
+    // переключились на source-endpoints).
+    let needRebuild = false;
     if (dto.pgn !== undefined && dto.pgn !== row.pgn) {
-      try {
-        tree = this.builder.buildTree(dto.pgn);
-      } catch (err) {
-        if (
-          err instanceof RepertoirePgnError ||
-          err instanceof RepertoireLimitExceededError
-        ) {
-          throw new BadRequestException(err.message);
-        }
-        throw err;
-      }
-      updateData.pgn = dto.pgn;
-      updateData.tree = tree as unknown as object;
-      updateData.nodeCount = tree.meta.nodeCount;
-      updateData.edgeCount = tree.meta.edgeCount;
-      updateData.maxDepth = tree.meta.maxDepth;
-    }
-
-    const updated = await this.repo.updateRepertoire(id, updateData);
-
-    // KS-3294 (M2 B8): orphan-pruning. Если PGN изменился, перечисляем
-    // все валидные pathHash'и нового дерева и помечаем устаревшие
-    // line-progress как orphaned=true (resurrect наоборот).
-    if (tree !== null) {
-      const validHashes = Array.from(enumerateTreePathHashes(tree));
-      const r = await this.repo.markOrphans(id, validHashes);
-      this.logger.log(
-        `[updateRepertoire] orphan-pruning rep=${id.slice(0, 8)}: ` +
-          `markedOrphan=${r.markedOrphan} resurrected=${r.resurrected}`,
+      this.logger.warn(
+        `[updateRepertoire] DEPRECATED: legacy pgn-replace path for rep=${id.slice(0, 8)} — клиент должен переключиться на /sources endpoints (ADR-078)`,
       );
+      // Удалить все существующие sources, INSERT один новый.
+      const existing = await this.repo.listSourcesByRepertoire(id);
+      for (const s of existing) {
+        await this.repo.deleteSource(s.id);
+      }
+      await this.repo.createSource({
+        repertoireId: id,
+        pgn: dto.pgn,
+        name: null,
+        sourceKind: 'pgn-upload',
+      });
+      needRebuild = true;
     }
 
-    return rowToRepertoireDetailDto(
-      updated,
-      tree ?? jsonToTree(updated.tree),
-    );
+    if (Object.keys(metaUpdate).length > 0) {
+      await this.repo.updateRepertoire(id, metaUpdate);
+    }
+
+    if (needRebuild) {
+      const { row: updated, tree, sources } = await this.rebuildAndSyncTree(id);
+      return rowToRepertoireDetailDto(updated, tree, sources);
+    }
+
+    // Нет pgn-замены — просто возвращаем обновлённую meta + текущий tree + sources.
+    const refreshed = await this.repo.findRepertoireById(id);
+    if (!refreshed) {
+      throw new NotFoundException(`Repertoire ${id} not found after update`);
+    }
+    const tree = jsonToTree(refreshed.tree);
+    const sources = await this.repo.listSourcesByRepertoire(id);
+    return rowToRepertoireDetailDto(refreshed, tree, sources);
   }
 
   async deleteRepertoire(
@@ -1274,6 +1486,9 @@ export class OpeningTrainerService {
       title?: string;
       description?: string;
       side?: 'white' | 'black';
+      // KS-3327 / ADR-078: если задан, добавляем source в существующий
+      // репертуар вместо создания нового.
+      repertoireId?: string;
     },
   ): Promise<OpeningRepertoireDetailDto> {
     const analysis = await this.repo.findAnalysisById(input.analysisId);
@@ -1285,18 +1500,52 @@ export class OpeningTrainerService {
         'Analysis has no PGN content to import as repertoire',
       );
     }
-    const title =
+    const sourceName =
       input.title?.trim() ||
       analysis.title?.trim() ||
       analysis.headline?.trim() ||
-      'Опенинг из анализа';
-    return this.createRepertoire(userId, {
-      title,
+      `Из анализа от ${new Date().toISOString().slice(0, 10)}`;
+
+    // KS-3327: ветка «добавить в существующий».
+    if (input.repertoireId) {
+      // requireRepertoire + addRepertoireSource внутри сделают owner-check
+      // и лимит maxSourcesPerRepertoire.
+      return this.addRepertoireSource(userId, input.repertoireId, {
+        pgn: analysis.pgn,
+        name: sourceName,
+        sourceKind: 'workshop-analysis',
+        sourceAnalysisId: input.analysisId,
+      });
+    }
+
+    // KS-3293 (legacy): создаём новый репертуар с одним source.
+    // Используем напрямую createRepertoire с legacy-pgn-форматом —
+    // он внутри сконвертит в один source с `sourceKind='pgn-upload'`,
+    // потом мы апдейтим источник до `workshop-analysis`.
+    const created = await this.createRepertoire(userId, {
+      title: sourceName,
       description: input.description,
       pgn: analysis.pgn,
-      // KS-3302: side из request'а; createRepertoire default'ит к 'white'.
       side: input.side,
     });
+    // Перепометить kind созданного source'а на 'workshop-analysis' +
+    // ссылка на analysisId. У свежесозданного репертуара ровно один source.
+    if (created.sources.length === 1) {
+      const onlySource = created.sources[0];
+      await this.repo['prisma'].openingRepertoireSource.update({
+        where: { id: onlySource.id },
+        data: {
+          sourceKind: 'workshop-analysis',
+          sourceAnalysisId: input.analysisId,
+        },
+      });
+      const refreshed = await this.repo.listSourcesByRepertoire(created.id);
+      return {
+        ...created,
+        sources: refreshed.map((s, i) => sourceRowToDto(s, i)),
+      };
+    }
+    return created;
   }
 
   // ── KS-3292 (M2 B6): GET /opening-trainer/repertoires/:id/progress ──
@@ -1462,19 +1711,49 @@ function rowToRepertoireDto(row: RepertoireRow): OpeningRepertoireDto {
   };
 }
 
+interface SourceRow {
+  id: string;
+  repertoireId: string;
+  name: string | null;
+  pgn: string;
+  sourceKind: string;
+  sourceAnalysisId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function sourceRowToDto(
+  row: SourceRow,
+  order: number,
+): import('@kingside/shared').OpeningRepertoireSourceDto {
+  return {
+    id: row.id,
+    repertoireId: row.repertoireId,
+    name: row.name,
+    pgn: row.pgn,
+    sourceKind: row.sourceKind as
+      | 'pgn-upload'
+      | 'workshop-analysis'
+      | 'legacy-import',
+    sourceAnalysisId: row.sourceAnalysisId,
+    order,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function rowToRepertoireDetailDto(
   row: RepertoireRow,
   tree: RepertoireTree,
+  sources: SourceRow[] = [],
 ): OpeningRepertoireDetailDto {
   return {
     ...rowToRepertoireDto(row),
     pgn: row.pgn,
     tree,
-    // KS-3324 / ADR-078: новое поле, временно пустой массив. Реальный
-    // список заполнится в KS-3326 (endpoints с источниками) после
-    // миграции (KS-3325) — legacy-репертуары получат один source
-    // через legacy-import. До тех пор фронт видит [] (типобезопасно).
-    sources: [],
+    // KS-3324/3326 / ADR-078: реальный список из БД (отсортирован по
+    // createdAt ASC в repository). order = index в массиве.
+    sources: sources.map((s, idx) => sourceRowToDto(s, idx)),
   };
 }
 

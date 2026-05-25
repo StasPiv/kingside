@@ -18,10 +18,12 @@ import { OpeningTrainerService } from './opening-trainer.service';
 import {
   CreateRepertoireDto,
   CreateRepertoireFromAnalysisDto,
+  CreateRepertoireSourceDto,
   ListRepertoiresQueryDto,
   MoveDto,
   StartSessionDto,
   UpdateRepertoireDto,
+  UpdateRepertoireSourceDto,
 } from './dto/repertoire.dto';
 
 /**
@@ -95,6 +97,67 @@ export class OpeningTrainerController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.service.deleteRepertoire(requireUserId(req), id);
+  }
+
+  // ── KS-3326 / ADR-078: source endpoints ────────────────────────
+
+  @Get('repertoires/:id/sources')
+  async listSources(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.service.listRepertoireSources(requireUserId(req), id);
+  }
+
+  @Get('repertoires/:id/sources/:sourceId')
+  async getSource(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('sourceId', new ParseUUIDPipe()) sourceId: string,
+  ) {
+    return this.service.getRepertoireSource(requireUserId(req), id, sourceId);
+  }
+
+  @Post('repertoires/:id/sources')
+  async addSource(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: CreateRepertoireSourceDto,
+  ) {
+    return this.service.addRepertoireSource(requireUserId(req), id, {
+      pgn: body.pgn,
+      name: body.name ?? null,
+      sourceKind: body.sourceKind,
+      sourceAnalysisId: body.sourceAnalysisId ?? null,
+    });
+  }
+
+  @Patch('repertoires/:id/sources/:sourceId')
+  async updateSource(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('sourceId', new ParseUUIDPipe()) sourceId: string,
+    @Body() body: UpdateRepertoireSourceDto,
+  ) {
+    return this.service.updateRepertoireSource(
+      requireUserId(req),
+      id,
+      sourceId,
+      { pgn: body.pgn, name: body.name },
+    );
+  }
+
+  @Delete('repertoires/:id/sources/:sourceId')
+  async deleteSource(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('sourceId', new ParseUUIDPipe()) sourceId: string,
+  ) {
+    return this.service.deleteRepertoireSource(
+      requireUserId(req),
+      id,
+      sourceId,
+    );
   }
 
   // ── Session lifecycle (7 endpoints) ────────────────────────────

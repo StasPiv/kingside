@@ -32,7 +32,27 @@ import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
 // ─── In-memory fake-repository ──────────────────────────────────────
 
 class FakeRepo {
+  // KS-3326: моковый prisma — для прямого update в createRepertoireFromAnalysis.
+  // Реальный сервис обращается к repo['prisma'] (бэкдор для one-off updates).
+  prisma = {
+    openingRepertoireSource: {
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { sourceKind?: string; sourceAnalysisId?: string | null };
+      }) => {
+        const src = this.sources.find((s) => s.id === where.id);
+        if (!src) throw new Error(`source ${where.id} not found in FakeRepo`);
+        Object.assign(src, data, { updatedAt: new Date() });
+        return src;
+      },
+    },
+  };
+
   private repos: any[] = [];
+  private sources: any[] = [];
   private sessions: any[] = [];
   private attempts: any[] = [];
   private lineProgress: any[] = [];
@@ -73,6 +93,43 @@ class FakeRepo {
     r.deletedAt = now;
     return r;
   }
+
+  // KS-3326 / ADR-078: source CRUD ----
+  async listSourcesByRepertoire(repertoireId: string) {
+    return this.sources
+      .filter((s) => s.repertoireId === repertoireId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async countSourcesByRepertoire(repertoireId: string) {
+    return this.sources.filter((s) => s.repertoireId === repertoireId).length;
+  }
+  async findSourceById(sourceId: string) {
+    return this.sources.find((s) => s.id === sourceId) ?? null;
+  }
+  async createSource(data: any) {
+    const row = {
+      id: `src-${this.sources.length + 1}`,
+      name: null,
+      sourceAnalysisId: null,
+      createdAt: new Date(Date.now() + this.sources.length),
+      updatedAt: new Date(Date.now() + this.sources.length),
+      ...data,
+    };
+    this.sources.push(row);
+    return row;
+  }
+  async updateSource(sourceId: string, data: any) {
+    const s = this.sources.find((x) => x.id === sourceId);
+    if (!s) throw new Error(`source ${sourceId} not found`);
+    Object.assign(s, data, { updatedAt: new Date() });
+    return s;
+  }
+  async deleteSource(sourceId: string) {
+    const idx = this.sources.findIndex((x) => x.id === sourceId);
+    if (idx >= 0) this.sources.splice(idx, 1);
+    return { id: sourceId };
+  }
+
   async createSession(data: any) {
     const row = {
       id: `s-${this.sessions.length + 1}`,
@@ -2388,5 +2445,323 @@ describe('KS-3318: bot привёл в лист дерева → сессия н
     await expect(
       svc.hint('u-1', s.session.id),
     ).rejects.toThrow(/finished/);
+  });
+});
+
+describe('KS-3326 / ADR-078: source endpoints', () => {
+  function makeSvc() {
+    const repo = new FakeRepo();
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    return { svc, repo };
+  }
+
+  it('createRepertoire (new format) с двумя sources → tree с union edges', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 'multi',
+      sources: [
+        { pgn: '1. e4 e5', name: 'Open' },
+        { pgn: '1. d4 d5', name: 'Closed' },
+      ],
+    });
+    expect(r.sources).toHaveLength(2);
+    expect(r.sources[0].name).toBe('Open');
+    expect(r.sources[1].name).toBe('Closed');
+    // Tree должен содержать оба первых хода (e4 + d4) из root.
+    const rootEdges = r.tree.nodes[r.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan).sort()).toEqual(['d4', 'e4']);
+  });
+
+  it('createRepertoire (legacy format) с { pgn } → один source с pgn-upload', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 'legacy',
+      pgn: '1. e4 e5',
+    });
+    expect(r.sources).toHaveLength(1);
+    expect(r.sources[0].sourceKind).toBe('pgn-upload');
+    expect(r.sources[0].name).toBeNull();
+  });
+
+  it('createRepertoire с { pgn } И { sources } → 400 BadRequest', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createRepertoire('u-1', {
+        title: 't',
+        pgn: '1. e4',
+        sources: [{ pgn: '1. d4' }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('createRepertoire без { pgn } и без { sources } → 400 BadRequest', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createRepertoire('u-1', { title: 't' } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('addRepertoireSource: добавить → tree обновляется + sources растёт', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    expect(r.sources).toHaveLength(1);
+    const r2 = await svc.addRepertoireSource('u-1', r.id, {
+      pgn: '1. d4 d5',
+      name: 'queens',
+    });
+    expect(r2.sources).toHaveLength(2);
+    const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan).sort()).toEqual(['d4', 'e4']);
+  });
+
+  it('addRepertoireSource: чужой репертуар → 404 NotFound', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    await expect(
+      svc.addRepertoireSource('u-2', r.id, { pgn: '1. d4' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('addRepertoireSource: превышение maxSourcesPerRepertoire → 409', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    // Заполняем до максимума (20 минус 1 уже есть = 19 добавлений).
+    for (let i = 0; i < 19; i++) {
+      await svc.addRepertoireSource('u-1', r.id, {
+        pgn: `1. e4 ${['e5', 'c5', 'e6', 'c6', 'd5', 'd6', 'Nf6', 'g6'][i % 8]}`,
+      });
+    }
+    // 21-й — должен упасть.
+    await expect(
+      svc.addRepertoireSource('u-1', r.id, { pgn: '1. e4' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('updateRepertoireSource: меняем pgn → tree пересобирается', async () => {
+    const { svc, repo } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      sources: [{ pgn: '1. e4 e5', name: 'A' }],
+    });
+    const srcId = r.sources[0].id;
+    const r2 = await svc.updateRepertoireSource('u-1', r.id, srcId, {
+      pgn: '1. d4 d5',
+    });
+    // Старый ход e4 исчез, новый d4 появился.
+    const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan)).toEqual(['d4']);
+    // repo update произошёл (pgn в источнике обновлён).
+    const fetched = await repo.findSourceById(srcId);
+    expect(fetched?.pgn).toContain('d4');
+  });
+
+  it('updateRepertoireSource: меняем только name → tree пересобирается, но edges те же', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      sources: [{ pgn: '1. e4 e5' }],
+    });
+    const srcId = r.sources[0].id;
+    const r2 = await svc.updateRepertoireSource('u-1', r.id, srcId, {
+      name: 'Italian',
+    });
+    expect(r2.sources[0].name).toBe('Italian');
+    const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan)).toEqual(['e4']);
+  });
+
+  it('updateRepertoireSource: без pgn и без name → 400', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    await expect(
+      svc.updateRepertoireSource('u-1', r.id, r.sources[0].id, {}),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updateRepertoireSource: source не принадлежит репертуару → 404', async () => {
+    const { svc } = makeSvc();
+    const r1 = await svc.createRepertoire('u-1', {
+      title: 'a',
+      pgn: '1. e4',
+    });
+    const r2 = await svc.createRepertoire('u-1', {
+      title: 'b',
+      pgn: '1. d4',
+    });
+    // Берём sourceId от r2, шлём в endpoint r1.
+    await expect(
+      svc.updateRepertoireSource('u-1', r1.id, r2.sources[0].id, {
+        name: 'x',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('deleteRepertoireSource: удалить один из двух → ок, tree пересобирается', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      sources: [{ pgn: '1. e4 e5' }, { pgn: '1. d4 d5' }],
+    });
+    const r2 = await svc.deleteRepertoireSource(
+      'u-1',
+      r.id,
+      r.sources[0].id,
+    );
+    expect(r2.sources).toHaveLength(1);
+    // Из root остался только тот ход, что был во втором source.
+    const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan)).toEqual(['d4']);
+  });
+
+  it('deleteRepertoireSource: последний источник → 409 Conflict', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4',
+    });
+    await expect(
+      svc.deleteRepertoireSource('u-1', r.id, r.sources[0].id),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('listRepertoireSources: отдаёт все источники с order', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      sources: [{ pgn: '1. e4', name: 'a' }, { pgn: '1. d4', name: 'b' }],
+    });
+    const list = await svc.listRepertoireSources('u-1', r.id);
+    expect(list).toHaveLength(2);
+    expect(list.map((s) => s.order)).toEqual([0, 1]);
+  });
+
+  it('getRepertoireSource: 404 для неизвестного sourceId', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', { title: 't', pgn: '1. e4' });
+    await expect(
+      svc.getRepertoireSource(
+        'u-1',
+        r.id,
+        '00000000-0000-0000-0000-000000000000',
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('updateRepertoire legacy pgn-replace: меняем pgn → tree пересобирается под новый pgn', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const r2 = await svc.updateRepertoire('u-1', r.id, { pgn: '1. d4 d5' });
+    expect(r2.sources).toHaveLength(1);
+    expect(r2.sources[0].pgn).toContain('d4');
+    const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
+    expect(rootEdges.map((e) => e.moveSan)).toEqual(['d4']);
+  });
+});
+
+describe('KS-3327 / ADR-078: from-analysis с опц. repertoireId', () => {
+  function makeSvc() {
+    const repo = new FakeRepo();
+    // Засеиваем анализ для u-1.
+    (
+      repo as unknown as { _seedAnalysis: (a: any) => void }
+    )._seedAnalysis = function (a) {
+      (this as unknown as { analyses: any[] }).analyses.push(a);
+    };
+    (repo as unknown as { _seedAnalysis: (a: any) => void })._seedAnalysis({
+      id: 'a-1',
+      userId: 'u-1',
+      pgn: '1. c4 e6',
+      title: 'Каталон',
+      headline: null,
+    });
+    const builder = new RepertoireBuilderService();
+    const progress = {
+      recordAttempt: jest.fn(async () => null),
+      applyReviewResult: jest.fn(async () => null),
+    } as unknown as OpeningLineProgressService;
+    const svc = new OpeningTrainerService(
+      repo as unknown as OpeningTrainerRepository,
+      builder,
+      progress,
+    );
+    return { svc, repo };
+  }
+
+  it('без repertoireId → создаётся новый репертуар с одним source workshop-analysis', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoireFromAnalysis('u-1', {
+      analysisId: 'a-1',
+    });
+    expect(r.sources).toHaveLength(1);
+    expect(r.sources[0].sourceKind).toBe('workshop-analysis');
+    expect(r.sources[0].sourceAnalysisId).toBe('a-1');
+    expect(r.title).toBe('Каталон'); // от analysis.title
+  });
+
+  it('с repertoireId → добавляется source в существующий', async () => {
+    const { svc } = makeSvc();
+    const existing = await svc.createRepertoire('u-1', {
+      title: 'main',
+      pgn: '1. e4 e5',
+    });
+    const r = await svc.createRepertoireFromAnalysis('u-1', {
+      analysisId: 'a-1',
+      repertoireId: existing.id,
+    });
+    expect(r.id).toBe(existing.id); // тот же репертуар
+    expect(r.sources).toHaveLength(2);
+    const wsSrc = r.sources.find(
+      (s) => s.sourceKind === 'workshop-analysis',
+    );
+    expect(wsSrc).toBeDefined();
+    expect(wsSrc?.sourceAnalysisId).toBe('a-1');
+  });
+
+  it('с repertoireId чужого пользователя → 404', async () => {
+    const { svc } = makeSvc();
+    const other = await svc.createRepertoire('u-2', {
+      title: 'other',
+      pgn: '1. e4 e5',
+    });
+    await expect(
+      svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+        repertoireId: other.id,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('с несуществующим repertoireId → 404', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createRepertoireFromAnalysis('u-1', {
+        analysisId: 'a-1',
+        repertoireId: '00000000-0000-0000-0000-000000000000',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

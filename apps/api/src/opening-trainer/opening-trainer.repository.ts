@@ -111,6 +111,66 @@ export class OpeningTrainerRepository {
     });
   }
 
+  // ── KS-3326 / ADR-078: OpeningRepertoireSource ──────────────────
+
+  /**
+   * Список источников репертуара, отсортированный по `createdAt ASC`
+   * (стабильный sort-order для UI). Используется builder'ом для пересборки
+   * tree и controller'ом для возврата `OpeningRepertoireDetailDto.sources`.
+   */
+  async listSourcesByRepertoire(repertoireId: string) {
+    return this.prisma.openingRepertoireSource.findMany({
+      where: { repertoireId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async countSourcesByRepertoire(repertoireId: string): Promise<number> {
+    return this.prisma.openingRepertoireSource.count({
+      where: { repertoireId },
+    });
+  }
+
+  async findSourceById(sourceId: string) {
+    return this.prisma.openingRepertoireSource.findUnique({
+      where: { id: sourceId },
+    });
+  }
+
+  async createSource(data: {
+    repertoireId: string;
+    pgn: string;
+    name?: string | null;
+    sourceKind: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+    sourceAnalysisId?: string | null;
+  }) {
+    return this.prisma.openingRepertoireSource.create({
+      data: {
+        repertoireId: data.repertoireId,
+        pgn: data.pgn,
+        name: data.name ?? null,
+        sourceKind: data.sourceKind,
+        sourceAnalysisId: data.sourceAnalysisId ?? null,
+      },
+    });
+  }
+
+  async updateSource(
+    sourceId: string,
+    data: { pgn?: string; name?: string | null },
+  ) {
+    return this.prisma.openingRepertoireSource.update({
+      where: { id: sourceId },
+      data,
+    });
+  }
+
+  async deleteSource(sourceId: string) {
+    return this.prisma.openingRepertoireSource.delete({
+      where: { id: sourceId },
+    });
+  }
+
   // ── OpeningTrainerSession ────────────────────────────────────────
 
   async createSession(data: {
