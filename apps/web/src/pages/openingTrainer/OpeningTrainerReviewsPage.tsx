@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { ApiError } from '../../ApiError';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
+// KS-3336: превью позиции в карточке линии вместо длинной PGN-строки.
+import { PuzzleMiniBoard } from '../../components/puzzle/PuzzleMiniBoard';
 import type {
   GetOpeningReviewsDueResponse,
   OpeningLineProgressDto,
@@ -30,6 +32,58 @@ type DueLine = GetOpeningReviewsDueResponse['lines'][number];
  * только стандартную); это допущение совпадает с backend repertoire-
  * builder'ом.
  */
+/**
+ * KS-3336. Прогнать UCI-путь через chess.js и вернуть финальный FEN —
+ * для PuzzleMiniBoard превью. На невалидном UCI возвращаем FEN
+ * последней успешно применённой позиции.
+ */
+function pathUciToFen(pathUci: string[]): string {
+  const c = new Chess();
+  for (const uci of pathUci) {
+    if (uci.length < 4) break;
+    try {
+      const move = c.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined,
+      });
+      if (!move) break;
+    } catch {
+      break;
+    }
+  }
+  return c.fen();
+}
+
+/**
+ * KS-3336. Последний ход линии в SAN-нотации с move-number — компактное
+ * напоминание «что именно тут запомнить». Для пустого пути возвращаем
+ * пустую строку.
+ */
+function lastMoveLabel(pathUci: string[]): string {
+  if (pathUci.length === 0) return '';
+  const c = new Chess();
+  let lastSan = '';
+  for (const uci of pathUci) {
+    if (uci.length < 4) break;
+    try {
+      const move = c.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined,
+      });
+      if (!move) break;
+      lastSan = move.san;
+    } catch {
+      break;
+    }
+  }
+  if (!lastSan) return '';
+  const moveNumber = Math.floor((pathUci.length - 1) / 2) + 1;
+  const isWhite = pathUci.length % 2 === 1;
+  return isWhite ? `${moveNumber}. ${lastSan}` : `${moveNumber}… ${lastSan}`;
+}
+
 function pathUciToSan(pathUci: string[]): string {
   if (pathUci.length === 0) return '';
   const c = new Chess();
@@ -219,34 +273,86 @@ export function OpeningTrainerReviewsPage() {
                 </span>
               </header>
               <ul className="opening-trainer-reviews__lines">
-                {group.lines.map((line) => (
-                  <li
-                    key={line.id}
-                    className="opening-trainer-reviews__line"
-                    data-testid={`opening-trainer-reviews-line-${line.id}`}
-                  >
-                    <button
-                      type="button"
-                      className="opening-trainer-reviews__line-button"
-                      onClick={() => handleStart(line)}
-                      disabled={startingFor !== null}
+                {group.lines.map((line) => {
+                  // KS-3336: превью финальной позиции линии через
+                  // PuzzleMiniBoard (тот же компонент что на /stats).
+                  // Заменяет длинную PGN-строку, которая плохо читалась.
+                  const fen = pathUciToFen(line.pathUci);
+                  const last = lastMoveLabel(line.pathUci);
+                  return (
+                    <li
+                      key={line.id}
+                      className="opening-trainer-reviews__line"
+                      data-testid={`opening-trainer-reviews-line-${line.id}`}
                     >
-                      <span className="opening-trainer-reviews__line-san">
-                        {pathUciToSan(line.pathUci) || line.pathUci.join(' ')}
-                      </span>
-                      {line.sm2DueAt && (
-                        <span className="opening-trainer-reviews__line-due">
-                          {new Date(line.sm2DueAt).toLocaleDateString()}
-                        </span>
-                      )}
-                      {startingFor === line.id && (
-                        <span className="opening-trainer-reviews__line-starting">
-                          {t('openingTrainer.detail.starting', 'Starting…')}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        className="opening-trainer-reviews__line-button"
+                        onClick={() => handleStart(line)}
+                        disabled={startingFor !== null}
+                        style={{
+                          display: 'flex',
+                          gap: 12,
+                          alignItems: 'center',
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: 'transparent',
+                          border: '1px solid var(--border-subtle, rgba(255,255,255,0.10))',
+                          borderRadius: 8,
+                          color: 'inherit',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 64,
+                            height: 64,
+                            flexShrink: 0,
+                          }}
+                          data-testid={`opening-trainer-reviews-line-board-${line.id}`}
+                        >
+                          <PuzzleMiniBoard fen={fen} />
+                        </div>
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 2,
+                            fontSize: 13,
+                          }}
+                        >
+                          {last && (
+                            <span
+                              className="opening-trainer-reviews__line-san"
+                              style={{ fontWeight: 600 }}
+                            >
+                              {last}
+                            </span>
+                          )}
+                          {line.sm2DueAt && (
+                            <span
+                              className="opening-trainer-reviews__line-due"
+                              style={{ opacity: 0.7, fontSize: 12 }}
+                            >
+                              {new Date(line.sm2DueAt).toLocaleDateString()}
+                            </span>
+                          )}
+                          {startingFor === line.id && (
+                            <span
+                              className="opening-trainer-reviews__line-starting"
+                              style={{ opacity: 0.7, fontSize: 12 }}
+                            >
+                              {t('openingTrainer.detail.starting', 'Starting…')}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </li>
           ))}
