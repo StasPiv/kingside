@@ -63,10 +63,67 @@ type Token =
   | { type: 'nag'; n: number }; // '$N'
 
 const RESULT_TOKENS = new Set(['1-0', '0-1', '1/2-1/2', '*']);
+const RESULT_TOKENS_RE = /(1-0|0-1|1\/2-1\/2|\*)/g;
 
 function stripHeaders(pgn: string): string {
   // Удаляем [Header "value"] построчно (PGN-стандарт §8).
   return pgn.replace(/^\[[^\]]*\][ \t]*\r?\n?/gm, '');
+}
+
+/**
+ * KS-3325 / ADR-078. Разбивает многопартийный PGN на массив отдельных
+ * PGN-строк (по одной партии в каждой).
+ *
+ * Разделитель — токен результата (`1-0`, `0-1`, `1/2-1/2`, `*`). Всё
+ * что между двумя результатами — одна партия (включая её headers).
+ * Headers партии остаются с ней (для будущих fallback'ов на `[Event]`-
+ * имя источника).
+ *
+ * Edge cases:
+ *   - PGN без результата (только movetext) → возвращает `[pgn]`.
+ *   - Пустые «партии» (только whitespace) отфильтровываются.
+ *   - `*` и комбинации с whitespace → корректно отделяются.
+ *
+ * Существующий tokenize() уже skip'ает result-токены, но multi-game PGN
+ * ранее ломался: chess-instance не сбрасывался между играми, и второй
+ * `1.e4` пытался сыграться из позиции после `1-0` предыдущей партии
+ * → `Illegal move`. Решение — split + fresh chess-instance per game.
+ */
+export function splitPgnIntoGames(pgn: string): string[] {
+  if (typeof pgn !== 'string' || pgn.trim().length === 0) return [];
+  const games: string[] = [];
+  let lastIdx = 0;
+  RESULT_TOKENS_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = RESULT_TOKENS_RE.exec(pgn)) !== null) {
+    // Проверка что result-token не внутри `{...}` или `;...` коммента
+    // и не внутри movetext-цифр (вроде `21-0` — не результат). Простой
+    // эвристический skip: смотрим предшествующий символ — если digit,
+    // это вероятно move-number или похожее.
+    const before = match.index > 0 ? pgn[match.index - 1] : ' ';
+    if (/[0-9]/.test(before) && match[0] !== '1-0' && match[0] !== '0-1' && match[0] !== '1/2-1/2') {
+      continue;
+    }
+    // Внутри комментариев? Простая проверка: ищем непарную `{` слева
+    // в текущем фрагменте; если есть — внутри комментария.
+    const fragment = pgn.slice(lastIdx, match.index);
+    const openBraces = (fragment.match(/\{/g) ?? []).length;
+    const closeBraces = (fragment.match(/\}/g) ?? []).length;
+    if (openBraces > closeBraces) {
+      continue; // result-token внутри `{...}`, пропускаем
+    }
+    const endIdx = match.index + match[0].length;
+    const game = pgn.slice(lastIdx, endIdx).trim();
+    if (game.length > 0) games.push(game);
+    lastIdx = endIdx;
+  }
+  // Хвост без result-token'а — тоже валидная партия (PGN-стандарт
+  // допускает отсутствие результата).
+  const tail = pgn.slice(lastIdx).trim();
+  if (tail.length > 0) games.push(tail);
+  // Если разделители вообще не нашлись — возвращаем оригинал как одну партию.
+  if (games.length === 0 && pgn.trim().length > 0) games.push(pgn.trim());
+  return games;
 }
 
 function tokenize(movetext: string): Token[] {
@@ -171,6 +228,13 @@ interface BuildContext {
   root: RepertoireTree;
   /** Reusable chess instance — load(fen) дёшево, new Chess() дороже. */
   chess: Chess;
+  /**
+   * KS-3325 / ADR-078. ID источника, для которого сейчас идёт обход.
+   * Используется в parseTokens для union'а `edge.sourceIds`. Если null
+   * (обратная совместимость со старым `buildTree(string)`) — поле
+   * `sourceIds` не проставляется.
+   */
+  sourceId: string | null;
 }
 
 function ensureNode(ctx: BuildContext, fen: string): RepertoireNode {
@@ -244,6 +308,7 @@ function parseTokens(
     if (tok.type === 'comment') {
       // PGN-стандарт: comment относится к ПРЕДЫДУЩЕМУ ходу (`1. e4 {note}`).
       // Если предыдущего хода ещё нет (preamble на старте партии) — игнорируем.
+      // KS-3325: keep-first (если comment уже есть от предыдущего source — не перезаписываем).
       if (lastEdge && lastEdge.comment === undefined && tok.text) {
         lastEdge.comment = tok.text;
       }
@@ -253,8 +318,11 @@ function parseTokens(
 
     if (tok.type === 'nag') {
       if (lastEdge) {
+        // KS-3325: union NAGs от всех источников. Раньше было first-wins
+        // (просто push) — но при multi-source один и тот же NAG может
+        // прийти из нескольких источников; дедуп через Set.
         const arr = lastEdge.nag ?? [];
-        arr.push(tok.n);
+        if (!arr.includes(tok.n)) arr.push(tok.n);
         lastEdge.nag = arr;
       }
       i++;
@@ -298,7 +366,8 @@ function parseTokens(
 
     // Транспозиция-по-edge: если из этой позиции уже записан этот ход,
     // ничего не добавляем (merge'им аннотации: первый встретившийся
-    // выигрывает — это детерминизм, проще для UX).
+    // выигрывает для comment — детерминизм, проще для UX; NAG'и
+    // union'им; sourceIds union'им через Set).
     let edge = parentNode.edges.find((e) => e.moveUci === uci);
     if (!edge) {
       edge = {
@@ -306,6 +375,9 @@ function parseTokens(
         moveSan: move.san,
         childFen,
       };
+      if (ctx.sourceId !== null) {
+        edge.sourceIds = [ctx.sourceId];
+      }
       parentNode.edges.push(edge);
       ctx.root.meta.edgeCount++;
       if (ctx.root.meta.edgeCount > OPENING_REPERTOIRE_LIMITS.maxEdges) {
@@ -314,6 +386,14 @@ function parseTokens(
           ctx.root.meta.edgeCount,
           OPENING_REPERTOIRE_LIMITS.maxEdges,
         );
+      }
+    } else if (ctx.sourceId !== null) {
+      // KS-3325: union sourceIds. Транспозиция от другого источника —
+      // добавляем его ID если ещё нет.
+      const sids = edge.sourceIds ?? [];
+      if (!sids.includes(ctx.sourceId)) {
+        sids.push(ctx.sourceId);
+        edge.sourceIds = sids;
       }
     }
 
@@ -324,16 +404,92 @@ function parseTokens(
   return i;
 }
 
+/**
+ * KS-3325 / ADR-078. Один источник для multi-source builder.
+ */
+export interface RepertoireSourceInput {
+  /** UUID источника (`OpeningRepertoireSource.id`). */
+  sourceId: string;
+  pgn: string;
+}
+
 @Injectable()
 export class RepertoireBuilderService {
   /**
-   * Главный entry-point: PGN-строка → `RepertoireTree`.
+   * Backward-compat entry-point: один PGN → `RepertoireTree` (без
+   * `sourceIds` на edge'ах — поле просто не проставляется). Сохранён
+   * для существующих тестов и кода, который ещё не переведён на
+   * multi-source (KS-3326 будет переключать вызовы).
+   *
+   * Внутри проходит через `splitPgnIntoGames` + per-game fresh chess
+   * — фиксит баг multi-game PGN (без сброса chess-instance после `1-0`).
+   */
+  buildTree(pgn: string): RepertoireTree {
+    return this.buildTreeInternal(
+      pgn,
+      null /* sourceId — backward-compat, sourceIds не проставляются */,
+      this.createEmptyTree(),
+    );
+  }
+
+  /**
+   * KS-3325 / ADR-078 §2.3. Multi-source entry-point: массив источников
+   * → единое `RepertoireTree` с union edge'ов по `sourceIds`.
+   *
+   * Семантика:
+   *   - Edges с одинаковым `(fromFen, moveUci)` из разных источников —
+   *     один edge с `sourceIds: [id1, id2, ...]`.
+   *   - NAGs — union (раньше first-wins).
+   *   - Comments — keep-first (первый встретившийся выигрывает).
+   *
+   * Каждый source независимо проходит через `splitPgnIntoGames` (для
+   * multi-game PGN). Sanity-проверка `edgeCount > 0` — для всего дерева
+   * (агрегация всех sources), не per-source.
    *
    * Throws:
    *   - `RepertoirePgnError`           — синтаксис / illegal move
-   *   - `RepertoireLimitExceededError` — превышены ADR-лимиты
+   *   - `RepertoireLimitExceededError` — лимиты ADR
    */
-  buildTree(pgn: string): RepertoireTree {
+  buildTreeFromSources(sources: RepertoireSourceInput[]): RepertoireTree {
+    if (!Array.isArray(sources) || sources.length === 0) {
+      throw new RepertoirePgnError('At least one source is required');
+    }
+    const tree = this.createEmptyTree();
+    for (const src of sources) {
+      this.buildTreeInternal(src.pgn, src.sourceId, tree);
+    }
+    if (tree.meta.edgeCount === 0) {
+      throw new RepertoirePgnError(
+        'PGN contains no playable moves (only headers / comments?)',
+      );
+    }
+    return tree;
+  }
+
+  private createEmptyTree(): RepertoireTree {
+    const rootFen = new Chess().fen();
+    return {
+      rootFen,
+      nodes: { [rootFen]: { fen: rootFen, edges: [] } },
+      meta: { nodeCount: 1, edgeCount: 0, maxDepth: 0 },
+    };
+  }
+
+  /**
+   * Внутренний worker: обрабатывает один PGN (может быть многопартийным)
+   * и аккумулирует результат в переданный tree. Если `sourceId` задан —
+   * edges получают/обновляют `sourceIds`. Возвращает тот же tree
+   * (мутируется).
+   *
+   * Если PGN пустой/безходовой — НЕ бросает (это caller'у решать;
+   * `buildTree` бросает на edgeCount=0; `buildTreeFromSources` проверяет
+   * после обхода всех sources).
+   */
+  private buildTreeInternal(
+    pgn: string,
+    sourceId: string | null,
+    tree: RepertoireTree,
+  ): RepertoireTree {
     if (typeof pgn !== 'string' || pgn.trim().length === 0) {
       throw new RepertoirePgnError('PGN is empty');
     }
@@ -348,33 +504,34 @@ export class RepertoireBuilderService {
       );
     }
 
-    // 2. Strip headers + tokenize.
-    const movetext = stripHeaders(pgn);
-    const tokens = tokenize(movetext);
-
-    // 3. Init tree (root = стартовая позиция).
-    const chess = new Chess();
-    const rootFen = chess.fen();
-    const root: RepertoireTree = {
-      rootFen,
-      nodes: {
-        [rootFen]: { fen: rootFen, edges: [] },
-      },
-      meta: { nodeCount: 1, edgeCount: 0, maxDepth: 0 },
-    };
-
-    // 4. Recursive walk.
-    const ctx: BuildContext = { root, chess };
-    parseTokens(tokens, 0, ctx, 0);
-
-    // 5. Sanity: хоть один ход должен быть сыгран (иначе это empty PGN).
-    if (root.meta.edgeCount === 0) {
+    // 2. KS-3325: split на отдельные партии. Каждую — fresh chess.
+    const games = splitPgnIntoGames(pgn);
+    if (games.length === 0) {
       throw new RepertoirePgnError(
         'PGN contains no playable moves (only headers / comments?)',
       );
     }
 
-    return root;
+    for (const game of games) {
+      const movetext = stripHeaders(game);
+      const tokens = tokenize(movetext);
+      if (tokens.length === 0) continue; // empty game между result-токенами
+
+      const chess = new Chess();
+      const ctx: BuildContext = { root: tree, chess, sourceId };
+      parseTokens(tokens, 0, ctx, 0);
+    }
+
+    // backward-compat: `buildTree(pgn)` валидирует edgeCount > 0 здесь
+    // (один source — должен дать хоть что-то). Multi-source агрегирует
+    // и проверяет в `buildTreeFromSources` после прохода всех sources.
+    if (sourceId === null && tree.meta.edgeCount === 0) {
+      throw new RepertoirePgnError(
+        'PGN contains no playable moves (only headers / comments?)',
+      );
+    }
+
+    return tree;
   }
 }
 

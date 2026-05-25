@@ -2,6 +2,7 @@ import {
   RepertoireBuilderService,
   RepertoirePgnError,
   RepertoireLimitExceededError,
+  splitPgnIntoGames,
 } from './repertoire-builder.service';
 import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
 
@@ -293,5 +294,139 @@ describe('RepertoireBuilderService — мелкие edge cases', () => {
     expect(root.edges).toHaveLength(1);
     // edgeCount: e4 (main), e5 (var) = 2. e4 из variation НЕ дублирует.
     expect(tree.meta.edgeCount).toBe(2);
+  });
+});
+
+describe('KS-3325: splitPgnIntoGames', () => {
+  it('PGN без результата → одна партия', () => {
+    expect(splitPgnIntoGames('1. e4 e5')).toEqual(['1. e4 e5']);
+  });
+
+  it('PGN с одним результатом → одна партия', () => {
+    expect(splitPgnIntoGames('1. e4 e5 1-0')).toEqual(['1. e4 e5 1-0']);
+  });
+
+  it('Два PGN подряд → две партии', () => {
+    const pgn = '1. e4 e5 1-0\n\n1. d4 d5 0-1';
+    expect(splitPgnIntoGames(pgn)).toEqual(['1. e4 e5 1-0', '1. d4 d5 0-1']);
+  });
+
+  it('Три PGN разными результатами → три партии', () => {
+    const pgn = '1. e4 e5 1-0 1. d4 d5 1/2-1/2 1. c4 c5 *';
+    expect(splitPgnIntoGames(pgn)).toEqual([
+      '1. e4 e5 1-0',
+      '1. d4 d5 1/2-1/2',
+      '1. c4 c5 *',
+    ]);
+  });
+
+  it('Headers сохраняются с партией', () => {
+    const pgn = '[Event "Game 1"]\n1. e4 e5 1-0\n[Event "Game 2"]\n1. d4 d5 0-1';
+    const games = splitPgnIntoGames(pgn);
+    expect(games).toHaveLength(2);
+    expect(games[0]).toContain('[Event "Game 1"]');
+    expect(games[1]).toContain('[Event "Game 2"]');
+  });
+
+  it('Result-token внутри {comment} НЕ разделитель', () => {
+    const pgn = '1. e4 {result: 1-0 expected} e5 1-0';
+    const games = splitPgnIntoGames(pgn);
+    expect(games).toHaveLength(1);
+    expect(games[0]).toContain('{result: 1-0 expected}');
+  });
+
+  it('Пустая строка → пустой массив', () => {
+    expect(splitPgnIntoGames('')).toEqual([]);
+    expect(splitPgnIntoGames('   \n\n   ')).toEqual([]);
+  });
+});
+
+describe('KS-3325: buildTree multi-game PGN (bug fix)', () => {
+  it('PGN с двумя партиями (1-0 разделитель) — chess.js сбрасывается между партиями', () => {
+    // До KS-3325: tokenize скипал `1-0`, но chess instance оставался в
+    // позиции после `e5`, и `1. d4` падал с Illegal move (d2d4 невалидно
+    // когда чёрные на ходу). Теперь splitPgnIntoGames + fresh chess.
+    const pgn = '1. e4 e5 1-0\n\n1. d4 d5 0-1';
+    const tree = builder.buildTree(pgn);
+    const root = tree.nodes[STARTING_FEN];
+    const sans = root.edges.map((e) => e.moveSan).sort();
+    expect(sans).toEqual(['d4', 'e4']);
+  });
+});
+
+describe('KS-3325: buildTreeFromSources (multi-source)', () => {
+  it('Пустой массив sources → RepertoirePgnError', () => {
+    expect(() => builder.buildTreeFromSources([])).toThrow(/source.*required/i);
+  });
+
+  it('Один source → то же дерево что buildTree(pgn) + sourceIds на edges', () => {
+    const pgn = '1. e4 e5 2. Nf3 Nc6';
+    const sid = 'src-1';
+    const single = builder.buildTreeFromSources([{ sourceId: sid, pgn }]);
+    const legacy = builder.buildTree(pgn);
+    expect(single.meta.nodeCount).toBe(legacy.meta.nodeCount);
+    expect(single.meta.edgeCount).toBe(legacy.meta.edgeCount);
+    // Каждый edge получил sourceIds=[sid].
+    const allEdges = Object.values(single.nodes).flatMap((n) => n.edges);
+    for (const e of allEdges) {
+      expect(e.sourceIds).toEqual([sid]);
+    }
+  });
+
+  it('Два source с разными линиями → union edges (разные edges, разные sourceIds)', () => {
+    const a = builder.buildTreeFromSources([
+      { sourceId: 'src-a', pgn: '1. e4 e5' },
+      { sourceId: 'src-b', pgn: '1. d4 d5' },
+    ]);
+    const root = a.nodes[STARTING_FEN];
+    expect(root.edges).toHaveLength(2);
+    const e4 = root.edges.find((e) => e.moveSan === 'e4');
+    const d4 = root.edges.find((e) => e.moveSan === 'd4');
+    expect(e4?.sourceIds).toEqual(['src-a']);
+    expect(d4?.sourceIds).toEqual(['src-b']);
+  });
+
+  it('Транспозиция: один ход из двух источников → один edge, sourceIds.length=2', () => {
+    const t = builder.buildTreeFromSources([
+      { sourceId: 'src-a', pgn: '1. e4 e5' },
+      { sourceId: 'src-b', pgn: '1. e4 c5' }, // тот же первый ход
+    ]);
+    const root = t.nodes[STARTING_FEN];
+    // У root один edge — e4 (с двумя sourceIds).
+    expect(root.edges).toHaveLength(1);
+    const e4 = root.edges[0];
+    expect(e4.moveSan).toBe('e4');
+    expect(e4.sourceIds?.sort()).toEqual(['src-a', 'src-b']);
+    // А ответы чёрных разные — два edge'а из after-e4.
+    const afterE4 = t.nodes[e4.childFen];
+    const sans = afterE4.edges.map((e) => e.moveSan).sort();
+    expect(sans).toEqual(['c5', 'e5']);
+  });
+
+  it('NAG union: один ход с NAG из source A + другой NAG в source B → оба в массиве', () => {
+    const t = builder.buildTreeFromSources([
+      { sourceId: 'a', pgn: '1. e4 $1' },
+      { sourceId: 'b', pgn: '1. e4 $14' },
+    ]);
+    const root = t.nodes[STARTING_FEN];
+    const e4 = root.edges[0];
+    expect(e4.nag?.sort((x, y) => x - y)).toEqual([1, 14]);
+  });
+
+  it('Comment keep-first: source A с комментом, source B без → comment от A', () => {
+    const t = builder.buildTreeFromSources([
+      { sourceId: 'a', pgn: '1. e4 {first}' },
+      { sourceId: 'b', pgn: '1. e4 {second}' },
+    ]);
+    const root = t.nodes[STARTING_FEN];
+    expect(root.edges[0].comment).toBe('first');
+  });
+
+  it('Пустые sources (только заголовки) → RepertoirePgnError edgeCount=0', () => {
+    expect(() =>
+      builder.buildTreeFromSources([
+        { sourceId: 'a', pgn: '[Event "x"]\n' },
+      ]),
+    ).toThrow(/no playable moves/i);
   });
 });
