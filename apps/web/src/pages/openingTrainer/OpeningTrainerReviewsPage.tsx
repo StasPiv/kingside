@@ -21,6 +21,7 @@ import { PuzzleMiniBoard } from '../../components/puzzle/PuzzleMiniBoard';
 import type {
   GetOpeningReviewsDueResponse,
   OpeningLineProgressDto,
+  TrainerColor,
 } from '@kingside/shared';
 
 type DueLine = GetOpeningReviewsDueResponse['lines'][number];
@@ -147,6 +148,10 @@ export function OpeningTrainerReviewsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [lines, setLines] = useState<DueLine[]>([]);
+  // KS-3338: orientation per repertoire — `GetOpeningReviewsDueResponse`
+  // не денормализует `side`, поэтому делаем параллельные `getRepertoire`
+  // для уникальных repertoireId после получения due-lines. Default white.
+  const [sideById, setSideById] = useState<Record<string, TrainerColor>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [startingFor, setStartingFor] = useState<string | null>(null);
@@ -157,7 +162,28 @@ export function OpeningTrainerReviewsPage() {
     openingTrainerApi
       .getReviewsDue()
       .then((r) => {
-        if (!cancelled) setLines(r.lines);
+        if (cancelled) return;
+        setLines(r.lines);
+        // KS-3338: фоновая подгрузка orientation per репертуар. Не
+        // блокируем основной рендер — карточки сначала покажутся в
+        // default white, потом перерисуются с правильной стороной.
+        const uniqueIds = Array.from(
+          new Set(r.lines.map((l) => l.repertoireId)),
+        );
+        if (uniqueIds.length > 0) {
+          Promise.allSettled(
+            uniqueIds.map((id) => openingTrainerApi.getRepertoire(id)),
+          ).then((results) => {
+            if (cancelled) return;
+            const next: Record<string, TrainerColor> = {};
+            results.forEach((res, idx) => {
+              if (res.status === 'fulfilled') {
+                next[uniqueIds[idx]] = res.value.side;
+              }
+            });
+            setSideById((prev) => ({ ...prev, ...next }));
+          });
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -312,7 +338,13 @@ export function OpeningTrainerReviewsPage() {
                           }}
                           data-testid={`opening-trainer-reviews-line-board-${line.id}`}
                         >
-                          <PuzzleMiniBoard fen={fen} />
+                          {/* KS-3338: orientation = repertoire.side. До
+                              подгрузки sideById через параллельный
+                              getRepertoire — default white. */}
+                          <PuzzleMiniBoard
+                            fen={fen}
+                            orientation={sideById[line.repertoireId] ?? 'white'}
+                          />
                         </div>
                         <div
                           style={{
