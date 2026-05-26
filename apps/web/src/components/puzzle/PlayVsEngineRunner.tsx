@@ -507,7 +507,21 @@ export function PlayVsEngineRunner({
   const userSide = useMemo<'w' | 'b'>(() => sideFromFen(puzzle.fen), [puzzle.fen]);
   const orientation = userSide === 'w' ? 'white' : 'black';
 
-  const [game, setGame] = useState<Chess>(() => new Chess(puzzle.fen));
+  // KS-3365: стартуем с fenBeforeBlunder (если есть) — затем эффектом
+  // ниже анимируем blunderMove до перехода в puzzle.fen. UX: пользователь
+  // видит как соперник ходит, не получает позицию «с воздуха».
+  // Если поля нет (legacy/lichess) — стартуем с puzzle.fen без анимации.
+  const fenBeforeBlunder =
+    (puzzle.playVsEngine as { fenBeforeBlunder?: string } | undefined)
+      ?.fenBeforeBlunder ?? null;
+  const canAnimateBlunder = Boolean(
+    fenBeforeBlunder && params.blunderMove && params.blunderMove.length >= 4,
+  );
+  const [game, setGame] = useState<Chess>(() =>
+    canAnimateBlunder && fenBeforeBlunder
+      ? new Chess(fenBeforeBlunder)
+      : new Chess(puzzle.fen),
+  );
   // KS-2486 reopen: список SAN-нотаций всех применённых ходов (user +
   // engine), накапливаем отдельно — `game` пересоздаётся через
   // `new Chess(game.fen())` на каждом ходу и теряет history, поэтому
@@ -688,6 +702,56 @@ export function PlayVsEngineRunner({
    */
   const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastMoveUciRef = useRef<string | null>(null);
+
+  // KS-3365: анимация blunderMove на старте. Через короткую задержку
+  // применяем UCI-ход соперника на `fenBeforeBlunder` → react-chessboard
+  // анимирует движение фигуры (animationDurationInMs=150ms в PuzzleBoard,
+  // KS-2466). После анимации `lastMoveUciRef` хранит blunderMove —
+  // PuzzleBoard подсветит клетки `from`/`to`, как при обычном ходе.
+  // Запускается ровно один раз на mount (или при смене puzzle.id —
+  // компонент пересоздаётся через key={puzzle.id} в PuzzlePage).
+  // Если `canAnimateBlunder=false` (legacy без fenBeforeBlunder) —
+  // ничего не делаем, стартуем с puzzle.fen, lastMoveUciRef=null.
+  const blunderAnimatedRef = useRef(false);
+  useEffect(() => {
+    if (!canAnimateBlunder || blunderAnimatedRef.current) return;
+    blunderAnimatedRef.current = true;
+    const uci = params.blunderMove;
+    // 400ms — то же, что в PuzzlePage для setup-move lichess-пазлов
+    // (даёт юзеру увидеть «исходную» позицию ДО хода, а затем плавно
+    // анимирует фигуру).
+    const timer = window.setTimeout(() => {
+      try {
+        // Готовим target-позицию из puzzle.fen — она уже посчитана
+        // backend'ом и гарантированно валидна (а не chess.js move от
+        // fenBeforeBlunder с promotion-нюансами).
+        setGame(new Chess(puzzle.fen));
+        lastMoveUciRef.current = uci;
+        // Звук хода — как при engine reply. SAN считаем через chess.js
+        // от fenBeforeBlunder, чтобы выбрать правильный sound-event
+        // (capture / castle / move). Если ход не парсится — играем
+        // generic 'move'.
+        try {
+          if (fenBeforeBlunder) {
+            const probe = new Chess(fenBeforeBlunder);
+            const mv = probe.move({
+              from: uci.slice(0, 2),
+              to: uci.slice(2, 4),
+              promotion: uci.length > 4 ? uci[4] : undefined,
+            });
+            if (mv) playSound(soundEventFromSan(mv.san));
+          }
+        } catch {
+          /* fallback: без звука */
+        }
+      } catch {
+        /* fallback: оставляем puzzle.fen без анимации */
+        setGame(new Chess(puzzle.fen));
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // один раз на mount
 
   // ── Engine init / cleanup ─────────────────────────────────────────────
   /**
@@ -1751,23 +1815,9 @@ export function PlayVsEngineRunner({
               reviewFen ? null : (lastMoveUciRef.current ?? blunderHighlight)
             }
             status={boardStatus}
-            // KS-3355: красная стрелка на blunderMove соперника. Видна
-            // только на стартовой позиции (halfMovesPlayed===0 и без
-            // `reviewFen`), чтобы пользователь понимал, какой ход
-            // привёл к текущей позиции — раньше тут была SAN-нотация
-            // в плашке («29... Rf6»), которая запутывала. UCI →
-            // from/to для стрелки.
-            customArrows={
-              blunderHighlight && !reviewFen
-                ? [
-                    {
-                      startSquare: blunderHighlight.slice(0, 2),
-                      endSquare: blunderHighlight.slice(2, 4),
-                      color: 'rgba(239, 68, 68, 0.85)',
-                    },
-                  ]
-                : undefined
-            }
+            // KS-3365: красная стрелка blunderMove убрана. Вместо неё
+            // на mount анимируется сам ход соперника (см. useEffect
+            // выше с timer 400ms) — UX лучше, видно ОТКУДА фигура.
           >
             {/* KS-2969: модалка выбора фигуры при превращении пешки.
                 Цвет — по ряду промоушна (8 → белые, 1 → чёрные). */}

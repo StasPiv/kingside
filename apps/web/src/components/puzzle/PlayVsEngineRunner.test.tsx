@@ -1863,12 +1863,12 @@ describe('formatBlunderMoveWithNumber KS-3164 — preventive phase', () => {
   });
 });
 
-// KS-3355: тесты KS-3164 «hint содержит SAN с move-номером» удалены —
-// SAN-нотация ушла из плашки, заменена на красную стрелку на доске
-// (customArrows в PuzzleBoard). Helper `formatBlunderMoveWithNumber`
-// оставлен как экспорт (используется в собственных тестах выше).
-describe('PlayVsEngineRunner KS-3355 — blunder показывается стрелкой, без SAN', () => {
-  it('hint НЕ содержит SAN-нотации хода (preventive white blunder)', async () => {
+// KS-3365: красная стрелка blunderMove (KS-3355) заменена анимацией хода.
+// Стартовая позиция — fenBeforeBlunder; через 400ms blunderMove
+// применяется → board переходит в puzzle.fen с встроенной анимацией
+// react-chessboard. Hint больше не упоминает «стрелкой».
+describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на старте', () => {
+  it('hint НЕ содержит SAN-нотации и НЕ упоминает стрелку (preventive)', async () => {
     const puzzle = makePuzzle({
       fen: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
@@ -1887,28 +1887,23 @@ describe('PlayVsEngineRunner KS-3355 — blunder показывается стр
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    // SAN с move-номером больше НЕ в тексте.
     expect(hint.textContent).not.toMatch(/39\. d6/);
     expect(hint.textContent).not.toMatch(/d5d6/);
-    // Hint всё ещё рендерится и упоминает «стрелку» (arrow в en / стрелкой в ru).
-    expect(hint.textContent).toMatch(/arrow|стрел/i);
-    // data-blunder-known=true когда blunderMove известен (даёт стрелку).
+    // KS-3365: упоминание «стрелки» убрано из i18n.
+    expect(hint.textContent).not.toMatch(/arrow|стрел/i);
+    // data-blunder-known=true когда blunderMove известен (даёт анимацию).
     expect(hint.getAttribute('data-blunder-known')).toBe('true');
   });
 
-  it('hint НЕ содержит SAN-нотации (preventive black blunder)', async () => {
+  it('legacy без fenBeforeBlunder → fallback на puzzle.fen, hint generic', async () => {
     const puzzle = makePuzzle({
-      fen: 'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22',
-      themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
       playVsEngine: {
-        blunderMove: 'f8c3',
-        fenBeforeBlunder:
-          'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22',
+        blunderMove: '',
+        // fenBeforeBlunder намеренно отсутствует — legacy/lichess
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
         failThreshold: 0.0,
         halfMovesN: 4,
-        objective: 'convertAdvantage',
       },
     } as Partial<PuzzleDto>);
     const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
@@ -1916,29 +1911,30 @@ describe('PlayVsEngineRunner KS-3355 — blunder показывается стр
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.textContent).not.toMatch(/22\.\.\./);
-    expect(hint.textContent).not.toMatch(/Bxc3/);
-    expect(hint.textContent).toMatch(/arrow|стрел/i);
+    // Без blunderMove анимация не запускается → generic hint.
+    expect(hint.getAttribute('data-blunder-known')).toBe('false');
   });
 
-  it('legacy пазл без blunderMove → fallback на generic hint (без упоминания стрелки)', async () => {
+  it('blunderMove известен → data-blunder-known=true (анимация запускается)', async () => {
+    const fenBefore =
+      'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22';
     const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/2b5/PPPPPPPP/R1BQKBNR w KQkq - 0 23',
       playVsEngine: {
-        blunderMove: '', // legacy / lichess
+        blunderMove: 'f8c3',
+        fenBeforeBlunder: fenBefore,
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
         failThreshold: 0.0,
         halfMovesN: 4,
       },
-    });
+    } as Partial<PuzzleDto>);
     const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-blunder-known')).toBe('false');
-    // Generic hint не содержит «стрелкой» — стрелки не рисуем.
-    expect(hint.textContent).not.toMatch(/arrow|стрел/i);
+    expect(hint.getAttribute('data-blunder-known')).toBe('true');
   });
 });
 
