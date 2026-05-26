@@ -151,7 +151,9 @@ afterEach(() => vi.restoreAllMocks());
  */
 
 describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () => {
-  it('fetch /puzzles/browse с source=generated и limit=20 при mount', async () => {
+  it('fetch /puzzles/browse с source=generated и limit=20 при mount (гость)', async () => {
+    // KS-3353: для гостя scopeToLegacyFilters('server', false) НЕ
+    // возвращает excludeMine — backend сам отдаст public-only.
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
@@ -160,7 +162,24 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
     expect(url).toMatch(/source=generated/);
     expect(url).toMatch(/limit=20/);
     expect(url).not.toMatch(/visibility=/); // visibility не задан
-    expect(url).not.toMatch(/mine=/); // mine не задан
+    expect(url).not.toMatch(/[?&]mine=/); // mine не задан
+    expect(url).not.toMatch(/excludeMine=/); // KS-3353: гостю не нужен
+  });
+
+  it('KS-3353: scope=server + auth → URL содержит excludeMine=true', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockBrowseOnce(SAMPLE);
+    renderWithProviders(<PrecisionPage />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const browseCall = apiGet.mock.calls.find((c) =>
+      String(c[0]).startsWith('/puzzles/browse'),
+    );
+    expect(browseCall).toBeDefined();
+    const url = browseCall![0] as string;
+    expect(url).toMatch(/excludeMine=true/);
+    // Кардинальная разница: НЕТ mine=true и visibility= (это не drafts).
+    expect(url).not.toMatch(/[?&]mine=true/);
+    expect(url).not.toMatch(/visibility=/);
   });
 
   it('рендерит карточки на каждый пазл с FEN; рейтинг скрыт (KS-2689)', async () => {

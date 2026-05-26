@@ -181,8 +181,11 @@ export function PrecisionPage() {
   // мигрируется в `scope` на mount'е (см. useEffect выше) и более не
   // читается напрямую — оставлено `legacyVisibility` для совместимости
   // с render-веткой ниже (см. data-visibility на root).
-  const { mine: scopeMine, visibility: scopeVisibility } =
-    scopeToLegacyFilters(scope);
+  const {
+    mine: scopeMine,
+    visibility: scopeVisibility,
+    excludeMine: scopeExcludeMine,
+  } = scopeToLegacyFilters(scope, Boolean(user));
   const visibility: 'draft' | 'public' | 'all' | undefined = scopeVisibility;
   // KS-2719 F3 / KS-2753 / KS-2754 follow-up: фильтр сетки PUZZLES.
   // ИНВЕРСИЯ ПО УМОЛЧАНИЮ: по дефолту скрываем удержанные позиции,
@@ -245,6 +248,8 @@ export function PrecisionPage() {
       // KS-3347: mine/visibility derived из scope (см. scopeToLegacyFilters).
       mine: scopeMine,
       visibility: scopeVisibility,
+      // KS-3353: scope=server + auth → NULL-aware «не мои публичные».
+      excludeMine: scopeExcludeMine,
       hideSolved: hideSolved ? true : undefined,
       blundererEloMin,
       blundererEloMax,
@@ -257,6 +262,7 @@ export function PrecisionPage() {
     [
       scopeMine,
       scopeVisibility,
+      scopeExcludeMine,
       hideSolved,
       blundererEloMin,
       blundererEloMax,

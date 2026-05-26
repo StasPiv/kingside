@@ -98,6 +98,14 @@ export interface InfinitePuzzleFilters {
   themes?: string[];
   /** Только мои пазлы. */
   mine?: boolean;
+  /**
+   * KS-3353 (ADR-079 scope=server). «Не мои публичные» — NULL-aware
+   * фильтр. Backend: `is_public=true AND (created_by IS NULL OR
+   * created_by != me)`. Для guest backend проигнорирует userId-ветку
+   * и отдаст public-only. Используется PrecisionPage при scope='server'
+   * (см. `scopeToLegacyFilters`).
+   */
+  excludeMine?: boolean;
   /** Скрыть уже решённые. */
   hideSolved?: boolean;
   /**
@@ -152,6 +160,8 @@ function buildQuery(
   if (filters.themes && filters.themes.length > 0)
     params.set('themes', filters.themes.join(','));
   if (filters.mine) params.set('mine', 'true');
+  // KS-3353: NULL-aware «не мои публичные» для scope=server.
+  if (filters.excludeMine) params.set('excludeMine', 'true');
   if (filters.hideSolved) params.set('hideSolved', 'true');
   if (filters.source) params.set('source', filters.source);
   if (filters.visibility) params.set('visibility', filters.visibility);
@@ -195,6 +205,8 @@ export function useInfinitePuzzles(
     ratingMax: filters.ratingMax,
     themes: filters.themes,
     mine: filters.mine,
+    // KS-3353: переключение scope server↔drafts должно re-fetch'ить.
+    excludeMine: filters.excludeMine,
     hideSolved: filters.hideSolved,
     source: filters.source,
     visibility: filters.visibility,

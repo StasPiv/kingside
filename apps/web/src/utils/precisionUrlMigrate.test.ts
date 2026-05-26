@@ -116,20 +116,27 @@ describe('readPrecisionScope', () => {
 });
 
 describe('scopeToLegacyFilters', () => {
-  it('server → mine/visibility undefined (backend default = public-only)', () => {
-    expect(scopeToLegacyFilters('server')).toEqual({
+  it('server + auth → excludeMine=true (KS-3353: исключаем свои черновики)', () => {
+    expect(scopeToLegacyFilters('server', true)).toEqual({
+      mine: undefined,
+      visibility: undefined,
+      excludeMine: true,
+    });
+  });
+  it('server + guest → без excludeMine (backend сам отдаст public-only)', () => {
+    expect(scopeToLegacyFilters('server', false)).toEqual({
       mine: undefined,
       visibility: undefined,
     });
   });
-  it('drafts → mine=true, visibility=draft', () => {
-    expect(scopeToLegacyFilters('drafts')).toEqual({
+  it('drafts → mine=true, visibility=draft, без excludeMine', () => {
+    expect(scopeToLegacyFilters('drafts', true)).toEqual({
       mine: true,
       visibility: 'draft',
     });
   });
-  it('published → mine=true, visibility=public', () => {
-    expect(scopeToLegacyFilters('published')).toEqual({
+  it('published → mine=true, visibility=public, без excludeMine', () => {
+    expect(scopeToLegacyFilters('published', true)).toEqual({
       mine: true,
       visibility: 'public',
     });

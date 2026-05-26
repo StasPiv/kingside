@@ -75,13 +75,33 @@ export function readPrecisionScope(
 }
 
 /**
- * Маппинг scope → {mine, visibility} для legacy `useInfinitePuzzles`
- * (через `InfinitePuzzleFilters`). Backend `PuzzleRepository.browse`
- * ещё работает по этим полям.
+ * Маппинг scope → {mine, visibility, excludeMine} для legacy
+ * `useInfinitePuzzles` (через `InfinitePuzzleFilters`). Backend
+ * `PuzzleRepository.browse` принимает legacy mine/visibility + KS-3353
+ * `excludeMine=true` (для scope=server — «не мои публичные»).
+ *
+ * KS-3353: при scope='server' для авторизованного юзера обязателен
+ * `excludeMine=true`. Без него backend применял legacy OR-логику
+ * `(created_by=me OR is_public=true)` и в выдачу попадали ЧУЖИЕ
+ * черновики (правда нет — там только мои + публичные, но фильтр НЕ
+ * исключал свои публичные → пилл «Серверные» включал свои черновики
+ * через `is_public=true` OR-фразу). Backend KS-3353 ввёл явный
+ * `excludeMine=true` → SQL `is_public=true AND (created_by IS NULL OR
+ * created_by != me)`. NULL-aware: legacy-пазлы без `created_by`
+ * включаются.
+ *
+ * Для гостя `excludeMine=true` не нужен — backend для anon уже
+ * фолбэчит на `is_public=true` без user-specific логики. Если
+ * передать — backend проигнорирует userId-ветку. Чтобы не флудить
+ * URL лишним параметром, гостям не возвращаем `excludeMine`.
  */
-export function scopeToLegacyFilters(scope: PrecisionScope): {
+export function scopeToLegacyFilters(
+  scope: PrecisionScope,
+  isAuthenticated: boolean,
+): {
   mine: boolean | undefined;
   visibility: 'draft' | 'public' | undefined;
+  excludeMine?: boolean;
 } {
   switch (scope) {
     case 'drafts':
@@ -90,11 +110,11 @@ export function scopeToLegacyFilters(scope: PrecisionScope): {
       return { mine: true, visibility: 'public' };
     case 'server':
     default:
-      // Серверные: чужие публичные. Передаём mine=undefined,
-      // visibility=undefined — backend `PuzzleRepository.browse` default
-      // и так показывает только public (см. KS-2578). Существующие
-      // PrecisionPage-тесты ожидают что mount-запрос НЕ содержит
-      // `visibility=` параметра, поэтому не дублируем.
-      return { mine: undefined, visibility: undefined };
+      // KS-3353: для авторизованного — excludeMine=true, чтобы
+      // исключить свои черновики из «Серверные». Для гостя — пусто
+      // (backend сам отдаст public-only).
+      return isAuthenticated
+        ? { mine: undefined, visibility: undefined, excludeMine: true }
+        : { mine: undefined, visibility: undefined };
   }
 }
