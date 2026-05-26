@@ -46,6 +46,17 @@ export interface PrecisionFilterChipsBarProps {
    * `GET /precision/scope-counts`. `null` пока загружается / для гостя.
    */
   scopeCounts?: PrecisionScopeCountsResponse | null;
+  /**
+   * KS-3361 (ADR-080 §7 F1). Открыть `PrecisionThemesSheet`. State
+   * `open` хранится в PrecisionPage (выше), чтобы reset мог его
+   * закрыть. Если не передан — chip скрыт (defensive).
+   */
+  onOpenThemesSheet?: () => void;
+  /**
+   * KS-3361. Список выбранных тем (parsed из `?themes=…` caller'ом).
+   * Используется для chip-label («+ Темы» / «Темы: 3»).
+   */
+  selectedThemes?: ReadonlyArray<string>;
 }
 
 const OBJECTIVES = ['all', 'convertAdvantage', 'saveEquality'] as const;
@@ -55,6 +66,8 @@ export function PrecisionFilterChipsBar({
   onOpenRatingSheet,
   ratingLabel,
   scopeCounts,
+  onOpenThemesSheet,
+  selectedThemes,
 }: PrecisionFilterChipsBarProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -69,13 +82,16 @@ export function PrecisionFilterChipsBar({
       : 'all';
   const showSolved = searchParams.get('showSolved') === 'true';
 
+  // KS-3361: учитываем выбранные темы в активных фильтрах.
+  const selectedThemesCount = selectedThemes ? selectedThemes.length : 0;
   // Активный фильтр для бейджа `↺` (показываем кнопку «Сбросить»
   // только когда хоть что-то применено).
   const hasActiveFilters =
     scope !== 'server' ||
     objective !== 'all' ||
     showSolved ||
-    ratingLabel !== null;
+    ratingLabel !== null ||
+    selectedThemesCount > 0;
 
   const setScope = (next: PrecisionScope) => {
     const sp = new URLSearchParams(searchParams);
@@ -108,6 +124,8 @@ export function PrecisionFilterChipsBar({
     sp.delete('showSolved');
     sp.delete('blundererEloMin');
     sp.delete('blundererEloMax');
+    // KS-3361: тоже сбрасываем выбранные темы.
+    sp.delete('themes');
     setSearchParams(sp, { replace: false });
   };
 
@@ -196,6 +214,27 @@ export function PrecisionFilterChipsBar({
           onClick={toggleShowSolved}
         >
           {t('precision.showSolved', 'Show solved')}
+        </button>
+      )}
+
+      {/* KS-3361 (ADR-080 §7 F1). «+ Темы» pill открывает bottom-sheet
+          `PrecisionThemesSheet`. Active-state — когда выбран хотя бы
+          одна тема (число в подписи). Защитно скрываем chip, если
+          caller не передал `onOpenThemesSheet`. */}
+      {onOpenThemesSheet && (
+        <button
+          type="button"
+          className={`precision-chip precision-chip--themes${selectedThemesCount > 0 ? ' precision-chip--active' : ''}`}
+          data-testid="precision-chips-themes-open"
+          aria-pressed={selectedThemesCount > 0}
+          onClick={onOpenThemesSheet}
+        >
+          {selectedThemesCount > 0
+            ? t('precision.themes.chipActive', {
+                defaultValue: 'Themes: {{count}}',
+                count: selectedThemesCount,
+              })
+            : t('precision.themes.chipOpen', '+ Themes')}
         </button>
       )}
 

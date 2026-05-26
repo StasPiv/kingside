@@ -35,6 +35,14 @@ import { PrecisionRatingPill } from '../components/precision/PrecisionRatingPill
 // KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» — авто-подбор
 // по рейтинг-окну Glicko-1.
 import { PrecisionStartTrainingButton } from '../components/precision/PrecisionStartTrainingButton';
+// KS-3361 (ADR-080 §7 F1). Bottom-sheet выбора тем.
+import { PrecisionThemesSheet } from '../components/precision/PrecisionThemesSheet';
+// KS-3362 (ADR-080 §7 F2). Парсер/писатель URL-state для тем.
+import {
+  readPrecisionThemesFromUrl,
+  writePrecisionThemesToUrl,
+} from '../utils/precisionThemesUrl';
+import type { PrecisionThemeCountsResponse } from '@kingside/shared';
 // KS-3347 (ADR-079 §2.6). Migrate legacy `?mine&visibility` → `?scope`,
 // read scope из URL, mapping для legacy useInfinitePuzzles filters.
 import {
@@ -239,6 +247,14 @@ export function PrecisionPage() {
     [searchParams, setSearchParams],
   );
 
+  // KS-3361 (ADR-080 §7 F1+F2). Выбранные темы из URL (parsed) — нужны
+  // и для useInfinitePuzzles, и для PrecisionThemesSheet. Объявляем
+  // ДО filters useMemo (TDZ-error при reverse-order).
+  const selectedThemes = useMemo(
+    () => readPrecisionThemesFromUrl(searchParams),
+    [searchParams],
+  );
+
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
   // Поведение page state'а сохраняем тем же набором значений.
@@ -257,6 +273,10 @@ export function PrecisionPage() {
       // 'all' → undefined (фильтр не передаём, показываем оба).
       themes:
         objectiveFilter === 'all' ? undefined : [objectiveFilter],
+      // KS-3361 (ADR-080 §4.1): multi-select OR-фильтр по темам.
+      // UI пока выставляет ТОЛЬКО OR (выбрал «pin+fork» → задачи с
+      // pin ИЛИ fork). AND-режим — задел на будущий «продвинутый».
+      themesOr: selectedThemes.length > 0 ? selectedThemes : undefined,
       limit: LIMIT,
     }),
     [
@@ -267,6 +287,7 @@ export function PrecisionPage() {
       blundererEloMin,
       blundererEloMax,
       objectiveFilter,
+      selectedThemes,
     ],
   );
 
@@ -379,6 +400,53 @@ export function PrecisionPage() {
   // вызывает setRatingSheetOpen(true), sheet никогда не рендерится.
   const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
   const ratingLabel = ratingLabelFromUrl(searchParams);
+
+  // KS-3361 (ADR-080 §7 F1). Bottom-sheet выбора тем.
+  const [themesSheetOpen, setThemesSheetOpen] = useState(false);
+  const handleApplyThemes = useCallback(
+    (themes: string[]) => {
+      const sp = writePrecisionThemesToUrl(searchParams, themes);
+      if (sp.toString() !== searchParams.toString()) {
+        setSearchParams(sp, { replace: false });
+      }
+    },
+    [searchParams, setSearchParams],
+  );
+
+  // KS-3361 (ADR-080 §3.2). Счётчики по темам в текущем scope/
+  // objective/hideSolved. Перечитываем при изменении этих фильтров
+  // (не самих тем — счётчики «сколько задач с темой X доступно
+  // СЕЙЧАС», независимо от уже выбранных тем).
+  const [themeCounts, setThemeCounts] =
+    useState<PrecisionThemeCountsResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    precisionApi
+      .getThemeCounts({
+        scope,
+        objective:
+          objectiveFilter === 'all' ? undefined : objectiveFilter,
+        hideSolved: user ? hideSolved : undefined,
+        ratingMin: blundererEloMin,
+        ratingMax: blundererEloMax,
+      })
+      .then((res) => {
+        if (!cancelled) setThemeCounts(res);
+      })
+      .catch(() => {
+        if (!cancelled) setThemeCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    scope,
+    objectiveFilter,
+    hideSolved,
+    blundererEloMin,
+    blundererEloMax,
+    user,
+  ]);
 
   const handlePublish = useCallback(
     async (puzzleId: string) => {
@@ -587,6 +655,9 @@ export function PrecisionPage() {
         onOpenRatingSheet={() => setRatingSheetOpen(true)}
         ratingLabel={ratingLabel}
         scopeCounts={scopeCounts}
+        // KS-3361 (ADR-080 §7 F1): chip «+ Темы» / «Темы: N».
+        onOpenThemesSheet={() => setThemesSheetOpen(true)}
+        selectedThemes={selectedThemes}
       />
       {/* KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» —
           mobile full-width над списком, desktop — inline в шапке (см.
@@ -1372,6 +1443,16 @@ export function PrecisionPage() {
       <PrecisionRatingSheet
         open={ratingSheetOpen}
         onClose={() => setRatingSheetOpen(false)}
+      />
+
+      {/* KS-3361 (ADR-080 §7 F1): bottom-sheet выбора тем. Открывается
+          из chips-bar. URL ?themes=pin,fork,… (KS-3362). */}
+      <PrecisionThemesSheet
+        open={themesSheetOpen}
+        onClose={() => setThemesSheetOpen(false)}
+        selectedThemes={selectedThemes}
+        onApply={handleApplyThemes}
+        themeCounts={themeCounts?.counts ?? null}
       />
 
       {/* KS-2663: floating toast для действий автора (copy link /

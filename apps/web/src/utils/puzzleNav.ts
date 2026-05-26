@@ -24,7 +24,12 @@
  * Все хелперы pure — без React/Router зависимостей. Используют
  * стандартный `URLSearchParams`. Тестируются отдельно.
  */
-import type { PickNextPrecisionRequest, PrecisionScope } from '@kingside/shared';
+import type {
+  PickNextPrecisionRequest,
+  PrecisionPickNextWithThemesRequest,
+  PrecisionScope,
+} from '@kingside/shared';
+import { readPrecisionThemesFromUrl } from './precisionThemesUrl';
 
 export type PuzzleSection = 'precision' | 'puzzles';
 
@@ -44,6 +49,8 @@ const PRECISION_PRESERVED_PARAMS = [
   'blundererEloMin',
   'blundererEloMax',
   'showSolved',
+  // KS-3362: выбранные темы (CSV).
+  'themes',
 ] as const;
 
 /**
@@ -123,7 +130,7 @@ export function buildPrecisionPuzzleQuery(
 export function buildPrecisionNextParams(
   searchParams: URLSearchParams,
   isAuthenticated: boolean,
-): PickNextPrecisionRequest {
+): PrecisionPickNextWithThemesRequest {
   let scope: PrecisionScope;
   const rawScope = searchParams.get('scope');
   if (
@@ -138,7 +145,7 @@ export function buildPrecisionNextParams(
     scope = 'server';
   }
 
-  const result: PickNextPrecisionRequest = { scope };
+  const result: PrecisionPickNextWithThemesRequest = { scope };
 
   const objective = searchParams.get('objective');
   if (objective === 'convertAdvantage' || objective === 'saveEquality') {
@@ -162,5 +169,17 @@ export function buildPrecisionNextParams(
     if (!showSolved) result.hideSolved = true;
   }
 
+  // KS-3362 (ADR-080 §4.2). Выбранные темы — OR-фильтр. UI выставляет
+  // только OR (multi-select), AND зарезервирован.
+  const themes = readPrecisionThemesFromUrl(searchParams);
+  if (themes.length > 0) {
+    result.themesOr = themes;
+  }
+
   return result;
 }
+
+// Тип-ссылка для backward-compat — некоторые места кода могли
+// ожидать вернённый тип `PickNextPrecisionRequest`. Новый тип —
+// супертип старого (themesAnd/themesOr опциональны).
+export type { PickNextPrecisionRequest };

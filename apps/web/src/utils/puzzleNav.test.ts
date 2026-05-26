@@ -60,6 +60,13 @@ describe('buildBackUrl', () => {
     expect(url).toContain('blundererEloMax=2200');
     expect(url).toContain('showSolved=true');
   });
+
+  it('KS-3362: themes тоже сохраняются при возврате', () => {
+    const url = buildBackUrl(
+      new URLSearchParams('source=precision&themes=pin,fork'),
+    );
+    expect(url).toContain('themes=pin%2Cfork');
+  });
 });
 
 describe('buildPrecisionPuzzleQuery', () => {
@@ -160,5 +167,29 @@ describe('buildPrecisionNextParams (KS-3349)', () => {
   it('гость → hideSolved не выставляется (фильтр auth-only)', () => {
     const r = buildPrecisionNextParams(new URLSearchParams(''), false);
     expect(r.hideSolved).toBeUndefined();
+  });
+
+  it('KS-3362: ?themes=pin,fork (whitelist) → themesOr=[pin,fork]', () => {
+    const r = buildPrecisionNextParams(
+      new URLSearchParams('themes=pin,fork'),
+      true,
+    );
+    expect(r.themesOr).toEqual(['pin', 'fork']);
+  });
+
+  it('KS-3362: пустой themes → themesOr не выставлен', () => {
+    const r = buildPrecisionNextParams(
+      new URLSearchParams('themes='),
+      true,
+    );
+    expect(r.themesOr).toBeUndefined();
+  });
+
+  it('KS-3362: невалидная тема в URL → отброшена', () => {
+    const r = buildPrecisionNextParams(
+      new URLSearchParams('themes=pin,nonsense'),
+      true,
+    );
+    expect(r.themesOr).toEqual(['pin']);
   });
 });

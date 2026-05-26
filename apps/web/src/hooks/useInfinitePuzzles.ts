@@ -96,6 +96,20 @@ export interface InfinitePuzzleFilters {
   ratingMax?: number;
   /** Темы (ANY-of). Пустой массив = без фильтра по теме. */
   themes?: string[];
+  /**
+   * KS-3361 (ADR-080 §4.1). Multi-select OR-фильтр по темам — задача
+   * попадает в выдачу, если содержит хотя бы одну из перечисленных
+   * тем. Comma-separated CSV в URL `themesOr=pin,fork`. Backend
+   * валидирует против `PRECISION_RELEVANT_THEMES`.
+   */
+  themesOr?: string[];
+  /**
+   * KS-3361 (ADR-080 §4.1). Multi-select AND-фильтр — задача попадает
+   * в выдачу, только если содержит ВСЕ перечисленные темы. Сочетается
+   * с themesOr через AND. UI на этот сезон выставляет только OR;
+   * AND зарезервирован для будущего «продвинутого» режима.
+   */
+  themesAnd?: string[];
   /** Только мои пазлы. */
   mine?: boolean;
   /**
@@ -159,6 +173,11 @@ function buildQuery(
     params.set('ratingMax', String(filters.ratingMax));
   if (filters.themes && filters.themes.length > 0)
     params.set('themes', filters.themes.join(','));
+  // KS-3361: themesOr / themesAnd (ADR-080 §4.1).
+  if (filters.themesOr && filters.themesOr.length > 0)
+    params.set('themesOr', filters.themesOr.join(','));
+  if (filters.themesAnd && filters.themesAnd.length > 0)
+    params.set('themesAnd', filters.themesAnd.join(','));
   if (filters.mine) params.set('mine', 'true');
   // KS-3353: NULL-aware «не мои публичные» для scope=server.
   if (filters.excludeMine) params.set('excludeMine', 'true');
@@ -204,6 +223,9 @@ export function useInfinitePuzzles(
     ratingMin: filters.ratingMin,
     ratingMax: filters.ratingMax,
     themes: filters.themes,
+    // KS-3361: re-fetch при смене выбранных тем.
+    themesOr: filters.themesOr,
+    themesAnd: filters.themesAnd,
     mine: filters.mine,
     // KS-3353: переключение scope server↔drafts должно re-fetch'ить.
     excludeMine: filters.excludeMine,

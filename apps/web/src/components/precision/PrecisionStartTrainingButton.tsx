@@ -1,21 +1,17 @@
 /**
- * KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» на
- * странице `/precision`. По нажатию вызывает `GET /precision/next` с
- * текущими фильтрами (scope / objective / blundererElo / hideSolved) и
- * навигирует на пазл-страницу с `?source=precision&<preserved-params>`.
- *
- * Расположение управляется CSS-родителем:
- *   - mobile (≤767px): full-width sticky-баннер над сеткой.
- *   - desktop: inline в шапке.
+ * KS-3348 (ADR-079 §3.4) + KS-3362 (ADR-080 §7 F2). Sticky-кнопка
+ * «Начать тренировку» на странице `/precision`. По нажатию вызывает
+ * `GET /precision/next` с текущими фильтрами (scope / objective /
+ * blundererElo / hideSolved / themes) и навигирует на пазл-страницу
+ * с `?source=precision&<preserved-params>`.
  *
  * Состояния:
  *   - idle: «Начать тренировку».
- *   - loading: disabled + текст «Подбираем…».
- *   - empty: inline-сообщение «Нет подходящих задач в выбранном фильтре».
+ *   - loading: disabled + «Подбираем…».
+ *   - empty: «Нет подходящих задач в выбранном фильтре».
+ *   - emptyThemes: «Нет задач по выбранным темам, расширьте фильтр»
+ *     (KS-3362 — backend reason='no_puzzles_for_themes').
  *   - error: «Не удалось подобрать задачу» (network/5xx).
- *
- * data-testid: `precision-start-training`, `precision-start-training-empty`,
- * `precision-start-training-error`.
  */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -25,7 +21,7 @@ import { useAuth } from '../../context/AuthContext';
 import { precisionApi } from '../../api/precisionApi';
 import { buildPrecisionNextParams } from '../../utils/puzzleNav';
 
-type Status = 'idle' | 'loading' | 'empty' | 'error';
+type Status = 'idle' | 'loading' | 'empty' | 'emptyThemes' | 'error';
 
 export function PrecisionStartTrainingButton() {
   const { t } = useTranslation();
@@ -47,8 +43,13 @@ export function PrecisionStartTrainingButton() {
         navigate(`/puzzle/${res.puzzleId}?${sp.toString()}`);
         // Не сбрасываем `loading` — компонент unmount'ится при navigate.
       } else {
-        // KS-3348: 404 → no_puzzles_available.
-        setStatus('empty');
+        // KS-3348 / KS-3362: 404. Discriminated reason
+        // (PickNextPrecisionEmptyReason):
+        //   - no_puzzles_for_themes — выбранные темы не дают пазлов,
+        //     показываем спец-сообщение «расширьте фильтр».
+        //   - no_puzzles_available — общий «нет задач» (рейтинг-окно).
+        const reason = (res as { reason?: string }).reason;
+        setStatus(reason === 'no_puzzles_for_themes' ? 'emptyThemes' : 'empty');
       }
     } catch {
       setStatus('error');
@@ -81,6 +82,18 @@ export function PrecisionStartTrainingButton() {
           {t(
             'precision.startTraining.empty',
             'No puzzles match your current filter',
+          )}
+        </p>
+      )}
+      {status === 'emptyThemes' && (
+        <p
+          className="precision-start-training__hint precision-start-training__hint--empty"
+          data-testid="precision-start-training-empty-themes"
+          role="status"
+        >
+          {t(
+            'precision.themes.noPuzzlesForThemes',
+            'No puzzles match selected themes, broaden the filter',
           )}
         </p>
       )}
