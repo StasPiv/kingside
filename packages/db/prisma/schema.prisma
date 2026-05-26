@@ -117,6 +117,9 @@ model User {
   openingTrainerSessions   OpeningTrainerSession[]
   // KS-3287 (M2 §2.5): per-path прогресс линий.
   openingLineProgress      OpeningLineProgress[]
+  // KS-3342 / ADR-079 §3.6.1: Precision-рейтинг (Glicko-1, отдельная
+  // кривая от ratingPuzzle — precision имеет свою сложность).
+  precisionRating          UserPrecisionRating?
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -429,6 +432,15 @@ model PrecisionAttempt {
   ///   2) аналитики «доля решённых-но-не-точных», «упустил перевес» и т.п.
   objectiveAchieved Boolean? @map("objective_achieved")
 
+  /// KS-3342 / ADR-079 §3.6.2: Precision-рейтинг ДО попытки. `null` для:
+  ///  - гостей (рейтинг не пишется);
+  ///  - User.isHidden / User.isTestAccount (service-аккаунты, ADR-035 §10.7-4);
+  ///  - self-created puzzle (anti-cheat KS-3339 ревизия 3);
+  ///  - legacy-attempt'ов до выкатки ADR-079 (backfill не делаем — §3.6.3).
+  ratingBefore Float? @map("rating_before")
+  /// KS-3342 / ADR-079 §3.6.2: Precision-рейтинг ПОСЛЕ попытки. `null` синхронно с before.
+  ratingAfter  Float? @map("rating_after")
+
   attempt PuzzleAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   moves   PrecisionAttemptMove[]
 
@@ -441,6 +453,31 @@ model PrecisionAttempt {
   /// KS-3246. Агрегаты «решено vs цель достигнута», фильтры на
   /// /precision/history по поведению пользователя.
   @@index([objectiveAchieved])
+}
+
+/// KS-3342 / ADR-079 §3.6.1. Precision-рейтинг пользователя (Glicko-1).
+/// Отдельная таблица от `User.ratingPuzzle` — precision имеет свою
+/// кривую сложности (ADR-044 §3.5), смешивание двух метрик неверно.
+/// Cold-start: rating=1500, deviation=350, volatility=0.06.
+/// Обновляется в `PrecisionService.create` через
+/// `PrecisionRatingService.applyRatingChange` (KS-3343).
+model UserPrecisionRating {
+  userId        String    @id @map("user_id") @db.Uuid
+  rating        Float     @default(1500)
+  /// Glicko RD. Большой RD (350) → высокая неопределённость, рейтинг
+  /// двигается быстрее. После многих попыток сужается до ~50-100.
+  deviation     Float     @default(350)
+  /// Glicko-2 параметр (для будущего; в MVP не используется,
+  /// `applyRatingChange` идёт по Glicko-1 continuous через
+  /// `GlickoRatingService`).
+  volatility   Float     @default(0.06)
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_precision_ratings")
 }
 
 /// KS-2717 / ADR-056 §3.2. Per-move детализация — для PostGameReview
