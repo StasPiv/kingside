@@ -44,6 +44,38 @@ export class PrecisionService {
   ) {}
 
   /**
+   * KS-3346 / ADR-079 §3.5 / §4.4. Precision-рейтинг текущего user'а.
+   *
+   * Гостю — 401 на уровне controller (`JwtAuthGuard`). Для нового
+   * user'а без записи возвращаем default `{ rating: 1500, deviation:
+   * 350, attempts: 0, lastAttemptAt: null }`.
+   */
+  async getMyRating(userId: string): Promise<{
+    rating: number;
+    deviation: number;
+    attempts: number;
+    lastAttemptAt: string | null;
+  }> {
+    const row = await this.prisma.userPrecisionRating.findUnique({
+      where: { userId },
+    });
+    if (!row) {
+      return {
+        rating: 1500,
+        deviation: 350,
+        attempts: 0,
+        lastAttemptAt: null,
+      };
+    }
+    return {
+      rating: row.rating,
+      deviation: row.deviation,
+      attempts: row.attempts,
+      lastAttemptAt: row.lastAttemptAt?.toISOString() ?? null,
+    };
+  }
+
+  /**
    * KS-3345 / ADR-079 §3.3 / §4.2. Счётчики precision-пазлов для
    * pill'ов chips-bar [Серверные] / [Мои черновики] / [Мои опубликованные].
    *

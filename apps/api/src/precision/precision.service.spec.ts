@@ -28,6 +28,10 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       puzzle: {
         count: jest.fn(),
       },
+      // KS-3346: для getMyRating.
+      userPrecisionRating: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       $queryRawUnsafe: jest.fn(),
     };
     redis = {
@@ -952,6 +956,49 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         .mockResolvedValueOnce(0);
       const r = await service.getScopeCounts('u-1');
       expect(r).toEqual({ server: 7, drafts: 0, published: 0 });
+    });
+  });
+
+  // ─── KS-3346 / ADR-079 §3.5: getMyRating ─────────────────────
+
+  describe('getMyRating', () => {
+    it('новый user без записи → default 1500/350/0/null', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce(null);
+      const r = await service.getMyRating('u-1');
+      expect(r).toEqual({
+        rating: 1500,
+        deviation: 350,
+        attempts: 0,
+        lastAttemptAt: null,
+      });
+    });
+
+    it('существующий рейтинг → возвращается из БД', async () => {
+      const at = new Date('2026-05-25T10:00:00Z');
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1700.5,
+        deviation: 120,
+        attempts: 42,
+        lastAttemptAt: at,
+      });
+      const r = await service.getMyRating('u-1');
+      expect(r).toEqual({
+        rating: 1700.5,
+        deviation: 120,
+        attempts: 42,
+        lastAttemptAt: '2026-05-25T10:00:00.000Z',
+      });
+    });
+
+    it('существующий, lastAttemptAt=null → возвращается как null', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+        deviation: 350,
+        attempts: 0,
+        lastAttemptAt: null,
+      });
+      const r = await service.getMyRating('u-1');
+      expect(r.lastAttemptAt).toBeNull();
     });
   });
 });
