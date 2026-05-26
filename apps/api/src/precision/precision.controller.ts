@@ -112,6 +112,48 @@ export class PrecisionController {
   }
 
   /**
+   * KS-3358 / ADR-080 §4.3. GET /precision/theme-counts — counter
+   * per-theme для bottom-sheet'а фильтра. OptionalJwtGuard (гость →
+   * scope=server, без hideSolved). Cache 60s.
+   */
+  @UseGuards(OptionalJwtGuard)
+  @Get('theme-counts')
+  async getThemeCounts(
+    @Request() req: ExpressRequest & { user?: { id: string } },
+    @Query('scope') scopeParam?: string,
+    @Query('objective') objectiveParam?: string,
+    @Query('hideSolved') hideSolvedParam?: string,
+    @Query('ratingMin') ratingMinParam?: string,
+    @Query('ratingMax') ratingMaxParam?: string,
+  ) {
+    const ALLOWED_SCOPES = new Set(['server', 'drafts', 'published']);
+    const scope =
+      scopeParam && ALLOWED_SCOPES.has(scopeParam)
+        ? (scopeParam as 'server' | 'drafts' | 'published')
+        : 'server';
+    const ALLOWED_OBJ = new Set(['all', 'convertAdvantage', 'saveEquality']);
+    const objective =
+      objectiveParam && ALLOWED_OBJ.has(objectiveParam)
+        ? (objectiveParam as 'all' | 'convertAdvantage' | 'saveEquality')
+        : undefined;
+    const ratingMin = ratingMinParam ? parseFloat(ratingMinParam) : undefined;
+    const ratingMax = ratingMaxParam ? parseFloat(ratingMaxParam) : undefined;
+    if (
+      (ratingMin !== undefined && !Number.isFinite(ratingMin)) ||
+      (ratingMax !== undefined && !Number.isFinite(ratingMax))
+    ) {
+      throw new BadRequestException('ratingMin/Max must be numbers');
+    }
+    return this.precision.getThemeCounts(req.user?.id ?? null, {
+      scope,
+      objective,
+      hideSolved: hideSolvedParam !== 'false',
+      ratingMin,
+      ratingMax,
+    });
+  }
+
+  /**
    * KS-3344 / ADR-079 §3.4 / §4.1. GET /precision/next — авто-подбор
    * следующей задачи. OptionalJwtGuard: гостю target=1200,
    * только scope=server. Query: scope, objective?, overrideRatingMin?,

@@ -1010,6 +1010,123 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
     });
   });
 
+  // ─── KS-3358 / ADR-080 §4.3: getThemeCounts ──────────────────
+
+  describe('getThemeCounts', () => {
+    beforeEach(() => {
+      prisma.$queryRawUnsafe = jest.fn().mockResolvedValue([]);
+    });
+
+    it('гость → scope принудительно server, без hideSolved-attempts', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        { theme: 'pin', cnt: 100 },
+        { theme: 'fork', cnt: 50 },
+      ]);
+      const r = await service.getThemeCounts(null, {
+        scope: 'drafts',
+        hideSolved: true,
+      });
+      expect(r.counts).toEqual({ pin: 100, fork: 50 });
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0];
+      expect(sql).toContain(`solution_mode = 'play-vs-engine'`);
+      // server (даже при scope=drafts для guest): is_public=true,
+      // без created_by-фильтра.
+      expect(sql).toContain('is_public = true');
+      expect(sql).not.toContain('created_by IS NULL');
+      // hideSolved для guest НЕ применяется (нет userId).
+      expect(sql).not.toContain('NOT EXISTS');
+    });
+
+    it('user + scope=server + hideSolved → NULL-aware createdBy + NOT EXISTS attempts', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        { theme: 'pin', cnt: 30 },
+      ]);
+      await service.getThemeCounts('u-1', {
+        scope: 'server',
+        hideSolved: true,
+      });
+      const [sql, ...params] = prisma.$queryRawUnsafe.mock.calls[0];
+      expect(sql).toContain('is_public = true');
+      expect(sql).toContain(
+        'created_by IS NULL OR created_by != $',
+      );
+      expect(sql).toContain('NOT EXISTS');
+      // Whitelist передан последним параметром.
+      const whitelist = params[params.length - 1];
+      expect(Array.isArray(whitelist)).toBe(true);
+      expect((whitelist as string[]).includes('pin')).toBe(true);
+    });
+
+    it('drafts: is_public=false, created_by=userId', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+      await service.getThemeCounts('u-1', {
+        scope: 'drafts',
+        hideSolved: false,
+      });
+      const sql = prisma.$queryRawUnsafe.mock.calls[0][0];
+      expect(sql).toContain('is_public = false');
+      expect(sql).toContain('created_by = $');
+      expect(sql).not.toContain('NOT EXISTS');
+    });
+
+    it('objective=convertAdvantage → themes LIKE %objective%', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+      await service.getThemeCounts('u-1', {
+        scope: 'server',
+        objective: 'convertAdvantage',
+        hideSolved: false,
+      });
+      const [, ...params] = prisma.$queryRawUnsafe.mock.calls[0];
+      expect(params).toContain('%convertAdvantage%');
+    });
+
+    it('ratingMin/Max → добавляются в WHERE', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+      await service.getThemeCounts('u-1', {
+        scope: 'server',
+        hideSolved: false,
+        ratingMin: 1200,
+        ratingMax: 1800,
+      });
+      const [sql, ...params] = prisma.$queryRawUnsafe.mock.calls[0];
+      expect(sql).toContain('rating >= $');
+      expect(sql).toContain('rating <= $');
+      expect(params).toContain(1200);
+      expect(params).toContain(1800);
+    });
+
+    it('cache hit → пропускает SQL', async () => {
+      redis.get.mockResolvedValueOnce(
+        JSON.stringify({ counts: { pin: 99 } }),
+      );
+      const r = await service.getThemeCounts('u-1', { scope: 'server' });
+      expect(r.counts).toEqual({ pin: 99 });
+      expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+    });
+
+    it('cache содержит мусор → fallback на SQL', async () => {
+      redis.get.mockResolvedValueOnce('garbage');
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        { theme: 'pin', cnt: 1 },
+      ]);
+      const r = await service.getThemeCounts('u-1', { scope: 'server' });
+      expect(r.counts).toEqual({ pin: 1 });
+    });
+
+    it('cache set после SQL', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        { theme: 'fork', cnt: 5 },
+      ]);
+      await service.getThemeCounts('u-1', { scope: 'server' });
+      expect(redis.set).toHaveBeenCalled();
+      const [key, value, ttlFlag, ttl] = redis.set.mock.calls[0];
+      expect(key).toContain('precision:theme-counts:u-1');
+      expect(typeof value).toBe('string');
+      expect(ttlFlag).toBe('EX');
+      expect(ttl).toBe(60);
+    });
+  });
+
   // ─── KS-3344 / ADR-079 §3.4: pickNext ────────────────────────
 
   describe('pickNext', () => {

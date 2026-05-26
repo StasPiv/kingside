@@ -33,6 +33,10 @@ import type { CreateTestFixtureAttemptDto } from './dto/test-fixture.dto';
 
 const SCOPE_COUNTS_CACHE_TTL_SEC = 60;
 const SCOPE_COUNTS_CACHE_PREFIX = 'precision:scope-counts:';
+// KS-3358 / ADR-080 §4.3: cache для theme-counts. Ключ зависит
+// от всех фильтров (scope+objective+hideSolved+rating), 60s TTL.
+const THEME_COUNTS_CACHE_TTL_SEC = 60;
+const THEME_COUNTS_CACHE_PREFIX = 'precision:theme-counts:';
 
 /**
  * KS-3352 fix. `Puzzle.rating` хранится как INT4 (PostgreSQL `integer`,
@@ -229,6 +233,152 @@ export class PrecisionService {
     if (candidates.length === 0) return null;
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     return pick;
+  }
+
+  /**
+   * KS-3358 / ADR-080 §4.3. Counter per-theme для bottom-sheet'а
+   * фильтра тем. Возвращает count'ы по `PRECISION_RELEVANT_THEMES`
+   * под текущие фильтры (scope + objective + hideSolved +
+   * rating-range), БЕЗ учёта самого theme-фильтра.
+   *
+   * SQL — один aggregate через `unnest(string_to_array(themes,' '))`
+   * + LATERAL JOIN + GROUP BY. На проде audit показал 5.4ms на 1595
+   * puzzles → 7025 unnest rows → 19 уникальных тем. p95 ≤ 10ms;
+   * cache 60s покрывает повторные открытия sheet'а.
+   *
+   * Гость → принудительно scope=server, без hideSolved (нет attempts).
+   */
+  async getThemeCounts(
+    userId: string | null,
+    filters: {
+      scope: 'server' | 'drafts' | 'published';
+      objective?: 'all' | 'convertAdvantage' | 'saveEquality';
+      hideSolved?: boolean;
+      ratingMin?: number;
+      ratingMax?: number;
+    },
+  ): Promise<{ counts: Record<string, number> }> {
+    // Гость — drafts/published нет, принудительно server.
+    const effectiveScope = userId ? filters.scope : 'server';
+
+    // Cache key — детерминированный JSON-сериализатор всех фильтров.
+    const cacheKey = `${THEME_COUNTS_CACHE_PREFIX}${userId ?? 'guest'}:${JSON.stringify({
+      scope: effectiveScope,
+      objective: filters.objective ?? null,
+      hideSolved: filters.hideSolved !== false,
+      ratingMin: filters.ratingMin ?? null,
+      ratingMax: filters.ratingMax ?? null,
+    })}`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed.counts === 'object') {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[getThemeCounts] redis get failed for ${cacheKey}: ${(err as Error).message}`,
+      );
+    }
+
+    // Whitelist (импорт здесь чтобы не загружать модуль если cache hit).
+    const { PRECISION_RELEVANT_THEMES } = await import('@kingside/shared');
+
+    // Сборка WHERE для базовой выборки (фильтры до theme-агрегата).
+    const conditions: string[] = [
+      `solution_mode = 'play-vs-engine'`, // precision-only
+    ];
+    const params: (string | number | string[])[] = [];
+    let idx = 1;
+    const next = (): string => `$${idx++}`;
+
+    // Scope-маппинг (ADR-079 §2.1):
+    //   server    — is_public=true AND (created_by IS NULL OR != userId)
+    //   drafts    — is_public=false AND created_by = userId
+    //   published — is_public=true AND created_by = userId
+    if (effectiveScope === 'drafts' && userId) {
+      conditions.push(`is_public = false`);
+      conditions.push(`created_by = ${next()}::uuid`);
+      params.push(userId);
+    } else if (effectiveScope === 'published' && userId) {
+      conditions.push(`is_public = true`);
+      conditions.push(`created_by = ${next()}::uuid`);
+      params.push(userId);
+    } else {
+      // server (default + guest)
+      conditions.push(`is_public = true`);
+      if (userId) {
+        const ph = next();
+        conditions.push(`(created_by IS NULL OR created_by != ${ph}::uuid)`);
+        params.push(userId);
+      }
+    }
+
+    // Objective: themes LIKE '%objective%' (одна тема обязательна).
+    if (filters.objective && filters.objective !== 'all') {
+      const ph = next();
+      conditions.push(`themes LIKE ${ph}`);
+      params.push(`%${filters.objective}%`);
+    }
+
+    // hideSolved через NOT EXISTS (joined puzzle_attempts).
+    let hideSolvedClause = '';
+    if ((filters.hideSolved !== false) && userId) {
+      const ph = next();
+      hideSolvedClause = `AND NOT EXISTS (
+        SELECT 1 FROM puzzle_attempts pa
+         WHERE pa.puzzle_id = puzzles.id AND pa.user_id = ${ph}::uuid
+      )`;
+      params.push(userId);
+    }
+
+    // Rating range.
+    if (filters.ratingMin !== undefined) {
+      conditions.push(`rating >= ${next()}`);
+      params.push(filters.ratingMin);
+    }
+    if (filters.ratingMax !== undefined) {
+      conditions.push(`rating <= ${next()}`);
+      params.push(filters.ratingMax);
+    }
+
+    // Whitelist для GROUP BY filter.
+    const whitelistPh = next();
+    params.push(PRECISION_RELEVANT_THEMES as unknown as string[]);
+
+    const sql = `
+      SELECT theme, COUNT(*)::int AS cnt
+      FROM puzzles,
+        LATERAL unnest(string_to_array(themes, ' ')) AS theme
+      WHERE ${conditions.join(' AND ')}
+        ${hideSolvedClause}
+        AND theme = ANY(${whitelistPh}::text[])
+      GROUP BY theme
+    `;
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{ theme: string; cnt: number }>
+    >(sql, ...params);
+
+    const counts: Record<string, number> = {};
+    for (const r of rows) counts[r.theme] = Number(r.cnt);
+
+    const result = { counts };
+    try {
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(result),
+        'EX',
+        THEME_COUNTS_CACHE_TTL_SEC,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[getThemeCounts] redis set failed for ${cacheKey}: ${(err as Error).message}`,
+      );
+    }
+    return result;
   }
 
   /**
