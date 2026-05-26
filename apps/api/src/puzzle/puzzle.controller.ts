@@ -208,6 +208,12 @@ export class PuzzleController {
     // отсеиваются автоматически (NULL >= N = false).
     @Query('blundererEloMin') blundererEloMinStr?: string,
     @Query('blundererEloMax') blundererEloMaxStr?: string,
+    // KS-3353 / ADR-079. Для scope=server (chips-bar Precision):
+    // явный «не мои» фильтр. mine=false исторически означал «мои +
+    // публичные» (см. ниже OR-блок) — теперь фронт может передать
+    // excludeMine=true и получить ТОЛЬКО публичные не-мои.
+    // NULL-aware: legacy puzzle с created_by IS NULL включаются.
+    @Query('excludeMine') excludeMineParam?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -244,6 +250,7 @@ export class PuzzleController {
       params.push(sourceFilter);
     }
 
+    const excludeMine = excludeMineParam === 'true';
     if (mine === 'true' && userId) {
       conditions.push(`p.created_by = ${next()}::uuid`);
       params.push(userId);
@@ -255,6 +262,16 @@ export class PuzzleController {
       } else if (visibility === 'draft') {
         conditions.push('p.is_public = false');
       }
+    } else if (excludeMine && userId) {
+      // KS-3353 / ADR-079 scope=server: показать ТОЛЬКО публичные
+      // и НЕ мои. NULL-aware: legacy puzzle с `created_by IS NULL`
+      // должны попасть (на проде их 1530).
+      conditions.push('p.is_public = true');
+      const ph = next();
+      conditions.push(
+        `(p.created_by IS NULL OR p.created_by != ${ph}::uuid)`,
+      );
+      params.push(userId);
     } else if (userId) {
       const placeholder = next();
       conditions.push(`(p.created_by = ${placeholder}::uuid OR p.is_public = true)`);

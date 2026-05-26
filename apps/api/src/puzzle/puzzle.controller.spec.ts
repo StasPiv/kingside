@@ -231,6 +231,73 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     expect(sql).not.toContain('OR p.is_public');
   });
 
+  // KS-3353 / ADR-079 §3.1: scope=server в Precision требует «только
+  // не мои публичные». excludeMine=true — NULL-aware фильтр.
+  it('KS-3353: excludeMine=true → is_public=true AND (created_by IS NULL OR != me)', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+
+    // browse(req, limit, cursor?, mine?, themes?, ratingMin?, ratingMax?,
+    //        hideSolved?, source?, visibility?, blunderMin?, blunderMax?,
+    //        excludeMine?)
+    await controller.browse(
+      loginReq('user-1'),
+      20,
+      undefined, // cursor
+      undefined, // mine
+      undefined, // themes
+      undefined, // ratingMin
+      undefined, // ratingMax
+      undefined, // hideSolved
+      undefined, // source
+      undefined, // visibility
+      undefined, // blundererEloMin
+      undefined, // blundererEloMax
+      'true', // excludeMine
+    );
+
+    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock
+      .calls[0];
+    // Должен быть is_public=true И NULL-aware «не мои».
+    expect(sql).toContain('p.is_public = true');
+    expect(sql).toMatch(
+      /\(p\.created_by IS NULL OR p\.created_by != \$\d+::uuid\)/,
+    );
+    expect(params).toContain('user-1');
+    // НЕ должен возвращать legacy fallback (OR is_public=true с created_by=me).
+    expect(sql).not.toContain('OR p.is_public = true');
+  });
+
+  it('KS-3353: excludeMine=true без user (anon) → fallback на public-only', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'true',
+    );
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    // Anon → просто is_public=true, без NULL-фильтра по created_by.
+    expect(sql).toContain('p.is_public = true');
+    expect(sql).not.toContain('created_by IS NULL');
+  });
+
   it('hideSolved login: NOT EXISTS на puzzle_attempts', async () => {
     const prisma = makePrisma([]);
     const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
