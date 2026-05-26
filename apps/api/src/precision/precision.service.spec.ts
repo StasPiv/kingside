@@ -1254,7 +1254,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(call.where.createdBy).toBeUndefined();
     });
 
-    it('objective != "all" → themes.has фильтр', async () => {
+    it('objective != "all" → themes contains фильтр в AND-блоке (KS-3357 fix)', async () => {
       prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
         rating: 1500,
       });
@@ -1266,7 +1266,17 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         objective: 'saveEquality',
       });
       const call = prisma.puzzle.findMany.mock.calls[0][0];
-      expect(call.where.themes).toEqual({ has: 'saveEquality' });
+      // KS-3357 fix: themes — String (TEXT), не string[]; ранее
+      // `{ has }` был мёртвым кодом (бросал бы PrismaValidation на
+      // непустом objective). Теперь contains в AND-блоке.
+      expect(call.where.themes).toBeUndefined();
+      const andItems = call.where.AND as Array<{
+        themes?: { contains: string };
+      }>;
+      const contains = andItems
+        ?.filter((x) => x.themes !== undefined)
+        .map((x) => x.themes!.contains);
+      expect(contains).toEqual(['saveEquality']);
     });
 
     it('hideSolved=true (default) → attempts.none для user', async () => {
@@ -1291,6 +1301,102 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       await service.pickNext('u-1', { scope: 'server', hideSolved: false });
       const call = prisma.puzzle.findMany.mock.calls[0][0];
       expect(call.where.attempts).toBeUndefined();
+    });
+
+    // KS-3357 / ADR-080: theme-фильтр.
+    it('themesAnd=[pin,fork] → AND-цепочка contains', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-3', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', {
+        scope: 'server',
+        themesAnd: ['pin', 'fork'],
+      });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      // server-scope даёт OR (null/not-userId). themeAnd-фильтры
+      // должны быть в where.AND-блоке (через {contains}).
+      expect(call.where.AND).toBeDefined();
+      const andItems = call.where.AND as Array<{
+        themes?: { contains: string };
+      }>;
+      const themeContains = andItems
+        .filter((x) => x.themes !== undefined)
+        .map((x) => x.themes!.contains);
+      expect(themeContains).toEqual(['pin', 'fork']);
+    });
+
+    it('themesOr=[sacrifice,trappedPiece] → OR-блок + server NULL-aware в AND', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-or', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', {
+        scope: 'server',
+        themesOr: ['sacrifice', 'trappedPiece'],
+      });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      // server OR (NULL-aware) был перенесён в AND-блок.
+      expect(call.where.OR).toBeUndefined();
+      expect(call.where.AND).toBeDefined();
+      const andItems = call.where.AND as Array<{
+        OR?: Array<Record<string, unknown>>;
+      }>;
+      // Один блок = original server OR, второй = themesOr.
+      expect(andItems.length).toBeGreaterThanOrEqual(2);
+      // последний AND содержит themesOr (contains).
+      const themesOrBlock = andItems[andItems.length - 1];
+      expect(themesOrBlock.OR).toEqual([
+        { themes: { contains: 'sacrifice' } },
+        { themes: { contains: 'trappedPiece' } },
+      ]);
+    });
+
+    it('themes без матча на всех окнах → reason no_puzzles_for_themes', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValue([]);
+      const r = await service.pickNext('u-1', {
+        scope: 'server',
+        themesOr: ['pin'],
+      });
+      expect(r).toEqual({ puzzleId: null, reason: 'no_puzzles_for_themes' });
+    });
+
+    it('без themes и без матча → null (общий no_puzzles_available)', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValue([]);
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r).toBeNull();
+    });
+
+    it('objective + themesAnd → оба в AND-блоке (contains строки)', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-comb', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', {
+        scope: 'server',
+        objective: 'convertAdvantage',
+        themesAnd: ['pin'],
+      });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      const andItems = call.where.AND as Array<{
+        themes?: { contains: string };
+      }>;
+      const contains = andItems
+        .filter((x) => x.themes !== undefined)
+        .map((x) => x.themes!.contains);
+      expect(contains).toEqual(['convertAdvantage', 'pin']);
     });
   });
 });

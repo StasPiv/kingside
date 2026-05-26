@@ -28,6 +28,8 @@ import {
   encodePuzzleCursor,
 } from './puzzle-cursor-codec';
 import { McpTool } from '../mcp/decorators';
+// KS-3357 / ADR-080: whitelist precision-релевантных тем.
+import { isPrecisionRelevantTheme } from '@kingside/shared';
 
 @Controller('puzzles')
 export class PuzzleController {
@@ -214,6 +216,13 @@ export class PuzzleController {
     // excludeMine=true и получить ТОЛЬКО публичные не-мои.
     // NULL-aware: legacy puzzle с created_by IS NULL включаются.
     @Query('excludeMine') excludeMineParam?: string,
+    // KS-3357 / ADR-080 §4.1. Расширенный theme-фильтр.
+    // - themesAnd[]: все темы обязательны (legacy AND-семантика).
+    // - themesOr[]:  хотя бы одна тема (multi-select из bottom-sheet).
+    // Backend серверной валидацией отсекает темы вне whitelist'а
+    // PRECISION_RELEVANT_THEMES (защита от LIKE-инъекций).
+    @Query('themesAnd') themesAndParam?: string | string[],
+    @Query('themesOr') themesOrParam?: string | string[],
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -280,21 +289,52 @@ export class PuzzleController {
       conditions.push('p.is_public = true');
     }
 
-    if (themes) {
-      // KS-2560 ANY-of: пазл проходит, если в `themes` есть хоть один
-      // из перечисленных тегов. Делаем OR-цепочку через LIKE.
-      const themeList = themes
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (themeList.length > 0) {
-        const orParts = themeList.map((t) => {
-          const ph = next();
-          params.push(`%${t}%`);
-          return `p.themes LIKE ${ph}`;
-        });
-        conditions.push(`(${orParts.join(' OR ')})`);
+    // KS-3357 / ADR-080 §4.1. Расширенный theme-фильтр:
+    //   - `themesAnd[]` — AND через LIKE-цепочку (все обязательны).
+    //   - `themesOr[]`  — OR через LIKE-цепочку (хотя бы одна).
+    //   - legacy `themes` (CSV) → маппится в themesOr (KS-2560 ANY-of).
+    // Все темы валидируются против whitelist'а PRECISION_RELEVANT_THEMES
+    // — защита от LIKE-инъекций.
+    const normalizeThemes = (input: string | string[] | undefined): string[] => {
+      if (!input) return [];
+      const arr = Array.isArray(input) ? input : [input];
+      const out: string[] = [];
+      for (const v of arr) {
+        const parts = v.split(',').map((t) => t.trim()).filter(Boolean);
+        for (const p of parts) {
+          if (isPrecisionRelevantTheme(p)) out.push(p);
+        }
       }
+      return Array.from(new Set(out));
+    };
+    const themesAndList = normalizeThemes(themesAndParam);
+    let themesOrList = normalizeThemes(themesOrParam);
+    // legacy CSV: если themesOrParam пуст, маппим старый `themes` → OR.
+    if (themesOrList.length === 0 && themes) {
+      themesOrList = normalizeThemes(themes);
+    }
+    // Лимиты ADR §5: themesAnd ≤ 5, themesOr ≤ 10.
+    if (themesAndList.length > 5) {
+      throw new BadRequestException('themesAnd[] limit 5');
+    }
+    if (themesOrList.length > 10) {
+      throw new BadRequestException('themesOr[] limit 10');
+    }
+    if (themesAndList.length > 0) {
+      // AND: каждая тема — отдельный LIKE.
+      for (const t of themesAndList) {
+        const ph = next();
+        params.push(`%${t}%`);
+        conditions.push(`p.themes LIKE ${ph}`);
+      }
+    }
+    if (themesOrList.length > 0) {
+      const orParts = themesOrList.map((t) => {
+        const ph = next();
+        params.push(`%${t}%`);
+        return `p.themes LIKE ${ph}`;
+      });
+      conditions.push(`(${orParts.join(' OR ')})`);
     }
 
     if (ratingMinStr) {

@@ -27,6 +27,8 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PrecisionService } from './precision.service';
 import { NotFoundException } from '@nestjs/common';
 import type { Request as ExpressRequest } from 'express';
+// KS-3357 / ADR-080: whitelist precision-релевантных тем.
+import { isPrecisionRelevantTheme } from '@kingside/shared';
 
 @Controller('precision')
 export class PrecisionController {
@@ -158,8 +160,13 @@ export class PrecisionController {
    * следующей задачи. OptionalJwtGuard: гостю target=1200,
    * только scope=server. Query: scope, objective?, overrideRatingMin?,
    * overrideRatingMax?, hideSolved? (default true).
+   *
+   * KS-3357 / ADR-080: themesAnd[] / themesOr[] фильтры. Если фильтр
+   * активен и ничего не найдено — 404 с reason='no_puzzles_for_themes'
+   * (vs 'no_puzzles_available' для пустого rating-окна).
+   *
    * 200: { puzzleId, rating, ratingDelta }.
-   * 404: { puzzleId: null, reason: 'no_puzzles_available' }.
+   * 404: { puzzleId: null, reason: 'no_puzzles_available' | 'no_puzzles_for_themes' }.
    */
   @UseGuards(OptionalJwtGuard)
   @Get('next')
@@ -170,6 +177,8 @@ export class PrecisionController {
     @Query('overrideRatingMin') overrideRatingMinParam?: string,
     @Query('overrideRatingMax') overrideRatingMaxParam?: string,
     @Query('hideSolved') hideSolvedParam?: string,
+    @Query('themesAnd') themesAndParam?: string | string[],
+    @Query('themesOr') themesOrParam?: string | string[],
   ) {
     const ALLOWED_SCOPES = new Set(['server', 'drafts', 'published']);
     const scope: 'server' | 'drafts' | 'published' =
@@ -200,18 +209,50 @@ export class PrecisionController {
 
     const hideSolved = hideSolvedParam !== 'false'; // default true
 
+    // KS-3357: парсинг themesAnd[]/themesOr[] (через repeat-query или CSV)
+    // + whitelist-валидация. Дубликаты убираем через Set.
+    const normalizeThemes = (
+      input: string | string[] | undefined,
+    ): string[] => {
+      if (!input) return [];
+      const arr = Array.isArray(input) ? input : [input];
+      const out: string[] = [];
+      for (const v of arr) {
+        const parts = v.split(',').map((t) => t.trim()).filter(Boolean);
+        for (const p of parts) {
+          if (isPrecisionRelevantTheme(p)) out.push(p);
+        }
+      }
+      return Array.from(new Set(out));
+    };
+    const themesAnd = normalizeThemes(themesAndParam);
+    const themesOr = normalizeThemes(themesOrParam);
+    if (themesAnd.length > 5) {
+      throw new BadRequestException('themesAnd[] limit 5');
+    }
+    if (themesOr.length > 10) {
+      throw new BadRequestException('themesOr[] limit 10');
+    }
+
     const picked = await this.precision.pickNext(userId, {
       scope,
       objective,
       overrideRatingMin: overrideMin,
       overrideRatingMax: overrideMax,
       hideSolved,
+      themesAnd,
+      themesOr,
     });
     if (!picked) {
       throw new NotFoundException({
         puzzleId: null,
         reason: 'no_puzzles_available',
       });
+    }
+    // KS-3357: discriminated по puzzleId — если null, это
+    // `no_puzzles_for_themes` (всё дерево без матчей).
+    if (picked.puzzleId === null) {
+      throw new NotFoundException(picked);
     }
     return picked;
   }

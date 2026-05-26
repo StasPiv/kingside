@@ -86,8 +86,16 @@ export class PrecisionService {
       overrideRatingMin?: number;
       overrideRatingMax?: number;
       hideSolved?: boolean;
+      // KS-3357 / ADR-080: theme-фильтр. Backend гарантирует
+      // что значения уже отвалидированы against whitelist (controller).
+      themesAnd?: string[];
+      themesOr?: string[];
     },
-  ): Promise<{ puzzleId: string; rating: number; ratingDelta: number } | null> {
+  ): Promise<
+    | { puzzleId: string; rating: number; ratingDelta: number }
+    | { puzzleId: null; reason: 'no_puzzles_for_themes' }
+    | null
+  > {
     // 1. target rating.
     let target = 1500;
     if (userId) {
@@ -135,6 +143,9 @@ export class PrecisionService {
             : { min: target - w, max: target + w },
         );
 
+    const themesAnd = filters.themesAnd ?? [];
+    const themesOr = filters.themesOr ?? [];
+
     // 4. Итерируем по окнам до первой непустой выборки.
     for (const win of windowsOrSingle) {
       const picked = await this.tryPickInWindow(
@@ -144,6 +155,8 @@ export class PrecisionService {
         win.max,
         filters.objective,
         hideSolved,
+        themesAnd,
+        themesOr,
       );
       if (picked) {
         return {
@@ -152,6 +165,11 @@ export class PrecisionService {
           ratingDelta: (picked.rating ?? 1500) - target,
         };
       }
+    }
+    // KS-3357 / ADR-080 §3.3: если фильтр по темам активен И даже при
+    // бесконечном окне ничего нет — разделяем 404 reason.
+    if (themesAnd.length > 0 || themesOr.length > 0) {
+      return { puzzleId: null, reason: 'no_puzzles_for_themes' };
     }
     return null;
   }
@@ -195,6 +213,8 @@ export class PrecisionService {
     ratingMax: number,
     objective: 'all' | 'convertAdvantage' | 'saveEquality' | undefined,
     hideSolved: boolean,
+    themesAnd: string[] = [],
+    themesOr: string[] = [],
   ): Promise<{ id: string; rating: number | null } | null> {
     const where: Record<string, unknown> = {
       source: 'generated',
@@ -213,8 +233,44 @@ export class PrecisionService {
         { createdBy: { not: userId } },
       ];
     }
+    // KS-3357 fix: `Puzzle.themes` — String (TEXT, CSV), не string[].
+    // Prisma `{ has }` для строк бросает; используем `{ contains }`
+    // (SQL ILIKE). objective + themesAnd → AND-цепочка через массив
+    // `AND: [{ themes: contains... }, ...]`. themesOr → объединяем в
+    // OR-выражение Prisma.
+    const themeAndFilters: Array<{
+      themes: { contains: string };
+    }> = [];
     if (objective && objective !== 'all') {
-      where.themes = { has: objective };
+      themeAndFilters.push({ themes: { contains: objective } });
+    }
+    for (const t of themesAnd) {
+      themeAndFilters.push({ themes: { contains: t } });
+    }
+    if (themeAndFilters.length > 0) {
+      const existingAnd = (where.AND as object[] | undefined) ?? [];
+      where.AND = [...existingAnd, ...themeAndFilters];
+    }
+    if (themesOr.length > 0) {
+      // themesOr внутри OR. Если уже есть `where.OR` (NULL-aware
+      // createdBy) — нужен AND-блок чтобы не смешать с null-branch.
+      const orThemes = themesOr.map((t) => ({
+        themes: { contains: t },
+      }));
+      // Перекладываем существующий where.OR в AND-блок,
+      // а where.OR ставим на themesOr-список.
+      // Это сохраняет AND (createdBy NULL OR != me) AND (theme1 OR theme2 OR ...).
+      if (where.OR) {
+        const existingAnd = (where.AND as object[] | undefined) ?? [];
+        where.AND = [
+          ...existingAnd,
+          { OR: where.OR },
+          { OR: orThemes },
+        ];
+        delete where.OR;
+      } else {
+        where.OR = orThemes;
+      }
     }
     if (hideSolved && userId) {
       where.attempts = { none: { userId } };
