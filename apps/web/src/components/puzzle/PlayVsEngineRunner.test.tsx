@@ -1863,16 +1863,17 @@ describe('formatBlunderMoveWithNumber KS-3164 — preventive phase', () => {
   });
 });
 
-describe('PlayVsEngineRunner KS-3164 — preventive hint содержит правильный move-индекс', () => {
-  it('preventive + white blunder → hint содержит «39. d6», нет «38... d6»', async () => {
+// KS-3355: тесты KS-3164 «hint содержит SAN с move-номером» удалены —
+// SAN-нотация ушла из плашки, заменена на красную стрелку на доске
+// (customArrows в PuzzleBoard). Helper `formatBlunderMoveWithNumber`
+// оставлен как экспорт (используется в собственных тестах выше).
+describe('PlayVsEngineRunner KS-3355 — blunder показывается стрелкой, без SAN', () => {
+  it('hint НЕ содержит SAN-нотации хода (preventive white blunder)', async () => {
     const puzzle = makePuzzle({
-      // fenBefore KS-3139 (ход 39. d6 белых).
       fen: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
       playVsEngine: {
         blunderMove: 'd5d6',
-        // KS-3164: fenBeforeBlunder для preventive не используется
-        // (puzzle.fen уже fenBefore). Передаём ту же позицию.
         fenBeforeBlunder: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
@@ -1886,11 +1887,16 @@ describe('PlayVsEngineRunner KS-3164 — preventive hint содержит пра
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.textContent).toMatch(/39\. d6/);
-    expect(hint.textContent).not.toMatch(/38\.\.\. d6/);
+    // SAN с move-номером больше НЕ в тексте.
+    expect(hint.textContent).not.toMatch(/39\. d6/);
+    expect(hint.textContent).not.toMatch(/d5d6/);
+    // Hint всё ещё рендерится и упоминает «стрелку» (arrow в en / стрелкой в ru).
+    expect(hint.textContent).toMatch(/arrow|стрел/i);
+    // data-blunder-known=true когда blunderMove известен (даёт стрелку).
+    expect(hint.getAttribute('data-blunder-known')).toBe('true');
   });
 
-  it('preventive + black blunder → hint содержит «22... Bxc3»', async () => {
+  it('hint НЕ содержит SAN-нотации (preventive black blunder)', async () => {
     const puzzle = makePuzzle({
       fen: 'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22',
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
@@ -1910,7 +1916,29 @@ describe('PlayVsEngineRunner KS-3164 — preventive hint содержит пра
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.textContent).toMatch(/22\.\.\./);
+    expect(hint.textContent).not.toMatch(/22\.\.\./);
+    expect(hint.textContent).not.toMatch(/Bxc3/);
+    expect(hint.textContent).toMatch(/arrow|стрел/i);
+  });
+
+  it('legacy пазл без blunderMove → fallback на generic hint (без упоминания стрелки)', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: '', // legacy / lichess
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+      },
+    });
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(hint.getAttribute('data-blunder-known')).toBe('false');
+    // Generic hint не содержит «стрелкой» — стрелки не рисуем.
+    expect(hint.textContent).not.toMatch(/arrow|стрел/i);
   });
 });
 

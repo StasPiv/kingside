@@ -1602,17 +1602,11 @@ export function PlayVsEngineRunner({
   // KS-2471 → KS-3035: blunder в SAN.
   // Backend для generated-пазлов отдаёт `playVsEngine.fenBeforeBlunder`
   // (KS-2754), но в shared-типе `PuzzleDto.playVsEngine` поле пока не
-  // объявлено (это в скоупе backend). Читаем через локальный assert,
-  // чтобы получить корректную нотацию с захватами и шахами (`Nxe5+`,
-  // `Qf7#`); если поля нет (legacy/lichess) — функция упадёт на
-  // эвристический fallback (`Ne5` без `x`).
-  const fenBeforeBlunder =
-    (puzzle.playVsEngine as { fenBeforeBlunder?: string } | undefined)
-      ?.fenBeforeBlunder ?? null;
-  const blunderSan = useMemo(
-    () => blunderUciToSan(params.blunderMove, puzzle.fen, fenBeforeBlunder),
-    [params.blunderMove, puzzle.fen, fenBeforeBlunder],
-  );
+  // KS-3355: ранее тут вычислялся `blunderSan` для SAN-нотации в плашке
+  // hint'а («29... Rf6»). После замены SAN на красную стрелку
+  // (customArrows ниже) переменная больше не нужна. Helper-функции
+  // `blunderUciToSan` / `formatBlunderMoveWithNumber` оставлены как
+  // экспорты (используются в тестах).
 
   // KS-3162 / KS-3164: фаза пазла читается из тега в `puzzle.themes`
   // (KS-3160 пишет `'preventive'` / `'reactive'`). DTO-поле в shared
@@ -1699,43 +1693,32 @@ export function PlayVsEngineRunner({
 
           {state === 'thinking' && halfMovesPlayed === 0 && (() => {
             // KS-3166 (ADR-070 UI): универсальная подсказка без
-            // дифференциации по `objective`. После KS-3162/KS-3165
-            // пользователь попросил единый текст «удержите оценку
-            // позиции» (вместо «удержите преимущество / удержите
-            // равенство»). Также упразднён `goal`-параметр и
-            // `puzzle.engine.blunderGoal.*` ключи.
+            // дифференциации по `objective`.
+            //
+            // KS-3355: убран SAN-параметр `{{move}}` — пользователь
+            // жаловался на непонятность «29... Rf6» (откуда фигура
+            // ходила, было непонятно). Вместо текстовой SAN-нотации
+            // теперь красная стрелка на доске (см. customArrows ниже).
             //
             // Дифференциация по `puzzlePhase` сохраняется:
-            //   reactive    → «Соперник допустил неточность … Удержите
-            //                 оценку позиции N полуходов против движка.»
-            //   preventive  → «В партии была допущена неточность …
-            //                 А как бы сыграли вы?»
-            //
-            // Move-индекс по-прежнему форматируется с учётом фазы
-            // (KS-3164): preventive solver = сам зевнувший, reactive
-            // solver = противник.
-            const moveWithNum = blunderSan
-              ? formatBlunderMoveWithNumber(
-                  blunderSan,
-                  puzzle.fen,
-                  puzzlePhaseFromThemes,
-                )
-              : '';
+            //   reactive    → «Соперник допустил неточность (показан
+            //                  стрелкой). Удержите оценку позиции N
+            //                  полуходов против движка.»
+            //   preventive  → «В партии была допущена неточность
+            //                  (показана стрелкой). А как бы сыграли вы?»
             const puzzlePhase = puzzlePhaseFromThemes;
+            // KS-3355: показываем «с указанием стрелкой» только когда
+            // blunderMove известен (есть customArrows). Иначе fallback
+            // на generic-вариант без отсылки к стрелке.
+            const haveBlunderArrow = Boolean(blunderHighlight);
             let hintText: string;
             if (puzzlePhase === 'preventive') {
-              hintText = moveWithNum
-                ? t('puzzle.engine.blunderHintPreventive', {
-                    move: moveWithNum,
-                  })
+              hintText = haveBlunderArrow
+                ? t('puzzle.engine.blunderHintPreventive')
                 : t('puzzle.engine.blunderHintPreventiveGeneric');
             } else {
-              // Реактивный пазл (или legacy без тега).
-              hintText = moveWithNum
-                ? t('puzzle.engine.blunderHint', {
-                    move: moveWithNum,
-                    n: params.halfMovesN,
-                  })
+              hintText = haveBlunderArrow
+                ? t('puzzle.engine.blunderHint', { n: params.halfMovesN })
                 : t('puzzle.engine.blunderHintGeneric', {
                     n: params.halfMovesN,
                   });
@@ -1744,7 +1727,7 @@ export function PlayVsEngineRunner({
               <p
                 className="puzzle-engine-runner__hint"
                 data-testid="puzzle-engine-blunder-hint"
-                data-blunder-known={moveWithNum ? 'true' : 'false'}
+                data-blunder-known={haveBlunderArrow ? 'true' : 'false'}
                 data-puzzle-phase={puzzlePhase ?? ''}
               >
                 {hintText}
@@ -1768,6 +1751,23 @@ export function PlayVsEngineRunner({
               reviewFen ? null : (lastMoveUciRef.current ?? blunderHighlight)
             }
             status={boardStatus}
+            // KS-3355: красная стрелка на blunderMove соперника. Видна
+            // только на стартовой позиции (halfMovesPlayed===0 и без
+            // `reviewFen`), чтобы пользователь понимал, какой ход
+            // привёл к текущей позиции — раньше тут была SAN-нотация
+            // в плашке («29... Rf6»), которая запутывала. UCI →
+            // from/to для стрелки.
+            customArrows={
+              blunderHighlight && !reviewFen
+                ? [
+                    {
+                      startSquare: blunderHighlight.slice(0, 2),
+                      endSquare: blunderHighlight.slice(2, 4),
+                      color: 'rgba(239, 68, 68, 0.85)',
+                    },
+                  ]
+                : undefined
+            }
           >
             {/* KS-2969: модалка выбора фигуры при превращении пешки.
                 Цвет — по ряду промоушна (8 → белые, 1 → чёрные). */}

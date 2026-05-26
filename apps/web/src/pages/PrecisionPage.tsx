@@ -1016,6 +1016,19 @@ export function PrecisionPage() {
                       animationDurationInMs: 0,
                       allowDragging: false,
                       showNotation: false,
+                      // KS-3355: красная стрелка blunderMove на превью —
+                      // показывает «куда ходил соперник» (раньше эту
+                      // информацию давала SAN-нотация в плашке на solve-
+                      // странице, теперь — стрелка на доске).
+                      arrows: p.playVsEngine?.blunderMove
+                        ? [
+                            {
+                              startSquare: p.playVsEngine.blunderMove.slice(0, 2),
+                              endSquare: p.playVsEngine.blunderMove.slice(2, 4),
+                              color: 'rgba(239, 68, 68, 0.85)',
+                            },
+                          ]
+                        : undefined,
                     }}
                   />
                 </Link>
