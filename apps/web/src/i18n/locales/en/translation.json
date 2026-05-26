@@ -1548,6 +1548,12 @@
       "back": "← Back",
       "next": "Next →"
     },
+    "startTraining": {
+      "label": "Start training",
+      "loading": "Picking…",
+      "empty": "No puzzles match your current filter",
+      "error": "Could not pick a puzzle. Try again."
+    },
     "objective": {
       "label": "Puzzle type",
       "all": "All"

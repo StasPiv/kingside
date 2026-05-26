@@ -5773,6 +5773,67 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   flex-shrink: 0;
 }
 
+/* KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку».
+   Mobile (≤767px) — full-width sticky над сеткой. Desktop — inline. */
+.precision-start-training {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--bg-surface, #1a1a2e);
+  /* Sticky над сеткой на mobile, чтобы кнопка не уезжала при скролле. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.precision-start-training__btn {
+  appearance: none;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+  width: 100%;
+}
+.precision-start-training__btn:hover:not(:disabled) {
+  background: var(--accent-hover, #818cf8);
+}
+.precision-start-training__btn:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+.precision-start-training__hint {
+  margin: 0;
+  font-size: 13px;
+}
+.precision-start-training__hint--empty {
+  color: var(--text-secondary, #a0a0c0);
+}
+.precision-start-training__hint--error {
+  color: var(--danger, #f87171);
+}
+
+/* Desktop: компактная кнопка inline в шапке, не full-width. */
+@media (min-width: 768px) {
+  .precision-start-training {
+    position: static;
+    padding: 0;
+    background: transparent;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 4px;
+  }
+  .precision-start-training__btn {
+    width: auto;
+    min-width: 200px;
+  }
+}
+
 /* KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга после попытки. */
 .precision-rating-change {
   display: inline-flex;

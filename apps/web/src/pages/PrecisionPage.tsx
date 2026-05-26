@@ -32,6 +32,9 @@ import {
 } from '../components/precision/PrecisionRatingSheet';
 // KS-3350 (ADR-079 §3.5). Pill с текущим precision-рейтингом юзера.
 import { PrecisionRatingPill } from '../components/precision/PrecisionRatingPill';
+// KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» — авто-подбор
+// по рейтинг-окну Glicko-1.
+import { PrecisionStartTrainingButton } from '../components/precision/PrecisionStartTrainingButton';
 // KS-3347 (ADR-079 §2.6). Migrate legacy `?mine&visibility` → `?scope`,
 // read scope из URL, mapping для legacy useInfinitePuzzles filters.
 import {
@@ -579,6 +582,10 @@ export function PrecisionPage() {
         ratingLabel={ratingLabel}
         scopeCounts={scopeCounts}
       />
+      {/* KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» —
+          mobile full-width над списком, desktop — inline в шапке (см.
+          puzzle.css). Открывает следующий пазл из текущего фильтра. */}
+      <PrecisionStartTrainingButton />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('precision.title', 'Precision training')}</h1>
         <p className="play-vs-engine-puzzles__intro">
