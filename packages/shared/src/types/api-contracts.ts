@@ -541,6 +541,63 @@ export interface PrecisionScopeCountsResponse {
   published: number;
 }
 
+// ─── KS-3358 / ADR-080 §4.3: Precision theme counts ──────────────
+
+/**
+ * Query для `GET /precision/theme-counts` (ADR-080 §4.3).
+ * Counter per-theme под текущие «другие» фильтры (scope + objective +
+ * hideSolved + rating-range), без учёта самого theme-фильтра — чтобы
+ * UI bottom-sheet показывал «(N)» рядом с каждой checkbox-темой.
+ */
+export interface PrecisionThemeCountsRequest {
+  scope: PrecisionScope;
+  objective?: 'all' | 'convertAdvantage' | 'saveEquality';
+  hideSolved?: boolean;
+  ratingMin?: number;
+  ratingMax?: number;
+}
+
+/**
+ * Ответ `GET /precision/theme-counts`. Только whitelist'овые ключи
+ * (`PRECISION_RELEVANT_THEMES`, ~53 шт). Темы с count=0 могут быть
+ * опущены — фронт заполняет нулями недостающие.
+ */
+export interface PrecisionThemeCountsResponse {
+  counts: Record<string, number>;
+}
+
+// ─── KS-3357 / ADR-080 §4.1, §4.2: themes filter в browse и next ──
+
+/**
+ * Расширение `PickNextPrecisionRequest` (ADR-079) темами.
+ * Backward-compat: старые клиенты не передают themesAnd/Or.
+ *
+ * Семантика (ADR-080 §2.6, §4.1):
+ *  - `themesAnd[]` — все темы должны присутствовать в задаче.
+ *  - `themesOr[]`  — хотя бы одна тема должна присутствовать.
+ *  - Обе совмещаются: `(AND-блок) AND (OR-блок)`.
+ *  - Legacy single `themes` (без mode) маппится в `themesAnd`.
+ *
+ * Если по темам ничего не найдено даже при ∞ rating-окне — backend
+ * вернёт 404 с reason `no_puzzles_for_themes` (vs стандартное
+ * `no_puzzles_available` для «нет в рейтинг-диапазоне»).
+ */
+export interface PrecisionPickNextWithThemesRequest
+  extends PickNextPrecisionRequest {
+  themesAnd?: string[];
+  themesOr?: string[];
+}
+
+/**
+ * Discriminated reason для 404 на `GET /precision/next` (ADR-080 §3.3).
+ *  - `no_puzzles_available` — рейтинг-окно не нашло задач.
+ *  - `no_puzzles_for_themes` — по выбранным темам нет задач (даже
+ *    при ∞ окне).
+ */
+export type PickNextPrecisionEmptyReason =
+  | 'no_puzzles_available'
+  | 'no_puzzles_for_themes';
+
 // ─── KS-3341 / ADR-079 §3.5: Precision Rating ─────────────────────
 
 /**
