@@ -899,11 +899,12 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       const r = await service.getScopeCounts('u-1');
       expect(r).toEqual({ server: 500, drafts: 12, published: 4 });
       // server: source='generated', is_public=true, created_by != userId
+      // KS-3352 fix: canonical syntax `{ not: 'u-1' }`.
       expect(prisma.puzzle.count).toHaveBeenNthCalledWith(1, {
         where: {
           source: 'generated',
           isPublic: true,
-          NOT: { createdBy: 'u-1' },
+          createdBy: { not: 'u-1' },
         },
       });
       // drafts: source='generated', is_public=false, created_by = userId
@@ -1037,8 +1038,11 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       // Первое окно: 1650..1950.
       const call = prisma.puzzle.findMany.mock.calls[0][0];
       expect(call.where.rating).toEqual({ gte: 1650, lte: 1950 });
-      // server + user → NOT { createdBy: userId }
-      expect(call.where.NOT).toEqual({ createdBy: 'u-1' });
+      // KS-3352 fix: server + user → createdBy: { not: userId }
+      // (canonical Prisma syntax; раньше NOT-объект бросал
+      // ValidationError на проде).
+      expect(call.where.createdBy).toEqual({ not: 'u-1' });
+      expect(call.where.NOT).toBeUndefined();
     });
 
     it('пустое окно 150 → расширяется до 300/500/..., picks с первого непустого', async () => {
@@ -1065,8 +1069,12 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       prisma.puzzle.findMany.mockResolvedValue([]);
       const r = await service.pickNext('u-1', { scope: 'server' });
       expect(r).toBeNull();
-      // 5 окон: 150/300/500/1000/∞
+      // 5 окон: 150/300/500/1000/∞ (последнее = 0..4000)
       expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(5);
+      // KS-3352: последнее окно НЕ MAX_SAFE_INTEGER (INT4 overflow),
+      // а безопасные 0..4000.
+      const lastCall = prisma.puzzle.findMany.mock.calls[4][0];
+      expect(lastCall.where.rating).toEqual({ gte: 0, lte: 4000 });
     });
 
     it('override: используется одно окно, без расширения', async () => {

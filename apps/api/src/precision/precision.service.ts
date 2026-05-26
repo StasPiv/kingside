@@ -34,6 +34,16 @@ import type { CreateTestFixtureAttemptDto } from './dto/test-fixture.dto';
 const SCOPE_COUNTS_CACHE_TTL_SEC = 60;
 const SCOPE_COUNTS_CACHE_PREFIX = 'precision:scope-counts:';
 
+/**
+ * KS-3352 fix. `Puzzle.rating` хранится как INT4 (PostgreSQL `integer`,
+ * range ±2^31). Раньше для «бесконечного окна» в `pickNext` использовался
+ * `Number.MAX_SAFE_INTEGER` (~9·10^15) — Prisma binding падал с
+ * `ConversionError`. Реальный диапазон Lichess-рейтингов 600-3500;
+ * 0..4000 покрывает с запасом и помещается в INT4.
+ */
+const RATING_INT4_MIN = 0;
+const RATING_INT4_MAX = 4000;
+
 @Injectable()
 export class PrecisionService {
   private readonly logger = new Logger(PrecisionService.name);
@@ -102,20 +112,24 @@ export class PrecisionService {
       filters.overrideRatingMax !== undefined;
 
     // 3. Окна — массив; при override один элемент.
+    //
+    // KS-3352 fix: `Number.MAX_SAFE_INTEGER` (2^53) бросал Prisma
+    // `ConversionError("Unable to fit integer value into INT4")` —
+    // `Puzzle.rating` хранится как INT4 (range ±2^31). Заменили на
+    // безопасные INT4-границы реального диапазона Lichess-рейтингов
+    // (RATING_INT4_MIN/MAX). Последнее окно «∞» = весь корпус.
     const windowsOrSingle = useOverride
       ? [
           {
-            min:
-              filters.overrideRatingMin ??
-              -Number.MAX_SAFE_INTEGER,
-            max:
-              filters.overrideRatingMax ?? Number.MAX_SAFE_INTEGER,
+            min: filters.overrideRatingMin ?? RATING_INT4_MIN,
+            max: filters.overrideRatingMax ?? RATING_INT4_MAX,
           },
         ]
-      : [150, 300, 500, 1000, Number.MAX_SAFE_INTEGER].map((w) => ({
-          min: target - w,
-          max: target + w,
-        }));
+      : [150, 300, 500, 1000, null].map((w) =>
+          w === null
+            ? { min: RATING_INT4_MIN, max: RATING_INT4_MAX }
+            : { min: target - w, max: target + w },
+        );
 
     // 4. Итерируем по окнам до первой непустой выборки.
     for (const win of windowsOrSingle) {
@@ -186,7 +200,13 @@ export class PrecisionService {
     if (scopeWhere.createdByMatch === 'self') {
       where.createdBy = userId;
     } else if (scopeWhere.createdByMatch === 'other' && userId) {
-      where.NOT = { createdBy: userId };
+      // KS-3352 fix: используем canonical Prisma syntax вместо
+      // `NOT: { createdBy }` (последний бросал PrismaClientValidationError
+      // на проде после деплоя 9d7beba0). `{ not: 'x' }` корректно
+      // отбирает строки где createdBy != x ИЛИ createdBy IS NULL
+      // (для legacy lichess-puzzle, у которых createdBy=null) — это
+      // именно нужная семантика «не мои».
+      where.createdBy = { not: userId };
     }
     if (objective && objective !== 'all') {
       where.themes = { has: objective };
@@ -296,7 +316,9 @@ export class PrecisionService {
         where: {
           source: 'generated',
           isPublic: true,
-          NOT: { createdBy: userId },
+          // KS-3352 fix: canonical Prisma syntax (NOT-объект бросал
+          // PrismaClientValidationError на проде).
+          createdBy: { not: userId },
         },
       }),
       this.prisma.puzzle.count({
