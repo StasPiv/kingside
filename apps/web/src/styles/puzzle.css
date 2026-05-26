@@ -5639,11 +5639,22 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 }
 
 @media (max-width: 767px) {
-  /* KS-3244: скрываем H1 / описание / action-кнопки в header'е
-     PrecisionPage. Они дублируют сab/popover в SubNav (⋮ + ⓘ). */
+  /* KS-3244: скрываем H1 / описание в header'е PrecisionPage. Они
+     дублируют сab/popover в SubNav (⋮ + ⓘ). */
   .play-vs-engine-puzzles__header h1,
-  .play-vs-engine-puzzles__intro,
+  .play-vs-engine-puzzles__intro {
+    display: none;
+  }
+  /* KS-3351: на mobile в `.play-vs-engine-puzzles__nav` остаётся
+     виден только rating-pill (KS-3350). Back-link и Generate
+     дублируют SubNav-popover (⋮), их прячем. */
   .play-vs-engine-puzzles__nav {
+    display: flex;
+    justify-content: flex-end;
+    padding: 6px max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+  }
+  .play-vs-engine-puzzles__nav > .play-vs-engine-puzzles__back-link,
+  .play-vs-engine-puzzles__nav > .generate-puzzles-btn {
     display: none;
   }
 
@@ -5737,13 +5748,18 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   color: var(--text-primary, #e0e0e0);
   border: 1px solid var(--border-subtle, #2a2a3e);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
   flex-shrink: 0;
-  min-height: 32px;
+  /* KS-3351: WCAG 2.5.5 tap-target 44×44. На mobile chips-bar
+     активно тапается — поддерживаем минимальный размер. */
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
 }
 .precision-chip:hover {
   background: var(--bg-hover, #2c2c47);
@@ -5773,18 +5789,17 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   flex-shrink: 0;
 }
 
-/* KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку».
-   Mobile (≤767px) — full-width sticky над сеткой. Desktop — inline. */
+/* KS-3348 / KS-3351 (ADR-079 §3.4). Кнопка «Начать тренировку».
+   Mobile (≤767px) — full-width inline над сеткой (sticky убран —
+   subnav и chips-bar уже sticky top:0, третий sticky-слой
+   перекрывал бы chips-bar при скролле). Desktop — inline в шапке. */
 .precision-start-training {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 16px;
+  padding: 10px max(16px, env(safe-area-inset-left, 0px)) 10px
+    max(16px, env(safe-area-inset-right, 0px));
   background: var(--bg-surface, #1a1a2e);
-  /* Sticky над сеткой на mobile, чтобы кнопка не уезжала при скролле. */
-  position: sticky;
-  top: 0;
-  z-index: 5;
 }
 .precision-start-training__btn {
   appearance: none;
@@ -5817,6 +5832,20 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   color: var(--danger, #f87171);
 }
 
+/* KS-3351: mobile-полировка — увеличенный tap-target кнопки (WCAG
+   2.5.5). CTA рендерится в потоке (sticky убран выше), safe-area-bottom
+   не нужен — это нижний bottom-bar (.mobile-bottom-bar). */
+@media (max-width: 767px) {
+  .precision-start-training {
+    margin-top: 4px;
+  }
+  .precision-start-training__btn {
+    min-height: 48px;
+    border-radius: 14px;
+    font-size: 16px;
+  }
+}
+
 /* Desktop: компактная кнопка inline в шапке, не full-width. */
 @media (min-width: 768px) {
   .precision-start-training {
@@ -5834,26 +5863,43 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   }
 }
 
-/* KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга после попытки. */
+/* KS-3349 / KS-3351 (ADR-079 §3.5). Дельта precision-рейтинга после
+   попытки. Полупрозрачный фон success/danger + arrow-индикатор
+   (↗ для gain, ↘ для loss) делает блок заметнее на странице solve.
+   Использует токены --ov-success-15 / --ov-danger-15, корректно
+   адаптированные под light/dark в tokens.css. */
 .precision-rating-change {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 10px 16px;
   margin: 12px 0;
   border-radius: 10px;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.2;
   background: var(--bg-elevated, #25253d);
   color: var(--text-primary, #e0e0e0);
 }
+.precision-rating-change::before {
+  font-size: 18px;
+  line-height: 1;
+}
 .precision-rating-change--gain {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
   border: 1px solid var(--success, #4ade80);
   color: var(--success, #4ade80);
 }
+.precision-rating-change--gain::before {
+  content: '↗';
+}
 .precision-rating-change--loss {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
   border: 1px solid var(--danger, #f87171);
   color: var(--danger, #f87171);
+}
+.precision-rating-change--loss::before {
+  content: '↘';
 }
 .precision-result-actions {
   display: flex;
@@ -5869,27 +5915,30 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   background: var(--bg-hover, #2c2c47);
 }
 
-/* KS-3350 (ADR-079 §3.5). Read-only pill «Рейтинг: 1487 (±42)». */
+/* KS-3350 / KS-3351 (ADR-079 §3.5). Read-only pill «Рейтинг: 1487 (±42)».
+   Лёгкий accent-tint в фоне — отличает от scope-pill'ов в той же шапке. */
 .precision-rating-pill {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  background: var(--bg-elevated, #25253d);
+  background: var(--ov-accent-08, var(--bg-elevated, #25253d));
   color: var(--text-primary, #e0e0e0);
   border: 1px solid var(--border-subtle, #2a2a3e);
   font-size: 13px;
   line-height: 1.4;
   white-space: nowrap;
   cursor: default;
+  min-height: 32px;
 }
 .precision-rating-pill__label {
   opacity: 0.7;
   font-size: 12px;
 }
 .precision-rating-pill__value {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 14px;
 }
 .precision-rating-pill__deviation {
   opacity: 0.65;
