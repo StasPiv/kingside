@@ -2515,18 +2515,36 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+  /* KS-3367: на mobile браузерный tap-overlay делал кнопку тёмной
+     с серым (untouched) текстом — текст сливался. Гасим overlay
+     и описываем active-state явно (см. ниже). */
+  -webkit-tap-highlight-color: transparent;
 }
-.puzzle-engine-runner__replay-btn:hover {
-  background: var(--bg-hover, #2c2c47);
+.puzzle-engine-runner__replay-btn:hover:not(:disabled) {
+  /* KS-3367: --ov-white-04 корректно переключается обеих темах
+     (light → тёмный overlay 3%, dark → белый overlay 4%), в отличие
+     от --bg-hover (только dark-вариант). */
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
   border-color: var(--accent, #6366f1);
 }
-.puzzle-engine-runner__replay-btn:active {
+/* KS-3367: явный active/pressed-state — accent-tint фон + accent
+   border + accent color на тексте. На обеих темах контраст AA
+   (тёмно-серый текст на --ov-accent-08 light / accent-цвет на dark). */
+.puzzle-engine-runner__replay-btn:active:not(:disabled) {
+  background: var(--ov-accent-08, rgba(99, 102, 241, 0.12));
+  border-color: var(--accent, #6366f1);
+  color: var(--accent, #6366f1);
   transform: translateY(1px);
 }
 .puzzle-engine-runner__replay-btn:focus-visible {
   outline: 2px solid var(--accent, #6366f1);
   outline-offset: 2px;
+}
+.puzzle-engine-runner__replay-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* KS-2922: result-блок — главный заголовок крупнее, явная карточная
