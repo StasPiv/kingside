@@ -1,10 +1,19 @@
 # ADR-080. /precision — фильтры по темам
 
-Статус: предложен (2026-05-26)
+Статус: принят (2026-05-26, ревизия 2)
 Связано: KS-3354 (этот ADR), ADR-076 (chips-bar и bottom-sheet
 для рейтинга), ADR-079 (scope-pills + auto-pick),
 ADR-069 (objective convertAdvantage/saveEquality),
 ADR-070 (puzzle generator с drill-tagging).
+
+**Ревизия 2 (2026-05-26):** по уточнениям пользователя через
+координатора —
+1. Counter'ы per тема **в M1** (не M2). Подход — один SQL-aggregate
+   через `unnest(string_to_array)` + Redis-кеш 60 сек per
+   нормализованный фильтр. См. §4.3, новая задача KS-3363 (B2).
+2. Auto-pick «Начать тренировку» / «Следующая» — явно учитывают
+   выбранные темы. Уточнено в acceptance KS-3357 (B1 pickNext) и
+   KS-3361 (F2 frontend).
 
 ## 1. Контекст
 
@@ -181,8 +190,10 @@ Bottom-sheet `PrecisionThemesSheet`:
   Превосходство / Прочее.
 - В каждой — checkbox-список тем (`PRECISION_RELEVANT_THEMES`).
 - Кнопки «Применить» (close + commit URL) и «Сбросить» (снять все).
-- Опц. (M2) — counter per theme «(N)» рядом с label'ом
-  (источник — отдельный endpoint, считается дорого, выносим).
+- Counter per theme «(N)» рядом с label'ом — обязательный для
+  M1 (см. §4.3). Источник — `GET /precision/theme-counts` с
+  Redis-кешем; реализуется через один SQL aggregate, не N
+  запросов.
 
 URL-state: `?themes=pin,fork,sacrifice` (CSV в одном query,
 читаемо). При наличии нескольких — frontend передаёт `themesOr`
@@ -200,8 +211,6 @@ Backward-compat URL: legacy `?themes=convertAdvantage` (single)
   достаточно).
 - НЕ добавляем UI-инструмент авторской разметки тем для своих
   generated пазлов — generator уже размечает автоматически.
-- НЕ показываем counter'ы per theme в M1 (это N запросов на bottom-
-  sheet open; вынесено в M2).
 - НЕ ретроактивно обновляем lichess-задачи (их темы оригинальные).
 - НЕ заводим иерархию тем (parent-child) — плоский список с
   группировкой в UI достаточен.
@@ -273,10 +282,72 @@ LIKE-запросам, но 1530 generated + миллион lichess справл
 Добавляем `themesAnd[]` / `themesOr[]` параметры (та же
 семантика). 404 `no_puzzles_for_themes` если ничего не подходит.
 
-### 4.3 Никаких новых endpoint'ов
+### 4.3 Новый endpoint `GET /precision/theme-counts`
 
-Counter'ы per theme (M2) потребуют `GET /precision/theme-counts?scope=...`
-— отдельный тикет если нужно.
+Возвращает counter за каждую тему whitelist'а под текущие
+**другие** фильтры (scope + objective + rating-range + hideSolved).
+Используется bottom-sheet'ом для UX «(N) рядом с label'ом».
+
+```
+GET /precision/theme-counts?scope=server|drafts|published
+                          &objective=all|convertAdvantage|saveEquality
+                          &hideSolved=true
+                          &blundererEloMin=...&blundererEloMax=...
+```
+
+- Auth: `OptionalJwtGuard` (гость → `scope=server`, без my-фильтра).
+- Response: `{ counts: Record<PuzzleTheme, number> }` — только
+  whitelist'овые темы (PRECISION_RELEVANT_THEMES, ~50 ключей).
+
+**Эффективная реализация — один SQL aggregate:**
+
+```sql
+WITH filtered AS (
+  SELECT themes
+  FROM puzzles
+  WHERE source IN ('lichess', 'generated')   -- по scope
+    AND <scope filters: mine + visibility>
+    AND <objective filter: themes LIKE '%objective%' если задан>
+    AND <hideSolved filter через NOT EXISTS attempts>
+    AND <rating-range>
+)
+SELECT
+  theme,
+  COUNT(*) AS cnt
+FROM filtered,
+LATERAL unnest(string_to_array(themes, ' ')) AS theme
+WHERE theme = ANY($1::text[])   -- whitelist
+GROUP BY theme;
+```
+
+Один запрос на bottom-sheet open. На индексе по `themes` — не
+помогает (LIKE), но `unnest` на ~1.5M строк (lichess + generated) +
+выборка после фильтров укладывается в ~150ms (выборка после
+scope+objective+rating обычно ≤ 50K строк).
+
+**Redis-кеш 60 секунд** по ключу, нормализованному из фильтров:
+
+```
+key = sha1("theme-counts:" + JSON.stringify({
+  userId: userId ?? 'guest',
+  scope, objective, hideSolved,
+  blundererEloMin, blundererEloMax,
+}))
+```
+
+TTL 60 сек — балансирует свежесть (новые задачи появляются редко)
+и нагрузку (пользователь часто открывает/закрывает sheet).
+
+**Нет counter'ов для тем вне whitelist'а** — UI их всё равно не
+показывает. Возврат — только нужные ключи, чтобы не раздувать
+payload.
+
+**Гость:** без `hideSolved` (нет привязки к attempts), но
+остальные фильтры применяются. Cache key с `userId='guest'`.
+
+### 4.4 Никаких других новых endpoint'ов
+
+Никаких других изменений в API сверх §4.1–4.3.
 
 ## 5. Лимиты и безопасность
 
@@ -297,9 +368,12 @@ Counter'ы per theme (M2) потребуют `GET /precision/theme-counts?scope=
 2. **i18n для 50+ тем.** Если chess-expert не успеет дать все
    переводы — fallback на английский camelCase из enum (читаемо
    для всех, не блокирует).
-3. **Counter'ы per theme дороги.** Реализация N запросов
-   `COUNT(*)` — в M1 не делаем. В M2 — отдельный endpoint с
-   60-сек Redis-кэшем.
+3. **Counter'ы per theme дорогие при наивной реализации.**
+   N×COUNT — нет. Реализация в M1 — один SQL aggregate через
+   `unnest(string_to_array)` + LATERAL JOIN + GROUP BY + Redis
+   кеш 60 сек. Ожидаемый p95 ≤ 200 ms на 1.5M строк. Если на
+   практике превысит — переход на GIN-индекс по `text[]` (M2,
+   отдельный ADR с миграцией формата хранения themes).
 4. **LIKE-запросы не масштабируются.** Сейчас работает на ~1.5K
    generated + 1M lichess за приемлемое время (≤200ms p95). При
    росте до 10M lichess потребуется GIN-индекс на `text[]`-поле
@@ -357,8 +431,12 @@ generated-задачи с пустыми themes — пересчитать че�
 - Whitelist на backend — только known `PuzzleTheme` values, иначе
   400.
 - Лимиты: `themesOr ≤ 10`, `themesAnd ≤ 5`.
-- 404 `no_puzzles_for_themes` в `pickNext` если выборка пустая
-  даже при window=∞.
+- **`pickNext` (ADR-079) с темами:** `themesAnd`+`themesOr`
+  применяются СНАЧАЛА, потом расширение rating-окна
+  (150→300→500→∞) идёт уже внутри подмножества подходящих по
+  темам. Если даже при window=∞ выборка пустая — 404
+  `no_puzzles_for_themes` (отдельный код от
+  `no_puzzles_available` без тем — фронт показывает разный текст).
 **Acceptance:**
 - Тест AND: `themesAnd=['pin','fork']` → задачи с обоими.
 - Тест OR: `themesOr=['pin','fork']` → задачи с хотя бы одним.
@@ -366,6 +444,37 @@ generated-задачи с пустыми themes — пересчитать че�
 - Тест backward-compat: legacy `themes=['pin']` работает как
   `themesAnd=['pin']`.
 - Тест валидации: неизвестная тема → 400.
+- **Тест pickNext с темами:** rating=1500 + `themesOr=['pin']` —
+  возвращает задачу с pin в окне 1350..1650 или расширенном.
+- **Тест pickNext с темами без подходящих:**
+  `themesOr=['hookMate']` (редкая тема, 0 задач при scope=drafts)
+  → 404 `no_puzzles_for_themes`.
+
+### KS-3363 (B2) — endpoint `GET /precision/theme-counts`
+
+**Assignee:** backend.
+**Labels:** `puzzle`, `analysis`.
+**Зависит:** KS-3358 (нужен whitelist).
+**Описание:**
+- Реализовать §4.3: один SQL aggregate через
+  `unnest(string_to_array(themes, ' '))` + LATERAL JOIN +
+  `WHERE theme = ANY(whitelist)` + GROUP BY.
+- Применяет фильтры из query: scope (mine+visibility), objective
+  (как `themesAnd`), hideSolved, blundererEloMin/Max.
+- Redis-кеш 60 сек по sha1-ключу из нормализованных фильтров.
+- Возвращает только whitelist'овые темы (~50 ключей), пропуски
+  заполняются нулями на frontend'е по полному списку whitelist'а.
+- `OptionalJwtGuard` (гость → key с `userId='guest'`, без
+  hideSolved-фильтра).
+**Acceptance:**
+- Тест: один запрос с разнородным набором тем — возвращает
+  корректные counter'ы (сравнить с N×COUNT отдельно).
+- Тест: повторный вызов в течение минуты — из кэша (через mock
+  Redis).
+- Тест: scope=drafts — counts только по своим draft'ам.
+- Тест: фильтр objective=convertAdvantage — counts включают
+  только задачи с этим objective.
+- Производительность: ≤ 200 ms на 1.5M строк в БД на staging.
 
 ### KS-3358 (S1) — shared whitelist + utility
 
@@ -402,25 +511,33 @@ generated-задачи с пустыми themes — пересчитать че�
 - Все темы whitelist'а имеют RU + EN перевод.
 - Fallback не срабатывает при штатной работе.
 
-### KS-3360 (F1) — theme-chip + `PrecisionThemesSheet`
+### KS-3360 (F1) — theme-chip + `PrecisionThemesSheet` с counter'ами
 
 **Assignee:** frontend.
 **Labels:** `puzzle`, `analysis`, `mobile`.
-**Зависит:** KS-3357, KS-3358, KS-3359, KS-3243 (chips-bar).
+**Зависит:** KS-3357, KS-3358, KS-3359, KS-3363, KS-3243 (chips-bar).
 **Описание:**
 - В `PrecisionFilterChipsBar` добавить chip `[+ Темы]` / `[Темы: N
-  ✕]`.
+  ✕]` (N — число выбранных).
 - Новый компонент `apps/web/src/components/precision/PrecisionThemesSheet.tsx`:
   bottom-sheet с 6 collapsible-секциями + multi-select checkboxes
   + кнопки «Применить» / «Сбросить».
+- При open sheet — `GET /precision/theme-counts` с текущими
+  фильтрами. Отображение `[Связка (84)]`; темы с count=0 —
+  серым (disabled checkbox, нельзя выбрать).
+- Counter'ы re-fetch'атся при изменении других фильтров (scope,
+  objective, rating, hideSolved) пока sheet открыт. Дебаунс
+  300 ms.
 - Tap по chip → открыть sheet. «Применить» → commit URL.
 **Acceptance:**
 - Можно выбрать одну тему — URL `?themes=pin`.
 - Можно выбрать несколько — URL `?themes=pin,fork,sacrifice`.
 - Reset очищает.
 - Сетка переоткладывается при изменении выбора.
+- Counter'ы отображаются и обновляются при смене других фильтров.
+- Темы с count=0 disabled.
 
-### KS-3361 (F2) — URL-state + backward-compat + auto-pick
+### KS-3361 (F2) — URL-state + backward-compat + auto-pick с темами
 
 **Assignee:** frontend.
 **Labels:** `puzzle`, `analysis`.
@@ -431,13 +548,24 @@ generated-задачи с пустыми themes — пересчитать че�
 - objective из chips (`?objective=convertAdvantage`) передаётся
   в `themesAnd` отдельно (для семантики «реализация преимущества
   через pin/fork»).
-- На странице solve кнопка «Следующая» (KS-3345) передаёт темы
-  в `GET /precision/next`.
-- При 404 `no_puzzles_for_themes` — toast и не меняем URL.
+- **Кнопка «Начать тренировку» (ADR-079 KS-3344) и «Следующая»
+  на странице solve (KS-3345)** включают текущие выбранные темы
+  в `GET /precision/next` (`themesAnd`/`themesOr` те же что в
+  browse-фильтре). Параметр `return` URL-кодирует все query
+  включая `themes=`, чтобы «Следующая» сохраняла контекст.
+- При 404 `no_puzzles_for_themes` — toast с подсказкой
+  «По выбранным темам задач больше нет — измените фильтр или
+  снимите часть тем». Никакого скрытого расширения фильтра.
+- При 404 `no_puzzles_available` (без тем) — старый toast
+  ADR-079.
 **Acceptance:**
 - URL `?objective=convertAdvantage&themes=pin,fork` корректно
   фильтрует.
-- «Следующая» учитывает текущие темы.
+- «Начать тренировку» с выбранными темами `pin,fork` → открывает
+  задачу с одним из них.
+- «Следующая» учитывает текущие темы из `return` URL.
+- При темах без подходящих задач — toast `no_puzzles_for_themes`,
+  URL не меняется.
 - Backward-compat: legacy `?themes=convertAdvantage` (без `objective`)
   работает.
 
@@ -461,17 +589,17 @@ generated-задачи с пустыми themes — пересчитать че�
 
 ## 8. M2 (отложено)
 
-- KS-XXXX: `GET /precision/theme-counts` (N задач per theme,
-  Redis cache 60s).
-- KS-XXXX: counter'ы в bottom-sheet (`[Связка (84)]`).
 - KS-XXXX: GIN-индекс на `text[]`-поле themes — если LIKE
   начнёт тормозить (отдельный ADR с миграцией формата хранения).
+  Триггер — если `theme-counts` стабильно превышает 300 ms p95.
 - KS-XXXX: иерархия тем (parent-child) — если 50+ тем
   окажется неудобно.
 - KS-XXXX: theme-info tooltip в bottom-sheet (короткое описание
   + пример).
 - KS-XXXX: применение theme-фильтра к разделу `/puzzles` (lichess
   каталог) — сейчас фильтр там есть, но UX другой.
+- KS-XXXX: «recently used» themes-секция вверху sheet — для часто
+  переключаемых пользователем.
 
 ## 9. Откат
 
