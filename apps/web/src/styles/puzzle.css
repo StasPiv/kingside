@@ -5773,6 +5773,36 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   flex-shrink: 0;
 }
 
+/* KS-3350 (ADR-079 §3.5). Read-only pill «Рейтинг: 1487 (±42)». */
+.precision-rating-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-elevated, #25253d);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-subtle, #2a2a3e);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: default;
+}
+.precision-rating-pill__label {
+  opacity: 0.7;
+  font-size: 12px;
+}
+.precision-rating-pill__value {
+  font-weight: 600;
+}
+.precision-rating-pill__deviation {
+  opacity: 0.65;
+  font-size: 12px;
+}
+.precision-rating-pill--loading .precision-rating-pill__value {
+  opacity: 0.5;
+}
+
 /* ──────────────── bottom-sheet (PrecisionRatingSheet) ────────────── */
 .precision-rating-sheet {
   position: fixed;

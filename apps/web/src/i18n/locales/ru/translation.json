@@ -1561,6 +1561,11 @@
       "drafts": "Мои черновики",
       "published": "Мои опубликованные"
     },
+    "ratingPill": {
+      "label": "Рейтинг",
+      "tooltip": "Рейтинг по Glicko-1, обновляется после каждой попытки",
+      "aria": "Precision-рейтинг {{rating}} ± {{deviation}}"
+    },
     "objective": {
       "label": "Тип задачи",
       "all": "Все"

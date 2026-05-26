@@ -1539,6 +1539,11 @@
       "drafts": "My drafts",
       "published": "My published"
     },
+    "ratingPill": {
+      "label": "Rating",
+      "tooltip": "Glicko-1 rating, updated after each attempt",
+      "aria": "Precision rating {{rating}} ± {{deviation}}"
+    },
     "objective": {
       "label": "Puzzle type",
       "all": "All"

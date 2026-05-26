@@ -30,6 +30,8 @@ import {
   PrecisionRatingSheet,
   ratingLabelFromUrl,
 } from '../components/precision/PrecisionRatingSheet';
+// KS-3350 (ADR-079 §3.5). Pill с текущим precision-рейтингом юзера.
+import { PrecisionRatingPill } from '../components/precision/PrecisionRatingPill';
 // KS-3347 (ADR-079 §2.6). Migrate legacy `?mine&visibility` → `?scope`,
 // read scope из URL, mapping для legacy useInfinitePuzzles filters.
 import {
@@ -601,6 +603,9 @@ export function PrecisionPage() {
               {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
             </button>
           )}
+          {/* KS-3350 (ADR-079 §3.5). Pill «Рейтинг: 1487 (±42)» — текущий
+              precision-рейтинг юзера. Для гостя компонент возвращает null. */}
+          <PrecisionRatingPill />
         </div>
         {/* KS-3347 (ADR-079 §2.6). 3 scope-tab'ы вместо 2-pill «Все/Мои».
             Гостям виден только server (drafts/published скрыты).
