@@ -244,14 +244,28 @@ describe('<PrecisionPage> KS-2484 / KS-2578 / KS-2586 — загрузка', () 
   });
 });
 
-describe('<PrecisionPage> KS-2586 — URL params (mine, visibility)', () => {
-  it('mine=true → запрос содержит mine=true', async () => {
+// KS-3347 (ADR-079 §2.6): legacy `?mine&visibility` поддерживаются
+// `readPrecisionScope` через backward-compat read. С `setSearchParams`
+// замоканным как `vi.fn()` миграционный useEffect не переписывает URL,
+// но scope корректно выводится из legacy-параметров. Также появился
+// дополнительный вызов `/precision/scope-counts` для авторизованных —
+// ищем browse-URL через `find`, а не индекс 0.
+const findBrowseUrl = (): string => {
+  const call = apiGet.mock.calls.find((c) =>
+    String(c[0]).startsWith('/puzzles/browse'),
+  );
+  if (!call) throw new Error('expected /puzzles/browse call, got none');
+  return call[0] as string;
+};
+
+describe('<PrecisionPage> KS-2586 / KS-3347 — URL params (mine, visibility)', () => {
+  it('legacy ?mine=true (auth) → backward-compat: запрос содержит mine=true', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
     mockSearchParams.set('mine', 'true');
     apiGet.mockResolvedValue(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
-    expect(url).toMatch(/mine=true/);
+    expect(findBrowseUrl()).toMatch(/mine=true/);
     expect(
       screen
         .getByTestId('play-vs-engine-puzzles')
@@ -259,13 +273,14 @@ describe('<PrecisionPage> KS-2586 — URL params (mine, visibility)', () => {
     ).toBe('true');
   });
 
-  it('visibility=draft → запрос содержит visibility=draft', async () => {
+  it('legacy ?mine=true&visibility=draft (auth) → запрос содержит visibility=draft', async () => {
+    authValue.user = { id: 'u1', username: 'tester' };
+    mockSearchParams.set('mine', 'true');
     mockSearchParams.set('visibility', 'draft');
     apiGet.mockResolvedValue(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
-    expect(url).toMatch(/visibility=draft/);
+    expect(findBrowseUrl()).toMatch(/visibility=draft/);
     expect(
       screen
         .getByTestId('play-vs-engine-puzzles')
@@ -278,8 +293,7 @@ describe('<PrecisionPage> KS-2586 — URL params (mine, visibility)', () => {
     apiGet.mockResolvedValue(wrap(SAMPLE));
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
-    expect(url).not.toMatch(/visibility=invalid-value/);
+    expect(findBrowseUrl()).not.toMatch(/visibility=invalid-value/);
   });
 });
 
@@ -496,7 +510,7 @@ describe('<PrecisionPage> KS-2758/KS-2763 — двойной range-slider «Ре
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = findBrowseUrl();
     expect(url).toMatch(/blundererEloMin=2300/);
     expect(url).toMatch(/blundererEloMax=2500/);
     const minSlider = screen.getByTestId(
@@ -520,7 +534,7 @@ describe('<PrecisionPage> KS-2758/KS-2763 — двойной range-slider «Ре
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = findBrowseUrl();
     expect(url).not.toMatch(/blundererEloMin=/);
     expect(url).not.toMatch(/blundererEloMax=/);
     const minSlider = screen.getByTestId(
@@ -539,7 +553,7 @@ describe('<PrecisionPage> KS-2758/KS-2763 — двойной range-slider «Ре
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = findBrowseUrl();
     expect(url).not.toMatch(/blundererEloMin=/);
     const minSlider = screen.getByTestId(
       'precision-elo-filter-min',
@@ -554,7 +568,7 @@ describe('<PrecisionPage> KS-2753/KS-2754 — toggle «Показать решё
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = findBrowseUrl();
     expect(url).toMatch(/hideSolved=true/);
     const toggle = screen.getByTestId(
       'precision-show-solved-input',
@@ -568,7 +582,7 @@ describe('<PrecisionPage> KS-2753/KS-2754 — toggle «Показать решё
     mockBrowseOnce(SAMPLE);
     renderWithProviders(<PrecisionPage />);
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = findBrowseUrl();
     expect(url).not.toMatch(/hideSolved=/);
     const toggle = screen.getByTestId(
       'precision-show-solved-input',

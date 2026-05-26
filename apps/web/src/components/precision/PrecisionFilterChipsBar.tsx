@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../context/AuthContext';
+import { readPrecisionScope } from '../../utils/precisionUrlMigrate';
+import type { PrecisionScope, PrecisionScopeCountsResponse } from '@kingside/shared';
 
 /**
  * KS-3243 (ADR-076 §7 F1): mobile-only chips-bar для фильтров
@@ -39,6 +41,11 @@ export interface PrecisionFilterChipsBarProps {
    * Передаётся из PrecisionPage, чтобы не дублировать парсинг.
    */
   ratingLabel: string | null;
+  /**
+   * KS-3347 (ADR-079). Счётчики на 3 scope-pill'ах из
+   * `GET /precision/scope-counts`. `null` пока загружается / для гостя.
+   */
+  scopeCounts?: PrecisionScopeCountsResponse | null;
 }
 
 const OBJECTIVES = ['all', 'convertAdvantage', 'saveEquality'] as const;
@@ -47,12 +54,14 @@ type Objective = (typeof OBJECTIVES)[number];
 export function PrecisionFilterChipsBar({
   onOpenRatingSheet,
   ratingLabel,
+  scopeCounts,
 }: PrecisionFilterChipsBarProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const mineParam = searchParams.get('mine') === 'true';
+  // KS-3347 (ADR-079 §2.6). 3 scope-pill'а вместо старых 2-pill «Все/Мои».
+  const scope = readPrecisionScope(searchParams, Boolean(user));
   const objectiveParam = searchParams.get('objective');
   const objective: Objective =
     objectiveParam === 'convertAdvantage' || objectiveParam === 'saveEquality'
@@ -63,15 +72,19 @@ export function PrecisionFilterChipsBar({
   // Активный фильтр для бейджа `↺` (показываем кнопку «Сбросить»
   // только когда хоть что-то применено).
   const hasActiveFilters =
-    mineParam ||
+    scope !== 'server' ||
     objective !== 'all' ||
     showSolved ||
     ratingLabel !== null;
 
-  const setMine = (next: boolean) => {
+  const setScope = (next: PrecisionScope) => {
     const sp = new URLSearchParams(searchParams);
-    if (next) sp.set('mine', 'true');
-    else sp.delete('mine');
+    // KS-3347: миграционные параметры легаси удаляем при первом
+    // взаимодействии — синхронизируем с новой схемой.
+    sp.delete('mine');
+    sp.delete('visibility');
+    if (next === 'server') sp.delete('scope');
+    else sp.set('scope', next);
     setSearchParams(sp, { replace: false });
   };
   const setObjective = (next: Objective) => {
@@ -88,13 +101,18 @@ export function PrecisionFilterChipsBar({
   };
   const resetAll = () => {
     const sp = new URLSearchParams(searchParams);
+    sp.delete('scope');
     sp.delete('mine');
+    sp.delete('visibility');
     sp.delete('objective');
     sp.delete('showSolved');
     sp.delete('blundererEloMin');
     sp.delete('blundererEloMax');
     setSearchParams(sp, { replace: false });
   };
+
+  const fmtCount = (n: number | undefined) =>
+    n != null ? ` (${n})` : '';
 
   return (
     <div
@@ -103,26 +121,43 @@ export function PrecisionFilterChipsBar({
       role="toolbar"
       aria-label={t('precision.filterChips.label', 'Filters')}
     >
-      {/* Authorship: видна только авторизованным (как и desktop-tabs). */}
+      {/* KS-3347 (ADR-079 §2.6). 3 scope-pill'а вместо «Все/Мои».
+          Гостям виден только «Серверные» (drafts/published скрыты —
+          бэк всё равно 401-ит запросы с mine=true). data-testid
+          сохранён для precision-tab-all (~scope=server) для обратной
+          совместимости старых интеграционных тестов; добавлены явные
+          `precision-scope-{server,drafts,published}`. */}
+      <button
+        type="button"
+        className={`precision-chip${scope === 'server' ? ' precision-chip--active' : ''}`}
+        data-testid="precision-scope-server"
+        aria-pressed={scope === 'server'}
+        onClick={() => setScope('server')}
+      >
+        {t('precision.scope.server', 'Server')}
+        {fmtCount(scopeCounts?.server)}
+      </button>
       {user && (
         <>
           <button
             type="button"
-            className={`precision-chip${!mineParam ? ' precision-chip--active' : ''}`}
-            data-testid="precision-tab-all"
-            aria-pressed={!mineParam}
-            onClick={() => setMine(false)}
+            className={`precision-chip${scope === 'drafts' ? ' precision-chip--active' : ''}`}
+            data-testid="precision-scope-drafts"
+            aria-pressed={scope === 'drafts'}
+            onClick={() => setScope('drafts')}
           >
-            {t('precision.tabs.all', 'All')}
+            {t('precision.scope.drafts', 'My drafts')}
+            {fmtCount(scopeCounts?.drafts)}
           </button>
           <button
             type="button"
-            className={`precision-chip${mineParam ? ' precision-chip--active' : ''}`}
-            data-testid="precision-tab-mine"
-            aria-pressed={mineParam}
-            onClick={() => setMine(true)}
+            className={`precision-chip${scope === 'published' ? ' precision-chip--active' : ''}`}
+            data-testid="precision-scope-published"
+            aria-pressed={scope === 'published'}
+            onClick={() => setScope('published')}
           >
-            {t('precision.tabs.mine', 'My puzzles')}
+            {t('precision.scope.published', 'My published')}
+            {fmtCount(scopeCounts?.published)}
           </button>
           <span className="precision-chips__separator" aria-hidden="true" />
         </>

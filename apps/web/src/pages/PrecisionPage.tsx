@@ -30,6 +30,15 @@ import {
   PrecisionRatingSheet,
   ratingLabelFromUrl,
 } from '../components/precision/PrecisionRatingSheet';
+// KS-3347 (ADR-079 §2.6). Migrate legacy `?mine&visibility` → `?scope`,
+// read scope из URL, mapping для legacy useInfinitePuzzles filters.
+import {
+  migrateLegacyPrecisionParams,
+  readPrecisionScope,
+  scopeToLegacyFilters,
+} from '../utils/precisionUrlMigrate';
+import { precisionApi } from '../api/precisionApi';
+import type { PrecisionScopeCountsResponse } from '@kingside/shared';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -96,9 +105,8 @@ interface PrecisionStatsResponse {
   avgHalfMovesUntilFirstMistake: number | null;
 }
 
-function isVisibility(v: string | null): v is 'draft' | 'public' | 'all' {
-  return v === 'draft' || v === 'public' || v === 'all';
-}
+// KS-3347: `isVisibility` (legacy URL guard) больше не нужен — visibility
+// теперь полностью derived из `scope` через `scopeToLegacyFilters`.
 
 type ToastTone = 'success' | 'error' | 'info';
 interface ToastState {
@@ -114,8 +122,46 @@ export function PrecisionPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const copyToClipboard = useCopyToClipboard();
 
-  // KS-2586: URL-state read.
-  const mineParam = searchParams.get('mine') === 'true';
+  // KS-3347 (ADR-079 §2.6). URL migrate: при первом рендере с
+  // legacy `?mine&visibility` переписываем на `?scope=…`. Идемпотентно —
+  // если scope уже в URL или нет legacy-параметров, ничего не делаем.
+  useEffect(() => {
+    const next = migrateLegacyPrecisionParams(searchParams);
+    if (next) setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  // KS-3347: счётчики на 3 scope-pill'ах. Гостям endpoint вернёт 401
+  // или 0-выходы; мы вызываем только для авторизованных. Тихо
+  // игнорируем ошибки — pill'ы покажутся без счётчиков.
+  const [scopeCounts, setScopeCounts] = useState<PrecisionScopeCountsResponse | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!user) {
+      setScopeCounts(null);
+      return;
+    }
+    let cancelled = false;
+    precisionApi
+      .getScopeCounts()
+      .then((res) => {
+        if (!cancelled) setScopeCounts(res);
+      })
+      .catch(() => {
+        if (!cancelled) setScopeCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // KS-3347: новый scope-state — `'server' | 'drafts' | 'published'`.
+  const scope = readPrecisionScope(searchParams, Boolean(user));
+  // KS-2586: backward-compat — старый mineParam ещё используется в
+  // нескольких местах render'а (e.g. data-mine на root). Маппим из
+  // scope: drafts/published = mine; server = not mine.
+  const mineParam = scope === 'drafts' || scope === 'published';
   // KS-3147 (ADR-069 §3.4): segment-control «Тип» — выбор жанра пазла.
   // Допустимые значения: 'convertAdvantage' | 'saveEquality' | 'all'.
   // URL-state: `?objective=convertAdvantage`. Передаётся в backend как
@@ -125,12 +171,14 @@ export function PrecisionPage() {
     objectiveParam === 'convertAdvantage' || objectiveParam === 'saveEquality'
       ? objectiveParam
       : 'all';
-  const visibilityParam = searchParams.get('visibility');
-  const visibility: 'draft' | 'public' | 'all' | undefined = isVisibility(
-    visibilityParam,
-  )
-    ? visibilityParam
-    : undefined;
+  // KS-3347: visibility теперь полностью derived из scope (drafts → draft,
+  // published → public, server → public). Старый URL-параметр `visibility`
+  // мигрируется в `scope` на mount'е (см. useEffect выше) и более не
+  // читается напрямую — оставлено `legacyVisibility` для совместимости
+  // с render-веткой ниже (см. data-visibility на root).
+  const { mine: scopeMine, visibility: scopeVisibility } =
+    scopeToLegacyFilters(scope);
+  const visibility: 'draft' | 'public' | 'all' | undefined = scopeVisibility;
   // KS-2719 F3 / KS-2753 / KS-2754 follow-up: фильтр сетки PUZZLES.
   // ИНВЕРСИЯ ПО УМОЛЧАНИЮ: по дефолту скрываем удержанные позиции,
   // пользователь видит только новые задачи для тренировки. Чтобы
@@ -189,8 +237,9 @@ export function PrecisionPage() {
   const filters = useMemo<InfinitePuzzleFilters>(
     () => ({
       source: 'generated',
-      mine: mineParam ? true : undefined,
-      visibility,
+      // KS-3347: mine/visibility derived из scope (см. scopeToLegacyFilters).
+      mine: scopeMine,
+      visibility: scopeVisibility,
       hideSolved: hideSolved ? true : undefined,
       blundererEloMin,
       blundererEloMax,
@@ -201,8 +250,8 @@ export function PrecisionPage() {
       limit: LIMIT,
     }),
     [
-      mineParam,
-      visibility,
+      scopeMine,
+      scopeVisibility,
       hideSolved,
       blundererEloMin,
       blundererEloMax,
@@ -526,6 +575,7 @@ export function PrecisionPage() {
       <PrecisionFilterChipsBar
         onOpenRatingSheet={() => setRatingSheetOpen(true)}
         ratingLabel={ratingLabel}
+        scopeCounts={scopeCounts}
       />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('precision.title', 'Precision training')}</h1>
@@ -552,45 +602,72 @@ export function PrecisionPage() {
             </button>
           )}
         </div>
-        {/* KS-2661: табы «Все / Мои» — фильтр по `?mine=true|`.
-            Гостям не показываем — без авторизации «Мои» пусто. */}
-        {user && (
-          <nav
-            className="precision-tabs"
-            data-testid="precision-tabs"
-            aria-label={t('precision.tabs.label', 'Puzzle filter')}
-            role="tablist"
+        {/* KS-3347 (ADR-079 §2.6). 3 scope-tab'ы вместо 2-pill «Все/Мои».
+            Гостям виден только server (drafts/published скрыты).
+            Десктоп-tabs повторяют chips-bar mobile, чтобы поведение
+            было идентичным на обоих viewport'ах. */}
+        <nav
+          className="precision-tabs"
+          data-testid="precision-tabs"
+          aria-label={t('precision.tabs.label', 'Puzzle filter')}
+          role="tablist"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'server'}
+            className={`precision-tab${scope === 'server' ? ' precision-tab--active' : ''}`}
+            data-testid="precision-scope-server"
+            onClick={() => {
+              const sp = new URLSearchParams(searchParams);
+              sp.delete('mine');
+              sp.delete('visibility');
+              sp.delete('scope');
+              setSearchParams(sp, { replace: false });
+            }}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!mineParam}
-              className={`precision-tab${!mineParam ? ' precision-tab--active' : ''}`}
-              data-testid="precision-tab-all"
-              onClick={() => {
-                const sp = new URLSearchParams(searchParams);
-                sp.delete('mine');
-                setSearchParams(sp, { replace: false });
-              }}
-            >
-              {t('precision.tabs.all', 'All')}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mineParam}
-              className={`precision-tab${mineParam ? ' precision-tab--active' : ''}`}
-              data-testid="precision-tab-mine"
-              onClick={() => {
-                const sp = new URLSearchParams(searchParams);
-                sp.set('mine', 'true');
-                setSearchParams(sp, { replace: false });
-              }}
-            >
-              {t('precision.tabs.mine', 'My puzzles')}
-            </button>
-          </nav>
-        )}
+            {t('precision.scope.server', 'Server')}
+            {scopeCounts ? ` (${scopeCounts.server})` : ''}
+          </button>
+          {user && (
+            <>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={scope === 'drafts'}
+                className={`precision-tab${scope === 'drafts' ? ' precision-tab--active' : ''}`}
+                data-testid="precision-scope-drafts"
+                onClick={() => {
+                  const sp = new URLSearchParams(searchParams);
+                  sp.delete('mine');
+                  sp.delete('visibility');
+                  sp.set('scope', 'drafts');
+                  setSearchParams(sp, { replace: false });
+                }}
+              >
+                {t('precision.scope.drafts', 'My drafts')}
+                {scopeCounts ? ` (${scopeCounts.drafts})` : ''}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={scope === 'published'}
+                className={`precision-tab${scope === 'published' ? ' precision-tab--active' : ''}`}
+                data-testid="precision-scope-published"
+                onClick={() => {
+                  const sp = new URLSearchParams(searchParams);
+                  sp.delete('mine');
+                  sp.delete('visibility');
+                  sp.set('scope', 'published');
+                  setSearchParams(sp, { replace: false });
+                }}
+              >
+                {t('precision.scope.published', 'My published')}
+                {scopeCounts ? ` (${scopeCounts.published})` : ''}
+              </button>
+            </>
+          )}
+        </nav>
         {/* KS-3147 (ADR-069 §3.4): segment-control «Тип» — выбор
             жанра пазла. Доступен всем (гостям тоже). 'all' — без
             фильтра, 'convertAdvantage' / 'saveEquality' — соответствующий

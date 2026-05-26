@@ -60,28 +60,43 @@ beforeEach(() => {
 });
 
 describe('<PrecisionFilterChipsBar> (KS-3243)', () => {
-  it('рендерит «Все/Мои» когда есть user, скрывает их у гостя', () => {
+  it('KS-3347: рендерит 3 scope-pill\'а (server/drafts/published) для авторизованного', () => {
     renderBar({});
-    expect(screen.queryByTestId('precision-tab-all')).toBeTruthy();
-    expect(screen.queryByTestId('precision-tab-mine')).toBeTruthy();
+    expect(screen.queryByTestId('precision-scope-server')).toBeTruthy();
+    expect(screen.queryByTestId('precision-scope-drafts')).toBeTruthy();
+    expect(screen.queryByTestId('precision-scope-published')).toBeTruthy();
     expect(screen.queryByTestId('precision-show-solved')).toBeTruthy();
   });
 
-  it('гостям «Все/Мои» и show-solved скрыты', () => {
+  it('KS-3347: гостю виден только scope=server (drafts/published скрыты)', () => {
     authMock.user = null;
     renderBar({});
-    expect(screen.queryByTestId('precision-tab-all')).toBeNull();
-    expect(screen.queryByTestId('precision-tab-mine')).toBeNull();
+    expect(screen.queryByTestId('precision-scope-server')).toBeTruthy();
+    expect(screen.queryByTestId('precision-scope-drafts')).toBeNull();
+    expect(screen.queryByTestId('precision-scope-published')).toBeNull();
     expect(screen.queryByTestId('precision-show-solved')).toBeNull();
     // Objectives видны всем.
     expect(screen.queryByTestId('precision-objective-all')).toBeTruthy();
   });
 
-  it('клик «Мои» добавляет mine=true в URL', () => {
+  it('KS-3347: клик «Мои черновики» добавляет scope=drafts в URL', () => {
     let captured: URLSearchParams | null = null;
     renderBar({ onParams: (sp) => (captured = sp) });
-    fireEvent.click(screen.getByTestId('precision-tab-mine'));
-    expect(captured?.get('mine')).toBe('true');
+    fireEvent.click(screen.getByTestId('precision-scope-drafts'));
+    expect(captured?.get('scope')).toBe('drafts');
+    // Legacy params должны быть удалены.
+    expect(captured?.has('mine')).toBe(false);
+    expect(captured?.has('visibility')).toBe(false);
+  });
+
+  it('KS-3347: клик «Серверные» удаляет scope из URL (default)', () => {
+    let captured: URLSearchParams | null = null;
+    renderBar({
+      initialUrl: '/precision?scope=drafts',
+      onParams: (sp) => (captured = sp),
+    });
+    fireEvent.click(screen.getByTestId('precision-scope-server'));
+    expect(captured?.has('scope')).toBe(false);
   });
 
   it('клик «Реализуй» добавляет objective=convertAdvantage', () => {
@@ -133,13 +148,15 @@ describe('<PrecisionFilterChipsBar> (KS-3243)', () => {
     let captured: URLSearchParams | null = null;
     renderBar({
       initialUrl:
-        '/precision?mine=true&objective=convertAdvantage&showSolved=true&blundererEloMin=1600',
+        '/precision?scope=drafts&objective=convertAdvantage&showSolved=true&blundererEloMin=1600',
       ratingLabel: '1600–3000',
       onParams: (sp) => (captured = sp),
     });
     const reset = screen.getByTestId('precision-chips-reset');
     fireEvent.click(reset);
+    expect(captured?.has('scope')).toBe(false);
     expect(captured?.has('mine')).toBe(false);
+    expect(captured?.has('visibility')).toBe(false);
     expect(captured?.has('objective')).toBe(false);
     expect(captured?.has('showSolved')).toBe(false);
     expect(captured?.has('blundererEloMin')).toBe(false);

@@ -1534,6 +1534,11 @@
       "all": "All",
       "mine": "My puzzles"
     },
+    "scope": {
+      "server": "Server",
+      "drafts": "My drafts",
+      "published": "My published"
+    },
     "objective": {
       "label": "Puzzle type",
       "all": "All"
