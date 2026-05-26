@@ -2488,6 +2488,45 @@ body:has(.puzzle-rush-board) {
   color: var(--c-e0e0e0);
   font-size: 13px;
   line-height: 1.4;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* KS-3366: строка с hint'ом + кнопкой «Проиграть последний ход».
+   На mobile (<560px) кнопка переходит под текст hint'а. */
+.puzzle-engine-runner__hint-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.puzzle-engine-runner__replay-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated, #25253d);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-subtle, #2a2a3e);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.puzzle-engine-runner__replay-btn:hover {
+  background: var(--bg-hover, #2c2c47);
+  border-color: var(--accent, #6366f1);
+}
+.puzzle-engine-runner__replay-btn:active {
+  transform: translateY(1px);
+}
+.puzzle-engine-runner__replay-btn:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
 }
 
 /* KS-2922: result-блок — главный заголовок крупнее, явная карточная

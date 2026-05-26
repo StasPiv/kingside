@@ -703,53 +703,66 @@ export function PlayVsEngineRunner({
   const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastMoveUciRef = useRef<string | null>(null);
 
-  // KS-3365: анимация blunderMove на старте. Через короткую задержку
+  // KS-3365/3366: анимация blunderMove на старте. Через короткую задержку
   // применяем UCI-ход соперника на `fenBeforeBlunder` → react-chessboard
-  // анимирует движение фигуры (animationDurationInMs=150ms в PuzzleBoard,
-  // KS-2466). После анимации `lastMoveUciRef` хранит blunderMove —
+  // анимирует движение фигуры (animationDurationInMs=300ms в PuzzleBoard,
+  // KS-3366). После анимации `lastMoveUciRef` хранит blunderMove —
   // PuzzleBoard подсветит клетки `from`/`to`, как при обычном ходе.
-  // Запускается ровно один раз на mount (или при смене puzzle.id —
-  // компонент пересоздаётся через key={puzzle.id} в PuzzlePage).
-  // Если `canAnimateBlunder=false` (legacy без fenBeforeBlunder) —
-  // ничего не делаем, стартуем с puzzle.fen, lastMoveUciRef=null.
-  const blunderAnimatedRef = useRef(false);
-  useEffect(() => {
-    if (!canAnimateBlunder || blunderAnimatedRef.current) return;
-    blunderAnimatedRef.current = true;
+  // KS-3366: вынес в отдельный callback `replayBlunder` — кнопка
+  // «Проиграть последний ход» (см. ниже в return) дёргает её повторно.
+  const blunderReplayTimerRef = useRef<number | null>(null);
+  const replayBlunder = useCallback(() => {
+    if (!canAnimateBlunder || !fenBeforeBlunder) return;
     const uci = params.blunderMove;
-    // 400ms — то же, что в PuzzlePage для setup-move lichess-пазлов
-    // (даёт юзеру увидеть «исходную» позицию ДО хода, а затем плавно
-    // анимирует фигуру).
-    const timer = window.setTimeout(() => {
+    // Сначала возвращаем доску в fenBeforeBlunder (мгновенно, без
+    // анимации — PuzzleBoard сам подавит её через `suppressAnimation`
+    // для большого скачка). Через 400ms ставим puzzle.fen → плавная
+    // анимация blunderMove (300ms по KS-3366).
+    if (blunderReplayTimerRef.current) {
+      window.clearTimeout(blunderReplayTimerRef.current);
+    }
+    setGame(new Chess(fenBeforeBlunder));
+    lastMoveUciRef.current = null;
+    blunderReplayTimerRef.current = window.setTimeout(() => {
       try {
-        // Готовим target-позицию из puzzle.fen — она уже посчитана
-        // backend'ом и гарантированно валидна (а не chess.js move от
-        // fenBeforeBlunder с promotion-нюансами).
         setGame(new Chess(puzzle.fen));
         lastMoveUciRef.current = uci;
-        // Звук хода — как при engine reply. SAN считаем через chess.js
-        // от fenBeforeBlunder, чтобы выбрать правильный sound-event
-        // (capture / castle / move). Если ход не парсится — играем
-        // generic 'move'.
         try {
-          if (fenBeforeBlunder) {
-            const probe = new Chess(fenBeforeBlunder);
-            const mv = probe.move({
-              from: uci.slice(0, 2),
-              to: uci.slice(2, 4),
-              promotion: uci.length > 4 ? uci[4] : undefined,
-            });
-            if (mv) playSound(soundEventFromSan(mv.san));
-          }
+          const probe = new Chess(fenBeforeBlunder);
+          const mv = probe.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion: uci.length > 4 ? uci[4] : undefined,
+          });
+          if (mv) playSound(soundEventFromSan(mv.san));
         } catch {
           /* fallback: без звука */
         }
       } catch {
-        /* fallback: оставляем puzzle.fen без анимации */
         setGame(new Chess(puzzle.fen));
       }
     }, 400);
-    return () => window.clearTimeout(timer);
+  }, [
+    canAnimateBlunder,
+    fenBeforeBlunder,
+    params.blunderMove,
+    puzzle.fen,
+    playSound,
+  ]);
+
+  // KS-3365: первый запуск анимации — ровно один раз на mount (компонент
+  // пересоздаётся через key={puzzle.id} в PuzzlePage при смене пазла).
+  const blunderAnimatedRef = useRef(false);
+  useEffect(() => {
+    if (!canAnimateBlunder || blunderAnimatedRef.current) return;
+    blunderAnimatedRef.current = true;
+    replayBlunder();
+    return () => {
+      if (blunderReplayTimerRef.current) {
+        window.clearTimeout(blunderReplayTimerRef.current);
+        blunderReplayTimerRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // один раз на mount
 
@@ -1788,14 +1801,61 @@ export function PlayVsEngineRunner({
                   });
             }
             return (
-              <p
-                className="puzzle-engine-runner__hint"
-                data-testid="puzzle-engine-blunder-hint"
-                data-blunder-known={haveBlunderArrow ? 'true' : 'false'}
-                data-puzzle-phase={puzzlePhase ?? ''}
+              <div
+                className="puzzle-engine-runner__hint-row"
+                data-testid="puzzle-engine-hint-row"
               >
-                {hintText}
-              </p>
+                <p
+                  className="puzzle-engine-runner__hint"
+                  data-testid="puzzle-engine-blunder-hint"
+                  data-blunder-known={haveBlunderArrow ? 'true' : 'false'}
+                  data-puzzle-phase={puzzlePhase ?? ''}
+                >
+                  {hintText}
+                </p>
+                {/* KS-3366: «Проиграть последний ход» — реплеит анимацию
+                    blunderMove. Видна только когда blunderMove известен
+                    и фигура физически двигалась (canAnimateBlunder). */}
+                {canAnimateBlunder && (
+                  <button
+                    type="button"
+                    className="puzzle-engine-runner__replay-btn"
+                    data-testid="puzzle-engine-replay-blunder"
+                    onClick={replayBlunder}
+                    aria-label={t(
+                      'puzzle.engine.replayLastMove',
+                      'Replay last move',
+                    )}
+                    title={t(
+                      'puzzle.engine.replayLastMove',
+                      'Replay last move',
+                    )}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      {/* refresh-ccw icon */}
+                      <polyline points="1 4 1 10 7 10" />
+                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                    </svg>
+                    <span>
+                      {t(
+                        'puzzle.engine.replayLastMove',
+                        'Replay last move',
+                      )}
+                    </span>
+                  </button>
+                )}
+              </div>
             );
           })()}
 

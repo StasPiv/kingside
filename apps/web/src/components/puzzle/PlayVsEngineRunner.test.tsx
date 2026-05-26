@@ -1938,6 +1938,78 @@ describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на ст�
   });
 });
 
+describe('PlayVsEngineRunner KS-3366 — кнопка «Проиграть последний ход»', () => {
+  it('blunderMove + fenBeforeBlunder есть → кнопка рендерится', async () => {
+    const fenBefore =
+      'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22';
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/2b5/PPPPPPPP/R1BQKBNR w KQkq - 0 23',
+      playVsEngine: {
+        blunderMove: 'f8c3',
+        fenBeforeBlunder: fenBefore,
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toMatch(/Replay last move|Проиграть/);
+  });
+
+  it('legacy без blunderMove → кнопка НЕ рендерится', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: '',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    await screen.findByTestId('puzzle-engine-blunder-hint');
+    expect(
+      screen.queryByTestId('puzzle-engine-replay-blunder'),
+    ).toBeNull();
+  });
+
+  it('клик по кнопке не падает (replay вызывается)', async () => {
+    const fenBefore =
+      'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22';
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/2b5/PPPPPPPP/R1BQKBNR w KQkq - 0 23',
+      playVsEngine: {
+        blunderMove: 'f8c3',
+        fenBeforeBlunder: fenBefore,
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+    // Клик не должен бросать (внутри setGame + setTimeout). Дополнительно
+    // через короткий wait убеждаемся что hint всё ещё на месте.
+    btn.click();
+    expect(
+      screen.getByTestId('puzzle-engine-blunder-hint'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {
   /**
    * Хелпер: гоним runner до state=win через тот же mate-сценарий, что и

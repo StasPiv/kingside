@@ -1201,6 +1201,7 @@
       "loseWdlSave": "You let the draw slip",
       "halfMovesLeft_one": "{{count}} half-move left",
       "halfMovesLeft_other": "{{count}} half-moves left",
+      "replayLastMove": "Replay last move",
       "blunderHint": "Opponent made an inaccuracy. Hold the position evaluation for {{n}} half-moves against the engine.",
       "blunderHintGeneric": "Hold the position evaluation against the engine for {{n}} half-moves.",
       "blunderHintPreventive": "In the game, an inaccuracy was played. What move would you have played?",

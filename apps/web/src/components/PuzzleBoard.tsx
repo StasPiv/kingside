@@ -114,7 +114,12 @@ export function PuzzleBoard({
     () => ({
       position: stablePosition,
       boardOrientation,
-      animationDurationInMs: (suppressAnimationRef.current || suppressAnimation) ? 0 : 150,
+      // KS-3366: 150 → 300ms. На 150ms ход соперника проскальзывал
+      // незаметно (особенно blunderMove на старте precision-пазла —
+      // KS-3365); 300ms даёт «вижу что фигура передвинулась», но всё
+      // ещё ощущается отзывчиво при перетаскивании. Применяется ко всем
+      // ходам (user + engine reply + opening setup-move).
+      animationDurationInMs: (suppressAnimationRef.current || suppressAnimation) ? 0 : 300,
       allowDragging: false,
       showNotation: true,
       squareStyles,
