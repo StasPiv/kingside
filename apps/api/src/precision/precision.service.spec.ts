@@ -32,8 +32,11 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       userPrecisionRating: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      // KS-3344: для pickNext.
       $queryRawUnsafe: jest.fn(),
     };
+    // KS-3344: добавим findMany для pickNext (через mutation после init).
+    prisma.puzzle.findMany = jest.fn().mockResolvedValue([]);
     redis = {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue('OK'),
@@ -999,6 +1002,163 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       });
       const r = await service.getMyRating('u-1');
       expect(r.lastAttemptAt).toBeNull();
+    });
+  });
+
+  // ─── KS-3344 / ADR-079 §3.4: pickNext ────────────────────────
+
+  describe('pickNext', () => {
+    it('гость → target=1200, scope принудительно server', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([
+        { id: 'p-1', rating: 1250 },
+      ]);
+      const r = await service.pickNext(null, { scope: 'drafts' });
+      expect(r).toEqual({ puzzleId: 'p-1', rating: 1250, ratingDelta: 50 });
+      // userPrecisionRating НЕ запрашивается для гостя.
+      expect(prisma.userPrecisionRating.findUnique).not.toHaveBeenCalled();
+      // findMany вызывался с isPublic=true (server scope).
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.source).toBe('generated');
+      expect(call.where.isPublic).toBe(true);
+      // Для гостя нет createdBy/NOT-фильтра.
+      expect(call.where.createdBy).toBeUndefined();
+      expect(call.where.NOT).toBeUndefined();
+    });
+
+    it('user с рейтингом 1800 → target=1800, окно 150', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1800,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-2', rating: 1750 },
+      ]);
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r).toEqual({ puzzleId: 'p-2', rating: 1750, ratingDelta: -50 });
+      // Первое окно: 1650..1950.
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.rating).toEqual({ gte: 1650, lte: 1950 });
+      // server + user → NOT { createdBy: userId }
+      expect(call.where.NOT).toEqual({ createdBy: 'u-1' });
+    });
+
+    it('пустое окно 150 → расширяется до 300/500/..., picks с первого непустого', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany
+        .mockResolvedValueOnce([]) // 150
+        .mockResolvedValueOnce([]) // 300
+        .mockResolvedValueOnce([{ id: 'p-3', rating: 1900 }]); // 500
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r?.puzzleId).toBe('p-3');
+      expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(3);
+      const widths = prisma.puzzle.findMany.mock.calls.map(
+        (c: any) => c[0].where.rating.gte,
+      );
+      expect(widths).toEqual([1500 - 150, 1500 - 300, 1500 - 500]);
+    });
+
+    it('всё пусто (даже бесконечное окно) → null', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValue([]);
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r).toBeNull();
+      // 5 окон: 150/300/500/1000/∞
+      expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(5);
+    });
+
+    it('override: используется одно окно, без расширения', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([]);
+      const r = await service.pickNext('u-1', {
+        scope: 'server',
+        overrideRatingMin: 2200,
+        overrideRatingMax: 2400,
+      });
+      expect(r).toBeNull();
+      // Один call.
+      expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(1);
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.rating).toEqual({ gte: 2200, lte: 2400 });
+    });
+
+    it('drafts: where createdBy=userId, isPublic=false', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'd-1', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', { scope: 'drafts' });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.createdBy).toBe('u-1');
+      expect(call.where.isPublic).toBe(false);
+    });
+
+    it('published: createdBy=userId, isPublic=true', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'pp-1', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', { scope: 'published' });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.createdBy).toBe('u-1');
+      expect(call.where.isPublic).toBe(true);
+    });
+
+    it('гость с scope=drafts → принудительно server (валидное поведение)', async () => {
+      prisma.puzzle.findMany.mockResolvedValueOnce([]);
+      const r = await service.pickNext(null, { scope: 'drafts' });
+      expect(r).toBeNull();
+      // server scope без createdBy → only isPublic=true.
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.isPublic).toBe(true);
+      expect(call.where.createdBy).toBeUndefined();
+    });
+
+    it('objective != "all" → themes.has фильтр', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-obj', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', {
+        scope: 'server',
+        objective: 'saveEquality',
+      });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.themes).toEqual({ has: 'saveEquality' });
+    });
+
+    it('hideSolved=true (default) → attempts.none для user', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-h', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', { scope: 'server' });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.attempts).toEqual({ none: { userId: 'u-1' } });
+    });
+
+    it('hideSolved=false → attempts фильтр отсутствует', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-2', rating: 1500 },
+      ]);
+      await service.pickNext('u-1', { scope: 'server', hideSolved: false });
+      const call = prisma.puzzle.findMany.mock.calls[0][0];
+      expect(call.where.attempts).toBeUndefined();
     });
   });
 });

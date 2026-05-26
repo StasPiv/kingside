@@ -21,9 +21,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AdminUserService } from '../auth/admin-user.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PrecisionService } from './precision.service';
+import { NotFoundException } from '@nestjs/common';
+import type { Request as ExpressRequest } from 'express';
 
 @Controller('precision')
 export class PrecisionController {
@@ -106,6 +109,69 @@ export class PrecisionController {
   @Get('me/rating')
   async getMyRating(@Request() req: AuthenticatedRequest) {
     return this.precision.getMyRating(req.user.id);
+  }
+
+  /**
+   * KS-3344 / ADR-079 §3.4 / §4.1. GET /precision/next — авто-подбор
+   * следующей задачи. OptionalJwtGuard: гостю target=1200,
+   * только scope=server. Query: scope, objective?, overrideRatingMin?,
+   * overrideRatingMax?, hideSolved? (default true).
+   * 200: { puzzleId, rating, ratingDelta }.
+   * 404: { puzzleId: null, reason: 'no_puzzles_available' }.
+   */
+  @UseGuards(OptionalJwtGuard)
+  @Get('next')
+  async pickNext(
+    @Request() req: ExpressRequest & { user?: { id: string } },
+    @Query('scope') scopeParam?: string,
+    @Query('objective') objectiveParam?: string,
+    @Query('overrideRatingMin') overrideRatingMinParam?: string,
+    @Query('overrideRatingMax') overrideRatingMaxParam?: string,
+    @Query('hideSolved') hideSolvedParam?: string,
+  ) {
+    const ALLOWED_SCOPES = new Set(['server', 'drafts', 'published']);
+    const scope: 'server' | 'drafts' | 'published' =
+      scopeParam && ALLOWED_SCOPES.has(scopeParam)
+        ? (scopeParam as 'server' | 'drafts' | 'published')
+        : 'server';
+    const ALLOWED_OBJ = new Set(['all', 'convertAdvantage', 'saveEquality']);
+    const objective =
+      objectiveParam && ALLOWED_OBJ.has(objectiveParam)
+        ? (objectiveParam as 'all' | 'convertAdvantage' | 'saveEquality')
+        : undefined;
+    const userId = req.user?.id ?? null;
+
+    const overrideMin = overrideRatingMinParam
+      ? parseFloat(overrideRatingMinParam)
+      : undefined;
+    const overrideMax = overrideRatingMaxParam
+      ? parseFloat(overrideRatingMaxParam)
+      : undefined;
+    if (
+      (overrideMin !== undefined && !Number.isFinite(overrideMin)) ||
+      (overrideMax !== undefined && !Number.isFinite(overrideMax))
+    ) {
+      throw new BadRequestException(
+        'overrideRatingMin/Max must be numbers',
+      );
+    }
+
+    const hideSolved = hideSolvedParam !== 'false'; // default true
+
+    const picked = await this.precision.pickNext(userId, {
+      scope,
+      objective,
+      overrideRatingMin: overrideMin,
+      overrideRatingMax: overrideMax,
+      hideSolved,
+    });
+    if (!picked) {
+      throw new NotFoundException({
+        puzzleId: null,
+        reason: 'no_puzzles_available',
+      });
+    }
+    return picked;
   }
 
   /**

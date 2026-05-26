@@ -44,6 +44,173 @@ export class PrecisionService {
   ) {}
 
   /**
+   * KS-3344 / ADR-079 §3.4 / §4.1. Авто-подбор следующей precision-
+   * задачи по рейтинг-окну Glicko-1.
+   *
+   * Алгоритм (ADR §2.3):
+   *  1. target = `user_precision_ratings.rating ?? 1500` (для гостя 1500).
+   *  2. window = 150 → 300 → 500 → 1000 → ∞ (расширяется до первой
+   *     непустой выборки).
+   *  3. Фильтры:
+   *     - `source = 'generated'`,
+   *     - scope-маппинг (server/drafts/published; ADR §2.1),
+   *     - `themes && [objective]` (если objective ≠ 'all'),
+   *     - `hideSolved = true` (default; исключаем уже решённые),
+   *     - `rating BETWEEN target-window AND target+window`.
+   *  4. Random pick: `ORDER BY random() LIMIT 1`.
+   *  5. Если slider override → `overrideRatingMin/Max` вместо
+   *     автоалгоритма (одно окно, без расширения).
+   *
+   * Возвращает `{ puzzleId, rating, ratingDelta }` или null (с
+   * reason='no_puzzles_available' на controller'е).
+   */
+  async pickNext(
+    userId: string | null,
+    filters: {
+      scope: 'server' | 'drafts' | 'published';
+      objective?: 'all' | 'convertAdvantage' | 'saveEquality';
+      overrideRatingMin?: number;
+      overrideRatingMax?: number;
+      hideSolved?: boolean;
+    },
+  ): Promise<{ puzzleId: string; rating: number; ratingDelta: number } | null> {
+    // 1. target rating.
+    let target = 1500;
+    if (userId) {
+      const row = await this.prisma.userPrecisionRating.findUnique({
+        where: { userId },
+        select: { rating: true },
+      });
+      if (row) target = row.rating;
+    } else {
+      // Гость: ADR §5 fixed 1200. Лёгкие задачи на старте.
+      target = 1200;
+    }
+
+    // 2. scope-маппинг. Гостю — только server (даже если фронт
+    // прислал другое; ADR §5 «гостю показываем только scope=server»).
+    const effectiveScope =
+      userId ? filters.scope : ('server' as 'server' | 'drafts' | 'published');
+    const scopeWhere = this.buildScopeWhere(effectiveScope, userId);
+    if (!scopeWhere) {
+      return null; // невалидная комбинация (например, гость с drafts).
+    }
+
+    const hideSolved = filters.hideSolved !== false; // default true
+    const useOverride =
+      filters.overrideRatingMin !== undefined ||
+      filters.overrideRatingMax !== undefined;
+
+    // 3. Окна — массив; при override один элемент.
+    const windowsOrSingle = useOverride
+      ? [
+          {
+            min:
+              filters.overrideRatingMin ??
+              -Number.MAX_SAFE_INTEGER,
+            max:
+              filters.overrideRatingMax ?? Number.MAX_SAFE_INTEGER,
+          },
+        ]
+      : [150, 300, 500, 1000, Number.MAX_SAFE_INTEGER].map((w) => ({
+          min: target - w,
+          max: target + w,
+        }));
+
+    // 4. Итерируем по окнам до первой непустой выборки.
+    for (const win of windowsOrSingle) {
+      const picked = await this.tryPickInWindow(
+        userId,
+        scopeWhere,
+        win.min,
+        win.max,
+        filters.objective,
+        hideSolved,
+      );
+      if (picked) {
+        return {
+          puzzleId: picked.id,
+          rating: picked.rating ?? 1500,
+          ratingDelta: (picked.rating ?? 1500) - target,
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Scope-маппинг → Prisma where-фрагмент (createdBy + isPublic).
+   * Гостю drafts/published невалидны → возвращает null.
+   */
+  private buildScopeWhere(
+    scope: 'server' | 'drafts' | 'published',
+    userId: string | null,
+  ): { isPublic: boolean; createdByMatch: 'self' | 'other' | 'any' } | null {
+    if (scope === 'server') {
+      return {
+        isPublic: true,
+        createdByMatch: userId ? 'other' : 'any',
+      };
+    }
+    if (!userId) return null;
+    if (scope === 'drafts') {
+      return { isPublic: false, createdByMatch: 'self' };
+    }
+    // published
+    return { isPublic: true, createdByMatch: 'self' };
+  }
+
+  /**
+   * Один проход выборки с фиксированным rating-окном.
+   * `ORDER BY random() LIMIT 1` — простой подход; на больших объёмах
+   * (миллионы puzzle'ов) дороговат, но Postgres делает it'ё
+   * приемлемо при индексе по rating + partition по фильтрам.
+   * Альтернатива (TABLESAMPLE / offset-trick) — оптимизация на M2.
+   */
+  private async tryPickInWindow(
+    userId: string | null,
+    scopeWhere: {
+      isPublic: boolean;
+      createdByMatch: 'self' | 'other' | 'any';
+    },
+    ratingMin: number,
+    ratingMax: number,
+    objective: 'all' | 'convertAdvantage' | 'saveEquality' | undefined,
+    hideSolved: boolean,
+  ): Promise<{ id: string; rating: number | null } | null> {
+    const where: Record<string, unknown> = {
+      source: 'generated',
+      isPublic: scopeWhere.isPublic,
+      rating: { gte: ratingMin, lte: ratingMax },
+    };
+    if (scopeWhere.createdByMatch === 'self') {
+      where.createdBy = userId;
+    } else if (scopeWhere.createdByMatch === 'other' && userId) {
+      where.NOT = { createdBy: userId };
+    }
+    if (objective && objective !== 'all') {
+      where.themes = { has: objective };
+    }
+    if (hideSolved && userId) {
+      where.attempts = { none: { userId } };
+    }
+    // Pick через raw SQL — Prisma не умеет ORDER BY random().
+    // Используем простой findFirst + случайный skip как fallback,
+    // если raw недоступен — но Postgres ORDER BY random() читаем:
+    // pull count + offset random — slower на хороших объёмах.
+    // Делаем findMany с take=50 и JS random pick (компромисс
+    // «нет full-scan, но и не идеально равномерно по выборке»).
+    const candidates = await this.prisma.puzzle.findMany({
+      where: where as never,
+      select: { id: true, rating: true },
+      take: 50,
+    });
+    if (candidates.length === 0) return null;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    return pick;
+  }
+
+  /**
    * KS-3346 / ADR-079 §3.5 / §4.4. Precision-рейтинг текущего user'а.
    *
    * Гостю — 401 на уровне controller (`JwtAuthGuard`). Для нового
