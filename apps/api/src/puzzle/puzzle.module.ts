@@ -8,6 +8,9 @@ import { GlickoRatingService } from './glicko-rating.service';
 // KS-1927: MistakesModule переехал из `lessons/` в `puzzle/` (ADR-032 §4).
 import { MistakesModule } from './mistakes.module';
 import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
+// KS-3343 / ADR-079 §3.6.2: precision-рейтинг подвязывается к
+// PuzzleService.create (внутри tx с precisionAttempt.create).
+import { PrecisionModule } from '../precision/precision.module';
 
 // KS-2952 (ADR-061 §8): MCP-секция `puzzles` — задачи (lichess data),
 // попытки, рейтинг, daily-puzzle.
@@ -21,7 +24,7 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
   defaultAuth: 'optional',
 })
 @Module({
-  imports: [MistakesModule],
+  imports: [MistakesModule, PrecisionModule],
   controllers: [DailyPuzzleController, PuzzleController],
   providers: [DailyPuzzleService, PuzzleService, PuzzleRatingService, GlickoRatingService],
   exports: [DailyPuzzleService, PuzzleService, PuzzleRatingService],

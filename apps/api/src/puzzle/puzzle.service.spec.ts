@@ -56,7 +56,21 @@ describe('PuzzleService', () => {
       recordPuzzleMistake: jest.fn().mockResolvedValue(undefined),
       recordGameMistake: jest.fn().mockResolvedValue(undefined),
     };
-    service = new PuzzleService(prisma, i18n, ratingService, redis, mistakes);
+    // KS-3343: precision-рейтинг (по умолчанию skip, ratingBefore/After=null).
+    const precisionRating = {
+      applyRatingChange: jest
+        .fn()
+        .mockResolvedValue({ ratingBefore: null, ratingAfter: null }),
+      scoreToOutcome: jest.fn(),
+    };
+    service = new PuzzleService(
+      prisma,
+      i18n,
+      ratingService,
+      redis,
+      mistakes,
+      precisionRating as never,
+    );
   });
 
   describe('findPuzzles', () => {

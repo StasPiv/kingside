@@ -5,8 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { PrecisionController } from './precision.controller';
 import { PrecisionService } from './precision.service';
+import { PrecisionRatingService } from './precision-rating.service';
 import { PrecisionTestFixtureController } from './precision-test-fixture.controller';
 import { DevOnlyGuard } from './dev-only.guard';
+import { GlickoRatingService } from '../puzzle/glicko-rating.service';
 
 /**
  * KS-2718 / ADR-056 §5 B5–B6. Модуль `/precision` endpoints
@@ -19,7 +21,13 @@ import { DevOnlyGuard } from './dev-only.guard';
 @Module({
   imports: [ConfigModule, AuthModule, PrismaModule, RedisModule],
   controllers: [PrecisionController, PrecisionTestFixtureController],
-  providers: [PrecisionService, DevOnlyGuard],
-  exports: [PrecisionService],
+  providers: [
+    PrecisionService,
+    DevOnlyGuard,
+    // KS-3343 / ADR-079 §3.6: precision-рейтинг (Glicko-1).
+    PrecisionRatingService,
+    GlickoRatingService,
+  ],
+  exports: [PrecisionService, PrecisionRatingService],
 })
 export class PrecisionModule {}

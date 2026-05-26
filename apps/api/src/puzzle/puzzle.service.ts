@@ -21,6 +21,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
+import { PrecisionRatingService } from '../precision/precision-rating.service';
 // KS-1927: MistakesService переехал из `lessons/` в `puzzle/` (ADR-032 §4).
 import { MistakesService } from './mistakes.service';
 
@@ -118,6 +119,9 @@ export class PuzzleService {
     private readonly puzzleRating: PuzzleRatingService,
     private readonly redis: RedisService,
     private readonly mistakes: MistakesService,
+    // KS-3343 / ADR-079 §3.6.2: обновление precision-рейтинга после
+    // успешной записи PrecisionAttempt (в той же транзакции).
+    private readonly precisionRating: PrecisionRatingService,
   ) {}
 
   /**
@@ -943,6 +947,21 @@ export class PuzzleService {
         select: { id: true },
       });
 
+      // KS-3343 / ADR-079 §3.6.2: precision-рейтинг (Glicko-1) с
+      // anti-cheat'ом (skip self-created / hidden / test / guest).
+      // Внутри той же транзакции — атомарность ratingBefore/After с
+      // precisionAttempt.create.
+      const ratingResult = await this.precisionRating.applyRatingChange(
+        args.userId,
+        args.puzzleId,
+        finalScore == null
+          ? null
+          : finalScorePct ?? finalScore * 20 /* 1..5 → 20..100 fallback */,
+        tx as unknown as Parameters<
+          PrecisionRatingService['applyRatingChange']
+        >[3],
+      );
+
       await tx.precisionAttempt.create({
         data: {
           attemptId: created.id,
@@ -964,6 +983,10 @@ export class PuzzleService {
           scorePct: finalScorePct,
           // KS-3246: цель пазла достигнута? (вторая ось для плашки).
           objectiveAchieved,
+          // KS-3343 / ADR-079: дельта precision-рейтинга. null если
+          // skipped (см. PrecisionRatingService.applyRatingChange).
+          ratingBefore: ratingResult.ratingBefore,
+          ratingAfter: ratingResult.ratingAfter,
         },
       });
 
