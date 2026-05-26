@@ -200,13 +200,14 @@ export class PrecisionService {
     if (scopeWhere.createdByMatch === 'self') {
       where.createdBy = userId;
     } else if (scopeWhere.createdByMatch === 'other' && userId) {
-      // KS-3352 fix: используем canonical Prisma syntax вместо
-      // `NOT: { createdBy }` (последний бросал PrismaClientValidationError
-      // на проде после деплоя 9d7beba0). `{ not: 'x' }` корректно
-      // отбирает строки где createdBy != x ИЛИ createdBy IS NULL
-      // (для legacy lichess-puzzle, у которых createdBy=null) — это
-      // именно нужная семантика «не мои».
-      where.createdBy = { not: userId };
+      // KS-3352 follow-up: SQL NULL semantics. Prisma переводит
+      // `createdBy: { not: X }` в `created_by != X`, что для NULL
+      // даёт NULL (не TRUE) — все legacy puzzle с `created_by IS
+      // NULL` отсеивались. Нужен explicit OR с null branch.
+      where.OR = [
+        { createdBy: null },
+        { createdBy: { not: userId } },
+      ];
     }
     if (objective && objective !== 'all') {
       where.themes = { has: objective };
@@ -316,9 +317,12 @@ export class PrecisionService {
         where: {
           source: 'generated',
           isPublic: true,
-          // KS-3352 fix: canonical Prisma syntax (NOT-объект бросал
-          // PrismaClientValidationError на проде).
-          createdBy: { not: userId },
+          // KS-3352 follow-up: SQL NULL semantics. Просто
+          // `{ not: userId }` транслируется в `created_by != X`,
+          // что для NULL даёт NULL (не TRUE) — все 1530 legacy
+          // puzzle с `created_by IS NULL` отсеивались. Нужен
+          // explicit OR с null branch.
+          OR: [{ createdBy: null }, { createdBy: { not: userId } }],
         },
       }),
       this.prisma.puzzle.count({

@@ -898,13 +898,17 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         .mockResolvedValueOnce(4); // published
       const r = await service.getScopeCounts('u-1');
       expect(r).toEqual({ server: 500, drafts: 12, published: 4 });
-      // server: source='generated', is_public=true, created_by != userId
-      // KS-3352 fix: canonical syntax `{ not: 'u-1' }`.
+      // server: source='generated', is_public=true,
+      // (created_by IS NULL OR created_by != userId)
+      // KS-3352 follow-up: explicit OR с null branch для SQL NULL semantics.
       expect(prisma.puzzle.count).toHaveBeenNthCalledWith(1, {
         where: {
           source: 'generated',
           isPublic: true,
-          createdBy: { not: 'u-1' },
+          OR: [
+            { createdBy: null },
+            { createdBy: { not: 'u-1' } },
+          ],
         },
       });
       // drafts: source='generated', is_public=false, created_by = userId
@@ -1038,10 +1042,13 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       // Первое окно: 1650..1950.
       const call = prisma.puzzle.findMany.mock.calls[0][0];
       expect(call.where.rating).toEqual({ gte: 1650, lte: 1950 });
-      // KS-3352 fix: server + user → createdBy: { not: userId }
-      // (canonical Prisma syntax; раньше NOT-объект бросал
-      // ValidationError на проде).
-      expect(call.where.createdBy).toEqual({ not: 'u-1' });
+      // KS-3352 follow-up: server + user →
+      // OR: [{ createdBy: null }, { createdBy: { not: userId } }]
+      // (нужно для legacy puzzle с createdBy=NULL; на проде их 1530).
+      expect(call.where.OR).toEqual([
+        { createdBy: null },
+        { createdBy: { not: 'u-1' } },
+      ]);
       expect(call.where.NOT).toBeUndefined();
     });
 
