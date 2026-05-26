@@ -443,6 +443,20 @@ export interface PrecisionAttemptListItem {
    * `null` синхронно со `score=null`.
    */
   verdictKey?: PrecisionVerdictKey | null;
+  /**
+   * KS-3341 / ADR-079 §3.5. Precision-рейтинг ДО попытки. Null для
+   * гостей и для скипнутых попыток (anti-cheat: self-created puzzle,
+   * hidden/test account).
+   */
+  ratingBefore?: number | null;
+  /** KS-3341 / ADR-079 §3.5. Precision-рейтинг ПОСЛЕ попытки. */
+  ratingAfter?: number | null;
+  /**
+   * KS-3341 / ADR-079 §3.5. Дельта рейтинга (`ratingAfter -
+   * ratingBefore`). Null синхронно с before/after. Опц. — фронт
+   * может вычислить сам, но удобно отдать готовое.
+   */
+  ratingDelta?: number | null;
 }
 
 /**
@@ -453,6 +467,105 @@ export interface PrecisionAttemptsListResponse {
   /** Общее число PVE-attempts пользователя (для пагинации/«загрузить ещё»). */
   total: number;
 }
+
+// ─── KS-3340 / ADR-079 §3.1, §3.4: Precision Auto-Pick ────────────
+
+/**
+ * Scope подбора задач (chips-bar `[Серверные] / [Мои черновики] /
+ * [Мои опубликованные]`).
+ *
+ * Маппинг в backend (`PuzzleRepository.browse`):
+ *   - `server`    → `mine=false, visibility=public`
+ *   - `drafts`    → `mine=true, visibility=draft`
+ *   - `published` → `mine=true, visibility=public`
+ *
+ * Гость → только `server`.
+ */
+export type PrecisionScope = 'server' | 'drafts' | 'published';
+
+/**
+ * Query для `GET /precision/next` — авто-подбор следующей precision-
+ * задачи по рейтинг-окну (Glicko-1, ADR-079 §3.4).
+ */
+export interface PickNextPrecisionRequest {
+  scope: PrecisionScope;
+  /**
+   * Фильтр по objective пазла. `'all'` или undefined — без фильтра;
+   * иначе `themes = [objective]` в PuzzleRepository.
+   */
+  objective?: 'all' | 'convertAdvantage' | 'saveEquality';
+  /**
+   * Override rating-окна — UI передаёт когда slider сдвинут с
+   * дефолтов (800–3000). Если оба значения переданы — используется
+   * вместо auto-окна. По умолчанию backend сам ширит окно
+   * 150→300→500→1000→∞ вокруг `UserPrecisionRating.rating`.
+   */
+  overrideRatingMin?: number;
+  overrideRatingMax?: number;
+  /**
+   * Исключать уже решённые (preserved/hold). Default `true` — для
+   * учебного flow важно не зацикливаться на одной задаче.
+   */
+  hideSolved?: boolean;
+}
+
+/**
+ * Ответ `GET /precision/next` (ADR-079 §3.4 / §4.1).
+ *
+ * Discriminated по `puzzleId`:
+ *   - 200 + `{ puzzleId, rating, ratingDelta }` — нашли задачу,
+ *     фронт делает `navigate('/puzzle/'+puzzleId+'?source=precision')`.
+ *   - 404 + `{ puzzleId: null, reason: 'no_puzzles_available' }` —
+ *     по фильтрам ничего не подобрали (объективно пусто), фронт
+ *     показывает toast «измените фильтры или сбросьте».
+ */
+export type PickNextPrecisionResponse =
+  | {
+      puzzleId: string;
+      /** Lichess-style rating пазла (см. ADR-044 §3.5; null → 1500 fallback). */
+      rating: number;
+      /** `puzzle.rating - userPrecisionRating` (для UX-подписи «на 80 выше»). */
+      ratingDelta: number;
+    }
+  | { puzzleId: null; reason: 'no_puzzles_available' };
+
+/**
+ * Ответ `GET /precision/scope-counts` (ADR-079 §3.3 / §4.2).
+ * Используется для бейджей счётчиков на pill'ах chips-bar.
+ *
+ * Гостю backend не отдаёт drafts/published (см. §4.2 — JwtAuthGuard).
+ */
+export interface PrecisionScopeCountsResponse {
+  server: number;
+  drafts: number;
+  published: number;
+}
+
+// ─── KS-3341 / ADR-079 §3.5: Precision Rating ─────────────────────
+
+/**
+ * Precision-рейтинг пользователя по Glicko-1. Хранится в отдельной
+ * таблице `user_precision_ratings`. Не путать с `User.ratingPuzzle`
+ * (общий puzzle-рейтинг по lichess-задачам) — precision имеет свою
+ * кривую сложности (ADR-044 §3.5).
+ *
+ * Default для нового пользователя без попыток: `{ rating: 1500,
+ * deviation: 350, attempts: 0, lastAttemptAt: null }`.
+ */
+export interface PrecisionRatingDto {
+  rating: number;
+  /** Glicko RD. Большой RD (350) → высокая неопределённость. */
+  deviation: number;
+  attempts: number;
+  /** ISO-8601 UTC. null если ни одной попытки. */
+  lastAttemptAt: string | null;
+}
+
+/**
+ * Ответ `GET /precision/me/rating` (ADR-079 §3.5 / §4.4).
+ * Auth: JwtAuthGuard — гостю 401.
+ */
+export type GetPrecisionRatingResponse = PrecisionRatingDto;
 
 /**
  * KS-2727: Уровень В — тренд по времени.
