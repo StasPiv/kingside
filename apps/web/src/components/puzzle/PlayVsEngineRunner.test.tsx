@@ -1913,3 +1913,141 @@ describe('PlayVsEngineRunner KS-3164 — preventive hint содержит пра
     expect(hint.textContent).toMatch(/22\.\.\./);
   });
 });
+
+describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {
+  /**
+   * Хелпер: гоним runner до state=win через тот же mate-сценарий, что и
+   * win-engine-resign. Возвращает container для последующих ассертов.
+   */
+  async function runToWin(props: Partial<{
+    onBack: () => void;
+    onNext: () => void;
+    precisionRatingChange:
+      | { ratingBefore: number; ratingAfter: number; ratingDelta: number }
+      | null;
+  }> = {}) {
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.9,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 6,
+      },
+    });
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['e2e4'])),
+      result(line({ type: 'mate', value: -2 }, ['e7e5'])),
+    ]);
+    const { container } = renderWithProviders(
+      <PlayVsEngineRunner
+        puzzle={puzzle}
+        onSubmit={vi.fn()}
+        engineFactory={() => engine}
+        {...props}
+      />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="puzzle-engine-runner"]')
+          ?.getAttribute('data-state'),
+      ).toBe('win');
+    });
+    return container;
+  }
+
+  it('без onBack/onNext: блок «Назад/Следующая» не рендерится', async () => {
+    const container = await runToWin();
+    expect(
+      container.querySelector('[data-testid="precision-result-actions"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="puzzle-engine-back"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="puzzle-engine-next"]'),
+    ).toBeNull();
+  });
+
+  it('onBack + onNext: рендерит обе кнопки рядом в одной строке', async () => {
+    const onBack = vi.fn();
+    const onNext = vi.fn();
+    const container = await runToWin({ onBack, onNext });
+    const actions = container.querySelector(
+      '[data-testid="precision-result-actions"]',
+    );
+    expect(actions).not.toBeNull();
+    const back = container.querySelector(
+      '[data-testid="puzzle-engine-back"]',
+    ) as HTMLButtonElement | null;
+    const next = container.querySelector(
+      '[data-testid="puzzle-engine-next"]',
+    ) as HTMLButtonElement | null;
+    expect(back).not.toBeNull();
+    expect(next).not.toBeNull();
+    back!.click();
+    expect(onBack).toHaveBeenCalledTimes(1);
+    next!.click();
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('precisionRatingChange: рендерит дельту «1487 → 1502 (+15)»', async () => {
+    const container = await runToWin({
+      precisionRatingChange: {
+        ratingBefore: 1487,
+        ratingAfter: 1502,
+        ratingDelta: 15,
+      },
+    });
+    const block = container.querySelector(
+      '[data-testid="precision-rating-change"]',
+    );
+    expect(block).not.toBeNull();
+    expect(block!.getAttribute('data-rating-delta')).toBe('15');
+    expect(
+      container.querySelector(
+        '[data-testid="precision-rating-change-text"]',
+      )?.textContent,
+    ).toContain('1487 → 1502 (+15)');
+    expect(block!.className).toContain('precision-rating-change--gain');
+  });
+
+  it('отрицательная дельта → класс --loss и знак «-»', async () => {
+    const container = await runToWin({
+      precisionRatingChange: {
+        ratingBefore: 1500,
+        ratingAfter: 1488,
+        ratingDelta: -12,
+      },
+    });
+    const block = container.querySelector(
+      '[data-testid="precision-rating-change"]',
+    );
+    expect(block!.className).toContain('precision-rating-change--loss');
+    expect(
+      container.querySelector(
+        '[data-testid="precision-rating-change-text"]',
+      )?.textContent,
+    ).toContain('1500 → 1488 (-12)');
+  });
+
+  it('precisionRatingChange=null (гость) → блок дельты НЕ рендерится', async () => {
+    const container = await runToWin({
+      precisionRatingChange: null,
+      onBack: vi.fn(),
+      onNext: vi.fn(),
+    });
+    expect(
+      container.querySelector('[data-testid="precision-rating-change"]'),
+    ).toBeNull();
+    // Кнопки при этом всё равно отображаются.
+    expect(
+      container.querySelector('[data-testid="puzzle-engine-back"]'),
+    ).not.toBeNull();
+  });
+});

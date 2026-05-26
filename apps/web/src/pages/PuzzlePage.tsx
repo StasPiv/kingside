@@ -24,7 +24,14 @@ import type { PuzzleDto } from '@kingside/shared';
 import { WasmEngineAdapter } from '../utils/engineAdapter';
 import { openAnalysis } from '../utils/openAnalysis';
 import { buildPuzzleAnalysisPgn } from '../utils/buildPuzzleAnalysisPgn';
-import { buildBackUrl, detectPuzzleSection } from '../utils/puzzleNav';
+import {
+  buildBackUrl,
+  buildPrecisionNextParams,
+  detectPuzzleSection,
+} from '../utils/puzzleNav';
+// KS-3349 / KS-3350 (ADR-079 §3.4–3.5). API для авто-подбора +
+// текущего precision-рейтинга (для дельты).
+import { precisionApi } from '../api/precisionApi';
 
 type PuzzleStatus = 'thinking' | 'checking' | 'correct' | 'incorrect';
 
@@ -75,6 +82,16 @@ export function PuzzlePage() {
   // неиспользуемый элемент destructure.
   const [allSolved] = useState(false);
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
+  // KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга (Glicko-1) после
+  // PVE-попытки. Снимаем before на mount страницы пазла (когда
+  // fromPrecision && user), after — после успешного submitAttempt.
+  // `null` → блок не рендерится (гость / ещё не загружено / fetch упал).
+  const [precisionRatingBefore, setPrecisionRatingBefore] = useState<number | null>(null);
+  const [precisionRatingChange, setPrecisionRatingChange] = useState<{
+    ratingBefore: number;
+    ratingAfter: number;
+    ratingDelta: number;
+  } | null>(null);
   /**
    * KS-2969: модалка выбора фигуры при превращении пешки. До этого
    * forced-line раннер всегда подставлял promotion из expectedMove,
@@ -561,6 +578,30 @@ export function PuzzlePage() {
     startTimeRef.current = Date.now();
   };
 
+  // KS-3349 (ADR-079 §3.5). Снимаем precision-рейтинг ДО попытки —
+  // нужно для дельты «X → Y (+N)» после submit. Только для
+  // авторизованных и только на /precision-флоу. Тихо игнорируем
+  // ошибки fetch'а (блок дельты просто не покажется).
+  useEffect(() => {
+    if (!fromPrecision || !user) {
+      setPrecisionRatingBefore(null);
+      return;
+    }
+    let cancelled = false;
+    precisionApi
+      .getMyRating()
+      .then((r) => {
+        if (!cancelled) setPrecisionRatingBefore(Math.round(r.rating));
+      })
+      .catch(() => {
+        if (!cancelled) setPrecisionRatingBefore(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Перечитываем при смене puzzleId (после «Следующая» — нужен новый baseline).
+  }, [fromPrecision, user, puzzleId]);
+
   // KS-2466 / ADR-044 §5: для пазлов в режиме `play-vs-engine` рендерим
   // отдельный компонент (там своя state-machine + WASM-движок), а
   // forced-line ветка ниже не трогается. Гости — просто без submitAttempt
@@ -594,12 +635,67 @@ export function PuzzlePage() {
             engineUci: s.engineUci,
           })),
         });
+        // KS-3349 (ADR-079 §3.5). После submit backend обновил
+        // UserPrecisionRating в той же транзакции. Перечитываем — даёт
+        // ratingAfter; ratingBefore берём из снимка mount-страницы пазла.
+        // Если backend skipped (self-created / hidden / guest), rating
+        // не изменится, дельта = 0, всё равно показываем как есть.
+        if (fromPrecision) {
+          try {
+            const after = await precisionApi.getMyRating();
+            const afterRounded = Math.round(after.rating);
+            if (precisionRatingBefore != null) {
+              setPrecisionRatingChange({
+                ratingBefore: precisionRatingBefore,
+                ratingAfter: afterRounded,
+                ratingDelta: afterRounded - precisionRatingBefore,
+              });
+            }
+          } catch {
+            /* graceful — пропускаем блок дельты при ошибке fetch'а. */
+          }
+        }
       } catch {
         /* MVP: молча игнорируем сетевые ошибки submit'а. */
       }
     },
-    [puzzle, user],
+    [puzzle, user, fromPrecision, precisionRatingBefore],
   );
+
+  // KS-3349 (ADR-079 §3.4). «Назад» — навигация на исходный список
+  // `/precision?…` с сохранёнными фильтрами (buildBackUrl сам соберёт).
+  const handleBack = useCallback(() => {
+    navigate(backUrl);
+  }, [navigate, backUrl]);
+
+  // KS-3349 (ADR-079 §3.4). «Следующая» — `GET /precision/next` с теми
+  // же параметрами, что были при заходе на текущий пазл. На 404
+  // (`no_puzzles_available`) — fallback на /precision (пусть user сам
+  // увидит сообщение «нет пазлов»).
+  const handlePickNext = useCallback(async () => {
+    if (!user || !fromPrecision) return;
+    try {
+      const params = buildPrecisionNextParams(searchParams, true);
+      const res = await precisionApi.pickNext(params);
+      if (res.puzzleId) {
+        // Сохраняем те же query-params на новой странице пазла —
+        // buildPrecisionPuzzleQuery работает с любыми URLSearchParams,
+        // но здесь у нас уже preserved-набор. Просто перенесём текущие.
+        const sp = new URLSearchParams(searchParams);
+        sp.set('source', 'precision');
+        navigate(`/puzzle/${res.puzzleId}?${sp.toString()}`);
+        // Сброс delta — новый пазл, новый baseline (snapshot useEffect
+        // перечитает rating).
+        setPrecisionRatingChange(null);
+      } else {
+        // no_puzzles_available → возвращаем на /precision.
+        navigate(backUrl);
+      }
+    } catch {
+      // Сеть упала → fallback на /precision.
+      navigate(backUrl);
+    }
+  }, [user, fromPrecision, searchParams, navigate, backUrl]);
 
   // KS-2688: единый header c хлебными крошками, back-link'ом и заголовком.
   // До тикета все три состояния ниже (allSolved / play-vs-engine /
@@ -705,7 +801,16 @@ export function PuzzlePage() {
           key={puzzle.id}
           puzzle={puzzle}
           onSubmit={handlePlayVsEngineSubmit}
-          onNext={() => { void loadPuzzle(); }}
+          // KS-3349 (ADR-079 §3.4). На /precision-флоу «Следующая» идёт
+          // через `/precision/next` (рейтинг-окно Glicko-1). Снаружи
+          // precision-флоу — старое поведение `loadPuzzle()` без id.
+          onNext={fromPrecision ? handlePickNext : () => { void loadPuzzle(); }}
+          // KS-3349: «Назад» виден только на /precision-флоу. На общем
+          // `/puzzles` юзер возвращается через breadcrumbs/back-link.
+          onBack={fromPrecision ? handleBack : undefined}
+          // KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга — `null`
+          // для гостей и до завершения попытки.
+          precisionRatingChange={precisionRatingChange}
         />
         {/* KS-2488: блок «Из партии» — headers + ссылки на архив /
             Lichess. Сам компонент возвращает null если sourceGame

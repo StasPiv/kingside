@@ -1544,6 +1544,10 @@
       "tooltip": "Glicko-1 rating, updated after each attempt",
       "aria": "Precision rating {{rating}} ± {{deviation}}"
     },
+    "results": {
+      "back": "← Back",
+      "next": "Next →"
+    },
     "objective": {
       "label": "Puzzle type",
       "all": "All"

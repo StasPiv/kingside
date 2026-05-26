@@ -1566,6 +1566,10 @@
       "tooltip": "Рейтинг по Glicko-1, обновляется после каждой попытки",
       "aria": "Precision-рейтинг {{rating}} ± {{deviation}}"
     },
+    "results": {
+      "back": "← Назад",
+      "next": "Следующая →"
+    },
     "objective": {
       "label": "Тип задачи",
       "all": "Все"

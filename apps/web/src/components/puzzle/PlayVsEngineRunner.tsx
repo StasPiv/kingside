@@ -119,6 +119,26 @@ export interface PlayVsEngineRunnerProps {
   /** Кнопка «Следующий пазл» — навигация решается родителем. */
   onNext?: () => void;
   /**
+   * KS-3349 (ADR-079 §3.4). Кнопка «Назад» рядом со «Следующая» — на
+   * `/precision`-флоу возвращает на список (с сохранением фильтров).
+   * Если не передана — кнопка не рендерится.
+   */
+  onBack?: () => void;
+  /**
+   * KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга после попытки.
+   * Рендерится в result-блоке. `null` → не показываем (гость, ошибка
+   * fetch, ещё не загружено).
+   */
+  precisionRatingChange?: {
+    ratingBefore: number;
+    ratingAfter: number;
+    ratingDelta: number;
+  } | null;
+  /**
+   * KS-3349. data-testid префикс для контейнера кнопок «Назад/Следующая»
+   * (нужно для тестов). По умолчанию — undefined.
+   */
+  /**
    * DI для тестов — позволяет подменить движок на mock без WASM.
    * Production — `() => new WasmEngineAdapter()`.
    */
@@ -450,6 +470,8 @@ export function PlayVsEngineRunner({
   puzzle,
   onSubmit,
   onNext,
+  onBack,
+  precisionRatingChange,
   engineFactory,
   // KS-2955: depth=18 + movetime=1000 — гарантия корректной оценки
   // в насыщенных позициях. На depth=12 SF18 WASM в FEN
@@ -1957,15 +1979,57 @@ export function PlayVsEngineRunner({
                 userSide={userSide}
                 onSelectMove={({ fenBefore }) => setReviewFen(fenBefore)}
               />
-              {onNext && (
-                <button
-                  type="button"
-                  className="play-btn"
-                  onClick={onNext}
-                  data-testid="puzzle-engine-next"
+              {/* KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга после
+                  попытки. Для гостей `precisionRatingChange` всегда null →
+                  блок не рендерится. */}
+              {precisionRatingChange && (
+                <div
+                  className={`precision-rating-change precision-rating-change--${
+                    precisionRatingChange.ratingDelta >= 0 ? 'gain' : 'loss'
+                  }`}
+                  data-testid="precision-rating-change"
+                  data-rating-before={String(precisionRatingChange.ratingBefore)}
+                  data-rating-after={String(precisionRatingChange.ratingAfter)}
+                  data-rating-delta={String(precisionRatingChange.ratingDelta)}
                 >
-                  {t('puzzle.next', 'Next')}
-                </button>
+                  <span data-testid="precision-rating-change-text">
+                    {precisionRatingChange.ratingBefore} →{' '}
+                    {precisionRatingChange.ratingAfter} (
+                    {precisionRatingChange.ratingDelta >= 0 ? '+' : ''}
+                    {precisionRatingChange.ratingDelta})
+                  </span>
+                </div>
+              )}
+              {/* KS-3349 (ADR-079 §3.4). Кнопки «Назад»/«Следующая» рядом.
+                  Back навигирует на исходную страницу /precision (с
+                  фильтрами), Next через precisionApi.pickNext подбирает
+                  следующую задачу. */}
+              {(onBack || onNext) && (
+                <div
+                  className="precision-result-actions"
+                  data-testid="precision-result-actions"
+                >
+                  {onBack && (
+                    <button
+                      type="button"
+                      className="play-btn play-btn--secondary"
+                      onClick={onBack}
+                      data-testid="puzzle-engine-back"
+                    >
+                      {t('precision.results.back', '← Back')}
+                    </button>
+                  )}
+                  {onNext && (
+                    <button
+                      type="button"
+                      className="play-btn"
+                      onClick={onNext}
+                      data-testid="puzzle-engine-next"
+                    >
+                      {t('precision.results.next', 'Next →')}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}

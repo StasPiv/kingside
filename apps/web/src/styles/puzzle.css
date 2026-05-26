@@ -5773,6 +5773,41 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   flex-shrink: 0;
 }
 
+/* KS-3349 (ADR-079 §3.5). Дельта precision-рейтинга после попытки. */
+.precision-rating-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  margin: 12px 0;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  background: var(--bg-elevated, #25253d);
+  color: var(--text-primary, #e0e0e0);
+}
+.precision-rating-change--gain {
+  border: 1px solid var(--success, #4ade80);
+  color: var(--success, #4ade80);
+}
+.precision-rating-change--loss {
+  border: 1px solid var(--danger, #f87171);
+  color: var(--danger, #f87171);
+}
+.precision-result-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.precision-result-actions .play-btn--secondary {
+  background: var(--bg-elevated, #25253d);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-subtle, #2a2a3e);
+}
+.precision-result-actions .play-btn--secondary:hover {
+  background: var(--bg-hover, #2c2c47);
+}
+
 /* KS-3350 (ADR-079 §3.5). Read-only pill «Рейтинг: 1487 (±42)». */
 .precision-rating-pill {
   display: inline-flex;
