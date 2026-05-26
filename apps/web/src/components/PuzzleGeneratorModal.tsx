@@ -11,6 +11,9 @@ import type {
 import {
   generatePuzzlesFromPgn,
   DEFAULT_PUZZLE_GEN_SETTINGS,
+  PUZZLE_GEN_NODES_MIN,
+  PUZZLE_GEN_NODES_MAX,
+  PUZZLE_GEN_NODES_STEP,
 } from '../utils/puzzleGenerator';
 import { loadEngineConfigs } from '../hooks/useEngine';
 
@@ -55,10 +58,12 @@ function loadSettings(): PuzzleGenSettings {
     const parsed = JSON.parse(raw) as Partial<PuzzleGenSettings>;
     return {
       ...DEFAULT_PUZZLE_GEN_SETTINGS,
-      depth:
-        typeof parsed.depth === 'number'
-          ? parsed.depth
-          : DEFAULT_PUZZLE_GEN_SETTINGS.depth,
+      // KS-3364: depth убран из UI, в localStorage больше не хранится
+      // (легаси-ключ молча игнорируем). Управление через `nodes`.
+      nodes:
+        typeof parsed.nodes === 'number' && parsed.nodes > 0
+          ? parsed.nodes
+          : DEFAULT_PUZZLE_GEN_SETTINGS.nodes,
       deltaWThreshold:
         typeof parsed.deltaWThreshold === 'number'
           ? parsed.deltaWThreshold
@@ -322,16 +327,34 @@ export function PuzzleGeneratorModal({
                   {/* ANALYSIS */}
                   <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionAnalysis', 'ANALYSIS')}</h4>
                   <div className="puzzle-gen-params">
+                    {/* KS-3364: «Глубина» заменена на «Узлы» — пользователю
+                        понятнее, лимит соответствует серверной генерации
+                        (AnalysisLimit.nodes). Показываем значение в миллионах
+                        («10M»), внутрь шлём в полных единицах. */}
                     <div className="puzzle-gen-param">
-                      <label>{t('puzzleGenerator.depth', 'Depth')}: {settings.depth}</label>
+                      <label>
+                        {t('puzzleGenerator.nodes.label', 'Nodes')}:{' '}
+                        {t('puzzleGenerator.nodes.value', '{{value}}M', {
+                          value: Math.round(settings.nodes / 1_000_000),
+                        })}
+                      </label>
                       <input
                         type="range"
-                        min={8}
-                        max={22}
-                        value={settings.depth}
-                        onChange={(e) => updateSetting('depth', Number(e.target.value))}
-                        data-testid="puzzle-generator-depth"
+                        min={PUZZLE_GEN_NODES_MIN}
+                        max={PUZZLE_GEN_NODES_MAX}
+                        step={PUZZLE_GEN_NODES_STEP}
+                        value={settings.nodes}
+                        onChange={(e) =>
+                          updateSetting('nodes', Number(e.target.value))
+                        }
+                        data-testid="puzzle-generator-nodes"
                       />
+                      <p className="puzzle-gen-param-hint">
+                        {t(
+                          'puzzleGenerator.nodes.hint',
+                          'Number of positions Stockfish examines per ply. Higher = more accurate, but slower. Default 10M ≈ depth 18 in browser.',
+                        )}
+                      </p>
                     </div>
                     {/* KS-3137 (ADR-068 §3.4): два независимых слайдера —
                         алгоритм триггерит «зевок» по OR (ΔW ≥ thrW ИЛИ

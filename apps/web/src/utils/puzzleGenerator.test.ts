@@ -157,7 +157,8 @@ describe('generatePuzzlesFromPgn KS-3160 — обёртка над shared proces
       expect(p.sourceMetadata?.event).toBe('Test');
       expect(p.sourceMetadata?.date).toBe('2026.05.20');
       expect(p.sourceMetadata?.result).toBe('1-0');
-      expect(p.sourceMetadata?.depth).toBe(18);
+      // KS-3364: default depth — safety-cap 22 (юзер двигает nodes).
+      expect(p.sourceMetadata?.depth).toBe(22);
       // KS-3143: legacy `gap` не пишется.
       expect((p as unknown as { gap?: number }).gap).toBeUndefined();
       expect(p.solutionMode).toBe('play-vs-engine');
@@ -220,7 +221,8 @@ describe('generatePuzzlesFromPgn KS-3160 — обёртка над shared proces
     const reactive = puzzles.find((p) => p.puzzlePhase === 'reactive');
     expect(reactive?.sourceMetadata?.deltaW).toBeCloseTo(0.4, 2);
     expect(reactive?.sourceMetadata?.blunderTrigger).toBe('W');
-    expect(reactive?.sourceMetadata?.depth).toBe(18);
+    // KS-3364: default depth теперь 22 (safety-cap), а не 18.
+    expect(reactive?.sourceMetadata?.depth).toBe(22);
   });
 
   it('engine.destroy() вызывается даже при пустом результате', async () => {

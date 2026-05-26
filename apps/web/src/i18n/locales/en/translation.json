@@ -2098,6 +2098,11 @@
     "engineBridgeHint": "External engine via WebSocket (multi-threaded, faster)",
     "engineBridgeNotConfigured": "Configure external engine in Analysis page first",
     "depth": "Depth",
+    "nodes": {
+      "label": "Nodes",
+      "value": "{{value}}M",
+      "hint": "Number of positions Stockfish examines per ply. Higher = more accurate, but slower. Default 10M ≈ depth 18 in browser."
+    },
     "deltaW": {
       "label": "Min win-probability drop (ΔW)",
       "value": "{{percent}}%",

@@ -77,6 +77,13 @@ class ClientPuzzleGenEngine implements PuzzleGenEngine {
     private readonly engine: EngineAdapter,
     private readonly depth: number,
     private readonly movetimeMs: number,
+    /**
+     * KS-3364: лимит по числу позиций анализа на каждый ply
+     * (`go nodes N`). По умолчанию 10M — баланс между качеством оценки
+     * WDL и временем (1–4 сек на ply на современном CPU в Chrome).
+     * `0`/`undefined` → не передаём nodes, ограничение только по depth.
+     */
+    private readonly nodes: number | undefined,
   ) {}
 
   async analyze(
@@ -90,6 +97,7 @@ class ClientPuzzleGenEngine implements PuzzleGenEngine {
       this.depth,
       multiPV,
       this.movetimeMs,
+      this.nodes,
     );
     return result.lines.map(toSharedLine);
   }
@@ -173,16 +181,24 @@ export type GenerationProgress = {
  */
 export interface PuzzleGenSettings {
   /**
-   * Глубина SF-анализа (полуходов). По умолчанию 18 — выровнено с
-   * `PlayVsEngineRunner` (KS-2955), чтобы оценка `wdlAfter` при
-   * генерации совпадала с runtime-оценкой при прохождении пазла.
+   * Глубина SF-анализа (полуходов). Внутренний safety-cap, чтобы SF на
+   * лёгких позициях не залипал на бесконечности при крупном nodes-
+   * budget'е. UI юзер не настраивает (KS-3364) — управляет nodes.
    */
   depth: number;
   /**
-   * KS-2955: нижний порог времени на каждый analyze (мс). Парой с
-   * `depth` гарантирует ≥1с на оценку каждой позиции.
+   * KS-2955: нижний порог времени на каждый analyze (мс). UI юзер
+   * не настраивает (KS-3364) — управляет nodes. Сохраняется для
+   * других потребителей (PlayVsEngineRunner) с поведением по умолчанию.
    */
   movetimeMs: number;
+  /**
+   * KS-3364: лимит по числу позиций SF на каждый ply (`go nodes N`).
+   * Заменяет UI-слайдер «Глубина». Default 10 000 000 (10M) — баланс
+   * между качеством WDL и временем (≈1–4с на ply в Chrome на M1).
+   * Если 0/undefined — лимит только по depth/movetime.
+   */
+  nodes: number;
   /** KS-3137 (ADR-068): порог по падению P(победы) блaндера. Default 0.6. */
   deltaWThreshold: number;
   /** KS-3137 (ADR-068): порог по падению P(ничьи) блaндера. Default 0.6. */
@@ -194,19 +210,29 @@ export interface PuzzleGenSettings {
   minWPlusDAfterForSolver: number;
 }
 
+/**
+ * KS-3364: дефолт по узлам — 10 миллионов. На современном CPU в Chrome
+ * это даёт depth≈18 за 1–4 секунды на ply, что близко к параметру
+ * `AnalysisLimit.nodes` серверной генерации (5M в tactic-worker).
+ */
+export const PUZZLE_GEN_DEFAULT_NODES = 10_000_000;
+/** KS-3364: границы UI-слайдера «Узлы» (миллионы). */
+export const PUZZLE_GEN_NODES_MIN = 1_000_000;
+export const PUZZLE_GEN_NODES_MAX = 40_000_000;
+export const PUZZLE_GEN_NODES_STEP = 1_000_000;
+
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
-  depth: 18,
+  // KS-3364: depth — внутренний safety-cap (22 покрывает любой
+  // реалистичный nodes-budget); пользователь его не двигает.
+  depth: 22,
   movetimeMs: 1000,
+  nodes: PUZZLE_GEN_DEFAULT_NODES,
   deltaWThreshold: PUZZLE_GEN_DEFAULTS.deltaWThreshold,
   deltaDThreshold: PUZZLE_GEN_DEFAULTS.deltaDThreshold,
   minWPlusDAfterForSolver: PUZZLE_GEN_DEFAULTS.minWPlusDAfterForSolver,
 };
 
 const MULTI_PV = 2;
-
-function round3(n: number): number {
-  return Math.round(n * 1000) / 1000;
-}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -249,7 +275,7 @@ export async function generatePuzzlesFromPgn(
     ...DEFAULT_PUZZLE_GEN_SETTINGS,
     ...options,
   };
-  const { depth, movetimeMs } = settings;
+  const { depth, movetimeMs, nodes } = settings;
   const { abortSignal, bridgeConfig, engineFactory } = options;
 
   const games = splitPgnIntoGames(pgn);
@@ -277,7 +303,12 @@ export async function generatePuzzlesFromPgn(
     engine.setOption('Threads', '1');
   }
 
-  const sharedEngine = new ClientPuzzleGenEngine(engine, depth, movetimeMs);
+  const sharedEngine = new ClientPuzzleGenEngine(
+    engine,
+    depth,
+    movetimeMs,
+    nodes && nodes > 0 ? nodes : undefined,
+  );
   const sharedSettings: SharedPipelineSettings = {
     deltaWThreshold: settings.deltaWThreshold,
     deltaDThreshold: settings.deltaDThreshold,

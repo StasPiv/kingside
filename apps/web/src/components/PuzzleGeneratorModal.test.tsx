@@ -8,7 +8,7 @@ import { renderWithProviders, screen } from '../test/test-utils';
  * WDL-алгоритм (KS-2584) и ADR-068 `evaluateBlunder`.
  *
  * Что проверяем:
- *  - advanced settings: depth + ΔW + ΔD + solvability;
+ *  - advanced settings: nodes + ΔW + ΔD (KS-3364 заменил depth на nodes);
  *  - **отсутствие** legacy-controls (multiPv/gapThreshold/maxSecondCp/
  *    acceptedMoves/skipHanging/skipAttacked/skipUndefended/blunderDelta);
  *  - localStorage migration: старые ключи в LS (включая `blunderDelta`)
@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () => {
-  it('по умолчанию advanced скрыт; toggle показывает блок с depth/ΔW/ΔD', () => {
+  it('по умолчанию advanced скрыт; toggle показывает блок с nodes/ΔW/ΔD', () => {
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     expect(
       screen.queryByTestId('puzzle-generator-advanced-body'),
@@ -88,7 +88,11 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
     expect(
       screen.getByTestId('puzzle-generator-advanced-body'),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('puzzle-generator-depth')).toBeInTheDocument();
+    // KS-3364: «Глубина» заменена на «Узлы».
+    expect(screen.getByTestId('puzzle-generator-nodes')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('puzzle-generator-depth'),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByTestId('puzzle-generator-delta-w'),
     ).toBeInTheDocument();
@@ -99,6 +103,30 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
     expect(
       screen.queryByTestId('puzzle-generator-solvability'),
     ).not.toBeInTheDocument();
+  });
+
+  it('KS-3364: слайдер «Узлы» — диапазон 1M..40M, шаг 1M, дефолт 10M', () => {
+    renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
+    const slider = screen.getByTestId(
+      'puzzle-generator-nodes',
+    ) as HTMLInputElement;
+    expect(slider.type).toBe('range');
+    expect(slider.min).toBe('1000000');
+    expect(slider.max).toBe('40000000');
+    expect(slider.step).toBe('1000000');
+    expect(slider.value).toBe('10000000');
+  });
+
+  it('KS-3364: изменение nodes сохраняется в localStorage', () => {
+    renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
+    const slider = screen.getByTestId(
+      'puzzle-generator-nodes',
+    ) as HTMLInputElement;
+    fireEvent.change(slider, { target: { value: '20000000' } });
+    const stored = JSON.parse(localStorage.getItem('puzzleGenSettings') ?? '{}');
+    expect(stored.nodes).toBe(20000000);
   });
 
   it('legacy controls удалены — нет multiPv/gap/maxSecond/acceptedMoves/skip*/единого blunder-delta', () => {
@@ -165,11 +193,12 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
     expect(stored.deltaDThreshold).toBeCloseTo(0.45, 5);
   });
 
-  it('reload модалки восстанавливает ΔW/ΔD из localStorage', () => {
+  it('reload модалки восстанавливает ΔW/ΔD/nodes из localStorage', () => {
     localStorage.setItem(
       'puzzleGenSettings',
       JSON.stringify({
-        depth: 16,
+        // KS-3364: depth в LS больше не читается, мы пишем `nodes`.
+        nodes: 16_000_000,
         deltaWThreshold: 0.45,
         deltaDThreshold: 0.7,
         // KS-3160: legacy `solvabilityCheck` молча игнорируется
@@ -187,32 +216,34 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
       'puzzle-generator-delta-d',
     ) as HTMLInputElement;
     expect(d.value).toBe('70');
-    const depth = screen.getByTestId('puzzle-generator-depth') as HTMLInputElement;
-    expect(depth.value).toBe('16');
-    // KS-3160: toggle снят, поле в state'е отсутствует.
+    const nodes = screen.getByTestId(
+      'puzzle-generator-nodes',
+    ) as HTMLInputElement;
+    expect(nodes.value).toBe('16000000');
     expect(
       screen.queryByTestId('puzzle-generator-solvability'),
     ).not.toBeInTheDocument();
   });
 
-  it('localStorage migration: старые ключи (multiPv/gapThreshold/skipHanging/blunderDelta) игнорируются', () => {
+  it('KS-3364: legacy `depth` в localStorage игнорируется, nodes остаётся 10M', () => {
     localStorage.setItem(
       'puzzleGenSettings',
       JSON.stringify({
-        depth: 18,
+        depth: 18, // legacy ключ — фронт его больше не читает.
         multiPv: 5,
         gapThreshold: 100,
         skipHangingCapture: true,
         acceptedMoves: 2,
-        // KS-3137: legacy ключ — должен быть проигнорирован, ΔW остаётся 60%.
-        blunderDelta: 0.8,
+        blunderDelta: 0.8, // KS-3137 legacy.
       }),
     );
     renderWithProviders(<PuzzleGeneratorModal onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('puzzle-generator-advanced-toggle'));
-    // depth восстановлен (он в новой схеме).
-    const depth = screen.getByTestId('puzzle-generator-depth') as HTMLInputElement;
-    expect(depth.value).toBe('18');
+    // KS-3364: legacy `depth` игнорируется; nodes — дефолт 10M.
+    const nodes = screen.getByTestId(
+      'puzzle-generator-nodes',
+    ) as HTMLInputElement;
+    expect(nodes.value).toBe('10000000');
     // ΔW и ΔD — дефолт 60% (старый `blunderDelta: 0.8` проигнорирован).
     const w = screen.getByTestId(
       'puzzle-generator-delta-w',
@@ -222,7 +253,6 @@ describe('<PuzzleGeneratorModal> KS-2585 / KS-3137 — advanced settings', () =>
       'puzzle-generator-delta-d',
     ) as HTMLInputElement;
     expect(d.value).toBe('60');
-    // KS-3160: solvability-toggle снят, в state'е поля нет.
     expect(
       screen.queryByTestId('puzzle-generator-solvability'),
     ).not.toBeInTheDocument();

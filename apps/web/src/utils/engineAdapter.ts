@@ -45,18 +45,23 @@ export interface EngineAdapter {
   /**
    * KS-2955: опциональный `movetimeMs` — нижний порог времени на анализ
    * (мс). Полезен в `play-vs-engine` раннере: на низких `depth` SF
-   * систематически промахивается в насыщенных позициях (например
-   * Qxf7+ в FEN `3r4/pppk1pQP/...` на depth=12 SF18 WASM выбирает
-   * c5c6 вместо g7f7 и оценивает позицию как «чёрные выигрывают»;
-   * на depth 18 / movetime 1000 даёт корректный wdl 1000 0 0).
+   * систематически промахивается в насыщенных позициях.
    * Если задан — посылается `go depth N movetime M` (SF останавливается
    * по первому достигнутому условию). Если не задан — обычное `go depth N`.
+   *
+   * KS-3364: опциональный `nodes` — лимит по числу позиций анализа,
+   * аналог `AnalysisLimit.nodes` на сервере. В WASM-команде превращается
+   * в `go nodes N` (либо `go depth D nodes N` если задан и depth, SF
+   * остановится по первому достигнутому). Используется клиентским
+   * генератором — пользователь видит «Узлы: 10M» вместо абстрактной
+   * «Глубины» (KS-3364 UI rework).
    */
   analyze(
     fen: string,
     depth: number,
     multiPv: number,
     movetimeMs?: number,
+    nodes?: number,
   ): Promise<AnalysisResult>;
   destroy(): void;
 }
@@ -325,6 +330,7 @@ export class WasmEngineAdapter implements EngineAdapter {
     depth: number,
     multiPv: number,
     movetimeMs?: number,
+    nodes?: number,
   ): Promise<AnalysisResult> {
     return new Promise((resolve) => {
       const finalLines = new Map<number, InfoLine>();
@@ -343,10 +349,9 @@ export class WasmEngineAdapter implements EngineAdapter {
             }
             // KS-2955: раньше здесь стоял фильтр `info.depth >= depth - 2`
             // — он предполагал, что SF гарантированно доходит до целевой
-            // глубины. С `movetime` SF может остановиться раньше; такой
-            // фильтр оставлял `finalLines` пустыми → `engine-no-bestmove`.
-            // Теперь храним последнюю info на каждый multipv — она и есть
-            // финальная на момент остановки SF (по depth или по movetime).
+            // глубины. С `movetime`/`nodes` SF может остановиться раньше;
+            // храним последнюю info на каждый multipv — она и есть
+            // финальная на момент остановки SF.
             finalLines.set(info.multipv, info);
           }
         }
@@ -360,14 +365,16 @@ export class WasmEngineAdapter implements EngineAdapter {
       this.worker!.addEventListener('message', handler);
       this.worker!.postMessage(`setoption name MultiPV value ${multiPv}`);
       this.worker!.postMessage(`position fen ${fen}`);
-      // KS-2955: при заданном `movetimeMs` SF получает обе границы и
-      // останавливается по первой достигнутой — гарантируем нижнюю
-      // длительность анализа, не теряя выхода по depth для лёгких позиций.
-      const goCmd =
-        movetimeMs && movetimeMs > 0
-          ? `go depth ${depth} movetime ${movetimeMs}`
-          : `go depth ${depth}`;
-      this.worker!.postMessage(goCmd);
+      // KS-2955/KS-3364: собираем `go` команду из всех заданных лимитов.
+      // SF остановится по первому достигнутому из (depth, movetime, nodes).
+      // KS-3364: для precision-генератора пользователь теперь ограничивает
+      // по nodes (10M default) вместо абстрактной depth. depth остаётся
+      // безопасным верхним пределом — без него SF мог бы зайти слишком
+      // глубоко на простых позициях с маленьким nodes-budget.
+      const parts: string[] = [`go depth ${depth}`];
+      if (nodes && nodes > 0) parts.push(`nodes ${Math.floor(nodes)}`);
+      if (movetimeMs && movetimeMs > 0) parts.push(`movetime ${movetimeMs}`);
+      this.worker!.postMessage(parts.join(' '));
     });
   }
 
@@ -482,6 +489,7 @@ export class BridgeEngineAdapter implements EngineAdapter {
     depth: number,
     multiPv: number,
     movetimeMs?: number,
+    nodes?: number,
   ): Promise<AnalysisResult> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -540,9 +548,10 @@ export class BridgeEngineAdapter implements EngineAdapter {
       };
 
       this.ws.addEventListener('message', handler);
-      // KS-2955: пробрасываем movetimeMs в bridge для симметрии с
-      // WasmEngineAdapter. Bridge-сервер должен поддерживать поле; если
-      // нет — оно молча игнорируется, остаётся прежнее поведение по depth.
+      // KS-2955/KS-3364: пробрасываем movetimeMs и nodes в bridge для
+      // симметрии с WasmEngineAdapter. Bridge-сервер должен поддерживать
+      // эти поля; если нет — они молча игнорируются, остаётся прежнее
+      // поведение по depth.
       this.ws.send(
         JSON.stringify({
           type: 'analyze',
@@ -550,6 +559,7 @@ export class BridgeEngineAdapter implements EngineAdapter {
           depth,
           multiPv,
           ...(movetimeMs && movetimeMs > 0 ? { movetimeMs } : {}),
+          ...(nodes && nodes > 0 ? { nodes: Math.floor(nodes) } : {}),
         }),
       );
     });
