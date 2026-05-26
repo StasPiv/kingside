@@ -8,6 +8,7 @@ import { classifyPhaseByFen, PrecisionService } from './precision.service';
 describe('PrecisionService (KS-2718 / ADR-056)', () => {
   let service: PrecisionService;
   let prisma: any;
+  let redis: any;
 
   beforeEach(() => {
     prisma = {
@@ -23,9 +24,17 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         // (нет attempts со score!=null).
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      // KS-3345: для getScopeCounts.
+      puzzle: {
+        count: jest.fn(),
+      },
       $queryRawUnsafe: jest.fn(),
     };
-    service = new PrecisionService(prisma);
+    redis = {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue('OK'),
+    };
+    service = new PrecisionService(prisma, redis);
   });
 
   // ─── getStatsForUser ───────────────────────────────────────────────
@@ -856,6 +865,93 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         { phase: 'endgame', attempts: 0, avgAccuracyPercent: 0 },
       ]);
       expect(r.byTheme).toEqual([]);
+    });
+  });
+
+  // ─── KS-3345 / ADR-079 §3.3: getScopeCounts ────────────────────
+
+  describe('getScopeCounts', () => {
+    it('гость → только server, drafts/published = 0', async () => {
+      prisma.puzzle.count.mockResolvedValueOnce(1234);
+      const r = await service.getScopeCounts(null);
+      expect(r).toEqual({ server: 1234, drafts: 0, published: 0 });
+      // Только один count.
+      expect(prisma.puzzle.count).toHaveBeenCalledTimes(1);
+      expect(prisma.puzzle.count).toHaveBeenCalledWith({
+        where: { source: 'generated', isPublic: true },
+      });
+      // Гостю кеш не пишем.
+      expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it('user → 3 count + 3 фильтра + redis set', async () => {
+      prisma.puzzle.count
+        .mockResolvedValueOnce(500) // server
+        .mockResolvedValueOnce(12) // drafts
+        .mockResolvedValueOnce(4); // published
+      const r = await service.getScopeCounts('u-1');
+      expect(r).toEqual({ server: 500, drafts: 12, published: 4 });
+      // server: source='generated', is_public=true, created_by != userId
+      expect(prisma.puzzle.count).toHaveBeenNthCalledWith(1, {
+        where: {
+          source: 'generated',
+          isPublic: true,
+          NOT: { createdBy: 'u-1' },
+        },
+      });
+      // drafts: source='generated', is_public=false, created_by = userId
+      expect(prisma.puzzle.count).toHaveBeenNthCalledWith(2, {
+        where: {
+          source: 'generated',
+          isPublic: false,
+          createdBy: 'u-1',
+        },
+      });
+      // published: source='generated', is_public=true, created_by = userId
+      expect(prisma.puzzle.count).toHaveBeenNthCalledWith(3, {
+        where: {
+          source: 'generated',
+          isPublic: true,
+          createdBy: 'u-1',
+        },
+      });
+      expect(redis.set).toHaveBeenCalledWith(
+        'precision:scope-counts:u-1',
+        JSON.stringify({ server: 500, drafts: 12, published: 4 }),
+        'EX',
+        60,
+      );
+    });
+
+    it('user → cache hit, без обращения к БД', async () => {
+      redis.get.mockResolvedValueOnce(
+        JSON.stringify({ server: 100, drafts: 5, published: 2 }),
+      );
+      const r = await service.getScopeCounts('u-1');
+      expect(r).toEqual({ server: 100, drafts: 5, published: 2 });
+      expect(prisma.puzzle.count).not.toHaveBeenCalled();
+      expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it('user → redis get падает → fallback на БД', async () => {
+      redis.get.mockRejectedValueOnce(new Error('redis down'));
+      prisma.puzzle.count
+        .mockResolvedValueOnce(10)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1);
+      const r = await service.getScopeCounts('u-1');
+      expect(r).toEqual({ server: 10, drafts: 2, published: 1 });
+      expect(prisma.puzzle.count).toHaveBeenCalledTimes(3);
+    });
+
+    it('user → cache содержит мусор → fallback на БД', async () => {
+      redis.get.mockResolvedValueOnce('not json');
+      prisma.puzzle.count
+        .mockResolvedValueOnce(7)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0);
+      const r = await service.getScopeCounts('u-1');
+      expect(r).toEqual({ server: 7, drafts: 0, published: 0 });
     });
   });
 });

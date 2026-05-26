@@ -87,6 +87,17 @@ export class PrecisionController {
   }
 
   /**
+   * KS-3345 / ADR-079 §3.3 / §4.2. GET /precision/scope-counts —
+   * счётчики для chips-bar pill'ов. JwtAuthGuard: гостю не отдаём
+   * (у него нет drafts/published). Cache 60s в Redis per-user.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('scope-counts')
+  async getScopeCounts(@Request() req: AuthenticatedRequest) {
+    return this.precision.getScopeCounts(req.user.id);
+  }
+
+  /**
    * KS-2724. GET /precision/attempts/me?limit=&offset= — список
    * PVE-попыток текущего пользователя (последние первыми) с
    * агрегатами Уровня А для рендера «истории попыток» на /precision.

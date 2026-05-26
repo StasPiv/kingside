@@ -28,13 +28,108 @@ import {
   computeVerdictKey,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import type { CreateTestFixtureAttemptDto } from './dto/test-fixture.dto';
+
+const SCOPE_COUNTS_CACHE_TTL_SEC = 60;
+const SCOPE_COUNTS_CACHE_PREFIX = 'precision:scope-counts:';
 
 @Injectable()
 export class PrecisionService {
   private readonly logger = new Logger(PrecisionService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+
+  /**
+   * KS-3345 / ADR-079 §3.3 / §4.2. Счётчики precision-пазлов для
+   * pill'ов chips-bar [Серверные] / [Мои черновики] / [Мои опубликованные].
+   *
+   * Маппинг scope → фильтры (см. ADR §2.1):
+   *   - server    = source='generated' AND is_public=true AND created_by != userId
+   *   - drafts    = source='generated' AND is_public=false AND created_by = userId
+   *   - published = source='generated' AND is_public=true AND created_by = userId
+   *
+   * Cache: 60s per-user, ключ `precision:scope-counts:<userId>`.
+   * Гость (userId=null) — возвращает только `server` count (drafts/
+   * published = 0 и пилюлы скрыты на фронте).
+   *
+   * Replica-safe: ключ user-specific, без write race-conditions.
+   */
+  async getScopeCounts(
+    userId: string | null,
+  ): Promise<{ server: number; drafts: number; published: number }> {
+    // Гость: drafts/published тривиально 0; server считаем (он публичный).
+    if (!userId) {
+      const server = await this.prisma.puzzle.count({
+        where: { source: 'generated', isPublic: true },
+      });
+      return { server, drafts: 0, published: 0 };
+    }
+
+    const cacheKey = `${SCOPE_COUNTS_CACHE_PREFIX}${userId}`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (
+          parsed &&
+          typeof parsed.server === 'number' &&
+          typeof parsed.drafts === 'number' &&
+          typeof parsed.published === 'number'
+        ) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[getScopeCounts] redis get failed for ${cacheKey}: ${(err as Error).message}`,
+      );
+    }
+
+    // Три COUNT'а параллельно. На большой puzzle-таблице count'ы
+    // тяжёлые — но cache на 60s покрывает 99% нагрузки. Если станет
+    // bottleneck — переход на approximate-count или materialized view.
+    const [server, drafts, published] = await Promise.all([
+      this.prisma.puzzle.count({
+        where: {
+          source: 'generated',
+          isPublic: true,
+          NOT: { createdBy: userId },
+        },
+      }),
+      this.prisma.puzzle.count({
+        where: {
+          source: 'generated',
+          isPublic: false,
+          createdBy: userId,
+        },
+      }),
+      this.prisma.puzzle.count({
+        where: {
+          source: 'generated',
+          isPublic: true,
+          createdBy: userId,
+        },
+      }),
+    ]);
+    const result = { server, drafts, published };
+    try {
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(result),
+        'EX',
+        SCOPE_COUNTS_CACHE_TTL_SEC,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[getScopeCounts] redis set failed for ${cacheKey}: ${(err as Error).message}`,
+      );
+    }
+    return result;
+  }
 
   /**
    * Уровень А (ADR-056 §2.1): top-блок `/precision` страницы.

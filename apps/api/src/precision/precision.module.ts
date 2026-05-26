@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { RedisModule } from '../redis/redis.module';
 import { PrecisionController } from './precision.controller';
 import { PrecisionService } from './precision.service';
 import { PrecisionTestFixtureController } from './precision-test-fixture.controller';
@@ -16,7 +17,7 @@ import { DevOnlyGuard } from './dev-only.guard';
  * На проде guard вернёт 404.
  */
 @Module({
-  imports: [ConfigModule, AuthModule, PrismaModule],
+  imports: [ConfigModule, AuthModule, PrismaModule, RedisModule],
   controllers: [PrecisionController, PrecisionTestFixtureController],
   providers: [PrecisionService, DevOnlyGuard],
   exports: [PrecisionService],
