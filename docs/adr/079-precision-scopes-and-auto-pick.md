@@ -1,6 +1,6 @@
 # ADR-079. /precision — отделение пользовательских задач, «Начать тренировку», авто-подбор по рейтингу
 
-Статус: предложен (2026-05-26)
+Статус: принят (2026-05-26, финализация)
 Связано: KS-3339 (этот ADR), ADR-048 (Precision раздел),
 ADR-057 (Precision UX split), ADR-076 (mobile chips-bar +
 bottom-sheet), ADR-065 (5-звёздочный score),
@@ -11,6 +11,11 @@ KS-3339 — заводим отдельный `precision-рейтинг` (а н�
 `User.ratingPuzzle`); счётчики scope-counts становятся обязательными;
 backward-compat старых URL — переписывание сразу. См. §3.6, §8 (новые
 задачи B0/B0.5/S2).
+
+**Ревизия 3 (2026-05-26, финализация):** подтверждён anti-cheat —
+`applyRatingChange` skip'ается когда `puzzle.createdBy === userId`
+(нельзя качать рейтинг через свои же сгенерированные задачи). См.
+§3.6.2 шаг 1.5 и acceptance KS-3349.
 
 ## 1. Контекст
 
@@ -261,22 +266,29 @@ puzzleRating, attemptScore)`, который:
 1. Skip если `userId == null` (гость — рейтинг не пишем).
 2. Skip если `User.isHidden || User.isTestAccount` (service-аккаунты
    не попадают в leaderboard'ы; согласовано с ADR-035 §10.7-4).
-3. Берёт текущий `UserPrecisionRating` (или создаёт default 1500/350).
-4. Маппит `PrecisionAttempt.score` (0..100, ADR-065 5-звёздочный) в
+3. **Anti-cheat (KS-3339 ревизия 3):** Skip если
+   `puzzle.createdBy === userId`. Нельзя качать рейтинг через
+   собственные сгенерированные задачи (для drafts/published-scope
+   пользователь сам выбирает сложность через `PuzzleGeneratorModal`,
+   рейтинг таких задач не валиден против него самого). Attempt
+   всё равно пишется в БД (для статистики), `ratingBefore/After =
+   NULL`.
+4. Берёт текущий `UserPrecisionRating` (или создаёт default 1500/350).
+5. Маппит `PrecisionAttempt.score` (0..100, ADR-065 5-звёздочный) в
    Glicko-outcome:
    - score ≥ 80 (4–5★) → outcome **1.0** (победа)
    - 50 ≤ score < 80 (3★) → outcome **0.5** (ничья)
    - score < 50 (1–2★) → outcome **0.0** (поражение)
-5. Получает соперника = `Puzzle.rating` (если null — fallback
+6. Получает соперника = `Puzzle.rating` (если null — fallback
    1500, новые generated до калибровки). PuzzleRD = 50 (тот же
    фиксированный, что у drill).
-6. Glicko-1 continuous update через `GlickoRatingService` (он уже
+7. Glicko-1 continuous update через `GlickoRatingService` (он уже
    есть в `apps/api/src/puzzle/glicko-rating.service.ts`,
    переиспользуем без правок).
-7. Burst-penalty и daily-cap — НЕ применяем в MVP (precision не
+8. Burst-penalty и daily-cap — НЕ применяем в MVP (precision не
    competitive, лидерборд позже). Если в будущем — расширяем
    копируя из `TacticDrillRatingService`.
-8. Записывает обновлённые `rating/deviation/attempts/lastAttemptAt`
+9. Записывает обновлённые `rating/deviation/attempts/lastAttemptAt`
    в `UserPrecisionRating`. В `PrecisionAttempt` добавляем поля
    `ratingBefore`/`ratingAfter` (миграция).
 
@@ -564,13 +576,20 @@ counter'ы на pill'ах сразу).
   внутри той же транзакции вызвать `applyRatingChange` и записать
   `ratingBefore/ratingAfter` в attempt.
 - БЕЗ burst-penalty / daily-cap в MVP.
+- **Anti-cheat (KS-3339 ревизия 3):** skip когда
+  `puzzle.createdBy === userId` (не качаем рейтинг через свои же
+  задачи). Attempt всё равно пишется, `ratingBefore/After = NULL`.
 **Acceptance:**
-- Юнит-тесты на 6 сценариев: новый user; победа +; ничья ≈;
-  поражение −; гость skip; hidden skip.
+- Юнит-тесты на 7 сценариев: новый user; победа +; ничья ≈;
+  поражение −; гость skip; hidden skip; **self-created skip
+  (puzzle.createdBy === userId → ratingBefore/After = NULL,
+  attempt записан)**.
 - Integration-тест: запись precision-attempt с score=85 → rating
   пользователя увеличился, в attempt записаны before/after.
 - `PrecisionAttempt.ratingBefore != ratingAfter` после успешного
   обновления.
+- Integration-тест self-cheat: user генерирует свой puzzle через
+  PuzzleGenerator → решает его → rating не меняется, attempt в БД.
 
 ### KS-3350 (B3) — endpoint `GET /precision/me/rating`
 
