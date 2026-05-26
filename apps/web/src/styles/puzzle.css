@@ -5915,7 +5915,9 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   background: var(--bg-hover, #2c2c47);
 }
 
-/* KS-3361 (ADR-080 §7 F1). Bottom-sheet выбора precision-тем. */
+/* KS-3361 / KS-3363 (ADR-080 §7 L1). Bottom-sheet выбора precision-тем.
+   Mobile (≤767px): прижат к низу, slide-up. Desktop (≥768): centered
+   modal с радиусом по всем углам и max-width 520px. */
 .precision-themes-sheet {
   position: fixed;
   inset: 0;
@@ -5938,29 +5940,53 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   position: relative;
   width: 100%;
   max-width: 100%;
-  max-height: 85vh;
+  max-height: 85dvh;
   background: var(--bg-surface, #1a1a2e);
   border-radius: 14px 14px 0 0;
   display: flex;
   flex-direction: column;
   padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px var(--ov-black-40, rgba(0, 0, 0, 0.35));
+  animation: precision-themes-sheet-slide-up 220ms
+    cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes precision-themes-sheet-slide-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 .precision-themes-sheet__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-subtle, #2a2a3e);
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface, #1a1a2e);
+  z-index: 1;
 }
 .precision-themes-sheet__title {
   margin: 0;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary, #e0e0e0);
 }
 .precision-themes-sheet__count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ov-accent-08, rgba(99, 102, 241, 0.12));
   color: var(--accent, #6366f1);
+  font-size: 13px;
   font-weight: 700;
+  vertical-align: middle;
 }
 .precision-themes-sheet__close {
   appearance: none;
@@ -5970,12 +5996,21 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   line-height: 1;
   color: var(--text-secondary, #a0a0c0);
   cursor: pointer;
-  padding: 0 4px;
+  padding: 4px 8px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 8px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.precision-themes-sheet__close:hover {
+  background: var(--bg-hover, #2c2c47);
+  color: var(--text-primary, #e0e0e0);
 }
 .precision-themes-sheet__body {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
 }
 .precision-themes-sheet__group {
   border-bottom: 1px solid var(--border-subtle, #2a2a3e);
@@ -5989,7 +6024,7 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 14px 16px;
   background: transparent;
   border: 0;
   text-align: left;
@@ -5997,27 +6032,63 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   color: var(--text-primary, #e0e0e0);
   font-size: 15px;
   font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
 }
 .precision-themes-sheet__group-toggle:hover {
-  background: var(--bg-hover, #2c2c47);
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
 }
-.precision-themes-sheet__group-name { flex: 1 1 auto; }
+.precision-themes-sheet__group-toggle:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: -2px;
+}
+.precision-themes-sheet__group-name {
+  flex: 1 1 auto;
+}
 .precision-themes-sheet__group-total {
-  font-weight: 400;
+  font-weight: 500;
   font-size: 13px;
   color: var(--text-secondary, #a0a0c0);
 }
 .precision-themes-sheet__group-caret {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-secondary, #a0a0c0);
+  width: 16px;
+  text-align: center;
+  transition: transform 160ms ease;
+  display: inline-block;
+}
+.precision-themes-sheet__group--collapsed
+  .precision-themes-sheet__group-caret {
+  transform: rotate(0deg);
 }
 .precision-themes-sheet__list {
   list-style: none;
-  padding: 0 0 4px;
+  padding: 0 0 8px;
   margin: 0;
+  animation: precision-themes-sheet-list-fade 160ms ease-out;
 }
-.precision-themes-sheet__item { padding: 6px 16px; }
-.precision-themes-sheet__item--disabled { opacity: 0.5; }
+@keyframes precision-themes-sheet-list-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.precision-themes-sheet__item {
+  padding: 0;
+  border-radius: 8px;
+  margin: 2px 8px;
+  transition: background 120ms ease;
+}
+.precision-themes-sheet__item:hover:not(
+    .precision-themes-sheet__item--disabled
+  ) {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.precision-themes-sheet__item[data-checked='true'] {
+  background: var(--ov-accent-08, rgba(99, 102, 241, 0.12));
+}
+.precision-themes-sheet__item--disabled {
+  opacity: 0.45;
+}
 .precision-themes-sheet__label {
   display: flex;
   align-items: center;
@@ -6025,24 +6096,42 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   cursor: pointer;
   color: var(--text-primary, #e0e0e0);
   font-size: 14px;
+  padding: 10px 12px;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
 }
-.precision-themes-sheet__item--disabled .precision-themes-sheet__label { cursor: not-allowed; }
+.precision-themes-sheet__item--disabled .precision-themes-sheet__label {
+  cursor: not-allowed;
+}
 .precision-themes-sheet__checkbox {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   accent-color: var(--accent, #6366f1);
+  cursor: inherit;
 }
-.precision-themes-sheet__theme-name { flex: 1 1 auto; }
+.precision-themes-sheet__theme-name {
+  flex: 1 1 auto;
+  line-height: 1.3;
+}
+.precision-themes-sheet__item[data-checked='true']
+  .precision-themes-sheet__theme-name {
+  font-weight: 600;
+  color: var(--accent, #6366f1);
+}
 .precision-themes-sheet__theme-count {
   color: var(--text-secondary, #a0a0c0);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .precision-themes-sheet__footer {
   display: flex;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom)) 16px;
   border-top: 1px solid var(--border-subtle, #2a2a3e);
+  background: var(--bg-surface, #1a1a2e);
+  position: sticky;
+  bottom: 0;
 }
 .precision-themes-sheet__reset,
 .precision-themes-sheet__apply {
@@ -6054,19 +6143,80 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   font-weight: 600;
   cursor: pointer;
   border: 0;
-  transition: background 120ms ease, opacity 120ms ease;
+  min-height: 48px;
+  transition: background 120ms ease, opacity 120ms ease,
+    transform 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.precision-themes-sheet__reset:active:not(:disabled),
+.precision-themes-sheet__apply:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .precision-themes-sheet__reset {
   background: var(--bg-elevated, #25253d);
   color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-subtle, #2a2a3e);
 }
-.precision-themes-sheet__reset:disabled { opacity: 0.45; cursor: not-allowed; }
+.precision-themes-sheet__reset:hover:not(:disabled) {
+  background: var(--bg-hover, #2c2c47);
+}
+.precision-themes-sheet__reset:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .precision-themes-sheet__apply {
   background: var(--accent, #6366f1);
   color: #fff;
 }
-.precision-themes-sheet__apply:hover { background: var(--accent-hover, #818cf8); }
-.precision-chip--themes { font-weight: 500; }
+.precision-themes-sheet__apply:hover {
+  background: var(--accent-hover, #818cf8);
+}
+
+/* KS-3363: theme-chip в chips-bar. Иконка-tag перед текстом
+   подчёркивает «фильтр-таг». Active-state наследуется от
+   .precision-chip--active (через --tab-active-*), но добавляем
+   inline-badge со счётчиком через ::after по data-count. */
+.precision-chip--themes {
+  font-weight: 500;
+}
+.precision-chip--themes::before {
+  content: '🏷';
+  margin-right: 4px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.precision-chip--themes.precision-chip--active::before {
+  opacity: 1;
+}
+
+/* Desktop: bottom-sheet → centered modal. */
+@media (min-width: 768px) {
+  .precision-themes-sheet {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .precision-themes-sheet__panel {
+    width: min(520px, 100%);
+    max-width: 520px;
+    max-height: min(720px, 90vh);
+    border-radius: 14px;
+    animation: precision-themes-sheet-fade-in 180ms ease-out;
+  }
+  @keyframes precision-themes-sheet-fade-in {
+    from {
+      transform: translateY(8px) scale(0.98);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
+  .precision-themes-sheet__footer {
+    padding-bottom: 12px;
+  }
+}
 
 /* KS-3350 / KS-3351 (ADR-079 §3.5). Read-only pill «Рейтинг: 1487 (±42)».
    Лёгкий accent-tint в фоне — отличает от scope-pill'ов в той же шапке. */
