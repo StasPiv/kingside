@@ -1973,6 +1973,40 @@ describe('PlayVsEngineRunner KS-3366 — кнопка «Проиграть по�
       screen.getByTestId('puzzle-engine-replay-blunder'),
     ).toBeInTheDocument();
   });
+
+  // KS-3370: для preventive-пазлов (fenBeforeBlunder == puzzle.fen)
+  // replay-анимация показывает blunderMove и потом откатывает обратно
+  // на стартовую позицию. Кнопка работает (не падает на повторных кликах).
+  it('KS-3370: preventive — клик по replay не падает (revert-таймер планируется)', async () => {
+    // Превентивный пазл: solver играет ВМЕСТО блaндера, fenBefore == puzzle.fen.
+    const startFen = '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39';
+    const puzzle = makePuzzle({
+      fen: startFen,
+      themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
+      playVsEngine: {
+        blunderMove: 'd5d6',
+        fenBeforeBlunder: startFen, // KS-3370: для preventive они равны
+        wdlAfterBlunder: 0.6,
+        winThreshold: 0.5,
+        failThreshold: 0.0,
+        halfMovesN: 4,
+        objective: 'convertAdvantage',
+      },
+    } as Partial<PuzzleDto>);
+    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+    renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+    );
+    const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+    expect(btn.getAttribute('data-puzzle-phase')).toBe('preventive');
+    // Повторные клики не должны бросать (cancelBlunderTimers внутри).
+    btn.click();
+    btn.click();
+    btn.click();
+    expect(
+      screen.getByTestId('puzzle-engine-replay-blunder'),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {

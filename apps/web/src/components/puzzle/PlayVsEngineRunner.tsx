@@ -507,6 +507,21 @@ export function PlayVsEngineRunner({
   const userSide = useMemo<'w' | 'b'>(() => sideFromFen(puzzle.fen), [puzzle.fen]);
   const orientation = userSide === 'w' ? 'white' : 'black';
 
+  // KS-3162 / KS-3164 / KS-3370: фаза пазла читается из тега в
+  // `puzzle.themes`. Используется в:
+  //   - KS-3370 replayBlunder (preventive ветка с возвратом на стартовую);
+  //   - KS-3164 форматировании move-индекса;
+  //   - KS-3162 выборе hint-ключа (упразднено KS-3369);
+  //   - data-attr на replay-кнопке (KS-3369).
+  const puzzlePhaseFromThemes: 'preventive' | 'reactive' | null = (() => {
+    const themesArr: ReadonlyArray<string> = Array.isArray(puzzle.themes)
+      ? (puzzle.themes as ReadonlyArray<string>)
+      : [];
+    if (themesArr.includes('preventive')) return 'preventive';
+    if (themesArr.includes('reactive')) return 'reactive';
+    return null;
+  })();
+
   // KS-3365: стартуем с fenBeforeBlunder (если есть) — затем эффектом
   // ниже анимируем blunderMove до перехода в puzzle.fen. UX: пользователь
   // видит как соперник ходит, не получает позицию «с воздуха».
@@ -703,24 +718,74 @@ export function PlayVsEngineRunner({
   const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastMoveUciRef = useRef<string | null>(null);
 
-  // KS-3365/3366: анимация blunderMove на старте. Через короткую задержку
-  // применяем UCI-ход соперника на `fenBeforeBlunder` → react-chessboard
-  // анимирует движение фигуры (animationDurationInMs=300ms в PuzzleBoard,
-  // KS-3366). После анимации `lastMoveUciRef` хранит blunderMove —
-  // PuzzleBoard подсветит клетки `from`/`to`, как при обычном ходе.
-  // KS-3366: вынес в отдельный callback `replayBlunder` — кнопка
-  // «Проиграть последний ход» (см. ниже в return) дёргает её повторно.
+  // KS-3365/3366/3370: анимация blunderMove на старте + кнопка «Проиграть
+  // последний ход». PuzzleBoard анимирует движение фигуры через
+  // setGame с интервалом 300ms (KS-3366). После анимации `lastMoveUciRef`
+  // хранит blunderMove → подсветка `from`/`to`-клеток.
+  //
+  // KS-3370: ветвление по фазе пазла:
+  //   - **reactive** (соперник зевнул, solver наказывает): start =
+  //     `fenBeforeBlunder` (позиция ДО зевка), через 400ms applying
+  //     blunderMove → board переходит в `puzzle.fen` (позиция ПОСЛЕ
+  //     зевка) → solver играет с неё. Финальная позиция — `puzzle.fen`.
+  //   - **preventive** (солвер играет ВМЕСТО зевка): `fenBeforeBlunder
+  //     === puzzle.fen` (стартовая позиция). Анимация: применить
+  //     blunderMove на `puzzle.fen` → пауза 1500ms → откат обратно на
+  //     `puzzle.fen` (solver сейчас играет с этой позиции, выбрав
+  //     ход отличный от blunderMove). Финальная позиция — `puzzle.fen`.
   const blunderReplayTimerRef = useRef<number | null>(null);
+  const blunderRevertTimerRef = useRef<number | null>(null);
+  const isPreventive = puzzlePhaseFromThemes === 'preventive';
+  const cancelBlunderTimers = useCallback(() => {
+    if (blunderReplayTimerRef.current) {
+      window.clearTimeout(blunderReplayTimerRef.current);
+      blunderReplayTimerRef.current = null;
+    }
+    if (blunderRevertTimerRef.current) {
+      window.clearTimeout(blunderRevertTimerRef.current);
+      blunderRevertTimerRef.current = null;
+    }
+  }, []);
   const replayBlunder = useCallback(() => {
     if (!canAnimateBlunder || !fenBeforeBlunder) return;
     const uci = params.blunderMove;
-    // Сначала возвращаем доску в fenBeforeBlunder (мгновенно, без
-    // анимации — PuzzleBoard сам подавит её через `suppressAnimation`
-    // для большого скачка). Через 400ms ставим puzzle.fen → плавная
-    // анимация blunderMove (300ms по KS-3366).
-    if (blunderReplayTimerRef.current) {
-      window.clearTimeout(blunderReplayTimerRef.current);
+    const moveOpts = {
+      from: uci.slice(0, 2),
+      to: uci.slice(2, 4),
+      promotion: uci.length > 4 ? uci[4] : undefined,
+    };
+    cancelBlunderTimers();
+
+    if (isPreventive) {
+      // KS-3370: превентив. Стартовая позиция = puzzle.fen (она же
+      // fenBeforeBlunder). Применяем blunder через 400ms → пауза
+      // 1500ms → откат на puzzle.fen.
+      setGame(new Chess(puzzle.fen));
+      lastMoveUciRef.current = null;
+      blunderReplayTimerRef.current = window.setTimeout(() => {
+        try {
+          const after = new Chess(puzzle.fen);
+          const mv = after.move(moveOpts);
+          if (mv) {
+            setGame(new Chess(after.fen()));
+            lastMoveUciRef.current = uci;
+            playSound(soundEventFromSan(mv.san));
+            // Откат на стартовую через 1500ms — даём время разглядеть.
+            blunderRevertTimerRef.current = window.setTimeout(() => {
+              setGame(new Chess(puzzle.fen));
+              lastMoveUciRef.current = null;
+            }, 1500);
+          }
+        } catch {
+          /* fallback: возвращаем стартовую без звука */
+          setGame(new Chess(puzzle.fen));
+        }
+      }, 400);
+      return;
     }
+
+    // Реактивный (default): старт = fenBeforeBlunder; через 400ms →
+    // puzzle.fen (анимация blunderMove). Финальная позиция puzzle.fen.
     setGame(new Chess(fenBeforeBlunder));
     lastMoveUciRef.current = null;
     blunderReplayTimerRef.current = window.setTimeout(() => {
@@ -729,11 +794,7 @@ export function PlayVsEngineRunner({
         lastMoveUciRef.current = uci;
         try {
           const probe = new Chess(fenBeforeBlunder);
-          const mv = probe.move({
-            from: uci.slice(0, 2),
-            to: uci.slice(2, 4),
-            promotion: uci.length > 4 ? uci[4] : undefined,
-          });
+          const mv = probe.move(moveOpts);
           if (mv) playSound(soundEventFromSan(mv.san));
         } catch {
           /* fallback: без звука */
@@ -748,21 +809,21 @@ export function PlayVsEngineRunner({
     params.blunderMove,
     puzzle.fen,
     playSound,
+    isPreventive,
+    cancelBlunderTimers,
   ]);
 
-  // KS-3365: первый запуск анимации — ровно один раз на mount (компонент
-  // пересоздаётся через key={puzzle.id} в PuzzlePage при смене пазла).
+  // KS-3365/3370: первый запуск анимации — ровно один раз на mount.
+  // Компонент пересоздаётся через key={puzzle.id} в PuzzlePage при
+  // смене пазла. Cleanup отменяет ОБА таймера (replay + revert), чтобы
+  // unmount во время превентивной задержки 1500ms не оставлял setGame
+  // на удалённом дереве.
   const blunderAnimatedRef = useRef(false);
   useEffect(() => {
     if (!canAnimateBlunder || blunderAnimatedRef.current) return;
     blunderAnimatedRef.current = true;
     replayBlunder();
-    return () => {
-      if (blunderReplayTimerRef.current) {
-        window.clearTimeout(blunderReplayTimerRef.current);
-        blunderReplayTimerRef.current = null;
-      }
-    };
+    return () => cancelBlunderTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // один раз на mount
 
@@ -1686,18 +1747,8 @@ export function PlayVsEngineRunner({
   // экспорты (используются в тестах).
 
   // KS-3162 / KS-3164: фаза пазла читается из тега в `puzzle.themes`
-  // (KS-3160 пишет `'preventive'` / `'reactive'`). DTO-поле в shared
-  // ещё не объявлено. Объявлена единая константа на компонент, чтобы
-  // использовать и при форматировании move-индекса (KS-3164), и при
-  // выборе hint-ключа (KS-3162).
-  const puzzlePhaseFromThemes: 'preventive' | 'reactive' | null = (() => {
-    const themesArr: ReadonlyArray<string> = Array.isArray(puzzle.themes)
-      ? (puzzle.themes as ReadonlyArray<string>)
-      : [];
-    if (themesArr.includes('preventive')) return 'preventive';
-    if (themesArr.includes('reactive')) return 'reactive';
-    return null;
-  })();
+  // KS-3370: `puzzlePhaseFromThemes` поднята в начало компонента
+  // (рядом с `params`/`userSide`) — нужна для `replayBlunder`-ветвления.
 
   return (
     <div
