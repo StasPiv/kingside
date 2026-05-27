@@ -2855,6 +2855,9 @@ body:has(.puzzle-rush-board) {
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
+    /* KS-3368: container-type, чтобы eval-bar мог через max-height
+       привязаться к ширине layout (= width board-col + eval + gap). */
+    container-type: inline-size;
   }
 
   .puzzle-engine-runner .eval-bar-container,
@@ -2868,6 +2871,15 @@ body:has(.puzzle-rush-board) {
     /* Override глобального `.eval-bar-container { display: none }` из
        responsive.css — здесь EvalBar нужна. */
     display: flex;
+    /* KS-3368: на mobile flex-row align-items по умолчанию stretch —
+       eval-bar растягивался на всю высоту __board-col (доска +
+       progress + hint + actions + result). Должен оставаться высотой
+       доски. board квадратная (aspect 1/1), её ширина = 100cqi -
+       eval-width (20px) - gap (8px) = 100cqi - 28px. Соответственно
+       высота board = 100cqi - 28px. + 48px на progress + gap10 над
+       доской (eval-bar выровнен с верха __layout, прогресс — первая
+       row board-col). */
+    max-height: calc(100cqi - 28px + 48px);
   }
 
   .puzzle-engine-runner .eval-bar-label {
@@ -2913,6 +2925,8 @@ body:has(.puzzle-rush-board) {
   .puzzle-engine-runner .eval-bar {
     flex: 0 0 16px;
     width: 16px;
+    /* KS-3368: пересчёт max-height для <360 (eval 16px, gap 6px). */
+    max-height: calc(100cqi - 22px + 48px);
   }
   .puzzle-engine-runner .eval-bar-label {
     font-size: 10px;
