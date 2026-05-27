@@ -1039,31 +1039,16 @@ export function PlayVsEngineRunner({
       // и UI показывал lose-wdl при идеальной игре (см. KS-2533).
       const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
 
-      // KS-2506 / KS-3380 partial. Для best-case (playedUci===bestUci)
-      // cpAfter/wdlAfter уже проставлены в pre-analyze (равны
-      // cpBefore/wdlBefore). Для не-best — снимаем POST-analyze в
-      // позиции после хода и инвертируем POV.
-      // KS-3380 partial: full pre-frame extra-analyze для не-best не
-      // вошёл в этот scope (race с engineQueueRef требует refactor).
-      const cpAfterUser = -cpFromScore(best.score);
-      const wdlAfterUser = best.wdl ? flipWdl(best.wdl) : null;
+      // KS-3380 full: post-analyze БОЛЬШЕ НЕ пишет в snapshot.cpAfter/
+      // wdlAfter — pre+extra уже сделали это в одной фрейме на
+      // fenBefore. Здесь только обновляем `depth` (макс между pre и
+      // post) для UI и dropвход engineUci ниже после bestmove.
       updateUserBestLog((prev) =>
-        prev.map((s) => {
-          if (s.halfMove !== halfAfterUser) return s;
-          // KS-3380 partial: если pre-analyze уже подставил best-case
-          // данные (cpAfter !== null), post-analyze их НЕ перезаписывает.
-          if (s.cpAfter !== null) {
-            return { ...s, depth: s.depth ?? best.depth };
-          }
-          // Иначе — старая семантика: cpAfter из post-analyze
-          // с инверсией POV.
-          return {
-            ...s,
-            cpAfter: cpAfterUser,
-            wdlAfter: wdlAfterUser,
-            depth: s.depth ?? best.depth,
-          };
-        }),
+        prev.map((s) =>
+          s.halfMove === halfAfterUser
+            ? { ...s, depth: Math.max(s.depth ?? 0, best.depth) }
+            : s,
+        ),
       );
 
       // 2) Терминальные ситуации до хода движка.
@@ -1311,69 +1296,91 @@ export function PlayVsEngineRunner({
       const halfAfterUser = halfMovesPlayed + 1;
       setHalfMovesPlayed(halfAfterUser);
 
-      // KS-2473/KS-3380 (partial): pre-analyze позиции ДО хода юзера.
-      // KS-3380 partial scope: при `playedUci === bestUci` сразу копируем
-      // wdlBefore/cpBefore в wdlAfter/cpAfter — это гарантирует
-      // `lossE ≡ 0` → `classification='best'`. Закрывает основной кейс
-      // KS-3380 (PV1-ход ошибочно помечен `?!` из-за расхождения pre vs
-      // post snapshots на WASM).
+      // KS-3380 full: один последовательный async-pipeline:
+      //   pre-analyze (PV1=bestUci, wdlBefore) →
+      //   extra-analyze (searchmoves=[playedUci], wdlAfter) если !isBest →
+      //   запись snapshot →
+      //   runEngineCycle / inline-final (post-analyze).
+      // Гарантирует что post-analyze идёт ПОСЛЕ snapshot записи,
+      // submitOnce читает свежий userBestLogRef. Все analyze идут через
+      // queueAnalyze — последовательно через engineQueueRef, без race.
       //
-      // При `playedUci !== bestUci` оставляем старую логику: post-analyze
-      // в `runEngineCycle` инвертирует score POV соперника → POV user и
-      // дописывает cpAfter/wdlAfter. KS-3260 guard в classifyMove
-      // продолжает защищать от ложного `best`-override при lossE>0.05.
-      //
-      // Full pre-frame extra-analyze для не-best случаев — отдельный
-      // тикет (race на engineQueueRef с runEngineCycle требует
-      // refactor flow).
+      // Зачем: раньше pre-analyze и runEngineCycle стартовали как
+      // независимые void async. extra (если бы добавилось внутри
+      // pre-async) вставала в очередь ПОСЛЕ runEngineCycle's post →
+      // submitOnce читал snapshot до patch'а.
       void (async () => {
         try {
           await ensureEngine();
           const pre = await queueAnalyze(fenBefore);
           const preBest = pickBestLine(pre);
-          if (!preBest || !preBest.pv[0]) return;
-          const cpBefore = cpFromScore(preBest.score);
-          const wdlBefore = preBest.wdl ?? null;
-          const bestUci = preBest.pv[0];
-          const isBest = playedUci === bestUci;
-          updateUserBestLog((prev) => [
-            ...prev,
-            {
-              halfMove: halfAfterUser,
-              fenBefore,
-              playedUci,
-              bestUci,
-              cpBefore,
-              // KS-3380 partial: best-case → cpAfter≡cpBefore, lossE=0.
-              cpAfter: isBest ? cpBefore : null,
-              wdlBefore,
-              wdlAfter: isBest ? wdlBefore : null,
-              depth: preBest.depth,
-              engineUci: null,
-            },
-          ]);
-        } catch {
-          /* ignore — post-mortem-подсказка для этого хода будет пустой */
-        }
-      })();
 
-      if (halfAfterUser >= params.halfMovesN) {
-        // По описанию ADR halfMovesN считается общим числом полуходов;
-        // если пользователь сделал последний полуход — сразу финальный
-        // чек после оценки. evaluating сделает analyze, и далее идёт
-        // обычная проверка mate/wdl. Если wdl >= winThreshold и не lose
-        // → это уже win, иначе lose.
-        // Реализация: запускаем стандартный engine-cycle, но в нём при
-        // halfAfterEngine >= N мы делаем final analyze. Чтобы учесть
-        // случай user-last-move, обработаем здесь же.
-        void (async () => {
-          setState('evaluating');
-          try {
-            await ensureEngine();
+          // Если pre упал — snapshot не создаём (legacy fallback-effect
+          // на win/lose попробует ещё раз).
+          if (preBest && preBest.pv[0]) {
+            const cpBefore = cpFromScore(preBest.score);
+            const wdlBefore = preBest.wdl ?? null;
+            const bestUci = preBest.pv[0];
+            const isBest = playedUci === bestUci;
+
+            let cpAfter: number | null = null;
+            let wdlAfter: typeof wdlBefore = null;
+            let depthAfter: number | null = preBest.depth;
+
+            if (isBest) {
+              // Один и тот же ход — оценки в одной фрейме тождественно
+              // равны. Никакого extra-analyze не нужно. lossE=0 → best.
+              cpAfter = cpBefore;
+              wdlAfter = wdlBefore;
+            } else {
+              // KS-3380: extra-analyze playedUci на той же fenBefore.
+              // SF с searchmoves=[playedUci] вернёт PV1 этого хода →
+              // wdl/cp POV user (на fenBefore ходит user) в той же
+              // фрейме, что и pre.
+              try {
+                const extra = await queueAnalyze(fenBefore, {
+                  multiPv: 1,
+                  searchmoves: [playedUci],
+                });
+                const extraBest = pickBestLine(extra);
+                if (extraBest) {
+                  cpAfter = cpFromScore(extraBest.score);
+                  wdlAfter = extraBest.wdl ?? null;
+                  depthAfter = Math.max(depthAfter ?? 0, extraBest.depth);
+                }
+              } catch {
+                /* extra упал — cpAfter/wdlAfter останутся null,
+                   downstream грейсфолит / fallback-effect повторит. */
+              }
+            }
+
+            updateUserBestLog((prev) => [
+              ...prev,
+              {
+                halfMove: halfAfterUser,
+                fenBefore,
+                playedUci,
+                bestUci,
+                cpBefore,
+                cpAfter,
+                wdlBefore,
+                wdlAfter,
+                depth: depthAfter,
+                engineUci: null,
+              },
+            ]);
+          }
+
+          // ── Post-фаза: engine reply или inline-final ───────────────
+          if (halfAfterUser >= params.halfMovesN) {
+            // Inline-final-branch (последний user-полуход партии,
+            // engine не отвечает). KS-3380: post-analyze здесь НЕ
+            // пишет в snapshot — pre+extra уже всё сделали. Этот
+            // analyze нужен только для UI (evalBar) и verdict.
+            setState('evaluating');
             const result = await queueAnalyze(next.fen());
             const best = pickBestLine(result);
             setEvalLines(toEvalLines(result));
-            // KS-2519: side-to-move на FEN после user-хода — соперник.
             setEvalSide(sideFromFen(next.fen()));
             if (next.isCheckmate()) {
               finishWin('win-mate', 1, halfAfterUser);
@@ -1381,12 +1388,9 @@ export function PlayVsEngineRunner({
             }
             const wdlUser = best ? -scoreToWdlSigned(best.score) : 0;
             setLatestWdlUser(wdlUser);
-            // KS-2527: post-analyze FEN POV соперника → flipWdl.
             const wdlUserObj = best?.wdl ? flipWdl(best.wdl) : null;
             setLatestWdl(wdlUserObj);
-            // KS-2533: WDL-данные приоритетнее sigmoid.
             const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
-            // KS-2955: см. описание выше про учёт `bestUci`.
             const snapForVerdict = userBestLogRef.current.find(
               (s) => s.halfMove === halfAfterUser,
             );
@@ -1400,9 +1404,6 @@ export function PlayVsEngineRunner({
                   : null,
                 effWdlUser,
                 params.failThreshold,
-                // KS-3248: см. комментарий в основном code-path выше —
-                // для saveEquality fail-check отключаем, финал через
-                // meetsFinalObjective ниже.
                 objective ?? null,
               )
             ) {
@@ -1413,13 +1414,10 @@ export function PlayVsEngineRunner({
               finishWin('win-engine-resign', effWdlUser, halfAfterUser);
               return;
             }
-            // KS-2968: drop-check на финальный полуход (без engine-ответа).
-            // Если win% упал относительно baseline сильнее порога — ставим
-            // «потеряно», даже если effWdlUser формально в плюсе.
-            // KS-3169: для saveEquality drop-check отключаем (см. ветки
-            // выше); финальный успех — `meetsFinalObjective`.
             const baselineLastUser =
-              clientBaselineWdlRef.current ?? puzzle.playVsEngine?.wdlAfter ?? null;
+              clientBaselineWdlRef.current ??
+              puzzle.playVsEngine?.wdlAfter ??
+              null;
             const dropTooHighLastUser =
               objective === 'saveEquality'
                 ? false
@@ -1435,15 +1433,18 @@ export function PlayVsEngineRunner({
             )
               finishWin('win', effWdlUser, halfAfterUser);
             else finishLose('lose-wdl', effWdlUser, halfAfterUser);
-          } catch (e) {
-            setErrorMsg(e instanceof Error ? e.message : 'engine-error');
-            setState('error');
+            return;
           }
-        })();
-        return true;
-      }
 
-      void runEngineCycle(next, halfAfterUser);
+          // KS-3380: post-analyze + engine reply через runEngineCycle.
+          // Гарантировано идёт ПОСЛЕ snapshot записи — finishWin/Lose
+          // внутри runEngineCycle прочитает свежий userBestLogRef.
+          await runEngineCycle(next, halfAfterUser);
+        } catch (e) {
+          setErrorMsg(e instanceof Error ? e.message : 'engine-error');
+          setState('error');
+        }
+      })();
       return true;
     },
     [
@@ -1623,17 +1624,17 @@ export function PlayVsEngineRunner({
     };
   }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze, updateClientBaselineWdl]);
 
-  // ── KS-2508 / ADR-047 §4(i) ──────────────────────────────────────────
-  // Fallback-analyze для записей userBestLog без cpAfter. Сценарий:
-  // pre-analyze (фоновый, fire-and-forget) опаздывает создать snapshot,
-  // и когда runEngineCycle пытается дописать cpAfter через `prev.map`,
-  // записи ещё нет — cpAfter теряется. После завершения партии (state
-  // in win|lose) пробегаем по записям с cpAfter===null и считаем cp на
-  // FEN после playedUci через тот же queueAnalyze. Score POV соперника
-  // → инвертируем, как в KS-2506.
-  //
-  // KS-3380 partial: для best-case (playedUci===bestUci) snapshot уже
-  // имеет cpAfter=cpBefore — этот fallback его не трогает.
+  // ── KS-2508 → KS-3380 full fallback-analyze ─────────────────────────
+  // KS-3380: fallback переписан под новую семантику. Старая логика
+  // считала cpAfter из позиции ПОСЛЕ playedUci (с flipWdl POV user),
+  // теперь оба значения должны быть в pre-frame.
+  // Сценарий запуска фоллбека:
+  //   1. pre-analyze в applyUserMove отработал, snapshot создан.
+  //   2. extra-analyze упал (`cpAfter`/`wdlAfter` остались null).
+  // После завершения партии (state win|lose) пробегаем по snapshot'ам
+  // с `cpAfter===null` и заново делаем extra-analyze на их fenBefore.
+  // Best-case (playedUci===bestUci) — копируем cpBefore/wdlBefore без
+  // SF-вызова.
   useEffect(() => {
     if (state !== 'win' && state !== 'lose') return;
     let cancelled = false;
@@ -1647,20 +1648,28 @@ export function PlayVsEngineRunner({
       }
       for (const s of missing) {
         if (cancelled) return;
+        if (s.bestUci && s.playedUci === s.bestUci && s.cpBefore != null) {
+          updateUserBestLog((prev) =>
+            prev.map((x) =>
+              x.halfMove === s.halfMove
+                ? { ...x, cpAfter: x.cpBefore, wdlAfter: x.wdlBefore }
+                : x,
+            ),
+          );
+          continue;
+        }
         try {
-          const c = new Chess(s.fenBefore);
-          c.move({
-            from: s.playedUci.slice(0, 2),
-            to: s.playedUci.slice(2, 4),
-            promotion:
-              s.playedUci.length > 4 ? s.playedUci[4] : undefined,
+          const r = await queueAnalyze(s.fenBefore, {
+            multiPv: 1,
+            searchmoves: [s.playedUci],
           });
-          const r = await queueAnalyze(c.fen());
           if (cancelled) return;
           const b = pickBestLine(r);
           if (!b) continue;
-          const cpAfter = -cpFromScore(b.score);
-          const wdlAfter = b.wdl ? flipWdl(b.wdl) : null;
+          // KS-3380: на fenBefore ходит user → score POV user без
+          // инверсии (searchmoves даёт нужный PV1).
+          const cpAfter = cpFromScore(b.score);
+          const wdlAfter = b.wdl ?? null;
           updateUserBestLog((prev) =>
             prev.map((x) =>
               x.halfMove === s.halfMove

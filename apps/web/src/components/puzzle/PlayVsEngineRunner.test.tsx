@@ -73,17 +73,41 @@ vi.mock('../../hooks/useSounds', () => ({
 
 class ScriptedEngine implements EngineAdapter {
   private queue: AnalysisResult[];
+  private searchmovesQueue: AnalysisResult[];
 
-  constructor(queue: AnalysisResult[]) {
-    // Клонируем, чтобы каждый тест мог пушить mutate.
+  constructor(
+    queue: AnalysisResult[],
+    /**
+     * KS-3380 full: ответы для extra-analyze, который PVE-runner
+     * вызывает после хода игрока через `analyze(fenBefore, ..., searchmoves=[playedUci])`.
+     * Тесту удобнее держать эти ответы отдельно — общая `queue` остаётся
+     * как раньше (INITIAL + pre-analyze + post-analyze + ...).
+     * По умолчанию пустая; runner получит empty fallback, snapshot
+     * запишется с `cpAfter=null`. Best-case (playedUci===bestUci)
+     * extra НЕ вызывается, очередь не нужна.
+     */
+    searchmovesQueue: AnalysisResult[] = [],
+  ) {
     this.queue = [...queue];
+    this.searchmovesQueue = [...searchmovesQueue];
   }
 
   async init(): Promise<void> { /* no-op */ }
   setOption(): void { /* no-op */ }
 
-  async analyze(): Promise<AnalysisResult> {
-    const next = this.queue.shift();
+  async analyze(
+    _fen: string,
+    _depth: number,
+    _multiPv: number,
+    _movetimeMs?: number,
+    _nodes?: number,
+    searchmoves?: ReadonlyArray<string>,
+  ): Promise<AnalysisResult> {
+    const source =
+      searchmoves && searchmoves.length > 0
+        ? this.searchmovesQueue
+        : this.queue;
+    const next = source.shift();
     if (!next) {
       // Пустой ответ — runner сам уйдёт в error, тест на это не рассчитан.
       return {
@@ -443,11 +467,16 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: best=d2d4
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post → lose-wdl
-    ]);
+    // KS-3380: extra POV user даёт cp=-500 → variation block рендерится
+    // т.к. classification = inaccuracy/mistake/blunder.
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre: best=d2d4
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post → lose-wdl
+      ],
+      [result(line({ type: 'cp', value: -500 }, ['e2e4']))],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -486,11 +515,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50, PV1=d2d4
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post (POV opp) → cpAfter=-800
-    ]);
+    // KS-3380: cpAfter теперь из pre-frame extra-analyze (POV user).
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50, PV1=d2d4 != played
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post (для engine reply, НЕ для snapshot)
+      ],
+      [result(line({ type: 'cp', value: -800 }, ['e2e4']))], // extra POV user cpAfter=-800
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -521,11 +554,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-      result(line({ type: 'mate', value: 2 }, ['d7d5'])),
-    ]);
+    // KS-3380: extra-analyze для e2e4 (POV user) даёт mate -2 → cpAfter=-100000.
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(line({ type: 'mate', value: 2 }, ['d7d5'])),
+      ],
+      [result(line({ type: 'mate', value: -2 }, ['e2e4']))],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -554,11 +591,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'mate', value: 3 }, ['d2d4'])),
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
-    ]);
+    // KS-3380: extra cpAfter=-800 (POV user, без инверсии).
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'mate', value: 3 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+      ],
+      [result(line({ type: 'cp', value: -800 }, ['e2e4']))],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -834,11 +875,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
-    ]);
+    // KS-3380: extra cp=-500 POV user.
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+      ],
+      [result(line({ type: 'cp', value: -500 }, ['e2e4']))],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -918,15 +963,27 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         wdlAfter: { w: 850, d: 130, l: 20 },
       },
     });
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-      result(line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
-        w: 780,
-        d: 200,
-        l: 20,
-      })),
-    ]);
+    // KS-3380: extra POV user, WDL «потеряно» 2/20/78.
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
+          w: 780,
+          d: 200,
+          l: 20,
+        })),
+      ],
+      [
+        result(
+          line({ type: 'cp', value: -500 }, ['e2e4'], 12, 1, {
+            w: 20,
+            d: 200,
+            l: 780,
+          }),
+        ),
+      ],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -1256,13 +1313,16 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // pre cp=+50 (POV user), post cp=+800 (POV opp) → cpAfter user=-800,
-    //   cp-loss=850 → blunder. Также played(e2e4) != best(d2d4).
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])),
-    ]);
+    // KS-3380: pre cp=+50 (PV1=d2d4 != played), extra cp=-800 POV user.
+    // cp-loss=850 → blunder.
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+      ],
+      [result(line({ type: 'cp', value: -800 }, ['e2e4']))],
+    );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
@@ -2147,14 +2207,14 @@ describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {
   });
 });
 
-describe('PlayVsEngineRunner KS-3380 (partial) — pre-frame WDL для best-case', () => {
-  // KS-3380 partial scope: при playedUci === bestUci wdlAfter≡wdlBefore
-  // без extra-analyze → lossE=0 → 'best'. Это решает основной кейс
-  // KS-3380: PV1-ход ошибочно помечен `?!` из-за расхождения pre vs
-  // post snapshots на WASM.
-  // Full pre-frame extra-analyze для не-best-case — отдельный тикет
-  // (race на engineQueueRef с runEngineCycle требует refactor flow).
-  it('KS-3380: playedUci === bestUci → snapshot.wdlAfter=wdlBefore, cpAfter=cpBefore', async () => {
+describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci', () => {
+  // KS-3380 full: cpAfter/wdlAfter всегда из pre-frame:
+  //   - playedUci === bestUci → копия cpBefore/wdlBefore (без extra-analyze).
+  //   - playedUci !== bestUci → extra-analyze searchmoves=[playedUci] на
+  //     fenBefore, multipv=1. SF вернёт PV1=playedUci, оценка POV user.
+  // Post-analyze в позиции ПОСЛЕ хода больше НЕ пишет в snapshot —
+  // только используется для engine-bestmove / evalBar / mate-detection.
+  it('KS-3380: playedUci === bestUci → snapshot.wdlAfter=wdlBefore, cpAfter=cpBefore (без extra)', async () => {
     // halfMovesN=1: user сразу финиширует, submit вызывается сразу.
     const puzzle = makePuzzle({
       fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
@@ -2204,10 +2264,11 @@ describe('PlayVsEngineRunner KS-3380 (partial) — pre-frame WDL для best-cas
     expect(arg.moves[0].wdlAfter).toEqual({ w: 380, d: 620, l: 0 });
   });
 
-  it('KS-3380: не-best (playedUci !== bestUci) — post-analyze остаётся источником cpAfter (partial scope)', async () => {
+  it('KS-3380: не-best (playedUci !== bestUci) → extra-analyze searchmoves=[playedUci] записывает cpAfter в pre-frame', async () => {
     // halfMovesN=2 → user-ход + engine reply (через runEngineCycle).
-    // Pre PV1=d2d4 ≠ played e2e4. Snapshot: pre проставит cpAfter=null,
-    // post-analyze в runEngineCycle инвертирует cp POV opp → POV user.
+    // Pre PV1=d2d4 ≠ played e2e4 → запускается extra-analyze
+    // с searchmoves=[e2e4]. Результат POV user (на fenBefore ходит
+    // user, инверсия НЕ нужна).
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -2218,11 +2279,22 @@ describe('PlayVsEngineRunner KS-3380 (partial) — pre-frame WDL для best-cas
       },
     });
     const onSubmit = vi.fn();
-    const engine = new ScriptedEngine([
-      INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre best=d2d4 != e2e4
-      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post POV opp → cpAfter=-800
-    ]);
+    const engine = new ScriptedEngine(
+      [
+        INITIAL_ANALYZE(),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre best=d2d4
+        result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post — НЕ пишет в snapshot
+      ],
+      [
+        result(
+          line({ type: 'cp', value: -300 }, ['e2e4'], 18, 1, {
+            w: 50,
+            d: 350,
+            l: 600,
+          }),
+        ),
+      ],
+    );
     renderWithProviders(
       <PlayVsEngineRunner
         puzzle={puzzle}
@@ -2236,6 +2308,8 @@ describe('PlayVsEngineRunner KS-3380 (partial) — pre-frame WDL для best-cas
     const arg = onSubmit.mock.calls[0][0];
     expect(arg.moves[0].bestUci).toBe('d2d4');
     expect(arg.moves[0].playedUci).toBe('e2e4');
-    expect(arg.moves[0].cpAfter).toBe(-800);
+    // KS-3380: из extra POV user, не post-analyze с инверсией.
+    expect(arg.moves[0].cpAfter).toBe(-300);
+    expect(arg.moves[0].wdlAfter).toEqual({ w: 50, d: 350, l: 600 });
   });
 });
