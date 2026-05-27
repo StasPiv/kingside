@@ -1,24 +1,21 @@
 /**
  * KS-2969: модалка выбора фигуры при превращении пешки.
  *
- * До этого таска все раннеры пазлов (PlayVsEngineRunner, PositionStep,
- * OpeningDrillStep, EndgameDrillStep) делали авто-промоушн в ферзя
- * (`promotion: 'q'`) — игрок не мог выбрать ладью/слона/коня. Та же
- * UI-логика уже есть в GamePage (live-партия) и AnalysisBoard (анализ),
- * но в виде встроенного overlay'я.
- *
  * Этот компонент — единая презентационная реализация. Стили
  * (`promotion-overlay`, `promotion-dialog`, `promotion-piece`) уже
  * существуют в `apps/web/src/styles/game.css`.
  *
- * KS-3107: фигуры в диалоге рендерятся SVG-картинками из того же
- * piece-set, что и react-chessboard использует на доске (источник —
- * `useBoardSettings().pieceSet`). Раньше использовались Unicode-глифы
- * (♕♖♗♘) — они не совпадали по визуальному «языку» с плотными
- * SVG-фигурами доски. Для дефолтного `standard` piece-set'а
- * react-chessboard рисует свой встроенный SVG, у нас собственного
- * `standard/*.svg` файла нет — поэтому маппим `standard` → `cburnett`
- * (то же делает `MaterialBalance` для material-каунтера, см. KS-2114).
+ * KS-3107 → KS-3383: фигуры в диалоге рендерятся SVG-картинками из
+ * того же piece-set, что и react-chessboard использует на доске
+ * (источник — `useBoardSettings().pieceSet`). Для дефолтного
+ * `standard` piece-set'а react-chessboard рисует встроенный SVG из
+ * библиотеки, своих файлов у нас нет.
+ *
+ * KS-3383 fix: раньше для `standard` шёл fallback на `/pieces/cburnett/`,
+ * но этот piece-set удалён в KS-3320 (заменён на 9 open-license
+ * наборов). 404 → broken-image иконки в picker'е. Теперь fallback на
+ * `chessnut` — он есть в `/public/pieces/` и визуально близок к
+ * классическому стилю.
  *
  * Колбэк `onChoice` вызывается после клика по фигуре, `onCancel` —
  * при клике по подложке (Esc/cancel оставлены вызывающей стороне).
@@ -49,13 +46,18 @@ const PIECE_LETTERS: Record<PromotionPiece, string> = {
 };
 
 /**
- * KS-3107: путь к SVG-фигуре в `/public/pieces/<set>/<wK>.svg`.
- * Для `standard` (react-chessboard built-in) у нас нет собственных
- * файлов — фолбэчим на `cburnett` (визуально близок к classic style,
- * совпадает с тем что MaterialBalance показывает в material-каунтере).
+ * KS-3383. Fallback piece-set для случая `standard` (встроенный
+ * react-chessboard SVG, у нас своих файлов нет). `chessnut` — один из
+ * 9 наборов из KS-3320, классический стиль, всегда есть в `/public/pieces/`.
+ */
+const FALLBACK_PIECE_SET = 'chessnut';
+
+/**
+ * KS-3107/KS-3383: путь к SVG-фигуре в `/public/pieces/<set>/<wK>.svg`.
+ * Для `standard` фолбэчим на `chessnut` (см. FALLBACK_PIECE_SET).
  */
 function piecePath(pieceSet: string, color: 'w' | 'b', letter: string): string {
-  const set = pieceSet === 'standard' ? 'cburnett' : pieceSet;
+  const set = pieceSet === 'standard' ? FALLBACK_PIECE_SET : pieceSet;
   return `/pieces/${set}/${color}${letter}.svg`;
 }
 
