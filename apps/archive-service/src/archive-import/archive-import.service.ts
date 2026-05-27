@@ -7,6 +7,11 @@ import { ArchivePositionWriterService } from './archive-position-writer.service'
 import { PositionIndexerService } from './position-indexer.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
 import { PlayersEventsBackfillService } from './players-events-backfill.service';
+// KS-3365: авто-триггер PVE-генерации после успешного scheduled
+// TWIC-импорта. До этого фикса triggerPveGeneration вызывался только
+// в ad-hoc CLI (cli/import-twic-issue.ts), и cron'ные импорты не
+// запускали tactic-worker → precision-задачи не генерировались с 20.05.
+import { triggerPveGeneration } from './trigger-pve-generation';
 import {
   TwicImporter,
   type ArchiveSourceRow,
@@ -465,6 +470,22 @@ export class ArchiveImportService implements OnModuleInit {
                 );
               },
             );
+            // KS-3365: авто-триггер PVE-генерации после успешного
+            // scheduled TWIC-импорта. До этого фикса вызов был только
+            // в ad-hoc CLI (cli/import-twic-issue.ts), и cron'ные импорты
+            // не запускали tactic-worker — precision-задачи не
+            // генерировались с 20.05.2026. Ошибки триггера НЕ
+            // фатальны для импорта (importId уже сохранён, генерацию
+            // можно запустить вручную).
+            await triggerPveGeneration({
+              importId: result.importId,
+              logger: this.logger,
+            }).catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.warn(
+                `${source.code}: PVE generation trigger failed (non-fatal): ${msg}`,
+              );
+            });
           }
         } else {
           this.logger.warn(`${source.code}: unknown kind "${source.kind}"`);
