@@ -44,17 +44,21 @@ export interface EngineAdapter {
   setOption(name: string, value: string): void;
   /**
    * KS-2955: опциональный `movetimeMs` — нижний порог времени на анализ
-   * (мс). Полезен в `play-vs-engine` раннере: на низких `depth` SF
-   * систематически промахивается в насыщенных позициях.
-   * Если задан — посылается `go depth N movetime M` (SF останавливается
-   * по первому достигнутому условию). Если не задан — обычное `go depth N`.
+   * (мс). Если задан — `go depth N movetime M` (SF останавливается по
+   * первому достигнутому условию).
    *
-   * KS-3364: опциональный `nodes` — лимит по числу позиций анализа,
-   * аналог `AnalysisLimit.nodes` на сервере. В WASM-команде превращается
-   * в `go nodes N` (либо `go depth D nodes N` если задан и depth, SF
-   * остановится по первому достигнутому). Используется клиентским
-   * генератором — пользователь видит «Узлы: 10M» вместо абстрактной
-   * «Глубины» (KS-3364 UI rework).
+   * KS-3364: опциональный `nodes` — лимит по числу позиций анализа.
+   * В WASM-команде превращается в `go nodes N`.
+   *
+   * KS-3380: опциональный `searchmoves` — ограничивает root-moves SF
+   * только перечисленными UCI-ходами (`go searchmoves m1 m2 …`).
+   * Используется в PVE-runner для классификации: после хода игрока
+   * запускаем pre-frame analyze с `searchmoves=[playedUci]` чтобы
+   * получить WDL именно сыгранного хода в той же фрейме (на той же
+   * глубине), что и bestUci-snapshot. Решает баг KS-3380 — раньше
+   * `wdlAfter` снимался отдельным post-analyze в позиции после хода,
+   * и расхождение pre vs post на WASM (depth 18 / 1s movetime) давало
+   * ложные `?!` даже на лучших ходах.
    */
   analyze(
     fen: string,
@@ -62,6 +66,7 @@ export interface EngineAdapter {
     multiPv: number,
     movetimeMs?: number,
     nodes?: number,
+    searchmoves?: ReadonlyArray<string>,
   ): Promise<AnalysisResult>;
   destroy(): void;
 }
@@ -331,6 +336,7 @@ export class WasmEngineAdapter implements EngineAdapter {
     multiPv: number,
     movetimeMs?: number,
     nodes?: number,
+    searchmoves?: ReadonlyArray<string>,
   ): Promise<AnalysisResult> {
     return new Promise((resolve) => {
       const finalLines = new Map<number, InfoLine>();
@@ -349,9 +355,9 @@ export class WasmEngineAdapter implements EngineAdapter {
             }
             // KS-2955: раньше здесь стоял фильтр `info.depth >= depth - 2`
             // — он предполагал, что SF гарантированно доходит до целевой
-            // глубины. С `movetime`/`nodes` SF может остановиться раньше;
-            // храним последнюю info на каждый multipv — она и есть
-            // финальная на момент остановки SF.
+            // глубины. С `movetime`/`nodes`/`searchmoves` SF может
+            // остановиться раньше; храним последнюю info на каждый
+            // multipv — она и есть финальная на момент остановки SF.
             finalLines.set(info.multipv, info);
           }
         }
@@ -365,15 +371,16 @@ export class WasmEngineAdapter implements EngineAdapter {
       this.worker!.addEventListener('message', handler);
       this.worker!.postMessage(`setoption name MultiPV value ${multiPv}`);
       this.worker!.postMessage(`position fen ${fen}`);
-      // KS-2955/KS-3364: собираем `go` команду из всех заданных лимитов.
-      // SF остановится по первому достигнутому из (depth, movetime, nodes).
-      // KS-3364: для precision-генератора пользователь теперь ограничивает
-      // по nodes (10M default) вместо абстрактной depth. depth остаётся
-      // безопасным верхним пределом — без него SF мог бы зайти слишком
-      // глубоко на простых позициях с маленьким nodes-budget.
+      // KS-2955/KS-3364/KS-3380: собираем `go` команду из всех заданных
+      // лимитов и фильтров. SF остановится по первому достигнутому из
+      // (depth, movetime, nodes). `searchmoves` ограничивает корневые
+      // ходы — используется для KS-3380 pre-frame WDL playedUci.
       const parts: string[] = [`go depth ${depth}`];
       if (nodes && nodes > 0) parts.push(`nodes ${Math.floor(nodes)}`);
       if (movetimeMs && movetimeMs > 0) parts.push(`movetime ${movetimeMs}`);
+      if (searchmoves && searchmoves.length > 0) {
+        parts.push(`searchmoves ${searchmoves.join(' ')}`);
+      }
       this.worker!.postMessage(parts.join(' '));
     });
   }
@@ -490,6 +497,7 @@ export class BridgeEngineAdapter implements EngineAdapter {
     multiPv: number,
     movetimeMs?: number,
     nodes?: number,
+    searchmoves?: ReadonlyArray<string>,
   ): Promise<AnalysisResult> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -548,10 +556,9 @@ export class BridgeEngineAdapter implements EngineAdapter {
       };
 
       this.ws.addEventListener('message', handler);
-      // KS-2955/KS-3364: пробрасываем movetimeMs и nodes в bridge для
-      // симметрии с WasmEngineAdapter. Bridge-сервер должен поддерживать
-      // эти поля; если нет — они молча игнорируются, остаётся прежнее
-      // поведение по depth.
+      // KS-2955/KS-3364/KS-3380: пробрасываем movetimeMs/nodes/searchmoves
+      // в bridge. Legacy-серверы без поддержки игнорируют — остаётся
+      // прежнее поведение по depth.
       this.ws.send(
         JSON.stringify({
           type: 'analyze',
@@ -560,6 +567,9 @@ export class BridgeEngineAdapter implements EngineAdapter {
           multiPv,
           ...(movetimeMs && movetimeMs > 0 ? { movetimeMs } : {}),
           ...(nodes && nodes > 0 ? { nodes: Math.floor(nodes) } : {}),
+          ...(searchmoves && searchmoves.length > 0
+            ? { searchmoves: [...searchmoves] }
+            : {}),
         }),
       );
     });

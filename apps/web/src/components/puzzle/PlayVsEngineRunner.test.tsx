@@ -488,7 +488,7 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50, PV1=d2d4
       result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post (POV opp) → cpAfter=-800
     ]);
     renderWithProviders(
@@ -2144,5 +2144,98 @@ describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {
     expect(
       container.querySelector('[data-testid="puzzle-engine-back"]'),
     ).not.toBeNull();
+  });
+});
+
+describe('PlayVsEngineRunner KS-3380 (partial) — pre-frame WDL для best-case', () => {
+  // KS-3380 partial scope: при playedUci === bestUci wdlAfter≡wdlBefore
+  // без extra-analyze → lossE=0 → 'best'. Это решает основной кейс
+  // KS-3380: PV1-ход ошибочно помечен `?!` из-за расхождения pre vs
+  // post snapshots на WASM.
+  // Full pre-frame extra-analyze для не-best-case — отдельный тикет
+  // (race на engineQueueRef с runEngineCycle требует refactor flow).
+  it('KS-3380: playedUci === bestUci → snapshot.wdlAfter=wdlBefore, cpAfter=cpBefore', async () => {
+    // halfMovesN=1: user сразу финиширует, submit вызывается сразу.
+    const puzzle = makePuzzle({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 2, // никогда не победа — заставляем lose
+        failThreshold: 0.5,
+        halfMovesN: 1,
+      },
+    });
+    const onSubmit = vi.fn();
+    // pre PV1='e2e4' (тот же что played) → isBest=true → snapshot
+    // получит cpAfter=cpBefore=+50, wdlAfter=wdlBefore={w:380,d:620,l:0}.
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(
+        line({ type: 'cp', value: 50 }, ['e2e4'], 18, 1, {
+          w: 380,
+          d: 620,
+          l: 0,
+        }),
+      ),
+      // post-analyze: cp +800 POV opp → wdlUser=-0.92 → lose (но
+      // snapshot уже имеет best-case данные из pre, post НЕ
+      // перезаписывает их в новой логике).
+      result(line({ type: 'cp', value: 800 }, ['e7e5'])),
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner
+        puzzle={puzzle}
+        onSubmit={onSubmit}
+        engineFactory={() => engine}
+      />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const arg = onSubmit.mock.calls[0][0];
+    expect(arg.moves).toHaveLength(1);
+    // KS-3380: best-case → cpAfter=cpBefore (не из post-analyze!).
+    expect(arg.moves[0].playedUci).toBe('e2e4');
+    expect(arg.moves[0].bestUci).toBe('e2e4');
+    expect(arg.moves[0].cpBefore).toBe(50);
+    expect(arg.moves[0].cpAfter).toBe(50); // КРИТИЧЕСКИЙ: pre-frame
+    expect(arg.moves[0].wdlBefore).toEqual({ w: 380, d: 620, l: 0 });
+    expect(arg.moves[0].wdlAfter).toEqual({ w: 380, d: 620, l: 0 });
+  });
+
+  it('KS-3380: не-best (playedUci !== bestUci) — post-analyze остаётся источником cpAfter (partial scope)', async () => {
+    // halfMovesN=2 → user-ход + engine reply (через runEngineCycle).
+    // Pre PV1=d2d4 ≠ played e2e4. Snapshot: pre проставит cpAfter=null,
+    // post-analyze в runEngineCycle инвертирует cp POV opp → POV user.
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 2,
+        failThreshold: 0.5,
+        halfMovesN: 2,
+      },
+    });
+    const onSubmit = vi.fn();
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre best=d2d4 != e2e4
+      result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post POV opp → cpAfter=-800
+    ]);
+    renderWithProviders(
+      <PlayVsEngineRunner
+        puzzle={puzzle}
+        onSubmit={onSubmit}
+        engineFactory={() => engine}
+      />,
+    );
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const arg = onSubmit.mock.calls[0][0];
+    expect(arg.moves[0].bestUci).toBe('d2d4');
+    expect(arg.moves[0].playedUci).toBe('e2e4');
+    expect(arg.moves[0].cpAfter).toBe(-800);
   });
 });
