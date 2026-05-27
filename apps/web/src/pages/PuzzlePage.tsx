@@ -738,17 +738,26 @@ export function PuzzlePage() {
           </>
         )}
       </nav>
-      <Link
-        to={backUrl}
-        className="back-nav-link"
-        data-testid="puzzle-back-link"
-      >
-        &larr; {sectionBackLabel}
-      </Link>
-      <h1>
-        {sectionTitle}
-        <HelpButton section={helpSection} />
-      </h1>
+      {/* KS-3369: на precision-флоу убираем back-link и h1 — оставляем
+          только breadcrumbs выше (там есть и навигация назад через
+          «Тренировка точности»-крошку, и ID-крошка для контекста).
+          На общем `/puzzles`-флоу всё остаётся как было — там
+          сектионный заголовок имеет смысл. */}
+      {!fromPrecision && (
+        <>
+          <Link
+            to={backUrl}
+            className="back-nav-link"
+            data-testid="puzzle-back-link"
+          >
+            &larr; {sectionBackLabel}
+          </Link>
+          <h1>
+            {sectionTitle}
+            <HelpButton section={helpSection} />
+          </h1>
+        </>
+      )}
     </>
   );
 

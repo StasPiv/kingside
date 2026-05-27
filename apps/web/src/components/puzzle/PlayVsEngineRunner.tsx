@@ -1768,96 +1768,56 @@ export function PlayVsEngineRunner({
             </div>
           </div>
 
-          {state === 'thinking' && halfMovesPlayed === 0 && (() => {
-            // KS-3166 (ADR-070 UI): универсальная подсказка без
-            // дифференциации по `objective`.
-            //
-            // KS-3355: убран SAN-параметр `{{move}}` — пользователь
-            // жаловался на непонятность «29... Rf6» (откуда фигура
-            // ходила, было непонятно). Вместо текстовой SAN-нотации
-            // теперь красная стрелка на доске (см. customArrows ниже).
-            //
-            // Дифференциация по `puzzlePhase` сохраняется:
-            //   reactive    → «Соперник допустил неточность (показан
-            //                  стрелкой). Удержите оценку позиции N
-            //                  полуходов против движка.»
-            //   preventive  → «В партии была допущена неточность
-            //                  (показана стрелкой). А как бы сыграли вы?»
-            const puzzlePhase = puzzlePhaseFromThemes;
-            // KS-3355: показываем «с указанием стрелкой» только когда
-            // blunderMove известен (есть customArrows). Иначе fallback
-            // на generic-вариант без отсылки к стрелке.
-            const haveBlunderArrow = Boolean(blunderHighlight);
-            let hintText: string;
-            if (puzzlePhase === 'preventive') {
-              hintText = haveBlunderArrow
-                ? t('puzzle.engine.blunderHintPreventive')
-                : t('puzzle.engine.blunderHintPreventiveGeneric');
-            } else {
-              hintText = haveBlunderArrow
-                ? t('puzzle.engine.blunderHint', { n: params.halfMovesN })
-                : t('puzzle.engine.blunderHintGeneric', {
-                    n: params.halfMovesN,
-                  });
-            }
-            return (
-              <div
-                className="puzzle-engine-runner__hint-row"
-                data-testid="puzzle-engine-hint-row"
-              >
-                <p
-                  className="puzzle-engine-runner__hint"
-                  data-testid="puzzle-engine-blunder-hint"
-                  data-blunder-known={haveBlunderArrow ? 'true' : 'false'}
-                  data-puzzle-phase={puzzlePhase ?? ''}
-                >
-                  {hintText}
-                </p>
-                {/* KS-3366: «Проиграть последний ход» — реплеит анимацию
-                    blunderMove. Видна только когда blunderMove известен
-                    и фигура физически двигалась (canAnimateBlunder). */}
-                {canAnimateBlunder && (
-                  <button
-                    type="button"
-                    className="puzzle-engine-runner__replay-btn"
-                    data-testid="puzzle-engine-replay-blunder"
-                    onClick={replayBlunder}
-                    aria-label={t(
-                      'puzzle.engine.replayLastMove',
-                      'Replay last move',
-                    )}
-                    title={t(
-                      'puzzle.engine.replayLastMove',
-                      'Replay last move',
-                    )}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                      focusable="false"
-                    >
-                      {/* refresh-ccw icon */}
-                      <polyline points="1 4 1 10 7 10" />
-                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                    </svg>
-                    <span>
-                      {t(
-                        'puzzle.engine.replayLastMove',
-                        'Replay last move',
-                      )}
-                    </span>
-                  </button>
+          {/* KS-3369: плашка hint'а убрана — её роль закрывает кнопка
+              «Проиграть последний ход» (KS-3366), которая визуально
+              сообщает «соперник сходил, можно пересмотреть». На старте
+              рендерим только саму кнопку без текстовой плашки.
+              `puzzlePhase` тег keep'аем в data-attr на самой кнопке —
+              интеграционные тесты через `data-puzzle-phase` продолжают
+              работать без отдельного hint-узла. */}
+          {state === 'thinking' && halfMovesPlayed === 0 && canAnimateBlunder && (
+            <div
+              className="puzzle-engine-runner__hint-row"
+              data-testid="puzzle-engine-hint-row"
+            >
+              <button
+                type="button"
+                className="puzzle-engine-runner__replay-btn"
+                data-testid="puzzle-engine-replay-blunder"
+                data-blunder-known="true"
+                data-puzzle-phase={puzzlePhaseFromThemes ?? ''}
+                onClick={replayBlunder}
+                aria-label={t(
+                  'puzzle.engine.replayLastMove',
+                  'Replay last move',
                 )}
-              </div>
-            );
-          })()}
+                title={t(
+                  'puzzle.engine.replayLastMove',
+                  'Replay last move',
+                )}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  {/* refresh-ccw icon */}
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                <span>
+                  {t('puzzle.engine.replayLastMove', 'Replay last move')}
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* KS-2510: при выбранном snapshot'е (reviewFen != null) на
               доске показываем позицию ДО ошибочного хода, чтобы юзер
@@ -1889,6 +1849,39 @@ export function PlayVsEngineRunner({
               testId="puzzle-promotion-overlay"
             />
           </PuzzleBoard>
+
+          {/* KS-3369 (ADR-079 §3.4 update). Кнопки «Назад»/«Следующая»
+              сразу под доской (compact-variant). До KS-3369 они жили
+              внутри result-блока ПОСЛЕ wdl-summary и PostGameReview —
+              пользователь жаловался, что приходится много скроллить.
+              Visible только после win/lose. */}
+          {(state === 'win' || state === 'lose') && (onBack || onNext) && (
+            <div
+              className="precision-result-actions precision-result-actions--compact"
+              data-testid="precision-result-actions"
+            >
+              {onBack && (
+                <button
+                  type="button"
+                  className="play-btn play-btn--secondary play-btn--compact"
+                  onClick={onBack}
+                  data-testid="puzzle-engine-back"
+                >
+                  {t('precision.results.back', '← Back')}
+                </button>
+              )}
+              {onNext && (
+                <button
+                  type="button"
+                  className="play-btn play-btn--compact"
+                  onClick={onNext}
+                  data-testid="puzzle-engine-next"
+                >
+                  {t('precision.results.next', 'Next →')}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* KS-2486: открыть пазл в мастерской (анализ). Передаём
               `?fen=<initialPuzzleFen>&pgn=<пройденные ходы>` — Workshop
@@ -2110,37 +2103,9 @@ export function PlayVsEngineRunner({
                   </span>
                 </div>
               )}
-              {/* KS-3349 (ADR-079 §3.4). Кнопки «Назад»/«Следующая» рядом.
-                  Back навигирует на исходную страницу /precision (с
-                  фильтрами), Next через precisionApi.pickNext подбирает
-                  следующую задачу. */}
-              {(onBack || onNext) && (
-                <div
-                  className="precision-result-actions"
-                  data-testid="precision-result-actions"
-                >
-                  {onBack && (
-                    <button
-                      type="button"
-                      className="play-btn play-btn--secondary"
-                      onClick={onBack}
-                      data-testid="puzzle-engine-back"
-                    >
-                      {t('precision.results.back', '← Back')}
-                    </button>
-                  )}
-                  {onNext && (
-                    <button
-                      type="button"
-                      className="play-btn"
-                      onClick={onNext}
-                      data-testid="puzzle-engine-next"
-                    >
-                      {t('precision.results.next', 'Next →')}
-                    </button>
-                  )}
-                </div>
-              )}
+              {/* KS-3369: Back/Next переехали под доску — выше по дереву.
+                  Здесь оставляем пустой комментарий-якорь, чтобы
+                  follow-up задачи могли быстро найти место по grep. */}
             </div>
           )}
 

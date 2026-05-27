@@ -577,39 +577,45 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
   });
 
-  it('initial: показывает blunder-hint и halfMovesLeft = N до первого хода', async () => {
+  it('KS-3369: initial — replay-кнопка рендерится при known blunder; progress=N', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
+        // KS-3365: для replay-кнопки нужен fenBeforeBlunder.
+        fenBeforeBlunder:
+          'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
         failThreshold: 0.0,
         halfMovesN: 6,
       },
     });
-    // KS-2507: initial pre-analyze стартовой позиции теперь идёт сразу
-    // на mount, поэтому отдаём ScriptedEngine один ответ.
     const engine = new ScriptedEngine([
       result(line({ type: 'cp', value: 30 }, ['e2e4'])),
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
-    const hint = screen.getByTestId('puzzle-engine-blunder-hint');
-    expect(hint).toBeInTheDocument();
-    expect(hint.getAttribute('data-blunder-known')).toBe('true');
+    // KS-3369: плашка `puzzle-engine-blunder-hint` удалена; роль
+    // «зевок отыгран» закрывает replay-кнопка (KS-3366).
+    expect(
+      screen.queryByTestId('puzzle-engine-blunder-hint'),
+    ).not.toBeInTheDocument();
+    const replay = screen.getByTestId('puzzle-engine-replay-blunder');
+    expect(replay).toBeInTheDocument();
+    expect(replay.getAttribute('data-blunder-known')).toBe('true');
     expect(screen.getByTestId('puzzle-engine-progress').textContent).toMatch(/6/);
   });
 
   /**
-   * KS-2732: если blunderMove отсутствует (forced-line пазл попал в
-   * PVE-runner через защитный fromPrecision-override), не показываем
-   * «зевнул ходом ?». Рендерим generic-текст без UCI.
+   * KS-2732 / KS-3369: пазл без blunderMove (forced-line попал в PVE
+   * через защитный fromPrecision-override) — ни плашки, ни replay-
+   * кнопки. Только board + progress.
    */
-  it('KS-2732: пазл без blunderMove → generic-hint без «?»', async () => {
+  it('KS-3369: пазл без blunderMove → replay-кнопка не рендерится', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
-        blunderMove: '', // пусто — backend не дал
+        blunderMove: '',
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
         failThreshold: 0.0,
@@ -622,10 +628,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
     );
-    const hint = screen.getByTestId('puzzle-engine-blunder-hint');
-    expect(hint).toBeInTheDocument();
-    expect(hint.getAttribute('data-blunder-known')).toBe('false');
-    expect(hint.textContent).not.toMatch(/\?/);
+    expect(
+      screen.queryByTestId('puzzle-engine-blunder-hint'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('puzzle-engine-replay-blunder'),
+    ).not.toBeInTheDocument();
   });
 
   it('KS-2527: initial analyze c wdl → latestWdl POV user без flip (data-latest-wdl)', async () => {
@@ -1699,110 +1707,63 @@ describe('cpFromScore KS-2505', () => {
 });
 
 /**
- * KS-3166 (ADR-070 UI): универсальный hint без objective-дифференциации.
- * - phase='reactive'  → «Opponent made an inaccuracy ({move}). Hold
- *   the position evaluation for N half-moves against the engine.»
- *   (одинаковый для convertAdvantage и saveEquality).
- * - phase='preventive' → «In the game, an inaccuracy was played
- *   ({move}). What move would you have played?» (тоже одинаковый).
- *
- * Дифференциация по `objective` (KS-3146/KS-3162: blunderGoal /
- * blunderHintPreventiveConvert/Save) откатывается — пользователь
- * запросил единый текст.
+ * KS-3166 (universal hint без objective-branching) + KS-3369 (плашка
+ * убрана). После KS-3369 текстовой плашки нет — её роль закрывает
+ * replay-кнопка (KS-3366). Тесты сохраняют `data-puzzle-phase` контракт
+ * на replay-кнопке, чтобы интеграционные сценарии (отображение фазы
+ * пазла) продолжали работать без отдельного hint-узла.
  */
-describe('PlayVsEngineRunner KS-3166 — universal hint (no objective branching)', () => {
-  it('phase="reactive" + convertAdvantage → «Opponent made an inaccuracy ... Hold the position evaluation»', async () => {
-    const puzzle = makePuzzle({
+describe('PlayVsEngineRunner KS-3369 — replay-кнопка несёт data-puzzle-phase', () => {
+  const phaseCases = [
+    {
+      label: 'reactive + convertAdvantage',
       themes: ['playVsEngine', 'convertAdvantage', 'reactive'],
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.0,
-        halfMovesN: 4,
-        objective: 'convertAdvantage',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-puzzle-phase')).toBe('reactive');
-    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
-    expect(hint.textContent).toMatch(/Hold the position evaluation/);
-    expect(hint.textContent).not.toMatch(/Hold the advantage/);
-    expect(hint.textContent).not.toMatch(/Hold the balance/);
-    expect(hint.textContent).not.toMatch(/What move would you have played/);
-  });
-
-  it('phase="reactive" + saveEquality → тот же текст что для convertAdvantage', async () => {
-    const puzzle = makePuzzle({
+      expected: 'reactive',
+    },
+    {
+      label: 'reactive + saveEquality',
       themes: ['playVsEngine', 'saveEquality', 'reactive'],
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.0,
-        winThreshold: 0.5,
-        failThreshold: -1.0,
-        halfMovesN: 4,
-        objective: 'saveEquality',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
-    expect(hint.textContent).toMatch(/Hold the position evaluation/);
-    expect(hint.textContent).not.toMatch(/Hold the balance/);
-  });
-
-  it('phase="preventive" + любой objective → единый «In the game ... What move would you have played?»', async () => {
-    const puzzle = makePuzzle({
+      expected: 'reactive',
+    },
+    {
+      label: 'preventive',
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.0,
-        halfMovesN: 4,
-        objective: 'convertAdvantage',
-      },
-    });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-puzzle-phase')).toBe('preventive');
-    expect(hint.textContent).toMatch(/an inaccuracy was played/);
-    expect(hint.textContent).toMatch(/What move would you have played/);
-    // Не должно быть convert-специфичной формулировки KS-3162.
-    expect(hint.textContent).not.toMatch(/chance to convert the advantage/);
-  });
-
-  it('legacy-пазл без phase-тега → reactive формулировка (без регрессии)', async () => {
-    const puzzle = makePuzzle({
+      expected: 'preventive',
+    },
+    {
+      label: 'legacy без phase-тега',
       themes: ['playVsEngine', 'mateIn2'],
-      playVsEngine: {
-        blunderMove: 'd2d4',
-        wdlAfterBlunder: 0.6,
-        winThreshold: 0.5,
-        failThreshold: 0.0,
-        halfMovesN: 4,
-        objective: 'convertAdvantage',
-      },
+      expected: '',
+    },
+  ] as const;
+
+  for (const { label, themes, expected } of phaseCases) {
+    it(`${label} → replay-кнопка с data-puzzle-phase="${expected}"`, async () => {
+      const puzzle = makePuzzle({
+        themes: [...themes],
+        playVsEngine: {
+          blunderMove: 'd2d4',
+          fenBeforeBlunder:
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          wdlAfterBlunder: 0.6,
+          winThreshold: 0.5,
+          failThreshold: 0.0,
+          halfMovesN: 4,
+          objective: 'convertAdvantage',
+        },
+      });
+      const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
+      renderWithProviders(
+        <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
+      );
+      const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+      expect(btn.getAttribute('data-puzzle-phase')).toBe(expected);
+      // KS-3369: текстовой плашки в DOM нет.
+      expect(
+        screen.queryByTestId('puzzle-engine-blunder-hint'),
+      ).not.toBeInTheDocument();
     });
-    const engine = new ScriptedEngine([INITIAL_ANALYZE()]);
-    renderWithProviders(
-      <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
-    );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-puzzle-phase')).toBe('');
-    expect(hint.textContent).toMatch(/Opponent made an inaccuracy/);
-    expect(hint.textContent).toMatch(/Hold the position evaluation/);
-  });
+  }
 });
 
 /**
@@ -1863,12 +1824,11 @@ describe('formatBlunderMoveWithNumber KS-3164 — preventive phase', () => {
   });
 });
 
-// KS-3365: красная стрелка blunderMove (KS-3355) заменена анимацией хода.
-// Стартовая позиция — fenBeforeBlunder; через 400ms blunderMove
-// применяется → board переходит в puzzle.fen с встроенной анимацией
-// react-chessboard. Hint больше не упоминает «стрелкой».
+// KS-3365 / KS-3369: анимация blunderMove на старте + плашка hint
+// удалена. Тестируем через replay-кнопку, которая выступает «маркером»
+// что blunder известен (data-blunder-known=true).
 describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на старте', () => {
-  it('hint НЕ содержит SAN-нотации и НЕ упоминает стрелку (preventive)', async () => {
+  it('blunder known → replay-кнопка с data-blunder-known=true; в DOM нет hint', async () => {
     const puzzle = makePuzzle({
       fen: '8/1k4bP/8/1P1P2p1/5p2/3K4/1P3P2/8 w - - 1 39',
       themes: ['playVsEngine', 'convertAdvantage', 'preventive'],
@@ -1886,20 +1846,21 @@ describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на ст�
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.textContent).not.toMatch(/39\. d6/);
-    expect(hint.textContent).not.toMatch(/d5d6/);
-    // KS-3365: упоминание «стрелки» убрано из i18n.
-    expect(hint.textContent).not.toMatch(/arrow|стрел/i);
-    // data-blunder-known=true когда blunderMove известен (даёт анимацию).
-    expect(hint.getAttribute('data-blunder-known')).toBe('true');
+    const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+    expect(btn.getAttribute('data-blunder-known')).toBe('true');
+    // KS-3369: плашка с текстом удалена.
+    expect(
+      screen.queryByTestId('puzzle-engine-blunder-hint'),
+    ).not.toBeInTheDocument();
+    // SAN-нотации хода нет нигде в DOM (KS-3355 — без SAN).
+    expect(document.body.textContent ?? '').not.toMatch(/39\. d6/);
+    expect(document.body.textContent ?? '').not.toMatch(/d5d6/);
   });
 
-  it('legacy без fenBeforeBlunder → fallback на puzzle.fen, hint generic', async () => {
+  it('legacy без fenBeforeBlunder → ни replay-кнопки, ни hint', async () => {
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: '',
-        // fenBeforeBlunder намеренно отсутствует — legacy/lichess
         wdlAfterBlunder: 0.6,
         winThreshold: 0.5,
         failThreshold: 0.0,
@@ -1910,12 +1871,15 @@ describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на ст�
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    // Без blunderMove анимация не запускается → generic hint.
-    expect(hint.getAttribute('data-blunder-known')).toBe('false');
+    expect(
+      screen.queryByTestId('puzzle-engine-replay-blunder'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('puzzle-engine-blunder-hint'),
+    ).not.toBeInTheDocument();
   });
 
-  it('blunderMove известен → data-blunder-known=true (анимация запускается)', async () => {
+  it('blunderMove известен → replay-кнопка с data-blunder-known=true', async () => {
     const fenBefore =
       'rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 0 22';
     const puzzle = makePuzzle({
@@ -1933,8 +1897,8 @@ describe('PlayVsEngineRunner KS-3365 — анимация blunderMove на ст�
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
-    const hint = await screen.findByTestId('puzzle-engine-blunder-hint');
-    expect(hint.getAttribute('data-blunder-known')).toBe('true');
+    const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
+    expect(btn.getAttribute('data-blunder-known')).toBe('true');
   });
 });
 
@@ -1976,7 +1940,9 @@ describe('PlayVsEngineRunner KS-3366 — кнопка «Проиграть по�
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
-    await screen.findByTestId('puzzle-engine-blunder-hint');
+    // KS-3369: progress-блок гарантированно отрендерен на старте —
+    // используем его как маркер «runner смонтирован».
+    await screen.findByTestId('puzzle-engine-progress');
     expect(
       screen.queryByTestId('puzzle-engine-replay-blunder'),
     ).toBeNull();
@@ -2001,11 +1967,10 @@ describe('PlayVsEngineRunner KS-3366 — кнопка «Проиграть по�
       <PlayVsEngineRunner puzzle={puzzle} onSubmit={vi.fn()} engineFactory={() => engine} />,
     );
     const btn = await screen.findByTestId('puzzle-engine-replay-blunder');
-    // Клик не должен бросать (внутри setGame + setTimeout). Дополнительно
-    // через короткий wait убеждаемся что hint всё ещё на месте.
     btn.click();
+    // KS-3369: кнопка остаётся в DOM после клика (replay не убирает её).
     expect(
-      screen.getByTestId('puzzle-engine-blunder-hint'),
+      screen.getByTestId('puzzle-engine-replay-blunder'),
     ).toBeInTheDocument();
   });
 });

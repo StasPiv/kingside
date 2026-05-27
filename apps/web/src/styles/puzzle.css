@@ -5986,6 +5986,21 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   background: var(--bg-hover, #2c2c47);
 }
 
+/* KS-3369: compact-вариант Back/Next под доской — кнопки меньше,
+   чем стандартные `.play-btn` (которые рассчитаны на CTA внизу
+   страницы), но достаточно крупные для тач-таргета (≥36px). */
+.precision-result-actions--compact {
+  gap: 8px;
+  margin-top: 8px;
+}
+.precision-result-actions--compact .play-btn--compact {
+  padding: 6px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1 1 0;
+  min-height: 36px;
+}
+
 /* KS-3361 / KS-3363 (ADR-080 §7 L1). Bottom-sheet выбора precision-тем.
    Mobile (≤767px): прижат к низу, slide-up. Desktop (≥768): centered
    modal с радиусом по всем углам и max-width 520px. */
