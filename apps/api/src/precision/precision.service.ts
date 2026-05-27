@@ -768,6 +768,19 @@ export class PrecisionService {
     const items = rows.map((r) => {
       const pa = r.precisionAttempt;
       if (pa) {
+        // KS-3341 / ADR-079 §3.5 / ADR-082 §7 F1. Precision-рейтинг
+        // в строке списка для UI-колонки ±delta. Все три поля
+        // синхронно null если попытка skipped в PrecisionRatingService
+        // (гость / hidden-test / self-created). Float в БД — для UI
+        // округляем до int (rating везде отображается целым).
+        const ratingBefore =
+          pa.ratingBefore == null ? null : Math.round(pa.ratingBefore);
+        const ratingAfter =
+          pa.ratingAfter == null ? null : Math.round(pa.ratingAfter);
+        const ratingDelta =
+          ratingBefore == null || ratingAfter == null
+            ? null
+            : ratingAfter - ratingBefore;
         return {
           attemptId: r.id,
           puzzleId: r.puzzleId,
@@ -797,6 +810,9 @@ export class PrecisionService {
             pa.score as 1 | 2 | 3 | 4 | 5 | null,
             pa.objectiveAchieved,
           ),
+          ratingBefore,
+          ratingAfter,
+          ratingDelta,
         };
       }
       // Legacy/без moves[]-snapshot — дефолтные агрегаты.
@@ -820,6 +836,10 @@ export class PrecisionService {
         scorePct: null,
         objectiveAchieved: null,
         verdictKey: null,
+        // KS-3341: legacy/без precisionAttempt — рейтинг не считался.
+        ratingBefore: null,
+        ratingAfter: null,
+        ratingDelta: null,
       };
     });
 

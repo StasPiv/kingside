@@ -192,6 +192,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
             // KS-3000.
             score: 4,
             scorePct: 87.5,
+            // KS-3341: precision-рейтинг записан (нормальный кейс).
+            ratingBefore: 1487.4,
+            ratingAfter: 1499.2,
           },
         },
         {
@@ -213,6 +216,10 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
             // KS-3000: legacy без score (halfMoves<2 или нет данных).
             score: null,
             scorePct: null,
+            // KS-3341 / anti-cheat: попытка по self-created пазлу →
+            // рейтинг не считался.
+            ratingBefore: null,
+            ratingAfter: null,
           },
         },
       ]);
@@ -248,6 +255,11 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         // (null → fallback ветка goal_achieved=true): 4★+null → 'confident'.
         objectiveAchieved: undefined,
         verdictKey: 'confident',
+        // KS-3341 / ADR-082 §7 F1. Rating-поля для UI-колонки ±delta.
+        // Float из БД округлён до int. Delta = after - before.
+        ratingBefore: 1487, // Math.round(1487.4)
+        ratingAfter: 1499, // Math.round(1499.2)
+        ratingDelta: 12, // 1499 - 1487
       });
       expect(r.items[1].endReason).toBe('lose-wdl');
       expect(r.items[1].classCounts.blunder).toBe(1);
@@ -255,6 +267,10 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.items[1].score).toBeNull();
       // KS-3077: scorePct тоже null когда score=null.
       expect(r.items[1].scorePct).toBeNull();
+      // KS-3341: self-created → рейтинг null синхронно.
+      expect(r.items[1].ratingBefore).toBeNull();
+      expect(r.items[1].ratingAfter).toBeNull();
+      expect(r.items[1].ratingDelta).toBeNull();
     });
 
     it('фильтр PVE через relation puzzle.solutionMode (KS-2737: без precisionAttempt:isNot:null)', async () => {
@@ -326,6 +342,10 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         },
         // KS-3077: legacy без precision_attempts → scorePct=null.
         scorePct: null,
+        // KS-3341: legacy без precision_attempts → rating-поля null.
+        ratingBefore: null,
+        ratingAfter: null,
+        ratingDelta: null,
       });
       // modern → реальные значения
       expect(r.items[1]).toMatchObject({
