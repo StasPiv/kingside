@@ -1684,6 +1684,8 @@
       "lost": "Lost"
     },
     "accuracy": "Accuracy: {{value}}",
+    "ratingDelta": "Rating change",
+    "ratingTooltip": "Rating: {{before}} → {{after}}",
     "halfMoves": "{{count}} half-moves",
     "review": "Review",
     "openReview": "Open review",

@@ -31,6 +31,10 @@ function makeItem(
     attemptedAt: string;
     score: number | null;
     scorePct: number | null;
+    // KS-3374: precision-рейтинг (KS-3341).
+    ratingBefore: number | null;
+    ratingAfter: number | null;
+    ratingDelta: number | null;
   }> = {},
 ): PrecisionAttemptsListResponse['items'][number] {
   return {
@@ -53,6 +57,13 @@ function makeItem(
     // даже при solved=false для legacy saveEquality-попыток до KS-3169).
     score: overrides.score === undefined ? null : overrides.score,
     scorePct: overrides.scorePct === undefined ? null : overrides.scorePct,
+    // KS-3374: rating-поля. undefined в overrides → null (legacy).
+    ratingBefore:
+      overrides.ratingBefore === undefined ? null : overrides.ratingBefore,
+    ratingAfter:
+      overrides.ratingAfter === undefined ? null : overrides.ratingAfter,
+    ratingDelta:
+      overrides.ratingDelta === undefined ? null : overrides.ratingDelta,
   };
 }
 
@@ -325,5 +336,91 @@ describe('<PrecisionAttemptsList>', () => {
       expect(screen.queryByTestId('precision-attempts-row-a1')).toBeTruthy();
     });
     expect(screen.queryByTestId('precision-attempts-sentinel')).toBeNull();
+  });
+
+  describe('KS-3374: колонка ±delta рейтинга', () => {
+    it('positive delta → «+15» + tone=gain + tooltip', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('a-gain', true, {
+            ratingBefore: 1487,
+            ratingAfter: 1502,
+            ratingDelta: 15,
+          }),
+        ],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      const delta = await waitFor(() =>
+        screen.getByTestId('precision-attempts-rating-delta-a-gain'),
+      );
+      expect(delta.getAttribute('data-delta')).toBe('15');
+      expect(delta.getAttribute('data-tone')).toBe('gain');
+      expect(delta.textContent).toMatch(/\+15/);
+      // Tooltip — before → after.
+      expect(delta.getAttribute('title')).toMatch(/1487/);
+      expect(delta.getAttribute('title')).toMatch(/1502/);
+    });
+
+    it('negative delta → «-8» + tone=loss', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('a-loss', false, {
+            ratingBefore: 1500,
+            ratingAfter: 1492,
+            ratingDelta: -8,
+          }),
+        ],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      const delta = await waitFor(() =>
+        screen.getByTestId('precision-attempts-rating-delta-a-loss'),
+      );
+      expect(delta.getAttribute('data-delta')).toBe('-8');
+      expect(delta.getAttribute('data-tone')).toBe('loss');
+      expect(delta.textContent).toMatch(/-8/);
+    });
+
+    it('null (legacy/skip) → «—» + data-delta="null", без tooltip с числами', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('a-null', true, {
+            ratingBefore: null,
+            ratingAfter: null,
+            ratingDelta: null,
+          }),
+        ],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      const delta = await waitFor(() =>
+        screen.getByTestId('precision-attempts-rating-delta-a-null'),
+      );
+      expect(delta.getAttribute('data-delta')).toBe('null');
+      expect(delta.textContent).toMatch(/—/);
+      expect(delta.getAttribute('title')).toBeNull();
+    });
+
+    it('delta=0 → tone=flat (нейтральный), знака «+/-» нет', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        items: [
+          makeItem('a-flat', true, {
+            ratingBefore: 1500,
+            ratingAfter: 1500,
+            ratingDelta: 0,
+          }),
+        ],
+        total: 1,
+      } satisfies PrecisionAttemptsListResponse);
+      renderWithProviders(<PrecisionAttemptsList fetcher={fetcher} />);
+      const delta = await waitFor(() =>
+        screen.getByTestId('precision-attempts-rating-delta-a-flat'),
+      );
+      expect(delta.getAttribute('data-delta')).toBe('0');
+      expect(delta.getAttribute('data-tone')).toBe('flat');
+      // «0» без знака.
+      expect(delta.textContent?.trim()).toMatch(/0$/);
+    });
   });
 });

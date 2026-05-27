@@ -4141,6 +4141,30 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-attempts__accuracy {
   font-variant-numeric: tabular-nums;
 }
+/* KS-3374 (ADR-082 §7 F1): дельта precision-рейтинга в строке попытки.
+   Semantic-tone цвета; финальная полировка под палитру — KS-3383
+   (layout). gain/loss — `--success`/`--danger` с tint-фолбэком,
+   flat/null — нейтральный `--c-94a3b8`. */
+.precision-attempts__rating-delta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.precision-attempts__rating-delta--gain {
+  color: var(--success, #4ade80);
+}
+.precision-attempts__rating-delta--loss {
+  color: var(--danger, #f87171);
+}
+.precision-attempts__rating-delta--flat,
+.precision-attempts__rating-delta--null {
+  color: var(--c-94a3b8, #94a3b8);
+  font-weight: 500;
+}
 .precision-attempts__halfmoves {
   color: var(--c-94a3b8);
   font-size: 12px;

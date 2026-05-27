@@ -473,6 +473,69 @@ export function PrecisionAttemptsList({
                       value: accuracyText,
                     })}
                   </span>
+                  {/* KS-3374 (ADR-082 §7 F1): дельта precision-рейтинга
+                      рядом с accuracy. `ratingBefore/ratingAfter/ratingDelta`
+                      приходят в list-DTO (KS-3341). Null показываем `—`
+                      (legacy / гость / self-created-skip — у этих
+                      attempts backend не пишет рейтинг). Финальные
+                      цвета — KS-3383 (layout). Сейчас semantic-классы. */}
+                  {(() => {
+                    const delta = a.ratingDelta;
+                    const before = a.ratingBefore;
+                    const after = a.ratingAfter;
+                    if (
+                      delta == null ||
+                      before == null ||
+                      after == null
+                    ) {
+                      return (
+                        <span
+                          className="precision-attempts__rating-delta precision-attempts__rating-delta--null"
+                          data-testid={`precision-attempts-rating-delta-${a.attemptId}`}
+                          data-delta="null"
+                          aria-label={t(
+                            'precisionAttempts.ratingDelta',
+                            'Rating change',
+                          )}
+                        >
+                          —
+                        </span>
+                      );
+                    }
+                    const rounded = Math.round(delta);
+                    const tone =
+                      rounded > 0 ? 'gain' : rounded < 0 ? 'loss' : 'flat';
+                    const arrow =
+                      rounded > 0 ? '⬆' : rounded < 0 ? '⬇' : '·';
+                    const sign = rounded > 0 ? '+' : '';
+                    return (
+                      <span
+                        className={`precision-attempts__rating-delta precision-attempts__rating-delta--${tone}`}
+                        data-testid={`precision-attempts-rating-delta-${a.attemptId}`}
+                        data-delta={String(rounded)}
+                        data-tone={tone}
+                        title={t(
+                          'precisionAttempts.ratingTooltip',
+                          'Rating: {{before}} → {{after}}',
+                          {
+                            before: Math.round(before),
+                            after: Math.round(after),
+                          },
+                        )}
+                        aria-label={t(
+                          'precisionAttempts.ratingTooltip',
+                          'Rating: {{before}} → {{after}}',
+                          {
+                            before: Math.round(before),
+                            after: Math.round(after),
+                          },
+                        )}
+                      >
+                        <span aria-hidden="true">{arrow}</span> {sign}
+                        {rounded}
+                      </span>
+                    );
+                  })()}
                   <span className="precision-attempts__halfmoves">
                     {t('precisionAttempts.halfMoves', '{{count}} half-moves', {
                       count: a.halfMovesPlayed,

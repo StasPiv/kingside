@@ -1706,6 +1706,8 @@
       "lost": "Упущено"
     },
     "accuracy": "Точность: {{value}}",
+    "ratingDelta": "Изменение рейтинга",
+    "ratingTooltip": "Рейтинг: {{before}} → {{after}}",
     "halfMoves": "{{count}} полуходов",
     "review": "Разбор",
     "openReview": "Открыть разбор",
