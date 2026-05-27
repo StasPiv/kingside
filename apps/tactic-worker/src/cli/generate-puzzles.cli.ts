@@ -56,6 +56,13 @@ export function parseArgs(argv: string[]): CliFlags {
   const opts = defaultGeneratorOptions();
   let dumpFile: string | null = null;
   let excludeUsed = false;
+  // KS-3364 follow-up: трекаем явные --time-ms / --nodes, чтобы после
+  // прохода по argv убрать дефолтный `timeMs: 1000` из engineLimit, если
+  // пользователь указал ТОЛЬКО `--nodes`. Иначе Stockfish получает оба
+  // лимита и стопает по первому достигнутому (обычно time), сводя на нет
+  // эффект nodes-limit.
+  let timeMsExplicit = false;
+  let nodesExplicit = false;
   for (const arg of argv) {
     const [k, v] = arg.replace(/^--/, '').split('=');
     switch (k) {
@@ -73,9 +80,11 @@ export function parseArgs(argv: string[]): CliFlags {
         break;
       case 'time-ms':
         opts.engineLimit = { ...opts.engineLimit, timeMs: parseInt(v, 10) };
+        timeMsExplicit = true;
         break;
       case 'nodes':
         opts.engineLimit = { ...opts.engineLimit, nodes: parseInt(v, 10) };
+        nodesExplicit = true;
         break;
       case 'min-rating':
         opts.minRating = parseInt(v, 10);
@@ -134,6 +143,15 @@ export function parseArgs(argv: string[]): CliFlags {
       default:
         throw new Error(`unknown CLI option: ${arg}`);
     }
+  }
+  // KS-3364 follow-up: если пользователь передал ТОЛЬКО --nodes (без
+  // --time-ms), убираем унаследованный из defaultGeneratorOptions
+  // `timeMs: 1000`. Иначе движок останавливается по time-cap раньше,
+  // чем достигнет nodes — фактический лимит = time=1000ms.
+  if (nodesExplicit && !timeMsExplicit) {
+    const { timeMs: _ignored, ...rest } = opts.engineLimit;
+    void _ignored;
+    opts.engineLimit = rest;
   }
   return {
     options: opts as Omit<GeneratorOptions, 'insertPuzzle'>,

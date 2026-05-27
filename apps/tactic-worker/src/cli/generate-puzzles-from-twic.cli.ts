@@ -52,6 +52,10 @@ export function parseArgs(argv: string[]): TwicCliFlags {
   let onlySave = true;
   let dryRun = false;
   let limit: number | null = null;
+  // KS-3364 follow-up: трекаем явные --time-ms / --nodes (см. описание
+  // в `generate-puzzles.cli.ts`).
+  let timeMsExplicit = false;
+  let nodesExplicit = false;
 
   for (const arg of argv) {
     const [k, v] = arg.replace(/^--/, '').split('=');
@@ -76,12 +80,14 @@ export function parseArgs(argv: string[]): TwicCliFlags {
         break;
       case 'time-ms':
         opts.engineLimit = { ...opts.engineLimit, timeMs: parseInt(v, 10) };
+        timeMsExplicit = true;
         break;
       case 'depth':
         opts.engineLimit = { ...opts.engineLimit, depth: parseInt(v, 10) };
         break;
       case 'nodes':
         opts.engineLimit = { ...opts.engineLimit, nodes: parseInt(v, 10) };
+        nodesExplicit = true;
         break;
       case 'half-moves-n':
         opts.halfMovesN = parseInt(v, 10);
@@ -102,6 +108,15 @@ export function parseArgs(argv: string[]): TwicCliFlags {
 
   if (limit !== null) {
     opts.maxGames = limit;
+  }
+
+  // KS-3364 follow-up: только --nodes → убираем дефолтный timeMs из
+  // engineLimit (иначе Stockfish стопает по time-cap раньше, чем по
+  // nodes — см. описание в `generate-puzzles.cli.ts`).
+  if (nodesExplicit && !timeMsExplicit) {
+    const { timeMs: _ignored, ...rest } = opts.engineLimit;
+    void _ignored;
+    opts.engineLimit = rest;
   }
 
   return {

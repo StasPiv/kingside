@@ -52,6 +52,24 @@ describe('parseArgs (KS-3150)', () => {
     expect(r.options.engineLimit.depth).toBe(20);
   });
 
+  it('KS-3364: только --nodes → дефолтный timeMs убирается из engineLimit', () => {
+    const r = parseArgs(['--nodes=10000000']);
+    expect(r.options.engineLimit.nodes).toBe(10_000_000);
+    expect(r.options.engineLimit.timeMs).toBeUndefined();
+  });
+
+  it('KS-3364: --nodes + --time-ms → оба значения сохраняются (пользователь явно хочет оба cap)', () => {
+    const r = parseArgs(['--nodes=10000000', '--time-ms=500']);
+    expect(r.options.engineLimit.nodes).toBe(10_000_000);
+    expect(r.options.engineLimit.timeMs).toBe(500);
+  });
+
+  it('KS-3364: без --nodes и без --time-ms → дефолтный timeMs=1000 сохраняется', () => {
+    const r = parseArgs([]);
+    expect(r.options.engineLimit.timeMs).toBe(1000);
+    expect(r.options.engineLimit.nodes).toBeUndefined();
+  });
+
   it('бросает на --twic-issue<=0', () => {
     expect(() => parseArgs(['--twic-issue=0'])).toThrow(/bad --twic-issue/);
     expect(() => parseArgs(['--twic-issue=-1'])).toThrow(/bad --twic-issue/);
