@@ -666,8 +666,11 @@ describe('<PrecisionPage> KS-2746 F4 — SubNav сверху', () => {
   });
 });
 
-describe('<PrecisionPage> KS-2746 F4 — compact top-bar', () => {
-  it('рендерит 2 метрики + ссылку «Полная статистика →» при totalAttempts > 0', async () => {
+describe('<PrecisionPage> KS-3382 — compact top-bar убран', () => {
+  // KS-3382: плашка «точность / удержано-упущено» удалена с вкладки
+  // «Тренировка». Рейтинг-pill сверху достаточен; подробная статистика
+  // на /precision/stats. Empty-CTA при 0 попыток остаётся.
+  it('totalAttempts>0 → compact-bar НЕ рендерится; нет статистики и ссылки', async () => {
     authValue.user = { id: 'u1', username: 'tester' };
     apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/puzzles/browse?')) return Promise.resolve(wrap(SAMPLE));
@@ -683,28 +686,25 @@ describe('<PrecisionPage> KS-2746 F4 — compact top-bar', () => {
       return Promise.resolve(undefined);
     });
     renderWithProviders(<PrecisionPage />);
-
-    const bar = await waitFor(() => {
-      const el = screen.queryByTestId('precision-compact-stats');
-      if (!el) throw new Error('compact-stats not yet rendered');
-      return el;
-    });
-    expect(bar.getAttribute('data-attempts')).toBe('12');
-    expect(bar.getAttribute('data-preserved')).toBe('7');
-
-    // 2 метрики: точность ~77% и preserved/lost = 7 / 5.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('play-vs-engine-puzzles').getAttribute('data-state'),
+      ).toBe('ready'),
+    );
+    // KS-3382: compact-bar отсутствует на вкладке «Тренировка».
+    expect(screen.queryByTestId('precision-compact-stats')).toBeNull();
     expect(
-      screen.getByTestId('precision-compact-stats-accuracy').textContent,
-    ).toMatch(/77%|76%/);
+      screen.queryByTestId('precision-compact-stats-accuracy'),
+    ).toBeNull();
     expect(
-      screen.getByTestId('precision-compact-stats-retained').textContent,
-    ).toContain('7 / 5');
-
-    // Ссылка «Полная статистика →» ведёт на /precision/stats.
-    const link = screen.getByTestId('precision-compact-stats-full-link');
-    expect(link.getAttribute('href')).toBe('/precision/stats');
-
-    // Развёрнутые блоки больше не на главной.
+      screen.queryByTestId('precision-compact-stats-retained'),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('precision-compact-stats-full-link'),
+    ).toBeNull();
+    // У юзера с попытками empty-CTA не нужен.
+    expect(screen.queryByTestId('precision-empty')).toBeNull();
+    // Развёрнутые блоки тоже не на главной (живут на /precision/stats).
     expect(screen.queryByTestId('precision-stats')).toBeNull();
     expect(screen.queryByTestId('precision-attempts')).toBeNull();
     expect(screen.queryByTestId('precision-trends')).toBeNull();

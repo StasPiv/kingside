@@ -902,89 +902,33 @@ export function PrecisionPage() {
             />
           </div>
         </div>
-        {/* KS-2746 / ADR-057 §3.2: compact top-bar c 2 метриками + ссылка
-            «Полная статистика →» на /precision/stats. Заменяет старый
-            4-карточечный блок, который теперь живёт на /precision/stats
-            (KS-2744). На 1280×800 сетка позиций видна без скролла —
-            ради чего весь рефакторинг.
-            При totalAttempts=0 рендерим empty-CTA «Начать тренировку»
-            (скролл/фокус на первую карточку сетки) вместо нулевых
-            метрик. */}
-        {user && (() => {
-          const hasData = stats != null && stats.totalAttempts > 0;
-          if (!hasData) {
-            return (
-              <div
-                className="precision-empty"
-                data-testid="precision-empty"
-              >
-                <p className="precision-empty__title">
-                  {t('precision.empty.title', "You don't have any attempts yet.")}
-                </p>
-                <button
-                  type="button"
-                  className="precision-empty__cta"
-                  data-testid="precision-empty-cta"
-                  onClick={scrollToFirstCard}
-                >
-                  {t('precision.empty.cta', 'Start training')}
-                </button>
-              </div>
-            );
-          }
-          const accuracyText =
-            stats!.avgAccuracyPercent == null
-              ? t('precision.stats.noData', '—')
-              : `${Math.round(stats!.avgAccuracyPercent)}%`;
-          const lostCount = Math.max(
-            0,
-            stats!.totalAttempts - stats!.preservedCount,
-          );
-          return (
-            <div
-              className="precision-compact-stats"
-              data-testid="precision-compact-stats"
-              data-attempts={String(stats!.totalAttempts)}
-              data-preserved={String(stats!.preservedCount)}
+        {/* KS-3382: compact-bar со статистикой (точность/удержано-упущено)
+            убран — рейтинг-pill в шапке достаточно, подробная статистика
+            на вкладке «Прогресс» (/precision/stats). Empty-CTA «Начать
+            тренировку» остаётся для пользователей без попыток или при
+            ошибке fetch'а /precision/stats/me (graceful: новые юзеры
+            без записей видят CTA, а не пустой блок). */}
+        {user && (stats == null || stats.totalAttempts === 0) && (
+          <div
+            className="precision-empty"
+            data-testid="precision-empty"
+          >
+            <p className="precision-empty__title">
+              {t(
+                'precision.empty.title',
+                "You don't have any attempts yet.",
+              )}
+            </p>
+            <button
+              type="button"
+              className="precision-empty__cta"
+              data-testid="precision-empty-cta"
+              onClick={scrollToFirstCard}
             >
-              <div
-                className="precision-compact-stats__cell"
-                data-testid="precision-compact-stats-accuracy"
-              >
-                <span className="precision-compact-stats__value">
-                  {accuracyText}
-                </span>
-                <span className="precision-compact-stats__label">
-                  {t('precision.compactStats.accuracy', 'Move accuracy')}
-                </span>
-              </div>
-              <div
-                className="precision-compact-stats__cell"
-                data-testid="precision-compact-stats-retained"
-              >
-                <span className="precision-compact-stats__value">
-                  {stats!.preservedCount} / {lostCount}
-                </span>
-                <span className="precision-compact-stats__label">
-                  {t(
-                    'precision.compactStats.retainedLost',
-                    'Preserved / Lost',
-                  )}
-                </span>
-              </div>
-              <Link
-                to="/precision/stats"
-                className="precision-compact-stats__full-link"
-                data-testid="precision-compact-stats-full-link"
-              >
-                {t(
-                  'precision.compactStats.fullStatsLink',
-                  'Full statistics →',
-                )}
-              </Link>
-            </div>
-          );
-        })()}
+              {t('precision.empty.cta', 'Start training')}
+            </button>
+          </div>
+        )}
       </header>
 
       {pageState === 'loading' && (
