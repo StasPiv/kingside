@@ -3870,6 +3870,13 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   font-size: 16px;
   font-weight: 600;
 }
+/* KS-3377 (ADR-082 §3 / §7 F2). Контейнер двух toggle'ов
+   (metric + bucket) в шапке тренда. Mobile: stack column. */
+.precision-trends__toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .precision-trends__toggle {
   display: inline-flex;
   gap: 4px;

@@ -1656,6 +1656,12 @@
     "loadError": "Could not load trend.",
     "empty": "Play your first attempts to see the trend.",
     "tooltip": "{{date}} · {{attempts}} attempts · {{preserved}} preserved · acc {{acc}}% · leak {{leak}}",
+    "tooltipRating": "{{date}} · rating {{rating}} ({{delta}} over period, {{attempts}} attempts)",
+    "metric": {
+      "label": "Metric",
+      "accuracy": "Accuracy",
+      "rating": "Rating"
+    },
     "migrationMarker": "Method update",
     "migrationTooltip": "Move classification method updated (ADR-066). Before this date moves were classified by cp-loss; now by WDL-loss. Accuracy went up on theoretically winning positions — keeping the advantage is no longer counted as a mistake."
   },

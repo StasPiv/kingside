@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import type { PrecisionTrendsResponse } from '@kingside/shared';
 import { api } from '../../api';
 
@@ -38,10 +39,27 @@ import { api } from '../../api';
 
 type WindowMode = 'week' | 'month';
 
+/**
+ * KS-3377 (ADR-082 §3 / §7 F2). Метрика тренда: точность ходов (KS-2728
+ * legacy) либо precision-рейтинг (KS-3375 ratingEnd / ratingDelta).
+ *  - `'accuracy'`: Y = avgAccuracyPercent [0..100], baseline 50%.
+ *  - `'rating'`: Y = ratingEnd, диапазон от min..max в видимых
+ *    бакетах (gap-skip null). Tooltip — сумма delta за бакет.
+ *
+ * URL state `?metric=accuracy|rating`. Default `'accuracy'` для
+ * backward-compat (старые сохранённые ссылки).
+ */
+type Metric = 'accuracy' | 'rating';
+
 const WINDOW_DAYS_BY_MODE: Record<WindowMode, number> = {
   week: 7,
   month: 30,
 };
+
+function readMetricFromUrl(searchParams: URLSearchParams): Metric {
+  const raw = searchParams.get('metric');
+  return raw === 'rating' ? 'rating' : 'accuracy';
+}
 
 /**
  * Окно «последние N дней» с шагом 1 день. `since` — полночь дня
@@ -107,10 +125,24 @@ export function PrecisionTrendsChart({
   now,
 }: PrecisionTrendsChartProps = {}) {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<WindowMode>('week');
   const [data, setData] = useState<PrecisionTrendsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
+
+  // KS-3377: метрика читается из URL. setMetric пишет обратно в URL.
+  // Default 'accuracy' — backward-compat для уже сохранённых ссылок.
+  const metric: Metric = readMetricFromUrl(searchParams);
+  const setMetric = useCallback(
+    (next: Metric) => {
+      const sp = new URLSearchParams(searchParams);
+      if (next === 'accuracy') sp.delete('metric');
+      else sp.set('metric', next);
+      setSearchParams(sp, { replace: false });
+    },
+    [searchParams, setSearchParams],
+  );
 
   // Окно — мемо по mode/now. При смене mode useEffect ниже триггерит
   // fetch с новым окном.
@@ -195,41 +227,114 @@ export function PrecisionTrendsChart({
     return xForDate(CLASSIFY_WDL_MIGRATION_DATE);
   }, [points, xForDate]);
 
+  // KS-3377: rating-режим использует динамический Y-диапазон по
+  // видимым `ratingEnd` (null-бакеты исключены). Расширяем ±10 пунктов
+  // — даёт «воздух» сверху/снизу и устойчиво для одной-двух точек.
+  const ratingRange = useMemo<{ min: number; max: number } | null>(() => {
+    const ratings: number[] = [];
+    for (const p of points) {
+      if (p.ratingEnd != null) ratings.push(p.ratingEnd);
+    }
+    if (ratings.length === 0) return null;
+    let min = Math.min(...ratings);
+    let max = Math.max(...ratings);
+    // Если все точки одинаковые — расширяем ±20.
+    if (max - min < 5) {
+      min -= 20;
+      max += 20;
+    } else {
+      min -= 10;
+      max += 10;
+    }
+    return { min, max };
+  }, [points]);
+
+  /**
+   * KS-3377: вычислить Y-координату для бакета. Возвращает `null` если
+   * метрика недоступна для бакета (rating + ratingEnd=null) — caller
+   * пропускает точку и разрывает path.
+   */
+  const yForPoint = useCallback(
+    (p: PrecisionTrendsResponse['points'][number]): number | null => {
+      const innerH = VB_H - PAD_TOP - PAD_BOTTOM;
+      if (metric === 'rating') {
+        if (p.ratingEnd == null || !ratingRange) return null;
+        const span = Math.max(1, ratingRange.max - ratingRange.min);
+        const yNorm = (p.ratingEnd - ratingRange.min) / span;
+        return PAD_TOP + (1 - yNorm) * innerH;
+      }
+      // accuracy 0..100 → y сверху=100%, снизу=0%.
+      const yNorm = Math.max(0, Math.min(100, p.avgAccuracyPercent)) / 100;
+      return PAD_TOP + (1 - yNorm) * innerH;
+    },
+    [metric, ratingRange],
+  );
+
   const path = useMemo(() => {
     if (points.length === 0) return '';
-    const innerH = VB_H - PAD_TOP - PAD_BOTTOM;
-    return points
-      .map((p, i) => {
-        const x = xForDate(p.bucketStart);
-        // accuracyPercent 0..100 → y отображаем сверху=100%, снизу=0%.
-        const yNorm = Math.max(0, Math.min(100, p.avgAccuracyPercent)) / 100;
-        const y = PAD_TOP + (1 - yNorm) * innerH;
-        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(' ');
-  }, [points, xForDate]);
+    // KS-3377: gap-skip для null-бакетов в rating-режиме. После null
+    // следующая точка начинается с `M` — линия разрывается.
+    let d = '';
+    let prev = false;
+    for (const p of points) {
+      const y = yForPoint(p);
+      if (y == null) {
+        prev = false;
+        continue;
+      }
+      const x = xForDate(p.bucketStart);
+      d += `${prev ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)} `;
+      prev = true;
+    }
+    return d.trim();
+  }, [points, xForDate, yForPoint]);
 
   const renderToggle = () => (
-    <div
-      className="precision-trends__toggle"
-      role="tablist"
-      aria-label={t('precisionTrends.toggleLabel', 'Bucket size')}
-    >
-      {(['week', 'month'] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          role="tab"
-          aria-selected={mode === m}
-          className={`precision-trends__toggle-btn${mode === m ? ' precision-trends__toggle-btn--active' : ''}`}
-          onClick={() => setMode(m)}
-          data-testid={`precision-trends-bucket-${m}`}
-        >
-          {m === 'week'
-            ? t('precisionTrends.week', 'Week')
-            : t('precisionTrends.month', 'Month')}
-        </button>
-      ))}
+    <div className="precision-trends__toggles">
+      {/* KS-3377 (ADR-082 §3 / §7 F2). Переключатель метрики
+          «Точность ↔ Рейтинг». URL-state `?metric=accuracy|rating`. */}
+      <div
+        className="precision-trends__toggle precision-trends__toggle--metric"
+        role="radiogroup"
+        aria-label={t('precisionTrends.metric.label', 'Metric')}
+      >
+        {(['accuracy', 'rating'] as const).map((mt) => (
+          <button
+            key={mt}
+            type="button"
+            role="radio"
+            aria-checked={metric === mt}
+            className={`precision-trends__toggle-btn${metric === mt ? ' precision-trends__toggle-btn--active' : ''}`}
+            onClick={() => setMetric(mt)}
+            data-testid={`precision-trends-metric-${mt}`}
+          >
+            {mt === 'accuracy'
+              ? t('precisionTrends.metric.accuracy', 'Accuracy')
+              : t('precisionTrends.metric.rating', 'Rating')}
+          </button>
+        ))}
+      </div>
+      <div
+        className="precision-trends__toggle"
+        role="tablist"
+        aria-label={t('precisionTrends.toggleLabel', 'Bucket size')}
+      >
+        {(['week', 'month'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            className={`precision-trends__toggle-btn${mode === m ? ' precision-trends__toggle-btn--active' : ''}`}
+            onClick={() => setMode(m)}
+            data-testid={`precision-trends-bucket-${m}`}
+          >
+            {m === 'week'
+              ? t('precisionTrends.week', 'Week')
+              : t('precisionTrends.month', 'Month')}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
@@ -273,7 +378,7 @@ export function PrecisionTrendsChart({
         <button
           type="button"
           className="precision-trends__retry"
-          onClick={() => void doFetch(bucket)}
+          onClick={() => void doFetch(mode, range)}
           data-testid="precision-trends-retry"
         >
           {t('common.retry', 'Retry')}
@@ -314,6 +419,7 @@ export function PrecisionTrendsChart({
       data-testid="precision-trends"
       data-state="ready"
       data-bucket={mode}
+      data-metric={metric}
       data-points={String(points.length)}
       data-window-since={range.since.toISOString()}
       data-window-until={range.until.toISOString()}
@@ -334,15 +440,19 @@ export function PrecisionTrendsChart({
           'Accuracy across time buckets',
         )}
       >
-        {/* baseline 50% */}
-        <line
-          x1={PAD_X}
-          y1={PAD_TOP + (VB_H - PAD_TOP - PAD_BOTTOM) / 2}
-          x2={VB_W - PAD_X}
-          y2={PAD_TOP + (VB_H - PAD_TOP - PAD_BOTTOM) / 2}
-          stroke="rgba(255,255,255,0.15)"
-          strokeWidth={0.5}
-        />
+        {/* KS-3377: baseline 50% актуален только для accuracy
+            (середина шкалы 0..100). Для rating-режима baseline не имеет
+            смысла (Y-диапазон динамический), не рендерим. */}
+        {metric === 'accuracy' && (
+          <line
+            x1={PAD_X}
+            y1={PAD_TOP + (VB_H - PAD_TOP - PAD_BOTTOM) / 2}
+            x2={VB_W - PAD_X}
+            y2={PAD_TOP + (VB_H - PAD_TOP - PAD_BOTTOM) / 2}
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth={0.5}
+          />
+        )}
         {/* KS-3024 / ADR-066 §7.3 (F1): vertical marker даты миграции
             cp-loss → WDL-loss. Тонкая пунктирная линия + подпись
             «Methodology updated» сверху + <title>-tooltip с полным
@@ -390,26 +500,49 @@ export function PrecisionTrendsChart({
           strokeWidth={1.5}
           vectorEffect="non-scaling-stroke"
         />
-        {/* KS-3040: точки позиционируются по реальной дате внутри окна.
-            При одной точке она встаёт в свою дату, ось X сохраняет
-            границы окна как подписи (см. ниже). */}
+        {/* KS-3040 / KS-3377: точки позиционируются по реальной дате.
+            В rating-режиме null-бакеты исключены — точка не рендерится,
+            line-path их тоже разрывает (gap-skip). */}
         {points.map((p, i) => {
-          const innerH = VB_H - PAD_TOP - PAD_BOTTOM;
+          const y = yForPoint(p);
+          if (y == null) return null; // KS-3377: skip null-rating
           const x = xForDate(p.bucketStart);
-          const yNorm =
-            Math.max(0, Math.min(100, p.avgAccuracyPercent)) / 100;
-          const y = PAD_TOP + (1 - yNorm) * innerH;
-          const tooltipText = t('precisionTrends.tooltip', {
-            defaultValue:
-              '{{date}} · {{attempts}} attempts · {{preserved}} preserved · acc {{acc}}% · leak {{leak}}',
-            date: new Date(p.bucketStart).toLocaleDateString(),
-            attempts: p.attempts,
-            preserved: p.preserved,
-            acc: Math.round(p.avgAccuracyPercent),
-            leak: (p.avgWdlLeakPerMove * 100).toFixed(1) + '%',
-          });
+          let tooltipText: string;
+          if (metric === 'rating') {
+            const deltaStr =
+              p.ratingDelta == null
+                ? '0'
+                : p.ratingDelta > 0
+                  ? `+${Math.round(p.ratingDelta)}`
+                  : String(Math.round(p.ratingDelta));
+            tooltipText = t('precisionTrends.tooltipRating', {
+              defaultValue:
+                '{{date}} · rating {{rating}} ({{delta}} over period, {{attempts}} attempts)',
+              date: new Date(p.bucketStart).toLocaleDateString(),
+              rating: Math.round(p.ratingEnd ?? 0),
+              delta: deltaStr,
+              attempts: p.attempts,
+            });
+          } else {
+            tooltipText = t('precisionTrends.tooltip', {
+              defaultValue:
+                '{{date}} · {{attempts}} attempts · {{preserved}} preserved · acc {{acc}}% · leak {{leak}}',
+              date: new Date(p.bucketStart).toLocaleDateString(),
+              attempts: p.attempts,
+              preserved: p.preserved,
+              acc: Math.round(p.avgAccuracyPercent),
+              leak: (p.avgWdlLeakPerMove * 100).toFixed(1) + '%',
+            });
+          }
           return (
-            <g key={i} data-testid={`precision-trends-point-${i}`}>
+            <g
+              key={i}
+              data-testid={`precision-trends-point-${i}`}
+              data-bucket-start={p.bucketStart}
+              data-rating-end={
+                p.ratingEnd == null ? 'null' : String(p.ratingEnd)
+              }
+            >
               <circle
                 cx={x}
                 cy={y}

@@ -287,4 +287,179 @@ describe('<PrecisionTrendsChart>', () => {
       ).toBeNull();
     });
   });
+
+  // KS-3377 (ADR-082 §3 / §7 F2). Переключатель «Точность ↔ Рейтинг»,
+  // URL-state, рендер rating-режима + gap-skip null-бакетов.
+  describe('KS-3377: metric switcher', () => {
+    const respWithRating = (): PrecisionTrendsResponse => ({
+      bucket: 'day',
+      points: [
+        {
+          bucketStart: '2026-05-08T00:00:00Z',
+          attempts: 4,
+          preserved: 2,
+          avgAccuracyPercent: 60,
+          avgWdlLeakPerMove: 0.05,
+          ratingEnd: 1487,
+          ratingDelta: -8,
+        },
+        {
+          bucketStart: '2026-05-10T00:00:00Z',
+          attempts: 3,
+          preserved: 2,
+          avgAccuracyPercent: 70,
+          avgWdlLeakPerMove: 0.04,
+          // null-бакет: legacy / гость / self-created → gap-skip
+          ratingEnd: null,
+          ratingDelta: null,
+        },
+        {
+          bucketStart: '2026-05-12T00:00:00Z',
+          attempts: 6,
+          preserved: 5,
+          avgAccuracyPercent: 82,
+          avgWdlLeakPerMove: 0.02,
+          ratingEnd: 1502,
+          ratingDelta: 15,
+        },
+      ],
+    });
+
+    it('по умолчанию metric=accuracy (URL без ?metric)', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+      );
+      await waitFor(() => {
+        const el = screen.getByTestId('precision-trends');
+        expect(el.getAttribute('data-state')).toBe('ready');
+        expect(el.getAttribute('data-metric')).toBe('accuracy');
+      });
+      // accuracy-кнопка активна.
+      expect(
+        screen.getByTestId('precision-trends-metric-accuracy').getAttribute('aria-checked'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('precision-trends-metric-rating').getAttribute('aria-checked'),
+      ).toBe('false');
+    });
+
+    it('клик «Рейтинг» → URL получает ?metric=rating + data-metric обновляется', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-state'),
+        ).toBe('ready'),
+      );
+      fireEvent.click(screen.getByTestId('precision-trends-metric-rating'));
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating');
+      });
+      expect(
+        screen.getByTestId('precision-trends-metric-rating').getAttribute('aria-checked'),
+      ).toBe('true');
+      // URL-state проверяется через старт-route в следующем тесте
+      // (?metric=rating → начало в rating-режиме). В jsdom-тесте
+      // useSearchParams работает через MemoryRouter, прямой
+      // `window.location.search` не отражает в-memory изменения.
+    });
+
+    it('?metric=rating в URL → стартует в rating-режиме', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+        { route: '/precision/stats?metric=rating' },
+      );
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating');
+      });
+    });
+
+    it('rating: null-бакет (ratingEnd=null) — точка НЕ рендерится (gap-skip)', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+        { route: '/precision/stats?metric=rating' },
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating'),
+      );
+      // 0 и 2 — non-null, 1 — null (gap).
+      expect(screen.queryByTestId('precision-trends-point-0')).toBeTruthy();
+      expect(screen.queryByTestId('precision-trends-point-1')).toBeNull();
+      expect(screen.queryByTestId('precision-trends-point-2')).toBeTruthy();
+    });
+
+    it('rating: tooltip содержит {date} · рейтинг {ratingEnd} ({+delta})', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      const { container } = renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+        { route: '/precision/stats?metric=rating' },
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating'),
+      );
+      const point2 = screen.getByTestId('precision-trends-point-2');
+      expect(point2.getAttribute('data-rating-end')).toBe('1502');
+      const title = container.querySelector(
+        '[data-testid="precision-trends-point-2"] title',
+      );
+      expect(title?.textContent).toMatch(/1502/);
+      expect(title?.textContent).toMatch(/\+15/);
+    });
+
+    it('rating: baseline 50% НЕ рендерится (Y-диапазон динамический)', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      const { container } = renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+        { route: '/precision/stats?metric=rating' },
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating'),
+      );
+      // accuracy-режим рендерит горизонтальную линию-baseline через
+      // прямой <line>. В rating-режиме её быть не должно.
+      const baselines = container.querySelectorAll(
+        '.precision-trends__svg > line',
+      );
+      expect(baselines.length).toBe(0);
+    });
+
+    it('accuracy ↔ rating: переключение сохраняет 3 точки доступных vs 2 точки (gap-skip)', async () => {
+      const fetcher = vi.fn().mockResolvedValue(respWithRating());
+      renderWithProviders(
+        <PrecisionTrendsChart fetcher={fetcher} now={FIXED_NOW} />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-state'),
+        ).toBe('ready'),
+      );
+      // accuracy: все 3 точки рендерятся (ratingEnd не используется).
+      expect(screen.queryByTestId('precision-trends-point-0')).toBeTruthy();
+      expect(screen.queryByTestId('precision-trends-point-1')).toBeTruthy();
+      expect(screen.queryByTestId('precision-trends-point-2')).toBeTruthy();
+      fireEvent.click(screen.getByTestId('precision-trends-metric-rating'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-metric'),
+        ).toBe('rating'),
+      );
+      // rating: точка #1 (null) пропущена.
+      expect(screen.queryByTestId('precision-trends-point-1')).toBeNull();
+    });
+  });
 });
