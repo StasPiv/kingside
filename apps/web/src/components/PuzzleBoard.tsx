@@ -133,10 +133,30 @@ export function PuzzleBoard({
     [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, arrows, handleSquareClick, handlePieceClick, suppressAnimation],
   );
 
+  // KS-3379: индикатор «чьего хода» в правом верхнем углу доски.
+  // До этой задачи цвет был привязан к `boardOrientation` — но
+  // ориентация доски ≠ side-to-move. В preventive saveEquality solver
+  // играет за чёрных, доска перевёрнута (orientation='black') и ход
+  // действительно чёрных — кружок чёрный, корректно. Но если solver
+  // только что сходил и сейчас движок (или статичная позиция
+  // pre-move) показывает ход НЕ orientation'а, индикатор оставался
+  // в старом цвете. Привязка к `chess.turn()` исправляет это.
+  // Fallback на orientation сохранён для случая `game === null`
+  // (loading / лоадер).
+  const turnColor: 'white' | 'black' = game
+    ? game.turn() === 'w'
+      ? 'white'
+      : 'black'
+    : boardOrientation;
+
   return (
     <div className="board-container" ref={boardContainerRef}>
-      <div className={`puzzle-turn-indicator puzzle-turn-indicator--${boardOrientation}`}>
-        {boardOrientation === 'white'
+      <div
+        className={`puzzle-turn-indicator puzzle-turn-indicator--${turnColor}`}
+        data-testid="puzzle-turn-indicator"
+        data-turn={turnColor}
+      >
+        {turnColor === 'white'
           ? t('puzzle.whiteToMove', 'White to move')
           : t('puzzle.blackToMove', 'Black to move')}
       </div>
