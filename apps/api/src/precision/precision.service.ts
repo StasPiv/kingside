@@ -945,6 +945,19 @@ export class PrecisionService {
         // автоматически игнорирует NULL — это нужное поведение).
         avg_score: number | null;
         avg_score_pct: number | null;
+        // KS-3376 / ADR-082 §4.2 §7 B1. SUM(rating_after − rating_before)
+        // по попыткам с непустыми рейтингами. NULL — если все попытки
+        // в бакете без рейтинга. PG SUM игнорирует NULL автоматически;
+        // (rating_after − rating_before) даёт NULL если ЛЮБОЙ из
+        // операндов NULL (rating пишется паре, поэтому либо оба, либо
+        // ни одного — guard via skip-логика в PrecisionRatingService).
+        rating_delta: number | null;
+        // KS-3376. rating_after последней (по created_at DESC) попытки
+        // бакета с непустым рейтингом. Получаем через
+        // array_agg(... ORDER BY created_at DESC) FILTER (WHERE ... IS
+        // NOT NULL) — компактный one-pass без window function.
+        // Возвращается float; в TS округляем до int.
+        rating_end: number | null;
       }>
     >(
       `
@@ -956,7 +969,12 @@ export class PrecisionService {
         SUM(prec.wdl_leak_sum)::float      AS sum_leak,
         SUM(prec.half_moves_played)::bigint AS sum_half_moves,
         AVG(prec.score)::float             AS avg_score,
-        AVG(prec.score_pct)::float         AS avg_score_pct
+        AVG(prec.score_pct)::float         AS avg_score_pct,
+        SUM(prec.rating_after - prec.rating_before)::float AS rating_delta,
+        (
+          array_agg(prec.rating_after ORDER BY pa.created_at DESC)
+            FILTER (WHERE prec.rating_after IS NOT NULL)
+        )[1]::float AS rating_end
       FROM puzzle_attempts pa
       JOIN puzzles p ON p.id = pa.puzzle_id
       JOIN precision_attempts prec ON prec.attempt_id = pa.id
@@ -984,6 +1002,12 @@ export class PrecisionService {
         // KS-3000 / ADR-065 §6.5. null если в бакете все score=null.
         avgScore: r.avg_score,
         avgScorePct: r.avg_score_pct,
+        // KS-3376 / ADR-082 §4.2. Округляем до int для тренд-графика:
+        // precision-рейтинг — целое число в UI (Glicko-1 формула
+        // возвращает float, но мы отображаем как int).
+        ratingEnd: r.rating_end == null ? null : Math.round(r.rating_end),
+        ratingDelta:
+          r.rating_delta == null ? null : Math.round(r.rating_delta),
       })),
     };
   }

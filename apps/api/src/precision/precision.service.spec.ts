@@ -756,6 +756,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           // KS-3000.
           avg_score: 3.2,
           avg_score_pct: 76.4,
+          // KS-3376.
+          rating_delta: 42.7,
+          rating_end: 1532.4,
         },
         {
           bucket_start: new Date('2026-05-11T00:00:00Z'),
@@ -767,6 +770,11 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           // KS-3000: бакет без score (legacy / old SQL).
           avg_score: null,
           avg_score_pct: null,
+          // KS-3376: бакет без рейтинга (например, только гостевые
+          // attempts были; их в реале в этом запросе не будет, но
+          // фоллбек проверяем).
+          rating_delta: null,
+          rating_end: null,
         },
       ]);
 
@@ -783,10 +791,36 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         // KS-3000.
         avgScore: 3.2,
         avgScorePct: 76.4,
+        // KS-3376: float из БД округляется до int для UI.
+        ratingDelta: 43, // Math.round(42.7)
+        ratingEnd: 1532, // Math.round(1532.4)
       });
       expect(r.points[1].avgWdlLeakPerMove).toBe(0); // 0 leak / 8 = 0
       expect(r.points[1].avgScore).toBeNull();
       expect(r.points[1].avgScorePct).toBeNull();
+      // KS-3376: null синхронно (нет рейтинговых попыток в бакете).
+      expect(r.points[1].ratingDelta).toBeNull();
+      expect(r.points[1].ratingEnd).toBeNull();
+    });
+
+    it('KS-3376: ratingDelta может быть отрицательным (бакет с поражениями)', async () => {
+      prisma.$queryRawUnsafe.mockResolvedValueOnce([
+        {
+          bucket_start: new Date('2026-05-04T00:00:00Z'),
+          attempts: BigInt(3),
+          preserved: BigInt(0),
+          avg_accuracy: 40.0,
+          sum_leak: 0.6,
+          sum_half_moves: BigInt(15),
+          avg_score: 1.5,
+          avg_score_pct: 35.0,
+          rating_delta: -78.3,
+          rating_end: 1421.9,
+        },
+      ]);
+      const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+      expect(r.points[0].ratingDelta).toBe(-78); // Math.round(-78.3)
+      expect(r.points[0].ratingEnd).toBe(1422);
     });
 
     it('пустые данные → points=[]', async () => {
