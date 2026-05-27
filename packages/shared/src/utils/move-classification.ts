@@ -159,49 +159,22 @@ export interface ClassifyMoveInput {
  *      игрока за провал движка).
  */
 /**
- * KS-3260. Top-1-override (`isBestMove=true → best`) НЕ должен срабатывать,
- * если позиция объективно ухудшилась после хода. Иначе получается оксюморон:
- * ход помечается «!» (best), а вероятность победы упала на 30-70%.
+ * KS-3380 (commit 4692867c на фронте). После полного фикса pre/post
+ * snapshot'ов wdlBefore и wdlAfter считаются в одной фрейме (позиция
+ * ДО хода) с searchmoves для playedUci. При `isBestMove=true` loss_E
+ * гарантированно равен 0 — pre/post drift, который KS-3260 sanity-guard
+ * защищал от ложных «!» на провальных PV1-ходах, больше не возникает.
  *
- * Сценарий из KS-3260 (попытка 0b45926b): `26. Qxc3` сыгран как PV1 движка,
- * loss_E = 0.995 − 0.645 = 0.35 (E пересчитано из 99/1/0 → 28/73/0). Это
- * blunder по WDL_LOSS_THRESHOLDS, но KS-3030 override возвращал 'best'.
- *
- * Threshold 0.05 = граница `good`→`inaccuracy`: если top-1-ход теряет ≤5%
- * expected-score, override остаётся (это бывает в объективно ничейных/
- * проигранных позициях, где «лучший возможный» ход всё равно теряет
- * чуть-чуть). Если loss_E > 0.05 — fall through к обычной классификации
- * по WDL_LOSS_THRESHOLDS; PV1-маркер уже несут другие пути в UI
- * (например, отдельный «движок-индикатор» на доске).
+ * Поэтому guard удалён вместе с константой `BEST_OVERRIDE_MAX_LOSS_E`
+ * и предварительным расчётом lossE до override-ветки. Override снова
+ * безусловный (как в KS-3030): `isBestMove=true → 'best'`.
  */
-export const BEST_OVERRIDE_MAX_LOSS_E = 0.05;
 
 export function classifyMove(input: ClassifyMoveInput): MoveClass {
-  // Считаем loss_E заранее — нужно и для нового guard-условия в isBestMove
-  // override (KS-3260), и для основной классификации ниже.
-  let lossE: number | null = null;
-  if (input.wdlBefore && input.wdlAfter) {
-    const eBefore =
-      (input.wdlBefore.w + input.wdlBefore.d / 2) / 1000;
-    const eAfter = (input.wdlAfter.w + input.wdlAfter.d / 2) / 1000;
-    lossE = Math.max(0, eBefore - eAfter);
-  } else if (
-    typeof input.cpBefore === 'number' &&
-    typeof input.cpAfter === 'number'
-  ) {
-    const winBefore = winPctFromCp(input.cpBefore);
-    const winAfter = winPctFromCp(input.cpAfter);
-    lossE = Math.max(0, (winBefore - winAfter) / 100);
-  }
-
-  // 1. isBestMove override (§2.2) с KS-3260 sanity-guard'ом:
-  //    PV1-ход НЕ помечаем 'best', если loss_E явно сигналит провал
-  //    позиции (>0.05 expected-score). В этом случае пропускаем
-  //    override и идём в обычную ветку по loss_E (mistake/blunder).
+  // 1. isBestMove override (§2.2). Безусловно — pre/post фрейм один и
+  //    тот же (см. KS-3380), loss_E на PV1 ≡ 0.
   if (input.isBestMove === true) {
-    if (lossE === null || lossE <= BEST_OVERRIDE_MAX_LOSS_E) {
-      return 'best';
-    }
+    return 'best';
   }
 
   // 2. Mate-edge на WDL (§2.3).
@@ -218,10 +191,26 @@ export function classifyMove(input: ClassifyMoveInput): MoveClass {
     if (input.cpAfter >= MATE_CP_BASE / 2) return 'best';
   }
 
-  // 4. Ни WDL, ни cp → нейтральный фолбек.
+  // 4. Считаем loss_E из WDL (или из cp-фолбека).
+  let lossE: number | null = null;
+  if (input.wdlBefore && input.wdlAfter) {
+    const eBefore =
+      (input.wdlBefore.w + input.wdlBefore.d / 2) / 1000;
+    const eAfter = (input.wdlAfter.w + input.wdlAfter.d / 2) / 1000;
+    lossE = Math.max(0, eBefore - eAfter);
+  } else if (
+    typeof input.cpBefore === 'number' &&
+    typeof input.cpAfter === 'number'
+  ) {
+    const winBefore = winPctFromCp(input.cpBefore);
+    const winAfter = winPctFromCp(input.cpAfter);
+    lossE = Math.max(0, (winBefore - winAfter) / 100);
+  }
+
+  // 5. Ни WDL, ни cp → нейтральный фолбек.
   if (lossE === null) return 'good';
 
-  // 5. Пороги WDL_LOSS_THRESHOLDS (§3.2).
+  // 6. Пороги WDL_LOSS_THRESHOLDS (§3.2).
   if (lossE <= WDL_LOSS_THRESHOLDS.best) return 'best';
   if (lossE <= WDL_LOSS_THRESHOLDS.good) return 'good';
   if (lossE <= WDL_LOSS_THRESHOLDS.inaccuracy) return 'inaccuracy';

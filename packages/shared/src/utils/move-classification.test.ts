@@ -140,7 +140,13 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
 
   // ─── isBestMove override (§2.2) ─────────────────────────────────
 
-  describe('isBestMove override (KS-3260 sanity-guard)', () => {
+  describe('isBestMove override (§2.2 — безусловный после KS-3380)', () => {
+    // KS-3380 (commit 4692867c): после фикса pre/post snapshot'ов на
+    // фронте loss_E при isBestMove=true гарантированно равен 0
+    // (wdlBefore/wdlAfter — одна и та же фрейма с searchmoves для
+    // playedUci). Sanity-guard KS-3260 стал недостижимым — удалён;
+    // override `isBestMove=true → 'best'` снова безусловный.
+
     it('isBestMove=true + loss_E ≤ 0.02 → best', () => {
       expect(
         classifyMove({
@@ -150,10 +156,7 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
       ).toBe('best');
     });
 
-    it('isBestMove=true + loss_E ≤ 0.05 (граница) → best (override срабатывает)', () => {
-      // KS-3260: top-1-ход в объективно ничейной/проигранной позиции
-      // может терять до 5% expected-score — это всё ещё лучший возможный
-      // выбор, override остаётся.
+    it('isBestMove=true + loss_E = 0.05 → best (стандартный кейс)', () => {
       expect(
         classifyMove({
           ...wdlPair(0.05),
@@ -162,54 +165,8 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
       ).toBe('best');
     });
 
-    it('KS-3260 кейс: isBestMove=true + loss_E=0.35 (99/1/0→28/73/0) → blunder', () => {
-      // Реальная попытка 0b45926b: PV1-ход Qxc3 обвалил wdl с 99/1/0
-      // до 28/73/0. E_before=0.995, E_after=0.645, loss_E=0.35 → blunder.
-      // До фикса (KS-3030 unconditional override) возвращало 'best' и
-      // фронт рисовал «!» вопреки реальному ущербу.
-      expect(
-        classifyMove({
-          wdlBefore: { w: 990, d: 10, l: 0 },
-          wdlAfter: { w: 280, d: 720, l: 0 },
-          isBestMove: true,
-        }),
-      ).toBe('blunder');
-    });
-
-    it('isBestMove=true + loss_E=0.10 (mistake-range) → mistake', () => {
-      // top-1-ход в позиции, где «лучший возможный» теряет 10% E.
-      expect(
-        classifyMove({
-          ...wdlPair(0.10),
-          isBestMove: true,
-        }),
-      ).toBe('inaccuracy'); // loss_E ровно 0.10 на нижней границе mistake → попадает в inaccuracy
-    });
-
-    it('isBestMove=true + loss_E=0.13 → mistake', () => {
-      expect(
-        classifyMove({
-          ...wdlPair(0.13),
-          isBestMove: true,
-        }),
-      ).toBe('mistake');
-    });
-
-    it('isBestMove=true + mate-edge wdl_after.l > 950 → blunder (override снят KS-3260)', () => {
-      // Если PV1-ход ведёт к мату нам — это blunder (нонсенс на проде,
-      // но defensive). До KS-3260 unconditional override возвращал 'best'.
-      expect(
-        classifyMove({
-          wdlBefore: { w: 1000, d: 0, l: 0 },
-          wdlAfter: { w: 0, d: 0, l: 1000 },
-          isBestMove: true,
-        }),
-      ).toBe('blunder');
-    });
-
-    it('isBestMove=true без WDL/cp → best (override срабатывает: loss_E=null треат как ok)', () => {
-      // Legacy attempt'ы без WDL и без cp: override должен остаться,
-      // классифицировать иначе нечем (loss_E null → no-data fallback).
+    it('isBestMove=true без WDL/cp → best (override безусловный)', () => {
+      // Legacy attempt'ы без WDL и без cp.
       expect(
         classifyMove({
           isBestMove: true,
