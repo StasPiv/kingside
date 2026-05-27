@@ -63,7 +63,12 @@ function isFlagOn(v: string | undefined): boolean {
 /**
  * Собирает массив argv для `node dist/main.js generate-puzzles ...`.
  * Зафиксированный набор флагов соответствует запросу пользователя:
- * play-vs-engine, --min-rating=2400, --time-ms=400, --half-moves-n=6.
+ * play-vs-engine, --min-rating=2400, --nodes=10000000, --half-moves-n=6.
+ *
+ * KS-3364: серверная prod-генерация переведена с `--time-ms=400` на
+ * `--nodes=10_000_000`. Nodes-limit детерминирован (не зависит от
+ * нагрузки CPU), что устраняет дрейф качества пазлов между запусками
+ * на нагруженной и пустой Fargate-инстанции.
  */
 function buildTacticCommand(importId: string): string[] {
   return [
@@ -75,7 +80,7 @@ function buildTacticCommand(importId: string): string[] {
     '--exclude-used',
     '--min-rating=2400',
     '--max-games=inf',
-    '--time-ms=400',
+    '--nodes=10000000',
     '--half-moves-n=6',
   ];
 }
