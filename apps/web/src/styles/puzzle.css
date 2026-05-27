@@ -1322,14 +1322,19 @@ body:has(.puzzle-rush-board) {
   display: none;
 }
 
+/* KS-3379: цвета chess-пешек — не привязаны к UI-палитре. В
+   light-theme auto-generated токены `--c-222` инвертируются в
+   `#ededed`, из-за чего «чёрный» индикатор оставался светлым. Хардкод
+   литералов исправляет это: индикатор всегда отражает реальный цвет
+   фигуры (white/black piece), независимо от темы. */
 .puzzle-turn-indicator--white {
-  background: var(--c-fff);
-  border: 1px solid var(--c-aaa);
+  background: #ffffff;
+  border: 1px solid #c0c0c0;
 }
 
 .puzzle-turn-indicator--black {
-  background: var(--c-222);
-  border: 1px solid var(--c-555);
+  background: #1a1a1a;
+  border: 1px solid #555555;
 }
 
 /* Puzzle eval info (shown after solving) */
