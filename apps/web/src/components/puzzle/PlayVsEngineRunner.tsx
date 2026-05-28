@@ -720,6 +720,22 @@ export function PlayVsEngineRunner({
    */
   const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastMoveUciRef = useRef<string | null>(null);
+  /**
+   * KS-3391: «живой» анализ позиции игрока. Пока игрок думает над ходом,
+   * запускаем `analyzeLive` (go infinite) и стримим промежуточные WDL в
+   * полосу шансов — она уточняется по мере роста глубины SF.
+   *
+   * `liveGenRef` — generation-счётчик: каждый start/stop инкрементит его,
+   * чтобы устаревший onUpdate (от прошлой позиции) не перезаписывал
+   * `latestWdl`, и чтобы pending-в-очереди live-анализ, отменённый до
+   * старта, не запускал лишний `go infinite`.
+   *
+   * `liveInFlightRef` — реально ли сейчас идёт `go infinite` на worker'е.
+   * Нужно, чтобы `stop()` дёргался ТОЛЬКО когда live-анализ в работе, и
+   * не прерывал случайно классификационный analyze (pre/post).
+   */
+  const liveGenRef = useRef(0);
+  const liveInFlightRef = useRef(false);
 
   // KS-3365/3366/3370: анимация blunderMove на старте + кнопка «Проиграть
   // последний ход». PuzzleBoard анимирует движение фигуры через
@@ -937,6 +953,63 @@ export function PlayVsEngineRunner({
     },
     [ensureEngine, analyzeDepth, analyzeMovetimeMs],
   );
+
+  /**
+   * KS-3391: запустить «живой» анализ позиции игрока (`fen`). Стримит
+   * промежуточные WDL в `setLatestWdl` (POV решателя) по мере роста
+   * глубины SF. Идёт через ту же `engineQueueRef`, что и классификация —
+   * один WASM-worker, без пересечения go-команд.
+   *
+   * Сам по себе live-анализ НЕ завершается (`go infinite`) — его
+   * останавливает `stopLiveAnalysis()` (вызывается в начале хода игрока).
+   */
+  const startLiveAnalysis = useCallback(
+    (fen: string) => {
+      const gen = ++liveGenRef.current;
+      const queued = engineQueueRef.current.then(async () => {
+        // Отменён до старта (игрок успел сходить / сменился пазл) — выходим
+        // без go infinite, очередь сразу свободна для классификации.
+        if (gen !== liveGenRef.current) return;
+        const eng = await ensureEngine();
+        if (gen !== liveGenRef.current) return;
+        liveInFlightRef.current = true;
+        try {
+          await eng.analyzeLive(fen, 1, (info) => {
+            if (gen !== liveGenRef.current) return;
+            if (!info.wdl) return;
+            // На позиции игрока side-to-move = решатель → WDL движка
+            // (POV side-to-move) уже POV решателя. Флипаем только если
+            // вдруг side не совпал (страховка).
+            const stm = sideFromFen(fen);
+            const wdlSolver = stm === userSide ? info.wdl : flipWdl(info.wdl);
+            setLatestWdl(wdlSolver);
+          });
+        } finally {
+          liveInFlightRef.current = false;
+        }
+      });
+      engineQueueRef.current = queued.catch(() => {
+        liveInFlightRef.current = false;
+      });
+    },
+    [ensureEngine, userSide],
+  );
+
+  /**
+   * KS-3391: остановить live-анализ. Инкремент `liveGenRef` инвалидирует
+   * stale onUpdate и pending-старт; `stop()` дёргаем только если live
+   * реально в работе — иначе он мог бы оборвать классификационный analyze.
+   */
+  const stopLiveAnalysis = useCallback(() => {
+    liveGenRef.current++;
+    if (liveInFlightRef.current) {
+      try {
+        engineRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1245,10 +1318,14 @@ export function PlayVsEngineRunner({
 
       // 5) Возвращаем ход пользователю.
       setState('thinking');
+      // KS-3391: запускаем live-анализ новой позиции игрока — полоса
+      // шансов снова уточняется в реальном времени, пока он думает.
+      startLiveAnalysis(next.fen());
     },
     [
       ensureEngine,
       queueAnalyze,
+      startLiveAnalysis,
       params.failThreshold,
       params.winThreshold,
       params.halfMovesN,
@@ -1285,6 +1362,11 @@ export function PlayVsEngineRunner({
         move = null;
       }
       if (!move) return false;
+      // KS-3391: игрок сходил — останавливаем live-анализ его прежней
+      // позиции, освобождаем очередь движка для pre/post-analyze
+      // (классификация). Без этого `go infinite` держал бы worker и
+      // классификационный analyze не запустился бы (deadlock).
+      stopLiveAnalysis();
       playSound(soundEventFromSan(move.san));
       // KS-2969: UCI промоушна обязан содержать суффикс фигуры
       // (b7b8q, не b7b8). chess.js заполняет move.promotion только
@@ -1461,6 +1543,7 @@ export function PlayVsEngineRunner({
       playSound,
       ensureEngine,
       queueAnalyze,
+      stopLiveAnalysis,
       finishLose,
       finishWin,
       updateUserBestLog,
@@ -1617,15 +1700,30 @@ export function PlayVsEngineRunner({
           // signedWdl POV решателя (= user, на puzzle.fen ходит он).
           setLatestWdlUser(signedWdlFromObj(initialBest.wdl));
         }
+        // KS-3391: после дискретного baseline-анализа (он фиксирует
+        // clientBaselineWdl) запускаем «живой» continuous-анализ стартовой
+        // позиции — полоса шансов уточняется в реальном времени, пока игрок
+        // думает над первым ходом.
+        if (!cancelled) startLiveAnalysis(puzzle.fen);
       } catch {
-        /* ignore — EvalBar не критичен, юзер сделает ход и анализ
+        /* ignore — полоса не критична, юзер сделает ход и анализ
            перезапустится в runEngineCycle. */
       }
     })();
     return () => {
       cancelled = true;
+      // KS-3391: смена пазла / размонтирование — гасим live-анализ.
+      stopLiveAnalysis();
     };
-  }, [puzzle.id, puzzle.fen, ensureEngine, queueAnalyze, updateClientBaselineWdl]);
+  }, [
+    puzzle.id,
+    puzzle.fen,
+    ensureEngine,
+    queueAnalyze,
+    updateClientBaselineWdl,
+    startLiveAnalysis,
+    stopLiveAnalysis,
+  ]);
 
   // ── KS-2508 → KS-3380 full fallback-analyze ─────────────────────────
   // KS-3380: fallback переписан под новую семантику. Старая логика

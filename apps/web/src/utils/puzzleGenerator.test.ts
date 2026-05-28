@@ -73,6 +73,9 @@ function makeMockEngine(
       calls.push({ fen, depth, multiPv });
       return responder({ fen, depth, multiPv }, idx);
     }),
+    // KS-3391: генератор пазлов live-анализ не использует — no-op.
+    analyzeLive: vi.fn(async () => {}),
+    stop: vi.fn(),
     destroy: vi.fn(() => {
       destroyed.value = true;
     }),

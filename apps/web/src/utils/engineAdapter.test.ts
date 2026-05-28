@@ -38,6 +38,22 @@ class MockWorker {
       // эмулируем ответ движка асинхронно (через микротаску).
       queueMicrotask(() => this.emit({ data: 'uciok' } as MessageEvent));
     }
+    // KS-3391: эмуляция continuous-анализа. На `go infinite` отдаём две
+    // info-строки с растущей глубиной/WDL (как «живое» уточнение), а на
+    // `stop` — bestmove (на нём резолвится analyzeLive).
+    if (msg === 'go infinite') {
+      queueMicrotask(() => {
+        this.emit({
+          data: 'info depth 10 multipv 1 score cp 30 wdl 600 300 100 pv e2e4',
+        } as MessageEvent);
+        this.emit({
+          data: 'info depth 20 multipv 1 score cp 45 wdl 700 250 50 pv e2e4',
+        } as MessageEvent);
+      });
+    }
+    if (msg === 'stop') {
+      queueMicrotask(() => this.emit({ data: 'bestmove e2e4' } as MessageEvent));
+    }
   }
 
   terminate(): void {
@@ -164,6 +180,45 @@ describe('WasmEngineAdapter KS-2525', () => {
     const adapter = new WasmEngineAdapter({ onError });
     await expect(adapter.init()).rejects.toThrow(/load_failed/);
     expect(onError).toHaveBeenCalledWith('load_failed');
+  });
+
+  /**
+   * KS-3391: `analyzeLive` запускает `go infinite`, стримит промежуточные
+   * оценки (multipv 1, с WDL) через onUpdate, и резолвится на bestmove —
+   * который приходит после `stop()`. Это поток данных для «живой» полосы
+   * шансов W/D/L в precision-раннере.
+   */
+  it('KS-3391: analyzeLive стримит промежуточные WDL и резолвится на stop()', async () => {
+    const adapter = new WasmEngineAdapter();
+    await adapter.init();
+
+    const updates: Array<{ depth: number; wdl?: { w: number; d: number; l: number } }> = [];
+    const done = adapter.analyzeLive(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      1,
+      (info) => updates.push({ depth: info.depth, wdl: info.wdl }),
+    );
+
+    // Дать микротаске `go infinite` отработать (эмиссия двух info-строк).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(MockWorker.sent).toContain('go infinite');
+    expect(updates.length).toBe(2);
+    expect(updates[0].wdl).toEqual({ w: 600, d: 300, l: 100 });
+    expect(updates[1].wdl).toEqual({ w: 700, d: 250, l: 50 });
+
+    // stop() → bestmove → промис резолвится.
+    adapter.stop();
+    await done;
+    expect(MockWorker.sent).toContain('stop');
+  });
+
+  it('KS-3391: stop() на idle-движке — безопасный no-op (не бросает)', async () => {
+    const adapter = new WasmEngineAdapter();
+    await adapter.init();
+    expect(() => adapter.stop()).not.toThrow();
+    expect(MockWorker.sent).toContain('stop');
   });
 });
 

@@ -120,6 +120,13 @@ class ScriptedEngine implements EngineAdapter {
     return next;
   }
 
+  // KS-3391: live-анализ в state-machine тестах не стримим — no-op, чтобы
+  // не трогать основную `queue` (её аккаунтинг рассчитан на дискретные
+  // analyze: INITIAL + pre + post + ...). Полоса шансов из live-потока
+  // покрыта отдельными тестами WdlChancesBar и engineAdapter.
+  async analyzeLive(): Promise<void> { /* no-op */ }
+  stop(): void { /* no-op */ }
+
   destroy(): void { /* no-op */ }
 }
 
@@ -2311,5 +2318,71 @@ describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci',
     // KS-3380: из extra POV user, не post-analyze с инверсией.
     expect(arg.moves[0].cpAfter).toBe(-300);
     expect(arg.moves[0].wdlAfter).toEqual({ w: 50, d: 350, l: 600 });
+  });
+});
+
+/**
+ * KS-3391 — «живой» поток WDL в полосу шансов. Проверяем интеграцию:
+ * раннер запускает `analyzeLive` на стартовой позиции и прокидывает
+ * промежуточные оценки (onUpdate) в `latestWdl` (атрибут `data-latest-wdl`).
+ * POV — решателя: на позиции игрока side-to-move == решатель, флипа нет.
+ */
+describe('PlayVsEngineRunner KS-3391 live WDL stream', () => {
+  /**
+   * Стриминговый движок: `analyze` отдаёт baseline (для initial-эффекта),
+   * `analyzeLive` эмитит одну промежуточную оценку с ОТЛИЧНЫМ от baseline
+   * WDL — так мы доказываем, что полоса обновилась именно из live-потока.
+   */
+  class LiveStreamEngine implements EngineAdapter {
+    constructor(
+      private baseline: AnalysisResult,
+      private liveInfo: InfoLine,
+    ) {}
+    async init(): Promise<void> {}
+    setOption(): void {}
+    async analyze(): Promise<AnalysisResult> {
+      return this.baseline;
+    }
+    async analyzeLive(
+      _fen: string,
+      _multiPv: number,
+      onUpdate: (info: InfoLine) => void,
+    ): Promise<void> {
+      onUpdate(this.liveInfo);
+      // Резолвимся сразу (в проде — на bestmove после stop). Для теста
+      // достаточно эмитнуть одно уточнение и не держать очередь.
+    }
+    stop(): void {}
+    destroy(): void {}
+  }
+
+  it('раннер прокидывает live onUpdate в data-latest-wdl (POV решателя)', async () => {
+    const puzzle = makePuzzle();
+    // baseline WDL — одно, live — другое; ждём, что победит live.
+    const baseline = result(
+      line({ type: 'cp', value: 20 }, ['e2e4'], 14, 1, { w: 500, d: 400, l: 100 }),
+    );
+    const liveInfo = line({ type: 'cp', value: 80 }, ['e2e4'], 26, 1, {
+      w: 720,
+      d: 200,
+      l: 80,
+    });
+    const engine = new LiveStreamEngine(baseline, liveInfo);
+
+    const { container } = renderWithProviders(
+      <PlayVsEngineRunner
+        puzzle={puzzle}
+        onSubmit={vi.fn()}
+        engineFactory={() => engine}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="puzzle-engine-runner"]')
+          ?.getAttribute('data-latest-wdl'),
+      ).toBe('720,200,80');
+    });
   });
 });

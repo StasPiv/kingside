@@ -68,6 +68,29 @@ export interface EngineAdapter {
     nodes?: number,
     searchmoves?: ReadonlyArray<string>,
   ): Promise<AnalysisResult>;
+  /**
+   * KS-3391: непрерывный («живой») анализ позиции с потоковой отдачей
+   * промежуточных оценок. Пока игрок думает над ходом, Stockfish набирает
+   * глубину, и КАЖДАЯ info-строка (multipv 1) с WDL прокидывается в
+   * `onUpdate` — UI плавно уточняет полосу шансов W/D/L в реальном времени.
+   *
+   * Запускает `go infinite` (или длительный лимит): анализ НЕ
+   * останавливается сам — резолвится Promise только после `stop()` (или
+   * терминальной позиции). Сериализацию с обычным `analyze`
+   * (классификация ходов) обеспечивает вызывающая сторона: один
+   * WASM-worker не выдерживает конкурентных go-команд.
+   */
+  analyzeLive(
+    fen: string,
+    multiPv: number,
+    onUpdate: (info: InfoLine) => void,
+  ): Promise<void>;
+  /**
+   * KS-3391: остановить текущий анализ (`stop` в UCI). Для live-анализа
+   * это триггерит `bestmove`, на котором резолвится `analyzeLive`. На
+   * idle-движке — безопасный no-op.
+   */
+  stop(): void;
   destroy(): void;
 }
 
@@ -385,6 +408,50 @@ export class WasmEngineAdapter implements EngineAdapter {
     });
   }
 
+  analyzeLive(
+    fen: string,
+    multiPv: number,
+    onUpdate: (info: InfoLine) => void,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.worker) {
+        resolve();
+        return;
+      }
+      const handler = (e: MessageEvent) => {
+        const msg = typeof e.data === 'string' ? e.data : '';
+        if (msg.startsWith('info') && msg.includes(' pv ')) {
+          const info = parseInfoLine(msg);
+          // KS-3391: отдаём наружу только PV1 — её WDL/score рисует полоса.
+          if (info && info.multipv === 1) {
+            try {
+              onUpdate(info);
+            } catch {
+              /* колбэк не должен ронять анализ-цикл */
+            }
+          }
+        }
+        // bestmove приходит после `stop()` — на нём завершаем live-анализ.
+        if (msg.startsWith('bestmove')) {
+          this.worker?.removeEventListener('message', handler);
+          resolve();
+        }
+      };
+      this.worker.addEventListener('message', handler);
+      this.worker.postMessage(`setoption name MultiPV value ${multiPv}`);
+      this.worker.postMessage(`position fen ${fen}`);
+      // KS-3391: `go infinite` — непрерывный анализ, останавливается только
+      // по `stop()`. Это и даёт «живое» уточнение оценки по мере роста
+      // глубины, пока игрок думает над ходом.
+      this.worker.postMessage('go infinite');
+    });
+  }
+
+  stop(): void {
+    // KS-3391: безопасно даже на idle-движке — SF просто проигнорирует.
+    this.worker?.postMessage('stop');
+  }
+
   destroy(): void {
     // KS-3170: при destroy во время предзагрузки wasm — прервать fetch,
     // иначе он висит в очереди браузера и тратит трафик мобильного.
@@ -573,6 +640,64 @@ export class BridgeEngineAdapter implements EngineAdapter {
         }),
       );
     });
+  }
+
+  analyzeLive(
+    fen: string,
+    multiPv: number,
+    onUpdate: (info: InfoLine) => void,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+      const handler = (e: MessageEvent) => {
+        let msg: Record<string, unknown>;
+        try { msg = JSON.parse(e.data); } catch { return; }
+        if (msg.type === 'line') {
+          const wdlRaw = msg.wdl as Record<string, unknown> | undefined;
+          const wdl: WdlDistribution | undefined =
+            wdlRaw &&
+            typeof wdlRaw === 'object' &&
+            typeof wdlRaw.w === 'number' &&
+            typeof wdlRaw.d === 'number' &&
+            typeof wdlRaw.l === 'number'
+              ? { w: wdlRaw.w, d: wdlRaw.d, l: wdlRaw.l }
+              : undefined;
+          const info: InfoLine = {
+            depth: Number(msg.depth ?? 0),
+            multipv: Number(msg.multipv ?? 1),
+            score: {
+              type: (msg.score as Record<string, unknown>)?.type === 'mate' ? 'mate' : 'cp',
+              value: Number((msg.score as Record<string, unknown>)?.value ?? 0),
+            },
+            pv: String(msg.pv ?? '').split(/\s+/).filter(Boolean),
+            ...(wdl ? { wdl } : {}),
+          };
+          if (info.multipv === 1) {
+            try { onUpdate(info); } catch { /* ignore */ }
+          }
+        }
+        if (msg.type === 'bestmove' || msg.type === 'error') {
+          this.ws?.removeEventListener('message', handler);
+          resolve();
+        }
+      };
+      this.ws.addEventListener('message', handler);
+      // KS-3391: bridge-протокол не имеет `infinite`; используем длительный
+      // лимит по глубине — поток info-строк с растущей глубиной даёт то же
+      // «живое» уточнение. `stop()` ниже прерывает досрочно (bestmove).
+      this.ws.send(
+        JSON.stringify({ type: 'analyze', fen, depth: 60, multiPv }),
+      );
+    });
+  }
+
+  stop(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'stop' }));
+    }
   }
 
   destroy(): void {
