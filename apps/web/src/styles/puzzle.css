@@ -2766,6 +2766,77 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
 }
 
+/* ===========================================================
+ * KS-3391 — трёхцветная горизонтальная полоса шансов W/D/L
+ * (заменяет вертикальный градусник EvalBar на /precision).
+ * Цвета — базовые semantic-переменные с hex-фолбэками; финальная
+ * полировка контраста/тёмной темы — отдельной layout-задачей.
+ * =========================================================== */
+.wdl-chances-bar {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.14));
+  background: var(--bg-muted, var(--c-border, #d4d4d8));
+  font-size: 11px;
+  line-height: 14px;
+  user-select: none;
+  box-sizing: border-box;
+}
+.wdl-chances-bar__seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  /* Реалтайм: ширина перетекает плавно при поступлении новой оценки. */
+  transition: width 0.3s ease;
+}
+.wdl-chances-bar__seg--win {
+  background: var(--success, var(--c-4caf50, #16a34a));
+  color: #fff;
+}
+.wdl-chances-bar__seg--draw {
+  background: var(--c-9e9e9e, #9e9e9e);
+  color: #fff;
+}
+.wdl-chances-bar__seg--loss {
+  background: var(--danger, var(--c-f44336, #dc2626));
+  color: #fff;
+}
+.wdl-chances-bar__seg--loading {
+  width: 100%;
+  /* Видимая «нейтральная» полоса до первой оценки: диагональная
+     штриховка + плавный shimmer, чтобы пользователь видел, что полоса
+     есть и идёт оценка (без числовых «прыжков»). */
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--c-9e9e9e, #b8b8bd) 0,
+    var(--c-9e9e9e, #b8b8bd) 8px,
+    var(--bg-muted, #d4d4d8) 8px,
+    var(--bg-muted, #d4d4d8) 16px
+  );
+  background-size: 200% 100%;
+  animation: wdl-chances-shimmer 1.1s linear infinite;
+}
+@keyframes wdl-chances-shimmer {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -32px 0;
+  }
+}
+.wdl-chances-bar__label {
+  padding: 0 4px;
+  white-space: nowrap;
+  font-weight: 600;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+
 /* KS-2517 (layout): desktop трёхколоночный layout
    `[eval-bar | board | info-col]`. Раньше doska + всё инфо сидели в
    одной колонке `__board-col` (flex column), доска занимала всю
@@ -2799,23 +2870,33 @@ body:has(.puzzle-rush-board) {
   .puzzle-engine-runner__board-col {
     display: grid;
     grid-template-columns: min(70vh, 560px) minmax(260px, 1fr);
-    /* Явные ряды для info-блоков (progress → hint → actions →
+    /* KS-3391: первый ряд (min-content) — под полосу шансов W/D/L над
+       доской. Далее ряды для info-блоков (progress → hint → actions →
        result/error). Последний `1fr` — filler: забирает остаток
        высоты доски, чтобы info шли подряд сверху, не размазываясь
        по высоте. */
-    grid-template-rows: min-content min-content min-content min-content 1fr;
+    grid-template-rows: min-content min-content min-content min-content min-content 1fr;
     align-items: start;
     gap: 10px 16px;
   }
 
-  /* Доска — левая колонка, span all rows. width:100% от грид-cell'ы
-     даёт фикс ширину min(70vh, 560px); MemoChessboard сам делает
-     квадрат через boardStyle width=height. align-self: start — доска
-     прижимается к верху grid-cell, не растягивается, если info-блоки
-     суммарно ниже её. */
+  /* KS-3391: полоса шансов — над доской, в колонке доски, первый ряд. */
+  .puzzle-engine-runner__board-col > .wdl-chances-bar {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+    width: 100%;
+    max-width: min(70vh, 560px);
+  }
+
+  /* Доска — левая колонка, span от 2-го ряда вниз (под полосой W/D/L).
+     width:100% от грид-cell'ы даёт фикс ширину min(70vh, 560px);
+     MemoChessboard сам делает квадрат через boardStyle width=height.
+     align-self: start — доска прижимается к верху grid-cell, не
+     растягивается, если info-блоки суммарно ниже её. */
   .puzzle-engine-runner__board-col > .board-container {
     grid-column: 1;
-    grid-row: 1 / -1;
+    grid-row: 2 / -1;
     align-self: start;
     width: 100%;
     max-width: min(70vh, 560px);

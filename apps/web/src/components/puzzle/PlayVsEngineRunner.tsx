@@ -54,7 +54,10 @@ export function buildPrecisionScoreInputs(
   }));
 }
 import { PuzzleBoard } from '../PuzzleBoard';
-import { EvalBar } from '../EvalBar';
+// KS-3391: на /precision вместо вертикального градусника (EvalBar)
+// показываем трёхцветную горизонтальную полосу шансов W/D/L. EvalBar
+// в других местах (анализ, live-партии) не трогаем.
+import { WdlChancesBar } from '../WdlChancesBar';
 import { PromotionPicker, type PromotionPiece } from '../PromotionPicker';
 import { PostGameReview } from './PostGameReview';
 import { PrecisionScoreBlock } from '../precision/PrecisionScoreBlock';
@@ -1801,14 +1804,13 @@ export function PlayVsEngineRunner({
       data-review-fen={reviewFen ?? ''}
     >
       <div className="puzzle-engine-runner__layout">
-        {/* KS-2519: isBlackTurn должен отражать side-to-move на FEN, по
-            которому посчитан evalLines (Stockfish отдаёт score POV
-            side-to-move). До тикета сюда подставлялась `isBlackOriented`
-            (ориентация доски, не side-to-move) — bar показывал
-            перевёрнутую оценку при чёрном решателе. */}
-        <EvalBar lines={evalLines} isBlackTurn={evalSide === 'b'} />
-
         <div className="puzzle-engine-runner__board-col">
+          {/* KS-3391: трёхцветная полоса шансов W/D/L вместо EvalBar.
+              `latestWdl` уже приведён к POV решателя (flipWdl на
+              post-analyze FEN'е), поэтому сегмент «победа» = победа того,
+              кто решает — корректно и для preventive-задач за чёрных.
+              Перерисовывается в реальном времени по мере анализа. */}
+          <WdlChancesBar wdl={latestWdl} testId="puzzle-engine-wdl-chances" />
           {/* KS-3170 (регрессия KS-3067): UI прогресса/ошибки загрузки
               движка. Рендерится поверх board-col при loading/error и
               автоматически исчезает при ready. До этого тикета на
