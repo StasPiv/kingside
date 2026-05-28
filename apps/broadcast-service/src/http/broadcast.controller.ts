@@ -406,6 +406,13 @@ export class BroadcastController {
       first_round_started: boolean;
       has_active_rounds: boolean;
       all_rounds_finished: boolean;
+      // KS-3384: есть ли реально «живой» раунд — ongoing, либо pending
+      // со стартом в обозримом окне (будущее или недавнее прошлое в
+      // пределах GRACE), либо pending без даты у свежеобновлённого
+      // broadcast. Если ни одного такого нет — все незавершённые раунды
+      // «застряли» (несыгранные Armageddon / второй пайт), broadcast
+      // фактически завершён.
+      has_live_round: boolean;
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -452,6 +459,33 @@ export class BroadcastController {
                AND r.status <> 'finished'
           )
         ) AS all_rounds_finished,
+        -- KS-3384: «живой» раунд = ongoing ИЛИ pending со стартом в
+        -- обозримом окне (будущее или недавнее прошлое в пределах
+        -- 6h GRACE — раунд мог только что стартовать, статус ещё не
+        -- засинкан) ИЛИ pending без даты у свежеобновлённого
+        -- broadcast'а (updated_at в пределах 24h — раунд запланирован,
+        -- но время неизвестно). Несыгранные Armageddon / второй пайт
+        -- завершённого турнира имеют starts_at в далёком прошлом (или
+        -- NULL при давно не обновлявшемся broadcast'е) → НЕ живые.
+        EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+             AND r.status = 'ongoing'
+        )
+        OR EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+             AND r.status = 'pending'
+             AND r.starts_at IS NOT NULL
+             AND r.starts_at > NOW() - INTERVAL '6 hours'
+        )
+        OR EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+             AND r.status = 'pending'
+             AND r.starts_at IS NULL
+             AND b.updated_at > NOW() - INTERVAL '24 hours'
+        ) AS has_live_round,
         -- MIN starts_at будущих раундов — только для сортировки upcoming
         (
           SELECT MIN(r.starts_at)
@@ -505,7 +539,17 @@ export class BroadcastController {
       //          навсегда в `live` после закрытия последнего раунда.
       if (
         (row.end_date_passed && !row.has_active_rounds) ||
-        row.all_rounds_finished
+        row.all_rounds_finished ||
+        // KS-3384: третье правило — турнир УЖЕ стартовал
+        // (first_round_started), но не осталось ни одного «живого»
+        // раунда. Покрывает «вечный LIVE»: завершённый турнир с
+        // несыгранными pending-раундами (Armageddon / второй пайт) и
+        // без надёжного end_date от Lichess. Guard `first_round_started`
+        // обязателен: пустой свежесозданный broadcast (0 раундов →
+        // has_live_round=false) НЕ должен попасть в finished — он
+        // upcoming. Реальные трансляции не затрагиваются: пока есть
+        // ongoing/предстоящий/недавний pending, has_live_round=true.
+        (row.first_round_started && !row.has_live_round)
       ) {
         lifecycleStatus = 'finished';
       } else if (!row.first_round_started) {

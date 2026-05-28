@@ -176,6 +176,8 @@ describe('BroadcastController', () => {
         end_date_passed: true,
         first_round_started: true,
         has_active_rounds: false,
+        all_rounds_finished: true,
+        has_live_round: false,
         nearest_pending_at: null,
         avg_elo: 2400,
         elo_games_count: 10,
@@ -185,6 +187,8 @@ describe('BroadcastController', () => {
         end_date_passed: false,
         first_round_started: true,
         has_active_rounds: true,
+        all_rounds_finished: false,
+        has_live_round: true,
         nearest_pending_at: null,
         avg_elo: 2750,
         elo_games_count: 10,
@@ -194,6 +198,8 @@ describe('BroadcastController', () => {
         end_date_passed: false,
         first_round_started: false,
         has_active_rounds: false,
+        all_rounds_finished: false,
+        has_live_round: true,
         nearest_pending_at: upcomingLate,
         avg_elo: null,
         elo_games_count: 0,
@@ -203,6 +209,8 @@ describe('BroadcastController', () => {
         end_date_passed: false,
         first_round_started: false,
         has_active_rounds: false,
+        all_rounds_finished: false,
+        has_live_round: true,
         nearest_pending_at: upcomingSoon,
         avg_elo: null,
         elo_games_count: 0,
@@ -322,6 +330,8 @@ describe('BroadcastController', () => {
             end_date_passed: true,
             first_round_started: true,
             has_active_rounds: true, // Round 7 ongoing
+            all_rounds_finished: false,
+            has_live_round: true, // ongoing round
             nearest_pending_at: null,
             avg_elo: 2750,
             elo_games_count: 30,
@@ -363,6 +373,7 @@ describe('BroadcastController', () => {
             first_round_started: true,
             has_active_rounds: false,
             all_rounds_finished: true, // ключевой сигнал
+            has_live_round: false,
             nearest_pending_at: null,
             avg_elo: 3600,
             elo_games_count: 56,
@@ -400,9 +411,125 @@ describe('BroadcastController', () => {
           {
             id: 'uuid-empty',
             end_date_passed: false,
-            first_round_started: false,
+            first_round_started: false, // guard: не стартовал
             has_active_rounds: false,
             all_rounds_finished: false, // нет раундов вообще
+            has_live_round: false, // KS-3384: но first_round_started=false → upcoming
+            nearest_pending_at: null,
+            avg_elo: null,
+            elo_games_count: 0,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data[0].lifecycleStatus).toBe('upcoming');
+    });
+
+    it('KS-3384: «вечный LIVE» — стартовавший турнир с несыгранными pending-раундами → finished', async () => {
+      // DreamHack-кейс: турнир завершился, но Lichess создал
+      // never-played pending-раунды (Armageddon / второй пайт) и не
+      // отдал end_date. end_date_passed=false, all_rounds_finished=false
+      // (pending ≠ finished), но has_live_round=false (нет ongoing и
+      // нет pending в обозримом окне). first_round_started=true.
+      const stuckBroadcast = {
+        id: 'uuid-stuck',
+        lichessId: 'dreamhack-gsb',
+        title: 'DreamHack Atlanta 2026 | Group Stage B | Lower Bracket',
+        isActive: false,
+        startDate: new Date(now - 10 * 86400 * 1000),
+        updatedAt: new Date(now - 8 * 86400 * 1000),
+        _count: { rounds: 12 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([stuckBroadcast]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-stuck',
+            end_date_passed: false, // end_date IS NULL
+            first_round_started: true,
+            has_active_rounds: false,
+            all_rounds_finished: false, // pending Armageddon ≠ finished
+            has_live_round: false, // ключевой сигнал KS-3384
+            nearest_pending_at: null,
+            avg_elo: 2666,
+            elo_games_count: 30,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data[0].lifecycleStatus).toBe('finished');
+      expect(res.data[0].isPinned).toBe(false);
+    });
+
+    it('KS-3384: реально идущий турнир (pending-раунд скоро стартует) остаётся live', async () => {
+      // Между раундами: текущий ongoing закрыт, следующий pending со
+      // стартом в обозримом окне → has_live_round=true → live.
+      const liveBroadcast = {
+        id: 'uuid-live-between',
+        lichessId: 'norway',
+        title: 'Norway Chess 2026',
+        isActive: true,
+        startDate: new Date(now - 2 * 86400 * 1000),
+        updatedAt: new Date(now - 1000),
+        _count: { rounds: 9 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([liveBroadcast]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-live-between',
+            end_date_passed: false,
+            first_round_started: true,
+            has_active_rounds: true,
+            all_rounds_finished: false,
+            has_live_round: true, // следующий pending скоро
+            nearest_pending_at: null,
+            avg_elo: 2800,
+            elo_games_count: 20,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data[0].lifecycleStatus).toBe('live');
+    });
+
+    it('KS-3384: пустой свежесозданный broadcast (0 раундов, has_live_round=false) → upcoming, НЕ finished', async () => {
+      // Guard `first_round_started`: третье правило НЕ должно ронять
+      // ещё не стартовавший broadcast в finished.
+      const fresh = {
+        id: 'uuid-fresh',
+        lichessId: 'fresh',
+        title: 'Just announced',
+        isActive: true,
+        startDate: null,
+        updatedAt: new Date(now - 1000),
+        _count: { rounds: 0 },
+      };
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([fresh]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-fresh',
+            end_date_passed: false,
+            first_round_started: false, // не стартовал → guard
+            has_active_rounds: false,
+            all_rounds_finished: false,
+            has_live_round: false,
             nearest_pending_at: null,
             avg_elo: null,
             elo_games_count: 0,
@@ -436,6 +563,8 @@ describe('BroadcastController', () => {
             end_date_passed: true,
             first_round_started: true,
             has_active_rounds: false,
+            all_rounds_finished: true,
+            has_live_round: false,
             nearest_pending_at: null,
             avg_elo: 2700,
             elo_games_count: 50,
@@ -488,6 +617,9 @@ describe('BroadcastController', () => {
             id: 'uuid-archived',
             end_date_passed: true,
             first_round_started: true,
+            has_active_rounds: false,
+            all_rounds_finished: true,
+            has_live_round: false,
             nearest_pending_at: null,
             avg_elo: 2700,
             elo_games_count: 50,
@@ -536,6 +668,9 @@ describe('BroadcastController', () => {
             id: 'uuid-archived-2',
             end_date_passed: true,
             first_round_started: true,
+            has_active_rounds: false,
+            all_rounds_finished: true,
+            has_live_round: false,
             nearest_pending_at: null,
             avg_elo: 2400,
             elo_games_count: 10,
@@ -544,6 +679,9 @@ describe('BroadcastController', () => {
             id: 'uuid-live',
             end_date_passed: false,
             first_round_started: true,
+            has_active_rounds: true,
+            all_rounds_finished: false,
+            has_live_round: true,
             nearest_pending_at: null,
             avg_elo: 2750,
             elo_games_count: 10,
