@@ -2214,14 +2214,15 @@ describe('PlayVsEngineRunner KS-3349 — Back/Next + rating delta', () => {
   });
 });
 
-describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci', () => {
-  // KS-3380 full: cpAfter/wdlAfter всегда из pre-frame:
-  //   - playedUci === bestUci → копия cpBefore/wdlBefore (без extra-analyze).
-  //   - playedUci !== bestUci → extra-analyze searchmoves=[playedUci] на
-  //     fenBefore, multipv=1. SF вернёт PV1=playedUci, оценка POV user.
-  // Post-analyze в позиции ПОСЛЕ хода больше НЕ пишет в snapshot —
-  // только используется для engine-bestmove / evalBar / mate-detection.
-  it('KS-3380: playedUci === bestUci → snapshot.wdlAfter=wdlBefore, cpAfter=cpBefore (без extra)', async () => {
+describe('PlayVsEngineRunner KS-3393 — классификация из глубоких live-оценок', () => {
+  // KS-3393: cpBefore/wdlBefore — из глубокого live-снимка позиции ДО
+  // хода (или fallback pre-analyze, если live не успел — как в моках,
+  // где analyzeLive no-op). cpAfter/wdlAfter:
+  //   - playedUci === bestUci → копия cpBefore/wdlBefore (lossE=0).
+  //   - playedUci !== bestUci → ГЛУБОКИЙ post-analyze позиции ПОСЛЕ хода,
+  //     POV решателя (flip wdl / negate cp). extra-analyze searchmoves
+  //     (KS-3380) удалён.
+  it('KS-3393: playedUci === bestUci → snapshot.wdlAfter=wdlBefore, cpAfter=cpBefore', async () => {
     // halfMovesN=1: user сразу финиширует, submit вызывается сразу.
     const puzzle = makePuzzle({
       fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
@@ -2271,11 +2272,11 @@ describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci',
     expect(arg.moves[0].wdlAfter).toEqual({ w: 380, d: 620, l: 0 });
   });
 
-  it('KS-3380: не-best (playedUci !== bestUci) → extra-analyze searchmoves=[playedUci] записывает cpAfter в pre-frame', async () => {
-    // halfMovesN=2 → user-ход + engine reply (через runEngineCycle).
-    // Pre PV1=d2d4 ≠ played e2e4 → запускается extra-analyze
-    // с searchmoves=[e2e4]. Результат POV user (на fenBefore ходит
-    // user, инверсия НЕ нужна).
+  it('KS-3393: не-best → cpAfter/wdlAfter из глубокого post-analyze (POV решателя, flip/negate)', async () => {
+    // halfMovesN=2 → user-ход + runEngineCycle (глубокий post-analyze).
+    // Live в моке no-op → fallback pre-analyze: PV1=d2d4 ≠ played e2e4
+    // → !isBest. wdlAfter/cpAfter берутся из ГЛУБОКОГО post-analyze
+    // позиции после e2e4 (ходит соперник → POV решателя через flip/negate).
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -2286,22 +2287,20 @@ describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci',
       },
     });
     const onSubmit = vi.fn();
-    const engine = new ScriptedEngine(
-      [
-        INITIAL_ANALYZE(),
-        result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre best=d2d4
-        result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post — НЕ пишет в snapshot
-      ],
-      [
-        result(
-          line({ type: 'cp', value: -300 }, ['e2e4'], 18, 1, {
-            w: 50,
-            d: 350,
-            l: 600,
-          }),
-        ),
-      ],
-    );
+    const engine = new ScriptedEngine([
+      INITIAL_ANALYZE(),
+      result(line({ type: 'cp', value: 50 }, ['d2d4'])), // fallback pre best=d2d4
+      // post-analyze позиции после e2e4 (ход соперника). cp +800 POV
+      // соперника → cpAfter=-800; wdl {600,350,50} POV соперника →
+      // flip → wdlAfter {50,350,600} POV решателя.
+      result(
+        line({ type: 'cp', value: 800 }, ['d7d5'], 24, 1, {
+          w: 600,
+          d: 350,
+          l: 50,
+        }),
+      ),
+    ]);
     renderWithProviders(
       <PlayVsEngineRunner
         puzzle={puzzle}
@@ -2315,9 +2314,89 @@ describe('PlayVsEngineRunner KS-3380 (full) — pre-frame WDL для playedUci',
     const arg = onSubmit.mock.calls[0][0];
     expect(arg.moves[0].bestUci).toBe('d2d4');
     expect(arg.moves[0].playedUci).toBe('e2e4');
-    // KS-3380: из extra POV user, не post-analyze с инверсией.
-    expect(arg.moves[0].cpAfter).toBe(-300);
+    // KS-3393: из глубокого post-analyze позиции после хода, POV решателя.
+    expect(arg.moves[0].cpAfter).toBe(-800);
     expect(arg.moves[0].wdlAfter).toEqual({ w: 50, d: 350, l: 600 });
+  });
+
+  it('KS-3393: wdlBefore/cpBefore/bestUci берутся из ГЛУБОКОГО live-снимка', async () => {
+    // Движок стримит глубокий live-снимок позиции игрока через
+    // analyzeLive — классификация должна взять wdlBefore ОТТУДА (а не из
+    // fallback pre-analyze). После хода — глубокий post для wdlAfter.
+    class ClassifyLiveEngine implements EngineAdapter {
+      private q: AnalysisResult[];
+      private liveInfo: InfoLine;
+      constructor(q: AnalysisResult[], liveInfo: InfoLine) {
+        this.q = [...q];
+        this.liveInfo = liveInfo;
+      }
+      async init(): Promise<void> {}
+      setOption(): void {}
+      async analyze(): Promise<AnalysisResult> {
+        return (
+          this.q.shift() ?? {
+            lines: [],
+            bestByDepth: new Map(),
+            evalByDepth: new Map(),
+            firstAppearance: 0,
+          }
+        );
+      }
+      async analyzeLive(
+        _fen: string,
+        _mp: number,
+        onUpdate: (info: InfoLine) => void,
+      ): Promise<void> {
+        onUpdate(this.liveInfo);
+      }
+      stop(): void {}
+      destroy(): void {}
+    }
+
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.6,
+        winThreshold: 2,
+        failThreshold: 0.5,
+        halfMovesN: 2,
+      },
+    });
+    const onSubmit = vi.fn();
+    // analyze-очередь: [0]=baseline (initial effect), [1]=глубокий post.
+    // liveInfo — глубокий снимок позиции игрока (puzzle.fen, белые):
+    // bestUci=d2d4, cp=+120, wdl={560,400,40} POV решателя.
+    const engine = new ClassifyLiveEngine(
+      [
+        result(line({ type: 'cp', value: 0 }, ['e2e4'], 14, 1, { w: 400, d: 500, l: 100 })),
+        // post после e2e4 (ход соперника): cp +500 POV соперника →
+        // cpAfter=-500; wdl {300,450,250} → flip → {250,450,300}.
+        result(line({ type: 'cp', value: 500 }, ['d7d5'], 24, 1, { w: 300, d: 450, l: 250 })),
+      ],
+      line({ type: 'cp', value: 120 }, ['d2d4'], 26, 1, { w: 560, d: 400, l: 40 }),
+    );
+    const { container } = renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={onSubmit} engineFactory={() => engine} />,
+    );
+    // Ждём, пока live-снимок прокинется в полосу (data-latest-wdl).
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="puzzle-engine-runner"]')
+          ?.getAttribute('data-latest-wdl'),
+      ).toBe('560,400,40');
+    });
+    (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const arg = onSubmit.mock.calls[0][0];
+    // wdlBefore/cpBefore/bestUci — из глубокого live-снимка.
+    expect(arg.moves[0].bestUci).toBe('d2d4');
+    expect(arg.moves[0].cpBefore).toBe(120);
+    expect(arg.moves[0].wdlBefore).toEqual({ w: 560, d: 400, l: 40 });
+    // wdlAfter — из глубокого post, POV решателя (flip/negate).
+    expect(arg.moves[0].cpAfter).toBe(-500);
+    expect(arg.moves[0].wdlAfter).toEqual({ w: 250, d: 450, l: 300 });
   });
 });
 
