@@ -31,6 +31,7 @@ import { runDumpPuzzles } from './cli/dump-puzzles.cli';
 import { runAnalyzePgn } from './cli/analyze-pgn.cli';
 import { runBackfillPuzzleObjective } from './cli/backfill-puzzle-objective.cli';
 import { runGeneratePuzzlesFromTwic } from './cli/generate-puzzles-from-twic.cli';
+import { runCalibrateTwoPhase } from './cli/calibrate-two-phase.cli';
 
 const SUBCOMMANDS = [
   'index-tactic-drills',
@@ -40,6 +41,7 @@ const SUBCOMMANDS = [
   'analyze-pgn',
   'backfill-puzzle-objective',
   'generate-puzzles-from-twic',
+  'calibrate-two-phase',
 ] as const;
 
 function printHelp(): void {
@@ -98,6 +100,9 @@ async function main(): Promise<void> {
         break;
       case 'generate-puzzles-from-twic':
         await runGeneratePuzzlesFromTwic(app, rest);
+        break;
+      case 'calibrate-two-phase':
+        await runCalibrateTwoPhase(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.
