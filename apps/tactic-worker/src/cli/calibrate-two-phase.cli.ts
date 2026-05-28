@@ -239,33 +239,45 @@ export async function runCalibrateTwoPhase(
     const allScreenDeltas: Record<number, Array<number | null>> = {};
     for (const sn of flags.screenNodes) allScreenDeltas[sn] = [];
 
-    let deepSec = 0;
-    const screenSec: Record<number, number> = {};
-    for (const sn of flags.screenNodes) screenSec[sn] = 0;
+    // Детерминированный учёт стоимости: число analyze-вызовов per фаза
+    // (× nodeLimit = пропорциональная CPU-стоимость). Wall-clock мерим
+    // отдельно — при параллелизме per-phase Date.now перекрывались бы.
+    let deepAnalyzeCalls = 0;
+    const screenAnalyzeCalls: Record<number, number> = {};
+    for (const sn of flags.screenNodes) screenAnalyzeCalls[sn] = 0;
 
+    // Параллелизм между партиями: насыщаем Stockfish-пул. Внутри партии
+    // computeDeltaCurve последовательна (нужен дедуп-кэш). concurrency
+    // = STOCKFISH_POOL_SIZE (больше нет смысла — позиции встанут в
+    // waitQueue пула).
+    const concurrency = Math.max(
+      1,
+      Number(process.env.STOCKFISH_POOL_SIZE ?? 1) || 1,
+    );
+    const wallStart = Date.now();
     let processed = 0;
-    for (const game of games) {
+    let nextIdx = 0;
+
+    const processOneGame = async (game: GameRow): Promise<void> => {
       const replay = replayPgnToSteps(game.pgn, flags.startPly);
       if ('error' in replay) {
         process.stdout.write(`[calib] skip game=${game.id}: ${replay.error}\n`);
-        continue;
+        return;
       }
       const steps = replay.steps;
-      if (steps.length === 0) continue;
+      if (steps.length === 0) return;
       totalPly += steps.length;
 
       // Эталон (deep) — single-pass eval-curve.
-      const t0 = Date.now();
       const deep = await computeDeltaCurve(steps, deepEngine);
-      deepSec += (Date.now() - t0) / 1000;
+      deepAnalyzeCalls += deep.analyzeCalls;
 
       // Screen — по каждому лимиту.
       const screenDeltasByNode: Record<number, Map<number, number | null>> = {};
       for (const sn of flags.screenNodes) {
         const eng = makeEngine(sf, { nodes: sn });
-        const ts = Date.now();
         const sc = await computeDeltaCurve(steps, eng);
-        screenSec[sn] += (Date.now() - ts) / 1000;
+        screenAnalyzeCalls[sn] += sc.analyzeCalls;
         screenDeltasByNode[sn] = sc.deltas;
         for (const step of steps) {
           allScreenDeltas[sn].push(sc.deltas.get(step.ply) ?? null);
@@ -296,7 +308,18 @@ export async function runCalibrateTwoPhase(
             `trueBlunders=${trueBlunders.length} totalPly=${totalPly}\n`,
         );
       }
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, games.length) }, async () => {
+        while (true) {
+          const idx = nextIdx++;
+          if (idx >= games.length) return;
+          await processOneGame(games[idx]);
+        }
+      }),
+    );
+    const wallClockSec = (Date.now() - wallStart) / 1000;
 
     // recall(margin) и % отсева per (nodeLimit, margin).
     const threshold = flags.deltaThreshold;
@@ -360,10 +383,11 @@ export async function runCalibrateTwoPhase(
         gamesProcessed: processed,
         totalPly,
         trueBlunderCount: trueBlunders.length,
-        deepSec: +deepSec.toFixed(1),
-        screenSec: Object.fromEntries(
-          Object.entries(screenSec).map(([k, v]) => [k, +v.toFixed(1)]),
-        ),
+        concurrency,
+        wallClockSec: +wallClockSec.toFixed(1),
+        // Детерминированная CPU-стоимость: analyze-вызовы × nodeLimit.
+        deepAnalyzeCalls,
+        screenAnalyzeCalls,
       },
       // Рекомендация: минимальный (nodeLimit, margin) с recall ≥ 0.99.
       recallTarget: 0.99,
