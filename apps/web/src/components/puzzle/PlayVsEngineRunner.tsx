@@ -986,7 +986,11 @@ export function PlayVsEngineRunner({
    * останавливает `stopLiveAnalysis()` (вызывается в начале хода игрока).
    */
   const startLiveAnalysis = useCallback(
-    (fen: string) => {
+    // KS-3394: `isBaseline` — это live-анализ СТАРТОВОЙ позиции (первый
+    // полуход). Тогда глубокий live ещё и перезаписывает `clientBaselineWdl`
+    // («start» в summary) — чтобы baseline был на той же глубине, что и
+    // оценки ходов (KS-3393), а не из мелкого initial queueAnalyze.
+    (fen: string, isBaseline = false) => {
       const gen = ++liveGenRef.current;
       // KS-3393: новый снимок для новой позиции — старый невалиден.
       liveSnapshotRef.current = null;
@@ -1020,7 +1024,16 @@ export function PlayVsEngineRunner({
               bestUci: info.pv[0] ?? '',
               depth: info.depth,
             };
-            if (wdlSolver) setLatestWdl(wdlSolver);
+            if (wdlSolver) {
+              setLatestWdl(wdlSolver);
+              // KS-3394: глубокий baseline стартовой позиции для summary.
+              // Перезаписывает мелкий initial-analyze. К моменту хода
+              // (игрок думал) live набрал глубину; читается на финале.
+              if (isBaseline) {
+                updateClientBaselineWdl(wdlSolver);
+                setLatestWdlUser(signedWdlFromObj(wdlSolver));
+              }
+            }
           });
         } finally {
           liveInFlightRef.current = false;
@@ -1030,7 +1043,7 @@ export function PlayVsEngineRunner({
         liveInFlightRef.current = false;
       });
     },
-    [ensureEngine, userSide],
+    [ensureEngine, userSide, updateClientBaselineWdl],
   );
 
   /**
@@ -1758,22 +1771,20 @@ export function PlayVsEngineRunner({
         // без flip. null если info без wdl.
         const initialBest = pickBestLine(initial);
         setLatestWdl(initialBest?.wdl ?? null);
-        // KS-2960: фиксируем клиентский baseline POV-решателя из
-        // локального SF (тот же движок, что будет играть). Используется
-        // как `start` в финальном summary и как initial для
-        // `latestWdlUser`. Без этого UI показывал «удержано/потеряно»
-        // от серверного `puzzle.playVsEngine.wdlAfter`, который может
-        // не совпадать с реальной оценкой движка на этой глубине.
+        // KS-2960 → KS-3394: мелкий initial analyze даёт МГНОВЕННЫЙ baseline
+        // (чтобы полоса/summary не показывали «0.0» и был fallback на случай
+        // мгновенного хода). Глубокий live ниже ПЕРЕЗАПИШЕТ clientBaselineWdl
+        // более точным значением стартовой позиции — на той же глубине, что
+        // и оценки ходов (KS-3393). Серверный wdlAfter — последний fallback.
         if (initialBest?.wdl) {
           updateClientBaselineWdl(initialBest.wdl);
           // signedWdl POV решателя (= user, на puzzle.fen ходит он).
           setLatestWdlUser(signedWdlFromObj(initialBest.wdl));
         }
-        // KS-3391: после дискретного baseline-анализа (он фиксирует
-        // clientBaselineWdl) запускаем «живой» continuous-анализ стартовой
-        // позиции — полоса шансов уточняется в реальном времени, пока игрок
-        // думает над первым ходом.
-        if (!cancelled) startLiveAnalysis(puzzle.fen);
+        // KS-3391/KS-3394: «живой» continuous-анализ стартовой позиции —
+        // полоса уточняется в реальном времени, и (isBaseline=true) глубокий
+        // live перезаписывает clientBaselineWdl для согласованного summary.
+        if (!cancelled) startLiveAnalysis(puzzle.fen, true);
       } catch {
         /* ignore — полоса не критична, юзер сделает ход и анализ
            перезапустится в runEngineCycle. */

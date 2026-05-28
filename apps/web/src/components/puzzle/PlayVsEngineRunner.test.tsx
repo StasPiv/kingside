@@ -2400,6 +2400,87 @@ describe('PlayVsEngineRunner KS-3393 — классификация из глу�
   });
 });
 
+describe('PlayVsEngineRunner KS-3394 — baseline из глубокого live стартовой позиции', () => {
+  // Движок: initial analyze (мелкий) даёт baseline 76%, а live стримит
+  // ГЛУБОКИЙ 99% для стартовой позиции. После KS-3394 «start» в summary
+  // должен быть 99% (глубокий live), а не 76% (мелкий initial).
+  class BaselineLiveEngine implements EngineAdapter {
+    private q: AnalysisResult[];
+    private liveInfo: InfoLine;
+    constructor(q: AnalysisResult[], liveInfo: InfoLine) {
+      this.q = [...q];
+      this.liveInfo = liveInfo;
+    }
+    async init(): Promise<void> {}
+    setOption(): void {}
+    async analyze(): Promise<AnalysisResult> {
+      return (
+        this.q.shift() ?? {
+          lines: [],
+          bestByDepth: new Map(),
+          evalByDepth: new Map(),
+          firstAppearance: 0,
+        }
+      );
+    }
+    async analyzeLive(
+      _fen: string,
+      _mp: number,
+      onUpdate: (info: InfoLine) => void,
+    ): Promise<void> {
+      onUpdate(this.liveInfo);
+    }
+    stop(): void {}
+    destroy(): void {}
+  }
+
+  it('summary «start» = глубокий live baseline (99%), не мелкий initial (76%)', async () => {
+    const puzzle = makePuzzle({
+      playVsEngine: {
+        blunderMove: 'd2d4',
+        wdlAfterBlunder: 0.9,
+        winThreshold: 0.5,
+        failThreshold: -2, // не уходим в lose досрочно
+        halfMovesN: 2,
+      },
+    });
+    const onSubmit = vi.fn();
+    // [0] initial МЕЛКИЙ baseline 76% ({760,200,40}); [1] post после d2d4
+    // (ход соперника): wdl {10,80,910} POV соперника → flip → {910,80,10}
+    // POV решателя (final в summary).
+    const engine = new BaselineLiveEngine(
+      [
+        result(line({ type: 'cp', value: 200 }, ['d2d4'], 14, 1, { w: 760, d: 200, l: 40 })),
+        result(line({ type: 'cp', value: -700 }, ['d7d5'], 24, 1, { w: 10, d: 80, l: 910 })),
+      ],
+      // live ГЛУБОКИЙ снимок стартовой позиции: 99% ({990,8,2}), best=d2d4.
+      line({ type: 'cp', value: 900 }, ['d2d4'], 30, 1, { w: 990, d: 8, l: 2 }),
+    );
+    const { container } = renderWithProviders(
+      <PlayVsEngineRunner puzzle={puzzle} onSubmit={onSubmit} engineFactory={() => engine} />,
+    );
+    // Ждём глубокий live baseline в полосе.
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="puzzle-engine-runner"]')
+          ?.getAttribute('data-latest-wdl'),
+      ).toBe('990,8,2');
+    });
+    // Играем лучший ход d2d4 → партия завершится (userMovesTarget=1).
+    (screen.getByTestId('fire-square-d2') as HTMLButtonElement).click();
+    (screen.getByTestId('fire-square-d4') as HTMLButtonElement).click();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    // KS-3394: «start» в summary = permilleToPercent(990) = 99, НЕ 76.
+    const summary = container.querySelector(
+      '[data-testid="puzzle-engine-wdl-summary"]',
+    );
+    expect(summary).not.toBeNull();
+    expect(summary?.getAttribute('data-start-w')).toBe('99');
+  });
+});
+
 /**
  * KS-3391 — «живой» поток WDL в полосу шансов. Проверяем интеграцию:
  * раннер запускает `analyzeLive` на стартовой позиции и прокидывает
