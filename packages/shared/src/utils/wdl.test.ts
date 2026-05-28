@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   deltaDFromWdl,
   deltaWFromWdl,
+  invertWdl,
   wdlOrMateFallback,
   wdlSigned,
   wdlSignedFromInfo,
@@ -16,6 +17,27 @@ describe('wdlSigned', () => {
   });
   it('равные шансы', () => {
     expect(wdlSigned({ w: 100, d: 800, l: 100 })).toBeCloseTo(0);
+  });
+});
+
+describe('invertWdl (KS-3386 / ADR-083 §3.1)', () => {
+  it('меняет местами w и l, сохраняет d', () => {
+    expect(invertWdl({ w: 850, d: 100, l: 50 })).toEqual({
+      w: 50,
+      d: 100,
+      l: 850,
+    });
+  });
+  it('двойная инверсия = исходное (инволюция)', () => {
+    const wdl = { w: 720, d: 180, l: 100 };
+    expect(invertWdl(invertWdl(wdl))).toEqual(wdl);
+  });
+  it('симметричная ничья инвариантна', () => {
+    expect(invertWdl({ w: 100, d: 800, l: 100 })).toEqual({
+      w: 100,
+      d: 800,
+      l: 100,
+    });
   });
 });
 
