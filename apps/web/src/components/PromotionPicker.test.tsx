@@ -5,23 +5,20 @@ import { renderWithProviders, screen } from '../test/test-utils';
 import { PromotionPicker } from './PromotionPicker';
 
 /**
- * KS-3383 — PromotionPicker отображает SVG-фигуры из piece-set.
- *
- * Главная регрессия, ради которой задача: в KS-3320 удалён `cburnett`
- * piece-set (GPL → конфликт лицензий), но fallback в PromotionPicker
- * для `pieceSet === 'standard'` (внутренний react-chessboard SVG)
- * оставался на `/pieces/cburnett/*.svg`. В проде это давало 404 →
- * broken-image иконки в модалке выбора фигуры при превращении.
+ * KS-3383 → KS-3395 — PromotionPicker рендерит фигуры ТЕМ ЖЕ стилем, что
+ * доска для текущего pieceSet (один источник, что и `buildCustomPieces`):
+ *  - кастомные наборы (chessnut и др.) → `/pieces/<set>/<code>.svg` (img);
+ *  - `standard` → встроенные фигуры react-chessboard (`defaultPieces`),
+ *    как на доске при `customPieces=undefined` (а НЕ chessnut-fallback).
  *
  * Проверяем:
  *  - модалка скрыта при pending=null;
- *  - при pending — рендерятся 4 кнопки Q/R/B/N с SVG-фигурами;
- *  - src НИКОГДА не указывает на удалённый `cburnett` piece-set;
- *  - клик по фигуре вызывает onChoice с правильной буквой;
- *  - клик по подложке вызывает onCancel.
+ *  - кастомный набор: 4 кнопки Q/R/B/N с `/pieces/<set>/` img, не cburnett;
+ *  - standard: встроенный svg react-chessboard, без `/pieces/` img;
+ *  - клик по фигуре вызывает onChoice; клик по подложке — onCancel.
  */
 
-describe('<PromotionPicker> — KS-3383 SVG icons rendering', () => {
+describe('<PromotionPicker> — KS-3395 piece style matches board', () => {
   const pending = { from: 'e7', to: 'e8' } as const;
 
   it('возвращает null, если pending=null', () => {
@@ -75,9 +72,11 @@ describe('<PromotionPicker> — KS-3383 SVG icons rendering', () => {
     expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wQ.svg');
   });
 
-  it('fallback на chessnut при сохранённом pieceSet=standard в localStorage', () => {
-    // Имитируем юзера, у которого в LS лежит `standard` (валидный
-    // PieceSetId, но без своих SVG-файлов). Раньше шёл 404 на cburnett.
+  it('standard: рендерит встроенную фигуру react-chessboard (defaultPieces), без /pieces/ img', () => {
+    // KS-3395: pieceSet='standard' → доска рисует встроенные фигуры
+    // react-chessboard. Picker должен рендерить ИХ ЖЕ (defaultPieces),
+    // а не chessnut-картинку. Проверяем: нет /pieces/ img, есть встроенный
+    // svg в span.promotion-piece__svg--builtin.
     localStorage.setItem('pieceSet', 'standard');
     try {
       renderWithProviders(
@@ -89,11 +88,33 @@ describe('<PromotionPicker> — KS-3383 SVG icons rendering', () => {
         />,
       );
       const btn = screen.getByTestId('promotion-choice-r');
-      const img = btn.querySelector('img.promotion-piece__svg');
-      expect(img?.getAttribute('src')).toBe('/pieces/chessnut/bR.svg');
+      // Нет картинки кастомного набора.
+      expect(btn.querySelector('img.promotion-piece__svg')).toBeNull();
+      // Есть встроенный svg react-chessboard.
+      const builtin = btn.querySelector('.promotion-piece__svg--builtin svg');
+      expect(builtin).not.toBeNull();
+      // Источник стиля совпадает с доской (pieceSet).
+      expect(btn.getAttribute('data-piece-style')).toBe('standard');
     } finally {
       localStorage.removeItem('pieceSet');
     }
+  });
+
+  it('кастомный набор: data-piece-style == pieceSet, src из того же /pieces/<set>/, что доска', () => {
+    // KS-3395: picker и доска (buildCustomPieces) берут один путь
+    // /pieces/<set>/<code>.svg. Дефолт — chessnut.
+    renderWithProviders(
+      <PromotionPicker
+        pending={pending}
+        color="w"
+        onChoice={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const btn = screen.getByTestId('promotion-choice-b');
+    expect(btn.getAttribute('data-piece-style')).toBe('chessnut');
+    const img = btn.querySelector('img.promotion-piece__svg');
+    expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wB.svg');
   });
 
   it('клик по фигуре вызывает onChoice с правильной буквой', async () => {

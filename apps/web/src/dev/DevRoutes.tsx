@@ -21,6 +21,7 @@ import { DevLessonGameStepPage } from '../pages/DevLessonGameStepPage';
 import { DevChatToolCallsPage } from '../pages/DevChatToolCallsPage';
 import { DevBroadcastForfeitPage } from '../pages/DevBroadcastForfeitPage';
 import { DevWdlChancesBarPage } from '../pages/DevWdlChancesBarPage';
+import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -88,6 +89,8 @@ export default function DevRoutes() {
       <Route path="broadcast-forfeit" element={<DevBroadcastForfeitPage />} />
       {/* KS-3391: демо трёхцветной полосы шансов W/D/L (precision). */}
       <Route path="wdl-chances" element={<DevWdlChancesBarPage />} />
+      {/* KS-3395: доска + окно превращения в одном стиле (?set=<pieceSet>). */}
+      <Route path="promotion-picker" element={<DevPromotionPickerPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
