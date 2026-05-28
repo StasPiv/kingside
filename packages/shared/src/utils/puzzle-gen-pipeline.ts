@@ -30,7 +30,6 @@ import {
   type PuzzleObjective,
 } from './puzzle-gen-core.js';
 import {
-  invertWdl,
   wdlOrMateFallback,
   wdlSigned,
   type Wdl,
@@ -146,49 +145,13 @@ export interface GeneratedPuzzle {
  *     PUZZLE_GEN_DEFAULTS).
  *   - `emitPreventivePuzzle` / `emitReactivePuzzle` — какие из двух
  *     пазлов на принятый зевок строить (по умолчанию оба).
- *
- * KS-3386 / ADR-083: двухфазная генерация (cheap screen → deep confirm).
- * Поля `screen*` управляют фазой 1 (`screenGameForCandidates`):
- *   - `screenEnabled` — вкл/выкл фазы 1 (rollback-флаг). false →
- *     кандидатами становятся ВСЕ ply (deep на всех = текущее поведение).
- *   - `screenNodeLimit` — nodes-лимит дешёвого движка фазы 1
- *     (финализируется калибровкой KS-3387).
- *   - `screenMultiPV` — multiPV фазы 1 (default 1, нам не нужен PV2 для
- *     грубого eval).
- *   - `screenDeltaMargin` — запас порога фазы 1: кандидат, если
- *     `approxDeltaW ≥ (deltaWThreshold − screenDeltaMargin)`. Покрывает
- *     ошибку дешёвого анализа, чтобы не терять реальные зевки
- *     (целевой recall ≥ 99%). Финализируется калибровкой KS-3387.
- *
- * Все `screen*` поля ОПЦИОНАЛЬНЫ: существующие callers (одно­фазный
- * tactic-worker, клиентский генератор apps/web) их не передают —
- * `screenGameForCandidates` подставляет дефолты (`SCREEN_DEFAULTS`),
- * причём отсутствие `screenEnabled` трактуется как `false` (фаза 1
- * выключена → текущее поведение). Интеграция (KS-3389) выставит их явно.
  */
 export interface PuzzleGenSettings extends BlunderEvalSettings {
   minPlayerElo: number;
   startPly: number;
   emitPreventivePuzzle: boolean;
   emitReactivePuzzle: boolean;
-  // KS-3386 / ADR-083 §5 — параметры фазы 1 (cheap screen). Опциональны.
-  screenEnabled?: boolean;
-  screenNodeLimit?: number;
-  screenMultiPV?: number;
-  screenDeltaMargin?: number;
 }
-
-/**
- * KS-3386 / ADR-083 §5 — стартовые значения параметров фазы 1.
- * `screenNodeLimit` / `screenDeltaMargin` финализируются калибровкой
- * (KS-3387 → KS-3388). До интеграции (KS-3389) фаза 1 выключена
- * (`screenEnabled=false` по умолчанию у callers, не передающих поле).
- */
-export const SCREEN_DEFAULTS = {
-  screenNodeLimit: 250_000,
-  screenMultiPV: 1,
-  screenDeltaMargin: 0.15,
-} as const;
 
 // ─── Elo-фильтр ──────────────────────────────────────────────────────
 
@@ -268,139 +231,6 @@ export function replayPgnToSteps(
     });
   }
   return { steps, headers };
-}
-
-// ─── screenGameForCandidates (KS-3386 / ADR-083 фаза 1) ─────────────
-
-/**
- * Результат cheap-screen фазы 1.
- *   - `candidatePlys` — множество `ply`, прошедших грубый delta-фильтр
- *     (или ВСЕ ply, если `screenEnabled=false`). Только эти ply идут в
- *     дорогую фазу 2 (`analyzePlyForBlunder`).
- *   - `evalCurve` — кэш eval-кривой: `fen → Wdl POV white`. Каждая
- *     уникальная позиция посчитана один раз (single-pass дедуп). Можно
- *     переиспользовать в телеметрии/отладке; для расчёта approxDeltaW
- *     уже использован внутри.
- */
-export interface ScreenResult {
-  candidatePlys: Set<number>;
-  evalCurve: Map<string, Wdl>;
-}
-
-/**
- * KS-3386 / ADR-083 §3 — фаза 1 двухфазной генерации: дешёвый отсев.
- *
- * Single-pass проход партии дешёвым движком (`screenEngine`, низкий
- * `screenNodeLimit`). Строит eval-кривую (одна оценка на уникальную
- * позицию — за счёт `fenAfter[i] == fenBefore[i+1]` каждая считается
- * один раз через `evalCurve`-кэш), грубо оценивает `approxDeltaW`
- * каждого хода и отбирает кандидатов фазы 2.
- *
- * Консервативность (recall ≥ 99%, ADR-083 §3.3):
- *   - порог фазы 1 = `deltaWThreshold − screenDeltaMargin` (с запасом
- *     на шум дешёвого анализа);
- *   - НЕ применяется samePv1-фильтр (дешёвый движок может ошибиться в
- *     лучшем ходе — §3.3) — это работа фазы 2;
- *   - терминальные позиции (`isGameOverAfter`) и любые, где eval не
- *     посчитался (engine-fail / нет WDL), консервативно ВКЛЮЧАЮТСЯ в
- *     кандидаты — фаза 2 разберётся (gameOver/noScore-drop), зевок не
- *     теряем.
- *
- * `screenEnabled=false` (rollback, ADR-083 §10) → кандидатами становятся
- * ВСЕ ply: фаза 2 идёт на всех позициях, поведение идентично
- * одно­фазному (текущему) генератору.
- *
- * POV-нормализация (ADR-083 §3.2, риск §8.3): eval-кривая хранится
- * POV white (raw POV side-to-move инвертируется для black-to-move через
- * `invertWdl`). При расчёте approxDeltaW обе оценки приводятся к POV
- * зевнувшего (side-to-move на fenBefore). Результат математически
- * совпадает с `deltaWFromWdl` фазы 2 — фаза 1 лишь грубее (меньше nodes).
- *
- * Параллелизм: внутри функции ply обрабатываются последовательно ради
- * single-pass дедупа (кэш должен видеть результат предыдущей позиции).
- * Параллелизм между партиями — на уровне обёртки (tactic-worker).
- */
-export async function screenGameForCandidates(
-  steps: PlyStep[],
-  screenEngine: PuzzleGenEngine,
-  settings: PuzzleGenSettings,
-): Promise<ScreenResult> {
-  // Rollback / клиентский режим без screen: фаза 2 на всех ply.
-  if (!settings.screenEnabled) {
-    return {
-      candidatePlys: new Set(steps.map((s) => s.ply)),
-      evalCurve: new Map(),
-    };
-  }
-
-  const screenDeltaMargin =
-    settings.screenDeltaMargin ?? SCREEN_DEFAULTS.screenDeltaMargin;
-  const screenThreshold = settings.deltaWThreshold - screenDeltaMargin;
-  const multiPV = settings.screenMultiPV ?? SCREEN_DEFAULTS.screenMultiPV;
-  const evalCurve = new Map<string, Wdl>();
-  const candidatePlys = new Set<number>();
-
-  /**
-   * Возвращает Wdl POV white для позиции (из кэша или новый анализ).
-   * `null` — engine-fail / нет WDL / терминал без оценки. `sideToMove`
-   * нужен для приведения raw (POV side-to-move) к POV white.
-   */
-  const evalWhite = async (
-    fen: string,
-    sideToMove: 'w' | 'b',
-    label: string,
-  ): Promise<Wdl | null> => {
-    const cached = evalCurve.get(fen);
-    if (cached) return cached;
-    let lines: SharedMultiPvLine[];
-    try {
-      lines = await screenEngine.analyze(fen, multiPV, { label });
-    } catch {
-      return null;
-    }
-    if (lines.length === 0 || !lines[0]) return null;
-    const raw = wdlOrMateFallback(lines[0].wdl, lines[0].score);
-    if (!raw) return null;
-    const white = sideToMove === 'w' ? raw : invertWdl(raw);
-    evalCurve.set(fen, white);
-    return white;
-  };
-
-  for (const step of steps) {
-    // Терминал после хода — фаза 1 не считает swing «мат → нет хода»
-    // (ADR-083 §8.4). Консервативно отдаём в фазу 2.
-    if (step.isGameOverAfter) {
-      candidatePlys.add(step.ply);
-      continue;
-    }
-    const beforeWhite = await evalWhite(
-      step.fenBefore,
-      step.preventiveSolverSide,
-      `screen ply=${step.ply} pos=before`,
-    );
-    const afterWhite = await evalWhite(
-      step.fenAfter,
-      step.reactiveSolverSide,
-      `screen ply=${step.ply} pos=after`,
-    );
-    // Нет оценки — консервативно кандидат (не теряем зевок).
-    if (beforeWhite == null || afterWhite == null) {
-      candidatePlys.add(step.ply);
-      continue;
-    }
-    // Приводим обе POV-white оценки к POV зевнувшего (side-to-move на
-    // fenBefore). w зевнувшего = white.w если он белыми, иначе white.l.
-    const blunderSide = step.preventiveSolverSide;
-    const wBeforeBlunder = blunderSide === 'w' ? beforeWhite.w : beforeWhite.l;
-    const wAfterBlunder = blunderSide === 'w' ? afterWhite.w : afterWhite.l;
-    const approxDeltaW = (wBeforeBlunder - wAfterBlunder) / 1000;
-
-    if (approxDeltaW >= screenThreshold) {
-      candidatePlys.add(step.ply);
-    }
-  }
-
-  return { candidatePlys, evalCurve };
 }
 
 // ─── analyzePlyForBlunder ───────────────────────────────────────────

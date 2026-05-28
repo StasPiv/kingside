@@ -51,19 +51,6 @@ export function wdlSigned(wdl: Wdl): number {
 }
 
 /**
- * KS-3386 / ADR-083 §3.1. POV-зеркало WDL при смене стороны на ходу.
- * Вероятность выигрыша одной стороны == вероятность проигрыша другой,
- * ничья симметрична: `{w, d, l}` → `{w: l, d, l: w}`.
- *
- * Используется для POV-нормализации eval-кривой screen-фазы: Stockfish
- * отдаёт WDL POV side-to-move, а нам нужна единая база (POV white) или
- * приведение к POV конкретного игрока.
- */
-export function invertWdl(wdl: Wdl): Wdl {
-  return { w: wdl.l, d: wdl.d, l: wdl.w };
-}
-
-/**
  * Извлечь WDL_signed из Stockfish-инфо. Если WDL отсутствует (опция
  * выключена или mate без WDL у некоторых версий), используем
  * fallback по score:
