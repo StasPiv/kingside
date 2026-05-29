@@ -112,13 +112,20 @@ describe('<GuessRunner> KS-3410', () => {
     expect(screen.getByTestId('guess-runner-prompt')).toBeTruthy();
   });
 
-  it('совпал с реальным ходом (e4) → вердикт asPlayer, «Дальше» переключает к следующему ходу', async () => {
+  it('совпал с реальным ходом (e4) → reaction asPlayer + короткий вердикт «Равно» + автопереход без кнопки (KS-3424)', async () => {
     const engine = new ScriptedEngine([
       result(line(['d2d4'], { w: 500, d: 300, l: 200 })), // before
       result(line(['e7e5'], { w: 300, d: 300, l: 400 })), // after played e4
     ]);
     renderWithProviders(
-      <GuessRunner pgn={PGN} side="white" engineFactory={() => engine} />,
+      // reactionHoldMs побольше, чтобы успеть проверить verdict, а
+      // автопереход — отдельным waitFor с реальным таймером.
+      <GuessRunner
+        pgn={PGN}
+        side="white"
+        engineFactory={() => engine}
+        reactionHoldMs={150}
+      />,
     );
     await waitFor(() =>
       expect(screen.getByTestId('guess-runner').getAttribute('data-phase')).toBe(
@@ -129,29 +136,39 @@ describe('<GuessRunner> KS-3410', () => {
     (screen.getByTestId('fire-square-e2') as HTMLButtonElement).click();
     (screen.getByTestId('fire-square-e4') as HTMLButtonElement).click();
     await waitFor(() =>
-      expect(screen.getByTestId('guess-runner-reaction')).toBeTruthy(),
+      expect(screen.getByTestId('guess-runner').getAttribute('data-verdict')).toBe(
+        'asPlayer',
+      ),
     );
-    // sameMove → lossUser==lossPlayer → asPlayer (loss>best-порога).
-    expect(screen.getByTestId('guess-runner').getAttribute('data-verdict')).toBe(
-      'asPlayer',
+    // Короткий вердикт «Равно» / "Same" (asPlayer → tone=equal).
+    expect(
+      screen.getByTestId('guess-runner-verdict-short').getAttribute('data-tone'),
+    ).toBe('equal');
+    // Кнопки «Дальше» больше нет.
+    expect(screen.queryByTestId('guess-runner-continue')).toBeNull();
+    // Автопереход после reactionHoldMs.
+    await waitFor(
+      () => {
+        const ph = screen.getByTestId('guess-runner').getAttribute('data-phase');
+        expect(['autoplay', 'prefetch', 'awaitGuess', 'init']).toContain(ph);
+      },
+      { timeout: 2000 },
     );
-    // «Дальше» применяет реальный ход и идёт к ply2 (autoplay чёрных).
-    (screen.getByTestId('guess-runner-continue') as HTMLButtonElement).click();
-    await waitFor(() => {
-      const ph = screen.getByTestId('guess-runner').getAttribute('data-phase');
-      // либо autoplay чёрных, либо уже снова awaitGuess (ply3 Nf3) после автоплея.
-      expect(['autoplay', 'prefetch', 'awaitGuess', 'init']).toContain(ph);
-    });
   });
 
-  it('слабее реального → вердикт weaker, 3 стрелки (лучший/реальный/твой)', async () => {
+  it('слабее реального → вердикт weaker, стрелок реакции на доске НЕТ (KS-3424)', async () => {
     const engine = new ScriptedEngine([
       result(line(['d2d4'], { w: 500, d: 300, l: 200 })), // before, best=d2d4
       result(line(['e7e5'], { w: 300, d: 300, l: 400 })), // after played e4 (lossPlayer~0.10)
       result(line(['x'], { w: 500, d: 300, l: 200 })), // after user a3 (lossUser~0.30)
     ]);
     renderWithProviders(
-      <GuessRunner pgn={PGN} side="white" engineFactory={() => engine} />,
+      <GuessRunner
+        pgn={PGN}
+        side="white"
+        engineFactory={() => engine}
+        reactionHoldMs={5000}
+      />,
     );
     await waitFor(() =>
       expect(screen.getByTestId('guess-runner').getAttribute('data-phase')).toBe(
@@ -167,7 +184,14 @@ describe('<GuessRunner> KS-3410', () => {
     expect(screen.getByTestId('guess-runner').getAttribute('data-verdict')).toBe(
       'weaker',
     );
-    // best(d2d4) ≠ played(e2e4) ≠ user(a2a3) → 3 стрелки.
-    expect(screen.getByTestId('mock-board').getAttribute('data-arrows')).toBe('3');
+    // Короткий вердикт «Хуже» / "Worse" (weaker → tone=worse).
+    expect(
+      screen.getByTestId('guess-runner-verdict-short').getAttribute('data-tone'),
+    ).toBe('worse');
+    // KS-3424: стрелки реакции убраны → data-arrows=0 (только internal
+    // подсветка last-move от useBoardHighlights, кастомных нет).
+    expect(screen.getByTestId('mock-board').getAttribute('data-arrows')).toBe('0');
+    // WDL-шкала отрисована и показывает live-значение.
+    expect(screen.getByTestId('guess-runner-wdl')).toBeTruthy();
   });
 });

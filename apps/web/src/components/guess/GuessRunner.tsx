@@ -9,33 +9,48 @@ import {
 } from '@kingside/shared';
 
 import { PuzzleBoard } from '../PuzzleBoard';
+import { WdlChancesBar } from '../WdlChancesBar';
 import {
   WasmEngineAdapter,
   type EngineAdapter,
   type AnalysisResult,
+  type WdlDistribution,
 } from '../../utils/engineAdapter';
 
 /**
  * KS-3410 (ADR-086 §9, F1) — guess-the-move runner.
+ * KS-3424 (UX): убраны стрелки реакции и кнопка «Дальше»; вердикт
+ * сжат до «Лучше/Равно/Хуже» с автопереходом через короткую паузу.
+ * Анализ позиции переведён на live `go infinite` со шкалой
+ * `WdlChancesBar` (как в /precision, KS-3391/3394) — пользователь
+ * видит, как W/D/L уточняются по мере роста глубины.
  *
  * Доска + авто-проигрывание ходов соперника из PGN; на полуходах ВЫБРАННОЙ
- * стороны пользователь вводит ход (drag/click). Клиентский live-анализ
- * (WASM Stockfish, тот же путь что PVE-runner — нужен WDL):
+ * стороны пользователь вводит ход (drag/click). Клиентский анализ
+ * (WASM Stockfish):
  *   - префетч на guess-полуходе: E_before (analyze fenBefore → wdlBefore +
  *     bestUci) и E_after_played (analyze позиции ПОСЛЕ реального хода —
- *     реальный ход известен заранее);
+ *     реальный ход известен заранее). Префетч даёт фиксированные WDL для
+ *     `compareGuessMove` (S2);
  *   - после ввода: E_after_user (analyze позиции после хода юзера; только
- *     если userUci !== playedUci).
+ *     если userUci !== playedUci);
+ *   - параллельно: `analyzeLive(displayFen, …)` стримит промежуточные
+ *     WDL в `setLiveWdl` для шкалы — НЕ блокирует префетч (очередь
+ *     `engineQueueRef` сериализует analyze и analyzeLive на одном
+ *     worker'е; live запускается ПОСЛЕ префетча в фазе `awaitGuess` и
+ *     останавливается `stop()` при смене фазы).
+ *
  * Реакция считается `compareGuessMove` (S2, shared): вердикт
- * (strongest / betterThanPlayer / asPlayer / weaker) + класс хода + стрелки
- * (твой / реальный / лучший) + бейдж.
+ * (strongest / betterThanPlayer / asPlayer / weaker) + класс хода + бейдж.
  *
  * Партия ВСЕГДА идёт по реальной линии: ход пользователя оценивается, но
- * на «Дальше» применяется реально сыгранный ход (ADR-086 §2.2.4).
+ * на автопереходе применяется реально сыгранный ход (ADR-086 §2.2.4).
  *
  * WDL POV: `compareGuessMove` принимает RAW POV side-to-move каждой позиции
  * (fenBefore → выбранная сторона; fenAfter* → соперник) и сам инвертирует
- * after-позиции. Передаём как есть из движка.
+ * after-позиции. Передаём как есть из движка. Шкала `WdlChancesBar`
+ * показывает live-оценку текущей `displayFen` (POV side-to-move в этой
+ * позиции) — на guess-полуходе это POV выбранной стороны, что и нужно.
  */
 
 export interface GuessPlyEvals {
@@ -71,6 +86,12 @@ export interface GuessRunnerProps {
   engineFactory?: () => EngineAdapter;
   analyzeDepth?: number;
   analyzeMovetimeMs?: number;
+  /**
+   * KS-3424: пауза перед автопереходом в reaction-фазе, мс. Дефолт 1500 —
+   * хватает увидеть вердикт. В тестах задаём 0, чтобы не зависеть от
+   * fake-таймеров.
+   */
+  reactionHoldMs?: number;
 }
 
 type Phase =
@@ -90,10 +111,6 @@ interface ParsedPly {
   fenBefore: string;
   fenAfter: string;
 }
-
-const ARROW_USER = '#3b82f6'; // синий — твой ход
-const ARROW_PLAYED = '#22c55e'; // зелёный — реально сыгранный
-const ARROW_BEST = '#eab308'; // золотой — лучший по движку
 
 function parsePgnToPlies(pgn: string): ParsedPly[] {
   const game = new Chess();
@@ -115,14 +132,6 @@ function pickBest(result: AnalysisResult) {
   return [...result.lines].sort((a, b) => a.multipv - b.multipv)[0];
 }
 
-function uciToArrow(uci: string, color: string) {
-  return {
-    startSquare: uci.slice(0, 2),
-    endSquare: uci.slice(2, 4),
-    color,
-  };
-}
-
 export function GuessRunner({
   pgn,
   side,
@@ -131,6 +140,7 @@ export function GuessRunner({
   engineFactory,
   analyzeDepth = 16,
   analyzeMovetimeMs = 1200,
+  reactionHoldMs = 1500,
 }: GuessRunnerProps) {
   const { t } = useTranslation();
   const userColor: 'w' | 'b' = side === 'white' ? 'w' : 'b';
@@ -151,6 +161,10 @@ export function GuessRunner({
   const [lastMoveUci, setLastMoveUci] = useState<string | null>(null);
   const [comparison, setComparison] = useState<GuessMoveComparison | null>(null);
   const [userUci, setUserUci] = useState<string | null>(null);
+  // KS-3424: live-WDL для шкалы. Сбрасываем в null при каждой смене
+  // displayFen — рисуется нейтральная «loading»-полоса до первого
+  // обновления от движка.
+  const [liveWdl, setLiveWdl] = useState<WdlDistribution | null>(null);
 
   // ── Engine (WASM, через ту же сериализованную очередь что PVE) ──────
   const engineRef = useRef<EngineAdapter | null>(null);
@@ -192,6 +206,36 @@ export function GuessRunner({
     [ensureEngine, analyzeDepth, analyzeMovetimeMs],
   );
 
+  // KS-3424: live infinite — стримит WDL в шкалу. Сериализуется через
+  // ту же `engineQueueRef`, чтобы не конкурировать с блокирующими
+  // analyze (один worker, конкурентные `go` ломают движок). Возвращает
+  // функцию stop: дёргает `engine.stop()` → bestmove → analyzeLive
+  // resolves → очередь освобождается для следующего analyze.
+  const startLiveAnalyze = useCallback(
+    (fen: string): (() => void) => {
+      const localGen = genRef.current;
+      let stopped = false;
+      const next = engineQueueRef.current.then(async () => {
+        if (stopped || localGen !== genRef.current) return;
+        const eng = await ensureEngine();
+        await eng.analyzeLive(fen, 1, (info) => {
+          if (localGen !== genRef.current) return;
+          if (info.wdl) setLiveWdl(info.wdl);
+        });
+      });
+      engineQueueRef.current = next.catch(() => undefined);
+      return () => {
+        stopped = true;
+        try {
+          engineRef.current?.stop();
+        } catch {
+          /* ignore */
+        }
+      };
+    },
+    [ensureEngine],
+  );
+
   // ── Reset при смене PGN/стороны ────────────────────────────────────
   useEffect(() => {
     genRef.current += 1;
@@ -200,6 +244,7 @@ export function GuessRunner({
     setComparison(null);
     setUserUci(null);
     setLastMoveUci(null);
+    setLiveWdl(null);
     setDisplayFen(plies[0]?.fenBefore ?? new Chess().fen());
     setPhase(plies.length === 0 ? 'finished' : 'init');
   }, [plies, side]);
@@ -236,6 +281,7 @@ export function GuessRunner({
     }
     const cur = plies[plyIndex];
     setDisplayFen(cur.fenBefore);
+    setLiveWdl(null);
 
     if (cur.color !== userColor) {
       // Ход соперника — авто-проигрываем по реальной линии.
@@ -280,6 +326,10 @@ export function GuessRunner({
           advance();
           return;
         }
+        // KS-3424: фиксируем WDL_before как стартовое значение шкалы —
+        // не дожидаемся первого live-info, чтобы не было «прыжка» от
+        // пустоты к live-числу.
+        setLiveWdl(preBest.wdl);
         prefetchRef.current = {
           fenBefore: cur.fenBefore,
           playedUci: cur.uci,
@@ -300,6 +350,16 @@ export function GuessRunner({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plyIndex, phase, plies, userColor]);
+
+  // ── KS-3424: live infinite на displayFen в фазах awaitGuess/reaction.
+  //    Стримит WDL в шкалу. Стоп через cleanup при смене фазы/fen.
+  useEffect(() => {
+    if (phase !== 'awaitGuess' && phase !== 'reaction') return;
+    const stop = startLiveAnalyze(displayFen);
+    return () => {
+      stop();
+    };
+  }, [phase, displayFen, startLiveAnalyze]);
 
   // ── Ввод хода пользователем (drag/click) на guess-полуходе ──────────
   const onPieceDrop = useCallback(
@@ -373,7 +433,7 @@ export function GuessRunner({
     [phase, plies, plyIndex, queueAnalyze, onGuess],
   );
 
-  // ── «Дальше»: применяем РЕАЛЬНЫЙ ход и идём к следующему полуходу ────
+  // ── Автопереход после reaction (KS-3424: вместо кнопки «Дальше») ───
   const handleContinue = useCallback(() => {
     const cur = plies[plyIndex];
     if (!cur) return;
@@ -382,28 +442,18 @@ export function GuessRunner({
     prefetchRef.current = null;
     setComparison(null);
     setUserUci(null);
+    setLiveWdl(null);
     setPhase('init');
     advance();
   }, [plies, plyIndex, advance]);
 
-  // ── Стрелки реакции: твой / реальный / лучший ──────────────────────
-  const arrows = useMemo(() => {
-    if (phase !== 'reaction' || !comparison || !userUci) return undefined;
-    const pre = prefetchRef.current;
-    if (!pre) return undefined;
-    const list = [];
-    // Лучший (если не совпадает с реальным/твоим) — золотой, рисуем первым.
-    if (pre.bestUci && pre.bestUci !== pre.playedUci && pre.bestUci !== userUci) {
-      list.push(uciToArrow(pre.bestUci, ARROW_BEST));
-    }
-    // Реальный ход — зелёный.
-    if (pre.playedUci !== userUci) {
-      list.push(uciToArrow(pre.playedUci, ARROW_PLAYED));
-    }
-    // Твой ход — синий (поверх).
-    list.push(uciToArrow(userUci, ARROW_USER));
-    return list;
-  }, [phase, comparison, userUci]);
+  useEffect(() => {
+    if (phase !== 'reaction') return;
+    const t = window.setTimeout(() => {
+      handleContinue();
+    }, Math.max(0, reactionHoldMs));
+    return () => window.clearTimeout(t);
+  }, [phase, handleContinue, reactionHoldMs]);
 
   const displayGame = useMemo(() => {
     try {
@@ -415,16 +465,29 @@ export function GuessRunner({
 
   const boardEnabled = phase === 'awaitGuess';
 
-  const verdictText = (v: GuessMoveComparison['verdict']): string => {
+  // KS-3424: короткий вердикт. strongest+betterThanPlayer → «Лучше»,
+  // asPlayer → «Равно», weaker → «Хуже». Длинные фразы оставлены в
+  // i18n под `guess.verdict.*` (M2 при необходимости — иконка/бейдж).
+  const verdictShortText = (
+    v: GuessMoveComparison['verdict'],
+  ): { label: string; tone: 'better' | 'equal' | 'worse' } => {
     switch (v) {
       case 'strongest':
-        return t('guess.verdict.strongest', 'You found the strongest move!');
       case 'betterThanPlayer':
-        return t('guess.verdict.betterThanPlayer', 'Stronger than the game move!');
+        return {
+          label: t('guess.verdictShort.better', 'Better'),
+          tone: 'better',
+        };
       case 'asPlayer':
-        return t('guess.verdict.asPlayer', 'Same as the game move.');
+        return {
+          label: t('guess.verdictShort.equal', 'Same'),
+          tone: 'equal',
+        };
       case 'weaker':
-        return t('guess.verdict.weaker', 'Weaker than the game move.');
+        return {
+          label: t('guess.verdictShort.worse', 'Worse'),
+          tone: 'worse',
+        };
     }
   };
 
@@ -451,8 +514,28 @@ export function GuessRunner({
               ? 'thinking'
               : null
         }
-        customArrows={arrows}
+        /* KS-3424: стрелки реакции (твой/реальный/лучший) убраны — лишний
+           визуальный шум; вердикт и шкала WDL дают достаточно сигнала. */
       />
+
+      {/* KS-3424: live-шкала WDL под доской. POV = side-to-move в
+          displayFen (на awaitGuess это выбранная сторона, что и нужно).
+          Скрываем на autoplay/init — там осмысленного контекста для
+          оценки нет (или анимация хода соперника). */}
+      {(phase === 'prefetch' ||
+        phase === 'awaitGuess' ||
+        phase === 'analyzingUser' ||
+        phase === 'reaction') && (
+        <div
+          className="guess-runner__wdl"
+          data-testid="guess-runner-wdl-wrapper"
+        >
+          <WdlChancesBar
+            wdl={liveWdl}
+            testId="guess-runner-wdl"
+          />
+        </div>
+      )}
 
       <div className="guess-runner__panel" data-testid="guess-runner-panel">
         {phase === 'init' && (
@@ -480,30 +563,23 @@ export function GuessRunner({
             {t('guess.analyzingMove', 'Checking your move…')}
           </p>
         )}
-        {phase === 'reaction' && comparison && (
-          <div className="guess-runner__reaction" data-testid="guess-runner-reaction">
-            <span
-              className={`guess-runner__badge guess-runner__badge--${comparison.userClass}`}
-              data-testid="guess-runner-badge"
+        {phase === 'reaction' && comparison && (() => {
+          const v = verdictShortText(comparison.verdict);
+          return (
+            <div
+              className="guess-runner__reaction"
+              data-testid="guess-runner-reaction"
             >
-              {t(`guess.class.${comparison.userClass}`, comparison.userClass)}
-            </span>
-            <p
-              className={`guess-runner__verdict guess-runner__verdict--${comparison.verdict}`}
-              data-testid="guess-runner-verdict"
-            >
-              {verdictText(comparison.verdict)}
-            </p>
-            <button
-              type="button"
-              className="play-btn"
-              onClick={handleContinue}
-              data-testid="guess-runner-continue"
-            >
-              {t('guess.continue', 'Continue →')}
-            </button>
-          </div>
-        )}
+              <span
+                className={`guess-runner__verdict-short guess-runner__verdict-short--${v.tone}`}
+                data-testid="guess-runner-verdict-short"
+                data-tone={v.tone}
+              >
+                {v.label}
+              </span>
+            </div>
+          );
+        })()}
         {phase === 'finished' && (
           <p data-testid="guess-runner-finished">
             {t('guess.finished', 'Game finished.')}

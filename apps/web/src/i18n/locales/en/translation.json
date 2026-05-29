@@ -433,6 +433,11 @@
       "asPlayer": "Same as the game move.",
       "weaker": "Weaker than the game move."
     },
+    "verdictShort": {
+      "better": "Better",
+      "equal": "Same",
+      "worse": "Worse"
+    },
     "class": {
       "best": "Best",
       "good": "Good",
