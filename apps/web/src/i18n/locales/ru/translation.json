@@ -475,7 +475,9 @@
     "hud": {
       "score": "Очки",
       "streak": "Серия",
-      "betterThanPlayer": "Сильнее партии"
+      "betterThanPlayer": "Сильнее партии",
+      "userAccuracy": "Точность твоя",
+      "playerAccuracy": "Точность игрока"
     },
     "final": {
       "title": "Партия завершена",

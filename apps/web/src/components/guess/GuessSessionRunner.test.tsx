@@ -111,7 +111,7 @@ beforeEach(() => {
 });
 
 describe('<GuessSessionRunner> KS-3411', () => {
-  it('старт → playing, HUD из серверной сессии', async () => {
+  it('старт → playing, HUD-точности «—» до первого хода (KS-3430)', async () => {
     startSession.mockResolvedValue({ session: session({ score: 0 }) } as StartGuessSessionResponse);
     renderWithProviders(
       <GuessSessionRunner pgn={PGN} side="white" gameSource="pgn" />,
@@ -119,7 +119,14 @@ describe('<GuessSessionRunner> KS-3411', () => {
     await waitFor(() =>
       expect(screen.getByTestId('guess-session').getAttribute('data-status')).toBe('playing'),
     );
-    expect(screen.getByTestId('guess-hud-score').textContent).toContain('0');
+    // KS-3430: HUD теперь две точности; до первого ответа submitMove
+    // отображаем «—» вместо «0%».
+    expect(screen.getByTestId('guess-hud-user-accuracy').textContent).toContain(
+      '—',
+    );
+    expect(screen.getByTestId('guess-hud-player-accuracy').textContent).toContain(
+      '—',
+    );
   });
 
   it('старт упал → error', async () => {
@@ -133,13 +140,15 @@ describe('<GuessSessionRunner> KS-3411', () => {
     expect(screen.getByTestId('guess-session-error')).toBeTruthy();
   });
 
-  it('guess → submitMove, HUD обновляется серверными score/streak/better', async () => {
+  it('guess → submitMove, HUD-точности обновляются серверными currentUserAccuracy/currentPlayerAccuracy (KS-3430)', async () => {
     startSession.mockResolvedValue({ session: session() } as StartGuessSessionResponse);
     submitMove.mockResolvedValue({
       move: moveDto(),
       score: 7,
       currentStreak: 1,
       betterThanPlayerCount: 2,
+      currentUserAccuracy: 72.6,
+      currentPlayerAccuracy: 91.4,
     } as SubmitGuessMoveResponse);
     renderWithProviders(
       <GuessSessionRunner pgn={PGN} side="white" gameSource="pgn" />,
@@ -149,10 +158,13 @@ describe('<GuessSessionRunner> KS-3411', () => {
     );
     (screen.getByTestId('fire-guess') as HTMLButtonElement).click();
     await waitFor(() =>
-      expect(screen.getByTestId('guess-hud-score').textContent).toContain('7'),
+      expect(screen.getByTestId('guess-hud-user-accuracy').textContent).toContain(
+        '73%',
+      ),
     );
-    expect(screen.getByTestId('guess-hud-streak').textContent).toContain('1');
-    expect(screen.getByTestId('guess-hud-better').textContent).toContain('2');
+    expect(screen.getByTestId('guess-hud-player-accuracy').textContent).toContain(
+      '91%',
+    );
     // submitMove получил RAW WDL как есть.
     expect(submitMove).toHaveBeenCalledWith(
       's-1',

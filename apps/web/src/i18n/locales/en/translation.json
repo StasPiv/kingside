@@ -465,7 +465,9 @@
     "hud": {
       "score": "Score",
       "streak": "Streak",
-      "betterThanPlayer": "Stronger than game"
+      "betterThanPlayer": "Stronger than game",
+      "userAccuracy": "Your accuracy",
+      "playerAccuracy": "Player accuracy"
     },
     "final": {
       "title": "Game finished",

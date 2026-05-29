@@ -45,9 +45,14 @@ export function GuessSessionRunner({
 
   const [status, setStatus] = useState<Status>('starting');
   const sessionIdRef = useRef<string | null>(null);
+  // KS-3430: score передаём в GuessFinalScreen (итоги). HUD больше
+  // не показывает Очки/Серию/Сильнее — заменено на две live-точности.
   const [score, setScore] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [betterCount, setBetterCount] = useState(0);
+  // KS-3430: live-точности из ответа submitMove (KS-3429 backend).
+  // null до первого хода — рисуем «—» вместо «0%», чтобы не выглядело
+  // как реальная оценка с самой плохой стороны.
+  const [userAccuracy, setUserAccuracy] = useState<number | null>(null);
+  const [playerAccuracy, setPlayerAccuracy] = useState<number | null>(null);
   const [moves, setMoves] = useState<GuessMoveDto[]>([]);
   const [final, setFinal] = useState<FinishGuessSessionResponse | null>(null);
 
@@ -61,8 +66,8 @@ export function GuessSessionRunner({
     setStatus('starting');
     sessionIdRef.current = null;
     setScore(0);
-    setStreak(0);
-    setBetterCount(0);
+    setUserAccuracy(null);
+    setPlayerAccuracy(null);
     setMoves([]);
     setFinal(null);
     moveChainRef.current = Promise.resolve();
@@ -77,7 +82,6 @@ export function GuessSessionRunner({
         if (gen !== genRef.current) return;
         sessionIdRef.current = res.session.id;
         setScore(res.session.score);
-        setBetterCount(res.session.betterThanPlayerCount);
         setStatus('playing');
       } catch {
         if (gen !== genRef.current) return;
@@ -108,10 +112,13 @@ export function GuessSessionRunner({
             wdlAfterUser: s.wdlAfterUser ?? null,
           });
           if (gen !== genRef.current) return;
-          // Server-trust: HUD/список — из серверного ответа.
+          // Server-trust: score (для финал-экрана) + live-точности
+          // (KS-3430 HUD) — из серверного ответа. KS-3429: backend
+          // отдаёт currentUserAccuracy/currentPlayerAccuracy в
+          // SubmitGuessMoveResponse.
           setScore(res.score);
-          setStreak(res.currentStreak);
-          setBetterCount(res.betterThanPlayerCount);
+          setUserAccuracy(res.currentUserAccuracy);
+          setPlayerAccuracy(res.currentPlayerAccuracy);
           setMoves((prev) => [...prev, res.move]);
         } catch {
           /* единичный сбой move не валит партию — продолжаем по реальной линии */
@@ -180,15 +187,28 @@ export function GuessSessionRunner({
   // playing | finishing — раннер + HUD.
   return (
     <div className="guess-session" data-testid="guess-session" data-status={status}>
+      {/* KS-3430: HUD — две live-точности из серверных ответов
+          submitMove (currentUserAccuracy / currentPlayerAccuracy,
+          добавлены в KS-3429 backend). Заменили Очки/Серия/Сильнее
+          партии — пользователь просил более информативную картинку
+          (см. ADR-086 §9 follow-up). До первого хода — «—» вместо
+          0%, чтобы не выглядело как реальная плохая оценка. Поля
+          score/streak/betterCount всё ещё считаются сервером и
+          используются на финал-экране — здесь просто не показываем. */}
       <div className="guess-session__hud" data-testid="guess-session-hud">
-        <span className="guess-session__stat" data-testid="guess-hud-score">
-          {t('guess.hud.score', 'Score')}: {score}
+        <span
+          className="guess-session__stat guess-session__stat--accuracy-user"
+          data-testid="guess-hud-user-accuracy"
+        >
+          {t('guess.hud.userAccuracy', 'Your accuracy')}:{' '}
+          {userAccuracy === null ? '—' : `${Math.round(userAccuracy)}%`}
         </span>
-        <span className="guess-session__stat" data-testid="guess-hud-streak">
-          {t('guess.hud.streak', 'Streak')}: {streak}
-        </span>
-        <span className="guess-session__stat" data-testid="guess-hud-better">
-          {t('guess.hud.betterThanPlayer', 'Stronger than game')}: {betterCount}
+        <span
+          className="guess-session__stat guess-session__stat--accuracy-player"
+          data-testid="guess-hud-player-accuracy"
+        >
+          {t('guess.hud.playerAccuracy', 'Player accuracy')}:{' '}
+          {playerAccuracy === null ? '—' : `${Math.round(playerAccuracy)}%`}
         </span>
       </div>
       <GuessRunner
