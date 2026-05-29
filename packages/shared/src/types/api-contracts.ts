@@ -2129,6 +2129,20 @@ export interface SubmitGuessMoveResponse {
   score: number;
   currentStreak: number;
   betterThanPlayerCount: number;
+  /**
+   * KS-3429. Live-точность пользователя по всем persisted-ходам сессии
+   * до текущего включительно. Та же формула `aggregateAccuracies`, что
+   * в `finish` (KS-3409 B2) — композит mean+min с worst-class cap.
+   * Диапазон [0..100]. Для UI-HUD «угадай ход» (KS-3430 F2 заменит
+   * Очки/Серия/Сильнее).
+   */
+  currentUserAccuracy: number;
+  /**
+   * KS-3429. Live-точность реального игрока (по тем же ходам).
+   * `aggregateAccuracies` БЕЗ class-cap (его классификацию не храним).
+   * Диапазон [0..100].
+   */
+  currentPlayerAccuracy: number;
 }
 
 /**

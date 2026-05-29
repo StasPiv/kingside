@@ -200,6 +200,21 @@ export class GuessService {
       BETTER_THAN_PLAYER.has(m.verdict as GuessVerdict),
     ).length;
 
+    // KS-3429. Live-точности: та же формула aggregateAccuracies, что в
+    // finish — user с worst-class cap, player без cap (его classification
+    // не храним). При наличии хотя бы одного хода scorePct — number;
+    // защитный `?? 0` на крайний случай null от aggregator.
+    const currentUserAccuracy =
+      aggregateAccuracies(
+        moves.map((m) => m.accuracyUser),
+        this.worstUserClass(moves),
+      ).scorePct ?? 0;
+    const currentPlayerAccuracy =
+      aggregateAccuracies(
+        moves.map((m) => m.accuracyPlayer),
+        null,
+      ).scorePct ?? 0;
+
     await this.prisma.guessSession.update({
       where: { id: sessionId },
       data: { score, bestStreak, betterThanPlayerCount },
@@ -225,6 +240,8 @@ export class GuessService {
       score,
       currentStreak,
       betterThanPlayerCount,
+      currentUserAccuracy,
+      currentPlayerAccuracy,
     };
   }
 

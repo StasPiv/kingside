@@ -100,8 +100,15 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     const prisma = makePrisma();
     prisma.guessSession.findUnique.mockResolvedValue(activeSession());
     // после upsert — один ход (betterThanPlayer-кейс).
+    // KS-3429: для live-accuracy нужны accuracyUser/accuracyPlayer/userClass.
     prisma.guessMove.findMany.mockResolvedValue([
-      { ply: 20, verdict: 'betterThanPlayer' },
+      {
+        ply: 20,
+        verdict: 'betterThanPlayer',
+        accuracyUser: 95,
+        accuracyPlayer: 60,
+        userClass: 'good',
+      },
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
     const svc = new GuessService(prisma);
@@ -129,6 +136,10 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     expect(r.betterThanPlayerCount).toBe(1);
     expect(r.score).toBe(7); // betterThanPlayer = 7 очков
     expect(r.currentStreak).toBe(1);
+    // KS-3429: live-accuracy. 1 ход: mean=min=accuracy. user=95 без cap
+    // (worst='good', cap не применяется); player=60.
+    expect(r.currentUserAccuracy).toBeCloseTo(95, 5);
+    expect(r.currentPlayerAccuracy).toBeCloseTo(60, 5);
   });
 
   it('чужая сессия → Forbidden', async () => {
@@ -171,13 +182,44 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('KS-3429: live-accuracy в submit response для нескольких ходов (user-cap при mistake)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(activeSession());
+    // 3 хода в persisted после upsert. У юзера есть mistake — должен сработать
+    // worst-class cap=80 (aggregateAccuracies). Игрок без cap.
+    prisma.guessMove.findMany.mockResolvedValue([
+      { ply: 1, verdict: 'strongest', accuracyUser: 100, accuracyPlayer: 90, userClass: 'best' },
+      { ply: 2, verdict: 'asPlayer', accuracyUser: 90, accuracyPlayer: 88, userClass: 'good' },
+      { ply: 3, verdict: 'weaker', accuracyUser: 40, accuracyPlayer: 95, userClass: 'mistake' },
+    ]);
+    prisma.guessSession.update.mockResolvedValue(activeSession());
+    const svc = new GuessService(prisma);
+
+    const r = await svc.submitMove('u1', 's1', {
+      ply: 3,
+      fenBefore: 'f',
+      playedUci: 'a1a2',
+      userUci: 'b1b2',
+      bestUci: 'c1c2',
+      wdlBefore: wdl(500, 300, 200),
+      wdlAfterPlayed: wdl(500, 300, 200),
+      wdlAfterUser: wdl(500, 300, 200),
+    });
+
+    // user mean=(100+90+40)/3=76.67, min=40, composite=0.7·76.67+0.3·40=65.67
+    // worst='mistake' → cap=80 (не активен, 65.67 < 80) → 65.67.
+    expect(r.currentUserAccuracy).toBeCloseTo(65.67, 1);
+    // player mean=(90+88+95)/3=91, min=88, composite=0.7·91+0.3·88=90.1, без cap.
+    expect(r.currentPlayerAccuracy).toBeCloseTo(90.1, 1);
+  });
+
   it('стрик рвётся на weaker', async () => {
     const prisma = makePrisma();
     prisma.guessSession.findUnique.mockResolvedValue(activeSession());
     prisma.guessMove.findMany.mockResolvedValue([
-      { ply: 1, verdict: 'strongest' },
-      { ply: 2, verdict: 'betterThanPlayer' },
-      { ply: 3, verdict: 'weaker' }, // рвёт
+      { ply: 1, verdict: 'strongest', accuracyUser: 100, accuracyPlayer: 80, userClass: 'best' },
+      { ply: 2, verdict: 'betterThanPlayer', accuracyUser: 95, accuracyPlayer: 70, userClass: 'good' },
+      { ply: 3, verdict: 'weaker', accuracyUser: 30, accuracyPlayer: 95, userClass: 'mistake' }, // рвёт
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
     const svc = new GuessService(prisma);
