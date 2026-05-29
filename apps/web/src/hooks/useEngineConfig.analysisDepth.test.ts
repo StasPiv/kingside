@@ -1,87 +1,35 @@
 /**
- * KS-3085: тесты для `analysisDepth` state в `useEngineConfig`.
- * Покрываем:
- *  - default = 18 (точка калибровки WDL, не менять);
- *  - кламп <10 → 10, >30 → 30;
- *  - округление к целому (на случай дробных значений из слайдера);
- *  - персистентность через localStorage `analysisDepth`;
- *  - игнор битого/невалидного значения в localStorage.
+ * KS-3404: ползунок «Максимальная глубина анализа» и тумблер «Без
+ * ограничения глубины» убраны — окно анализа всегда идёт бесконечно
+ * (go infinite). Конфиг `analysisDepth`/`analysisUnlimited` удалён из
+ * `useEngineConfig`. Этот тест — регресс-гард: хук больше НЕ отдаёт эти
+ * поля (раньше тут были тесты KS-3085 на клемп/персист depth).
  */
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { useEngineConfig } from './useEngineConfig';
 
-describe('useEngineConfig.analysisDepth (KS-3085)', () => {
+describe('useEngineConfig — KS-3404 depth-config removed', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it('default = 18 если localStorage пуст', () => {
+  it('хук не отдаёт analysisDepth/analysisUnlimited (анализ всегда infinite)', () => {
     const { result } = renderHook(() => useEngineConfig());
-    expect(result.current.analysisDepth).toBe(18);
-    expect(result.current.defaultAnalysisDepth).toBe(18);
-    expect(result.current.minAnalysisDepth).toBe(10);
-    expect(result.current.maxAnalysisDepth).toBe(30);
+    const cfg = result.current as Record<string, unknown>;
+    expect('analysisDepth' in cfg).toBe(false);
+    expect('setAnalysisDepth' in cfg).toBe(false);
+    expect('minAnalysisDepth' in cfg).toBe(false);
+    expect('maxAnalysisDepth' in cfg).toBe(false);
+    expect('defaultAnalysisDepth' in cfg).toBe(false);
+    expect('analysisUnlimited' in cfg).toBe(false);
+    expect('setAnalysisUnlimited' in cfg).toBe(false);
   });
 
-  it('значение 25 сохраняется в state и в localStorage', () => {
+  it('multiPv по-прежнему доступен (не задет очисткой)', () => {
     const { result } = renderHook(() => useEngineConfig());
-    act(() => {
-      result.current.setAnalysisDepth(25);
-    });
-    expect(result.current.analysisDepth).toBe(25);
-    expect(localStorage.getItem('analysisDepth')).toBe('25');
-  });
-
-  it('кламп ниже минимума (10): setAnalysisDepth(5) → 10', () => {
-    const { result } = renderHook(() => useEngineConfig());
-    act(() => {
-      result.current.setAnalysisDepth(5);
-    });
-    expect(result.current.analysisDepth).toBe(10);
-    expect(localStorage.getItem('analysisDepth')).toBe('10');
-  });
-
-  it('кламп выше максимума (30): setAnalysisDepth(99) → 30', () => {
-    const { result } = renderHook(() => useEngineConfig());
-    act(() => {
-      result.current.setAnalysisDepth(99);
-    });
-    expect(result.current.analysisDepth).toBe(30);
-  });
-
-  it('округление дробных значений (от range-input)', () => {
-    const { result } = renderHook(() => useEngineConfig());
-    act(() => {
-      result.current.setAnalysisDepth(22.7);
-    });
-    expect(result.current.analysisDepth).toBe(23);
-  });
-
-  it('восстанавливается из localStorage при mount', () => {
-    localStorage.setItem('analysisDepth', '24');
-    const { result } = renderHook(() => useEngineConfig());
-    expect(result.current.analysisDepth).toBe(24);
-  });
-
-  it('битое значение в localStorage → fallback на default 18', () => {
-    localStorage.setItem('analysisDepth', 'not-a-number');
-    const { result } = renderHook(() => useEngineConfig());
-    expect(result.current.analysisDepth).toBe(18);
-  });
-
-  it('значение вне диапазона в localStorage → fallback на default 18', () => {
-    localStorage.setItem('analysisDepth', '500');
-    const { result } = renderHook(() => useEngineConfig());
-    expect(result.current.analysisDepth).toBe(18);
-  });
-
-  it('функциональный апдейтер: setAnalysisDepth((prev) => prev + 2)', () => {
-    const { result } = renderHook(() => useEngineConfig());
-    act(() => {
-      result.current.setAnalysisDepth((prev) => prev + 2);
-    });
-    expect(result.current.analysisDepth).toBe(20);
+    expect(typeof result.current.multiPv).toBe('number');
+    expect(typeof result.current.setMultiPv).toBe('function');
   });
 });

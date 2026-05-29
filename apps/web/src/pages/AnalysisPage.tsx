@@ -586,17 +586,12 @@ function AnalysisPageInner({
   } = useEngine({
     source: ec.engineSource,
     externalConfig: ec.externalConfig,
-    // KS-3085: для wasm — настраиваемая глубина из useEngineConfig
-    // (слайдер в EngineSettingsModal, localStorage `analysisDepth`,
-    // диапазон 10..30, default 18 — точка калибровки WDL).
-    // Для external оставляем 99 («бесконечно») — серверная сторона
-    // ограничивает сама.
-    depth: ec.engineSource === 'external' ? 99 : ec.analysisDepth,
-    // KS-3404: бесконечный анализ WASM по умолчанию (go infinite, без
-    // потолка глубины — как live-анализ точности). `analysisUnlimited`
-    // ВКЛ по умолчанию; выкл → `depth` (analysisDepth) работает как
-    // опциональный потолок. Внешний движок — без изменений (depth 99).
-    infinite: ec.analysisUnlimited,
+    // KS-3404: окно анализа ВСЕГДА идёт бесконечно (go infinite, без
+    // потолка глубины — как live-анализ точности). UI-опции глубины нет.
+    // Для WASM `depth` игнорируется (infinite); для external — 99
+    // («бесконечно», серверная сторона ограничивает сама).
+    depth: ec.engineSource === 'external' ? 99 : 20,
+    infinite: true,
     multiPv: ec.multiPv,
     autoStart: analysisEnabled,
   });
@@ -2114,13 +2109,6 @@ function AnalysisPageInner({
           engineSource={ec.engineSource}
           multiPv={ec.multiPv}
           setMultiPv={(v) => ec.setMultiPv(v)}
-          analysisDepth={ec.analysisDepth}
-          setAnalysisDepth={ec.setAnalysisDepth}
-          minAnalysisDepth={ec.minAnalysisDepth}
-          maxAnalysisDepth={ec.maxAnalysisDepth}
-          defaultAnalysisDepth={ec.defaultAnalysisDepth}
-          analysisUnlimited={ec.analysisUnlimited}
-          setAnalysisUnlimited={ec.setAnalysisUnlimited}
           extUrlInput={ec.extUrlInput}
           setExtUrlInput={ec.setExtUrlInput}
           extKeyInput={ec.extKeyInput}

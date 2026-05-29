@@ -5,18 +5,10 @@ import type { ExternalEngineConfig } from './useExternalEngine';
 
 const DEFAULT_MULTI_PV = 3;
 
-/**
- * KS-3085. Дефолтная глубина WASM-анализа на странице `/analysis` — 18.
- * Это точка калибровки WDL (см. `engineAdapter.ts:49-51`, `puzzleGenerator.ts:140`):
- * на 18 серверный analysis даёт стабильные WDL для precision-runner.
- * Менять default нельзя — порушит синхрон оценок раннер ↔ история.
- * Пользователь может выбрать другое значение слайдером в EngineSettingsModal.
- */
-const DEFAULT_ANALYSIS_DEPTH = 18;
-/** KS-3085: жёсткие границы слайдера. <10 — слишком мало для разумной оценки,
- *  >30 — на сложной позиции WASM может зависать на десятки секунд. */
-const MIN_ANALYSIS_DEPTH = 10;
-const MAX_ANALYSIS_DEPTH = 30;
+// KS-3404: настраиваемая глубина WASM-анализа (KS-3085) и тумблер
+// «без ограничения» удалены — окно анализа всегда идёт бесконечно
+// (go infinite, см. AnalysisPage `infinite: true`). Конфиг analysisDepth/
+// analysisUnlimited больше не нужен.
 
 export function useEngineConfig() {
   const [savedConfigs, setSavedConfigs] = useState<ExternalEngineConfig[]>(() => loadEngineConfigs());
@@ -68,61 +60,6 @@ export function useEngineConfig() {
     setMultiPvRaw((prev) => {
       const next = typeof v === 'function' ? v(prev) : v;
       try { localStorage.setItem('analysisMultiPv', String(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-
-  // KS-3085: максимальная глубина WASM-анализа на странице `/analysis`.
-  // localStorage-ключ `analysisDepth`. При невалидном/отсутствующем
-  // значении — `DEFAULT_ANALYSIS_DEPTH=18`. Чтобы default остался
-  // совместим с прежним хардкодом — пользователи без сохранённого
-  // значения получают то же что было до KS-3085.
-  const [analysisDepth, setAnalysisDepthRaw] = useState(() => {
-    try {
-      const saved = localStorage.getItem('analysisDepth');
-      if (saved) {
-        const n = Number(saved);
-        if (
-          Number.isFinite(n) &&
-          n >= MIN_ANALYSIS_DEPTH &&
-          n <= MAX_ANALYSIS_DEPTH
-        ) {
-          return n;
-        }
-      }
-    } catch { /* ignore */ }
-    return DEFAULT_ANALYSIS_DEPTH;
-  });
-  const setAnalysisDepth = useCallback(
-    (v: number | ((prev: number) => number)) => {
-      setAnalysisDepthRaw((prev) => {
-        const raw = typeof v === 'function' ? v(prev) : v;
-        const clamped = Math.max(
-          MIN_ANALYSIS_DEPTH,
-          Math.min(MAX_ANALYSIS_DEPTH, Math.round(raw)),
-        );
-        try { localStorage.setItem('analysisDepth', String(clamped)); } catch { /* ignore */ }
-        return clamped;
-      });
-    },
-    [],
-  );
-  // KS-3404: бесконечный анализ WASM (`go infinite`, без потолка глубины).
-  // По умолчанию ВКЛ — пользователь просил убрать предел глубины совсем.
-  // Когда выкл — `analysisDepth` работает как опциональный потолок.
-  // localStorage-ключ `analysisUnlimited` ('1'/'0'); отсутствие → true.
-  const [analysisUnlimited, setAnalysisUnlimitedRaw] = useState(() => {
-    try {
-      const saved = localStorage.getItem('analysisUnlimited');
-      if (saved === '0') return false;
-      if (saved === '1') return true;
-    } catch { /* ignore */ }
-    return true;
-  });
-  const setAnalysisUnlimited = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
-    setAnalysisUnlimitedRaw((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      try { localStorage.setItem('analysisUnlimited', next ? '1' : '0'); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -237,15 +174,6 @@ export function useEngineConfig() {
     setUciHash,
     multiPv,
     setMultiPv,
-    // KS-3085: настраиваемая глубина WASM-анализа (10..30).
-    analysisDepth,
-    setAnalysisDepth,
-    minAnalysisDepth: MIN_ANALYSIS_DEPTH,
-    maxAnalysisDepth: MAX_ANALYSIS_DEPTH,
-    defaultAnalysisDepth: DEFAULT_ANALYSIS_DEPTH,
-    // KS-3404: бесконечный анализ (без потолка глубины). Default true.
-    analysisUnlimited,
-    setAnalysisUnlimited,
     showEngineModal,
     setShowEngineModal,
     handleConnectExternal,
