@@ -28,6 +28,10 @@
       "openingTrainer": {
         "title": "Openings",
         "desc": "Train your own repertoire variations."
+      },
+      "guess": {
+        "title": "Guess the move",
+        "desc": "Play through a real game and try to predict the moves."
       }
     }
   },

@@ -21,7 +21,13 @@ import { useIsMobile } from '../hooks/useIsMobile';
  */
 
 interface LobbyCardItem {
-  id: 'puzzles' | 'puzzle-rush' | 'drills' | 'precision' | 'opening-trainer';
+  id:
+    | 'puzzles'
+    | 'puzzle-rush'
+    | 'drills'
+    | 'precision'
+    | 'opening-trainer'
+    | 'guess';
   to: string;
   icon: string;
   titleKey: string;
@@ -122,6 +128,25 @@ export function TrainLobbyPage() {
       titleDefault: 'Openings',
       descKey: 'train.lobby.openingTrainer.desc',
       descDefault: 'Train your own repertoire variations.',
+      enabled: true,
+    },
+    {
+      // KS-3423 (ADR-086): «Угадай ход» — тренировочный режим на реальной
+      // партии (PGN/архив). На desktop пункт сидит в подменю /train
+      // сайдбара, на mobile sidebar-submenu не рендерится — точка входа
+      // живёт здесь, в /train-лобби, рядом с остальными тренажёрами.
+      // Без feature-flag'а: общий gate `GUESS_ENTRY_ENABLED` уже снят
+      // (KS-3413). При необходимости рантайм-отключения админом —
+      // backend заводит `guessEnabled` в FeatureFlags, и заменяем на
+      // `useFeatureFlag('guessEnabled')`.
+      id: 'guess',
+      to: '/guess',
+      icon: '🤔',
+      titleKey: 'train.lobby.guess.title',
+      titleDefault: 'Guess the move',
+      descKey: 'train.lobby.guess.desc',
+      descDefault:
+        'Play through a real game and try to predict the moves.',
       enabled: true,
     },
   ];
