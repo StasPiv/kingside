@@ -1960,3 +1960,182 @@ export type WsChallengeStartedPayload = {
   timeInitial: number;
   increment: number;
 };
+
+// ─── Guess-the-Move (ADR-086 / KS-3406 S1) ─────────────────────────
+//
+// Фича «угадай ход»: пользователь угадывает ходы одной стороны в
+// конкретной партии; ход сравнивается с реально сыгранным по
+// win-probability/WDL (переиспуем precision-score + wdl + classifyMove).
+// Партия всегда продолжается реально сыгранными ходами (ADR-086 §2.2.4).
+// Только типы/контракты — логика в S2 (compareGuessMove) и B1/B2.
+
+/**
+ * Вердикт хода пользователя относительно реально сыгранного (ADR-086 §3.5):
+ *   - `strongest` — loss пользователя ≤ best-порога (нашёл сильнейший);
+ *   - `betterThanPlayer` — loss пользователя заметно меньше реального;
+ *   - `asPlayer` — loss в пределах ε от реального (сыграл как игрок);
+ *   - `weaker` — loss больше реального (слабее).
+ */
+export type GuessVerdict =
+  | 'strongest'
+  | 'betterThanPlayer'
+  | 'asPlayer'
+  | 'weaker';
+
+/** Сторона, за которую угадывает пользователь. */
+export type GuessSide = 'white' | 'black';
+
+/**
+ * Источник партии (ADR-086 §2.1, §6). M1: `archive` | `pgn`.
+ * `own` | `broadcast` — M2 (зарезервированы в union для совместимости).
+ */
+export type GuessGameSource = 'archive' | 'pgn' | 'own' | 'broadcast';
+
+/** Жизненный цикл сессии. */
+export type GuessSessionStatus = 'active' | 'finished' | 'abandoned';
+
+/**
+ * Классификация хода (ADR-066 / move-classification). Совпадает по
+ * значениям с `PrecisionMoveDto.classification`.
+ */
+export type GuessMoveClass =
+  | 'best'
+  | 'good'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'blunder';
+
+/**
+ * Сессия «угадай ход» (модель `guess_sessions`, ADR-086 §6).
+ * `*Accuracy`/`userStars` — `null` пока сессия не finished.
+ */
+export interface GuessSessionDto {
+  id: string;
+  gameSource: GuessGameSource;
+  /** archive gameId / иной ref; `null` для inline PGN. */
+  gameRef: string | null;
+  /**
+   * Inline PGN (source='pgn') или snapshot партии. В list-ответах
+   * (`GET /guess/history`) может опускаться ради размера payload.
+   */
+  pgn?: string | null;
+  side: GuessSide;
+  status: GuessSessionStatus;
+  /** precision-композит по ходам пользователя [0..100]; null до finish. */
+  userAccuracy: number | null;
+  /** Та же accuracy по реально сыгранным ходам игрока; null до finish. */
+  playerAccuracy: number | null;
+  /** Звёзды 1..5 по `userAccuracy`; null до finish. */
+  userStars: number | null;
+  score: number;
+  bestStreak: number;
+  betterThanPlayerCount: number;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/**
+ * Per-move строка сессии (модель `guess_moves`, ADR-086 §6).
+ * `e*` — win-probability выбранной стороны (E=(w+d/2)/1000) в каждой
+ * точке; `loss*` = max(0, eBefore − eAfter*). Метрики пересчитывает
+ * сервер из присланных клиентом WDL (server-trust, ADR-086 §8/§9 B2).
+ */
+export interface GuessMoveDto {
+  ply: number;
+  fenBefore: string;
+  /** Реально сыгранный в партии ход (UCI). */
+  playedUci: string;
+  /** Ход пользователя (UCI); равен `playedUci`, если угадал точно. */
+  userUci: string;
+  /** PV1 движка на `fenBefore` (UCI). */
+  bestUci: string;
+  /** win-probability выбранной стороны ДО хода. */
+  eBefore: number;
+  /** win-probability после реально сыгранного хода. */
+  eAfterPlayed: number;
+  /** win-probability после хода пользователя. */
+  eAfterUser: number;
+  /** Потеря реального игрока: max(0, eBefore − eAfterPlayed). */
+  lossPlayer: number;
+  /** Потеря пользователя: max(0, eBefore − eAfterUser). */
+  lossUser: number;
+  /** accuracy% хода пользователя (Lichess-формула от lossUser). */
+  accuracyUser: number;
+  /** accuracy% реального хода (от lossPlayer). */
+  accuracyPlayer: number;
+  /** Классификация хода пользователя. */
+  userClass: GuessMoveClass;
+  verdict: GuessVerdict;
+}
+
+/**
+ * `POST /guess/sessions` — старт сессии (ADR-086 §9 B2).
+ * Ровно один из `gameRef` (для archive/own/broadcast) либо `pgn`
+ * (для source='pgn') должен быть задан.
+ */
+export interface StartGuessSessionRequest {
+  gameSource: GuessGameSource;
+  gameRef?: string | null;
+  pgn?: string | null;
+  side: GuessSide;
+}
+
+/** Ответ старта — созданная сессия. */
+export interface StartGuessSessionResponse {
+  session: GuessSessionDto;
+}
+
+/**
+ * `POST /guess/sessions/:id/move` — отправка хода (ADR-086 §9 B2).
+ * Клиент шлёт WDL-замеры (server-trust: серверу доверяем WDL, но НЕ
+ * accuracy/verdict — он пересчитывает их сам через `compareGuessMove`).
+ * WDL — per-mille (0..1000), POV выбранной стороны.
+ */
+export interface SubmitGuessMoveRequest {
+  ply: number;
+  fenBefore: string;
+  playedUci: string;
+  userUci: string;
+  bestUci: string;
+  /** WDL POV выбранной стороны на `fenBefore`. */
+  wdlBefore: { w: number; d: number; l: number };
+  /** WDL POV выбранной стороны после реально сыгранного хода. */
+  wdlAfterPlayed: { w: number; d: number; l: number };
+  /**
+   * WDL POV выбранной стороны после хода пользователя. Может
+   * отсутствовать, если `userUci === playedUci` (второй анализ не
+   * нужен — сервер переиспользует `wdlAfterPlayed`).
+   */
+  wdlAfterUser?: { w: number; d: number; l: number } | null;
+}
+
+/** Ответ на ход — пересчитанная сервером оценка (per-move). */
+export interface SubmitGuessMoveResponse {
+  move: GuessMoveDto;
+  /** Текущий счёт/стрик после применения хода (для UI-геймификации). */
+  score: number;
+  currentStreak: number;
+  betterThanPlayerCount: number;
+}
+
+/**
+ * `POST /guess/sessions/:id/finish` — финал (ADR-086 §2.3, §9 B2):
+ * две точности + звёзды + агрегаты геймификации.
+ */
+export interface FinishGuessSessionResponse {
+  session: GuessSessionDto;
+  /** Итоговый вердикт сравнения двух точностей для финал-экрана. */
+  outcome: 'userBetter' | 'playerBetter' | 'tie';
+}
+
+/** `GET /guess/sessions/:id` — review (сессия + все ходы). */
+export interface GetGuessSessionResponse {
+  session: GuessSessionDto;
+  moves: GuessMoveDto[];
+}
+
+/** `GET /guess/history` — список сессий пользователя (без per-move). */
+export interface GuessHistoryResponse {
+  items: GuessSessionDto[];
+  total: number;
+}
