@@ -14,6 +14,7 @@ import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
 import { PrecisionModule } from './precision/precision.module';
+import { GuessModule } from './guess/guess.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
@@ -81,6 +82,7 @@ import { HealthController } from './health.controller';
     ArenaModule,
     PuzzleModule,
     PrecisionModule,
+    GuessModule,
     TournamentModule,
     AnalysisModule,
     WorkshopModule,
