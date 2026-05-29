@@ -1,0 +1,525 @@
+/* ============================================================
+ * KS-3413 (ADR-086 §9 L1). CSS «угадай ход»: setup-страница,
+ * сессионная обёртка с HUD и финал-экран. Палитра и токены —
+ * согласованы с precision/puzzle (PrecisionTrendsChart,
+ * WdlChancesBar, PrecisionAttemptsList).
+ * ============================================================ */
+
+/* ── /guess setup-страница ───────────────────────────────── */
+
+.guess-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  box-sizing: border-box;
+}
+.guess-page[data-state='playing'] {
+  /* В playing-режиме сетка board+HUD у GuessSessionRunner шире,
+     поэтому максимум разжимаем контейнер. */
+  max-width: 960px;
+}
+.guess-page h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.guess-page__intro {
+  margin: 0 0 6px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+/* KS-3413: лейблы — отдельной строкой над полем (раньше наезжали
+   на input/textarea). Стандартная вертикальная form-сетка. */
+.guess-page__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  margin: 6px 0 -4px;
+}
+
+.guess-page__pgn {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-input, var(--c-0f172a));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 160px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.guess-page__pgn:focus {
+  outline: none;
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  box-shadow: 0 0 0 3px var(--ov-accent-15, rgba(124, 131, 255, 0.18));
+}
+
+/* ── Side picker: pill-группа (segmented control), согласован
+   с .precision-trends__toggle. ──────────────────────────── */
+.guess-page__side {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.guess-page__side-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  margin-right: 4px;
+}
+.guess-page__side-btn {
+  appearance: none;
+  background: var(--bg-elevated, var(--c-25253d));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+.guess-page__side-btn:hover:not(.guess-page__side-btn--active) {
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.guess-page__side-btn:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+.guess-page__side-btn--active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
+}
+
+.guess-page__error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  border: 1px solid var(--danger, var(--c-ef4444));
+  color: var(--c-vc-red, #b91c1c);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.guess-page__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* ── Header (playing-режим): back-кнопка + заголовок партии. */
+.guess-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e));
+}
+.guess-page__back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-link, var(--c-7c83ff));
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.guess-page__back:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.guess-page__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+/* ── .guess-session HUD: счёт / стрик / «сильнее партии» ──── */
+
+.guess-session {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.guess-session[data-status='error'],
+.guess-session[data-status='starting'] {
+  padding: 24px 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.guess-session[data-status='error'] {
+  border-color: var(--danger, var(--c-ef4444));
+  color: var(--c-vc-red, #b91c1c);
+}
+
+.guess-session__hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+/* Каждая HUD-метрика — chip-pill, согласован с precision-chip. */
+.guess-session__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-height: 32px;
+}
+/* Score выделен accent-tint фоном — главная метрика прогресса. */
+.guess-session__stat[data-testid='guess-hud-score'] {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-session__stat[data-testid='guess-hud-score']::before {
+  content: '⚡';
+  font-size: 14px;
+}
+.guess-session__stat[data-testid='guess-hud-streak']::before {
+  content: '🔥';
+  font-size: 14px;
+}
+.guess-session__stat[data-testid='guess-hud-better']::before {
+  content: '🏆';
+  font-size: 14px;
+}
+
+/* ── .guess-final — финал-экран ───────────────────────────── */
+
+.guess-final {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 14px;
+}
+.guess-final h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+
+/* Scores: «Ты X% ★ vs Партия Y%» — два больших блока со «vs» в центре. */
+.guess-final__scores {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 16px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+}
+.guess-final__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+}
+.guess-final__who {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.guess-final__pct {
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.guess-final__stars {
+  font-size: 16px;
+  letter-spacing: 1px;
+  color: var(--c-eab308, #eab308);
+}
+.guess-final__vs {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted, var(--c-94a3b8));
+  padding: 0 8px;
+}
+
+/* Outcome-алерт под scores: success / info / neutral. */
+.guess-final__outcome {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border: 1px solid var(--accent-primary, var(--c-7c83ff));
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.4;
+}
+/* Когда финал содержит «userBetter» — зелёный success-блок. */
+.guess-final[data-outcome='userBetter'] .guess-final__outcome,
+.guess-final__outcome[data-outcome='userBetter'] {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  border-color: var(--success, var(--c-4caf50));
+  color: var(--c-vc-green, #15803d);
+}
+.guess-final[data-outcome='playerBetter'] .guess-final__outcome,
+.guess-final__outcome[data-outcome='playerBetter'] {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  border-color: var(--danger, var(--c-ef4444));
+  color: var(--c-vc-red, #b91c1c);
+}
+
+/* Гами-метрики chip-row. */
+.guess-final__gamification {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.guess-final__gamification > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-variant-numeric: tabular-nums;
+}
+
+/* Список ходов: компактные строки + verdict-цветной левый бордер. */
+.guess-final__moves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.guess-final__move {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-left-width: 3px;
+  font-size: 13px;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+/* Verdict-цветной левый бордер. */
+.guess-final__move--strongest {
+  border-left-color: var(--c-eab308, #eab308);
+}
+.guess-final__move--betterThanPlayer {
+  border-left-color: var(--c-vc-green, #15803d);
+}
+.guess-final__move--asPlayer {
+  border-left-color: var(--text-muted, var(--c-94a3b8));
+}
+.guess-final__move--weaker {
+  border-left-color: var(--c-vc-red, #b91c1c);
+}
+.guess-final__move-ply {
+  font-weight: 700;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  min-width: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.guess-final__move-user {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-weight: 600;
+  font-size: 13px;
+}
+.guess-final__move-verdict {
+  flex: 1 1 auto;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Бейджи userClass — согласованы с PrecisionAttemptsList бейджами
+   (best/good/inaccuracy/mistake/blunder). */
+.guess-final__move-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+.guess-final__move-badge--best {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-vc-green, #15803d);
+  border-color: var(--c-vc-green, #15803d);
+}
+.guess-final__move-badge--good {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-final__move-badge--inaccuracy {
+  background: rgba(234, 179, 8, 0.14);
+  color: var(--c-eab308, #ca8a04);
+  border-color: var(--c-eab308, #ca8a04);
+}
+.guess-final__move-badge--mistake {
+  background: var(--ov-warning-15, rgba(245, 158, 11, 0.15));
+  color: var(--warning-strong, var(--c-d97706, #b45309));
+  border-color: var(--warning, var(--c-f59e0b));
+}
+.guess-final__move-badge--blunder {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-vc-red, #b91c1c);
+  border-color: var(--c-vc-red, #b91c1c);
+}
+
+/* ── Mobile ≤767 ──────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .guess-page {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+  .guess-page h1 {
+    font-size: 20px;
+  }
+  .guess-page__pgn {
+    min-height: 140px;
+    font-size: 12px;
+  }
+  .guess-page__side {
+    width: 100%;
+    gap: 6px;
+  }
+  .guess-page__side-label {
+    width: 100%;
+    margin: 0 0 2px;
+  }
+  .guess-page__side-btn {
+    flex: 1 1 calc(50% - 6px);
+    text-align: center;
+    min-height: 44px;
+  }
+  .guess-page__actions {
+    flex-direction: column;
+  }
+  .guess-page__actions .play-btn {
+    width: 100%;
+    padding: 12px 20px !important;
+    font-size: 15px !important;
+    min-height: 48px;
+  }
+  .guess-page__title {
+    max-width: 100%;
+  }
+
+  .guess-session__hud {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .guess-session__stat {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .guess-final {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+  .guess-final h2 {
+    font-size: 18px;
+  }
+  /* Scores на mobile — stack column со «vs» горизонтально между блоками. */
+  .guess-final__scores {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    padding: 14px 12px;
+    gap: 8px;
+  }
+  .guess-final__vs {
+    padding: 0;
+    text-align: center;
+    justify-self: center;
+  }
+  .guess-final__pct {
+    font-size: 30px;
+  }
+  .guess-final__move {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .guess-final__move-verdict {
+    width: 100%;
+    order: 4;
+  }
+}
