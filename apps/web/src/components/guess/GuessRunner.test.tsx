@@ -191,7 +191,11 @@ describe('<GuessRunner> KS-3410', () => {
     // KS-3424: стрелки реакции убраны → data-arrows=0 (только internal
     // подсветка last-move от useBoardHighlights, кастомных нет).
     expect(screen.getByTestId('mock-board').getAttribute('data-arrows')).toBe('0');
-    // WDL-шкала отрисована и показывает live-значение.
-    expect(screen.getByTestId('guess-runner-wdl')).toBeTruthy();
+    // KS-3432: WDL-шкала больше не рендерится в GuessRunner — она
+    // живёт в GuessSessionRunner ВЫШЕ доски/HUD. GuessRunner стримит
+    // live-WDL наружу через `onLiveWdl` (отдельный тест на сам
+    // callback — в GuessSessionRunner.test.tsx).
+    expect(screen.queryByTestId('guess-runner-wdl')).toBeNull();
+    expect(screen.queryByTestId('guess-session-wdl')).toBeNull();
   });
 });

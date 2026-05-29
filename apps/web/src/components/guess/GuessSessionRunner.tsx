@@ -9,6 +9,8 @@ import type {
 
 import { GuessRunner, type GuessSubmission } from './GuessRunner';
 import { GuessFinalScreen } from './GuessFinalScreen';
+import { WdlChancesBar } from '../WdlChancesBar';
+import type { WdlDistribution } from '../../utils/engineAdapter';
 import { guessApi } from '../../api/guessApi';
 
 /**
@@ -53,6 +55,9 @@ export function GuessSessionRunner({
   // как реальная оценка с самой плохой стороны.
   const [userAccuracy, setUserAccuracy] = useState<number | null>(null);
   const [playerAccuracy, setPlayerAccuracy] = useState<number | null>(null);
+  // KS-3432: live-WDL для шкалы НАД доской. GuessRunner стримит наружу
+  // через `onLiveWdl`. null до первого info — рисуется loading-полоса.
+  const [liveWdl, setLiveWdl] = useState<WdlDistribution | null>(null);
   const [moves, setMoves] = useState<GuessMoveDto[]>([]);
   const [final, setFinal] = useState<FinishGuessSessionResponse | null>(null);
 
@@ -68,6 +73,7 @@ export function GuessSessionRunner({
     setScore(0);
     setUserAccuracy(null);
     setPlayerAccuracy(null);
+    setLiveWdl(null);
     setMoves([]);
     setFinal(null);
     moveChainRef.current = Promise.resolve();
@@ -187,6 +193,16 @@ export function GuessSessionRunner({
   // playing | finishing — раннер + HUD.
   return (
     <div className="guess-session" data-testid="guess-session" data-status={status}>
+      {/* KS-3432: WDL-шкала live-анализа НАД HUD/доской. Порядок
+          сверху вниз: WDL → HUD → доска → verdict. Источник — стрим
+          из GuessRunner через `onLiveWdl`. POV = side-to-move в
+          displayFen (на guess-полуходе это выбранная сторона юзера). */}
+      <div
+        className="guess-session__wdl"
+        data-testid="guess-session-wdl-wrapper"
+      >
+        <WdlChancesBar wdl={liveWdl} testId="guess-session-wdl" />
+      </div>
       {/* KS-3430: HUD — две live-точности из серверных ответов
           submitMove (currentUserAccuracy / currentPlayerAccuracy,
           добавлены в KS-3429 backend). Заменили Очки/Серия/Сильнее
@@ -217,6 +233,7 @@ export function GuessSessionRunner({
         onGuess={handleGuess}
         onFinish={handleFinish}
         engineFactory={engineFactory}
+        onLiveWdl={setLiveWdl}
       />
       {status === 'finishing' && (
         <p data-testid="guess-session-finishing">

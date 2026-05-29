@@ -9,7 +9,6 @@ import {
 } from '@kingside/shared';
 
 import { PuzzleBoard } from '../PuzzleBoard';
-import { WdlChancesBar } from '../WdlChancesBar';
 import {
   WasmEngineAdapter,
   type EngineAdapter,
@@ -35,7 +34,7 @@ import {
  *   - после ввода: E_after_user (analyze позиции после хода юзера; только
  *     если userUci !== playedUci);
  *   - параллельно: `analyzeLive(displayFen, …)` стримит промежуточные
- *     WDL в `setLiveWdl` для шкалы — НЕ блокирует префетч (очередь
+ *     WDL через `onLiveWdl` callback (рисуется в caller'е, KS-3432) — НЕ блокирует префетч (очередь
  *     `engineQueueRef` сериализует analyze и analyzeLive на одном
  *     worker'е; live запускается ПОСЛЕ префетча в фазе `awaitGuess` и
  *     останавливается `stop()` при смене фазы).
@@ -92,6 +91,14 @@ export interface GuessRunnerProps {
    * fake-таймеров.
    */
   reactionHoldMs?: number;
+  /**
+   * KS-3432: live-WDL для шкалы рисуется в GuessSessionRunner ВЫШЕ
+   * доски/HUD (порядок WDL → HUD → доска → verdict). GuessRunner
+   * по-прежнему владеет engine'ом и стримит WDL — но рендерит шкалу
+   * не сам, а пробрасывает наружу через колбэк. POV: side-to-move в
+   * текущем displayFen (на guess-полуходе — выбранная сторона).
+   */
+  onLiveWdl?: (wdl: WdlDistribution | null) => void;
 }
 
 type Phase =
@@ -141,6 +148,7 @@ export function GuessRunner({
   analyzeDepth = 16,
   analyzeMovetimeMs = 1200,
   reactionHoldMs = 1500,
+  onLiveWdl,
 }: GuessRunnerProps) {
   const { t } = useTranslation();
   const userColor: 'w' | 'b' = side === 'white' ? 'w' : 'b';
@@ -161,10 +169,16 @@ export function GuessRunner({
   const [lastMoveUci, setLastMoveUci] = useState<string | null>(null);
   const [comparison, setComparison] = useState<GuessMoveComparison | null>(null);
   const [userUci, setUserUci] = useState<string | null>(null);
-  // KS-3424: live-WDL для шкалы. Сбрасываем в null при каждой смене
-  // displayFen — рисуется нейтральная «loading»-полоса до первого
-  // обновления от движка.
-  const [liveWdl, setLiveWdl] = useState<WdlDistribution | null>(null);
+  // KS-3424/3432: live-WDL стримится в GuessSessionRunner (шкала рисуется
+  // НАД доской/HUD). Локально не храним state — emit'им сразу через
+  // `onLiveWdl` callback. Это снимает лишний re-render и упрощает
+  // позиционирование шкалы caller'ом.
+  const emitLiveWdl = useCallback(
+    (wdl: WdlDistribution | null) => {
+      onLiveWdl?.(wdl);
+    },
+    [onLiveWdl],
+  );
 
   // ── Engine (WASM, через ту же сериализованную очередь что PVE) ──────
   const engineRef = useRef<EngineAdapter | null>(null);
@@ -220,7 +234,7 @@ export function GuessRunner({
         const eng = await ensureEngine();
         await eng.analyzeLive(fen, 1, (info) => {
           if (localGen !== genRef.current) return;
-          if (info.wdl) setLiveWdl(info.wdl);
+          if (info.wdl) emitLiveWdl(info.wdl);
         });
       });
       engineQueueRef.current = next.catch(() => undefined);
@@ -244,7 +258,7 @@ export function GuessRunner({
     setComparison(null);
     setUserUci(null);
     setLastMoveUci(null);
-    setLiveWdl(null);
+    emitLiveWdl(null);
     setDisplayFen(plies[0]?.fenBefore ?? new Chess().fen());
     setPhase(plies.length === 0 ? 'finished' : 'init');
   }, [plies, side]);
@@ -281,7 +295,7 @@ export function GuessRunner({
     }
     const cur = plies[plyIndex];
     setDisplayFen(cur.fenBefore);
-    setLiveWdl(null);
+    emitLiveWdl(null);
 
     if (cur.color !== userColor) {
       // Ход соперника — авто-проигрываем по реальной линии.
@@ -329,7 +343,7 @@ export function GuessRunner({
         // KS-3424: фиксируем WDL_before как стартовое значение шкалы —
         // не дожидаемся первого live-info, чтобы не было «прыжка» от
         // пустоты к live-числу.
-        setLiveWdl(preBest.wdl);
+        emitLiveWdl(preBest.wdl);
         prefetchRef.current = {
           fenBefore: cur.fenBefore,
           playedUci: cur.uci,
@@ -442,7 +456,7 @@ export function GuessRunner({
     prefetchRef.current = null;
     setComparison(null);
     setUserUci(null);
-    setLiveWdl(null);
+    emitLiveWdl(null);
     setPhase('init');
     advance();
   }, [plies, plyIndex, advance]);
@@ -518,24 +532,10 @@ export function GuessRunner({
            визуальный шум; вердикт и шкала WDL дают достаточно сигнала. */
       />
 
-      {/* KS-3424: live-шкала WDL под доской. POV = side-to-move в
-          displayFen (на awaitGuess это выбранная сторона, что и нужно).
-          Скрываем на autoplay/init — там осмысленного контекста для
-          оценки нет (или анимация хода соперника). */}
-      {(phase === 'prefetch' ||
-        phase === 'awaitGuess' ||
-        phase === 'analyzingUser' ||
-        phase === 'reaction') && (
-        <div
-          className="guess-runner__wdl"
-          data-testid="guess-runner-wdl-wrapper"
-        >
-          <WdlChancesBar
-            wdl={liveWdl}
-            testId="guess-runner-wdl"
-          />
-        </div>
-      )}
+      {/* KS-3432: WdlChancesBar теперь рендерится в GuessSessionRunner
+          ВЫШЕ доски (порядок WDL → HUD → доска → verdict). GuessRunner
+          по-прежнему владеет engine'ом, стримит WDL наружу через
+          `onLiveWdl`. */}
 
       <div className="guess-runner__panel" data-testid="guess-runner-panel">
         {phase === 'init' && (
