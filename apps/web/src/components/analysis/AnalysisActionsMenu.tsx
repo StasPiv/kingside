@@ -23,6 +23,7 @@
  * `src/config/analysisActionsMenu.ts`).
  */
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -161,7 +162,14 @@ export function AnalysisActionsMenu({
   }
 
   // sheet — bottom-sheet по паттерну ADR-076/080.
-  return (
+  // KS-3428: рендерим через портал в document.body. Раньше sheet
+  // монтировался внутрь `.analysis-overflow-wrapper` (inline-block,
+  // ~32px широкий — обёртка кнопки ⋯). В некоторых браузерах parent
+  // создаёт containing-block для `position:fixed` (transform/filter
+  // на промежуточных предках), и панель получала ширину обёртки —
+  // «треть экрана» из бага. Portal в body выводит fixed-оверлей за
+  // пределы любого containing-block — panel занимает viewport.
+  const sheet = (
     <div
       className="analysis-actions-menu analysis-actions-menu--sheet"
       data-testid="analysis-actions-menu"
@@ -217,4 +225,6 @@ export function AnalysisActionsMenu({
       </div>
     </div>
   );
+  if (typeof document === 'undefined') return sheet;
+  return createPortal(sheet, document.body);
 }

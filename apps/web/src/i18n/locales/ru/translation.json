@@ -845,6 +845,10 @@
     "editTitle": "Нажмите для редактирования названия",
     "generatePuzzle": "Сгенерировать пазл",
     "guessMoves": "Угадай ходы",
+    "actionsMenu": {
+      "title": "Действия",
+      "signInHint": "Войдите, чтобы использовать это действие."
+    },
     "generatingPuzzle": "Генерация…",
     "savingPuzzle": "Сохранение…",
     "generatePuzzleEmpty": "В партии нет подходящих позиций для пазла.",
