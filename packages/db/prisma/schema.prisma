@@ -520,6 +520,79 @@ model PrecisionAttemptMove {
   @@index([classification])
 }
 
+/// KS-3408 / ADR-086 §6. Сессия «угадай ход»: пользователь угадывает
+/// ходы одной стороны в конкретной партии; ход сравнивается с реально
+/// сыгранным по win-probability (см. `compareGuessMove` в shared).
+/// `userId` — поле без FK-relation (как PuzzleRushScore).
+model GuessSession {
+  id         String  @id @default(uuid()) @db.Uuid
+  userId     String  @map("user_id") @db.Uuid
+  /// Источник партии: 'archive' | 'pgn' | 'own' (M2) | 'broadcast' (M2).
+  gameSource String  @map("game_source")
+  /// archive gameId / иной ref; NULL для inline PGN.
+  gameRef    String? @map("game_ref")
+  /// Inline PGN (source='pgn') или snapshot партии.
+  pgn        String? @db.Text
+  /// 'white' | 'black' — за кого угадывает пользователь.
+  side       String
+  /// 'active' | 'finished' | 'abandoned'.
+  status     String  @default("active")
+  /// precision-композит по ходам пользователя [0..100]; NULL до finish.
+  userAccuracy   Float? @map("user_accuracy")
+  /// Та же accuracy по реально сыгранным ходам игрока; NULL до finish.
+  playerAccuracy Float? @map("player_accuracy")
+  /// Звёзды 1..5 по userAccuracy; NULL до finish.
+  userStars      Int?   @map("user_stars")
+  score                 Int @default(0)
+  bestStreak            Int @default(0) @map("best_streak")
+  betterThanPlayerCount Int @default(0) @map("better_than_player_count")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  moves GuessMove[]
+
+  @@index([userId, finishedAt])
+  @@map("guess_sessions")
+}
+
+/// KS-3408 / ADR-086 §6. Per-move детали сессии (для review/истории и
+/// будущего лидерборда). Образец — precision_attempt_moves: составной
+/// PK [sessionId, ply], cascade-delete с сессией. Метрики — серверный
+/// пересчёт из присланных клиентом WDL (server-trust, ADR-086 §8).
+model GuessMove {
+  sessionId String @map("session_id") @db.Uuid
+  /// 1-based ply угадываемого полухода в партии.
+  ply       Int
+  fenBefore String @map("fen_before")
+  /// Реально сыгранный в партии ход (UCI).
+  playedUci String @map("played_uci")
+  /// Ход пользователя (UCI); == playedUci если угадал точно.
+  userUci   String @map("user_uci")
+  /// PV1 движка на fenBefore (UCI).
+  bestUci   String @map("best_uci")
+  /// win-probability выбранной стороны: до / после реального / после user.
+  eBefore      Float @map("e_before")
+  eAfterPlayed Float @map("e_after_played")
+  eAfterUser   Float @map("e_after_user")
+  /// loss = max(0, eBefore − eAfter*).
+  lossPlayer   Float @map("loss_player")
+  lossUser     Float @map("loss_user")
+  /// accuracy% (Lichess-формула) — денормализовано для review без пересчёта.
+  accuracyPlayer Float @map("accuracy_player")
+  accuracyUser   Float @map("accuracy_user")
+  /// 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' (classifyMove).
+  userClass String @map("user_class")
+  /// 'strongest' | 'betterThanPlayer' | 'asPlayer' | 'weaker' (§3.5).
+  verdict   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session GuessSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, ply])
+  @@map("guess_moves")
+  @@index([verdict])
+}
+
 model PuzzleRushScore {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
