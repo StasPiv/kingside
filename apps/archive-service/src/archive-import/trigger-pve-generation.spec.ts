@@ -116,7 +116,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
       '--exclude-used',
       '--min-rating=2400',
       '--max-games=inf',
-      '--nodes=10000000',
+      '--time-ms=1000',
       '--half-moves-n=6',
     ]);
 

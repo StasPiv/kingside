@@ -62,6 +62,33 @@ describe('parseArgs --shard (KS-3396)', () => {
   });
 });
 
+describe('parseArgs --time-ms / --dry-run (KS-3398)', () => {
+  it('--time-ms=1000 → engineLimit.timeMs=1000 (movetime-эквивалент)', () => {
+    const r = parseArgs(['--time-ms=1000']);
+    expect(r.options.engineLimit.timeMs).toBe(1000);
+  });
+
+  it('default (без флагов лимита) → timeMs=1000 из defaultGeneratorOptions', () => {
+    const r = parseArgs([]);
+    expect(r.options.engineLimit.timeMs).toBe(1000);
+  });
+
+  it('--dry-run → dryRun=true', () => {
+    expect(parseArgs(['--dry-run']).dryRun).toBe(true);
+  });
+
+  it('без --dry-run → dryRun=false', () => {
+    expect(parseArgs([]).dryRun).toBe(false);
+  });
+
+  it('--time-ms=1000 --dry-run --max-games=2 (профиль контрольного прогона)', () => {
+    const r = parseArgs(['--time-ms=1000', '--dry-run', '--max-games=2']);
+    expect(r.options.engineLimit.timeMs).toBe(1000);
+    expect(r.dryRun).toBe(true);
+    expect(r.options.maxGames).toBe(2);
+  });
+});
+
 describe('инвариант шардирования (KS-3396, зеркало SQL-фильтра)', () => {
   // SQL: ((hashtext(id) % N) + N) % N = i. hashtext возвращает int4
   // (может быть отрицательным), поэтому (+N)%N нормализует в [0..N-1].

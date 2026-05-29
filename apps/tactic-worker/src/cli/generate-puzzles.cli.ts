@@ -25,6 +25,7 @@
  *       [--game-batch-size=N]      default 100
  *       [--cursor=UUID]            пропустить партии с id ≤ UUID
  *       [--shard=i/N]              KS-3396: брать только свой шард (i=0..N-1)
+ *       [--dry-run]                KS-3398: не писать в БД, только считать выход
  *       [--dump-file=PATH]         дамп до 30 первых puzzle'ов в JSON
  *
  *   Legacy forced-line флаги (--spread-delta, --continue-spread-delta,
@@ -51,12 +52,19 @@ interface CliFlags {
   dumpFile: string | null;
   /** KS-2776. true → перед циклом выгрузить source_id'шки из puzzles main БД. */
   excludeUsed: boolean;
+  /**
+   * KS-3398. true → НЕ писать пазлы в БД (insertPuzzle = no-op, всегда
+   * «успех»). Для контрольных прогонов: считаем выход (inserted = число
+   * найденных пазлов) без записи и без помех dedup между замерами.
+   */
+  dryRun: boolean;
 }
 
 export function parseArgs(argv: string[]): CliFlags {
   const opts = defaultGeneratorOptions();
   let dumpFile: string | null = null;
   let excludeUsed = false;
+  let dryRun = false;
   // KS-3364 follow-up: трекаем явные --time-ms / --nodes, чтобы после
   // прохода по argv убрать дефолтный `timeMs: 1000` из engineLimit, если
   // пользователь указал ТОЛЬКО `--nodes`. Иначе Stockfish получает оба
@@ -141,6 +149,10 @@ export function parseArgs(argv: string[]): CliFlags {
         // KS-2776. Boolean-флаг (`--exclude-used` без значения = true).
         excludeUsed = v === undefined || v === '' || v === 'true';
         break;
+      case 'dry-run':
+        // KS-3398. Boolean-флаг: не писать в БД (контрольные прогоны).
+        dryRun = v === undefined || v === '' || v === 'true';
+        break;
       case 'shard': {
         // KS-3396. Горизонтальный шардинг: --shard=i/N (i=0..N-1).
         const m = /^(\d+)\/(\d+)$/.exec(v ?? '');
@@ -175,6 +187,7 @@ export function parseArgs(argv: string[]): CliFlags {
     options: opts as Omit<GeneratorOptions, 'insertPuzzle'>,
     dumpFile,
     excludeUsed,
+    dryRun,
   };
 }
 
@@ -183,7 +196,7 @@ export async function runGeneratePuzzles(
   argv: string[],
 ): Promise<void> {
   const logger = new Logger('cli:generate-puzzles');
-  const { options: parsed, dumpFile, excludeUsed } = parseArgs(argv);
+  const { options: parsed, dumpFile, excludeUsed, dryRun } = parseArgs(argv);
 
   process.stdout.write(
     `[puzzle-gen] starting solutionMode=${parsed.solutionMode} ` +
@@ -197,7 +210,7 @@ export async function runGeneratePuzzles(
       `cursor=${parsed.cursor ?? 'none'} ` +
       `importId=${parsed.importId ?? 'none'} ` +
       `shard=${parsed.shardCount && parsed.shardCount > 1 ? `${parsed.shardIndex}/${parsed.shardCount}` : 'none'} ` +
-      `excludeUsed=${excludeUsed} ` +
+      `excludeUsed=${excludeUsed} dryRun=${dryRun} ` +
       `maxGames=${parsed.maxGames === Infinity ? 'inf' : parsed.maxGames}\n`,
   );
 
@@ -231,6 +244,12 @@ export async function runGeneratePuzzles(
 
   const dumpBuffer: PuzzleRecord[] = [];
   const insertPuzzle = async (puzzle: PuzzleRecord): Promise<boolean> => {
+    // KS-3398. dry-run: не пишем в БД, считаем пазл «найденным» (inserted)
+    // — для контрольных прогонов выхода без записи и без помех dedup.
+    if (dryRun) {
+      if (dumpFile && dumpBuffer.length < 30) dumpBuffer.push(puzzle);
+      return true;
+    }
     try {
       const data: Prisma.PuzzleUncheckedCreateInput = {
         id: puzzle.id,
