@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
-  TacticDrillType,
   TacticDrillDto,
   TacticDrillAttemptRequest,
   TacticDrillAttemptResponse,
@@ -14,6 +13,8 @@ import {
   hasSeenDrillOnboarding,
   markDrillOnboardingSeen,
 } from '../utils/drillOnboarding';
+// KS-3414: общий валидатор drill-типов (не слать /next без валидного type).
+import { isTacticDrillType } from '../utils/tacticDrillTypes';
 
 /**
  * KS-2233 / KS-2249 — основная страница drill `/drills/:type`.
@@ -39,19 +40,9 @@ import {
  * testid `drill-runner` — новые тесты привязываются к нему.
  */
 
-const ALL_TYPES: TacticDrillType[] = [
-  'find-hanging-piece',
-  'find-loose-piece',
-  'find-pin',
-  'find-fork',
-  'count-attackers',
-  'find-all-checks',
-  'find-undefended-attack',
-];
-
-function isValidType(s: string | undefined): s is TacticDrillType {
-  return !!s && (ALL_TYPES as string[]).includes(s);
-}
+// KS-3414: список/валидатор drill-типов вынесены в utils/tacticDrillTypes
+// (общие с DrillStep) — гарантия одинаковой валидации type перед запросом.
+const isValidType = isTacticDrillType;
 
 type ModalState = { variant: 'onboarding' | 'help' } | null;
 

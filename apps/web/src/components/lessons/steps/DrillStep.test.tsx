@@ -106,6 +106,45 @@ describe('<DrillStep> KS-2249', () => {
     expect(apiGet).toHaveBeenCalledWith('/tactic-drill/next?type=find-pin');
   });
 
+  // KS-3414: прод-фикс гонки — НЕ слать /tactic-drill/next без валидного
+  // type (backend 400 на пустой/неизвестный). При пустом drillType и без
+  // stepId — запрос НЕ уходит, DrillRunner показывает retry.
+  it('KS-3414: без stepId и с пустым drillType — НЕ шлёт /tactic-drill/next', async () => {
+    apiGet.mockResolvedValue(SQUARE_DRILL);
+    renderWithProviders(
+      // drillType пустой (гонка/битый payload).
+      <DrillStep payload={{ type: 'drill', drillType: '' as never }} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+        'error',
+      ),
+    );
+    // Ни одного запроса /tactic-drill/next (ни с пустым type, ни вообще).
+    const nextCalls = apiGet.mock.calls.filter((c) =>
+      String(c[0]).startsWith('/tactic-drill/next'),
+    );
+    expect(nextCalls).toHaveLength(0);
+    // Retry-кнопка доступна (когда type проставится — перезапустится).
+    expect(screen.getByTestId('drill-runner-retry')).toBeInTheDocument();
+  });
+
+  it('KS-3414: без stepId и с неизвестным drillType — НЕ шлёт /tactic-drill/next', async () => {
+    apiGet.mockResolvedValue(SQUARE_DRILL);
+    renderWithProviders(
+      <DrillStep payload={{ type: 'drill', drillType: 'bogus-type' as never }} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+        'error',
+      ),
+    );
+    const nextCalls = apiGet.mock.calls.filter((c) =>
+      String(c[0]).startsWith('/tactic-drill/next'),
+    );
+    expect(nextCalls).toHaveLength(0);
+  });
+
   it('default count=1, minSolved=1: правильный ответ → onStepDone вызван', async () => {
     apiGet.mockResolvedValue(byStepResp());
     apiPost.mockResolvedValue({

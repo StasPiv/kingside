@@ -9,6 +9,7 @@ import type {
 } from '@kingside/shared';
 
 import { api } from '../../../api';
+import { isTacticDrillType } from '../../../utils/tacticDrillTypes';
 import {
   DrillRunner,
   type DrillRunnerCompletion,
@@ -79,6 +80,15 @@ export function DrillStep({ payload, onStepDone, stepId, hideNext }: DrillStepPr
         `/tactic-drill/by-step/${encodeURIComponent(stepId)}`,
       );
       return resp.drill;
+    }
+    // KS-3414 (прод-фикс гонки): НЕ слать GET /tactic-drill/next без
+    // валидного `type` — backend валидирует type ∈ 7 drill-типов и
+    // отдаёт 400 на пустой/неизвестный. Если payload.drillType ещё не
+    // проставлен/битый (гонка первой загрузки), бросаем БЕЗ запроса —
+    // DrillRunner покажет retry, а когда тип проставится, loadDrill
+    // сменит идентичность и mount-эффект перезапустит загрузку.
+    if (!isTacticDrillType(payload.drillType)) {
+      throw new Error('tactic drill type not ready');
     }
     return api.get<TacticDrillDto>(
       `/tactic-drill/next?type=${encodeURIComponent(payload.drillType)}`,
