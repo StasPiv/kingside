@@ -24,6 +24,8 @@ export * from './utils/puzzle-gen-core.js';
 export * from './utils/puzzle-gen-pipeline.js';
 export * from './utils/move-classification.js';
 export * from './utils/precision-score.js';
+// KS-3407 (ADR-086 S2): сравнение хода в guess-the-move.
+export * from './utils/guess-move.js';
 // KS-3359 (ADR-080): whitelist + группы для Precision Themes.
 export * from './utils/precision-themes.js';
 export * from './chess/index.js';
