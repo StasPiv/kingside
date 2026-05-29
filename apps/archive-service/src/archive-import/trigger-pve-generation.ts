@@ -35,17 +35,25 @@ export interface TriggerPveGenerationArgs {
 }
 
 export interface TriggerPveGenerationResult {
-  /** true — RunTask успешно отправлен (taskArn в `taskArn`). */
+  /** true — хотя бы один RunTask успешно отправлен. */
   triggered: boolean;
-  /** ARN запущенного ECS task'а, если `triggered=true`. */
+  /**
+   * ARN первого успешно запущенного task'а (обратная совместимость).
+   * При шардинге см. `taskArns`.
+   */
   taskArn?: string;
-  /** Причина пропуска / ошибки. */
+  /** KS-3396. ARN всех успешно запущенных task'ов (по одному на шард). */
+  taskArns?: string[];
+  /** KS-3396. Сколько шардов пытались запустить (= PVE_SHARD_COUNT). */
+  shardCount?: number;
+  /** Причина пропуска / ошибки (для `triggered=false` или частичного успеха). */
   reason?:
     | 'feature-flag-off'
     | 'missing-env'
     | 'sdk-load-failed'
     | 'run-task-failed'
-    | 'no-task-returned';
+    | 'no-task-returned'
+    | 'partial';
   /** Текст ошибки при `triggered=false` (для логирования). */
   error?: string;
 }
@@ -69,9 +77,16 @@ function isFlagOn(v: string | undefined): boolean {
  * `--nodes=10_000_000`. Nodes-limit детерминирован (не зависит от
  * нагрузки CPU), что устраняет дрейф качества пазлов между запусками
  * на нагруженной и пустой Fargate-инстанции.
+ *
+ * KS-3396: при `shard` (shardCount>1) добавляем `--shard=i/N` — задача
+ * берёт только свою непересекающуюся долю партий. Без shard (или N≤1)
+ * флаг не добавляется — поведение прежнее (вся база в одной задаче).
  */
-function buildTacticCommand(importId: string): string[] {
-  return [
+function buildTacticCommand(
+  importId: string,
+  shard?: { index: number; count: number },
+): string[] {
+  const cmd = [
     'node',
     'dist/main.js',
     'generate-puzzles',
@@ -83,6 +98,20 @@ function buildTacticCommand(importId: string): string[] {
     '--nodes=10000000',
     '--half-moves-n=6',
   ];
+  if (shard && shard.count > 1) {
+    cmd.push(`--shard=${shard.index}/${shard.count}`);
+  }
+  return cmd;
+}
+
+/**
+ * KS-3396. Число шардов из env `PVE_SHARD_COUNT`. default 1 (без
+ * шардинга). Невалидное / <1 → 1.
+ */
+function resolveShardCount(env: NodeJS.ProcessEnv): number {
+  const raw = Number(env.PVE_SHARD_COUNT ?? 1);
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.floor(raw);
 }
 
 export async function triggerPveGeneration(
@@ -158,8 +187,13 @@ export async function triggerPveGeneration(
     return { triggered: false, reason: 'sdk-load-failed', error: msg };
   }
 
-  const command = buildTacticCommand(args.importId);
-  const input = {
+  // KS-3396. N шардов из env. N=1 → один RunTask без --shard (старое
+  // поведение). N>1 → N независимых RunTask с --shard=0/N..(N-1)/N.
+  // Диапазоны id не пересекаются (hashtext mod N) → дубликатов между
+  // шардами нет; UNIQUE fen дополнительно защищает от гонок INSERT.
+  const shardCount = resolveShardCount(env);
+
+  const buildInput = (command: string[]): unknown => ({
     cluster,
     taskDefinition,
     launchType: 'FARGATE',
@@ -178,28 +212,62 @@ export async function triggerPveGeneration(
         },
       ],
     },
-  };
+  });
 
-  try {
-    const cmd = new RunTaskCommand(input);
-    const resp = await ecsClient.send(cmd);
-    const taskArn = resp.tasks?.[0]?.taskArn;
-    if (!taskArn) {
-      logger.warn(
-        `${TAG} RunTask returned no tasks (failures?). importId=${args.importId}`,
+  const taskArns: string[] = [];
+  let lastError: string | undefined;
+  let noTaskReturned = false;
+
+  for (let i = 0; i < shardCount; i++) {
+    const shard =
+      shardCount > 1 ? { index: i, count: shardCount } : undefined;
+    const command = buildTacticCommand(args.importId, shard);
+    const shardLabel = shard ? `shard=${i}/${shardCount}` : 'shard=none';
+    try {
+      const cmd = new RunTaskCommand(buildInput(command));
+      const resp = await ecsClient.send(cmd);
+      const taskArn = resp.tasks?.[0]?.taskArn;
+      if (!taskArn) {
+        noTaskReturned = true;
+        logger.warn(
+          `${TAG} RunTask returned no tasks (failures?) ${shardLabel} importId=${args.importId}`,
+        );
+        continue;
+      }
+      taskArns.push(taskArn);
+      logger.log(
+        `${TAG} triggered tactic-worker run-task=${taskArn} ${shardLabel} importId=${args.importId}`,
       );
-      return { triggered: false, reason: 'no-task-returned' };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      logger.warn(
+        `${TAG} RunTask failed ${shardLabel} importId=${args.importId}: ${lastError} ` +
+          `(импорт не падает; шард можно перезапустить вручную)`,
+      );
     }
-    logger.log(
-      `${TAG} triggered tactic-worker run-task=${taskArn} importId=${args.importId}`,
-    );
-    return { triggered: true, taskArn };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    logger.warn(
-      `${TAG} RunTask failed importId=${args.importId}: ${msg} ` +
-        `(импорт не падает; PVE-генерацию запустить вручную)`,
-    );
-    return { triggered: false, reason: 'run-task-failed', error: msg };
   }
+
+  if (taskArns.length === 0) {
+    return {
+      triggered: false,
+      shardCount,
+      reason: lastError
+        ? 'run-task-failed'
+        : noTaskReturned
+          ? 'no-task-returned'
+          : 'run-task-failed',
+      error: lastError,
+    };
+  }
+
+  // Частичный успех: запустилась часть шардов — triggered=true, но
+  // помечаем reason='partial' для диагностики (импорт всё равно ок).
+  const partial = taskArns.length < shardCount;
+  return {
+    triggered: true,
+    taskArn: taskArns[0],
+    taskArns,
+    shardCount,
+    ...(partial ? { reason: 'partial' as const, error: lastError } : {}),
+  };
 }

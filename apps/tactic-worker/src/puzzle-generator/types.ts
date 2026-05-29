@@ -120,6 +120,16 @@ export interface GeneratorOptions {
    * Пустой массив — без исключения.
    */
   excludeGameIds?: string[];
+  /**
+   * KS-3396. Горизонтальный шардинг: индекс шарда `0..shardCount-1`.
+   * Совместно с `shardCount` (> 1) добавляет в SELECT фильтр
+   * `hashtext(id) mod shardCount = shardIndex` — равномерное
+   * непересекающееся разбиение базы партий по N независимым ECS-задачам.
+   * `undefined`/`shardCount<=1` — без шардинга (вся база, как раньше).
+   */
+  shardIndex?: number;
+  /** KS-3396. Общее число шардов N. См. `shardIndex`. */
+  shardCount?: number;
   /** Insert-callback: true если запись вставилась (новый FEN), false если конфликт. */
   insertPuzzle: (puzzle: PuzzleRecord) => Promise<boolean>;
   /** Логгер. */

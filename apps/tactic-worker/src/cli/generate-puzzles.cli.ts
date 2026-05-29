@@ -24,6 +24,7 @@
  *       [--start-ply=N]            default 20
  *       [--game-batch-size=N]      default 100
  *       [--cursor=UUID]            пропустить партии с id ≤ UUID
+ *       [--shard=i/N]              KS-3396: брать только свой шард (i=0..N-1)
  *       [--dump-file=PATH]         дамп до 30 первых puzzle'ов в JSON
  *
  *   Legacy forced-line флаги (--spread-delta, --continue-spread-delta,
@@ -140,6 +141,23 @@ export function parseArgs(argv: string[]): CliFlags {
         // KS-2776. Boolean-флаг (`--exclude-used` без значения = true).
         excludeUsed = v === undefined || v === '' || v === 'true';
         break;
+      case 'shard': {
+        // KS-3396. Горизонтальный шардинг: --shard=i/N (i=0..N-1).
+        const m = /^(\d+)\/(\d+)$/.exec(v ?? '');
+        if (!m) {
+          throw new Error(`bad --shard: ${v} (expected i/N, e.g. 0/4)`);
+        }
+        const i = parseInt(m[1], 10);
+        const n = parseInt(m[2], 10);
+        if (n < 1 || i < 0 || i >= n) {
+          throw new Error(
+            `bad --shard: ${v} (need N>=1 and 0<=i<N, got i=${i} N=${n})`,
+          );
+        }
+        opts.shardIndex = i;
+        opts.shardCount = n;
+        break;
+      }
       default:
         throw new Error(`unknown CLI option: ${arg}`);
     }
@@ -178,6 +196,7 @@ export async function runGeneratePuzzles(
       `minRating=${parsed.minRating} ` +
       `cursor=${parsed.cursor ?? 'none'} ` +
       `importId=${parsed.importId ?? 'none'} ` +
+      `shard=${parsed.shardCount && parsed.shardCount > 1 ? `${parsed.shardIndex}/${parsed.shardCount}` : 'none'} ` +
       `excludeUsed=${excludeUsed} ` +
       `maxGames=${parsed.maxGames === Infinity ? 'inf' : parsed.maxGames}\n`,
   );

@@ -184,4 +184,108 @@ describe('triggerPveGeneration (KS-2775)', () => {
       expect.stringContaining('AWS-SDK load failed'),
     );
   });
+
+  // ─── KS-3396: горизонтальный шардинг ──────────────────────────────
+
+  it('PVE_SHARD_COUNT=3 → 3 RunTask с --shard=0/3,1/3,2/3', async () => {
+    const logger = makeLogger();
+    let n = 0;
+    const ecsClient = {
+      send: jest.fn().mockImplementation(async () => ({
+        tasks: [{ taskArn: `arn:task/shard-${n++}` }],
+      })),
+    };
+    const cmdFactory = jest.fn().mockImplementation((input) => ({ __cmd: input }));
+
+    const r = await triggerPveGeneration({
+      importId: 'imp-shard',
+      logger,
+      env: { ...ENV_OK, PVE_SHARD_COUNT: '3' },
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: cmdFactory,
+    });
+
+    expect(r.triggered).toBe(true);
+    expect(r.shardCount).toBe(3);
+    expect(r.taskArns).toHaveLength(3);
+    expect(r.reason).toBeUndefined();
+    expect(cmdFactory).toHaveBeenCalledTimes(3);
+
+    // Каждый RunTask несёт корректный --shard=i/3.
+    const shardFlags = cmdFactory.mock.calls.map((c) => {
+      const input = c[0] as {
+        overrides: { containerOverrides: Array<{ command: string[] }> };
+      };
+      return input.overrides.containerOverrides[0].command.find((a) =>
+        a.startsWith('--shard='),
+      );
+    });
+    expect(shardFlags).toEqual(['--shard=0/3', '--shard=1/3', '--shard=2/3']);
+  });
+
+  it('PVE_SHARD_COUNT=1 (default) → один RunTask без --shard', async () => {
+    const logger = makeLogger();
+    const ecsClient = {
+      send: jest.fn().mockResolvedValue({ tasks: [{ taskArn: 'arn:task/solo' }] }),
+    };
+    const cmdFactory = jest.fn().mockImplementation((input) => ({ __cmd: input }));
+
+    const r = await triggerPveGeneration({
+      importId: 'imp-solo',
+      logger,
+      env: { ...ENV_OK, PVE_SHARD_COUNT: '1' },
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: cmdFactory,
+    });
+
+    expect(r.triggered).toBe(true);
+    expect(cmdFactory).toHaveBeenCalledTimes(1);
+    const input = cmdFactory.mock.calls[0][0] as {
+      overrides: { containerOverrides: Array<{ command: string[] }> };
+    };
+    const cmd = input.overrides.containerOverrides[0].command;
+    expect(cmd.some((a) => a.startsWith('--shard='))).toBe(false);
+  });
+
+  it('частичный успех: один шард упал → triggered=true, reason=partial, taskArns только успешные', async () => {
+    const logger = makeLogger();
+    let call = 0;
+    const ecsClient = {
+      send: jest.fn().mockImplementation(async () => {
+        call++;
+        if (call === 2) throw new Error('ThrottlingException');
+        return { tasks: [{ taskArn: `arn:task/ok-${call}` }] };
+      }),
+    };
+    const r = await triggerPveGeneration({
+      importId: 'imp-partial',
+      logger,
+      env: { ...ENV_OK, PVE_SHARD_COUNT: '3' },
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: jest.fn().mockImplementation((i) => i),
+    });
+
+    expect(r.triggered).toBe(true);
+    expect(r.reason).toBe('partial');
+    expect(r.taskArns).toHaveLength(2); // 1-й и 3-й успешны, 2-й упал
+    expect(r.error).toContain('Throttling');
+  });
+
+  it('все шарды упали → triggered=false, run-task-failed', async () => {
+    const logger = makeLogger();
+    const ecsClient = {
+      send: jest.fn().mockRejectedValue(new Error('AccessDenied')),
+    };
+    const r = await triggerPveGeneration({
+      importId: 'imp-allfail',
+      logger,
+      env: { ...ENV_OK, PVE_SHARD_COUNT: '2' },
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: jest.fn().mockImplementation((i) => i),
+    });
+
+    expect(r.triggered).toBe(false);
+    expect(r.reason).toBe('run-task-failed');
+    expect(r.shardCount).toBe(2);
+  });
 });

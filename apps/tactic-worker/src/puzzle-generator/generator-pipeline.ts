@@ -106,6 +106,23 @@ export async function runPuzzleGenerator(
       conds.push(`NOT (id = ANY($${idx++}::uuid[]))`);
       params.push(excludeGameIds);
     }
+    // KS-3396. Горизонтальный шардинг: при shardCount>1 берём только
+    // партии своего шарда. `hashtext(id::text)` — встроенный PG-хэш
+    // (int4, может быть отрицательным); `(% N + N) % N` даёт остаток
+    // в [0..N-1] независимо от знака → равномерное непересекающееся
+    // разбиение. Объединение шардов 0..N-1 = вся база, пересечений нет.
+    if (
+      options.shardCount != null &&
+      options.shardCount > 1 &&
+      options.shardIndex != null
+    ) {
+      const nParam = idx++;
+      const iParam = idx++;
+      conds.push(
+        `((hashtext(id::text) % $${nParam}) + $${nParam}) % $${nParam} = $${iParam}`,
+      );
+      params.push(options.shardCount, options.shardIndex);
+    }
     const whereClause = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
     const limitParam = idx++;
     params.push(options.gameBatchSize);
