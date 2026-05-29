@@ -17,6 +17,8 @@ import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
 import { isForfeitGame } from '../utils/forfeitTermination';
 // KS-3261: dedup-открытие через backend (POST /analyses {archiveGameId}).
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
+// KS-3412 (ADR-086, F3): кнопка «Угадай ходы» — скрыта за гейтом до релиза.
+import { GUESS_ENTRY_ENABLED } from '../config/guessFeature';
 
 /**
  * KS-2070 (F4 / ADR-033 §5.2): страница одной архивной партии.
@@ -294,6 +296,17 @@ function ArchiveGamePageInner() {
     navigate(`/archive?fen=${encodeURIComponent(currentFen)}`);
   };
 
+  // KS-3412 (ADR-086, F3): «Угадай ходы» — открываем /guess с PGN этой
+  // партии. Сторону по умолчанию не навязываем (выбор на /guess).
+  const handleGuessMoves = () => {
+    if (!game) return;
+    const whiteLabel = game.white.name ?? '—';
+    const blackLabel = game.black.name ?? '—';
+    navigate('/guess', {
+      state: { pgn: game.pgn, title: `${whiteLabel} vs ${blackLabel}` },
+    });
+  };
+
   const handleCopyPgn = async () => {
     if (!game) return;
     try {
@@ -566,6 +579,17 @@ function ArchiveGamePageInner() {
             >
               {t('gamePage.actions.findSimilar', 'Find similar')}
             </button>
+            {/* KS-3412 (ADR-086, F3): «Угадай ходы» — гейт скрыт в проде. */}
+            {GUESS_ENTRY_ENABLED && (
+              <button
+                type="button"
+                className="archive-game-page__action"
+                data-testid="archive-game-page-guess-moves"
+                onClick={handleGuessMoves}
+              >
+                {t('gamePage.actions.guessMoves', 'Guess the moves')}
+              </button>
+            )}
             <button
               type="button"
               className="archive-game-page__action"

@@ -434,6 +434,18 @@
       "inaccuracy": "Inaccuracy",
       "mistake": "Mistake",
       "blunder": "Blunder"
+    },
+    "setup": {
+      "title": "Guess the move",
+      "intro": "Play through a real game and try to guess the moves of one side. Each guess is compared to what was actually played.",
+      "pgnLabel": "Game PGN",
+      "pgnPlaceholder": "Paste a PGN here…",
+      "sideLabel": "Guess for",
+      "white": "White",
+      "black": "Black",
+      "invalidPgn": "Could not read this PGN. Check the moves and try again.",
+      "start": "Start",
+      "back": "New game"
     }
   },
   "lobby": {

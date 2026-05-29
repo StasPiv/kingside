@@ -87,6 +87,8 @@ import { OpeningTrainerStatsPage } from './pages/openingTrainer/OpeningTrainerSt
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
+// KS-3412 (ADR-086): гейт точки входа guess-the-move (скрыт в проде).
+import { GUESS_ENTRY_ENABLED } from './config/guessFeature';
 // KS-2373: трекаем посещаемость whitelist-разделов, дебаунс ~3.5с.
 // Хук подключается один раз на всё приложение.
 import { useTrackNavStats } from './hooks/useNavStats';
@@ -127,6 +129,12 @@ const TrainLobbyPage = lazy(() =>
 );
 const AnalyzeLobbyPage = lazy(() =>
   import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
+);
+// KS-3412 (ADR-086, guess-the-move F3): точка входа `/guess`. Lazy-чанк;
+// маршрут гейтится `GUESS_ENTRY_ENABLED` (скрыт в проде до общего релиза
+// связки F1+F2+F3+L1 — случайный деплой фичу не выкатит).
+const GuessLandingPage = lazy(() =>
+  import('./pages/GuessLandingPage').then((m) => ({ default: m.GuessLandingPage })),
 );
 // ADR-067: модуль Studies удалён (KS-3130). Lazy-импорты StudiesPage /
 // StudyPage / UserStudiesPage / StudyInviteAcceptPage и сопутствующие
@@ -539,6 +547,19 @@ export function App() {
           // По образцу KS-2218: всё `/drills*` уводит в /lobby при
           // выключенном флаге.
           <Route path="/drills/*" element={<Navigate to="/lobby" replace />} />
+        )}
+        {/* KS-3412 (ADR-086, F3): точка входа guess-the-move. Гейт
+            `GUESS_ENTRY_ENABLED` скрыт в проде до общего релиза связки —
+            пока фича не готова целиком, маршрут не существует в проде. */}
+        {GUESS_ENTRY_ENABLED && (
+          <Route
+            path="/guess"
+            element={
+              <Suspense fallback={<LazyFallback />}>
+                <GuessLandingPage />
+              </Suspense>
+            }
+          />
         )}
         {/* KS-1821: compile-time guard. `DevRoutesLazy` = null в prod-сборке,
             поэтому Route не рендерится и мёртвая ветка с импортом
