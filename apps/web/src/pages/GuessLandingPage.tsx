@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { GuessSide } from '@kingside/shared';
 
-import { GuessRunner } from '../components/guess';
+import { GuessSessionRunner } from '../components/guess';
 
 /**
  * KS-3412 (ADR-086 §9, F3) — точка входа «угадай ход».
@@ -73,7 +73,7 @@ export function GuessLandingPage() {
             </span>
           )}
         </div>
-        <GuessRunner pgn={pgn} side={side} />
+        <GuessSessionRunner pgn={pgn} side={side} gameSource="pgn" />
       </div>
     );
   }

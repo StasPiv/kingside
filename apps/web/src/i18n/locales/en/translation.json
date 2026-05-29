@@ -446,6 +446,26 @@
       "invalidPgn": "Could not read this PGN. Check the moves and try again.",
       "start": "Start",
       "back": "New game"
+    },
+    "session": {
+      "starting": "Starting session…",
+      "error": "Could not start the guess session. Please try again.",
+      "finishing": "Tallying results…"
+    },
+    "hud": {
+      "score": "Score",
+      "streak": "Streak",
+      "betterThanPlayer": "Stronger than game"
+    },
+    "final": {
+      "title": "Game finished",
+      "you": "You",
+      "player": "Game",
+      "vs": "vs",
+      "bestStreak": "Best streak",
+      "userBetter": "You played more accurately than the game!",
+      "playerBetter": "The game was played more accurately.",
+      "tie": "A dead heat — same accuracy."
     }
   },
   "lobby": {

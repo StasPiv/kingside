@@ -10,7 +10,7 @@ import { GuessLandingPage } from './GuessLandingPage';
  */
 
 vi.mock('../components/guess', () => ({
-  GuessRunner: ({ pgn, side }: { pgn: string; side: string }) => (
+  GuessSessionRunner: ({ pgn, side }: { pgn: string; side: string }) => (
     <div data-testid="guess-runner-stub" data-pgn-len={pgn.length} data-side={side} />
   ),
 }));
