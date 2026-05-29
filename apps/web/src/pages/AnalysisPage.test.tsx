@@ -96,6 +96,14 @@ vi.mock('../hooks/useEngineConfig', () => {
     handleDeleteConfig: vi.fn(),
     handleSelectSavedConfig: vi.fn(),
     handleSwitchToWasm: vi.fn(),
+    // KS-3404: бесконечный анализ WASM (default ВКЛ) + опциональный потолок.
+    analysisDepth: 18,
+    setAnalysisDepth: vi.fn(),
+    minAnalysisDepth: 10,
+    maxAnalysisDepth: 30,
+    defaultAnalysisDepth: 18,
+    analysisUnlimited: true,
+    setAnalysisUnlimited: vi.fn(),
   };
   return { useEngineConfig: () => config };
 });

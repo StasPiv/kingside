@@ -107,6 +107,26 @@ export function useEngineConfig() {
     },
     [],
   );
+  // KS-3404: бесконечный анализ WASM (`go infinite`, без потолка глубины).
+  // По умолчанию ВКЛ — пользователь просил убрать предел глубины совсем.
+  // Когда выкл — `analysisDepth` работает как опциональный потолок.
+  // localStorage-ключ `analysisUnlimited` ('1'/'0'); отсутствие → true.
+  const [analysisUnlimited, setAnalysisUnlimitedRaw] = useState(() => {
+    try {
+      const saved = localStorage.getItem('analysisUnlimited');
+      if (saved === '0') return false;
+      if (saved === '1') return true;
+    } catch { /* ignore */ }
+    return true;
+  });
+  const setAnalysisUnlimited = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setAnalysisUnlimitedRaw((prev) => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      try { localStorage.setItem('analysisUnlimited', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const [showEngineModal, setShowEngineModal] = useState(false);
 
   // Auto-discover localhost bridge on common port
@@ -223,6 +243,9 @@ export function useEngineConfig() {
     minAnalysisDepth: MIN_ANALYSIS_DEPTH,
     maxAnalysisDepth: MAX_ANALYSIS_DEPTH,
     defaultAnalysisDepth: DEFAULT_ANALYSIS_DEPTH,
+    // KS-3404: бесконечный анализ (без потолка глубины). Default true.
+    analysisUnlimited,
+    setAnalysisUnlimited,
     showEngineModal,
     setShowEngineModal,
     handleConnectExternal,

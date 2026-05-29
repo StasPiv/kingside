@@ -247,4 +247,78 @@ describe('useStockfish — KS-3042 re-dispatch MultiPV at runtime', () => {
     // Worker даже не создан.
     expect(MockWorker.instances).toHaveLength(0);
   });
+
+  // KS-3404: бесконечный анализ (go infinite, без потолка глубины).
+  it('KS-3404: infinite=true → `go infinite` (без `go depth`)', async () => {
+    const { result } = renderHook(() =>
+      useStockfish({ multiPv: 1, depth: 5, infinite: true }),
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go infinite');
+    expect(worker.sent.some((m) => m.startsWith('go depth'))).toBe(false);
+  });
+
+  it('KS-3404: infinite=false → `go depth N` (не infinite) — регрессий нет', async () => {
+    const { result } = renderHook(() =>
+      useStockfish({ multiPv: 1, depth: 7, infinite: false }),
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go depth 7');
+    expect(worker.sent).not.toContain('go infinite');
+  });
+
+  it('KS-3404: переключение infinite false→true во время анализа → re-dispatch `go infinite`', async () => {
+    const { result, rerender } = renderHook(
+      ({ infinite }: { infinite: boolean }) =>
+        useStockfish({ multiPv: 1, depth: 5, infinite }),
+      { initialProps: { infinite: false } },
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go depth 5');
+    worker.sent.length = 0;
+
+    // Включаем infinite во время анализа → effect[infinite] → evaluate → stop.
+    await act(async () => {
+      rerender({ infinite: true });
+    });
+    expect(worker.sent).toContain('stop');
+    worker.sent.length = 0;
+
+    // bestmove → isready → readyok → новый `go infinite`.
+    await act(async () => {
+      worker.emit('bestmove e2e4');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go infinite');
+    expect(worker.sent.some((m) => m.startsWith('go depth'))).toBe(false);
+  });
 });

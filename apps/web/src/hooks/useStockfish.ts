@@ -56,6 +56,15 @@ export type EngineErrorReason =
 type UseStockfishOptions = {
   depth?: number;
   multiPv?: number;
+  /**
+   * KS-3404: бесконечный анализ (`go infinite` без depth-лимита, как в
+   * live-анализе точности KS-3391). Когда `true` — движок идёт без потолка
+   * глубины, останавливается только по `stop()` / смене FEN (через тот же
+   * stop→bestmove→pending-restart путь, что и finite-режим). `depth`
+   * игнорируется. По умолчанию `false` — все прочие потребители (дриллы,
+   * бродкаст, watch) сохраняют finite `go depth N` и НЕ регрессируют.
+   */
+  infinite?: boolean;
   autoStart?: boolean;
   /**
    * UCI Skill Level (0..20). Ограничивает силу движка. Применяется к
@@ -175,6 +184,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const {
     depth = 20,
     multiPv = 3,
+    infinite = false,
     // KS-2034: `autoStart` сохранён в типе UseStockfishOptions для
     // обратной совместимости с вызывающим кодом, но реально хук не
     // делает auto-start (старт только по явному `analyze()`).
@@ -186,9 +196,11 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const depthRef = useRef(depth);
   const multiPvRef = useRef(multiPv);
+  const infiniteRef = useRef(infinite);
   const skillLevelRef = useRef<number | undefined>(skillLevel);
   depthRef.current = depth;
   multiPvRef.current = multiPv;
+  infiniteRef.current = infinite;
   skillLevelRef.current = skillLevel;
 
   const [state, setState] = useState<StockfishState>('idle');
@@ -330,7 +342,10 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${lazyFen}`);
-              engine.postMessage(`go depth ${depthRef.current}`);
+              // KS-3404: infinite — без потолка глубины; иначе go depth N.
+              engine.postMessage(
+                infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+              );
             } else {
               setState('ready');
             }
@@ -352,7 +367,10 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${pendingFen}`);
-              engine.postMessage(`go depth ${depthRef.current}`);
+              // KS-3404: infinite — без потолка глубины; иначе go depth N.
+              engine.postMessage(
+                infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+              );
               return;
             }
           }
@@ -473,7 +491,10 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       const effectiveMpv = clampMultiPvToLegalMoves(fen, multiPvRef.current);
       engineRef.current.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
       engineRef.current.postMessage(`position fen ${fen}`);
-      engineRef.current.postMessage(`go depth ${depthRef.current}`);
+      // KS-3404: infinite — без потолка глубины; иначе go depth N.
+      engineRef.current.postMessage(
+        infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+      );
     },
     [init],
   );
@@ -531,6 +552,21 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     evaluate(fen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depth]);
+
+  /**
+   * KS-3404: переключение infinite ↔ finite во время активного анализа —
+   * переотправить `go` с новым режимом (UCI не меняет режим на лету без
+   * stop). Тот же re-dispatch-путь, что для depth/multiPv (KS-3085/3042):
+   * `evaluate(currentFen)` → stop → bestmove → isready → новый `go`.
+   */
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    if (!engineRef.current) return;
+    const fen = fenRef.current;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [infinite]);
 
   return {
     state,

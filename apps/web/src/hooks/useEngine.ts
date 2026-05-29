@@ -22,6 +22,13 @@ type UseEngineOptions = {
   externalConfig: ExternalEngineConfig | null;
   depth?: number;
   multiPv?: number;
+  /**
+   * KS-3404: бесконечный анализ без потолка глубины (`go infinite`) для
+   * встроенного WASM-движка. Применяется только к WASM; внешний (bridge)
+   * движок продолжает работать со своим `depth=99` (см. AnalysisPage —
+   * external уже фактически «без потолка»). По умолчанию `false`.
+   */
+  infinite?: boolean;
   autoStart?: boolean;
 };
 
@@ -67,7 +74,14 @@ export function saveEngineConfigs(configs: ExternalEngineConfig[]): void {
  * Switches based on `source` parameter.
  */
 export function useEngine(options: UseEngineOptions): EngineResult {
-  const { source, externalConfig, depth = 20, multiPv = 3, autoStart = true } = options;
+  const {
+    source,
+    externalConfig,
+    depth = 20,
+    multiPv = 3,
+    infinite = false,
+    autoStart = true,
+  } = options;
 
   // KS-3112: debounce параметров engine. UI-state продолжает идти
   // напрямую через `multiPv`/`depth` от useEngineConfig (optimistic UI —
@@ -83,6 +97,8 @@ export function useEngine(options: UseEngineOptions): EngineResult {
   const wasm = useStockfish({
     depth: debouncedDepth,
     multiPv: debouncedMultiPv,
+    // KS-3404: infinite только для WASM-источника (внешний bridge — depth 99).
+    infinite: source === 'wasm' && infinite,
   });
 
   const external = useExternalEngine({

@@ -1973,7 +1973,9 @@
     "loadConfig": "Load config.yaml",
     "depthLabel": "Max analysis depth",
     "depthHint": "Analysis stops at this depth. Higher = slower but more accurate.",
-    "depthReset": "Reset to default ({{depth}})"
+    "depthReset": "Reset to default ({{depth}})",
+    "unlimitedLabel": "Unlimited depth",
+    "unlimitedHint": "Engine analyzes infinitely — depth grows while you stay on a position. Turn off to cap depth."
   },
   "bridgePromo": {
     "title": "Want deeper analysis?",

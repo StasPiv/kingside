@@ -23,6 +23,7 @@ import { DevBroadcastForfeitPage } from '../pages/DevBroadcastForfeitPage';
 import { DevWdlChancesBarPage } from '../pages/DevWdlChancesBarPage';
 import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
+import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -94,6 +95,8 @@ export default function DevRoutes() {
       <Route path="promotion-picker" element={<DevPromotionPickerPage />} />
       {/* KS-3331: overflow-меню мастерской с двумя пунктами репертуара. */}
       <Route path="analysis-repertoire-menu" element={<DevAnalysisRepertoireMenuPage />} />
+      {/* KS-3404: настройки движка с тумблером «Без ограничения глубины». */}
+      <Route path="engine-unlimited" element={<DevEngineUnlimitedPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

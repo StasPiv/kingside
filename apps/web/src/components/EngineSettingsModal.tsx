@@ -13,6 +13,13 @@ type Props = {
   minAnalysisDepth: number;
   maxAnalysisDepth: number;
   defaultAnalysisDepth: number;
+  /**
+   * KS-3404: бесконечный анализ WASM (go infinite, без потолка глубины).
+   * Default ВКЛ. Когда ВКЛ — слайдер глубины скрыт (потолка нет); когда
+   * выкл — слайдер показан как опциональный потолок.
+   */
+  analysisUnlimited: boolean;
+  setAnalysisUnlimited: (v: boolean) => void;
   extUrlInput: string;
   setExtUrlInput: (v: string) => void;
   extKeyInput: string;
@@ -59,6 +66,8 @@ export function EngineSettingsModal({
   minAnalysisDepth,
   maxAnalysisDepth,
   defaultAnalysisDepth,
+  analysisUnlimited,
+  setAnalysisUnlimited,
   extUrlInput,
   setExtUrlInput,
   extKeyInput,
@@ -120,10 +129,36 @@ export function EngineSettingsModal({
               className="engine-uci-input"
             />
           </div>
-          {/* KS-3085: слайдер «Максимальная глубина анализа» — только для
-              WASM, потому что external engine использует свою depth=99
-              («бесконечно» / ограничивается серверной стороной). */}
+          {/* KS-3404: тумблер «Бесконечный анализ» — только WASM. По
+              умолчанию ВКЛ (go infinite, без потолка глубины). Когда ВКЛ —
+              слайдер глубины ниже скрыт (потолка нет). */}
           {engineSource === 'wasm' && (
+            <div className="engine-uci-row engine-uci-row--unlimited">
+              <label htmlFor="engine-unlimited-toggle">
+                {t('engineSettings.unlimitedLabel', 'Unlimited depth')}
+              </label>
+              <input
+                id="engine-unlimited-toggle"
+                type="checkbox"
+                checked={analysisUnlimited}
+                onChange={(e) => setAnalysisUnlimited(e.target.checked)}
+                data-testid="engine-unlimited-toggle"
+              />
+            </div>
+          )}
+          {engineSource === 'wasm' && analysisUnlimited && (
+            <p className="engine-depth-hint" data-testid="engine-unlimited-hint">
+              {t(
+                'engineSettings.unlimitedHint',
+                'Engine analyzes infinitely — depth grows while you stay on a position. Turn off to cap depth.',
+              )}
+            </p>
+          )}
+          {/* KS-3085: слайдер «Максимальная глубина анализа» — только для
+              WASM. KS-3404: показываем ТОЛЬКО когда бесконечный режим
+              выключен — тогда слайдер работает как опциональный потолок.
+              external engine использует свою depth=99. */}
+          {engineSource === 'wasm' && !analysisUnlimited && (
             <div className="engine-uci-row engine-uci-row--depth">
               <label htmlFor="engine-depth-slider">
                 {t('engineSettings.depthLabel', 'Max analysis depth')}

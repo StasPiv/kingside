@@ -592,6 +592,11 @@ function AnalysisPageInner({
     // Для external оставляем 99 («бесконечно») — серверная сторона
     // ограничивает сама.
     depth: ec.engineSource === 'external' ? 99 : ec.analysisDepth,
+    // KS-3404: бесконечный анализ WASM по умолчанию (go infinite, без
+    // потолка глубины — как live-анализ точности). `analysisUnlimited`
+    // ВКЛ по умолчанию; выкл → `depth` (analysisDepth) работает как
+    // опциональный потолок. Внешний движок — без изменений (depth 99).
+    infinite: ec.analysisUnlimited,
     multiPv: ec.multiPv,
     autoStart: analysisEnabled,
   });
@@ -2114,6 +2119,8 @@ function AnalysisPageInner({
           minAnalysisDepth={ec.minAnalysisDepth}
           maxAnalysisDepth={ec.maxAnalysisDepth}
           defaultAnalysisDepth={ec.defaultAnalysisDepth}
+          analysisUnlimited={ec.analysisUnlimited}
+          setAnalysisUnlimited={ec.setAnalysisUnlimited}
           extUrlInput={ec.extUrlInput}
           setExtUrlInput={ec.setExtUrlInput}
           extKeyInput={ec.extKeyInput}
