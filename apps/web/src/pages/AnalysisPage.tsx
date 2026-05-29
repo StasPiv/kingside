@@ -46,6 +46,12 @@ import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHist
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 // KS-3299 (M2 F5): создание репертуара из анализа.
 import { openingTrainerApi } from '../api/openingTrainerApi';
+// KS-3331 (ADR-078 §5.3): добавить анализ в существующий репертуар.
+import { AddToRepertoireModal } from './openingTrainer/AddToRepertoireModal';
+import type {
+  OpeningRepertoireDto,
+  OpeningRepertoireWithStatsDto,
+} from '@kingside/shared';
 import { ApiError as ApiErrorClass } from '../ApiError';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 // KS-2863 (ADR-060 §10.1 FR1): извлечённый header — workshop-shortcut +
@@ -1177,6 +1183,61 @@ function AnalysisPageInner({
     [creatingRepertoire, analysisTitle, navigate, t],
   );
 
+  // KS-3331 (ADR-078 §5.3): «Добавить в существующий репертуар…». Список
+  // репертуаров грузим лениво при открытии overflow-меню (только для
+  // владельца своего анализа) — чтобы знать, не пуст ли он (пункт меню
+  // disabled при пустом). Выбор репертуара → POST from-analysis с
+  // `repertoireId` → backend добавляет PGN анализа как источник и
+  // возвращает обновлённый репертуар; редиректим на его страницу.
+  const [repertoires, setRepertoires] = useState<
+    Array<OpeningRepertoireDto | OpeningRepertoireWithStatsDto> | null
+  >(null);
+  const [repertoiresLoading, setRepertoiresLoading] = useState(false);
+  const [addToRepertoireOpen, setAddToRepertoireOpen] = useState(false);
+  const [addingToRepertoireId, setAddingToRepertoireId] = useState<string | null>(
+    null,
+  );
+  const loadRepertoires = useCallback(async () => {
+    if (repertoires !== null || repertoiresLoading) return;
+    setRepertoiresLoading(true);
+    try {
+      const res = await openingTrainerApi.listRepertoires();
+      setRepertoires(res.repertoires);
+    } catch {
+      // Сеть/доступ — оставляем пустой список (пункт станет disabled).
+      setRepertoires([]);
+    } finally {
+      setRepertoiresLoading(false);
+    }
+  }, [repertoires, repertoiresLoading]);
+
+  const handleAddToExistingRepertoire = useCallback(
+    async (repertoireId: string) => {
+      if (addingToRepertoireId) return;
+      if (!localIdRef.current) return;
+      setAddingToRepertoireId(repertoireId);
+      try {
+        const repertoire = await openingTrainerApi.createRepertoireFromAnalysis({
+          analysisId: localIdRef.current,
+          title: analysisTitle || undefined,
+          repertoireId,
+        });
+        navigate(`/opening-trainer/${repertoire.id}`);
+      } catch (err) {
+        const msg =
+          err instanceof ApiErrorClass
+            ? err.message
+            : t(
+                'analysis.useAsRepertoire.addError',
+                'Failed to add analysis to the repertoire.',
+              );
+        window.alert(msg);
+        setAddingToRepertoireId(null);
+      }
+    },
+    [addingToRepertoireId, analysisTitle, navigate, t],
+  );
+
   // Очистка таймера при unmount, чтобы setState не дёргался на размонтированный компонент.
   useEffect(() => {
     return () => {
@@ -1785,7 +1846,23 @@ function AnalysisPageInner({
             <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
               <button
                 className="analysis-overflow-btn"
-                onClick={() => setShowOverflowMenu((v) => !v)}
+                onClick={() => {
+                  setShowOverflowMenu((v) => !v);
+                  // KS-3331: лениво грузим репертуары при открытии меню
+                  // (только владелец своего анализа), чтобы знать, не пуст
+                  // ли список для disabled-состояния пункта «Добавить в
+                  // существующий».
+                  if (
+                    !publicMode &&
+                    user &&
+                    localIdRef.current &&
+                    savedOwnerId === user.id &&
+                    ctx.kind === 'analysis' &&
+                    history.length > 0
+                  ) {
+                    void loadRepertoires();
+                  }
+                }}
                 title={t('common.more', 'More')}
                 data-testid="analysis-overflow-btn"
               >
@@ -1903,7 +1980,47 @@ function AnalysisPageInner({
                           ? t('analysis.useAsRepertoire.creating', 'Creating…')
                           : t(
                               'analysis.useAsRepertoire.menuItem',
-                              'Use as repertoire',
+                              'Use as new repertoire',
+                            )}
+                      </button>
+                    )}
+                  {/* KS-3331 (ADR-078 §5.3): «Добавить в существующий
+                      репертуар…». Те же условия видимости, что у «Use as
+                      new». Пункт disabled, пока репертуары грузятся или
+                      если их нет (тултип). Клик → модалка со списком. */}
+                  {!publicMode &&
+                    user &&
+                    localIdRef.current &&
+                    savedOwnerId === user.id &&
+                    ctx.kind === 'analysis' &&
+                    history.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setShowOverflowMenu(false);
+                          setAddToRepertoireOpen(true);
+                        }}
+                        disabled={
+                          repertoiresLoading ||
+                          (repertoires !== null && repertoires.length === 0)
+                        }
+                        title={
+                          repertoires !== null && repertoires.length === 0
+                            ? t(
+                                'analysis.useAsRepertoire.addToExistingEmpty',
+                                'You have no repertoires yet',
+                              )
+                            : undefined
+                        }
+                        data-testid="analysis-add-to-repertoire"
+                      >
+                        {repertoiresLoading
+                          ? t(
+                              'analysis.useAsRepertoire.addToExistingLoading',
+                              'Loading repertoires…',
+                            )
+                          : t(
+                              'analysis.useAsRepertoire.addToExistingMenuItem',
+                              'Add to existing repertoire…',
                             )}
                       </button>
                     )}
@@ -2131,6 +2248,16 @@ function AnalysisPageInner({
             </button>
           </div>
         </div>
+      )}
+      {/* KS-3331 (ADR-078 §5.3): модалка выбора существующего репертуара. */}
+      {addToRepertoireOpen && repertoires !== null && repertoires.length > 0 && (
+        <AddToRepertoireModal
+          repertoires={repertoires}
+          submitting={addingToRepertoireId !== null}
+          submittingId={addingToRepertoireId}
+          onSelect={(id) => void handleAddToExistingRepertoire(id)}
+          onClose={() => setAddToRepertoireOpen(false)}
+        />
       )}
     </div>
   );

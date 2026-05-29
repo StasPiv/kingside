@@ -22,6 +22,7 @@ import { DevChatToolCallsPage } from '../pages/DevChatToolCallsPage';
 import { DevBroadcastForfeitPage } from '../pages/DevBroadcastForfeitPage';
 import { DevWdlChancesBarPage } from '../pages/DevWdlChancesBarPage';
 import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
+import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -91,6 +92,8 @@ export default function DevRoutes() {
       <Route path="wdl-chances" element={<DevWdlChancesBarPage />} />
       {/* KS-3395: доска + окно превращения в одном стиле (?set=<pieceSet>). */}
       <Route path="promotion-picker" element={<DevPromotionPickerPage />} />
+      {/* KS-3331: overflow-меню мастерской с двумя пунктами репертуара. */}
+      <Route path="analysis-repertoire-menu" element={<DevAnalysisRepertoireMenuPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

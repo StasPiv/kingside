@@ -744,11 +744,18 @@
   },
   "analysis": {
     "useAsRepertoire": {
-      "menuItem": "Use as repertoire",
+      "menuItem": "Use as new repertoire",
       "creating": "Creating…",
       "error": "Failed to create repertoire from this analysis.",
       "pickerTitle": "Train as",
-      "pickerHint": "Which side will you train this repertoire for?"
+      "pickerHint": "Which side will you train this repertoire for?",
+      "addToExistingMenuItem": "Add to existing repertoire…",
+      "addToExistingEmpty": "You have no repertoires yet",
+      "addToExistingTitle": "Add to repertoire",
+      "addToExistingHint": "Choose a repertoire to add this analysis to as a source.",
+      "addToExistingLoading": "Loading repertoires…",
+      "adding": "Adding…",
+      "addError": "Failed to add analysis to the repertoire."
     },
     "openError": "Could not open analysis. Please try again.",
     "openedExisting": "Opened your existing analysis for this game",
