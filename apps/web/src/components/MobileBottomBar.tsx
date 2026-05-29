@@ -148,7 +148,12 @@ export function MobileBottomBar() {
             const sectionRoutes = moreRoutes.filter(
               (r) => r !== 'broadcasts' && r !== 'profile',
             );
-            if (sectionRoutes.length === 0) return null;
+            // KS-3420 (ADR-086): «Угадай ход» — отдельная точка входа в
+            // mobile-drawer. На десктопе пункт сидит в подменю /train,
+            // но на мобиле подменю не рендерится — здесь добавляем
+            // прямую ссылку в группу «Разделы». Группа рендерится даже
+            // когда sectionRoutes пуст (раньше — return null), потому
+            // что есть наш guess-вход.
             return (
               <div
                 className="mobile-more-group"
@@ -170,6 +175,9 @@ export function MobileBottomBar() {
                     </Link>
                   );
                 })}
+                <Link to="/guess" data-testid="mobile-more-guess">
+                  {t('nav.guess', 'Guess the move')}
+                </Link>
               </div>
             );
           })()}
