@@ -144,16 +144,15 @@ export function MobileBottomBar() {
               целиком не рендерится. */}
 
           {/* — Разделы (group-routes не в top-3, кроме broadcasts/profile) — */}
+          {/* KS-3425: пункт «Угадай ход» отсюда удалён — основная точка
+              входа теперь карточка в /train (KS-3423, TrainLobbyPage).
+              Поведение группы вернули к исходному: если sectionRoutes
+              пуст — секция не рендерится. */}
           {(() => {
             const sectionRoutes = moreRoutes.filter(
               (r) => r !== 'broadcasts' && r !== 'profile',
             );
-            // KS-3420 (ADR-086): «Угадай ход» — отдельная точка входа в
-            // mobile-drawer. На десктопе пункт сидит в подменю /train,
-            // но на мобиле подменю не рендерится — здесь добавляем
-            // прямую ссылку в группу «Разделы». Группа рендерится даже
-            // когда sectionRoutes пуст (раньше — return null), потому
-            // что есть наш guess-вход.
+            if (sectionRoutes.length === 0) return null;
             return (
               <div
                 className="mobile-more-group"
@@ -175,9 +174,6 @@ export function MobileBottomBar() {
                     </Link>
                   );
                 })}
-                <Link to="/guess" data-testid="mobile-more-guess">
-                  {t('nav.guess', 'Guess the move')}
-                </Link>
               </div>
             );
           })()}
