@@ -1,11 +1,7 @@
-import { useMemo, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
 import { useLongPress } from '../../hooks/useLongPress';
-import {
-  NAV_AUTO_REPEAT_SPEEDS,
-  useBoardSettings,
-  type NavAutoRepeatSpeedId,
-} from '../../hooks/useBoardSettings';
+import { useBoardSettings } from '../../hooks/useBoardSettings';
 
 /**
  * KS-3198: кнопка навигации по ходам с long-press авто-повтором.
@@ -49,15 +45,13 @@ export function NavButton({
   testId,
   children,
 }: NavButtonProps) {
-  const { navAutoRepeatSpeed } = useBoardSettings();
-  const intervalMs = useMemo(
-    () => intervalForSpeed(navAutoRepeatSpeed),
-    [navAutoRepeatSpeed],
-  );
+  // KS-3415: интервал авто-повтора берём напрямую в мс из настроек
+  // (ползунок). Раньше — маппинг preset-id → intervalMs.
+  const { navAutoRepeatMs } = useBoardSettings();
 
   const longPress = useLongPress({
     onAction: onClick,
-    tickInterval: intervalMs,
+    tickInterval: navAutoRepeatMs,
     disabled,
     // Haptic — мягкая вибрация, помогает почувствовать каждый tick на
     // мобильных. На desktop и iOS — no-op (см. useLongPress).
@@ -81,11 +75,5 @@ export function NavButton({
     >
       {children}
     </button>
-  );
-}
-
-function intervalForSpeed(id: NavAutoRepeatSpeedId): number {
-  return (
-    NAV_AUTO_REPEAT_SPEEDS.find((p) => p.id === id)?.intervalMs ?? 150
   );
 }

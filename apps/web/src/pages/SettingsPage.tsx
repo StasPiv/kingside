@@ -9,8 +9,9 @@ import {
   useBoardSettings,
   BOARD_THEMES,
   PIECE_SETS,
-  NAV_AUTO_REPEAT_SPEEDS,
-  type NavAutoRepeatSpeedId,
+  NAV_AUTO_REPEAT_MS_MIN,
+  NAV_AUTO_REPEAT_MS_MAX,
+  NAV_AUTO_REPEAT_MS_STEP,
 } from '../hooks/useBoardSettings';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
@@ -28,8 +29,8 @@ export function SettingsPage() {
     selectPieceSet,
     autoPromoteToQueen,
     setAutoPromoteToQueen,
-    navAutoRepeatSpeed,
-    setNavAutoRepeatSpeed,
+    navAutoRepeatMs,
+    setNavAutoRepeatMs,
   } = useBoardSettings();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
@@ -223,39 +224,45 @@ export function SettingsPage() {
           </p>
         </div>
 
-        {/* KS-3198: скорость авто-перемотки при long-press на кнопках
-            навигации по ходам (`←` / `→` / `⇤` / `⇥`). Сохраняется в
-            localStorage. Пресеты: Slow (250ms), Medium (150ms), Fast
-            (75ms). См. NAV_AUTO_REPEAT_SPEEDS. */}
+        {/* KS-3198 → KS-3415: скорость авто-перемотки при long-press на
+            кнопках навигации (`←` / `→` / `⇤` / `⇥`). Ползунок в МС
+            (интервал между ходами при удержании), без субъективных
+            ярлыков. Меньше мс = быстрее. Сохраняется в localStorage. */}
         <div
           className="settings-field"
-          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 16 }}
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 16 }}
           data-testid="settings-nav-auto-repeat-speed-field"
         >
           <label htmlFor="nav-auto-repeat-speed">
             {t('settings.navAutoRepeat.label', 'Move navigation auto-repeat speed')}
           </label>
-          <select
-            id="nav-auto-repeat-speed"
-            data-testid="settings-nav-auto-repeat-speed"
-            value={navAutoRepeatSpeed}
-            onChange={(e) =>
-              setNavAutoRepeatSpeed(e.target.value as NavAutoRepeatSpeedId)
-            }
-          >
-            {NAV_AUTO_REPEAT_SPEEDS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {t(
-                  `settings.navAutoRepeat.${preset.id}`,
-                  `${preset.label} (${preset.intervalMs}ms)`,
-                )}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 360 }}>
+            <input
+              id="nav-auto-repeat-speed"
+              type="range"
+              data-testid="settings-nav-auto-repeat-speed"
+              min={NAV_AUTO_REPEAT_MS_MIN}
+              max={NAV_AUTO_REPEAT_MS_MAX}
+              step={NAV_AUTO_REPEAT_MS_STEP}
+              value={navAutoRepeatMs}
+              onChange={(e) => setNavAutoRepeatMs(Number(e.target.value))}
+              aria-valuemin={NAV_AUTO_REPEAT_MS_MIN}
+              aria-valuemax={NAV_AUTO_REPEAT_MS_MAX}
+              aria-valuenow={navAutoRepeatMs}
+              style={{ flex: 1 }}
+            />
+            <span
+              data-testid="settings-nav-auto-repeat-speed-value"
+              aria-live="polite"
+              style={{ minWidth: 64, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+            >
+              {t('settings.navAutoRepeat.msValue', '{{ms}} ms', { ms: navAutoRepeatMs })}
+            </span>
+          </div>
           <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
             {t(
               'settings.navAutoRepeat.hint',
-              'Hold the arrow button to fast-forward through moves. This sets how fast moves advance during hold.',
+              'Hold the arrow button to fast-forward through moves. This sets the interval between moves while holding (lower = faster).',
             )}
           </p>
         </div>

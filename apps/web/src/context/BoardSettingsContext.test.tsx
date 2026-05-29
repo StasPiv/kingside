@@ -67,3 +67,64 @@ describe('BoardSettingsContext.autoPromoteToQueen (KS-2970)', () => {
     expect(result.current.autoPromoteToQueen).toBe(false);
   });
 });
+
+/**
+ * KS-3415 — интервал авто-перемотки теперь хранится в МС (ползунок),
+ * не preset-id. Default 150, клемп [50..500], persist в тот же ключ
+ * `navAutoRepeatSpeed`, backward-compat миграция старых preset-id.
+ */
+const LS_NAV_KEY = 'navAutoRepeatSpeed';
+
+describe('BoardSettingsContext.navAutoRepeatMs (KS-3415)', () => {
+  it('default = 150 мс', () => {
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    expect(result.current.navAutoRepeatMs).toBe(150);
+  });
+
+  it('setNavAutoRepeatMs пишет число в localStorage и обновляет state', () => {
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    act(() => {
+      result.current.setNavAutoRepeatMs(75);
+    });
+    expect(result.current.navAutoRepeatMs).toBe(75);
+    expect(localStorage.getItem(LS_NAV_KEY)).toBe('75');
+  });
+
+  it('setNavAutoRepeatMs клемпит к диапазону [50..500]', () => {
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    act(() => result.current.setNavAutoRepeatMs(10));
+    expect(result.current.navAutoRepeatMs).toBe(50);
+    act(() => result.current.setNavAutoRepeatMs(9999));
+    expect(result.current.navAutoRepeatMs).toBe(500);
+  });
+
+  it('backward-compat: legacy preset-id мапится в intervalMs', () => {
+    localStorage.setItem(LS_NAV_KEY, 'slow'); // 250 мс
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    expect(result.current.navAutoRepeatMs).toBe(250);
+  });
+
+  it('числовое значение из localStorage восстанавливается (с клемпом)', () => {
+    localStorage.setItem(LS_NAV_KEY, '300');
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    expect(result.current.navAutoRepeatMs).toBe(300);
+  });
+
+  it('мусор в localStorage → default 150', () => {
+    localStorage.setItem(LS_NAV_KEY, 'garbage');
+    const { result } = renderHook(() => useBoardSettingsContext(), {
+      wrapper: BoardSettingsProvider,
+    });
+    expect(result.current.navAutoRepeatMs).toBe(150);
+  });
+});

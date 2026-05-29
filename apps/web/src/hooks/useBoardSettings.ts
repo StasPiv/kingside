@@ -7,6 +7,10 @@ export {
   BOARD_SIZES,
   SIDEBAR_FONT_SIZES,
   NAV_AUTO_REPEAT_SPEEDS,
+  NAV_AUTO_REPEAT_MS_MIN,
+  NAV_AUTO_REPEAT_MS_MAX,
+  NAV_AUTO_REPEAT_MS_STEP,
+  NAV_AUTO_REPEAT_MS_DEFAULT,
 } from '../context/BoardSettingsContext';
 export type {
   BoardThemeId,

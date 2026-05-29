@@ -410,10 +410,8 @@
     },
     "navAutoRepeat": {
       "label": "Move navigation auto-repeat speed",
-      "hint": "Hold the arrow button to fast-forward through moves. This sets how fast moves advance during hold.",
-      "slow": "Slow (250ms)",
-      "medium": "Medium (150ms)",
-      "fast": "Fast (75ms)"
+      "hint": "Hold the arrow button to fast-forward through moves. This sets the interval between moves while holding (lower = faster).",
+      "msValue": "{{ms}} ms"
     }
   },
   "lobby": {

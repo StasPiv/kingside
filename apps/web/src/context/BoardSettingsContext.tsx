@@ -81,6 +81,17 @@ export const NAV_AUTO_REPEAT_SPEEDS: NavAutoRepeatSpeedPreset[] = [
 ];
 
 /**
+ * KS-3415: скорость авто-повтора задаётся ползунком в МИЛЛИСЕКУНДАХ
+ * (интервал между «тиками» при удержании стрелки), без субъективных
+ * ярлыков. Меньше мс = быстрее. Диапазон покрывает прежние пресеты
+ * (fast 75 / medium 150 / slow 250) с запасом: 50..500 мс, шаг 25.
+ */
+export const NAV_AUTO_REPEAT_MS_MIN = 50;
+export const NAV_AUTO_REPEAT_MS_MAX = 500;
+export const NAV_AUTO_REPEAT_MS_STEP = 25;
+export const NAV_AUTO_REPEAT_MS_DEFAULT = 150;
+
+/**
  * KS-3099: размер шрифта правой панели анализа (Stockfish/нотация/
  * «База партий»). Аналогично `boardSize`: переключатель S/M/L пишет
  * `data-sidebar-font-size` на body, CSS-переменная
@@ -353,23 +364,36 @@ function readAutoPromoteToQueen(): boolean {
   }
 }
 
+/** KS-3415: клемп мс к диапазону [MIN, MAX] (без привязки к шагу — шаг
+ *  только для UI-слайдера; вручную сохранённые значения принимаем как есть). */
+function clampNavAutoRepeatMs(ms: number): number {
+  return Math.max(
+    NAV_AUTO_REPEAT_MS_MIN,
+    Math.min(NAV_AUTO_REPEAT_MS_MAX, Math.round(ms)),
+  );
+}
+
 /**
- * KS-3198: чтение navAutoRepeatSpeed. Default 'medium' (150ms).
- * Если в localStorage лежит мусор (например legacy-ключ из другой
- * сборки) — fallback на default, как и остальные read* функции.
+ * KS-3198 → KS-3415: чтение интервала авто-повтора в МС. Default 150.
+ * Backward-compat: если в localStorage лежит старый preset-id
+ * ('slow'|'medium'|'fast') — мапим в его intervalMs; если число — клемпим
+ * к диапазону; иначе default. Тот же ключ `navAutoRepeatSpeed`.
  */
-function readNavAutoRepeatSpeed(): NavAutoRepeatSpeedId {
+function readNavAutoRepeatMs(): number {
   try {
-    const stored = localStorage.getItem(
-      LS_NAV_AUTO_REPEAT_SPEED_KEY,
-    ) as NavAutoRepeatSpeedId | null;
-    if (stored && NAV_AUTO_REPEAT_SPEEDS.some((s) => s.id === stored)) {
-      return stored;
+    const stored = localStorage.getItem(LS_NAV_AUTO_REPEAT_SPEED_KEY);
+    if (stored != null) {
+      // Legacy preset-id?
+      const preset = NAV_AUTO_REPEAT_SPEEDS.find((s) => s.id === stored);
+      if (preset) return preset.intervalMs;
+      // Число (мс)?
+      const n = Number(stored);
+      if (Number.isFinite(n) && n > 0) return clampNavAutoRepeatMs(n);
     }
   } catch {
     /* ignore */
   }
-  return 'medium';
+  return NAV_AUTO_REPEAT_MS_DEFAULT;
 }
 
 type PieceRenderer = (props?: {
@@ -414,8 +438,8 @@ interface BoardSettingsContextValue {
   sidebarFontSize: SidebarFontSizeId;
   /** KS-2970: автопромоушн в ферзя в режиме игры. */
   autoPromoteToQueen: boolean;
-  /** KS-3198: скорость long-press авто-повтора навигации по ходам. */
-  navAutoRepeatSpeed: NavAutoRepeatSpeedId;
+  /** KS-3415: интервал (мс) long-press авто-повтора навигации по ходам. */
+  navAutoRepeatMs: number;
   selectTheme: (id: BoardThemeId) => void;
   selectPieceSet: (id: PieceSetId) => void;
   setShowNotation: (value: boolean) => void;
@@ -423,7 +447,7 @@ interface BoardSettingsContextValue {
   setBoardSize: (size: BoardSizeId) => void;
   setSidebarFontSize: (size: SidebarFontSizeId) => void;
   setAutoPromoteToQueen: (value: boolean) => void;
-  setNavAutoRepeatSpeed: (id: NavAutoRepeatSpeedId) => void;
+  setNavAutoRepeatMs: (ms: number) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
   darkSquareStyle: React.CSSProperties;
@@ -444,8 +468,8 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [autoPromoteToQueen, setAutoPromoteToQueenState] = useState<boolean>(
     readAutoPromoteToQueen,
   );
-  const [navAutoRepeatSpeed, setNavAutoRepeatSpeedState] =
-    useState<NavAutoRepeatSpeedId>(readNavAutoRepeatSpeed);
+  const [navAutoRepeatMs, setNavAutoRepeatMsState] =
+    useState<number>(readNavAutoRepeatMs);
 
   useEffect(() => {
     document.body.setAttribute('data-board-theme', boardTheme);
@@ -518,17 +542,18 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * KS-3198: setter навAutoRepeatSpeed с persist в localStorage.
-   * Падение setItem (Safari Private Mode, переполненный storage) не
-   * блокирует обновление state — UI всё равно меняется.
+   * KS-3415: setter интервала авто-повтора (мс) с persist в localStorage
+   * (тот же ключ). Клемпим к [MIN, MAX]. Падение setItem (Safari Private
+   * Mode, переполненный storage) не блокирует обновление state.
    */
-  const setNavAutoRepeatSpeed = useCallback((id: NavAutoRepeatSpeedId) => {
+  const setNavAutoRepeatMs = useCallback((ms: number) => {
+    const clamped = clampNavAutoRepeatMs(ms);
     try {
-      localStorage.setItem(LS_NAV_AUTO_REPEAT_SPEED_KEY, id);
+      localStorage.setItem(LS_NAV_AUTO_REPEAT_SPEED_KEY, String(clamped));
     } catch {
       /* ignore */
     }
-    setNavAutoRepeatSpeedState(id);
+    setNavAutoRepeatMsState(clamped);
   }, []);
 
   const currentTheme = useMemo(
@@ -560,7 +585,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardSize,
       sidebarFontSize,
       autoPromoteToQueen,
-      navAutoRepeatSpeed,
+      navAutoRepeatMs,
       selectTheme,
       selectPieceSet,
       setShowNotation,
@@ -568,7 +593,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       setBoardSize,
       setSidebarFontSize,
       setAutoPromoteToQueen,
-      setNavAutoRepeatSpeed,
+      setNavAutoRepeatMs,
       currentTheme,
       customPieces,
       darkSquareStyle,
@@ -582,7 +607,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardSize,
       sidebarFontSize,
       autoPromoteToQueen,
-      navAutoRepeatSpeed,
+      navAutoRepeatMs,
       selectTheme,
       selectPieceSet,
       setShowNotation,
@@ -590,7 +615,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       setBoardSize,
       setSidebarFontSize,
       setAutoPromoteToQueen,
-      setNavAutoRepeatSpeed,
+      setNavAutoRepeatMs,
       currentTheme,
       customPieces,
       darkSquareStyle,
