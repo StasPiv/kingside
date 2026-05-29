@@ -14,22 +14,48 @@ import {
 // Хелпер: raw WDL POV side-to-move.
 const wdl = (w: number, d: number, l: number) => ({ w, d, l });
 
-describe('decideVerdict (ADR-086 §3.5)', () => {
-  it('lossUser ≤ best-порог → strongest', () => {
-    expect(decideVerdict(0.0, 0.0)).toBe('strongest');
+describe('decideVerdict (ADR-086 §3.5, KS-3426 переупорядочено)', () => {
+  // KS-3426: asPlayer ПРИОРИТЕТ — если оба сыграли близко, неважно
+  // идеально ли. strongest требует юзер идеален И реальный заметно хуже.
+
+  it('KS-3426: оба идеальны (lossUser=0, lossPlayer=0.001) → asPlayer, НЕ strongest', () => {
+    // Главный баг: дебютные топ-ходы. |0 − 0.001| = 0.001 ≤ 0.02 → asPlayer.
+    expect(decideVerdict(0, 0.001)).toBe('asPlayer');
+  });
+
+  it('KS-3426: оба строго ноль → asPlayer', () => {
+    expect(decideVerdict(0, 0)).toBe('asPlayer');
+  });
+
+  it('strongest: юзер идеален И реальный заметно хуже', () => {
+    // |0 − 0.10| = 0.10 > 0.02 → не asPlayer; lossUser(0)≤0.02 И
+    // lossPlayer(0.10) − lossUser(0) = 0.10 > 0.02 → strongest.
+    expect(decideVerdict(0, 0.10)).toBe('strongest');
+    // Граница: lossUser=0.02 (на пороге), lossPlayer=0.30 → strongest.
     expect(decideVerdict(0.02, 0.30)).toBe('strongest');
   });
-  it('lossUser заметно меньше игрока → betterThanPlayer', () => {
-    // lossUser=0.05, lossPlayer=0.30 → 0.05 < 0.30−0.02 → betterThanPlayer
+
+  it('strongest НЕ срабатывает если разница ≤ ε (хоть юзер и идеален)', () => {
+    // lossUser=0, lossPlayer=0.02 → |0−0.02|=0.02 ≤ 0.02 → asPlayer.
+    expect(decideVerdict(0, 0.02)).toBe('asPlayer');
+    // lossUser=0, lossPlayer=0.025 → |0.025|>0.02 → не asPlayer;
+    // 0.025-0=0.025 > 0.02 → strongest (минимально-возможный strongest).
+    expect(decideVerdict(0, 0.025)).toBe('strongest');
+  });
+
+  it('betterThanPlayer: юзер не строго идеален, но заметно лучше реального', () => {
+    // lossUser=0.05 > ε → не strongest. |0.05−0.30|=0.25>0.02 → не asPlayer.
+    // 0.05 < 0.30−0.02 = 0.28 → betterThanPlayer.
     expect(decideVerdict(0.05, 0.30)).toBe('betterThanPlayer');
   });
-  it('|lossUser − lossPlayer| ≤ ε → asPlayer', () => {
+
+  it('asPlayer: разница в пределах ε (включая большие loss)', () => {
     expect(decideVerdict(0.10, 0.10)).toBe('asPlayer');
-    // разница 0.01 < ε (0.02) — явно внутри окна «как игрок».
     expect(decideVerdict(0.10, 0.11)).toBe('asPlayer');
     expect(decideVerdict(0.11, 0.10)).toBe('asPlayer');
   });
-  it('lossUser больше игрока → weaker', () => {
+
+  it('weaker: юзер хуже реального', () => {
     expect(decideVerdict(0.30, 0.05)).toBe('weaker');
   });
 });
@@ -39,22 +65,24 @@ describe('compareGuessMove — выбранная сторона WHITE', () => {
   // eBefore высокий (белые выигрывают), после хода смотрим.
   const bestUci = 'd1h5';
 
-  it('пользователь нашёл сильнейший (userUci===bestUci, loss≈0) → strongest', () => {
+  it('пользователь нашёл сильнейший (lossUser≈0, реальный заметно хуже) → strongest', () => {
     const evals: GuessMoveEvals = {
       wdlBefore: wdl(900, 80, 20), // POV white: E≈0.94
-      // реальный ход слабее: после него POV black {w:600,...} → POV white E≈0.32 (инверт)
+      // реальный заметно хуже: POV black (600,200,200) → POV white invert
+      // (200,200,600) E=0.30; lossPlayer=0.64.
       wdlAfterPlayed: wdl(600, 200, 200),
-      // ход юзера = best: после него POV black {w:80,d:80,l:840} → POV white E≈0.88
-      wdlAfterUser: wdl(80, 80, 840),
+      // юзер ≥ best: POV black (30,40,930) → POV white invert (930,40,30)
+      // E=(930+20)/1000=0.95; lossUser=max(0,0.94−0.95)=0.
+      wdlAfterUser: wdl(30, 40, 930),
       bestUci,
     };
     const r = compareGuessMove('e2e4', bestUci, evals);
-    // eBefore≈0.94, eAfterUser = invert(80,80,840)=POV white(840,80,80) E=(840+40)/1000=0.88
     expect(r.eBefore).toBeCloseTo(0.94, 2);
-    expect(r.eAfterUser).toBeCloseTo(0.88, 2);
-    expect(r.lossUser).toBeLessThanOrEqual(0.07);
-    // lossUser ~0.06 > best(0.02) → не strongest по loss; но best-override
-    // classifyMove даёт userClass='best' (userUci===bestUci).
+    expect(r.eAfterUser).toBeCloseTo(0.95, 2);
+    expect(r.lossUser).toBeLessThanOrEqual(0.02);
+    // KS-3426: strongest требует lossUser≤ε И (lossPlayer−lossUser)>ε.
+    expect(r.verdict).toBe('strongest');
+    // best-override classifyMove (userUci===bestUci) → userClass='best'.
     expect(r.userClass).toBe('best');
   });
 
@@ -72,7 +100,7 @@ describe('compareGuessMove — выбранная сторона WHITE', () => {
     expect(r.verdict).toBe('betterThanPlayer');
   });
 
-  it('пользователь сыграл как игрок (userUci===playedUci, wdlAfterUser опущен)', () => {
+  it('пользователь сыграл как игрок (userUci===playedUci, wdlAfterUser опущен) → asPlayer', () => {
     const evals: GuessMoveEvals = {
       wdlBefore: wdl(500, 300, 200),
       wdlAfterPlayed: wdl(400, 300, 300),
@@ -82,8 +110,8 @@ describe('compareGuessMove — выбранная сторона WHITE', () => {
     const r = compareGuessMove('e2e4', 'e2e4', evals);
     expect(r.lossUser).toBeCloseTo(r.lossPlayer, 5);
     expect(r.eAfterUser).toBeCloseTo(r.eAfterPlayed, 5);
-    // loss равны → asPlayer (если оба не ≤ best). Проверим loss.
-    expect(['asPlayer', 'strongest']).toContain(r.verdict);
+    // KS-3426: при равных loss всегда asPlayer (в т.ч. когда оба=0).
+    expect(r.verdict).toBe('asPlayer');
   });
 
   it('пользователь сыграл слабее → weaker', () => {

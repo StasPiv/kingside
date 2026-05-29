@@ -139,13 +139,35 @@ export function compareGuessMove(
   };
 }
 
-/** ADR-086 §3.5 — вердикт по двум loss-значениям. */
+/**
+ * ADR-086 §3.5 — вердикт по двум loss-значениям.
+ *
+ * KS-3426: переупорядочены проверки. Раньше первая ветка
+ * `lossUser ≤ ε → strongest` короткозамыкала ещё ДО сравнения с
+ * реальным игроком — поэтому при дебютных топ-ходах (lossUser=0,
+ * lossPlayer≈0) выдавался `strongest` вместо «равно». Сейчас сначала
+ * проверяется близость к реальному ходу, и `strongest` требует, чтобы
+ * пользовательский ход был идеальным И реальный ход был заметно хуже.
+ *
+ * Семантика:
+ *  - `asPlayer`        — оба сыграли примерно одинаково (включая оба
+ *                        идеальных). Приоритет.
+ *  - `strongest`       — пользователь идеален И реальный заметно хуже.
+ *  - `betterThanPlayer`— пользователь лучше реального, но не строго
+ *                        идеален.
+ *  - `weaker`          — пользователь хуже реального.
+ */
 export function decideVerdict(
   lossUser: number,
   lossPlayer: number,
 ): GuessVerdict {
-  if (lossUser <= WDL_LOSS_THRESHOLDS.best) return 'strongest';
-  if (lossUser < lossPlayer - GUESS_VERDICT_EPSILON) return 'betterThanPlayer';
   if (Math.abs(lossUser - lossPlayer) <= GUESS_VERDICT_EPSILON) return 'asPlayer';
+  if (
+    lossUser <= WDL_LOSS_THRESHOLDS.best &&
+    lossPlayer - lossUser > GUESS_VERDICT_EPSILON
+  ) {
+    return 'strongest';
+  }
+  if (lossUser < lossPlayer - GUESS_VERDICT_EPSILON) return 'betterThanPlayer';
   return 'weaker';
 }
