@@ -424,6 +424,28 @@
       "msValue": "{{ms}} мс"
     }
   },
+  "guess": {
+    "loading": "Загрузка движка…",
+    "opponentMove": "Соперник ходит…",
+    "analyzing": "Анализ позиции…",
+    "yourMove": "Ваш ход — угадайте, что было сыграно.",
+    "analyzingMove": "Проверяем ваш ход…",
+    "continue": "Дальше →",
+    "finished": "Партия завершена.",
+    "verdict": {
+      "strongest": "Вы нашли сильнейший ход!",
+      "betterThanPlayer": "Сильнее, чем в партии!",
+      "asPlayer": "Как в партии.",
+      "weaker": "Слабее, чем в партии."
+    },
+    "class": {
+      "best": "Лучший",
+      "good": "Хороший",
+      "inaccuracy": "Неточность",
+      "mistake": "Ошибка",
+      "blunder": "Зевок"
+    }
+  },
   "lobby": {
     "title": "Лобби",
     "rating": "Рейтинг: {{rating}}",

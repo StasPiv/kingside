@@ -414,6 +414,28 @@
       "msValue": "{{ms}} ms"
     }
   },
+  "guess": {
+    "loading": "Loading engine…",
+    "opponentMove": "Opponent is moving…",
+    "analyzing": "Analyzing position…",
+    "yourMove": "Your move — guess what was played.",
+    "analyzingMove": "Checking your move…",
+    "continue": "Continue →",
+    "finished": "Game finished.",
+    "verdict": {
+      "strongest": "You found the strongest move!",
+      "betterThanPlayer": "Stronger than the game move!",
+      "asPlayer": "Same as the game move.",
+      "weaker": "Weaker than the game move."
+    },
+    "class": {
+      "best": "Best",
+      "good": "Good",
+      "inaccuracy": "Inaccuracy",
+      "mistake": "Mistake",
+      "blunder": "Blunder"
+    }
+  },
   "lobby": {
     "title": "Lobby",
     "rating": "Rating: {{rating}}",
