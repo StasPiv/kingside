@@ -5,6 +5,17 @@ import { act } from '@testing-library/react';
 
 // --- Mocks ---
 
+// KS-3421: существующие интеграционные тесты привязаны к testid'ам
+// legacy overflow-меню (analysis-copy-pgn-overflow, …). Новый
+// `AnalysisActionsMenu` покрыт собственным юнитом
+// (AnalysisActionsMenu.test.tsx). Здесь выключаем гейт V2, чтобы
+// legacy-меню продолжило рендериться и старые сценарии не
+// разъезжались. Когда переведём интеграционные тесты на новый
+// items-source — этот mock уйдёт.
+vi.mock('../config/analysisActionsMenu', () => ({
+  ANALYSIS_ACTIONS_MENU_V2_ENABLED: false,
+}));
+
 // AnalysisPage reads `useAuth()` at render time; the test harness does not
 // mount AuthProvider, so provide a stub that returns an unauthenticated user.
 vi.mock('../context/AuthContext', () => ({

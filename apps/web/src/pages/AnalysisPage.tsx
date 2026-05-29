@@ -62,6 +62,14 @@ import { AnalysisHeader } from './analysis/AnalysisHeader';
 // `initialPgn` + `autoStart` — то же окно с прогрессом и пост-flow
 // (My drafts / Publish all), что и в разделе «Тренировка точности».
 import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
+// KS-3421 (ADR-087 §8 F1): единое меню действий с двумя режимами
+// (dropdown / bottom-sheet) и общим items-source. Активируется
+// build-time гейтом `ANALYSIS_ACTIONS_MENU_V2_ENABLED`.
+import {
+  AnalysisActionsMenu,
+  type AnalysisActionItem,
+} from '../components/analysis/AnalysisActionsMenu';
+import { ANALYSIS_ACTIONS_MENU_V2_ENABLED } from '../config/analysisActionsMenu';
 // KS-2864 (ADR-060 §10.1 FR2): извлечённый board-area — GameMetaBar +
 // EvalBar + Chessboard + promotion-overlay + VariationChooser.
 // useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
@@ -168,6 +176,225 @@ interface AnalysisPageProps {
    */
   embedded?: boolean;
   embeddedPgn?: string;
+}
+
+/**
+ * KS-3421 (ADR-087 §8 F1). Сборка items-source для нового
+ * AnalysisActionsMenu из контекста AnalysisPage. Один источник правды
+ * по 10 пунктам в 4 группах:
+ *   gamePosition: setPosition (FEN), gameInfo, findByPosition
+ *   pgn:          exportPgn, copyPgn
+ *   training:     generatePuzzle, guessMoves, useAsRepertoire, addToExistingRepertoire
+ *   sharing:      share
+ *
+ * Auth-gating для гостя (вариант Б из ADR-087): пункты, требующие
+ * `user`, не скрываются — рендерятся `disabled + hint` «Войдите».
+ * Для зарегистрированных НЕ-владельцев чужого анализа пункты
+ * по-прежнему скрываются (`visible: false`) — раздавать чужой Share
+ * и create-from-foreign-repertoire бессмысленно.
+ */
+type BuildItemsContext = {
+  t: (key: string, def?: string) => string;
+  gameId: string | undefined;
+  navigate: (to: string, opts?: { state?: unknown }) => void;
+  currentFen: string;
+  historyLen: number;
+  kind: 'analysis' | 'review' | 'puzzle';
+  publicMode: boolean;
+  user: { id: string } | null;
+  localIdRef: { current: string | null };
+  savedOwnerId: string | null;
+  creatingRepertoire: boolean;
+  repertoires: ReadonlyArray<OpeningRepertoireWithStatsDto> | null;
+  repertoiresLoading: boolean;
+  analysisTitle: string;
+  buildAnalysisPgn: () => string | null;
+  handleExportPgn: () => void;
+  handleCopyPgn: () => Promise<void> | void;
+  setShowSetPosition: (v: boolean) => void;
+  setShowPgnHeaders: (v: boolean) => void;
+  setPuzzleGenPgn: (pgn: string) => void;
+  setShowPuzzleGen: (v: boolean) => void;
+  setSidePickerOpen: (v: boolean) => void;
+  setAddToRepertoireOpen: (v: boolean) => void;
+  shareButtonRef: { current: ShareAnalysisButtonHandle | null };
+};
+
+function buildAnalysisActionsItems(
+  ctx: BuildItemsContext,
+): AnalysisActionItem[] {
+  const {
+    t,
+    gameId,
+    navigate,
+    currentFen,
+    historyLen,
+    kind,
+    publicMode,
+    user,
+    localIdRef,
+    savedOwnerId,
+    creatingRepertoire,
+    repertoires,
+    repertoiresLoading,
+    analysisTitle,
+    buildAnalysisPgn,
+    handleExportPgn,
+    handleCopyPgn,
+    setShowSetPosition,
+    setShowPgnHeaders,
+    setPuzzleGenPgn,
+    setShowPuzzleGen,
+    setSidePickerOpen,
+    setAddToRepertoireOpen,
+    shareButtonRef,
+  } = ctx;
+
+  const isOwner =
+    !!user && !publicMode && !!localIdRef.current && savedOwnerId === user.id;
+  // Guest = нет user. Для зарегистрированного не-владельца скрываем
+  // owner-only пункты целиком; для гостя — disabled+tooltip (вариант Б).
+  const isGuest = !user;
+  const guestDisabledHint = t(
+    'analysis.actionsMenu.signInHint',
+    'Sign in to use this action.',
+  );
+  const emptyHistory = historyLen === 0;
+  const items: AnalysisActionItem[] = [];
+
+  // — gamePosition —
+  if (!gameId) {
+    items.push({
+      id: 'set-position',
+      group: 'gamePosition',
+      label: `${t('position.title', 'Set Position')} (FEN)`,
+      onClick: () => setShowSetPosition(true),
+    });
+    items.push({
+      id: 'game-info',
+      group: 'gamePosition',
+      label: t('analysis.gameInfo', 'Game Info'),
+      onClick: () => setShowPgnHeaders(true),
+    });
+  }
+  items.push({
+    id: 'find-by-position',
+    group: 'gamePosition',
+    label: t('analysis.findByPosition', 'Find games with this position'),
+    onClick: () =>
+      navigate(`/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo`),
+  });
+
+  // — pgn —
+  items.push({
+    id: 'export-pgn',
+    group: 'pgn',
+    label: t('review.exportPgn', 'Export PGN'),
+    onClick: () => handleExportPgn(),
+    disabled: emptyHistory,
+  });
+  items.push({
+    id: 'copy-pgn',
+    group: 'pgn',
+    label: t('review.copyPgn', 'Copy PGN to clipboard'),
+    onClick: () => void handleCopyPgn(),
+    disabled: emptyHistory,
+  });
+
+  // — training —
+  if (kind === 'analysis' || kind === 'review') {
+    items.push({
+      id: 'generate-puzzle',
+      group: 'training',
+      label: t('analysis.generatePuzzle', 'Generate puzzle'),
+      onClick: () => {
+        const pgn = buildAnalysisPgn();
+        if (!pgn) return;
+        setPuzzleGenPgn(pgn);
+        setShowPuzzleGen(true);
+      },
+      disabled: emptyHistory,
+    });
+  }
+  items.push({
+    id: 'guess-moves',
+    group: 'training',
+    label: t('analysis.guessMoves', 'Guess the moves'),
+    onClick: () => {
+      const pgn = buildAnalysisPgn();
+      if (!pgn) return;
+      navigate('/guess', {
+        state: { pgn, title: analysisTitle || undefined },
+      });
+    },
+    disabled: emptyHistory,
+  });
+  // Auth-only пункты: useAs / addTo / share.
+  if (kind === 'analysis' && historyLen > 0 && !publicMode) {
+    const useAsVisible = isGuest || isOwner;
+    if (useAsVisible) {
+      items.push({
+        id: 'use-as-repertoire',
+        group: 'training',
+        label: creatingRepertoire
+          ? t('analysis.useAsRepertoire.creating', 'Creating…')
+          : t('analysis.useAsRepertoire.menuItem', 'Use as new repertoire'),
+        onClick: () => setSidePickerOpen(true),
+        disabled: isGuest || creatingRepertoire,
+        disabledHint: isGuest ? guestDisabledHint : undefined,
+      });
+    }
+    const addToVisible = isGuest || isOwner;
+    if (addToVisible) {
+      const emptyRepertoires =
+        repertoires !== null && repertoires.length === 0;
+      items.push({
+        id: 'add-to-repertoire',
+        group: 'training',
+        label: repertoiresLoading
+          ? t(
+              'analysis.useAsRepertoire.addToExistingLoading',
+              'Loading repertoires…',
+            )
+          : t(
+              'analysis.useAsRepertoire.addToExistingMenuItem',
+              'Add to existing repertoire…',
+            ),
+        onClick: () => setAddToRepertoireOpen(true),
+        disabled:
+          isGuest || repertoiresLoading || emptyRepertoires,
+        disabledHint: isGuest
+          ? guestDisabledHint
+          : emptyRepertoires
+            ? t(
+                'analysis.useAsRepertoire.addToExistingEmpty',
+                'You have no repertoires yet',
+              )
+            : undefined,
+      });
+    }
+  }
+
+  // — sharing —
+  const shareVisible =
+    !publicMode && (isGuest || (isOwner && !!localIdRef.current));
+  if (shareVisible) {
+    items.push({
+      id: 'share',
+      group: 'sharing',
+      label: t('analysis.share.menuItem', 'Share'),
+      onClick: () => {
+        // Открыть в следующем тике — даём dropdown/sheet закрыться раньше.
+        window.setTimeout(() => {
+          shareButtonRef.current?.open();
+        }, 0);
+      },
+      disabled: isGuest,
+      disabledHint: isGuest ? guestDisabledHint : undefined,
+    });
+  }
+
+  return items;
 }
 
 export function AnalysisPage({
@@ -1883,190 +2110,185 @@ function AnalysisPageInner({
                     onPublicChanged={setSavedIsPublic}
                   />
                 )}
-              {showOverflowMenu && (
-                <div className="analysis-overflow-menu">
-                  {!gameId && (
-                    <>
-                      <button onClick={() => { setShowSetPosition(true); setShowOverflowMenu(false); }}>
-                        {t('position.title', 'Set Position')} (FEN)
+              {/* KS-3421 (ADR-087 §8 F1): новое единое меню действий
+                  с двумя режимами (dropdown desktop / bottom-sheet
+                  mobile) поверх общего items-source. За гейтом
+                  ANALYSIS_ACTIONS_MENU_V2_ENABLED. При откате (флип
+                  гейта в false + redeploy) ниже рендерится legacy
+                  overflow с тем же набором пунктов. */}
+              {ANALYSIS_ACTIONS_MENU_V2_ENABLED ? (
+                <AnalysisActionsMenu
+                  open={showOverflowMenu}
+                  onClose={() => setShowOverflowMenu(false)}
+                  items={buildAnalysisActionsItems({
+                    t,
+                    gameId,
+                    navigate,
+                    currentFen,
+                    historyLen: history.length,
+                    kind: ctx.kind,
+                    publicMode,
+                    user,
+                    localIdRef,
+                    savedOwnerId,
+                    creatingRepertoire,
+                    repertoires,
+                    repertoiresLoading,
+                    analysisTitle,
+                    buildAnalysisPgn,
+                    handleExportPgn,
+                    handleCopyPgn,
+                    setShowSetPosition,
+                    setShowPgnHeaders,
+                    setPuzzleGenPgn,
+                    setShowPuzzleGen,
+                    setSidePickerOpen,
+                    setAddToRepertoireOpen,
+                    shareButtonRef,
+                  })}
+                />
+              ) : (
+                showOverflowMenu && (
+                  <div className="analysis-overflow-menu">
+                    {!gameId && (
+                      <>
+                        <button onClick={() => { setShowSetPosition(true); setShowOverflowMenu(false); }}>
+                          {t('position.title', 'Set Position')} (FEN)
+                        </button>
+                        <button onClick={() => { setShowPgnHeaders(true); setShowOverflowMenu(false); }}>
+                          {t('analysis.gameInfo', 'Game Info')}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => {
+                        navigate(
+                          `/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo`,
+                        );
+                        setShowOverflowMenu(false);
+                      }}
+                      data-testid="analysis-find-by-position-overflow"
+                    >
+                      {t('analysis.findByPosition', 'Find games with this position')}
+                    </button>
+                    <button
+                      onClick={() => { handleExportPgn(); setShowOverflowMenu(false); }}
+                      disabled={history.length === 0}
+                    >
+                      {t('review.exportPgn', 'Export PGN')}
+                    </button>
+                    <button
+                      onClick={() => { void handleCopyPgn(); setShowOverflowMenu(false); }}
+                      disabled={history.length === 0}
+                      data-testid="analysis-copy-pgn-overflow"
+                    >
+                      {t('review.copyPgn', 'Copy PGN to clipboard')}
+                    </button>
+                    {(ctx.kind === 'analysis' || ctx.kind === 'review') && (
+                      <button
+                        onClick={() => {
+                          const pgn = buildAnalysisPgn();
+                          if (!pgn) return;
+                          setPuzzleGenPgn(pgn);
+                          setShowPuzzleGen(true);
+                          setShowOverflowMenu(false);
+                        }}
+                        disabled={history.length === 0}
+                        data-testid="analysis-generate-puzzle-overflow"
+                      >
+                        {t('analysis.generatePuzzle', 'Generate puzzle')}
                       </button>
-                      <button onClick={() => { setShowPgnHeaders(true); setShowOverflowMenu(false); }}>
-                        {t('analysis.gameInfo', 'Game Info')}
-                      </button>
-                    </>
-                  )}
-                  {/* KS-3082: явный CTA «Найти партии с этой позицией».
-                      Открывает архив в by-position режиме с уже
-                      подставленным fen-фильтром. ArchiveTreePanel ниже
-                      тоже имеет ссылку «View N games», но она видна
-                      только когда в позиции есть статистика партий и
-                      panel не collapsed — этот пункт меню работает
-                      всегда (даже на новых позициях). */}
-                  <button
-                    onClick={() => {
-                      // KS-3084: after by-position layout слит с обычным
-                      // metadata-режимом, fen — обычный фильтр в
-                      // ArchiveMetadataFilterValues. `bucket=master` больше
-                      // не нужен; `sort=topElo` оставляем как UX-default
-                      // для поиска по позиции — сильнейшие партии сверху.
-                      navigate(
-                        `/archive?fen=${encodeURIComponent(currentFen)}&sort=topElo`,
-                      );
-                      setShowOverflowMenu(false);
-                    }}
-                    data-testid="analysis-find-by-position-overflow"
-                  >
-                    {t('analysis.findByPosition', 'Find games with this position')}
-                  </button>
-                  <button
-                    onClick={() => { handleExportPgn(); setShowOverflowMenu(false); }}
-                    disabled={history.length === 0}
-                  >
-                    {t('review.exportPgn', 'Export PGN')}
-                  </button>
-                  {/* KS-2220: «Copy PGN» в overflow-меню (mobile). */}
-                  <button
-                    onClick={() => { void handleCopyPgn(); setShowOverflowMenu(false); }}
-                    disabled={history.length === 0}
-                    data-testid="analysis-copy-pgn-overflow"
-                  >
-                    {t('review.copyPgn', 'Copy PGN to clipboard')}
-                  </button>
-                  {/* KS-2958: «Сгенерировать пазл» — только для kind=analysis|review.
-                      В puzzle скрыто (там нет смысла). Открывает основной
-                      PuzzleGeneratorModal с PGN текущей партии и
-                      autoStart=true — то же окно с прогрессом и пост-flow
-                      «My drafts» / «Publish all», что и в разделе
-                      «Тренировка точности», только без ручного ввода PGN
-                      (он подставляется автоматически). */}
-                  {(ctx.kind === 'analysis' || ctx.kind === 'review') && (
+                    )}
                     <button
                       onClick={() => {
                         const pgn = buildAnalysisPgn();
                         if (!pgn) return;
-                        setPuzzleGenPgn(pgn);
-                        setShowPuzzleGen(true);
                         setShowOverflowMenu(false);
+                        navigate('/guess', {
+                          state: { pgn, title: analysisTitle || undefined },
+                        });
                       }}
                       disabled={history.length === 0}
-                      data-testid="analysis-generate-puzzle-overflow"
+                      data-testid="analysis-guess-moves-overflow"
                     >
-                      {t('analysis.generatePuzzle', 'Generate puzzle')}
+                      {t('analysis.guessMoves', 'Guess the moves')}
                     </button>
-                  )}
-                  {/* KS-3413 (ADR-086): «Угадай ходы» — отправляет PGN
-                      текущего анализа на /guess. Виден везде, где есть
-                      сыгранные ходы (включая puzzle-kind с разобранной
-                      позицией). Это основная точка входа в режим из UX
-                      «архив через анализ» — ArchiveGamePage пользователь
-                      обычно не открывает. */}
-                  <button
-                    onClick={() => {
-                      const pgn = buildAnalysisPgn();
-                      if (!pgn) return;
-                      setShowOverflowMenu(false);
-                      navigate('/guess', {
-                        state: { pgn, title: analysisTitle || undefined },
-                      });
-                    }}
-                    disabled={history.length === 0}
-                    data-testid="analysis-guess-moves-overflow"
-                  >
-                    {t('analysis.guessMoves', 'Guess the moves')}
-                  </button>
-                  {/* KS-3299 (M2 F5): «Использовать как репертуар».
-                      Виден только для своих анализов (savedOwnerId ===
-                      user.id) с непустым PGN (history.length > 0).
-                      Не показываем в publicMode, puzzle / в read-only
-                      view чужой shared-ссылки. */}
-                  {!publicMode &&
-                    user &&
-                    localIdRef.current &&
-                    savedOwnerId === user.id &&
-                    ctx.kind === 'analysis' &&
-                    history.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setShowOverflowMenu(false);
-                          // KS-3302: открываем picker стороны вместо
-                          // прямого вызова — side фиксируется при
-                          // создании репертуара.
-                          setSidePickerOpen(true);
-                        }}
-                        disabled={creatingRepertoire}
-                        data-testid="analysis-use-as-repertoire"
-                      >
-                        {creatingRepertoire
-                          ? t('analysis.useAsRepertoire.creating', 'Creating…')
-                          : t(
-                              'analysis.useAsRepertoire.menuItem',
-                              'Use as new repertoire',
-                            )}
-                      </button>
-                    )}
-                  {/* KS-3331 (ADR-078 §5.3): «Добавить в существующий
-                      репертуар…». Те же условия видимости, что у «Use as
-                      new». Пункт disabled, пока репертуары грузятся или
-                      если их нет (тултип). Клик → модалка со списком. */}
-                  {!publicMode &&
-                    user &&
-                    localIdRef.current &&
-                    savedOwnerId === user.id &&
-                    ctx.kind === 'analysis' &&
-                    history.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setShowOverflowMenu(false);
-                          setAddToRepertoireOpen(true);
-                        }}
-                        disabled={
-                          repertoiresLoading ||
-                          (repertoires !== null && repertoires.length === 0)
-                        }
-                        title={
-                          repertoires !== null && repertoires.length === 0
+                    {!publicMode &&
+                      user &&
+                      localIdRef.current &&
+                      savedOwnerId === user.id &&
+                      ctx.kind === 'analysis' &&
+                      history.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setShowOverflowMenu(false);
+                            setSidePickerOpen(true);
+                          }}
+                          disabled={creatingRepertoire}
+                          data-testid="analysis-use-as-repertoire"
+                        >
+                          {creatingRepertoire
+                            ? t('analysis.useAsRepertoire.creating', 'Creating…')
+                            : t(
+                                'analysis.useAsRepertoire.menuItem',
+                                'Use as new repertoire',
+                              )}
+                        </button>
+                      )}
+                    {!publicMode &&
+                      user &&
+                      localIdRef.current &&
+                      savedOwnerId === user.id &&
+                      ctx.kind === 'analysis' &&
+                      history.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setShowOverflowMenu(false);
+                            setAddToRepertoireOpen(true);
+                          }}
+                          disabled={
+                            repertoiresLoading ||
+                            (repertoires !== null && repertoires.length === 0)
+                          }
+                          title={
+                            repertoires !== null && repertoires.length === 0
+                              ? t(
+                                  'analysis.useAsRepertoire.addToExistingEmpty',
+                                  'You have no repertoires yet',
+                                )
+                              : undefined
+                          }
+                          data-testid="analysis-add-to-repertoire"
+                        >
+                          {repertoiresLoading
                             ? t(
-                                'analysis.useAsRepertoire.addToExistingEmpty',
-                                'You have no repertoires yet',
+                                'analysis.useAsRepertoire.addToExistingLoading',
+                                'Loading repertoires…',
                               )
-                            : undefined
-                        }
-                        data-testid="analysis-add-to-repertoire"
-                      >
-                        {repertoiresLoading
-                          ? t(
-                              'analysis.useAsRepertoire.addToExistingLoading',
-                              'Loading repertoires…',
-                            )
-                          : t(
-                              'analysis.useAsRepertoire.addToExistingMenuItem',
-                              'Add to existing repertoire…',
-                            )}
-                      </button>
-                    )}
-                  {/* KS-2674: «Поделиться» — пункт меню для mobile.
-                      Клик открывает тот же popup, что Share-кнопка на
-                      desktop, через ref на ShareAnalysisButton. Виден
-                      только владельцу сохранённого анализа. */}
-                  {!publicMode &&
-                    user &&
-                    localIdRef.current &&
-                    savedOwnerId === user.id && (
-                      <button
-                        onClick={() => {
-                          setShowOverflowMenu(false);
-                          // Open в следующем тике — даём overflow-меню
-                          // закрыться прежде чем popup откроется.
-                          window.setTimeout(() => {
-                            shareButtonRef.current?.open();
-                          }, 0);
-                        }}
-                        data-testid="analysis-share-overflow"
-                      >
-                        {t('analysis.share.menuItem', 'Share')}
-                      </button>
-                    )}
-                </div>
+                            : t(
+                                'analysis.useAsRepertoire.addToExistingMenuItem',
+                                'Add to existing repertoire…',
+                              )}
+                        </button>
+                      )}
+                    {!publicMode &&
+                      user &&
+                      localIdRef.current &&
+                      savedOwnerId === user.id && (
+                        <button
+                          onClick={() => {
+                            setShowOverflowMenu(false);
+                            window.setTimeout(() => {
+                              shareButtonRef.current?.open();
+                            }, 0);
+                          }}
+                          data-testid="analysis-share-overflow"
+                        >
+                          {t('analysis.share.menuItem', 'Share')}
+                        </button>
+                      )}
+                  </div>
+                )
               )}
             </div>
             )}
