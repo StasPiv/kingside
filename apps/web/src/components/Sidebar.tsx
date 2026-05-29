@@ -135,7 +135,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/train',
     icon: '🧠',
     i18nKey: 'nav.train',
-    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer'],
+    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer', '/guess'],
     // KS-3276: Opening Trainer всегда доступен (нет отдельного флага),
     // поэтому пункт «Тренировка» теперь виден даже если
     // puzzlesEnabled=false и drillsEnabled=false.
@@ -189,6 +189,18 @@ const NAV_ITEMS: NavItem[] = [
         i18nKey: 'nav.openingTrainer',
         i18nFallback: 'Openings',
         match: ['/opening-trainer'],
+      },
+      {
+        // KS-3413 (ADR-086): «Угадай ход» — тренировочный режим на реальной
+        // партии (PGN/archive), геймификация (очки/звёзды/стрик). Gating
+        // через локальный `GUESS_ENTRY_ENABLED` снят при общем релизе
+        // связки — пункт виден всем. Если потребуется рантайм-отключение
+        // админом — backend заведёт `guessEnabled` в shared FeatureFlags.
+        path: '/guess',
+        icon: '🤔',
+        i18nKey: 'nav.guess',
+        i18nFallback: 'Guess the move',
+        match: ['/guess'],
       },
     ],
   },
