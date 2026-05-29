@@ -1954,6 +1954,26 @@ function AnalysisPageInner({
                       {t('analysis.generatePuzzle', 'Generate puzzle')}
                     </button>
                   )}
+                  {/* KS-3413 (ADR-086): «Угадай ходы» — отправляет PGN
+                      текущего анализа на /guess. Виден везде, где есть
+                      сыгранные ходы (включая puzzle-kind с разобранной
+                      позицией). Это основная точка входа в режим из UX
+                      «архив через анализ» — ArchiveGamePage пользователь
+                      обычно не открывает. */}
+                  <button
+                    onClick={() => {
+                      const pgn = buildAnalysisPgn();
+                      if (!pgn) return;
+                      setShowOverflowMenu(false);
+                      navigate('/guess', {
+                        state: { pgn, title: analysisTitle || undefined },
+                      });
+                    }}
+                    disabled={history.length === 0}
+                    data-testid="analysis-guess-moves-overflow"
+                  >
+                    {t('analysis.guessMoves', 'Guess the moves')}
+                  </button>
                   {/* KS-3299 (M2 F5): «Использовать как репертуар».
                       Виден только для своих анализов (savedOwnerId ===
                       user.id) с непустым PGN (history.length > 0).

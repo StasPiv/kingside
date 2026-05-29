@@ -835,6 +835,7 @@
     "notSupportedMobile": "Не поддерживается на мобильных",
     "editTitle": "Нажмите для редактирования названия",
     "generatePuzzle": "Сгенерировать пазл",
+    "guessMoves": "Угадай ходы",
     "generatingPuzzle": "Генерация…",
     "savingPuzzle": "Сохранение…",
     "generatePuzzleEmpty": "В партии нет подходящих позиций для пазла.",

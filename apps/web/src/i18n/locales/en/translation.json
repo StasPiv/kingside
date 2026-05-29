@@ -825,6 +825,7 @@
     "notSupportedMobile": "Not supported on mobile",
     "editTitle": "Click to edit title",
     "generatePuzzle": "Generate puzzle",
+    "guessMoves": "Guess the moves",
     "generatingPuzzle": "Generating…",
     "savingPuzzle": "Saving…",
     "generatePuzzleEmpty": "No suitable positions for a puzzle in this game.",
