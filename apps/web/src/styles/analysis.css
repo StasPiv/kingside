@@ -528,6 +528,241 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   cursor: default;
 }
 
+/* ============================================================
+ * KS-3422 / ADR-087 §8 L1 — новое AnalysisActionsMenu.
+ * Два режима в одном компоненте:
+ *   .analysis-actions-menu--dropdown — desktop popover внутри
+ *     .analysis-overflow-wrapper (как старое overflow-menu).
+ *   .analysis-actions-menu--sheet    — mobile bottom-sheet по
+ *     паттерну PrecisionRatingSheet / PrecisionThemesSheet.
+ * Группы (gamePosition / pgn / training / sharing) разделены
+ * border-top + увеличенным отступом — section-разделители.
+ * ============================================================ */
+
+/* ── Dropdown (desktop) ────────────────────────────────────── */
+
+.analysis-actions-menu--dropdown {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 6px;
+  z-index: 200;
+  min-width: 260px;
+  max-width: min(340px, calc(100vw - 24px));
+  background: var(--bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 4px 0;
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.14);
+}
+
+.analysis-actions-menu--dropdown .analysis-actions-menu__group {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+/* Section-разделитель между группами — тонкая линия + воздух. */
+.analysis-actions-menu--dropdown
+  .analysis-actions-menu__group[data-group-index]:not(
+    [data-group-index='0']
+  ) {
+  border-top: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  margin-top: 2px;
+  padding-top: 6px;
+}
+
+.analysis-actions-menu__item--dropdown {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
+}
+.analysis-actions-menu__item--dropdown:hover:not(:disabled) {
+  background: var(--bg-tertiary, var(--ov-white-04, #f3f4f6));
+}
+.analysis-actions-menu__item--dropdown:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: -2px;
+}
+.analysis-actions-menu__item--dropdown:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Sheet (mobile) — bottom-sheet ADR-076/080 паттерн ─────── */
+
+.analysis-actions-menu--sheet {
+  position: fixed;
+  inset: 0;
+  /* KS-3422: z>.mobile-bottom-bar (90) — backdrop накрывает tab-bar,
+     sheet и его пункты не перекрываются нижней навигацией. Решение
+     по «backdrop поверх» (ADR-087 §8 alt). */
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+  animation: analysis-actions-menu-fade 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes analysis-actions-menu-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.analysis-actions-menu__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ov-black-40, rgba(0, 0, 0, 0.5));
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.analysis-actions-menu__panel {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  max-height: 70dvh;
+  background: var(--bg-surface, var(--c-2a2a4e, #fff));
+  border-radius: 14px 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  /* iPhone safe-area-inset-bottom через padding (home indicator). */
+  padding: 0 0 max(8px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px var(--ov-black-40, rgba(0, 0, 0, 0.35));
+  animation: analysis-actions-menu-slide-up 220ms
+    cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes analysis-actions-menu-slide-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.analysis-actions-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface, var(--c-2a2a4e, #fff));
+  z-index: 1;
+  /* Drag-handle (визуальная подсказка swipe-down) через ::before
+     на header'е. Самим жестом swipe-управляет браузер (backdrop tap
+     + ✕ всегда доступны). */
+}
+.analysis-actions-menu__header::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-subtle, var(--c-2a2a3e, #d1d5db));
+  transform: translateX(-50%);
+  opacity: 0.6;
+}
+
+.analysis-actions-menu__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+}
+
+.analysis-actions-menu__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--text-secondary, var(--c-a0a0c0, #6b7280));
+  cursor: pointer;
+  padding: 4px 8px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.analysis-actions-menu__close:hover {
+  background: var(--bg-hover, var(--ov-white-04, #f3f4f6));
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+}
+
+.analysis-actions-menu__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
+
+.analysis-actions-menu--sheet .analysis-actions-menu__group {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+/* Section-разделитель между группами на mobile — тоньше, чем секции
+   на десктопе; визуально читается как «другая группа действий». */
+.analysis-actions-menu--sheet
+  .analysis-actions-menu__group[data-group-index]:not(
+    [data-group-index='0']
+  ) {
+  border-top: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+.analysis-actions-menu__item--sheet {
+  display: block;
+  width: 100%;
+  padding: 14px 18px;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  /* WCAG 2.5.5 + iOS гайды: ≥48px высота тап-области. */
+  min-height: 48px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
+}
+.analysis-actions-menu__item--sheet:hover:not(:disabled) {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.analysis-actions-menu__item--sheet:active:not(:disabled) {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+}
+.analysis-actions-menu__item--sheet:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: -2px;
+}
+.analysis-actions-menu__item--sheet:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Gap between board area and sidebar */
 .analysis-page {
   gap: 8px;
