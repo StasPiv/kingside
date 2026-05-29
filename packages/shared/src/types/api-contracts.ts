@@ -2089,7 +2089,12 @@ export interface StartGuessSessionResponse {
  * `POST /guess/sessions/:id/move` — отправка хода (ADR-086 §9 B2).
  * Клиент шлёт WDL-замеры (server-trust: серверу доверяем WDL, но НЕ
  * accuracy/verdict — он пересчитывает их сам через `compareGuessMove`).
- * WDL — per-mille (0..1000), POV выбранной стороны.
+ *
+ * **POV (канон, KS-3409): RAW POV side-to-move КАЖДОЙ позиции** — ровно
+ * как отдаёт движок для соответствующего FEN, БЕЗ ручной нормализации
+ * на клиенте. Приведение к POV выбранной стороны делает сервер
+ * (`compareGuessMove` инвертит after-позиции через `invertWdl`).
+ * Перенормировать на клиенте НЕЛЬЗЯ — будет двойная инверсия.
  */
 export interface SubmitGuessMoveRequest {
   ply: number;
@@ -2097,14 +2102,22 @@ export interface SubmitGuessMoveRequest {
   playedUci: string;
   userUci: string;
   bestUci: string;
-  /** WDL POV выбранной стороны на `fenBefore`. */
+  /**
+   * WDL на `fenBefore`, RAW POV side-to-move. На fenBefore ходит
+   * выбранная сторона, поэтому это уже её POV (инверсия не нужна).
+   */
   wdlBefore: { w: number; d: number; l: number };
-  /** WDL POV выбранной стороны после реально сыгранного хода. */
+  /**
+   * WDL позиции ПОСЛЕ реально сыгранного хода, RAW POV side-to-move.
+   * Там ходит СОПЕРНИК → это POV соперника; сервер инвертит к POV
+   * выбранной стороны сам.
+   */
   wdlAfterPlayed: { w: number; d: number; l: number };
   /**
-   * WDL POV выбранной стороны после хода пользователя. Может
-   * отсутствовать, если `userUci === playedUci` (второй анализ не
-   * нужен — сервер переиспользует `wdlAfterPlayed`).
+   * WDL позиции ПОСЛЕ хода пользователя, RAW POV side-to-move (POV
+   * соперника, как `wdlAfterPlayed`). Может отсутствовать, если
+   * `userUci === playedUci` (второй анализ не нужен — сервер
+   * переиспользует `wdlAfterPlayed`).
    */
   wdlAfterUser?: { w: number; d: number; l: number } | null;
 }
