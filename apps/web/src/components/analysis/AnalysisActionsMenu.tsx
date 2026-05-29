@@ -132,6 +132,16 @@ export function AnalysisActionsMenu({
 
   const grouped = groupItems(items);
 
+  // KS-3431: останавливаем подъём mousedown/click из корня меню. Caller
+  // AnalysisPage слушает `document.mousedown` для click-outside и
+  // закрывает overflow по target вне `overflowMenuRef`. После KS-3428
+  // sheet рендерится через портал в `document.body` — target вне ref,
+  // и parent-handler закрывает меню РАНЬШЕ, чем React успевает
+  // обработать onClick кнопки items: button unmount → onClick теряется.
+  // `stopPropagation` на mousedown изолирует поведение компонента;
+  // backdrop и Esc внутри компонента продолжают работать как было.
+  const stopBubble = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
   if (resolvedMode === 'dropdown') {
     return (
       <div
@@ -139,6 +149,8 @@ export function AnalysisActionsMenu({
         data-testid="analysis-actions-menu"
         data-mode="dropdown"
         role="menu"
+        onMouseDown={stopBubble}
+        onClick={stopBubble}
       >
         {grouped.map((g, gi) => (
           <div
@@ -177,6 +189,8 @@ export function AnalysisActionsMenu({
       role="dialog"
       aria-modal="true"
       aria-label={t('analysis.actionsMenu.title', 'Actions')}
+      onMouseDown={stopBubble}
+      onClick={stopBubble}
     >
       <button
         type="button"

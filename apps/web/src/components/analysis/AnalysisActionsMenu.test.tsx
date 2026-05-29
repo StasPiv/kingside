@@ -132,6 +132,39 @@ describe('<AnalysisActionsMenu>', () => {
     expect(screen.queryByTestId('analysis-actions-group-pgn')).toBeNull();
   });
 
+  it('KS-3431: тап по пункту не всплывает до document.mousedown (parent click-outside не сработает)', () => {
+    const onClose = vi.fn();
+    const items = baseItems();
+    // Эмулируем parent click-outside listener (как в AnalysisPage:
+    // document.addEventListener('mousedown', …)).
+    const outsideHandler = vi.fn();
+    document.addEventListener('mousedown', outsideHandler);
+    try {
+      renderWithProviders(
+        <AnalysisActionsMenu
+          open
+          onClose={onClose}
+          items={items}
+          mode="sheet"
+        />,
+      );
+      const btn = screen.getByTestId(
+        'analysis-actions-item-guess-moves',
+      ) as HTMLButtonElement;
+      // Симулируем реальный тап: mousedown → click.
+      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      btn.click();
+      expect(
+        (items[2].onClick as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBe(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      // Корень меню остановил mousedown — parent-listener не сработал.
+      expect(outsideHandler).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('mousedown', outsideHandler);
+    }
+  });
+
   it('open=false → ничего не рендерим', () => {
     renderWithProviders(
       <AnalysisActionsMenu
