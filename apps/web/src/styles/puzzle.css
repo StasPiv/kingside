@@ -3965,23 +3965,48 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 }
 .precision-trends__toggle {
   display: inline-flex;
+  align-items: center;
   gap: 4px;
   background: var(--bg-elevated);
-  border-radius: 6px;
-  padding: 2px;
+  border-radius: 8px;
+  padding: 3px;
 }
+/* KS-3378 (ADR-082 §7 L1): radio-pill переключатель «Точность ↔
+   Рейтинг» (и bucket «Неделя ↔ Месяц»). Segmented-control стиль,
+   согласован с pill-группами проекта: активный pill — токены
+   `--tab-active-*` (единое active-правило, KS-3174/3233), inactive —
+   приглушённый `--text-secondary` с hover до `--text-primary`. */
 .precision-trends__toggle-btn {
   background: transparent;
   border: 0;
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 12px;
-  border-radius: 4px;
+  font-weight: 500;
+  border-radius: 6px;
   color: var(--text-secondary);
   cursor: pointer;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.precision-trends__toggle-btn:hover:not(.precision-trends__toggle-btn--active) {
+  color: var(--text-primary);
+}
+.precision-trends__toggle-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 .precision-trends__toggle-btn--active {
   background: var(--tab-active-bg);
   color: var(--tab-active-fg);
+}
+/* KS-3378: на mobile tap-area ≥40×40 (WCAG 2.5.5 / mobile-friendly). */
+@media (max-width: 767px) {
+  .precision-trends__toggle-btn {
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
 }
 .precision-trends__svg {
   width: 100%;
@@ -4234,10 +4259,13 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 .precision-attempts__accuracy {
   font-variant-numeric: tabular-nums;
 }
-/* KS-3374 (ADR-082 §7 F1): дельта precision-рейтинга в строке попытки.
-   Semantic-tone цвета; финальная полировка под палитру — KS-3383
-   (layout). gain/loss — `--success`/`--danger` с tint-фолбэком,
-   flat/null — нейтральный `--c-94a3b8`. */
+/* KS-3374 → KS-3378 (ADR-082 §7 F1/L1): дельта precision-рейтинга в
+   строке попытки. Финальная палитра — verdict-color токены
+   (`--c-vc-green` / `--c-vc-red`), специально подобранные под контраст
+   на обеих темах (R6 §8): приглушённый изумрудный/красный на dark
+   (#4ade80 ~8.7:1, #f87171 ~5.7:1), глубокий зелёный/красный на light
+   (#15803d ~4.5:1, #b91c1c ~6.3:1). Оба ≥4.5:1 AA. flat/null —
+   нейтральный `--text-muted`. */
 .precision-attempts__rating-delta {
   display: inline-flex;
   align-items: baseline;
@@ -4248,14 +4276,14 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
   white-space: nowrap;
 }
 .precision-attempts__rating-delta--gain {
-  color: var(--success, #4ade80);
+  color: var(--c-vc-green, #15803d);
 }
 .precision-attempts__rating-delta--loss {
-  color: var(--danger, #f87171);
+  color: var(--c-vc-red, #b91c1c);
 }
 .precision-attempts__rating-delta--flat,
 .precision-attempts__rating-delta--null {
-  color: var(--c-94a3b8, #94a3b8);
+  color: var(--text-muted, #94a3b8);
   font-weight: 500;
 }
 .precision-attempts__halfmoves {
