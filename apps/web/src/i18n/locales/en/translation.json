@@ -3367,6 +3367,15 @@
       "startCta": "Train",
       "trainingAs": "Training as",
       "viewStats": "View statistics",
+      "title": {
+        "editHint": "Click to rename",
+        "editAria": "Rename repertoire",
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel",
+        "errorEmpty": "Title cannot be empty.",
+        "errorSave": "Failed to save title. Please try again."
+      },
       "switchSide": {
         "cta": "Change side",
         "title": "Change training side",

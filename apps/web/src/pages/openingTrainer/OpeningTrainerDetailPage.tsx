@@ -102,6 +102,11 @@ export function OpeningTrainerDetailPage() {
   // (фиксируется при создании). Селектор стороны удалён.
   const [starting, setStarting] = useState<OpeningTrainerMode | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  // KS-3482: inline-edit заголовка репертуара.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   // KS-3315: смена стороны через PATCH /repertoires/:id {side}.
   const [sidePickerOpen, setSidePickerOpen] = useState(false);
@@ -202,6 +207,63 @@ export function OpeningTrainerDetailPage() {
    * обновлённый detail-DTO. После успеха обновляем local state без
    * перезагрузки страницы — детальный объект приходит свежим.
    */
+  /**
+   * KS-3482: открыть/закрыть inline-edit title. Открытие наполняет
+   * draft текущим title; закрытие (Esc / blur без save / cancel)
+   * сбрасывает draft и error.
+   */
+  const handleStartEditTitle = useCallback(() => {
+    if (!repertoire || savingTitle) return;
+    setTitleDraft(repertoire.title);
+    setTitleError(null);
+    setEditingTitle(true);
+  }, [repertoire, savingTitle]);
+
+  const handleCancelEditTitle = useCallback(() => {
+    setEditingTitle(false);
+    setTitleDraft('');
+    setTitleError(null);
+  }, []);
+
+  const handleSaveTitle = useCallback(async () => {
+    if (!id || !repertoire || savingTitle) return;
+    const trimmed = titleDraft.trim();
+    if (trimmed.length === 0) {
+      setTitleError(
+        t(
+          'openingTrainer.detail.title.errorEmpty',
+          'Title cannot be empty.',
+        ),
+      );
+      return;
+    }
+    if (trimmed === repertoire.title) {
+      handleCancelEditTitle();
+      return;
+    }
+    setSavingTitle(true);
+    setTitleError(null);
+    try {
+      const updated = await openingTrainerApi.updateRepertoire(id, {
+        title: trimmed,
+      });
+      setRepertoire(updated);
+      setEditingTitle(false);
+      setTitleDraft('');
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : t(
+              'openingTrainer.detail.title.errorSave',
+              'Failed to save title. Please try again.',
+            );
+      setTitleError(msg);
+    } finally {
+      setSavingTitle(false);
+    }
+  }, [id, repertoire, savingTitle, titleDraft, t, handleCancelEditTitle]);
+
   const handleSwitchSide = useCallback(
     async (newSide: TrainerColor) => {
       if (!id || switchingSide) return;
@@ -307,8 +369,110 @@ export function OpeningTrainerDetailPage() {
         ← {t('openingTrainer.detail.backToList', 'All repertoires')}
       </Link>
 
-      <header className="opening-trainer-detail__header">
-        <h1>{repertoire.title}</h1>
+      {/* KS-3482: inline-edit заголовка. Клик по заголовку (или
+          по кнопке-карандашу) открывает input с текущим title.
+          Enter сохраняет (PATCH /opening-trainer/repertoires/:id),
+          Esc отменяет, blur тоже сохраняет (как в analysis-title).
+          Disabled пока запрос в полёте. */}
+      <header
+        className="opening-trainer-detail__header"
+        data-testid="opening-trainer-detail-header"
+        data-editing-title={editingTitle ? 'true' : 'false'}
+      >
+        {editingTitle ? (
+          <form
+            className="opening-trainer-detail__title-form"
+            data-testid="opening-trainer-detail-title-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSaveTitle();
+            }}
+          >
+            <input
+              type="text"
+              className="opening-trainer-detail__title-input"
+              data-testid="opening-trainer-detail-title-input"
+              value={titleDraft}
+              autoFocus
+              disabled={savingTitle}
+              maxLength={120}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={() => {
+                // Если ничего не редактировалось — закрываем без save.
+                if (titleDraft.trim() === repertoire.title) {
+                  handleCancelEditTitle();
+                } else {
+                  void handleSaveTitle();
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  handleCancelEditTitle();
+                }
+              }}
+            />
+            <button
+              type="submit"
+              className="opening-trainer-detail__title-save"
+              data-testid="opening-trainer-detail-title-save"
+              disabled={savingTitle || titleDraft.trim().length === 0}
+              onMouseDown={(e) => e.preventDefault()} /* не глотать blur input'а */
+            >
+              {savingTitle
+                ? t('openingTrainer.detail.title.saving', 'Saving…')
+                : t('openingTrainer.detail.title.save', 'Save')}
+            </button>
+            <button
+              type="button"
+              className="opening-trainer-detail__title-cancel"
+              data-testid="opening-trainer-detail-title-cancel"
+              disabled={savingTitle}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleCancelEditTitle}
+            >
+              {t('openingTrainer.detail.title.cancel', 'Cancel')}
+            </button>
+          </form>
+        ) : (
+          <div
+            className="opening-trainer-detail__title-row"
+            data-testid="opening-trainer-detail-title-row"
+          >
+            <h1
+              className="opening-trainer-detail__title"
+              data-testid="opening-trainer-detail-title"
+              onClick={handleStartEditTitle}
+              title={t(
+                'openingTrainer.detail.title.editHint',
+                'Click to rename',
+              )}
+            >
+              {repertoire.title}
+            </h1>
+            <button
+              type="button"
+              className="opening-trainer-detail__title-edit"
+              data-testid="opening-trainer-detail-title-edit"
+              aria-label={t(
+                'openingTrainer.detail.title.editAria',
+                'Rename repertoire',
+              )}
+              onClick={handleStartEditTitle}
+            >
+              ✏️
+            </button>
+          </div>
+        )}
+        {titleError && (
+          <p
+            className="opening-trainer-detail__title-error"
+            data-testid="opening-trainer-detail-title-error"
+            role="alert"
+          >
+            {titleError}
+          </p>
+        )}
         {repertoire.description && (
           <p className="opening-trainer-detail__description">{repertoire.description}</p>
         )}

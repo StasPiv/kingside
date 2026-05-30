@@ -12,6 +12,8 @@ vi.mock('../../api/openingTrainerApi', () => ({
     getRepertoireActiveSession: vi.fn(),
     startSession: vi.fn(),
     deleteRepertoire: vi.fn(),
+    // KS-3482: inline-edit заголовка → PATCH через updateRepertoire.
+    updateRepertoire: vi.fn(),
   },
 }));
 const mockedApi = vi.mocked(openingTrainerApi);
@@ -225,5 +227,84 @@ describe('OpeningTrainerDetailPage', () => {
       expect(screen.getByTestId('opening-trainer-detail')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('opening-trainer-continue')).toBeNull();
+  });
+
+  // KS-3482: inline-edit заголовка репертуара.
+  it('KS-3482: клик по заголовку → input + Save → PATCH с новым title, header обновлён', async () => {
+    const user = userEvent.setup();
+    mockedApi.getRepertoire.mockResolvedValue(makeRepertoire());
+    mockedApi.getRepertoireActiveSession.mockResolvedValue({ session: null });
+    mockedApi.updateRepertoire.mockResolvedValue({
+      ...makeRepertoire({}),
+      title: 'New title',
+    });
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-detail-title').textContent).toBe(
+        'Caro-Kann',
+      ),
+    );
+    await user.click(screen.getByTestId('opening-trainer-detail-title'));
+    const input = screen.getByTestId(
+      'opening-trainer-detail-title-input',
+    ) as HTMLInputElement;
+    expect(input.value).toBe('Caro-Kann');
+    await user.clear(input);
+    await user.type(input, 'New title');
+    await user.click(screen.getByTestId('opening-trainer-detail-title-save'));
+    await waitFor(() =>
+      expect(mockedApi.updateRepertoire).toHaveBeenCalledWith('r1', {
+        title: 'New title',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-detail-title').textContent).toBe(
+        'New title',
+      ),
+    );
+    expect(screen.queryByTestId('opening-trainer-detail-title-input')).toBeNull();
+  });
+
+  it('KS-3482: Esc отменяет редактирование без PATCH', async () => {
+    const user = userEvent.setup();
+    mockedApi.getRepertoire.mockResolvedValue(makeRepertoire());
+    mockedApi.getRepertoireActiveSession.mockResolvedValue({ session: null });
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-detail-title')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('opening-trainer-detail-title-edit'));
+    const input = screen.getByTestId(
+      'opening-trainer-detail-title-input',
+    ) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, 'Aborted');
+    await user.keyboard('{Escape}');
+    expect(mockedApi.updateRepertoire).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('opening-trainer-detail-title-input')).toBeNull();
+    expect(screen.getByTestId('opening-trainer-detail-title').textContent).toBe(
+      'Caro-Kann',
+    );
+  });
+
+  it('KS-3482: пустой title → errorEmpty, PATCH не вызывается', async () => {
+    const user = userEvent.setup();
+    mockedApi.getRepertoire.mockResolvedValue(makeRepertoire());
+    mockedApi.getRepertoireActiveSession.mockResolvedValue({ session: null });
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByTestId('opening-trainer-detail-title')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('opening-trainer-detail-title'));
+    const input = screen.getByTestId(
+      'opening-trainer-detail-title-input',
+    ) as HTMLInputElement;
+    await user.clear(input);
+    // Save-кнопка должна быть disabled (пустой draft).
+    expect(
+      (screen.getByTestId('opening-trainer-detail-title-save') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(mockedApi.updateRepertoire).not.toHaveBeenCalled();
   });
 });
