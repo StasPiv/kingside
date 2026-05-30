@@ -602,74 +602,62 @@ save_deployed_commit() {
 }
 
 # =====================================================================
-# KS-3049 / ADR-045 §5.1: skip `prisma migrate` run-task если нет
-# pending миграций
+# KS-3474: skip migrate УБРАН — всегда запускаем `prisma migrate deploy`
 # =====================================================================
-# Fargate run-task для `prisma migrate deploy` гонится 60–90 с
-# (image pull + task lifecycle + migrate apply). На warm-деплое без
-# изменений миграций — это чистый overhead, схема уже актуальна.
+# Раньше (KS-3049 / ADR-045 §5.1) skip-логика сравнивала HEAD с
+# `.deploy-commit-aws`: если SHA не менялся между деплоями — `prisma
+# migrate deploy` пропускался. Идея была экономить 60–90 с Fargate
+# run-task на warm-деплоях.
 #
-# Алгоритм:
-#   1. last_sha = .deploy-commit-aws (записывается ТОЛЬКО при успешном
-#      завершении предыдущего деплоя). Если файла нет / SHA не в git
-#      history — safe-default: запускаем migrate.
-#   2. HEAD == last_sha → схема точно актуальна (если предыдущий деплой
-#      прошёл успешно, _prisma_migrations не отстаёт от HEAD).
-#   3. git diff --name-only $last_sha..HEAD -- $migrations_path
-#      → если пусто, миграций не добавлялось/не менялось → skip.
-#   4. Иначе — запускаем как обычно.
+# Корень проблемы (всплыл в KS-3467, миграция
+# `20260530160000_ks3467_repertoire_archive_position_source` не
+# применилась, archive_game_id отсутствовала на проде, миграцию
+# пришлось накатывать вручную через `aws ecs run-task`):
 #
-# Идемпотентность Prisma: если skip ошибочно решил пропустить (нп.
-# .deploy-commit-aws был обновлён, но migrate упал, и потом восстановили
-# вручную) — фоллбэк через docker-entrypoint.sh у api (запускает
-# `prisma migrate deploy` на старте контейнера). Для broadcast/archive
-# такого фоллбэка нет → их skip более рискован, но при честно ведущемся
-# .deploy-commit-aws (обновляется только в конце успешного деплоя)
-# проблема не возникает.
+#  1) `.deploy-commit-aws` — ОДИН файл на ВСЕ deploy-scope (frontend / api
+#     / broadcast / archive). save_deployed_commit пишет HEAD в конце ЛЮБОГО
+#     успешного деплоя. Сценарий KS-3467:
+#       a. `deploy frontend` (или иной scope) на коммите X завершился →
+#          `.deploy-commit-aws = X`.
+#       b. Backend запускает `deploy api` на ТОМ ЖЕ X (в нём миграция).
+#       c. should_run_migrate "api" читает last_sha = X, current_sha = X
+#          → «HEAD unchanged → skip migrate». Хотя api migrate на этот
+#          коммит ни разу не выполнялся.
+#     То есть state не персональный для scope, а общий — фронт-деплой
+#     «маскирует» pending миграцию для последующего api-деплоя.
 #
-# Возврат: 0 = «нужно запускать migrate», 1 = «skip, схема up-to-date».
-# Безопасный default — возврат 0 при любой неуверенности.
+#  2) Комментарий ниже обещал фоллбэк через api docker-entrypoint
+#     (`prisma migrate deploy` на старте контейнера). По факту проверка
+#     логов старта kingside-api:332 (KS-3467) показала: entrypoint только
+#     тянет ML-модели и сразу `Starting API...`. Никакого migrate deploy
+#     в entrypoint нет — фоллбэк не существует.
+#
+# Решение: всегда запускать `prisma migrate deploy`. Команда идемпотентна
+# на стороне Prisma: при отсутствии pending миграций отрабатывает быстро
+# («No pending migrations to apply.»). Стоимость — +60–90 с Fargate run-task
+# (image pull + lifecycle) на каждый api/broadcast/archive деплой. Это
+# приемлемо: молчаливая неприменённая миграция приводит к недоступности
+# фич и ручному вмешательству, что значительно дороже.
+#
+# Скип сохраняется только в одном случае — когда папка миграций для
+# сервиса отсутствует в репозитории (например, scope без БД). Это
+# исключение оставлено как защита от ошибочных вызовов.
+#
+# Возврат: 0 = «запускать migrate» (по умолчанию всегда), 1 = «skip».
 #
 # Аргументы:
 #   $1 — label сервиса (для лога), например "api" / "broadcast" / "archive"
-#   $2 — относительный путь к папке миграций, например
-#        "apps/api/prisma/migrations"
+#   $2 — относительный путь к папке миграций (используется только для
+#        sanity-проверки существования директории)
 should_run_migrate() {
     local svc_label="$1"
     local migrations_path="$2"
-    local last_sha
-    last_sha=$(get_deployed_commit)
-    if [ -z "$last_sha" ]; then
-        echo "[migrate-check $svc_label] no .deploy-commit-aws baseline → run migrate (safe default)"
-        return 0
-    fi
-    if ! git -C "$REPO_DIR" rev-parse --quiet --verify "${last_sha}^{commit}" >/dev/null 2>&1; then
-        echo "[migrate-check $svc_label] last sha ${last_sha:0:7} not in git history → run migrate (safe default)"
-        return 0
-    fi
-    local current_sha
-    current_sha=$(git -C "$REPO_DIR" rev-parse HEAD)
-    if [ "$last_sha" = "$current_sha" ]; then
-        echo "[migrate-check $svc_label] HEAD unchanged since last deploy (${last_sha:0:7}) → skip migrate"
+    if [ -n "$migrations_path" ] && [ ! -d "$REPO_DIR/$migrations_path" ]; then
+        echo "[migrate-check $svc_label] migrations dir '$migrations_path' missing → skip migrate"
         return 1
     fi
-    if [ ! -d "$REPO_DIR/$migrations_path" ]; then
-        echo "[migrate-check $svc_label] migrations dir '$migrations_path' missing → run migrate (safe default)"
-        return 0
-    fi
-    local diff
-    diff=$(git -C "$REPO_DIR" diff --name-only "$last_sha"..HEAD -- "$migrations_path" 2>/dev/null || echo "__diff_failed__")
-    if [ "$diff" = "__diff_failed__" ]; then
-        echo "[migrate-check $svc_label] git diff failed → run migrate (safe default)"
-        return 0
-    fi
-    if [ -n "$diff" ]; then
-        echo "[migrate-check $svc_label] migration changes since ${last_sha:0:7}:"
-        echo "$diff" | sed 's/^/  /'
-        return 0
-    fi
-    echo "[migrate-check $svc_label] no migration changes in '$migrations_path' since ${last_sha:0:7} → skip migrate"
-    return 1
+    echo "[migrate-check $svc_label] always run migrate (KS-3474: skip removed)"
+    return 0
 }
 
 # KS-1826: кэш VPC/subnet/sg — одинаков для всех migrate-run-task. Ленивая
