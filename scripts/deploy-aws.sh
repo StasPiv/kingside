@@ -639,22 +639,34 @@ save_deployed_commit() {
 # приемлемо: молчаливая неприменённая миграция приводит к недоступности
 # фич и ручному вмешательству, что значительно дороже.
 #
-# Скип сохраняется только в одном случае — когда папка миграций для
-# сервиса отсутствует в репозитории (например, scope без БД). Это
-# исключение оставлено как защита от ошибочных вызовов.
+# KS-3491: после KS-3474 ветка «missing migrations dir → skip» оказалась
+# ошибочной — `apps/api/prisma/migrations` физически отсутствует (миграции
+# уехали в `packages/db/prisma/migrations` по KS-1550), и api тихо
+# скипался. Теперь и эта ветка возвращает 0 (run): любая неуверенность →
+# запускаем migrate. Дополнительно поправлен путь в call site для api.
 #
-# Возврат: 0 = «запускать migrate» (по умолчанию всегда), 1 = «skip».
+# Возврат: всегда 0 (run). Аргумент $migrations_path используется только
+# для информативного лога — функционально на решение не влияет.
 #
 # Аргументы:
 #   $1 — label сервиса (для лога), например "api" / "broadcast" / "archive"
 #   $2 — относительный путь к папке миграций (используется только для
 #        sanity-проверки существования директории)
 should_run_migrate() {
+    # KS-3491: safe-default — если переданный $migrations_path отсутствует
+    # локально (например, путь устарел из-за переезда миграций между
+    # пакетами), всё равно ЗАПУСКАЕМ migrate. Это в духе всей этой функции:
+    # любая неуверенность → run, а не skip. Молчаливый пропуск миграций —
+    # самый опасный режим (см. KS-3467, KS-3485). До KS-3474 здесь стоял
+    # return 0; в правке KS-3474 я ошибочно перевернул на return 1, и api
+    # с устаревшим путём `apps/api/prisma/migrations` (миграции уехали в
+    # packages/db/prisma/migrations по KS-1550) тихо скипался — отсюда
+    # симптом KS-3485.
     local svc_label="$1"
     local migrations_path="$2"
     if [ -n "$migrations_path" ] && [ ! -d "$REPO_DIR/$migrations_path" ]; then
-        echo "[migrate-check $svc_label] migrations dir '$migrations_path' missing → skip migrate"
-        return 1
+        echo "[migrate-check $svc_label] migrations dir '$migrations_path' missing → run migrate (safe default, KS-3491)"
+        return 0
     fi
     echo "[migrate-check $svc_label] always run migrate (KS-3474: skip removed)"
     return 0
@@ -1112,8 +1124,10 @@ if $DEPLOY_API; then
     echo "  task-def: $NEW_TD_ARN"
     _perf_stamp "api_taskdef_done"
 
-    # KS-3049 / ADR-045 §5.1: skip migrate run-task если нет pending миграций.
-    if should_run_migrate "api" "apps/api/prisma/migrations"; then
+    # KS-3491: миграции api живут в packages/db/prisma/migrations (см. KS-1550,
+    # 16-04-2026). Старый путь `apps/api/prisma/migrations` не существует —
+    # это и приводило к тихому пропуску миграций до KS-3491.
+    if should_run_migrate "api" "packages/db/prisma/migrations"; then
         echo "[api] Running Prisma migrations on new revision..."
         ensure_migrate_network
         MIGRATE_TASK=$(aws ecs run-task \
