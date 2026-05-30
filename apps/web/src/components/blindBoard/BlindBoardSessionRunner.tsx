@@ -37,6 +37,7 @@ import type {
 
 import { BlindBoardRunner } from './BlindBoardRunner';
 import { BlindBoardFinalScreen } from './BlindBoardFinalScreen';
+import { BlindBoardLevelUpOverlay } from './BlindBoardLevelUpOverlay';
 import { MemoChessboard } from '../MemoChessboard';
 import { piecesToFen } from './BlindBoardFinalScreen';
 import { blindBoardApi } from '../../api/blindBoardApi';
@@ -104,6 +105,17 @@ export function BlindBoardSessionRunner({
   // «Готов» не используется (доска становится пустой), но держим до
   // resets чтобы не плодить лишний state-сброс.
   const [startPosition, setStartPosition] = useState<BlindBoardPiece[]>([]);
+  // KS-3489 (V2 §15 F2): snapshot фактически применённого конфига
+  // (с дефолтом для backwards-compat если backend ещё не отдал).
+  const [startConfig, setStartConfig] = useState<BlindBoardConfig | null>(null);
+  // Полная текущая расстановка на доске = startPosition + накопленные
+  // фигуры из levelUp'ов (нужна для overlay). Клиент знает только то,
+  // что сам видел — анти-чит сохранён.
+  const [piecesOnBoard, setPiecesOnBoard] = useState<BlindBoardPiece[]>([]);
+  // Текущий level-up для overlay; null — overlay не показан.
+  const [levelUpEvent, setLevelUpEvent] = useState<NonNullable<
+    SubmitBlindBoardAnswerResponse['levelUp']
+  > | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const genRef = useRef(0);
 
@@ -114,6 +126,9 @@ export function BlindBoardSessionRunner({
     setSession(null);
     setLastAnswer(null);
     setStartPosition([]);
+    setStartConfig(null);
+    setPiecesOnBoard([]);
+    setLevelUpEvent(null);
     setStartError(null);
     void (async () => {
       try {
@@ -126,6 +141,9 @@ export function BlindBoardSessionRunner({
         // KS-3448: запоминание — показываем 5 фигур, ждём «Готов».
         // На случай отсутствия поля (старый backend) сразу в playing.
         setStartPosition(res.startPosition ?? []);
+        setPiecesOnBoard(res.startPosition ?? []);
+        // KS-3489: snapshot конфига для HUD pill / level-up overlay.
+        setStartConfig(res.config ?? null);
         setStatus(
           res.startPosition && res.startPosition.length > 0
             ? 'memorizing'
@@ -173,6 +191,17 @@ export function BlindBoardSessionRunner({
           if (res.session.status === 'finished') {
             setStatus('final');
           } else {
+            // KS-3489 (V2 §15 F2): backend сообщил о level-up — добавляем
+            // фигуру локально и показываем overlay. Анти-чит §5: клиент
+            // знает только тот square и тип, которые ему сейчас прислал
+            // сервер; остальные фигуры на доске он видел в memorize.
+            if (res.levelUp) {
+              setPiecesOnBoard((prev) => [
+                ...prev,
+                { square: res.levelUp!.newSquare, type: res.levelUp!.newPiece },
+              ]);
+              setLevelUpEvent(res.levelUp);
+            }
             // correct — следующий раунд, доска перерисуется новым move.
             setStatus('playing');
           }
@@ -335,10 +364,48 @@ export function BlindBoardSessionRunner({
       data-testid="blind-board-session"
       data-status={status}
     >
-      {/* KS-3452: HUD-табло. Каждая метрика разбита на label/value
-          для CSS-типографики (label uppercase 11/700, value крупное
-          tabular-nums) — стили в blindBoard.css. */}
+      {/* KS-3452: HUD-табло. Каждая метрика разбита на label/value.
+          KS-3489 (V2 §15 F2): добавлен pill уровня «L{level}» + хинт
+          о следующей фигуре из addOrder. */}
       <div className="blind-board-session__hud" data-testid="blind-board-hud">
+        <span
+          className="blind-board-session__hud-stat blind-board-session__hud-stat--level"
+          data-testid="blind-board-hud-level"
+        >
+          <span className="blind-board-session__hud-label">
+            {t('blindBoard.hud.level', 'Level')}
+          </span>
+          <span className="blind-board-session__hud-value">
+            L{session?.level ?? 1}
+          </span>
+          {(() => {
+            // Подсказка про следующий level-up: считаем сколько раундов
+            // до следующего level-up'а и тип фигуры из addOrder.
+            const lvl = session?.level ?? 1;
+            const streak = session?.streak ?? 0;
+            const nextPiece = startConfig?.addOrder?.[lvl - 1];
+            const stepsToLvl = 10 - (streak % 10);
+            if (!nextPiece) return null;
+            return (
+              <span
+                className="blind-board-session__hud-hint"
+                data-testid="blind-board-hud-level-hint"
+                data-next-piece={nextPiece}
+                data-steps={stepsToLvl}
+              >
+                {t(
+                  'blindBoard.hud.levelHint',
+                  '+{{piece}} on L{{nextLevel}} ({{steps}} to go)',
+                  {
+                    piece: t(`blindBoard.piece.${nextPiece}`, nextPiece),
+                    nextLevel: lvl + 1,
+                    steps: stepsToLvl,
+                  },
+                )}
+              </span>
+            );
+          })()}
+        </span>
         <span
           className="blind-board-session__hud-stat"
           data-testid="blind-board-hud-round"
@@ -385,6 +452,19 @@ export function BlindBoardSessionRunner({
         >
           {t('blindBoard.session.checking', 'Checking…')}
         </p>
+      )}
+
+      {/* KS-3489 (V2 §15 F2): overlay при level-up. memorizeTimeSec
+          берётся из snapshot'а конфига (или 5 если не известен). */}
+      {levelUpEvent && (
+        <BlindBoardLevelUpOverlay
+          piecesOnBoard={piecesOnBoard}
+          newLevel={levelUpEvent.newLevel}
+          newPiece={levelUpEvent.newPiece}
+          newSquare={levelUpEvent.newSquare}
+          memorizeTimeSec={startConfig?.memorizeTimeSec ?? 5}
+          onClose={() => setLevelUpEvent(null)}
+        />
       )}
     </div>
   );

@@ -3630,9 +3630,16 @@
       "errorMemorize": "Время на запоминание: 3, 5 или 10 секунд."
     },
     "hud": {
+      "level": "Уровень",
+      "levelHint": "+{{piece}} на L{{nextLevel}} (через {{steps}})",
       "round": "Раунд",
       "streak": "Серия",
       "bestStreak": "Лучшая"
+    },
+    "levelUp": {
+      "title": "Уровень повышен",
+      "body": "Уровень {{level}} — добавилась {{piece}} на {{square}}",
+      "ready": "Готов"
     },
     "promotion": {
       "title": "Выберите тип фигуры"

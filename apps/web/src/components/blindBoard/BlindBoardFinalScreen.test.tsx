@@ -49,6 +49,8 @@ function session(over: Partial<BlindBoardSessionDto> = {}): BlindBoardSessionDto
     round: 2,
     streak: 0,
     bestStreak: 1,
+    // KS-3484 (V2 §15): level обязателен в DTO.
+    level: 1,
     nextMove: null,
     startedAt: '2026-05-30T00:00:00.000Z',
     finishedAt: '2026-05-30T00:01:00.000Z',
@@ -110,7 +112,7 @@ describe('<BlindBoardFinalScreen>', () => {
     ).toContain('Ne4');
     expect(
       screen.getByTestId('blind-board-final-streak').textContent,
-    ).toBe('5');
+    ).toContain('5');
     expect(
       screen.getByTestId('blind-board-final-board').firstChild,
     ).toBeTruthy();
@@ -239,5 +241,57 @@ describe('<BlindBoardFinalScreen>', () => {
       screen.getByTestId('blind-board-final-again') as HTMLButtonElement
     ).click();
     expect(onPlayAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it('KS-3489: «28 · L3» — streak рендерит достигнутый уровень из session', async () => {
+    getLeaderboard.mockResolvedValue({
+      entries: [],
+    } as BlindBoardLeaderboardResponse);
+    renderWithProviders(
+      <BlindBoardFinalScreen
+        session={session({ streak: 28, level: 3 })}
+        lastAnswer={wrongAnswer}
+        api={api}
+      />,
+    );
+    expect(screen.getByTestId('blind-board-final-streak').textContent).toContain(
+      'L3',
+    );
+  });
+
+  it('KS-3489: maxLevel в leaderboard-row → «· L{N}» рядом со streak', async () => {
+    getLeaderboard.mockResolvedValue({
+      entries: [
+        {
+          userId: 'u-1',
+          username: 'GM',
+          bestStreak: 28,
+          maxLevel: 3,
+          achievedAt: '2026-05-01T00:00:00.000Z',
+        },
+        {
+          userId: 'u-2',
+          username: 'Beginner',
+          bestStreak: 5,
+          // maxLevel отсутствует — рендер плавно деградирует.
+          achievedAt: '2026-05-02T00:00:00.000Z',
+        },
+      ],
+    } as BlindBoardLeaderboardResponse);
+    renderWithProviders(
+      <BlindBoardFinalScreen
+        session={session()}
+        lastAnswer={wrongAnswer}
+        api={api}
+      />,
+    );
+    // Лидерборд асинхронный — ждём.
+    await screen.findByTestId('blind-board-final-leaderboard-list');
+    expect(
+      screen.getByTestId('blind-board-final-leaderboard-row-1').textContent,
+    ).toContain('L3');
+    expect(
+      screen.queryByTestId('blind-board-final-leaderboard-level-2'),
+    ).toBeNull();
   });
 });

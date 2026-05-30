@@ -92,6 +92,8 @@ function session(over: Partial<BlindBoardSessionDto> = {}): BlindBoardSessionDto
     round: 1,
     streak: 0,
     bestStreak: 0,
+    // KS-3484 (V2 §15): level обязателен в DTO.
+    level: 1,
     nextMove: { from: 'e2', to: 'e4' },
     startedAt: '2026-05-30T00:00:00.000Z',
     finishedAt: null,
@@ -336,4 +338,87 @@ describe('<BlindBoardSessionRunner>', () => {
   // KS-3453: dead-end удалён из BlindBoardFinishReason — сервер
   // всегда находит ход в одной из 5 фигур. Тест на dead-end сценарий
   // снят. Единственный финиш по факту — wrong-answer (покрыт выше).
+
+  // KS-3489 (V2 §15 F2) — HUD pill уровня + level-up overlay.
+  it('KS-3489: HUD показывает L{level} + хинт о следующей фигуре из addOrder', async () => {
+    startSession.mockResolvedValue({
+      session: session({ level: 1, streak: 4 }),
+      startPosition: [],
+      config: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B'],
+        memorizeTimeSec: 5,
+      },
+      level: 1,
+    } as StartBlindBoardSessionResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    expect(screen.getByTestId('blind-board-hud-level').textContent).toContain(
+      'L1',
+    );
+    const hint = screen.getByTestId('blind-board-hud-level-hint');
+    expect(hint.getAttribute('data-next-piece')).toBe('B');
+    // streak=4 → до level-up осталось 6 (10-4).
+    expect(hint.getAttribute('data-steps')).toBe('6');
+  });
+
+  it('KS-3489: response.levelUp → overlay рендерится со всеми фигурами', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'e4', type: 'N' },
+      ],
+      config: {
+        startPieces: ['R', 'N'],
+        addOrder: ['B'],
+        memorizeTimeSec: 5,
+      },
+      level: 1,
+    } as StartBlindBoardSessionResponse);
+    submitAnswer.mockResolvedValue({
+      correct: true,
+      session: session({ level: 2, round: 11, streak: 10, bestStreak: 10 }),
+      levelUp: { newLevel: 2, newPiece: 'B', newSquare: 'd5' },
+    } as SubmitBlindBoardAnswerResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    // Сначала memorizing → Ready → playing.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('memorizing'),
+    );
+    (
+      screen.getByTestId('blind-board-memorize-ready') as HTMLButtonElement
+    ).click();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    (screen.getByTestId('fire-submit-Q-d4') as HTMLButtonElement).click();
+    await waitFor(() =>
+      expect(screen.getByTestId('blind-board-level-up')).toBeTruthy(),
+    );
+    expect(
+      screen.getByTestId('blind-board-level-up').getAttribute('data-new-level'),
+    ).toBe('2');
+    // HUD теперь L2.
+    await waitFor(() =>
+      expect(screen.getByTestId('blind-board-hud-level').textContent).toContain(
+        'L2',
+      ),
+    );
+    // Ready закрывает overlay.
+    (
+      screen.getByTestId('blind-board-level-up-ready') as HTMLButtonElement
+    ).click();
+    await waitFor(() =>
+      expect(screen.queryByTestId('blind-board-level-up')).toBeNull(),
+    );
+  });
 });

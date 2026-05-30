@@ -190,6 +190,14 @@ export function BlindBoardFinalScreen({
             data-testid="blind-board-final-streak"
           >
             {session.streak}
+            {/* KS-3489 (V2 §15 F2): «28 · L3» — достигнутый уровень
+                в текущей сессии. Поле гарантированно есть в DTO V2. */}
+            <span
+              className="blind-board-final__stat-level"
+              data-testid="blind-board-final-streak-level"
+            >
+              {' '}· L{session.level}
+            </span>
           </span>
           <span className="blind-board-final__stat-label">
             {t('blindBoard.final.streak', 'Streak')}
@@ -277,8 +285,23 @@ export function BlindBoardFinalScreen({
                   <span className="blind-board-final__leaderboard-name">
                     {e.username}
                   </span>
-                  <span className="blind-board-final__leaderboard-streak">
+                  <span
+                    className="blind-board-final__leaderboard-streak"
+                    data-testid={`blind-board-final-leaderboard-streak-${i + 1}`}
+                  >
                     {e.bestStreak}
+                    {/* KS-3489 (V2 §15 F2): «28 · L3» — maxLevel
+                        backend считает как floor(bestStreak/10)+1
+                        (derived). Если backend ещё не V2 — поле
+                        отсутствует, рендер плавно деградирует. */}
+                    {typeof e.maxLevel === 'number' && (
+                      <span
+                        className="blind-board-final__leaderboard-level"
+                        data-testid={`blind-board-final-leaderboard-level-${i + 1}`}
+                      >
+                        {' '}· L{e.maxLevel}
+                      </span>
+                    )}
                   </span>
                 </li>
               );

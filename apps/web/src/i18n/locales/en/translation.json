@@ -3590,7 +3590,14 @@
     "hud": {
       "round": "Round",
       "streak": "Streak",
-      "bestStreak": "Best"
+      "bestStreak": "Best",
+      "level": "Level",
+      "levelHint": "+{{piece}} on L{{nextLevel}} ({{steps}} to go)"
+    },
+    "levelUp": {
+      "title": "Level up",
+      "body": "Level {{level}} — added {{piece}} at {{square}}",
+      "ready": "Ready"
     },
     "promotion": {
       "title": "Pick the piece type"
