@@ -15,7 +15,9 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import {
   compareGuessMove,
   mapToStars,
@@ -30,8 +32,15 @@ import type {
   GuessHistoryResponse,
   GuessSessionDto,
   GuessMoveDto,
+  GuessToAnalysisResponse,
 } from '@kingside/shared';
 import type { StartGuessSessionDto, SubmitGuessMoveDto } from './dto/guess.dto';
+import { AnalysisService } from '../analysis/analysis.service';
+import {
+  buildAnnotatedPgn,
+  type GuessMoveForBuilder,
+  type PgnTranslator,
+} from './pgn-builder';
 
 /** KS-3433. Среднеквадратичное отклонение массива чисел (population). */
 function standardDeviation(values: number[]): number {
@@ -113,7 +122,11 @@ interface GuessSessionRow {
 export class GuessService {
   private readonly logger = new Logger(GuessService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly analysis: AnalysisService,
+    private readonly i18n: I18nService,
+  ) {}
 
   // ─── start ────────────────────────────────────────────────────────
 
@@ -309,6 +322,122 @@ export class GuessService {
     return {
       session: this.toSessionDto(session),
       moves: moves.map((m) => this.toMoveDto(m)),
+    };
+  }
+
+  /**
+   * KS-3460 / ADR-089 §6. Создать Analysis из завершённой guess-сессии
+   * (PGN с NAG-аннотациями). Идемпотентно: повторный вызов возвращает
+   * existing через UNIQUE(user_id, guess_session_id).
+   */
+  async toAnalysis(
+    userId: string,
+    sessionId: string,
+    lang: string,
+  ): Promise<GuessToAnalysisResponse> {
+    const session = await this.loadOwned(userId, sessionId);
+    if (session.status !== 'finished') {
+      throw new ConflictException('guess session is not finished');
+    }
+    if (!session.pgn || session.pgn.trim() === '') {
+      throw new BadRequestException('guess session has no pgn');
+    }
+
+    // Дедуп: если уже создавали анализ из этой guess-сессии — отдать его.
+    const existing = (await this.prisma.analysis.findFirst({
+      where: { userId, guessSessionId: sessionId },
+      select: { id: true },
+    })) as { id: string } | null;
+    if (existing) {
+      // Обновляем lastOpenedAt чтобы запись поднялась в LRU «Мои анализы».
+      await this.prisma.analysis.update({
+        where: { id: existing.id },
+        data: { lastOpenedAt: new Date() },
+      });
+      return {
+        analysisId: existing.id,
+        url: `/analysis/${existing.id}`,
+        existing: true,
+      };
+    }
+
+    // Грузим guess-ходы + строим аннотированный PGN.
+    const moves = (await this.prisma.guessMove.findMany({
+      where: { sessionId },
+      orderBy: { ply: 'asc' },
+    })) as GuessMoveRow[];
+    const builderMoves: GuessMoveForBuilder[] = moves.map((m) => ({
+      ply: m.ply,
+      fenBefore: m.fenBefore,
+      playedUci: m.playedUci,
+      userUci: m.userUci,
+      lossPlayer: m.lossPlayer,
+      lossUser: m.lossUser,
+      accuracyPlayer: m.accuracyPlayer,
+      accuracyUser: m.accuracyUser,
+      userClass: m.userClass,
+      verdict: m.verdict,
+    }));
+    const translate: PgnTranslator = (key, args) =>
+      this.i18n.t(`messages.${key}`, {
+        lang,
+        ...(args ? { args } : {}),
+      }) as string;
+    const annotator = translate('guess.pgn.annotator');
+    const pgn = buildAnnotatedPgn(
+      session.pgn,
+      session.side as 'white' | 'black',
+      builderMoves,
+      translate,
+      { annotator },
+    );
+
+    const dateLabel = (session.startedAt instanceof Date
+      ? session.startedAt
+      : new Date(session.startedAt as unknown as string)
+    )
+      .toISOString()
+      .slice(0, 10);
+    const title = translate('guess.pgn.title', { date: dateLabel });
+
+    // Создаём через AnalysisService (без lichess/archive id — отдельная запись).
+    const created = (await this.analysis.create(userId, {
+      pgn,
+      title,
+      category: 'analysis',
+    })) as unknown as { id: string };
+
+    // UPDATE Analysis.guessSessionId — soft-привязка + UNIQUE даёт идемпотентность
+    // на следующих вызовах. На race-condition (двойной клик) UNIQUE кинет
+    // P2002 — отлавливаем и возвращаем existing.
+    try {
+      await this.prisma.analysis.update({
+        where: { id: created.id },
+        data: { guessSessionId: sessionId },
+      });
+    } catch (err: unknown) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === 'P2002') {
+        // Параллельный запрос уже привязал свой analysis к этой сессии.
+        const winner = (await this.prisma.analysis.findFirst({
+          where: { userId, guessSessionId: sessionId },
+          select: { id: true },
+        })) as { id: string } | null;
+        if (winner) {
+          return {
+            analysisId: winner.id,
+            url: `/analysis/${winner.id}`,
+            existing: true,
+          };
+        }
+      }
+      throw err;
+    }
+
+    return {
+      analysisId: created.id,
+      url: `/analysis/${created.id}`,
+      existing: false,
     };
   }
 

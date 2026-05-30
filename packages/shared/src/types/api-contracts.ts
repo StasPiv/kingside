@@ -2178,6 +2178,23 @@ export interface GuessHistoryResponse {
   total: number;
 }
 
+/**
+ * `POST /guess/sessions/:id/to-analysis` (ADR-089 §6, KS-3460). Создаёт
+ * новый Analysis с PGN-разметкой (NAG'ы основной линии по lossPlayer,
+ * варианты с альтернативами игрока + NAG по verdict'у). Идемпотентно
+ * через `Analysis.guessSessionId` UNIQUE.
+ *
+ *  - `analysisId` — id созданного (или существующего) Analysis.
+ *  - `url` — клиентский путь `/analysis/:id` для navigate.
+ *  - `existing` — true если возвращена уже существующая запись (повторный
+ *    клик), false если только что создана.
+ */
+export interface GuessToAnalysisResponse {
+  analysisId: string;
+  url: string;
+  existing: boolean;
+}
+
 // ─── Blind-Board (ADR-088 / KS-3438 S1) ────────────────────────────
 //
 // Тренировка «найди фигуру по ходу компьютера». 5 фигур (Q/R/N/B/B)

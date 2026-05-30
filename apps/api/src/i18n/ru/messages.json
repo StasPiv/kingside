@@ -14,5 +14,12 @@
   "matchmaking.alreadyInQueue": "Вы уже находитесь в очереди поиска",
   "game.botGameLimitReached": "Превышен лимит активных игр с ботом",
   "puzzle.notFound": "Задача не найдена",
-  "puzzle.noPuzzlesAvailable": "Нет задач для вашего рейтинга"
+  "puzzle.noPuzzlesAvailable": "Нет задач для вашего рейтинга",
+  "guess.pgn.title": "Разбор guess-сессии от {date}",
+  "guess.pgn.annotator": "Kingside guess-session",
+  "guess.pgn.asPlayer": "Как в партии",
+  "guess.pgn.strongest": "Сильнейший · точность {acc}%",
+  "guess.pgn.betterThanPlayer": "Сильнее реального · {accUser}% против {accPlayer}%",
+  "guess.pgn.weakerLoss": "Слабее · потеря {loss}%",
+  "guess.pgn.weakerGood": "Чуть слабее · {accUser}% против {accPlayer}%"
 }

@@ -14,5 +14,12 @@
   "matchmaking.alreadyInQueue": "Already in matchmaking queue",
   "game.botGameLimitReached": "Too many active bot games",
   "puzzle.notFound": "Puzzle not found",
-  "puzzle.noPuzzlesAvailable": "No puzzles available for your rating"
+  "puzzle.noPuzzlesAvailable": "No puzzles available for your rating",
+  "guess.pgn.title": "Guess session review from {date}",
+  "guess.pgn.annotator": "Kingside guess-session",
+  "guess.pgn.asPlayer": "Same as in game",
+  "guess.pgn.strongest": "Strongest · accuracy {acc}%",
+  "guess.pgn.betterThanPlayer": "Better than played · {accUser}% vs {accPlayer}%",
+  "guess.pgn.weakerLoss": "Weaker · loss {loss}%",
+  "guess.pgn.weakerGood": "Slightly weaker · {accUser}% vs {accPlayer}%"
 }

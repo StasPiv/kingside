@@ -754,6 +754,12 @@ model Analysis {
   /// id вместо парсинга hash-prefix'а.
   lichessGameId   String? @map("lichess_game_id")
   archiveGameId   String? @map("archive_game_id") @db.Uuid
+  /// KS-3460 / ADR-089 §6.3. Soft-ссылка на guess-сессию, из которой
+  /// был сгенерирован этот анализ через POST /guess/sessions/:id/to-analysis.
+  /// Без FK — guess-сессии могут удаляться. UNIQUE с user_id даёт
+  /// идемпотентность endpoint'а (повторный клик возвращает existing).
+  /// NULL для всех анализов, не созданных из guess-flow.
+  guessSessionId  String? @map("guess_session_id") @db.Uuid
   /// KS-3261. LRU-сортировка списка «Мои анализы». Обновляется на каждое
   /// «открытие» (создание нового / повторный POST /analyses, который
   /// возвращает existing). Default = createdAt для бэкфила legacy-записей.
@@ -775,6 +781,10 @@ model Analysis {
   /// KS-3261. Partial-unique индекс: один user × один source = один
   /// анализ. NULL source_hash повторяется (legacy и записи без source).
   @@unique([userId, sourceHash], map: "analyses_user_source_uniq")
+  /// KS-3460 / ADR-089 §6.3. Идемпотентность guess→analysis: один user ×
+  /// одна guess-сессия = один анализ. NULL повторяется (legacy и обычные
+  /// анализы не из guess-flow).
+  @@unique([userId, guessSessionId], map: "analyses_user_guess_session_uniq")
   @@map("analyses")
 }
 

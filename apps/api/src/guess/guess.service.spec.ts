@@ -4,7 +4,11 @@
  * owner-check, агрегаты (score/streak/betterThanPlayerCount), две точности.
  */
 import { GuessService } from './guess.service';
-import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 
 type AnyMock = any;
 
@@ -23,7 +27,42 @@ function makePrisma(over: Partial<Record<string, any>> = {}): AnyMock {
       findMany: jest.fn().mockResolvedValue([]),
       ...(over.guessMove ?? {}),
     },
+    // KS-3460. Для toAnalysis-пути.
+    analysis: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+      ...(over.analysis ?? {}),
+    },
   };
+}
+
+/**
+ * KS-3460. Стаб AnalysisService — для конструктора. По умолчанию
+ * `create` возвращает фейк-id. Тесты, проверяющие toAnalysis, могут
+ * передавать свою реализацию.
+ */
+function makeAnalysisService(over: Partial<AnyMock> = {}): AnyMock {
+  return {
+    create: jest.fn().mockResolvedValue({ id: 'a1', existing: false }),
+    ...over,
+  };
+}
+
+/** Стаб I18nService.t — возвращает ключ + args (детерминированно). */
+function makeI18n(): AnyMock {
+  return {
+    t: jest.fn((key: string, opts?: { args?: Record<string, unknown> }) =>
+      opts?.args ? `${key}(${JSON.stringify(opts.args)})` : key,
+    ),
+  };
+}
+
+function makeService(
+  prisma: AnyMock,
+  analysis: AnyMock = makeAnalysisService(),
+  i18n: AnyMock = makeI18n(),
+): GuessService {
+  return new GuessService(prisma, analysis, i18n);
 }
 
 // raw WDL POV side-to-move.
@@ -49,7 +88,7 @@ describe('GuessService.startSession', () => {
       startedAt: new Date('2026-05-29T00:00:00Z'),
       finishedAt: null,
     });
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.startSession('u1', {
       gameSource: 'archive',
       gameRef: 'g1',
@@ -61,14 +100,14 @@ describe('GuessService.startSession', () => {
   });
 
   it('archive без gameRef → BadRequest', async () => {
-    const svc = new GuessService(makePrisma());
+    const svc = makeService(makePrisma());
     await expect(
       svc.startSession('u1', { gameSource: 'archive', side: 'white' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("pgn без pgn-тела → BadRequest", async () => {
-    const svc = new GuessService(makePrisma());
+    const svc = makeService(makePrisma());
     await expect(
       svc.startSession('u1', { gameSource: 'pgn', side: 'black' }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -114,7 +153,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
       },
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
 
     const r = await svc.submitMove('u1', 's1', {
       ply: 20,
@@ -154,7 +193,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
       ...activeSession(),
       userId: 'other',
     });
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     await expect(
       svc.submitMove('u1', 's1', {
         ply: 1,
@@ -174,7 +213,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
       ...activeSession(),
       status: 'finished',
     });
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     await expect(
       svc.submitMove('u1', 's1', {
         ply: 1,
@@ -213,7 +252,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
       },
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
 
     const r = await svc.submitMove('u1', 's1', {
       ply: 3,
@@ -251,7 +290,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
         eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.25 },
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.submitMove('u1', 's1', {
       ply: 5, fenBefore: 'f', playedUci: 'a1a2', userUci: 'b1b2', bestUci: 'c1c2',
       wdlBefore: wdl(500, 300, 200), wdlAfterPlayed: wdl(500, 300, 200), wdlAfterUser: wdl(500, 300, 200),
@@ -278,7 +317,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     }));
     prisma.guessMove.findMany.mockResolvedValue(moves);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.submitMove('u1', 's1', {
       ply: 10, fenBefore: 'f', playedUci: 'a1a2', userUci: 'b1b2', bestUci: 'c1c2',
       wdlBefore: wdl(500, 300, 200), wdlAfterPlayed: wdl(500, 300, 200), wdlAfterUser: wdl(500, 300, 200),
@@ -304,7 +343,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
         eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.50 },
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.submitMove('u1', 's1', {
       ply: 3, fenBefore: 'f', playedUci: 'a1a2', userUci: 'b1b2', bestUci: 'c1c2',
       wdlBefore: wdl(500, 300, 200), wdlAfterPlayed: wdl(500, 300, 200), wdlAfterUser: wdl(500, 300, 200),
@@ -325,7 +364,7 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
         eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.20 }, // рвёт
     ]);
     prisma.guessSession.update.mockResolvedValue(activeSession());
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.submitMove('u1', 's1', {
       ply: 3,
       fenBefore: 'f',
@@ -374,7 +413,7 @@ describe('GuessService.finish (две точности + outcome)', () => {
       ...base,
       ...data,
     }));
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.finish('u1', 's1');
 
     expect(r.session.status).toBe('finished');
@@ -404,10 +443,138 @@ describe('GuessService.finish (две точности + outcome)', () => {
       startedAt: new Date(),
       finishedAt: new Date(),
     });
-    const svc = new GuessService(prisma);
+    const svc = makeService(prisma);
     const r = await svc.finish('u1', 's1');
     expect(r.outcome).toBe('userBetter');
     // повторный finish не апдейтит.
     expect(prisma.guessSession.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('GuessService.toAnalysis (KS-3460 / ADR-089 §6)', () => {
+  function finishedSession(extra: Partial<AnyMock> = {}): AnyMock {
+    return {
+      id: 's1',
+      userId: 'u1',
+      gameSource: 'archive',
+      gameRef: 'g1',
+      pgn: '1. e4 e5 2. Nf3 *',
+      side: 'white',
+      status: 'finished',
+      userAccuracy: 87,
+      playerAccuracy: 81,
+      userStars: 4,
+      score: 10,
+      bestStreak: 1,
+      betterThanPlayerCount: 1,
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: new Date('2026-05-30T01:00:00Z'),
+      ...extra,
+    };
+  }
+
+  it('создаёт Analysis с annotated-PGN, обновляет guessSessionId, existing=false', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(finishedSession());
+    prisma.guessMove.findMany.mockResolvedValue([]);
+    prisma.analysis.findFirst.mockResolvedValue(null);
+    prisma.analysis.update.mockResolvedValue({});
+    const analysisService = makeAnalysisService({
+      create: jest.fn().mockResolvedValue({ id: 'a42', existing: false }),
+    });
+    const svc = makeService(prisma, analysisService);
+
+    const res = await svc.toAnalysis('u1', 's1', 'ru');
+
+    expect(res.analysisId).toBe('a42');
+    expect(res.url).toBe('/analysis/a42');
+    expect(res.existing).toBe(false);
+    // create вызван с PGN, без lichess/archive id, category='analysis'.
+    const callArg = analysisService.create.mock.calls[0][1];
+    expect(callArg.pgn).toContain('1. e4');
+    expect(callArg.category).toBe('analysis');
+    expect(callArg.lichessGameId).toBeUndefined();
+    expect(callArg.archiveGameId).toBeUndefined();
+    // Соответствующий UPDATE Analysis SET guess_session_id = sessionId.
+    expect(prisma.analysis.update).toHaveBeenCalledWith({
+      where: { id: 'a42' },
+      data: { guessSessionId: 's1' },
+    });
+  });
+
+  it('повторный вызов возвращает existing (дедуп по guessSessionId)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(finishedSession());
+    prisma.analysis.findFirst.mockResolvedValue({ id: 'a-existing' });
+    const analysisService = makeAnalysisService();
+    const svc = makeService(prisma, analysisService);
+
+    const res = await svc.toAnalysis('u1', 's1', 'en');
+
+    expect(res.existing).toBe(true);
+    expect(res.analysisId).toBe('a-existing');
+    expect(res.url).toBe('/analysis/a-existing');
+    // AnalysisService.create НЕ должен вызываться.
+    expect(analysisService.create).not.toHaveBeenCalled();
+    // lastOpenedAt бамп для LRU.
+    expect(prisma.analysis.update).toHaveBeenCalledWith({
+      where: { id: 'a-existing' },
+      data: { lastOpenedAt: expect.any(Date) },
+    });
+  });
+
+  it('чужая сессия → Forbidden', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(
+      finishedSession({ userId: 'OTHER' }),
+    );
+    const svc = makeService(prisma);
+    await expect(svc.toAnalysis('u1', 's1', 'en')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('сессия не finished → Conflict', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(
+      finishedSession({ status: 'active' }),
+    );
+    const svc = makeService(prisma);
+    await expect(svc.toAnalysis('u1', 's1', 'en')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('пустой pgn → BadRequest', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(
+      finishedSession({ pgn: '' }),
+    );
+    const svc = makeService(prisma);
+    await expect(svc.toAnalysis('u1', 's1', 'en')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('P2002 race-condition на UPDATE → возвращаем winner-existing', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(finishedSession());
+    // findFirst первый раз nul (дедуп не нашёл), второй — winner.
+    prisma.analysis.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'a-winner' });
+    prisma.analysis.update.mockRejectedValue(
+      Object.assign(new Error('Unique constraint'), { code: 'P2002' }),
+    );
+    const analysisService = makeAnalysisService({
+      create: jest.fn().mockResolvedValue({ id: 'a-loser', existing: false }),
+    });
+    const svc = makeService(prisma, analysisService);
+
+    const res = await svc.toAnalysis('u1', 's1', 'en');
+
+    expect(res.existing).toBe(true);
+    expect(res.analysisId).toBe('a-winner');
+    expect(res.url).toBe('/analysis/a-winner');
   });
 });
