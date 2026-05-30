@@ -15,6 +15,7 @@ import { GameModule } from './game/game.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
 import { PrecisionModule } from './precision/precision.module';
 import { GuessModule } from './guess/guess.module';
+import { BlindBoardModule } from './blind-board/blind-board.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
@@ -83,6 +84,7 @@ import { HealthController } from './health.controller';
     PuzzleModule,
     PrecisionModule,
     GuessModule,
+    BlindBoardModule,
     TournamentModule,
     AnalysisModule,
     WorkshopModule,

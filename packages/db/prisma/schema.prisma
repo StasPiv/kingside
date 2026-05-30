@@ -612,6 +612,11 @@ model BlindBoardSession {
   /// Фигура, которой комп ходит СЛЕДУЮЩИМ ходом (или NULL если
   /// сессия finished). JSON `{square, type}`.
   nextTargetPiece Json?   @map("next_target_piece")
+  /// KS-3441. Текущий ход компа `{from, to}` — то, что клиент видит
+  /// на доске сейчас и на что ждём ответ. NULL когда сессия finished.
+  /// Хранится отдельно от nextTargetPiece (та станет target_piece
+  /// для следующего хода после ответа игрока).
+  currentCompMove Json?   @map("current_comp_move")
   streak          Int     @default(0)
   bestStreak      Int     @default(0) @map("best_streak")
   /// 'active' | 'finished' (см. BlindBoardSessionStatus в shared).
