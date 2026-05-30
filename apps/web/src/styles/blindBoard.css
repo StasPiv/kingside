@@ -1,0 +1,447 @@
+/* ============================================================
+ * KS-3445 (ADR-088 §11 L1). Слепая доска: runner-обёртка +
+ * промоушн-модал + финал-экран (стиль Puzzle Rush — большие
+ * числа streak/PB + leaderboard с подсветкой «моя строка»).
+ * Подсветки клеток from/to и стрелка от→к рендерятся inline
+ * react-chessboard'ом (см. BlindBoardRunner.tsx); CSS отвечает
+ * за всё остальное.
+ * ============================================================ */
+
+/* ── Runner / board wrapper ─────────────────────────────── */
+
+.blind-board-runner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.blind-board-runner__board {
+  width: 100%;
+  max-width: min(560px, 90vw);
+  aspect-ratio: 1 / 1;
+}
+/* KS-3445: notation на пустой доске — единственный визуальный якорь.
+   Чуть приглушаем фон ячеек, чтобы highlight from/to читался ярче. */
+.blind-board-runner__board .board-container,
+.blind-board-runner__board > div {
+  width: 100% !important;
+}
+
+/* ── Promotion modal (Q/R/B/N) ─────────────────────────── */
+
+.blind-board-runner__promotion {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: blind-board-promo-fade 160ms ease-out;
+}
+@keyframes blind-board-promo-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.blind-board-runner__promotion-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ov-black-40, rgba(0, 0, 0, 0.5));
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.blind-board-runner__promotion-panel {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-surface, var(--c-2a2a4e, #fff));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  border-radius: 14px;
+  box-shadow: 0 12px 36px var(--ov-black-40, rgba(0, 0, 0, 0.4));
+  padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: blind-board-promo-pop 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes blind-board-promo-pop {
+  from {
+    transform: translateY(8px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.blind-board-runner__promotion-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.blind-board-runner__promotion-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+}
+.blind-board-runner__promotion-square {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: lowercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.blind-board-runner__promotion-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.blind-board-runner__promotion-piece {
+  appearance: none;
+  background: var(--bg-elevated, var(--c-25253d, #f3f4f6));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+  font-size: 22px;
+  font-weight: 800;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 56px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    transform 80ms ease;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+.blind-board-runner__promotion-piece:hover {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-runner__promotion-piece:active {
+  transform: scale(0.96);
+}
+.blind-board-runner__promotion-piece:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+
+.blind-board-runner__promotion-cancel {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary, var(--c-a0a0c0, #6b7280));
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.blind-board-runner__promotion-cancel:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+}
+
+/* ── Final-экран (BlindBoardFinalScreen) ────────────────── */
+
+.blind-board-final {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-final h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+
+/* «Cornered the computer» — accent-бейдж dead-end. */
+.blind-board-final__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.blind-board-final__badge--dead-end {
+  background: var(--c-eab308, #eab308);
+  color: #422006;
+  border: 1px solid var(--warning-strong, var(--c-d97706, #b45309));
+  box-shadow: 0 4px 14px rgba(234, 179, 8, 0.32);
+}
+.blind-board-final__badge--dead-end::before {
+  content: '🏆';
+  font-size: 18px;
+}
+
+.blind-board-final__reason {
+  margin: 0;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 480px;
+}
+
+.blind-board-final__board {
+  width: 100%;
+  max-width: min(420px, 80vw);
+  aspect-ratio: 1 / 1;
+}
+.blind-board-final__board > div {
+  width: 100% !important;
+}
+
+.blind-board-final__expected {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.blind-board-final__expected strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  color: var(--c-vc-red, #b91c1c);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* ── Stats: big-number Puzzle-Rush style ────────────────── */
+
+.blind-board-final__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+  max-width: 480px;
+}
+.blind-board-final__stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 14px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  text-align: center;
+}
+.blind-board-final__stat-value {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+  letter-spacing: -0.02em;
+}
+.blind-board-final__stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.blind-board-final__stat--streak .blind-board-final__stat-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-final__stat--personal-best[data-is-record='true'] {
+  border-color: var(--c-vc-green, #15803d);
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+}
+.blind-board-final__stat--personal-best[data-is-record='true']
+  .blind-board-final__stat-value {
+  color: var(--c-vc-green, #15803d);
+}
+.blind-board-final__new-record {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--c-vc-green, #15803d);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  animation: blind-board-new-record-pulse 1.6s ease-in-out infinite;
+}
+@keyframes blind-board-new-record-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+/* ── Leaderboard ────────────────────────────────────────── */
+
+.blind-board-final__leaderboard {
+  width: 100%;
+  max-width: 480px;
+  margin-top: 8px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  overflow: hidden;
+}
+.blind-board-final__leaderboard-title {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  background: var(--bg-elevated, var(--c-25253d));
+}
+.blind-board-final__leaderboard-loading,
+.blind-board-final__leaderboard-error,
+.blind-board-final__leaderboard-empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+}
+.blind-board-final__leaderboard-error {
+  color: var(--c-vc-red, #b91c1c);
+}
+.blind-board-final__leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.blind-board-final__leaderboard-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 14px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  border-left: 3px solid transparent;
+  transition: background 120ms ease;
+}
+.blind-board-final__leaderboard-row:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.blind-board-final__leaderboard-row--me {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-left-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-final__leaderboard-row--me
+  .blind-board-final__leaderboard-name,
+.blind-board-final__leaderboard-row--me
+  .blind-board-final__leaderboard-streak {
+  font-weight: 700;
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-final__leaderboard-rank {
+  font-weight: 700;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+/* Топ-3 — bronze/silver/gold метки. */
+.blind-board-final__leaderboard-row:nth-child(1)
+  .blind-board-final__leaderboard-rank {
+  color: var(--c-eab308, #eab308);
+}
+.blind-board-final__leaderboard-row:nth-child(2)
+  .blind-board-final__leaderboard-rank {
+  color: var(--c-94a3b8, #94a3b8);
+}
+.blind-board-final__leaderboard-row:nth-child(3)
+  .blind-board-final__leaderboard-rank {
+  color: var(--c-vc-red, #b91c1c);
+  opacity: 0.8;
+}
+.blind-board-final__leaderboard-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.blind-board-final__leaderboard-streak {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+
+.blind-board-final__again {
+  margin-top: 4px;
+  min-width: 200px;
+}
+
+/* ── Mobile ≤767 ────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .blind-board-runner__board {
+    max-width: min(420px, 96vw);
+  }
+
+  .blind-board-runner__promotion-panel {
+    max-width: 100%;
+  }
+  .blind-board-runner__promotion-piece {
+    font-size: 20px;
+    min-height: 60px;
+  }
+
+  .blind-board-final {
+    padding: 16px 12px;
+    gap: 14px;
+  }
+  .blind-board-final h2 {
+    font-size: 22px;
+  }
+  .blind-board-final__board {
+    max-width: 100%;
+  }
+  .blind-board-final__stats {
+    gap: 10px;
+  }
+  .blind-board-final__stat {
+    padding: 14px 10px;
+  }
+  .blind-board-final__stat-value {
+    font-size: 36px;
+  }
+  .blind-board-final__leaderboard-row {
+    grid-template-columns: 28px 1fr auto;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .blind-board-final__again {
+    width: 100%;
+    padding: 12px 16px !important;
+    font-size: 15px !important;
+    min-height: 48px;
+  }
+}
