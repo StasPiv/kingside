@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Chess } from 'chess.js';
 import type {
   GuessSide,
   GuessGameSource,
@@ -12,6 +13,38 @@ import { GuessFinalScreen } from './GuessFinalScreen';
 import { WdlChancesBar } from '../WdlChancesBar';
 import type { WdlDistribution } from '../../utils/engineAdapter';
 import { guessApi } from '../../api/guessApi';
+import { useAuth } from '../../context/AuthContext';
+
+/**
+ * KS-3458: разобрать PGN headers через chess.js, вытащить имя/Elo
+ * нужного игрока (по `side`). Возвращает строку «Carlsen, Magnus 2828»
+ * или просто «Carlsen, Magnus» если рейтинга нет; `null` — если в
+ * заголовке имя пусто/«?» (anonymous PGN).
+ */
+function buildPlayerLabel(pgn: string, side: GuessSide): string | null {
+  try {
+    const g = new Chess();
+    g.loadPgn(pgn);
+    const headers = g.header();
+    const nameKey = side === 'white' ? 'White' : 'Black';
+    const eloKey = side === 'white' ? 'WhiteElo' : 'BlackElo';
+    const rawName = headers[nameKey]?.trim();
+    if (!rawName || rawName === '?') return null;
+    const rawElo = headers[eloKey]?.trim();
+    const eloNum = rawElo && /^\d+$/.test(rawElo) ? rawElo : null;
+    return eloNum ? `${rawName} ${eloNum}` : rawName;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * KS-3458: обрезать длинный ник многоточием. По умолчанию 14 символов —
+ * на узких mobile-экранах табло не разъезжается.
+ */
+function truncate(s: string, max = 14): string {
+  return s.length > max ? `${s.slice(0, Math.max(1, max - 1))}…` : s;
+}
 
 /**
  * KS-3411 (ADR-086 §9, F2) — сессионная обёртка над GuessRunner (F1):
@@ -44,6 +77,20 @@ export function GuessSessionRunner({
   engineFactory,
 }: GuessSessionRunnerProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+
+  // KS-3458: имена для HUD-табло. Юзер — username из AuthContext,
+  // обрезанный до 14 символов; player — имя+Elo из PGN headers по
+  // выбранной стороне. Гость / отсутствующие заголовки → fallback
+  // на старые i18n-ключи `guess.hud.{you,player}`.
+  const userLabel = useMemo<string | null>(() => {
+    if (!user?.username) return null;
+    return truncate(user.username, 14);
+  }, [user]);
+  const playerLabel = useMemo<string | null>(
+    () => buildPlayerLabel(pgn, side),
+    [pgn, side],
+  );
 
   const [status, setStatus] = useState<Status>('starting');
   const sessionIdRef = useRef<string | null>(null);
@@ -204,12 +251,14 @@ export function GuessSessionRunner({
       >
         <WdlChancesBar wdl={liveWdl} testId="guess-session-wdl" />
       </div>
-      {/* KS-3436: HUD — табло счёта «ты : игрок» (matchup-вид). Очки
-          приходят с сервера в submitMove (KS-3435 backend): userPoints
-          = ходы с verdict ∈ {strongest, betterThanPlayer}; playerPoints
-          = ходы с verdict='weaker'. asPlayer никому очко не даёт.
-          Финал-экран — точности и звёзды — не трогаем, это другая
-          сцена (см. GuessFinalScreen). */}
+      {/* KS-3436: HUD — табло счёта (matchup-вид). KS-3458: вместо
+          обезличенных «Ты / Игрок» — ник пользователя и имя+Elo
+          игрока партии (по `side`). Гость / партия без player-headers
+          → fallback на старые i18n-ключи `guess.hud.{you,player}`.
+          Очки приходят с сервера в submitMove (KS-3435 backend):
+          userPoints = ходы с verdict ∈ {strongest, betterThanPlayer};
+          playerPoints = ходы с verdict='weaker'. asPlayer никому очко
+          не даёт. Финал-экран (точности/звёзды) — отдельная сцена. */}
       <div
         className="guess-session__hud guess-session__hud--scoreboard"
         data-testid="guess-session-hud"
@@ -218,8 +267,12 @@ export function GuessSessionRunner({
           className="guess-session__score guess-session__score--user"
           data-testid="guess-hud-user-score"
         >
-          <span className="guess-session__score-label">
-            {t('guess.hud.you', 'You')}
+          <span
+            className="guess-session__score-label"
+            data-testid="guess-hud-user-label"
+            title={user?.username ?? undefined}
+          >
+            {userLabel ?? t('guess.hud.you', 'You')}
           </span>
           <span
             className="guess-session__score-value"
@@ -241,8 +294,12 @@ export function GuessSessionRunner({
           >
             {playerPoints}
           </span>
-          <span className="guess-session__score-label">
-            {t('guess.hud.player', 'Game')}
+          <span
+            className="guess-session__score-label"
+            data-testid="guess-hud-player-label"
+            title={playerLabel ?? undefined}
+          >
+            {playerLabel ?? t('guess.hud.player', 'Game')}
           </span>
         </div>
       </div>

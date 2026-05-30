@@ -15,6 +15,21 @@ import type {
  * и отображение СЕРВЕРНЫХ значений (score/streak/better/accuracy).
  */
 
+// KS-3458: SessionRunner вызывает useAuth() для имени пользователя в
+// HUD. В тест-обвязке AuthProvider не смонтирован — стабим, чтобы
+// возвращалось предсказуемое значение (для PGN без headers playerLabel
+// = null, для user=null userLabel = null → fallback на старые i18n).
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    token: null,
+    login: vi.fn(),
+    register: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 const startSession = vi.fn();
 const submitMove = vi.fn();
 const finishSession = vi.fn();
@@ -103,6 +118,8 @@ function moveDto(over: Partial<GuessMoveDto> = {}): GuessMoveDto {
 }
 
 const PGN = '1. e4 e5 *';
+const PGN_WITH_HEADERS =
+  '[Event "Test"]\n[White "Carlsen, Magnus"]\n[Black "Gukesh D"]\n[WhiteElo "2828"]\n[BlackElo "2783"]\n\n1. e4 e5 *';
 
 beforeEach(() => {
   startSession.mockReset();
@@ -206,5 +223,55 @@ describe('<GuessSessionRunner> KS-3411', () => {
     expect(screen.getByTestId('guess-final-outcome')).toBeTruthy();
     // Список ходов из накопленных серверных move-DTO.
     expect(screen.getByTestId('guess-final-move-1').getAttribute('data-verdict')).toBe('weaker');
+  });
+
+  it('KS-3458: HUD-лейблы — fallback на «You/Game» если PGN без headers и user=null', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+    } as StartGuessSessionResponse);
+    renderWithProviders(
+      <GuessSessionRunner pgn={PGN} side="white" gameSource="pgn" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-session').getAttribute('data-status')).toBe(
+        'playing',
+      ),
+    );
+    expect(screen.getByTestId('guess-hud-user-label').textContent).toBe('You');
+    expect(screen.getByTestId('guess-hud-player-label').textContent).toBe('Game');
+  });
+
+  it('KS-3458: HUD-лейблы — PGN с headers (side=white) → «Carlsen, Magnus 2828»', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+    } as StartGuessSessionResponse);
+    renderWithProviders(
+      <GuessSessionRunner pgn={PGN_WITH_HEADERS} side="white" gameSource="pgn" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-session').getAttribute('data-status')).toBe(
+        'playing',
+      ),
+    );
+    expect(screen.getByTestId('guess-hud-player-label').textContent).toBe(
+      'Carlsen, Magnus 2828',
+    );
+  });
+
+  it('KS-3458: HUD-лейблы — side=black → Black player', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+    } as StartGuessSessionResponse);
+    renderWithProviders(
+      <GuessSessionRunner pgn={PGN_WITH_HEADERS} side="black" gameSource="pgn" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-session').getAttribute('data-status')).toBe(
+        'playing',
+      ),
+    );
+    expect(screen.getByTestId('guess-hud-player-label').textContent).toBe(
+      'Gukesh D 2783',
+    );
   });
 });
