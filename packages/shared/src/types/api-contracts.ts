@@ -2177,3 +2177,133 @@ export interface GuessHistoryResponse {
   items: GuessSessionDto[];
   total: number;
 }
+
+// ─── Blind-Board (ADR-088 / KS-3438 S1) ────────────────────────────
+//
+// Тренировка «найди фигуру по ходу компьютера». 5 фигур (Q/R/N/B/B)
+// стоят на пустой доске без королей; игрок их НЕ видит. Каждый раунд
+// компьютер ходит одной фигурой так, что ровно одна другая фигура
+// становится «вовлечённой» (атакована или атакует). Игрок должен
+// опознать её — клетка + тип (через промоушн-модал).
+// Позиция держится ТОЛЬКО на сервере (анти-чит §5): клиент знает
+// только {from, to} хода компа.
+// Только типы/контракты — логика в S2 (move-generator) и B1/B2.
+
+/** Тип фигуры (без королей и пешек, ADR-088 §2.1). */
+export type BlindBoardPieceType = 'Q' | 'R' | 'B' | 'N';
+
+/** Клетка доски (a1..h8). 64 строки в union через template literal. */
+export type BlindBoardFile = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
+export type BlindBoardRank = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
+export type BlindBoardSquare = `${BlindBoardFile}${BlindBoardRank}`;
+
+/** Фигура на доске: клетка + тип. */
+export interface BlindBoardPiece {
+  square: BlindBoardSquare;
+  type: BlindBoardPieceType;
+}
+
+/** Ход компьютера: координаты from/to (без раскрытия типа). */
+export interface BlindBoardMove {
+  from: BlindBoardSquare;
+  to: BlindBoardSquare;
+}
+
+export type BlindBoardSessionStatus = 'active' | 'finished';
+
+/**
+ * Причина завершения сессии (ADR-088 §10):
+ *   - `wrong-answer` — игрок ошибся.
+ *   - `dead-end` — у текущей `target_piece` нет ходов с |involved|=1
+ *     (§6); current streak засчитывается, бейдж «загнал компа в угол».
+ *   - `abandoned` — сессия брошена без явного финала.
+ */
+export type BlindBoardFinishReason =
+  | 'wrong-answer'
+  | 'dead-end'
+  | 'abandoned';
+
+/**
+ * Сессия blind-board (БЕЗ раскрытия позиции/типов — анти-чит §5).
+ * Клиенту отдаются только агрегаты и `nextMove` (координаты).
+ */
+export interface BlindBoardSessionDto {
+  id: string;
+  status: BlindBoardSessionStatus;
+  /** `null` для `status='active'`; конкретная причина при `finished`. */
+  finishReason: BlindBoardFinishReason | null;
+  /** 1-based номер ТЕКУЩЕГО раунда (на который ждём ответ игрока). */
+  round: number;
+  /** Текущая серия (раундов подряд без ошибки). */
+  streak: number;
+  /** Лучшая серия в этой сессии. */
+  bestStreak: number;
+  /**
+   * Ход компьютера на текущий раунд (`{from, to}`). `null` если сессия
+   * `finished` — раундов больше нет. На M1 это вся информация о
+   * позиции, доступная клиенту (типы фигур держатся на сервере).
+   */
+  nextMove: BlindBoardMove | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/**
+ * `POST /blind-board/sessions` — старт сессии. Тело пустое (вся
+ * рандомизация на сервере). Auth: M1 — JwtAuthGuard обязателен
+ * (гость без persist — ADR §8 / §11 B2 решение).
+ *
+ * Опциональный `showStartPosition` зарезервирован под M2-вариант
+ * «показ 5 сек». В M1 всегда отсутствует (холодный старт).
+ */
+export interface StartBlindBoardSessionResponse {
+  session: BlindBoardSessionDto;
+  /** M2-only: расстановка для предпросмотра на 5 сек. В M1 omit. */
+  showStartPosition?: BlindBoardPiece[];
+}
+
+/** `POST /blind-board/sessions/:id/answer` — ответ игрока. */
+export interface SubmitBlindBoardAnswerRequest {
+  /** Клетка вовлечённой фигуры по памяти игрока. */
+  square: BlindBoardSquare;
+  /** Тип вовлечённой фигуры (выбран в промоушн-модале). */
+  pieceType: BlindBoardPieceType;
+}
+
+/**
+ * Ответ сервера на answer (ADR-088 §11 S1).
+ *   - `correct=true` → сессия продолжается, `session.nextMove`
+ *     содержит ход следующего раунда (target_piece = опознанная).
+ *   - `correct=false` → сессия завершается (`finishReason='wrong-answer'`),
+ *     раскрываются `expectedSquare`/`expectedPieceType` и
+ *     `revealedPosition` (все 5 фигур).
+ *   - `dead-end` → `correct=true`, но `session.status='finished'`,
+ *     `session.finishReason='dead-end'`, `session.nextMove=null` и
+ *     раскрывается `revealedPosition`.
+ */
+export interface SubmitBlindBoardAnswerResponse {
+  correct: boolean;
+  /** При `correct=false` — что было ожидаемым ответом. */
+  expectedSquare?: BlindBoardSquare;
+  expectedPieceType?: BlindBoardPieceType;
+  /**
+   * Раскрытие полной расстановки (при `correct=false` или при
+   * `dead-end`). При успешном продолжении — `undefined`.
+   */
+  revealedPosition?: BlindBoardPiece[];
+  /** Обновлённое состояние сессии (streak/status/finishReason/nextMove). */
+  session: BlindBoardSessionDto;
+}
+
+/** Запись в лидерборде best-streak'ов (ADR-088 §7 / §11 B2). */
+export interface BlindBoardLeaderboardEntry {
+  userId: string;
+  username: string;
+  bestStreak: number;
+  achievedAt: string;
+}
+
+/** `GET /blind-board/leaderboard` — топ best-streak. */
+export interface BlindBoardLeaderboardResponse {
+  entries: BlindBoardLeaderboardEntry[];
+}
