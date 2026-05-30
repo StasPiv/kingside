@@ -1,25 +1,32 @@
 /**
  * KS-3442 (ADR-088 §11 F1). Сессионная обёртка blind-board: старт
- * сессии → раунды → wrong-answer / dead-end → финал-экран.
+ * сессии → запоминание (KS-3448) → раунды → wrong-answer / dead-end
+ * → финал-экран.
  *
  * Раннер (`BlindBoardRunner`) отвечает только за пустую доску + клик +
  * промоушн; здесь склейка с API (`blindBoardApi`) и UI-фазы:
- *   - `starting` — POST /sessions, грузим первый ход.
- *   - `playing`  — раунды; submitAnswer → следующий ход / финал.
- *   - `awaiting` — ждём ответ от сервера на свой submitAnswer
+ *   - `starting`    — POST /sessions, грузим первый ход + startPosition.
+ *   - `memorizing`  — KS-3448: показываем стартовую расстановку 5 фигур
+ *     (один раз, до игры) + кнопку «Готов»; HUD скрыт.
+ *   - `playing`     — раунды; submitAnswer → следующий ход / финал.
+ *   - `awaiting`    — ждём ответ от сервера на свой submitAnswer
  *     (доска заморожена через `disabled`).
- *   - `final`    — wrong-answer или dead-end; раскрытие позиции +
+ *   - `final`       — wrong-answer или dead-end; раскрытие позиции +
  *     bestStreak + кнопка «Играть ещё».
- *   - `error`    — startSession упал.
+ *   - `error`       — startSession упал.
  *
- * Сохранение полной позиции на финал-экране сервер шлёт только при
- * wrong-answer / dead-end (анти-чит §5) — мы её просто отрисовываем
- * через FEN, собранный из `BlindBoardPiece[]`.
+ * KS-3448: backend (api ≥ ea4f77bc) на старте отдаёт
+ * `startPosition: BlindBoardPiece[]` — клиент запоминает её и
+ * показывает в фазе `memorizing`. После клика «Готов» доска чистится
+ * (фаза `playing`, EMPTY_FEN, стрелка первого хода). Анти-чит §5
+ * не нарушается: на последующих answer-запросах полная позиция уже
+ * не раскрывается — только при wrong-answer / dead-end.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   BlindBoardMove,
+  BlindBoardPiece,
   BlindBoardPieceType,
   BlindBoardSessionDto,
   BlindBoardSquare,
@@ -28,9 +35,17 @@ import type {
 
 import { BlindBoardRunner } from './BlindBoardRunner';
 import { BlindBoardFinalScreen } from './BlindBoardFinalScreen';
+import { MemoChessboard } from '../MemoChessboard';
+import { piecesToFen } from './BlindBoardFinalScreen';
 import { blindBoardApi } from '../../api/blindBoardApi';
 
-type Status = 'starting' | 'playing' | 'awaiting' | 'final' | 'error';
+type Status =
+  | 'starting'
+  | 'memorizing'
+  | 'playing'
+  | 'awaiting'
+  | 'final'
+  | 'error';
 
 export interface BlindBoardSessionRunnerProps {
   /** DI для тестов — позволяет подменить blindBoardApi на моки. */
@@ -49,6 +64,10 @@ export function BlindBoardSessionRunner({
   const [session, setSession] = useState<BlindBoardSessionDto | null>(null);
   const [lastAnswer, setLastAnswer] =
     useState<SubmitBlindBoardAnswerResponse | null>(null);
+  // KS-3448: стартовая расстановка для фазы memorize. После клика
+  // «Готов» не используется (доска становится пустой), но держим до
+  // resets чтобы не плодить лишний state-сброс.
+  const [startPosition, setStartPosition] = useState<BlindBoardPiece[]>([]);
   const sessionIdRef = useRef<string | null>(null);
   const genRef = useRef(0);
 
@@ -58,13 +77,21 @@ export function BlindBoardSessionRunner({
     setStatus('starting');
     setSession(null);
     setLastAnswer(null);
+    setStartPosition([]);
     void (async () => {
       try {
         const res = await api.startSession();
         if (gen !== genRef.current) return;
         sessionIdRef.current = res.session.id;
         setSession(res.session);
-        setStatus('playing');
+        // KS-3448: запоминание — показываем 5 фигур, ждём «Готов».
+        // На случай отсутствия поля (старый backend) сразу в playing.
+        setStartPosition(res.startPosition ?? []);
+        setStatus(
+          res.startPosition && res.startPosition.length > 0
+            ? 'memorizing'
+            : 'playing',
+        );
       } catch {
         if (gen !== genRef.current) return;
         setStatus('error');
@@ -74,6 +101,11 @@ export function BlindBoardSessionRunner({
       genRef.current += 1;
     };
   }, [api]);
+
+  // ── KS-3448: переход из memorize в playing ────────────────────────
+  const handleReady = useCallback(() => {
+    setStatus('playing');
+  }, []);
 
   // ── Submit ответа ─────────────────────────────────────────────────
   const handleSubmit = useCallback(
@@ -144,6 +176,65 @@ export function BlindBoardSessionRunner({
             {t('blindBoard.session.back', 'Back')}
           </button>
         )}
+      </div>
+    );
+  }
+
+  if (status === 'memorizing' && session) {
+    // KS-3448: фаза запоминания — доска со стартовой расстановкой
+    // (FEN из startPosition) + большая кнопка «Готов» под доской. HUD
+    // не показываем — оставляем его до начала игры, чтобы не отвлекать
+    // от запоминания. Шкала прогресса / таймер — в M2.
+    const fen = piecesToFen(startPosition);
+    return (
+      <div
+        className="blind-board-session blind-board-session--memorizing"
+        data-testid="blind-board-session"
+        data-status="memorizing"
+      >
+        <div
+          className="blind-board-session__memorize"
+          data-testid="blind-board-memorize"
+        >
+          <h2
+            className="blind-board-session__memorize-title"
+            data-testid="blind-board-memorize-title"
+          >
+            {t('blindBoard.memorize.title', 'Memorize the position')}
+          </h2>
+          <p
+            className="blind-board-session__memorize-hint"
+            data-testid="blind-board-memorize-hint"
+          >
+            {t(
+              'blindBoard.memorize.hint',
+              'When you tap “Ready” the pieces disappear and the computer starts moving — keep the position in your head and answer with the moved piece each round.',
+            )}
+          </p>
+          <div
+            className="blind-board-session__memorize-board"
+            data-testid="blind-board-memorize-board"
+            data-fen={fen}
+          >
+            <MemoChessboard
+              options={{
+                position: fen,
+                boardOrientation: 'white',
+                allowDragging: false,
+                showNotation: true,
+                animationDurationInMs: 0,
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            className="blind-board-session__memorize-ready play-btn"
+            data-testid="blind-board-memorize-ready"
+            onClick={handleReady}
+          >
+            {t('blindBoard.memorize.ready', 'Ready')}
+          </button>
+        </div>
       </div>
     );
   }

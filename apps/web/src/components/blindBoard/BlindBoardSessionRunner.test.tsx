@@ -68,6 +68,15 @@ vi.mock('./BlindBoardFinalScreen', () => ({
       }
     />
   ),
+  // KS-3448: SessionRunner импортирует helper piecesToFen из этого
+  // модуля — мок должен его экспортировать, иначе runtime-undefined в
+  // фазе memorize. Минимальная стаб-реализация: маркер «есть R7»,
+  // достаточный для проверки в тесте.
+  piecesToFen: (pieces: Array<{ square: string; type: string }>) => {
+    if (pieces.length === 0) return '8/8/8/8/8/8/8/8 w - - 0 1';
+    const r = pieces.find((p) => p.square === 'a1' && p.type === 'R');
+    return r ? '8/8/8/8/8/8/8/R7 w - - 0 1' : '8/8/8/8/8/8/8/8 w - - 0 1';
+  },
 }));
 
 const startSession = vi.fn();
@@ -97,7 +106,7 @@ beforeEach(() => {
 });
 
 describe('<BlindBoardSessionRunner>', () => {
-  it('старт → playing с HUD; runner получает session.nextMove', async () => {
+  it('старт → playing с HUD; runner получает session.nextMove (без startPosition → пропускаем memorize)', async () => {
     startSession.mockResolvedValue({
       session: session(),
     } as StartBlindBoardSessionResponse);
@@ -113,6 +122,62 @@ describe('<BlindBoardSessionRunner>', () => {
     expect(screen.getByTestId('runner-stub').getAttribute('data-move')).toBe(
       'e2-e4',
     );
+  });
+
+  it('KS-3448: старт со startPosition → memorizing → клик «Готов» → playing', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'e4', type: 'N' },
+        { square: 'd5', type: 'B' },
+        { square: 'g7', type: 'B' },
+        { square: 'h8', type: 'Q' },
+      ],
+    } as StartBlindBoardSessionResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    // Сначала memorize.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('memorizing'),
+    );
+    // HUD скрыт.
+    expect(screen.queryByTestId('blind-board-hud')).toBeNull();
+    // Доска с FEN из startPosition (R на a1 → '…/R7').
+    expect(
+      screen
+        .getByTestId('blind-board-memorize-board')
+        .getAttribute('data-fen'),
+    ).toContain('R7');
+    // Клик «Готов» → playing.
+    (
+      screen.getByTestId('blind-board-memorize-ready') as HTMLButtonElement
+    ).click();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    // HUD появился; runner получил session.nextMove.
+    expect(screen.getByTestId('blind-board-hud-round')).toBeTruthy();
+    expect(screen.getByTestId('runner-stub').getAttribute('data-move')).toBe(
+      'e2-e4',
+    );
+  });
+
+  it('KS-3448: пустой startPosition → сразу playing (fallback)', async () => {
+    startSession.mockResolvedValue({
+      session: session(),
+      startPosition: [],
+    } as StartBlindBoardSessionResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    expect(screen.queryByTestId('blind-board-memorize')).toBeNull();
   });
 
   it('startSession упал → error', async () => {
