@@ -3613,3 +3613,360 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 @media (prefers-reduced-motion: reduce) {
   .analysis-existing-toast { animation: none; }
 }
+
+/* ============================================================
+ * KS-3473 (ADR-090 V4 L1). CSS для «репертуар из мастер-партий».
+ *  - .archive-rep-movetime-modal — выбор Stockfish movetime
+ *    (radio 500/1000/2000 + Start).
+ *  - .archive-rep-progress — прогресс-модал «N / M / лимит 20».
+ * Обе модалки рендерятся в portal'е document.body, паттерн
+ * совпадает с PrecisionThemesSheet (ADR-080): backdrop +
+ * centered panel + safe-area-inset + slide-up.
+ * ============================================================ */
+
+/* ── общий фон-обёртка для обеих модалок ───────────────── */
+.archive-rep-movetime-modal,
+.archive-rep-progress {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: archive-rep-fade-in 180ms ease-out;
+}
+@keyframes archive-rep-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.archive-rep-movetime-modal__backdrop,
+.archive-rep-progress__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ov-black-40, rgba(0, 0, 0, 0.5));
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* В Progress backdrop не cursor-pointer (нет click-close). */
+.archive-rep-progress__backdrop {
+  cursor: default;
+}
+
+.archive-rep-movetime-modal__panel,
+.archive-rep-progress__panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-surface, var(--c-2a2a4e, #fff));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e, #e5e7eb));
+  border-radius: 14px;
+  box-shadow: 0 12px 36px var(--ov-black-40, rgba(0, 0, 0, 0.35));
+  padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: archive-rep-pop 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes archive-rep-pop {
+  from {
+    transform: translateY(8px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.archive-rep-movetime-modal__header,
+.archive-rep-progress__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.archive-rep-movetime-modal__title,
+.archive-rep-progress__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+  line-height: 1.3;
+}
+.archive-rep-movetime-modal__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--text-secondary, var(--c-a0a0c0, #6b7280));
+  cursor: pointer;
+  padding: 4px 8px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.archive-rep-movetime-modal__close:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, var(--c-e0e0e0, #111827));
+}
+
+/* ── Hint / phase ───────────────────────────────────────── */
+.archive-rep-movetime-modal__hint {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-left: 3px solid var(--accent-primary, var(--c-7c83ff));
+  border-radius: 10px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ── Movetime options (radio-pills) ─────────────────────── */
+.archive-rep-movetime-modal__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.archive-rep-movetime-modal__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--c-25253d));
+  cursor: pointer;
+  min-height: 48px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+.archive-rep-movetime-modal__option:hover {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.archive-rep-movetime-modal__option--selected {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.archive-rep-movetime-modal__option--selected
+  .archive-rep-movetime-modal__option-label {
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-weight: 700;
+}
+.archive-rep-movetime-modal__option input[type='radio'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-primary, var(--c-7c83ff));
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.archive-rep-movetime-modal__option-label {
+  flex: 1 1 auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-variant-numeric: tabular-nums;
+}
+.archive-rep-movetime-modal__option-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Footer (Cancel + Start/Close) ──────────────────────── */
+.archive-rep-movetime-modal__footer,
+.archive-rep-progress__footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.archive-rep-movetime-modal__cancel,
+.archive-rep-progress__cancel {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.archive-rep-movetime-modal__cancel:hover,
+.archive-rep-progress__cancel:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.archive-rep-movetime-modal__start,
+.archive-rep-progress__close {
+  /* .play-btn даёт основной accent-стиль; здесь только размеры. */
+  min-width: 120px;
+  min-height: 44px;
+}
+
+/* ── Progress-модал: phase + stats ──────────────────────── */
+.archive-rep-progress[data-phase='fetching']
+  .archive-rep-progress__phase,
+.archive-rep-progress[data-phase='analyzing']
+  .archive-rep-progress__phase,
+.archive-rep-progress[data-phase='creating']
+  .archive-rep-progress__phase {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.archive-rep-progress[data-phase='done']
+  .archive-rep-progress__phase {
+  color: var(--c-vc-green, #15803d);
+}
+.archive-rep-progress[data-phase='empty']
+  .archive-rep-progress__phase,
+.archive-rep-progress[data-phase='cancelled']
+  .archive-rep-progress__phase {
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.archive-rep-progress[data-phase='error']
+  .archive-rep-progress__phase {
+  color: var(--c-vc-red, #b91c1c);
+}
+.archive-rep-progress__phase {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  /* Лёгкая pulse-анимация для активных фаз — намёк на «идёт работа». */
+}
+.archive-rep-progress[data-phase='fetching']
+  .archive-rep-progress__phase::before,
+.archive-rep-progress[data-phase='analyzing']
+  .archive-rep-progress__phase::before,
+.archive-rep-progress[data-phase='creating']
+  .archive-rep-progress__phase::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary, var(--c-7c83ff));
+  vertical-align: middle;
+  animation: archive-rep-phase-pulse 1.2s ease-in-out infinite;
+}
+@keyframes archive-rep-phase-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.archive-rep-progress__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 10px;
+}
+.archive-rep-progress__stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.archive-rep-progress__stats dt {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  margin: 0;
+}
+.archive-rep-progress__stats dd {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+  letter-spacing: -0.02em;
+}
+.archive-rep-progress__stats > div:last-child dd {
+  /* «valid / 20» — основная цель; выделяем accent. */
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+
+.archive-rep-progress__error-message {
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  border: 1px solid var(--danger, var(--c-ef4444));
+  color: var(--c-vc-red, #b91c1c);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ── Mobile ≤767 ────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .archive-rep-movetime-modal,
+  .archive-rep-progress {
+    /* На mobile прижимаем panel к низу — bottom-sheet pattern. */
+    align-items: flex-end;
+    padding: 0;
+  }
+  .archive-rep-movetime-modal__panel,
+  .archive-rep-progress__panel {
+    max-width: 100%;
+    border-radius: 14px 14px 0 0;
+    padding: 16px 14px max(16px, env(safe-area-inset-bottom));
+    animation: archive-rep-slide-up 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  @keyframes archive-rep-slide-up {
+    from { transform: translateY(24px); opacity: 0.6; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .archive-rep-movetime-modal__title,
+  .archive-rep-progress__title {
+    font-size: 16px;
+  }
+  .archive-rep-movetime-modal__option {
+    min-height: 52px;
+    padding: 12px 14px;
+  }
+  .archive-rep-progress__stats dd {
+    font-size: 22px;
+  }
+  /* Кнопки футера на mobile — full-width stack column. */
+  .archive-rep-movetime-modal__footer,
+  .archive-rep-progress__footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .archive-rep-movetime-modal__cancel,
+  .archive-rep-progress__cancel,
+  .archive-rep-movetime-modal__start,
+  .archive-rep-progress__close {
+    width: 100%;
+    min-height: 48px;
+  }
+}
