@@ -156,10 +156,21 @@ export interface UniqueTargetMove {
 }
 
 /**
- * Возвращает все ходы фигуры `targetPieceSquare` в `position`, после
- * которых ровно ОДНА другая фигура оказывается «вовлечённой» (target
- * атакует её ИЛИ она атакует to). Это кандидаты хода компьютера в
- * blind-board: задача игрока — опознать `target` по `{from, to}`.
+ * Возвращает все ходы фигуры `targetPieceSquare` (далее `c`) в `position`
+ * для blind-board, удовлетворяющие условиям:
+ *
+ *  (1) После хода `c` на `to` среди 4 оставшихся фигур ровно ОДНА
+ *      «вовлечена»: либо `c@to` атакует её, либо она атакует клетку `to`.
+ *      `involved = A ∪ B`, `|involved| = 1`.
+ *
+ *  (2) KS-3451: вовлечённая фигура — НОВАЯ. До хода (когда `c` ещё на
+ *      `from`) НЕ должно быть взаимодействия между `c` и этой фигурой:
+ *        - `attacks(c@from)` НЕ содержит её клетку, И
+ *        - её собственные атаки НЕ содержат `from`.
+ *      Если ЛЮБОЕ нарушено — ход отбрасывается (взаимодействие уже было).
+ *
+ * Это «свежее взаимодействие»: игрок видит ход `{from, to}` и понимает,
+ * что после хода компа возникла новая связка — атака от c или под бой c.
  *
  * Если `targetPieceSquare` не найдена в `position` — пустой массив.
  */
@@ -171,6 +182,15 @@ export function findUniqueTargetMoves(
   if (!target) return [];
 
   const others = position.filter((p) => p.square !== targetPieceSquare);
+  // Пред-вычисление: что c@from атаковала ДО хода, и кто атаковал c@from.
+  const cAttacksBefore = attacks(target, position);
+  const attackersOfFrom = new Set<BlindBoardSquare>();
+  for (const Q of others) {
+    if (attacks(Q, position).has(target.square)) {
+      attackersOfFrom.add(Q.square);
+    }
+  }
+
   const candidates: UniqueTargetMove[] = [];
 
   for (const to of geometricMoves(target, position)) {
@@ -186,9 +206,15 @@ export function findUniqueTargetMoves(
         involved.push(Q);
       }
     }
-    if (involved.length === 1) {
-      candidates.push({ to, target: involved[0] });
-    }
+    if (involved.length !== 1) continue;
+
+    // KS-3451: «новизна» взаимодействия. Любое из двух нарушений → отбой.
+    const inv = involved[0];
+    const cAttackedInvBefore = cAttacksBefore.has(inv.square);
+    const invAttackedCBefore = attackersOfFrom.has(inv.square);
+    if (cAttackedInvBefore || invAttackedCBefore) continue;
+
+    candidates.push({ to, target: inv });
   }
   return candidates;
 }

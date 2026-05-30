@@ -112,45 +112,55 @@ describe('attacks — включает клетку препятствия', () 
   });
 });
 
-describe('findUniqueTargetMoves (§3 алгоритм)', () => {
-  it('кандидат: после хода ровно ОДНА фигура вовлечена', () => {
-    // Конь d4. Q на e6 (его прыжок). R на a8 (далеко, не задействована).
-    // Если N идёт на c6 — он атакует e7,d8,b8,a7,a5,b4,d4,e5 (e7?
-    // напомню KNIGHT_OFFSETS). Проще: возьмём ход N c2 → e1,e3,c4,d4,
-    // f1,g3 — none from set {e6,a8}. |involved|=0.
-    // Ход N e6 запрещён (там Q). Ход N e2 → атакует {c1,d4,f4,g1,g3,
-    // c3, f4} — не атакует ни Q@e6 ни R@a8 → 0.
-    // Простой кейс: B на a1, Q на h8 (вне диагонали). N на c1.
-    // N идёт на b3 → атакует {a1,c1(пусто),a5,c5,d2,d4} — никого не
-    // задевает. Кандидатов 0.
-    //
-    // Чёткий кейс: R на a1, Q на h1. Ход R: a1→a8 (после хода R на a8).
-    // R@a8 атакует луч до Q? Нет — Q на h1, R@a8 не на одной горизонтали.
-    // R@a8 атакует h8 — пусто. 0 involved.
-    // R на a1 → e1: атакует [b1..h1] до Q@h1 (включая f1,g1,h1) → Q вовлечена.
-    // других фигур нет → |involved|=1 ✓.
+describe('findUniqueTargetMoves (§3 алгоритм + KS-3451 novelty)', () => {
+  it('KS-3451 NEG: R@a1, Q@h1 — взаимная атака уже была → 0 кандидатов', () => {
+    // R@a1 атакует 1-ю горизонталь, включая h1; Q@h1 атакует a1 через
+    // 1-ю горизонталь и диагональ h1-a8. Любая клетка, где появляется
+    // |involved|=1, отсекается novelty-check'ом: target=Q был атакован
+    // ИЛИ атаковал from до хода.
     const R = p('a1', 'R');
     const Q = p('h1', 'Q');
     const pos = [R, Q];
+    expect(findUniqueTargetMoves(pos, 'a1')).toEqual([]);
+  });
+
+  it('KS-3451 POS: новое взаимодействие — c атакует target и target атакует to', () => {
+    // R@a1, Q@h2. ДО хода: R атакует a-файл и 1-ю горизонталь — h2 не на
+    // них. Q@h2 атакует h-файл, 2-ю горизонталь, диагонали b8-h2, h2-g1
+    // — a1 не на них. Взаимодействия нет.
+    // R→a2 (или b1..g1, h1): после хода R атакует 2-ю горизонталь —
+    // включает h2 = Q. Q@h2 атакует a2 (2-я горизонталь). |involved|=1.
+    // novelty OK → кандидат.
+    const R = p('a1', 'R');
+    const Q = p('h2', 'Q');
+    const pos = [R, Q];
     const cand = findUniqueTargetMoves(pos, 'a1');
-    // R может ходить по 1-й горизонтали (b1..g1, h1 занята) и a-файлу.
-    // На b1..g1 → R атакует Q@h1 (луч до неё) → involved={Q}, |1|.
-    // Также Q атакует to (для каждой to из 1-й горизонтали).
     const tos = cand.map((c) => c.to);
-    expect(tos).toContain('b1');
-    expect(tos).toContain('g1');
-    // a2..a7: R@aX не на линии с Q@h1; Q@h1 диагональ h1-a8 → не атакует
-    // a2..a7. involved=0 → не кандидаты.
-    expect(tos).not.toContain('a2');
-    expect(tos).not.toContain('a7');
-    // a8: Q@h1 атакует a8 по диагонали h1-a8 (h1,g2,f3,e4,d5,c6,b7,a8)
-    // → involved={Q} → КАНДИДАТ.
-    expect(tos).toContain('a8');
-    // Каждый кандидат — target=Q.
+    expect(tos).toContain('a2');
+    expect(tos).toContain('h1');
     for (const c of cand) {
+      expect(c.target.square).toBe('h2');
       expect(c.target.type).toBe('Q');
-      expect(c.target.square).toBe('h1');
     }
+  });
+
+  it('KS-3451 POS: «стала под бой» — c встаёт на клетку, которую атакует target', () => {
+    // N@b1, B@h8. ДО хода взаимодействия нет: N@b1 атакует {a3,c3,d2}
+    // (h8 не среди); B@h8 атакует диагональ h8-a1 (g7,f6,e5,d4,c3,b2,a1)
+    // — b1 не на ней.
+    // N→c3: B@h8 теперь атакует to (c3 на диагонали h8-a1).
+    // N@c3 атакует {a2,b1,d1,e2,e4,d5,b5,a4} — h8 не среди (конь не
+    // ходит по диагоналям). Значит «only B attacks to» — это «стала под
+    // бой». |involved|=1, novelty OK → кандидат.
+    const N = p('b1', 'N');
+    const B = p('h8', 'B');
+    const pos = [N, B];
+    const cand = findUniqueTargetMoves(pos, 'b1');
+    const tos = cand.map((c) => c.to);
+    expect(tos).toContain('c3');
+    const c3 = cand.find((c) => c.to === 'c3');
+    expect(c3?.target.square).toBe('h8');
+    expect(c3?.target.type).toBe('B');
   });
 
   it('|involved|=0 (никого не задевает) → не кандидат', () => {

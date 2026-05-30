@@ -114,20 +114,28 @@ describe('BlindBoardService.createSession', () => {
 });
 
 describe('BlindBoardService.submitAnswer', () => {
-  // Базовая позиция, в которой есть ходы с |involved|=1:
-  // R@d4, Q@d1, Q@d8 → R→d5/d6/d7 атакуют обе ферзи. R@h1 одиноко.
-  // Для простоты: target=R@a1, others=Q@h1. R→b1..g1 → involved={Q@h1}.
-  // После хода R→e1: currentPosition = [Q@h1, R@e1]. nextTarget = Q@h1.
+  // KS-3451 (novelty): для positive-теста позиция в которой target после
+  // правильного ответа ещё имеет ход со свежим взаимодействием.
+  // startPosition: R@a1, Q@a4 (нет взаимодействия — R 1-я гориз + a-файл;
+  // Q a-файл + 4-я гориз + диагонали; a1 на a-файле Q, но между ними a2/a3
+  // пусто — Q@a4 атакует a1! Поэтому нужно избежать a-файла).
+  // Возьмём R@e1, Q@a4 без пред-взаимодействия: R@e1 атакует e-файл +
+  // 1-ю гориз; Q@a4 — a-файл, 4-я гориз, диагонали a4-d1, a4-e8. e1 не
+  // на этих линиях (a4-d1: b3,c2,d1; e1 не среди). OK без интеракции.
+  // Раунд 1: comp играл R@a1→e1 (детали startPosition выбраны лишь для
+  // raw raise reveal). nextTargetPiece = Q@a4. Игрок отвечает Q@a4.
+  // После — findUniqueTargetMoves([{e1,R},{a4,Q}], 'a4') даёт кандидаты
+  // (например Q→e4: атакует R@e1; novelty OK).
   const startPosition: BlindBoardPiece[] = [
     { square: 'a1' as BlindBoardSquare, type: 'R' },
-    { square: 'h1' as BlindBoardSquare, type: 'Q' },
+    { square: 'a4' as BlindBoardSquare, type: 'Q' },
   ];
   const currentPosition: BlindBoardPiece[] = [
     { square: 'e1' as BlindBoardSquare, type: 'R' },
-    { square: 'h1' as BlindBoardSquare, type: 'Q' },
+    { square: 'a4' as BlindBoardSquare, type: 'Q' },
   ];
   const nextTargetPiece: BlindBoardPiece = {
-    square: 'h1' as BlindBoardSquare,
+    square: 'a4' as BlindBoardSquare,
     type: 'Q',
   };
   const currentCompMove = { from: 'a1', to: 'e1' };
@@ -162,7 +170,7 @@ describe('BlindBoardService.submitAnswer', () => {
     svc.setRandom(seqRandom([0]));
 
     const res = await svc.submitAnswer('u1', 's1', {
-      square: 'h1' as BlindBoardSquare,
+      square: 'a4' as BlindBoardSquare,
       pieceType: 'Q',
     });
 
@@ -210,7 +218,7 @@ describe('BlindBoardService.submitAnswer', () => {
     expect(res.session.status).toBe('finished');
     expect(res.session.finishReason).toBe('wrong-answer');
     expect(res.session.nextMove).toBeNull();
-    expect(res.expectedSquare).toBe('h1');
+    expect(res.expectedSquare).toBe('a4');
     expect(res.expectedPieceType).toBe('Q');
     expect(res.revealedPosition).toEqual(startPosition);
     // User.bestStreak обновлён до 7 (было 3, в сессии 7).
