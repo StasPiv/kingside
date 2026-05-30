@@ -17,17 +17,27 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { BlindBoardService } from './blind-board.service';
-import { SubmitBlindBoardAnswerBodyDto } from './dto/blind-board.dto';
+import {
+  StartBlindBoardSessionBodyDto,
+  SubmitBlindBoardAnswerBodyDto,
+} from './dto/blind-board.dto';
 
 @Controller('blind-board')
 export class BlindBoardController {
   constructor(private readonly blind: BlindBoardService) {}
 
-  /** POST /blind-board/sessions — старт новой сессии. */
+  /**
+   * POST /blind-board/sessions — старт новой сессии.
+   * KS-3484/3486: тело может содержать опц. `config` (прогрессивная
+   * сложность). Если опущен — backend применяет DEFAULT_BLIND_BOARD_CONFIG.
+   */
   @UseGuards(JwtAuthGuard)
   @Post('sessions')
-  start(@Request() req: AuthenticatedRequest) {
-    return this.blind.createSession(req.user.id);
+  start(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: StartBlindBoardSessionBodyDto,
+  ) {
+    return this.blind.createSession(req.user.id, body.config);
   }
 
   /** POST /blind-board/sessions/:id/answer — ответ игрока. */

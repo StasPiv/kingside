@@ -91,9 +91,12 @@ describe('BlindBoardService.createSession', () => {
     const createArgs = prisma.blindBoardSession.create.mock.calls[0][0];
     // Сервер сохранил позицию (start/current) и target — это ВНУТРЕННИЕ
     // поля, в DTO клиенту они НЕ попадают.
-    expect(createArgs.data.startPosition).toHaveLength(5);
+    // KS-3484: дефолтный config startPieces=[Q,N,R] → 3 фигуры.
+    expect(createArgs.data.startPosition).toHaveLength(3);
     expect(createArgs.data.nextTargetPiece).toBeTruthy();
     expect(createArgs.data.currentCompMove).toBeTruthy();
+    expect(createArgs.data.startConfig).toBeTruthy();
+    expect(createArgs.data.level).toBe(1);
 
     // DTO клиенту: координаты nextMove + агрегаты + startPosition
     // (KS-3448 фаза memorize). currentPosition внутри session НЕ
@@ -106,10 +109,14 @@ describe('BlindBoardService.createSession', () => {
       to: createArgs.data.currentCompMove.to,
     });
     expect(res.session.streak).toBe(0);
-    // KS-3448: startPosition = ровно 5 фигур (Q/R/N/B/B) для memorize.
-    expect(res.startPosition).toHaveLength(5);
+    // KS-3484: дефолтный config startPieces=[Q,N,R] → 3 фигуры.
+    expect(res.startPosition).toHaveLength(3);
     const types = res.startPosition.map((p) => p.type).sort();
-    expect(types).toEqual(['B', 'B', 'N', 'Q', 'R']);
+    expect(types).toEqual(['N', 'Q', 'R']);
+    expect(res.level).toBe(1);
+    expect(res.config.startPieces).toEqual(['Q', 'N', 'R']);
+    expect(res.config.addOrder).toEqual(['B', 'B', 'R', 'N']);
+    expect(res.config.memorizeTimeSec).toBe(5);
   });
 });
 
@@ -148,6 +155,14 @@ describe('BlindBoardService.submitAnswer', () => {
       currentPosition,
       nextTargetPiece,
       currentCompMove,
+      // KS-3484/3485: snapshot конфига и level. Default-like (Q,N,R +
+      // addOrder B,B,R,N) — для KS-3487 level-up тестов.
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level: 1,
       streak: 0,
       bestStreak: 0,
       status: 'active',
@@ -404,4 +419,251 @@ describe('isLightSquare', () => {
   it('h1 — светлое', () => expect(isLightSquare('h1')).toBe(true));
   it('a8 — светлое', () => expect(isLightSquare('a8')).toBe(true));
   it('h8 — тёмное', () => expect(isLightSquare('h8')).toBe(false));
+});
+
+// ─── KS-3486 (B1): config validation ──────────────────────────────────
+
+describe('BlindBoardService.createSession — KS-3486 config validation', () => {
+  function makeSvc(): { svc: BlindBoardService; prisma: any } {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.create.mockImplementation(({ data }: any) => ({
+      id: 's1',
+      ...data,
+      startedAt: new Date(),
+      finishedAt: null,
+    }));
+    return { svc: new BlindBoardService(prisma), prisma };
+  }
+
+  it('кастомный config (3 startPieces + addOrder=4) сохраняется в БД', async () => {
+    const { svc, prisma } = makeSvc();
+    await svc.createSession('u1', {
+      startPieces: ['Q', 'R', 'N'],
+      addOrder: ['B', 'B', 'R', 'N'],
+      memorizeTimeSec: 10,
+    });
+    const data = prisma.blindBoardSession.create.mock.calls[0][0].data;
+    expect(data.startConfig.startPieces).toEqual(['Q', 'R', 'N']);
+    expect(data.startConfig.memorizeTimeSec).toBe(10);
+    expect(data.startPosition).toHaveLength(3);
+  });
+
+  it('минимум 3 startPieces — иначе BadRequest', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createSession('u1', {
+        startPieces: ['Q', 'R'],
+        addOrder: [],
+        memorizeTimeSec: 5,
+      }),
+    ).rejects.toThrow(/at least 3/);
+  });
+
+  it('Q > 1 запрещён квотой', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createSession('u1', {
+        startPieces: ['Q', 'Q', 'R'],
+        addOrder: [],
+        memorizeTimeSec: 5,
+      }),
+    ).rejects.toThrow(/type Q count 2 exceeds quota 1/);
+  });
+
+  it('R > 2 (с учётом addOrder) запрещён', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createSession('u1', {
+        startPieces: ['R', 'R', 'N'],
+        addOrder: ['R'],
+        memorizeTimeSec: 5,
+      }),
+    ).rejects.toThrow(/type R count 3 exceeds quota 2/);
+  });
+
+  it('суммарно > 7 фигур запрещено', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createSession('u1', {
+        startPieces: ['Q', 'R', 'N', 'B', 'B'],
+        addOrder: ['R', 'N', 'Q'],
+        memorizeTimeSec: 5,
+      }),
+    ).rejects.toThrow(/exceeds maxTotal 7/);
+  });
+
+  it('memorizeTimeSec вне whitelist [3,5,10] → BadRequest', async () => {
+    const { svc } = makeSvc();
+    await expect(
+      svc.createSession('u1', {
+        startPieces: ['Q', 'R', 'N'],
+        addOrder: [],
+        memorizeTimeSec: 7,
+      }),
+    ).rejects.toThrow(/memorizeTimeSec 7 not in 3\/5\/10/);
+  });
+
+  it('KS-3486: 2 B в startPieces — разнопольные (100 позиций)', () => {
+    const svc = new BlindBoardService(makePrisma());
+    for (let i = 0; i < 100; i++) {
+      const pos = svc.randomStartPosition(['Q', 'N', 'B', 'B']);
+      const bishops = pos.filter((p) => p.type === 'B');
+      expect(bishops).toHaveLength(2);
+      expect(isLightSquare(bishops[0].square)).not.toBe(
+        isLightSquare(bishops[1].square),
+      );
+    }
+  });
+});
+
+// ─── KS-3487 (B2): level-up logic ─────────────────────────────────────
+
+describe('BlindBoardService.submitAnswer — KS-3487 level-up', () => {
+  // Позиция R@e1, Q@a4 (без пред-взаимодействия). nextTarget=Q@a4.
+  // Игрок отвечает Q@a4 → correct. На streak=10 (level=1, addIdx=0,
+  // addOrder[0]='B') — backend добавляет B на свободную клетку.
+  function levelUpRow(streak: number, level: number): any {
+    return {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level,
+      streak,
+      bestStreak: streak,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: null,
+    };
+  }
+
+  it('streak=9 + correct → streak=10, level=2, levelUp.newPiece=B', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(levelUpRow(9, 1));
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 10 }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...levelUpRow(9, 1),
+      ...data,
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(seqRandom([0]));
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+
+    expect(res.correct).toBe(true);
+    expect(res.session.streak).toBe(10);
+    expect(res.session.level).toBe(2);
+    expect(res.levelUp).toBeDefined();
+    expect(res.levelUp!.newLevel).toBe(2);
+    expect(res.levelUp!.newPiece).toBe('B');
+    expect(res.levelUp!.newSquare).toBeTruthy();
+  });
+
+  it('streak=9 + correct, в позиции уже один B → новый B противоположного цвета', async () => {
+    // Изменяем позицию: добавляем B@a1 (тёмная клетка). Новый B должен
+    // быть на светлой.
+    const row = levelUpRow(9, 1);
+    row.currentPosition = [
+      { square: 'e1', type: 'R' },
+      { square: 'a4', type: 'Q' },
+      { square: 'a1', type: 'B' }, // a1 — тёмная
+    ];
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(row);
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 10 }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...row,
+      ...data,
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(seqRandom([0]));
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+    expect(res.levelUp!.newPiece).toBe('B');
+    // a1 = тёмная (isLightSquare=false) → новый B должен быть на светлой.
+    expect(isLightSquare(res.levelUp!.newSquare)).toBe(true);
+  });
+
+  it('addOrder исчерпан (level=5) → streak растёт без level-up', async () => {
+    // level=5 → addIdx=4, addOrder.length=4 → нет следующей фигуры.
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(levelUpRow(9, 5));
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 10 }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...levelUpRow(9, 5),
+      ...data,
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(seqRandom([0]));
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+    expect(res.correct).toBe(true);
+    expect(res.session.streak).toBe(10);
+    expect(res.session.level).toBe(5); // не вырос
+    expect(res.levelUp).toBeUndefined();
+  });
+
+  it('streak не кратен 10 → нет level-up (streak=11)', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(levelUpRow(10, 2));
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 11 }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...levelUpRow(10, 2),
+      ...data,
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(seqRandom([0]));
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+    expect(res.session.streak).toBe(11);
+    expect(res.session.level).toBe(2);
+    expect(res.levelUp).toBeUndefined();
+  });
+});
+
+// ─── KS-3484: leaderboard maxLevel derived ────────────────────────────
+
+describe('BlindBoardService.leaderboard — KS-3484 maxLevel derived', () => {
+  it('maxLevel = floor(bestStreak/10) + 1', async () => {
+    const prisma = makePrisma();
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', username: 'alice', blindBoardBestStreak: 28 }, // L3
+      { id: 'u2', username: 'bob', blindBoardBestStreak: 9 },    // L1
+      { id: 'u3', username: 'eve', blindBoardBestStreak: 40 },   // L5
+    ]);
+    prisma.blindBoardSession.findFirst.mockResolvedValue({
+      finishedAt: new Date('2026-05-29T12:00:00Z'),
+    });
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.leaderboard(10);
+    expect(res.entries[0].maxLevel).toBe(3);
+    expect(res.entries[1].maxLevel).toBe(1);
+    expect(res.entries[2].maxLevel).toBe(5);
+  });
 });

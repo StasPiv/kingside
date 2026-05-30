@@ -1,7 +1,20 @@
 /**
  * KS-3441 / ADR-088 §11 B2. DTO blind-board с class-validator.
+ * KS-3484/3486: добавлен StartBlindBoardSessionBodyDto с опц. config.
  */
-import { IsString, Matches, IsIn } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 /** Клетка `[a-h][1-8]`. */
 export class SubmitBlindBoardAnswerBodyDto {
@@ -11,4 +24,35 @@ export class SubmitBlindBoardAnswerBodyDto {
 
   @IsIn(['Q', 'R', 'B', 'N'])
   pieceType!: 'Q' | 'R' | 'B' | 'N';
+}
+
+/**
+ * KS-3484/3486. Конфиг прогрессивной сложности — приходит опц. в теле
+ * POST /blind-board/sessions. Если опущен — backend применяет
+ * DEFAULT_BLIND_BOARD_CONFIG. Базовая class-validator валидация (типы,
+ * длины); квоты и memorizeTimeSec whitelist проверяет сервис.
+ */
+export class BlindBoardConfigDto {
+  @IsArray()
+  @ArrayMinSize(3)
+  @ArrayMaxSize(7)
+  @IsIn(['Q', 'R', 'B', 'N'], { each: true })
+  startPieces!: Array<'Q' | 'R' | 'B' | 'N'>;
+
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsIn(['Q', 'R', 'B', 'N'], { each: true })
+  addOrder!: Array<'Q' | 'R' | 'B' | 'N'>;
+
+  @IsInt()
+  @IsIn([3, 5, 10])
+  memorizeTimeSec!: number;
+}
+
+export class StartBlindBoardSessionBodyDto {
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => BlindBoardConfigDto)
+  config?: BlindBoardConfigDto;
 }

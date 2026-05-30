@@ -2256,6 +2256,12 @@ export interface BlindBoardSessionDto {
   /** Лучшая серия в этой сессии. */
   bestStreak: number;
   /**
+   * KS-3484. Текущий уровень сложности. Начинается с 1; растёт на каждый
+   * level-up (см. `SubmitBlindBoardAnswerResponse.levelUp`). При
+   * исчерпании `startConfig.addOrder` уровень фиксируется на финальном.
+   */
+  level: number;
+  /**
    * Ход компьютера на текущий раунд (`{from, to}`). `null` если сессия
    * `finished` — раундов больше нет. На M1 это вся информация о
    * позиции, доступная клиенту (типы фигур держатся на сервере).
@@ -2266,20 +2272,82 @@ export interface BlindBoardSessionDto {
 }
 
 /**
- * `POST /blind-board/sessions` — старт сессии. Тело пустое (вся
- * рандомизация на сервере). Auth: M1 — JwtAuthGuard обязателен
- * (гость без persist — ADR §8 / §11 B2 решение).
+ * KS-3484 / ADR-088 V2 §15. Конфиг прогрессивной сложности blind-board.
  *
- * KS-3448: фаза запоминания — клиент получает `startPosition` (5 фигур)
- * один раз в ответе на старт и показывает их в фазе `memorizing`. После
- * клика «Готов» доска чистится и начинаются ходы стрелками. Анти-чит §5
- * остаётся: на последующих POST /sessions/:id/answer `currentPosition`
- * клиенту НЕ раскрывается; сервер сверяет ответ и финиширует при ошибке.
+ *  - `startPieces` — фигуры, видимые в фазе memorize. ≥3 и ≤7; квоты
+ *    `BLIND_BOARD_LIMITS.maxByType`. При наличии 2× B — backend
+ *    гарантирует разнопольность (расширение KS-3449).
+ *  - `addOrder` — очередь фигур, добавляемых на доску на каждом
+ *    level-up (`streak % 10 === 0`). Каждый элемент добавляется один
+ *    раз, по индексу `level - 1` относительно стартового набора.
+ *    Суммарная длина `startPieces + addOrder` не должна превышать
+ *    `BLIND_BOARD_LIMITS.maxTotal`. Когда addOrder исчерпан — level-up
+ *    больше не происходит, streak растёт без изменений.
+ *  - `memorizeTimeSec` — длительность фазы memorize. Допустимые
+ *    значения см. `BLIND_BOARD_LIMITS.memorizeOptions`.
+ */
+export interface BlindBoardConfig {
+  startPieces: BlindBoardPieceType[];
+  addOrder: BlindBoardPieceType[];
+  memorizeTimeSec: number;
+}
+
+/** KS-3484. Лимиты конфига и допустимые опции UI. */
+export const BLIND_BOARD_LIMITS = {
+  /** Минимум фигур в startPieces. */
+  minStart: 3,
+  /** Максимум фигур на доске (startPieces + addOrder в сумме). */
+  maxTotal: 7,
+  /** Квоты по типам фигур на доске. */
+  maxByType: { Q: 1, R: 2, B: 2, N: 2 } as Record<BlindBoardPieceType, number>,
+  /** Допустимые значения `memorizeTimeSec` (UI-селект). */
+  memorizeOptions: [3, 5, 10] as const,
+} as const;
+
+/** KS-3484. Дефолт, применяемый когда клиент не прислал config. */
+export const DEFAULT_BLIND_BOARD_CONFIG: BlindBoardConfig = {
+  startPieces: ['Q', 'N', 'R'],
+  addOrder: ['B', 'B', 'R', 'N'],
+  memorizeTimeSec: 5,
+};
+
+/**
+ * `POST /blind-board/sessions` — старт сессии.
+ *
+ * KS-3484 (ADR-088 V2 §15): тело принимает опц. `config` (прогрессивная
+ * сложность); если опущен — backend применяет `DEFAULT_BLIND_BOARD_CONFIG`.
+ *
+ * Auth: M1 — JwtAuthGuard обязателен (гость без persist — ADR §8 / §11 B2).
+ */
+export interface StartBlindBoardSessionRequest {
+  /** Опц. конфиг прогрессивной сложности. Default — `DEFAULT_BLIND_BOARD_CONFIG`. */
+  config?: BlindBoardConfig;
+}
+
+/**
+ * KS-3448: фаза запоминания — клиент получает `startPosition` (`config
+ * .startPieces.length` фигур) один раз в ответе на старт и показывает
+ * их в фазе `memorizing`. После клика «Готов» доска чистится и начинаются
+ * ходы стрелками. Анти-чит §5 остаётся: на последующих POST
+ * `/sessions/:id/answer` `currentPosition` клиенту НЕ раскрывается;
+ * сервер сверяет ответ и финиширует при ошибке.
+ *
+ * KS-3484: добавлены `level` (начальный 1) и snapshot `config` фактического.
  */
 export interface StartBlindBoardSessionResponse {
   session: BlindBoardSessionDto;
-  /** Стартовая расстановка для фазы memorize (5 фигур Q/R/N/B/B). */
+  /** Стартовая расстановка для фазы memorize. Длина = `config.startPieces.length`. */
   startPosition: BlindBoardPiece[];
+  /** KS-3484. Начальный уровень сессии (всегда 1 на старте). */
+  level: number;
+  /**
+   * KS-3484. Snapshot фактически применённого конфига — то, что
+   * сохранено в БД. Если клиент не прислал config — это
+   * `DEFAULT_BLIND_BOARD_CONFIG`. На finish-экране и в leaderboard
+   * UI показывает `maxLevel` исходя из progress в рамках этого
+   * config'а.
+   */
+  config: BlindBoardConfig;
 }
 
 /** `POST /blind-board/sessions/:id/answer` — ответ игрока. */
@@ -2309,6 +2377,20 @@ export interface SubmitBlindBoardAnswerResponse {
   revealedPosition?: BlindBoardPiece[];
   /** Обновлённое состояние сессии (streak/status/finishReason/nextMove). */
   session: BlindBoardSessionDto;
+  /**
+   * KS-3484/KS-3487 (ADR-088 V2 §15). Уведомление о level-up: ставится
+   * при `streak % 10 === 0` и наличии следующей фигуры в
+   * `startConfig.addOrder` (по индексу `session.level - 1` ДО апгрейда).
+   * Сервер добавляет `newPiece` на свободную клетку с соблюдением
+   * color-constraint (для B — противоположный цвет к уже стоящему B на
+   * доске). При исчерпании `addOrder` поле не ставится — streak растёт
+   * без level-up.
+   */
+  levelUp?: {
+    newLevel: number;
+    newPiece: BlindBoardPieceType;
+    newSquare: BlindBoardSquare;
+  };
 }
 
 /** Запись в лидерборде best-streak'ов (ADR-088 §7 / §11 B2). */
@@ -2317,6 +2399,13 @@ export interface BlindBoardLeaderboardEntry {
   username: string;
   bestStreak: number;
   achievedAt: string;
+  /**
+   * KS-3484 (ADR-088 V2 §15). Максимальный уровень, достигнутый игроком.
+   * **Derived-поле** (architect): `floor(bestStreak / 10) + 1` — отдельно
+   * не хранится, считается backend'ом при формировании leaderboard.
+   * UI отображает как «28 · L3».
+   */
+  maxLevel?: number;
 }
 
 /** `GET /blind-board/leaderboard` — топ best-streak. */

@@ -31,11 +31,14 @@ import {
 } from '@nestjs/common';
 import {
   findUniqueTargetMoves,
+  BLIND_BOARD_LIMITS,
+  DEFAULT_BLIND_BOARD_CONFIG,
   type UniqueTargetMove,
   type BlindBoardPiece,
   type BlindBoardPieceType,
   type BlindBoardSquare,
   type BlindBoardMove,
+  type BlindBoardConfig,
   type BlindBoardSessionDto,
   type BlindBoardSessionStatus,
   type BlindBoardFinishReason,
@@ -45,15 +48,6 @@ import {
 } from '@kingside/shared';
 import { Prisma } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
-
-/** Фигуры стартовой расстановки (ADR-088 §2.1): 1×Q, 1×R, 1×N, 2×B. */
-const START_PIECE_TYPES: ReadonlyArray<BlindBoardPieceType> = [
-  'Q',
-  'R',
-  'N',
-  'B',
-  'B',
-];
 
 /** Все 64 клетки доски — для рандомизации стартовой расстановки. */
 const ALL_SQUARES: ReadonlyArray<BlindBoardSquare> = (() => {
@@ -78,6 +72,10 @@ interface BlindBoardSessionRow {
   currentPosition: unknown;
   nextTargetPiece: unknown;
   currentCompMove: unknown;
+  /** KS-3485. Snapshot конфига на момент старта. */
+  startConfig: unknown;
+  /** KS-3485. Текущий уровень сессии (≥1). */
+  level: number;
   streak: number;
   bestStreak: number;
   status: string;
@@ -104,8 +102,16 @@ export class BlindBoardService {
 
   // ─── start ────────────────────────────────────────────────────────
 
-  async createSession(userId: string): Promise<StartBlindBoardSessionResponse> {
-    const start = this.generateValidStart();
+  async createSession(
+    userId: string,
+    inputConfig?: BlindBoardConfig,
+  ): Promise<StartBlindBoardSessionResponse> {
+    // KS-3486: применяем DEFAULT когда клиент не прислал config; иначе
+    // валидируем переданный (квоты, длины, memorizeTimeSec).
+    const config = inputConfig ?? DEFAULT_BLIND_BOARD_CONFIG;
+    this.validateConfig(config);
+
+    const start = this.generateValidStart(config.startPieces);
     if (!start) {
       this.logger.error(
         `failed to generate valid blind-board start after ${MAX_START_ATTEMPTS} attempts`,
@@ -128,6 +134,9 @@ export class BlindBoardService {
         currentPosition: after as unknown as Prisma.InputJsonValue,
         nextTargetPiece: nextInvolved as unknown as Prisma.InputJsonValue,
         currentCompMove: compMove as unknown as Prisma.InputJsonValue,
+        // KS-3485: snapshot конфига и стартовый уровень.
+        startConfig: config as unknown as Prisma.InputJsonValue,
+        level: 1,
         streak: 0,
         bestStreak: 0,
         status: 'active',
@@ -155,7 +164,64 @@ export class BlindBoardService {
     return {
       session: this.toSessionDto(created, 1),
       startPosition: position,
+      level: 1,
+      config,
     };
+  }
+
+  /**
+   * KS-3486. Валидация конфига (квоты по типам, минимум/максимум фигур,
+   * memorizeTimeSec из whitelist). Бросает BadRequest с понятным
+   * сообщением — клиент видит конкретное нарушение.
+   */
+  private validateConfig(config: BlindBoardConfig): void {
+    const { startPieces, addOrder, memorizeTimeSec } = config;
+    if (!Array.isArray(startPieces) || !Array.isArray(addOrder)) {
+      throw new BadRequestException('config.startPieces and config.addOrder must be arrays');
+    }
+    if (startPieces.length < BLIND_BOARD_LIMITS.minStart) {
+      throw new BadRequestException(
+        `config.startPieces requires at least ${BLIND_BOARD_LIMITS.minStart} pieces`,
+      );
+    }
+    const total = startPieces.length + addOrder.length;
+    if (total > BLIND_BOARD_LIMITS.maxTotal) {
+      throw new BadRequestException(
+        `config: startPieces+addOrder total ${total} exceeds maxTotal ${BLIND_BOARD_LIMITS.maxTotal}`,
+      );
+    }
+    if (startPieces.length > BLIND_BOARD_LIMITS.maxTotal) {
+      throw new BadRequestException(
+        `config.startPieces ${startPieces.length} exceeds maxTotal ${BLIND_BOARD_LIMITS.maxTotal}`,
+      );
+    }
+    // Квоты по типам — считаем суммарно (start + add), не должны быть
+    // превышены ни при старте, ни на финальном level-up.
+    const counts: Record<BlindBoardPieceType, number> = { Q: 0, R: 0, B: 0, N: 0 };
+    for (const t of [...startPieces, ...addOrder]) {
+      if (!isPieceType(t)) {
+        throw new BadRequestException(`config: invalid piece type '${t}'`);
+      }
+      counts[t]++;
+    }
+    for (const t of Object.keys(counts) as BlindBoardPieceType[]) {
+      const cap = BLIND_BOARD_LIMITS.maxByType[t];
+      if (counts[t] > cap) {
+        throw new BadRequestException(
+          `config: type ${t} count ${counts[t]} exceeds quota ${cap}`,
+        );
+      }
+    }
+    // memorizeTimeSec — whitelist.
+    if (
+      !(BLIND_BOARD_LIMITS.memorizeOptions as readonly number[]).includes(
+        memorizeTimeSec,
+      )
+    ) {
+      throw new BadRequestException(
+        `config.memorizeTimeSec ${memorizeTimeSec} not in ${BLIND_BOARD_LIMITS.memorizeOptions.join('/')}`,
+      );
+    }
   }
 
   // ─── submit answer ─────────────────────────────────────────────────
@@ -222,17 +288,52 @@ export class BlindBoardService {
     // KS-3453: игра бесконечная. Сначала пробуем ту фигуру, которую
     // игрок опознал (expected) — это «логичное продолжение». Если у неё
     // нет валидного хода (|involved|=1 + novelty) — fallback на любую
-    // другую из 5 оставшихся в случайном порядке. dead-end упразднён.
+    // другую из оставшихся в случайном порядке.
     const newStreak = row.streak + 1;
     const newBest = Math.max(row.bestStreak, newStreak);
 
-    const next = this.pickNextCompMove(currentPosition, expected.square);
+    // KS-3487 (ADR-088 V2 §15). Level-up на каждый 10-й правильный
+    // streak. ДО pickNextCompMove: добавляем новую фигуру в
+    // currentPosition (если addOrder не исчерпан) — следующий ход
+    // компа выбирается уже в расширенной позиции.
+    const currentLevel = row.level ?? 1;
+    let newLevel = currentLevel;
+    let levelUp: SubmitBlindBoardAnswerResponse['levelUp'];
+    let positionForNextMove = currentPosition;
+
+    if (newStreak > 0 && newStreak % 10 === 0) {
+      const startConfig = row.startConfig as BlindBoardConfig | null;
+      const addOrder = startConfig?.addOrder ?? [];
+      const addIdx = currentLevel - 1; // level=1 → addOrder[0], level=2 → addOrder[1] и т.д.
+      if (addIdx < addOrder.length) {
+        const newPiece = addOrder[addIdx];
+        const newSquare = this.pickEmptySquare(currentPosition, newPiece);
+        if (newSquare) {
+          positionForNextMove = [
+            ...currentPosition,
+            { square: newSquare, type: newPiece },
+          ];
+          newLevel = currentLevel + 1;
+          levelUp = { newLevel, newPiece, newSquare };
+        } else {
+          // Невероятный edge-case: квота нарушена (например, addOrder содержит
+          // 3-й B при уже 2 B на доске). Лог + продолжаем без level-up.
+          this.logger.warn(
+            `[blind-board] level-up skipped for session ${sessionId}: ` +
+              `cannot place new piece ${newPiece} (quota or no empty square of required color)`,
+          );
+        }
+      }
+      // else: addOrder исчерпан → продолжаем без level-up (level стоит).
+    }
+
+    const next = this.pickNextCompMove(positionForNextMove, expected.square);
     if (!next) {
-      // Теоретически недостижимо (5 фигур на 64 клетках почти всегда
-      // дают ход у кого-то). Если случилось — это инфраструктурная
+      // Теоретически недостижимо. Если случилось — это инфраструктурная
       // проблема, лог + 503; сессия НЕ финишируется dead-end.
       this.logger.error(
-        `blind-board: no valid next move for session ${sessionId} (5 pieces dead)`,
+        `blind-board: no valid next move for session ${sessionId} ` +
+          `(pieces=${positionForNextMove.length} dead)`,
       );
       throw new ServiceUnavailableException(
         'no valid blind-board move available',
@@ -244,7 +345,7 @@ export class BlindBoardService {
       to: pick.to,
     };
     const nextPosition = applyMove(
-      currentPosition,
+      positionForNextMove,
       nextTargetForComp.square,
       pick.to,
     );
@@ -259,6 +360,7 @@ export class BlindBoardService {
         nextTargetPiece: nextInvolved as unknown as Prisma.InputJsonValue,
         streak: newStreak,
         bestStreak: newBest,
+        level: newLevel,
       },
     })) as unknown as BlindBoardSessionRow;
 
@@ -279,7 +381,45 @@ export class BlindBoardService {
     return {
       correct: true,
       session: this.toSessionDto(updated, nextRound),
+      ...(levelUp ? { levelUp } : {}),
     };
+  }
+
+  /**
+   * KS-3487. Подбор свободной клетки для новой фигуры с color-constraint.
+   *
+   * Для `B`: цвет клетки должен быть ПРОТИВОПОЛОЖНЫМ цвету уже стоящего
+   * на доске B (расширение KS-3449). Если на доске уже два B на разных
+   * цветах — третий B запрещён квотой (валидация config), сюда не дойдёт.
+   *
+   * Для Q/R/N — любая свободная клетка.
+   *
+   * Возвращает `null` если подходящей клетки нет (теоретически невозможно
+   * на пустой доске 64 клетки vs ≤6 уже занятых).
+   */
+  private pickEmptySquare(
+    position: BlindBoardPiece[],
+    type: BlindBoardPieceType,
+  ): BlindBoardSquare | null {
+    const occupied = new Set(position.map((p) => p.square));
+    const candidates: BlindBoardSquare[] = [];
+    let bishopColorConstraint: boolean | null = null;
+    if (type === 'B') {
+      const existingBishops = position.filter((p) => p.type === 'B');
+      if (existingBishops.length > 0) {
+        // Противоположный цвет первому существующему B.
+        bishopColorConstraint = !isLightSquare(existingBishops[0].square);
+      }
+    }
+    for (const sq of ALL_SQUARES) {
+      if (occupied.has(sq)) continue;
+      if (bishopColorConstraint !== null) {
+        if (isLightSquare(sq) !== bishopColorConstraint) continue;
+      }
+      candidates.push(sq);
+    }
+    if (candidates.length === 0) return null;
+    return candidates[this.randInt(candidates.length)];
   }
 
   // ─── leaderboard ──────────────────────────────────────────────────
@@ -329,6 +469,9 @@ export class BlindBoardService {
           username: u.username ?? 'Anonymous',
           bestStreak: u.blindBoardBestStreak,
           achievedAt: (session?.finishedAt ?? new Date()).toISOString(),
+          // KS-3484: maxLevel — derived formula по architect-recommendation
+          // (без отдельного столбца). 1..10 → L1, 11..20 → L2, ...
+          maxLevel: Math.floor(u.blindBoardBestStreak / 10) + 1,
         };
       }),
     );
@@ -421,16 +564,19 @@ export class BlindBoardService {
 
   /**
    * Генерация валидной стартовой расстановки + первого хода компа.
+   * KS-3486: принимает кастомный `startPieces` из BlindBoardConfig.
    * До MAX_START_ATTEMPTS попыток. Возвращает null если не получилось.
    */
-  generateValidStart(): {
+  generateValidStart(
+    startPieces: BlindBoardPieceType[] = ['Q', 'R', 'N', 'B', 'B'],
+  ): {
     position: BlindBoardPiece[];
     target: BlindBoardPiece;
     compMove: BlindBoardMove;
     nextInvolved: BlindBoardPiece;
   } | null {
     for (let i = 0; i < MAX_START_ATTEMPTS; i++) {
-      const position = this.randomStartPosition();
+      const position = this.randomStartPosition(startPieces);
       // Перебор target в случайном порядке (по shuffled индексам).
       const idxs = this.shuffleIndices(position.length);
       for (const idx of idxs) {
@@ -450,51 +596,51 @@ export class BlindBoardService {
   }
 
   /**
-   * Случайная расстановка 5 фигур (Q,R,N,B,B) на 5 уникальных клетках.
-   * KS-3449: 2 слона ОБЯЗАНЫ стоять на полях разного цвета (1 светлое,
-   * 1 тёмное) — как у одного игрока в шахматах. START_PIECE_TYPES
-   * фиксирует порядок [Q,R,N,B,B], поэтому ограничение применяется к
-   * pool[3] и pool[4].
+   * Случайная расстановка `startPieces` фигур на уникальных клетках.
+   *
+   * KS-3486: набор фигур приходит из `BlindBoardConfig.startPieces`
+   * (раньше был фиксирован Q,R,N,B,B). Длина 3..7, квоты валидируются
+   * в `validateConfig` до вызова.
+   *
+   * KS-3449: если в наборе ≥2 B — они ОБЯЗАНЫ стоять на полях разного
+   * цвета. Алгоритм: общий шаффл pool, потом для второго (и любого
+   * последующего) B принудительный swap на клетку нужного цвета.
    */
-  randomStartPosition(): BlindBoardPiece[] {
+  randomStartPosition(
+    startPieces: BlindBoardPieceType[] = ['Q', 'R', 'N', 'B', 'B'],
+  ): BlindBoardPiece[] {
+    const n = startPieces.length;
     const pool = ALL_SQUARES.slice();
-    // Шаффл-первых-3 (Q,R,N) без ограничений.
-    for (let i = 0; i < 3; i++) {
+    // Партиальный Fisher–Yates: гарантирует уникальность первых n клеток.
+    for (let i = 0; i < n; i++) {
       const j = i + this.randInt(pool.length - i);
       const tmp = pool[i];
       pool[i] = pool[j];
       pool[j] = tmp;
     }
-    // Слот 3: первый слон — любой свободный цвет.
-    {
-      const j = 3 + this.randInt(pool.length - 3);
-      const tmp = pool[3];
-      pool[3] = pool[j];
-      pool[j] = tmp;
-    }
-    // Слот 4: второй слон — обязательно ПРОТИВОПОЛОЖНОГО цвета.
-    const firstBishopLight = isLightSquare(pool[3]);
-    // Найти в хвосте pool[4..] клетку нужного цвета (всегда есть: на
-    // доске 32 светлых + 32 тёмных, потрачено максимум 4).
-    let swapIdx = -1;
-    for (let k = 4; k < pool.length; k++) {
-      if (isLightSquare(pool[k]) !== firstBishopLight) {
-        swapIdx = k;
-        break;
+    // KS-3449: пройдёмся по слотам B; для каждого B после первого —
+    // принудительно противоположный цвет первому B.
+    let firstBishopLight: boolean | null = null;
+    for (let i = 0; i < n; i++) {
+      if (startPieces[i] !== 'B') continue;
+      if (firstBishopLight === null) {
+        firstBishopLight = isLightSquare(pool[i]);
+        continue;
       }
-    }
-    if (swapIdx >= 0) {
-      // Из всех подходящих выбираем случайный для равномерности.
+      // Если pool[i] уже противоположный — ок. Иначе ищем swap в хвосте.
+      const wanted = !firstBishopLight;
+      if (isLightSquare(pool[i]) === wanted) continue;
       const candidates: number[] = [];
-      for (let k = 4; k < pool.length; k++) {
-        if (isLightSquare(pool[k]) !== firstBishopLight) candidates.push(k);
+      for (let k = i + 1; k < pool.length; k++) {
+        if (isLightSquare(pool[k]) === wanted) candidates.push(k);
       }
+      if (candidates.length === 0) continue; // не должно случаться
       const pick = candidates[this.randInt(candidates.length)];
-      const tmp = pool[4];
-      pool[4] = pool[pick];
+      const tmp = pool[i];
+      pool[i] = pool[pick];
       pool[pick] = tmp;
     }
-    return START_PIECE_TYPES.map((type, i) => ({
+    return startPieces.map((type, i) => ({
       square: pool[i],
       type,
     }));
@@ -528,11 +674,17 @@ export class BlindBoardService {
       round,
       streak: row.streak,
       bestStreak: row.bestStreak,
+      level: row.level ?? 1,
       nextMove: (row.currentCompMove as BlindBoardMove | null) ?? null,
       startedAt: row.startedAt.toISOString(),
       finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
     };
   }
+}
+
+/** KS-3486: type-guard для `BlindBoardPieceType`. */
+function isPieceType(v: unknown): v is BlindBoardPieceType {
+  return v === 'Q' || v === 'R' || v === 'B' || v === 'N';
 }
 
 /**
