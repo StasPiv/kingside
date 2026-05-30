@@ -228,17 +228,22 @@ describe('BlindBoardService.submitAnswer', () => {
     });
   });
 
-  it('правильно, но dead-end → finish dead-end, streak засчитан', async () => {
-    // Делаем позицию, где после правильного ответа у новой target нет ходов
-    // с |involved|=1. Самый простой кейс — single piece (N@a1).
+  it('KS-3453: target без ходов → fallback на другую фигуру, сессия продолжается', async () => {
+    // currentPosition: N@a1 (target — обе клетки прыжков заняты R@b3, R@c2),
+    // и Q@d8 (есть ход Q→d4 с novelty: атакует N@a1 диагональю d4-a1).
+    // Игрок отвечает N@a1 (правильно) — у N нет ходов, но fallback найдёт
+    // ход у одной из других фигур. Сессия НЕ завершается dead-end.
     const prisma = makePrisma();
     prisma.blindBoardSession.findUnique.mockResolvedValue({
       ...activeRow(),
       currentPosition: [
         { square: 'a1' as BlindBoardSquare, type: 'N' },
+        { square: 'b3' as BlindBoardSquare, type: 'R' },
+        { square: 'c2' as BlindBoardSquare, type: 'R' },
+        { square: 'd8' as BlindBoardSquare, type: 'Q' },
       ],
       nextTargetPiece: { square: 'a1' as BlindBoardSquare, type: 'N' },
-      currentCompMove: { from: 'b3', to: 'a1' },
+      currentCompMove: { from: 'X', to: 'a1' },
       streak: 2,
       bestStreak: 2,
     });
@@ -249,7 +254,6 @@ describe('BlindBoardService.submitAnswer', () => {
       bestStreak: 3,
       ...data,
     }));
-    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 0 });
 
     const svc = new BlindBoardService(prisma);
 
@@ -259,15 +263,19 @@ describe('BlindBoardService.submitAnswer', () => {
     });
 
     expect(res.correct).toBe(true);
-    expect(res.session.status).toBe('finished');
-    expect(res.session.finishReason).toBe('dead-end');
+    // KS-3453: dead-end упразднён — сессия продолжается.
+    expect(res.session.status).toBe('active');
+    expect(res.session.finishReason).toBeNull();
     expect(res.session.streak).toBe(3);
-    expect(res.session.bestStreak).toBe(3);
-    expect(res.revealedPosition).toBeDefined();
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'u1' },
-      data: { blindBoardBestStreak: 3 },
-    });
+    expect(res.session.nextMove).not.toBeNull();
+    // Ход компа должен быть от ОДНОЙ из других фигур (не от N@a1):
+    // a1 не может быть `from`, т.к. у N нет ходов.
+    expect(res.session.nextMove!.from).not.toBe('a1');
+    // Был записан новый attempt (round=4).
+    const round4Create = prisma.blindBoardAttempt.create.mock.calls.find(
+      (c: any) => c[0].data.round === 4,
+    );
+    expect(round4Create).toBeTruthy();
   });
 
   it('чужая сессия → Forbidden', async () => {

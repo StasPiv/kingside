@@ -2213,15 +2213,15 @@ export type BlindBoardSessionStatus = 'active' | 'finished';
 
 /**
  * Причина завершения сессии (ADR-088 §10):
- *   - `wrong-answer` — игрок ошибся.
- *   - `dead-end` — у текущей `target_piece` нет ходов с |involved|=1
- *     (§6); current streak засчитывается, бейдж «загнал компа в угол».
+ *   - `wrong-answer` — игрок ошибся (единственный «реальный» финал).
  *   - `abandoned` — сессия брошена без явного финала.
+ *
+ * KS-3453: dead-end УПРАЗДНЁН. Игра бесконечная: если у целевой фигуры
+ * нет валидного хода, backend выбирает любую другую из 5 оставшихся.
+ * В БД могут оставаться исторические строки с `dead-end` — их UI
+ * отображает как обычный финал без специального бейджа.
  */
-export type BlindBoardFinishReason =
-  | 'wrong-answer'
-  | 'dead-end'
-  | 'abandoned';
+export type BlindBoardFinishReason = 'wrong-answer' | 'abandoned';
 
 /**
  * Сессия blind-board (БЕЗ раскрытия позиции/типов — анти-чит §5).
@@ -2274,25 +2274,21 @@ export interface SubmitBlindBoardAnswerRequest {
 }
 
 /**
- * Ответ сервера на answer (ADR-088 §11 S1).
+ * Ответ сервера на answer (ADR-088 §11 S1; KS-3453 уточнение):
  *   - `correct=true` → сессия продолжается, `session.nextMove`
- *     содержит ход следующего раунда (target_piece = опознанная).
+ *     содержит ход следующего раунда. Сначала backend ищет ход у
+ *     target_piece (опознанной фигуры); если у неё нет валидного хода —
+ *     fallback: любая другая из 5 оставшихся.
  *   - `correct=false` → сессия завершается (`finishReason='wrong-answer'`),
  *     раскрываются `expectedSquare`/`expectedPieceType` и
  *     `revealedPosition` (все 5 фигур).
- *   - `dead-end` → `correct=true`, но `session.status='finished'`,
- *     `session.finishReason='dead-end'`, `session.nextMove=null` и
- *     раскрывается `revealedPosition`.
  */
 export interface SubmitBlindBoardAnswerResponse {
   correct: boolean;
   /** При `correct=false` — что было ожидаемым ответом. */
   expectedSquare?: BlindBoardSquare;
   expectedPieceType?: BlindBoardPieceType;
-  /**
-   * Раскрытие полной расстановки (при `correct=false` или при
-   * `dead-end`). При успешном продолжении — `undefined`.
-   */
+  /** Раскрытие полной расстановки при `correct=false`. */
   revealedPosition?: BlindBoardPiece[];
   /** Обновлённое состояние сессии (streak/status/finishReason/nextMove). */
   session: BlindBoardSessionDto;

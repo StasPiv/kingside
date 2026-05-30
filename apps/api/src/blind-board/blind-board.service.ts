@@ -31,6 +31,7 @@ import {
 } from '@nestjs/common';
 import {
   findUniqueTargetMoves,
+  type UniqueTargetMove,
   type BlindBoardPiece,
   type BlindBoardPieceType,
   type BlindBoardSquare,
@@ -217,41 +218,36 @@ export class BlindBoardService {
       };
     }
 
-    // Правильно. Опознанная фигура (expected) становится target для
-    // следующего раунда. Ищем ход с |involved|=1.
+    // Правильно. Ищем следующий ход компа.
+    // KS-3453: игра бесконечная. Сначала пробуем ту фигуру, которую
+    // игрок опознал (expected) — это «логичное продолжение». Если у неё
+    // нет валидного хода (|involved|=1 + novelty) — fallback на любую
+    // другую из 5 оставшихся в случайном порядке. dead-end упразднён.
     const newStreak = row.streak + 1;
     const newBest = Math.max(row.bestStreak, newStreak);
-    const candidates = findUniqueTargetMoves(currentPosition, expected.square);
 
-    if (candidates.length === 0) {
-      // dead-end: текущая серия засчитывается.
-      const finished = (await this.prisma.blindBoardSession.update({
-        where: { id: sessionId },
-        data: {
-          status: 'finished',
-          finishReason: 'dead-end',
-          finishedAt: new Date(),
-          streak: newStreak,
-          bestStreak: newBest,
-          currentCompMove: Prisma.DbNull,
-          nextTargetPiece: Prisma.DbNull,
-        },
-      })) as unknown as BlindBoardSessionRow;
-      await this.maybeUpdateUserBestStreak(userId, finished.bestStreak);
-      return {
-        correct: true,
-        revealedPosition: currentPosition,
-        session: this.toSessionDto(finished, currentRound),
-      };
+    const next = this.pickNextCompMove(currentPosition, expected.square);
+    if (!next) {
+      // Теоретически недостижимо (5 фигур на 64 клетках почти всегда
+      // дают ход у кого-то). Если случилось — это инфраструктурная
+      // проблема, лог + 503; сессия НЕ финишируется dead-end.
+      this.logger.error(
+        `blind-board: no valid next move for session ${sessionId} (5 pieces dead)`,
+      );
+      throw new ServiceUnavailableException(
+        'no valid blind-board move available',
+      );
     }
-
-    // Выбираем ход случайно из кандидатов.
-    const pick = candidates[this.randInt(candidates.length)];
+    const { piece: nextTargetForComp, candidate: pick } = next;
     const nextCompMove: BlindBoardMove = {
-      from: expected.square,
+      from: nextTargetForComp.square,
       to: pick.to,
     };
-    const nextPosition = applyMove(currentPosition, expected.square, pick.to);
+    const nextPosition = applyMove(
+      currentPosition,
+      nextTargetForComp.square,
+      pick.to,
+    );
     const nextInvolved = pick.target;
 
     const nextRound = currentRound + 1;
@@ -386,6 +382,41 @@ export class BlindBoardService {
         data: { blindBoardBestStreak: candidate },
       });
     }
+  }
+
+  /**
+   * KS-3453: выбор следующего хода компа после правильного ответа.
+   * Сначала пытаемся ходить опознанной фигурой (`preferredSquare`).
+   * Если у неё нет валидного хода — fallback: перебираем оставшиеся
+   * фигуры в случайном порядке и берём первую с ходом. Возвращает
+   * `null` только если ни у одной из 5 фигур нет валидного хода
+   * (теоретически почти невозможно при 5 фигурах на пустой доске).
+   */
+  private pickNextCompMove(
+    position: BlindBoardPiece[],
+    preferredSquare: BlindBoardSquare,
+  ): { piece: BlindBoardPiece; candidate: UniqueTargetMove } | null {
+    // 1) Сначала — опознанная игроком фигура.
+    const preferred = position.find((p) => p.square === preferredSquare);
+    if (preferred) {
+      const cands = findUniqueTargetMoves(position, preferredSquare);
+      if (cands.length > 0) {
+        const pick = cands[this.randInt(cands.length)];
+        return { piece: preferred, candidate: pick };
+      }
+    }
+    // 2) Fallback: любая другая фигура в случайном порядке.
+    const others = position.filter((p) => p.square !== preferredSquare);
+    const order = this.shuffleIndices(others.length);
+    for (const idx of order) {
+      const piece = others[idx];
+      const cands = findUniqueTargetMoves(position, piece.square);
+      if (cands.length > 0) {
+        const pick = cands[this.randInt(cands.length)];
+        return { piece, candidate: pick };
+      }
+    }
+    return null;
   }
 
   /**
