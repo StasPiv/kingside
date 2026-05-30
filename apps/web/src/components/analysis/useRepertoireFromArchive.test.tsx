@@ -130,7 +130,7 @@ describe('useRepertoireFromArchive (KS-3472 F2)', () => {
       black: { name: 'B' },
     } as Partial<ArchiveGameDetail>);
     createRepertoire.mockResolvedValue({
-      repertoire: { id: 'rep-77' },
+      id: 'rep-77',
     } as Partial<CreateOpeningRepertoireResponse>);
 
     const { result } = renderHook(() => useRepertoireFromArchive(), { wrapper });
@@ -200,7 +200,7 @@ describe('useRepertoireFromArchive (KS-3472 F2)', () => {
       event: 'T',
     } as Partial<ArchiveGameDetail>);
     createRepertoire.mockResolvedValue({
-      repertoire: { id: 'rep-88' },
+      id: 'rep-88',
     } as Partial<CreateOpeningRepertoireResponse>);
 
     const { result } = renderHook(() => useRepertoireFromArchive(), { wrapper });
@@ -218,6 +218,52 @@ describe('useRepertoireFromArchive (KS-3472 F2)', () => {
     // (чёрный — eval). Итого 3 trained-хода × 2 analyze = 6.
     expect(analyzeFn).toHaveBeenCalledTimes(6);
     expect(result.current.state.phase).toBe('done');
+  });
+
+  it('KS-3480: createRepertoire вернул response без id → phase=error, navigate не вызван', async () => {
+    archivePositionGames.mockResolvedValue({
+      items: [
+        {
+          id: 'g-99',
+          reachedAtPly: 2,
+          white: { name: 'A' },
+          black: { name: 'B' },
+          result: '*',
+          eco: null,
+          opening: null,
+          event: 'T',
+          date: null,
+          plyCount: 6,
+          nextMoveUci: null,
+          sideToMove: 'w',
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    } as Partial<ArchiveGamesByPositionResponse>);
+    getArchiveGameById.mockResolvedValue({
+      id: 'g-99',
+      pgn: SAMPLE_PGN,
+      event: 'T',
+    } as Partial<ArchiveGameDetail>);
+    // Backend вернул некорректный shape — например, как раньше {repertoire:{id}}.
+    createRepertoire.mockResolvedValue({
+      // намеренно без `id` на корне.
+      repertoire: { id: 'rep-x' },
+    } as Partial<CreateOpeningRepertoireResponse>);
+    const { result } = renderHook(() => useRepertoireFromArchive(), { wrapper });
+    await act(async () => {
+      await result.current.start({
+        fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+        side: 'white',
+        movetime: 500,
+        title: 'X',
+      });
+    });
+    expect(result.current.state.phase).toBe('error');
+    expect(result.current.state.errorMessage).toContain(
+      'repertoire id',
+    );
   });
 
   it('cancel в процессе → phase=cancelled, navigate не вызван', async () => {

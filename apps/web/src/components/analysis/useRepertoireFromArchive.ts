@@ -44,7 +44,12 @@ import { archiveApi } from '../../api/archive';
 import { WasmEngineAdapter, type EngineAdapter } from '../../utils/engineAdapter';
 
 const BATCH_LIMIT = 10;
-const TARGET_VALID_GAMES = 20;
+/**
+ * KS-3480 (MVP): временно опускаем порог валидных партий 20 → 1 для
+ * быстрого ручного тестирования сборки. После стабилизации flow
+ * вернуть 20 (см. KS-3472).
+ */
+const TARGET_VALID_GAMES = 1;
 const MAX_LINE_PLIES = 40;
 const LOSS_THRESHOLD_CP = 50;
 /** Глубина-потолок для analyze; реально SF остановится по movetime. */
@@ -338,8 +343,32 @@ export function useRepertoireFromArchive() {
           sources: validPgns.map((g) => ({ pgn: g.pgn, name: g.name })),
         });
 
+        // KS-3480: `CreateOpeningRepertoireResponse` (shared) =
+        // OpeningRepertoireDetailDto — это ПЛОСКИЙ DTO с `id` на
+        // корне, а не `{ repertoire: { id } }`. Раньше читали
+        // `res.repertoire.id` → undefined → JS-runtime ошибка
+        // «Cannot read properties of undefined (reading 'id')».
+        // Берём `res.id`. Лог response — на случай если backend в
+        // будущем поменяет shape, чтобы диагностика была мгновенной.
+        // eslint-disable-next-line no-console
+        console.info('[archiveRep] createRepertoire response:', res);
+        const repertoireId = res?.id;
+        if (!repertoireId) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[archiveRep] createRepertoire returned no id; response:',
+            res,
+          );
+          setState((s) => ({
+            ...s,
+            phase: 'error',
+            errorMessage: 'Backend response missing repertoire id',
+          }));
+          return;
+        }
+
         setState({ phase: 'done', checked, valid: validPgns.length });
-        navigate(`/opening-trainer/${res.repertoire.id}`);
+        navigate(`/opening-trainer/${repertoireId}`);
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error('[useRepertoireFromArchive] failed:', e);
