@@ -209,7 +209,7 @@ export function BlindBoardSessionRunner({
           >
             {t(
               'blindBoard.memorize.hint',
-              'When you tap “Ready” the pieces disappear and the computer starts moving — keep the position in your head and answer with the moved piece each round.',
+              'After you click "Ready" the pieces disappear and the computer starts moving. Hold the position in your head and each round point at the piece that was attacked or fell under attack.',
             )}
           </p>
           <div
