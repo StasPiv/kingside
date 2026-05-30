@@ -321,4 +321,95 @@ describe('useStockfish — KS-3042 re-dispatch MultiPV at runtime', () => {
     expect(worker.sent).toContain('go infinite');
     expect(worker.sent.some((m) => m.startsWith('go depth'))).toBe(false);
   });
+
+  // KS-3470 (ADR-090 V4 F4): movetime опция.
+  it('KS-3470: movetime=1000 → `go movetime 1000` (вместо go depth N)', async () => {
+    const { result } = renderHook(() =>
+      useStockfish({ multiPv: 1, depth: 5, movetime: 1000 }),
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go movetime 1000');
+    expect(worker.sent.some((m) => m.startsWith('go depth'))).toBe(false);
+    expect(worker.sent).not.toContain('go infinite');
+  });
+
+  it('KS-3470: movetime приоритетнее infinite=true (одновременно — берём movetime)', async () => {
+    const { result } = renderHook(() =>
+      useStockfish({ multiPv: 1, depth: 5, infinite: true, movetime: 500 }),
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go movetime 500');
+    expect(worker.sent).not.toContain('go infinite');
+  });
+
+  it('KS-3470: movetime=undefined → старая ветка (`go depth N`)', async () => {
+    const { result } = renderHook(() =>
+      useStockfish({ multiPv: 1, depth: 9 }),
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go depth 9');
+    expect(worker.sent.some((m) => m.startsWith('go movetime'))).toBe(false);
+  });
+
+  it('KS-3470: смена movetime во время анализа → re-dispatch с новым `go movetime`', async () => {
+    const { result, rerender } = renderHook(
+      ({ movetime }: { movetime: number | undefined }) =>
+        useStockfish({ multiPv: 1, depth: 5, movetime }),
+      { initialProps: { movetime: 1000 as number | undefined } },
+    );
+    await act(async () => {
+      result.current.evaluate(START_FEN);
+    });
+    const worker = await waitForWorker();
+    await act(async () => {
+      worker.emit('uciok');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go movetime 1000');
+    worker.sent.length = 0;
+
+    // Меняем movetime на 250 — effect[movetime] → evaluate → stop.
+    await act(async () => {
+      rerender({ movetime: 250 });
+    });
+    expect(worker.sent).toContain('stop');
+    worker.sent.length = 0;
+    // bestmove → isready → readyok → новый `go movetime 250`.
+    await act(async () => {
+      worker.emit('bestmove e2e4');
+    });
+    await act(async () => {
+      worker.emit('readyok');
+    });
+    expect(worker.sent).toContain('go movetime 250');
+  });
 });

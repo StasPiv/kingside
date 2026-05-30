@@ -65,6 +65,16 @@ type UseStockfishOptions = {
    * бродкаст, watch) сохраняют finite `go depth N` и НЕ регрессируют.
    */
   infinite?: boolean;
+  /**
+   * KS-3470 (ADR-090 V4 F4): фиксированное время на ход (`go movetime N`,
+   * N в миллисекундах). Используется в repertoire-from-archive (F2,
+   * KS-3472) — нужно ограниченное время на каждую позицию, не глубина
+   * и не бесконечный анализ. Приоритетнее `infinite`/`depth`: если
+   * `movetime` задан > 0 — отправляем `go movetime N`, иначе работает
+   * прежняя ветка (`go infinite` / `go depth N`). `undefined` /
+   * <= 0 — пропускаем, поведение по умолчанию.
+   */
+  movetime?: number;
   autoStart?: boolean;
   /**
    * UCI Skill Level (0..20). Ограничивает силу движка. Применяется к
@@ -151,6 +161,30 @@ async function prefetchWasm(
   onProgress(total || loaded, total || loaded);
 }
 
+/**
+ * KS-3470 (ADR-090 V4 F4): единая сборка UCI `go`-команды по приоритету
+ * `movetime > infinite > depth`. Используется во всех трёх точках
+ * отправки (`readyok` после lazy-init / re-dispatch после stop /
+ * прямая отправка из evaluate).
+ *
+ * `movetime` имеет приоритет над `infinite` — F2 (KS-3472) задаёт
+ * фиксированный лимит на ход и при этом наследует ту же конфигурацию
+ * хука, где infinite мог остаться от прошлого режима. Принуждение
+ * приоритета movetime упрощает caller'у переключение режимов без
+ * cleanup'а старого `infinite`.
+ */
+function buildGoCommand(
+  movetime: number | undefined,
+  infinite: boolean,
+  depth: number,
+): string {
+  if (typeof movetime === 'number' && movetime > 0) {
+    return `go movetime ${movetime}`;
+  }
+  if (infinite) return 'go infinite';
+  return `go depth ${depth}`;
+}
+
 function parseInfoLine(line: string): EvalLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
   const multipvMatch = line.match(/\bmultipv (\d+)/);
@@ -185,6 +219,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     depth = 20,
     multiPv = 3,
     infinite = false,
+    movetime,
     // KS-2034: `autoStart` сохранён в типе UseStockfishOptions для
     // обратной совместимости с вызывающим кодом, но реально хук не
     // делает auto-start (старт только по явному `analyze()`).
@@ -197,10 +232,13 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const depthRef = useRef(depth);
   const multiPvRef = useRef(multiPv);
   const infiniteRef = useRef(infinite);
+  // KS-3470: movetime в мс, undefined → не используется.
+  const movetimeRef = useRef<number | undefined>(movetime);
   const skillLevelRef = useRef<number | undefined>(skillLevel);
   depthRef.current = depth;
   multiPvRef.current = multiPv;
   infiniteRef.current = infinite;
+  movetimeRef.current = movetime;
   skillLevelRef.current = skillLevel;
 
   const [state, setState] = useState<StockfishState>('idle');
@@ -342,9 +380,14 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${lazyFen}`);
-              // KS-3404: infinite — без потолка глубины; иначе go depth N.
+              // KS-3470: единая сборка `go` по приоритету
+              // movetime > infinite > depth (см. buildGoCommand).
               engine.postMessage(
-                infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+                buildGoCommand(
+                  movetimeRef.current,
+                  infiniteRef.current,
+                  depthRef.current,
+                ),
               );
             } else {
               setState('ready');
@@ -367,9 +410,14 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${pendingFen}`);
-              // KS-3404: infinite — без потолка глубины; иначе go depth N.
+              // KS-3470: единая сборка `go` по приоритету
+              // movetime > infinite > depth (см. buildGoCommand).
               engine.postMessage(
-                infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+                buildGoCommand(
+                  movetimeRef.current,
+                  infiniteRef.current,
+                  depthRef.current,
+                ),
               );
               return;
             }
@@ -491,9 +539,14 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       const effectiveMpv = clampMultiPvToLegalMoves(fen, multiPvRef.current);
       engineRef.current.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
       engineRef.current.postMessage(`position fen ${fen}`);
-      // KS-3404: infinite — без потолка глубины; иначе go depth N.
+      // KS-3470: единая сборка `go` по приоритету
+      // movetime > infinite > depth (см. buildGoCommand).
       engineRef.current.postMessage(
-        infiniteRef.current ? 'go infinite' : `go depth ${depthRef.current}`,
+        buildGoCommand(
+          movetimeRef.current,
+          infiniteRef.current,
+          depthRef.current,
+        ),
       );
     },
     [init],
@@ -567,6 +620,21 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     evaluate(fen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [infinite]);
+
+  /**
+   * KS-3470 (ADR-090 V4 F4): смена `movetime` во время активного
+   * анализа — re-dispatch с новой `go`-командой. Тот же путь
+   * `evaluate(currentFen)` → stop → bestmove → isready → новый `go`,
+   * что в watcher'ах depth/infinite/multiPv.
+   */
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    if (!engineRef.current) return;
+    const fen = fenRef.current;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movetime]);
 
   return {
     state,
