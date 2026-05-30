@@ -1,32 +1,35 @@
 # ADR-090. Дебютный репертуар из партий 2400+ классика по позиции анализа
 
-Статус: принят (2026-05-30, ревизия 2)
-Связано: KS-3462 (V1), KS-3463 (V2 этот ADR), ADR-077 (RepertoireTree),
-ADR-078 (multi-source репертуары / KS-3323), ADR-087
-(AnalysisActionsMenu), KS-2475 (Stockfish WASM), ADR-066 (WDL
-move-classification).
+Статус: принят (2026-05-30, ревизия 3)
+Связано: KS-3462 (V1), KS-3463 (V2), KS-3465 (V3 этот ADR),
+ADR-077 (RepertoireTree), ADR-078 (multi-source репертуары /
+KS-3323), ADR-087 (AnalysisActionsMenu), KS-2475 (Stockfish WASM),
+ADR-066 (WDL move-classification).
 
-> **Ревизия 2 (2026-05-30).** Пересмотр по 8 ответам пользователя.
-> Главные изменения от V1:
-> 1. classical-фильтр на фронте УЖЕ есть для архива (`/games?
->    timeControlCategory=classical`), но в `/games/by-position` его
->    нет — расширяем DTO.
-> 2. Сортировка партий = по среднему рейтингу. В `by-position`
->    `sort=topElo` УЖЕ означает `ORDER BY avg_elo DESC` (по
->    `archive_game_positions.avg_elo`) — то что нужно.
-> 3. Stockfish-валидация — **обязательный шаг**, монолитный поток
->    клик→загрузка→валидация→готово (не опц. кнопка).
-> 4. При blunder в партии — **выкидываем партию целиком**, берём
->    следующую. Итеративный сбор до набора N валидных.
-> 5. Фильтр `minAvgElo ≥ 2400` (не minElo обеих сторон). В
->    `by-position` `minElo` УЖЕ означает avgElo (`p.avg_elo >=
->    minElo`) — то что нужно.
-> 6. **Дедуп НЕ нужен.** Каждый клик = новый репертуар.
->    `sourcePositionFen` в миграции лишний.
-> 7. Сторона репертуара — за **СОПЕРНИКА** ходящей стороны (если
->    в FEN ход белых → репертуар за чёрных). Контринтуитивно
->    относительно V1.
-> 8. Movetime — UI-выбор 500/1000/2000ms, дефолт 1000.
+> **Ревизия 3 (2026-05-30).** 5 уточнений пользователя поверх V2:
+> 1. **Порог = 50 сантипешек** (не 0.25 WDL как V2). Mate-scores
+>    кодируются через большой sentinel (~20000cp), естественно
+>    попадают под порог 50.
+> 2. **ОБРЕЗКА ЛИНИИ** до проблемного хода — не выкидывание
+>    партии целиком. Партия всегда попадает в репертуар (может
+>    быть короткой 1-2 хода). Это ключевое изменение V2.
+> 3. **Без partial-диалога**: если набралось < 20 валидных —
+>    создаём с тем что есть, автоматически.
+> 4. **Без лимита `maxChecked`**: идём пока не наберём 20 или не
+>    исчерпаем cursor. UI показывает прогресс «проверено N,
+>    валидных M» + кнопка «Отмена» (= завершить с тем что есть).
+> 5. GET-proxy под `JwtAuthGuard` (моё V2-предложение
+>    подтверждено).
+
+> **Ревизия 2 (2026-05-30).** Пересмотр по 8 ответам пользователя
+> от V1. Главные точки (всё ещё актуально кроме V3-override'ов):
+> - classical-фильтр в `/games/by-position` отсутствует — расширяем DTO.
+> - `minElo` в `by-position` УЖЕ = avgElo (не minElo обеих сторон).
+> - `sort=topElo` УЖЕ = ORDER BY avg_elo DESC.
+> - Monolithic поток на клиенте.
+> - Без дедупа (без `sourcePositionFen`).
+> - Side = ИНВЕРСИЯ activeColor.
+> - Movetime UI-select 500/1000/2000, default 1000.
 
 ## 1. Контекст
 
@@ -103,30 +106,36 @@ archive-service); долгий Stockfish — на клиенте в Web Worker'�
    Шаг 3: «Создаю репертуар…»
    Кнопка «Отмена» (останавливает с partial — см. §3.5).
 
-3. Алгоритм:
-   validGames = []; cursor = null; checkedCount = 0
-   while validGames.length < limit (=20):
+3. Алгоритм (V3 — обрезка вместо выкидывания):
+   validGames = []; cursor = null; userCancelled = false
+   while validGames.length < limit (=20) and not userCancelled:
      batch = await GET /opening-trainer/archive-position/games?
                 fen=&limit=10&cursor=
-     if batch.empty: break
+     if batch.empty: break                    // cursor исчерпан
      for game in batch:
        lineMoves = extractLineFromFen(game.pgn, targetFen, ≤40 ply)
-       if lineMoves.empty: continue          // партия не доходит до FEN
-       allClean = true
+       if lineMoves.empty: continue           // партия не доходит до FEN
+       goodPlies = []
        for ply in lineMoves:                  // итерация по полуходам
-         eBefore = stockfish.evaluate(ply.fenBefore, movetime=user)
-         eAfter  = stockfish.evaluate(ply.fenAfter,  movetime=user)
-         loss    = lossE(eBefore, eAfter, povSide)
-         if loss > 0.25:                      // blunder → выкид
-           allClean = false
-           break                              // экономим Stockfish-время
-       if allClean:
-         validGames.push(buildMiniPgn(game, lineMoves))
-         if validGames.length >= limit: break
+         eBefore_cp = stockfish.evaluate(ply.fenBefore, movetime=user).cp
+         eAfter_cp  = stockfish.evaluate(ply.fenAfter,  movetime=user).cp
+         // POV-нормализация: eAfter — POV stm в fenAfter (= соперник
+         // stm в fenBefore), инверсия знака для одного POV.
+         loss_cp = max(0, eBefore_cp - (-eAfter_cp))
+         // = max(0, eBefore_cp + eAfter_cp)
+         // mate-scores закодированы как ±20000cp (sentinel) — порог
+         // 50cp естественно сработает на любом mate-flip.
+         if loss_cp > 50:                     // blunder → ОБРЕЗАЕМ
+           break                              // ход НЕ включается
+         goodPlies.push(ply)
+       if goodPlies.length === 0:
+         continue                             // первый ход = blunder, пропускаем
+       validGames.push(buildMiniPgn(game, goodPlies))
+       updateProgress(checked++, validGames.length)
      cursor = batch.nextCursor
-     if checkedCount > maxChecked (=100): break  // safety cap
-   if validGames.length < limit:
-     showAlert(f"Найдено N валидных из {limit}, продолжить?") → yes/no
+     // НЕТ maxChecked safety cap — идём пока cursor не исчерпан
+     // или пользователь не нажал «Отмена»
+   // Если набрано < 20 — создаём с тем что есть, БЕЗ диалога
    POST /opening-trainer/repertoires { sources: validGames, side,
                                        title: 'Репертуар из позиции' }
    → navigate /opening-trainer/{id}
@@ -143,51 +152,70 @@ archive-service); долгий Stockfish — на клиенте в Web Worker'�
 «ходящий = ученик»; обязательно комментарий в коде + i18n-
 подсказка в UI («Готовим репертуар за <чёрных/белых>»).
 
-### 3.3 Выкидывание партий с blunder'ом (П4)
+### 3.3 Обрезка линии до проблемного хода (V3)
 
-Порог: `loss > 0.25` (= blunder ADR-066). Любой полуход в линии
-с loss > 0.25 → партия выкидывается ЦЕЛИКОМ, не идёт в репертуар.
-Berём следующую из cursor'а.
+Порог: `loss_cp > 50` сантипешек (~½ пешки). Жёстче чем blunder в
+ADR-066 (loss_E > 0.25). Cp напрямую, не через WDL.
 
-**Почему выкидываем целиком, а не обрезаем до blunder'а:**
-методически — линия с зевком теряет статус «теория сильных
-игроков», нерелевантна. Обрезание дало бы партиальную линию, что
-размывает источник.
+При обнаружении хода с loss_cp > 50 **линия обрезается**: ходы
+ДО проблемного включаются в репертуар, проблемный и все после —
+НЕТ. Партия попадает в репертуар (если есть хотя бы 1 чистый
+ход).
 
-Экономия Stockfish-времени: при первом же blunder'е прерываем
-анализ оставшихся полуходов в этой партии. Среднее время на
-выкинутую партию — порядка ~5-10 ходов × movetime, не полные 40.
+**Почему обрезка лучше выкидывания (V2 → V3):**
+- Партия даёт хотя бы что-то (10 чистых ходов теории > 0).
+- Меньше требуется подкачивать (каждый game = валидный).
+- Естественно для дебютной теории: «нас интересует начало партии
+  до момента когда сыгран нестандартный/слабый ход».
 
-### 3.4 Итеративная подкачка + safety cap
+**Mate-scores:** при mate-кодировании через большой sentinel
+(±20000cp) любой mate-flip (одна сторона → другая) даёт
+loss_cp ≫ 50 → естественно обрезается. Отдельная mate-логика
+не нужна.
 
-`maxChecked = 100` (опц. константа): если проверили 100 партий и
-не набрали 20 валидных — стоп, спрашиваем «продолжить с N
-валидными?». Защита от зависания на «грязных» позициях.
+**Pathological case — первый ход = blunder:** партия пропускается
+(continue), продолжаем подкачку (моё предложение, обсуждено в
+KS-3465 open question).
 
-Эмпирическая оценка процента валидных: на мастер-партиях 2400+
-classical в дебютной фазе blunder'ы редки. Ожидаем 60-80%
-валидных, то есть для 20 валидных подкачаем ~25-35 партий.
+### 3.4 Без `maxChecked` safety cap (V3)
 
-### 3.5 Отмена
+V2 имел safety cap = 100 проверенных партий. **V3 убирает** —
+идём пока не наберём 20 валидных или cursor archive-service не
+исчерпан. На редких позициях процесс может быть долгим (минуты),
+UI обязан показывать прогресс «проверено N, валидных M» + ETA.
 
-Кнопка «Отмена» в progress-modal:
-- Если набрано ≥ 1 валидной партии — показать «Создать репертуар
-  из N валидных?» с CTA Yes/No.
-- Если 0 — закрыть, ничего не сохранять.
+Отмена пользователя — единственный способ остановить досрочно
+(§3.5).
+
+### 3.5 Отмена (V3 — без partial-диалога)
+
+Кнопка «Отмена» в progress-modal: завершает анализ немедленно
+с тем что собрано:
+- Если набрано ≥ 1 валидной — POST `/repertoires` с N source'ов,
+  navigate. **Без диалога подтверждения** (V3 — пользователь
+  явно нажал «Отмена» = «хочу завершить»).
+- Если 0 валидных — закрыть модалку, ничего не сохранять, toast
+  «Ничего не собрано».
+
+Аналогично если cursor исчерпался до 20 валидных и набрано N:
+автоматически создаём с N, без диалога.
 
 ### 3.6 Что НЕ делаем (M1)
 
-- **НЕ ставим NAG-аннотации** в M1 (V1 предполагал). При
-  mistake/inaccuracy (loss ∈ (0.05, 0.25]) — игнорируем, партия
-  идёт в репертуар без NAG. M2 — опц. NAG для разметки внутри
-  валидных партий.
+- **НЕ ставим NAG-аннотации** в M1. При loss_cp ∈ (0, 50] —
+  игнорируем, ход идёт в репертуар без NAG. M2 — опц. NAG.
 - **НЕ делаем дедуп** по FEN — каждый клик = новый репертуар
-  (П6).
-- **НЕ серверный Stockfish** (уточнено пользователем — клиент
-  WASM).
+  (П6 V2).
+- **НЕ серверный Stockfish** (уточнено V2 — клиент WASM).
 - **НЕ async-job-инфра** — backend синхронный, frontend в
   браузере.
-- **НЕ обрезаем линии** до blunder'а (выкидываем целиком, §3.3).
+- **НЕ выкидываем партию целиком** при blunder (V3) — обрезаем
+  линию до проблемного хода (§3.3).
+- **НЕ ограничиваем число проверенных партий** (V3 — без
+  `maxChecked`). Только cursor archive-service или ручная
+  отмена.
+- **НЕ показываем partial-диалог** (V3) — автоматическое
+  создание с тем что набрано.
 
 ## 4. API
 
@@ -274,16 +302,19 @@ whitelist `sourceKind`.
 
 Модалка → progress → создание → navigate.
 
-## 7. Лимиты и параметры
+## 7. Лимиты и параметры (V3)
 
-- `limit = 20` валидных партий (default, после P2 ответ).
-- `maxChecked = 100` партий (safety cap).
+- `limit = 20` валидных партий (target). Если cursor исчерпан или
+  отмена — берём сколько есть.
+- ~~`maxChecked = 100`~~ **убрано в V3** — без safety cap.
 - `maxHalfMoves = 40` (требование пользователя).
-- `blunderThreshold = 0.25` (loss_E, по ADR-066).
+- **`blunderThresholdCp = 50`** сантипешек (V3 — заменил
+  `blunderThreshold = 0.25` WDL из V2).
+- Mate-кодирование через ±20000cp sentinel → автоматически > 50.
 - `movetime` ∈ {500, 1000, 2000} ms (UI-выбор, default 1000).
 - Существующие tree-лимиты (2000 nodes / 5000 edges / 500 KB pgn)
   — должно укладываться: 20 партий × 40 ходов = 800 ходов до
-  merge, после merge меньше.
+  merge, после merge меньше. При обрезке линий — ещё меньше.
 
 ## 8. Хранение результата
 
@@ -367,7 +398,7 @@ whitelist `sourceKind`.
 - Acceptance: пункт виден, гость — disabled; клик открывает
   модалку (см. F2).
 
-### KS (F2) — монолитный поток: модалка + сбор + Stockfish + создание
+### KS (F2) — монолитный поток: модалка + сбор + Stockfish + создание (V3 — обрезка)
 
 **Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
 **Зависит:** B2, F4, F1.
@@ -376,20 +407,31 @@ whitelist `sourceKind`.
 - Progress-modal (блокирующий, кнопка «Отмена»):
   - Этап 1: GET /opening-trainer/archive-position/games (cursor).
   - Этап 2: для каждой партии — вырезание линии (chess.js
-    parsePgn + проход истории + поиск target FEN по position-key),
-    итерация Stockfish-анализом (movetime), early-exit на
-    blunder.
+    parsePgn + проход истории + поиск target FEN по
+    position-key), итерация Stockfish-анализом (movetime).
+    **V3:** на каждом ходу считать `loss_cp = max(0, eBefore_cp
+    + eAfter_cp_raw)` (POV-нормализация инверсией знака
+    eAfter). При `loss_cp > 50` — **обрезать линию** (ход не
+    включается, остановить анализ оставшихся ходов этой партии,
+    добавить goodPlies в репертуар). Если goodPlies.length === 0
+    — пропустить партию (continue).
   - Этап 3: POST /opening-trainer/repertoires с
     sources=validGames.
 - Итеративная подкачка cursor'ом до набора `limit=20` валидных
-  или `maxChecked=100` или конца cursor'а.
-- При partial-результате (< 20 валидных и пустой cursor / cap) —
-  диалог «Найдено N, продолжить?».
+  ИЛИ конца cursor'а ИЛИ ручной отмены. **Без `maxChecked`
+  cap.**
+- UI progress: «Проверено N партий, валидных M», ETA по
+  средней скорости.
+- **V3 — без partial-диалога**: при cursor-исчерпании или
+  отмене → если есть ≥ 1 валидной партии, автоматически
+  POST `/repertoires` с тем что есть → navigate. Если 0 — toast
+  «Ничего не собрано», закрыть.
 - side по правилу §3.2 (инверсия activeColor).
 - После create — navigate `/opening-trainer/:id`.
-- Acceptance: монолитный поток работает; blunder выкидывает
-  партию; итеративная подкачка; partial-диалог; cancel
-  очищает; navigate в репертуар.
+- Acceptance: монолитный поток работает; blunder ОБРЕЗАЕТ линию
+  (не выкидывает партию); first-ply-blunder — пропуск партии;
+  partial-результат → автосоздание без диалога; cancel → завершить
+  с тем что есть; navigate в репертуар.
 
 ### KS (L1) — CSS progress-modal + select movetime
 
@@ -409,24 +451,38 @@ whitelist `sourceKind`.
   существующий `POST /opening-trainer/repertoires`.
 - B3 (`POST /annotate`) — V2 без NAG в M1.
 
-## 11. Открытые вопросы (V2 — что осталось)
+## 11. Открытые вопросы (V3 — что осталось после ответов)
 
-1. **При mistake/inaccuracy (loss ∈ (0.05, 0.25])** — игнорировать
-   (моё M1) или ставить NAG в варианте? Рекомендую игнорировать;
-   NAG — отдельной M2-задачей.
-2. **Partial-результат** (< 20 валидных + конец cursor'а):
-   диалог «Создать с N?» (моё) vs автоматически создать без
-   вопроса?
-3. **`maxChecked=100`** — приемлемо как safety cap? Если на
-   практике на популярных позициях окажется недостаточно (мало
-   валидных) — поднять до 200.
-4. **Owner-check на GET-proxy** или открытый endpoint (archive-
-   service уже без auth)? Я оставил `JwtAuthGuard` (consistency
-   с остальным opening-trainer + предохранитель от спама).
-5. **POV-нормализация loss** — для POV выбранной стороны (= side
-   репертуара, не activeColor исходной позиции). Реализация —
-   `lossE(eBefore, eAfter, side)` с инверсией eAfter.
-   Архитектурно зафиксировано, в реализации уточнить.
+**Закрыто пользователем (V3):**
+- ✓ Партия с blunder → обрезка линии (не выкидывание).
+- ✓ Partial-результат → автоматическое создание (без диалога).
+- ✓ `maxChecked` cap → убран.
+- ✓ GET-proxy под `JwtAuthGuard` (моё V2-предложение).
+- ✓ Порог 50 cp (не WDL).
+
+**Осталось/новое:**
+
+1. **Pathological: первый ход линии = blunder** (loss_cp > 50 на
+   ply 1). Партия с 0 ходов бессмысленна → **пропускаем партию,
+   продолжаем подкачку cursor'ом** (моё предложение V3,
+   зафиксировано в §3.3). Альтернатива — включить пустой
+   источник, отвергнуто.
+2. **При loss_cp ∈ (0, 50]** — ход идёт в репертуар как есть, без
+   NAG (V3 M1). NAG-аннотации для inacc/mistake — M2.
+3. **POV-нормализация loss** — POV = side хода (= white или black
+   на fenBefore, зависит от ply). loss_cp = max(0, eBefore_cp +
+   eAfter_cp_raw) где eAfter в POV stm-in-fenAfter (= соперник
+   stm-fenBefore), отсюда сложение знаков. Реализация — точная
+   формула в коде, юнит-тесты.
+4. **Mate-кодирование** — sentinel ±20000cp (в проекте может быть
+   другой; backend и frontend должны использовать ОДИН и тот же).
+   Если sentinel ≠ ±20000 — параметризовать через shared-константу.
+5. **На «Отмена» при 0 валидных** — toast «Ничего не собрано» и
+   закрыть (моё). Альтернатива — оставить пользователя в модалке
+   с retry-кнопкой. Не критично, UX-выбор frontend'а.
+
+@coordinator (по 1 — подтвердить моё решение; 3-4 — уточнить при
+реализации; 2/5 — UX-вопросы для frontend'а).
 
 ## 12. Откат
 
