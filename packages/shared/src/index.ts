@@ -26,6 +26,8 @@ export * from './utils/move-classification.js';
 export * from './utils/precision-score.js';
 // KS-3407 (ADR-086 S2): сравнение хода в guess-the-move.
 export * from './utils/guess-move.js';
+// KS-3439 (ADR-088 S2): move-generator blind-board (4 фигуры, без шахов/королей).
+export * from './utils/blind-board/move-gen.js';
 // KS-3359 (ADR-080): whitelist + группы для Precision Themes.
 export * from './utils/precision-themes.js';
 export * from './chess/index.js';
