@@ -8,6 +8,7 @@
 import { api } from '../api';
 import type {
   BlindBoardLeaderboardResponse,
+  StartBlindBoardSessionRequest,
   StartBlindBoardSessionResponse,
   SubmitBlindBoardAnswerRequest,
   SubmitBlindBoardAnswerResponse,
@@ -16,9 +17,15 @@ import type {
 const BASE = '/blind-board';
 
 export const blindBoardApi = {
-  startSession(): Promise<StartBlindBoardSessionResponse> {
-    // ADR-088 §11 B2: тело пустое — вся рандомизация на сервере.
-    return api.post<StartBlindBoardSessionResponse>(`${BASE}/sessions`, {});
+  /**
+   * KS-3488 (ADR-088 V2 §15): опциональный `body.config` — конфиг
+   * прогрессивной сложности (startPieces / addOrder / memorizeTimeSec).
+   * Если не передан, backend применит `DEFAULT_BLIND_BOARD_CONFIG`.
+   */
+  startSession(
+    body?: StartBlindBoardSessionRequest,
+  ): Promise<StartBlindBoardSessionResponse> {
+    return api.post<StartBlindBoardSessionResponse>(`${BASE}/sessions`, body ?? {});
   },
   submitAnswer(
     sessionId: string,

@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  BlindBoardConfig,
   BlindBoardMove,
   BlindBoardPiece,
   BlindBoardPieceType,
@@ -78,11 +79,17 @@ export interface BlindBoardSessionRunnerProps {
   api?: typeof blindBoardApi;
   /** Колбэк «вернуться на лобби» — caller (landing) сбрасывает state. */
   onExit?: () => void;
+  /**
+   * KS-3488 (ADR-088 V2 §15 F1): конфиг прогрессивной сложности. Если
+   * не передан — backend применит `DEFAULT_BLIND_BOARD_CONFIG`.
+   */
+  config?: BlindBoardConfig;
 }
 
 export function BlindBoardSessionRunner({
   api = blindBoardApi,
   onExit,
+  config,
 }: BlindBoardSessionRunnerProps) {
   const { t } = useTranslation();
 
@@ -110,7 +117,9 @@ export function BlindBoardSessionRunner({
     setStartError(null);
     void (async () => {
       try {
-        const res = await api.startSession();
+        const res = await api.startSession(
+          config ? { config } : undefined,
+        );
         if (gen !== genRef.current) return;
         sessionIdRef.current = res.session.id;
         setSession(res.session);
@@ -141,7 +150,7 @@ export function BlindBoardSessionRunner({
     return () => {
       genRef.current += 1;
     };
-  }, [api]);
+  }, [api, config]);
 
   // ── KS-3448: переход из memorize в playing ────────────────────────
   const handleReady = useCallback(() => {
