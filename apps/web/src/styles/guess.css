@@ -233,6 +233,100 @@
   font-size: 14px;
 }
 
+/* ── KS-3446 (L1): scoreboard «Ты N : N Игрок» ─────────────
+   Карточка-табло с типографикой Puzzle Rush score (крупное число,
+   uppercase-метки, центрированный разделитель). DOM от KS-3436:
+   __hud--scoreboard > [__score--user (label, value)] [__score-sep]
+                                          [__score--player (value, label)]
+   Каждая половина — flex-row gap, число — главный визуальный вес. */
+.guess-session__hud--scoreboard {
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 14px;
+  flex-wrap: nowrap;
+}
+.guess-session__score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.guess-session__score--user {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-session__score--player {
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.guess-session__score-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  white-space: nowrap;
+}
+.guess-session__score-value {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  letter-spacing: -0.02em;
+}
+.guess-session__score-sep {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-muted, var(--c-94a3b8));
+  /* Оптическое центрирование двоеточия между крупными числами. */
+  align-self: center;
+  padding: 0 2px;
+}
+
+/* ── KS-3446 (L1): статусная строка под доской ──────────────
+   Баннер-pill внутри .guess-runner__panel. Все <p> внутри панели —
+   единый visual style (центр + accent-tint при awaitGuess). */
+.guess-runner__panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  margin-top: 12px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 10px;
+  text-align: center;
+}
+.guess-runner__panel > p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, var(--c-e0e0e0));
+  line-height: 1.4;
+  /* На mobile перенос только по пробелам, не разрывая «угадайте, что»
+     в неудобных местах. */
+  overflow-wrap: break-word;
+  hyphens: none;
+}
+/* awaitGuess — главная фаза взаимодействия: выделяем accent-tint
+   фоном + accent border, чтобы пользователь видел «сейчас твой ход». */
+.guess-runner[data-phase='awaitGuess'] .guess-runner__panel {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-runner[data-phase='awaitGuess'] .guess-runner__panel > p {
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-weight: 600;
+}
+/* finished — нейтральный muted (партия закончена). */
+.guess-runner[data-phase='finished'] .guess-runner__panel > p {
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+
 /* ── .guess-final — финал-экран ───────────────────────────── */
 
 .guess-final {
@@ -490,6 +584,25 @@
   .guess-session__stat {
     padding: 6px 10px;
     font-size: 12px;
+  }
+  /* KS-3446: scoreboard на mobile — чуть компактнее, но число
+     остаётся крупным (главный визуальный акцент). */
+  .guess-session__hud--scoreboard {
+    gap: 12px;
+    padding: 12px 14px;
+  }
+  .guess-session__score-value {
+    font-size: 24px;
+  }
+  .guess-session__score-label {
+    font-size: 10px;
+  }
+  .guess-session__score-sep {
+    font-size: 22px;
+  }
+  /* Статус-баннер на mobile — без переноса слов на одну букву. */
+  .guess-runner__panel > p {
+    font-size: 13px;
   }
 
   .guess-final {
