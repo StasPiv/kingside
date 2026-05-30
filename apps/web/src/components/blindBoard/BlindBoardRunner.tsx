@@ -15,6 +15,7 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { defaultPieces } from 'react-chessboard';
 import type {
   BlindBoardMove,
   BlindBoardPieceType,
@@ -22,12 +23,53 @@ import type {
 } from '@kingside/shared';
 
 import { MemoChessboard } from '../MemoChessboard';
+import { useBoardSettings } from '../../hooks/useBoardSettings';
 
 const EMPTY_FEN = '8/8/8/8/8/8/8/8 w - - 0 1';
 const PIECE_TYPES: BlindBoardPieceType[] = ['Q', 'R', 'B', 'N'];
 const HIGHLIGHT_FROM = 'rgba(155, 199, 0, 0.45)';
 const HIGHLIGHT_TO = 'rgba(155, 199, 0, 0.75)';
 const ARROW_COLOR = '#7c83ff';
+
+/**
+ * KS-3447: рендер иконки фигуры из текущего piece-style. Логика
+ * совпадает с `PromotionPicker` (KS-3395): для `standard` —
+ * встроенные `defaultPieces` react-chessboard, для кастомных
+ * open-license наборов — SVG из `/pieces/<set>/<wQ>.svg` (тот же
+ * источник, что у `buildCustomPieces` в BoardSettingsContext).
+ *
+ * В blind-board фигура всегда белая (типы хранятся upper-case
+ * Q/R/B/N), цвет в M1 не отличается на этой стадии режима.
+ */
+function PieceIcon({
+  pieceType,
+  pieceSet,
+}: {
+  pieceType: BlindBoardPieceType;
+  pieceSet: string;
+}) {
+  const code = `w${pieceType}`;
+  if (pieceSet === 'standard') {
+    const builtin = defaultPieces[code];
+    if (builtin) {
+      return (
+        <span className="blind-board-runner__piece-svg blind-board-runner__piece-svg--builtin">
+          {builtin({
+            svgStyle: { width: '100%', height: '100%', display: 'block' },
+          })}
+        </span>
+      );
+    }
+  }
+  return (
+    <img
+      src={`/pieces/${pieceSet}/${code}.svg`}
+      alt=""
+      draggable={false}
+      className="blind-board-runner__piece-svg"
+    />
+  );
+}
 
 export interface BlindBoardRunnerProps {
   /** Ход компьютера в текущем раунде; `null` если сессия завершена. */
@@ -50,6 +92,7 @@ export function BlindBoardRunner({
   disabled = false,
 }: BlindBoardRunnerProps) {
   const { t } = useTranslation();
+  const { pieceSet } = useBoardSettings();
   const [pendingSquare, setPendingSquare] =
     useState<BlindBoardSquare | null>(null);
 
@@ -160,9 +203,20 @@ export function BlindBoardRunner({
                 {pendingSquare}
               </span>
             </header>
+            {/* KS-3447: иконки фигур из текущего piece-style (как в
+                обычном промоушн-диалоге). 4 кнопки в одну строку через
+                grid `repeat(4, minmax(0, 1fr))` — на узких экранах
+                кнопки сжимаются равномерно вместо обрезки последней.
+                Inline-style оставлен fallback'ом на случай если CSS
+                из L1 не подгружен; финальная стилизация — за layout. */}
             <div
               className="blind-board-runner__promotion-grid"
               data-testid="blind-board-promotion-grid"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gap: '8px',
+              }}
             >
               {PIECE_TYPES.map((p) => (
                 <button
@@ -171,9 +225,11 @@ export function BlindBoardRunner({
                   className={`blind-board-runner__promotion-piece blind-board-runner__promotion-piece--${p}`}
                   data-testid={`blind-board-promotion-${p}`}
                   data-piece={p}
+                  data-piece-style={pieceSet}
+                  aria-label={t(`blindBoard.piece.${p}`, p)}
                   onClick={() => handlePick(p)}
                 >
-                  {t(`blindBoard.piece.${p}`, p)}
+                  <PieceIcon pieceType={p} pieceSet={pieceSet} />
                 </button>
               ))}
             </div>
