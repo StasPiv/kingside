@@ -263,6 +263,13 @@ export type ArchiveGamesByPositionRequest = {
   player?: string | string[];
   /** ECO code filter, e.g. "B90". */
   eco?: string;
+  /**
+   * KS-3468 (ADR-090 §4.1). Фильтр по категории контроля времени —
+   * формат идентичен {@link ArchiveGamesRequest.timeControlCategory}
+   * (single value или массив, семантика OR между элементами массива
+   * и AND с остальными фильтрами).
+   */
+  timeControlCategory?: ArchiveTimeControlCategory | ArchiveTimeControlCategory[];
 };
 
 export type ArchiveGamesByPositionItem = {

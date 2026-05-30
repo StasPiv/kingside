@@ -6,6 +6,7 @@ import { OpeningTrainerService } from './opening-trainer.service';
 import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
 import { OpeningLineProgressService } from './opening-line-progress.service';
+import { ArchivePositionProxyService } from './archive-position-proxy.service';
 import { Sm2Service } from '../lessons/sm2.service';
 
 /**
@@ -23,6 +24,9 @@ import { Sm2Service } from '../lessons/sm2.service';
     RepertoireBuilderService,
     // KS-3288 (M2 B2): per-path прогресс и SM-2 init на мастеринге.
     OpeningLineProgressService,
+    // KS-3469 (ADR-090 §4.2 B2): proxy к archive-service для
+    // GET /opening-trainer/archive-position/games.
+    ArchivePositionProxyService,
     // Sm2Service из lessons-модуля переиспользуется как чистая
     // утилита (static applyReview). Регистрируем напрямую — он
     // зависит только от PrismaService (есть в PrismaModule).

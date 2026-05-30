@@ -38,14 +38,16 @@ class FakeRedis {
 
 class CapturingRepo implements ArchiveStatsRepository {
   public lastSearchOpts: SearchGamesOpts | null = null;
+  public lastByPositionOpts: GamesByPositionOpts | null = null;
 
   async getTree(_posKey: Buffer, _opts: TreeOpts): Promise<ArchiveTreeResponse> {
     throw new Error('not used');
   }
   async getGamesByPosition(
     _posKey: Buffer,
-    _opts: GamesByPositionOpts,
+    opts: GamesByPositionOpts,
   ): Promise<GamesByPositionPage> {
+    this.lastByPositionOpts = opts;
     return { items: [], overflow: null };
   }
   async countApprox(_posKey: Buffer, _bucket: ArchiveBucket): Promise<number> {
@@ -300,5 +302,49 @@ describe('ArchiveService.getGames — KS-2063', () => {
     await svc.getGames({ timeControlCategory: 'classical' });
     expect(repo.lastSearchOpts?.skipTotal).toBe(true);
     expect(repo.lastSearchOpts?.timeControlCategory).toEqual(['classical']);
+  });
+});
+
+describe('ArchiveService.getGamesByPosition — KS-3468 (ADR-090 §4.1)', () => {
+  it('пробрасывает timeControlCategory (один) в opts', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+    await svc.getGamesByPosition({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      timeControlCategory: 'classical',
+    });
+    expect(repo.lastByPositionOpts?.timeControlCategory).toEqual(['classical']);
+  });
+
+  it('пробрасывает timeControlCategory (массив) в opts', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+    await svc.getGamesByPosition({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      timeControlCategory: ['classical', 'rapid'],
+    });
+    expect(repo.lastByPositionOpts?.timeControlCategory).toEqual([
+      'classical',
+      'rapid',
+    ]);
+  });
+
+  it('без timeControlCategory — opts.timeControlCategory undefined', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+    await svc.getGamesByPosition({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    });
+    expect(repo.lastByPositionOpts?.timeControlCategory).toBeUndefined();
+  });
+
+  it('невалидные значения отсеиваются', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+    await svc.getGamesByPosition({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      timeControlCategory: ['classical', 'bogus' as never],
+    });
+    expect(repo.lastByPositionOpts?.timeControlCategory).toEqual(['classical']);
   });
 });

@@ -44,6 +44,12 @@ export type GamesByPositionOpts = {
    */
   player?: string | string[];
   eco?: string;
+  /**
+   * KS-3468 (ADR-090 §4.1): фильтр по категории контроля времени.
+   * Массив — OR между элементами (`time_control_category = ANY($n)`),
+   * AND с остальными фильтрами. `undefined`/`[]` — фильтр отключён.
+   */
+  timeControlCategory?: ArchiveTimeControlCategory[];
 };
 
 export interface GamesByPositionPage {
@@ -799,6 +805,23 @@ class KeysetSqlBuilder {
       conds.push(
         `(g.white_name ILIKE ${pPlayer} OR g.black_name ILIKE ${pPlayer})`,
       );
+    }
+    // KS-3468 (ADR-090 §4.1): фильтр по time_control_category. Семантика
+    // идентична KS-2118 в /games — [X] => `= $n`, [X,Y,…] => `= ANY($n)`.
+    // Пустой массив/undefined игнорируются. Без partial-index'а на
+    // archive_game_positions фильтр применяется через JOIN на archive_games
+    // (`g.time_control_category`). На master-bucket объём строк после
+    // posKey+bucket prefilter небольшой — приемлемо.
+    if (opts.timeControlCategory && opts.timeControlCategory.length > 0) {
+      if (opts.timeControlCategory.length === 1) {
+        conds.push(
+          `g.time_control_category = ${this.register(opts.timeControlCategory[0])}`,
+        );
+      } else {
+        conds.push(
+          `g.time_control_category = ANY(${this.register(opts.timeControlCategory)})`,
+        );
+      }
     }
 
     // KS-2146: для sort=topElo отсекаем партии без рейтинга через

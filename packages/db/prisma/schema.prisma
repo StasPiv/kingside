@@ -1797,12 +1797,20 @@ model OpeningRepertoireSource {
   /// PGN-header'а или `PGN N`).
   name             String?
   pgn              String   @db.Text
-  /// `'pgn-upload' | 'workshop-analysis' | 'legacy-import'`. CHECK на
-  /// уровне миграции (Prisma enum не используется — value-set может
-  /// расширяться без migration в shared types).
+  /// `'pgn-upload' | 'workshop-analysis' | 'legacy-import' |
+  /// 'archive-position'`. CHECK на уровне миграции (Prisma enum не
+  /// используется — value-set может расширяться без migration в shared
+  /// types).
+  /// KS-3467 (ADR-090): добавлено `'archive-position'` для репертуаров,
+  /// собранных из мастер-партий 2400+ по позиции (FEN).
   sourceKind       String   @map("source_kind")
   /// Для `sourceKind='workshop-analysis'` — UUID анализа из мастерской.
   sourceAnalysisId String?  @map("source_analysis_id") @db.Uuid
+  /// KS-3467 (ADR-090 §8). Для `sourceKind='archive-position'` — id
+  /// исходной партии из `archive_games` (для трассировки «открыть
+  /// исходную партию»). NULL для остальных sourceKind. Без FK —
+  /// archive_games могут переидексироваться.
+  archiveGameId    String?  @map("archive_game_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 

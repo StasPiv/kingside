@@ -477,6 +477,9 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       move: req.move,
       player: req.player,
       eco: req.eco,
+      // KS-3468: проброс времени контроля для фильтра по archive_games.
+      timeControlCategory:
+        normalizeTimeControlCategoryFilter(req.timeControlCategory) ?? undefined,
     };
 
     const [page, totalApproxRaw] = await Promise.all([
@@ -860,6 +863,13 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       move: req.move ?? null,
       player: req.player ?? null,
       eco: req.eco ?? null,
+      // KS-3468: time-control filter в cache-key.
+      // Сортировка массива нужна для стабильного хэша
+      // (`?tcc=blitz&tcc=rapid` и обратный порядок — один результат).
+      timeControlCategory:
+        normalizeTimeControlCategoryFilter(req.timeControlCategory)
+          ?.slice()
+          .sort() ?? null,
       limit,
     });
     return createHash('sha1').update(canon).digest('hex').slice(0, 12);

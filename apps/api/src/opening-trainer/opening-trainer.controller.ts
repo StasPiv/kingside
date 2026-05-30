@@ -15,6 +15,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { OpeningTrainerService } from './opening-trainer.service';
+import { ArchivePositionProxyService } from './archive-position-proxy.service';
 import {
   CreateRepertoireDto,
   CreateRepertoireFromAnalysisDto,
@@ -25,6 +26,7 @@ import {
   UpdateRepertoireDto,
   UpdateRepertoireSourceDto,
 } from './dto/repertoire.dto';
+import { ArchivePositionGamesQueryDto } from './dto/archive-position.dto';
 
 /**
  * KS-3272 / ADR-077 §3. 12 endpoints Opening Trainer'а.
@@ -40,7 +42,39 @@ import {
 @Controller('opening-trainer')
 @UseGuards(JwtAuthGuard)
 export class OpeningTrainerController {
-  constructor(private readonly service: OpeningTrainerService) {}
+  constructor(
+    private readonly service: OpeningTrainerService,
+    private readonly archivePositionProxy: ArchivePositionProxyService,
+  ) {}
+
+  /**
+   * KS-3469 / ADR-090 §4.2 B2. GET-proxy к archive-service
+   * `/api/archive/games/by-position` с встроенными defaults для
+   * сценария «репертуар из мастер-партий 2400+ по позиции»:
+   *   minElo=2400, sort=topElo, bucket=master,
+   *   timeControlCategory=classical.
+   * Любой default переопределяется query-параметром.
+   */
+  @Get('archive-position/games')
+  async archivePositionGames(
+    @Query() query: ArchivePositionGamesQueryDto,
+  ) {
+    return this.archivePositionProxy.findGamesByPosition({
+      fen: query.fen,
+      cursor: query.cursor,
+      limit: query.limit,
+      bucket: query.bucket,
+      sort: query.sort,
+      minElo: query.minElo,
+      timeControlCategory: query.timeControlCategory,
+      color: query.color,
+      result: query.result,
+      since: query.since,
+      move: query.move,
+      player: query.player,
+      eco: query.eco,
+    });
+  }
 
   // ── Repertoire CRUD (5 endpoints) ──────────────────────────────
 
