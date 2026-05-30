@@ -42,6 +42,34 @@ vi.mock('./BlindBoardRunner', () => ({
   ),
 }));
 
+// KS-3443 (F2): FinalScreen зависит от AuthContext + api.getLeaderboard;
+// в этом наборе тестов wiring'а проверяем только, что SessionRunner
+// переключился в final-фазу и пробросил session/lastAnswer. Сам экран
+// покрывается BlindBoardFinalScreen.test.tsx.
+vi.mock('./BlindBoardFinalScreen', () => ({
+  BlindBoardFinalScreen: ({
+    session,
+    lastAnswer,
+  }: {
+    session: { finishReason: string | null; bestStreak: number };
+    lastAnswer: {
+      expectedSquare?: string;
+      expectedPieceType?: string;
+    } | null;
+  }) => (
+    <div
+      data-testid="blind-board-final"
+      data-finish-reason={session.finishReason ?? ''}
+      data-best={String(session.bestStreak)}
+      data-expected={
+        lastAnswer?.expectedPieceType && lastAnswer?.expectedSquare
+          ? `${lastAnswer.expectedPieceType}${lastAnswer.expectedSquare}`
+          : ''
+      }
+    />
+  ),
+}));
+
 const startSession = vi.fn();
 const submitAnswer = vi.fn();
 const getLeaderboard = vi.fn();
@@ -167,12 +195,13 @@ describe('<BlindBoardSessionRunner>', () => {
         .getByTestId('blind-board-session')
         .getAttribute('data-finish-reason'),
     ).toBe('wrong-answer');
-    expect(screen.getByTestId('blind-board-final-expected').textContent).toContain(
-      'Ne4',
-    );
-    expect(screen.getByTestId('blind-board-final-best').textContent).toContain(
-      '1',
-    );
+    // Stub-моки FinalScreen прокидывают session/lastAnswer в data-*.
+    expect(
+      screen.getByTestId('blind-board-final').getAttribute('data-expected'),
+    ).toBe('Ne4');
+    expect(
+      screen.getByTestId('blind-board-final').getAttribute('data-best'),
+    ).toBe('1');
   });
 
   it('dead-end → финал с deadEnd-ремаркой', async () => {
@@ -205,8 +234,8 @@ describe('<BlindBoardSessionRunner>', () => {
           .getAttribute('data-finish-reason'),
       ).toBe('dead-end'),
     );
-    expect(screen.getByTestId('blind-board-final-reason').textContent).toContain(
-      'corner',
-    );
+    // Финал-экран отрендерился — текст «corner» проверяется в
+    // BlindBoardFinalScreen.test.tsx (там полный набор переводов).
+    expect(screen.getByTestId('blind-board-final')).toBeTruthy();
   });
 });

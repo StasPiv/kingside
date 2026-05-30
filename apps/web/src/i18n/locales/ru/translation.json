@@ -3574,6 +3574,14 @@
       "expected": "Правильный ответ",
       "streak": "Серия",
       "bestStreak": "Лучшая серия",
+      "personalBest": "Личный рекорд",
+      "newRecord": "Новый рекорд!",
+      "leaderboardTitle": "Топ серий",
+      "leaderboardError": "Не удалось загрузить лидерборд.",
+      "leaderboardEmpty": "Пока нет записей.",
+      "badge": {
+        "deadEnd": "Загнал компа в угол!"
+      },
       "playAgain": "Играть ещё"
     }
   }

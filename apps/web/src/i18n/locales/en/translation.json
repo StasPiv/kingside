@@ -3532,6 +3532,14 @@
       "expected": "Expected",
       "streak": "Streak",
       "bestStreak": "Best streak",
+      "personalBest": "Personal best",
+      "newRecord": "New record!",
+      "leaderboardTitle": "Top streaks",
+      "leaderboardError": "Could not load the leaderboard.",
+      "leaderboardEmpty": "No entries yet.",
+      "badge": {
+        "deadEnd": "Cornered the computer!"
+      },
       "playAgain": "Play again"
     }
   }
