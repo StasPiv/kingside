@@ -2143,6 +2143,17 @@ export interface SubmitGuessMoveResponse {
    * Диапазон [0..100].
    */
   currentPlayerAccuracy: number;
+  /**
+   * KS-3435. Счёт пользователя в HUD-табло «ты : игрок» = число ходов
+   * с verdict ∈ {strongest, betterThanPlayer}. Идентичен по значению
+   * `betterThanPlayerCount` (тот сохраняется для обратной совместимости).
+   */
+  userPoints: number;
+  /**
+   * KS-3435. Счёт реального игрока в HUD-табло = число ходов с
+   * verdict='weaker'. `verdict='asPlayer'` никому очко не приносит.
+   */
+  playerPoints: number;
 }
 
 /**

@@ -216,6 +216,9 @@ export class GuessService {
     const betterThanPlayerCount = moves.filter((m) =>
       BETTER_THAN_PLAYER.has(m.verdict as GuessVerdict),
     ).length;
+    // KS-3435. HUD-табло «ты : игрок» (asPlayer никому очко не даёт).
+    const userPoints = betterThanPlayerCount;
+    const playerPoints = moves.filter((m) => m.verdict === 'weaker').length;
 
     // KS-3433. Lichess-style accuracy. См. `computeGameAccuracy` ниже.
     const currentUserAccuracy = this.computeGameAccuracy(moves, 'user');
@@ -248,6 +251,8 @@ export class GuessService {
       betterThanPlayerCount,
       currentUserAccuracy,
       currentPlayerAccuracy,
+      userPoints,
+      playerPoints,
     };
   }
 

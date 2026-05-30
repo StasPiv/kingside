@@ -143,6 +143,9 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     // (worst='good', cap не применяется); player=60.
     expect(r.currentUserAccuracy).toBeCloseTo(95, 5);
     expect(r.currentPlayerAccuracy).toBeCloseTo(60, 5);
+    // KS-3435: HUD-табло «ты : игрок». 1 ход betterThanPlayer → user=1, player=0.
+    expect(r.userPoints).toBe(1);
+    expect(r.playerPoints).toBe(0);
   });
 
   it('чужая сессия → Forbidden', async () => {
@@ -230,6 +233,34 @@ describe('GuessService.submitMove (server-trust + агрегаты)', () => {
     expect(r.currentUserAccuracy).toBeLessThan(75);
     // player [90, 88, 95] → стабильно высоко (>87).
     expect(r.currentPlayerAccuracy).toBeGreaterThan(85);
+  });
+
+  it('KS-3435: HUD-табло user/player на смеси вердиктов (strongest+better=user, weaker=player, asPlayer=никому)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(activeSession());
+    prisma.guessMove.findMany.mockResolvedValue([
+      { ply: 1, verdict: 'strongest', accuracyUser: 100, accuracyPlayer: 80, userClass: 'best',
+        eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.50 },
+      { ply: 2, verdict: 'betterThanPlayer', accuracyUser: 90, accuracyPlayer: 70, userClass: 'good',
+        eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.50 },
+      { ply: 3, verdict: 'asPlayer', accuracyUser: 85, accuracyPlayer: 85, userClass: 'good',
+        eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.50 },
+      { ply: 4, verdict: 'weaker', accuracyUser: 30, accuracyPlayer: 95, userClass: 'mistake',
+        eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.20 },
+      { ply: 5, verdict: 'weaker', accuracyUser: 40, accuracyPlayer: 95, userClass: 'mistake',
+        eBefore: 0.50, eAfterPlayed: 0.50, eAfterUser: 0.25 },
+    ]);
+    prisma.guessSession.update.mockResolvedValue(activeSession());
+    const svc = new GuessService(prisma);
+    const r = await svc.submitMove('u1', 's1', {
+      ply: 5, fenBefore: 'f', playedUci: 'a1a2', userUci: 'b1b2', bestUci: 'c1c2',
+      wdlBefore: wdl(500, 300, 200), wdlAfterPlayed: wdl(500, 300, 200), wdlAfterUser: wdl(500, 300, 200),
+    });
+    // user = strongest + betterThanPlayer = 2; player = weaker · 2; asPlayer не считается.
+    expect(r.userPoints).toBe(2);
+    expect(r.playerPoints).toBe(2);
+    // betterThanPlayerCount по-прежнему = userPoints (синоним, backward-compat).
+    expect(r.betterThanPlayerCount).toBe(2);
   });
 
   it('KS-3433: реалистичная топ-партия (10 ходов 95-100, один 88) → accuracy 95+%', async () => {
