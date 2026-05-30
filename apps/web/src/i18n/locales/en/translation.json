@@ -852,6 +852,34 @@
       "title": "Actions",
       "signInHint": "Sign in to use this action."
     },
+    "archiveRepertoire": {
+      "menuItem": "Create repertoire from master games 2400+",
+      "defaultTitle": "Master games 2400+ from position",
+      "modal": {
+        "title": "Choose analysis time per move",
+        "description": "Stockfish will spend this much time checking every move of the trained side. Longer time = stricter blunder filter but slower overall.",
+        "optionsLabel": "Time per move",
+        "movetime": {
+          "500": "500 ms (fast)",
+          "1000": "1000 ms",
+          "2000": "2000 ms (slow, strict)"
+        },
+        "movetimeDefault": "default",
+        "start": "Start"
+      },
+      "progress": {
+        "title": "Building repertoire",
+        "fetching": "Fetching games…",
+        "analyzing": "Checking with Stockfish…",
+        "creating": "Creating repertoire…",
+        "done": "Done.",
+        "empty": "No suitable master games for this position.",
+        "cancelled": "Cancelled.",
+        "error": "Something went wrong. Please try again.",
+        "checked": "Checked",
+        "valid": "Valid"
+      }
+    },
     "generatingPuzzle": "Generating…",
     "savingPuzzle": "Saving…",
     "generatePuzzleEmpty": "No suitable positions for a puzzle in this game.",

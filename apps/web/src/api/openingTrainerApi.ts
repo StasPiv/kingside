@@ -19,6 +19,8 @@
  */
 import { api } from '../api';
 import type {
+  ArchiveGamesByPositionRequest,
+  ArchiveGamesByPositionResponse,
   CreateOpeningRepertoireFromAnalysisRequest,
   CreateOpeningRepertoireRequest,
   CreateOpeningRepertoireResponse,
@@ -108,6 +110,31 @@ export const openingTrainerApi = {
     return api.post<CreateOpeningRepertoireResponse>(
       `${BASE}/repertoires/from-analysis`,
       body,
+    );
+  },
+
+  // ── KS-3469 (ADR-090 §4.2 B2) — proxy к archive-service ─────────
+  /**
+   * GET /opening-trainer/archive-position/games — мастер-партии 2400+
+   * по позиции. Тонкая proxy-обёртка с defaults (minElo=2400,
+   * sort=topElo, bucket=master, timeControlCategory=classical).
+   * Любой default можно переопределить query-параметром (см. shared
+   * ArchiveGamesByPositionRequest). Под JwtAuthGuard — гостям 401.
+   */
+  archivePositionGames(
+    query: ArchiveGamesByPositionRequest,
+  ): Promise<ArchiveGamesByPositionResponse> {
+    const sp = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        for (const v of value) sp.append(key, String(v));
+      } else {
+        sp.append(key, String(value));
+      }
+    }
+    return api.get<ArchiveGamesByPositionResponse>(
+      `${BASE}/archive-position/games?${sp.toString()}`,
     );
   },
 

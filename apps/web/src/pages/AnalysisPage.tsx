@@ -70,6 +70,14 @@ import {
   type AnalysisActionItem,
 } from '../components/analysis/AnalysisActionsMenu';
 import { ANALYSIS_ACTIONS_MENU_V2_ENABLED } from '../config/analysisActionsMenu';
+// KS-3471 (ADR-090 V4 F1): модалка movetime для «репертуар из мастер-партий 2400+».
+import {
+  ArchiveRepertoireMovetimeModal,
+  type ArchiveRepertoireMovetime,
+} from '../components/analysis/ArchiveRepertoireMovetimeModal';
+// KS-3472 (ADR-090 V4 F2): монолитный поток + progress-modal.
+import { useRepertoireFromArchive } from '../components/analysis/useRepertoireFromArchive';
+import { RepertoireFromArchiveProgress } from '../components/analysis/RepertoireFromArchiveProgress';
 // KS-2864 (ADR-060 §10.1 FR2): извлечённый board-area — GameMetaBar +
 // EvalBar + Chessboard + promotion-overlay + VariationChooser.
 // useFastDrag остаётся в AnalysisPage (привязан к тому же ref).
@@ -218,6 +226,12 @@ type BuildItemsContext = {
   setSidePickerOpen: (v: boolean) => void;
   setAddToRepertoireOpen: (v: boolean) => void;
   shareButtonRef: { current: ShareAnalysisButtonHandle | null };
+  /**
+   * KS-3471 (ADR-090 V4 F1): открыть модалку выбора movetime для
+   * «репертуар из мастер-партий 2400+». Гостю пункт виден disabled+
+   * tooltip (auth-only по ADR-087 §8, вариант Б).
+   */
+  openArchiveRepertoireModal: () => void;
 };
 
 function buildAnalysisActionsItems(
@@ -248,6 +262,7 @@ function buildAnalysisActionsItems(
     setSidePickerOpen,
     setAddToRepertoireOpen,
     shareButtonRef,
+    openArchiveRepertoireModal,
   } = ctx;
 
   const isOwner =
@@ -328,6 +343,21 @@ function buildAnalysisActionsItems(
       });
     },
     disabled: emptyHistory,
+  });
+  // KS-3471 (ADR-090 V4 F1): «Создать репертуар из мастер-партий 2400+».
+  // Auth-only по варианту Б (disabled+tooltip гостю). Доступен на любой
+  // позиции, для которой есть FEN — historyLen может быть 0 (стартовая
+  // позиция). Backend B2 (KS-3469) сам решает «нет партий» через 0 items.
+  items.push({
+    id: 'archive-position-repertoire',
+    group: 'training',
+    label: t(
+      'analysis.archiveRepertoire.menuItem',
+      'Create repertoire from master games 2400+',
+    ),
+    onClick: openArchiveRepertoireModal,
+    disabled: isGuest,
+    disabledHint: isGuest ? guestDisabledHint : undefined,
   });
   // Auth-only пункты: useAs / addTo / share.
   if (kind === 'analysis' && historyLen > 0 && !publicMode) {
@@ -484,6 +514,11 @@ function AnalysisPageInner({
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
+  // KS-3471 (ADR-090 V4 F1): модалка выбора movetime + F2 поток.
+  const [showArchiveRepMovetimeModal, setShowArchiveRepMovetimeModal] =
+    useState(false);
+  const archiveRep = useRepertoireFromArchive();
+  const [archiveRepProgressOpen, setArchiveRepProgressOpen] = useState(false);
   // KS-2674: ref на ShareAnalysisButton — нужен чтобы пункт «Share»
   // в overflow-меню (mobile) мог открыть тот же popup, что и trigger
   // в action-bar (desktop), без дублирования логики.
@@ -2145,6 +2180,8 @@ function AnalysisPageInner({
                     setSidePickerOpen,
                     setAddToRepertoireOpen,
                     shareButtonRef,
+                    openArchiveRepertoireModal: () =>
+                      setShowArchiveRepMovetimeModal(true),
                   })}
                 />
               ) : (
@@ -2494,6 +2531,51 @@ function AnalysisPageInner({
           submittingId={addingToRepertoireId}
           onSelect={(id) => void handleAddToExistingRepertoire(id)}
           onClose={() => setAddToRepertoireOpen(false)}
+        />
+      )}
+
+      {/* KS-3471 (ADR-090 V4 F1): модалка выбора movetime → F2 поток. */}
+      <ArchiveRepertoireMovetimeModal
+        open={showArchiveRepMovetimeModal}
+        onClose={() => setShowArchiveRepMovetimeModal(false)}
+        onConfirm={(movetime: ArchiveRepertoireMovetime) => {
+          setShowArchiveRepMovetimeModal(false);
+          setArchiveRepProgressOpen(true);
+          // KS-3472 F2: тренируем сторону, которая ходит в target-FEN
+          // (то есть тот, для кого мы строим репертуар). chess.js
+          // достанем через split на side-to-move; альтернативно тут
+          // используем boardOrientation как «удобный» выбор стороны.
+          // Backend по умолчанию строит white-репертуар (см.
+          // CreateOpeningRepertoireRequest.side), но мы передадим
+          // явно сторону, которой ходит в текущей позиции — для неё
+          // и считаем loss.
+          const sideToMove = currentFen.split(' ')[1] === 'b' ? 'black' : 'white';
+          const title =
+            (analysisTitle && analysisTitle.trim()) ||
+            t(
+              'analysis.archiveRepertoire.defaultTitle',
+              'Master games 2400+ from position',
+            );
+          void archiveRep.start({
+            fen: currentFen,
+            side: sideToMove,
+            movetime,
+            title,
+          });
+        }}
+      />
+
+      {/* KS-3472 (F2): прогресс-модалка. */}
+      {archiveRepProgressOpen && (
+        <RepertoireFromArchiveProgress
+          state={archiveRep.state}
+          onClose={() => {
+            setArchiveRepProgressOpen(false);
+            archiveRep.reset();
+          }}
+          onCancel={() => {
+            archiveRep.cancel();
+          }}
         />
       )}
     </div>
