@@ -147,20 +147,52 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//, /^\/assets\//, /\/sw\.js$/],
         runtimeCaching: [
           {
-            // JS and CSS: network first, fall back to cache.
-            // KS-3315: maxAgeSeconds снижен 86400 → 300 (5 минут).
-            // Раньше старый JS/CSS жил в SW-кеше до суток, и если
-            // пользователь оставил вкладку открытой и SW сходил
-            // offline-fallback после первого таймаута — он получал
-            // вчерашний код. Для NetworkFirst expiration — лимит
-            // хранения, не TTL запроса; быстрая ротация важнее
-            // экономии оффлайн-данных (фронт не оффлайн-критичный).
+            // KS-3456: hash-assets (`/assets/<name>-<hash>.<js|css>`)
+            // → CacheFirst. Vite кладёт каждый chunk в /assets/ с
+            // уникальным контент-хэшем (`-BxWKFX1e.js`); файл с тем
+            // же именем = тот же контент → кеш безопасно отдавать
+            // мгновенно. Это лечит «splash до минуты после деплоя»
+            // (KS-3456): раньше стоял NetworkFirst без
+            // networkTimeoutSeconds — SW ждал сеть на каждый chunk,
+            // на холодном CF edge + медленной сети это съедало
+            // десятки секунд. CacheFirst → splash <1s для
+            // вернувшегося пользователя; новый bundle (новые hash-
+            // имена) при апдейте подтянется fetch'ем как обычно.
+            // index.html по-прежнему в precache (всегда актуальный
+            // после `cleanupOutdatedCaches` при активации нового SW),
+            // он тянет за собой свежий manifest hash-имён.
+            //
+            // expiration:
+            //   - maxEntries 200 (хватает на текущий ~15 lazy-чанков
+            //     + 5 редеплоев истории);
+            //   - maxAgeSeconds 30 дней — контент immutable, более
+            //     старые записи прибиваем чтобы не разрастать кеш.
+            urlPattern: ({ url }) =>
+              /\/assets\//.test(url.pathname) &&
+              /\.(?:js|css)$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'assets-immutable',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
+            // KS-3456: НЕ-хешированные js/css (служебные — registerSW.js,
+            // workbox-*.js) — NetworkFirst с явным networkTimeoutSeconds.
+            // У них имена стабильные между сборками, поэтому контент
+            // может меняться — нужен сетевой запрос; но на медленной
+            // сети fallback на кеш через 3 сек, чтобы не блокировать
+            // splash.
             urlPattern: /\.(?:js|css)$/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'assets-cache',
+              networkTimeoutSeconds: 3,
               expiration: {
-                maxEntries: 100,
+                maxEntries: 50,
                 maxAgeSeconds: 300,
               },
             },
