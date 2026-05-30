@@ -150,6 +150,67 @@
   margin-top: 4px;
 }
 
+/* ── KS-3452: HUD-табло над доской (Round / Streak / Best) ──
+   Pill-chips согласовано с .guess-session__hud--scoreboard.
+   Лейбл uppercase + крупное число tabular-nums. */
+.blind-board-session__hud {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  margin: 0 auto 12px;
+  max-width: 560px;
+}
+.blind-board-session__hud-stat {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  min-width: 84px;
+}
+.blind-board-session__hud-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.1;
+}
+.blind-board-session__hud-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+  letter-spacing: -0.02em;
+}
+/* Streak — accent (текущая серия, активный показатель). */
+.blind-board-session__hud-stat[data-testid='blind-board-hud-streak']
+  .blind-board-session__hud-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+/* Best — vc-green (рекорд). */
+.blind-board-session__hud-stat[data-testid='blind-board-hud-best']
+  .blind-board-session__hud-value {
+  color: var(--c-vc-green, #15803d);
+}
+
+.blind-board-session__awaiting {
+  margin: 8px auto 0;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+}
+
 /* ── Runner / board wrapper ─────────────────────────────── */
 
 .blind-board-runner {
@@ -574,6 +635,23 @@
   .blind-board-session__memorize-ready {
     width: 100%;
     min-width: 0;
+  }
+
+  /* KS-3452: HUD на mobile — gap меньше, число 22, padding ужать. */
+  .blind-board-session__hud {
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .blind-board-session__hud-stat {
+    padding: 6px 10px;
+    min-width: 72px;
+  }
+  .blind-board-session__hud-value {
+    font-size: 22px;
+  }
+  .blind-board-session__hud-label {
+    font-size: 10px;
   }
 
   .blind-board-runner__board {

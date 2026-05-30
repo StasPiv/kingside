@@ -266,15 +266,42 @@ export function BlindBoardSessionRunner({
       data-testid="blind-board-session"
       data-status={status}
     >
+      {/* KS-3452: HUD-табло. Каждая метрика разбита на label/value
+          для CSS-типографики (label uppercase 11/700, value крупное
+          tabular-nums) — стили в blindBoard.css. */}
       <div className="blind-board-session__hud" data-testid="blind-board-hud">
-        <span data-testid="blind-board-hud-round">
-          {t('blindBoard.hud.round', 'Round')}: {session?.round ?? 1}
+        <span
+          className="blind-board-session__hud-stat"
+          data-testid="blind-board-hud-round"
+        >
+          <span className="blind-board-session__hud-label">
+            {t('blindBoard.hud.round', 'Round')}
+          </span>
+          <span className="blind-board-session__hud-value">
+            {session?.round ?? 1}
+          </span>
         </span>
-        <span data-testid="blind-board-hud-streak">
-          {t('blindBoard.hud.streak', 'Streak')}: {session?.streak ?? 0}
+        <span
+          className="blind-board-session__hud-stat"
+          data-testid="blind-board-hud-streak"
+        >
+          <span className="blind-board-session__hud-label">
+            {t('blindBoard.hud.streak', 'Streak')}
+          </span>
+          <span className="blind-board-session__hud-value">
+            {session?.streak ?? 0}
+          </span>
         </span>
-        <span data-testid="blind-board-hud-best">
-          {t('blindBoard.hud.bestStreak', 'Best')}: {session?.bestStreak ?? 0}
+        <span
+          className="blind-board-session__hud-stat"
+          data-testid="blind-board-hud-best"
+        >
+          <span className="blind-board-session__hud-label">
+            {t('blindBoard.hud.bestStreak', 'Best')}
+          </span>
+          <span className="blind-board-session__hud-value">
+            {session?.bestStreak ?? 0}
+          </span>
         </span>
       </div>
       <BlindBoardRunner
