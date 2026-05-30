@@ -770,6 +770,245 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(sleepFn).toHaveBeenCalledTimes(2);
     expect(sleepFn).toHaveBeenCalledWith(1500);
   });
+
+  // ─── KS-3479: retry + early-exit при caсkade'е fail'ов ─────────────
+
+  it('KS-3479: 429 с Retry-After → ретрай через указанное время, успех на 2-й попытке', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X429-1', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    let call = 0;
+    const fetchFn = jest.fn(async () => {
+      call++;
+      if (call === 1) {
+        return new Response('rate limited', {
+          status: 429,
+          headers: { 'Retry-After': '3' },
+        });
+      }
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+      autoResyncFn: async () => ({
+        fetched: true,
+        gamesBefore: 1,
+        gamesAfter: 5,
+      }),
+    });
+    // Дополнительный sleep на ретрай — 3000ms из Retry-After.
+    expect(sleepFn).toHaveBeenCalledWith(3000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(r.mismatches).toHaveLength(1);
+    expect(r.autoResyncStats.attempted).toBe(1);
+  });
+
+  it('KS-3479: 5xx → 2s backoff и ретрай, успех на 2-й', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X5xx-1', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    let call = 0;
+    const fetchFn = jest.fn(async () => {
+      call++;
+      if (call === 1) {
+        return new Response('server error', { status: 503 });
+      }
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(sleepFn).toHaveBeenCalledWith(2000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(r.mismatches).toHaveLength(0);
+  });
+
+  it('KS-3479: network throw → 2s backoff и ретрай, итоговый успех', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Xnet-1', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    let call = 0;
+    const fetchFn = jest.fn(async () => {
+      call++;
+      if (call === 1) {
+        throw new Error('ECONNREFUSED');
+      }
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(sleepFn).toHaveBeenCalledWith(2000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(r.mismatches).toHaveLength(0);
+  });
+
+  it('KS-3479: persistent 5xx после ретрая → null (как раньше), tick продолжается', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'Xerr-1', ourCount: 1 }),
+      makeRow({ roundId: 'r2', lichessRoundId: 'Xerr-2', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes('Xerr-1')) {
+        return new Response('server error', { status: 503 });
+      }
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    // r1: 2 попытки (originalplus retry) → null. r2: успех.
+    // mismatches.length=0 (r1 не учтён из-за null, r2 our>=lichess).
+    expect(r.mismatches).toEqual([]);
+    // r1 был вызван дважды, r2 — один раз.
+    const r1Calls = fetchFn.mock.calls.filter((c) =>
+      String(c[0]).includes('Xerr-1'),
+    ).length;
+    expect(r1Calls).toBe(2);
+  });
+
+  it('KS-3479: 5 подряд null → ранний break tick, остальные раунды не дёргаются', async () => {
+    // 8 раундов: первые 5 валятся в 503 (после retry → null), 6-й
+    // НЕ должен быть запрошен (break после 5 nulls).
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'F1', ourCount: 1 }),
+      makeRow({ roundId: 'r2', lichessRoundId: 'F2', ourCount: 1 }),
+      makeRow({ roundId: 'r3', lichessRoundId: 'F3', ourCount: 1 }),
+      makeRow({ roundId: 'r4', lichessRoundId: 'F4', ourCount: 1 }),
+      makeRow({ roundId: 'r5', lichessRoundId: 'F5', ourCount: 1 }),
+      makeRow({ roundId: 'r6', lichessRoundId: 'X6', ourCount: 1 }),
+      makeRow({ roundId: 'r7', lichessRoundId: 'X7', ourCount: 1 }),
+      makeRow({ roundId: 'r8', lichessRoundId: 'X8', ourCount: 1 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => {
+      return new Response('', { status: 503 });
+    });
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    // Только первые 5 раундов запрошены. 503 + retry = по 2 fetch на
+    // каждый: 5 × 2 = 10 fetch-вызовов. 6-й раунд не вызывается.
+    expect(fetchFn).toHaveBeenCalledTimes(10);
+    expect(r.mismatches).toEqual([]);
+  });
+
+  it('KS-3479: 4xx (не 429) → НЕ ретраим, идём дальше', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X400-1', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => new Response('', { status: 400 }));
+    const sleepFn = jest.fn(async () => {});
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    // 400 → backoff не было; 1.5s rate-limit между раундами тоже не
+    // было (один раунд) — sleep вообще не вызывался.
+    expect(sleepFn).not.toHaveBeenCalled();
+  });
+
+  it('KS-3479: 404 → 0 без ретраев (round удалён, не ошибка)', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X404-1', ourCount: 0 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => new Response('', { status: 404 }));
+    const sleepFn = jest.fn(async () => {});
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(r.mismatches).toEqual([]);
+  });
+
+  it('KS-3479: 429 без Retry-After → дефолтный min-wait (1s)', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X429-2', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    let call = 0;
+    const fetchFn = jest.fn(async () => {
+      call++;
+      if (call === 1) return new Response('', { status: 429 });
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(sleepFn).toHaveBeenCalledWith(1000);
+  });
+
+  it('KS-3479: 429 с очень большим Retry-After → clamp до max-wait (30s)', async () => {
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'X429-3', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    let call = 0;
+    const fetchFn = jest.fn(async () => {
+      call++;
+      if (call === 1) {
+        return new Response('', {
+          status: 429,
+          headers: { 'Retry-After': '600' }, // 10 минут — слишком много
+        });
+      }
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    expect(sleepFn).toHaveBeenCalledWith(30_000);
+  });
 });
 
 describe('KS-3231 formatTelegramMessage', () => {

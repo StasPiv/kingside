@@ -95,6 +95,32 @@ const ALERT_KEY_PREFIX = 'broadcast:metric:alerted:';
 const TICK_LOCK_KEY = 'broadcast:metric-check:lock';
 const TICK_LOCK_TTL_SEC = 50;
 
+/**
+ * KS-3479. Retry-параметры для `fetchLichessRoundGameCount`.
+ * На прозводстве после KS-3477 (залип egress контейнера → 429-каскад)
+ * наблюдались спорадические fetch-фейлы. Один аккуратный retry с
+ * backoff'ом покрывает 95% таких кейсов без давления на Lichess.
+ *
+ * 1 retry достаточно: типичный паттерн — connect timeout / DNS warmup
+ * сразу после рестарта или флап TCP. Лимиты:
+ *   - 429 → respect Retry-After (clamped 1..30s), max 1 retry.
+ *   - 5xx / network throw / fetch failed → backoff 2s, max 1 retry.
+ *   - 4xx (кроме 429) → не ретраим (404 = round удалён, и т.п.).
+ */
+const LICHESS_FETCH_MAX_RETRIES = 1;
+const LICHESS_FETCH_BACKOFF_MS = 2_000;
+const LICHESS_FETCH_429_MIN_WAIT_MS = 1_000;
+const LICHESS_FETCH_429_MAX_WAIT_MS = 30_000;
+
+/**
+ * KS-3479. Сколько подряд `null` (fail/429/недостучались) допустимо
+ * за один tick до раннего выхода. Защищает от траты тика и нагрузки
+ * на Lichess когда egress сломан или Lichess недоступен глобально.
+ * 5 подряд × 1.5с rate-limit = 7.5с потраченных впустую — приемлемая
+ * цена ранней детекции; больше — это уже бессмысленная работа.
+ */
+const CONSECUTIVE_NULLS_BREAK_THRESHOLD = 5;
+
 export interface RoundMismatch {
   broadcastId: string;
   broadcastTitle: string;
@@ -288,6 +314,10 @@ export async function runGameCountCheckTick(
   const scannedBroadcasts = new Set(rows.map((r) => r.broadcast_id)).size;
   const mismatches: RoundMismatch[] = [];
   let firstFetchInTick = true;
+  // KS-3479: ранний выход при подряд идущих null'ах. Защита от
+  // продолжения tick'а когда egress / Lichess глобально лежит — не
+  // ускоряем восстановление, только тратим slot'ы в rate-limit'е.
+  let consecutiveNulls = 0;
 
   for (const row of rows) {
     // rate-limit gap между Lichess-запросами (общий лимит 20 req/s,
@@ -299,8 +329,21 @@ export async function runGameCountCheckTick(
       row.lichess_round_id,
       fetchFn,
       deps.logger,
+      sleepFn,
     );
-    if (lichessCount === null) continue; // не достучались, тихо скип
+    if (lichessCount === null) {
+      // не достучались, тихо скип; проверяем лимит подряд идущих фейлов.
+      consecutiveNulls++;
+      if (consecutiveNulls >= CONSECUTIVE_NULLS_BREAK_THRESHOLD) {
+        deps.logger.warn(
+          `[broadcast-metric] aborting tick after ${consecutiveNulls} ` +
+            `consecutive lichess null'ов — likely egress/Lichess outage`,
+        );
+        break;
+      }
+      continue;
+    }
+    consecutiveNulls = 0;
 
     const ourCount = Number(row.our_count);
     if (ourCount >= lichessCount) continue; // всё ок, у нас не меньше
@@ -530,42 +573,119 @@ export async function runGameCountCheckTick(
  * Не парсим полностью через `parsePgnGames` чтобы избежать chess.js на
  * больших турнирах (Steinitz Open: 50+ партий с полными ходами) — нам
  * нужен только count.
+ *
+ * KS-3479: один retry с backoff на 429 / 5xx / network throw. Лимиты:
+ *   - 429: respect Retry-After (clamped 1..30s).
+ *   - 5xx / network throw: backoff 2s.
+ *   - 4xx (кроме 429): не ретраим.
+ *   - 404: возвращаем 0 (round удалён/архивирован).
  */
 async function fetchLichessRoundGameCount(
   lichessRoundId: string,
   fetchFn: typeof fetch,
   logger: MetricCheckLogger,
+  sleepFn: (ms: number) => Promise<void>,
 ): Promise<number | null> {
   const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
-  try {
-    const res = await fetchFn(url, {
-      headers: {
-        'User-Agent': 'Kingside/1.0 (https://kingside.app)',
-        Accept: 'application/x-chess-pgn',
-      },
-      signal: AbortSignal.timeout(LICHESS_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      // 404 = раунд удалён/архивирован — count=0 формально, но не
-      // мерим как mismatch (наш count тоже 0 либо мы хранили запись).
+  let lastError = '';
+  for (
+    let attempt = 0;
+    attempt <= LICHESS_FETCH_MAX_RETRIES;
+    attempt++
+  ) {
+    try {
+      const res = await fetchFn(url, {
+        headers: {
+          'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+          Accept: 'application/x-chess-pgn',
+        },
+        signal: AbortSignal.timeout(LICHESS_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const pgn = await res.text();
+        if (!pgn.trim()) return 0;
+        // Считаем секции по началу новой партии: [White "..."]
+        // заголовок встречается ровно один раз на партию.
+        const matches = pgn.match(/^\[White\s+"/gm);
+        return matches ? matches.length : 0;
+      }
+      // 404 = раунд удалён/архивирован — count=0 формально.
       if (res.status === 404) return 0;
-      logger.warn(
-        `[broadcast-metric] lichess HTTP ${res.status} on round ${lichessRoundId}`,
-      );
-      return null;
+      // KS-3479: 429 — backoff по Retry-After, ретраим.
+      if (res.status === 429 && attempt < LICHESS_FETCH_MAX_RETRIES) {
+        const waitMs = parseRetryAfterMs(
+          res.headers.get('retry-after'),
+          LICHESS_FETCH_429_MIN_WAIT_MS,
+          LICHESS_FETCH_429_MAX_WAIT_MS,
+        );
+        logger.warn(
+          `[broadcast-metric] lichess 429 on round ${lichessRoundId} ` +
+            `→ retry after ${waitMs}ms (attempt ${attempt + 1})`,
+        );
+        await sleepFn(waitMs);
+        continue;
+      }
+      // 5xx — backoff и ретрай.
+      if (res.status >= 500 && attempt < LICHESS_FETCH_MAX_RETRIES) {
+        logger.warn(
+          `[broadcast-metric] lichess HTTP ${res.status} on round ${lichessRoundId} ` +
+            `→ retry in ${LICHESS_FETCH_BACKOFF_MS}ms (attempt ${attempt + 1})`,
+        );
+        await sleepFn(LICHESS_FETCH_BACKOFF_MS);
+        continue;
+      }
+      // 4xx-non-429 или 5xx без retry-бюджета — финальный фейл.
+      lastError = `HTTP ${res.status}`;
+      break;
+    } catch (err) {
+      lastError = (err as Error).message;
+      // KS-3479: network throw / timeout — backoff и ретрай.
+      if (attempt < LICHESS_FETCH_MAX_RETRIES) {
+        logger.warn(
+          `[broadcast-metric] lichess fetch throw for ${lichessRoundId}: ${lastError} ` +
+            `→ retry in ${LICHESS_FETCH_BACKOFF_MS}ms (attempt ${attempt + 1})`,
+        );
+        await sleepFn(LICHESS_FETCH_BACKOFF_MS);
+        continue;
+      }
     }
-    const pgn = await res.text();
-    if (!pgn.trim()) return 0;
-    // Считаем секции по началу новой партии: [White "..."] заголовок
-    // встречается ровно один раз на партию.
-    const matches = pgn.match(/^\[White\s+"/gm);
-    return matches ? matches.length : 0;
-  } catch (err) {
-    logger.warn(
-      `[broadcast-metric] lichess fetch error for ${lichessRoundId}: ${(err as Error).message}`,
-    );
-    return null;
   }
+  logger.warn(
+    `[broadcast-metric] lichess fetch error for ${lichessRoundId}: ${lastError}`,
+  );
+  return null;
+}
+
+/**
+ * KS-3479. Разбор `Retry-After` (RFC 7231): либо seconds (число), либо
+ * HTTP-date. Возвращаем мс, clamped в [minMs..maxMs]. Если не парсится —
+ * возвращаем minMs (умеренный default).
+ */
+function parseRetryAfterMs(
+  header: string | null,
+  minMs: number,
+  maxMs: number,
+): number {
+  if (!header) return minMs;
+  const trimmed = header.trim();
+  // Формат-1: seconds.
+  if (/^\d+$/.test(trimmed)) {
+    const secs = parseInt(trimmed, 10);
+    return clamp(secs * 1000, minMs, maxMs);
+  }
+  // Формат-2: HTTP-date.
+  const date = Date.parse(trimmed);
+  if (!Number.isNaN(date)) {
+    const diff = date - Date.now();
+    return clamp(diff, minMs, maxMs);
+  }
+  return minMs;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
 }
 
 /**
