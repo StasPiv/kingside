@@ -180,13 +180,77 @@ describe('<BlindBoardSessionRunner>', () => {
     expect(screen.queryByTestId('blind-board-memorize')).toBeNull();
   });
 
-  it('startSession упал → error', async () => {
+  it('startSession упал → error (generic, unknown kind)', async () => {
     startSession.mockRejectedValue(new Error('500'));
     renderWithProviders(<BlindBoardSessionRunner api={api} />);
     await waitFor(() =>
       expect(
         screen.getByTestId('blind-board-session').getAttribute('data-status'),
       ).toBe('error'),
+    );
+    expect(
+      screen.getByTestId('blind-board-session').getAttribute('data-error-kind'),
+    ).toBe('unknown');
+  });
+
+  it('KS-3464: REQUEST_TIMEOUT → kind=timeout + text «Сервер не отвечает»', async () => {
+    const { ApiError } = await import('../../ApiError');
+    startSession.mockRejectedValue(
+      new ApiError('Request timed out', 'REQUEST_TIMEOUT', 0),
+    );
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('error'),
+    );
+    expect(
+      screen.getByTestId('blind-board-session').getAttribute('data-error-kind'),
+    ).toBe('timeout');
+    expect(
+      screen.getByTestId('blind-board-session-error').textContent,
+    ).toContain('server is not responding');
+  });
+
+  it('KS-3464: NETWORK_ERROR → kind=network + тот же network-text', async () => {
+    const { ApiError } = await import('../../ApiError');
+    startSession.mockRejectedValue(
+      new ApiError('Failed to fetch', 'NETWORK_ERROR', 0),
+    );
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-error-kind'),
+      ).toBe('network'),
+    );
+  });
+
+  it('KS-3464: SESSION_EXPIRED (401) → kind=session-expired + auth-text', async () => {
+    const { ApiError } = await import('../../ApiError');
+    startSession.mockRejectedValue(
+      new ApiError('Session expired', 'SESSION_EXPIRED', 401),
+    );
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-error-kind'),
+      ).toBe('session-expired'),
+    );
+    expect(
+      screen.getByTestId('blind-board-session-error').textContent,
+    ).toContain('Session expired');
+  });
+
+  it('KS-3464: 500 ApiError → kind=server + server-text', async () => {
+    const { ApiError } = await import('../../ApiError');
+    startSession.mockRejectedValue(
+      new ApiError('Internal', 'INTERNAL', 500),
+    );
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-error-kind'),
+      ).toBe('server'),
     );
   });
 

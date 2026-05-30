@@ -3516,6 +3516,9 @@
     "session": {
       "starting": "Starting session…",
       "error": "Could not start the blind-board session. Please try again.",
+      "errorAuth": "Session expired. Please sign in again.",
+      "errorNetwork": "The server is not responding. Please try again.",
+      "errorServer": "Server error. Please try again later.",
       "checking": "Checking…",
       "back": "Back"
     },

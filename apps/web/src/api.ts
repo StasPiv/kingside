@@ -167,15 +167,24 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       }
       return retry.json();
     } catch (e) {
-      // KS-2351: не глотать таймаут refresh'а как «session expired» —
-      // UI должен видеть `REQUEST_TIMEOUT`/`NETWORK_ERROR` отдельно от
-      // реального истечения сессии, чтобы предложить retry, а не редирект на login.
-      if (e instanceof ApiError) throw e;
+      // KS-3464 (ревизия KS-2351): REQUEST_TIMEOUT/NETWORK_ERROR
+      // ВНУТРИ refresh-flow трактуем как session-expired — иначе
+      // пользователь застревает на странице с протухшим access-token
+      // и retry'ит запросы вечно (каждый раз 15s timeout, нет
+      // редиректа). Если refresh-token валиден и /auth/refresh упал
+      // временно — после редиректа на /login юзер тут же логинется
+      // снова, потеря небольшая. SESSION_EXPIRED это допустимый
+      // компромисс: лучше показать «логин» один раз, чем зависать
+      // навсегда. ApiError с другими статусами (включая 401 от
+      // retry'нутого endpoint'а — обработан в блоке выше через
+      // `retry.status === 401`) — пробрасываем как было.
+      const isTransientApiError =
+        e instanceof ApiError &&
+        (e.errorCode === 'REQUEST_TIMEOUT' || e.errorCode === 'NETWORK_ERROR');
+      if (e instanceof ApiError && !isTransientApiError) throw e;
       // KS-3333: refreshAccessToken упал (refresh-token истёк или сам
-      // /auth/refresh вернул не-2xx). Раньше throw'или plain Error и
-      // пользователь видел EN-alert «Could not open analysis», оставаясь
-      // на текущей странице с протухшей сессией — никакого редиректа
-      // на /login не происходило. Теперь:
+      // /auth/refresh вернул не-2xx) — либо KS-3464 транзиентная
+      // ошибка внутри refresh. В обоих случаях:
       //   1. Сохраняем текущий URL в sessionStorage (через util
       //      `setAuthReturnUrl` подключенный к LoginPage flow).
       //   2. Диспатчим CustomEvent 'kingside:session-expired'.

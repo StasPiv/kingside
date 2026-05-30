@@ -39,6 +39,31 @@ import { BlindBoardFinalScreen } from './BlindBoardFinalScreen';
 import { MemoChessboard } from '../MemoChessboard';
 import { piecesToFen } from './BlindBoardFinalScreen';
 import { blindBoardApi } from '../../api/blindBoardApi';
+import { ApiError } from '../../ApiError';
+
+/**
+ * KS-3464: «kind»-ошибки startSession, чтобы UI показал понятный
+ * текст вместо generic «Не удалось запустить». На 401 caller'у
+ * показывать ошибку не нужно — api.ts уже триггерит
+ * `kingside:session-expired` → AuthContext делает redirect на /login.
+ */
+type StartError =
+  | 'session-expired'
+  | 'network'
+  | 'timeout'
+  | 'server'
+  | 'unknown';
+
+function classifyStartError(e: unknown): StartError {
+  if (e instanceof ApiError) {
+    if (e.errorCode === 'SESSION_EXPIRED' || e.status === 401)
+      return 'session-expired';
+    if (e.errorCode === 'REQUEST_TIMEOUT') return 'timeout';
+    if (e.errorCode === 'NETWORK_ERROR') return 'network';
+    if (typeof e.status === 'number' && e.status >= 500) return 'server';
+  }
+  return 'unknown';
+}
 
 type Status =
   | 'starting'
@@ -65,6 +90,9 @@ export function BlindBoardSessionRunner({
   const [session, setSession] = useState<BlindBoardSessionDto | null>(null);
   const [lastAnswer, setLastAnswer] =
     useState<SubmitBlindBoardAnswerResponse | null>(null);
+  // KS-3464: тип последней ошибки старта (для дифференцированного
+  // текста в error-фазе). `null` пока нет ошибки.
+  const [startError, setStartError] = useState<StartError | null>(null);
   // KS-3448: стартовая расстановка для фазы memorize. После клика
   // «Готов» не используется (доска становится пустой), но держим до
   // resets чтобы не плодить лишний state-сброс.
@@ -79,6 +107,7 @@ export function BlindBoardSessionRunner({
     setSession(null);
     setLastAnswer(null);
     setStartPosition([]);
+    setStartError(null);
     void (async () => {
       try {
         const res = await api.startSession();
@@ -93,8 +122,19 @@ export function BlindBoardSessionRunner({
             ? 'memorizing'
             : 'playing',
         );
-      } catch {
+      } catch (e) {
         if (gen !== genRef.current) return;
+        // KS-3464: logging для диагностики (catch раньше глотал
+        // ошибку без следа в консоли). ApiError тоже печатается —
+        // полезно видеть `errorCode` и `status` при разборе жалоб.
+        // eslint-disable-next-line no-console
+        console.error('[blindBoard] startSession failed:', e);
+        const kind = classifyStartError(e);
+        setStartError(kind);
+        // На 401 api.ts уже задиспатчил kingside:session-expired —
+        // AuthContext выполнит hard-redirect на /login. Локально
+        // тоже выставим status='error' с понятным сообщением, на
+        // случай если listener успеет пропустить event.
         setStatus('error');
       }
     })();
@@ -155,18 +195,37 @@ export function BlindBoardSessionRunner({
   }
 
   if (status === 'error') {
+    // KS-3464: дифференцированный текст по типу ошибки. На SESSION_EXPIRED
+    // показываем подсказку про логин — visible до того, как redirect
+    // успеет случиться (race с listener'ом AuthContext'a).
+    const errorMessage =
+      startError === 'session-expired'
+        ? t(
+            'blindBoard.session.errorAuth',
+            'Session expired. Please sign in again.',
+          )
+        : startError === 'network' || startError === 'timeout'
+          ? t(
+              'blindBoard.session.errorNetwork',
+              'The server is not responding. Please try again.',
+            )
+          : startError === 'server'
+            ? t(
+                'blindBoard.session.errorServer',
+                'Server error. Please try again later.',
+              )
+            : t(
+                'blindBoard.session.error',
+                'Could not start the blind-board session. Please try again.',
+              );
     return (
       <div
         className="blind-board-session"
         data-testid="blind-board-session"
         data-status="error"
+        data-error-kind={startError ?? ''}
       >
-        <p data-testid="blind-board-session-error">
-          {t(
-            'blindBoard.session.error',
-            'Could not start the blind-board session. Please try again.',
-          )}
-        </p>
+        <p data-testid="blind-board-session-error">{errorMessage}</p>
         {onExit && (
           <button
             type="button"
