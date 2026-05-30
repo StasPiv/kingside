@@ -477,7 +477,9 @@
       "streak": "Серия",
       "betterThanPlayer": "Сильнее партии",
       "userAccuracy": "Точность твоя",
-      "playerAccuracy": "Точность игрока"
+      "playerAccuracy": "Точность игрока",
+      "you": "Ты",
+      "player": "Игрок"
     },
     "final": {
       "title": "Партия завершена",

@@ -119,14 +119,9 @@ describe('<GuessSessionRunner> KS-3411', () => {
     await waitFor(() =>
       expect(screen.getByTestId('guess-session').getAttribute('data-status')).toBe('playing'),
     );
-    // KS-3430: HUD теперь две точности; до первого ответа submitMove
-    // отображаем «—» вместо «0%».
-    expect(screen.getByTestId('guess-hud-user-accuracy').textContent).toContain(
-      '—',
-    );
-    expect(screen.getByTestId('guess-hud-player-accuracy').textContent).toContain(
-      '—',
-    );
+    // KS-3436: HUD теперь табло «ты : игрок»; до первого хода 0:0.
+    expect(screen.getByTestId('guess-hud-user-points').textContent).toBe('0');
+    expect(screen.getByTestId('guess-hud-player-points').textContent).toBe('0');
   });
 
   it('старт упал → error', async () => {
@@ -140,7 +135,7 @@ describe('<GuessSessionRunner> KS-3411', () => {
     expect(screen.getByTestId('guess-session-error')).toBeTruthy();
   });
 
-  it('guess → submitMove, HUD-точности обновляются серверными currentUserAccuracy/currentPlayerAccuracy (KS-3430)', async () => {
+  it('guess → submitMove, HUD-табло обновляется серверными userPoints/playerPoints (KS-3436)', async () => {
     startSession.mockResolvedValue({ session: session() } as StartGuessSessionResponse);
     submitMove.mockResolvedValue({
       move: moveDto(),
@@ -149,6 +144,8 @@ describe('<GuessSessionRunner> KS-3411', () => {
       betterThanPlayerCount: 2,
       currentUserAccuracy: 72.6,
       currentPlayerAccuracy: 91.4,
+      userPoints: 2,
+      playerPoints: 1,
     } as SubmitGuessMoveResponse);
     renderWithProviders(
       <GuessSessionRunner pgn={PGN} side="white" gameSource="pgn" />,
@@ -158,13 +155,9 @@ describe('<GuessSessionRunner> KS-3411', () => {
     );
     (screen.getByTestId('fire-guess') as HTMLButtonElement).click();
     await waitFor(() =>
-      expect(screen.getByTestId('guess-hud-user-accuracy').textContent).toContain(
-        '73%',
-      ),
+      expect(screen.getByTestId('guess-hud-user-points').textContent).toBe('2'),
     );
-    expect(screen.getByTestId('guess-hud-player-accuracy').textContent).toContain(
-      '91%',
-    );
+    expect(screen.getByTestId('guess-hud-player-points').textContent).toBe('1');
     // submitMove получил RAW WDL как есть.
     expect(submitMove).toHaveBeenCalledWith(
       's-1',

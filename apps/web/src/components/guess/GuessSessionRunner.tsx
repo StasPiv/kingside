@@ -50,11 +50,12 @@ export function GuessSessionRunner({
   // KS-3430: score передаём в GuessFinalScreen (итоги). HUD больше
   // не показывает Очки/Серию/Сильнее — заменено на две live-точности.
   const [score, setScore] = useState(0);
-  // KS-3430: live-точности из ответа submitMove (KS-3429 backend).
-  // null до первого хода — рисуем «—» вместо «0%», чтобы не выглядело
-  // как реальная оценка с самой плохой стороны.
-  const [userAccuracy, setUserAccuracy] = useState<number | null>(null);
-  const [playerAccuracy, setPlayerAccuracy] = useState<number | null>(null);
+  // KS-3436: HUD-табло «ты : игрок» (matchup-счёт). Поля
+  // userPoints/playerPoints приходят в SubmitGuessMoveResponse
+  // (KS-3435 backend, api:325). На старте 0:0 — фактическое значение
+  // партии до первого submitMove.
+  const [userPoints, setUserPoints] = useState(0);
+  const [playerPoints, setPlayerPoints] = useState(0);
   // KS-3432: live-WDL для шкалы НАД доской. GuessRunner стримит наружу
   // через `onLiveWdl`. null до первого info — рисуется loading-полоса.
   const [liveWdl, setLiveWdl] = useState<WdlDistribution | null>(null);
@@ -71,8 +72,8 @@ export function GuessSessionRunner({
     setStatus('starting');
     sessionIdRef.current = null;
     setScore(0);
-    setUserAccuracy(null);
-    setPlayerAccuracy(null);
+    setUserPoints(0);
+    setPlayerPoints(0);
     setLiveWdl(null);
     setMoves([]);
     setFinal(null);
@@ -118,13 +119,13 @@ export function GuessSessionRunner({
             wdlAfterUser: s.wdlAfterUser ?? null,
           });
           if (gen !== genRef.current) return;
-          // Server-trust: score (для финал-экрана) + live-точности
-          // (KS-3430 HUD) — из серверного ответа. KS-3429: backend
-          // отдаёт currentUserAccuracy/currentPlayerAccuracy в
+          // Server-trust: score (для финал-экрана) + табло
+          // userPoints/playerPoints (KS-3436 HUD) — из серверного
+          // ответа. KS-3435: backend отдаёт userPoints/playerPoints в
           // SubmitGuessMoveResponse.
           setScore(res.score);
-          setUserAccuracy(res.currentUserAccuracy);
-          setPlayerAccuracy(res.currentPlayerAccuracy);
+          setUserPoints(res.userPoints);
+          setPlayerPoints(res.playerPoints);
           setMoves((prev) => [...prev, res.move]);
         } catch {
           /* единичный сбой move не валит партию — продолжаем по реальной линии */
@@ -203,29 +204,47 @@ export function GuessSessionRunner({
       >
         <WdlChancesBar wdl={liveWdl} testId="guess-session-wdl" />
       </div>
-      {/* KS-3430: HUD — две live-точности из серверных ответов
-          submitMove (currentUserAccuracy / currentPlayerAccuracy,
-          добавлены в KS-3429 backend). Заменили Очки/Серия/Сильнее
-          партии — пользователь просил более информативную картинку
-          (см. ADR-086 §9 follow-up). До первого хода — «—» вместо
-          0%, чтобы не выглядело как реальная плохая оценка. Поля
-          score/streak/betterCount всё ещё считаются сервером и
-          используются на финал-экране — здесь просто не показываем. */}
-      <div className="guess-session__hud" data-testid="guess-session-hud">
-        <span
-          className="guess-session__stat guess-session__stat--accuracy-user"
-          data-testid="guess-hud-user-accuracy"
+      {/* KS-3436: HUD — табло счёта «ты : игрок» (matchup-вид). Очки
+          приходят с сервера в submitMove (KS-3435 backend): userPoints
+          = ходы с verdict ∈ {strongest, betterThanPlayer}; playerPoints
+          = ходы с verdict='weaker'. asPlayer никому очко не даёт.
+          Финал-экран — точности и звёзды — не трогаем, это другая
+          сцена (см. GuessFinalScreen). */}
+      <div
+        className="guess-session__hud guess-session__hud--scoreboard"
+        data-testid="guess-session-hud"
+      >
+        <div
+          className="guess-session__score guess-session__score--user"
+          data-testid="guess-hud-user-score"
         >
-          {t('guess.hud.userAccuracy', 'Your accuracy')}:{' '}
-          {userAccuracy === null ? '—' : `${Math.round(userAccuracy)}%`}
+          <span className="guess-session__score-label">
+            {t('guess.hud.you', 'You')}
+          </span>
+          <span
+            className="guess-session__score-value"
+            data-testid="guess-hud-user-points"
+          >
+            {userPoints}
+          </span>
+        </div>
+        <span className="guess-session__score-sep" aria-hidden="true">
+          :
         </span>
-        <span
-          className="guess-session__stat guess-session__stat--accuracy-player"
-          data-testid="guess-hud-player-accuracy"
+        <div
+          className="guess-session__score guess-session__score--player"
+          data-testid="guess-hud-player-score"
         >
-          {t('guess.hud.playerAccuracy', 'Player accuracy')}:{' '}
-          {playerAccuracy === null ? '—' : `${Math.round(playerAccuracy)}%`}
-        </span>
+          <span
+            className="guess-session__score-value"
+            data-testid="guess-hud-player-points"
+          >
+            {playerPoints}
+          </span>
+          <span className="guess-session__score-label">
+            {t('guess.hud.player', 'Game')}
+          </span>
+        </div>
       </div>
       <GuessRunner
         pgn={pgn}

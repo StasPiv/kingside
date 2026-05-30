@@ -467,7 +467,9 @@
       "streak": "Streak",
       "betterThanPlayer": "Stronger than game",
       "userAccuracy": "Your accuracy",
-      "playerAccuracy": "Player accuracy"
+      "playerAccuracy": "Player accuracy",
+      "you": "You",
+      "player": "Game"
     },
     "final": {
       "title": "Game finished",
