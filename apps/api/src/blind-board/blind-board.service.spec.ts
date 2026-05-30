@@ -14,7 +14,7 @@
  *  5. owner-check — чужая сессия даёт Forbidden, неизвестная — NotFound.
  *  6. leaderboard — топ по User.blindBoardBestStreak.
  */
-import { BlindBoardService } from './blind-board.service';
+import { BlindBoardService, isLightSquare } from './blind-board.service';
 import {
   ForbiddenException,
   NotFoundException,
@@ -355,4 +355,37 @@ describe('BlindBoardService.generateValidStart', () => {
     // 99% success rate.
     expect(successes).toBeGreaterThan(N * 0.99);
   });
+
+  it('KS-3449: слоны всегда разнопольные (100 позиций)', () => {
+    const svc = new BlindBoardService(makePrisma());
+    for (let i = 0; i < 100; i++) {
+      const position = svc.randomStartPosition();
+      const bishops = position.filter((p) => p.type === 'B');
+      expect(bishops).toHaveLength(2);
+      expect(isLightSquare(bishops[0].square)).not.toBe(
+        isLightSquare(bishops[1].square),
+      );
+    }
+  });
+
+  it('KS-3449: разнопольность сохраняется и в generateValidStart (50 позиций)', () => {
+    const svc = new BlindBoardService(makePrisma());
+    for (let i = 0; i < 50; i++) {
+      const start = svc.generateValidStart();
+      expect(start).not.toBeNull();
+      const bishops = start!.position.filter((p) => p.type === 'B');
+      expect(bishops).toHaveLength(2);
+      expect(isLightSquare(bishops[0].square)).not.toBe(
+        isLightSquare(bishops[1].square),
+      );
+    }
+  });
+});
+
+describe('isLightSquare', () => {
+  // a1 dark, h1 light, a8 light, h8 dark (диагональ a1-h8 = dark, h1-a8 = light).
+  it('a1 — тёмное', () => expect(isLightSquare('a1')).toBe(false));
+  it('h1 — светлое', () => expect(isLightSquare('h1')).toBe(true));
+  it('a8 — светлое', () => expect(isLightSquare('a8')).toBe(true));
+  it('h8 — тёмное', () => expect(isLightSquare('h8')).toBe(false));
 });

@@ -418,15 +418,50 @@ export class BlindBoardService {
     return null;
   }
 
-  /** Случайная расстановка 5 фигур (Q,R,N,B,B) на 5 уникальных клетках. */
-  private randomStartPosition(): BlindBoardPiece[] {
+  /**
+   * Случайная расстановка 5 фигур (Q,R,N,B,B) на 5 уникальных клетках.
+   * KS-3449: 2 слона ОБЯЗАНЫ стоять на полях разного цвета (1 светлое,
+   * 1 тёмное) — как у одного игрока в шахматах. START_PIECE_TYPES
+   * фиксирует порядок [Q,R,N,B,B], поэтому ограничение применяется к
+   * pool[3] и pool[4].
+   */
+  randomStartPosition(): BlindBoardPiece[] {
     const pool = ALL_SQUARES.slice();
-    // Шаффл-первых-5 (партиальный Fisher–Yates).
-    for (let i = 0; i < START_PIECE_TYPES.length; i++) {
+    // Шаффл-первых-3 (Q,R,N) без ограничений.
+    for (let i = 0; i < 3; i++) {
       const j = i + this.randInt(pool.length - i);
       const tmp = pool[i];
       pool[i] = pool[j];
       pool[j] = tmp;
+    }
+    // Слот 3: первый слон — любой свободный цвет.
+    {
+      const j = 3 + this.randInt(pool.length - 3);
+      const tmp = pool[3];
+      pool[3] = pool[j];
+      pool[j] = tmp;
+    }
+    // Слот 4: второй слон — обязательно ПРОТИВОПОЛОЖНОГО цвета.
+    const firstBishopLight = isLightSquare(pool[3]);
+    // Найти в хвосте pool[4..] клетку нужного цвета (всегда есть: на
+    // доске 32 светлых + 32 тёмных, потрачено максимум 4).
+    let swapIdx = -1;
+    for (let k = 4; k < pool.length; k++) {
+      if (isLightSquare(pool[k]) !== firstBishopLight) {
+        swapIdx = k;
+        break;
+      }
+    }
+    if (swapIdx >= 0) {
+      // Из всех подходящих выбираем случайный для равномерности.
+      const candidates: number[] = [];
+      for (let k = 4; k < pool.length; k++) {
+        if (isLightSquare(pool[k]) !== firstBishopLight) candidates.push(k);
+      }
+      const pick = candidates[this.randInt(candidates.length)];
+      const tmp = pool[4];
+      pool[4] = pool[pick];
+      pool[pick] = tmp;
     }
     return START_PIECE_TYPES.map((type, i) => ({
       square: pool[i],
@@ -467,6 +502,16 @@ export class BlindBoardService {
       finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
     };
   }
+}
+
+/**
+ * KS-3449. Светлое поле доски (a1 — тёмное). `(file + rank) % 2 === 1` →
+ * светлое. file ∈ {a..h} = 0..7 (charCode-97), rank ∈ {1..8} = 0..7.
+ */
+export function isLightSquare(sq: BlindBoardSquare): boolean {
+  const file = sq.charCodeAt(0) - 97;
+  const rank = parseInt(sq[1], 10) - 1;
+  return (file + rank) % 2 === 1;
 }
 
 /** Применить ход в позиции: перенести фигуру `from → to`. */
