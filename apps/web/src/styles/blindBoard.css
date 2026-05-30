@@ -674,3 +674,549 @@
     min-height: 48px;
   }
 }
+
+/* ============================================================
+ * KS-3490 (ADR-088 V2 §15 L1). Прогрессивная сложность:
+ *  - HUD pill уровня + хинт «+B on L3 (6 to go)»
+ *  - Level-up overlay (новая фигура подсвечена + memorize-таймер)
+ *  - BlindBoardConfigForm (counter / sortable / radio / restore)
+ *  - Лидерборд: «L3» chip рядом со streak
+ * ============================================================ */
+
+/* ── HUD level-pill ─────────────────────────────────────── */
+
+.blind-board-session__hud-stat--level {
+  /* Уровень — выделен accent: фон, border, value. Среди других
+     HUD-pill'ов (Раунд / Серия / Лучшая) — главный индикатор. */
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  /* Расширяем pill чтобы хинт под value помещался комфортно. */
+  min-width: 110px;
+  position: relative;
+}
+.blind-board-session__hud-stat--level .blind-board-session__hud-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.blind-board-session__hud-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* ── Level-up overlay ───────────────────────────────────── */
+
+.blind-board-level-up {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: blind-board-level-up-fade 220ms ease-out;
+}
+@keyframes blind-board-level-up-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.blind-board-level-up__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ov-black-60, rgba(0, 0, 0, 0.6));
+  -webkit-tap-highlight-color: transparent;
+}
+.blind-board-level-up__panel {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-surface, var(--c-2a2a4e, #fff));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 16px;
+  box-shadow: 0 16px 48px var(--ov-black-60, rgba(0, 0, 0, 0.5));
+  padding: 20px 20px max(20px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  animation: blind-board-level-up-pop 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes blind-board-level-up-pop {
+  from {
+    transform: scale(0.94) translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+.blind-board-level-up__header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.blind-board-level-up__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--accent-primary, var(--c-7c83ff));
+  /* Лёгкое сияние на crescendo — момент level-up'а. */
+  text-shadow: 0 0 24px var(--ov-accent-30, rgba(124, 131, 255, 0.35));
+}
+.blind-board-level-up__sub {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary, var(--c-e0e0e0));
+  line-height: 1.4;
+}
+.blind-board-level-up__board {
+  width: 100%;
+  max-width: min(440px, 80vw);
+  aspect-ratio: 1 / 1;
+  /* Glow вокруг доски — визуально выделяет момент. */
+  filter: drop-shadow(0 0 24px var(--ov-accent-30, rgba(124, 131, 255, 0.35)));
+}
+.blind-board-level-up__board > div {
+  width: 100% !important;
+}
+.blind-board-level-up__footer {
+  display: flex;
+  justify-content: center;
+}
+.blind-board-level-up__ready {
+  min-width: 180px;
+  min-height: 48px;
+}
+
+/* ── BlindBoardConfigForm (settings на лендинге) ────────── */
+
+.blind-board-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.blind-board-config-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 10px;
+}
+.blind-board-config-form__section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.blind-board-config-form__section-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+
+/* Counter-selector — 4 квадратика Q/R/B/N с +/-. */
+.blind-board-config-form__counters {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.blind-board-config-form__counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 8px;
+}
+.blind-board-config-form__counter[data-count]:not([data-count='0']) {
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+}
+.blind-board-config-form__counter-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-config-form__counter-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.blind-board-config-form__counter-btn {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-primary, var(--c-e0e0e0));
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.blind-board-config-form__counter-btn:hover:not(:disabled) {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-config-form__counter-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.blind-board-config-form__counter-value {
+  min-width: 22px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-config-form__capacity {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  text-align: right;
+}
+
+/* AddOrder — sortable list. */
+.blind-board-config-form__empty {
+  margin: 0;
+  padding: 10px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 12px;
+  font-style: italic;
+}
+.blind-board-config-form__add-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.blind-board-config-form__add-item {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 8px;
+}
+.blind-board-config-form__add-level {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-config-form__add-piece {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-config-form__add-actions {
+  display: flex;
+  gap: 4px;
+}
+.blind-board-config-form__add-btn {
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+.blind-board-config-form__add-btn:hover:not(:disabled) {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-config-form__add-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.blind-board-config-form__add-btn--remove:hover:not(:disabled) {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-vc-red, #b91c1c);
+  border-color: var(--c-vc-red, #b91c1c);
+}
+.blind-board-config-form__add-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.blind-board-config-form__add-add-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  margin-right: 4px;
+}
+.blind-board-config-form__add-add-btn {
+  appearance: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px dashed var(--border-subtle, var(--c-2a2a3e));
+  background: transparent;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+.blind-board-config-form__add-add-btn:hover:not(:disabled) {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-style: solid;
+}
+.blind-board-config-form__add-add-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Memorize radio options. */
+.blind-board-config-form__memorize-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.blind-board-config-form__memorize-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  cursor: pointer;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+.blind-board-config-form__memorize-opt:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.blind-board-config-form__memorize-opt--checked {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-config-form__memorize-opt input[type='radio'] {
+  accent-color: var(--accent-primary, var(--c-7c83ff));
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* Settings-toggle (collapsible) на лендинге. */
+.blind-board-page__settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.blind-board-page__settings-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
+}
+.blind-board-page__settings-toggle:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.blind-board-page__settings-caret {
+  font-size: 10px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  width: 14px;
+  text-align: center;
+}
+.blind-board-page__settings-summary {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-page__settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.blind-board-page__settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.blind-board-page__settings-restore {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+.blind-board-page__settings-restore:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-page__settings-error {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  border: 1px solid var(--danger, var(--c-ef4444));
+  color: var(--c-vc-red, #b91c1c);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ── Leaderboard: «· L3» chip рядом со streak ────────────── */
+
+.blind-board-final__leaderboard-level {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-final__leaderboard-row--me .blind-board-final__leaderboard-level {
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+}
+
+/* ── Mobile ≤767 ────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .blind-board-session__hud-stat--level {
+    min-width: 96px;
+  }
+  .blind-board-session__hud-hint {
+    font-size: 10px;
+  }
+
+  .blind-board-level-up__panel {
+    border-radius: 14px 14px 0 0;
+    max-width: 100%;
+    align-self: flex-end;
+    padding: 16px 14px max(16px, env(safe-area-inset-bottom));
+  }
+  .blind-board-level-up {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .blind-board-level-up__title {
+    font-size: 22px;
+  }
+  .blind-board-level-up__sub {
+    font-size: 14px;
+  }
+  .blind-board-level-up__board {
+    max-width: 100%;
+  }
+  .blind-board-level-up__ready {
+    width: 100%;
+  }
+
+  .blind-board-config-form__section {
+    padding: 12px 14px;
+  }
+  .blind-board-config-form__counters {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .blind-board-config-form__counter {
+    padding: 8px 4px;
+  }
+  .blind-board-config-form__counter-btn {
+    width: 26px;
+    height: 26px;
+  }
+  .blind-board-config-form__add-item {
+    grid-template-columns: 36px 1fr auto;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .blind-board-config-form__add-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .blind-board-config-form__add-add {
+    gap: 4px;
+  }
+  .blind-board-config-form__add-add-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .blind-board-config-form__memorize-opt {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .blind-board-page__settings-summary {
+    display: none;
+  }
+  .blind-board-page__settings-restore {
+    width: 100%;
+  }
+}
