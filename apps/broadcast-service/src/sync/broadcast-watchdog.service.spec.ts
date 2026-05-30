@@ -492,7 +492,12 @@ describe('runWatchdogTick — KS-2158', () => {
     ).toBe('failed');
   });
 
-  it('KS-3332: PGN unreachable 3× + tour-API сам недоступен → fallback на закрытие (safety)', async () => {
+  it('KS-3478: PGN unreachable 3× + tour-API сам HTTP-non-OK → НЕ закрываем (нет подтверждения)', async () => {
+    // KS-3478: пересмотр KS-3332. Когда tour-API guard сам fetch-failed
+    // (HTTP 5xx, network/DNS/TLS), у нас нет подтверждения от Lichess
+    // о статусе round'а. Отказ может быть в нашем egress (как в KS-3477).
+    // Безопаснее НЕ закрывать — оставить ongoing/whatever, дождаться
+    // восстановления связи или решающего ответа.
     const prisma = makePrisma([fakeRound()], {
       'b-1': { lichessId: 'tour-1' },
     });
@@ -511,8 +516,44 @@ describe('runWatchdogTick — KS-2158', () => {
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
-    // tour-API недоступен → guard не сработал → закрываем как обычно.
-    expect(r.outcomes[0].outcome).toBe('closed-failed');
+    expect(r.outcomes[0].outcome).toBe('stuck-unreachable');
+    expect(r.outcomes[0].reason).toMatch(/tour-API guard fetch-failed/);
+    expect(
+      (prisma as unknown as { _updates: unknown[] })._updates,
+    ).toHaveLength(0);
+    expect(
+      logger._lines.find((l) => l.includes('SKIP failed-transition')),
+    ).toBeTruthy();
+  });
+
+  it('KS-3478: PGN unreachable 3× + tour-API network throw → НЕ закрываем', async () => {
+    // catch внутри checkRoundStatusInTour → 'fetch-failed'.
+    const prisma = makePrisma([fakeRound()], {
+      'b-1': { lichessId: 'tour-1' },
+    });
+    const redis = makeRedis();
+    redis._counts['broadcast:watchdog:fail-count:round-1'] = 2;
+    const logger = makeLogger();
+    const fetchFn = jest
+      .fn()
+      // PGN call (source-probe) — отказ.
+      .mockResolvedValueOnce(new Response('', { status: 429 }))
+      // tour-API call — настоящий network throw.
+      .mockRejectedValueOnce(
+        Object.assign(new Error('fetch failed'), { cause: undefined }),
+      );
+
+    const r = await runWatchdogTick({
+      prisma,
+      redis,
+      logger,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    expect(r.outcomes[0].outcome).toBe('stuck-unreachable');
+    expect(
+      (prisma as unknown as { _updates: unknown[] })._updates,
+    ).toHaveLength(0);
   });
 
   it('параметр unreachableFailThreshold перебивает дефолт', async () => {

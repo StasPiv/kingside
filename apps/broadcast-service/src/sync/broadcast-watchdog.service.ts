@@ -390,8 +390,15 @@ async function applyDecision(
     // positive, race c main-sync который через минуту опять поставит
     // ongoing). Прод-баг: 39. Internationale Haßlocher Schachtage,
     // Runde 6 мерцал между failed и ongoing.
-    let tourCheck: 'ongoing' | 'finished-or-unknown' | 'fetch-failed' =
-      'fetch-failed';
+    // KS-3478: разводим «guard не пытался» (нет lichessId / lookup
+    // упал) и «guard пытался но Lichess unreachable». В первом случае
+    // оставляем безопасное поведение (закрываем — это external/legacy
+    // broadcast, мы не можем подтвердить). Во втором — SKIP (см. ниже).
+    let tourCheck:
+      | 'ongoing'
+      | 'finished-or-unknown'
+      | 'fetch-failed'
+      | 'no-guard' = 'no-guard';
     try {
       const bc = await prisma.broadcast.findUnique({
         where: { id: round.broadcastId },
@@ -409,6 +416,7 @@ async function applyDecision(
       logger.warn(
         `[broadcast-watchdog] tour-API guard failed for ${round.id}: ${(err as Error).message}`,
       );
+      tourCheck = 'fetch-failed';
     }
     if (tourCheck === 'ongoing') {
       logger.warn(
@@ -424,6 +432,28 @@ async function applyDecision(
         roundId: round.id,
         outcome: 'stuck-unreachable',
         reason: `unreachable ${fails}× but tour-API says ongoing (skip failed)`,
+      };
+    }
+    // KS-3478: при `fetch-failed` у tour-API guard'а — НЕ переводить round
+    // в failed. Network/DNS/TLS/HTTP-non-OK у guard'а означает что мы НЕ
+    // получили подтверждения от Lichess о статусе round'а — отказ может
+    // быть в нашем egress (как в KS-3477: 429-каскад → DNS-резолв сломан
+    // → весь egress контейнера до lichess.org залип). Транзишн в failed
+    // разрешён ТОЛЬКО при `finished-or-unknown` (Lichess реально ответил
+    // и round не ongoing).
+    if (tourCheck === 'fetch-failed') {
+      logger.warn(
+        `broadcast watchdog: SKIP failed-transition for ${round.id} — ` +
+          `PGN unreachable ${fails}× и tour-API guard сам fetch-failed ` +
+          `(нет подтверждения от Lichess; вероятна egress-проблема нашего ` +
+          `контейнера). Reason: ${source.reason}`,
+      );
+      // То же поведение что в ongoing-ветке: fail-counter не DEL'им,
+      // TTL=4h сам истечёт; watchdog попробует снова в следующий tick.
+      return {
+        roundId: round.id,
+        outcome: 'stuck-unreachable',
+        reason: `unreachable ${fails}× and tour-API guard fetch-failed (skip failed)`,
       };
     }
     await prisma.broadcastRound.update({
