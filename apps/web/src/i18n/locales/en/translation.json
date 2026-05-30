@@ -32,6 +32,10 @@
       "guess": {
         "title": "Guess the move",
         "desc": "Play through a real game and try to predict the moves."
+      },
+      "blindBoard": {
+        "title": "Blind board",
+        "desc": "Track an invisible position by computer move arrows."
       }
     }
   },
@@ -108,6 +112,7 @@
     "train": "Train",
     "openingTrainer": "Openings",
     "guess": "Guess the move",
+    "blindBoard": "Blind board",
     "profile": "Profile",
     "players": "Players",
     "messages": "Messages",

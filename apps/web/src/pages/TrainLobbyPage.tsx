@@ -27,7 +27,8 @@ interface LobbyCardItem {
     | 'drills'
     | 'precision'
     | 'opening-trainer'
-    | 'guess';
+    | 'guess'
+    | 'blind-board';
   to: string;
   icon: string;
   titleKey: string;
@@ -147,6 +148,21 @@ export function TrainLobbyPage() {
       descKey: 'train.lobby.guess.desc',
       descDefault:
         'Play through a real game and try to predict the moves.',
+      enabled: true,
+    },
+    {
+      // KS-3444 (ADR-088 F3): «Слепая доска» — пустая доска, фигур не
+      // видно, по ходам компьютера запоминаем позицию и отвечаем на
+      // его ход (клетка + тип). Иконка 🙈 (see-no-evil) — семантически
+      // соответствует «не видим фигур». Без отдельного feature-flag'а;
+      // маршрут `/blind-board` под ProtectedRoute (backend JwtAuthGuard).
+      id: 'blind-board',
+      to: '/blind-board',
+      icon: '🙈',
+      titleKey: 'train.lobby.blindBoard.title',
+      titleDefault: 'Blind board',
+      descKey: 'train.lobby.blindBoard.desc',
+      descDefault: 'Track an invisible position by computer move arrows.',
       enabled: true,
     },
   ];

@@ -135,7 +135,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/train',
     icon: '🧠',
     i18nKey: 'nav.train',
-    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer', '/guess'],
+    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer', '/guess', '/blind-board'],
     // KS-3276: Opening Trainer всегда доступен (нет отдельного флага),
     // поэтому пункт «Тренировка» теперь виден даже если
     // puzzlesEnabled=false и drillsEnabled=false.
@@ -201,6 +201,17 @@ const NAV_ITEMS: NavItem[] = [
         i18nKey: 'nav.guess',
         i18nFallback: 'Guess the move',
         match: ['/guess'],
+      },
+      {
+        // KS-3444 (ADR-088 F3): «Слепая доска» — пустая доска +
+        // запоминание позиции по стрелкам ходов компьютера. Без
+        // отдельного feature-flag'а; route `/blind-board` под
+        // ProtectedRoute (backend JwtAuthGuard, KS-3441 B2).
+        path: '/blind-board',
+        icon: '🙈',
+        i18nKey: 'nav.blindBoard',
+        i18nFallback: 'Blind board',
+        match: ['/blind-board'],
       },
     ],
   },
