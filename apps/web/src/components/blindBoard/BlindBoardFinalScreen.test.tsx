@@ -9,7 +9,8 @@ import type {
 
 /**
  * KS-3443 (ADR-088 §11 F2) — финал-экран blind-board: streak, личный
- * рекорд, лидерборд, бейдж dead-end, раскрытие revealedPosition.
+ * рекорд, лидерборд, раскрытие revealedPosition. KS-3453: dead-end
+ * больше не существует — сервер всегда находит ход.
  */
 
 vi.mock('../MemoChessboard', () => ({
@@ -129,30 +130,9 @@ describe('<BlindBoardFinalScreen>', () => {
     ).toBeTruthy();
   });
 
-  it('dead-end: бейдж «загнал в угол» виден', async () => {
-    getLeaderboard.mockResolvedValue({
-      entries: [],
-    } as BlindBoardLeaderboardResponse);
-    renderWithProviders(
-      <BlindBoardFinalScreen
-        session={session({
-          finishReason: 'dead-end',
-          streak: 4,
-          bestStreak: 4,
-        })}
-        lastAnswer={{
-          correct: true,
-          revealedPosition: [],
-          session: session({ finishReason: 'dead-end' }),
-        }}
-        api={api}
-      />,
-    );
-    expect(screen.getByTestId('blind-board-final-badge-dead-end')).toBeTruthy();
-    expect(
-      screen.getByTestId('blind-board-final').getAttribute('data-finish-reason'),
-    ).toBe('dead-end');
-  });
+  // KS-3453: dead-end удалён из BlindBoardFinishReason. Бейдж и
+  // соответствующий сценарий сняты — оставлены только wrong-answer и
+  // abandoned (последний не имеет специальной презентации).
 
   it('лидерборд: подсвечивает мою строку и личный рекорд = max(session, my entry)', async () => {
     getLeaderboard.mockResolvedValue({

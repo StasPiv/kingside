@@ -1,7 +1,8 @@
 /**
  * KS-3442 (ADR-088 §11 F1). Сессионная обёртка blind-board: старт
- * сессии → запоминание (KS-3448) → раунды → wrong-answer / dead-end
- * → финал-экран.
+ * сессии → запоминание (KS-3448) → раунды → wrong-answer → финал-экран.
+ * KS-3453: dead-end удалён — backend при отсутствии хода у целевой
+ * фигуры берёт другую из 5; сессия завершается только ошибкой игрока.
  *
  * Раннер (`BlindBoardRunner`) отвечает только за пустую доску + клик +
  * промоушн; здесь склейка с API (`blindBoardApi`) и UI-фазы:
@@ -11,7 +12,7 @@
  *   - `playing`     — раунды; submitAnswer → следующий ход / финал.
  *   - `awaiting`    — ждём ответ от сервера на свой submitAnswer
  *     (доска заморожена через `disabled`).
- *   - `final`       — wrong-answer или dead-end; раскрытие позиции +
+ *   - `final`       — wrong-answer; раскрытие позиции +
  *     bestStreak + кнопка «Играть ещё».
  *   - `error`       — startSession упал.
  *
@@ -20,7 +21,7 @@
  * показывает в фазе `memorizing`. После клика «Готов» доска чистится
  * (фаза `playing`, EMPTY_FEN, стрелка первого хода). Анти-чит §5
  * не нарушается: на последующих answer-запросах полная позиция уже
- * не раскрывается — только при wrong-answer / dead-end.
+ * не раскрывается — только при wrong-answer.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -248,7 +249,7 @@ export function BlindBoardSessionRunner({
         data-finish-reason={session.finishReason ?? ''}
       >
         {/* KS-3443 (F2): полный финал-экран с лидербордом, личным
-            рекордом и бейджем dead-end вынесен в отдельный компонент. */}
+            рекордом вынесен в отдельный компонент. */}
         <BlindBoardFinalScreen
           session={session}
           lastAnswer={lastAnswer}

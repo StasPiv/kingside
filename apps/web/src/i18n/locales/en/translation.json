@@ -3537,7 +3537,6 @@
     "final": {
       "title": "Game finished",
       "wrongAnswer": "Wrong answer — game over.",
-      "deadEnd": "Dead end — no more legal moves for the target piece. You drove the computer into a corner!",
       "abandoned": "Session finished.",
       "expected": "Expected",
       "streak": "Streak",
@@ -3547,9 +3546,6 @@
       "leaderboardTitle": "Top streaks",
       "leaderboardError": "Could not load the leaderboard.",
       "leaderboardEmpty": "No entries yet.",
-      "badge": {
-        "deadEnd": "Cornered the computer!"
-      },
       "playAgain": "Play again"
     }
   }

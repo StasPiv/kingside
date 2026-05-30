@@ -1,7 +1,10 @@
 /**
  * KS-3443 (ADR-088 §11 F2). Финал-экран blind-board: streak текущей
- * сессии + личный рекорд + лидерборд (топ best-streak) + бейдж
- * «загнал компа в угол» при `finishReason='dead-end'`.
+ * сессии + личный рекорд + лидерборд (топ best-streak).
+ * KS-3453: dead-end больше не существует — сервер при отсутствии хода
+ * у целевой фигуры берёт другую из 5; сессия завершается только
+ * wrong-answer или abandoned. Бейдж/текст «загнал компа в угол» и
+ * ветка `reason === 'dead-end'` удалены.
  *
  * Шаблон взят с Puzzle Rush result-screen + leaderboard, упрощён под
  * специфику blind-board (нет timeMode-вкладок — таблица одна).
@@ -118,16 +121,13 @@ export function BlindBoardFinalScreen({
     return piecesToFen(lastAnswer.revealedPosition);
   }, [lastAnswer]);
 
+  // KS-3453: оставлены только wrong-answer и abandoned (dead-end
+  // не существует — backend всегда находит ход в одной из 5 фигур).
   const reason = session.finishReason;
   const reasonText =
     reason === 'wrong-answer'
       ? t('blindBoard.final.wrongAnswer', 'Wrong answer — game over.')
-      : reason === 'dead-end'
-        ? t(
-            'blindBoard.final.deadEnd',
-            'Dead end — no more legal moves for the target piece. You drove the computer into a corner!',
-          )
-        : t('blindBoard.final.abandoned', 'Session finished.');
+      : t('blindBoard.final.abandoned', 'Session finished.');
 
   return (
     <div
@@ -139,15 +139,8 @@ export function BlindBoardFinalScreen({
         {t('blindBoard.final.title', 'Game finished')}
       </h2>
 
-      {/* KS-3443: бейдж «загнал компа в угол» при dead-end. */}
-      {reason === 'dead-end' && (
-        <div
-          className="blind-board-final__badge blind-board-final__badge--dead-end"
-          data-testid="blind-board-final-badge-dead-end"
-        >
-          {t('blindBoard.final.badge.deadEnd', 'Cornered the computer!')}
-        </div>
-      )}
+      {/* KS-3453: бейдж dead-end удалён — сессия больше не может
+          закончиться по «угол», backend всегда находит ход. */}
 
       <p
         className="blind-board-final__reason"

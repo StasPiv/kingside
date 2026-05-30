@@ -269,38 +269,7 @@ describe('<BlindBoardSessionRunner>', () => {
     ).toBe('1');
   });
 
-  it('dead-end → финал с deadEnd-ремаркой', async () => {
-    startSession.mockResolvedValue({
-      session: session(),
-    } as StartBlindBoardSessionResponse);
-    submitAnswer.mockResolvedValue({
-      correct: true,
-      revealedPosition: [{ square: 'a1', type: 'R' }],
-      session: session({
-        status: 'finished',
-        finishReason: 'dead-end',
-        nextMove: null,
-        round: 3,
-        streak: 2,
-        bestStreak: 2,
-      }),
-    } as SubmitBlindBoardAnswerResponse);
-    renderWithProviders(<BlindBoardSessionRunner api={api} />);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('blind-board-session').getAttribute('data-status'),
-      ).toBe('playing'),
-    );
-    (screen.getByTestId('fire-submit-Q-d4') as HTMLButtonElement).click();
-    await waitFor(() =>
-      expect(
-        screen
-          .getByTestId('blind-board-session')
-          .getAttribute('data-finish-reason'),
-      ).toBe('dead-end'),
-    );
-    // Финал-экран отрендерился — текст «corner» проверяется в
-    // BlindBoardFinalScreen.test.tsx (там полный набор переводов).
-    expect(screen.getByTestId('blind-board-final')).toBeTruthy();
-  });
+  // KS-3453: dead-end удалён из BlindBoardFinishReason — сервер
+  // всегда находит ход в одной из 5 фигур. Тест на dead-end сценарий
+  // снят. Единственный финиш по факту — wrong-answer (покрыт выше).
 });
