@@ -384,29 +384,6 @@
   letter-spacing: -0.01em;
 }
 
-/* «Cornered the computer» — accent-бейдж dead-end. */
-.blind-board-final__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.blind-board-final__badge--dead-end {
-  background: var(--c-eab308, #eab308);
-  color: #422006;
-  border: 1px solid var(--warning-strong, var(--c-d97706, #b45309));
-  box-shadow: 0 4px 14px rgba(234, 179, 8, 0.32);
-}
-.blind-board-final__badge--dead-end::before {
-  content: '🏆';
-  font-size: 18px;
-}
-
 .blind-board-final__reason {
   margin: 0;
   text-align: center;
