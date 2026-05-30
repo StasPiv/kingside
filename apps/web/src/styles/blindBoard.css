@@ -7,6 +7,149 @@
  * за всё остальное.
  * ============================================================ */
 
+/* ── KS-3450: Landing-страница /blind-board ─────────────── */
+
+.blind-board-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  box-sizing: border-box;
+}
+.blind-board-page[data-state='playing'] {
+  /* В playing-режиме компоненты внутри сами центрируются — wrapper
+     просто даёт пространство сверху и обрамление. */
+  max-width: 960px;
+  gap: 12px;
+}
+.blind-board-page h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+
+/* KS-3450: описание режима — карточка с accent-bordered рамкой
+   слева. Согласовано с info-cards в других тренажёрах (puzzle/
+   drills): bg-elevated + left-border accent + читаемый line-height. */
+.blind-board-page__intro {
+  margin: 0;
+  padding: 14px 18px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-left: 3px solid var(--accent-primary, var(--c-7c83ff));
+  border-radius: 10px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 600px;
+}
+
+.blind-board-page__start {
+  appearance: none;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 14px 32px;
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 48px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.blind-board-page__start:hover {
+  background: var(--accent-hover, var(--c-6366f1));
+}
+.blind-board-page__start:active {
+  transform: scale(0.98);
+}
+.blind-board-page__start:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+
+.blind-board-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e));
+}
+.blind-board-page__back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-link, var(--c-7c83ff));
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.blind-board-page__back:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+
+/* ── KS-3450: Memorize-экран (BlindBoardSessionRunner) ──── */
+
+.blind-board-session__memorize {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 8px 0;
+}
+.blind-board-session__memorize-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--text-primary, var(--c-e0e0e0));
+  text-align: center;
+}
+/* Hint: та же карточная подача что у landing__intro. */
+.blind-board-session__memorize-hint {
+  margin: 0;
+  padding: 14px 18px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-left: 3px solid var(--accent-primary, var(--c-7c83ff));
+  border-radius: 10px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 600px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.blind-board-session__memorize-board {
+  width: 100%;
+  max-width: min(560px, 90vw);
+  aspect-ratio: 1 / 1;
+}
+.blind-board-session__memorize-board > div {
+  width: 100% !important;
+}
+.blind-board-session__memorize-ready {
+  align-self: center;
+  min-width: 220px;
+  margin-top: 4px;
+}
+
 /* ── Runner / board wrapper ─────────────────────────────── */
 
 .blind-board-runner {
@@ -402,6 +545,37 @@
 
 /* ── Mobile ≤767 ────────────────────────────────────────── */
 @media (max-width: 767px) {
+  /* KS-3450: landing + memorize — компактные отступы и шрифт. */
+  .blind-board-page {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+  .blind-board-page h1 {
+    font-size: 22px;
+  }
+  .blind-board-page__intro,
+  .blind-board-session__memorize-hint {
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .blind-board-page__start {
+    align-self: stretch;
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 15px;
+  }
+  .blind-board-session__memorize {
+    gap: 12px;
+  }
+  .blind-board-session__memorize-title {
+    font-size: 20px;
+  }
+  .blind-board-session__memorize-ready {
+    width: 100%;
+    min-width: 0;
+  }
+
   .blind-board-runner__board {
     max-width: min(420px, 96vw);
   }
