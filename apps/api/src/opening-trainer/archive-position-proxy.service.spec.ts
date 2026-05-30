@@ -56,12 +56,36 @@ describe('ArchivePositionProxyService.findGamesByPosition', () => {
 
     expect(m).toHaveBeenCalledTimes(1);
     const url = new URL(m.mock.calls[0][0] as string);
-    expect(url.pathname).toBe('/api/archive/games/by-position');
+    // KS-3476: archive-service запущен без globalPrefix — путь /games/by-position.
+    expect(url.pathname).toBe('/games/by-position');
+    expect(url.host).toBe('archive.kingside.site');
+    expect(url.protocol).toBe('https:');
     expect(url.searchParams.get('fen')).toBe(startFen);
     expect(url.searchParams.get('minElo')).toBe('2400');
     expect(url.searchParams.get('sort')).toBe('topElo');
     expect(url.searchParams.get('bucket')).toBe('master');
     expect(url.searchParams.get('timeControlCategory')).toBe('classical');
+  });
+
+  it('KS-3476: ARCHIVE_SERVICE_URL переопределяет default (dev http://localhost:3003)', async () => {
+    const prev = process.env.ARCHIVE_SERVICE_URL;
+    process.env.ARCHIVE_SERVICE_URL = 'http://localhost:3003';
+    try {
+      const m = mockFetch(async () =>
+        fakeResp({ items: [], hasMore: false }),
+      );
+      const svc = new ArchivePositionProxyService();
+      await svc.findGamesByPosition({ fen: startFen });
+      const url = new URL(m.mock.calls[0][0] as string);
+      expect(url.host).toBe('localhost:3003');
+      expect(url.pathname).toBe('/games/by-position');
+    } finally {
+      if (prev === undefined) {
+        delete process.env.ARCHIVE_SERVICE_URL;
+      } else {
+        process.env.ARCHIVE_SERVICE_URL = prev;
+      }
+    }
   });
 
   it('клиентские параметры переопределяют defaults', async () => {

@@ -25,8 +25,18 @@ import type {
   ArchiveGamesByPositionResponse,
 } from '@kingside/shared';
 
-/** Дефолт для service-to-service: docker-compose alias из ADR. */
-const ARCHIVE_BASE_URL_DEFAULT = 'http://archive-service:3003';
+/**
+ * Дефолт — продовский поддомен archive-service (ADR-018 §2.7).
+ * Архив-сервис деплоится отдельно (ECS service `kingside-archive-service`)
+ * и публикуется на `archive.kingside.site` без префикса `/api`.
+ * Для локального dev backend выставит `ARCHIVE_SERVICE_URL=http://localhost:3003`
+ * (или альтернативный порт).
+ *
+ * KS-3476: исходный default `http://archive-service:3003` был docker-compose
+ * alias'ом для общего стека и на ECS-проде не резолвится — отсюда
+ * «archive-service unavailable» при создании репертуара из мастер-партий.
+ */
+const ARCHIVE_BASE_URL_DEFAULT = 'https://archive.kingside.site';
 
 /** Таймаут вызова archive-service. */
 const FETCH_TIMEOUT_MS = 10_000;
@@ -40,9 +50,12 @@ export class ArchivePositionProxyService {
   }
 
   /**
-   * Прокси к archive-service `/api/archive/games/by-position` с
-   * KS-3469-defaults. Поля из `query` (fen, cursor, limit, color, move
-   * и т.д.) — приоритетнее defaults; пустые поля → defaults.
+   * Прокси к archive-service `GET /games/by-position` с KS-3469-defaults.
+   * Поля из `query` (fen, cursor, limit, color, move и т.д.) — приоритетнее
+   * defaults; пустые поля → defaults.
+   *
+   * KS-3476: путь без префикса `/api/archive` — archive-service запущен
+   * `БЕЗ setGlobalPrefix` (см. `apps/archive-service/src/main.ts`).
    */
   async findGamesByPosition(
     query: ArchiveGamesByPositionRequest,
@@ -70,7 +83,7 @@ export class ArchivePositionProxyService {
       ...(query.eco !== undefined ? { eco: query.eco } : {}),
     };
 
-    const url = new URL('/api/archive/games/by-position', this.baseUrl);
+    const url = new URL('/games/by-position', this.baseUrl);
     appendQuery(url, merged);
 
     const startedAt = Date.now();
