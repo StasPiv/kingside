@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Chess } from 'chess.js';
 import type {
   GuessSide,
   GuessMoveDto,
@@ -29,6 +30,29 @@ function stars(n: number | null): string {
 
 function pct(v: number | null): string {
   return v == null ? '—' : `${Math.round(v)}%`;
+}
+
+/**
+ * KS-3434: конвертация UCI ('c7c5', 'b8c6', 'e7e8q') в SAN ('c5', 'Nc6',
+ * 'e8=Q'). chess.js принимает {from,to,promotion?} и возвращает SAN с
+ * корректной дизамбигуацией, шахом «+» и матом «#». fenBefore хранится
+ * в каждом GuessMoveDto — раздельно для каждого хода (отсюда независимо
+ * восстанавливаемая позиция, не нужно переигрывать всю партию).
+ *
+ * Fallback на сырой UCI при невалидном ходе/FEN — лучше показать что-то,
+ * чем уронить экран на финал-экране после длинной партии.
+ */
+function uciToSan(fen: string, uci: string): string {
+  try {
+    const g = new Chess(fen);
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const promotion = uci.length > 4 ? uci[4] : undefined;
+    const mv = g.move({ from, to, promotion });
+    return mv?.san ?? uci;
+  } catch {
+    return uci;
+  }
 }
 
 export function GuessFinalScreen({
@@ -118,7 +142,12 @@ export function GuessFinalScreen({
             <span className="guess-final__move-ply">
               {Math.ceil(m.ply / 2)}.
             </span>
-            <span className="guess-final__move-user">{m.userUci}</span>
+            {/* KS-3434: SAN вместо UCI. fenBefore берём из самого DTO —
+                это позиция перед ходом, в ней chess.js корректно отдаёт
+                дизамбигуацию, шах/мат. */}
+            <span className="guess-final__move-user">
+              {uciToSan(m.fenBefore, m.userUci)}
+            </span>
             <span
               className={`guess-final__move-badge guess-final__move-badge--${m.userClass}`}
             >
