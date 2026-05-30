@@ -1,9 +1,14 @@
 # ADR-088. Blind-board — тренировка «найди фигуру по ходу компьютера»
 
-Статус: предложен (2026-05-30) — аналитический документ
-Связано: KS-3437 (этот ADR), ADR-081 (training lobby — куда
-встраивать), ADR-086 (guess-the-move — родственная blindfold-
-семантика), ADR-076/080 (bottom-sheet — для UX-элементов).
+Статус: принят (2026-05-30, ревизия 2)
+Связано: KS-3437 (V1), KS-3483 (V2 — прогрессивная сложность),
+ADR-081 (training lobby), ADR-086 (guess-the-move),
+ADR-076/080 (bottom-sheet).
+
+> **Ревизия 2 (2026-05-30).** Прогрессивная сложность поверх
+> базовой механики (см. §15). Старт = 3 фигуры; каждые 10
+> успешных раундов добавляется фигура (до максимума = 5).
+> Базовый алгоритм/анти-чит/UX из §1-14 без изменений.
 
 ## 1. Контекст
 
@@ -450,3 +455,268 @@ model BlindBoardAttempt {
 - Таблицы additive — данные сохраняются при откате флага.
 - Move-generator в shared — чистый, не влияет на остальной код.
 - Промоушн-модал — расширение или вариант (не ломает существующий).
+
+---
+
+## 15. Ревизия 2 — прогрессивная сложность (KS-3483)
+
+### 15.1 Запрос пользователя
+
+«Начинаем с 3 фигур. После серии из 10 угадываний добавляем ещё
+одну фигуру, и так далее».
+
+### 15.2 Уточнения пользователя (после черновика V2)
+
+- **Дефолтный стартовый набор:** Q + N + R (3 фигуры).
+- **Дефолтный порядок добавления:** B (→ 4) → B (→ 5) → R (→ 6)
+  → N (→ 7).
+- **Максимум 7 фигур:** 1Q, 2R, 2B, 2N.
+- **Override:** игрок может в настройках сессии выбрать свой
+  стартовый набор и свой порядок добавления.
+
+### 15.3 Конфигурация уровней (дефолтная)
+
+| Уровень | Раунды | Состав | Дельта |
+|---|---|---|---|
+| L1 | 1–10 | Q, N, R | старт |
+| L2 | 11–20 | Q, N, R, B | + B (1-й слон) |
+| L3 | 21–30 | Q, N, R, B, B | + B (2-й слон, разнопольный) |
+| L4 | 31–40 | Q, N, R, B, B, R | + R (2-я ладья) |
+| L5 | 41+ | Q, N, R, B, B, R, N | + N (2-й конь). Максимум. |
+
+После L5 (раунды 41+) состав не меняется, streak продолжает
+расти. **Без override** прогрессия — фиксированная.
+
+### 15.4 Override игроком
+
+На лендинге blind-board (`BlindBoardLandingPage`) — раскрывающийся
+блок «Настройки сложности» (свёрнут по умолчанию, дефолты в
+заголовке: «Старт: 3 (Q+N+R), порядок: B,B,R,N»).
+
+**Селектор стартового набора:**
+- Counter-selector по типам: `[Q ▾ 1]` `[R ▾ 1]` `[B ▾ 0]`
+  `[N ▾ 1]`. Сумма ≥ minStart.
+- Ограничения квот (§15.5).
+
+**Селектор порядка добавления:**
+- Сортируемый список с drag&drop (или up/down кнопки): `1: B`,
+  `2: B`, `3: R`, `4: N`.
+- Каждая позиция — выбор типа фигуры из доступных по квоте.
+- Можно удалить позицию (меньше уровней).
+- Если start уже содержит 7 фигур — addOrder пустой (уровней
+  нет, играем как фиксированную сложность).
+
+CTA «Начать» с выбранными настройками или дефолтами. LocalStorage
+сохраняет выбор для quick-retry.
+
+### 15.5 Ограничения квот
+
+Максимальные квоты на доске:
+- **Q**: max 1.
+- **R**: max 2.
+- **B**: max 2 (требование разнопольности — §15.6).
+- **N**: max 2.
+
+Сумма max = 7. Минимум стартового набора (моё предложение):
+**2 фигуры** (одна никого не атакует — нет «вовлечённой»). Open
+Q1: подтвердить min=2 vs min=3.
+
+Каждое последующее добавление — фигура из остатка квоты. Frontend
+валидация UI + backend re-validation на старте сессии.
+
+### 15.6 Разнопольность слонов (расширение KS-3449)
+
+- **Add 2-й B через level-up** — backend выбирает клетку
+  противоположного цвета относительно уже стоящего B (как
+  KS-3449).
+- **Старт с 2 B сразу** (override) — backend размещает на клетках
+  разных цветов: 1-й B на случайной, 2-й на случайной пустой
+  противоположной.
+
+На 64-клеточной доске с ≤ 7 фигурами всегда есть свободные
+клетки обеих цветностей; pathological case невозможен.
+
+### 15.7 Алгоритм level-up в backend
+
+В `BlindBoardService.submitAnswer` после успешного ответа:
+
+```
+session.streak++
+if hasNextLevelInConfig(session) AND session.streak % 10 === 0:
+  newPiece = session.startConfig.addOrder[session.level - 1]
+              // L1 → addOrder[0], L2 → addOrder[1]...
+  newSquare = pickRandomEmptySquare(currentPosition,
+                                    colorConstraint(newPiece))
+  currentPosition.push({ square: newSquare, type: newPiece })
+  session.level++
+  return { ..., levelUp: { newLevel, newPiece, newSquare } }
+// иначе обычный flow
+generateNextCompMove(...)
+```
+
+`computeLevel(streak)` = `Math.floor(streak / 10) + 1`.
+`hasNextLevelInConfig` = `session.level - 1 < addOrder.length`.
+
+### 15.8 UX перехода уровня — обновлённый memorize
+
+При level-up в SubmitAnswerResponse фронт получает `levelUp`-поле:
+
+- Overlay поверх runner-а: доска со ВСЕМИ текущими фигурами
+  (старые + новая), новая **подсвечена 1.5 сек**.
+- Подпись «Уровень 2 — добавился слон на e5».
+- Таймер 5 сек → доска снова «слепая», продолжается раунд с
+  новым ходом компа.
+
+Этот вариант (Б из черновика) предпочтительнее «отдельного экрана
+только новой» (теряем контекст) и «текста без визуала» (нет
+зрительного якоря).
+
+HUD во время игры:
+- Текущий уровень: «L2 · 14/20 → +B на L3» (мотивация).
+
+### 15.9 Streak ломается → level не сохраняется
+
+После wrong-answer сессия завершается (`finishReason='wrong-answer'`).
+Новая сессия начинается с L1 (= user-config или дефолт). Best-
+streak в лидерборде остаётся прежним (max по всем сессиям).
+
+### 15.10 Хранение
+
+Расширение `BlindBoardSession`:
+- `level Int @default(1)` — текущий уровень (1..N).
+- `startConfig Json @map("start_config")` — snapshot конфигурации
+  сессии: `{ startPieces: PieceType[], addOrder: PieceType[] }`.
+  Хранится для review и для нахождения следующей фигуры при
+  level-up (без зависимости от user-prefs, которые могли
+  поменяться).
+- `currentPosition` уже хранится — добавление фигур обновляет.
+
+Backfill existing-сессий: `level=1`, `startConfig=DEFAULT_CONFIG`.
+
+Опц. (M2) `BlindBoardAttempt.levelAtRound Int?` для аналитики.
+
+### 15.11 Лидерборд
+
+Текущий лидерборд (`bestStreak`) работает корректно — высокий
+streak теперь объективно сложнее. Опц. (Open Q6) — показать
+достигнутый максимальный уровень рядом со streak.
+
+### 15.12 Что НЕ делаем (M1 ревизии 2)
+
+- НЕ персистируем user-config в БД отдельно (только в
+  `startConfig` snapshot сессии + localStorage).
+- НЕ добавляем `levelAtRound` per-attempt (опц. M2).
+- НЕ меняем `memorize-time` с уровнем (фикс 5 сек; Open Q7).
+- НЕ ограничиваем 7-figure start (expert-mode допустим; Open Q2).
+
+### 15.13 Реализация — follow-up задачи (V2)
+
+Базовая инфра ADR-088 реализована. Дельта:
+
+#### KS (S2) — shared types V2
+
+**Assignee:** backend (shared). **Labels:** `puzzle`, `analysis`.
+- В `BlindBoardSessionDto` добавить `level: number`, `startConfig:
+  BlindBoardConfig`.
+- `BlindBoardConfig = { startPieces: PieceType[]; addOrder: PieceType[] }`.
+- В `SubmitAnswerResponse` опц. `levelUp?: { newLevel, newPiece,
+  newSquare }`.
+- Константы `BLIND_BOARD_LIMITS`: `maxQ=1, maxR=2, maxB=2, maxN=2,
+  minStart=2, maxTotal=7`.
+- `BLIND_BOARD_DEFAULT_CONFIG = { startPieces: ['Q','N','R'],
+  addOrder: ['B','B','R','N'] }`.
+- Acceptance: TS-сборка чистая.
+
+#### KS (B0-v2) — миграция Prisma
+
+**Assignee:** backend (prisma). **Labels:** `puzzle`, `prisma`.
+- В `BlindBoardSession`: `level Int @default(1)` + `startConfig
+  Json`.
+- Backfill: existing-сессии получают `level=1` и
+  `startConfig=DEFAULT_CONFIG` через SQL UPDATE WHERE.
+- Acceptance: миграция чистая.
+
+#### KS (B1-v2) — `createSession` принимает config
+
+**Assignee:** backend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** S2, B0-v2.
+- DTO `StartBlindBoardSessionRequest.config?: BlindBoardConfig`
+  (опц., null → DEFAULT_CONFIG).
+- Валидация: квоты (§15.5), длина start ≥ minStart, sum
+  start+addOrder ≤ maxTotal, разнопольность 2 B при старте
+  (§15.6).
+- Генерация стартовой позиции с учётом color-constraint.
+- Acceptance: дефолт → Q+N+R; override → старт по config;
+  невалидный → 400.
+
+#### KS (B2-v2) — `submitAnswer` обработка level-up
+
+**Assignee:** backend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** B1-v2.
+- После успешного ответа: если есть следующая фигура в
+  `addOrder` и `streak % 10 === 0` → выбрать random empty square
+  (с color-constraint для B), добавить в `currentPosition`,
+  `session.level++`, вернуть `levelUp` в response.
+- Acceptance: на 10-м correct ответ содержит levelUp; на 11-м
+  — обычный; разнопольность 2-го B; после исчерпания addOrder
+  нет level-up.
+
+#### KS (F1-v2) — UI настроек сложности на лендинге
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** S2.
+- На `BlindBoardLandingPage` раскрывающийся блок «Настройки
+  сложности» (свёрнут).
+- Counter-selector startPieces + sortable список addOrder.
+  Валидация квот UI-side с подсветкой.
+- LocalStorage сохранение выбора (Open Q5).
+- Acceptance: дефолт → CTA enabled; нарушение квоты → disabled
+  CTA с tooltip; override сохраняется.
+
+#### KS (F2-v2) — Runner: HUD + level-up overlay
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** B2-v2.
+- В `BlindBoardSessionRunner`:
+  - HUD-pill «L2 · 14/20» в углу доски.
+  - На `levelUp` в SubmitAnswerResponse → overlay memorize-
+    экрана (1.5 сек подсветка новой + 5 сек таймер), потом
+    раунд продолжается.
+- Acceptance: 10-й correct → overlay; HUD обновляется;
+  непрерывный поток.
+
+#### KS (L1-v2) — CSS HUD-уровня + overlay
+
+**Assignee:** layout. **Labels:** `puzzle`, `analysis`, `mobile`.
+**Зависит:** F2-v2.
+- HUD-pill стиль; overlay блюр доски + центрированная подпись +
+  highlight новой клетки.
+- Mobile-адаптив.
+- Acceptance: viewport 360×844 — HUD и overlay читаются.
+
+Итого **6 новых задач V2** (S2 + B0-v2 + B1-v2 + B2-v2 + F1-v2 +
+F2-v2 + L1-v2). Конфликтов с базовой инфрой ADR-088 нет — всё
+additive.
+
+### 15.14 Открытые вопросы V2 — UX выбора
+
+Координатор спросит у пользователя:
+
+1. **`minStart`** — 2 (моё) vs 3 (соответствует «начинаем с 3»)?
+   Если 3 — override не позволит стартовать с 2 фигурами.
+2. **Старт с 7 фигурами сразу** (expert-mode) — допустим (моё,
+   addOrder пустой) или блокировать (требовать ≥ 1 шага
+   развития)?
+3. **Разнопольность 2 B при старте** — backend сам выбирает
+   разные цвета (моё, §15.6) или не следить за цветами в старте
+   (только в level-up как KS-3449)?
+4. **UX порядка добавления** — drag&drop (моё) vs кнопки
+   up/down vs sequence dropdowns? Финал за frontend'ом.
+5. **localStorage** для quick-retry с тем же config — сохраняем
+   (моё) или сбрасываем на дефолт каждую сессию?
+6. **Лидерборд** — показать достигнутый максимум level рядом
+   со streak («28 · L3»)? Nice-to-have.
+7. **Memorize-время на L3+** — фикс 5 сек (моё) или
+   увеличивать с уровнем (5/6/7 сек) для 5–7 фигур?
+
+@coordinator
