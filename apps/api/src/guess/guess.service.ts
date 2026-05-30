@@ -18,9 +18,8 @@ import {
 } from '@nestjs/common';
 import {
   compareGuessMove,
-  aggregateAccuracies,
+  mapToStars,
   type GuessVerdict,
-  type PrecisionMoveClass,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
@@ -33,6 +32,24 @@ import type {
   GuessMoveDto,
 } from '@kingside/shared';
 import type { StartGuessSessionDto, SubmitGuessMoveDto } from './dto/guess.dto';
+
+/** KS-3433. Среднеквадратичное отклонение массива чисел (population). */
+function standardDeviation(values: number[]): number {
+  const n = values.length;
+  if (n === 0) return 0;
+  const mean = values.reduce((s, v) => s + v, 0) / n;
+  const variance =
+    values.reduce((s, v) => s + (v - mean) * (v - mean), 0) / n;
+  return Math.sqrt(variance);
+}
+
+/** Clamp в [0..100]. */
+function clamp01_100(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 100) return 100;
+  return x;
+}
 
 /** ADR-086 §5. Очки за ход по вердикту. */
 const VERDICT_SCORE: Record<GuessVerdict, number> = {
@@ -200,20 +217,9 @@ export class GuessService {
       BETTER_THAN_PLAYER.has(m.verdict as GuessVerdict),
     ).length;
 
-    // KS-3429. Live-точности: та же формула aggregateAccuracies, что в
-    // finish — user с worst-class cap, player без cap (его classification
-    // не храним). При наличии хотя бы одного хода scorePct — number;
-    // защитный `?? 0` на крайний случай null от aggregator.
-    const currentUserAccuracy =
-      aggregateAccuracies(
-        moves.map((m) => m.accuracyUser),
-        this.worstUserClass(moves),
-      ).scorePct ?? 0;
-    const currentPlayerAccuracy =
-      aggregateAccuracies(
-        moves.map((m) => m.accuracyPlayer),
-        null,
-      ).scorePct ?? 0;
+    // KS-3433. Lichess-style accuracy. См. `computeGameAccuracy` ниже.
+    const currentUserAccuracy = this.computeGameAccuracy(moves, 'user');
+    const currentPlayerAccuracy = this.computeGameAccuracy(moves, 'player');
 
     await this.prisma.guessSession.update({
       where: { id: sessionId },
@@ -265,33 +271,25 @@ export class GuessService {
       orderBy: { ply: 'asc' },
     })) as GuessMoveRow[];
 
-    // Точность пользователя — композит mean+min с cap по worst-class
-    // (переиспуем aggregateAccuracies из precision-score).
-    const userAcc = aggregateAccuracies(
-      moves.map((m) => m.accuracyUser),
-      this.worstUserClass(moves),
-    );
-    // Точность реального игрока — та же формула, без class-cap (его
-    // классификацию не храним; звёзды игроку не присваиваем).
-    const playerAcc = aggregateAccuracies(
-      moves.map((m) => m.accuracyPlayer),
-      null,
-    );
+    // KS-3433. Lichess-style game accuracy (см. `computeGameAccuracy`).
+    const userAccuracyPct = this.computeGameAccuracy(moves, 'user');
+    const playerAccuracyPct = this.computeGameAccuracy(moves, 'player');
+    const userStars = mapToStars(userAccuracyPct);
 
     const updated = (await this.prisma.guessSession.update({
       where: { id: sessionId },
       data: {
         status: 'finished',
-        userAccuracy: userAcc.scorePct,
-        playerAccuracy: playerAcc.scorePct,
-        userStars: userAcc.stars,
+        userAccuracy: userAccuracyPct,
+        playerAccuracy: playerAccuracyPct,
+        userStars,
         finishedAt: new Date(),
       },
     })) as GuessSessionRow;
 
     return {
       session: this.toSessionDto(updated),
-      outcome: this.outcome(userAcc.scorePct, playerAcc.scorePct),
+      outcome: this.outcome(userAccuracyPct, playerAccuracyPct),
     };
   }
 
@@ -395,20 +393,84 @@ export class GuessService {
     return best;
   }
 
-  private worstUserClass(moves: GuessMoveRow[]): PrecisionMoveClass | null {
-    const order: PrecisionMoveClass[] = [
-      'best',
-      'good',
-      'inaccuracy',
-      'mistake',
-      'blunder',
-    ];
-    let idx = -1;
+  /**
+   * KS-3433 / ADR-086. Lichess-style "game accuracy" — реализация по
+   * Lichess `AccuracyPercent.scala` (lila/modules/analyse). Финал:
+   * `(volatility-weighted-mean + harmonic-mean) / 2` по per-move
+   * accuracy. precision-score (`aggregateAccuracies` с cap/min) НЕ
+   * трогаем — он остаётся для precision-раздела.
+   *
+   * Шаги (lichess):
+   *   1. winPercents: ряд win% POV игрока на каждой точке партии.
+   *   2. windowSize = clamp([2..8], floor(N_winPercents / 10)).
+   *   3. Для каждого move i вес w_i = clamp([0.5..12], stddev win% в
+   *      sliding-окне размера windowSize, начинающемся с i-й точки).
+   *   4. weighted = Σ(acc_i · w_i) / Σ(w_i).
+   *   5. harmonic = N / Σ(1/acc_i)  (acc_i > 0, иначе clamp ↑1).
+   *   6. accuracy = (weighted + harmonic) / 2.
+   *
+   * Per-move accuracy уже посчитана в guess_moves (Lichess exp-формула,
+   * `accuracyMove` из precision-score, та же что у Lichess).
+   *
+   * Отличие от Lichess (обоснование): у Lichess winPercents — вся
+   * партия (все ply). В guess персистятся ТОЛЬКО полуходы выбранной
+   * стороны: ответы соперника просто проигрываются из PGN, клиент их
+   * WDL в submitMove не присылает (расширять контракт — отдельный
+   * scope). Поэтому ряд = [eBefore_1, eAfter_1, eBefore_2, eAfter_2,
+   * ...] — 2 точки на персистированный ход (до/после выбранной),
+   * без точек между ними (ответы соперника). Семантически: волатильность
+   * позиций, на которых выбранная делает выбор. Это даёт корректное
+   * взвешивание ключевых для пользователя моментов; топы получают 95+%
+   * (мало стандартного отклонения win% на этом ряду), пользователь при
+   * плохих ходах падает реально.
+   */
+  computeGameAccuracy(
+    moves: GuessMoveRow[],
+    side: 'user' | 'player',
+  ): number {
+    if (moves.length === 0) return 0;
+    const perMove = moves.map((m) =>
+      side === 'user' ? m.accuracyUser : m.accuracyPlayer,
+    );
+    if (moves.length === 1) return perMove[0];
+
+    // winPercents ряд: для каждого хода 2 точки (до/после), POV выбранной.
+    // user → используем eAfterUser; player → eAfterPlayed.
+    const winPercents: number[] = [];
     for (const m of moves) {
-      const i = order.indexOf(m.userClass as PrecisionMoveClass);
-      if (i > idx) idx = i;
+      winPercents.push(m.eBefore * 100);
+      winPercents.push(
+        (side === 'user' ? m.eAfterUser : m.eAfterPlayed) * 100,
+      );
     }
-    return idx >= 0 ? order[idx] : null;
+
+    // windowSize: clamp(2..8, floor(N/10)). Точно как Lichess
+    // AccuracyPercent.scala: `(cps.size / 10).squeeze(2, 8)`.
+    const windowSize = Math.max(
+      2,
+      Math.min(8, Math.floor(winPercents.length / 10)),
+    );
+
+    // Веса: stddev win% в sliding-окне, clamp(0.5..12). Lichess:
+    // `.so(_.squeeze(0.5, 12))`.
+    const weights = perMove.map((_, i) => {
+      const start = Math.min(i, Math.max(0, winPercents.length - windowSize));
+      const window = winPercents.slice(start, start + windowSize);
+      const sd = standardDeviation(window);
+      return Math.max(0.5, Math.min(12, sd));
+    });
+
+    const sumW = weights.reduce((a, b) => a + b, 0);
+    const weighted =
+      sumW > 0
+        ? perMove.reduce((s, a, i) => s + a * weights[i], 0) / sumW
+        : perMove.reduce((s, a) => s + a, 0) / perMove.length;
+
+    const harmonic =
+      perMove.length /
+      perMove.reduce((s, a) => s + 1 / Math.max(a, 1), 0);
+
+    return clamp01_100((weighted + harmonic) / 2);
   }
 
   private outcome(
