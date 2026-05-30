@@ -238,11 +238,15 @@ export interface OpeningRepertoireWithStatsDto extends OpeningRepertoireDto {
  *   - `legacy-import`      — миграция из старого `OpeningRepertoire.pgn`
  *                            (один-source-fallback для существующих
  *                            до multi-source репертуаров).
+ *   - `archive-position`   — KS-3467/KS-3475 (ADR-090). Партия из архива
+ *                            2400+ по заданной позиции (FEN-based сборка
+ *                            репертуара через UI «Создать из мастер-партий»).
  */
 export type OpeningRepertoireSourceKind =
   | 'pgn-upload'
   | 'workshop-analysis'
-  | 'legacy-import';
+  | 'legacy-import'
+  | 'archive-position';
 
 export interface OpeningRepertoireSourceDto {
   id: string;
@@ -260,6 +264,11 @@ export interface OpeningRepertoireSourceDto {
    * мастерской. Опц. для прочих kinds.
    */
   sourceAnalysisId: string | null;
+  /**
+   * KS-3475 (ADR-090 §8). Для `sourceKind='archive-position'` — UUID
+   * исходной партии из `archive_games`. `null` для остальных kinds.
+   */
+  archiveGameId: string | null;
   /**
    * Стабильный sort-order (0..N). Не пересчитывается при удалении
    * соседних источников; фронт сортирует по этому полю.
@@ -430,6 +439,20 @@ export interface OpeningRepertoireSourceInput {
    * из PGN-header'а или `PGN N`).
    */
   name?: string;
+  /**
+   * KS-3475 (ADR-090 §8). Тип источника. Опц. — backend по умолчанию
+   * проставляет `'pgn-upload'`. Передавайте `'archive-position'` для
+   * репертуаров, собранных по FEN из мастер-партий 2400+ (ADR-090),
+   * либо `'workshop-analysis'` для конверсии из мастерской.
+   */
+  sourceKind?: OpeningRepertoireSourceKind;
+  /**
+   * KS-3475 (ADR-090 §8). Для `sourceKind='archive-position'` — UUID
+   * исходной партии из `archive_games` для трассировки «открыть исходную
+   * партию». Опц. для остальных kinds. Без FK на стороне БД — archive
+   * может переиндексироваться.
+   */
+  archiveGameId?: string;
 }
 
 /**
@@ -480,11 +503,17 @@ export interface CreateRepertoireSourceRequest {
   /**
    * Опц. — backend по умолчанию проставит `'pgn-upload'`. Передаётся
    * `'workshop-analysis'` при использовании конверсии из мастерской
-   * через KS-3293 расширение (см. `CreateOpeningRepertoireFromAnalysisRequest.repertoireId`).
+   * через KS-3293 расширение (см. `CreateOpeningRepertoireFromAnalysisRequest.repertoireId`),
+   * либо `'archive-position'` для сборки из мастер-партий 2400+ (KS-3475).
    */
   sourceKind?: OpeningRepertoireSourceKind;
   /** Для `sourceKind='workshop-analysis'` — UUID анализа. */
   sourceAnalysisId?: string;
+  /**
+   * KS-3475 (ADR-090 §8). Для `sourceKind='archive-position'` — UUID
+   * исходной партии из `archive_games`.
+   */
+  archiveGameId?: string;
 }
 
 /**

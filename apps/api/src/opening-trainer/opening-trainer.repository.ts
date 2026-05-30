@@ -141,8 +141,14 @@ export class OpeningTrainerRepository {
     repertoireId: string;
     pgn: string;
     name?: string | null;
-    sourceKind: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+    sourceKind:
+      | 'pgn-upload'
+      | 'workshop-analysis'
+      | 'legacy-import'
+      | 'archive-position';
     sourceAnalysisId?: string | null;
+    /** KS-3475 (ADR-090 §8). Только для `sourceKind='archive-position'`. */
+    archiveGameId?: string | null;
   }) {
     return this.prisma.openingRepertoireSource.create({
       data: {
@@ -151,6 +157,7 @@ export class OpeningTrainerRepository {
         name: data.name ?? null,
         sourceKind: data.sourceKind,
         sourceAnalysisId: data.sourceAnalysisId ?? null,
+        archiveGameId: data.archiveGameId ?? null,
       },
     });
   }

@@ -88,10 +88,26 @@ export class OpeningTrainerService {
         'Specify either `pgn` (legacy) or `sources` (new), not both',
       );
     }
-    const sourceInputs: Array<{ pgn: string; name?: string | null }> = [];
+    // KS-3475: вместе с pgn/name проносим sourceKind/archiveGameId
+    // (опц.). Backend проставляет default 'pgn-upload' если не указан.
+    const sourceInputs: Array<{
+      pgn: string;
+      name?: string | null;
+      sourceKind?:
+        | 'pgn-upload'
+        | 'workshop-analysis'
+        | 'legacy-import'
+        | 'archive-position';
+      archiveGameId?: string | null;
+    }> = [];
     if (dto.sources && dto.sources.length > 0) {
       for (const s of dto.sources) {
-        sourceInputs.push({ pgn: s.pgn, name: s.name ?? null });
+        sourceInputs.push({
+          pgn: s.pgn,
+          name: s.name ?? null,
+          sourceKind: s.sourceKind,
+          archiveGameId: s.archiveGameId ?? null,
+        });
       }
     } else if (dto.pgn !== undefined && dto.pgn.length > 0) {
       sourceInputs.push({ pgn: dto.pgn, name: null });
@@ -130,11 +146,20 @@ export class OpeningTrainerService {
     try {
       const sources = [];
       for (const s of sourceInputs) {
+        // KS-3475 (ADR-090 §8). sourceKind/archiveGameId — опц., default
+        // 'pgn-upload'. archiveGameId сохраняем только для archive-position.
+        const sk = (s.sourceKind ?? 'pgn-upload') as
+          | 'pgn-upload'
+          | 'workshop-analysis'
+          | 'legacy-import'
+          | 'archive-position';
         const row = await this.repo.createSource({
           repertoireId: shell.id,
           pgn: s.pgn,
           name: s.name ?? null,
-          sourceKind: 'pgn-upload',
+          sourceKind: sk,
+          archiveGameId:
+            sk === 'archive-position' ? s.archiveGameId ?? null : null,
         });
         sources.push(row);
       }
@@ -247,8 +272,14 @@ export class OpeningTrainerService {
     input: {
       pgn: string;
       name?: string | null;
-      sourceKind?: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+      sourceKind?:
+        | 'pgn-upload'
+        | 'workshop-analysis'
+        | 'legacy-import'
+        | 'archive-position';
       sourceAnalysisId?: string | null;
+      /** KS-3475 (ADR-090 §8). Только для `sourceKind='archive-position'`. */
+      archiveGameId?: string | null;
     },
   ): Promise<OpeningRepertoireDetailDto> {
     await this.requireRepertoire(userId, repertoireId);
@@ -258,12 +289,15 @@ export class OpeningTrainerService {
         `Source limit reached: ${OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire} per repertoire`,
       );
     }
+    const sk = input.sourceKind ?? 'pgn-upload';
     await this.repo.createSource({
       repertoireId,
       pgn: input.pgn,
       name: input.name ?? null,
-      sourceKind: input.sourceKind ?? 'pgn-upload',
+      sourceKind: sk,
       sourceAnalysisId: input.sourceAnalysisId ?? null,
+      archiveGameId:
+        sk === 'archive-position' ? input.archiveGameId ?? null : null,
     });
     const { row, tree, sources } = await this.rebuildAndSyncTree(repertoireId);
     return rowToRepertoireDetailDto(row, tree, sources);
@@ -1718,6 +1752,8 @@ interface SourceRow {
   pgn: string;
   sourceKind: string;
   sourceAnalysisId: string | null;
+  /** KS-3475 (ADR-090 §8). */
+  archiveGameId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1734,8 +1770,10 @@ function sourceRowToDto(
     sourceKind: row.sourceKind as
       | 'pgn-upload'
       | 'workshop-analysis'
-      | 'legacy-import',
+      | 'legacy-import'
+      | 'archive-position',
     sourceAnalysisId: row.sourceAnalysisId,
+    archiveGameId: row.archiveGameId ?? null,
     order,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

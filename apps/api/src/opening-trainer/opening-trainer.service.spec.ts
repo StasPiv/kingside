@@ -2680,6 +2680,71 @@ describe('KS-3326 / ADR-078: source endpoints', () => {
     const rootEdges = r2.tree.nodes[r2.tree.rootFen].edges;
     expect(rootEdges.map((e) => e.moveSan)).toEqual(['d4']);
   });
+
+  // ─── KS-3475 (ADR-090 §8): sourceKind='archive-position' + archiveGameId ─
+
+  it('KS-3475: createRepertoire с sourceKind=archive-position сохраняет sourceKind и archiveGameId', async () => {
+    const { svc } = makeSvc();
+    const gameId = '11111111-1111-4111-8111-111111111111';
+    const r = await svc.createRepertoire('u-1', {
+      title: 'из мастер-партии',
+      sources: [
+        {
+          pgn: '1. e4 e5 2. Nf3 Nc6',
+          name: 'Carlsen — Caruana',
+          sourceKind: 'archive-position',
+          archiveGameId: gameId,
+        },
+      ],
+    });
+    expect(r.sources).toHaveLength(1);
+    expect(r.sources[0].sourceKind).toBe('archive-position');
+    expect(r.sources[0].archiveGameId).toBe(gameId);
+  });
+
+  it('KS-3475: дефолт sourceKind остаётся pgn-upload, archiveGameId=null', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 'ручная загрузка',
+      sources: [{ pgn: '1. e4 e5' }],
+    });
+    expect(r.sources[0].sourceKind).toBe('pgn-upload');
+    expect(r.sources[0].archiveGameId).toBeNull();
+  });
+
+  it('KS-3475: addRepertoireSource c sourceKind=archive-position сохраняет archiveGameId', async () => {
+    const { svc } = makeSvc();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: '1. e4 e5',
+    });
+    const gameId = '22222222-2222-4222-8222-222222222222';
+    const r2 = await svc.addRepertoireSource('u-1', r.id, {
+      pgn: '1. d4 d5',
+      sourceKind: 'archive-position',
+      archiveGameId: gameId,
+    });
+    const added = r2.sources.find((s) => s.archiveGameId === gameId);
+    expect(added).toBeDefined();
+    expect(added!.sourceKind).toBe('archive-position');
+  });
+
+  it('KS-3475: archiveGameId игнорируется когда sourceKind НЕ archive-position', async () => {
+    const { svc } = makeSvc();
+    // Прислали archiveGameId с default pgn-upload — backend его не сохраняет.
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      sources: [
+        {
+          pgn: '1. e4 e5',
+          // sourceKind не указан → default pgn-upload
+          archiveGameId: '33333333-3333-4333-8333-333333333333',
+        },
+      ],
+    });
+    expect(r.sources[0].sourceKind).toBe('pgn-upload');
+    expect(r.sources[0].archiveGameId).toBeNull();
+  });
 });
 
 describe('KS-3327 / ADR-078: from-analysis с опц. repertoireId', () => {

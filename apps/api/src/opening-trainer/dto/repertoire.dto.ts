@@ -22,7 +22,7 @@ import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
  */
 
 /**
- * KS-3326 / ADR-078. Один блок-источник внутри
+ * KS-3326 / ADR-078 + KS-3475 (ADR-090 §8). Один блок-источник внутри
  * `CreateRepertoireDto.sources` или `CreateRepertoireSourceDto`.
  */
 export class RepertoireSourceInputDto {
@@ -34,6 +34,26 @@ export class RepertoireSourceInputDto {
   @IsString()
   @MaxLength(200)
   name?: string;
+
+  /**
+   * KS-3475 (ADR-090 §8). Опц., default — `'pgn-upload'`. Для сборки
+   * репертуара по позиции из мастер-партий 2400+ — `'archive-position'`.
+   */
+  @IsOptional()
+  @IsIn(['pgn-upload', 'workshop-analysis', 'legacy-import', 'archive-position'])
+  sourceKind?:
+    | 'pgn-upload'
+    | 'workshop-analysis'
+    | 'legacy-import'
+    | 'archive-position';
+
+  /**
+   * KS-3475 (ADR-090 §8). UUID исходной партии из `archive_games`.
+   * Опц., имеет смысл только при `sourceKind='archive-position'`.
+   */
+  @IsOptional()
+  @IsUUID()
+  archiveGameId?: string;
 }
 
 export class CreateRepertoireDto {
@@ -94,12 +114,24 @@ export class CreateRepertoireSourceDto {
   name?: string;
 
   @IsOptional()
-  @IsIn(['pgn-upload', 'workshop-analysis', 'legacy-import'])
-  sourceKind?: 'pgn-upload' | 'workshop-analysis' | 'legacy-import';
+  @IsIn(['pgn-upload', 'workshop-analysis', 'legacy-import', 'archive-position'])
+  sourceKind?:
+    | 'pgn-upload'
+    | 'workshop-analysis'
+    | 'legacy-import'
+    | 'archive-position';
 
   @IsOptional()
   @IsUUID()
   sourceAnalysisId?: string;
+
+  /**
+   * KS-3475 (ADR-090 §8). Для `sourceKind='archive-position'` — UUID
+   * исходной партии из `archive_games`.
+   */
+  @IsOptional()
+  @IsUUID()
+  archiveGameId?: string;
 }
 
 /**

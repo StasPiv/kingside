@@ -163,6 +163,8 @@ export class OpeningTrainerController {
       name: body.name ?? null,
       sourceKind: body.sourceKind,
       sourceAnalysisId: body.sourceAnalysisId ?? null,
+      // KS-3475: archiveGameId для sourceKind='archive-position'.
+      archiveGameId: body.archiveGameId ?? null,
     });
   }
 
