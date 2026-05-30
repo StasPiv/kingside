@@ -1,10 +1,32 @@
 # ADR-090. Дебютный репертуар из партий 2400+ классика по позиции анализа
 
-Статус: предложен (2026-05-30) — аналитический документ
-Связано: KS-3462 (этот ADR), ADR-077 (RepertoireTree),
+Статус: принят (2026-05-30, ревизия 2)
+Связано: KS-3462 (V1), KS-3463 (V2 этот ADR), ADR-077 (RepertoireTree),
 ADR-078 (multi-source репертуары / KS-3323), ADR-087
-(AnalysisActionsMenu), KS-2475 (Stockfish WASM), ADR-066
-(WDL move-classification).
+(AnalysisActionsMenu), KS-2475 (Stockfish WASM), ADR-066 (WDL
+move-classification).
+
+> **Ревизия 2 (2026-05-30).** Пересмотр по 8 ответам пользователя.
+> Главные изменения от V1:
+> 1. classical-фильтр на фронте УЖЕ есть для архива (`/games?
+>    timeControlCategory=classical`), но в `/games/by-position` его
+>    нет — расширяем DTO.
+> 2. Сортировка партий = по среднему рейтингу. В `by-position`
+>    `sort=topElo` УЖЕ означает `ORDER BY avg_elo DESC` (по
+>    `archive_game_positions.avg_elo`) — то что нужно.
+> 3. Stockfish-валидация — **обязательный шаг**, монолитный поток
+>    клик→загрузка→валидация→готово (не опц. кнопка).
+> 4. При blunder в партии — **выкидываем партию целиком**, берём
+>    следующую. Итеративный сбор до набора N валидных.
+> 5. Фильтр `minAvgElo ≥ 2400` (не minElo обеих сторон). В
+>    `by-position` `minElo` УЖЕ означает avgElo (`p.avg_elo >=
+>    minElo`) — то что нужно.
+> 6. **Дедуп НЕ нужен.** Каждый клик = новый репертуар.
+>    `sourcePositionFen` в миграции лишний.
+> 7. Сторона репертуара — за **СОПЕРНИКА** ходящей стороны (если
+>    в FEN ход белых → репертуар за чёрных). Контринтуитивно
+>    относительно V1.
+> 8. Movetime — UI-выбор 500/1000/2000ms, дефолт 1000.
 
 ## 1. Контекст
 
@@ -12,214 +34,232 @@ ADR-078 (multi-source репертуары / KS-3323), ADR-087
 партиям сильных игроков в классическом контроле. Точка входа —
 окно анализа. Ввожу позицию и нажимаю в контекстном меню "Создать
 репертуар для тренировки". Из архива выбираются последние партии
-игроков 2400+ в классику, объединяются в один PGN, формируем
-тренировку. Важно — проверить все ходы локальным БРАУЗЕРНЫМ
-стокфишем секунда на ход. Глубина не более 40 полуходов».
+игроков 2400+ в классику, объединяются в один PGN. Важно —
+проверить все ходы локальным БРАУЗЕРНЫМ стокфишем секунда на ход.
+Глубина не более 40 полуходов».
 
-Уточнение координатора: Stockfish-валидация **на клиенте** через
-WASM (как в `/analysis`). Backend собирает партии + склеивает
-сырой PGN; frontend прогоняет через локальный движок.
+## 2. Проверено по коду (ревизия 2)
 
-## 2. Проверено по коду (без выдумок)
+### 2.1 archive-service `/games/by-position` — уточнено
 
-### 2.1 Archive-service — поиск по позиции уже есть
+`apps/archive-service/src/archive/dto/archive-games-by-position-query.dto.ts`:
+- `sort: 'recent' | 'topElo'` — **`avgRating`-сортировки как
+  отдельной нет**, но `sort=topElo` в реализации (`archive-stats.
+  repository.ts`) = `ORDER BY p.avg_elo DESC` (поле
+  `archive_game_positions.avg_elo`). **Это и есть «по среднему
+  рейтингу»** — V1 неверно интерпретировал.
+- `minElo: 0..4000` — в реализации `p.avg_elo >= ${minElo}`.
+  **Это и есть avgRating-фильтр** (не AND обеих сторон). V1
+  ошибался.
+- `timeControlCategory`: **НЕТ в DTO** — нужно расширить (JOIN с
+  `archive_games`).
+- `bucket: 'master'|'user'` — **не фильтр Elo**, просто
+  техническая группа; в MVP `master` = все позиции.
 
-`/project/apps/archive-service/src/archive/archive.controller.ts`:
-- **`GET /games/by-position?fen=&minElo=&bucket=&sort=&limit=`** —
-  поиск партий, проходивших через FEN. Реализован через
-  Zobrist-индекс таблицы `archive_game_positions` (NOT raw scan):
-  поля `(positionKey, bucket, gameId)`, индекс `_recent_idx` для
-  `sort=recent` (KS-2139).
-- DTO `archive-games-by-position-query.dto.ts` параметры:
-  `fen`, `bucket: 'master'|'user'`, `sort: 'recent'|'topElo'`,
-  `minElo`, `limit ≤ 50`, `color`, `result`, `cursor`.
-- **`timeControlCategory` в by-position DTO явно не упомянут** —
-  открытый вопрос (§ Open Q1). `bucket='master'` уже даёт высокий
-  рейтинг (по реализации), но фильтр classical может потребовать
-  расширения DTO либо post-фильтра на стороне opening-trainer
-  api после получения списка.
-- Параллельный endpoint `GET /games?timeControlCategory=classical&minElo=2400`
-  — для общего поиска без position-фильтра (есть).
+### 2.2 Фронт-фильтр classical — на странице архива
 
-`archive_games` поля: `pgn`, `whiteName/blackName/whiteElo/blackElo`,
-`timeControl`, `timeControlCategory ('classical' и др.)`,
-`isClassical`, `playedAt`.
+`apps/web/src/components/archive/ArchiveTimeControlChips.tsx`:
+chips-селектор для `timeControlCategory` (Bullet/Blitz/Rapid/
+Classical). Фронт `ArchiveGamesPage` отправляет
+`?timeControlCategory=classical` в **`GET /games`** (НЕ
+`/games/by-position` — там этого параметра ещё нет).
 
-### 2.2 Opening-trainer — multi-source готов (ADR-078)
+### 2.3 opening-trainer multi-source — готов (ADR-078)
 
-`packages/db/prisma/schema.prisma`:
-- `OpeningRepertoire` (id, userId, title, pgn, tree JSONB, side,
-  nodeCount/edgeCount/maxDepth, deletedAt).
-- `OpeningRepertoireSource` (repertoireId, name, pgn, **sourceKind**
-  `'pgn-upload'|'workshop-analysis'|'legacy-import'`,
-  sourceAnalysisId, createdAt) — multi-source поддержка из ADR-078.
+Без изменений от V1. `RepertoireBuilderService.buildTree(sources)`
+с merge по FEN, лимиты 20 sources / 2000 nodes / 5000 edges / 500
+KB pgn. `OpeningRepertoireSource.sourceKind` whitelist —
+расширяем `'archive-position'`.
 
-`apps/api/src/opening-trainer/opening-trainer.controller.ts`:
-- `POST /repertoires` — создание из 1+ источников.
-- `POST /repertoires/from-analysis` (KS-3293, ADR-078 §4) — из
-  Analysis. Опц. `repertoireId` → добавить как источник
-  существующему.
-- `POST /repertoires/:id/sources` — добавить источник в
-  существующий.
+### 2.4 AnalysisActionsMenu — готов (ADR-087)
 
-`repertoire-builder.service.ts`:
-- `buildTree(sources)` — массив PGN → `RepertoireTree` (FEN-keyed
-  JSONB) с merge транспозиций по FEN.
-- `splitPgnIntoGames(pgn)` — split multi-game PGN по результатам
-  (KS-3325).
-- Лимиты: `maxNodes=2000, maxEdges=5000, maxPgnBytes=500 KB,
-  maxSourcesPerRepertoire=20`.
+Группа `'training'` уже имеет «Использовать как новый репертуар» /
+«Добавить в существующий». Добавляем новый item.
 
-`RepertoireEdge` shape (shared, `opening-trainer.ts`): `moveUci,
-moveSan, childFen, nag?, comment?, sourceIds?` — поле `nag` уже
-есть, можно записывать аннотации со Stockfish.
+### 2.5 `useStockfish` — `movetime` отсутствует
 
-### 2.3 AnalysisActionsMenu — точка входа готова
+`apps/web/src/hooks/useStockfish.ts` — опция `movetime?: number` не
+реализована (только `depth`/`infinite`). Расширяем (отдельная
+мелкая задача, F4).
 
-`apps/web/src/components/analysis/AnalysisActionsMenu.tsx`
-(ADR-087): items-source с группой `'training'` уже включает
-«Использовать как новый репертуар» / «Добавить в существующий
-репертуар» (ADR-078). Добавляем новый item в ту же группу.
+### 2.6 Async-инфра — НЕ требуется
 
-### 2.4 WASM Stockfish — готов, но опции `movetime` нет
+Без изменений. Backend синхронный (тонкая proxy-обёртка к
+archive-service); долгий Stockfish — на клиенте в Web Worker'е.
 
-`apps/web/src/hooks/useStockfish.ts` (585 строк):
-- API: `evaluate(fen)`, `stop()`, `init()`, `cleanup()`.
-- Опции: `depth?, multiPv?, infinite?, skillLevel?, prefetch?`.
-- **Опции `movetime` НЕТ** — но Stockfish UCI её поддерживает
-  (`go movetime 1000`). Для требования «1 сек/ход» нужно
-  расширить хук (мелкое изменение, см. KS-(F4) в §10).
-- WASM lite 7 МБ, COOP/COEP обязателен (crossOriginIsolated).
-- MultiPV clamp к легальным ходам (KS-3041). Threads =
-  hardwareConcurrency-1 (308).
-- Очередь анализа: bestmove-callback запускает следующий
-  evaluate. Можно последовательно прогонять сотни позиций.
-- Прогресс: `loadProgress` для WASM-fetch, `lines` для info.
+## 3. Архитектура — монолитный поток на клиенте
 
-### 2.5 Async-инфра — НЕ требуется
-
-В `apps/api/src` нет BullMQ/Redis Queue. Backend задача (сбор
-партий + склейка PGN) — секунды, синхронно. Долгий клиентский
-анализ — внутри браузера с прогресс-баром, никакой бэк-job не
-нужен.
-
-## 3. Архитектура — двухфазная (backend быстро + frontend долго)
-
-### 3.1 Фаза 1 (backend, секунды) — сбор и сборка репертуара
+### 3.1 Поток (после клика)
 
 ```
-Endpoint: POST /opening-trainer/repertoires/from-archive-position
-Body: { fen, side? = auto, limit? = 20, maxHalfMoves? = 40 }
-Auth:  JwtAuthGuard
+1. Клик в AnalysisActionsMenu → модалка:
+   - Подтверждение
+   - Select: Быстро 500ms / Стандарт 1000ms / Точно 2000ms (default 1000)
+   - CTA «Создать»
+
+2. Progress-modal (блокирующий, нельзя закрыть случайно):
+   Шаг 1: «Загружаю партии…»
+   Шаг 2: «Анализирую Stockfish'ом… 3/20 валидных, проверка 12/40»
+   Шаг 3: «Создаю репертуар…»
+   Кнопка «Отмена» (останавливает с partial — см. §3.5).
+
+3. Алгоритм:
+   validGames = []; cursor = null; checkedCount = 0
+   while validGames.length < limit (=20):
+     batch = await GET /opening-trainer/archive-position/games?
+                fen=&limit=10&cursor=
+     if batch.empty: break
+     for game in batch:
+       lineMoves = extractLineFromFen(game.pgn, targetFen, ≤40 ply)
+       if lineMoves.empty: continue          // партия не доходит до FEN
+       allClean = true
+       for ply in lineMoves:                  // итерация по полуходам
+         eBefore = stockfish.evaluate(ply.fenBefore, movetime=user)
+         eAfter  = stockfish.evaluate(ply.fenAfter,  movetime=user)
+         loss    = lossE(eBefore, eAfter, povSide)
+         if loss > 0.25:                      // blunder → выкид
+           allClean = false
+           break                              // экономим Stockfish-время
+       if allClean:
+         validGames.push(buildMiniPgn(game, lineMoves))
+         if validGames.length >= limit: break
+     cursor = batch.nextCursor
+     if checkedCount > maxChecked (=100): break  // safety cap
+   if validGames.length < limit:
+     showAlert(f"Найдено N валидных из {limit}, продолжить?") → yes/no
+   POST /opening-trainer/repertoires { sources: validGames, side,
+                                       title: 'Репертуар из позиции' }
+   → navigate /opening-trainer/{id}
 ```
 
-Алгоритм:
-1. `side = fen.split(' ')[1] === 'w' ? 'white' : 'black'` (если не
-   override в body).
-2. Запрос к archive-service:
-   `GET /games/by-position?fen=<fen>&bucket=master&minElo=2400
-   &sort=recent&limit=<limit>` (+ `timeControlCategory=classical`
-   если расширим DTO — см. Open Q1).
-3. Если получено 0 партий → 422 `no_games_for_position`.
-4. Для каждой партии:
-   - Парс PGN через chess.js#loadPgn.
-   - Идём по `history()`, отслеживая FEN. Находим индекс ply, где
-     `position_key(current_fen) === position_key(target_fen)`
-     (сравниваем без halfmove-clock и fullmove-counter).
-   - Если позиция не найдена в этой партии (mismatch индекса
-     archive vs тут) → skip (логируем как метрику).
-   - Вырезаем ходы с этого индекса до min(end_of_game, +40
-     полуходов).
-   - Формируем mini-PGN: заголовки [Event/White/Black/Date/Result/
-     WhiteElo/BlackElo] + movetext вырезанных ходов. Стартовая
-     позиция этого mini-PGN = `[FEN "<target_fen>"]` + `[SetUp
-     "1"]` теги (стандарт PGN для не-стартовой позиции).
-5. Создаём `OpeningRepertoire` через `RepertoireBuilderService.
-   buildTree(sources=mini_pgns)` — merge по FEN происходит
-   автоматически.
-6. Каждый source: `name='<White> ({whiteElo}) vs <Black>
-   ({blackElo}) — <Event> <Date>'`, `sourceKind='archive-position'`
-   (новое значение whitelist), новое опц. поле `archiveGameId
-   String?` (трассировка).
-7. `OpeningRepertoire.title` = «Репертуар из <opening?> позиции»
-   (или генерируется fallback'ом из FEN).
-8. Опц. поле `OpeningRepertoire.sourcePositionFen String?` —
-   трассировка + дедуп.
-9. Возвращает `{ repertoireId, url: '/opening-trainer/' + id,
-   sourceCount: N, fen, side }`.
+### 3.2 Сторона репертуара — ИНВЕРСИЯ ходящей
 
-**Время фазы 1:** секунды. Сетевой round-trip к archive-service
-+ парсинг PGN'ов + сборка дерева. Без движка.
+`side = fen.activeColor === 'w' ? 'black' : 'white'`.
 
-### 3.2 Фаза 2 (frontend, минуты) — Stockfish-валидация
+Объяснение: пользователь подаёт позицию ПЕРЕД ходом соперника.
+Если в FEN ход белых — это позиция, в которой сейчас сходят
+белые, а **пользователь готовится отвечать чёрными**. Репертуар
+тренирует ответы пользователя. Контринтуитивно относительно
+«ходящий = ученик»; обязательно комментарий в коде + i18n-
+подсказка в UI («Готовим репертуар за <чёрных/белых>»).
 
-На странице репертуара после создания (или сразу из toast'а
-после фазы 1) — баннер с CTA **«Проверить ходы Stockfish'ом
-(~N минут)»** + предварительная оценка времени.
+### 3.3 Выкидывание партий с blunder'ом (П4)
 
-Алгоритм:
-1. Загрузка `repertoire.tree` (если не загружено).
-2. Сбор уникальных позиций для анализа: проход по `tree.nodes`,
-   для каждой ноды → все исходящие edges. **Уникальные FEN'ы**
-   (дедуп через `tree.nodes` — структура уже хранит позиции по
-   FEN-ключу, дубликатов нет).
-3. Для каждой пары `(parentFen, edge)`:
-   - `evaluate(parentFen, { movetime: 1000, multiPv: 2 })` →
-     bestMove + eval_before (если parentFen уже анализирован для
-     другого edge — переиспользуем кэш).
-   - `evaluate(childFen, { movetime: 1000 })` → eval_after.
-   - Конвертируем eval (cp/mate) в win-probability (через
-     существующие `wdl.ts` утилиты).
-   - Считаем `loss_E = max(0, eBefore - eAfter)` (с POV-инверсией
-     по ходящей стороне).
-   - NAG по порогам ADR-066:
-     - `loss > 0.25` → `$4` (??)
-     - `loss > 0.12` → `$2` (?)
-     - `loss > 0.05` → `$6` (?!)
-     - `≤ 0.05` → нет NAG
-   - Опц. `comment = 'loss N%'`.
-4. Прогресс UI: «Проанализировано 156 / 800 ходов (~7 мин
-   осталось)».
-5. После завершения — `POST /opening-trainer/repertoires/:id/annotate`
-   с массивом `{ parentFen, moveUci, nag, comment? }`. Backend
-   обновляет `tree.nodes[parentFen].edges[i].nag/comment`.
-6. UI обновляется — пользователь видит дерево с NAG'ами и может
-   тренироваться, понимая «где в репертуаре игроки 2400+ играли
-   слабее».
+Порог: `loss > 0.25` (= blunder ADR-066). Любой полуход в линии
+с loss > 0.25 → партия выкидывается ЦЕЛИКОМ, не идёт в репертуар.
+Berём следующую из cursor'а.
 
-**Оценка времени Stockfish'а:**
-- 20 партий × 40 полуходов = 800 ходов теоретический максимум.
-- Реально меньше из-за дедупа транспозиций (на дебютной стадии
-  ~30-50% позиций повторяются). Эмпирически: ~400-600 уникальных
-  парс позиций.
-- Каждая пара (parent+child) = 2× movetime=1s. Если переиспользуем
-  parent-eval для разных edges (multiPV сразу даёт PV1=best и
-  eval) → один прогон на parent + один на child (worst case).
-- Итого ~10-20 мин на репертуар из 20 партий.
+**Почему выкидываем целиком, а не обрезаем до blunder'а:**
+методически — линия с зевком теряет статус «теория сильных
+игроков», нерелевантна. Обрезание дало бы партиальную линию, что
+размывает источник.
 
-**Это много.** Митигации:
-- Лимит N=20 по умолчанию (пользователь видит «~15 минут» перед
-  стартом).
-- Анализировать только **уникальные** parent-FEN'ы (с multiPV=N
-  получаем все основные продолжения за один прогон, не отдельный
-  evaluate для каждого edge).
-- Можно остановить (`stop()` + сохранить partial annotations).
-- Background tab OK — Stockfish работает в Web Worker'е.
+Экономия Stockfish-времени: при первом же blunder'е прерываем
+анализ оставшихся полуходов в этой партии. Среднее время на
+выкинутую партию — порядка ~5-10 ходов × movetime, не полные 40.
 
-### 3.3 Фильтрация «плохих» линий — отдельный вопрос
+### 3.4 Итеративная подкачка + safety cap
 
-Что значит «проверить»: (а) аннотировать NAG'ами по loss; (б)
-обрезать линии после blunder'а (партия с зевком — нерелевантна
-для дебютной теории); (в) фильтровать линии по среднему loss.
+`maxChecked = 100` (опц. константа): если проверили 100 партий и
+не набрали 20 валидных — стоп, спрашиваем «продолжить с N
+валидными?». Защита от зависания на «грязных» позициях.
 
-**Решение M1: (а) только аннотация NAG.** Не фильтруем — позволяем
-пользователю видеть «вот тут игрок 2400 сделал зевок» в самом
-дереве (это полезная информация). Фильтр (б)/(в) — Open Q3 для
-пользователя, M2.
+Эмпирическая оценка процента валидных: на мастер-партиях 2400+
+classical в дебютной фазе blunder'ы редки. Ожидаем 60-80%
+валидных, то есть для 20 валидных подкачаем ~25-35 партий.
 
-## 4. Точка входа в UI
+### 3.5 Отмена
 
-В `AnalysisActionsMenu` группа `'training'` — новый item:
+Кнопка «Отмена» в progress-modal:
+- Если набрано ≥ 1 валидной партии — показать «Создать репертуар
+  из N валидных?» с CTA Yes/No.
+- Если 0 — закрыть, ничего не сохранять.
+
+### 3.6 Что НЕ делаем (M1)
+
+- **НЕ ставим NAG-аннотации** в M1 (V1 предполагал). При
+  mistake/inaccuracy (loss ∈ (0.05, 0.25]) — игнорируем, партия
+  идёт в репертуар без NAG. M2 — опц. NAG для разметки внутри
+  валидных партий.
+- **НЕ делаем дедуп** по FEN — каждый клик = новый репертуар
+  (П6).
+- **НЕ серверный Stockfish** (уточнено пользователем — клиент
+  WASM).
+- **НЕ async-job-инфра** — backend синхронный, frontend в
+  браузере.
+- **НЕ обрезаем линии** до blunder'а (выкидываем целиком, §3.3).
+
+## 4. API
+
+### 4.1 archive-service — расширение `/games/by-position`
+
+Добавить в DTO опц. `timeControlCategory: ArchiveTimeControlCategory[]`
+(массив, по образцу `/games`). Реализация — JOIN с `archive_games`
+по `game_id`, фильтр `time_control_category IN (...)`.
+
+Уже существующее семантическое соответствие требованиям:
+- `minElo` = avgElo фильтр ✓ (П5).
+- `sort=topElo` = ORDER BY avg_elo DESC ✓ (П2).
+- `bucket='master'` = все позиции (используем).
+
+### 4.2 opening-trainer api — новый GET-proxy
+
+```
+GET /opening-trainer/archive-position/games
+  ?fen=&limit=10&cursor=
+Auth: JwtAuthGuard
+```
+
+Тонкая прокси-обёртка над archive-service:
+- Внутренне вызывает `archive-service /games/by-position` с
+  фиксированными default-параметрами: `minElo=2400, sort=topElo,
+  bucket=master, timeControlCategory=classical, color=any` +
+  `limit, cursor, fen` из request.
+- Owner-check (auth user — гость 401).
+- Без дополнительной логики (валидация, вырезание линии, Stockfish
+  — на клиенте).
+
+Это **единственный новый backend-endpoint**. V1-эндпоинт `POST
+/repertoires/from-archive-position` НЕ нужен — фронт собирает PGN
+сам и шлёт в существующий `POST /opening-trainer/repertoires` с
+sources (multi-source ADR-078).
+
+### 4.3 Создание репертуара — существующий `POST /repertoires`
+
+Фронт собирает `OpeningRepertoireSource[]` (по образцу ADR-078):
+- `pgn` — mini-PGN с `[FEN]+[SetUp "1"]` тегами, вырезанная линия
+  + заголовки исходной партии (White/Black/Elo/Event/Date).
+- `name` — «<White> ({whiteElo}) — <Black> ({blackElo})» (
+  локализованный label).
+- `sourceKind = 'archive-position'` (новое значение whitelist).
+- Опц. `archiveGameId` — для трассировки «открыть исходную
+  партию».
+
+POST body:
+```
+{ title: 'Репертуар: ' + opening | fen-fallback,
+  side: 'white'|'black',  // см. §3.2
+  sources: [ { pgn, name, sourceKind: 'archive-position',
+               archiveGameId } × N ] }
+```
+
+Уже существующий endpoint работает, нужна только расширение
+whitelist `sourceKind`.
+
+## 5. Frontend — `useStockfish` расширение
+
+`apps/web/src/hooks/useStockfish.ts`:
+- Опция `movetime?: number` (ms). Если задана — отправляется `go
+  movetime N` вместо `go depth M`. Приоритет:
+  `movetime > infinite > depth`.
+- Совместимо с существующими: при не-заданном `movetime`
+  поведение прежнее.
+- В реальной фиче — `movetime` из UI-select'а (500/1000/2000) +
+  сохранение выбора в localStorage.
+
+## 6. Точка входа
+
+В `AnalysisActionsMenu` группа `'training'`:
 
 ```
 {
@@ -227,243 +267,170 @@ Auth:  JwtAuthGuard
   group: 'training',
   label: t('analysis.actions.createRepertoireFromArchive',
            'Создать репертуар из мастер-партий 2400+'),
-  onClick: () => createRepertoireFromArchive(currentFen),
-  enabledFor: 'auth',  // гостю disabled с подсказкой «Войдите»
+  onClick: () => openCreateRepertoireFromArchiveModal(currentFen),
+  enabledFor: 'auth',  // гостю disabled + подсказка «Войдите»,
 }
 ```
 
-После клика — модалка подтверждения с предупреждением: «Будет
-собрано до 20 партий и проанализировано Stockfish'ом локально
-(~15 минут). Готов?». При «Да» → POST endpoint фазы 1 → toast
-«Репертуар создан, открыть для анализа?» → navigate
-`/opening-trainer/:id`, где автоматически стартует фаза 2 (или
-кнопкой).
+Модалка → progress → создание → navigate.
 
-## 5. Сторона репертуара
+## 7. Лимиты и параметры
 
-`side = fen.activeColor`. Из FEN автоматически — это сторона
-которая ходит из позиции (= кто будет тренироваться играть
-дальше). Без явного выбора пользователя в M1. M2 — override.
-
-## 6. Лимиты и фильтры
-
-- N партий по умолчанию: **20** (Open Q2). Max 50 (archive
-  limit).
-- Глубина: **40 полуходов** (требование пользователя). Существующие
-  `OpeningRepertoireSource.pgn` лимиты (500 КБ) с запасом.
-- Tree-лимиты `maxNodes=2000, maxEdges=5000` — 20 партий × 40
-  ходов = 800 ходов до merge → после merge сильно меньше →
-  укладывается. Если превысит — 400 как сейчас.
-- Фильтр `minElo ≥ 2400` обязательно. Применять к **обеим**
-  сторонам (`whiteElo ≥ 2400 AND blackElo ≥ 2400`) — иначе
-  попадут партии где сильный играет против слабого, теория
-  размыта. Это Open Q (текущий archive-service фильтр работает
-  как `whiteElo OR blackElo ≥ minElo`? Уточнение — см. Open Q4).
-- `timeControlCategory='classical'` обязательно (Open Q1 — есть
-  ли в by-position DTO или нужно расширить).
-- Нет партий → 422 `no_games_for_position` + UI «По этой позиции
-  нет партий 2400+ classical в архиве».
-
-## 7. Дедуп репертуаров
-
-Поле `OpeningRepertoire.sourcePositionFen String?` (новое в
-миграции). При повторном создании на той же FEN — ищем
-существующий `findFirst({ userId, sourcePositionFen: fen })`.
-Если есть → UI вопрос «У вас уже есть репертуар по этой позиции,
-открыть его или создать новый?». Не блокируем повторное создание
-(пользователь может захотеть свежие партии).
+- `limit = 20` валидных партий (default, после P2 ответ).
+- `maxChecked = 100` партий (safety cap).
+- `maxHalfMoves = 40` (требование пользователя).
+- `blunderThreshold = 0.25` (loss_E, по ADR-066).
+- `movetime` ∈ {500, 1000, 2000} ms (UI-выбор, default 1000).
+- Существующие tree-лимиты (2000 nodes / 5000 edges / 500 KB pgn)
+  — должно укладываться: 20 партий × 40 ходов = 800 ходов до
+  merge, после merge меньше.
 
 ## 8. Хранение результата
 
-- `OpeningRepertoire` — обычная запись с `pgn` (concat
-  source-PGN), `tree`, `side`, новое опц. поле
-  `sourcePositionFen`.
-- `OpeningRepertoireSource[]` — N источников (N партий из
-  архива). `sourceKind='archive-position'` (новое значение
-  whitelist), новое опц. поле `archiveGameId String?` (для
-  обратной ссылки «открыть исходную партию»).
+- `OpeningRepertoire` — обычная запись. **Поле
+  `sourcePositionFen` НЕ добавляем** (П6 — дедуп не нужен).
+- `OpeningRepertoireSource[]`:
+  - `sourceKind = 'archive-position'` (новое значение whitelist).
+  - Новое опц. поле `archiveGameId String?` для трассировки.
+  - `name`: «<White> ({Elo}) — <Black> ({Elo}), <Event> <Date>».
 
-## 9. Что НЕ делаем (явно)
+## 9. Что изменилось vs V1
 
-- НЕ запускаем Stockfish на бэке (уточнение пользователя —
-  только клиент-WASM).
-- НЕ создаём async-job-инфру (BullMQ etc) — фаза 1 синхронна
-  (секунды), фаза 2 на клиенте.
-- НЕ фильтруем «плохие» линии в M1 (только NAG-аннотации, Open
-  Q3).
-- НЕ объединяем с уже существующим репертуаром автоматически
-  (повторный клик может создать новый с фильтром-предупреждением
-  §7).
-- НЕ поддерживаем гостей (требует Auth — как все opening-trainer
-  endpoints).
-- НЕ ставим NAG'и на edges, не прошедших Stockfish-анализ (если
-  фаза 2 остановлена — partial annotations, ничего не ломаем).
+| Аспект | V1 (отменён) | V2 (актуально) |
+|---|---|---|
+| Поток | 2 фазы (sync backend + опц. кнопка анализа) | Монолит на клиенте |
+| Stockfish | Опц. шаг | Обязательный, при создании |
+| Blunder-обработка | NAG-аннотация | Выкидывание партии целиком |
+| Дедуп | По `sourcePositionFen` | НЕТ |
+| Side | Из FEN activeColor (ходящий) | Из FEN, **инверсия** (соперник) |
+| Movetime | Фикс 1000ms | UI-выбор 500/1000/2000, default 1000 |
+| Backend endpoints | POST /from-archive-position + POST /annotate | Только GET proxy /archive-position/games |
+| Сбор партий | Один запрос на 20 | Итеративный (cursor + safety cap 100) |
+| classical filter | Open Q (расширить DTO) | Подтверждено — расширить |
+| minElo семантика | Open Q (AND/OR/avg) | Подтверждено — avgElo (уже работает) |
+| Sort | Open Q (recent vs topElo) | topElo = avg_elo DESC (то что нужно) |
 
-## 10. Реализация — follow-up задачи
+## 10. Реализация — follow-up задачи (пересмотр)
 
-Зависимости: B0 → B1 → B2 → F1 → F2 (+ F4 параллельно F2). L1
-после F1/F2.
+Зависимости: B0 → B1 → B2 → F4 → F1/F2 → L1.
 
-### KS (B0) — миграция Prisma + расширение sourceKind whitelist
+### KS (B0) — миграция (упрощённая)
 
 **Assignee:** backend (prisma). **Labels:** `puzzle`, `analysis`,
 `prisma`.
-- В `OpeningRepertoire`: поле `sourcePositionFen String?
-  @map("source_position_fen")` + индекс `[userId, sourcePositionFen]`.
-- В `OpeningRepertoireSource`: поле `archiveGameId String? @db.Uuid
-  @map("archive_game_id")`.
-- CHECK для `sourceKind` — добавить `'archive-position'` в
-  whitelist.
-- Acceptance: `prisma:migrate` чистый; existing-запись dedup
-  работает.
+- `OpeningRepertoireSource.archiveGameId String?` — для трассировки.
+- `sourceKind` whitelist += `'archive-position'`.
+- **БЕЗ `sourcePositionFen`** (V2 убрал, П6).
+- Acceptance: миграция чистая.
 
-### KS (B1) — расширение archive-service by-position DTO (если нужно)
+### KS (B1) — archive-service: расширить `/games/by-position` DTO
 
 **Assignee:** backend (archive-service). **Labels:** `analysis`,
 `puzzle`.
-**Зависит:** Open Q1.
-- Если в `GET /games/by-position` нет `timeControlCategory` →
-  добавить опц. параметр (массив или одно значение). Backend
-  фильтрует через JOIN на `archive_games` по этому полю.
-- Также проверить семантику `minElo` (whiteElo OR blackElo vs AND)
-  — добавить параметр `minEloBothSides?: boolean` (default true для
-  нашей фичи).
-- Acceptance: фильтр работает, юнит-тесты.
+- Опц. параметр `timeControlCategory: ArchiveTimeControlCategory[]`.
+- Реализация: JOIN с `archive_games`, фильтр
+  `time_control_category IN (...)`. По умолчанию пусто (без фильтра).
+- НЕ добавляем `minAvgElo` / `sort=avgRating` — уже есть как
+  `minElo` / `sort=topElo` (V1 ошибочно требовал).
+- Acceptance: фильтр работает; юнит-тесты.
 
-### KS (B2) — endpoint `POST /repertoires/from-archive-position`
+### KS (B2) — opening-trainer api: GET-proxy
 
 **Assignee:** backend. **Labels:** `puzzle`, `analysis`.
-**Зависит:** B0, B1.
-- `OpeningTrainerController.createFromArchivePosition(userId,
-  { fen, side?, limit?, maxHalfMoves? })`.
-- Вызов archive-service → split каждой партии → вырезание линии
-  от target FEN (по position-key) → mini-PGN с `[FEN]`+`[SetUp "1"]`
-  → `RepertoireBuilderService.buildTree(sources)` →
-  персист `OpeningRepertoire` + sources с `sourceKind='archive-position'`,
-  `archiveGameId`, `sourcePositionFen`.
-- Dedup по `sourcePositionFen` (если есть — вернуть существующий
-  с флагом `existing=true`, не блокировать создание нового
-  через query `?force=true`).
-- 422 `no_games_for_position`. 400 при превышении tree-лимитов.
-- Acceptance: 5 тестов (happy-path, 0 партий, дедуп, force,
-  лимиты).
-
-### KS (F1) — пункт меню «Создать репертуар из мастер-партий»
-
-**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
-**Зависит:** B2, ADR-087 AnalysisActionsMenu.
-- Добавить item в группу `training` items-source
-  `analysisActionsMenu.ts`. Auth-gating.
-- Модалка подтверждения «~15 минут анализа Stockfish'ом» →
-  POST → toast + navigate `/opening-trainer/:id`.
-- Acceptance: пункт виден, гость — disabled+подсказка; happy-path
-  создаёт репертуар; обработка 422 (нет партий) — toast.
-
-### KS (F2) — Stockfish-валидация на клиенте (фаза 2)
-
-**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
-**Зависит:** B2, F4 (для movetime).
-- На странице `/opening-trainer/:id` — баннер «Проверить ходы
-  Stockfish'ом (~N мин)» если репертуар создан из
-  archive-position и ещё не аннотирован (флаг
-  `stockfishValidatedAt?: DateTime` опц. в схеме или derived).
-- Алгоритм §3.2: обход `tree.nodes`, evaluate parent с
-  multiPv=N (получаем все edges за один прогон), сравниваем
-  edges. Прогресс-bar (X/Y, время осталось).
-- POST `/repertoires/:id/annotate` с массивом
-  `{ parentFen, moveUci, nag, comment? }`. Backend обновляет
-  `tree`.
-- Кнопка «Остановить» (`stop()` + сохранить partial).
-- Acceptance: на 20 партиях анализ идёт без зависаний; прогресс
-  обновляется; остановка корректно сохраняет partial; после
-  завершения tree-view показывает NAG'и.
-
-### KS (B3) — endpoint `POST /repertoires/:id/annotate`
-
-**Assignee:** backend. **Labels:** `puzzle`, `analysis`.
-**Зависит:** B0.
-- Body: `{ annotations: [{ parentFen, moveUci, nag?, comment? }] }`.
-- Owner-check. Обновляет `tree.nodes[parentFen].edges` через
-  in-memory patch + persist. Опц. флаг `stockfishValidatedAt`.
-- Acceptance: tree корректно обновляется; повторный вызов
-  идемпотентен (override прежних annotations).
+**Зависит:** B1.
+- `GET /opening-trainer/archive-position/games?fen=&limit=&cursor=`
+  с `@UseGuards(JwtAuthGuard)`.
+- Внутри: вызов archive-service `/games/by-position` с фиксированными
+  default'ами: `minElo=2400, sort=topElo, bucket=master,
+  timeControlCategory=classical`.
+- Прозрачно возвращает batch + nextCursor (формат как
+  archive-service).
+- Acceptance: gосто доступа гостем — 401; batch + cursor работают;
+  filter classical применён.
 
 ### KS (F4) — расширение `useStockfish` опцией `movetime`
 
 **Assignee:** frontend. **Labels:** `analysis`.
-- В `UseStockfishOptions` добавить `movetime?: number` (миллисек).
-  Если задан — отправлять `go movetime N` вместо `go depth M`.
-  Совместимо с существующими опциями (приоритет: movetime >
-  infinite > depth).
-- Acceptance: при `movetime=1000` движок прерывается через ~1с,
-  возвращает bestmove + lines. Тест регрессии — `depth=20`
+- В `UseStockfishOptions` добавить `movetime?: number` (мс).
+  Если задан — `go movetime N`. Приоритет: movetime > infinite >
+  depth.
+- Совместимо с существующим.
+- Acceptance: `movetime=1000` → bestmove через ~1с; `depth=20`
   по-прежнему работает.
 
-### KS (L1) — UI прогресса фазы 2 + баннера на странице репертуара
+### KS (F1) — пункт меню «Создать репертуар из мастер-партий 2400+»
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** ADR-087 AnalysisActionsMenu.
+- Item в группу `'training'`. Auth-gating (disabled+подсказка
+  для гостя).
+- Acceptance: пункт виден, гость — disabled; клик открывает
+  модалку (см. F2).
+
+### KS (F2) — монолитный поток: модалка + сбор + Stockfish + создание
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** B2, F4, F1.
+- Модалка-старт: подтверждение + select movetime (500/1000/2000)
+  + CTA «Создать». LocalStorage запоминает выбор.
+- Progress-modal (блокирующий, кнопка «Отмена»):
+  - Этап 1: GET /opening-trainer/archive-position/games (cursor).
+  - Этап 2: для каждой партии — вырезание линии (chess.js
+    parsePgn + проход истории + поиск target FEN по position-key),
+    итерация Stockfish-анализом (movetime), early-exit на
+    blunder.
+  - Этап 3: POST /opening-trainer/repertoires с
+    sources=validGames.
+- Итеративная подкачка cursor'ом до набора `limit=20` валидных
+  или `maxChecked=100` или конца cursor'а.
+- При partial-результате (< 20 валидных и пустой cursor / cap) —
+  диалог «Найдено N, продолжить?».
+- side по правилу §3.2 (инверсия activeColor).
+- После create — navigate `/opening-trainer/:id`.
+- Acceptance: монолитный поток работает; blunder выкидывает
+  партию; итеративная подкачка; partial-диалог; cancel
+  очищает; navigate в репертуар.
+
+### KS (L1) — CSS progress-modal + select movetime
 
 **Assignee:** layout. **Labels:** `puzzle`, `analysis`, `mobile`.
 **Зависит:** F2.
-- CSS прогресс-бара (X/Y, ETA), кнопки старт/стоп, баннера
-  «Проверить ходы».
-- На mobile — фиксированный bottom-card с прогрессом.
-- Acceptance: viewport 360×844 — прогресс читается без скролла;
-  обе темы.
+- Progress-modal: блокирующий overlay, прогресс-bar (валидных/
+  проверено/лимит), текущая партия и текущий ход, кнопка
+  «Отмена».
+- Movetime select: pill-toggle или select.
+- Mobile-адаптив (читается на 360×844).
+- Acceptance: на mobile прогресс виден, кнопка «Отмена»
+  доступна.
 
-## 11. Открытые вопросы (для пользователя)
+**Из V1 убраны:**
+- B0 поле `sourcePositionFen` (V2 — дедуп не нужен).
+- B2 V1 (`POST /from-archive-position`) — V2 использует
+  существующий `POST /opening-trainer/repertoires`.
+- B3 (`POST /annotate`) — V2 без NAG в M1.
 
-Список — координатор спросит:
+## 11. Открытые вопросы (V2 — что осталось)
 
-1. **`timeControlCategory='classical'` в by-position DTO.**
-   Сейчас параметра нет в `GET /games/by-position`. Решения: (а)
-   расширить DTO (рекомендую) — KS (B1); (б) фильтровать на
-   backend api после получения списка (медленнее, может
-   возвращать меньше N партий после фильтра); (в) полагаться на
-   `bucket='master'` (если уже подразумевает classical — нужно
-   проверить implementation в archive-service). Что делаем?
-
-2. **N партий по умолчанию.** Я предлагаю **20** (~15 мин
-   Stockfish-анализа на клиенте). Альтернативы: 10 (быстрее, но
-   мало материала), 50 (богаче, но ~40 мин анализа). Что
-   комфортно?
-
-3. **«Проверить все ходы» = что именно делать?**
-   - (а) **Аннотировать NAG'ами** по loss (моё M1-решение, см.
-     §3.2).
-   - (б) Дополнительно **обрезать линии** после blunder'а
-     (партия с зевком нерелевантна теории).
-   - (в) **Фильтровать** партии по среднему loss (не включать
-     партии где обе стороны играли неточно).
-   - Что включаем в M1?
-
-4. **`minElo` к ОБЕИМ сторонам** (`whiteElo AND blackElo ≥ 2400`)
-   vs одной (`OR`). Я рекомендую AND (иначе попадут партии
-   сильный vs слабый, теория размыта). Подтвердить + проверить
-   текущую семантику archive-service.
-
-5. **Дедуп репертуаров.** Повторный клик на той же FEN — модалка
-   «У вас уже есть репертуар по этой позиции, открыть или
-   создать новый?» (моё решение). Альтернатива — всегда
-   обновлять существующий новыми партиями. Что хотим?
-
-6. **Stockfish-валидация — обязательная или опц. шаг.** Я сделал
-   опц. (кнопкой на странице репертуара, можно пропустить и
-   тренироваться без annotations). Альтернатива — модалка
-   «нельзя продолжить пока не проанализировано». Что хотим?
-   (~15 мин ожидания — много для обязательного шага.)
-
-7. **«Сторона репертуара»** — из FEN автоматически (моё
-   решение) vs явный выбор в модалке. Подтвердить.
-
-8. **Опция override в фазе 2** — пользователь хочет менять
-   movetime/depth для Stockfish-валидации (например,
-   быстро=500ms, точно=2000ms)? M1 — фикс 1000ms.
+1. **При mistake/inaccuracy (loss ∈ (0.05, 0.25])** — игнорировать
+   (моё M1) или ставить NAG в варианте? Рекомендую игнорировать;
+   NAG — отдельной M2-задачей.
+2. **Partial-результат** (< 20 валидных + конец cursor'а):
+   диалог «Создать с N?» (моё) vs автоматически создать без
+   вопроса?
+3. **`maxChecked=100`** — приемлемо как safety cap? Если на
+   практике на популярных позициях окажется недостаточно (мало
+   валидных) — поднять до 200.
+4. **Owner-check на GET-proxy** или открытый endpoint (archive-
+   service уже без auth)? Я оставил `JwtAuthGuard` (consistency
+   с остальным opening-trainer + предохранитель от спама).
+5. **POV-нормализация loss** — для POV выбранной стороны (= side
+   репертуара, не activeColor исходной позиции). Реализация —
+   `lossE(eBefore, eAfter, side)` с инверсией eAfter.
+   Архитектурно зафиксировано, в реализации уточнить.
 
 ## 12. Откат
 
-- Endpoint additive — удаление не ломает existing.
-- Поля `sourcePositionFen` / `archiveGameId` — additive.
-- `sourceKind='archive-position'` — additive в whitelist.
-- Frontend кнопка за feature-flag `repertoireFromArchiveEnabled`.
+- B0/B1/B2/F4/F1/F2/L1 — все additive. Feature-flag
+  `repertoireFromArchiveEnabled` для фронт-кнопки.
 - Существующие созданные репертуары остаются обычными
-  multi-source — без annotations или с partial annotations
-  работают.
+  multi-source — без изменений после отката.
