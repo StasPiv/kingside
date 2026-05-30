@@ -95,7 +95,9 @@ describe('BlindBoardService.createSession', () => {
     expect(createArgs.data.nextTargetPiece).toBeTruthy();
     expect(createArgs.data.currentCompMove).toBeTruthy();
 
-    // DTO клиенту: только координаты nextMove + агрегаты. Без типов фигур.
+    // DTO клиенту: координаты nextMove + агрегаты + startPosition
+    // (KS-3448 фаза memorize). currentPosition внутри session НЕ
+    // раскрывается — анти-чит §5 действует на answer-запросах.
     expect(res.session.id).toBe('s1');
     expect(res.session.status).toBe('active');
     expect(res.session.round).toBe(1);
@@ -104,8 +106,10 @@ describe('BlindBoardService.createSession', () => {
       to: createArgs.data.currentCompMove.to,
     });
     expect(res.session.streak).toBe(0);
-    // Анти-чит: в ответе нет ни startPosition (в M1), ни типа фигуры.
-    expect((res as any).startPosition).toBeUndefined();
+    // KS-3448: startPosition = ровно 5 фигур (Q/R/N/B/B) для memorize.
+    expect(res.startPosition).toHaveLength(5);
+    const types = res.startPosition.map((p) => p.type).sort();
+    expect(types).toEqual(['B', 'B', 'N', 'Q', 'R']);
   });
 });
 

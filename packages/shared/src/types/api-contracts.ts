@@ -2253,13 +2253,16 @@ export interface BlindBoardSessionDto {
  * рандомизация на сервере). Auth: M1 — JwtAuthGuard обязателен
  * (гость без persist — ADR §8 / §11 B2 решение).
  *
- * Опциональный `showStartPosition` зарезервирован под M2-вариант
- * «показ 5 сек». В M1 всегда отсутствует (холодный старт).
+ * KS-3448: фаза запоминания — клиент получает `startPosition` (5 фигур)
+ * один раз в ответе на старт и показывает их в фазе `memorizing`. После
+ * клика «Готов» доска чистится и начинаются ходы стрелками. Анти-чит §5
+ * остаётся: на последующих POST /sessions/:id/answer `currentPosition`
+ * клиенту НЕ раскрывается; сервер сверяет ответ и финиширует при ошибке.
  */
 export interface StartBlindBoardSessionResponse {
   session: BlindBoardSessionDto;
-  /** M2-only: расстановка для предпросмотра на 5 сек. В M1 omit. */
-  showStartPosition?: BlindBoardPiece[];
+  /** Стартовая расстановка для фазы memorize (5 фигур Q/R/N/B/B). */
+  startPosition: BlindBoardPiece[];
 }
 
 /** `POST /blind-board/sessions/:id/answer` — ответ игрока. */

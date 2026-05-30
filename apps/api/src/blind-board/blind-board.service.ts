@@ -148,7 +148,13 @@ export class BlindBoardService {
       },
     });
 
-    return { session: this.toSessionDto(created, 1) };
+    // KS-3448: клиенту нужна стартовая расстановка для фазы memorize.
+    // Это единственный момент, когда сервер раскрывает позицию: дальше
+    // в /answer currentPosition остаётся скрыт (анти-чит §5).
+    return {
+      session: this.toSessionDto(created, 1),
+      startPosition: position,
+    };
   }
 
   // ─── submit answer ─────────────────────────────────────────────────
