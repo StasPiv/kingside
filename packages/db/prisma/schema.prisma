@@ -29,6 +29,10 @@ model User {
   ratingDrillDev        Int      @default(350)  @map("rating_drill_dev")
   ratingPuzzleDev       Int      @default(350) @map("rating_puzzle_dev")
   puzzleStreak          Int      @default(0) @map("puzzle_streak")
+  /// KS-3440 / ADR-088 §10. Глобальный best-streak в blind-board.
+  /// Обновляется при finish сессии (только для авторизованных) —
+  /// используется лидербордом топ-N. Default 0 — у новых юзеров.
+  blindBoardBestStreak  Int      @default(0) @map("blind_board_best_streak")
   gamesPlayedBullet     Int      @default(0) @map("games_played_bullet")
   gamesPlayedBlitz      Int      @default(0) @map("games_played_blitz")
   gamesPlayedRapid      Int      @default(0) @map("games_played_rapid")
@@ -591,6 +595,64 @@ model GuessMove {
   @@id([sessionId, ply])
   @@map("guess_moves")
   @@index([verdict])
+}
+
+/// KS-3440 / ADR-088 §10. Blind-board сессия: 5 фигур (Q/R/N/B/B) на
+/// пустой доске, игрок не видит позицию, угадывает «вовлечённую»
+/// фигуру по ходу компьютера. Позиция держится ТОЛЬКО на сервере
+/// (анти-чит §5). user_id — без FK (как guess_sessions); гость = NULL
+/// (М1 решение в B2 — JwtAuthGuard, но колонка nullable на будущее).
+model BlindBoardSession {
+  id              String  @id @default(uuid()) @db.Uuid
+  userId          String? @map("user_id") @db.Uuid
+  /// Стартовая расстановка JSON: [{square, type}, ...] (5 элементов).
+  startPosition   Json    @map("start_position")
+  /// Текущая позиция JSON; меняется после каждого хода компа.
+  currentPosition Json    @map("current_position")
+  /// Фигура, которой комп ходит СЛЕДУЮЩИМ ходом (или NULL если
+  /// сессия finished). JSON `{square, type}`.
+  nextTargetPiece Json?   @map("next_target_piece")
+  streak          Int     @default(0)
+  bestStreak      Int     @default(0) @map("best_streak")
+  /// 'active' | 'finished' (см. BlindBoardSessionStatus в shared).
+  status          String  @default("active")
+  /// 'wrong-answer' | 'dead-end' | 'abandoned'; NULL пока active.
+  finishReason    String? @map("finish_reason")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+
+  attempts BlindBoardAttempt[]
+
+  @@index([userId, finishedAt])
+  @@map("blind_board_sessions")
+}
+
+/// KS-3440 / ADR-088 §10. Audit одного раунда blind-board: ход компа,
+/// ожидаемый ответ, что ответил игрок, результат. Cascade-delete с
+/// сессией. Per-round для review/анти-чит проверки.
+model BlindBoardAttempt {
+  id                String @id @default(uuid()) @db.Uuid
+  sessionId         String @map("session_id") @db.Uuid
+  /// 1-based номер раунда в сессии.
+  round             Int
+  /// Координаты хода компа: например 'e4' → 'h7'.
+  compMoveFrom      String @map("comp_move_from")
+  compMoveTo        String @map("comp_move_to")
+  /// Что должен был ответить игрок (вовлечённая фигура).
+  expectedSquare    String @map("expected_square")
+  /// 'Q' | 'R' | 'B' | 'N'.
+  expectedPieceType String @map("expected_piece_type")
+  /// Ответ игрока; NULL если ответ ещё не пришёл (для частичной записи).
+  userSquare        String? @map("user_square")
+  userPieceType     String? @map("user_piece_type")
+  /// Совпал ли ответ игрока с expected.
+  correct           Boolean
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session BlindBoardSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, round])
+  @@map("blind_board_attempts")
 }
 
 model PuzzleRushScore {
