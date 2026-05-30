@@ -484,7 +484,11 @@
       "bestStreak": "Best streak",
       "userBetter": "You played more accurately than the game!",
       "playerBetter": "The game was played more accurately.",
-      "tie": "A dead heat — same accuracy."
+      "tie": "A dead heat — same accuracy.",
+      "openInAnalysis": "Open in analysis →",
+      "openingAnalysis": "Opening analysis…",
+      "openExistingAnalysisToast": "Opening existing analysis",
+      "openAnalysisError": "Could not open the analysis. Please try again."
     }
   },
   "lobby": {

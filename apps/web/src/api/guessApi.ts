@@ -14,6 +14,7 @@ import type {
   FinishGuessSessionResponse,
   GetGuessSessionResponse,
   GuessHistoryResponse,
+  GuessToAnalysisResponse,
   StartGuessSessionRequest,
   StartGuessSessionResponse,
   SubmitGuessMoveRequest,
@@ -48,6 +49,21 @@ export const guessApi = {
   },
   history(): Promise<GuessHistoryResponse> {
     return api.get<GuessHistoryResponse>(`${BASE}/history`);
+  },
+  /**
+   * KS-3461 (ADR-089 §6, KS-3460): создать (или вернуть) Analysis из
+   * завершённой guess-сессии. Идемпотентно через
+   * Analysis.guessSessionId UNIQUE: повторный клик отдаёт existing=true
+   * и тот же analysisId.
+   *
+   * Accept-Language прокидывает api-клиент (см. ../api) — backend
+   * выберет язык NAG-комментариев основной линии.
+   */
+  toAnalysis(sessionId: string): Promise<GuessToAnalysisResponse> {
+    return api.post<GuessToAnalysisResponse>(
+      `${BASE}/sessions/${sessionId}/to-analysis`,
+      {},
+    );
   },
 };
 

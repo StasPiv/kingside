@@ -1,10 +1,14 @@
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import type {
   GuessSide,
   GuessMoveDto,
   FinishGuessSessionResponse,
 } from '@kingside/shared';
+
+import { guessApi } from '../../api/guessApi';
 
 /**
  * KS-3411 (ADR-086 §9, F2) — финал-экран guess-the-move.
@@ -61,8 +65,40 @@ export function GuessFinalScreen({
   score,
 }: GuessFinalScreenProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const session = finalResult?.session ?? null;
   const outcome = finalResult?.outcome ?? null;
+
+  // KS-3461 (ADR-089 §6): кнопка «Разобрать в анализе». Дублирующий
+  // клик не делает второго POST — backend идемпотентен через
+  // Analysis.guessSessionId UNIQUE, но локально тоже блокируем,
+  // чтобы не плодить in-flight запросы и UI-флек.
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState(false);
+  const [openingExisting, setOpeningExisting] = useState(false);
+
+  const handleOpenInAnalysis = useCallback(async () => {
+    if (!session || analyzing) return;
+    setAnalyzing(true);
+    setAnalyzeError(false);
+    try {
+      const res = await guessApi.toAnalysis(session.id);
+      if (res.existing) {
+        // Дать пользователю заметить тоаст «открываю существующий
+        // разбор» перед навигацией. 800ms — золотая середина по
+        // паттернам в проекте (см. AnalysisPage / Repertoire toasts).
+        setOpeningExisting(true);
+        window.setTimeout(() => {
+          navigate(`/analysis/${res.analysisId}`);
+        }, 800);
+      } else {
+        navigate(`/analysis/${res.analysisId}`);
+      }
+    } catch {
+      setAnalyzing(false);
+      setAnalyzeError(true);
+    }
+  }, [session, analyzing, navigate]);
 
   const verdictLabel = (v: GuessMoveDto['verdict']): string => {
     switch (v) {
@@ -115,6 +151,56 @@ export function GuessFinalScreen({
         <p className="guess-final__outcome" data-testid="guess-final-outcome">
           {outcomeText}
         </p>
+      )}
+
+      {/* KS-3461 (ADR-089): кнопка «Разобрать в анализе» видна когда
+          сессия завершена (session.status === 'finished'). Гость без
+          session тоже не увидит кнопку. existing=true → короткий
+          toast перед navigate чтобы пользователь понял, что новый
+          разбор не создавался. */}
+      {session?.status === 'finished' && (
+        <div
+          className="guess-final__open-analysis"
+          data-testid="guess-final-open-analysis-wrap"
+        >
+          <button
+            type="button"
+            className="guess-final__open-analysis-btn play-btn"
+            data-testid="guess-final-open-analysis"
+            disabled={analyzing}
+            onClick={() => {
+              void handleOpenInAnalysis();
+            }}
+          >
+            {analyzing
+              ? t('guess.final.openingAnalysis', 'Opening analysis…')
+              : t('guess.final.openInAnalysis', 'Open in analysis →')}
+          </button>
+          {openingExisting && (
+            <p
+              className="guess-final__open-analysis-toast"
+              data-testid="guess-final-open-existing-toast"
+              role="status"
+            >
+              {t(
+                'guess.final.openExistingAnalysisToast',
+                'Opening existing analysis',
+              )}
+            </p>
+          )}
+          {analyzeError && (
+            <p
+              className="guess-final__open-analysis-error"
+              data-testid="guess-final-open-analysis-error"
+              role="alert"
+            >
+              {t(
+                'guess.final.openAnalysisError',
+                'Could not open the analysis. Please try again.',
+              )}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="guess-final__gamification" data-testid="guess-final-gamification">
