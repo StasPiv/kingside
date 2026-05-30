@@ -474,6 +474,17 @@ model BlindBoardAttempt {
 - **Override:** игрок может в настройках сессии выбрать свой
   стартовый набор и свой порядок добавления.
 
+### 15.2.1 Финальные ответы (после черновика open questions)
+
+- **minStart = 3** (Q1 закрыт; «начинаем с 3» строго).
+- **Expert-start с 7 фигурами — разрешён** (Q2 закрыт; addOrder
+  пустой → нет уровней, фиксированная сложность).
+- **Лидерборд показывает достигнутый уровень** рядом со streak,
+  формат «28 · L3» (Q6 закрыт).
+- **Memorize-time — настройка игрока в UI** (Q7 закрыт). Пресеты
+  3 / 5 / 10 секунд, дефолт 5. Применяется И к стартовому
+  memorize, И к level-up overlay.
+
 ### 15.3 Конфигурация уровней (дефолтная)
 
 | Уровень | Раунды | Состав | Дельта |
@@ -517,9 +528,8 @@ CTA «Начать» с выбранными настройками или де�
 - **B**: max 2 (требование разнопольности — §15.6).
 - **N**: max 2.
 
-Сумма max = 7. Минимум стартового набора (моё предложение):
-**2 фигуры** (одна никого не атакует — нет «вовлечённой»). Open
-Q1: подтвердить min=2 vs min=3.
+Сумма max = 7. **`minStart = 3`** (подтверждено пользователем,
+§15.2.1).
 
 Каждое последующее добавление — фигура из остатка квоты. Frontend
 валидация UI + backend re-validation на старте сессии.
@@ -585,29 +595,36 @@ streak в лидерборде остаётся прежним (max по все�
 Расширение `BlindBoardSession`:
 - `level Int @default(1)` — текущий уровень (1..N).
 - `startConfig Json @map("start_config")` — snapshot конфигурации
-  сессии: `{ startPieces: PieceType[], addOrder: PieceType[] }`.
-  Хранится для review и для нахождения следующей фигуры при
-  level-up (без зависимости от user-prefs, которые могли
-  поменяться).
+  сессии: `{ startPieces: PieceType[], addOrder: PieceType[],
+  memorizeTimeSec: number }`. Хранится для review, для нахождения
+  следующей фигуры при level-up и для применения memorize-time
+  на стартовом экране и при level-up overlay (без зависимости
+  от user-prefs, которые могли поменяться).
 - `currentPosition` уже хранится — добавление фигур обновляет.
 
-Backfill existing-сессий: `level=1`, `startConfig=DEFAULT_CONFIG`.
+Backfill existing-сессий: `level=1`, `startConfig={ ...DEFAULT,
+memorizeTimeSec: 5 }`.
 
 Опц. (M2) `BlindBoardAttempt.levelAtRound Int?` для аналитики.
 
 ### 15.11 Лидерборд
 
 Текущий лидерборд (`bestStreak`) работает корректно — высокий
-streak теперь объективно сложнее. Опц. (Open Q6) — показать
-достигнутый максимальный уровень рядом со streak.
+streak теперь объективно сложнее. **Показываем достигнутый
+максимальный уровень** рядом со streak (формат «28 · L3»,
+подтверждено §15.2.1). Источник level — derived из streak (`max
+level reached = computeLevel(bestStreak)` на момент достижения
+рекорда) либо денормализованный в `User.blindBoardBestLevel` —
+выбор реализации backend.
 
 ### 15.12 Что НЕ делаем (M1 ревизии 2)
 
 - НЕ персистируем user-config в БД отдельно (только в
   `startConfig` snapshot сессии + localStorage).
 - НЕ добавляем `levelAtRound` per-attempt (опц. M2).
-- НЕ меняем `memorize-time` с уровнем (фикс 5 сек; Open Q7).
-- НЕ ограничиваем 7-figure start (expert-mode допустим; Open Q2).
+- НЕ меняем memorize-time с уровнем автоматически — это **выбор
+  игрока** в UI (пресеты 3/5/10, §15.2.1).
+- НЕ ограничиваем 7-figure start (expert-mode разрешён §15.2.1).
 
 ### 15.13 Реализация — follow-up задачи (V2)
 
@@ -618,23 +635,29 @@ streak теперь объективно сложнее. Опц. (Open Q6) — �
 **Assignee:** backend (shared). **Labels:** `puzzle`, `analysis`.
 - В `BlindBoardSessionDto` добавить `level: number`, `startConfig:
   BlindBoardConfig`.
-- `BlindBoardConfig = { startPieces: PieceType[]; addOrder: PieceType[] }`.
+- `BlindBoardConfig = { startPieces: PieceType[]; addOrder:
+  PieceType[]; memorizeTimeSec: number }`.
 - В `SubmitAnswerResponse` опц. `levelUp?: { newLevel, newPiece,
   newSquare }`.
 - Константы `BLIND_BOARD_LIMITS`: `maxQ=1, maxR=2, maxB=2, maxN=2,
-  minStart=2, maxTotal=7`.
+  minStart=3, maxTotal=7`, `memorizeTimePresets = [3, 5, 10]`,
+  `defaultMemorizeTimeSec = 5`.
 - `BLIND_BOARD_DEFAULT_CONFIG = { startPieces: ['Q','N','R'],
-  addOrder: ['B','B','R','N'] }`.
+  addOrder: ['B','B','R','N'], memorizeTimeSec: 5 }`.
 - Acceptance: TS-сборка чистая.
 
 #### KS (B0-v2) — миграция Prisma
 
 **Assignee:** backend (prisma). **Labels:** `puzzle`, `prisma`.
 - В `BlindBoardSession`: `level Int @default(1)` + `startConfig
-  Json`.
-- Backfill: existing-сессии получают `level=1` и
-  `startConfig=DEFAULT_CONFIG` через SQL UPDATE WHERE.
-- Acceptance: миграция чистая.
+  Json @map("start_config")`. JSON-shape включает
+  `memorizeTimeSec`.
+- Опц. (для лидерборда) `User.blindBoardBestLevel Int @default(1)`
+  (либо считать derived из bestStreak; backend решает).
+- Backfill: existing-сессии получают `level=1` и `startConfig=
+  { startPieces:['Q','N','R'], addOrder:['B','B','R','N'],
+  memorizeTimeSec: 5 }` через SQL UPDATE WHERE.
+- Acceptance: миграция чистая; backfill применён.
 
 #### KS (B1-v2) — `createSession` принимает config
 
@@ -667,11 +690,16 @@ streak теперь объективно сложнее. Опц. (Open Q6) — �
 **Зависит:** S2.
 - На `BlindBoardLandingPage` раскрывающийся блок «Настройки
   сложности» (свёрнут).
-- Counter-selector startPieces + sortable список addOrder.
-  Валидация квот UI-side с подсветкой.
-- LocalStorage сохранение выбора (Open Q5).
-- Acceptance: дефолт → CTA enabled; нарушение квоты → disabled
-  CTA с tooltip; override сохраняется.
+- Counter-selector startPieces (с подсветкой нарушений квот;
+  валидация `minStart=3`).
+- Sortable список addOrder (drag&drop или up/down).
+- **Memorize-time селектор** — pill-toggle на 3 пресета: 3с /
+  5с / 10с (дефолт 5).
+- LocalStorage сохранение всего config (включая memorizeTimeSec).
+- Acceptance: дефолт → CTA enabled (Q+N+R, addOrder=B,B,R,N,
+  memorize=5); нарушение квоты или start<3 → disabled CTA с
+  tooltip; expert-start 7 → addOrder скрыт/пуст, CTA enabled;
+  config сохраняется в localStorage.
 
 #### KS (F2-v2) — Runner: HUD + level-up overlay
 
@@ -680,10 +708,14 @@ streak теперь объективно сложнее. Опц. (Open Q6) — �
 - В `BlindBoardSessionRunner`:
   - HUD-pill «L2 · 14/20» в углу доски.
   - На `levelUp` в SubmitAnswerResponse → overlay memorize-
-    экрана (1.5 сек подсветка новой + 5 сек таймер), потом
-    раунд продолжается.
-- Acceptance: 10-й correct → overlay; HUD обновляется;
-  непрерывный поток.
+    экрана: 1.5с подсветка новой + **таймер
+    `session.startConfig.memorizeTimeSec` секунд** (вместо
+    фикс 5), потом раунд продолжается.
+  - Стартовый memorize-экран также использует
+    `startConfig.memorizeTimeSec` (а не зашитую константу).
+- Acceptance: 10-й correct → overlay длиной `memorizeTimeSec`;
+  HUD обновляется; непрерывный поток; при `memorizeTimeSec=3`
+  overlay показывается 3 сек, при `=10` — 10 сек.
 
 #### KS (L1-v2) — CSS HUD-уровня + overlay
 
@@ -698,25 +730,18 @@ streak теперь объективно сложнее. Опц. (Open Q6) — �
 F2-v2 + L1-v2). Конфликтов с базовой инфрой ADR-088 нет — всё
 additive.
 
-### 15.14 Открытые вопросы V2 — UX выбора
+### 15.14 Открытые вопросы — закрыты
 
-Координатор спросит у пользователя:
+**Подтверждено пользователем:**
+- ✓ Q1 — `minStart = 3` (строго).
+- ✓ Q2 — expert-start с 7 фигурами разрешён (addOrder пустой,
+  фиксированная сложность).
+- ✓ Q3 — backend сам выбирает разные цвета для 2 B при старте
+  (как KS-3449 для level-up).
+- ✓ Q5 — localStorage для quick-retry.
+- ✓ Q6 — лидерборд показывает достигнутый уровень («28 · L3»).
+- ✓ Q7 — memorize-time = user-setting (пресеты 3/5/10, default 5).
 
-1. **`minStart`** — 2 (моё) vs 3 (соответствует «начинаем с 3»)?
-   Если 3 — override не позволит стартовать с 2 фигурами.
-2. **Старт с 7 фигурами сразу** (expert-mode) — допустим (моё,
-   addOrder пустой) или блокировать (требовать ≥ 1 шага
-   развития)?
-3. **Разнопольность 2 B при старте** — backend сам выбирает
-   разные цвета (моё, §15.6) или не следить за цветами в старте
-   (только в level-up как KS-3449)?
-4. **UX порядка добавления** — drag&drop (моё) vs кнопки
-   up/down vs sequence dropdowns? Финал за frontend'ом.
-5. **localStorage** для quick-retry с тем же config — сохраняем
-   (моё) или сбрасываем на дефолт каждую сессию?
-6. **Лидерборд** — показать достигнутый максимум level рядом
-   со streak («28 · L3»)? Nice-to-have.
-7. **Memorize-время на L3+** — фикс 5 сек (моё) или
-   увеличивать с уровнем (5/6/7 сек) для 5–7 фигур?
-
-@coordinator
+**Осталось решить frontend'у (UX-выбор, не блокирует backend):**
+- Q4: UX порядка добавления — drag&drop / up-down кнопки /
+  dropdowns. Решается при F1-v2.
