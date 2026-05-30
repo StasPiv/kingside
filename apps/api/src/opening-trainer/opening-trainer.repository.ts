@@ -219,13 +219,31 @@ export class OpeningTrainerRepository {
   }
 
   /**
-   * Количество активных (не завершённых) сессий — для проверки лимита
-   * `OPENING_REPERTOIRE_LIMITS.maxActiveSessionsPerUser`.
+   * Количество активных (не завершённых) сессий пользователя. Раньше
+   * использовалось для лимита `OPENING_REPERTOIRE_LIMITS.maxActive
+   * SessionsPerUser` — снято в KS-3481 (auto-finish при старте новой).
+   * Оставлено для совместимости и метрик.
    */
   async countActiveSessionsByUser(userId: string): Promise<number> {
     return this.prisma.openingTrainerSession.count({
       where: { userId, status: 'active' },
     });
+  }
+
+  /**
+   * KS-3481: автоматически финиширует все активные сессии пользователя.
+   * Статус 'expired' = «не пользователь-инициированный finish, нет
+   * completion-сигнала» (как в авто-close по 24h неактивности). Сценарий
+   * вызова — пользователь стартует новую сессию, висящие активные
+   * закрываются молча. Возвращает число обновлённых строк.
+   */
+  async expireActiveSessionsByUser(userId: string): Promise<number> {
+    const now = new Date();
+    const res = await this.prisma.openingTrainerSession.updateMany({
+      where: { userId, status: 'active' },
+      data: { status: 'expired', finishedAt: now, lastActivityAt: now },
+    });
+    return res.count;
   }
 
   /**

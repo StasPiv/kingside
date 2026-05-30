@@ -461,10 +461,18 @@ export class OpeningTrainerService {
   ): Promise<StartOpeningTrainerSessionResponse> {
     const repertoire = await this.requireRepertoire(userId, repertoireId);
 
-    const activeCount = await this.repo.countActiveSessionsByUser(userId);
-    if (activeCount >= OPENING_REPERTOIRE_LIMITS.maxActiveSessionsPerUser) {
-      throw new ConflictException(
-        `Active session limit reached (${OPENING_REPERTOIRE_LIMITS.maxActiveSessionsPerUser}); finish one before starting new.`,
+    // KS-3481: лимит maxActiveSessionsPerUser снят. Перед созданием
+    // новой сессии автоматически закрываем все висящие активные
+    // сессии пользователя (status='expired', finishedAt=now). Это
+    // снимает «Active session limit reached» из UX и одновременно
+    // не оставляет zombi-сессий в БД. Если у пользователя был реальный
+    // прогресс в открытой сессии — он уже отражён в OpeningLineProgress
+    // через runtime-апдейты после каждого хода (KS-3288), так что
+    // сама закрываемая сессия не несёт уникальной информации.
+    const expired = await this.repo.expireActiveSessionsByUser(userId);
+    if (expired > 0) {
+      this.logger.log(
+        `[startSession] auto-expired ${expired} active session(s) for user=${userId.slice(0, 8)}`,
       );
     }
 

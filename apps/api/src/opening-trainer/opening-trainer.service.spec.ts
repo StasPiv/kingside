@@ -166,6 +166,19 @@ class FakeRepo {
       (s) => s.userId === userId && s.status === 'active',
     ).length;
   }
+  async expireActiveSessionsByUser(userId: string) {
+    let count = 0;
+    const now = new Date();
+    for (const s of this.sessions) {
+      if (s.userId === userId && s.status === 'active') {
+        s.status = 'expired';
+        s.finishedAt = now;
+        s.lastActivityAt = now;
+        count++;
+      }
+    }
+    return count;
+  }
   async updateSession(id: string, data: any) {
     const s = this.sessions.find((x) => x.id === id)!;
     Object.assign(s, data);
@@ -464,6 +477,41 @@ describe('OpeningTrainerService — full flow (KS-3272)', () => {
     expect(start.initialBotMove).toBeNull();
     expect(start.session.side).toBe('white');
     expect(start.session.currentFen).toBe(r.tree.rootFen);
+  });
+
+  it('KS-3481: старт новой сессии автоматически экспайрит висящие активные', async () => {
+    const { svc, repo } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: SAMPLE_PGN,
+    });
+    // Создадим 3 «висящие» сессии для пользователя.
+    for (let i = 0; i < 3; i++) {
+      await svc.startSession('u-1', r.id, { mode: 'learn' });
+    }
+    // Все, кроме последней, должны быть expired; последняя — active.
+    const all = (repo as unknown as { sessions: Array<{
+      userId: string;
+      status: string;
+    }> }).sessions.filter((s) => s.userId === 'u-1');
+    expect(all.length).toBe(3);
+    const active = all.filter((s) => s.status === 'active');
+    const expired = all.filter((s) => s.status === 'expired');
+    expect(active.length).toBe(1);
+    expect(expired.length).toBe(2);
+  });
+
+  it('KS-3481: лимит maxActiveSessionsPerUser снят — N стартов подряд без 409', async () => {
+    const { svc } = makeService();
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: SAMPLE_PGN,
+    });
+    // Старт 15 сессий подряд — раньше падали на 11-й (limit=10).
+    for (let i = 0; i < 15; i++) {
+      const s = await svc.startSession('u-1', r.id, { mode: 'learn' });
+      expect(s.session.status).toBe('active');
+    }
   });
 
   it('start session играя чёрными — бот делает первый ход (KS-3302: side из repertoire)', async () => {
@@ -1947,8 +1995,10 @@ describe('KS-3283 (M2 stats): GET /repertoires/:id/stats', () => {
       title: 't',
       pgn: '1. e4 e5 2. Nf3 Nc6', // 2 user-correct'а до tree-complete
     });
+    // KS-3481: новая сессия экспайрит активную, поэтому s1 нужно
+    // прокатать целиком ДО старта s2. Не меняет смысл теста (агрегация
+    // считается из persisted attempts — независимо от concurrent состояния).
     const s1 = await svc.startSession('u-1', r.id, { mode: 'learn' });
-    const s2 = await svc.startSession('u-1', r.id, { mode: 'learn' });
 
     // s1: user white. Bot не ходит на старте. Юзер делает:
     //   1) e2e4 (correct, бот отвечает e7e5)
@@ -1971,7 +2021,11 @@ describe('KS-3283 (M2 stats): GET /repertoires/:id/stats', () => {
       moveUci: 'g1f3',
       responseTimeMs: 3000,
     });
-    // s2: user white. 1 user-correct (e2e4 + бот e7e5).
+    // s2: запускаем ПОСЛЕ s1 (раньше работало параллельно, но KS-3481
+    // экспайрит активную при старте новой; s1 на этой точке уже
+    // tree-complete → status=finished, экспайр не затронет).
+    const s2 = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // 1 user-correct (e2e4 + бот e7e5).
     await svc.makeMove('u-1', s2.session.id, {
       moveUci: 'e2e4',
       responseTimeMs: 3000,
