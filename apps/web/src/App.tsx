@@ -136,6 +136,14 @@ const AnalyzeLobbyPage = lazy(() =>
 const GuessLandingPage = lazy(() =>
   import('./pages/GuessLandingPage').then((m) => ({ default: m.GuessLandingPage })),
 );
+// KS-3442 (ADR-088 §11 F1): «слепая доска» — пустая доска + клик +
+// промоушн-модал. Маршрут `/blind-board`. Backend под JwtAuthGuard
+// (KS-3441 B2), требует авторизации — guard'им через ProtectedRoute.
+const BlindBoardLandingPage = lazy(() =>
+  import('./pages/BlindBoardLandingPage').then((m) => ({
+    default: m.BlindBoardLandingPage,
+  })),
+);
 // ADR-067: модуль Studies удалён (KS-3130). Lazy-импорты StudiesPage /
 // StudyPage / UserStudiesPage / StudyInviteAcceptPage и сопутствующие
 // маршруты `/studies/*` вырезаны вместе со страницами и компонентами.
@@ -561,6 +569,18 @@ export function App() {
             }
           />
         )}
+        {/* KS-3442 (ADR-088 §11 F1): blind-board режим. Backend под
+            JwtAuthGuard, оборачиваем в ProtectedRoute. */}
+        <Route
+          path="/blind-board"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<LazyFallback />}>
+                <BlindBoardLandingPage />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
         {/* KS-1821: compile-time guard. `DevRoutesLazy` = null в prod-сборке,
             поэтому Route не рендерится и мёртвая ветка с импортом
             `./dev/DevRoutes` уходит tree-shake'ом. Внутренние подпути (

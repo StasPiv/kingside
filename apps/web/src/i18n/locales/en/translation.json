@@ -3496,5 +3496,43 @@
       "giveupFailed": "Giveup failed",
       "finishFailed": "Finish failed"
     }
+  },
+  "blindBoard": {
+    "setup": {
+      "title": "Blind board",
+      "intro": "Memorize the position from the computer move arrows alone — no pieces are shown. After each computer move tap the square of the moved piece and pick its type. Wrong answer ends the session.",
+      "start": "Start",
+      "back": "New game"
+    },
+    "session": {
+      "starting": "Starting session…",
+      "error": "Could not start the blind-board session. Please try again.",
+      "checking": "Checking…",
+      "back": "Back"
+    },
+    "hud": {
+      "round": "Round",
+      "streak": "Streak",
+      "bestStreak": "Best"
+    },
+    "promotion": {
+      "title": "Pick the piece type"
+    },
+    "piece": {
+      "Q": "Queen",
+      "R": "Rook",
+      "B": "Bishop",
+      "N": "Knight"
+    },
+    "final": {
+      "title": "Game finished",
+      "wrongAnswer": "Wrong answer — game over.",
+      "deadEnd": "Dead end — no more legal moves for the target piece. You drove the computer into a corner!",
+      "abandoned": "Session finished.",
+      "expected": "Expected",
+      "streak": "Streak",
+      "bestStreak": "Best streak",
+      "playAgain": "Play again"
+    }
   }
 }
