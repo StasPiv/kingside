@@ -260,19 +260,27 @@ export class BlindBoardService {
       answer.pieceType === expected.type;
 
     // Номер ТЕКУЩЕГО раунда (на который пришёл ответ) — последний attempt.
-    // KS-3519: дополнительно тянем последние 4 attempts чтобы знать
-    // историю недавних compMove'ов для pickNextCompMove (анти-«туда-сюда»).
+    // KS-3519 + KS-3527 fix. Тянем последние N attempts для recentMoves.
+    //
+    // Ранее (buggy) брали N+1 и `.slice(1, 1+N)` — пропуская
+    // currentRound. Но currentRound's compMove — это РОВНО предыдущий
+    // ход (тот, на который только что ответил пользователь). При выборе
+    // СЛЕДУЮЩЕГО compMove'а он — самый свежий «previous mover».
+    // Пропускали его → previousMoverSquare указывал на round R-1, и
+    // фильтр KS-3524 пропускал реального previous mover'а. Подтверждено
+    // на сессии пользователя Stanislav (KS-3527): Q ходила в раундах
+    // 3,7,8,9,10 подряд + r10 g2→g6 был ещё и анти-возвратом (g6
+    // — откуда Q ушла в r9).
     const attempts = await this.prisma.blindBoardAttempt.findMany({
       where: { sessionId },
       orderBy: { round: 'desc' },
-      take: RECENT_HISTORY_LEN + 1,
+      take: RECENT_HISTORY_LEN,
     });
     const currentRound = attempts[0]?.round ?? 1;
-    // attempts отсортированы DESC; берём предыдущие N (без currentRound)
-    // и переворачиваем в хронологический порядок для читаемости.
+    // chronological asc: самый старый первый, currentRound последний.
+    // recentMoves[last] = ход который СЕЙЧАС обыгрывает пользователь.
     const recentMoves: Array<{ from: BlindBoardSquare; to: BlindBoardSquare }> =
       attempts
-        .slice(1, 1 + RECENT_HISTORY_LEN)
         .map((a) => ({
           from: a.compMoveFrom as BlindBoardSquare,
           to: a.compMoveTo as BlindBoardSquare,

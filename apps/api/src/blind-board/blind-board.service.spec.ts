@@ -1285,3 +1285,85 @@ describe('BlindBoardService.submitAnswer — KS-3525 multi-round position consis
     expect(persistedStreak).toBe(10);
   });
 });
+
+// ─── KS-3527: recentMoves включает currentRound (фикс багла KS-3519) ───
+
+describe('BlindBoardService.submitAnswer — KS-3527 recentMoves включает currentRound', () => {
+  it('после правильного ответа: previous mover = фигура из ТЕКУЩЕГО раунда, не из предыдущего', async () => {
+    // Сценарий: текущая позиция (после r2's compMove) — R@e1 + Q@a4.
+    // r1: comp ходил R@a1→e1. r2: comp ходил Q@h2→a4. Сейчас юзер
+    // отвечает на r2 правильно. Следующий compMove (для r3) НЕ должен
+    // двигать Q (она previous mover на r2 = currentRound).
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue({
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'h2', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'h2', to: 'a4' }, // r2's compMove
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level: 1,
+      streak: 1,
+      bestStreak: 1,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: null,
+    });
+    // attempts DESC: r2 first (currentRound), r1 second.
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([
+      { round: 2, compMoveFrom: 'h2', compMoveTo: 'a4' },
+      { round: 1, compMoveFrom: 'a1', compMoveTo: 'e1' },
+    ]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      id: 's1',
+      userId: 'u1',
+      ...data,
+      startedAt: new Date(),
+      finishedAt: null,
+      level: 1,
+      bestStreak: 2,
+      status: 'active',
+      finishReason: null,
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(() => Math.random());
+
+    // 50 прогонов — Q не должна быть выбрана НИ РАЗУ как mover r3.
+    const moversByCalls: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      prisma.blindBoardSession.update.mockClear();
+      const res = await svc.submitAnswer('u1', 's1', {
+        square: 'a4' as BlindBoardSquare,
+        pieceType: 'Q',
+      });
+      expect(res.correct).toBe(true);
+      // session.nextMove.from = mover's square for r3.
+      const r3Mover = res.session.nextMove?.from;
+      if (r3Mover) moversByCalls.push(r3Mover);
+    }
+    // Q@a4 — previous mover из currentRound (r2). НЕ должна двигаться в r3.
+    expect(moversByCalls.includes('a4')).toBe(false);
+    // R@e1 — единственная альтернатива; должна двигаться.
+    expect(moversByCalls.length).toBeGreaterThan(0);
+    for (const sq of moversByCalls) {
+      expect(sq).toBe('e1');
+    }
+  });
+});
