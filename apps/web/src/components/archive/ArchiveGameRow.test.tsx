@@ -12,8 +12,8 @@ import type { ArchiveGameSummary } from '@kingside/shared';
 
 const ITEM: ArchiveGameSummary = {
   id: 'g-1',
-  white: { name: 'White Player', elo: 2700, slug: 'white-player' },
-  black: { name: 'Black Player', elo: 2650, slug: 'black-player' },
+  white: { name: 'White Player', elo: 2700, slug: 'white-player', title: null },
+  black: { name: 'Black Player', elo: 2650, slug: 'black-player', title: null },
   result: '1-0',
   eco: 'C42',
   opening: 'Petroff',

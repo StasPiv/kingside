@@ -1130,9 +1130,8 @@ describe('ArchiveGamesPage — selection mode (KS-3499)', () => {
 
   it('state.returnTo → sticky-баннер + кнопки «Pick» на каждой карточке', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
-    // location.state передаём через расширение route в test-utils — но
-    // оно принимает только строку. Используем react-router MemoryRouter
-    // напрямую через initialEntries с {pathname, state}.
+    // location.state передаём через MemoryRouter напрямую (test-utils
+    // принимает только строку route).
     const { MemoryRouter } = await import('react-router-dom');
     const { I18nextProvider } = await import('react-i18next');
     const { ThemeProvider } = await import('../context/ThemeContext');
@@ -1170,5 +1169,102 @@ describe('ArchiveGamesPage — selection mode (KS-3499)', () => {
     expect(screen.getByTestId('archive-game-row-select-g1')).toBeInTheDocument();
     expect(screen.getByTestId('archive-game-row-select-g2')).toBeInTheDocument();
     expect(screen.getByTestId('archive-selection-cancel')).toBeInTheDocument();
+  });
+
+  it('KS-3501 регрессия: баннер не исчезает после saved-filters restore (setSearchParams replace)', async () => {
+    // Корень бага: useEffect восстановления saved-filters делал
+    // setSearchParams(..., {replace:true}) БЕЗ передачи state, что
+    // стирало history.state. Баннер показывался один рендер и
+    // исчезал. Здесь форсим эффект с непустым ответом
+    // (apiFilters → applyPartial → setSearchParams) и ждём, что
+    // селекшн-UI не сломался.
+    mockGetGamesMetadata.mockResolvedValue(sampleResponse);
+    const { MemoryRouter } = await import('react-router-dom');
+    const { I18nextProvider } = await import('react-i18next');
+    const { ThemeProvider } = await import('../context/ThemeContext');
+    const { BoardSettingsProvider } = await import(
+      '../context/BoardSettingsContext'
+    );
+    const { testI18n } = await import('../test/test-utils');
+    const { render } = await import('@testing-library/react');
+    const preferencesMod = await import('../api/archivePreferencesApi');
+    const spy = vi
+      .spyOn(preferencesMod.archivePreferencesApi, 'getFilters')
+      .mockResolvedValue({
+        filters: { player: 'Carlsen' },
+      } as Awaited<
+        ReturnType<typeof preferencesMod.archivePreferencesApi.getFilters>
+      >);
+    try {
+      render(
+        <I18nextProvider i18n={testI18n}>
+          <ThemeProvider initialTheme="dark">
+            <BoardSettingsProvider>
+              <MemoryRouter
+                initialEntries={[
+                  {
+                    pathname: '/archive/games',
+                    state: { returnTo: '/guess', returnLabel: 'Guess the move' },
+                  },
+                ]}
+              >
+                <ArchiveGamesPage />
+              </MemoryRouter>
+            </BoardSettingsProvider>
+          </ThemeProvider>
+        </I18nextProvider>,
+      );
+      // Эффект сохраненных фильтров: getFilters().then(applyPartial)
+      // → setSearchParams → re-render. Если state был стёрт — баннер
+      // исчезнет. Ждём дольше, чтобы эффект точно успел.
+      await waitFor(() =>
+        expect(spy).toHaveBeenCalled(),
+      );
+      // Дать React'у время на reconcile после setSearchParams.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(
+        screen.queryByTestId('archive-selection-banner'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('archive-games-page').getAttribute('data-selection'),
+      ).toBe('true');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('KS-3501: cancel-кнопка возвращает на returnTo без state', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    const { MemoryRouter } = await import('react-router-dom');
+    const { I18nextProvider } = await import('react-i18next');
+    const { ThemeProvider } = await import('../context/ThemeContext');
+    const { BoardSettingsProvider } = await import(
+      '../context/BoardSettingsContext'
+    );
+    const { testI18n } = await import('../test/test-utils');
+    const { render, fireEvent } = await import('@testing-library/react');
+    render(
+      <I18nextProvider i18n={testI18n}>
+        <ThemeProvider initialTheme="dark">
+          <BoardSettingsProvider>
+            <MemoryRouter
+              initialEntries={[
+                {
+                  pathname: '/archive/games',
+                  state: { returnTo: '/guess', returnLabel: 'Guess the move' },
+                },
+              ]}
+            >
+              <ArchiveGamesPage />
+            </MemoryRouter>
+          </BoardSettingsProvider>
+        </ThemeProvider>
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-selection-cancel')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('archive-selection-cancel'));
+    expect(mockNavigate).toHaveBeenCalledWith('/guess');
   });
 });

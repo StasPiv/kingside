@@ -613,8 +613,23 @@ function ArchiveMetadataMode() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // KS-3499: selection-режим определяется наличием `returnTo` в state.
-  const selectionState = (location.state as ArchiveSelectionState | null) ?? null;
+  // KS-3499 + KS-3501 (hotfix): selection-режим определяется наличием
+  // `returnTo` в location.state. Запоминаем state на mount через
+  // useState(lazy-init) — потому что useEffect восстановления
+  // saved-filters (ниже) вызывает `setSearchParams(params, { replace:
+  // true })` БЕЗ передачи state, что у React Router'а стирает
+  // history.state. Без этой защиты баннер появлялся на один рендер и
+  // исчезал, как только эффект первый раз отрабатывал
+  // localStorage/API restore. См. KS-3501 для воспроизведения.
+  //
+  // Селекшн живёт до cancel/выбора — оба уводят с /archive (unmount),
+  // при следующем mount state снова читается. Если юзер уже на
+  // /archive и снова жмёт «pick from archive» из /guess — компонент
+  // НЕ размонтируется, но navigate уйдёт на /guess и оттуда заново на
+  // /archive (другой pathname → unmount/mount).
+  const [selectionState] = useState<ArchiveSelectionState | null>(
+    () => (location.state as ArchiveSelectionState | null) ?? null,
+  );
   const selectionReturnTo = selectionState?.returnTo ?? null;
   const selectionReturnLabel = selectionState?.returnLabel ?? '';
   const isSelectionMode = !!selectionReturnTo;
@@ -704,9 +719,13 @@ function ArchiveMetadataMode() {
         undefined,
         savedFilterId ?? undefined,
       );
-      setSearchParams(params, { replace: true });
+      // KS-3501: пробрасываем текущий history.state в replace, чтобы
+      // selection-режим (returnTo/returnLabel в state) пережил любую
+      // правку URL. Без этого history.state стирался — см. описание у
+      // `selectionState` выше.
+      setSearchParams(params, { replace: true, state: location.state });
     },
-    [setSearchParams],
+    [setSearchParams, location.state],
   );
 
   // KS-2942: id применённого пресета из URL. Используется как «hint»
@@ -776,7 +795,13 @@ function ArchiveMetadataMode() {
       };
       const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
       if (params.toString().length > 0) {
-        setSearchParams(params, { replace: true });
+        // KS-3501: тот же фикс — пробрасываем history.state. Этот
+        // эффект и был корнем бага (saved-filters restore стирал
+        // selection-state). Лишний слой защиты + явный фикс корня.
+        setSearchParams(params, {
+          replace: true,
+          state: window.history.state?.usr ?? undefined,
+        });
       }
     };
 
