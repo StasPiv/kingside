@@ -852,9 +852,34 @@
   background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
 }
 .blind-board-config-form__counter-label {
-  font-size: 13px;
-  font-weight: 700;
+  /* KS-3492 → KS-3493: label теперь содержит иконку фигуры
+     (BlindBoardPieceIcon, SVG/IMG с width:100%), без явного размера
+     контейнера иконка раздувалась до доступной ширины (~150px).
+     Фиксируем размер flex-обёртки. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-config-form__counter-label .blind-board-config-form__piece-icon {
+  width: 100%;
+  height: 100%;
+}
+/* Inline-SVG из defaultPieces оборачивается в --builtin <span>,
+   ему тоже нужны явные размеры (иначе SVG растягивает родителя). */
+.blind-board-config-form__counter-label
+  .blind-board-config-form__piece-icon--builtin {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+}
+.blind-board-config-form__counter-label
+  .blind-board-config-form__piece-icon--builtin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 .blind-board-config-form__counter-controls {
   display: flex;
@@ -934,9 +959,21 @@
   font-variant-numeric: tabular-nums;
 }
 .blind-board-config-form__add-piece {
-  font-size: 14px;
-  font-weight: 600;
+  /* KS-3493: контейнер иконки в addOrder rows — фикс 36×36. */
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 36px;
   color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-config-form__add-piece .blind-board-config-form__piece-icon,
+.blind-board-config-form__add-piece
+  .blind-board-config-form__piece-icon--builtin,
+.blind-board-config-form__add-piece
+  .blind-board-config-form__piece-icon--builtin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 .blind-board-config-form__add-actions {
   display: flex;
@@ -984,13 +1021,19 @@
   margin-right: 4px;
 }
 .blind-board-config-form__add-add-btn {
+  /* KS-3493: «+» + иконка фигуры. Кнопка inline-flex, иконка
+     фиксированного размера (~26px), чтобы не раздувать кнопку. */
   appearance: none;
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px dashed var(--border-subtle, var(--c-2a2a3e));
   background: transparent;
   color: var(--text-primary, var(--c-e0e0e0));
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   min-height: 32px;
@@ -1007,6 +1050,19 @@
 .blind-board-config-form__add-add-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+/* KS-3493: иконка фигуры внутри +Add — фикс 24×24 (минимально
+   распознаваемая, не раздувает кнопку). */
+.blind-board-config-form__add-add-btn
+  .blind-board-config-form__piece-icon,
+.blind-board-config-form__add-add-btn
+  .blind-board-config-form__piece-icon--builtin,
+.blind-board-config-form__add-add-btn
+  .blind-board-config-form__piece-icon--builtin svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* Memorize radio options. */
@@ -1192,10 +1248,20 @@
     width: 26px;
     height: 26px;
   }
+  /* KS-3493 mobile: иконки чуть меньше — 36px counter / 32px addOrder
+     / 22px addAdd. */
+  .blind-board-config-form__counter-label {
+    width: 36px;
+    height: 36px;
+  }
   .blind-board-config-form__add-item {
     grid-template-columns: 36px 1fr auto;
     padding: 8px 10px;
     gap: 8px;
+  }
+  .blind-board-config-form__add-piece {
+    width: 32px;
+    height: 32px;
   }
   .blind-board-config-form__add-btn {
     width: 30px;
@@ -1205,8 +1271,17 @@
     gap: 4px;
   }
   .blind-board-config-form__add-add-btn {
-    padding: 6px 10px;
-    font-size: 11px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .blind-board-config-form__add-add-btn
+    .blind-board-config-form__piece-icon,
+  .blind-board-config-form__add-add-btn
+    .blind-board-config-form__piece-icon--builtin,
+  .blind-board-config-form__add-add-btn
+    .blind-board-config-form__piece-icon--builtin svg {
+    width: 22px;
+    height: 22px;
   }
   .blind-board-config-form__memorize-opt {
     padding: 8px 12px;
