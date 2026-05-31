@@ -5,6 +5,7 @@ import { Chess } from 'chess.js';
 import type { GuessGameSource, GuessSide } from '@kingside/shared';
 
 import { GuessSessionRunner } from '../components/guess';
+import { GuessSubNav } from '../components/guess/GuessSubNav';
 import { useAuth } from '../context/AuthContext';
 
 /**
@@ -187,6 +188,8 @@ export function GuessLandingPage() {
 
   return (
     <div className="guess-page" data-testid="guess-page" data-state="setup">
+      {/* KS-3510: общая sub-nav (Training / Progress / History). */}
+      <GuessSubNav />
       <h1>{t('guess.setup.title', 'Guess the move')}</h1>
       <p className="guess-page__intro">
         {t(

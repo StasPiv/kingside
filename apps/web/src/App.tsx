@@ -136,6 +136,17 @@ const AnalyzeLobbyPage = lazy(() =>
 const GuessLandingPage = lazy(() =>
   import('./pages/GuessLandingPage').then((m) => ({ default: m.GuessLandingPage })),
 );
+// KS-3510 (ADR-093 §3): /guess/stats и /guess/history — отдельные
+// auth-only страницы (Stats/History). Lazy-чанки, не подгружаются на
+// лендинге `/guess`.
+const GuessStatsPage = lazy(() =>
+  import('./pages/GuessStatsPage').then((m) => ({ default: m.GuessStatsPage })),
+);
+const GuessHistoryPage = lazy(() =>
+  import('./pages/GuessHistoryPage').then((m) => ({
+    default: m.GuessHistoryPage,
+  })),
+);
 // KS-3442 (ADR-088 §11 F1): «слепая доска» — пустая доска + клик +
 // промоушн-модал. Маршрут `/blind-board`. Backend под JwtAuthGuard
 // (KS-3441 B2), требует авторизации — guard'им через ProtectedRoute.
@@ -568,6 +579,33 @@ export function App() {
               </Suspense>
             }
           />
+        )}
+        {/* KS-3510 (ADR-093 §3): /guess/stats и /guess/history —
+            auth-only, гейт через ProtectedRoute (backend под JwtAuthGuard).
+            Тот же `GUESS_ENTRY_ENABLED` гейт по проду, что и у лендинга. */}
+        {GUESS_ENTRY_ENABLED && (
+          <>
+            <Route
+              path="/guess/stats"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<LazyFallback />}>
+                    <GuessStatsPage />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/guess/history"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<LazyFallback />}>
+                    <GuessHistoryPage />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+          </>
         )}
         {/* KS-3442 (ADR-088 §11 F1): blind-board режим. Backend под
             JwtAuthGuard, оборачиваем в ProtectedRoute. */}

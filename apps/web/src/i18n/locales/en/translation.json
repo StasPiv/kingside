@@ -471,6 +471,58 @@
       "archivePreviewEvent": "{{event}}",
       "changePick": "Change selection"
     },
+    "subnav": {
+      "label": "Guess sections",
+      "training": "Training",
+      "progress": "Progress",
+      "history": "History"
+    },
+    "stats": {
+      "title": "Guess progress",
+      "noData": "—",
+      "placeholder": "Play your first guess session",
+      "avgAccuracy": "Move accuracy",
+      "avgAccuracyHint": "Average accuracy across finished sessions",
+      "winsVsPlayer": "Wins vs player",
+      "bestStreak": "Best streak",
+      "bestStreakHint": "Longest streak of best/equal moves",
+      "avgStars": "Avg stars",
+      "avgStarsHint": "Average session rating (out of 5)",
+      "guest": {
+        "message": "Sign in to track your accuracy, trends and verdict breakdown.",
+        "cta": "Sign in and start training"
+      }
+    },
+    "trends": {
+      "title": "Accuracy trend",
+      "bucketAria": "Trend bucket",
+      "bucket": {
+        "day": "Day",
+        "week": "Week",
+        "month": "Month"
+      },
+      "session": "session",
+      "sessions": "sessions",
+      "empty": "No data for this period yet",
+      "error": "Failed to load trend"
+    },
+    "breakdowns": {
+      "verdictTitle": "Verdicts",
+      "classTitle": "Move classes",
+      "empty": "Play more sessions to see your move breakdown",
+      "error": "Failed to load breakdowns"
+    },
+    "history": {
+      "title": "Guess history",
+      "empty": "No finished sessions yet",
+      "error": "Failed to load history",
+      "startCta": "Start a new session",
+      "pageInfo": "{{from}}–{{to}} of {{total}}",
+      "guest": {
+        "message": "Sign in to see your finished sessions.",
+        "cta": "Sign in and start training"
+      }
+    },
     "session": {
       "starting": "Starting session…",
       "error": "Could not start the guess session. Please try again.",
