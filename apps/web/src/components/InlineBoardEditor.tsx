@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { defaultPieces } from 'react-chessboard';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 
 /**
@@ -40,10 +41,8 @@ export type HighlightKind = 'low' | 'sanity';
 const WHITE_PIECES: PalettePiece[] = ['wK', 'wQ', 'wR', 'wB', 'wN', 'wP'];
 const BLACK_PIECES: PalettePiece[] = ['bK', 'bQ', 'bR', 'bB', 'bN', 'bP'];
 
-const PIECE_LABELS: Record<PalettePiece, string> = {
-  wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙',
-  bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟',
-};
+// KS-3531: PIECE_LABELS (unicode) удалён — `PieceImg` теперь рисует
+// inline-SVG из `defaultPieces` для 'standard' (см. PromotionPicker).
 
 export interface InlineBoardEditorProps {
   board: Record<string, PalettePiece | undefined>;
@@ -61,11 +60,31 @@ export interface InlineBoardEditorProps {
   testIdPrefix?: string;
 }
 
+/**
+ * KS-3531: для `pieceSet === 'standard'` используем inline-SVG из
+ * react-chessboard `defaultPieces` (тот же паттерн, что в
+ * `PromotionPicker` KS-3395 и `BlindBoardPieceIcon` KS-3492). Раньше
+ * вверх передавался unicode-символ (♔/♚) — он рисовался шрифтом и
+ * не совпадал с темой доски. Для нестандартных наборов — путь
+ * `/pieces/<set>/<code>.svg` как и прежде.
+ */
 function PieceImg({ piece, pieceSet }: { piece: PalettePiece; pieceSet: string }) {
-  if (pieceSet === 'standard') {
+  const builtin = pieceSet === 'standard' ? defaultPieces[piece] : undefined;
+  if (builtin) {
     return (
-      <span style={{ fontSize: '1.6em', lineHeight: 1 }}>
-        {PIECE_LABELS[piece]}
+      <span
+        style={{
+          display: 'inline-flex',
+          width: '85%',
+          height: '85%',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        aria-label={piece}
+      >
+        {builtin({
+          svgStyle: { width: '100%', height: '100%', display: 'block' },
+        })}
       </span>
     );
   }
@@ -91,9 +110,10 @@ export function InlineBoardEditor({
   palettePosition = 'right',
   testIdPrefix = 'inline-board-editor',
 }: InlineBoardEditorProps) {
-  const { pieceSet: rawPieceSet, darkSquareStyle, lightSquareStyle } =
-    useBoardSettings();
-  const pieceSet = rawPieceSet === 'standard' ? 'cburnett' : rawPieceSet;
+  const { pieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  // KS-3531: убран костыль `standard → cburnett` (нет такой папки в
+  // /public/pieces/). PieceImg сам понимает 'standard' и рендерит
+  // inline-SVG из react-chessboard.
 
   const placePiece = useCallback(
     (sq: string, piece: PalettePiece | null) => {

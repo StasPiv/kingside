@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
+import { defaultPieces } from 'react-chessboard';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 // KS-2365 / ADR-040 §7: вкладка «По картинке» для распознавания доски.
 import { BoardImageDropzone } from './BoardImageDropzone';
@@ -110,21 +111,59 @@ function validateBoard(board: Record<string, string>, turn: 'w' | 'b'): string |
   return null;
 }
 
-function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
-  if (pieceSet === 'standard') {
-    const labels: Record<string, string> = {
-      wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙',
-      bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟',
-    };
-    return <span style={{ fontSize: 22, lineHeight: 1 }}>{labels[piece] || '?'}</span>;
+/**
+ * KS-3531: единый рендерер фигур для палитры и грид-доски. До хотфикса
+ * `standard` пиктограммы рисовались через unicode-символы (хорошо), а
+ * SVG-доска грузила `/pieces/cburnett/<code>.svg` (костыль
+ * `pieceSet==='standard' ? 'cburnett' : …`), которого нет в /public/pieces/ —
+ * браузер показывал битую картинку с alt-текстом вместо иконки. Теперь
+ * для `standard` используем `defaultPieces` из react-chessboard (тот же
+ * паттерн, что в `PromotionPicker` KS-3395 и `BlindBoardPieceIcon`
+ * KS-3492), а для остальных наборов — `/pieces/<set>/<code>.svg`.
+ */
+function PieceIcon({
+  piece,
+  pieceSet,
+  size = 26,
+}: {
+  piece: string;
+  pieceSet: string;
+  size?: number;
+}) {
+  const builtin = pieceSet === 'standard' ? defaultPieces[piece] : undefined;
+  if (builtin) {
+    return (
+      <span
+        style={{
+          display: 'inline-flex',
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {builtin({
+          svgStyle: { width: '100%', height: '100%', display: 'block' },
+        })}
+      </span>
+    );
   }
-  return <img src={`/pieces/${pieceSet}/${piece}.svg`} alt={piece} style={{ width: 26, height: 26 }} />;
+  return (
+    <img
+      src={`/pieces/${pieceSet}/${piece}.svg`}
+      alt={piece}
+      style={{ width: size, height: size }}
+      draggable={false}
+    />
+  );
 }
 
 export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'fen' }: Props) {
   const { t } = useTranslation();
-  const { pieceSet: rawPieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
-  const pieceSet = rawPieceSet === 'standard' ? 'cburnett' : rawPieceSet;
+  const { pieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  // KS-3531: убран костыль `standard → cburnett` (каталога cburnett нет
+  // в /public/pieces/ → 404 → битые картинки). Теперь PieceIcon сам
+  // понимает 'standard' и рендерит `defaultPieces` из react-chessboard.
   const startFen = initialFen || INITIAL_FEN;
   const [tab, setTab] = useState<Tab>(initialTab);
   const [fenInput, setFenInput] = useState(startFen);
@@ -352,12 +391,15 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
                       onClick={() => handleSquareClick(sq)}
                     >
                       {piece && (
-                        <img
-                          src={`/pieces/${pieceSet}/${piece}.svg`}
-                          alt={piece}
+                        <span
                           className="set-position-grid__piece"
-                          draggable={false}
-                        />
+                          data-piece={piece}
+                        >
+                          {/* KS-3531: единый рендерер фигур — для
+                              'standard' inline-SVG из react-chessboard,
+                              для остальных /pieces/<set>/<code>.svg. */}
+                          <PieceIcon piece={piece} pieceSet={pieceSet} size={36} />
+                        </span>
                       )}
                     </div>
                   );
