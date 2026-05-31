@@ -106,6 +106,11 @@ function renderAt(
   path: string,
   response: GetGuessSessionResponse | (() => Promise<GetGuessSessionResponse>),
   toAnalysis?: (id: string) => Promise<{ url: string }>,
+  getArchiveGame?: (ref: string) => Promise<{
+    white: { name: string | null };
+    black: { name: string | null };
+    event: string | null;
+  }>,
 ) {
   const getSession = vi
     .fn()
@@ -124,6 +129,7 @@ function renderAt(
                   <GuessSessionReviewPage
                     getSession={getSession}
                     toAnalysis={toAnalysis}
+                    getArchiveGame={getArchiveGame}
                   />
                 }
               />
@@ -284,6 +290,140 @@ describe('<GuessSessionReviewPage> KS-3514', () => {
       // Не должно быть raw enum'а (например, «weaker» или «asPlayer»
       // буквально) — кроме случая asPlayer/'As played' где «As» != «as».
       expect(el.textContent).not.toBe(v.verdict);
+    }
+  });
+
+  it('KS-3521: PGN без headers + gameSource=archive → подтягиваем имена из архива', async () => {
+    const pgnNoHeaders = '1. e4 e5 2. Nf3 *';
+    const getArchiveGame = vi.fn().mockResolvedValue({
+      white: { name: 'Carlsen, M' },
+      black: { name: 'Nepomniachtchi, I' },
+      event: 'Norway Chess 2026',
+    });
+    renderAt(
+      '/guess/sessions/s-backfill',
+      {
+        session: session({
+          id: 's-backfill',
+          pgn: pgnNoHeaders,
+          gameSource: 'archive',
+          gameRef: 'arc-77',
+        }),
+        moves: [],
+        userPoints: 0,
+        playerPoints: 0,
+      },
+      undefined,
+      getArchiveGame,
+    );
+    await waitFor(() =>
+      expect(getArchiveGame).toHaveBeenCalledWith('arc-77'),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-review-title').textContent).toContain(
+        'Carlsen, M',
+      ),
+    );
+    expect(screen.getByTestId('guess-review-title').textContent).toContain(
+      'Nepomniachtchi, I',
+    );
+    expect(
+      screen.getByTestId('guess-review-event').textContent,
+    ).toContain('Norway Chess 2026');
+  });
+
+  it('KS-3521: PGN с «?»-headers тоже триггерит archive-backfill', async () => {
+    const pgnQuestion =
+      '[Event "?"]\n[White "?"]\n[Black "?"]\n[Result "*"]\n\n1. e4 e5 *';
+    const getArchiveGame = vi.fn().mockResolvedValue({
+      white: { name: 'A' },
+      black: { name: 'B' },
+      event: 'Test',
+    });
+    renderAt(
+      '/guess/sessions/s-q',
+      {
+        session: session({
+          id: 's-q',
+          pgn: pgnQuestion,
+          gameSource: 'archive',
+          gameRef: 'arc-q',
+        }),
+        moves: [],
+        userPoints: 0,
+        playerPoints: 0,
+      },
+      undefined,
+      getArchiveGame,
+    );
+    await waitFor(() => expect(getArchiveGame).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-review-title').textContent).toContain(
+        'A',
+      ),
+    );
+  });
+
+  it('KS-3521: gameSource=pgn без headers — archive-backfill НЕ вызывается', async () => {
+    const getArchiveGame = vi.fn();
+    renderAt(
+      '/guess/sessions/s-pgn',
+      {
+        session: session({
+          id: 's-pgn',
+          pgn: '1. e4 *',
+          gameSource: 'pgn',
+          gameRef: null,
+        }),
+        moves: [],
+        userPoints: 0,
+        playerPoints: 0,
+      },
+      undefined,
+      getArchiveGame,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-review-page').getAttribute('data-state')).toBe(
+        'ready',
+      ),
+    );
+    expect(getArchiveGame).not.toHaveBeenCalled();
+    // Заголовок остаётся «— vs —».
+    expect(screen.getByTestId('guess-review-title').textContent).toContain(
+      '— vs —',
+    );
+  });
+
+  it('KS-3521: ошибка toAnalysis → видимый openError + console.error', async () => {
+    const user = userEvent.setup();
+    const toAnalysis = vi
+      .fn()
+      .mockRejectedValue(new Error('Bad Request: 400'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderAt(
+        '/guess/sessions/s-err',
+        {
+          session: session({ id: 's-err' }),
+          moves: [],
+          userPoints: 0,
+          playerPoints: 0,
+        },
+        toAnalysis,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('guess-review-to-analysis')).toBeInTheDocument(),
+      );
+      await user.click(screen.getByTestId('guess-review-to-analysis'));
+      await waitFor(() =>
+        expect(screen.getByTestId('guess-review-open-error')).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByTestId('guess-review-open-error').textContent,
+      ).toContain('Bad Request: 400');
+      expect(err).toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
     }
   });
 

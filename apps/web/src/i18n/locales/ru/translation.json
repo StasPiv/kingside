@@ -542,6 +542,7 @@
       "stars": "Звёзды",
       "score": "Очки",
       "openInAnalysis": "Открыть в анализе →",
+      "openInAnalysisError": "Не удалось открыть анализ: {{msg}}",
       "finishToAnalyzeHint": "Завершите сессию для разбора",
       "movesTitle": "Ходы",
       "movesEmpty": "В этой сессии ходов пока нет",

@@ -9,6 +9,7 @@ import type {
 } from '@kingside/shared';
 import { GuessSubNav } from '../components/guess/GuessSubNav';
 import { guessApi } from '../api/guessApi';
+import { archiveApi } from '../api/archive';
 
 /**
  * KS-3514 (ADR-093 follow-up) — страница `/guess/sessions/:id` с
@@ -30,19 +31,32 @@ interface PgnContext {
   event: string | null;
 }
 
+const DASH = '—';
+
+/**
+ * KS-3521: парсим PGN headers через chess.js. Если headers пустые или
+ * содержат `?` (анонимная партия) — возвращаем `'—'`. Внешний код
+ * (`maybeBackfillFromArchive`) добывает имена из `gameSource='archive'`
+ * через GET /archive/games/:id.
+ */
 function parsePgnContext(pgn: string | null | undefined): PgnContext {
-  if (!pgn) return { white: '—', black: '—', event: null };
+  if (!pgn) return { white: DASH, black: DASH, event: null };
   try {
     const g = new Chess();
     g.loadPgn(pgn);
     const h = g.header();
+    const cleanup = (v?: string): string => {
+      const trimmed = v?.trim();
+      if (!trimmed || trimmed === '?') return DASH;
+      return trimmed;
+    };
     return {
-      white: h.White?.trim() || '—',
-      black: h.Black?.trim() || '—',
-      event: h.Event?.trim() || null,
+      white: cleanup(h.White),
+      black: cleanup(h.Black),
+      event: h.Event?.trim() && h.Event.trim() !== '?' ? h.Event.trim() : null,
     };
   } catch {
-    return { white: '—', black: '—', event: null };
+    return { white: DASH, black: DASH, event: null };
   }
 }
 
@@ -79,11 +93,23 @@ export interface GuessSessionReviewPageProps {
   /** DI для тестов. */
   getSession?: (id: string) => Promise<GetGuessSessionResponse>;
   toAnalysis?: (id: string) => Promise<{ url: string }>;
+  /**
+   * KS-3521: DI для archive-fallback (когда pgn без headers).
+   * Совместима с `archiveApi.getArchiveGameById`.
+   */
+  getArchiveGame?: (
+    gameRef: string,
+  ) => Promise<{
+    white: { name: string | null };
+    black: { name: string | null };
+    event: string | null;
+  }>;
 }
 
 export function GuessSessionReviewPage({
   getSession,
   toAnalysis,
+  getArchiveGame,
 }: GuessSessionReviewPageProps = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -93,6 +119,13 @@ export function GuessSessionReviewPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  // KS-3521: явный error-state для кнопки «Open in analysis», чтобы
+  // пользователь видел причину, а не просто «ничего не происходит».
+  const [openError, setOpenError] = useState<string | null>(null);
+  // KS-3521: имена из archive-fallback (когда PGN без headers).
+  const [archiveContext, setArchiveContext] = useState<PgnContext | null>(
+    null,
+  );
 
   const fetchSession = useCallback(async () => {
     if (!id) return;
@@ -122,19 +155,74 @@ export function GuessSessionReviewPage({
     [data?.session.pgn],
   );
 
+  // KS-3521: если PGN-headers пустые (white/black=='—'), а сессия
+  // была создана из архива — добываем имена через GET /archive/games/:id
+  // (gameRef = archiveGameId, ADR-091). Делаем один раз на mount data.
+  useEffect(() => {
+    if (!data) return;
+    setArchiveContext(null);
+    const needsBackfill =
+      pgnCtx.white === DASH || pgnCtx.black === DASH || !pgnCtx.event;
+    if (!needsBackfill) return;
+    const src = data.session.gameSource;
+    const ref = data.session.gameRef;
+    if (src !== 'archive' || !ref) return;
+    const get =
+      getArchiveGame ?? ((r: string) => archiveApi.getArchiveGameById(r));
+    let cancelled = false;
+    void (async () => {
+      try {
+        const g = await get(ref);
+        if (cancelled) return;
+        setArchiveContext({
+          white: g.white?.name?.trim() || DASH,
+          black: g.black?.name?.trim() || DASH,
+          event: g.event?.trim() || null,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[guess-review] archive backfill failed', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data, pgnCtx, getArchiveGame]);
+
+  // Финальный контекст — PGN headers c приоритетом, иначе archive-backfill.
+  const displayCtx = useMemo<PgnContext>(() => {
+    if (!archiveContext) return pgnCtx;
+    return {
+      white: pgnCtx.white !== DASH ? pgnCtx.white : archiveContext.white,
+      black: pgnCtx.black !== DASH ? pgnCtx.black : archiveContext.black,
+      event: pgnCtx.event ?? archiveContext.event,
+    };
+  }, [pgnCtx, archiveContext]);
+
   const onOpenInAnalysis = useCallback(async () => {
     if (!id || opening) return;
     setOpening(true);
+    setOpenError(null);
     try {
       const call = toAnalysis ?? ((sid: string) => guessApi.toAnalysis(sid));
       const res = await call(id);
+      if (!res?.url) {
+        throw new Error('Empty url from server');
+      }
       navigate(res.url);
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn('[guess-review] toAnalysis failed', e);
+      console.error('[guess-review] toAnalysis failed', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      setOpenError(
+        t('guess.review.openInAnalysisError', {
+          defaultValue: 'Could not open the analysis: {{msg}}',
+          msg,
+        }),
+      );
       setOpening(false);
     }
-  }, [id, opening, toAnalysis, navigate]);
+  }, [id, opening, toAnalysis, navigate, t]);
 
   if (loading) {
     return (
@@ -201,14 +289,14 @@ export function GuessSessionReviewPage({
           className="guess-review-page__title"
           data-testid="guess-review-title"
         >
-          {pgnCtx.white} {t('guess.review.vs', 'vs')} {pgnCtx.black}
+          {displayCtx.white} {t('guess.review.vs', 'vs')} {displayCtx.black}
         </h1>
-        {pgnCtx.event && (
+        {displayCtx.event && (
           <p
             className="guess-review-page__event"
             data-testid="guess-review-event"
           >
-            {pgnCtx.event}
+            {displayCtx.event}
           </p>
         )}
         <p
@@ -322,6 +410,15 @@ export function GuessSessionReviewPage({
             ? t('guess.history.opening', 'Opening…')
             : t('guess.review.openInAnalysis', 'Open in analysis →')}
         </button>
+        {openError && (
+          <p
+            className="guess-review-page__open-error"
+            data-testid="guess-review-open-error"
+            role="alert"
+          >
+            {openError}
+          </p>
+        )}
       </section>
 
       <section

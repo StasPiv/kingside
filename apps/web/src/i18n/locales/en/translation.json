@@ -532,6 +532,7 @@
       "stars": "Stars",
       "score": "Score",
       "openInAnalysis": "Open in analysis →",
+      "openInAnalysisError": "Could not open the analysis: {{msg}}",
       "finishToAnalyzeHint": "Finish the session to open the analysis",
       "movesTitle": "Moves",
       "movesEmpty": "No moves yet in this session",
