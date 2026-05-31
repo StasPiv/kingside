@@ -3613,6 +3613,58 @@
     }
   },
   "blindBoard": {
+    "subnav": {
+      "label": "Blind board sections",
+      "training": "Training",
+      "progress": "Progress",
+      "history": "History"
+    },
+    "stats": {
+      "title": "Blind board progress",
+      "noData": "—",
+      "placeholder": "Play your first blind-board session",
+      "bestStreak": "Best streak",
+      "bestStreakHint": "Longest streak of correct answers",
+      "currentStreak": "Current streak",
+      "currentStreakHint": "Last session streak — keep going!",
+      "maxLevel": "Max level",
+      "maxLevelHint": "Highest level reached so far",
+      "avgRounds": "Avg rounds",
+      "avgRoundsHint": "Average rounds per session",
+      "guest": {
+        "message": "Sign in to track your streak, level and piece-type breakdown.",
+        "cta": "Sign in and start training"
+      }
+    },
+    "trends": {
+      "title": "Best-streak trend",
+      "bucketAria": "Trend bucket",
+      "bucket": { "day": "Day", "week": "Week", "month": "Month" },
+      "session": "session",
+      "sessions": "sessions",
+      "empty": "No data for this period yet",
+      "error": "Failed to load trend"
+    },
+    "breakdowns": {
+      "pieceTitle": "Wrong by piece type",
+      "empty": "Make some mistakes to see your piece-type breakdown",
+      "error": "Failed to load breakdowns"
+    },
+    "history": {
+      "title": "Blind board history",
+      "empty": "No finished sessions yet",
+      "error": "Failed to load history",
+      "startCta": "Start a new session",
+      "streak": "streak {{n}}",
+      "reason": {
+        "wrong-answer": "Wrong answer",
+        "abandoned": "Abandoned"
+      },
+      "guest": {
+        "message": "Sign in to see your finished sessions.",
+        "cta": "Sign in and start training"
+      }
+    },
     "setup": {
       "title": "Blind board",
       "intro": "Memorize the position from the computer move arrows alone — no pieces are shown. After each computer move tap the square of the moved piece and pick its type. Wrong answer ends the session.",

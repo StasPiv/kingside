@@ -23,6 +23,7 @@ import {
 
 import { BlindBoardSessionRunner } from '../components/blindBoard/BlindBoardSessionRunner';
 import { BlindBoardConfigForm } from '../components/blindBoard/BlindBoardConfigForm';
+import { BlindBoardSubNav } from '../components/blindBoard/BlindBoardSubNav';
 import {
   isValidBlindBoardConfig,
   validateBlindBoardConfig,
@@ -140,6 +141,8 @@ export function BlindBoardLandingPage() {
       data-testid="blind-board-page"
       data-state="setup"
     >
+      {/* KS-3511: общая sub-nav. */}
+      <BlindBoardSubNav />
       <h1 data-testid="blind-board-page-title">
         {t('blindBoard.setup.title', 'Blind board')}
       </h1>

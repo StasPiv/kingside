@@ -150,6 +150,17 @@ const GuessHistoryPage = lazy(() =>
 // KS-3442 (ADR-088 §11 F1): «слепая доска» — пустая доска + клик +
 // промоушн-модал. Маршрут `/blind-board`. Backend под JwtAuthGuard
 // (KS-3441 B2), требует авторизации — guard'им через ProtectedRoute.
+// KS-3511 (ADR-093 §4): /blind-board/stats и /blind-board/history.
+const BlindBoardStatsPage = lazy(() =>
+  import('./pages/BlindBoardStatsPage').then((m) => ({
+    default: m.BlindBoardStatsPage,
+  })),
+);
+const BlindBoardHistoryPage = lazy(() =>
+  import('./pages/BlindBoardHistoryPage').then((m) => ({
+    default: m.BlindBoardHistoryPage,
+  })),
+);
 const BlindBoardLandingPage = lazy(() =>
   import('./pages/BlindBoardLandingPage').then((m) => ({
     default: m.BlindBoardLandingPage,
@@ -615,6 +626,28 @@ export function App() {
             <ProtectedRoute>
               <Suspense fallback={<LazyFallback />}>
                 <BlindBoardLandingPage />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        {/* KS-3511 (ADR-093 §4): /blind-board/stats и /history —
+            auth-only (JwtAuthGuard на backend). */}
+        <Route
+          path="/blind-board/stats"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<LazyFallback />}>
+                <BlindBoardStatsPage />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/blind-board/history"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<LazyFallback />}>
+                <BlindBoardHistoryPage />
               </Suspense>
             </ProtectedRoute>
           }
