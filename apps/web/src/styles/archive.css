@@ -1927,3 +1927,111 @@
     animation: none;
   }
 }
+
+/* ============================================================
+ * KS-3500 (ADR-091 L1). Selection-mode для ArchiveGamesPage
+ * (выбор партии для Guess) + кнопка «Pick» на карточке.
+ * ============================================================ */
+
+/* Sticky-баннер сверху страницы. */
+.archive-games-metadata__selection-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: -8px -8px 12px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border: 1px solid var(--accent-primary, var(--c-7c83ff));
+  border-radius: 10px;
+  box-shadow: 0 4px 14px var(--ov-black-30, rgba(0, 0, 0, 0.18));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.archive-games-metadata__selection-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-primary, var(--c-7c83ff));
+  line-height: 1.3;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.archive-games-metadata__selection-cancel {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.archive-games-metadata__selection-cancel:hover {
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+}
+
+/* Selection-кнопка на строке карточки. */
+.archive-game-row__select {
+  appearance: none;
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 80ms ease;
+  white-space: nowrap;
+}
+.archive-game-row__select:hover {
+  background: var(--accent-hover, var(--c-6366f1));
+}
+.archive-game-row__select:active {
+  transform: scale(0.96);
+}
+.archive-game-row__select:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+
+/* В selection-режиме у row'ов лёгкая accent-tint при hover. */
+.archive-games-metadata--selection .archive-game-row:hover {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.08));
+}
+
+@media (max-width: 767px) {
+  .archive-games-metadata__selection-banner {
+    /* На mobile полностью прибиваем к верху viewport — sticky+top:0
+       работает в пределах прокручиваемого контейнера; padding-top
+       compensirует high-bar если есть. */
+    margin: -8px -4px 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    gap: 8px;
+  }
+  .archive-games-metadata__selection-text {
+    font-size: 13px;
+  }
+  .archive-games-metadata__selection-cancel {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-height: 40px;
+  }
+  .archive-game-row__select {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-height: 40px;
+  }
+}

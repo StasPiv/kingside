@@ -124,6 +124,100 @@
   font-weight: 500;
 }
 
+/* ── KS-3500 (ADR-091 L1): выбор партии из архива ───────────
+   Превью выбранной партии + CTA «Pick from archive» как
+   альтернатива ручному вводу PGN. */
+.guess-page__archive-pick {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 12px 18px;
+  background: var(--bg-elevated, var(--c-25253d));
+  color: var(--text-primary, var(--c-e0e0e0));
+  border: 1px dashed var(--accent-primary, var(--c-7c83ff));
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-style 120ms ease,
+    color 120ms ease;
+}
+.guess-page__archive-pick:hover {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-style: solid;
+}
+.guess-page__archive-pick:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+
+/* Превью выбранной партии — карточка bg-elevated + accent-tint
+   подсветка (показывает что выбор активен). */
+.guess-page__archive-preview {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label  change'
+    'main   change'
+    'event  change';
+  align-items: center;
+  gap: 4px 12px;
+  padding: 14px 16px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border: 1px solid var(--accent-primary, var(--c-7c83ff));
+  border-radius: 12px;
+}
+.guess-page__archive-preview-label {
+  grid-area: label;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-page__archive-preview-main {
+  grid-area: main;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+  line-height: 1.3;
+  word-break: break-word;
+}
+.guess-page__archive-preview-event {
+  grid-area: event;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.3;
+}
+.guess-page__archive-change {
+  grid-area: change;
+  align-self: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.guess-page__archive-change:hover {
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+}
+
 .guess-page__actions {
   display: flex;
   gap: 10px;
@@ -550,6 +644,31 @@
   .guess-page__pgn {
     min-height: 140px;
     font-size: 12px;
+  }
+  /* KS-3500 mobile: pick-btn full-width, preview compact. */
+  .guess-page__archive-pick {
+    align-self: stretch;
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+  .guess-page__archive-preview {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'label'
+      'main'
+      'event'
+      'change';
+    gap: 6px;
+    padding: 12px 14px;
+  }
+  .guess-page__archive-preview-main {
+    font-size: 15px;
+  }
+  .guess-page__archive-change {
+    width: 100%;
+    margin-top: 4px;
+    min-height: 44px;
   }
   .guess-page__side {
     width: 100%;
