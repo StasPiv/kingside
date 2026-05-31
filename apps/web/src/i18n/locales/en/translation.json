@@ -512,6 +512,28 @@
       "empty": "Play more sessions to see your move breakdown",
       "error": "Failed to load breakdowns"
     },
+    "review": {
+      "backToHistory": "Back to history",
+      "vs": "vs",
+      "guessingFor": "Guessing for",
+      "status": {
+        "active": "Active",
+        "finished": "Finished",
+        "abandoned": "Abandoned"
+      },
+      "yourAccuracy": "Your accuracy",
+      "playerAccuracy": "Player accuracy",
+      "scoreboard": "You : Game",
+      "rounds": "Rounds",
+      "stars": "Stars",
+      "score": "Score",
+      "openInAnalysis": "Open in analysis →",
+      "finishToAnalyzeHint": "Finish the session to open the analysis",
+      "movesTitle": "Moves",
+      "movesEmpty": "No moves yet in this session",
+      "actualPlayedHint": "Actually played in the game",
+      "error": "Failed to load session"
+    },
     "history": {
       "title": "Guess history",
       "empty": "No finished sessions yet",

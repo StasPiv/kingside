@@ -147,6 +147,13 @@ const GuessHistoryPage = lazy(() =>
     default: m.GuessHistoryPage,
   })),
 );
+// KS-3514 (ADR-093 follow-up): /guess/sessions/:id — review страница
+// конкретной сессии (стат-карты, верктики ходов, кнопка в анализ).
+const GuessSessionReviewPage = lazy(() =>
+  import('./pages/GuessSessionReviewPage').then((m) => ({
+    default: m.GuessSessionReviewPage,
+  })),
+);
 // KS-3442 (ADR-088 §11 F1): «слепая доска» — пустая доска + клик +
 // промоушн-модал. Маршрут `/blind-board`. Backend под JwtAuthGuard
 // (KS-3441 B2), требует авторизации — guard'им через ProtectedRoute.
@@ -612,6 +619,17 @@ export function App() {
                 <ProtectedRoute>
                   <Suspense fallback={<LazyFallback />}>
                     <GuessHistoryPage />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+            {/* KS-3514: review страница конкретной сессии. */}
+            <Route
+              path="/guess/sessions/:id"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<LazyFallback />}>
+                    <GuessSessionReviewPage />
                   </Suspense>
                 </ProtectedRoute>
               }

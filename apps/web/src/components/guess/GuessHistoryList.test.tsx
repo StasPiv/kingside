@@ -1,23 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { renderWithProviders, screen } from '../../test/test-utils';
 import type { GuessHistoryResponse, GuessSessionDto } from '@kingside/shared';
 import { GuessHistoryList } from './GuessHistoryList';
 
 /**
- * KS-3513 (F-guess hotfix). Клик по строке → guessApi.toAnalysis →
- * navigate(url). До хотфикса был Link на /guess/sessions/:id —
- * маршрут не зарегистрирован, React Router fallback'ил на /.
+ * KS-3514. Клик по строке истории идёт на /guess/sessions/:id (review-
+ * страница). До KS-3513 был Link на тот же путь, но не было самой
+ * страницы; KS-3513 временно переключал на POST /to-analysis (работает
+ * только для finished); KS-3514 вернул `<Link>` уже на готовую review.
  */
-
-const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>(
-    'react-router-dom',
-  );
-  return { ...actual, useNavigate: () => mockNavigate };
-});
 
 function session(id: string, overrides: Partial<GuessSessionDto> = {}): GuessSessionDto {
   return {
@@ -38,89 +30,36 @@ function session(id: string, overrides: Partial<GuessSessionDto> = {}): GuessSes
   };
 }
 
-describe('<GuessHistoryList> KS-3513', () => {
-  it('клик по строке вызывает toAnalysis(id) и navigate(url)', async () => {
-    const user = userEvent.setup();
-    mockNavigate.mockReset();
+describe('<GuessHistoryList> KS-3514', () => {
+  it('строка истории — Link на /guess/sessions/:id', async () => {
     const fetcher = vi.fn().mockResolvedValue({
-      items: [session('s-1')],
+      items: [session('s-42')],
       total: 1,
     } as GuessHistoryResponse);
-    const toAnalysis = vi.fn().mockResolvedValue({ url: '/analysis/an-9' });
-    renderWithProviders(
-      <GuessHistoryList fetcher={fetcher} toAnalysis={toAnalysis} />,
-    );
+    renderWithProviders(<GuessHistoryList fetcher={fetcher} />);
     await waitFor(() =>
-      expect(screen.getByTestId('guess-history-link-s-1')).toBeInTheDocument(),
+      expect(screen.getByTestId('guess-history-link-s-42')).toBeInTheDocument(),
     );
-    await user.click(screen.getByTestId('guess-history-link-s-1'));
-    expect(toAnalysis).toHaveBeenCalledWith('s-1');
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('/analysis/an-9'),
-    );
+    const link = screen.getByTestId('guess-history-link-s-42');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/guess/sessions/s-42');
   });
 
-  it('пока идёт toAnalysis — кнопка disabled + aria-busy, повторный клик не дублирует', async () => {
-    const user = userEvent.setup();
-    mockNavigate.mockReset();
+  it('active-сессия тоже линкуется на review', async () => {
     const fetcher = vi.fn().mockResolvedValue({
-      items: [session('s-2'), session('s-3')],
-      total: 2,
+      items: [session('s-active', { status: 'active', userAccuracy: null, userStars: null })],
+      total: 1,
     } as GuessHistoryResponse);
-    // toAnalysis висит — promise не резолвится сразу.
-    let resolve!: (v: { url: string }) => void;
-    const toAnalysis = vi
-      .fn()
-      .mockReturnValue(new Promise<{ url: string }>((r) => (resolve = r)));
-    renderWithProviders(
-      <GuessHistoryList fetcher={fetcher} toAnalysis={toAnalysis} />,
-    );
+    renderWithProviders(<GuessHistoryList fetcher={fetcher} />);
     await waitFor(() =>
-      expect(screen.getByTestId('guess-history-link-s-2')).toBeInTheDocument(),
+      expect(
+        screen.getByTestId('guess-history-link-s-active'),
+      ).toBeInTheDocument(),
     );
-    const btn2 = screen.getByTestId(
-      'guess-history-link-s-2',
-    ) as HTMLButtonElement;
-    await user.click(btn2);
-    expect(toAnalysis).toHaveBeenCalledTimes(1);
-    // обе кнопки залочены — соседняя тоже.
-    expect(btn2.disabled).toBe(true);
-    expect(btn2.getAttribute('aria-busy')).toBe('true');
     expect(
-      (screen.getByTestId('guess-history-link-s-3') as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    await user.click(btn2);
-    expect(toAnalysis).toHaveBeenCalledTimes(1);
-    // Резолвим — навигация.
-    resolve({ url: '/analysis/an-2' });
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('/analysis/an-2'),
-    );
-  });
-
-  it('ошибка toAnalysis — кнопка снова кликабельна', async () => {
-    const user = userEvent.setup();
-    mockNavigate.mockReset();
-    const fetcher = vi.fn().mockResolvedValue({
-      items: [session('s-4')],
-      total: 1,
-    } as GuessHistoryResponse);
-    const toAnalysis = vi.fn().mockRejectedValue(new Error('500'));
-    // silence console.warn в тесте
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    renderWithProviders(
-      <GuessHistoryList fetcher={fetcher} toAnalysis={toAnalysis} />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('guess-history-link-s-4')).toBeInTheDocument(),
-    );
-    const btn = screen.getByTestId(
-      'guess-history-link-s-4',
-    ) as HTMLButtonElement;
-    await user.click(btn);
-    await waitFor(() => expect(btn.disabled).toBe(false));
-    expect(mockNavigate).not.toHaveBeenCalled();
-    warn.mockRestore();
+      screen
+        .getByTestId('guess-history-link-s-active')
+        .getAttribute('href'),
+    ).toBe('/guess/sessions/s-active');
   });
 });
