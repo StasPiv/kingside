@@ -18,11 +18,25 @@ import { GuessSessionRunner } from '../components/guess';
  * (гейт `GUESS_ENTRY_ENABLED`, см. config/guessFeature).
  */
 
+/**
+ * KS-3498 (ADR-091 F1) — state, который может прийти на /guess:
+ *   - `pgn`/`side`/`title` — старый путь (открытие из ArchiveGamePage
+ *     одной партии или ручной переход с PGN);
+ *   - `archiveGameId` + `pgn`/`white`/`black`/`event` — новый путь
+ *     «выбрать из архива» (KS-3499 F2). Если есть `archiveGameId`,
+ *     submit идёт с `gameSource='archive'`, иначе `pgn`.
+ */
 interface GuessLandingState {
   pgn?: string;
   side?: GuessSide;
   title?: string;
+  archiveGameId?: string;
+  white?: string;
+  black?: string;
+  event?: string;
 }
+
+const ARCHIVE_RETURN_TO = '/guess';
 
 function isPlayablePgn(pgn: string): boolean {
   if (!pgn || pgn.trim().length === 0) return false;
@@ -44,12 +58,50 @@ export function GuessLandingPage() {
   const [pgn, setPgn] = useState<string>(initial?.pgn ?? '');
   const [side, setSide] = useState<GuessSide>(initial?.side ?? 'white');
   const [started, setStarted] = useState(false);
+  // KS-3498: «выбран из архива» — превью + сохранение id для submit.
+  // Если пользователь вручную правит PGN после возврата из архива,
+  // мы НЕ сбрасываем archiveGameId (на стороне backend gameRef важнее
+  // pgn для gameSource='archive', а pgn используется только для рендера
+  // textarea и UI-валидации). Сбрасывается только кнопкой «Изменить
+  // выбор» (она снова уводит в /archive) — после reset очистим.
+  const [archiveGameId, setArchiveGameId] = useState<string | null>(
+    initial?.archiveGameId ?? null,
+  );
+  const [archivePreview, setArchivePreview] = useState<
+    Pick<GuessLandingState, 'white' | 'black' | 'event'> | null
+  >(
+    initial?.archiveGameId
+      ? {
+          white: initial.white,
+          black: initial.black,
+          event: initial.event,
+        }
+      : null,
+  );
 
   const pgnValid = useMemo(() => isPlayablePgn(pgn), [pgn]);
 
+  const goPickFromArchive = useCallback(() => {
+    navigate('/archive', {
+      state: {
+        returnTo: ARCHIVE_RETURN_TO,
+        returnLabel: t('guess.setup.title', 'Guess the move'),
+      },
+    });
+  }, [navigate, t]);
+
+  const clearArchivePick = useCallback(() => {
+    setArchiveGameId(null);
+    setArchivePreview(null);
+  }, []);
+
+  // KS-3498: при выбранной из архива партии локальная PGN-валидация
+  // не блокирует Start — backend подтянет PGN по `gameRef`.
+  const canStart = pgnValid || archiveGameId !== null;
+
   const handleStart = useCallback(() => {
-    if (pgnValid) setStarted(true);
-  }, [pgnValid]);
+    if (canStart) setStarted(true);
+  }, [canStart]);
 
   const handleBackToSetup = useCallback(() => {
     setStarted(false);
@@ -73,7 +125,12 @@ export function GuessLandingPage() {
             </span>
           )}
         </div>
-        <GuessSessionRunner pgn={pgn} side={side} gameSource="pgn" />
+        <GuessSessionRunner
+          pgn={pgn}
+          side={side}
+          gameSource={archiveGameId ? 'archive' : 'pgn'}
+          gameRef={archiveGameId}
+        />
       </div>
     );
   }
@@ -87,6 +144,62 @@ export function GuessLandingPage() {
           'Play through a real game and try to guess the moves of one side. Each guess is compared to what was actually played.',
         )}
       </p>
+
+      {/* KS-3498 F1: выбор партии из архива. Превью + «Изменить» —
+          когда archiveGameId уже выбран; кнопка-вход — когда нет. */}
+      {archivePreview && archiveGameId ? (
+        <div
+          className="guess-page__archive-preview"
+          data-testid="guess-archive-preview"
+          data-archive-id={archiveGameId}
+        >
+          <span
+            className="guess-page__archive-preview-label"
+            data-testid="guess-archive-preview-label"
+          >
+            {t('guess.setup.archivePreviewLabel', 'Selected game')}
+          </span>
+          <span
+            className="guess-page__archive-preview-main"
+            data-testid="guess-archive-preview-main"
+          >
+            {t('guess.setup.archivePreview', '{{white}} vs {{black}}', {
+              white: archivePreview.white ?? '—',
+              black: archivePreview.black ?? '—',
+            })}
+          </span>
+          {archivePreview.event && (
+            <span
+              className="guess-page__archive-preview-event"
+              data-testid="guess-archive-preview-event"
+            >
+              {t('guess.setup.archivePreviewEvent', '{{event}}', {
+                event: archivePreview.event,
+              })}
+            </span>
+          )}
+          <button
+            type="button"
+            className="guess-page__archive-change"
+            data-testid="guess-archive-change"
+            onClick={() => {
+              clearArchivePick();
+              goPickFromArchive();
+            }}
+          >
+            {t('guess.setup.changePick', 'Change selection')}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="guess-page__archive-pick"
+          data-testid="guess-archive-pick"
+          onClick={goPickFromArchive}
+        >
+          {t('guess.setup.pickFromArchive', '🔍 Pick from archive →')}
+        </button>
+      )}
 
       <label className="guess-page__label" htmlFor="guess-pgn">
         {t('guess.setup.pgnLabel', 'Game PGN')}
@@ -136,7 +249,7 @@ export function GuessLandingPage() {
           type="button"
           className="play-btn"
           data-testid="guess-start"
-          disabled={!pgnValid}
+          disabled={!canStart}
           onClick={handleStart}
         >
           {t('guess.setup.start', 'Start')}

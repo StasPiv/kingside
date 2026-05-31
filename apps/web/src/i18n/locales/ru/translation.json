@@ -470,7 +470,12 @@
       "black": "Чёрных",
       "invalidPgn": "Не удалось прочитать PGN. Проверьте ходы и попробуйте снова.",
       "start": "Начать",
-      "back": "Новая партия"
+      "back": "Новая партия",
+      "pickFromArchive": "🔍 Выбрать из архива →",
+      "archivePreviewLabel": "Выбранная партия",
+      "archivePreview": "{{white}} vs {{black}}",
+      "archivePreviewEvent": "{{event}}",
+      "changePick": "Изменить выбор"
     },
     "session": {
       "starting": "Запуск сессии…",

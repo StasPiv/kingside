@@ -460,7 +460,12 @@
       "black": "Black",
       "invalidPgn": "Could not read this PGN. Check the moves and try again.",
       "start": "Start",
-      "back": "New game"
+      "back": "New game",
+      "pickFromArchive": "🔍 Pick from archive →",
+      "archivePreviewLabel": "Selected game",
+      "archivePreview": "{{white}} vs {{black}}",
+      "archivePreviewEvent": "{{event}}",
+      "changePick": "Change selection"
     },
     "session": {
       "starting": "Starting session…",

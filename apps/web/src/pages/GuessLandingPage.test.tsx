@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders, screen } from '../test/test-utils';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { render } from '@testing-library/react';
+import { I18nextProvider } from 'react-i18next';
+import { renderWithProviders, screen, testI18n } from '../test/test-utils';
+import { BoardSettingsProvider } from '../context/BoardSettingsContext';
+import { ThemeProvider } from '../context/ThemeContext';
 import { GuessLandingPage } from './GuessLandingPage';
 
 /**
@@ -10,8 +15,24 @@ import { GuessLandingPage } from './GuessLandingPage';
  */
 
 vi.mock('../components/guess', () => ({
-  GuessSessionRunner: ({ pgn, side }: { pgn: string; side: string }) => (
-    <div data-testid="guess-runner-stub" data-pgn-len={pgn.length} data-side={side} />
+  GuessSessionRunner: ({
+    pgn,
+    side,
+    gameSource,
+    gameRef,
+  }: {
+    pgn: string;
+    side: string;
+    gameSource: string;
+    gameRef?: string | null;
+  }) => (
+    <div
+      data-testid="guess-runner-stub"
+      data-pgn-len={pgn.length}
+      data-side={side}
+      data-game-source={gameSource}
+      data-game-ref={gameRef ?? ''}
+    />
   ),
 }));
 
@@ -61,5 +82,126 @@ describe('<GuessLandingPage> KS-3412', () => {
     expect(runner.getAttribute('data-side')).toBe('black');
     expect(Number(runner.getAttribute('data-pgn-len'))).toBeGreaterThan(0);
     expect(screen.getByTestId('guess-page').getAttribute('data-state')).toBe('playing');
+  });
+
+  // ── KS-3498 (ADR-091 F1) ─────────────────────────────────────────
+  describe('KS-3498: выбор партии из архива', () => {
+    function ArchiveStub() {
+      const loc = useLocation();
+      return (
+        <div
+          data-testid="archive-stub"
+          data-return-to={(loc.state as { returnTo?: string } | null)?.returnTo ?? ''}
+          data-return-label={
+            (loc.state as { returnLabel?: string } | null)?.returnLabel ?? ''
+          }
+        />
+      );
+    }
+
+    function renderWithRoutes(initialEntries: Array<string | { pathname: string; state: unknown }>) {
+      return render(
+        <I18nextProvider i18n={testI18n}>
+          <ThemeProvider initialTheme="dark">
+            <BoardSettingsProvider>
+              <MemoryRouter initialEntries={initialEntries}>
+                <Routes>
+                  <Route path="/guess" element={<GuessLandingPage />} />
+                  <Route path="/archive" element={<ArchiveStub />} />
+                </Routes>
+              </MemoryRouter>
+            </BoardSettingsProvider>
+          </ThemeProvider>
+        </I18nextProvider>,
+      );
+    }
+
+    it('кнопка «Pick from archive» ведёт на /archive со state {returnTo,returnLabel}', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes(['/guess']);
+      const pick = screen.getByTestId('guess-archive-pick');
+      expect(pick.textContent).toContain('Pick from archive');
+      await user.click(pick);
+      const stub = screen.getByTestId('archive-stub');
+      expect(stub.getAttribute('data-return-to')).toBe('/guess');
+      expect(stub.getAttribute('data-return-label')).toBe('Guess the move');
+    });
+
+    it('возврат со state {archiveGameId,...} рисует превью + заполняет PGN + Start активен', () => {
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            archiveGameId: 'arc-123',
+            pgn: VALID_PGN,
+            white: 'Carlsen',
+            black: 'Nepomniachtchi',
+            event: 'WCC 2021',
+          },
+        },
+      ]);
+      const preview = screen.getByTestId('guess-archive-preview');
+      expect(preview.getAttribute('data-archive-id')).toBe('arc-123');
+      expect(screen.getByTestId('guess-archive-preview-main').textContent).toContain(
+        'Carlsen vs Nepomniachtchi',
+      );
+      expect(screen.getByTestId('guess-archive-preview-event').textContent).toContain(
+        'WCC 2021',
+      );
+      // textarea заполнена.
+      expect(
+        (screen.getByTestId('guess-pgn-input') as HTMLTextAreaElement).value,
+      ).toBe(VALID_PGN);
+      // Start активен (за счёт archiveGameId, не только PGN).
+      expect(
+        (screen.getByTestId('guess-start') as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+
+    it('Start с archive → GuessSessionRunner получает gameSource=archive + gameRef=id', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            archiveGameId: 'arc-9',
+            pgn: VALID_PGN,
+            white: 'A',
+            black: 'B',
+            event: 'X',
+          },
+        },
+      ]);
+      await user.click(screen.getByTestId('guess-start'));
+      const runner = screen.getByTestId('guess-runner-stub');
+      expect(runner.getAttribute('data-game-source')).toBe('archive');
+      expect(runner.getAttribute('data-game-ref')).toBe('arc-9');
+    });
+
+    it('«Изменить выбор» сбрасывает превью + уводит обратно в /archive', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            archiveGameId: 'arc-7',
+            pgn: VALID_PGN,
+            white: 'A',
+            black: 'B',
+            event: 'X',
+          },
+        },
+      ]);
+      await user.click(screen.getByTestId('guess-archive-change'));
+      const stub = screen.getByTestId('archive-stub');
+      expect(stub.getAttribute('data-return-to')).toBe('/guess');
+    });
+
+    it('без archive — Start всё ещё требует валидный PGN', async () => {
+      renderWithRoutes(['/guess']);
+      expect(
+        (screen.getByTestId('guess-start') as HTMLButtonElement).disabled,
+      ).toBe(true);
+    });
   });
 });
