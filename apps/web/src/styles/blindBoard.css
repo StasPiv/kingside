@@ -1327,3 +1327,396 @@
     width: 100%;
   }
 }
+
+/* ============================================================
+ * KS-3512 (ADR-093 L1). Стили статистики «Слепая доска».
+ * Структура классов копирует guess.* (тот же шаблон):
+ *   .blind-board-subnav / -stats / -trends / -breakdowns / -history
+ * ============================================================ */
+
+/* ── SubNav ────────────────────────────────────────────────── */
+.blind-board-subnav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 0;
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.blind-board-subnav::-webkit-scrollbar {
+  display: none;
+}
+.blind-board-subnav__item {
+  flex: 1 1 auto;
+  text-align: center;
+  white-space: nowrap;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms ease, border-color 120ms ease,
+    background 120ms ease;
+}
+.blind-board-subnav__item:hover {
+  color: var(--text-primary);
+  background: var(--ov-white-04);
+}
+.blind-board-subnav__item:focus-visible {
+  outline: none;
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
+  border-radius: 2px;
+}
+.blind-board-subnav__item--active,
+.blind-board-subnav__item[data-active='true'] {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-bottom-color: var(--tab-active-border);
+  border-radius: 6px 6px 0 0;
+}
+
+/* ── Stats Cards (4 top metrics grid) ─────────────────────── */
+.blind-board-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.blind-board-stats__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 12px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  text-align: center;
+}
+.blind-board-stats__value {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-primary, var(--c-7c83ff));
+  letter-spacing: -0.02em;
+}
+.blind-board-stats__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.2;
+}
+.blind-board-stats__hint {
+  font-size: 11px;
+  color: var(--text-muted, var(--c-94a3b8));
+  margin-top: 2px;
+}
+.blind-board-stats__placeholder {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 12px;
+}
+
+/* ── Trends (inline SVG line-chart) ───────────────────────── */
+.blind-board-trends {
+  margin: 0 0 20px;
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.blind-board-trends__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.blind-board-trends__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-trends__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 8px;
+  padding: 3px;
+}
+.blind-board-trends__controls button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  cursor: pointer;
+  min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.blind-board-trends__controls button:hover {
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-trends__controls button[aria-pressed='true'],
+.blind-board-trends__controls button.is-active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+}
+.blind-board-trends__svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+.blind-board-trends__placeholder,
+.blind-board-trends__error {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+}
+.blind-board-trends__error {
+  color: var(--c-vc-red, #b91c1c);
+}
+.blind-board-trends__skeleton {
+  height: 200px;
+  border-radius: 8px;
+  background: var(--bg-elevated, var(--c-25253d));
+  opacity: 0.5;
+  animation: blind-board-skeleton 1.2s ease-in-out infinite alternate;
+}
+@keyframes blind-board-skeleton {
+  from { opacity: 0.4; }
+  to { opacity: 0.7; }
+}
+
+/* ── Breakdowns ───────────────────────────────────────────── */
+.blind-board-breakdowns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 0 0 20px;
+}
+.blind-board-breakdowns__panel {
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.blind-board-breakdowns__title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-breakdowns__pie {
+  width: 100%;
+  max-width: 200px;
+  margin: 0 auto 12px;
+  display: block;
+  aspect-ratio: 1 / 1;
+}
+.blind-board-breakdowns__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.blind-board-breakdowns__legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-breakdowns__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.blind-board-breakdowns__placeholder {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+}
+.blind-board-breakdowns__skeleton {
+  height: 200px;
+  border-radius: 8px;
+  background: var(--bg-elevated, var(--c-25253d));
+  opacity: 0.5;
+  animation: blind-board-skeleton 1.2s ease-in-out infinite alternate;
+}
+
+/* ── History (sessions list + pagination) ─────────────────── */
+.blind-board-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.blind-board-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.blind-board-history__item {
+  display: grid;
+  grid-template-columns: 60px auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-history__date {
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blind-board-history__level {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blind-board-history__streak {
+  font-weight: 800;
+  color: var(--c-vc-green, #15803d);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  text-align: right;
+}
+.blind-board-history__reason {
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.blind-board-history__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.blind-board-history__pagination button {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-primary, var(--c-e0e0e0));
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 36px;
+  min-width: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.blind-board-history__pagination button:hover:not(:disabled) {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.08));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-history__pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.blind-board-history__placeholder {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 10px;
+}
+.blind-board-history__skeleton {
+  height: 60px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 10px;
+  opacity: 0.5;
+  animation: blind-board-skeleton 1.2s ease-in-out infinite alternate;
+}
+
+/* ── Mobile ≤767 ────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .blind-board-subnav__item {
+    padding: 12px 12px;
+    font-size: 13px;
+    flex: 0 0 auto;
+  }
+  .blind-board-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .blind-board-stats__cell {
+    padding: 14px 10px;
+  }
+  .blind-board-stats__value {
+    font-size: 24px;
+  }
+  .blind-board-trends {
+    padding: 12px;
+  }
+  .blind-board-trends__svg {
+    height: 160px;
+  }
+  .blind-board-breakdowns {
+    grid-template-columns: 1fr;
+  }
+  .blind-board-breakdowns__pie {
+    max-width: 160px;
+  }
+  .blind-board-history__item {
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .blind-board-history__date {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    order: 4;
+  }
+  .blind-board-history__reason {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
