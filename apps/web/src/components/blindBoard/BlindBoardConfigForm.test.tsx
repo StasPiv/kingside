@@ -145,6 +145,59 @@ describe('<BlindBoardConfigForm>', () => {
     expect(addBtnB.textContent?.trim()).toBe('+');
   });
 
+  it('KS-3495: исчерпанная квота → inc disabled + aria-disabled + title с причиной', () => {
+    // B квота = 2, оба слона уже в addOrder → +B должен быть disabled.
+    renderWithProviders(
+      <BlindBoardConfigForm
+        value={{
+          startPieces: ['Q', 'N', 'R'],
+          addOrder: ['B', 'B'],
+          memorizeTimeSec: 5,
+        }}
+        onChange={() => {}}
+      />,
+    );
+    const incB = screen.getByTestId(
+      'blind-board-config-start-inc-B',
+    ) as HTMLButtonElement;
+    expect(incB.disabled).toBe(true);
+    expect(incB.getAttribute('aria-disabled')).toBe('true');
+    expect(incB.className).toContain('blind-board-config-form__counter-btn--disabled');
+    expect(incB.title).toBe('Quota for B is full (2 already chosen).');
+
+    const addBtnB = screen.getByTestId(
+      'blind-board-config-add-add-B',
+    ) as HTMLButtonElement;
+    expect(addBtnB.disabled).toBe(true);
+    expect(addBtnB.getAttribute('aria-disabled')).toBe('true');
+    expect(addBtnB.className).toContain(
+      'blind-board-config-form__add-add-btn--disabled',
+    );
+    expect(addBtnB.title).toBe('Quota for B is full (2 already chosen).');
+  });
+
+  it('KS-3495: активная inc-кнопка не имеет title (пустая строка)', () => {
+    // У типа B при addOrder=['B'] квота 2 не исчерпана → canInc=true.
+    renderWithProviders(
+      <BlindBoardConfigForm
+        value={{
+          startPieces: ['Q', 'N', 'R'],
+          addOrder: ['B'],
+          memorizeTimeSec: 5,
+        }}
+        onChange={() => {}}
+      />,
+    );
+    const incB = screen.getByTestId(
+      'blind-board-config-start-inc-B',
+    ) as HTMLButtonElement;
+    expect(incB.disabled).toBe(false);
+    expect(incB.title).toBe('');
+    expect(incB.className).not.toContain(
+      'blind-board-config-form__counter-btn--disabled',
+    );
+  });
+
   it('disabled выключает все кнопки управления', () => {
     renderWithProviders(
       <BlindBoardConfigForm

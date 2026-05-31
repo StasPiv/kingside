@@ -26,6 +26,7 @@ import {
   countByType,
   remainingCapacity,
   remainingQuota,
+  totalByType,
 } from './blindBoardConfigValidation';
 import { BlindBoardPieceIcon } from './BlindBoardPieceIcon';
 
@@ -45,6 +46,34 @@ export function BlindBoardConfigForm({
   const { t } = useTranslation();
   const startCounts = countByType(value.startPieces);
   const capacity = remainingCapacity(value);
+  const totalCounts = totalByType(value.startPieces, value.addOrder);
+
+  /**
+   * KS-3495: пояснительный title для + кнопки, когда она disabled.
+   * Возвращает строку с причиной (квота / общий потолок) или пустую
+   * строку, если кнопка активна. На пустой title браузер не рисует
+   * подсказку, поэтому seek-and-replace не нужен.
+   */
+  const incDisabledTitle = useCallback(
+    (type: BlindBoardPieceType): string => {
+      if (disabled) return '';
+      if (remainingQuota(value, type) <= 0) {
+        return t('blindBoard.config.titleQuotaFull', {
+          type,
+          n: totalCounts[type],
+          defaultValue: 'Quota for {{type}} is full ({{n}} already chosen).',
+        });
+      }
+      if (capacity <= 0) {
+        return t('blindBoard.config.titleCapacityFull', {
+          max: BLIND_BOARD_LIMITS.maxTotal,
+          defaultValue: 'Maximum {{max}} pieces already selected.',
+        });
+      }
+      return '';
+    },
+    [t, value, capacity, totalCounts, disabled],
+  );
 
   const incStart = useCallback(
     (type: BlindBoardPieceType) => {
@@ -189,11 +218,23 @@ export function BlindBoardConfigForm({
                   >
                     {count}
                   </span>
+                  {/* KS-3495: при исчерпанной квоте/потолке кнопка не
+                      только disabled, но и явно отмечена классом
+                      `--disabled` (CSS перекрывает hover/tap-state на
+                      mobile, где :focus-visible иначе оставляет
+                      акцентный фон). `title` показывает причину при
+                      наведении/long-press. */}
                   <button
                     type="button"
-                    className="blind-board-config-form__counter-btn"
+                    className={`blind-board-config-form__counter-btn${
+                      !canInc
+                        ? ' blind-board-config-form__counter-btn--disabled'
+                        : ''
+                    }`}
                     data-testid={`blind-board-config-start-inc-${type}`}
                     disabled={!canInc}
+                    aria-disabled={!canInc}
+                    title={incDisabledTitle(type)}
                     onClick={() => incStart(type)}
                     aria-label={t(
                       'blindBoard.config.increaseAria',
@@ -328,9 +369,15 @@ export function BlindBoardConfigForm({
               <button
                 key={type}
                 type="button"
-                className="blind-board-config-form__add-add-btn"
+                className={`blind-board-config-form__add-add-btn${
+                  !canAdd
+                    ? ' blind-board-config-form__add-add-btn--disabled'
+                    : ''
+                }`}
                 data-testid={`blind-board-config-add-add-${type}`}
                 disabled={!canAdd}
+                aria-disabled={!canAdd}
+                title={incDisabledTitle(type)}
                 onClick={() => addAddOrder(type)}
                 aria-label={t(
                   'blindBoard.config.addPieceAria',

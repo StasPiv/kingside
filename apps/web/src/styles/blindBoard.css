@@ -904,9 +904,17 @@
   background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
   border-color: var(--accent-primary, var(--c-7c83ff));
 }
-.blind-board-config-form__counter-btn:disabled {
+.blind-board-config-form__counter-btn:disabled,
+.blind-board-config-form__counter-btn--disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  /* KS-3495: на mobile :focus-visible / :hover после тапа оставляли
+     акцентный фон даже на disabled-кнопке — выглядело «активной».
+     Явный канвас-фон + сброс border + pointer-events:none перебивают
+     любые остаточные UA-стили. */
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border-color: var(--border-subtle, var(--c-2a2a3e));
+  pointer-events: none;
 }
 .blind-board-config-form__counter-value {
   min-width: 22px;
@@ -1047,9 +1055,16 @@
   color: var(--accent-primary, var(--c-7c83ff));
   border-style: solid;
 }
-.blind-board-config-form__add-add-btn:disabled {
+.blind-board-config-form__add-add-btn:disabled,
+.blind-board-config-form__add-add-btn--disabled {
   opacity: 0.35;
   cursor: not-allowed;
+  /* KS-3495: те же причины, что и для counter-btn — гасим
+     hover/focus-визуал, чтобы disabled не казалась активной. */
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  border-color: var(--border-subtle, var(--c-2a2a3e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  pointer-events: none;
 }
 /* KS-3493: иконка фигуры внутри +Add — фикс 24×24 (минимально
    распознаваемая, не раздувает кнопку). */
