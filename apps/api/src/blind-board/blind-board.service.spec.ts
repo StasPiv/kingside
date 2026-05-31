@@ -1367,3 +1367,75 @@ describe('BlindBoardService.submitAnswer — KS-3527 recentMoves включае�
     }
   });
 });
+
+// ─── KS-3530: deleteSession + recompute User.blindBoardBestStreak ────
+
+describe('BlindBoardService.deleteSession — KS-3530', () => {
+  it('owner: удаляет сессию + пересчитывает User.blindBoardBestStreak', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'u1',
+      startPosition: [], currentPosition: [],
+      nextTargetPiece: null, currentCompMove: null,
+      startConfig: { startPieces: ['Q','N','R'], addOrder: ['B','B','R','N'], memorizeTimeSec: 5 },
+      level: 1, streak: 5, bestStreak: 5,
+      status: 'finished', finishReason: 'wrong-answer',
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    prisma.blindBoardSession.delete = jest.fn().mockResolvedValue({});
+    // После удаления — max(bestStreak) среди оставшихся = 12.
+    prisma.blindBoardSession.aggregate.mockResolvedValue({
+      _count: { _all: 3 },
+      _max: { bestStreak: 12 },
+    });
+    const svc = new BlindBoardService(prisma);
+    await svc.deleteSession('u1', 's1');
+    expect(prisma.blindBoardSession.delete).toHaveBeenCalledWith({
+      where: { id: 's1' },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { blindBoardBestStreak: 12 },
+    });
+  });
+
+  it('нет finished-сессий после удаления → bestStreak = 0', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'u1',
+      startPosition: [], currentPosition: [],
+      nextTargetPiece: null, currentCompMove: null,
+      startConfig: { startPieces: ['Q','N','R'], addOrder: ['B','B','R','N'], memorizeTimeSec: 5 },
+      level: 1, streak: 0, bestStreak: 0,
+      status: 'finished', finishReason: 'wrong-answer',
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    prisma.blindBoardSession.delete = jest.fn().mockResolvedValue({});
+    prisma.blindBoardSession.aggregate.mockResolvedValue({
+      _count: { _all: 0 },
+      _max: { bestStreak: null },
+    });
+    const svc = new BlindBoardService(prisma);
+    await svc.deleteSession('u1', 's1');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { blindBoardBestStreak: 0 },
+    });
+  });
+
+  it('чужая сессия → Forbidden', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'OTHER',
+      startPosition: [], currentPosition: [],
+      nextTargetPiece: null, currentCompMove: null,
+      startConfig: null, level: 1, streak: 0, bestStreak: 0,
+      status: 'finished', finishReason: null,
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    const svc = new BlindBoardService(prisma);
+    await expect(svc.deleteSession('u1', 's1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+});

@@ -6,7 +6,9 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Post,
@@ -110,5 +112,21 @@ export class BlindBoardController {
   @Get('sessions/:id')
   review(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.blind.reviewSession(req.user.id, id);
+  }
+
+  /**
+   * KS-3530. DELETE /blind-board/sessions/:id — удалить blind-board
+   * сессию (cascade BlindBoardAttempt). После — пересчёт
+   * `User.blindBoardBestStreak` из оставшихся finished-сессий. 204
+   * No Content при успехе. Owner-check.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('sessions/:id')
+  @HttpCode(204)
+  async deleteSession(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    await this.blind.deleteSession(req.user.id, id);
   }
 }

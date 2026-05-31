@@ -6,8 +6,10 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseIntPipe,
   Post,
@@ -109,5 +111,19 @@ export class GuessController {
   @Get('breakdowns/me')
   breakdownsMe(@Request() req: AuthenticatedRequest) {
     return this.guess.breakdownsForUser(req.user.id);
+  }
+
+  /**
+   * KS-3530. DELETE /guess/sessions/:id — удалить guess-сессию (cascade
+   * GuessMove). Analysis с привязкой `guessSessionId` НЕ трогается.
+   * Owner-check встроен; 204 No Content при успехе.
+   */
+  @Delete('sessions/:id')
+  @HttpCode(204)
+  async deleteSession(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    await this.guess.deleteSession(req.user.id, id);
   }
 }

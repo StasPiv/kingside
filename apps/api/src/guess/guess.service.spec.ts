@@ -921,3 +921,39 @@ describe('GuessService — KS-3523 PGN persist/lazy-resolve', () => {
     expect(analysis.resolveSourceGame).toHaveBeenCalled();
   });
 });
+
+// ─── KS-3530: deleteSession ──────────────────────────────────────────
+
+describe('GuessService.deleteSession — KS-3530', () => {
+  it('owner: удаляет сессию (cascade GuessMove через FK), 204', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'u1', gameSource: 'archive', gameRef: 'g1',
+      pgn: null, side: 'white', status: 'finished',
+      userAccuracy: null, playerAccuracy: null, userStars: null,
+      score: 0, bestStreak: 0, betterThanPlayerCount: 0,
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    prisma.guessSession.delete = jest.fn().mockResolvedValue({});
+    const svc = makeService(prisma);
+    await svc.deleteSession('u1', 's1');
+    expect(prisma.guessSession.delete).toHaveBeenCalledWith({
+      where: { id: 's1' },
+    });
+  });
+
+  it('чужая сессия → Forbidden', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'OTHER', gameSource: 'archive', gameRef: 'g1',
+      pgn: null, side: 'white', status: 'finished',
+      userAccuracy: null, playerAccuracy: null, userStars: null,
+      score: 0, bestStreak: 0, betterThanPlayerCount: 0,
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    const svc = makeService(prisma);
+    await expect(svc.deleteSession('u1', 's1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+});

@@ -576,6 +576,22 @@ export class GuessService {
     };
   }
 
+  /**
+   * KS-3530. Удаление guess-сессии пользователем. Каскадно чистит
+   * `guess_moves` (FK onDelete:Cascade). `Analysis` с
+   * `guessSessionId = sessionId` НЕ трогается — пользователь мог уже
+   * сохранить разбор как отдельный анализ, ему нужно остаться. Если
+   * связь освободится — `Analysis.guessSessionId` останется висячим
+   * UUID; это безопасно (soft-ссылка без FK).
+   */
+  async deleteSession(userId: string, sessionId: string): Promise<void> {
+    await this.loadOwned(userId, sessionId); // 404 / 403 + проверка
+    await this.prisma.guessSession.delete({ where: { id: sessionId } });
+    this.logger.log(
+      `[guess] KS-3530 deleted session ${sessionId} (user=${userId.slice(0, 8)})`,
+    );
+  }
+
   // ─── Stats (ADR-093 / KS-3508) ────────────────────────────────────
 
   /**

@@ -539,6 +539,33 @@ export class BlindBoardService {
     return { entries };
   }
 
+  /**
+   * KS-3530. Удаление blind-board сессии пользователем. Каскадно чистит
+   * `blind_board_attempts` (FK onDelete:Cascade). После удаления
+   * пересчитываем `User.blindBoardBestStreak = max(bestStreak)` среди
+   * оставшихся finished-сессий этого юзера. Если ничего не осталось —
+   * ставим 0.
+   */
+  async deleteSession(userId: string, sessionId: string): Promise<void> {
+    await this.loadOwned(userId, sessionId); // 404 / 403 + проверка
+    await this.prisma.blindBoardSession.delete({ where: { id: sessionId } });
+
+    // Пересчёт User.blindBoardBestStreak.
+    const agg = await this.prisma.blindBoardSession.aggregate({
+      where: { userId, status: 'finished' },
+      _max: { bestStreak: true },
+    });
+    const newBest = agg._max.bestStreak ?? 0;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { blindBoardBestStreak: newBest },
+    });
+    this.logger.log(
+      `[blind-board] KS-3530 deleted session ${sessionId} ` +
+        `(user=${userId.slice(0, 8)}, newBestStreak=${newBest})`,
+    );
+  }
+
   // ─── Stats (ADR-093 / KS-3509) ────────────────────────────────────
 
   /**
