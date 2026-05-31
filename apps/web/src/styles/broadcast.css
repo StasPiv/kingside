@@ -1389,7 +1389,24 @@
 }
 
 /* Round-robin: у компонента нет .broadcast-xt-sticky класса (матрица и без
- * того широкая — sticky нужен). Применяем scoped-селектором по scroll-контейнеру. */
+ * того широкая — sticky нужен). Применяем scoped-селектором по scroll-контейнеру.
+ *
+ * KS-3538: для round-robin принудительно `table-layout: fixed` + `width: max-content`.
+ * Без этого браузер при `table-layout: auto` распределял ширины колонок исходя
+ * из контента — фактическая ширина rank-колонки могла отличаться от 36px,
+ * и sticky `left: 36px` у name-колонки не совпадал с реальной правой
+ * границей rank. В образовавшийся зазор «протекали» прокручиваемые
+ * колонки (fed/elo/pts/...). С fixed-layout ширины из CSS — обязательны,
+ * `left`-офсеты sticky совпадают с реальными границами, зазора нет.
+ *
+ * `width: max-content` нужен, потому что при fixed-layout таблица по умолчанию
+ * берёт ширину контейнера, а с `width:100%` колонки бы сжимались под viewport
+ * вместо того чтобы давать горизонтальный скролл. */
+.broadcast-xt-scroll--round-robin .broadcast-xt-table {
+  table-layout: fixed;
+  width: max-content;
+}
+
 .broadcast-xt-scroll--round-robin .broadcast-xt-th-rank,
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-rank {
   position: sticky;
