@@ -108,12 +108,19 @@ afterEach(() => {
 function wireApiGet(handlers: {
   analyses?: AnalysisListItem[];
   savedFilters?: SavedFilterDto[];
+  analysisDetailById?: Record<string, AnalysisListItem & { pgn?: string }>;
 }) {
   mockedApi.get.mockImplementation(async (path: string) => {
+    if (path.startsWith('/analyses?')) return handlers.analyses ?? [];
     if (path === '/analyses') return handlers.analyses ?? [];
     if (path === '/user/saved-filters?section=workshop')
       return handlers.savedFilters ?? [];
     if (path.startsWith('/analyses/search')) return [];
+    // KS-3504: GET /analyses/:id для selection-flow.
+    const m = /^\/analyses\/([^/?]+)$/.exec(path);
+    if (m && handlers.analysisDetailById) {
+      return handlers.analysisDetailById[m[1]] ?? {};
+    }
     return [];
   });
 }
@@ -307,5 +314,88 @@ describe('WorkshopAnalysisList — KS-2933 (B3)', () => {
     // Активный таб — «All».
     const activeTab = document.querySelector('.workshop-category-tab.active');
     expect(activeTab?.textContent).toMatch(/^All/i);
+  });
+});
+
+// ── KS-3504 (ADR-092 F2) ─────────────────────────────────────────────
+describe('WorkshopAnalysisList — selection mode (KS-3504)', () => {
+  it('без location.state — баннера/Pick-кнопок нет, batch-кнопка Select есть', async () => {
+    wireApiGet({
+      analyses: [
+        {
+          id: 'an-1',
+          title: 'My Sicilian',
+          headline: 'Sicilian patch #3',
+          category: 'analysis',
+          tags: [],
+          createdAt: '2026-05-30T10:00:00.000Z',
+          updatedAt: '2026-05-30T10:00:00.000Z',
+        } as AnalysisListItem,
+      ],
+    });
+    renderWithProviders(<WorkshopAnalysisList />);
+    await waitFor(() =>
+      expect(screen.queryByText(/Sicilian patch/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('workshop-selection-banner')).toBeNull();
+    expect(screen.queryByTestId('workshop-analysis-item-pick-an-1')).toBeNull();
+    // Batch-кнопка «Select» доступна по умолчанию (allAnalyses.length>0).
+    expect(screen.getByRole('button', { name: /Select/ })).toBeInTheDocument();
+  });
+
+  it('state.returnTo → sticky-баннер + кнопка Pick + batch-кнопки скрыты', async () => {
+    wireApiGet({
+      analyses: [
+        {
+          id: 'an-7',
+          title: 'My Sicilian',
+          headline: 'Sicilian patch #3',
+          category: 'analysis',
+          tags: [],
+          createdAt: '2026-05-30T10:00:00.000Z',
+          updatedAt: '2026-05-30T10:00:00.000Z',
+        } as AnalysisListItem,
+      ],
+    });
+    // location.state передаём через расширенный route в test-utils:
+    // он принимает только строку. Используем MemoryRouter через
+    // динамический импорт (см. GuessLandingPage.test pattern).
+    const { MemoryRouter } = await import('react-router-dom');
+    const { I18nextProvider } = await import('react-i18next');
+    const { ThemeProvider } = await import('../../context/ThemeContext');
+    const { BoardSettingsProvider } = await import(
+      '../../context/BoardSettingsContext'
+    );
+    const { testI18n } = await import('../../test/test-utils');
+    const { render } = await import('@testing-library/react');
+    render(
+      <I18nextProvider i18n={testI18n}>
+        <ThemeProvider initialTheme="dark">
+          <BoardSettingsProvider>
+            <MemoryRouter
+              initialEntries={[
+                {
+                  pathname: '/workshop',
+                  state: { returnTo: '/guess', returnLabel: 'Guess the move' },
+                },
+              ]}
+            >
+              <WorkshopAnalysisList />
+            </MemoryRouter>
+          </BoardSettingsProvider>
+        </ThemeProvider>
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('workshop-selection-banner')).toBeInTheDocument(),
+    );
+    const banner = screen.getByTestId('workshop-selection-banner');
+    expect(banner.textContent).toContain('Guess the move');
+    expect(screen.getByTestId('workshop-selection-cancel')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workshop-analysis-item-pick-an-7'),
+    ).toBeInTheDocument();
+    // Batch-кнопка Select скрыта в selection-mode.
+    expect(screen.queryByRole('button', { name: /^Select$/ })).toBeNull();
   });
 });

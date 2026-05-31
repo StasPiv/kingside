@@ -1479,6 +1479,12 @@
       "savedFilters": "Saved:",
       "loadError": "Failed to load analyses"
     },
+    "selection": {
+      "title": "Pick an analysis for {{label}}",
+      "cancel": "✕ Cancel",
+      "pick": "✓ Pick",
+      "pickAria": "Pick this analysis"
+    },
     "tournaments": {
       "title": "Top Active Tournaments",
       "empty": "No active tournaments",

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   AnalysisListItem,
@@ -16,6 +16,18 @@ import { SavedFiltersDropdown } from '../savedFilters/SavedFiltersDropdown';
 const SERVER_PAGE_SIZE = 100;
 
 type CategoryFilter = 'all' | 'game_review' | 'puzzle' | 'analysis';
+
+/**
+ * KS-3504 (ADR-092 F2): location.state, который активирует
+ * selection-режим. Пишется caller'ом (GuessLandingPage по клику
+ * «📂 Pick from workshop»). При его наличии — sticky-баннер сверху,
+ * кнопка «✓ Pick» на каждой карточке и **скрытые batch-actions**
+ * (по дефолту архитектора: в режиме выбора Export/Delete не показываем).
+ */
+interface WorkshopSelectionState {
+  returnTo?: string;
+  returnLabel?: string;
+}
 
 /** Узкий тип saved-filter params для workshop-секции — используется в
  *  generic'е dropdown'а, чтобы получить точные сигнатуры onApply/create. */
@@ -36,8 +48,21 @@ function AnalysisItemTitle({ analysis, categoryIcon }: { analysis: AnalysisListI
 export function WorkshopAnalysisList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // KS-3504 + KS-3501-style hotfix: запоминаем selection-state на mount
+  // через useState(lazy-init). updateUrl ниже (replace, без передачи
+  // state) при любом изменении фильтра стирал history.state — фикс
+  // тот же, что в ArchiveGamesPage. Селекшн уходит только при
+  // cancel/выборе (оба уводят с /workshop).
+  const [selectionState] = useState<WorkshopSelectionState | null>(
+    () => (location.state as WorkshopSelectionState | null) ?? null,
+  );
+  const selectionReturnTo = selectionState?.returnTo ?? null;
+  const selectionReturnLabel = selectionState?.returnLabel ?? '';
+  const isSelectionMode = !!selectionReturnTo;
 
   // Init from URL
   const urlCategory = (searchParams.get('category') as CategoryFilter) || 'all';
@@ -89,10 +114,45 @@ export function WorkshopAnalysisList() {
       if (tags.length > 0) params.tags = tags.join(',');
       if (search) params.search = search;
       if (savedFilterId) params.savedFilter = savedFilterId;
-      setSearchParams(params, { replace: true });
+      // KS-3504: пробрасываем current history.state в replace, чтобы
+      // selection-режим (returnTo/returnLabel) не стёрся при любой
+      // правке URL (см. KS-3501 для архива — тот же класс бага).
+      setSearchParams(params, { replace: true, state: location.state });
     },
-    [setSearchParams],
+    [setSearchParams, location.state],
   );
+
+  // KS-3504 (ADR-092 F2): селект анализа в selection-режиме →
+  // GET /analyses/:id → navigate(returnTo, {state: unified shape}).
+  // Ошибка GET — console.warn, остаёмся на странице.
+  const handleSelectAnalysis = useCallback(
+    (a: AnalysisListItem) => {
+      if (!selectionReturnTo) return;
+      type AnalysisDetail = AnalysisListItem & { pgn?: string };
+      api
+        .get<AnalysisDetail>(`/analyses/${a.id}`)
+        .then((full) => {
+          navigate(selectionReturnTo, {
+            state: {
+              source: 'own',
+              refId: a.id,
+              pgn: full.pgn ?? '',
+              title: a.headline || a.title || '',
+            },
+          });
+        })
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.warn('[workshop-selection] GET /analyses failed', e);
+        });
+    },
+    [navigate, selectionReturnTo],
+  );
+
+  const handleCancelSelection = useCallback(() => {
+    if (!selectionReturnTo) return;
+    navigate(selectionReturnTo);
+  }, [navigate, selectionReturnTo]);
 
   const setCategoryFilter = (cat: CategoryFilter) => {
     setCategoryFilterState(cat);
@@ -439,7 +499,44 @@ export function WorkshopAnalysisList() {
   };
 
   return (
-    <section className="workshop-section-block">
+    <section
+      className={`workshop-section-block${
+        isSelectionMode ? ' workshop-section-block--selection' : ''
+      }`}
+      data-selection={isSelectionMode ? 'true' : 'false'}
+    >
+      {/* KS-3504 (ADR-092 F2): sticky-баннер selection-режима. CSS
+          стилизация — за layout L1-ext (KS-3505). */}
+      {isSelectionMode && (
+        <div
+          className="workshop-section-block__selection-banner"
+          data-testid="workshop-selection-banner"
+          role="region"
+          aria-label={t('workshop.selection.title', {
+            defaultValue: 'Pick an analysis for {{label}}',
+            label: selectionReturnLabel,
+          })}
+        >
+          <span
+            className="workshop-section-block__selection-text"
+            data-testid="workshop-selection-text"
+          >
+            {t('workshop.selection.title', {
+              defaultValue: 'Pick an analysis for {{label}}',
+              label: selectionReturnLabel,
+            })}
+          </span>
+          <button
+            type="button"
+            className="workshop-section-block__selection-cancel"
+            data-testid="workshop-selection-cancel"
+            onClick={handleCancelSelection}
+          >
+            {t('workshop.selection.cancel', { defaultValue: '✕ Cancel' })}
+          </button>
+        </div>
+      )}
+
       {/* Category tabs */}
       <div className="workshop-category-tabs">
         {(['all', 'game_review', 'puzzle', 'analysis'] as const).map((cat) => (
@@ -499,6 +596,10 @@ export function WorkshopAnalysisList() {
         </div>
       )}
 
+      {/* KS-3504: batch-actions (Select/Export/Delete) скрыты в
+          selection-режиме по дефолту архитектора — пользователь
+          выбирает конкретный анализ, batch-операции не нужны. New —
+          сохраняем (создание чистого анализа всё ещё уместно). */}
       <div className="workshop-analyses-toolbar">
         <button
           className="workshop-analyses-new-btn"
@@ -522,7 +623,7 @@ export function WorkshopAnalysisList() {
           + {t('workshop.myAnalyses.newAnalysis', 'New Analysis')}
         </button>
         <span className="workshop-analyses-toolbar__spacer" />
-        {!selectMode ? (
+        {isSelectionMode ? null : !selectMode ? (
           allAnalyses.length > 0 && (
             <button className="workshop-analyses-select-btn" onClick={() => setSelectMode(true)}>
               {t('workshop.myAnalyses.select', 'Select')}
@@ -669,6 +770,27 @@ export function WorkshopAnalysisList() {
                     )}
                   </div>
                 </div>
+                {/* KS-3504: в selection-режиме явная кнопка «✓ Pick»
+                    рядом с delete. stopPropagation предотвращает
+                    срабатывание row-onClick'а (он делает handleOpen
+                    или toggleSelect). Сам row продолжает вести в
+                    /analysis как обычно — выбор только через кнопку. */}
+                {isSelectionMode && (
+                  <button
+                    type="button"
+                    className="workshop-analysis-item__pick"
+                    data-testid={`workshop-analysis-item-pick-${analysis.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectAnalysis(analysis);
+                    }}
+                    aria-label={t('workshop.selection.pickAria', {
+                      defaultValue: 'Pick this analysis',
+                    })}
+                  >
+                    {t('workshop.selection.pick', { defaultValue: '✓ Pick' })}
+                  </button>
+                )}
                 <button
                   className="workshop-analysis-item__delete"
                   onClick={(e) => handleDelete(e, analysis.id)}
