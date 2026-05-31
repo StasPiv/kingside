@@ -1588,6 +1588,8 @@
   gap: 8px;
 }
 .blind-board-history__item {
+  display: flex;
+  align-items: stretch;
   background: var(--bg-elevated, var(--c-25253d));
   border: 1px solid var(--border-subtle, var(--c-2a2a3e));
   border-radius: 10px;
@@ -1598,6 +1600,47 @@
 .blind-board-history__item:hover {
   background: var(--ov-accent-08, rgba(124, 131, 255, 0.08));
   border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-history__item .blind-board-history__link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* KS-3533: компактная иконка удаления — справа от Link, danger
+   tone на hover. */
+.blind-board-history__delete {
+  appearance: none;
+  align-self: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-right: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+.blind-board-history__delete:hover:not(:disabled) {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-vc-red, #b91c1c);
+  border-color: var(--c-vc-red, #b91c1c);
+}
+.blind-board-history__delete:focus-visible {
+  outline: 2px solid var(--c-vc-red, #b91c1c);
+  outline-offset: 2px;
+}
+.blind-board-history__delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .blind-board-history__link {
   display: grid;
@@ -1798,6 +1841,43 @@
   letter-spacing: -0.01em;
   line-height: 1.2;
   color: var(--text-primary, var(--c-e0e0e0));
+}
+
+/* KS-3533: «🗑 Delete session» — outlined danger CTA. */
+.blind-board-review-page__delete {
+  appearance: none;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 22px;
+  background: transparent;
+  color: var(--c-vc-red, #b91c1c);
+  border: 1px solid var(--c-vc-red, #b91c1c);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease,
+    opacity 120ms ease, transform 80ms ease;
+}
+.blind-board-review-page__delete:hover:not(:disabled) {
+  background: var(--c-vc-red, #b91c1c);
+  color: #fff;
+}
+.blind-board-review-page__delete:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.blind-board-review-page__delete:focus-visible {
+  outline: 2px solid var(--c-vc-red, #b91c1c);
+  outline-offset: 2px;
+}
+.blind-board-review-page__delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .blind-board-review-page__meta {
   display: flex;
@@ -2131,6 +2211,20 @@
   }
   .blind-board-review-page__title {
     font-size: 20px;
+  }
+  /* KS-3533 mobile: delete full-width, history-delete icon
+     компактнее. */
+  .blind-board-review-page__delete {
+    align-self: stretch;
+    width: 100%;
+    padding: 12px 18px;
+    font-size: 14px;
+  }
+  .blind-board-history__delete {
+    width: 28px;
+    height: 28px;
+    margin-right: 6px;
+    font-size: 13px;
   }
   .blind-board-review-page__metrics {
     grid-template-columns: 1fr 1fr;
