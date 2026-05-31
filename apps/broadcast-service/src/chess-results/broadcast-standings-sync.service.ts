@@ -1001,6 +1001,19 @@ export class BroadcastStandingsSyncService {
             });
 
             const last = cleaned[cleaned.length - 1];
+            // KS-3529. Для top-level `result`/`gameRef` берём
+            // ПОСЛЕДНИЙ РЕАЛЬНЫЙ entry (isReal=true), а не просто
+            // last-by-time. Иначе при double-RR (когда placeholder для
+            // предстоящего round'а с result=NULL уже создан) `last` =
+            // placeholder → top-level обнуляется, и старые-формат
+            // клиенты (читающие верхний `result`) видят пустую клетку,
+            // хотя реальная партия первого круга есть в `games[]`.
+            // Симптом наблюдался на Norway Chess 2026 Open: r1-пары
+            // (Firouzja-Carlsen, Gukesh-Keymer, Pragg-So) которые
+            // совпадали с placeholder-пэрингом r6 (ongoing) выглядели
+            // пустыми в standings, остальные r2-r5 нормально.
+            const lastReal = cleaned.filter((e) => e.isReal).pop();
+            const topLevel = lastReal ?? last;
             // KS-2476: `games` выставляем только для double / multi-RR
             // (≥ 2 встречи пары). Для single-RR оставляем undefined —
             // backward-compat для старого фронта (KS-2203).
@@ -1014,9 +1027,9 @@ export class BroadcastStandingsSyncService {
                 : undefined;
             return {
               opponentRank: players[j].rank,
-              result: last.result,
-              color: last.color,
-              gameRef: last.isReal ? last.gameRef : null,
+              result: topLevel.result,
+              color: topLevel.color,
+              gameRef: topLevel.isReal ? topLevel.gameRef : null,
               ...(games ? { games } : {}),
             };
           }),

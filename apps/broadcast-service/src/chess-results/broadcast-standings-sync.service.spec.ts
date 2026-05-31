@@ -1367,3 +1367,93 @@ function extractTopNamesFromSwissRanking(html: string, n: number): string[] {
   }
   return names;
 }
+
+describe('KS-3529: double-RR — placeholder будущего round не обнуляет top-level result', () => {
+  /**
+   * Воспроизводит Norway Chess 2026 Open после Round 5 / Round 6 ongoing:
+   *   - Пара Firouzja vs Carlsen (rank 1 vs 6): Round 1 real (1-0)
+   *     + Round 6 placeholder (result='*', ongoing).
+   *   - Bug: builder сортировал cleaned по startsAt asc → last = round 6
+   *     placeholder → top-level result/gameRef обнулялись. Фронт читал
+   *     top-level → клетка пустая, хотя r1 в БД был.
+   * Fix: top-level берётся из ПОСЛЕДНЕГО реального (isReal=true) entry.
+   */
+  function norwayBroadcast() {
+    return {
+      id: 'bc-norway',
+      format: '6-player double round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'r1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-25T15:00:00Z'),
+          games: [
+            {
+              id: 'r1-fc',
+              roundId: 'r1',
+              whitePlayer: 'Firouzja, Alireza',
+              blackPlayer: 'Carlsen, Magnus',
+              whiteElo: 2780,
+              blackElo: 2830,
+              result: '1-0',
+              pgn: null,
+            },
+          ],
+        },
+        {
+          id: 'r6',
+          name: 'Round 6',
+          startsAt: new Date('2026-05-31T15:00:00Z'),
+          games: [
+            // Placeholder для второго круга (reversed colors)
+            {
+              id: 'r6-cf',
+              roundId: 'r6',
+              whitePlayer: 'Carlsen, Magnus',
+              blackPlayer: 'Firouzja, Alireza',
+              whiteElo: 2830,
+              blackElo: 2780,
+              result: '*',
+              pgn: null,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('top-level result/gameRef отражают реальный r1, не placeholder r6', async () => {
+    const broadcast = norwayBroadcast();
+    const prisma = makePrisma({ broadcast, lifecycle: 'live' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-norway');
+    expect(r.tournamentType).toBe('round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (r.tournamentType !== 'round-robin') return;
+
+    const firouzja = r.players.find((p) => p.name === 'Firouzja, Alireza');
+    const carlsen = r.players.find((p) => p.name === 'Carlsen, Magnus');
+    expect(firouzja).toBeDefined();
+    expect(carlsen).toBeDefined();
+
+    const fi = r.players.indexOf(firouzja!);
+    const ci = r.players.indexOf(carlsen!);
+
+    // Top-level: Firouzja vs Carlsen = win (r1 result), не null.
+    expect(r.matrix[fi][ci].result).toBe('win');
+    expect(r.matrix[fi][ci].gameRef).not.toBeNull();
+    expect(r.matrix[fi][ci].gameRef?.roundName).toBe('Round 1');
+    // Симметрично: Carlsen vs Firouzja = loss.
+    expect(r.matrix[ci][fi].result).toBe('loss');
+    expect(r.matrix[ci][fi].gameRef?.roundName).toBe('Round 1');
+
+    // games[] обёртка тоже должна быть (2 встречи: r1 real + r6 placeholder).
+    expect(r.matrix[fi][ci].games?.length).toBe(2);
+    // Первый элемент — r1 (по startsAt asc), второй — r6 placeholder.
+    expect(r.matrix[fi][ci].games?.[0].result).toBe('win');
+    expect(r.matrix[fi][ci].games?.[1].result).toBeNull();
+  });
+});
