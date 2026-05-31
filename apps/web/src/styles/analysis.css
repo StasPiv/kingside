@@ -1992,8 +1992,15 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 .set-position-grid__piece {
-  width: 80%;
-  height: 80%;
+  /* KS-3531 → KS-3532: PieceIcon рендерит <span inline-flex> или
+     <img> с фиксированным size=36. Без flex-центрирования в wrapper'е
+     иконка прижималась к baseline в верхнем-левом углу клетки.
+     Делаем wrapper самой клеткой по размеру + flex-центрирование. */
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 }
 
