@@ -1241,12 +1241,29 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
   }
+  /* KS-3494: 2×2 grid → каждая ячейка шире, padding можно вернуть
+     к нормальному. min-width:0 разрешает grid-cell сжиматься при
+     длинном контенте (controls 78px не выпихивают её за край). */
   .blind-board-config-form__counter {
-    padding: 8px 4px;
+    padding: 8px 10px;
+    min-width: 0;
+  }
+  .blind-board-config-form__counter-controls {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: center;
   }
   .blind-board-config-form__counter-btn {
     width: 26px;
     height: 26px;
+  }
+  /* KS-3494: counter-selector на mobile — 2×2 grid, чтобы все 4
+     счётчика (Q/R/B/N) умещались в viewport. На 360px ряд из 4
+     не помещался: counter-controls (фикс ~78px) ×4 + padding
+     выходили за край, конь N обрезался. */
+  .blind-board-config-form__counters {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
   }
   /* KS-3493 mobile: иконки чуть меньше — 36px counter / 32px addOrder
      / 22px addAdd. */
