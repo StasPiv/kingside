@@ -1270,3 +1270,351 @@
     display: none;
   }
 }
+
+/* ============================================================
+ * KS-3515 (ADR-093 follow-up). Страница разбора прохождения
+ * `/guess/sessions/:id` (GuessSessionReviewPage).
+ *   - .guess-review-page__header — title + event + meta.
+ *   - .guess-review-page__metrics — 6 metric-карточек.
+ *   - .guess-review-page__actions — «Open in analysis».
+ *   - .guess-review-page__moves — список ходов с verdict-tone chip.
+ * ============================================================ */
+
+.guess-review-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  box-sizing: border-box;
+}
+.guess-review-page__skeleton {
+  height: 200px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 12px;
+  opacity: 0.5;
+  animation: guess-skeleton 1.2s ease-in-out infinite alternate;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.guess-review-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e));
+}
+.guess-review-page__back {
+  align-self: flex-start;
+  color: var(--text-link, var(--c-7c83ff));
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
+}
+.guess-review-page__back:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.guess-review-page__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--text-primary, var(--c-e0e0e0));
+  word-break: break-word;
+}
+.guess-review-page__event {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.guess-review-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+
+/* ── Metrics (6 карточек, паттерн KS-3512 .guess-stats) ──── */
+.guess-review-page__metrics {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+.guess-review-page__metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  text-align: center;
+}
+.guess-review-page__metric-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+  letter-spacing: -0.02em;
+}
+.guess-review-page__metric-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.2;
+}
+/* Тематические акценты по data-testid (без дополнительных классов в TSX):
+   - your-acc/player-acc — accent (главные метрики сравнения),
+   - scoreboard — accent-tint фон карточки + accent value,
+   - stars — amber,
+   - score — accent. */
+.guess-review-page__metric[data-testid='guess-review-metric-your-acc']
+  .guess-review-page__metric-value,
+.guess-review-page__metric[data-testid='guess-review-metric-score']
+  .guess-review-page__metric-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-review-page__metric[data-testid='guess-review-metric-scoreboard'] {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-review-page__metric[data-testid='guess-review-metric-scoreboard']
+  .guess-review-page__metric-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-review-page__metric[data-testid='guess-review-metric-stars']
+  .guess-review-page__metric-value {
+  color: var(--c-eab308, #eab308);
+  letter-spacing: 1px;
+}
+.guess-review-page__metric[data-testid='guess-review-metric-player-acc']
+  .guess-review-page__metric-value {
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+
+/* ── Actions: «Open in analysis →» ───────────────────────── */
+.guess-review-page__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.guess-review-page__to-analysis {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 22px;
+  background: var(--accent-primary, var(--c-7c83ff));
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 80ms ease,
+    opacity 120ms ease;
+}
+.guess-review-page__to-analysis:hover:not(:disabled) {
+  background: var(--accent-hover, var(--c-6366f1));
+}
+.guess-review-page__to-analysis:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.guess-review-page__to-analysis:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--c-7c83ff));
+  outline-offset: 2px;
+}
+.guess-review-page__to-analysis:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Moves list ──────────────────────────────────────────── */
+.guess-review-page__moves {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.guess-review-page__moves-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.guess-review-page__moves-empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 8px;
+}
+.guess-review-page__moves-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 480px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.guess-review-page__move {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 8px;
+  font-size: 13px;
+}
+.guess-review-page__move-no {
+  font-weight: 700;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.guess-review-page__move-user {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.guess-review-page__move-played {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.guess-review-page__move-played::before {
+  content: '→ ';
+  margin-right: 2px;
+}
+
+/* Verdict-tone chip справа. */
+.guess-review-page__verdict {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.guess-review__verdict--strongest {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-vc-green, #15803d);
+  border-color: var(--c-vc-green, #15803d);
+}
+.guess-review__verdict--better {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  color: var(--accent-primary, var(--c-7c83ff));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.guess-review__verdict--equal {
+  background: var(--bg-canvas, var(--c-1a1a2e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+  border-color: var(--border-subtle, var(--c-2a2a3e));
+}
+.guess-review__verdict--weaker {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-vc-red, #b91c1c);
+  border-color: var(--c-vc-red, #b91c1c);
+}
+
+/* Border-left на строке хода — синхронизирован с verdict, даёт
+   быстрое визуальное разделение «свой/слабее/сильнее партии». */
+.guess-review-page__move:has(.guess-review__verdict--strongest) {
+  border-left: 3px solid var(--c-vc-green, #15803d);
+}
+.guess-review-page__move:has(.guess-review__verdict--better) {
+  border-left: 3px solid var(--accent-primary, var(--c-7c83ff));
+}
+.guess-review-page__move:has(.guess-review__verdict--equal) {
+  border-left: 3px solid var(--text-muted, var(--c-94a3b8));
+}
+.guess-review-page__move:has(.guess-review__verdict--weaker) {
+  border-left: 3px solid var(--c-vc-red, #b91c1c);
+}
+
+/* ── Mobile ≤767 ───────────────────────────────────────── */
+@media (max-width: 767px) {
+  .guess-review-page {
+    padding: 12px;
+    gap: 12px;
+  }
+  .guess-review-page__title {
+    font-size: 20px;
+  }
+  .guess-review-page__event {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+  /* Metrics: 2 cols, 3 ряда. */
+  .guess-review-page__metrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .guess-review-page__metric {
+    padding: 12px 8px;
+  }
+  .guess-review-page__metric-value {
+    font-size: 20px;
+  }
+  .guess-review-page__to-analysis {
+    width: 100%;
+    padding: 12px 18px;
+    font-size: 14px;
+  }
+  .guess-review-page__moves {
+    padding: 12px;
+  }
+  .guess-review-page__move {
+    grid-template-columns: 32px 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+  .guess-review-page__verdict {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
