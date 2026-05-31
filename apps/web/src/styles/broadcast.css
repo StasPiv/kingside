@@ -1419,13 +1419,31 @@
   z-index: 3;
 }
 
+/* KS-3539: round-robin показывает только фамилию (см. lastNameOnly).
+   Колонка под самую длинную фамилию (≈14 знаков с учётом title-бейджа
+   GM/IM/WGM). Перекрываем общие 200px из десктопного блока выше. */
 .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
   position: sticky;
   left: 36px;
+  width: 14ch;
+  min-width: 14ch;
+  max-width: 14ch;
   background: var(--c-12122a);
   z-index: 1;
   box-shadow: 1px 0 0 var(--c-2a2a4e);
+}
+
+/* KS-3539: фамилия в одну строку с ellipsis — длинная не растягивает
+   колонку, table-layout:fixed остаётся работоспособным (нужен для
+   корректных sticky offsets, см. KS-3538). */
+.broadcast-xt-scroll--round-robin .broadcast-xt-name-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .broadcast-xt-scroll--round-robin thead .broadcast-xt-th-name {
@@ -1777,13 +1795,21 @@
     width: 46px;
   }
 
-  /* Sticky offsets переопределяем под новую ширину rank-колонки */
+  /* Sticky offsets переопределяем под новую ширину rank-колонки. */
   .broadcast-xt-th-name.broadcast-xt-sticky,
-  .broadcast-xt-td-name.broadcast-xt-sticky,
+  .broadcast-xt-td-name.broadcast-xt-sticky {
+    left: 28px;
+    min-width: 100px;
+  }
+
+  /* KS-3539: round-robin name-колонка на mobile — фамилия в одну
+     строку (12ch) + sticky offset за обновлённой rank-колонкой 28px. */
   .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
   .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
     left: 28px;
-    min-width: 100px;
+    width: 12ch;
+    min-width: 12ch;
+    max-width: 12ch;
   }
 
   .broadcast-xt-team-toggle-cell {

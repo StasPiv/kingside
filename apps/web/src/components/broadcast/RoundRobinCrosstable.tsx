@@ -14,6 +14,20 @@ import {
 } from './crosstableCell';
 
 /**
+ * KS-3539: «So, Wesley» → «So», «Praggnanandhaa R» → «Praggnanandhaa R»
+ * (без запятой — оставляем как есть, без эвристик: full-name может
+ * быть «Magnus Carlsen» и сокращать до «Carlsen» рискованно — где
+ * имя, где фамилия зависит от региона). Полный name сохраняем в
+ * `title` атрибут для tooltip.
+ */
+export function lastNameOnly(name: string): string {
+  const i = name.indexOf(',');
+  if (i < 0) return name;
+  const surname = name.slice(0, i).trim();
+  return surname.length > 0 ? surname : name;
+}
+
+/**
  * KS-1737 / ADR-023 §2.11 (A13) — матрица N×N round-robin.
  *
  * Слева — общая карточка игрока (rank, title, name, federation, elo, points,
@@ -86,9 +100,11 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
           {players.map((p, ri) => (
             <tr key={`row-${p.rank}`}>
               <td className="broadcast-xt-td-rank">{p.rank}</td>
-              <td className="broadcast-xt-td-name">
+              <td className="broadcast-xt-td-name" title={p.name}>
                 {p.title && <span className="broadcast-xt-title">{p.title}</span>}
-                <span className="broadcast-xt-name-text">{p.name}</span>
+                {/* KS-3539: показываем только фамилию (часть до запятой);
+                    полный name остаётся в `title` для hover-tooltip. */}
+                <span className="broadcast-xt-name-text">{lastNameOnly(p.name)}</span>
               </td>
               <td className="broadcast-xt-td-fed">{p.federation ?? ''}</td>
               <td className="broadcast-xt-td-num">{p.elo ?? ''}</td>

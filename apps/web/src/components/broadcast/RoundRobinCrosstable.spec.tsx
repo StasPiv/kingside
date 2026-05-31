@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../../test/test-utils';
-import { RoundRobinCrosstable } from './RoundRobinCrosstable';
+import { RoundRobinCrosstable, lastNameOnly } from './RoundRobinCrosstable';
 import type { CrosstableRoundRobin, CrosstablePlayer, CrosstableCell } from '@kingside/shared';
 
 /**
@@ -314,6 +314,50 @@ describe('<RoundRobinCrosstable>', () => {
       expect(screen.queryByTestId('broadcast-xt-cell-multi')).not.toBeInTheDocument();
       // Top-level result рендерится по-старому.
       expect(document.querySelector('.broadcast-xt-cell--win')).toHaveTextContent('1');
+    });
+  });
+
+  describe('KS-3539: только фамилия в колонке игрока', () => {
+    it('lastNameOnly: «So, Wesley» → «So»', () => {
+      expect(lastNameOnly('So, Wesley')).toBe('So');
+      expect(lastNameOnly('Carlsen, Magnus')).toBe('Carlsen');
+      expect(lastNameOnly('Nepomniachtchi, Ian')).toBe('Nepomniachtchi');
+    });
+
+    it('lastNameOnly: без запятой — возвращает как есть', () => {
+      expect(lastNameOnly('Praggnanandhaa R')).toBe('Praggnanandhaa R');
+      expect(lastNameOnly('Magnus Carlsen')).toBe('Magnus Carlsen');
+    });
+
+    it('lastNameOnly: пустая часть до запятой — fallback на полный name', () => {
+      expect(lastNameOnly(', Wesley')).toBe(', Wesley');
+    });
+
+    it('рендер: в td-name выводится только фамилия, title=полное имя', () => {
+      const data: CrosstableRoundRobin = {
+        ...BASE,
+        tournamentType: 'round-robin',
+        players: [
+          player({ rank: 1, name: 'So, Wesley', points: 1, gamesPlayed: 1 }),
+          player({ rank: 2, name: 'Carlsen, Magnus', points: 0, gamesPlayed: 1 }),
+        ],
+        matrix: [
+          [{ result: 'bye' as const }, win('g1')],
+          [{ result: 'loss' as const }, { result: 'bye' as const }],
+        ],
+      };
+      const { container } = renderWithProviders(
+        <RoundRobinCrosstable data={data} broadcastId="b" />,
+      );
+      const nameCells = container.querySelectorAll<HTMLTableCellElement>(
+        '.broadcast-xt-td-name',
+      );
+      expect(nameCells[0].textContent).toContain('So');
+      expect(nameCells[0].textContent).not.toContain('Wesley');
+      expect(nameCells[0].getAttribute('title')).toBe('So, Wesley');
+      expect(nameCells[1].textContent).toContain('Carlsen');
+      expect(nameCells[1].textContent).not.toContain('Magnus');
+      expect(nameCells[1].getAttribute('title')).toBe('Carlsen, Magnus');
     });
   });
 
