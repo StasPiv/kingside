@@ -472,7 +472,11 @@
       "start": "Начать",
       "back": "Новая партия",
       "pickFromArchive": "🔍 Выбрать из архива →",
+      "pickFromWorkshop": "📂 Выбрать из мастерской →",
+      "workshopGuestHint": "Войдите, чтобы увидеть свои анализы",
       "archivePreviewLabel": "Выбранная партия",
+      "archivePreviewLabel2": "🔍 Из архива",
+      "ownPreviewLabel": "📂 Из мастерской",
       "archivePreview": "{{white}} vs {{black}}",
       "archivePreviewEvent": "{{event}}",
       "changePick": "Изменить выбор"

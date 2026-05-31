@@ -1036,8 +1036,14 @@ function ArchiveMetadataMode() {
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
+          // KS-3503 (ADR-092): унифицированный state-shape — source +
+          // refId + метаданные превью. Legacy `archiveGameId` оставлен
+          // для обратной совместимости (GuessLandingPage нормализует
+          // его в source='archive').
           navigate(selectionReturnTo, {
             state: {
+              source: 'archive',
+              refId: item.id,
               archiveGameId: item.id,
               pgn: game.pgn,
               white: game.white.name ?? '',

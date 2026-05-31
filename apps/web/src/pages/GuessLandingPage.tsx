@@ -2,9 +2,10 @@ import { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import type { GuessSide } from '@kingside/shared';
+import type { GuessGameSource, GuessSide } from '@kingside/shared';
 
 import { GuessSessionRunner } from '../components/guess';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * KS-3412 (ADR-086 §9, F3) — точка входа «угадай ход».
@@ -19,24 +20,36 @@ import { GuessSessionRunner } from '../components/guess';
  */
 
 /**
- * KS-3498 (ADR-091 F1) — state, который может прийти на /guess:
- *   - `pgn`/`side`/`title` — старый путь (открытие из ArchiveGamePage
- *     одной партии или ручной переход с PGN);
- *   - `archiveGameId` + `pgn`/`white`/`black`/`event` — новый путь
- *     «выбрать из архива» (KS-3499 F2). Если есть `archiveGameId`,
- *     submit идёт с `gameSource='archive'`, иначе `pgn`.
+ * KS-3503 (ADR-092 F1-ext) — унифицированный shape `location.state`:
+ *
+ *   { source: 'archive'|'own'; refId: string; pgn: string;
+ *     title?: string; white?: string; black?: string; event?: string }
+ *
+ * `source` решает, какой gameSource уйдёт на /guess/sessions backend'у:
+ *   - 'archive' → партия из общего архива (ADR-091 F2, KS-3499);
+ *   - 'own'     → пользовательский анализ из мастерской (ADR-092 F2, KS-3504).
+ *
+ * Обратная совместимость (legacy state, до KS-3503):
+ *   - `pgn`/`side`/`title` — ручной переход с PGN (открытие из
+ *     ArchiveGamePage конкретной партии);
+ *   - `archiveGameId` — старое имя поля от KS-3499. Если приходит —
+ *     нормализуем в `source='archive'` + `refId=archiveGameId`.
  */
 interface GuessLandingState {
   pgn?: string;
   side?: GuessSide;
   title?: string;
-  archiveGameId?: string;
+  // KS-3503: новые унифицированные поля.
+  source?: 'archive' | 'own';
+  refId?: string;
   white?: string;
   black?: string;
   event?: string;
+  // KS-3498/3499 legacy alias, мапится в source='archive'/refId.
+  archiveGameId?: string;
 }
 
-const ARCHIVE_RETURN_TO = '/guess';
+const GUESS_RETURN_TO = '/guess';
 
 function isPlayablePgn(pgn: string): boolean {
   if (!pgn || pgn.trim().length === 0) return false;
@@ -49,55 +62,90 @@ function isPlayablePgn(pgn: string): boolean {
   }
 }
 
+/**
+ * KS-3503: нормализация incoming state в унифицированный shape.
+ * legacy `archiveGameId` → `source='archive'` + `refId=archiveGameId`.
+ * Если ничего из этого нет — возвращаем null (PGN-режим).
+ */
+interface PickPreview {
+  source: 'archive' | 'own';
+  refId: string;
+  title?: string;
+  white?: string;
+  black?: string;
+  event?: string;
+}
+
+function normalizePickFromState(
+  s: GuessLandingState | null,
+): PickPreview | null {
+  if (!s) return null;
+  if (s.source && s.refId) {
+    return {
+      source: s.source,
+      refId: s.refId,
+      title: s.title,
+      white: s.white,
+      black: s.black,
+      event: s.event,
+    };
+  }
+  // Legacy alias (KS-3498/3499): archiveGameId без source.
+  if (s.archiveGameId) {
+    return {
+      source: 'archive',
+      refId: s.archiveGameId,
+      title: s.title,
+      white: s.white,
+      black: s.black,
+      event: s.event,
+    };
+  }
+  return null;
+}
+
 export function GuessLandingPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
+  const isGuest = !user;
   const initial = (location.state as GuessLandingState | null) ?? null;
 
   const [pgn, setPgn] = useState<string>(initial?.pgn ?? '');
   const [side, setSide] = useState<GuessSide>(initial?.side ?? 'white');
   const [started, setStarted] = useState(false);
-  // KS-3498: «выбран из архива» — превью + сохранение id для submit.
-  // Если пользователь вручную правит PGN после возврата из архива,
-  // мы НЕ сбрасываем archiveGameId (на стороне backend gameRef важнее
-  // pgn для gameSource='archive', а pgn используется только для рендера
-  // textarea и UI-валидации). Сбрасывается только кнопкой «Изменить
-  // выбор» (она снова уводит в /archive) — после reset очистим.
-  const [archiveGameId, setArchiveGameId] = useState<string | null>(
-    initial?.archiveGameId ?? null,
-  );
-  const [archivePreview, setArchivePreview] = useState<
-    Pick<GuessLandingState, 'white' | 'black' | 'event'> | null
-  >(
-    initial?.archiveGameId
-      ? {
-          white: initial.white,
-          black: initial.black,
-          event: initial.event,
-        }
-      : null,
+  // KS-3503: выбранная партия — унифицированный shape. Любой из двух
+  // флоу (архив/мастерская) приводит сюда. Сброс — только кнопкой
+  // «Change selection» (которая уводит обратно в источник).
+  const [pick, setPick] = useState<PickPreview | null>(() =>
+    normalizePickFromState(initial),
   );
 
   const pgnValid = useMemo(() => isPlayablePgn(pgn), [pgn]);
 
+  const returnLabel = t('guess.setup.title', 'Guess the move');
+
   const goPickFromArchive = useCallback(() => {
     navigate('/archive', {
-      state: {
-        returnTo: ARCHIVE_RETURN_TO,
-        returnLabel: t('guess.setup.title', 'Guess the move'),
-      },
+      state: { returnTo: GUESS_RETURN_TO, returnLabel },
     });
-  }, [navigate, t]);
+  }, [navigate, returnLabel]);
 
-  const clearArchivePick = useCallback(() => {
-    setArchiveGameId(null);
-    setArchivePreview(null);
+  const goPickFromWorkshop = useCallback(() => {
+    if (isGuest) return;
+    navigate('/workshop', {
+      state: { returnTo: GUESS_RETURN_TO, returnLabel },
+    });
+  }, [navigate, returnLabel, isGuest]);
+
+  const clearPick = useCallback(() => {
+    setPick(null);
   }, []);
 
-  // KS-3498: при выбранной из архива партии локальная PGN-валидация
+  // При выбранной из архива/мастерской партии локальная PGN-валидация
   // не блокирует Start — backend подтянет PGN по `gameRef`.
-  const canStart = pgnValid || archiveGameId !== null;
+  const canStart = pgnValid || pick !== null;
 
   const handleStart = useCallback(() => {
     if (canStart) setStarted(true);
@@ -128,8 +176,10 @@ export function GuessLandingPage() {
         <GuessSessionRunner
           pgn={pgn}
           side={side}
-          gameSource={archiveGameId ? 'archive' : 'pgn'}
-          gameRef={archiveGameId}
+          gameSource={
+            pick ? (pick.source as GuessGameSource) : 'pgn'
+          }
+          gameRef={pick?.refId ?? null}
         />
       </div>
     );
@@ -145,60 +195,100 @@ export function GuessLandingPage() {
         )}
       </p>
 
-      {/* KS-3498 F1: выбор партии из архива. Превью + «Изменить» —
-          когда archiveGameId уже выбран; кнопка-вход — когда нет. */}
-      {archivePreview && archiveGameId ? (
+      {/* KS-3503 F1-ext: унифицированный выбор партии — мастерская
+          ИЛИ архив. Своё (workshop) перед чужим (archive) — UX-логика
+          «сначала смотри свои анализы, потом общую базу». Гостю
+          мастерская disabled с подсказкой (требует логина для
+          доступа к собственным анализам). */}
+      {pick ? (
         <div
-          className="guess-page__archive-preview"
-          data-testid="guess-archive-preview"
-          data-archive-id={archiveGameId}
+          className="guess-page__pick-preview"
+          data-testid="guess-pick-preview"
+          data-source={pick.source}
+          data-ref-id={pick.refId}
         >
           <span
-            className="guess-page__archive-preview-label"
-            data-testid="guess-archive-preview-label"
+            className="guess-page__pick-preview-label"
+            data-testid="guess-pick-preview-label"
           >
-            {t('guess.setup.archivePreviewLabel', 'Selected game')}
+            {pick.source === 'own'
+              ? t(
+                  'guess.setup.ownPreviewLabel',
+                  '📂 From workshop',
+                )
+              : t(
+                  'guess.setup.archivePreviewLabel2',
+                  '🔍 From archive',
+                )}
           </span>
           <span
-            className="guess-page__archive-preview-main"
-            data-testid="guess-archive-preview-main"
+            className="guess-page__pick-preview-main"
+            data-testid="guess-pick-preview-main"
           >
-            {t('guess.setup.archivePreview', '{{white}} vs {{black}}', {
-              white: archivePreview.white ?? '—',
-              black: archivePreview.black ?? '—',
-            })}
+            {pick.source === 'own'
+              ? (pick.title ?? '—')
+              : t('guess.setup.archivePreview', '{{white}} vs {{black}}', {
+                  white: pick.white ?? '—',
+                  black: pick.black ?? '—',
+                })}
           </span>
-          {archivePreview.event && (
+          {pick.source === 'archive' && pick.event && (
             <span
-              className="guess-page__archive-preview-event"
-              data-testid="guess-archive-preview-event"
+              className="guess-page__pick-preview-event"
+              data-testid="guess-pick-preview-event"
             >
               {t('guess.setup.archivePreviewEvent', '{{event}}', {
-                event: archivePreview.event,
+                event: pick.event,
               })}
             </span>
           )}
           <button
             type="button"
-            className="guess-page__archive-change"
-            data-testid="guess-archive-change"
+            className="guess-page__pick-change"
+            data-testid="guess-pick-change"
             onClick={() => {
-              clearArchivePick();
-              goPickFromArchive();
+              const goBack =
+                pick.source === 'own' ? goPickFromWorkshop : goPickFromArchive;
+              clearPick();
+              goBack();
             }}
           >
             {t('guess.setup.changePick', 'Change selection')}
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          className="guess-page__archive-pick"
-          data-testid="guess-archive-pick"
-          onClick={goPickFromArchive}
+        <div
+          className="guess-page__pick-buttons"
+          data-testid="guess-pick-buttons"
         >
-          {t('guess.setup.pickFromArchive', '🔍 Pick from archive →')}
-        </button>
+          {/* KS-3503: мастерская перед архивом (своё → чужое). */}
+          <button
+            type="button"
+            className="guess-page__workshop-pick"
+            data-testid="guess-workshop-pick"
+            disabled={isGuest}
+            aria-disabled={isGuest}
+            title={
+              isGuest
+                ? t(
+                    'guess.setup.workshopGuestHint',
+                    'Sign in to access your own analyses',
+                  )
+                : ''
+            }
+            onClick={goPickFromWorkshop}
+          >
+            {t('guess.setup.pickFromWorkshop', '📂 Pick from workshop →')}
+          </button>
+          <button
+            type="button"
+            className="guess-page__archive-pick"
+            data-testid="guess-archive-pick"
+            onClick={goPickFromArchive}
+          >
+            {t('guess.setup.pickFromArchive', '🔍 Pick from archive →')}
+          </button>
+        </div>
       )}
 
       <label className="guess-page__label" htmlFor="guess-pgn">

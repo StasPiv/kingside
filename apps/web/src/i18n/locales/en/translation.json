@@ -462,7 +462,11 @@
       "start": "Start",
       "back": "New game",
       "pickFromArchive": "🔍 Pick from archive →",
+      "pickFromWorkshop": "📂 Pick from workshop →",
+      "workshopGuestHint": "Sign in to access your own analyses",
       "archivePreviewLabel": "Selected game",
+      "archivePreviewLabel2": "🔍 From archive",
+      "ownPreviewLabel": "📂 From workshop",
       "archivePreview": "{{white}} vs {{black}}",
       "archivePreviewEvent": "{{event}}",
       "changePick": "Change selection"

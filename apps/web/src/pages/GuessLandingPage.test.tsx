@@ -14,6 +14,28 @@ import { GuessLandingPage } from './GuessLandingPage';
  * прокидывает pgn+side в раннер.
  */
 
+// KS-3503: GuessLandingPage теперь вызывает useAuth() для гейтинга
+// кнопки «Pick from workshop». По умолчанию — авторизованный.
+// Отдельные тесты переопределяют mockReturnValue до renderWithRoutes
+// (см. KS-3503 guest test). vi.hoisted нужен, чтобы mockUseAuth
+// существовал к моменту hoisted vi.mock factory.
+const { mockUseAuth } = vi.hoisted(() => ({
+  mockUseAuth: vi.fn(() => ({
+    user: { id: 'u-1', username: 'tester' },
+    token: 'jwt',
+    loading: false,
+    login: vi.fn(),
+    register: vi.fn(),
+    loginWithTokens: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  })),
+}));
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => mockUseAuth(),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 vi.mock('../components/guess', () => ({
   GuessSessionRunner: ({
     pgn,
@@ -127,7 +149,7 @@ describe('<GuessLandingPage> KS-3412', () => {
       expect(stub.getAttribute('data-return-label')).toBe('Guess the move');
     });
 
-    it('возврат со state {archiveGameId,...} рисует превью + заполняет PGN + Start активен', () => {
+    it('возврат со state {archiveGameId,...} (legacy) рисует превью + заполняет PGN + Start активен', () => {
       renderWithRoutes([
         {
           pathname: '/guess',
@@ -140,19 +162,19 @@ describe('<GuessLandingPage> KS-3412', () => {
           },
         },
       ]);
-      const preview = screen.getByTestId('guess-archive-preview');
-      expect(preview.getAttribute('data-archive-id')).toBe('arc-123');
-      expect(screen.getByTestId('guess-archive-preview-main').textContent).toContain(
+      // KS-3503: testid унифицирован → guess-pick-preview, data-source.
+      const preview = screen.getByTestId('guess-pick-preview');
+      expect(preview.getAttribute('data-source')).toBe('archive');
+      expect(preview.getAttribute('data-ref-id')).toBe('arc-123');
+      expect(screen.getByTestId('guess-pick-preview-main').textContent).toContain(
         'Carlsen vs Nepomniachtchi',
       );
-      expect(screen.getByTestId('guess-archive-preview-event').textContent).toContain(
+      expect(screen.getByTestId('guess-pick-preview-event').textContent).toContain(
         'WCC 2021',
       );
-      // textarea заполнена.
       expect(
         (screen.getByTestId('guess-pgn-input') as HTMLTextAreaElement).value,
       ).toBe(VALID_PGN);
-      // Start активен (за счёт archiveGameId, не только PGN).
       expect(
         (screen.getByTestId('guess-start') as HTMLButtonElement).disabled,
       ).toBe(false);
@@ -192,7 +214,7 @@ describe('<GuessLandingPage> KS-3412', () => {
           },
         },
       ]);
-      await user.click(screen.getByTestId('guess-archive-change'));
+      await user.click(screen.getByTestId('guess-pick-change'));
       const stub = screen.getByTestId('archive-stub');
       expect(stub.getAttribute('data-return-to')).toBe('/guess');
     });
@@ -202,6 +224,152 @@ describe('<GuessLandingPage> KS-3412', () => {
       expect(
         (screen.getByTestId('guess-start') as HTMLButtonElement).disabled,
       ).toBe(true);
+    });
+  });
+
+  // ── KS-3503 (ADR-092 F1-ext) ─────────────────────────────────────
+  describe('KS-3503: выбор партии из мастерской + унифицированный state', () => {
+    function WorkshopStub() {
+      const loc = useLocation();
+      return (
+        <div
+          data-testid="workshop-stub"
+          data-return-to={(loc.state as { returnTo?: string } | null)?.returnTo ?? ''}
+          data-return-label={
+            (loc.state as { returnLabel?: string } | null)?.returnLabel ?? ''
+          }
+        />
+      );
+    }
+
+    function renderWithRoutes(
+      initialEntries: Array<string | { pathname: string; state: unknown }>,
+    ) {
+      return render(
+        <I18nextProvider i18n={testI18n}>
+          <ThemeProvider initialTheme="dark">
+            <BoardSettingsProvider>
+              <MemoryRouter initialEntries={initialEntries}>
+                <Routes>
+                  <Route path="/guess" element={<GuessLandingPage />} />
+                  <Route path="/workshop" element={<WorkshopStub />} />
+                </Routes>
+              </MemoryRouter>
+            </BoardSettingsProvider>
+          </ThemeProvider>
+        </I18nextProvider>,
+      );
+    }
+
+    it('кнопка «Pick from workshop» (auth) ведёт на /workshop со state', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes(['/guess']);
+      const pick = screen.getByTestId('guess-workshop-pick') as HTMLButtonElement;
+      expect(pick.textContent).toContain('Pick from workshop');
+      expect(pick.disabled).toBe(false);
+      await user.click(pick);
+      const stub = screen.getByTestId('workshop-stub');
+      expect(stub.getAttribute('data-return-to')).toBe('/guess');
+      expect(stub.getAttribute('data-return-label')).toBe('Guess the move');
+    });
+
+    it('гость: кнопка «Pick from workshop» disabled + title с подсказкой', () => {
+      mockUseAuth.mockReturnValueOnce({
+        user: null,
+        token: null,
+        loading: false,
+        login: vi.fn(),
+        register: vi.fn(),
+        loginWithTokens: vi.fn(),
+        logout: vi.fn(),
+        refreshUser: vi.fn(),
+      } as ReturnType<typeof mockUseAuth>);
+      renderWithRoutes(['/guess']);
+      const pick = screen.getByTestId('guess-workshop-pick') as HTMLButtonElement;
+      expect(pick.disabled).toBe(true);
+      expect(pick.getAttribute('aria-disabled')).toBe('true');
+      expect(pick.title).toContain('Sign in');
+    });
+
+    it('возврат со state {source:"own", refId, title} рисует workshop-превью', () => {
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            source: 'own',
+            refId: 'an-42',
+            pgn: VALID_PGN,
+            title: 'Sicilian fix attempt #3',
+          },
+        },
+      ]);
+      const preview = screen.getByTestId('guess-pick-preview');
+      expect(preview.getAttribute('data-source')).toBe('own');
+      expect(preview.getAttribute('data-ref-id')).toBe('an-42');
+      expect(screen.getByTestId('guess-pick-preview-label').textContent).toContain(
+        'From workshop',
+      );
+      expect(screen.getByTestId('guess-pick-preview-main').textContent).toContain(
+        'Sicilian fix attempt #3',
+      );
+      // archive-event'а в own-режиме нет.
+      expect(screen.queryByTestId('guess-pick-preview-event')).toBeNull();
+    });
+
+    it('Start с own → runner получает gameSource=own + gameRef=id', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            source: 'own',
+            refId: 'an-99',
+            pgn: VALID_PGN,
+            title: 'My game',
+          },
+        },
+      ]);
+      await user.click(screen.getByTestId('guess-start'));
+      const runner = screen.getByTestId('guess-runner-stub');
+      expect(runner.getAttribute('data-game-source')).toBe('own');
+      expect(runner.getAttribute('data-game-ref')).toBe('an-99');
+    });
+
+    it('возврат с унифицированным state {source:"archive", refId} рисует archive-превью', () => {
+      renderWithRoutes([
+        {
+          pathname: '/guess',
+          state: {
+            source: 'archive',
+            refId: 'arc-50',
+            pgn: VALID_PGN,
+            white: 'Magnus',
+            black: 'Fabiano',
+            event: 'Norway',
+          },
+        },
+      ]);
+      const preview = screen.getByTestId('guess-pick-preview');
+      expect(preview.getAttribute('data-source')).toBe('archive');
+      expect(preview.getAttribute('data-ref-id')).toBe('arc-50');
+      expect(screen.getByTestId('guess-pick-preview-label').textContent).toContain(
+        'From archive',
+      );
+      expect(screen.getByTestId('guess-pick-preview-main').textContent).toContain(
+        'Magnus vs Fabiano',
+      );
+      expect(screen.getByTestId('guess-pick-preview-event').textContent).toContain(
+        'Norway',
+      );
+    });
+
+    it('кнопки «pick-buttons»: своё перед чужим', () => {
+      renderWithRoutes(['/guess']);
+      const container = screen.getByTestId('guess-pick-buttons');
+      const btns = Array.from(
+        container.querySelectorAll('[data-testid]'),
+      ).map((el) => el.getAttribute('data-testid'));
+      expect(btns).toEqual(['guess-workshop-pick', 'guess-archive-pick']);
     });
   });
 });
