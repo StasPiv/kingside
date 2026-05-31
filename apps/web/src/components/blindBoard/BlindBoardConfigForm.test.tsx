@@ -117,6 +117,34 @@ describe('<BlindBoardConfigForm>', () => {
     );
   });
 
+  it('KS-3492: иконки фигур (а не текстовые названия) в counter, addOrder, кнопках Add', () => {
+    renderWithProviders(
+      <BlindBoardConfigForm
+        value={DEFAULT_BLIND_BOARD_CONFIG}
+        onChange={() => {}}
+      />,
+    );
+    // Counter-selector: для каждого типа есть icon-span + aria-label.
+    for (const type of ['Q', 'R', 'B', 'N'] as const) {
+      const icon = screen.getByTestId(`blind-board-config-start-icon-${type}`);
+      expect(icon.getAttribute('aria-label')).toBe(
+        // testI18n.en — fallback на «Queen/Rook/Bishop/Knight».
+        { Q: 'Queen', R: 'Rook', B: 'Bishop', N: 'Knight' }[type],
+      );
+      // Внутри не должно быть текстового названия (только SVG/IMG).
+      expect(icon.textContent).toBe('');
+    }
+    // addOrder row 0: иконка вместо текста.
+    const addRow0 = screen.getByTestId('blind-board-config-add-icon-0');
+    expect(addRow0.getAttribute('data-piece')).toBe('B');
+    expect(addRow0.getAttribute('aria-label')).toBe('Bishop');
+    expect(addRow0.textContent).toBe('');
+    // Кнопка Add B: aria-label «Add Bishop», в textContent только «+».
+    const addBtnB = screen.getByTestId('blind-board-config-add-add-B');
+    expect(addBtnB.getAttribute('aria-label')).toBe('Add Bishop');
+    expect(addBtnB.textContent?.trim()).toBe('+');
+  });
+
   it('disabled выключает все кнопки управления', () => {
     renderWithProviders(
       <BlindBoardConfigForm

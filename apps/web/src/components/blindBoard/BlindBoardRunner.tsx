@@ -15,7 +15,6 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { defaultPieces } from 'react-chessboard';
 import type {
   BlindBoardMove,
   BlindBoardPieceType,
@@ -24,6 +23,7 @@ import type {
 
 import { MemoChessboard } from '../MemoChessboard';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
+import { BlindBoardPieceIcon } from './BlindBoardPieceIcon';
 
 const EMPTY_FEN = '8/8/8/8/8/8/8/8 w - - 0 1';
 const PIECE_TYPES: BlindBoardPieceType[] = ['Q', 'R', 'B', 'N'];
@@ -32,40 +32,16 @@ const HIGHLIGHT_TO = 'rgba(155, 199, 0, 0.75)';
 const ARROW_COLOR = '#7c83ff';
 
 /**
- * KS-3447: рендер иконки фигуры из текущего piece-style. Логика
- * совпадает с `PromotionPicker` (KS-3395): для `standard` —
- * встроенные `defaultPieces` react-chessboard, для кастомных
- * open-license наборов — SVG из `/pieces/<set>/<wQ>.svg` (тот же
- * источник, что у `buildCustomPieces` в BoardSettingsContext).
- *
- * В blind-board фигура всегда белая (типы хранятся upper-case
- * Q/R/B/N), цвет в M1 не отличается на этой стадии режима.
+ * KS-3447 → KS-3492: иконка фигуры из текущего piece-style вынесена в
+ * общий компонент `BlindBoardPieceIcon` для переиспользования в
+ * `BlindBoardConfigForm`. Тут — тонкая обёртка с runner-классами,
+ * чтобы существующий CSS (`.blind-board-runner__piece-svg*`)
+ * продолжал работать без правки в layout.
  */
-function PieceIcon({
-  pieceType,
-  pieceSet,
-}: {
-  pieceType: BlindBoardPieceType;
-  pieceSet: string;
-}) {
-  const code = `w${pieceType}`;
-  if (pieceSet === 'standard') {
-    const builtin = defaultPieces[code];
-    if (builtin) {
-      return (
-        <span className="blind-board-runner__piece-svg blind-board-runner__piece-svg--builtin">
-          {builtin({
-            svgStyle: { width: '100%', height: '100%', display: 'block' },
-          })}
-        </span>
-      );
-    }
-  }
+function PieceIcon({ pieceType }: { pieceType: BlindBoardPieceType }) {
   return (
-    <img
-      src={`/pieces/${pieceSet}/${code}.svg`}
-      alt=""
-      draggable={false}
+    <BlindBoardPieceIcon
+      pieceType={pieceType}
       className="blind-board-runner__piece-svg"
     />
   );
@@ -229,7 +205,7 @@ export function BlindBoardRunner({
                   aria-label={t(`blindBoard.piece.${p}`, p)}
                   onClick={() => handlePick(p)}
                 >
-                  <PieceIcon pieceType={p} pieceSet={pieceSet} />
+                  <PieceIcon pieceType={p} />
                 </button>
               ))}
             </div>

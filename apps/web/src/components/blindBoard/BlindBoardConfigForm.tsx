@@ -27,6 +27,7 @@ import {
   remainingCapacity,
   remainingQuota,
 } from './blindBoardConfigValidation';
+import { BlindBoardPieceIcon } from './BlindBoardPieceIcon';
 
 const PIECE_TYPES: BlindBoardPieceType[] = ['Q', 'R', 'B', 'N'];
 
@@ -154,8 +155,18 @@ export function BlindBoardConfigForm({
                 data-testid={`blind-board-config-start-counter-${type}`}
                 data-count={count}
               >
-                <span className="blind-board-config-form__counter-label">
-                  {t(`blindBoard.piece.${type}`, type)}
+                {/* KS-3492: иконка фигуры из текущего piece-style вместо
+                    текста «Ферзь / Ладья / …». aria-label с типом
+                    сохранён на кнопках +/−. */}
+                <span
+                  className="blind-board-config-form__counter-label"
+                  aria-label={t(`blindBoard.piece.${type}`, type)}
+                  data-testid={`blind-board-config-start-icon-${type}`}
+                >
+                  <BlindBoardPieceIcon
+                    pieceType={type}
+                    className="blind-board-config-form__piece-icon"
+                  />
                 </span>
                 <div className="blind-board-config-form__counter-controls">
                   <button
@@ -252,8 +263,18 @@ export function BlindBoardConfigForm({
               <span className="blind-board-config-form__add-level">
                 L{idx + 2}
               </span>
-              <span className="blind-board-config-form__add-piece">
-                {t(`blindBoard.piece.${type}`, type)}
+              {/* KS-3492: иконка фигуры в addOrder rows. aria-label
+                  сохраняет SR-доступ к типу. */}
+              <span
+                className="blind-board-config-form__add-piece"
+                aria-label={t(`blindBoard.piece.${type}`, type)}
+                data-testid={`blind-board-config-add-icon-${idx}`}
+                data-piece={type}
+              >
+                <BlindBoardPieceIcon
+                  pieceType={type}
+                  className="blind-board-config-form__piece-icon"
+                />
               </span>
               <div className="blind-board-config-form__add-actions">
                 <button
@@ -311,8 +332,21 @@ export function BlindBoardConfigForm({
                 data-testid={`blind-board-config-add-add-${type}`}
                 disabled={!canAdd}
                 onClick={() => addAddOrder(type)}
+                aria-label={t(
+                  'blindBoard.config.addPieceAria',
+                  'Add {{type}}',
+                  {
+                    type: t(`blindBoard.piece.${type}`, type),
+                  },
+                )}
               >
-                + {t(`blindBoard.piece.${type}`, type)}
+                {/* KS-3492: «+» + иконка фигуры вместо текстового
+                    названия. Текст для SR — в aria-label кнопки. */}
+                <span aria-hidden="true">+</span>
+                <BlindBoardPieceIcon
+                  pieceType={type}
+                  className="blind-board-config-form__piece-icon"
+                />
               </button>
             );
           })}

@@ -3624,6 +3624,7 @@
       "moveUpAria": "Поднять",
       "moveDownAria": "Опустить",
       "removeAddAria": "Удалить из очереди",
+      "addPieceAria": "Добавить {{type}}",
       "errorMinStart": "Выберите минимум {{n}} стартовых фигур.",
       "errorMaxTotal": "Суммарно стартовых + очередь не больше {{n}}.",
       "errorQuota": "Превышена квота по типу (Q≤1, R≤2, B≤2, N≤2).",

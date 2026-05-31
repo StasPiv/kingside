@@ -3582,6 +3582,7 @@
       "moveUpAria": "Move up",
       "moveDownAria": "Move down",
       "removeAddAria": "Remove entry",
+      "addPieceAria": "Add {{type}}",
       "errorMinStart": "Pick at least {{n}} starting pieces.",
       "errorMaxTotal": "Total of starting + add-order pieces cannot exceed {{n}}.",
       "errorQuota": "Type quota exceeded (Q≤1, R≤2, B≤2, N≤2).",
