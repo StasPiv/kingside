@@ -159,7 +159,7 @@
 
 /* Превью выбранной партии — карточка bg-elevated + accent-tint
    подсветка (показывает что выбор активен). */
-.guess-page__archive-preview {
+.guess-page__pick-preview {
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-areas:
@@ -173,7 +173,7 @@
   border: 1px solid var(--accent-primary, var(--c-7c83ff));
   border-radius: 12px;
 }
-.guess-page__archive-preview-label {
+.guess-page__pick-preview-label {
   grid-area: label;
   font-size: 11px;
   font-weight: 700;
@@ -181,7 +181,7 @@
   letter-spacing: 0.08em;
   color: var(--accent-primary, var(--c-7c83ff));
 }
-.guess-page__archive-preview-main {
+.guess-page__pick-preview-main {
   grid-area: main;
   font-size: 16px;
   font-weight: 700;
@@ -189,14 +189,14 @@
   line-height: 1.3;
   word-break: break-word;
 }
-.guess-page__archive-preview-event {
+.guess-page__pick-preview-event {
   grid-area: event;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary, var(--c-a0a0c0));
   line-height: 1.3;
 }
-.guess-page__archive-change {
+.guess-page__pick-change {
   grid-area: change;
   align-self: center;
   appearance: none;
@@ -213,10 +213,80 @@
   -webkit-tap-highlight-color: transparent;
   transition: background 120ms ease, color 120ms ease;
 }
-.guess-page__archive-change:hover {
+.guess-page__pick-change:hover {
   background: var(--accent-primary, var(--c-7c83ff));
   color: #fff;
 }
+
+/* ── KS-3505 (ADR-092 L1-ext): мастерская + архив унифицированно ──
+   Контейнер двух CTA-кнопок (workshop + archive) + бейджи источника
+   в превью. */
+.guess-page__pick-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* «📂 Pick from workshop» — стиль аналогичен archive-pick, но
+   акцент через --info / --c-vc-green: «своё, личное» = тёплый
+   цвет; «база» = accent-primary. */
+.guess-page__workshop-pick {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 18px;
+  background: var(--bg-elevated, var(--c-25253d));
+  color: var(--text-primary, var(--c-e0e0e0));
+  border: 1px dashed var(--c-vc-green, #15803d);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-style 120ms ease,
+    color 120ms ease, opacity 120ms ease;
+}
+.guess-page__workshop-pick:hover:not(:disabled) {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-vc-green, #15803d);
+  border-style: solid;
+}
+.guess-page__workshop-pick:focus-visible {
+  outline: 2px solid var(--c-vc-green, #15803d);
+  outline-offset: 2px;
+}
+.guess-page__workshop-pick:disabled,
+.guess-page__workshop-pick[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+/* Превью бейджи: data-source='own' → green (мастерская),
+   'archive' → accent (база). Применяется к контейнеру превью —
+   меняется фон, border и цвет label. */
+.guess-page__pick-preview[data-source='own'] {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  border-color: var(--c-vc-green, #15803d);
+}
+.guess-page__pick-preview[data-source='own']
+  .guess-page__pick-preview-label {
+  color: var(--c-vc-green, #15803d);
+}
+.guess-page__pick-preview[data-source='own']
+  .guess-page__pick-change {
+  border-color: var(--c-vc-green, #15803d);
+  color: var(--c-vc-green, #15803d);
+}
+.guess-page__pick-preview[data-source='own']
+  .guess-page__pick-change:hover {
+  background: var(--c-vc-green, #15803d);
+  color: #fff;
+}
+/* archive — дефолтный accent, явные правила не нужны (уже выставлены
+   общими селекторами выше). */
 
 .guess-page__actions {
   display: flex;
@@ -645,14 +715,20 @@
     min-height: 140px;
     font-size: 12px;
   }
-  /* KS-3500 mobile: pick-btn full-width, preview compact. */
-  .guess-page__archive-pick {
+  /* KS-3500/KS-3505 mobile: pick-кнопки stack full-width,
+     preview compact. */
+  .guess-page__pick-buttons {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .guess-page__archive-pick,
+  .guess-page__workshop-pick {
     align-self: stretch;
     width: 100%;
     padding: 12px 16px;
     font-size: 13px;
   }
-  .guess-page__archive-preview {
+  .guess-page__pick-preview {
     grid-template-columns: 1fr;
     grid-template-areas:
       'label'
@@ -662,10 +738,10 @@
     gap: 6px;
     padding: 12px 14px;
   }
-  .guess-page__archive-preview-main {
+  .guess-page__pick-preview-main {
     font-size: 15px;
   }
-  .guess-page__archive-change {
+  .guess-page__pick-change {
     width: 100%;
     margin-top: 4px;
     min-height: 44px;
