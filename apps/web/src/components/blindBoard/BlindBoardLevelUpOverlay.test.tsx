@@ -20,10 +20,10 @@ describe('<BlindBoardLevelUpOverlay> KS-3489', () => {
     vi.useRealTimers();
   });
 
-  it('рендерит уровень, подпись с piece+square и FEN из piecesOnBoard', () => {
+  it('KS-3522: рендерит FEN из levelUp.boardPosition (snapshot с сервера)', () => {
     renderWithProviders(
       <BlindBoardLevelUpOverlay
-        piecesOnBoard={[
+        boardPosition={[
           { square: 'a1', type: 'R' },
           { square: 'e4', type: 'N' },
         ]}
@@ -54,7 +54,7 @@ describe('<BlindBoardLevelUpOverlay> KS-3489', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <BlindBoardLevelUpOverlay
-        piecesOnBoard={[{ square: 'a1', type: 'R' }]}
+        boardPosition={[{ square: 'a1', type: 'R' }]}
         newLevel={2}
         newPiece="B"
         newSquare="e4"
@@ -72,7 +72,7 @@ describe('<BlindBoardLevelUpOverlay> KS-3489', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <BlindBoardLevelUpOverlay
-        piecesOnBoard={[{ square: 'a1', type: 'R' }]}
+        boardPosition={[{ square: 'a1', type: 'R' }]}
         newLevel={2}
         newPiece="B"
         newSquare="e4"

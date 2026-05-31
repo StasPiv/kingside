@@ -383,7 +383,18 @@ describe('<BlindBoardSessionRunner>', () => {
     submitAnswer.mockResolvedValue({
       correct: true,
       session: session({ level: 2, round: 11, streak: 10, bestStreak: 10 }),
-      levelUp: { newLevel: 2, newPiece: 'B', newSquare: 'd5' },
+      // KS-3522: backend теперь отдаёт boardPosition (KS-3520) —
+      // snapshot всех фигур; фронт берёт его из event'а и рисует.
+      levelUp: {
+        newLevel: 2,
+        newPiece: 'B',
+        newSquare: 'd5',
+        boardPosition: [
+          { square: 'a1', type: 'R' },
+          { square: 'h8', type: 'N' },
+          { square: 'd5', type: 'B' },
+        ],
+      },
     } as SubmitBlindBoardAnswerResponse);
     renderWithProviders(<BlindBoardSessionRunner api={api} />);
     // Сначала memorizing → Ready → playing.

@@ -108,10 +108,11 @@ export function BlindBoardSessionRunner({
   // KS-3489 (V2 §15 F2): snapshot фактически применённого конфига
   // (с дефолтом для backwards-compat если backend ещё не отдал).
   const [startConfig, setStartConfig] = useState<BlindBoardConfig | null>(null);
-  // Полная текущая расстановка на доске = startPosition + накопленные
-  // фигуры из levelUp'ов (нужна для overlay). Клиент знает только то,
-  // что сам видел — анти-чит сохранён.
-  const [piecesOnBoard, setPiecesOnBoard] = useState<BlindBoardPiece[]>([]);
+  // KS-3522: локальный piecesOnBoard убран. Источник позиции для
+  // level-up overlay — `levelUp.boardPosition` (KS-3520, backend
+  // отдаёт snapshot всех фигур в актуальных клетках). Раньше клиент
+  // накапливал startPosition + addedPieces, но фигуры не учитывали
+  // прошедшие compMove'ы — отрисовывались на старых клетках.
   // Текущий level-up для overlay; null — overlay не показан.
   const [levelUpEvent, setLevelUpEvent] = useState<NonNullable<
     SubmitBlindBoardAnswerResponse['levelUp']
@@ -127,7 +128,6 @@ export function BlindBoardSessionRunner({
     setLastAnswer(null);
     setStartPosition([]);
     setStartConfig(null);
-    setPiecesOnBoard([]);
     setLevelUpEvent(null);
     setStartError(null);
     void (async () => {
@@ -141,7 +141,6 @@ export function BlindBoardSessionRunner({
         // KS-3448: запоминание — показываем 5 фигур, ждём «Готов».
         // На случай отсутствия поля (старый backend) сразу в playing.
         setStartPosition(res.startPosition ?? []);
-        setPiecesOnBoard(res.startPosition ?? []);
         // KS-3489: snapshot конфига для HUD pill / level-up overlay.
         setStartConfig(res.config ?? null);
         setStatus(
@@ -191,15 +190,11 @@ export function BlindBoardSessionRunner({
           if (res.session.status === 'finished') {
             setStatus('final');
           } else {
-            // KS-3489 (V2 §15 F2): backend сообщил о level-up — добавляем
-            // фигуру локально и показываем overlay. Анти-чит §5: клиент
-            // знает только тот square и тип, которые ему сейчас прислал
-            // сервер; остальные фигуры на доске он видел в memorize.
+            // KS-3489 (V2 §15 F2) + KS-3522: backend в `levelUp.boardPosition`
+            // отдаёт полный snapshot всех фигур в актуальных клетках
+            // (включая старые после compMove'ов). Просто пробрасываем
+            // event в overlay — никакого локального накопления.
             if (res.levelUp) {
-              setPiecesOnBoard((prev) => [
-                ...prev,
-                { square: res.levelUp!.newSquare, type: res.levelUp!.newPiece },
-              ]);
               setLevelUpEvent(res.levelUp);
             }
             // correct — следующий раунд, доска перерисуется новым move.
@@ -454,11 +449,11 @@ export function BlindBoardSessionRunner({
         </p>
       )}
 
-      {/* KS-3489 (V2 §15 F2): overlay при level-up. memorizeTimeSec
-          берётся из snapshot'а конфига (или 5 если не известен). */}
+      {/* KS-3489 (V2 §15 F2) + KS-3522: overlay при level-up.
+          boardPosition приходит прямо в event'е (KS-3520 backend). */}
       {levelUpEvent && (
         <BlindBoardLevelUpOverlay
-          piecesOnBoard={piecesOnBoard}
+          boardPosition={levelUpEvent.boardPosition}
           newLevel={levelUpEvent.newLevel}
           newPiece={levelUpEvent.newPiece}
           newSquare={levelUpEvent.newSquare}

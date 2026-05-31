@@ -1,16 +1,15 @@
 /**
- * KS-3489 (ADR-088 V2 §15 F2). Overlay на level-up. После того как
- * backend в `SubmitBlindBoardAnswerResponse.levelUp` сообщил «появилась
- * новая фигура {newPiece} на {newSquare}», UI показывает игроку:
- *   - всю текущую позицию (5 + N фигур на доске),
- *   - подсветка newSquare 1.5 сек,
- *   - подпись «Уровень N — добавился {newPiece} на {newSquare}».
- * Автоматически закрывается через `memorizeTimeSec`, либо вручную
- * кнопкой «Готов».
+ * KS-3489 (ADR-088 V2 §15 F2). Overlay на level-up.
  *
- * Анти-чит (§5) сохранён: клиент знает только то, что сам видел —
- * `startPosition` из memorize-фазы + `levelUp.newSquare/newPiece` из
- * каждого ответа. Эта же информация уже была у юзера ходом раньше.
+ * KS-3522: источник позиции — `levelUp.boardPosition` (KS-3520),
+ * snapshot ВСЕХ фигур в актуальных клетках с сервера. Раньше клиент
+ * локально накапливал `piecesOnBoard = startPosition + addedPieces` и
+ * фигуры показывались на стартовых клетках, без учёта compMove'ов —
+ * получалась неверная картина. Теперь сервер кладёт актуальную
+ * позицию, фронт её просто рисует.
+ *
+ * Подпись: «Уровень N — добавился {newPiece} на {newSquare}»;
+ * подсветка `newSquare` 1.5с; autoclose через `memorizeTimeSec`.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -24,8 +23,12 @@ const HIGHLIGHT_DURATION_MS = 1500;
 const HIGHLIGHT_COLOR = 'rgba(155, 199, 0, 0.65)';
 
 export interface BlindBoardLevelUpOverlayProps {
-  /** Полная текущая расстановка (startPosition + накопленные newPiece). */
-  piecesOnBoard: BlindBoardPiece[];
+  /**
+   * KS-3522: snapshot всех фигур в актуальных клетках, пришедший в
+   * `SubmitBlindBoardAnswerResponse.levelUp.boardPosition` (KS-3520).
+   * Включает старые фигуры на текущих позициях + только что добавленную.
+   */
+  boardPosition: BlindBoardPiece[];
   /** Новый уровень. */
   newLevel: number;
   /** Тип добавленной фигуры. */
@@ -39,7 +42,7 @@ export interface BlindBoardLevelUpOverlayProps {
 }
 
 export function BlindBoardLevelUpOverlay({
-  piecesOnBoard,
+  boardPosition,
   newLevel,
   newPiece,
   newSquare,
@@ -83,7 +86,7 @@ export function BlindBoardLevelUpOverlay({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const fen = useMemo(() => piecesToFen(piecesOnBoard), [piecesOnBoard]);
+  const fen = useMemo(() => piecesToFen(boardPosition), [boardPosition]);
 
   const squareStyles = useMemo<Record<string, React.CSSProperties>>(
     () =>
