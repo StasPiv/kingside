@@ -1153,9 +1153,44 @@
   text-align: center;
 }
 
-.broadcast-st-rank { width: 30px; }
-.broadcast-st-name { text-align: left !important; min-width: 140px; font-weight: 500; color: var(--c-e0e0e0); position: sticky; left: 0; background: var(--c-12122a); z-index: 1; }
-.broadcast-st-pts { font-weight: 700; width: 40px; }
+/* KS-3536: первые 3 колонки (Rank / Player / Pts) — sticky, чтобы
+   при горизонтальном скролле не уезжали и не перекрывались
+   остальными колонками результатов. z-index выше обычных td/th,
+   непрозрачный bg через токен (адаптив light/dark), box-shadow
+   справа от последней sticky-колонки — визуальная граница. */
+.broadcast-st-rank {
+  width: 30px;
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--bg-surface, var(--c-12122a));
+}
+.broadcast-st-name {
+  text-align: left !important;
+  min-width: 140px;
+  width: 140px;
+  font-weight: 500;
+  color: var(--c-e0e0e0);
+  position: sticky;
+  left: 30px;
+  z-index: 10;
+  background: var(--bg-surface, var(--c-12122a));
+}
+.broadcast-st-pts {
+  font-weight: 700;
+  width: 40px;
+  position: sticky;
+  left: 170px;
+  z-index: 10;
+  background: var(--bg-surface, var(--c-12122a));
+  box-shadow: 2px 0 6px var(--ov-black-30, rgba(0, 0, 0, 0.18));
+}
+/* th в thead тоже sticky-колонки + sticky top для шапки. */
+.broadcast-standings-table thead .broadcast-st-rank,
+.broadcast-standings-table thead .broadcast-st-name,
+.broadcast-standings-table thead .broadcast-st-pts {
+  z-index: 11;
+}
 .broadcast-st-num { width: 35px; color: var(--c-9e9e9e); }
 .broadcast-st-cell { width: 40px; }
 .broadcast-st-diag { background: var(--ov-white-03); color: var(--c-555); }
