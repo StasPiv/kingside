@@ -2166,10 +2166,27 @@ export interface FinishGuessSessionResponse {
   outcome: 'userBetter' | 'playerBetter' | 'tie';
 }
 
-/** `GET /guess/sessions/:id` — review (сессия + все ходы). */
+/**
+ * `GET /guess/sessions/:id` — review (сессия + все ходы).
+ *
+ * KS-3514: добавлены агрегаты HUD-табло `userPoints`/`playerPoints`
+ * (счёт «ты : игрок») для review-страницы. Считаются из persisted
+ * `guess_moves` по тем же правилам, что и live-апдейт в submitMove
+ * (KS-3435):
+ *   - `userPoints` — verdict ∈ {strongest, betterThanPlayer}
+ *   - `playerPoints` — verdict === 'weaker'
+ *   - `asPlayer` никому очко не даёт.
+ *
+ * Доступен для любого статуса (`active`/`finished`/`abandoned`).
+ * JwtAuthGuard + owner-check (404 для чужой сессии).
+ */
 export interface GetGuessSessionResponse {
   session: GuessSessionDto;
   moves: GuessMoveDto[];
+  /** KS-3514. Сколько раундов user сыграл сильнее игрока. */
+  userPoints: number;
+  /** KS-3514. Сколько раундов user сыграл слабее игрока. */
+  playerPoints: number;
 }
 
 /** `GET /guess/history` — список сессий пользователя (без per-move). */

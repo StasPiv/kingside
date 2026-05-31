@@ -685,3 +685,80 @@ describe('GuessService.breakdownsForUser — KS-3508', () => {
     expect(res.userClass.blunder).toEqual({ count: 0, share: 0 });
   });
 });
+
+// ─── KS-3514: getSession review-страница ───────────────────────────
+
+describe('GuessService.getSession — KS-3514', () => {
+  function row(extra: Partial<AnyMock> = {}): AnyMock {
+    return {
+      id: 's1',
+      userId: 'u1',
+      gameSource: 'archive',
+      gameRef: 'g1',
+      pgn: null,
+      side: 'white',
+      status: 'finished',
+      userAccuracy: 90,
+      playerAccuracy: 75,
+      userStars: 5,
+      score: 30,
+      bestStreak: 3,
+      betterThanPlayerCount: 2,
+      startedAt: new Date('2026-05-29T00:00:00Z'),
+      finishedAt: new Date('2026-05-29T01:00:00Z'),
+      ...extra,
+    };
+  }
+
+  it('возвращает session+moves+userPoints+playerPoints для finished', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(row());
+    prisma.guessMove.findMany.mockResolvedValue([
+      { ply: 1, fenBefore: 'f', playedUci: 'a', userUci: 'a', bestUci: 'a',
+        eBefore: 0.5, eAfterPlayed: 0.5, eAfterUser: 0.5,
+        lossPlayer: 0, lossUser: 0, accuracyPlayer: 100, accuracyUser: 100,
+        userClass: 'best', verdict: 'strongest' },
+      { ply: 3, fenBefore: 'f', playedUci: 'b', userUci: 'c', bestUci: 'c',
+        eBefore: 0.5, eAfterPlayed: 0.3, eAfterUser: 0.5,
+        lossPlayer: 0.2, lossUser: 0, accuracyPlayer: 50, accuracyUser: 100,
+        userClass: 'good', verdict: 'betterThanPlayer' },
+      { ply: 5, fenBefore: 'f', playedUci: 'd', userUci: 'd', bestUci: 'd',
+        eBefore: 0.5, eAfterPlayed: 0.5, eAfterUser: 0.5,
+        lossPlayer: 0, lossUser: 0, accuracyPlayer: 100, accuracyUser: 100,
+        userClass: 'best', verdict: 'asPlayer' },
+      { ply: 7, fenBefore: 'f', playedUci: 'e', userUci: 'f', bestUci: 'e',
+        eBefore: 0.5, eAfterPlayed: 0.5, eAfterUser: 0.2,
+        lossPlayer: 0, lossUser: 0.3, accuracyPlayer: 100, accuracyUser: 30,
+        userClass: 'blunder', verdict: 'weaker' },
+    ]);
+    const svc = makeService(prisma);
+    const res = await svc.getSession('u1', 's1');
+    expect(res.session.id).toBe('s1');
+    expect(res.session.status).toBe('finished');
+    expect(res.moves).toHaveLength(4);
+    // strongest + betterThanPlayer = 2 userPoints; weaker = 1; asPlayer = 0.
+    expect(res.userPoints).toBe(2);
+    expect(res.playerPoints).toBe(1);
+  });
+
+  it('работает для active-сессии (любой status)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(row({ status: 'active', userAccuracy: null, playerAccuracy: null }));
+    prisma.guessMove.findMany.mockResolvedValue([]);
+    const svc = makeService(prisma);
+    const res = await svc.getSession('u1', 's1');
+    expect(res.session.status).toBe('active');
+    expect(res.moves).toEqual([]);
+    expect(res.userPoints).toBe(0);
+    expect(res.playerPoints).toBe(0);
+  });
+
+  it('чужая сессия → Forbidden', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue(row({ userId: 'other' }));
+    const svc = makeService(prisma);
+    await expect(svc.getSession('u1', 's1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+});

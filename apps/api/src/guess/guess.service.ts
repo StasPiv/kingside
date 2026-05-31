@@ -324,9 +324,19 @@ export class GuessService {
   ): Promise<GetGuessSessionResponse> {
     const session = await this.loadOwned(userId, sessionId);
     const moves = await this.loadMoves(sessionId);
+    // KS-3514: HUD-табло «ты : игрок» для review-страницы. Считается из
+    // persisted moves по тем же правилам, что и live-апдейт в submitMove
+    // (KS-3435: betterThanPlayer/strongest → user, weaker → player,
+    // asPlayer никому). Доступен для любого статуса сессии.
+    const userPoints = moves.filter((m) =>
+      BETTER_THAN_PLAYER.has(m.verdict as GuessVerdict),
+    ).length;
+    const playerPoints = moves.filter((m) => m.verdict === 'weaker').length;
     return {
       session: this.toSessionDto(session),
       moves: moves.map((m) => this.toMoveDto(m)),
+      userPoints,
+      playerPoints,
     };
   }
 
