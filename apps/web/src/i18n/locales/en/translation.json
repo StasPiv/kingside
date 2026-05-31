@@ -441,7 +441,11 @@
     "verdictShort": {
       "better": "Better",
       "equal": "Same",
-      "worse": "Worse"
+      "worse": "Worse",
+      "strongest": "Strongest",
+      "betterThanPlayer": "Better than player",
+      "asPlayer": "As played",
+      "weaker": "Weaker"
     },
     "class": {
       "best": "Best",

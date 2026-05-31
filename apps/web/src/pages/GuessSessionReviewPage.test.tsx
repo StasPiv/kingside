@@ -249,6 +249,44 @@ describe('<GuessSessionReviewPage> KS-3514', () => {
     ).toBe('error');
   });
 
+  it('KS-3516: verdict-метки локализованы (не raw enum)', async () => {
+    // Покрываем все 4 verdict'а.
+    const verdicts: Array<{
+      ply: number;
+      verdict: 'strongest' | 'betterThanPlayer' | 'asPlayer' | 'weaker';
+      expectedLabel: string;
+    }> = [
+      { ply: 1, verdict: 'strongest', expectedLabel: 'Strongest' },
+      {
+        ply: 3,
+        verdict: 'betterThanPlayer',
+        expectedLabel: 'Better than player',
+      },
+      { ply: 5, verdict: 'asPlayer', expectedLabel: 'As played' },
+      { ply: 7, verdict: 'weaker', expectedLabel: 'Weaker' },
+    ];
+    renderAt('/guess/sessions/s-loc', {
+      session: session({ id: 's-loc' }),
+      moves: verdicts.map((v) => ({
+        ...move1,
+        ply: v.ply,
+        verdict: v.verdict,
+      })),
+      userPoints: 2,
+      playerPoints: 1,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-review-moves')).toBeInTheDocument(),
+    );
+    for (const v of verdicts) {
+      const el = screen.getByTestId(`guess-review-move-verdict-${v.ply}`);
+      expect(el.textContent).toBe(v.expectedLabel);
+      // Не должно быть raw enum'а (например, «weaker» или «asPlayer»
+      // буквально) — кроме случая asPlayer/'As played' где «As» != «as».
+      expect(el.textContent).not.toBe(v.verdict);
+    }
+  });
+
   it('moves пустые → moves-empty placeholder', async () => {
     renderAt('/guess/sessions/s-4', {
       session: session({ id: 's-4', status: 'active' }),

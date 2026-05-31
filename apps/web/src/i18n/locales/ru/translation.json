@@ -451,7 +451,11 @@
     "verdictShort": {
       "better": "Лучше",
       "equal": "Равно",
-      "worse": "Хуже"
+      "worse": "Хуже",
+      "strongest": "Сильнейший",
+      "betterThanPlayer": "Лучше игрока",
+      "asPlayer": "Как в партии",
+      "weaker": "Слабее"
     },
     "class": {
       "best": "Лучший",
