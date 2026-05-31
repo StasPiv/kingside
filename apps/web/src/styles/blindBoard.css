@@ -1720,3 +1720,467 @@
     order: 3;
   }
 }
+
+/* ============================================================
+ * KS-3518 (ADR-088 review). Страница разбора прохождения
+ * `/blind-board/sessions/:id` (BlindBoardSessionReviewPage).
+ *   - .blind-board-review-page__header — title + meta.
+ *   - .blind-board-review-page__metrics — 6 metric-карточек.
+ *   - .blind-board-review-page__config — snapshot startPieces /
+ *     addOrder / memorizeTimeSec.
+ *   - .blind-board-review-page__attempts — список раундов с
+ *     correct/incorrect маркером и border-left.
+ *   - .blind-board-review-page__position — start-position list.
+ * По образцу .guess-review-page (KS-3515).
+ * ============================================================ */
+
+.blind-board-review-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  box-sizing: border-box;
+}
+.blind-board-review-page__skeleton {
+  height: 200px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 12px;
+  opacity: 0.5;
+  animation: blind-board-skeleton 1.2s ease-in-out infinite alternate;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.blind-board-review-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle, var(--c-2a2a3e));
+}
+.blind-board-review-page__back {
+  align-self: flex-start;
+  color: var(--text-link, var(--c-7c83ff));
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease;
+}
+.blind-board-review-page__back:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.blind-board-review-page__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+.blind-board-review-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+
+/* ── Metrics (6 карточек, паттерн KS-3515 .guess-review-page) ── */
+.blind-board-review-page__metrics {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+.blind-board-review-page__metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+  text-align: center;
+}
+.blind-board-review-page__metric-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, var(--c-e0e0e0));
+  letter-spacing: -0.02em;
+}
+.blind-board-review-page__metric-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.2;
+}
+.blind-board-review-page__metric-hint {
+  font-size: 10px;
+  color: var(--text-muted, var(--c-94a3b8));
+  margin-top: 2px;
+  line-height: 1.2;
+}
+/* Тематические акценты по data-testid (без правок TSX):
+   - level → accent (главная метрика прогресса),
+   - best-streak → vc-green (рекорд),
+   - current-streak → accent,
+   - accuracy → accent,
+   - finish-reason → muted. */
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-level']
+  .blind-board-review-page__metric-value,
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-current-streak']
+  .blind-board-review-page__metric-value,
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-accuracy']
+  .blind-board-review-page__metric-value {
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-level'] {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-best-streak']
+  .blind-board-review-page__metric-value {
+  color: var(--c-vc-green, #15803d);
+}
+.blind-board-review-page__metric[data-testid='blind-board-review-metric-finish-reason']
+  .blind-board-review-page__metric-value {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  line-height: 1.3;
+}
+
+/* ── Section title (общий для config / attempts / position) ─ */
+.blind-board-review-page__section-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, var(--c-e0e0e0));
+}
+
+/* ── Config snapshot ─────────────────────────────────────── */
+.blind-board-review-page__config {
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.blind-board-review-page__config-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border-subtle, var(--c-2a2a3e));
+}
+.blind-board-review-page__config-row:last-child {
+  border-bottom: 0;
+}
+.blind-board-review-page__config-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  min-width: 120px;
+}
+.blind-board-review-page__config-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-review-page__pieces {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.blind-board-review-page__piece {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 8px;
+}
+/* SVG из BlindBoardPieceIcon без явных размеров растягивается до
+   100% контейнера; зажимаем (паттерн KS-3493). */
+.blind-board-review-page__piece .blind-board-piece-icon,
+.blind-board-review-page__piece .blind-board-piece-icon--builtin,
+.blind-board-review-page__piece .blind-board-piece-icon--builtin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Attempts (раунды с correct/incorrect маркером) ────── */
+.blind-board-review-page__attempts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.blind-board-review-page__attempts-empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 8px;
+}
+.blind-board-review-page__attempts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 480px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.blind-board-review-page__attempt {
+  display: grid;
+  grid-template-columns: 80px auto 1fr 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  font-size: 13px;
+}
+.blind-board-review-page__attempt--correct,
+.blind-board-review-page__attempt[data-correct='true'] {
+  border-left-color: var(--c-vc-green, #15803d);
+}
+.blind-board-review-page__attempt--incorrect,
+.blind-board-review-page__attempt[data-correct='false'] {
+  border-left-color: var(--c-vc-red, #b91c1c);
+}
+.blind-board-review-page__attempt-round {
+  font-weight: 700;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-variant-numeric: tabular-nums;
+}
+.blind-board-review-page__attempt-move {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  white-space: nowrap;
+}
+.blind-board-review-page__attempt-expected,
+.blind-board-review-page__attempt-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.blind-board-review-page__attempt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.blind-board-review-page__attempt-icon .blind-board-piece-icon,
+.blind-board-review-page__attempt-icon .blind-board-piece-icon--builtin,
+.blind-board-review-page__attempt-icon .blind-board-piece-icon--builtin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.blind-board-review-page__attempt-square {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  letter-spacing: 0.02em;
+}
+.blind-board-review-page__attempt-open {
+  font-style: italic;
+  font-size: 12px;
+  color: var(--text-muted, var(--c-94a3b8));
+}
+.blind-board-review-page__attempt-mark {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.blind-board-review-page__attempt-mark--correct {
+  background: var(--ov-success-15, rgba(76, 175, 80, 0.15));
+  color: var(--c-vc-green, #15803d);
+  border-color: var(--c-vc-green, #15803d);
+}
+.blind-board-review-page__attempt-mark--incorrect {
+  background: var(--ov-danger-15, rgba(244, 67, 54, 0.15));
+  color: var(--c-vc-red, #b91c1c);
+  border-color: var(--c-vc-red, #b91c1c);
+}
+
+/* ── Start position (после finished) ─────────────────────── */
+.blind-board-review-page__position {
+  padding: 16px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 12px;
+}
+.blind-board-review-page__position-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.blind-board-review-page__position-piece {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated, var(--c-25253d));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  border-radius: 999px;
+}
+.blind-board-review-page__position-piece .blind-board-piece-icon,
+.blind-board-review-page__position-piece
+  .blind-board-piece-icon--builtin,
+.blind-board-review-page__position-piece
+  .blind-board-piece-icon--builtin svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  flex-shrink: 0;
+}
+.blind-board-review-page__position-square {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  letter-spacing: 0.02em;
+}
+.blind-board-review-page__position-hidden {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  font-size: 13px;
+  font-style: italic;
+  background: var(--bg-elevated, var(--c-25253d));
+  border-radius: 8px;
+}
+
+/* ── Mobile ≤767 ───────────────────────────────────────── */
+@media (max-width: 767px) {
+  .blind-board-review-page {
+    padding: 12px;
+    gap: 12px;
+  }
+  .blind-board-review-page__title {
+    font-size: 20px;
+  }
+  .blind-board-review-page__metrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .blind-board-review-page__metric {
+    padding: 12px 8px;
+  }
+  .blind-board-review-page__metric-value {
+    font-size: 20px;
+  }
+  .blind-board-review-page__metric[data-testid='blind-board-review-metric-finish-reason']
+    .blind-board-review-page__metric-value {
+    font-size: 12px;
+  }
+  .blind-board-review-page__config,
+  .blind-board-review-page__attempts,
+  .blind-board-review-page__position {
+    padding: 12px;
+  }
+  .blind-board-review-page__config-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .blind-board-review-page__config-label {
+    min-width: 0;
+  }
+  /* Attempt rows на mobile — стек: round + move первая строка,
+     expected / user / mark на свои строки. */
+  .blind-board-review-page__attempt {
+    grid-template-columns: 1fr auto;
+    gap: 6px 8px;
+    padding: 10px;
+  }
+  .blind-board-review-page__attempt-round {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .blind-board-review-page__attempt-move {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .blind-board-review-page__attempt-expected,
+  .blind-board-review-page__attempt-user {
+    grid-column: 1 / -1;
+  }
+  .blind-board-review-page__attempt-mark {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .blind-board-review-page__piece {
+    width: 28px;
+    height: 28px;
+  }
+  .blind-board-review-page__attempt-icon {
+    width: 22px;
+    height: 22px;
+  }
+  .blind-board-review-page__position-piece
+    .blind-board-piece-icon,
+  .blind-board-review-page__position-piece
+    .blind-board-piece-icon--builtin,
+  .blind-board-review-page__position-piece
+    .blind-board-piece-icon--builtin svg {
+    width: 22px;
+    height: 22px;
+  }
+}
