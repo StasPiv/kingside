@@ -1171,3 +1171,117 @@ describe('BlindBoardService.pickNextCompMove — KS-3524 previous mover', () => 
     expect(moverSquares.size).toBeGreaterThanOrEqual(1);
   });
 });
+
+// ─── KS-3525: симуляция 20 раундов с persist + level-up overlay ──────
+
+describe('BlindBoardService.submitAnswer — KS-3525 multi-round position consistency', () => {
+  it('boardPosition отражает реальное состояние (currentPosition + новая фигура) после 10 раундов', async () => {
+    // Симулируем: persisted currentPosition меняется при каждом round.
+    // На round 10 — level-up. boardPosition должна равняться
+    // (последняя persisted currentPosition) + новая фигура.
+    const prisma = makePrisma();
+    let persistedCurrentPosition: any[] = [
+      { square: 'a1', type: 'R' },
+      { square: 'h2', type: 'Q' },
+      { square: 'd4', type: 'N' },
+    ];
+    let persistedLevel = 1;
+    let persistedStreak = 0;
+    let persistedNextTarget: any = { square: 'h2', type: 'Q' };
+    let persistedCompMove: any = { from: 'a1', to: 'a2' };
+    let persistedRound = 1;
+
+    prisma.blindBoardSession.findUnique.mockImplementation(async () => ({
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'h2', type: 'Q' },
+        { square: 'd4', type: 'N' },
+      ],
+      currentPosition: persistedCurrentPosition,
+      nextTargetPiece: persistedNextTarget,
+      currentCompMove: persistedCompMove,
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level: persistedLevel,
+      streak: persistedStreak,
+      bestStreak: persistedStreak,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: null,
+    }));
+    prisma.blindBoardAttempt.findMany.mockImplementation(async () => [
+      { round: persistedRound, compMoveFrom: persistedCompMove.from, compMoveTo: persistedCompMove.to },
+    ]);
+    prisma.blindBoardSession.update.mockImplementation(async ({ data }: any) => {
+      if (data.currentPosition) persistedCurrentPosition = data.currentPosition as any[];
+      if (data.level !== undefined) persistedLevel = data.level;
+      if (data.streak !== undefined) persistedStreak = data.streak;
+      if (data.nextTargetPiece) persistedNextTarget = data.nextTargetPiece;
+      if (data.currentCompMove) persistedCompMove = data.currentCompMove;
+      return {
+        id: 's1',
+        userId: 'u1',
+        startPosition: persistedCurrentPosition,
+        currentPosition: persistedCurrentPosition,
+        nextTargetPiece: persistedNextTarget,
+        currentCompMove: persistedCompMove,
+        startConfig: { startPieces: ['Q','N','R'], addOrder: ['B','B','R','N'], memorizeTimeSec: 5 },
+        level: persistedLevel,
+        streak: persistedStreak,
+        bestStreak: persistedStreak,
+        status: 'active',
+        finishReason: null,
+        startedAt: new Date('2026-05-30T00:00:00Z'),
+        finishedAt: null,
+      };
+    });
+    prisma.blindBoardAttempt.create.mockImplementation(async ({ data }: any) => {
+      persistedRound = data.round;
+      return {};
+    });
+
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(() => 0.3); // детерминированный «средний» выбор
+
+    // Прогон 10 раундов с правильными ответами.
+    let lastResponse: any = null;
+    for (let round = 1; round <= 10; round++) {
+      const beforeRoundPosition = JSON.parse(JSON.stringify(persistedCurrentPosition));
+      const answerSq = persistedNextTarget.square;
+      const answerType = persistedNextTarget.type;
+      lastResponse = await svc.submitAnswer('u1', 's1', {
+        square: answerSq,
+        pieceType: answerType,
+      });
+      expect(lastResponse.correct).toBe(true);
+      // На 10-м раунде должен быть level-up.
+      if (round === 10) {
+        expect(lastResponse.levelUp).toBeDefined();
+        // boardPosition должна содержать ВСЕ pieces из beforeRoundPosition
+        // (= persisted currentPosition ПЕРЕД level-up) + новую B на newSquare.
+        expect(lastResponse.levelUp.boardPosition).toHaveLength(beforeRoundPosition.length + 1);
+        // Каждая старая фигура есть в boardPosition (с теми же square+type).
+        for (const old of beforeRoundPosition) {
+          const found = lastResponse.levelUp.boardPosition.find(
+            (p: any) => p.square === old.square && p.type === old.type,
+          );
+          expect(found).toBeDefined();
+        }
+        // И новая B на newSquare.
+        const newB = lastResponse.levelUp.boardPosition.find(
+          (p: any) => p.square === lastResponse.levelUp.newSquare,
+        );
+        expect(newB?.type).toBe('B');
+      }
+    }
+    // К концу серии level=2, streak=10.
+    expect(persistedLevel).toBe(2);
+    expect(persistedStreak).toBe(10);
+  });
+});

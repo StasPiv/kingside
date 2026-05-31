@@ -344,12 +344,29 @@ export class BlindBoardService {
           // KS-3520: фиксируем snapshot ВСЕХ фигур (вкл. только что
           // добавленную) для overlay-памяти. Клиент использует это
           // вместо локально накопленного `piecesOnBoard`.
+          // KS-3525: используем структурный клон через JSON, чтобы
+          // отдать клиенту полностью независимую копию (не shared
+          // референс с persisted nextPosition после applyMove ниже).
+          // Сам positionForNextMove дальше переиспользуется как база
+          // для applyMove, но возвращаемый boardPosition не должен
+          // быть к нему привязан.
+          const boardPositionSnapshot: BlindBoardPiece[] = positionForNextMove.map(
+            (p) => ({ square: p.square, type: p.type }),
+          );
           levelUp = {
             newLevel,
             newPiece,
             newSquare,
-            boardPosition: positionForNextMove,
+            boardPosition: boardPositionSnapshot,
           };
+          // KS-3525: diagnostic log — содержимое boardPosition'а для
+          // последующего сравнения с тем что показывает клиент. Если
+          // фронт жалуется на mismatch — grep по sessionId.
+          this.logger.log(
+            `[blind-board] level-up session=${sessionId} ` +
+              `level=${currentLevel}→${newLevel} newPiece=${newPiece}@${newSquare} ` +
+              `boardPosition=${JSON.stringify(boardPositionSnapshot)}`,
+          );
         } else {
           // Невероятный edge-case: квота нарушена (например, addOrder содержит
           // 3-й B при уже 2 B на доске). Лог + продолжаем без level-up.
