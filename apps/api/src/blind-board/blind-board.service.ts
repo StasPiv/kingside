@@ -71,6 +71,14 @@ const ALL_SQUARES: ReadonlyArray<BlindBoardSquare> = (() => {
 /** Максимум попыток для генерации валидной стартовой позиции. */
 const MAX_START_ATTEMPTS = 20;
 
+/**
+ * KS-3519. Сколько предыдущих compMove'ов учитывать как «недавно
+ * посещённые» при выборе следующего хода. 3 — достаточно чтобы
+ * отсечь immediate back-and-forth (A→B→A) и короткие циклы (A→B→C→A).
+ * Больше тянуть бессмысленно: позиций мало, фильтр слишком агрессивный.
+ */
+const RECENT_HISTORY_LEN = 3;
+
 /** Минимальная форма prisma-строки `blind_board_sessions`. */
 interface BlindBoardSessionRow {
   id: string;
@@ -252,12 +260,24 @@ export class BlindBoardService {
       answer.pieceType === expected.type;
 
     // Номер ТЕКУЩЕГО раунда (на который пришёл ответ) — последний attempt.
+    // KS-3519: дополнительно тянем последние 4 attempts чтобы знать
+    // историю недавних compMove'ов для pickNextCompMove (анти-«туда-сюда»).
     const attempts = await this.prisma.blindBoardAttempt.findMany({
       where: { sessionId },
       orderBy: { round: 'desc' },
-      take: 1,
+      take: RECENT_HISTORY_LEN + 1,
     });
     const currentRound = attempts[0]?.round ?? 1;
+    // attempts отсортированы DESC; берём предыдущие N (без currentRound)
+    // и переворачиваем в хронологический порядок для читаемости.
+    const recentMoves: Array<{ from: BlindBoardSquare; to: BlindBoardSquare }> =
+      attempts
+        .slice(1, 1 + RECENT_HISTORY_LEN)
+        .map((a) => ({
+          from: a.compMoveFrom as BlindBoardSquare,
+          to: a.compMoveTo as BlindBoardSquare,
+        }))
+        .reverse();
 
     // Audit: записываем фактический ответ в текущий attempt.
     await this.prisma.blindBoardAttempt.updateMany({
@@ -321,7 +341,15 @@ export class BlindBoardService {
             { square: newSquare, type: newPiece },
           ];
           newLevel = currentLevel + 1;
-          levelUp = { newLevel, newPiece, newSquare };
+          // KS-3520: фиксируем snapshot ВСЕХ фигур (вкл. только что
+          // добавленную) для overlay-памяти. Клиент использует это
+          // вместо локально накопленного `piecesOnBoard`.
+          levelUp = {
+            newLevel,
+            newPiece,
+            newSquare,
+            boardPosition: positionForNextMove,
+          };
         } else {
           // Невероятный edge-case: квота нарушена (например, addOrder содержит
           // 3-й B при уже 2 B на доске). Лог + продолжаем без level-up.
@@ -334,7 +362,7 @@ export class BlindBoardService {
       // else: addOrder исчерпан → продолжаем без level-up (level стоит).
     }
 
-    const next = this.pickNextCompMove(positionForNextMove, expected.square);
+    const next = this.pickNextCompMove(positionForNextMove, recentMoves);
     if (!next) {
       // Теоретически недостижимо. Если случилось — это инфраструктурная
       // проблема, лог + 503; сессия НЕ финишируется dead-end.
@@ -823,38 +851,63 @@ export class BlindBoardService {
   }
 
   /**
-   * KS-3453: выбор следующего хода компа после правильного ответа.
-   * Сначала пытаемся ходить опознанной фигурой (`preferredSquare`).
-   * Если у неё нет валидного хода — fallback: перебираем оставшиеся
-   * фигуры в случайном порядке и берём первую с ходом. Возвращает
-   * `null` только если ни у одной из 5 фигур нет валидного хода
-   * (теоретически почти невозможно при 5 фигурах на пустой доске).
+   * KS-3519. Выбор следующего хода компа.
+   *
+   * Раньше (KS-3453) приоритет был у опознанной игроком target-фигуры:
+   * если у неё были ходы — выбирался её случайный. С novelty-check
+   * (KS-3451) target часто бил себя по той же связке туда-сюда:
+   * A→B→A→B... — пользователь видел одну и ту же фигуру.
+   *
+   * Новая стратегия:
+   *   1) Собираем ВСЕ (piece, candidate) пары валидных ходов на доске —
+   *      без приоритета target. Случайный uniform выбор.
+   *   2) Анти-возврат: для каждой фигуры P на текущей клетке S
+   *      смотрим recent compMove'ы; если в истории был ход (mf → mt)
+   *      где mt === S, то ход P → mf — «возврат на недавнюю клетку».
+   *      Такие пары идут в `fallback`-пул. Если есть «свежие» (не
+   *      возвратные) — выбираем uniform из них; иначе — из fallback.
+   *      Это отсекает immediate A→B→A и короткие циклы A→B→C→A в
+   *      пределах окна `RECENT_HISTORY_LEN`.
+   *
+   * Возвращает `null` только когда ни у одной фигуры нет валидных
+   * ходов с novelty (теоретически почти невозможно).
    */
-  private pickNextCompMove(
+  pickNextCompMove(
     position: BlindBoardPiece[],
-    preferredSquare: BlindBoardSquare,
+    recentMoves: Array<{ from: BlindBoardSquare; to: BlindBoardSquare }>,
   ): { piece: BlindBoardPiece; candidate: UniqueTargetMove } | null {
-    // 1) Сначала — опознанная игроком фигура.
-    const preferred = position.find((p) => p.square === preferredSquare);
-    if (preferred) {
-      const cands = findUniqueTargetMoves(position, preferredSquare);
-      if (cands.length > 0) {
-        const pick = cands[this.randInt(cands.length)];
-        return { piece: preferred, candidate: pick };
+    // forbiddenByPiece: для каждой фигуры на текущей клетке — множество
+    // клеток, куда ход = «возврат». Считаем по recentMoves: если был ход
+    // (mf → mt) и фигура сейчас стоит на mt, то ход на mf для неё — return.
+    const forbiddenByPiece = new Map<BlindBoardSquare, Set<BlindBoardSquare>>();
+    for (const p of position) {
+      const set = new Set<BlindBoardSquare>();
+      for (const rm of recentMoves) {
+        if (rm.to === p.square) set.add(rm.from);
       }
+      forbiddenByPiece.set(p.square, set);
     }
-    // 2) Fallback: любая другая фигура в случайном порядке.
-    const others = position.filter((p) => p.square !== preferredSquare);
-    const order = this.shuffleIndices(others.length);
-    for (const idx of order) {
-      const piece = others[idx];
+
+    // Соберём все пары (piece, candidate) в два пула.
+    const fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
+    const fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
+    for (const piece of position) {
       const cands = findUniqueTargetMoves(position, piece.square);
-      if (cands.length > 0) {
-        const pick = cands[this.randInt(cands.length)];
-        return { piece, candidate: pick };
+      if (cands.length === 0) continue;
+      const forbidden = forbiddenByPiece.get(piece.square) ?? new Set();
+      for (const candidate of cands) {
+        const pair = { piece, candidate };
+        if (forbidden.has(candidate.to)) {
+          fallback.push(pair);
+        } else {
+          fresh.push(pair);
+        }
       }
     }
-    return null;
+
+    const pool = fresh.length > 0 ? fresh : fallback;
+    if (pool.length === 0) return null;
+    return pool[this.randInt(pool.length)];
   }
 
   /**

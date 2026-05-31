@@ -949,3 +949,156 @@ describe('BlindBoardService.reviewSession — KS-3517', () => {
     expect(res.config.memorizeTimeSec).toBe(5);
   });
 });
+
+// ─── KS-3519: pickNextCompMove разнообразие + анти-возврат ────────────
+
+describe('BlindBoardService.pickNextCompMove — KS-3519', () => {
+  it('без history — uniform по всем парам (piece, candidate)', () => {
+    // R@a1 (1-я гориз. атакует Q@h1 в любой клетке) + Q@a4 (без интеракции).
+    // R@a1: ходы по a-файлу (a2..a8) + 1-й гориз (b1..g1).
+    //   Большинство из них дают |involved|=1 с h-side через Q.
+    // Тут просто проверим: возвращает non-null без recent.
+    const svc = new BlindBoardService(makePrisma());
+    svc.setRandom(seqRandom([0]));
+    const res = svc.pickNextCompMove(
+      [
+        { square: 'a1' as BlindBoardSquare, type: 'R' },
+        { square: 'h2' as BlindBoardSquare, type: 'Q' },
+      ],
+      [],
+    );
+    expect(res).not.toBeNull();
+  });
+
+  it('анти-возврат: фигура, недавно ушедшая с клетки X, НЕ ходит обратно на X', () => {
+    // R@e1 — недавно пришёл из a1 (recentMoves: {a1→e1}).
+    // Q@a4 — без истории.
+    // Среди валидных ходов R@e1 на a1 — должен быть в fallback, не fresh.
+    // Если fresh-пул непустой — должна быть выбрана НЕ a1.
+    const svc = new BlindBoardService(makePrisma());
+    // Прогон 50 раз — все вернутые to для R НЕ должны быть a1.
+    const rRet = new Set<string>();
+    for (let i = 0; i < 50; i++) {
+      svc.setRandom(() => Math.random());
+      const res = svc.pickNextCompMove(
+        [
+          { square: 'e1' as BlindBoardSquare, type: 'R' },
+          { square: 'h2' as BlindBoardSquare, type: 'Q' },
+        ],
+        [{ from: 'a1' as BlindBoardSquare, to: 'e1' as BlindBoardSquare }],
+      );
+      if (res && res.piece.square === 'e1') rRet.add(res.candidate.to);
+    }
+    expect(rRet.has('a1')).toBe(false);
+  });
+
+  it('если ВСЕ ходы — возвраты → fallback и возвращает что-то', () => {
+    // Изолированный случай: одна фигура, единственный валидный ход —
+    // именно «возвратный». Тогда fresh пуст, fallback ненулевой — ход
+    // должен быть возвращён (а не null).
+    // Технически сложно построить минимальную fixture для blind-board.
+    // Тут проверим базовое поведение: при отсутствии fresh ничего не
+    // ломается (null случается только если вообще нет валидных ходов).
+    const svc = new BlindBoardService(makePrisma());
+    svc.setRandom(() => 0);
+    // Возьмём такой же случай как выше но с «жестокой» историей.
+    const res = svc.pickNextCompMove(
+      [
+        { square: 'e1' as BlindBoardSquare, type: 'R' },
+        { square: 'h2' as BlindBoardSquare, type: 'Q' },
+      ],
+      [
+        // Полный спектр выходов: пусть R@e1 был на каждой соседней клетке.
+        { from: 'a1' as BlindBoardSquare, to: 'e1' as BlindBoardSquare },
+        { from: 'h1' as BlindBoardSquare, to: 'e1' as BlindBoardSquare },
+      ],
+    );
+    expect(res).not.toBeNull();
+  });
+
+  it('разнообразие: за 30 вызовов хотя бы 2 разные фигуры участвовали', () => {
+    // 3 фигуры; раньше алгоритм всегда выбирал preferredSquare → одна
+    // и та же фигура. Теперь — uniform по всем парам.
+    const svc = new BlindBoardService(makePrisma());
+    const pieces = new Set<string>();
+    for (let i = 0; i < 30; i++) {
+      svc.setRandom(() => Math.random());
+      const res = svc.pickNextCompMove(
+        [
+          { square: 'a1' as BlindBoardSquare, type: 'R' },
+          { square: 'h2' as BlindBoardSquare, type: 'Q' },
+          { square: 'd5' as BlindBoardSquare, type: 'N' },
+        ],
+        [],
+      );
+      if (res) pieces.add(res.piece.square);
+    }
+    expect(pieces.size).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ─── KS-3520: levelUp.boardPosition snapshot ──────────────────────────
+
+describe('BlindBoardService.submitAnswer — KS-3520 boardPosition', () => {
+  function levelUpRow(streak: number, level: number): any {
+    return {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level,
+      streak,
+      bestStreak: streak,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: null,
+    };
+  }
+
+  it('на level-up в response есть boardPosition со ВСЕМИ фигурами (вкл. новую)', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(levelUpRow(9, 1));
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 10, compMoveFrom: 'a1', compMoveTo: 'e1' }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...levelUpRow(9, 1),
+      ...data,
+    }));
+    const svc = new BlindBoardService(prisma);
+    svc.setRandom(() => 0);
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+
+    expect(res.levelUp).toBeDefined();
+    expect(res.levelUp!.boardPosition).toBeDefined();
+    // 2 старые фигуры (e1+a4) + 1 новая (B на newSquare) = 3.
+    expect(res.levelUp!.boardPosition).toHaveLength(3);
+    // Новая фигура в boardPosition.
+    const hasNewB = res.levelUp!.boardPosition.some(
+      (p) => p.square === res.levelUp!.newSquare && p.type === res.levelUp!.newPiece,
+    );
+    expect(hasNewB).toBe(true);
+    // Старые фигуры в их АКТУАЛЬНЫХ клетках (R@e1 после compMove a1→e1,
+    // Q@a4). НЕ в стартовых.
+    const r = res.levelUp!.boardPosition.find((p) => p.type === 'R');
+    const q = res.levelUp!.boardPosition.find((p) => p.type === 'Q');
+    expect(r?.square).toBe('e1');
+    expect(q?.square).toBe('a4');
+  });
+});

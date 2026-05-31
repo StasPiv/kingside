@@ -2583,11 +2583,19 @@ export interface SubmitBlindBoardAnswerResponse {
    * color-constraint (для B — противоположный цвет к уже стоящему B на
    * доске). При исчерпании `addOrder` поле не ставится — streak растёт
    * без level-up.
+   *
+   * KS-3520: `boardPosition` — полный snapshot ВСЕХ фигур на доске в
+   * актуальных клетках (после добавления новой). Включает старые фигуры
+   * на их текущих координатах (с учётом всех прошедших compMove'ов) и
+   * только что добавленную фигуру. Раскрытие допустимо потому что
+   * клиент сразу показывает её на overlay для запоминания. Используется
+   * вместо локально накопленного piecesOnBoard на фронте.
    */
   levelUp?: {
     newLevel: number;
     newPiece: BlindBoardPieceType;
     newSquare: BlindBoardSquare;
+    boardPosition: BlindBoardPiece[];
   };
 }
 
