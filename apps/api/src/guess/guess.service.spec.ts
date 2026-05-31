@@ -20,6 +20,12 @@ function makePrisma(over: Partial<Record<string, any>> = {}): AnyMock {
       update: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue({
+        _count: { _all: 0 },
+        _avg: { userAccuracy: null, playerAccuracy: null, userStars: null },
+        _sum: { score: 0, betterThanPlayerCount: 0 },
+        _max: { bestStreak: 0 },
+      }),
       ...(over.guessSession ?? {}),
     },
     guessMove: {
@@ -33,6 +39,8 @@ function makePrisma(over: Partial<Record<string, any>> = {}): AnyMock {
       update: jest.fn().mockResolvedValue({}),
       ...(over.analysis ?? {}),
     },
+    // KS-3508. Stats endpoints используют $queryRawUnsafe.
+    $queryRawUnsafe: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -576,5 +584,104 @@ describe('GuessService.toAnalysis (KS-3460 / ADR-089 §6)', () => {
     expect(res.existing).toBe(true);
     expect(res.analysisId).toBe('a-winner');
     expect(res.url).toBe('/analysis/a-winner');
+  });
+});
+
+// ─── KS-3508: stats / trends / breakdowns ─────────────────────────────
+
+describe('GuessService.statsForUser — KS-3508', () => {
+  it('агрегирует totals/avg + winsVsPlayer через raw count', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.aggregate.mockResolvedValue({
+      _count: { _all: 12 },
+      _avg: { userAccuracy: 87.5, playerAccuracy: 80.0, userStars: 4.1 },
+      _sum: { score: 240, betterThanPlayerCount: 15 },
+      _max: { bestStreak: 8 },
+    });
+    prisma.guessSession.count.mockResolvedValue(0);
+    prisma.$queryRawUnsafe.mockResolvedValue([{ c: BigInt(7) }]);
+    const svc = makeService(prisma);
+    const res = await svc.statsForUser('u1');
+    expect(res.totalSessions).toBe(12);
+    expect(res.avgUserAccuracy).toBe(87.5);
+    expect(res.avgPlayerAccuracy).toBe(80.0);
+    expect(res.winsVsPlayer).toBe(7);
+    expect(res.avgStars).toBe(4.1);
+    expect(res.totalScore).toBe(240);
+    expect(res.bestStreak).toBe(8);
+    expect(res.totalBetterMoves).toBe(15);
+  });
+});
+
+describe('GuessService.trendsForUser — KS-3508', () => {
+  it('возвращает per-bucket sessions+avg, default bucket=week', async () => {
+    const prisma = makePrisma();
+    const d1 = new Date('2026-05-25T00:00:00Z');
+    const d2 = new Date('2026-06-01T00:00:00Z');
+    prisma.$queryRawUnsafe.mockResolvedValue([
+      { bucket: d1, sessions: BigInt(3), avg_acc: 90.0 },
+      { bucket: d2, sessions: BigInt(5), avg_acc: 87.5 },
+    ]);
+    const svc = makeService(prisma);
+    const res = await svc.trendsForUser('u1', undefined);
+    expect(res.bucket).toBe('week');
+    expect(res.points).toEqual([
+      { date: '2026-05-25', sessions: 3, avgUserAccuracy: 90.0 },
+      { date: '2026-06-01', sessions: 5, avgUserAccuracy: 87.5 },
+    ]);
+    // Проверяем что в raw SQL пошёл bucket-параметр 'week'.
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
+    expect(prisma.$queryRawUnsafe.mock.calls[0][1]).toBe('week');
+  });
+
+  it('bucket=day проксируется в raw SQL', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const svc = makeService(prisma);
+    await svc.trendsForUser('u1', 'day');
+    expect(prisma.$queryRawUnsafe.mock.calls[0][1]).toBe('day');
+  });
+
+  it('невалидный bucket → fallback week', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const svc = makeService(prisma);
+    await svc.trendsForUser('u1', 'year');
+    expect(prisma.$queryRawUnsafe.mock.calls[0][1]).toBe('week');
+  });
+});
+
+describe('GuessService.breakdownsForUser — KS-3508', () => {
+  it('считает доли verdict + userClass', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe
+      .mockResolvedValueOnce([
+        { verdict: 'strongest', c: BigInt(3) },
+        { verdict: 'asPlayer', c: BigInt(7) },
+      ])
+      .mockResolvedValueOnce([
+        { user_class: 'best', c: BigInt(2) },
+        { user_class: 'good', c: BigInt(8) },
+      ]);
+    const svc = makeService(prisma);
+    const res = await svc.breakdownsForUser('u1');
+    expect(res.verdict.strongest.count).toBe(3);
+    expect(res.verdict.strongest.share).toBeCloseTo(0.3, 5);
+    expect(res.verdict.asPlayer.count).toBe(7);
+    expect(res.verdict.asPlayer.share).toBeCloseTo(0.7, 5);
+    // Неотмеченные verdict'ы → нули.
+    expect(res.verdict.weaker.count).toBe(0);
+    expect(res.userClass.best.count).toBe(2);
+    expect(res.userClass.good.count).toBe(8);
+    expect(res.userClass.good.share).toBeCloseTo(0.8, 5);
+  });
+
+  it('пустые ходы → все count=0 share=0', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const svc = makeService(prisma);
+    const res = await svc.breakdownsForUser('u1');
+    expect(res.verdict.strongest).toEqual({ count: 0, share: 0 });
+    expect(res.userClass.blunder).toEqual({ count: 0, share: 0 });
   });
 });

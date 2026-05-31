@@ -2195,6 +2195,142 @@ export interface GuessToAnalysisResponse {
   existing: boolean;
 }
 
+// ─── Stats (ADR-093 / KS-3507) ─────────────────────────────────────
+//
+// Личная статистика тренажёров Guess и Blind-Board. Все endpoints
+// возвращают агрегаты ТЕКУЩЕГО пользователя (req.user.id), под
+// JwtAuthGuard. Лидерборд НЕ в S1 (M2).
+
+/**
+ * KS-3507. Гранулярность time-series для /trends/me. Дефолт — `week`
+ * (баланс между плотностью и читаемостью точек на чарте). `day` для
+ * детального недельного разбора; `month` для долгосрочного.
+ */
+export type StatsTrendsBucket = 'day' | 'week' | 'month';
+
+/**
+ * `GET /guess/stats/me` (ADR-093 §3.1, KS-3508).
+ * Агрегаты по всем finished-сессиям пользователя.
+ */
+export interface GuessStatsResponse {
+  /** Кол-во finished-сессий. */
+  totalSessions: number;
+  /** Средняя userAccuracy по finished-сессиям (0..100), null если нет данных. */
+  avgUserAccuracy: number | null;
+  /** Средняя playerAccuracy по finished-сессиям. */
+  avgPlayerAccuracy: number | null;
+  /** Кол-во сессий где userAccuracy > playerAccuracy. */
+  winsVsPlayer: number;
+  /** Средние звёзды (userStars, 0..5), null если нет данных. */
+  avgStars: number | null;
+  /** Сумма score по finished-сессиям. */
+  totalScore: number;
+  /** Максимальный bestStreak среди finished-сессий. */
+  bestStreak: number;
+  /** Сумма betterThanPlayerCount по finished-сессиям. */
+  totalBetterMoves: number;
+}
+
+/**
+ * `GET /guess/trends/me?bucket=day|week|month` (ADR-093 §3.2, KS-3508).
+ * Time-series: количество сессий и средняя userAccuracy по бакетам.
+ *
+ *  - `date` — ISO-дата начала бакета (UTC). Для bucket=week — понедельник
+ *    ISO-недели; для month — 1-е число месяца.
+ *  - `sessions` — кол-во finished-сессий в бакете.
+ *  - `avgUserAccuracy` — средняя userAccuracy по бакету (null если 0 сессий).
+ */
+export interface GuessTrendsResponse {
+  bucket: StatsTrendsBucket;
+  points: Array<{
+    date: string;
+    sessions: number;
+    avgUserAccuracy: number | null;
+  }>;
+}
+
+/**
+ * `GET /guess/breakdowns/me` (ADR-093 §3.3, KS-3508).
+ * Распределение ходов пользователя по verdict + по userClass — доли
+ * (count + share 0..1). Считается по persisted `GuessMove` всех
+ * finished-сессий userId.
+ */
+export interface GuessBreakdownsResponse {
+  verdict: Record<GuessVerdict, { count: number; share: number }>;
+  userClass: Record<GuessMoveClass, { count: number; share: number }>;
+}
+
+/**
+ * `GET /blind-board/stats/me` (ADR-093 §4.1, KS-3509).
+ * Агрегаты по всем finished-сессиям blind-board пользователя.
+ *
+ * `maxLevelReached` — derive `floor(bestStreak / 10) + 1` (то же что в
+ * leaderboard.maxLevel — KS-3484 §15 architect-recommended).
+ */
+export interface BlindBoardStatsResponse {
+  /** Кол-во finished-сессий. */
+  totalSessions: number;
+  /** Глобальный best streak пользователя (User.blindBoardBestStreak). */
+  bestStreak: number;
+  /** Currently-active streak (последняя сессия): для UI «продолжай!». */
+  currentStreak: number;
+  /** Derived `floor(bestStreak / 10) + 1`. */
+  maxLevelReached: number;
+  /** Средние раунды на сессию (исторический intensity-signal). */
+  avgRoundsPerSession: number | null;
+  /** Кол-во finished-сессий с finishReason='wrong-answer'. */
+  wrongAnswerCount: number;
+  /** Кол-во finished-сессий с finishReason='dead-end' (исторические). */
+  deadEndCount: number;
+}
+
+/**
+ * `GET /blind-board/trends/me?bucket=day|week|month` (ADR-093 §4.2).
+ * Time-series: count сессий и максимальный bestStreak в бакете.
+ */
+export interface BlindBoardTrendsResponse {
+  bucket: StatsTrendsBucket;
+  points: Array<{
+    date: string;
+    sessions: number;
+    bestStreak: number;
+  }>;
+}
+
+/**
+ * `GET /blind-board/breakdowns/me` (ADR-093 §4.3).
+ * Распределение ошибок по типу фигуры (на каких фигурах игрок чаще
+ * ошибается). Опц. `deadEndsByLevel` — для исторических dead-end-
+ * сессий, разбивка по level. Считается по `BlindBoardAttempt` finished-
+ * сессий userId.
+ */
+export interface BlindBoardBreakdownsResponse {
+  wrongByPieceType: Record<BlindBoardPieceType, { count: number; share: number }>;
+  /** Опц. распределение dead-end-финалов по уровням (для legacy сессий). */
+  deadEndsByLevel?: Record<string, number>;
+}
+
+/**
+ * `GET /blind-board/history?cursor=&limit=` (ADR-093 §4.4).
+ * Список finished-сессий пользователя для просмотра истории. Сорт
+ * `finishedAt DESC`. Cursor — opaque base64 (ISO-date + UUID).
+ */
+export interface BlindBoardHistoryItem {
+  id: string;
+  level: number;
+  bestStreak: number;
+  finishReason: BlindBoardFinishReason | null;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface BlindBoardHistoryResponse {
+  items: BlindBoardHistoryItem[];
+  /** Opaque cursor для следующей страницы; null если страниц больше нет. */
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 // ─── Blind-Board (ADR-088 / KS-3438 S1) ────────────────────────────
 //
 // Тренировка «найди фигуру по ходу компьютера». 5 фигур (Q/R/N/B/B)

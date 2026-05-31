@@ -61,4 +61,39 @@ export class BlindBoardController {
   ) {
     return this.blind.leaderboard(limit);
   }
+
+  /** KS-3509. GET /blind-board/stats/me — личная статистика. */
+  @UseGuards(JwtAuthGuard)
+  @Get('stats/me')
+  statsMe(@Request() req: AuthenticatedRequest) {
+    return this.blind.statsForUser(req.user.id);
+  }
+
+  /** KS-3509. GET /blind-board/trends/me?bucket=day|week|month (default week). */
+  @UseGuards(JwtAuthGuard)
+  @Get('trends/me')
+  trendsMe(
+    @Request() req: AuthenticatedRequest,
+    @Query('bucket') bucket?: string,
+  ) {
+    return this.blind.trendsForUser(req.user.id, bucket);
+  }
+
+  /** KS-3509. GET /blind-board/breakdowns/me — ошибки по типу фигуры. */
+  @UseGuards(JwtAuthGuard)
+  @Get('breakdowns/me')
+  breakdownsMe(@Request() req: AuthenticatedRequest) {
+    return this.blind.breakdownsForUser(req.user.id);
+  }
+
+  /** KS-3509. GET /blind-board/history?cursor=&limit= — пагинированная история. */
+  @UseGuards(JwtAuthGuard)
+  @Get('history')
+  history(
+    @Request() req: AuthenticatedRequest,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.blind.historyForUser(req.user.id, limit, cursor);
+  }
 }

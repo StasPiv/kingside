@@ -35,6 +35,11 @@ function makePrisma(): AnyMock {
       findUnique: jest.fn(),
       update: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      aggregate: jest.fn().mockResolvedValue({
+        _count: { _all: 0 },
+        _max: { bestStreak: 0 },
+      }),
     },
     blindBoardAttempt: {
       create: jest.fn().mockResolvedValue({}),
@@ -46,6 +51,8 @@ function makePrisma(): AnyMock {
       findUnique: jest.fn().mockResolvedValue({ blindBoardBestStreak: 0 }),
       update: jest.fn().mockResolvedValue({}),
     },
+    // KS-3509. Stats endpoints используют $queryRawUnsafe.
+    $queryRawUnsafe: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -665,5 +672,159 @@ describe('BlindBoardService.leaderboard — KS-3484 maxLevel derived', () => {
     expect(res.entries[0].maxLevel).toBe(3);
     expect(res.entries[1].maxLevel).toBe(1);
     expect(res.entries[2].maxLevel).toBe(5);
+  });
+});
+
+// ─── KS-3509: stats / trends / breakdowns / history ───────────────────
+
+describe('BlindBoardService.statsForUser — KS-3509', () => {
+  it('totals + maxLevelReached derive из globalBest', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.aggregate.mockResolvedValue({
+      _count: { _all: 8 },
+      _max: { bestStreak: 7 },
+    });
+    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 28 });
+    prisma.blindBoardSession.findFirst.mockResolvedValue({ streak: 3 });
+    prisma.$queryRawUnsafe.mockResolvedValue([
+      { avg_rounds: 12.5, wrong_count: BigInt(6), dead_end: BigInt(2) },
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.statsForUser('u1');
+    expect(res.totalSessions).toBe(8);
+    expect(res.bestStreak).toBe(28); // global best
+    expect(res.currentStreak).toBe(3);
+    expect(res.maxLevelReached).toBe(3); // floor(28/10)+1
+    expect(res.avgRoundsPerSession).toBe(12.5);
+    expect(res.wrongAnswerCount).toBe(6);
+    expect(res.deadEndCount).toBe(2);
+  });
+
+  it('пустой пользователь: всё нули, maxLevel=1', async () => {
+    const prisma = makePrisma();
+    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 0 });
+    prisma.blindBoardSession.findFirst.mockResolvedValue(null);
+    prisma.$queryRawUnsafe.mockResolvedValue([
+      { avg_rounds: null, wrong_count: BigInt(0), dead_end: BigInt(0) },
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.statsForUser('u1');
+    expect(res.totalSessions).toBe(0);
+    expect(res.bestStreak).toBe(0);
+    expect(res.currentStreak).toBe(0);
+    expect(res.maxLevelReached).toBe(1); // floor(0/10)+1
+    expect(res.avgRoundsPerSession).toBeNull();
+  });
+});
+
+describe('BlindBoardService.trendsForUser — KS-3509', () => {
+  it('возвращает per-bucket sessions+maxStreak', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe.mockResolvedValue([
+      { bucket: new Date('2026-05-25T00:00:00Z'), sessions: BigInt(2), best_streak: 12 },
+      { bucket: new Date('2026-06-01T00:00:00Z'), sessions: BigInt(5), best_streak: 25 },
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.trendsForUser('u1', 'week');
+    expect(res.bucket).toBe('week');
+    expect(res.points).toEqual([
+      { date: '2026-05-25', sessions: 2, bestStreak: 12 },
+      { date: '2026-06-01', sessions: 5, bestStreak: 25 },
+    ]);
+  });
+
+  it('default bucket=week если параметра нет', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.trendsForUser('u1', undefined);
+    expect(res.bucket).toBe('week');
+  });
+});
+
+describe('BlindBoardService.breakdownsForUser — KS-3509', () => {
+  it('считает доли wrongByPieceType + deadEndsByLevel', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe
+      .mockResolvedValueOnce([
+        { pt: 'Q', c: BigInt(2) },
+        { pt: 'N', c: BigInt(8) },
+      ])
+      .mockResolvedValueOnce([
+        { level: 1, c: BigInt(3) },
+        { level: 2, c: BigInt(1) },
+      ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.breakdownsForUser('u1');
+    expect(res.wrongByPieceType.Q.count).toBe(2);
+    expect(res.wrongByPieceType.Q.share).toBeCloseTo(0.2, 5);
+    expect(res.wrongByPieceType.N.count).toBe(8);
+    expect(res.wrongByPieceType.N.share).toBeCloseTo(0.8, 5);
+    expect(res.wrongByPieceType.R.count).toBe(0);
+    expect(res.deadEndsByLevel).toEqual({ '1': 3, '2': 1 });
+  });
+
+  it('без dead-end сессий → deadEndsByLevel отсутствует', async () => {
+    const prisma = makePrisma();
+    prisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ pt: 'B', c: BigInt(1) }])
+      .mockResolvedValueOnce([]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.breakdownsForUser('u1');
+    expect(res.deadEndsByLevel).toBeUndefined();
+  });
+});
+
+describe('BlindBoardService.historyForUser — KS-3509', () => {
+  it('первая страница: limit+1 → nextCursor, hasMore=true', async () => {
+    const prisma = makePrisma();
+    const now = new Date('2026-05-30T00:00:00Z');
+    prisma.blindBoardSession.findMany.mockResolvedValue([
+      { id: 's1', level: 3, bestStreak: 25, finishReason: 'wrong-answer', startedAt: now, finishedAt: now },
+      { id: 's2', level: 2, bestStreak: 18, finishReason: 'wrong-answer', startedAt: now, finishedAt: now },
+      { id: 's3', level: 1, bestStreak: 9, finishReason: 'wrong-answer', startedAt: now, finishedAt: now },
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.historyForUser('u1', 2); // limit=2 → запросили 3
+    expect(res.items).toHaveLength(2);
+    expect(res.hasMore).toBe(true);
+    expect(res.nextCursor).not.toBeNull();
+  });
+
+  it('последняя страница: rows≤limit → hasMore=false, nextCursor=null', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findMany.mockResolvedValue([
+      {
+        id: 's1', level: 1, bestStreak: 5,
+        finishReason: 'wrong-answer',
+        startedAt: new Date(), finishedAt: new Date(),
+      },
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.historyForUser('u1', 10);
+    expect(res.items).toHaveLength(1);
+    expect(res.hasMore).toBe(false);
+    expect(res.nextCursor).toBeNull();
+  });
+
+  it('валидный cursor декодируется и проксируется в WHERE', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findMany.mockResolvedValue([]);
+    const cursor = Buffer.from(
+      JSON.stringify({ t: '2026-05-29T00:00:00Z', g: 'aaaa-bbbb' }),
+    ).toString('base64');
+    const svc = new BlindBoardService(prisma);
+    await svc.historyForUser('u1', 10, cursor);
+    const call = prisma.blindBoardSession.findMany.mock.calls[0][0];
+    expect(call.where.OR).toBeDefined();
+  });
+
+  it('невалидный cursor → первая страница (без WHERE OR)', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findMany.mockResolvedValue([]);
+    const svc = new BlindBoardService(prisma);
+    await svc.historyForUser('u1', 10, 'not-base64-json');
+    const call = prisma.blindBoardSession.findMany.mock.calls[0][0];
+    expect(call.where.OR).toBeUndefined();
   });
 });

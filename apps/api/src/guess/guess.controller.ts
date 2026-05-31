@@ -89,4 +89,25 @@ export class GuessController {
   ) {
     return this.guess.history(req.user.id, limit, offset);
   }
+
+  /** KS-3508. GET /guess/stats/me — личная статистика. */
+  @Get('stats/me')
+  statsMe(@Request() req: AuthenticatedRequest) {
+    return this.guess.statsForUser(req.user.id);
+  }
+
+  /** KS-3508. GET /guess/trends/me?bucket=day|week|month (default week). */
+  @Get('trends/me')
+  trendsMe(
+    @Request() req: AuthenticatedRequest,
+    @Query('bucket') bucket?: string,
+  ) {
+    return this.guess.trendsForUser(req.user.id, bucket);
+  }
+
+  /** KS-3508. GET /guess/breakdowns/me — verdict + userClass distribution. */
+  @Get('breakdowns/me')
+  breakdownsMe(@Request() req: AuthenticatedRequest) {
+    return this.guess.breakdownsForUser(req.user.id);
+  }
 }

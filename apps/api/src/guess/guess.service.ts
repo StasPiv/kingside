@@ -33,6 +33,11 @@ import type {
   GuessSessionDto,
   GuessMoveDto,
   GuessToAnalysisResponse,
+  GuessStatsResponse,
+  GuessTrendsResponse,
+  GuessBreakdownsResponse,
+  GuessMoveClass,
+  StatsTrendsBucket,
 } from '@kingside/shared';
 import type { StartGuessSessionDto, SubmitGuessMoveDto } from './dto/guess.dto';
 import { AnalysisService } from '../analysis/analysis.service';
@@ -466,6 +471,167 @@ export class GuessService {
     };
   }
 
+  // ─── Stats (ADR-093 / KS-3508) ────────────────────────────────────
+
+  /**
+   * `GET /guess/stats/me` — агрегаты по finished-сессиям userId.
+   * Считается через Prisma.aggregate (sum/avg/max/count) + один
+   * count для winsVsPlayer (userAccuracy > playerAccuracy).
+   */
+  async statsForUser(userId: string): Promise<GuessStatsResponse> {
+    const where = { userId, status: 'finished' };
+    const [agg, winsCount] = await Promise.all([
+      this.prisma.guessSession.aggregate({
+        where,
+        _count: { _all: true },
+        _avg: { userAccuracy: true, playerAccuracy: true, userStars: true },
+        _sum: { score: true, betterThanPlayerCount: true },
+        _max: { bestStreak: true },
+      }),
+      this.prisma.guessSession.count({
+        where: {
+          ...where,
+          // userAccuracy > playerAccuracy. Используем NotEquals + raw
+          // через простой comparator: Prisma поддерживает фильтр-выражения
+          // через AND/OR, но не «column > column». Считаем raw:
+          //   COUNT WHERE userAccuracy IS NOT NULL AND playerAccuracy
+          //   IS NOT NULL AND userAccuracy > playerAccuracy
+          // — здесь сделаем raw SQL.
+        },
+      }),
+    ]);
+
+    // winsVsPlayer — Prisma не умеет «column > column» в where, fall back
+    // на raw SQL. winsCount выше — это просто общий count, заменим.
+    const winsRows = (await this.prisma.$queryRawUnsafe<Array<{ c: bigint | number }>>(
+      `SELECT COUNT(*)::bigint AS c FROM guess_sessions
+        WHERE user_id = $1::uuid
+          AND status = 'finished'
+          AND user_accuracy IS NOT NULL
+          AND player_accuracy IS NOT NULL
+          AND user_accuracy > player_accuracy`,
+      userId,
+    )) as Array<{ c: bigint | number }>;
+    void winsCount; // не используем
+    const winsVsPlayer = Number(winsRows[0]?.c ?? 0);
+
+    return {
+      totalSessions: agg._count._all,
+      avgUserAccuracy: agg._avg.userAccuracy,
+      avgPlayerAccuracy: agg._avg.playerAccuracy,
+      winsVsPlayer,
+      avgStars: agg._avg.userStars,
+      totalScore: agg._sum.score ?? 0,
+      bestStreak: agg._max.bestStreak ?? 0,
+      totalBetterMoves: agg._sum.betterThanPlayerCount ?? 0,
+    };
+  }
+
+  /**
+   * `GET /guess/trends/me?bucket=day|week|month` — time-series по
+   * `date_trunc(bucket, finished_at)`. Берём sessions count + avg
+   * userAccuracy per bucket. Пустые бакеты НЕ возвращаются (только
+   * фактические даты).
+   */
+  async trendsForUser(
+    userId: string,
+    bucketRaw: string | undefined,
+  ): Promise<GuessTrendsResponse> {
+    const bucket: StatsTrendsBucket = normalizeBucket(bucketRaw);
+    const rows = (await this.prisma.$queryRawUnsafe<
+      Array<{ bucket: Date; sessions: bigint | number; avg_acc: number | null }>
+    >(
+      `SELECT date_trunc($1, finished_at) AS bucket,
+              COUNT(*)::bigint           AS sessions,
+              AVG(user_accuracy)::float  AS avg_acc
+         FROM guess_sessions
+        WHERE user_id = $2::uuid
+          AND status = 'finished'
+          AND finished_at IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 ASC`,
+      bucket,
+      userId,
+    )) as Array<{ bucket: Date; sessions: bigint | number; avg_acc: number | null }>;
+
+    return {
+      bucket,
+      points: rows.map((r) => ({
+        date: (r.bucket instanceof Date ? r.bucket : new Date(r.bucket))
+          .toISOString()
+          .slice(0, 10),
+        sessions: Number(r.sessions),
+        avgUserAccuracy: r.avg_acc,
+      })),
+    };
+  }
+
+  /**
+   * `GET /guess/breakdowns/me` — распределение по verdict + userClass
+   * для всех ходов finished-сессий userId. Доли (share) — в диапазоне
+   * 0..1, count — абсолютный.
+   */
+  async breakdownsForUser(userId: string): Promise<GuessBreakdownsResponse> {
+    const [verdictRows, classRows] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<{ verdict: string; c: bigint | number }>>(
+        `SELECT verdict, COUNT(*)::bigint AS c
+           FROM guess_moves m
+           JOIN guess_sessions s ON s.id = m.session_id
+          WHERE s.user_id = $1::uuid AND s.status = 'finished'
+          GROUP BY verdict`,
+        userId,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ user_class: string; c: bigint | number }>>(
+        `SELECT user_class, COUNT(*)::bigint AS c
+           FROM guess_moves m
+           JOIN guess_sessions s ON s.id = m.session_id
+          WHERE s.user_id = $1::uuid AND s.status = 'finished'
+          GROUP BY user_class`,
+        userId,
+      ),
+    ]);
+
+    const totalVerdict = (verdictRows as Array<{ c: bigint | number }>).reduce(
+      (s, r) => s + Number(r.c),
+      0,
+    );
+    const totalClass = (classRows as Array<{ c: bigint | number }>).reduce(
+      (s, r) => s + Number(r.c),
+      0,
+    );
+
+    const verdict: GuessBreakdownsResponse['verdict'] = {
+      strongest: { count: 0, share: 0 },
+      betterThanPlayer: { count: 0, share: 0 },
+      asPlayer: { count: 0, share: 0 },
+      weaker: { count: 0, share: 0 },
+    };
+    for (const r of verdictRows as Array<{ verdict: string; c: bigint | number }>) {
+      const k = r.verdict as keyof typeof verdict;
+      if (k in verdict) {
+        const c = Number(r.c);
+        verdict[k] = { count: c, share: totalVerdict ? c / totalVerdict : 0 };
+      }
+    }
+
+    const userClass: GuessBreakdownsResponse['userClass'] = {
+      best: { count: 0, share: 0 },
+      good: { count: 0, share: 0 },
+      inaccuracy: { count: 0, share: 0 },
+      mistake: { count: 0, share: 0 },
+      blunder: { count: 0, share: 0 },
+    };
+    for (const r of classRows as Array<{ user_class: string; c: bigint | number }>) {
+      const k = r.user_class as GuessMoveClass;
+      if (k in userClass) {
+        const c = Number(r.c);
+        userClass[k] = { count: c, share: totalClass ? c / totalClass : 0 };
+      }
+    }
+
+    return { verdict, userClass };
+  }
+
   // ─── helpers ───────────────────────────────────────────────────────
 
   private async loadOwned(
@@ -657,4 +823,15 @@ export class GuessService {
       verdict: m.verdict as GuessVerdict,
     };
   }
+}
+
+/**
+ * KS-3508. Whitelist для `bucket` параметра trends. Defaults — `week`.
+ * Возвращает безопасный для подстановки в `date_trunc()` строковый
+ * литерал (Postgres NOT SQL-injection — параметр идёт через
+ * $1::text + date_trunc'у нужна именно строка).
+ */
+function normalizeBucket(raw: string | undefined): 'day' | 'week' | 'month' {
+  if (raw === 'day' || raw === 'month') return raw;
+  return 'week';
 }

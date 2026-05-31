@@ -45,6 +45,11 @@ import {
   type StartBlindBoardSessionResponse,
   type SubmitBlindBoardAnswerResponse,
   type BlindBoardLeaderboardResponse,
+  type BlindBoardStatsResponse,
+  type BlindBoardTrendsResponse,
+  type BlindBoardBreakdownsResponse,
+  type BlindBoardHistoryResponse,
+  type StatsTrendsBucket,
 } from '@kingside/shared';
 import { Prisma } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
@@ -479,6 +484,242 @@ export class BlindBoardService {
     return { entries };
   }
 
+  // ─── Stats (ADR-093 / KS-3509) ────────────────────────────────────
+
+  /**
+   * `GET /blind-board/stats/me` — агрегаты по finished-сессиям userId.
+   * `maxLevelReached` — derived `floor(bestStreak/10) + 1` от
+   * User.blindBoardBestStreak (global best). `currentStreak` — streak
+   * последней активной сессии или 0.
+   */
+  async statsForUser(userId: string): Promise<BlindBoardStatsResponse> {
+    const [agg, user, lastActive] = await Promise.all([
+      this.prisma.blindBoardSession.aggregate({
+        where: { userId, status: 'finished' },
+        _count: { _all: true },
+        _max: { bestStreak: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { blindBoardBestStreak: true },
+      }),
+      this.prisma.blindBoardSession.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: { startedAt: 'desc' },
+        select: { streak: true },
+      }),
+    ]);
+
+    // avgRoundsPerSession + wrongAnswerCount + deadEndCount считаем через raw
+    // (Prisma не даёт groupBy по finishReason + total rounds через JOIN).
+    const detailRows = (await this.prisma.$queryRawUnsafe<
+      Array<{ avg_rounds: number | null; wrong_count: bigint | number; dead_end: bigint | number }>
+    >(
+      `SELECT
+         AVG(rounds.round_count)::float                        AS avg_rounds,
+         SUM(CASE WHEN s.finish_reason = 'wrong-answer' THEN 1 ELSE 0 END)::bigint AS wrong_count,
+         SUM(CASE WHEN s.finish_reason = 'dead-end'    THEN 1 ELSE 0 END)::bigint AS dead_end
+         FROM blind_board_sessions s
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS round_count
+             FROM blind_board_attempts a
+            WHERE a.session_id = s.id
+         ) rounds ON true
+        WHERE s.user_id = $1::uuid AND s.status = 'finished'`,
+      userId,
+    )) as Array<{ avg_rounds: number | null; wrong_count: bigint | number; dead_end: bigint | number }>;
+    const detail = detailRows[0] ?? {
+      avg_rounds: null,
+      wrong_count: 0,
+      dead_end: 0,
+    };
+
+    const globalBest = user?.blindBoardBestStreak ?? 0;
+    return {
+      totalSessions: agg._count._all,
+      bestStreak: globalBest,
+      currentStreak: lastActive?.streak ?? 0,
+      // KS-3484 derive: 1..10 → L1, 11..20 → L2, и т.д.
+      maxLevelReached: Math.floor(globalBest / 10) + 1,
+      avgRoundsPerSession: detail.avg_rounds,
+      wrongAnswerCount: Number(detail.wrong_count ?? 0),
+      deadEndCount: Number(detail.dead_end ?? 0),
+    };
+  }
+
+  /**
+   * `GET /blind-board/trends/me?bucket=...` — time-series. Per-bucket
+   * count сессий и максимальный bestStreak в бакете.
+   */
+  async trendsForUser(
+    userId: string,
+    bucketRaw: string | undefined,
+  ): Promise<BlindBoardTrendsResponse> {
+    const bucket: StatsTrendsBucket = normalizeStatsBucket(bucketRaw);
+    const rows = (await this.prisma.$queryRawUnsafe<
+      Array<{ bucket: Date; sessions: bigint | number; best_streak: number | null }>
+    >(
+      `SELECT date_trunc($1, finished_at) AS bucket,
+              COUNT(*)::bigint           AS sessions,
+              MAX(best_streak)::int      AS best_streak
+         FROM blind_board_sessions
+        WHERE user_id = $2::uuid
+          AND status = 'finished'
+          AND finished_at IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 ASC`,
+      bucket,
+      userId,
+    )) as Array<{ bucket: Date; sessions: bigint | number; best_streak: number | null }>;
+
+    return {
+      bucket,
+      points: rows.map((r) => ({
+        date: (r.bucket instanceof Date ? r.bucket : new Date(r.bucket))
+          .toISOString()
+          .slice(0, 10),
+        sessions: Number(r.sessions),
+        bestStreak: Number(r.best_streak ?? 0),
+      })),
+    };
+  }
+
+  /**
+   * `GET /blind-board/breakdowns/me` — распределение ошибок по типу
+   * фигуры (на каких чаще ошибается). Считается из BlindBoardAttempt
+   * WHERE correct=false (то есть момент ошибки, на котором сессия
+   * заканчивается через wrong-answer).
+   *
+   * Опц. `deadEndsByLevel` — для legacy-сессий с finishReason='dead-end',
+   * разбивка по level.
+   */
+  async breakdownsForUser(
+    userId: string,
+  ): Promise<BlindBoardBreakdownsResponse> {
+    const [pieceRows, deadEndRows] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<{ pt: string; c: bigint | number }>>(
+        `SELECT a.expected_piece_type AS pt, COUNT(*)::bigint AS c
+           FROM blind_board_attempts a
+           JOIN blind_board_sessions s ON s.id = a.session_id
+          WHERE s.user_id = $1::uuid
+            AND s.status = 'finished'
+            AND a.correct = FALSE
+            AND a.user_square IS NOT NULL
+          GROUP BY a.expected_piece_type`,
+        userId,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ level: number; c: bigint | number }>>(
+        `SELECT level, COUNT(*)::bigint AS c
+           FROM blind_board_sessions
+          WHERE user_id = $1::uuid
+            AND status = 'finished'
+            AND finish_reason = 'dead-end'
+          GROUP BY level`,
+        userId,
+      ),
+    ]);
+
+    const total = (pieceRows as Array<{ c: bigint | number }>).reduce(
+      (s, r) => s + Number(r.c),
+      0,
+    );
+    const wrongByPieceType: BlindBoardBreakdownsResponse['wrongByPieceType'] = {
+      Q: { count: 0, share: 0 },
+      R: { count: 0, share: 0 },
+      B: { count: 0, share: 0 },
+      N: { count: 0, share: 0 },
+    };
+    for (const r of pieceRows as Array<{ pt: string; c: bigint | number }>) {
+      const k = r.pt as BlindBoardPieceType;
+      if (k in wrongByPieceType) {
+        const c = Number(r.c);
+        wrongByPieceType[k] = { count: c, share: total ? c / total : 0 };
+      }
+    }
+    const deadEndsByLevel: Record<string, number> = {};
+    for (const r of deadEndRows as Array<{ level: number; c: bigint | number }>) {
+      deadEndsByLevel[String(r.level)] = Number(r.c);
+    }
+    return {
+      wrongByPieceType,
+      ...(Object.keys(deadEndsByLevel).length > 0 ? { deadEndsByLevel } : {}),
+    };
+  }
+
+  /**
+   * `GET /blind-board/history?cursor=&limit=` — список finished-сессий
+   * пользователя, sort `finishedAt DESC`. Cursor — opaque base64-JSON
+   * `{t: ISO, g: UUID}` (последний показанный элемент).
+   */
+  async historyForUser(
+    userId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<BlindBoardHistoryResponse> {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    type Cursor = { t: string; g: string };
+    let decoded: Cursor | null = null;
+    if (cursor) {
+      try {
+        const text = Buffer.from(cursor, 'base64').toString('utf8');
+        const obj = JSON.parse(text) as Partial<Cursor>;
+        if (typeof obj.t === 'string' && typeof obj.g === 'string') {
+          decoded = { t: obj.t, g: obj.g };
+        }
+      } catch {
+        // Невалидный cursor → игнорируем, возвращаем первую страницу.
+      }
+    }
+
+    // Берём limit+1 для определения hasMore.
+    const rows = await this.prisma.blindBoardSession.findMany({
+      where: {
+        userId,
+        status: 'finished',
+        finishedAt: { not: null },
+        ...(decoded
+          ? {
+              OR: [
+                { finishedAt: { lt: new Date(decoded.t) } },
+                {
+                  finishedAt: new Date(decoded.t),
+                  id: { lt: decoded.g },
+                },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ finishedAt: 'desc' }, { id: 'desc' }],
+      take: safeLimit + 1,
+      select: {
+        id: true,
+        level: true,
+        bestStreak: true,
+        finishReason: true,
+        startedAt: true,
+        finishedAt: true,
+      },
+    });
+
+    const hasMore = rows.length > safeLimit;
+    const items = (hasMore ? rows.slice(0, safeLimit) : rows).map((r) => ({
+      id: r.id,
+      level: r.level ?? 1,
+      bestStreak: r.bestStreak,
+      finishReason: (r.finishReason ?? null) as BlindBoardFinishReason | null,
+      startedAt: r.startedAt.toISOString(),
+      finishedAt: (r.finishedAt as Date).toISOString(),
+    }));
+    const last = items[items.length - 1];
+    const nextCursor =
+      hasMore && last
+        ? Buffer.from(
+            JSON.stringify({ t: last.finishedAt, g: last.id }),
+          ).toString('base64')
+        : null;
+    return { items, nextCursor, hasMore };
+  }
+
   // ─── helpers ───────────────────────────────────────────────────────
 
   private async loadOwned(
@@ -706,4 +947,10 @@ function applyMove(
   return position.map((p) =>
     p.square === from ? { square: to, type: p.type } : p,
   );
+}
+
+/** KS-3509. Whitelist bucket'а; дефолт `week`. */
+function normalizeStatsBucket(raw: string | undefined): 'day' | 'week' | 'month' {
+  if (raw === 'day' || raw === 'month') return raw;
+  return 'week';
 }
