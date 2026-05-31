@@ -96,4 +96,19 @@ export class BlindBoardController {
   ) {
     return this.blind.historyForUser(req.user.id, limit, cursor);
   }
+
+  /**
+   * KS-3517. GET /blind-board/sessions/:id — review одной сессии:
+   * session + config + per-round attempts. Для finished — раскрывается
+   * startPosition. JwtAuthGuard + owner-check.
+   *
+   * NB: путь ОБЯЗАТЕЛЬНО ПОСЛЕ литеральных префиксов (`stats/me`,
+   * `trends/me`, `breakdowns/me`, `leaderboard`, `history`), иначе Nest
+   * сматчит их с `:id`.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('sessions/:id')
+  review(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+    return this.blind.reviewSession(req.user.id, id);
+  }
 }

@@ -828,3 +828,124 @@ describe('BlindBoardService.historyForUser — KS-3509', () => {
     expect(call.where.OR).toBeUndefined();
   });
 });
+
+// ─── KS-3517: review session ────────────────────────────────────────
+
+describe('BlindBoardService.reviewSession — KS-3517', () => {
+  function sessionRow(extra: Partial<AnyMock> = {}): AnyMock {
+    return {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'h8', type: 'Q' },
+        { square: 'd4', type: 'N' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'h8', type: 'Q' },
+        { square: 'd4', type: 'N' },
+      ],
+      nextTargetPiece: { square: 'h8', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+      },
+      level: 2,
+      streak: 5,
+      bestStreak: 5,
+      status: 'finished',
+      finishReason: 'wrong-answer',
+      startedAt: new Date('2026-05-30T00:00:00Z'),
+      finishedAt: new Date('2026-05-30T00:10:00Z'),
+      ...extra,
+    };
+  }
+
+  function attemptRow(round: number, correct: boolean, hasUser = true): AnyMock {
+    return {
+      round,
+      compMoveFrom: 'a1',
+      compMoveTo: `b${round}`,
+      expectedSquare: `c${round}`,
+      expectedPieceType: 'Q',
+      userSquare: hasUser ? `d${round}` : null,
+      userPieceType: hasUser ? 'Q' : null,
+      correct,
+      createdAt: new Date('2026-05-30T00:01:00Z'),
+    };
+  }
+
+  it('finished: возвращает session+config+attempts+startPosition', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(sessionRow());
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([
+      attemptRow(1, true),
+      attemptRow(2, true),
+      attemptRow(3, false, false), // open attempt при wrong-answer финале
+    ]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.reviewSession('u1', 's1');
+    expect(res.session.id).toBe('s1');
+    expect(res.session.status).toBe('finished');
+    expect(res.session.finishReason).toBe('wrong-answer');
+    expect(res.session.round).toBe(3); // последний attempt
+    expect(res.config.startPieces).toEqual(['Q', 'N', 'R']);
+    expect(res.attempts).toHaveLength(3);
+    expect(res.attempts[0]).toMatchObject({
+      round: 1,
+      compMove: { from: 'a1', to: 'b1' },
+      expectedSquare: 'c1',
+      correct: true,
+    });
+    expect(res.attempts[2].userSquare).toBeNull();
+    // finished → startPosition раскрыт.
+    expect(res.startPosition).toHaveLength(3);
+  });
+
+  it('active: startPosition НЕ возвращается (анти-чит §5)', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(
+      sessionRow({ status: 'active', finishReason: null, finishedAt: null }),
+    );
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([attemptRow(1, true)]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.reviewSession('u1', 's1');
+    expect(res.session.status).toBe('active');
+    expect(res.startPosition).toBeUndefined();
+    expect(res.attempts).toHaveLength(1);
+  });
+
+  it('чужая сессия → Forbidden', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(sessionRow({ userId: 'other' }));
+    const svc = new BlindBoardService(prisma);
+    await expect(svc.reviewSession('u1', 's1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('несуществующая сессия → NotFound', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(null);
+    const svc = new BlindBoardService(prisma);
+    await expect(svc.reviewSession('u1', 'nope')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('config из БД пустой → fallback на DEFAULT_BLIND_BOARD_CONFIG', async () => {
+    const prisma = makePrisma();
+    prisma.blindBoardSession.findUnique.mockResolvedValue(
+      sessionRow({ startConfig: null }),
+    );
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([]);
+    const svc = new BlindBoardService(prisma);
+    const res = await svc.reviewSession('u1', 's1');
+    expect(res.config.startPieces).toEqual(['Q', 'N', 'R']);
+    expect(res.config.addOrder).toEqual(['B', 'B', 'R', 'N']);
+    expect(res.config.memorizeTimeSec).toBe(5);
+  });
+});

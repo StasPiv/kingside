@@ -2348,6 +2348,51 @@ export interface BlindBoardHistoryResponse {
   hasMore: boolean;
 }
 
+/**
+ * KS-3517. Per-round attempt blind-board (`BlindBoardAttempt`).
+ * Возвращается в `BlindBoardSessionReviewResponse.attempts` —
+ * детальная развёртка раундов для review-страницы.
+ *
+ *  - `compMove` — ход компьютера в этом раунде (видимая стрелка).
+ *  - `expected{Square,PieceType}` — какую фигуру нужно было опознать.
+ *  - `user{Square,PieceType}` — что игрок ответил. `null` если раунд
+ *    ещё не отвечен (active-сессия, последний open attempt).
+ *  - `correct` — совпал ли ответ. Для open attempt (без user-ответа)
+ *    значение всегда `false` (заполняется при записи raw attempt'а).
+ */
+export interface BlindBoardAttemptDto {
+  round: number;
+  compMove: BlindBoardMove;
+  expectedSquare: BlindBoardSquare;
+  expectedPieceType: BlindBoardPieceType;
+  userSquare: BlindBoardSquare | null;
+  userPieceType: BlindBoardPieceType | null;
+  correct: boolean;
+  createdAt: string;
+}
+
+/**
+ * KS-3517. `GET /blind-board/sessions/:id` — review одной сессии.
+ *
+ * JwtAuthGuard + owner-check (404 для чужой). Работает для любого
+ * статуса (active/finished). Для finished-сессий раскрывает
+ * `startPosition` (анти-чит §5 уже не действует — сессия закрыта).
+ * Для active не раскрывает позицию.
+ */
+export interface BlindBoardSessionReviewResponse {
+  session: BlindBoardSessionDto;
+  /** Snapshot конфига на момент старта сессии (`startConfig`). */
+  config: BlindBoardConfig;
+  /** Список попыток per-round, sort `round ASC`. */
+  attempts: BlindBoardAttemptDto[];
+  /**
+   * Раскрытая стартовая позиция — присутствует ТОЛЬКО для
+   * `status='finished'` (после финала анти-чит §5 не работает).
+   * Для `status='active'` поле отсутствует.
+   */
+  startPosition?: BlindBoardPiece[];
+}
+
 // ─── Blind-Board (ADR-088 / KS-3438 S1) ────────────────────────────
 //
 // Тренировка «найди фигуру по ходу компьютера». 5 фигур (Q/R/N/B/B)

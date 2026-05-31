@@ -49,6 +49,8 @@ import {
   type BlindBoardTrendsResponse,
   type BlindBoardBreakdownsResponse,
   type BlindBoardHistoryResponse,
+  type BlindBoardSessionReviewResponse,
+  type BlindBoardAttemptDto,
   type StatsTrendsBucket,
 } from '@kingside/shared';
 import { Prisma } from '@kingside/db';
@@ -718,6 +720,58 @@ export class BlindBoardService {
           ).toString('base64')
         : null;
     return { items, nextCursor, hasMore };
+  }
+
+  /**
+   * KS-3517. `GET /blind-board/sessions/:id` — review одной сессии.
+   *
+   *  - JwtAuthGuard на контроллере. Owner-check через `loadOwned`
+   *    (Forbidden для чужой / NotFound для несуществующей).
+   *  - Работает для любого статуса (active/finished).
+   *  - Для finished — раскрывает `startPosition` (после финала анти-чит
+   *    §5 не действует, расстановка уже была видна игроку в
+   *    `revealedPosition` при wrong-answer-финале).
+   *  - Для active — `startPosition` НЕ возвращается (игрок ещё играет).
+   *  - `currentPosition` НЕ возвращаем никогда (это рабочая «горячая»
+   *    позиция компа — анти-чит).
+   *  - attempts отсортированы по round ASC.
+   *  - В `session.round` (расчёт в toSessionDto) ставим номер
+   *    последнего attempt'а — для активной это номер открытого
+   *    раунда, для finished — последний сыгранный.
+   */
+  async reviewSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<BlindBoardSessionReviewResponse> {
+    const row = await this.loadOwned(userId, sessionId);
+    const attempts = await this.prisma.blindBoardAttempt.findMany({
+      where: { sessionId },
+      orderBy: { round: 'asc' },
+    });
+    const lastRound = attempts.length > 0 ? attempts[attempts.length - 1].round : 1;
+
+    const config = (row.startConfig as BlindBoardConfig) ?? DEFAULT_BLIND_BOARD_CONFIG;
+    const attemptDtos: BlindBoardAttemptDto[] = attempts.map((a) => ({
+      round: a.round,
+      compMove: { from: a.compMoveFrom as BlindBoardSquare, to: a.compMoveTo as BlindBoardSquare },
+      expectedSquare: a.expectedSquare as BlindBoardSquare,
+      expectedPieceType: a.expectedPieceType as BlindBoardPieceType,
+      userSquare: (a.userSquare ?? null) as BlindBoardSquare | null,
+      userPieceType: (a.userPieceType ?? null) as BlindBoardPieceType | null,
+      correct: a.correct,
+      createdAt: a.createdAt.toISOString(),
+    }));
+
+    const result: BlindBoardSessionReviewResponse = {
+      session: this.toSessionDto(row, lastRound),
+      config,
+      attempts: attemptDtos,
+    };
+    // Анти-чит §5: startPosition раскрываем ТОЛЬКО для finished.
+    if (row.status === 'finished') {
+      result.startPosition = row.startPosition as BlindBoardPiece[];
+    }
+    return result;
   }
 
   // ─── helpers ───────────────────────────────────────────────────────
