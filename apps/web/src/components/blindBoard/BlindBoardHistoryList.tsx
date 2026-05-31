@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   BlindBoardHistoryItem,
@@ -136,23 +137,31 @@ export function BlindBoardHistoryList({
             data-testid={`blind-board-history-item-${s.id}`}
             data-finish-reason={s.finishReason ?? ''}
           >
-            <span className="blind-board-history__date">
-              {fmtDate(s.finishedAt)}
-            </span>
-            <span className="blind-board-history__level">
-              L{s.level}
-            </span>
-            <span className="blind-board-history__streak">
-              {t('blindBoard.history.streak', {
-                defaultValue: 'streak {{n}}',
-                n: s.bestStreak,
-              })}
-            </span>
-            <span className="blind-board-history__reason">
-              {s.finishReason
-                ? t(`blindBoard.history.reason.${s.finishReason}`, s.finishReason)
-                : '—'}
-            </span>
+            {/* KS-3517: строка → review страница /blind-board/sessions/:id. */}
+            <Link
+              to={`/blind-board/sessions/${s.id}`}
+              className="blind-board-history__link"
+              data-testid={`blind-board-history-link-${s.id}`}
+            >
+              <span className="blind-board-history__date">
+                {fmtDate(s.finishedAt)}
+              </span>
+              <span className="blind-board-history__level">L{s.level}</span>
+              <span className="blind-board-history__streak">
+                {t('blindBoard.history.streak', {
+                  defaultValue: 'streak {{n}}',
+                  n: s.bestStreak,
+                })}
+              </span>
+              <span className="blind-board-history__reason">
+                {s.finishReason
+                  ? t(
+                      `blindBoard.history.reason.${s.finishReason}`,
+                      s.finishReason,
+                    )
+                  : '—'}
+              </span>
+            </Link>
           </li>
         ))}
       </ol>

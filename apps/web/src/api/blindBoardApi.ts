@@ -8,6 +8,7 @@
 import { api } from '../api';
 import type {
   BlindBoardLeaderboardResponse,
+  BlindBoardSessionReviewResponse,
   StartBlindBoardSessionRequest,
   StartBlindBoardSessionResponse,
   SubmitBlindBoardAnswerRequest,
@@ -38,5 +39,15 @@ export const blindBoardApi = {
   },
   getLeaderboard(): Promise<BlindBoardLeaderboardResponse> {
     return api.get<BlindBoardLeaderboardResponse>(`${BASE}/leaderboard`);
+  },
+  /**
+   * KS-3517. Review одной сессии. Owner-check + JwtAuth на backend.
+   * Для finished возвращает `startPosition` (анти-чит §5 после
+   * финала не действует); для active — `startPosition` отсутствует.
+   */
+  getSession(sessionId: string): Promise<BlindBoardSessionReviewResponse> {
+    return api.get<BlindBoardSessionReviewResponse>(
+      `${BASE}/sessions/${sessionId}`,
+    );
   },
 };

@@ -168,6 +168,13 @@ const BlindBoardHistoryPage = lazy(() =>
     default: m.BlindBoardHistoryPage,
   })),
 );
+// KS-3517 (ADR-093 §4 follow-up): /blind-board/sessions/:id — review
+// одной сессии (метрики, конфиг, attempts[], опц. startPosition).
+const BlindBoardSessionReviewPage = lazy(() =>
+  import('./pages/BlindBoardSessionReviewPage').then((m) => ({
+    default: m.BlindBoardSessionReviewPage,
+  })),
+);
 const BlindBoardLandingPage = lazy(() =>
   import('./pages/BlindBoardLandingPage').then((m) => ({
     default: m.BlindBoardLandingPage,
@@ -666,6 +673,17 @@ export function App() {
             <ProtectedRoute>
               <Suspense fallback={<LazyFallback />}>
                 <BlindBoardHistoryPage />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        {/* KS-3517: review одной blind-board сессии. */}
+        <Route
+          path="/blind-board/sessions/:id"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<LazyFallback />}>
+                <BlindBoardSessionReviewPage />
               </Suspense>
             </ProtectedRoute>
           }

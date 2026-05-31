@@ -3677,6 +3677,35 @@
       "empty": "Make some mistakes to see your piece-type breakdown",
       "error": "Failed to load breakdowns"
     },
+    "review": {
+      "backToHistory": "Back to history",
+      "titleSession": "Session of {{date}}",
+      "status": {
+        "active": "Active",
+        "finished": "Finished"
+      },
+      "duration": "Duration",
+      "level": "Level",
+      "bestStreak": "Best streak",
+      "currentStreak": "Current streak",
+      "accuracy": "Correct",
+      "rounds": "Rounds",
+      "finishReason": "Finish reason",
+      "configTitle": "Session config",
+      "startPieces": "Starting pieces",
+      "addOrder": "Add order",
+      "memorizeTime": "Memorize time",
+      "attemptsTitle": "Rounds",
+      "attemptsEmpty": "No rounds yet",
+      "roundN": "Round {{n}}",
+      "attemptOpen": "(open)",
+      "correct": "✓ Correct",
+      "incorrect": "✗ Incorrect",
+      "positionTitle": "Start position",
+      "positionUnavailable": "Start position is not available for this session",
+      "positionLocked": "Position will be revealed after the session ends",
+      "error": "Failed to load session"
+    },
     "history": {
       "title": "Blind board history",
       "empty": "No finished sessions yet",
@@ -3685,7 +3714,8 @@
       "streak": "streak {{n}}",
       "reason": {
         "wrong-answer": "Wrong answer",
-        "abandoned": "Abandoned"
+        "abandoned": "Abandoned",
+        "dead-end": "Dead end"
       },
       "guest": {
         "message": "Sign in to see your finished sessions.",
