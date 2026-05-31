@@ -1588,16 +1588,33 @@
   gap: 8px;
 }
 .blind-board-history__item {
-  display: grid;
-  grid-template-columns: 60px auto 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
   background: var(--bg-elevated, var(--c-25253d));
   border: 1px solid var(--border-subtle, var(--c-2a2a3e));
   border-radius: 10px;
   font-size: 13px;
   color: var(--text-primary, var(--c-e0e0e0));
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.blind-board-history__item:hover {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.08));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-history__link {
+  display: grid;
+  grid-template-columns: 60px auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  text-decoration: none;
+}
+/* KS-3528: глобальное a:hover { text-decoration: underline } из
+   base.css перебивает дефолт — гасим явно на hover/focus. Hover-
+   фон + border остаются (см. __item:hover). */
+.blind-board-history__link:hover,
+.blind-board-history__link:focus,
+.blind-board-history__link:focus-visible {
+  text-decoration: none;
 }
 .blind-board-history__date {
   color: var(--text-secondary, var(--c-a0a0c0));
