@@ -2431,6 +2431,8 @@
       "ecoLabel": "ECO",
       "reachedAt": "reached at move {{move}}",
       "nextMove": "next: {{san}}",
+      "select": "✓ Pick",
+      "selectAria": "Pick this game",
       "empty": "No games found in this position",
       "resetFilters": "Reset filters",
       "errorMessage": "Failed to load games",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
@@ -594,10 +594,30 @@ function apiFiltersToValues(
   return result;
 }
 
+/**
+ * KS-3499 (ADR-091 F2): location.state, который активирует
+ * selection-режим (выбор партии для внешнего сценария). Пишется
+ * caller'ом (например, GuessLandingPage по клику «🔍 Pick from
+ * archive»). При его наличии — sticky-баннер сверху + кнопка
+ * «✓ Pick» на каждой строке. F5 сбрасывает state — это приемлемо
+ * (см. acceptance KS-3499).
+ */
+interface ArchiveSelectionState {
+  returnTo?: string;
+  returnLabel?: string;
+}
+
 function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // KS-3499: selection-режим определяется наличием `returnTo` в state.
+  const selectionState = (location.state as ArchiveSelectionState | null) ?? null;
+  const selectionReturnTo = selectionState?.returnTo ?? null;
+  const selectionReturnLabel = selectionState?.returnLabel ?? '';
+  const isSelectionMode = !!selectionReturnTo;
   // KS-2944: гость или авторизованный — определяет режим useSavedFilters
   // (LS vs API). При логине prevIsGuestRef в хуке детектит переход и
   // запускает миграцию LS → API.
@@ -979,6 +999,41 @@ function ArchiveMetadataMode() {
     [navigate, searchParams, t, filterValues],
   );
 
+  // KS-3499 (ADR-091 F2): обработчик выбора партии из архива в
+  // selection-режиме. GET /games/:id → navigate(returnTo, { state }).
+  // PGN и метаданные летят caller'у — он сам решит как их применить
+  // (GuessLandingPage заполняет textarea, GameStep подставляет в шаг).
+  // Ошибка GET — остаёмся на странице, показывать notice будет KS-3500
+  // layout-агент (сейчас тихо логируем).
+  const handleSelectRow = useCallback(
+    (item: { id: string }) => {
+      if (!selectionReturnTo) return;
+      archiveApi
+        .getArchiveGameById(item.id)
+        .then((game) => {
+          navigate(selectionReturnTo, {
+            state: {
+              archiveGameId: item.id,
+              pgn: game.pgn,
+              white: game.white.name ?? '',
+              black: game.black.name ?? '',
+              event: game.event ?? '',
+            },
+          });
+        })
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.warn('[archive-selection] getById failed', e);
+        });
+    },
+    [navigate, selectionReturnTo],
+  );
+
+  const handleCancelSelection = useCallback(() => {
+    if (!selectionReturnTo) return;
+    navigate(selectionReturnTo);
+  }, [navigate, selectionReturnTo]);
+
   // ─── Initial / reset загрузка ────────────────────────────────────
   // KS-2144: reqKey меняется при любом изменении формы или deep-link
   // — обнуляем items, скроллим вверх, запрашиваем первую страницу
@@ -1200,10 +1255,44 @@ function ArchiveMetadataMode() {
 
   return (
     <div
-      className="archive-page archive-games-metadata"
+      className={`archive-page archive-games-metadata${
+        isSelectionMode ? ' archive-games-metadata--selection' : ''
+      }`}
       data-testid="archive-games-page"
       data-mode="metadata"
+      data-selection={isSelectionMode ? 'true' : 'false'}
     >
+      {/* KS-3499 (ADR-091 F2): sticky-баннер selection-режима. */}
+      {isSelectionMode && (
+        <div
+          className="archive-games-metadata__selection-banner"
+          data-testid="archive-selection-banner"
+          role="region"
+          aria-label={t('games.selection.title', {
+            defaultValue: 'Pick a game for {{label}}',
+            label: selectionReturnLabel,
+          })}
+        >
+          <span
+            className="archive-games-metadata__selection-text"
+            data-testid="archive-selection-text"
+          >
+            {t('games.selection.title', {
+              defaultValue: 'Pick a game for {{label}}',
+              label: selectionReturnLabel,
+            })}
+          </span>
+          <button
+            type="button"
+            className="archive-games-metadata__selection-cancel"
+            data-testid="archive-selection-cancel"
+            onClick={handleCancelSelection}
+          >
+            {t('games.selection.cancel', { defaultValue: '✕ Cancel' })}
+          </button>
+        </div>
+      )}
+
       <header className="archive-games-metadata__header">
         <h1 className="archive-games-metadata__title">
           {t('games.title', 'Archive games')}
@@ -1364,6 +1453,7 @@ function ArchiveMetadataMode() {
                 key={item.id}
                 item={item}
                 onClick={handleRowClick}
+                onSelect={isSelectionMode ? handleSelectRow : undefined}
               />
             ))}
           </div>

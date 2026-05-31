@@ -34,6 +34,14 @@ interface ArchiveGameRowProps {
    */
   positionFen?: string;
   onClick: (item: ArchiveAnyItem) => void;
+  /**
+   * KS-3499 (ADR-091 F2). Selection-режим архива: рядом со строкой
+   * (которая по-прежнему ведёт в «Открыть»/анализ) рисуется отдельная
+   * кнопка «✓ Pick». stopPropagation предотвращает срабатывание
+   * onClick'а row'а. Если не передано — кнопка не рендерится и
+   * поведение row'а не меняется.
+   */
+  onSelect?: (item: ArchiveAnyItem) => void;
 }
 
 const RESULT_CLASS: Record<string, string> = {
@@ -93,6 +101,7 @@ export function ArchiveGameRow({
   item,
   positionFen,
   onClick,
+  onSelect,
 }: ArchiveGameRowProps) {
   const { t } = useTranslation();
 
@@ -208,6 +217,25 @@ export function ArchiveGameRow({
             san: nextMoveSan,
           })}
         </span>
+      )}
+
+      {/* KS-3499 (ADR-091 F2): кнопка «✓ Pick» в selection-режиме. */}
+      {onSelect && (
+        <button
+          type="button"
+          className="archive-game-row__select"
+          data-testid={`archive-game-row-select-${item.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(item);
+          }}
+          onKeyDown={stopRowEvent}
+          aria-label={t('archive.games.selectAria', {
+            defaultValue: 'Pick this game',
+          })}
+        >
+          {t('archive.games.select', { defaultValue: '✓ Pick' })}
+        </button>
       )}
     </div>
   );

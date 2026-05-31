@@ -66,7 +66,13 @@
       "pageSizeLabel": "Per page",
       "searchByPosition": "Search by position…"
     },
-    "fenFilter": "Position filter"
+    "fenFilter": "Position filter",
+    "select": "✓ Pick",
+    "selectAria": "Pick this game",
+    "selection": {
+      "title": "Pick a game for {{label}}",
+      "cancel": "✕ Cancel"
+    }
   },
   "player": {
     "title": "Player",

@@ -71,7 +71,13 @@
       "pageSizeLabel": "На странице",
       "searchByPosition": "Поиск по позиции…"
     },
-    "fenFilter": "Фильтр по позиции"
+    "fenFilter": "Фильтр по позиции",
+    "select": "✓ Выбрать",
+    "selectAria": "Выбрать эту партию",
+    "selection": {
+      "title": "Выберите партию для «{{label}}»",
+      "cancel": "✕ Отмена"
+    }
   },
   "player": {
     "title": "Игрок",
