@@ -76,6 +76,11 @@ export function BlindBoardSessionReviewPage({
         getSession ?? ((sid: string) => blindBoardApi.getSession(sid));
       setData(await get(id));
     } catch (e) {
+      // KS-3526: явный console.error (раньше его не было) — облегчает
+      // диагностику белого экрана у юзера: причина видна в DevTools
+      // даже до того, как мы прокинули детальный error-state.
+      // eslint-disable-next-line no-console
+      console.error('[blind-board-review] getSession failed', e);
       setError(
         e instanceof Error
           ? e.message
@@ -90,10 +95,26 @@ export function BlindBoardSessionReviewPage({
     void fetchSession();
   }, [fetchSession]);
 
-  const correctCount = useMemo(() => {
-    if (!data) return 0;
-    return data.attempts.filter((a) => a.correct).length;
-  }, [data]);
+  // KS-3526: defensive — backend в редких случаях (legacy сессии без
+  // snapshot config / unhandled поле) может вернуть `attempts: null`,
+  // `config: null` или `startPosition: null`. До хотфикса любой такой
+  // случай ронял рендер на `.map()/.filter()` → React выкидывал весь
+  // дерево, пользователь видел белый экран. Нормализуем тут один раз.
+  const attempts = useMemo(() => data?.attempts ?? [], [data]);
+  const config = useMemo(
+    () =>
+      data?.config ?? { startPieces: [], addOrder: [], memorizeTimeSec: 0 },
+    [data],
+  );
+  const startPosition = useMemo(
+    () => data?.startPosition ?? undefined,
+    [data],
+  );
+
+  const correctCount = useMemo(
+    () => attempts.filter((a) => a.correct).length,
+    [attempts],
+  );
 
   if (loading) {
     return (
@@ -134,7 +155,7 @@ export function BlindBoardSessionReviewPage({
     );
   }
 
-  const { session, config, attempts, startPosition } = data;
+  const { session } = data;
   const totalRounds = attempts.length;
   const accuracyPct =
     totalRounds > 0 ? Math.round((correctCount / totalRounds) * 100) : null;

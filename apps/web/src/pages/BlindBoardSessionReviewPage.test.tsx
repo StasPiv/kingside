@@ -233,6 +233,37 @@ describe('<BlindBoardSessionReviewPage> KS-3517', () => {
     );
   });
 
+  it('KS-3526: defensive — config/attempts/startPosition null НЕ роняют рендер', async () => {
+    // Имитируем неполный ответ: attempts=null, config=null, startPosition=null
+    // (это могло быть для legacy сессий до KS-3517 backend). До хотфикса
+    // `data.attempts.filter(...)` бросал TypeError → React error → белый экран.
+    renderAt('/blind-board/sessions/bb-degraded', {
+      session: session({ id: 'bb-degraded' }),
+      // typecheck shim: cast через unknown, чтобы передать null-поля.
+      config: null as unknown as BlindBoardSessionReviewResponse['config'],
+      attempts: null as unknown as BlindBoardAttemptDto[],
+      startPosition:
+        null as unknown as BlindBoardSessionReviewResponse['startPosition'],
+    } as BlindBoardSessionReviewResponse);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-review-page').getAttribute('data-state'),
+      ).toBe('ready'),
+    );
+    // Метрики базовые отрисовались.
+    expect(
+      screen.getByTestId('blind-board-review-metric-rounds').textContent,
+    ).toContain('0');
+    // Attempts-empty placeholder.
+    expect(
+      screen.getByTestId('blind-board-review-attempts-empty'),
+    ).toBeInTheDocument();
+    // Position locked-плашка (startPosition отсутствует).
+    expect(
+      screen.getByTestId('blind-board-review-position-hidden'),
+    ).toBeInTheDocument();
+  });
+
   it('error: показывает retry', async () => {
     renderAt('/blind-board/sessions/bb-x', () =>
       Promise.reject(new Error('boom')),
