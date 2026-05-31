@@ -851,23 +851,25 @@ export class BlindBoardService {
   }
 
   /**
-   * KS-3519. Выбор следующего хода компа.
+   * KS-3519 / KS-3524. Выбор следующего хода компа.
    *
    * Раньше (KS-3453) приоритет был у опознанной игроком target-фигуры:
    * если у неё были ходы — выбирался её случайный. С novelty-check
    * (KS-3451) target часто бил себя по той же связке туда-сюда:
    * A→B→A→B... — пользователь видел одну и ту же фигуру.
    *
-   * Новая стратегия:
-   *   1) Собираем ВСЕ (piece, candidate) пары валидных ходов на доске —
-   *      без приоритета target. Случайный uniform выбор.
-   *   2) Анти-возврат: для каждой фигуры P на текущей клетке S
-   *      смотрим recent compMove'ы; если в истории был ход (mf → mt)
-   *      где mt === S, то ход P → mf — «возврат на недавнюю клетку».
-   *      Такие пары идут в `fallback`-пул. Если есть «свежие» (не
-   *      возвратные) — выбираем uniform из них; иначе — из fallback.
-   *      Это отсекает immediate A→B→A и короткие циклы A→B→C→A в
-   *      пределах окна `RECENT_HISTORY_LEN`.
+   * Текущая стратегия:
+   *   1) **KS-3524 previous-mover exclusion.** Фигура, ходившая в
+   *      предыдущем раунде, отсеивается первой. Это запрещает повтор
+   *      той же фигуры дважды подряд. Исключение — если у ВСЕХ остальных
+   *      фигур нет валидных ходов с novelty: тогда previous mover
+   *      допускается (вырожденный случай). «Previous mover» определяется
+   *      как фигура на клетке `to` последнего compMove'а.
+   *   2) Среди оставшихся — собираем все (piece, candidate) пары.
+   *   3) **KS-3519 анти-возврат.** Для каждой фигуры P на клетке S
+   *      смотрим recentMoves; ходы P → previously-departed-from-S
+   *      идут в `fallback`-пул. Если есть `fresh` (не возвратные) —
+   *      выбираем uniform из них; иначе — из fallback.
    *
    * Возвращает `null` только когда ни у одной фигуры нет валидных
    * ходов с novelty (теоретически почти невозможно).
@@ -876,9 +878,11 @@ export class BlindBoardService {
     position: BlindBoardPiece[],
     recentMoves: Array<{ from: BlindBoardSquare; to: BlindBoardSquare }>,
   ): { piece: BlindBoardPiece; candidate: UniqueTargetMove } | null {
-    // forbiddenByPiece: для каждой фигуры на текущей клетке — множество
-    // клеток, куда ход = «возврат». Считаем по recentMoves: если был ход
-    // (mf → mt) и фигура сейчас стоит на mt, то ход на mf для неё — return.
+    // KS-3524: «previous mover» — фигура на клетке `to` последнего compMove'а.
+    const lastMove = recentMoves[recentMoves.length - 1];
+    const previousMoverSquare = lastMove?.to ?? null;
+
+    // KS-3519 forbiddenByPiece: для каждой фигуры — множество клеток-возвратов.
     const forbiddenByPiece = new Map<BlindBoardSquare, Set<BlindBoardSquare>>();
     for (const p of position) {
       const set = new Set<BlindBoardSquare>();
@@ -888,23 +892,44 @@ export class BlindBoardService {
       forbiddenByPiece.set(p.square, set);
     }
 
-    // Соберём все пары (piece, candidate) в два пула.
-    const fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
-    const fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
-    for (const piece of position) {
-      const cands = findUniqueTargetMoves(position, piece.square);
-      if (cands.length === 0) continue;
-      const forbidden = forbiddenByPiece.get(piece.square) ?? new Set();
-      for (const candidate of cands) {
-        const pair = { piece, candidate };
-        if (forbidden.has(candidate.to)) {
-          fallback.push(pair);
-        } else {
-          fresh.push(pair);
+    const collectPairs = (
+      pieces: BlindBoardPiece[],
+    ): {
+      fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }>;
+      fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }>;
+    } => {
+      const fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
+      const fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
+      for (const piece of pieces) {
+        const cands = findUniqueTargetMoves(position, piece.square);
+        if (cands.length === 0) continue;
+        const forbidden = forbiddenByPiece.get(piece.square) ?? new Set();
+        for (const candidate of cands) {
+          const pair = { piece, candidate };
+          if (forbidden.has(candidate.to)) {
+            fallback.push(pair);
+          } else {
+            fresh.push(pair);
+          }
         }
       }
+      return { fresh, fallback };
+    };
+
+    // KS-3524 шаг 1: попытка БЕЗ previous mover'а.
+    if (previousMoverSquare) {
+      const others = position.filter((p) => p.square !== previousMoverSquare);
+      const { fresh, fallback } = collectPairs(others);
+      const pool = fresh.length > 0 ? fresh : fallback;
+      if (pool.length > 0) {
+        return pool[this.randInt(pool.length)];
+      }
+      // Все остальные заблокированы — fall through, разрешаем previous mover.
     }
 
+    // Шаг 2: previous mover'а нет (первый раунд) ИЛИ остальные
+    // заблокированы — собираем по всей доске.
+    const { fresh, fallback } = collectPairs(position);
     const pool = fresh.length > 0 ? fresh : fallback;
     if (pool.length === 0) return null;
     return pool[this.randInt(pool.length)];

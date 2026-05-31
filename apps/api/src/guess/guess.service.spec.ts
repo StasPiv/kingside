@@ -52,6 +52,8 @@ function makePrisma(over: Partial<Record<string, any>> = {}): AnyMock {
 function makeAnalysisService(over: Partial<AnyMock> = {}): AnyMock {
   return {
     create: jest.fn().mockResolvedValue({ id: 'a1', existing: false }),
+    // KS-3523: lazy-resolve pgn по archiveGameId/lichessGameId.
+    resolveSourceGame: jest.fn().mockResolvedValue(null),
     ...over,
   };
 }
@@ -760,5 +762,162 @@ describe('GuessService.getSession — KS-3514', () => {
     await expect(svc.getSession('u1', 's1')).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+});
+
+// ─── KS-3523: persist + lazy-resolve PGN ─────────────────────────────
+
+describe('GuessService — KS-3523 PGN persist/lazy-resolve', () => {
+  it('startSession archive без pgn: backend подгружает через resolveSourceGame и персистит', async () => {
+    const prisma = makePrisma();
+    const analysis = makeAnalysisService({
+      resolveSourceGame: jest.fn().mockResolvedValue({
+        pgn: '[White "A"]\n[Black "B"]\n\n1. e4 *',
+        white: 'A',
+        black: 'B',
+        whiteElo: null,
+        blackElo: null,
+        result: '*',
+      }),
+    });
+    prisma.guessSession.create.mockImplementation(({ data }: any) => ({
+      id: 's1',
+      ...data,
+      userAccuracy: null,
+      playerAccuracy: null,
+      userStars: null,
+      score: 0,
+      bestStreak: 0,
+      betterThanPlayerCount: 0,
+      startedAt: new Date(),
+      finishedAt: null,
+    }));
+    const svc = makeService(prisma, analysis);
+    await svc.startSession('u1', {
+      gameSource: 'archive',
+      gameRef: 'arch-uuid',
+      side: 'white',
+    });
+    expect(analysis.resolveSourceGame).toHaveBeenCalledWith({
+      archiveGameId: 'arch-uuid',
+    });
+    const createArg = prisma.guessSession.create.mock.calls[0][0].data;
+    expect(createArg.pgn).toContain('1. e4');
+  });
+
+  it('startSession archive: если resolve вернул null — сохраняется null pgn (не падает)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.create.mockImplementation(({ data }: any) => ({
+      id: 's1',
+      ...data,
+      userAccuracy: null,
+      playerAccuracy: null,
+      userStars: null,
+      score: 0,
+      bestStreak: 0,
+      betterThanPlayerCount: 0,
+      startedAt: new Date(),
+      finishedAt: null,
+    }));
+    const svc = makeService(prisma); // analysis.resolveSourceGame по умолчанию null
+    await svc.startSession('u1', {
+      gameSource: 'archive',
+      gameRef: 'arch-uuid',
+      side: 'white',
+    });
+    const createArg = prisma.guessSession.create.mock.calls[0][0].data;
+    expect(createArg.pgn).toBeNull();
+  });
+
+  it('startSession pgn-source: НЕ дёргает resolveSourceGame (есть dto.pgn)', async () => {
+    const prisma = makePrisma();
+    const analysis = makeAnalysisService();
+    prisma.guessSession.create.mockImplementation(({ data }: any) => ({
+      id: 's1',
+      ...data,
+      userAccuracy: null,
+      playerAccuracy: null,
+      userStars: null,
+      score: 0,
+      bestStreak: 0,
+      betterThanPlayerCount: 0,
+      startedAt: new Date(),
+      finishedAt: null,
+    }));
+    const svc = makeService(prisma, analysis);
+    await svc.startSession('u1', {
+      gameSource: 'pgn',
+      pgn: '1. d4 *',
+      side: 'black',
+    });
+    expect(analysis.resolveSourceGame).not.toHaveBeenCalled();
+    const createArg = prisma.guessSession.create.mock.calls[0][0].data;
+    expect(createArg.pgn).toBe('1. d4 *');
+  });
+
+  it('getSession legacy без pgn: lazy-resolve, апдейт БД, в ответе session.pgn', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'u1', gameSource: 'archive', gameRef: 'arch-uuid',
+      pgn: null, side: 'white', status: 'finished',
+      userAccuracy: 80, playerAccuracy: 70, userStars: 4,
+      score: 12, bestStreak: 3, betterThanPlayerCount: 2,
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    prisma.guessSession.update.mockImplementation(({ data }: any) => ({
+      id: 's1', userId: 'u1', gameSource: 'archive', gameRef: 'arch-uuid',
+      side: 'white', status: 'finished',
+      userAccuracy: 80, playerAccuracy: 70, userStars: 4,
+      score: 12, bestStreak: 3, betterThanPlayerCount: 2,
+      startedAt: new Date(), finishedAt: new Date(),
+      ...data,
+    }));
+    const analysis = makeAnalysisService({
+      resolveSourceGame: jest.fn().mockResolvedValue({
+        pgn: 'LAZY-PGN',
+        white: null, black: null,
+        whiteElo: null, blackElo: null, result: null,
+      }),
+    });
+    prisma.guessMove.findMany.mockResolvedValue([]);
+    const svc = makeService(prisma, analysis);
+    const res = await svc.getSession('u1', 's1');
+    expect(analysis.resolveSourceGame).toHaveBeenCalled();
+    expect(prisma.guessSession.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: { pgn: 'LAZY-PGN' },
+    });
+    expect(res.session.pgn).toBe('LAZY-PGN');
+  });
+
+  it('toAnalysis legacy без pgn: lazy-resolve, проходит дальше (НЕ кидает has no pgn)', async () => {
+    const prisma = makePrisma();
+    prisma.guessSession.findUnique.mockResolvedValue({
+      id: 's1', userId: 'u1', gameSource: 'archive', gameRef: 'arch-uuid',
+      pgn: null, side: 'white', status: 'finished',
+      userAccuracy: 80, playerAccuracy: 70, userStars: 4,
+      score: 12, bestStreak: 3, betterThanPlayerCount: 2,
+      startedAt: new Date(), finishedAt: new Date(),
+    });
+    prisma.guessSession.update.mockImplementation(({ data }: any) => ({
+      id: 's1', userId: 'u1', gameSource: 'archive', gameRef: 'arch-uuid',
+      side: 'white', status: 'finished',
+      userAccuracy: 80, playerAccuracy: 70, userStars: 4,
+      score: 12, bestStreak: 3, betterThanPlayerCount: 2,
+      startedAt: new Date(), finishedAt: new Date(),
+      ...data,
+    }));
+    const analysis = makeAnalysisService({
+      resolveSourceGame: jest.fn().mockResolvedValue({
+        pgn: '1. e4 *', white: null, black: null,
+        whiteElo: null, blackElo: null, result: null,
+      }),
+      create: jest.fn().mockResolvedValue({ id: 'a99', existing: false }),
+    });
+    prisma.guessMove.findMany.mockResolvedValue([]);
+    const svc = makeService(prisma, analysis);
+    const res = await svc.toAnalysis('u1', 's1', 'en');
+    expect(res.analysisId).toBe('a99');
+    expect(analysis.resolveSourceGame).toHaveBeenCalled();
   });
 });

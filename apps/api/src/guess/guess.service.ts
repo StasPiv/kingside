@@ -152,18 +152,70 @@ export class GuessService {
       );
     }
 
+    // KS-3523: для archive/own backend подгружает PGN и персистит сразу,
+    // чтобы review-страница (KS-3514) и toAnalysis (KS-3461) не ломались
+    // на пустом session.pgn. Если фронт уже прислал pgn — используем его
+    // (актуально для 'pgn' source и для clients, делающих own resolve'у).
+    let resolvedPgn = dto.pgn ?? null;
+    if (!resolvedPgn && dto.gameRef) {
+      resolvedPgn = await this.resolvePgnByRef(dto.gameSource, dto.gameRef);
+    }
+
     const session = (await this.prisma.guessSession.create({
       data: {
         userId,
         gameSource: dto.gameSource,
         gameRef: dto.gameRef ?? null,
-        pgn: dto.pgn ?? null,
+        pgn: resolvedPgn,
         side: dto.side,
         status: 'active',
       },
     })) as GuessSessionRow;
 
     return { session: this.toSessionDto(session) };
+  }
+
+  /**
+   * KS-3523. Резолвер PGN по `gameSource` + `gameRef`:
+   *   - `archive` → fetch через AnalysisService.resolveSourceGame
+   *     (postgres_fdw archive_games_remote).
+   *   - `own`     → SELECT analyses WHERE id=$1.
+   *   - `broadcast` → broadcast-service /internal/games/by-lichess
+   *     (через resolveSourceGame с lichessGameId).
+   *   - `pgn`     → null (вызывающий уже использует dto.pgn).
+   * Возвращает `null` если резолв не удался (инфра/не найдено) — caller
+   * сохранит сессию без pgn, review просто покажет минимальные данные.
+   */
+  private async resolvePgnByRef(
+    source: string,
+    ref: string,
+  ): Promise<string | null> {
+    try {
+      if (source === 'archive') {
+        const resolved = await this.analysis.resolveSourceGame({
+          archiveGameId: ref,
+        });
+        return resolved?.pgn ?? null;
+      }
+      if (source === 'own') {
+        const row = (await this.prisma.analysis.findUnique({
+          where: { id: ref },
+          select: { pgn: true },
+        })) as { pgn: string | null } | null;
+        return row?.pgn ?? null;
+      }
+      if (source === 'broadcast') {
+        const resolved = await this.analysis.resolveSourceGame({
+          lichessGameId: ref,
+        });
+        return resolved?.pgn ?? null;
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[guess] resolvePgnByRef ${source}/${ref}: ${(err as Error).message}`,
+      );
+    }
+    return null;
   }
 
   // ─── submit move ───────────────────────────────────────────────────
@@ -322,8 +374,31 @@ export class GuessService {
     userId: string,
     sessionId: string,
   ): Promise<GetGuessSessionResponse> {
-    const session = await this.loadOwned(userId, sessionId);
+    let session = await this.loadOwned(userId, sessionId);
     const moves = await this.loadMoves(sessionId);
+    // KS-3523: legacy-сессии (созданные до фикса KS-3523) могут не иметь
+    // pgn. Если есть gameRef — попробуем резолвить и обновить запись.
+    // Это backfill on-demand: следующий вызов уже получит pgn без сети.
+    if (
+      (!session.pgn || session.pgn.trim() === '') &&
+      session.gameRef &&
+      session.gameSource !== 'pgn'
+    ) {
+      const lazyPgn = await this.resolvePgnByRef(
+        session.gameSource,
+        session.gameRef,
+      );
+      if (lazyPgn) {
+        const updated = (await this.prisma.guessSession.update({
+          where: { id: sessionId },
+          data: { pgn: lazyPgn },
+        })) as GuessSessionRow;
+        session = updated;
+        this.logger.log(
+          `[guess] KS-3523 lazy-resolve pgn for session ${sessionId} (source=${session.gameSource})`,
+        );
+      }
+    }
     // KS-3514: HUD-табло «ты : игрок» для review-страницы. Считается из
     // persisted moves по тем же правилам, что и live-апдейт в submitMove
     // (KS-3435: betterThanPlayer/strongest → user, weaker → player,
@@ -350,9 +425,29 @@ export class GuessService {
     sessionId: string,
     lang: string,
   ): Promise<GuessToAnalysisResponse> {
-    const session = await this.loadOwned(userId, sessionId);
+    let session = await this.loadOwned(userId, sessionId);
     if (session.status !== 'finished') {
       throw new ConflictException('guess session is not finished');
+    }
+    // KS-3523: lazy-resolve pgn (для legacy-сессий без pgn в БД).
+    if (
+      (!session.pgn || session.pgn.trim() === '') &&
+      session.gameRef &&
+      session.gameSource !== 'pgn'
+    ) {
+      const lazyPgn = await this.resolvePgnByRef(
+        session.gameSource,
+        session.gameRef,
+      );
+      if (lazyPgn) {
+        session = (await this.prisma.guessSession.update({
+          where: { id: sessionId },
+          data: { pgn: lazyPgn },
+        })) as GuessSessionRow;
+        this.logger.log(
+          `[guess] KS-3523 lazy-resolve pgn in toAnalysis ${sessionId}`,
+        );
+      }
     }
     if (!session.pgn || session.pgn.trim() === '') {
       throw new BadRequestException('guess session has no pgn');

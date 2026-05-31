@@ -277,7 +277,14 @@ export class AnalysisService implements OnModuleInit {
    * отсутствуют на проде). Тогда caller использует pgn из dto если он
    * есть, иначе создаёт пустой анализ.
    */
-  private async resolveSourceGame(input: {
+  /**
+   * KS-3263 / KS-3523. Резолвер PGN партии по lichess/archive id.
+   * Используется как AnalysisService.create, так и GuessService (KS-3523
+   * — подгрузка pgn в guess-сессию при старте из архива). Возвращает
+   * `null` при любой инфра-проблеме (FDW down, network, broadcast-service
+   * unavailable) — caller гасит graceful'но.
+   */
+  async resolveSourceGame(input: {
     lichessGameId?: string | null;
     archiveGameId?: string | null;
   }): Promise<ResolvedSourceGame | null> {
@@ -330,6 +337,13 @@ export class AnalysisService implements OnModuleInit {
       }
     }
     if (input.archiveGameId) {
+      // KS-3263. Резолвер через postgres_fdw foreign table
+      // `archive_games_remote` (KS-2760). После hotfix devops добавил в
+      // foreign table колонки `pgn, white_name, black_name, result` —
+      // SELECT теперь возвращает полную партию из archive_kingside.
+      // Try/catch: graceful degrade на любой инфра-проблеме (FDW down /
+      // user-mapping / network) — return null, AnalysisPage создаст
+      // запись без pgn (пользователь увидит пусто, но не 500).
       try {
         const rows = await this.prisma.$queryRawUnsafe<
           Array<{
@@ -348,7 +362,12 @@ export class AnalysisService implements OnModuleInit {
           input.archiveGameId,
         );
         const row = rows[0];
-        if (!row || !row.pgn) return null;
+        if (!row || !row.pgn) {
+          this.logger.warn(
+            `KS-3263: archive_games_remote ${input.archiveGameId} not found or pgn=null`,
+          );
+          return null;
+        }
         return {
           pgn: row.pgn,
           white: row.white_name,
