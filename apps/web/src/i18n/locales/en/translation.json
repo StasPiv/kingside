@@ -518,6 +518,7 @@
       "error": "Failed to load history",
       "startCta": "Start a new session",
       "pageInfo": "{{from}}–{{to}} of {{total}}",
+      "opening": "Opening…",
       "guest": {
         "message": "Sign in to see your finished sessions.",
         "cta": "Sign in and start training"
