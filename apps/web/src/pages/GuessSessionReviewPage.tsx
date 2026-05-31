@@ -104,12 +104,18 @@ export interface GuessSessionReviewPageProps {
     black: { name: string | null };
     event: string | null;
   }>;
+  /** KS-3530: DI для guessApi.deleteSession. */
+  deleter?: (id: string) => Promise<void>;
+  /** KS-3530: DI confirm-диалога. */
+  confirmFn?: (msg: string) => boolean;
 }
 
 export function GuessSessionReviewPage({
   getSession,
   toAnalysis,
   getArchiveGame,
+  deleter,
+  confirmFn,
 }: GuessSessionReviewPageProps = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -119,6 +125,7 @@ export function GuessSessionReviewPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // KS-3521: явный error-state для кнопки «Open in analysis», чтобы
   // пользователь видел причину, а не просто «ничего не происходит».
   const [openError, setOpenError] = useState<string | null>(null);
@@ -198,6 +205,31 @@ export function GuessSessionReviewPage({
       event: pgnCtx.event ?? archiveContext.event,
     };
   }, [pgnCtx, archiveContext]);
+
+  // KS-3530: удаление сессии прямо со страницы review. confirm →
+  // DELETE → navigate('/guess/history'). Ошибка — console.error и
+  // снимаем deleting-state.
+  const onDelete = useCallback(async () => {
+    if (!id || deleting) return;
+    const confirm = confirmFn ?? ((m: string) => window.confirm(m));
+    const ok = confirm(
+      t(
+        'guess.review.confirmDelete',
+        'Delete this session? This cannot be undone.',
+      ),
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      const del = deleter ?? ((sid: string) => guessApi.deleteSession(sid));
+      await del(id);
+      navigate('/guess/history');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[guess-review] delete failed', e);
+      setDeleting(false);
+    }
+  }, [id, deleting, confirmFn, t, deleter, navigate]);
 
   const onOpenInAnalysis = useCallback(async () => {
     if (!id || opening) return;
@@ -419,6 +451,19 @@ export function GuessSessionReviewPage({
             {openError}
           </p>
         )}
+        {/* KS-3530: удаление сессии. Доступно для любого статуса. */}
+        <button
+          type="button"
+          className="guess-review-page__delete"
+          data-testid="guess-review-delete"
+          disabled={deleting}
+          aria-busy={deleting}
+          onClick={() => void onDelete()}
+        >
+          {deleting
+            ? t('guess.review.deleting', 'Deleting…')
+            : t('guess.review.delete', '🗑 Delete session')}
+        </button>
       </section>
 
       <section

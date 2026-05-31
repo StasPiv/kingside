@@ -111,6 +111,10 @@ function renderAt(
     black: { name: string | null };
     event: string | null;
   }>,
+  extra?: {
+    deleter?: (id: string) => Promise<void>;
+    confirmFn?: (msg: string) => boolean;
+  },
 ) {
   const getSession = vi
     .fn()
@@ -130,6 +134,8 @@ function renderAt(
                     getSession={getSession}
                     toAnalysis={toAnalysis}
                     getArchiveGame={getArchiveGame}
+                    deleter={extra?.deleter}
+                    confirmFn={extra?.confirmFn}
                   />
                 }
               />
@@ -425,6 +431,34 @@ describe('<GuessSessionReviewPage> KS-3514', () => {
     } finally {
       err.mockRestore();
     }
+  });
+
+  it('KS-3530: «Delete session» → confirm → deleter + navigate /guess/history', async () => {
+    const user = userEvent.setup();
+    mockNavigate.mockReset();
+    const deleter = vi.fn().mockResolvedValue(undefined);
+    const confirmFn = vi.fn().mockReturnValue(true);
+    renderAt(
+      '/guess/sessions/s-del',
+      {
+        session: session({ id: 's-del' }),
+        moves: [],
+        userPoints: 0,
+        playerPoints: 0,
+      },
+      undefined,
+      undefined,
+      { deleter, confirmFn },
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guess-review-delete')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('guess-review-delete'));
+    expect(confirmFn).toHaveBeenCalled();
+    expect(deleter).toHaveBeenCalledWith('s-del');
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/guess/history'),
+    );
   });
 
   it('moves пустые → moves-empty placeholder', async () => {

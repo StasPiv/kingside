@@ -18,7 +18,7 @@ import { BlindBoardSessionReviewPage } from './BlindBoardSessionReviewPage';
  * раунды, опц. startPosition.
  */
 
-const { mockUseAuth } = vi.hoisted(() => ({
+const { mockUseAuth, mockNavigate } = vi.hoisted(() => ({
   mockUseAuth: vi.fn(() => ({
     user: { id: 'u1', username: 't' },
     token: 'jwt',
@@ -29,11 +29,18 @@ const { mockUseAuth } = vi.hoisted(() => ({
     logout: vi.fn(),
     refreshUser: vi.fn(),
   })),
+  mockNavigate: vi.fn(),
 }));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom',
+  );
+  return { ...actual, useNavigate: () => mockNavigate };
+});
 
 function session(
   overrides: Partial<BlindBoardSessionDto> = {},
@@ -75,6 +82,10 @@ function renderAt(
   response:
     | BlindBoardSessionReviewResponse
     | (() => Promise<BlindBoardSessionReviewResponse>),
+  extra?: {
+    deleter?: (id: string) => Promise<void>;
+    confirmFn?: (msg: string) => boolean;
+  },
 ) {
   const getSession = vi
     .fn()
@@ -92,7 +103,11 @@ function renderAt(
               <Route
                 path="/blind-board/sessions/:id"
                 element={
-                  <BlindBoardSessionReviewPage getSession={getSession} />
+                  <BlindBoardSessionReviewPage
+                    getSession={getSession}
+                    deleter={extra?.deleter}
+                    confirmFn={extra?.confirmFn}
+                  />
                 }
               />
             </Routes>
@@ -262,6 +277,34 @@ describe('<BlindBoardSessionReviewPage> KS-3517', () => {
     expect(
       screen.getByTestId('blind-board-review-position-hidden'),
     ).toBeInTheDocument();
+  });
+
+  it('KS-3530: «Delete session» → confirm → deleter + navigate /blind-board/history', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    const user = userEvent.setup();
+    mockNavigate.mockReset();
+    const deleter = vi.fn().mockResolvedValue(undefined);
+    const confirmFn = vi.fn().mockReturnValue(true);
+    renderAt(
+      '/blind-board/sessions/bb-del',
+      {
+        session: session({ id: 'bb-del' }),
+        config: { startPieces: ['Q'], addOrder: [], memorizeTimeSec: 5 },
+        attempts: [],
+      },
+      { deleter, confirmFn },
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-review-delete'),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('blind-board-review-delete'));
+    expect(confirmFn).toHaveBeenCalled();
+    expect(deleter).toHaveBeenCalledWith('bb-del');
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/blind-board/history'),
+    );
   });
 
   it('error: показывает retry', async () => {

@@ -27,6 +27,35 @@ function item(
   };
 }
 
+describe('<BlindBoardHistoryList> KS-3530: удаление сессии', () => {
+  it('🗑 → confirm true → deleter(id) вызывается', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValue({
+      items: [item('bb-x')],
+      nextCursor: null,
+      hasMore: false,
+    } as BlindBoardHistoryResponse);
+    const deleter = vi.fn().mockResolvedValue(undefined);
+    const confirmFn = vi.fn().mockReturnValue(true);
+    renderWithProviders(
+      <BlindBoardHistoryList
+        fetcher={fetcher}
+        deleter={deleter}
+        confirmFn={confirmFn}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-history-delete-bb-x'),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('blind-board-history-delete-bb-x'));
+    expect(confirmFn).toHaveBeenCalled();
+    expect(deleter).toHaveBeenCalledWith('bb-x');
+  });
+});
+
 describe('<BlindBoardHistoryList> KS-3517', () => {
   it('каждая строка — Link на /blind-board/sessions/:id', async () => {
     const fetcher = vi.fn().mockResolvedValue({

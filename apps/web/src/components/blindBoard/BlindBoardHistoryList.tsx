@@ -6,6 +6,7 @@ import type {
   BlindBoardHistoryResponse,
 } from '@kingside/shared';
 import { api } from '../../api';
+import { blindBoardApi } from '../../api/blindBoardApi';
 
 /**
  * KS-3511 (ADR-093 §4.4) — список finished-сессий blind-board с
@@ -21,6 +22,10 @@ export interface BlindBoardHistoryListProps {
     cursor: string | null,
     limit: number,
   ) => Promise<BlindBoardHistoryResponse>;
+  /** KS-3530: DI для тестов — подмена blindBoardApi.deleteSession. */
+  deleter?: (sessionId: string) => Promise<void>;
+  /** KS-3530: DI confirm-диалога для тестов. */
+  confirmFn?: (msg: string) => boolean;
 }
 
 function fmtDate(iso: string | null): string {
@@ -32,9 +37,12 @@ function fmtDate(iso: string | null): string {
 
 export function BlindBoardHistoryList({
   fetcher,
+  deleter,
+  confirmFn,
 }: BlindBoardHistoryListProps = {}) {
   const { t } = useTranslation();
   const [items, setItems] = useState<BlindBoardHistoryItem[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   // cursorStack хранит cursor'ы для предыдущих страниц (back-навигация).
   // На первой странице cursorStack=[null]. После next пушим cursor
   // ОТВЕТА (тот, что использовали для текущей page), чтобы prev мог
@@ -74,6 +82,42 @@ export function BlindBoardHistoryList({
   useEffect(() => {
     void doFetch();
   }, [doFetch]);
+
+  // KS-3530: удаление сессии. confirm → DELETE → рефреш текущей
+  // страницы. Cursor-пагинация переиспользует currentCursor — backend
+  // отдаст актуальный snapshot без удалённой строки. Если удалили
+  // последний item на page > 1 — откатываем на предыдущую страницу
+  // через cursorStack.pop().
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      const confirm = confirmFn ?? ((m: string) => window.confirm(m));
+      const ok = confirm(
+        t(
+          'blindBoard.history.confirmDelete',
+          'Delete this session? This cannot be undone.',
+        ),
+      );
+      if (!ok) return;
+      setDeletingId(sessionId);
+      try {
+        const del =
+          deleter ?? ((id: string) => blindBoardApi.deleteSession(id));
+        await del(sessionId);
+        const onlyOne = items.length === 1 && cursorStack.length > 1;
+        if (onlyOne) {
+          setCursorStack((s) => s.slice(0, -1));
+        } else {
+          void doFetch();
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[blind-board-history] delete failed', e);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [confirmFn, deleter, t, items.length, cursorStack.length, doFetch],
+  );
 
   if (loading) {
     return (
@@ -162,6 +206,19 @@ export function BlindBoardHistoryList({
                   : '—'}
               </span>
             </Link>
+            {/* KS-3530: иконка удаления — отдельная кнопка вне Link. */}
+            <button
+              type="button"
+              className="blind-board-history__delete"
+              data-testid={`blind-board-history-delete-${s.id}`}
+              disabled={deletingId !== null}
+              aria-busy={deletingId === s.id}
+              aria-label={t('blindBoard.history.delete', 'Delete session')}
+              title={t('blindBoard.history.delete', 'Delete session')}
+              onClick={() => void handleDelete(s.id)}
+            >
+              🗑
+            </button>
           </li>
         ))}
       </ol>

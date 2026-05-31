@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { GuessHistoryResponse } from '@kingside/shared';
 import { api } from '../../api';
+import { guessApi } from '../../api/guessApi';
 
 /**
  * KS-3510 (ADR-093 §3.4) — список finished-сессий пользователя.
@@ -17,6 +18,13 @@ const PAGE_SIZE = 20;
 
 export interface GuessHistoryListProps {
   fetcher?: (offset: number, limit: number) => Promise<GuessHistoryResponse>;
+  /** KS-3530: DI для тестов — подмена guessApi.deleteSession. */
+  deleter?: (sessionId: string) => Promise<void>;
+  /**
+   * KS-3530: DI для confirm-диалога. window.confirm в тестах не доступен
+   * стабильно, и vitest happy-dom иногда вешает execution на нём.
+   */
+  confirmFn?: (msg: string) => boolean;
 }
 
 function fmtDate(iso: string | null): string {
@@ -26,12 +34,19 @@ function fmtDate(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function GuessHistoryList({ fetcher }: GuessHistoryListProps = {}) {
+export function GuessHistoryList({
+  fetcher,
+  deleter,
+  confirmFn,
+}: GuessHistoryListProps = {}) {
   const { t } = useTranslation();
   const [data, setData] = useState<GuessHistoryResponse | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // KS-3530: id сессии, которая сейчас удаляется (для блокировки UI
+  // и aria-busy на конкретной строке).
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const doFetch = useCallback(async () => {
     setLoading(true);
@@ -56,6 +71,44 @@ export function GuessHistoryList({ fetcher }: GuessHistoryListProps = {}) {
   useEffect(() => {
     void doFetch();
   }, [doFetch]);
+
+  // KS-3530: удаление сессии. confirm → DELETE → рефреш списка.
+  // Локально не удаляем item — рефетч даёт правильный pageInfo (total,
+  // прыжок на предыдущую страницу если удалили последний элемент).
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      const confirm = confirmFn ?? ((m: string) => window.confirm(m));
+      const ok = confirm(
+        t(
+          'guess.history.confirmDelete',
+          'Delete this session? This cannot be undone.',
+        ),
+      );
+      if (!ok) return;
+      setDeletingId(sessionId);
+      try {
+        const del =
+          deleter ?? ((id: string) => guessApi.deleteSession(id));
+        await del(sessionId);
+        // Если на странице был один item (последний на последней
+        // странице) — после удаления offset уведём назад. doFetch
+        // подхватит новый offset через зависимость useCallback.
+        const onlyOne =
+          data?.items.length === 1 && offset > 0;
+        if (onlyOne) {
+          setOffset((o) => Math.max(0, o - PAGE_SIZE));
+        } else {
+          void doFetch();
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[guess-history] delete failed', e);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [confirmFn, deleter, t, data, offset, doFetch],
+  );
 
   if (loading) {
     return (
@@ -147,6 +200,20 @@ export function GuessHistoryList({ fetcher }: GuessHistoryListProps = {}) {
               </span>
               <span className="guess-history__score">{s.score}</span>
             </Link>
+            {/* KS-3530: иконка удаления — отдельная кнопка вне Link,
+                чтобы клик не конфликтовал с переходом на review. */}
+            <button
+              type="button"
+              className="guess-history__delete"
+              data-testid={`guess-history-delete-${s.id}`}
+              disabled={deletingId !== null}
+              aria-busy={deletingId === s.id}
+              aria-label={t('guess.history.delete', 'Delete session')}
+              title={t('guess.history.delete', 'Delete session')}
+              onClick={() => void handleDelete(s.id)}
+            >
+              🗑
+            </button>
           </li>
         ))}
       </ol>

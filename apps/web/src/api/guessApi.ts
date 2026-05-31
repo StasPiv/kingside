@@ -65,6 +65,14 @@ export const guessApi = {
       {},
     );
   },
+  /**
+   * KS-3530. Удаление сессии. Backend (cf6585c2): owner-check + cascade
+   * по `GuessMove`. Если Analysis по этой сессии создан — он остаётся
+   * (guessSessionId UNIQUE/null, см. /to-analysis). 204 No Content.
+   */
+  deleteSession(sessionId: string): Promise<void> {
+    return api.delete<void>(`${BASE}/sessions/${sessionId}`);
+  },
 };
 
 /**

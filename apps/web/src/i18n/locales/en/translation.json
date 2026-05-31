@@ -534,6 +534,9 @@
       "openInAnalysis": "Open in analysis →",
       "openInAnalysisError": "Could not open the analysis: {{msg}}",
       "finishToAnalyzeHint": "Finish the session to open the analysis",
+      "delete": "🗑 Delete session",
+      "deleting": "Deleting…",
+      "confirmDelete": "Delete this session? This cannot be undone.",
       "movesTitle": "Moves",
       "movesEmpty": "No moves yet in this session",
       "actualPlayedHint": "Actually played in the game",
@@ -546,6 +549,8 @@
       "startCta": "Start a new session",
       "pageInfo": "{{from}}–{{to}} of {{total}}",
       "opening": "Opening…",
+      "delete": "Delete session",
+      "confirmDelete": "Delete this session? This cannot be undone.",
       "guest": {
         "message": "Sign in to see your finished sessions.",
         "cta": "Sign in and start training"
@@ -3705,13 +3710,18 @@
       "positionTitle": "Start position",
       "positionUnavailable": "Start position is not available for this session",
       "positionLocked": "Position will be revealed after the session ends",
-      "error": "Failed to load session"
+      "error": "Failed to load session",
+      "delete": "🗑 Delete session",
+      "deleting": "Deleting…",
+      "confirmDelete": "Delete this session? This cannot be undone."
     },
     "history": {
       "title": "Blind board history",
       "empty": "No finished sessions yet",
       "error": "Failed to load history",
       "startCta": "Start a new session",
+      "delete": "Delete session",
+      "confirmDelete": "Delete this session? This cannot be undone.",
       "streak": "streak {{n}}",
       "reason": {
         "wrong-answer": "Wrong answer",

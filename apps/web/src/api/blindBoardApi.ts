@@ -50,4 +50,12 @@ export const blindBoardApi = {
       `${BASE}/sessions/${sessionId}`,
     );
   },
+  /**
+   * KS-3530. Удаление сессии. Backend (cf6585c2): owner-check + cascade
+   * по `BlindBoardAttempt`. После удаления пересчитывает
+   * `User.blindBoardBestStreak = max(...)` или 0. 204 No Content.
+   */
+  deleteSession(sessionId: string): Promise<void> {
+    return api.delete<void>(`${BASE}/sessions/${sessionId}`);
+  },
 };

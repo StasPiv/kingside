@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   BlindBoardAttemptDto,
@@ -36,6 +36,10 @@ import { blindBoardApi } from '../api/blindBoardApi';
 export interface BlindBoardSessionReviewPageProps {
   /** DI для тестов. */
   getSession?: (id: string) => Promise<BlindBoardSessionReviewResponse>;
+  /** KS-3530: DI для blindBoardApi.deleteSession. */
+  deleter?: (id: string) => Promise<void>;
+  /** KS-3530: DI confirm-диалога. */
+  confirmFn?: (msg: string) => boolean;
 }
 
 function fmtDate(iso: string | null): string {
@@ -57,8 +61,11 @@ function fmtDuration(startedAt: string, finishedAt: string | null): string {
 
 export function BlindBoardSessionReviewPage({
   getSession,
+  deleter,
+  confirmFn,
 }: BlindBoardSessionReviewPageProps = {}) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
 
   const [data, setData] = useState<BlindBoardSessionReviewResponse | null>(
@@ -66,6 +73,30 @@ export function BlindBoardSessionReviewPage({
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const onDelete = useCallback(async () => {
+    if (!id || deleting) return;
+    const confirm = confirmFn ?? ((m: string) => window.confirm(m));
+    const ok = confirm(
+      t(
+        'blindBoard.review.confirmDelete',
+        'Delete this session? This cannot be undone.',
+      ),
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      const del =
+        deleter ?? ((sid: string) => blindBoardApi.deleteSession(sid));
+      await del(id);
+      navigate('/blind-board/history');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[blind-board-review] delete failed', e);
+      setDeleting(false);
+    }
+  }, [id, deleting, confirmFn, t, deleter, navigate]);
 
   const fetchSession = useCallback(async () => {
     if (!id) return;
@@ -187,6 +218,19 @@ export function BlindBoardSessionReviewPage({
             date: fmtDate(session.startedAt),
           })}
         </h1>
+        {/* KS-3530: удаление сессии. */}
+        <button
+          type="button"
+          className="blind-board-review-page__delete"
+          data-testid="blind-board-review-delete"
+          disabled={deleting}
+          aria-busy={deleting}
+          onClick={() => void onDelete()}
+        >
+          {deleting
+            ? t('blindBoard.review.deleting', 'Deleting…')
+            : t('blindBoard.review.delete', '🗑 Delete session')}
+        </button>
         <p
           className="blind-board-review-page__meta"
           data-testid="blind-board-review-meta"
