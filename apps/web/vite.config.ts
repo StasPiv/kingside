@@ -147,6 +147,26 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//, /^\/assets\//, /\/sw\.js$/],
         runtimeCaching: [
           {
+            // KS-3547: явный NetworkOnly для `/api/*`. До этого правила
+            // не было — на /api/ запросы фактически шли в default-fetch
+            // мимо SW, но в момент **SW takeover** (autoUpdate +
+            // skipWaiting + clientsClaim) новый worker должен сначала
+            // пройти всю цепочку routing-handler'ов прежде чем решить
+            // «нет правила — пропустить в сеть». На медленном мобильном
+            // Chrome это окно до нескольких секунд — POST'ы (например
+            // `/blind-board/sessions`) могли «застревать в SW лимбе»
+            // до 15 сек, AbortController в api-клиенте отменял их с
+            // `REQUEST_TIMEOUT`, ALB при этом не видел запроса
+            // (подтверждено devops в инциденте 2026-06-01 09:14 UTC).
+            // NetworkOnly даёт мгновенный pass-through и стабильное
+            // поведение даже при активации нового SW.
+            //
+            // Кэш не включаем (см. KS-2402 — кэш API на SW-уровне ломал
+            // per-resource invalidation).
+            urlPattern: /\/api\//,
+            handler: 'NetworkOnly',
+          },
+          {
             // KS-3456: hash-assets (`/assets/<name>-<hash>.<js|css>`)
             // → CacheFirst. Vite кладёт каждый chunk в /assets/ с
             // уникальным контент-хэшем (`-BxWKFX1e.js`); файл с тем

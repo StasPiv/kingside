@@ -118,6 +118,30 @@ async function refreshAccessToken(): Promise<string> {
   return data.accessToken;
 }
 
+/**
+ * KS-3547: телеметрия для расследования таймаутов на старте сессий
+ * (blind-board, guess). Логи `performance.now()` помогают понять,
+ * сколько времени ушло на сам fetch vs network — при следующем
+ * инциденте можно сопоставить с ALB-логами.
+ *
+ * Активируется ТОЛЬКО для конкретных «горячих» эндпоинтов, чтобы не
+ * засорять консоль обычным трафиком. Перечень минимальный, расширяем
+ * только когда есть жалоба.
+ */
+const TELEMETRY_PATHS: ReadonlySet<string> = new Set([
+  '/blind-board/sessions',
+  '/guess/sessions',
+]);
+
+function isTelemetryRequest(path: string, method: string): boolean {
+  if (method !== 'POST') return false;
+  // Берём первую сегмент-цепочку до query/params.
+  const clean = path.split('?')[0];
+  // Точное совпадение без trailing-id — старт сессии (POST /sessions),
+  // не submit/finish (POST /sessions/:id/...).
+  return TELEMETRY_PATHS.has(clean);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token');
   const headers: Record<string, string> = {
@@ -128,11 +152,40 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetchWithTimeout(
-    `${API_URL}${path}`,
-    { ...options, headers },
-    REQUEST_TIMEOUT_MS,
-  );
+  // KS-3547: тайминги для «горячих» POST'ов.
+  const method = options?.method ?? 'GET';
+  const isTelemetry = isTelemetryRequest(path, method);
+  const t0 = isTelemetry ? performance.now() : 0;
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${API_URL}${path}`,
+      { ...options, headers },
+      REQUEST_TIMEOUT_MS,
+    );
+    if (isTelemetry) {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[telemetry] ${method} ${path} ok status=${res.status} ` +
+          `fetch=${Math.round(performance.now() - t0)}ms ` +
+          `sw=${typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller}`,
+      );
+    }
+  } catch (e) {
+    if (isTelemetry) {
+      const code = e instanceof ApiError ? e.errorCode : 'UNKNOWN';
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[telemetry] ${method} ${path} FAILED code=${code} ` +
+          `elapsed=${Math.round(performance.now() - t0)}ms ` +
+          `sw=${typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller} ` +
+          `online=${typeof navigator !== 'undefined' ? navigator.onLine : 'n/a'}`,
+        e,
+      );
+    }
+    throw e;
+  }
 
   if (res.status === 401 && !path.includes('/auth/refresh') && !path.includes('/auth/login') && !path.includes('/auth/register')) {
     if (!refreshPromise) {
