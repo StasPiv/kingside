@@ -1419,20 +1419,20 @@
   z-index: 3;
 }
 
-/* KS-3539 / KS-3543 / KS-3544: round-robin показывает только фамилию.
-   Колонка должна адаптироваться под контент строки (короткие «So»/«Keymer»
-   не висели бы с пустотой), но не превышать «Praggnanandhaa + GM» ≈ 17–18ch.
-   `display: flex` на td (KS-3542) превращает её из table-cell в block-flex,
-   и колонка перестаёт быть жёсткой — каждая строка получает свою ширину
-   по контенту. width:max-content берёт ширину под текущий контент,
-   max-width:18ch ограничивает потолок (длинные обрежутся ellipsis).
-   Sticky offsets совпадают благодаря max-width-фиксации. */
+/* KS-3539 / KS-3543 / KS-3544 / KS-3545: round-robin показывает только
+   фамилию (lastNameOnly). Колонка должна вмещать «Praggnanandhaa R»
+   (16ch) + бейдж GM (≈3ch) = 19ch с небольшим запасом.
+   KS-3545: фиксированная ширина 20ch на th и td — `width: max-content`
+   (KS-3544) давал th=5ch под слово «PLAYER», а td до 18ch под фамилию,
+   границы заголовка и body расходились. С table-layout:fixed жёсткие
+   width/min-width/max-width гарантируют выравнивание шапки и тела. */
 .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
   position: sticky;
   left: 36px;
-  width: max-content;
-  max-width: 18ch;
+  width: 20ch;
+  min-width: 20ch;
+  max-width: 20ch;
   background: var(--c-12122a);
   z-index: 1;
   box-shadow: 1px 0 0 var(--c-2a2a4e);
@@ -1480,7 +1480,10 @@
 
 /* Round-robin matrix cells */
 .broadcast-xt-th-rr {
-  width: 32px;
+  /* KS-3545: th матричной колонки выровнен с .broadcast-xt-cell (td),
+     иначе границы шапки и body расходились (th=32 vs td=42). */
+  width: 42px;
+  min-width: 42px;
   color: var(--c-808098);
   font-size: 11px;
   font-weight: 600;
@@ -1801,22 +1804,24 @@
     min-width: 100px;
   }
 
-  /* KS-3539 / KS-3543 / KS-3544: round-robin name-колонка на mobile.
-     Sticky offset за обновлённой rank-колонкой 28px. width:max-content
-     + max-width:18ch наследуются из десктопного блока — колонка
-     адаптируется под текущую строку. Padding сужаем (общий mobile 6px 7px
-     избыточен для name на 390px). */
+  /* KS-3539 / KS-3543 / KS-3544 / KS-3545: round-robin name-колонка
+     на mobile. Sticky offset за обновлённой rank-колонкой 28px.
+     20ch жёстко на th и td наследуются из десктопного блока —
+     границы шапки и body совпадают. Padding сужаем (общий mobile
+     6px 7px избыточен для name на 390px). */
   .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
   .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
     left: 28px;
     padding: 6px 4px;
   }
 
-  /* KS-3544: на mobile матричные клетки результатов после удаления
-     w/b-индикаторов (KS-3541) содержат один символ (1/0/½/✕).
-     Сужаем до ~2.5em (≈30px при font 12px) с уменьшённым padding —
-     чтобы FED/ЭЛО/ОЧКИ помещались на 390px без горизонтального скролла,
-     матрица оппонентов уезжает в скролл. */
+  /* KS-3544 / KS-3545: на mobile матричные клетки результатов после
+     удаления w/b-индикаторов (KS-3541) содержат один символ
+     (1/0/½/✕). Сужаем до ~2.5em (≈30px при font 12px) с уменьшённым
+     padding — чтобы FED/ELO/PTS помещались на 390px без горизонтального
+     скролла, матрица оппонентов уезжает в скролл. th-rr выровнен с
+     cell, иначе границы шапки и body расходились. */
+  .broadcast-xt-scroll--round-robin .broadcast-xt-th-rr,
   .broadcast-xt-scroll--round-robin .broadcast-xt-cell {
     width: 2.5em;
     min-width: 2.5em;
