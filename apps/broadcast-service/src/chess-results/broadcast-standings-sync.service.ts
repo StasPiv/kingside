@@ -14,6 +14,7 @@ import {
 } from './chess-results-fetcher';
 import {
   LichessBroadcastPlayersFetcher,
+  sortedTokensKey,
   type LichessPlayerInfo,
 } from './lichess-broadcast-players-fetcher';
 import {
@@ -447,8 +448,26 @@ export class BroadcastStandingsSyncService {
       .catch(() => [] as LichessPlayerInfo[]);
     if (lichessPlayers.length === 0) return response;
     const byName = LichessBroadcastPlayersFetcher.toMap(lichessPlayers);
+    // KS-3548. Fallback-индекс по отсортированным токенам имени:
+    // chess-results-парсер отдаёт имена в виде `"Last First"` (без
+    // запятой) — normalizedName=`"last first"`. Lichess отдаёт
+    // `"Last, First"` — normalizePlayerName переворачивает в `"first
+    // last"`. Прямой byName.get(p.normalizedName) промахивается. Если
+    // отсортировать токены, ключи совпадут. Если в Lichess нашлось
+    // несколько игроков с тем же sorted-ключом (анаграммы) — карта
+    // помечает их `null` и fallback не применяется.
+    const byTokens = LichessBroadcastPlayersFetcher.toSortedTokensMap(
+      lichessPlayers,
+    );
     const enrichedPlayers: CrosstablePlayer[] = response.players.map((p) => {
-      const info = byName.get(p.normalizedName);
+      let info: LichessPlayerInfo | undefined = byName.get(p.normalizedName);
+      if (!info) {
+        const tokenKey = sortedTokensKey(p.normalizedName);
+        if (tokenKey) {
+          const cand = byTokens.get(tokenKey);
+          if (cand) info = cand;
+        }
+      }
       if (!info) return p;
       return {
         ...p,

@@ -175,4 +175,48 @@ export class LichessBroadcastPlayersFetcher {
     }
     return m;
   }
+
+  /**
+   * KS-3548. Хелпер: построить Map<sortedTokensKey, LichessPlayerInfo | null>
+   * для fallback-матчинга при разном порядке токенов в источниках имени.
+   *
+   * Пример: Lichess отдаёт `"Donchenko, Alexander"` → normalizePlayerName
+   * меняет на `"alexander donchenko"`. chess-results-парсер берёт текст
+   * ячейки `"Donchenko Alexander"` (без запятой) → `"donchenko alexander"`.
+   * Прямой lookup промахивается. Если отсортировать токены
+   * (`"alexander donchenko"` → `"alexander donchenko"`,
+   * `"donchenko alexander"` → `"alexander donchenko"`), ключи совпадают.
+   *
+   * Значение в map:
+   *   - `LichessPlayerInfo` — единственный игрок с таким sorted-ключом;
+   *   - `null` — два или более игроков имеют такой ключ (ambiguous,
+   *     не использовать для fallback'а, чтобы не подсунуть чужой рейтинг).
+   */
+  static toSortedTokensMap(
+    players: ReadonlyArray<LichessPlayerInfo>,
+  ): Map<string, LichessPlayerInfo | null> {
+    const m = new Map<string, LichessPlayerInfo | null>();
+    for (const p of players) {
+      const key = sortedTokensKey(p.normalizedName);
+      if (!key) continue;
+      if (m.has(key)) {
+        m.set(key, null);
+      } else {
+        m.set(key, p);
+      }
+    }
+    return m;
+  }
+}
+
+/**
+ * Возвращает строку из отсортированных по алфавиту токенов
+ * `normalizedName`. Пустую строку — для пустых имён или одного токена
+ * без повтора (в таких случаях обычный lookup и так должен сработать).
+ */
+export function sortedTokensKey(normalizedName: string): string {
+  if (!normalizedName) return '';
+  const parts = normalizedName.split(' ').filter(Boolean);
+  if (parts.length < 2) return normalizedName;
+  return [...parts].sort().join(' ');
 }
