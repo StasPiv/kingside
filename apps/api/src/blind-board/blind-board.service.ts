@@ -33,6 +33,7 @@ import {
   findUniqueTargetMoves,
   BLIND_BOARD_LIMITS,
   DEFAULT_BLIND_BOARD_CONFIG,
+  isDefaultBlindBoardConfig,
   type UniqueTargetMove,
   type BlindBoardPiece,
   type BlindBoardPieceType,
@@ -309,7 +310,14 @@ export class BlindBoardService {
           nextTargetPiece: Prisma.DbNull,
         },
       })) as unknown as BlindBoardSessionRow;
-      await this.maybeUpdateUserBestStreak(userId, finished.bestStreak);
+      // KS-3552: передаём фактический level сессии и её startConfig —
+      // для атомарного обновления bestLevel + bestConfigIsDefault.
+      await this.maybeUpdateUserBestStreak(
+        userId,
+        finished.bestStreak,
+        finished.level ?? 1,
+        (finished.startConfig as BlindBoardConfig | null) ?? null,
+      );
       return {
         correct: false,
         expectedSquare: expected.square,
@@ -327,17 +335,35 @@ export class BlindBoardService {
     const newStreak = row.streak + 1;
     const newBest = Math.max(row.bestStreak, newStreak);
 
-    // KS-3487 (ADR-088 V2 §15). Level-up на каждый 10-й правильный
-    // streak. ДО pickNextCompMove: добавляем новую фигуру в
-    // currentPosition (если addOrder не исчерпан) — следующий ход
-    // компа выбирается уже в расширенной позиции.
+    // KS-3487 / KS-3552 (ADR-088 V3 §16.5). Level-up на каждый
+    // `startConfig.levelDurationRounds`-й правильный streak. ДО
+    // pickNextCompMove: добавляем новую фигуру в currentPosition
+    // (если addOrder не исчерпан) — следующий ход компа выбирается
+    // уже в расширенной позиции.
+    //
+    // KS-3552: `progressionEnabled=false` отключает level-up'ы
+    // целиком (режим «фиксированный набор фигур» — игрок играет на
+    // L1 бесконечно, streak растёт). `levelDurationRounds` —
+    // конфигурируемая длительность уровня (V2 hardcode=10);
+    // допустимые значения см. LEVEL_DURATION_PRESETS.
     const currentLevel = row.level ?? 1;
     let newLevel = currentLevel;
     let levelUp: SubmitBlindBoardAnswerResponse['levelUp'];
     let positionForNextMove = currentPosition;
 
-    if (newStreak > 0 && newStreak % 10 === 0) {
-      const startConfig = row.startConfig as BlindBoardConfig | null;
+    const startConfigForLevelUp = row.startConfig as BlindBoardConfig | null;
+    const progressionEnabled =
+      startConfigForLevelUp?.progressionEnabled ?? true;
+    const levelDurationRounds =
+      startConfigForLevelUp?.levelDurationRounds ?? 10;
+
+    if (
+      progressionEnabled &&
+      levelDurationRounds > 0 &&
+      newStreak > 0 &&
+      newStreak % levelDurationRounds === 0
+    ) {
+      const startConfig = startConfigForLevelUp;
       const addOrder = startConfig?.addOrder ?? [];
       const addIdx = currentLevel - 1; // level=1 → addOrder[0], level=2 → addOrder[1] и т.д.
       if (addIdx < addOrder.length) {
@@ -501,11 +527,18 @@ export class BlindBoardService {
         id: true,
         username: true,
         blindBoardBestStreak: true,
+        // KS-3552 (ADR-088 V3 §16.5/6): bestLevel и configIsDefault
+        // читаются из колонок User, а не выводятся формулой. См.
+        // KS-3551 миграцию + maybeUpdateUserBestStreak.
+        blindBoardBestLevel: true,
+        blindBoardBestConfigIsDefault: true,
       },
     })) as ReadonlyArray<{
       id: string;
       username: string | null;
       blindBoardBestStreak: number;
+      blindBoardBestLevel: number;
+      blindBoardBestConfigIsDefault: boolean;
     }>;
 
     if (users.length === 0) return { entries: [] };
@@ -524,23 +557,21 @@ export class BlindBoardService {
           orderBy: { finishedAt: 'desc' },
           select: { finishedAt: true },
         });
-        // KS-3550 (V3 шаг 1): bestLevel + isDefaultConfig — пока считаем
-        // в V2-режиме (levelDurationRounds=10, всегда default), потому
-        // что миграция per-session config (KS-3551 / B-update) ещё не
-        // прошла. После B-update формула станет
-        // `floor(bestStreak / sessionConfig.levelDurationRounds) + 1`
-        // и `isDefaultConfig` будет читаться из сохранённого config'а.
-        const bestLevel = Math.floor(u.blindBoardBestStreak / 10) + 1;
+        // KS-3552 (ADR-088 V3 §16.5/6): bestLevel + isDefaultConfig
+        // читаются из колонок User'а (`blindBoardBestLevel`,
+        // `blindBoardBestConfigIsDefault`), обновляемых атомарно
+        // в `maybeUpdateUserBestStreak` при новом рекорде. Эпоха
+        // V2 покрыта backfill'ом миграции KS-3551 — bestLevel =
+        // floor(streak/10)+1, configIsDefault = true для всех.
         return {
           userId: u.id,
           username: u.username ?? 'Anonymous',
           bestStreak: u.blindBoardBestStreak,
           achievedAt: (session?.finishedAt ?? new Date()).toISOString(),
-          // KS-3484: maxLevel — derived formula по architect-recommendation
-          // (без отдельного столбца). 1..10 → L1, 11..20 → L2, ...
-          maxLevel: bestLevel,
-          bestLevel,
-          isDefaultConfig: true,
+          // Deprecated, оставлен для back-compat фронта до миграции.
+          maxLevel: u.blindBoardBestLevel,
+          bestLevel: u.blindBoardBestLevel,
+          isDefaultConfig: u.blindBoardBestConfigIsDefault,
         };
       }),
     );
@@ -892,10 +923,21 @@ export class BlindBoardService {
     return row;
   }
 
-  /** Обновляет User.blindBoardBestStreak, если новый > сохранённого. */
+  /**
+   * KS-3440 / KS-3552. Обновляет три поля User'а — `blindBoardBestStreak`,
+   * `blindBoardBestLevel`, `blindBoardBestConfigIsDefault` — атомарно
+   * одним UPDATE'ом, если новый streak > сохранённого. Иначе — no-op.
+   *
+   * KS-3552 (ADR-088 V3 §16.5/6): bestLevel и configIsDefault считаются
+   * по фактическому config'у завершившейся сессии — не выводятся из
+   * formula `floor(streak/10)+1`. Это важно при выключённой прогрессии
+   * (`progressionEnabled=false`): level всегда = 1, независимо от streak.
+   */
   private async maybeUpdateUserBestStreak(
     userId: string,
     candidate: number,
+    sessionLevel: number,
+    sessionConfig: BlindBoardConfig | null,
   ): Promise<void> {
     if (candidate <= 0) return;
     const user = await this.prisma.user.findUnique({
@@ -904,9 +946,16 @@ export class BlindBoardService {
     });
     if (!user) return;
     if (candidate > user.blindBoardBestStreak) {
+      const configIsDefault = sessionConfig
+        ? isDefaultBlindBoardConfig(sessionConfig)
+        : true;
       await this.prisma.user.update({
         where: { id: userId },
-        data: { blindBoardBestStreak: candidate },
+        data: {
+          blindBoardBestStreak: candidate,
+          blindBoardBestLevel: Math.max(1, sessionLevel),
+          blindBoardBestConfigIsDefault: configIsDefault,
+        },
       });
     }
   }
