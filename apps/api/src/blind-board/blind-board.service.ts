@@ -946,14 +946,35 @@ export class BlindBoardService {
     });
     if (!user) return;
     if (candidate > user.blindBoardBestStreak) {
-      const configIsDefault = sessionConfig
-        ? isDefaultBlindBoardConfig(sessionConfig)
-        : true;
+      // KS-3560 defensive: `isDefaultBlindBoardConfig` теперь не бросает
+      // даже на малформенном config'е (legacy startConfig без новых
+      // полей V3 — backfill KS-3551 миграция должна была покрыть, но
+      // продолжаем подстраховываться). Дополнительный try/catch на
+      // случай неожиданных сюрпризов с JSONB.
+      let configIsDefault = true;
+      if (sessionConfig) {
+        try {
+          configIsDefault = isDefaultBlindBoardConfig(sessionConfig);
+        } catch (err: unknown) {
+          this.logger.warn(
+            `[blind-board] isDefaultBlindBoardConfig threw for user=${userId.slice(0, 8)}: ` +
+              `${(err as Error).message}; defaulting to true`,
+          );
+          configIsDefault = true;
+        }
+      }
+      // KS-3560: sessionLevel может прийти null/undefined (legacy DB
+      // строки до KS-3485). Math.max(1, undefined) = NaN — Prisma
+      // отвергнет UPDATE. Нормализуем явно.
+      const safeLevel =
+        typeof sessionLevel === 'number' && Number.isFinite(sessionLevel)
+          ? Math.max(1, Math.floor(sessionLevel))
+          : 1;
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           blindBoardBestStreak: candidate,
-          blindBoardBestLevel: Math.max(1, sessionLevel),
+          blindBoardBestLevel: safeLevel,
           blindBoardBestConfigIsDefault: configIsDefault,
         },
       });

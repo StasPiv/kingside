@@ -924,6 +924,125 @@ describe('BlindBoardService.submitAnswer — KS-3552 V3 progression', () => {
     });
   });
 
+  it('KS-3560: finish при legacy startConfig (без V3-полей) НЕ бросает, configIsDefault=false', async () => {
+    // Регрессия KS-3560: до фикса `isDefaultBlindBoardConfig` падал
+    // на startConfig'е без `startPieces` (TypeError на `.length` of
+    // undefined), что обрушивало finish-хук submitAnswer'а с 500.
+    // Теперь helper defensive — возвращает false, finish-хук
+    // продолжает работу.
+    const prisma = makePrisma();
+    const malformedConfig = {
+      // Только memorizeTimeSec — V2-эра, до KS-3485 default'а.
+      memorizeTimeSec: 5,
+      // НЕТ startPieces, addOrder, levelDurationRounds, progressionEnabled.
+    };
+    const row = {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: malformedConfig,
+      level: 2,
+      streak: 7,
+      bestStreak: 7,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-06-01T00:00:00Z'),
+      finishedAt: null,
+    };
+    prisma.blindBoardSession.findUnique.mockResolvedValue(row);
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 8 }]);
+    prisma.blindBoardSession.update.mockResolvedValue({
+      ...row,
+      status: 'finished',
+      finishReason: 'wrong-answer',
+      currentCompMove: null,
+      nextTargetPiece: null,
+    });
+    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 3 });
+    const svc = new BlindBoardService(prisma);
+
+    await expect(
+      svc.submitAnswer('u1', 's1', {
+        square: 'h8' as BlindBoardSquare,
+        pieceType: 'Q',
+      }),
+    ).resolves.toBeDefined();
+
+    // User.update должен быть вызван (новый рекорд 7 > 3), bestLevel=2
+    // (из row.level), configIsDefault=false (помечен как НЕ default,
+    // потому что startConfig малформенный).
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: {
+        blindBoardBestStreak: 7,
+        blindBoardBestLevel: 2,
+        blindBoardBestConfigIsDefault: false,
+      },
+    });
+  });
+
+  it('KS-3560: finish при sessionLevel=undefined → safeLevel=1 (никаких NaN)', async () => {
+    const prisma = makePrisma();
+    const row = {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: null, // legacy без startConfig
+      level: undefined as unknown as number,
+      streak: 4,
+      bestStreak: 4,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-06-01T00:00:00Z'),
+      finishedAt: null,
+    };
+    prisma.blindBoardSession.findUnique.mockResolvedValue(row);
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 5 }]);
+    prisma.blindBoardSession.update.mockResolvedValue({
+      ...row,
+      status: 'finished',
+      finishReason: 'wrong-answer',
+      currentCompMove: null,
+      nextTargetPiece: null,
+    });
+    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 0 });
+    const svc = new BlindBoardService(prisma);
+
+    await svc.submitAnswer('u1', 's1', {
+      square: 'h8' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+
+    // sessionConfig=null → configIsDefault=true (legacy безопасный fallback).
+    // sessionLevel=undefined → safeLevel=1.
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: {
+        blindBoardBestStreak: 4,
+        blindBoardBestLevel: 1,
+        blindBoardBestConfigIsDefault: true,
+      },
+    });
+  });
+
   it('finish без нового рекорда — User не обновляется', async () => {
     const prisma = makePrisma();
     const row = {
