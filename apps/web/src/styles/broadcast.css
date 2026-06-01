@@ -1419,16 +1419,19 @@
   z-index: 3;
 }
 
-/* KS-3539: round-robin показывает только фамилию (см. lastNameOnly).
-   Колонка под самую длинную фамилию (≈14 знаков с учётом title-бейджа
-   GM/IM/WGM). Перекрываем общие 200px из десктопного блока выше. */
+/* KS-3539 / KS-3543: round-robin показывает только фамилию (lastNameOnly).
+   Колонка под самую длинную фамилию (Praggnanandhaa = 14 + бейдж GM ≈ 17).
+   KS-3543: 14ch было мало — после flex-фикса (KS-3542) бейдж занимал
+   фиксированную ширину, а name-text получал ≈7ch и обрезался до «Pra…».
+   Поставили min-width: 18ch без width/max-width — колонка может расти
+   под контент. Таблица уже горизонтально скроллится (table-layout: fixed
+   + width: max-content из KS-3538), доп ширина допустима. Перекрываем
+   общие 200px из десктопного блока выше. */
 .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
   position: sticky;
   left: 36px;
-  width: 14ch;
-  min-width: 14ch;
-  max-width: 14ch;
+  min-width: 18ch;
   background: var(--c-12122a);
   z-index: 1;
   box-shadow: 1px 0 0 var(--c-2a2a4e);
@@ -1794,14 +1797,15 @@
     min-width: 100px;
   }
 
-  /* KS-3539: round-robin name-колонка на mobile — фамилия в одну
-     строку (12ch) + sticky offset за обновлённой rank-колонкой 28px. */
+  /* KS-3539 / KS-3543: round-robin name-колонка на mobile — sticky
+     offset за обновлённой rank-колонкой 28px. min-width: 18ch
+     наследуется из десктопного блока, явно повторяем для ясности.
+     KS-3543: 12ch было мало (бейдж + фамилия не помещались, обрезалось
+     до «Pra…»). */
   .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
   .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
     left: 28px;
-    width: 12ch;
-    min-width: 12ch;
-    max-width: 12ch;
+    min-width: 18ch;
   }
 
   .broadcast-xt-team-toggle-cell {
