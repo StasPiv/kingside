@@ -1419,19 +1419,20 @@
   z-index: 3;
 }
 
-/* KS-3539 / KS-3543: round-robin показывает только фамилию (lastNameOnly).
-   Колонка под самую длинную фамилию (Praggnanandhaa = 14 + бейдж GM ≈ 17).
-   KS-3543: 14ch было мало — после flex-фикса (KS-3542) бейдж занимал
-   фиксированную ширину, а name-text получал ≈7ch и обрезался до «Pra…».
-   Поставили min-width: 18ch без width/max-width — колонка может расти
-   под контент. Таблица уже горизонтально скроллится (table-layout: fixed
-   + width: max-content из KS-3538), доп ширина допустима. Перекрываем
-   общие 200px из десктопного блока выше. */
+/* KS-3539 / KS-3543 / KS-3544: round-robin показывает только фамилию.
+   Колонка должна адаптироваться под контент строки (короткие «So»/«Keymer»
+   не висели бы с пустотой), но не превышать «Praggnanandhaa + GM» ≈ 17–18ch.
+   `display: flex` на td (KS-3542) превращает её из table-cell в block-flex,
+   и колонка перестаёт быть жёсткой — каждая строка получает свою ширину
+   по контенту. width:max-content берёт ширину под текущий контент,
+   max-width:18ch ограничивает потолок (длинные обрежутся ellipsis).
+   Sticky offsets совпадают благодаря max-width-фиксации. */
 .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
   position: sticky;
   left: 36px;
-  min-width: 18ch;
+  width: max-content;
+  max-width: 18ch;
   background: var(--c-12122a);
   z-index: 1;
   box-shadow: 1px 0 0 var(--c-2a2a4e);
@@ -1443,10 +1444,13 @@
    бейдж — flex:0 0 auto, name-text — flex:1 1 auto + min-width:0
    (обязателен, иначе flex-child не ужимается ниже своего content-size
    и ellipsis не срабатывает). th не имеет бейджа — на него flex действует
-   нейтрально (один текстовый узел). */
+   нейтрально (один текстовый узел).
+   KS-3544: justify-content: flex-start явно — чтобы пустоты после короткой
+   фамилии не было (хоть это и дефолт flex'а, фиксируем намерение). */
 .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
   display: flex;
   align-items: baseline;
+  justify-content: flex-start;
   gap: 4px;
 }
 
@@ -1797,15 +1801,26 @@
     min-width: 100px;
   }
 
-  /* KS-3539 / KS-3543: round-robin name-колонка на mobile — sticky
-     offset за обновлённой rank-колонкой 28px. min-width: 18ch
-     наследуется из десктопного блока, явно повторяем для ясности.
-     KS-3543: 12ch было мало (бейдж + фамилия не помещались, обрезалось
-     до «Pra…»). */
+  /* KS-3539 / KS-3543 / KS-3544: round-robin name-колонка на mobile.
+     Sticky offset за обновлённой rank-колонкой 28px. width:max-content
+     + max-width:18ch наследуются из десктопного блока — колонка
+     адаптируется под текущую строку. Padding сужаем (общий mobile 6px 7px
+     избыточен для name на 390px). */
   .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
   .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
     left: 28px;
-    min-width: 18ch;
+    padding: 6px 4px;
+  }
+
+  /* KS-3544: на mobile матричные клетки результатов после удаления
+     w/b-индикаторов (KS-3541) содержат один символ (1/0/½/✕).
+     Сужаем до ~2.5em (≈30px при font 12px) с уменьшённым padding —
+     чтобы FED/ЭЛО/ОЧКИ помещались на 390px без горизонтального скролла,
+     матрица оппонентов уезжает в скролл. */
+  .broadcast-xt-scroll--round-robin .broadcast-xt-cell {
+    width: 2.5em;
+    min-width: 2.5em;
+    padding: 4px 2px;
   }
 
   .broadcast-xt-team-toggle-cell {
