@@ -1568,44 +1568,15 @@
 }
 
 /*
- * KS-2483: маркер цвета фигуры — кружок (шахматная норма), не
- * прямоугольник. Раньше badge использовал `var(--c-eeeeee)` /
- * `var(--c-222)`, а `--c-222` в светлой теме переопределён в `#ededed`
- * (светло-серый, как и `--c-eeeeee`) — оба маркера сливались в
- * одинаковый светлый прямоугольник. Маркер цвета фигуры — НЕ
- * семантика темы; используем чистые `#ffffff` / `#1a1a1a` независимо
- * от темы. Букву `w`/`b` визуально скрываем (a11y держится на `title`
- * на родителе `.broadcast-xt-cell-game`).
+ * KS-2483 → KS-3541: маркер цвета фигуры (кружок-sup w/b) был убран —
+ * в круговой таблице он перегружал ячейки. CSS-правила
+ * `.broadcast-xt-cell-game__color*` удалены вместе с JSX-узлом в
+ * `RoundRobinCrosstable.tsx`. Цвет остаётся доступен через `data-color`
+ * + `title` на родительском `.broadcast-xt-cell-game`.
+ *
+ * Если потребуется вернуть маркер — старая версия остаётся в git
+ * history по `KS-2483` (см. broadcast.css).
  */
-.broadcast-xt-cell-game__color {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-left: 1px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--c-808098, #808098);
-  /* vertical-align не нужен: родитель — inline-flex с align-items: center,
-     и flex выравнивает дочерние по своей оси. */
-  flex-shrink: 0;
-  /* Прячем букву w/b визуально, оставляем в DOM. */
-  font-size: 0;
-  line-height: 0;
-  color: transparent;
-  overflow: hidden;
-}
-
-.broadcast-xt-cell-game__color--white {
-  background: #ffffff;
-  /* На светлой теме нужен заметный border, иначе белый кружок не видно. */
-  border-color: #6b6b6b;
-}
-
-.broadcast-xt-cell-game__color--black {
-  background: #1a1a1a;
-  /* На тёмной теме нужен светлый border, иначе чёрный кружок сливается. */
-  border-color: #b0b0b0;
-}
 
 /* Swiss-specific */
 .broadcast-xt-th-round {

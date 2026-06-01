@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CrosstableRoundRobin } from '@kingside/shared';
 import {
-  cellLetterForColor,
   cellResultClass,
   formatGameSymbol,
   formatResultSymbol,
@@ -181,17 +180,12 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
                                   : undefined
                               }
                             >
+                              {/* KS-3541: убран sup-маркер цвета фигур
+                                  (w/b) — перегружал таблицу. Цвет
+                                  остаётся в data-color + title для a11y. */}
                               <span className="broadcast-xt-cell-game__sym">
                                 {formatGameSymbol(g)}
                               </span>
-                              {g.color && (
-                                <sup
-                                  className={`broadcast-xt-cell-game__color broadcast-xt-cell-game__color--${g.color}`}
-                                  aria-hidden="true"
-                                >
-                                  {cellLetterForColor(g.color)}
-                                </sup>
-                              )}
                             </span>
                           );
                         })}

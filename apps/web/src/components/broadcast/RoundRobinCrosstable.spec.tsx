@@ -249,6 +249,17 @@ describe('<RoundRobinCrosstable>', () => {
       // Текстовые символы — «1» и «½».
       expect(game0.textContent).toContain('1');
       expect(game1.textContent).toContain('½');
+      // KS-3541: sup-маркер цвета (w/b) больше не рендерится —
+      // перегружал ячейку. Цвет остаётся в data-color для DOM-навигации
+      // и в title для a11y.
+      expect(
+        game0.querySelector('.broadcast-xt-cell-game__color'),
+      ).toBeNull();
+      expect(
+        game1.querySelector('.broadcast-xt-cell-game__color'),
+      ).toBeNull();
+      expect(game0.textContent).not.toMatch(/\b[wb]\b/);
+      expect(game1.textContent).not.toMatch(/\b[wb]\b/);
       // Клик по первому значку — навигация на g1.
       fireEvent.click(game0);
       expect(mockNavigate).toHaveBeenCalledWith('/broadcasts/b1/r-g1/g1');
