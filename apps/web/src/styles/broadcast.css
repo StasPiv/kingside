@@ -1434,11 +1434,32 @@
   box-shadow: 1px 0 0 var(--c-2a2a4e);
 }
 
+/* KS-3542: на mobile (12ch) бейдж GM + фамилия лежали inline; max-width:100%
+   у name-text считался от td, а бейдж занимал свою ширину сверх — фамилия
+   вылазила за колонку и наезжала на FED. Делаем td flex-контейнером:
+   бейдж — flex:0 0 auto, name-text — flex:1 1 auto + min-width:0
+   (обязателен, иначе flex-child не ужимается ниже своего content-size
+   и ellipsis не срабатывает). th не имеет бейджа — на него flex действует
+   нейтрально (один текстовый узел). */
+.broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.broadcast-xt-scroll--round-robin .broadcast-xt-title {
+  flex: 0 0 auto;
+}
+
 /* KS-3539: фамилия в одну строку с ellipsis — длинная не растягивает
    колонку, table-layout:fixed остаётся работоспособным (нужен для
-   корректных sticky offsets, см. KS-3538). */
+   корректных sticky offsets, см. KS-3538).
+   KS-3542: добавили flex:1 1 auto + min-width:0 — name-text занимает
+   остаток после бейджа и реально ужимается под ellipsis. */
 .broadcast-xt-scroll--round-robin .broadcast-xt-name-text {
   display: inline-block;
+  flex: 1 1 auto;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
