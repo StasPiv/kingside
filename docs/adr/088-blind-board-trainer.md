@@ -1,9 +1,19 @@
 # ADR-088. Blind-board — тренировка «найди фигуру по ходу компьютера»
 
-Статус: принят (2026-05-30, ревизия 2)
+Статус: принят (2026-06-01, ревизия 3)
 Связано: KS-3437 (V1), KS-3483 (V2 — прогрессивная сложность),
+KS-3549 (V3 — гибкая длительность уровней),
 ADR-081 (training lobby), ADR-086 (guess-the-move),
 ADR-076/080 (bottom-sheet).
+
+> **Ревизия 3 (2026-06-01).** Гибкая настройка прогрессии (§16):
+> новый параметр `levelDurationRounds` (default 10) + флаг
+> `progressionEnabled` (default true). Пользователь может ускорить
+> прогрессию, замедлить или полностью отключить («не повышать»).
+> Лидерборд расширяется — рекорды с не-дефолтным config'ом
+> помечаются бейджем «🛠 custom»; `maxLevel` для лидерборда
+> хранится в `User.blindBoardBestLevel` (denorm, точнее чем
+> derive для произвольной длительности).
 
 > **Ревизия 2 (2026-05-30).** Прогрессивная сложность поверх
 > базовой механики (см. §15). Старт = 3 фигуры; каждые 10
@@ -745,3 +755,281 @@ additive.
 **Осталось решить frontend'у (UX-выбор, не блокирует backend):**
 - Q4: UX порядка добавления — drag&drop / up-down кнопки /
   dropdowns. Решается при F1-v2.
+
+---
+
+## 16. Ревизия 3 — гибкая настройка прогрессии (KS-3549)
+
+### 16.1 Запрос пользователя
+
+«Сейчас L1→L2→L3 каждые 10 раундов автоматически. Хочу
+настраивать длительность каждого уровня вплоть до "никогда не
+повышать"».
+
+### 16.2 Решение
+
+Два новых поля в `BlindBoardConfig` (доп. к §15):
+
+- **`levelDurationRounds: number`** — сколько успешных раундов
+  на одном уровне до перехода к следующему. Default 10
+  (текущее поведение). Пресеты 5 / 10 / 15 / 20 (Open Q2).
+- **`progressionEnabled: boolean`** — глобальный switch. Default
+  `true`. При `false` — level-up НЕ срабатывает никогда,
+  играем фиксированной стартовой сложностью бесконечно.
+
+**Per-level array** (разная длительность для L1/L2/L3) — НЕ в M1
+(Open Q1). Один параметр для всех переходов достаточно для
+запроса; per-level можно ввести в M2 если потребуется.
+
+### 16.3 Формула level-up V3
+
+В `BlindBoardService.submitAnswer` (заменяет §15.7):
+
+```
+session.streak++
+if !session.startConfig.progressionEnabled:
+  return obычный flow  // прогрессии нет вообще
+if hasNextLevelInConfig(session)
+   AND session.streak % session.startConfig.levelDurationRounds === 0:
+  newPiece = session.startConfig.addOrder[session.level - 1]
+  newSquare = pickRandomEmptySquare(currentPosition,
+                                    colorConstraint(newPiece))
+  currentPosition.push({ square: newSquare, type: newPiece })
+  session.level++
+  return { ..., levelUp: { newLevel, newPiece, newSquare } }
+generateNextCompMove(...)
+```
+
+`computeLevel(streak, durationRounds)` = `Math.floor(streak /
+durationRounds) + 1`. При `progressionEnabled=false` всегда
+возвращает 1 (или, точнее, остаётся на startLevel).
+
+### 16.4 UX в BlindBoardConfigForm (F1-v3)
+
+В раскрывающейся секции «Настройки сложности» (после addOrder,
+перед memorize-time) **новая подгруппа «Прогрессия»**:
+
+```
+▼ Настройки сложности
+
+  Старт (3..7 фигур): [Q ▾ 1] [R ▾ 1] [B ▾ 0] [N ▾ 1]
+
+  Порядок добавления: [B] [B] [R] [N]   (drag&drop)
+
+  ── Прогрессия ────────────────────
+  ☑ Повышать сложность автоматически
+     Длительность уровня:
+     [ 5 ] [ 10* ] [ 15 ] [ 20 ]   (pill, дефолт 10)
+
+  Memorize-time: [ 3 ] [ 5* ] [ 10 ]   (pill, дефолт 5)
+```
+
+При снятии чекбокса «Повышать сложность автоматически»:
+- pill «Длительность уровня» disabled (visual greyed).
+- pill «Порядок добавления» — disabled или скрыт (не имеет
+  смысла без прогрессии). Решение: скрываем (меньше шума), но
+  сохраняем значение в state для возврата.
+- В заголовке свёрнутой секции показывается «Без повышения».
+
+LocalStorage сохраняет всё (включая `progressionEnabled` +
+`levelDurationRounds`).
+
+### 16.5 Лидерборд (B-leader + F-leader)
+
+Текущий (§15.11): `bestStreak` + derive `maxLevel =
+floor(bestStreak/10)+1` для дефолта.
+
+**Проблема V3:** derive формула неточна для custom
+`levelDurationRounds` (при `=5` уровень другой). При
+`progressionEnabled=false` derive ВСЕГДА даёт уровень = 1
+(нелогично, у игрока 28 раундов на одном уровне).
+
+**Решение V3:** денормализуем `maxLevel` и флаг конфига в
+`User`:
+
+```prisma
+model User {
+  ...
+  blindBoardBestStreak Int @default(0)  // уже есть (KS-3440)
+  blindBoardBestLevel  Int @default(1)   // новое V3
+  blindBoardBestConfigIsDefault Boolean @default(true)  // новое V3
+}
+```
+
+При finish-обработке: если `newBestStreak`, в той же транзакции
+обновляем `User.blindBoardBestLevel = session.level` (фактический
+максимальный уровень из сессии-рекордсмена) и
+`blindBoardBestConfigIsDefault = isDefaultConfig(session.
+startConfig)`.
+
+`isDefaultConfig(config)`:
+- startPieces === DEFAULT.startPieces
+- addOrder === DEFAULT.addOrder
+- levelDurationRounds === 10
+- progressionEnabled === true
+- memorizeTimeSec === 5 (V2)
+
+**Лидерборд UI V3:**
+
+```
+🏆 Слепая доска
+─────────────────────────────
+1. user_a    34 раундов · L4
+2. user_b    28 раундов · L3
+3. user_c    27 раундов · L4  🛠
+4. user_d    20 раундов · L2
+```
+
+Бейдж **🛠** рядом со streak/level если запись установлена с
+не-дефолтным config'ом. Без бейджа = дефолтная прогрессия.
+
+Семантика: рекорды custom-config не дискриминируются (один
+общий лидерборд = одна линия мотивации), но прозрачно помечаются.
+Любопытные могут навести на бейдж и увидеть «custom config:
+levelDurationRounds=5, без повышения, и т.д.» (tooltip).
+
+**Альтернативы (отвергнуты):**
+- Отдельные лидерборды per-config — комбинаторно много.
+- Только default config в лидерборде — жёстко, дискриминирует
+  expert-mode (старт 7, expert-mode тоже достижение).
+- Без бейджа (общий зачёт без указания config) — несправедливо
+  (рекорд `progressionEnabled=false` со старт 3 фигуры всегда
+  даст streak больше, чем с прогрессией).
+
+### 16.6 Хранение (V3)
+
+Расширение `BlindBoardSession.startConfig` JSON-shape:
+- `startPieces: PieceType[]` (V2)
+- `addOrder: PieceType[]` (V2)
+- `memorizeTimeSec: number` (V2)
+- **`levelDurationRounds: number`** (V3, default 10)
+- **`progressionEnabled: boolean`** (V3, default true)
+
+`BlindBoardSession.level Int` (V2) — текущий уровень при
+`progressionEnabled=true`; при `false` всегда 1.
+
+`User.blindBoardBestLevel Int @default(1)` (V3) — denorm для
+лидерборда.
+
+`User.blindBoardBestConfigIsDefault Boolean @default(true)` (V3)
+— флаг рекордной сессии.
+
+**Backfill V3:** existing sessions получают
+`startConfig.levelDurationRounds=10`, `progressionEnabled=true`.
+existing `User.blindBoardBestLevel = floor(blindBoardBestStreak/10)+1`
+(derive из существующего рекорда), `blindBoardBestConfigIsDefault=
+true` (все existing рекорды установлены с дефолтным config'ом —
+он был единственным до V2/V3).
+
+### 16.7 Что НЕ делаем (M1 ревизии 3)
+
+- НЕ вводим per-level array длительностей (Open Q1, M2 если
+  понадобится).
+- НЕ создаём отдельные лидерборды по config'у.
+- НЕ позволяем кастомные числовые input для длительности —
+  только пресеты pill (Open Q3).
+- НЕ ретроактивно меняем `User.blindBoardBestConfigIsDefault` для
+  существующих рекордов (см. §16.6 backfill — всё default).
+
+### 16.8 Реализация — подзадачи V3 (расширения V2)
+
+Зависимости: S2-v3 → B0-v3 → B-update (level-up + finish-hook) →
+F-leader; F1-v3 параллельно.
+
+#### KS (S2-v3) — shared types: levelDurationRounds + progressionEnabled
+
+**Assignee:** backend (shared). **Labels:** `puzzle`, `analysis`.
+- В `BlindBoardConfig`: `levelDurationRounds: number` + `progressionEnabled:
+  boolean`.
+- В `BLIND_BOARD_DEFAULT_CONFIG`: `levelDurationRounds: 10`,
+  `progressionEnabled: true`.
+- `LEVEL_DURATION_PRESETS = [5, 10, 15, 20]`.
+- В `BlindBoardLeaderboardEntry` (если есть в shared) — добавить
+  `bestLevel: number` + `isDefaultConfig: boolean`.
+- Acceptance: TS-сборка чистая.
+
+#### KS (B0-v3) — миграция Prisma
+
+**Assignee:** backend (prisma). **Labels:** `puzzle`, `prisma`.
+- `User.blindBoardBestLevel Int @default(1)`.
+- `User.blindBoardBestConfigIsDefault Boolean @default(true)`.
+- Backfill startConfig в existing sessions с
+  `levelDurationRounds=10`, `progressionEnabled=true`.
+- Backfill `User.blindBoardBestLevel = floor(blindBoardBestStreak
+  / 10) + 1` для всех users.
+- Acceptance: миграция чистая, backfill применён.
+
+#### KS (B-update) — `submitAnswer`: учёт `levelDurationRounds` + `progressionEnabled`; finish: обновление User.*
+
+**Assignee:** backend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** S2-v3, B0-v3.
+- В `BlindBoardService.submitAnswer` — формула level-up по
+  §16.3: skip при `!progressionEnabled`, иначе
+  `streak % levelDurationRounds === 0`.
+- В finish-обработке: если `session.streak > User.blindBoardBestStreak`
+  — атомарно обновить `User.blindBoardBestStreak/Level/
+  ConfigIsDefault` из session (level и isDefaultConfig).
+- `isDefaultConfig()` helper в shared (или backend), сравнивает с
+  DEFAULT_CONFIG.
+- Acceptance: при `progressionEnabled=false` — no level-up; при
+  `levelDurationRounds=5` — level-up на 5/10/15...; при finish
+  с новым рекордом обновлены 3 поля User.
+
+#### KS (F1-v3) — UI «Прогрессия» в BlindBoardConfigForm
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** S2-v3.
+- Чекбокс «Повышать сложность автоматически» (default on).
+- Pill-toggle «Длительность уровня» (5/10/15/20, default 10).
+- При снятом чекбоксе — pill длительности disabled, addOrder
+  скрыт.
+- LocalStorage сохраняет `progressionEnabled` +
+  `levelDurationRounds`.
+- В заголовке свёрнутой секции — «Без повышения» если off.
+- Acceptance: дефолт = on + 10; off → CTA enabled, addOrder
+  скрыт; localStorage; квоты не нарушаются.
+
+#### KS (F-leader) — обновление лидерборда: бейдж config
+
+**Assignee:** frontend. **Labels:** `puzzle`, `analysis`.
+**Зависит:** B-update.
+- На странице лидерборда `/blind-board/leaderboard` — рядом со
+  streak/level показывать бейдж **🛠** если `!isDefaultConfig`.
+- Tooltip на бейдже — «Custom config» (или раскрытие в
+  hover: levelDurationRounds=5, etc.) — опционально M2.
+- Acceptance: рекорды с дефолтным config — без бейджа; с custom
+  — с бейджем; tooltip опционально.
+
+#### KS (L1-v3) — CSS «Прогрессия»-блока + бейджа лидерборда
+
+**Assignee:** layout. **Labels:** `puzzle`, `analysis`, `mobile`.
+**Зависит:** F1-v3, F-leader.
+- CSS подгруппы «Прогрессия» (toggle + pill).
+- Бейдж «🛠» — компактный иконочный.
+- Mobile-адаптив.
+- Acceptance: viewport 360×844 — настройки помещаются;
+  лидерборд с бейджем читается.
+
+Итого **5 задач V3** (S2-v3 + B0-v3 + B-update + F1-v3 +
+F-leader + L1-v3). Всё additive к V2.
+
+### 16.9 Open questions V3
+
+1. **Per-level array** `levelDurations[]` (разные L1/L2/L3 длины)
+   — M2 (моё) или сразу M1? Один параметр покрывает запрос.
+2. **Пресеты `levelDurationRounds`** — `[5, 10, 15, 20]` (моё) или
+   другие (например `[3, 5, 10, 15, 25]`)?
+3. **Кастомное число** в input (override пресетов) — позволять
+   или только pill?
+4. **Бейдж лидерборда** — единый «🛠 custom» (моё) или градации
+   («⚡ fast / 🐢 slow / 🛠 no-progression»)? Tooltip с деталями
+   — M2.
+5. **Денормализация `User.blindBoardBestLevel/ConfigIsDefault`**
+   (моё) vs derive через JOIN на сессию-рекордсменку? Денорм
+   проще и быстрее (одна запись пишется в finish-hook).
+6. **Backfill `isDefaultConfig=true`** для всех existing — все
+   рекорды были установлены до V3, на default config'е. Это
+   правильно (моё). Подтвердить.
+7. **`progressionEnabled=false`** — нужно ли в UI визуально
+   как-то поощрять (бейдж «Без повышения» в HUD во время
+   тренировки)? UX-bonus, не блокер.
