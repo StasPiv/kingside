@@ -75,6 +75,20 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const isBotRef = useRef(false);
   isBotRef.current = isBot;
+  // KS-3559: backend в WS state шлёт `botClientSide=true` для партий,
+  // где локальный Stockfish играет за оппонента (matchmaking
+  // 30-секундный fallback + Workshop Play-vs-Bot). Без `botClientSide`
+  // включаем engine по `isBot=true` (legacy + back-compat: до KS-3559
+  // backend не выставлял botClientSide, но любая bot-партия была
+  // client-side). Future-proof для ADR-034 v2 (WS-bot-fleet): сервер
+  // будет шлёт `isBot=true, botClientSide=false` — локальный движок
+  // НЕ запустится, сервер сделает ход.
+  const [botClientSide, setBotClientSide] = useState<boolean | undefined>(
+    undefined,
+  );
+  const isBotClientSide = isBot && botClientSide !== false;
+  const isBotClientSideRef = useRef(false);
+  isBotClientSideRef.current = isBotClientSide;
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [botBannerDismissed, setBotBannerDismissed] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
@@ -84,7 +98,7 @@ export function GamePage() {
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [whiteBerserk, setWhiteBerserk] = useState(false);
   const [blackBerserk, setBlackBerserk] = useState(false);
-  const { getBotMove } = useBotEngine(gameId, botLevel, isBot);
+  const { getBotMove } = useBotEngine(gameId, botLevel, isBotClientSide);
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
 
@@ -282,11 +296,19 @@ export function GamePage() {
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
+      // KS-3559: backend в WS state шлёт botClientSide. undefined = legacy
+      // back-compat (до KS-3559 поле отсутствовало, всегда client-side).
+      if (state.botClientSide !== undefined) setBotClientSide(state.botClientSide);
       updateFromState(state);
       if (isFirstState && state.status === 'active') {
         playSound('game-start');
-        // If bot plays first (player is black), trigger initial bot move
-        if (state.isBot && gameId && state.moves.length === 0 && state.color === 'black') {
+        // If bot plays first (player is black), trigger initial bot move.
+        // KS-3559: триггерим Stockfish только для client-side ботов
+        // (botClientSide!==false). Для будущих server-side ботов
+        // (ADR-034 v2) первый ход придёт по WS как обычный move:server.
+        const isClientBot =
+          state.isBot === true && state.botClientSide !== false;
+        if (isClientBot && gameId && state.moves.length === 0 && state.color === 'black') {
           const fen = new Chess().fen(); // starting position
           triggerBotMoveRef.current(fen);
         }
@@ -326,8 +348,10 @@ export function GamePage() {
       // to avoid a redundant re-render that causes piece flicker.
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
-        // Trigger bot move if it's bot's turn after player's move echo
-        if (isBotRef.current && gameId) {
+        // KS-3559: trigger client-side bot move ТОЛЬКО для botClientSide.
+        // Для server-side ботов (ADR-034 v2) ход придёт следующим
+        // game:move событием с сервера, локальный движок не стартуем.
+        if (isBotClientSideRef.current && gameId) {
           triggerBotMoveRef.current(data.fen);
         }
         return;

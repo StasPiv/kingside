@@ -16,15 +16,21 @@ const READY_TIMEOUT_MS = 10_000;
 const READY_POLL_MS = 50;
 
 /**
- * Local Stockfish 18 WASM movegen для **явного** Play vs Bot (Workshop /
- * LobbyPage / PlayPage режим «Играть с ботом»).
+ * Local Stockfish 18 WASM movegen для **client-side** Play vs Bot.
  *
- * KS-2165 (F1): этот хук активируется ТОЛЬКО для партий, где сервер
- * выставил `state.isBot=true`. После рефактора matchmaking (KS-2165 B6)
- * synthetic-соперники в matchmaking-flow приходят с `isBot=false` —
- * локальный Stockfish для них НЕ запускается, рендеринг идёт как обычная
- * live-партия. Никакого client-side fallback'а на 30-секундное ожидание
- * больше нет.
+ * Активируется хуком ТОЛЬКО когда у партии `botClientSide=true`:
+ *   - Workshop / Play-vs-Bot (`STOCKFISH_BOT_ID`, явный режим);
+ *   - KS-3559: matchmaking 30-секундный fallback на бот из
+ *     `MATCHMAKING_BOTS` (восстановлено после отката synthetic users).
+ *
+ * KS-2165 (F1, доку-маркер) → KS-3559: между этими тикетами хук не
+ * запускался из matchmaking, потому что backend перестал выставлять
+ * `botClientSide=true` (был эксперимент с synthetic users, откатан).
+ * Сейчас восстановлено старое поведение: caller (`GamePage`) передаёт
+ * `isActive = isBot && botClientSide !== false`. Для будущих
+ * server-side ботов (ADR-034 v2 WS-bot-fleet) backend будет шлёт
+ * `botClientSide=false` — хук не стартует, ход придёт обычным
+ * `game:move` событием с сервера.
  */
 export function useBotEngine(gameId: string | undefined, botLevel: number | null, isActive: boolean) {
   const workerRef = useRef<Worker | null>(null);
