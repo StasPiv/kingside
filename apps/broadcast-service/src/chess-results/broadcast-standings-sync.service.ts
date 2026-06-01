@@ -13,6 +13,10 @@ import {
   type Lifecycle,
 } from './chess-results-fetcher';
 import {
+  LichessBroadcastPlayersFetcher,
+  type LichessPlayerInfo,
+} from './lichess-broadcast-players-fetcher';
+import {
   detectTournamentType,
   type DetectInput,
 } from '../crosstable/detect-tournament-type';
@@ -147,6 +151,7 @@ export class BroadcastStandingsSyncService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly fetcher: ChessResultsFetcher,
+    private readonly lichessPlayers: LichessBroadcastPlayersFetcher,
     metrics: MetricsService,
     @Optional()
     @Inject('BROADCAST_STANDINGS_SYNC_DEPS')
@@ -311,9 +316,11 @@ export class BroadcastStandingsSyncService {
     // заполненную из broadcast_games).
     if (tournamentType === 'unknown') {
       const reason = `tournamentType='unknown' for format='${broadcast.format ?? ''}'`;
-      const response = sortCrosstableByPoints(
+      const enriched = await this.enrichWithLichessPlayers(
         this.buildLegacyResponse(broadcast, reason),
+        broadcast,
       );
+      const response = sortCrosstableByPoints(enriched);
       await this.persist(broadcastId, response, lifecycle);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
       return response;
@@ -324,9 +331,11 @@ export class BroadcastStandingsSyncService {
       // detected тип известен — заполняем internal-fallback shape.
       const reason =
         'broadcast.chessResultsTournamentId is null (Lichess standings_url not chess-results)';
-      const response = sortCrosstableByPoints(
+      const enriched = await this.enrichWithLichessPlayers(
         this.buildInternalFallback(broadcast, tournamentType, reason),
+        broadcast,
       );
+      const response = sortCrosstableByPoints(enriched);
       await this.persist(broadcastId, response, lifecycle, reason);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
       return response;
@@ -398,6 +407,13 @@ export class BroadcastStandingsSyncService {
       this.refreshTotal.inc({ status: errorStatus, type: tournamentType });
     }
 
+    // KS-3540: enrich players[].federation / fideId / title из Lichess
+    // broadcast-players JSON (источник правды от Lichess). chess-results-
+    // parsers тянут federation из HTML, но если столбец отсутствует
+    // (часть турниров) или sourceType=internal-fallback — поле остаётся
+    // пустым; этот enrichment закрывает пробел независимо от ветки.
+    response = await this.enrichWithLichessPlayers(response, broadcast);
+
     // KS-2477: сортируем `players[]` по убыванию очков (с tiebreak'ом)
     // и пересобираем `matrix` / `pairings` под новый порядок. Это
     // последний шаг для всех веток (chess-results / fetch-error
@@ -407,6 +423,44 @@ export class BroadcastStandingsSyncService {
 
     await this.persist(broadcastId, response, lifecycle, fetchErrReason);
     return response;
+  }
+
+  /**
+   * KS-3540. Enrich'ит `response.players[*]` полями `federation`,
+   * `fideId`, `title` (если ещё пустые) из Lichess Broadcast Players
+   * JSON. Lichess раздаёт `fed` (ISO3) per игрок tour'а; в PGN-
+   * заголовках и broadcast_games этих данных нет, поэтому без
+   * этого вызова federation колонка пустует для всех
+   * internal-fallback ветвей (Norway Chess, TCEC и т.п.) и для тех
+   * chess-results таблиц, где столбец Fed отсутствует.
+   *
+   * Идемпотентно, side-effect free для самого `response` (новый
+   * объект). При ошибке fetch'а — оставляет players без изменений.
+   */
+  private async enrichWithLichessPlayers(
+    response: CrosstableResponse,
+    broadcast: BroadcastWithRounds,
+  ): Promise<CrosstableResponse> {
+    if (!response.players || response.players.length === 0) return response;
+    const lichessPlayers = await this.lichessPlayers
+      .fetchPlayers(broadcast.lichessId)
+      .catch(() => [] as LichessPlayerInfo[]);
+    if (lichessPlayers.length === 0) return response;
+    const byName = LichessBroadcastPlayersFetcher.toMap(lichessPlayers);
+    const enrichedPlayers: CrosstablePlayer[] = response.players.map((p) => {
+      const info = byName.get(p.normalizedName);
+      if (!info) return p;
+      return {
+        ...p,
+        federation: p.federation ?? info.federation,
+        fideId:
+          p.fideId ??
+          (info.fideId != null ? String(info.fideId) : undefined),
+        title: p.title ?? info.title,
+        elo: p.elo ?? info.rating,
+      };
+    });
+    return { ...response, players: enrichedPlayers } as CrosstableResponse;
   }
 
   // ── Builders по типам турниров ─────────────────────────────────────
@@ -1652,6 +1706,10 @@ type BroadcastWithRounds = {
   /** KS-3266: используется fallback'ом `tryResolveTournamentIdByTitle`,
    *  когда Lichess metadata указывает на устаревший tnrXXXXXX. */
   title: string;
+  /** KS-3540: tour-id Lichess'а — ключ для
+   *  `LichessBroadcastPlayersFetcher.fetchPlayers()` (federation/fideId
+   *  enrichment независимо от sourceType). */
+  lichessId: string;
   format: string | null;
   teamTable: boolean;
   chessResultsTournamentId: string | null;

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ChessResultsFetcher } from './chess-results-fetcher';
 import { BroadcastStandingsSyncService } from './broadcast-standings-sync.service';
+import { LichessBroadcastPlayersFetcher } from './lichess-broadcast-players-fetcher';
 
 /**
  * Crosstable-стек для broadcast-service (ADR-023 §2.9.1, KS-1733).
@@ -9,6 +10,9 @@ import { BroadcastStandingsSyncService } from './broadcast-standings-sync.servic
  *  - `ChessResultsFetcher` (KS-1728) — HTML-fetcher с rate-limit / circuit-
  *    breaker / retry. Зависит от `RedisService` и `MetricsService` (оба
  *    @Global, доступны из root).
+ *  - `LichessBroadcastPlayersFetcher` (KS-3540) — JSON-fetcher
+ *    `lichess.org/broadcast/{tourId}/players` для federation/fideId
+ *    enrichment'а независимо от sourceType.
  *  - `BroadcastStandingsSyncService` (KS-1733) — on-demand crosstable-builder.
  *    Использует `ChessResultsFetcher` и parsers из `./parsers/` (чистые
  *    функции, без DI).
@@ -18,7 +22,15 @@ import { BroadcastStandingsSyncService } from './broadcast-standings-sync.servic
  * здесь не нужен.
  */
 @Module({
-  providers: [ChessResultsFetcher, BroadcastStandingsSyncService],
-  exports: [ChessResultsFetcher, BroadcastStandingsSyncService],
+  providers: [
+    ChessResultsFetcher,
+    LichessBroadcastPlayersFetcher,
+    BroadcastStandingsSyncService,
+  ],
+  exports: [
+    ChessResultsFetcher,
+    LichessBroadcastPlayersFetcher,
+    BroadcastStandingsSyncService,
+  ],
 })
 export class ChessResultsModule {}

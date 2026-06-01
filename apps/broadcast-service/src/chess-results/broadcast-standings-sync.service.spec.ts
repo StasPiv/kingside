@@ -108,10 +108,18 @@ function makeService(opts: {
     $queryRaw: opts.prisma.queryRaw,
   };
   const nowFn = () => opts.now ?? NOW;
+  // KS-3540: LichessBroadcastPlayersFetcher шим — всегда возвращает
+  // пустой список, поэтому enrichWithLichessPlayers — no-op для всех
+  // существующих тестов. Покрытие enrichment'а проводится отдельным
+  // describe (см. ниже по файлу).
+  const lichessPlayers = {
+    fetchPlayers: jest.fn().mockResolvedValue([]),
+  };
   return new BroadcastStandingsSyncService(
     prismaShim as never,
     opts.redis as never,
     opts.fetcher,
+    lichessPlayers as never,
     metrics,
     { now: nowFn, sleep: () => Promise.resolve() },
   );
