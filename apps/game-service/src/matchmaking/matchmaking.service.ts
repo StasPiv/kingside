@@ -6,6 +6,7 @@ import {
   type TimeControlCategory,
   type RatingFilter,
 } from '@kingside/shared';
+import { BotGameService } from '../game/bot-game.service';
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
@@ -29,6 +30,11 @@ const CATEGORIES: TimeControlCategory[] = ['bullet', 'blitz', 'rapid', 'classica
  *
  * Перебивается ENV `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS` (целое число
  * миллисекунд). Невалидное значение → fallback на дефолт.
+ *
+ * KS-3559: остаётся как safety-net на случай если bot-fallback (см.
+ * `readBotTimeoutMs` ниже) упал/выбросил исключение. Дефолт 60s >
+ * bot-таймаута (30s), так что в нормальном flow до no-opponents
+ * дело не доходит.
  */
 export const DEFAULT_NO_OPPONENTS_TIMEOUT_MS = 60_000;
 
@@ -43,13 +49,32 @@ export function readNoOpponentsTimeoutMs(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * Synthetic-flow (KS-2165 Pass 1b/Pass 2 → `SyntheticSchedulerService.
- * allocateSynthetic`) откатан 30.04 вместе с остальной embedded
- * synthetic-архитектурой (см. `matchmaking.module.ts`). До появления
- * нового WS-bot-fleet решения матчмейкер делает только live↔live —
- * нет fallback'а на бота вообще (это согласовано с пользователем,
- * 30-сек client-side Stockfish удалён насовсем в KS-2165).
+ * KS-3559. Дефолтный таймаут до bot-fallback'а — 30 секунд (восстановлено
+ * из KS-1467 после отката synthetic users в KS-2165). После него
+ * `createBotGame` пикает бота из `MATCHMAKING_BOTS` и поднимает партию
+ * с `Game.botClientSide=true` — фронт играет ходы через локальный
+ * Stockfish 18 WASM.
+ *
+ * Перебивается ENV `MATCHMAKING_BOT_TIMEOUT_MS`. Невалидное значение →
+ * дефолт. Установка в `0` или отрицательное значение НЕ отключает
+ * fallback — для отключения нужен `MATCHMAKING_BOT_FALLBACK_ENABLED=false`.
  */
+export const DEFAULT_BOT_TIMEOUT_MS = 30_000;
+
+export function readBotTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MATCHMAKING_BOT_TIMEOUT_MS;
+  if (!raw) return DEFAULT_BOT_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_BOT_TIMEOUT_MS;
+  }
+  return Math.floor(parsed);
+}
+
+/** KS-3559. Глобальный switch bot-fallback'а. Default ON. */
+export function readBotFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.MATCHMAKING_BOT_FALLBACK_ENABLED !== 'false';
+}
 
 interface RatingRange {
   min: number;
@@ -73,11 +98,17 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    private readonly botGameService: BotGameService,
   ) {}
 
   onModuleInit() {
     this.timer = setInterval(() => this.processAllQueues(), POLL_INTERVAL_MS);
-    this.logger.log(`Matchmaker started (poll=${POLL_INTERVAL_MS}ms)`);
+    const botEnabled = readBotFallbackEnabled();
+    this.logger.log(
+      `Matchmaker started (poll=${POLL_INTERVAL_MS}ms, ` +
+        `botFallback=${botEnabled ? `${readBotTimeoutMs()}ms` : 'disabled'}, ` +
+        `noOpponentsTimeout=${readNoOpponentsTimeoutMs()}ms)`,
+    );
   }
 
   onModuleDestroy() {
@@ -194,11 +225,7 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`processQueue ${category}: ${entries.length} entries`);
 
-    // Live↔live pairing within rating range. Synthetic-fallback (Pass
-    // 1b/Pass 2 из KS-2165) откатан 30.04 вместе с embedded
-    // synthetic-архитектурой — до WS-bot-fleet остаётся только этот
-    // pass. Старый 30-секундный client-side Stockfish fallback удалён
-    // насовсем (KS-2165 решение пользователя).
+    // Pass 1: live↔live pairing внутри rating range.
     for (let i = 0; i < entries.length; i++) {
       if (paired.has(entries[i].userId)) continue;
       const a = entries[i];
@@ -214,13 +241,62 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // KS-2197 (ADR-034-v2 §6.6). После pairing-pass-а — sweep по
-    // оставшимся непарированным. Тот, кто провисел в очереди дольше
-    // `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS`, выкидывается + пользователю
-    // шлётся `matchmaking:no_opponents` через Redis pub/sub. Это
-    // единственный способ корректно обработать одиночку — pairing-pass
-    // его пропускает (нет напарника), таймаут — про него.
+    // Pass 2 (KS-3559): bot fallback. Возвращено старое client-side
+    // поведение из KS-1467 — игроки, провисевшие в очереди дольше
+    // MATCHMAKING_BOT_TIMEOUT_MS (default 30s), получают пару с одним
+    // из `MATCHMAKING_BOTS` (closest-3 по рейтингу, random). Партия
+    // создаётся с `Game.botClientSide=true` — фронт играет Stockfish'ем
+    // в браузере. Synthetic users (KS-2165 → revert) тут не задействован.
+    if (readBotFallbackEnabled()) {
+      await this.runBotFallbackPass(category, queueKey, entries, members, paired);
+    }
+
+    // KS-2197 (ADR-034-v2 §6.6). Safety-net: sweep непарированных,
+    // провисевших дольше `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS`
+    // (default 60s > bot-таймаут 30s). В нормальном flow до него не
+    // доходит — bot-fallback подбирает раньше. Срабатывает только если
+    // `MATCHMAKING_BOT_FALLBACK_ENABLED=false` или `createBotGame`
+    // выбросил исключение.
     await this.sweepNoOpponents(category, queueKey, entries, members, paired);
+  }
+
+  /**
+   * KS-3559. Bot-fallback pass: для каждого непарированного entry,
+   * провисевшего ≥ `MATCHMAKING_BOT_TIMEOUT_MS`, создаёт партию против
+   * случайного бота из `MATCHMAKING_BOTS` (рейтинг-close, top-3).
+   *
+   * Параметры `entries`/`members` синхронны (одинаковая длина и
+   * порядок) — это нужно, чтобы `zrem(queueKey, members[i])` удалил
+   * ровно ту строку, которую мы добавили в `joinQueue`.
+   */
+  private async runBotFallbackPass(
+    category: TimeControlCategory,
+    queueKey: string,
+    entries: QueueEntry[],
+    members: string[],
+    paired: Set<string>,
+  ): Promise<void> {
+    const now = Date.now();
+    const timeoutMs = readBotTimeoutMs();
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (paired.has(entry.userId)) continue;
+      const waitedMs = now - entry.joinedAt;
+      if (waitedMs < timeoutMs) continue;
+
+      // Сначала ZREM, потом создание партии. Если createBotGame упадёт —
+      // user уже не в очереди, fallback не зациклится. Если успех —
+      // pub/sub уведомит gateway.
+      try {
+        await this.redis.zrem(queueKey, members[i]);
+        paired.add(entry.userId);
+        await this.createBotGame(entry, category);
+      } catch (e: unknown) {
+        this.logger.error(
+          `bot-fallback ${entry.userId}: ${(e as Error).message}`,
+        );
+      }
+    }
   }
 
   /**
@@ -342,10 +418,90 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Matched: ${whiteId.slice(0, 8)} vs ${blackId.slice(0, 8)} game=${game.id.slice(0, 8)} ${category}`);
   }
 
-  // KS-2165: createBotGame удалён вместе с client-side bot fallback (`botClientSide`).
-  // Pass 2 (synthetic-fallback через SyntheticSchedulerService) откатан
-  // 30.04 — embedded-вариант признан неверным. Замена — WS-bot-fleet,
-  // спроектированный в ADR-034 v2 (синтетики подключаются как обычные
-  // WS-клиенты, попадают в общую очередь и пересекаются с live↔live
-  // pairing'ом естественным образом).
+  /**
+   * KS-3559. Создаёт партию между entry-игроком и ботом из
+   * `MATCHMAKING_BOTS`. Партия маркируется `botClientSide=true` —
+   * фронт играет Stockfish'ем локально. Цвета — рандом 50/50.
+   *
+   * Pub/sub `matchmaker:found` уведомляет gateway, тот шлёт игроку
+   * WS-событие со ссылкой на новую партию.
+   */
+  private async createBotGame(
+    entry: QueueEntry,
+    category: TimeControlCategory,
+  ): Promise<void> {
+    const bot = this.botGameService.pickBotForRating(entry.rating);
+    const whiteId = Math.random() < 0.5 ? entry.userId : bot.id;
+    const blackId = whiteId === entry.userId ? bot.id : entry.userId;
+
+    const game = await this.prisma.game.create({
+      data: {
+        whiteId,
+        blackId,
+        status: 'active',
+        timeControlType: category,
+        timeInitialSec: entry.timeInitialSec,
+        timeIncrementSec: entry.timeIncrementSec,
+        isBot: true,
+        // KS-3559: маркер партии с client-side Stockfish'ем. Фронт по
+        // этому полю поднимает локальный WASM-движок вместо ожидания
+        // серверных bot-ходов.
+        botClientSide: true,
+        botLevel: bot.botLevel,
+        startedAt: new Date(),
+      },
+    });
+
+    const timeMs = entry.timeInitialSec * 1000;
+    await this.redis.hset(`game:${game.id}:state`, {
+      fen: INITIAL_FEN,
+      moves: '[]',
+      status: 'active',
+      active_color: 'white',
+      white_id: whiteId,
+      black_id: blackId,
+      time_increment_sec: String(entry.timeIncrementSec),
+    });
+    await this.redis.hset(`game:${game.id}:clocks`, {
+      white_ms: String(timeMs),
+      black_ms: String(timeMs),
+      last_tick: '0',
+      running: '0',
+    });
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: entry.userId },
+      select: { username: true },
+    });
+    const playerData = {
+      id: entry.userId,
+      username: user?.username ?? '',
+      rating: entry.rating,
+    };
+    const botData = {
+      id: bot.id,
+      username: bot.username,
+      rating: bot.rating,
+    };
+
+    await this.redis.publish(
+      MATCHMAKER_FOUND_CHANNEL,
+      JSON.stringify({
+        gameId: game.id,
+        category,
+        timeInitial: entry.timeInitialSec,
+        increment: entry.timeIncrementSec,
+        white: whiteId === entry.userId ? playerData : botData,
+        black: blackId === entry.userId ? playerData : botData,
+        isBot: true,
+        botClientSide: true,
+        botLevel: bot.botLevel,
+      }),
+    );
+
+    this.logger.log(
+      `Bot fallback: ${entry.userId.slice(0, 8)} vs ${bot.username}` +
+        `(L${bot.botLevel}) game=${game.id.slice(0, 8)} ${category}`,
+    );
+  }
 }

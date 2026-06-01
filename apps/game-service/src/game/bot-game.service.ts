@@ -1,62 +1,123 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
+import {
+  STOCKFISH_BOT_ID,
+  STOCKFISH_BOT_USERNAME,
+  MATCHMAKING_BOTS,
+  type MatchmakingBot,
+} from '@kingside/shared';
 
 /**
- * KS-2165 (B6). Сервис обслуживает ТОЛЬКО Workshop / Play-vs-Bot режим
- * (Q7 ADR-034 — оставляем как есть). Раньше также готовил пул из 12
- * MATCHMAKING_BOTS для 30-секундного fallback'а в matchmaking; этот
- * fallback удалён насовсем. Embedded synthetic-архитектура
- * (KS-2159..KS-2180) откатана 30.04 — замена в виде WS-bot-fleet
- * проектируется в ADR-034 v2.
+ * KS-2165 → KS-3559. Сервис обслуживает:
+ *  1. Workshop / Play-vs-Bot режим — `STOCKFISH_BOT_ID` (явный bot,
+ *     не пересекается с matchmaking).
+ *  2. KS-3559: возвращённый matchmaking bot-pool — 12 ботов из
+ *     `MATCHMAKING_BOTS` (shared) для 30-секундного client-side
+ *     Stockfish fallback'а. Embedded synthetic users (KS-2159..KS-2180)
+ *     откатаны 30.04, ADR-034 v2 (WS-bot-fleet) ещё не реализован —
+ *     это временный возврат прежнего поведения.
  */
 @Injectable()
 export class BotGameService implements OnModuleInit {
   private readonly logger = new Logger(BotGameService.name);
-  /** Только Stockfish Bot (Workshop mode). */
-  private readonly stockfishBotId = STOCKFISH_BOT_ID;
 
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  /** KS-3559. Union STOCKFISH + 12 matchmaking-ботов для isBotPlayer-проверки. */
+  private static readonly ALL_BOT_IDS: ReadonlySet<string> = new Set<string>([
+    STOCKFISH_BOT_ID,
+    ...MATCHMAKING_BOTS.map((b) => b.id),
+  ]);
+
+  constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    await this.ensureStockfishBot();
+    await this.ensureBotUsers();
   }
 
-  private async ensureStockfishBot(): Promise<void> {
+  /**
+   * KS-3559. Upsert'ит все bot-аккаунты на старте: Stockfish (Workshop) +
+   * 12 matchmaking-ботов. Идемпотентно. Если бот ранее был помечен
+   * `isSynthetic=true` (data-migration KS-2160 — между KS-1523 и
+   * KS-3559), снимаем флаг и возвращаем `isBot=true`.
+   */
+  private async ensureBotUsers(): Promise<void> {
+    await this.upsertBot(
+      STOCKFISH_BOT_ID,
+      STOCKFISH_BOT_USERNAME,
+      'stockfish-bot@kingside.local',
+      1500,
+    );
+
+    for (const bot of MATCHMAKING_BOTS) {
+      await this.upsertBot(
+        bot.id,
+        bot.username,
+        `${bot.username.toLowerCase()}@bot.kingside.local`,
+        bot.rating,
+      );
+    }
+
+    this.logger.log(
+      `Bot users ensured: 1 Stockfish + ${MATCHMAKING_BOTS.length} matchmaking bots`,
+    );
+  }
+
+  private async upsertBot(
+    id: string,
+    username: string,
+    email: string,
+    rating: number,
+  ): Promise<void> {
     try {
       await this.prisma.user.upsert({
-        where: { id: STOCKFISH_BOT_ID },
+        where: { id },
         update: {
-          username: STOCKFISH_BOT_USERNAME,
+          username,
           isBot: true,
-          ratingBullet: 1500,
-          ratingBlitz: 1500,
-          ratingRapid: 1500,
-          ratingClassical: 1500,
+          // KS-3559: возвращаем флаги для UUID-ов, помеченных
+          // KS-2160 как synthetic — после KS-2165 revert они должны
+          // снова быть обычными ботами.
+          isSynthetic: false,
+          ratingBullet: rating,
+          ratingBlitz: rating,
+          ratingRapid: rating,
+          ratingClassical: rating,
         },
         create: {
-          id: STOCKFISH_BOT_ID,
-          username: STOCKFISH_BOT_USERNAME,
-          email: 'stockfish-bot@kingside.local',
+          id,
+          username,
+          email,
           passwordHash: '',
           isBot: true,
-          ratingBullet: 1500,
-          ratingBlitz: 1500,
-          ratingRapid: 1500,
-          ratingClassical: 1500,
+          ratingBullet: rating,
+          ratingBlitz: rating,
+          ratingRapid: rating,
+          ratingClassical: rating,
         },
       });
-      this.logger.log('Stockfish bot user ensured (Workshop / Play-vs-Bot)');
     } catch (err: unknown) {
       this.logger.warn(
-        `Stockfish bot upsert failed: ${(err as Error).message}`,
+        `Bot upsert failed for ${username}: ${(err as Error).message}`,
       );
     }
   }
 
+  /** True если userId — bot (Stockfish или один из 12 matchmaking). */
   isBotPlayer(userId: string): boolean {
-    return userId === this.stockfishBotId;
+    return BotGameService.ALL_BOT_IDS.has(userId);
+  }
+
+  /**
+   * KS-3559. Подбирает matchmaking-бота близкого по рейтингу. Берёт
+   * top-3 closest и выдаёт случайного — даёт разнообразие никнеймов
+   * при повторных fallback'ах одного и того же пользователя.
+   */
+  pickBotForRating(playerRating: number): MatchmakingBot {
+    const sorted = [...MATCHMAKING_BOTS].sort(
+      (a, b) =>
+        Math.abs(a.rating - playerRating) -
+        Math.abs(b.rating - playerRating),
+    );
+    const candidates = sorted.slice(0, 3);
+    return candidates[Math.floor(Math.random() * candidates.length)];
   }
 }

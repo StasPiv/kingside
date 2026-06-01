@@ -44,19 +44,40 @@ export const DEV_USERNAME = 'DEV';
 export const MAX_ACTIVE_BOT_GAMES = 3;
 
 /**
- * KS-2165 (B6). `MATCHMAKING_BOTS` удалён вместе с 30-секундным
- * client-side bot fallback'ом (`botClientSide=true`). Заменён на
- * synthetic users (KS-2159 пакет): отдельный пул из 200 профилей с
- * `User.isSynthetic=true`, серверный движок Stockfish (KS-2161),
- * scheduler/presence (KS-2164), новый matchmaking flow (KS-2165
- * Pass 2 → `SyntheticSchedulerService.allocateSynthetic`).
+ * KS-3559. Bot pool для 30-секундного client-side bot fallback'а в
+ * matchmaking (`Game.botClientSide=true`). Когда живой соперник не
+ * найден за `MATCHMAKING_BOT_TIMEOUT_MS` (default 30s), `MatchmakingService
+ * .createBotGame` выбирает одного из этой константы по рейтингу
+ * (closest-3, random pick) и создаёт партию против него. Локальный
+ * Stockfish 18 WASM на фронте играет ходы — серверный движок не
+ * нужен.
  *
- * Те 12 UUID'ов, что когда-то были `MATCHMAKING_BOTS`, теперь
- * `is_bot=false, is_synthetic=true` (см. KS-2160 data-migration).
+ * Восстановлен из коммита 7b5abaa5 (KS-1523) после отката
+ * synthetic-users (KS-2165 → revert 52ba9135). Те же UUID'ы — чтобы
+ * исторические Game.whiteId/blackId продолжали указывать на корректные
+ * User-записи (data-migration KS-2160 переводила эти UUID в `is_bot=false,
+ * is_synthetic=true`; KS-3559 при upsert возвращает их в `is_bot=true,
+ * is_synthetic=false`).
  *
- * Workshop / Play-vs-Bot режим — отдельный, с собственным
- * `STOCKFISH_BOT_ID` (см. ниже), он остаётся без изменений.
+ * Workshop / Play-vs-Bot режим — отдельный (`STOCKFISH_BOT_ID` ниже),
+ * не пересекается с matchmaking pool.
  */
+export const MATCHMAKING_BOTS = [
+  { id: '00000000-0000-4000-b000-000000000001', username: 'ChessKnight42',  rating: 800,  botLevel: 1 },
+  { id: '00000000-0000-4000-b000-000000000002', username: 'PawnStorm',      rating: 900,  botLevel: 2 },
+  { id: '00000000-0000-4000-b000-000000000003', username: 'TacticMaster',   rating: 1050, botLevel: 3 },
+  { id: '00000000-0000-4000-b000-000000000004', username: 'SilentBishop',   rating: 1150, botLevel: 3 },
+  { id: '00000000-0000-4000-b000-000000000005', username: 'RookEndgame',    rating: 1300, botLevel: 4 },
+  { id: '00000000-0000-4000-b000-000000000006', username: 'QueenGambit',    rating: 1400, botLevel: 5 },
+  { id: '00000000-0000-4000-b000-000000000007', username: 'KnightFork99',   rating: 1500, botLevel: 5 },
+  { id: '00000000-0000-4000-b000-000000000008', username: 'DarkSquares',    rating: 1600, botLevel: 6 },
+  { id: '00000000-0000-4000-b000-000000000009', username: 'Castling_King',  rating: 1700, botLevel: 7 },
+  { id: '00000000-0000-4000-b000-00000000000a', username: 'BlitzPhenom',    rating: 1800, botLevel: 7 },
+  { id: '00000000-0000-4000-b000-00000000000b', username: 'GrandPatzer',    rating: 1900, botLevel: 8 },
+  { id: '00000000-0000-4000-b000-00000000000c', username: 'ZugzwangPro',    rating: 2000, botLevel: 8 },
+] as const;
+
+export type MatchmakingBot = (typeof MATCHMAKING_BOTS)[number];
 
 export const DAILY_TIME_CONTROLS = {
   daily1: { daysPerMove: 1, label: '1 day' },
