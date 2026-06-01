@@ -2476,18 +2476,29 @@ export interface BlindBoardSessionDto {
  *    `BLIND_BOARD_LIMITS.maxByType`. При наличии 2× B — backend
  *    гарантирует разнопольность (расширение KS-3449).
  *  - `addOrder` — очередь фигур, добавляемых на доску на каждом
- *    level-up (`streak % 10 === 0`). Каждый элемент добавляется один
- *    раз, по индексу `level - 1` относительно стартового набора.
- *    Суммарная длина `startPieces + addOrder` не должна превышать
+ *    level-up. Каждый элемент добавляется один раз, по индексу
+ *    `level - 1` относительно стартового набора. Суммарная длина
+ *    `startPieces + addOrder` не должна превышать
  *    `BLIND_BOARD_LIMITS.maxTotal`. Когда addOrder исчерпан — level-up
  *    больше не происходит, streak растёт без изменений.
  *  - `memorizeTimeSec` — длительность фазы memorize. Допустимые
  *    значения см. `BLIND_BOARD_LIMITS.memorizeOptions`.
+ *  - `levelDurationRounds` (KS-3550 / ADR-088 V3 §16): сколько
+ *    успешных раундов подряд требуется на уровне для перехода на
+ *    следующий. До V3 поведение было жёстко зашито как `% 10`; теперь
+ *    конфигурируется. Допустимые значения см. `LEVEL_DURATION_PRESETS`.
+ *  - `progressionEnabled` (KS-3550 / ADR-088 V3 §16): глобальный
+ *    switch прогрессии. `false` — backend никогда не делает level-up
+ *    независимо от streak и addOrder (режим «фиксированный набор фигур»).
  */
 export interface BlindBoardConfig {
   startPieces: BlindBoardPieceType[];
   addOrder: BlindBoardPieceType[];
   memorizeTimeSec: number;
+  /** KS-3550 / ADR-088 V3 §16. Длительность уровня в успешных раундах. */
+  levelDurationRounds: number;
+  /** KS-3550 / ADR-088 V3 §16. Глобальный switch level-up'ов. */
+  progressionEnabled: boolean;
 }
 
 /** KS-3484. Лимиты конфига и допустимые опции UI. */
@@ -2502,12 +2513,52 @@ export const BLIND_BOARD_LIMITS = {
   memorizeOptions: [3, 5, 10] as const,
 } as const;
 
+/**
+ * KS-3550 / ADR-088 V3 §16. Допустимые значения `levelDurationRounds` для
+ * UI-селекта. Backend принимает любое целое >0, но фронт должен
+ * предлагать только эти пресеты. Дефолтное значение `10` — посередине
+ * шкалы, соответствует V2-поведению.
+ */
+export const LEVEL_DURATION_PRESETS = [5, 10, 15, 20] as const;
+
 /** KS-3484. Дефолт, применяемый когда клиент не прислал config. */
 export const DEFAULT_BLIND_BOARD_CONFIG: BlindBoardConfig = {
   startPieces: ['Q', 'N', 'R'],
   addOrder: ['B', 'B', 'R', 'N'],
   memorizeTimeSec: 5,
+  /** KS-3550. Текущее (V2) поведение level-up каждые 10 раундов. */
+  levelDurationRounds: 10,
+  /** KS-3550. По умолчанию прогрессия включена (legacy-режим). */
+  progressionEnabled: true,
 };
+
+/**
+ * KS-3550 / ADR-088 V3 §16. Проверяет, совпадает ли пользовательский
+ * конфиг с `DEFAULT_BLIND_BOARD_CONFIG` по ВСЕМ полям. Используется
+ * leaderboard'ом (флаг `isDefaultConfig`) — записи под кастомным
+ * конфигом не должны конкурировать с дефолтными «по очкам», т.к.
+ * прогрессия и/или memorize-окно у них другие.
+ *
+ * Сравнение массивов — поэлементное (одинаковая длина + одинаковые
+ * элементы в одинаковом порядке).
+ */
+export function isDefaultBlindBoardConfig(
+  config: BlindBoardConfig,
+): boolean {
+  const d = DEFAULT_BLIND_BOARD_CONFIG;
+  if (config.memorizeTimeSec !== d.memorizeTimeSec) return false;
+  if (config.levelDurationRounds !== d.levelDurationRounds) return false;
+  if (config.progressionEnabled !== d.progressionEnabled) return false;
+  if (config.startPieces.length !== d.startPieces.length) return false;
+  for (let i = 0; i < d.startPieces.length; i++) {
+    if (config.startPieces[i] !== d.startPieces[i]) return false;
+  }
+  if (config.addOrder.length !== d.addOrder.length) return false;
+  for (let i = 0; i < d.addOrder.length; i++) {
+    if (config.addOrder[i] !== d.addOrder[i]) return false;
+  }
+  return true;
+}
 
 /**
  * `POST /blind-board/sessions` — старт сессии.
@@ -2610,8 +2661,27 @@ export interface BlindBoardLeaderboardEntry {
    * **Derived-поле** (architect): `floor(bestStreak / 10) + 1` — отдельно
    * не хранится, считается backend'ом при формировании leaderboard.
    * UI отображает как «28 · L3».
+   *
+   * Deprecated в V3 в пользу `bestLevel`, который учитывает
+   * `levelDurationRounds` из фактического config'а. Остаётся опц. для
+   * back-compat с фронтом до миграции на bestLevel.
    */
   maxLevel?: number;
+  /**
+   * KS-3550 / ADR-088 V3 §16. Лучший уровень, достигнутый игроком в
+   * сессии с лучшим streak'ом. Считается с учётом фактического
+   * `levelDurationRounds` той сессии:
+   * `floor(bestStreak / sessionConfig.levelDurationRounds) + 1`. Если
+   * прогрессия в сессии была выключена (`progressionEnabled=false`) —
+   * `bestLevel=1` (level-up'ов не было).
+   */
+  bestLevel: number;
+  /**
+   * KS-3550 / ADR-088 V3 §16. `true` если запись получена при дефолтном
+   * конфиге (`isDefaultBlindBoardConfig(sessionConfig)`). Используется
+   * UI'ем для метки «эталонный режим» и для фильтра «только default».
+   */
+  isDefaultConfig: boolean;
 }
 
 /** `GET /blind-board/leaderboard` — топ best-streak. */

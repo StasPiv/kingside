@@ -6,6 +6,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsObject,
@@ -15,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { LEVEL_DURATION_PRESETS } from '@kingside/shared';
 
 /** Клетка `[a-h][1-8]`. */
 export class SubmitBlindBoardAnswerBodyDto {
@@ -47,6 +49,22 @@ export class BlindBoardConfigDto {
   @IsInt()
   @IsIn([3, 5, 10])
   memorizeTimeSec!: number;
+
+  /**
+   * KS-3550 / ADR-088 V3 §16. Сколько успешных раундов подряд требуется
+   * на уровне до перехода на следующий. UI ограничен пресетами
+   * `LEVEL_DURATION_PRESETS`; backend whitelist'ит то же самое здесь.
+   */
+  @IsInt()
+  @IsIn([...LEVEL_DURATION_PRESETS])
+  levelDurationRounds!: number;
+
+  /**
+   * KS-3550 / ADR-088 V3 §16. Глобальный switch прогрессии. `false`
+   * выключает level-up'ы независимо от streak.
+   */
+  @IsBoolean()
+  progressionEnabled!: boolean;
 }
 
 export class StartBlindBoardSessionBodyDto {

@@ -448,6 +448,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
       startPieces: ['Q', 'R', 'N'],
       addOrder: ['B', 'B', 'R', 'N'],
       memorizeTimeSec: 10,
+      levelDurationRounds: 10,
+      progressionEnabled: true,
     });
     const data = prisma.blindBoardSession.create.mock.calls[0][0].data;
     expect(data.startConfig.startPieces).toEqual(['Q', 'R', 'N']);
@@ -462,6 +464,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
         startPieces: ['Q', 'R'],
         addOrder: [],
         memorizeTimeSec: 5,
+        levelDurationRounds: 10,
+        progressionEnabled: true,
       }),
     ).rejects.toThrow(/at least 3/);
   });
@@ -473,6 +477,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
         startPieces: ['Q', 'Q', 'R'],
         addOrder: [],
         memorizeTimeSec: 5,
+        levelDurationRounds: 10,
+        progressionEnabled: true,
       }),
     ).rejects.toThrow(/type Q count 2 exceeds quota 1/);
   });
@@ -484,6 +490,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
         startPieces: ['R', 'R', 'N'],
         addOrder: ['R'],
         memorizeTimeSec: 5,
+        levelDurationRounds: 10,
+        progressionEnabled: true,
       }),
     ).rejects.toThrow(/type R count 3 exceeds quota 2/);
   });
@@ -495,6 +503,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
         startPieces: ['Q', 'R', 'N', 'B', 'B'],
         addOrder: ['R', 'N', 'Q'],
         memorizeTimeSec: 5,
+        levelDurationRounds: 10,
+        progressionEnabled: true,
       }),
     ).rejects.toThrow(/exceeds maxTotal 7/);
   });
@@ -506,6 +516,8 @@ describe('BlindBoardService.createSession — KS-3486 config validation', () => 
         startPieces: ['Q', 'R', 'N'],
         addOrder: [],
         memorizeTimeSec: 7,
+        levelDurationRounds: 10,
+        progressionEnabled: true,
       }),
     ).rejects.toThrow(/memorizeTimeSec 7 not in 3\/5\/10/);
   });

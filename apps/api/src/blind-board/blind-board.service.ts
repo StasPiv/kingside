@@ -524,6 +524,13 @@ export class BlindBoardService {
           orderBy: { finishedAt: 'desc' },
           select: { finishedAt: true },
         });
+        // KS-3550 (V3 шаг 1): bestLevel + isDefaultConfig — пока считаем
+        // в V2-режиме (levelDurationRounds=10, всегда default), потому
+        // что миграция per-session config (KS-3551 / B-update) ещё не
+        // прошла. После B-update формула станет
+        // `floor(bestStreak / sessionConfig.levelDurationRounds) + 1`
+        // и `isDefaultConfig` будет читаться из сохранённого config'а.
+        const bestLevel = Math.floor(u.blindBoardBestStreak / 10) + 1;
         return {
           userId: u.id,
           username: u.username ?? 'Anonymous',
@@ -531,7 +538,9 @@ export class BlindBoardService {
           achievedAt: (session?.finishedAt ?? new Date()).toISOString(),
           // KS-3484: maxLevel — derived formula по architect-recommendation
           // (без отдельного столбца). 1..10 → L1, 11..20 → L2, ...
-          maxLevel: Math.floor(u.blindBoardBestStreak / 10) + 1,
+          maxLevel: bestLevel,
+          bestLevel,
+          isDefaultConfig: true,
         };
       }),
     );
