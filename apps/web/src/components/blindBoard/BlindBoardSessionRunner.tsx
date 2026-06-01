@@ -376,10 +376,22 @@ export function BlindBoardSessionRunner({
           {(() => {
             // Подсказка про следующий level-up: считаем сколько раундов
             // до следующего level-up'а и тип фигуры из addOrder.
+            //
+            // KS-3557 (ADR-088 V3 §16): при `progressionEnabled=false`
+            // прогрессия в сессии выключена — backend никогда не сделает
+            // level-up, и подсказка «+фигура на L2» противоречит конфигу.
+            // Скрываем подсказку полностью (ADR не требует индикатора
+            // «без повышения» в HUD).
+            if (startConfig && startConfig.progressionEnabled === false) {
+              return null;
+            }
             const lvl = session?.level ?? 1;
             const streak = session?.streak ?? 0;
             const nextPiece = startConfig?.addOrder?.[lvl - 1];
-            const stepsToLvl = 10 - (streak % 10);
+            // KS-3557: длительность уровня из конфига (V3), fallback на
+            // 10 для legacy V2 без поля levelDurationRounds.
+            const duration = startConfig?.levelDurationRounds ?? 10;
+            const stepsToLvl = duration - (streak % duration);
             if (!nextPiece) return null;
             return (
               <span

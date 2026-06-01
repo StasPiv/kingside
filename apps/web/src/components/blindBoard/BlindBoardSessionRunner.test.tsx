@@ -366,6 +366,58 @@ describe('<BlindBoardSessionRunner>', () => {
     expect(hint.getAttribute('data-steps')).toBe('6');
   });
 
+  it('KS-3557 (V3 §16): progressionEnabled=false → HUD-hint скрыт', async () => {
+    startSession.mockResolvedValue({
+      session: session({ level: 1, streak: 4 }),
+      startPosition: [],
+      config: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B'],
+        memorizeTimeSec: 5,
+        progressionEnabled: false,
+        levelDurationRounds: 10,
+      },
+      level: 1,
+    } as StartBlindBoardSessionResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    expect(screen.getByTestId('blind-board-hud-level').textContent).toContain(
+      'L1',
+    );
+    // Подсказка про следующую фигуру/раунды отсутствует.
+    expect(
+      screen.queryByTestId('blind-board-hud-level-hint'),
+    ).toBeNull();
+  });
+
+  it('KS-3557: levelDurationRounds=5 (V3) → stepsToLvl считается от 5', async () => {
+    startSession.mockResolvedValue({
+      session: session({ level: 1, streak: 2 }),
+      startPosition: [],
+      config: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B'],
+        memorizeTimeSec: 5,
+        progressionEnabled: true,
+        levelDurationRounds: 5,
+      },
+      level: 1,
+    } as StartBlindBoardSessionResponse);
+    renderWithProviders(<BlindBoardSessionRunner api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('blind-board-session').getAttribute('data-status'),
+      ).toBe('playing'),
+    );
+    const hint = screen.getByTestId('blind-board-hud-level-hint');
+    // streak=2, duration=5 → stepsToLvl = 5 - (2%5) = 3.
+    expect(hint.getAttribute('data-steps')).toBe('3');
+  });
+
   it('KS-3489: response.levelUp → overlay рендерится со всеми фигурами', async () => {
     startSession.mockResolvedValue({
       session: session(),
