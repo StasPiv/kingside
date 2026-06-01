@@ -327,7 +327,7 @@ export function BlindBoardFinalScreen({
                           'Custom config',
                         )}
                       >
-                        {' '}🛠
+                        🛠
                       </span>
                     )}
                   </span>

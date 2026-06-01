@@ -575,6 +575,31 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-primary, var(--c-e0e0e0));
 }
+/* KS-3555 / ADR-088 V3 §16.8: бейдж 🛠 у записей с не-дефолтным
+ * конфигом. Inline-маркер рядом со streak/level, не выходит из
+ * третьей колонки grid (auto) и не сдвигает rank/name. Tooltip
+ * через нативный `title=""` (см. TSX), визуально — компактная
+ * круглая «нашивка» с приглушённым фоном. */
+.blind-board-final__leaderboard-custom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ov-white-06, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: help;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+.blind-board-final__leaderboard-custom:hover {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+}
 
 .blind-board-final__again {
   margin-top: 4px;
@@ -1119,6 +1144,117 @@
   cursor: pointer;
 }
 
+/* ── KS-3555 / ADR-088 V3 §16.4: подгруппа «Прогрессия» ──────
+ * Чекбокс «Повышать сложность автоматически» + pill 5/10/15/20.
+ * Визуально отделяется тонкой линией сверху, чтобы подчеркнуть
+ * принадлежность к одной подгруппе. Pill наследует стиль
+ * memorize-opt'а — единая визуальная конвенция. */
+.blind-board-config-form__progression {
+  position: relative;
+}
+.blind-board-config-form__progression::before {
+  content: '';
+  position: absolute;
+  top: -9px; /* половина .blind-board-config-form gap:18 */
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: var(--border-subtle, var(--c-2a2a3e));
+  pointer-events: none;
+}
+.blind-board-config-form__progression-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  min-height: 28px;
+}
+.blind-board-config-form__progression-toggle input[type='checkbox'] {
+  accent-color: var(--accent-primary, var(--c-7c83ff));
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.blind-board-config-form__progression-toggle input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
+/* Pill «Длительность уровня» — единая стилевая конвенция
+ * с memorize-options (см. .blind-board-config-form__memorize-opt). */
+.blind-board-config-form__level-duration {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.blind-board-config-form__level-duration-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--c-a0a0c0));
+  margin-right: 4px;
+}
+.blind-board-config-form__level-duration[data-disabled='true']
+  .blind-board-config-form__level-duration-label {
+  opacity: 0.5;
+}
+.blind-board-config-form__level-duration-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  border: 1px solid var(--border-subtle, var(--c-2a2a3e));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, var(--c-e0e0e0));
+  cursor: pointer;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease, opacity 120ms ease;
+}
+.blind-board-config-form__level-duration-opt:hover {
+  background: var(--ov-white-04, rgba(255, 255, 255, 0.04));
+}
+.blind-board-config-form__level-duration-opt--checked {
+  background: var(--ov-accent-08, rgba(124, 131, 255, 0.12));
+  border-color: var(--accent-primary, var(--c-7c83ff));
+  color: var(--accent-primary, var(--c-7c83ff));
+}
+.blind-board-config-form__level-duration-opt input[type='radio'] {
+  accent-color: var(--accent-primary, var(--c-7c83ff));
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+/* Disabled: при снятом чекбоксе «прогрессии» pill выключены —
+ * приглушённый цвет + cursor:not-allowed. data-disabled выставляется
+ * в TSX, плюс класс --disabled для совместимости. */
+.blind-board-config-form__level-duration-opt--disabled,
+.blind-board-config-form__level-duration-opt[data-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--bg-surface, var(--c-2a2a4e));
+  color: var(--text-secondary, var(--c-a0a0c0));
+}
+.blind-board-config-form__level-duration-opt--disabled:hover,
+.blind-board-config-form__level-duration-opt[data-disabled='true']:hover {
+  background: var(--bg-surface, var(--c-2a2a4e));
+}
+.blind-board-config-form__level-duration-opt--disabled input[type='radio'],
+.blind-board-config-form__level-duration-opt[data-disabled='true']
+  input[type='radio'] {
+  cursor: not-allowed;
+}
+
 /* Settings-toggle (collapsible) на лендинге. */
 .blind-board-page__settings {
   display: flex;
@@ -1318,6 +1454,23 @@
   .blind-board-config-form__memorize-opt {
     padding: 8px 12px;
     font-size: 12px;
+  }
+
+  /* KS-3555: на mobile (≤640px) pill «Прогрессия» — компактнее и
+     перенос на новую строку при нехватке (flex-wrap наследуется
+     от desktop-блока, явно фиксируем). Лейбл «Длительность:»
+     занимает свою строку, pill идут отдельной строкой. */
+  .blind-board-config-form__level-duration {
+    flex-wrap: wrap;
+  }
+  .blind-board-config-form__level-duration-label {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+  .blind-board-config-form__level-duration-opt {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-height: 34px;
   }
 
   .blind-board-page__settings-summary {
