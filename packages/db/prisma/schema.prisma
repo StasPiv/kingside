@@ -33,6 +33,21 @@ model User {
   /// Обновляется при finish сессии (только для авторизованных) —
   /// используется лидербордом топ-N. Default 0 — у новых юзеров.
   blindBoardBestStreak  Int      @default(0) @map("blind_board_best_streak")
+  /// KS-3551 / ADR-088 V3 §16.5. Лучший достигнутый уровень в
+  /// blind-board. Считается с учётом `BlindBoardSession.startConfig
+  /// .levelDurationRounds` той сессии, где был достигнут рекорд:
+  /// `floor(bestStreak / levelDurationRounds) + 1`. Хранится отдельно
+  /// (а не выводится на лету), потому что для подсчёта нужен config
+  /// конкретной рекордной сессии — её can удалить позже (KS-3530), и
+  /// тогда рассчитать ретроспективно невозможно. Backfill: V2 эра —
+  /// `floor(bestStreak / 10) + 1`.
+  blindBoardBestLevel   Int      @default(1) @map("blind_board_best_level")
+  /// KS-3551 / ADR-088 V3 §16.6. `true` если рекордная сессия была
+  /// сыграна на дефолтном `BlindBoardConfig`
+  /// (`isDefaultBlindBoardConfig(...)===true`). Используется лидербордом
+  /// для метки «эталонный режим» и фильтра «только default». До V3 у
+  /// всех записей backfill = true (другого конфига не существовало).
+  blindBoardBestConfigIsDefault Boolean @default(true) @map("blind_board_best_config_is_default")
   gamesPlayedBullet     Int      @default(0) @map("games_played_bullet")
   gamesPlayedBlitz      Int      @default(0) @map("games_played_blitz")
   gamesPlayedRapid      Int      @default(0) @map("games_played_rapid")
