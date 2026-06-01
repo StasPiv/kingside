@@ -415,15 +415,41 @@ export class BlindBoardService {
 
     const next = this.pickNextCompMove(positionForNextMove, recentMoves);
     if (!next) {
-      // Теоретически недостижимо. Если случилось — это инфраструктурная
-      // проблема, лог + 503; сессия НЕ финишируется dead-end.
-      this.logger.error(
-        `blind-board: no valid next move for session ${sessionId} ` +
-          `(pieces=${positionForNextMove.length} dead)`,
+      // KS-3560: pickNextCompMove исчерпал все три pass'а (включая
+      // safe-relax без novelty) — даже геометрически нет хода с
+      // `|involved|=1`. Раньше бросали 503; теперь корректно
+      // финишируем сессию `dead-end` (восстановлен ADR-088 §10
+      // финиш-резон). Streak только что инкрементированный (newStreak)
+      // засчитывается — игрок ответил правильно, тупик — заслуга/
+      // несчастный случай комбинации, не его ошибка.
+      const finished = (await this.prisma.blindBoardSession.update({
+        where: { id: sessionId },
+        data: {
+          status: 'finished',
+          finishReason: 'dead-end',
+          finishedAt: new Date(),
+          streak: newStreak,
+          bestStreak: newBest,
+          level: newLevel,
+          currentCompMove: Prisma.DbNull,
+          nextTargetPiece: Prisma.DbNull,
+        },
+      })) as unknown as BlindBoardSessionRow;
+      this.logger.log(
+        `[blind-board] dead-end session=${sessionId} ` +
+          `pieces=${positionForNextMove.length} ` +
+          `streak=${newStreak} level=${newLevel}`,
       );
-      throw new ServiceUnavailableException(
-        'no valid blind-board move available',
+      await this.maybeUpdateUserBestStreak(
+        userId,
+        finished.bestStreak,
+        finished.level ?? 1,
+        (finished.startConfig as BlindBoardConfig | null) ?? null,
       );
+      return {
+        correct: true,
+        session: this.toSessionDto(finished, currentRound),
+      };
     }
     const { piece: nextTargetForComp, candidate: pick } = next;
     const nextCompMove: BlindBoardMove = {
@@ -1004,6 +1030,7 @@ export class BlindBoardService {
 
     const collectPairs = (
       pieces: BlindBoardPiece[],
+      requireNovelty: boolean,
     ): {
       fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }>;
       fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }>;
@@ -1011,7 +1038,9 @@ export class BlindBoardService {
       const fresh: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
       const fallback: Array<{ piece: BlindBoardPiece; candidate: UniqueTargetMove }> = [];
       for (const piece of pieces) {
-        const cands = findUniqueTargetMoves(position, piece.square);
+        const cands = findUniqueTargetMoves(position, piece.square, {
+          requireNovelty,
+        });
         if (cands.length === 0) continue;
         const forbidden = forbiddenByPiece.get(piece.square) ?? new Set();
         for (const candidate of cands) {
@@ -1026,10 +1055,10 @@ export class BlindBoardService {
       return { fresh, fallback };
     };
 
-    // KS-3524 шаг 1: попытка БЕЗ previous mover'а.
+    // KS-3524 шаг 1: попытка БЕЗ previous mover'а, со строгой novelty.
     if (previousMoverSquare) {
       const others = position.filter((p) => p.square !== previousMoverSquare);
-      const { fresh, fallback } = collectPairs(others);
+      const { fresh, fallback } = collectPairs(others, true);
       const pool = fresh.length > 0 ? fresh : fallback;
       if (pool.length > 0) {
         return pool[this.randInt(pool.length)];
@@ -1037,12 +1066,39 @@ export class BlindBoardService {
       // Все остальные заблокированы — fall through, разрешаем previous mover.
     }
 
-    // Шаг 2: previous mover'а нет (первый раунд) ИЛИ остальные
-    // заблокированы — собираем по всей доске.
-    const { fresh, fallback } = collectPairs(position);
-    const pool = fresh.length > 0 ? fresh : fallback;
-    if (pool.length === 0) return null;
-    return pool[this.randInt(pool.length)];
+    // Шаг 2: по всей доске, всё ещё со строгой novelty (KS-3451).
+    {
+      const { fresh, fallback } = collectPairs(position, true);
+      const pool = fresh.length > 0 ? fresh : fallback;
+      if (pool.length > 0) {
+        return pool[this.randInt(pool.length)];
+      }
+    }
+
+    // KS-3560 шаг 3 — «safe-relax». Строгая novelty отбраковала все
+    // ходы. Это редкий случай: 3-фигурная композиция с
+    // `progressionEnabled=false` (V3) может зайти в позицию где все
+    // пары уже атакуются и любой ход вовлекает «знакомую» пару.
+    // Раньше возвращали null → submitAnswer бросал 503. Теперь
+    // пробуем без KS-3451 — берём ходы с `|involved|=1`, даже если
+    // взаимодействие уже было. Игрок видит ту же фигуру, но партия
+    // продолжается.
+    {
+      const { fresh, fallback } = collectPairs(position, false);
+      const pool = fresh.length > 0 ? fresh : fallback;
+      if (pool.length > 0) {
+        this.logger.log(
+          `[blind-board] safe-relax pass picked move for ` +
+            `position with ${position.length} pieces ` +
+            `(novelty exhausted)`,
+        );
+        return pool[this.randInt(pool.length)];
+      }
+    }
+
+    // Шаг 4: даже без novelty ничего нет — настоящий dead-end
+    // (геометрически невозможно сделать ход с `|involved|=1`).
+    return null;
   }
 
   /**

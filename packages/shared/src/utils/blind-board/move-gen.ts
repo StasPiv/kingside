@@ -156,28 +156,48 @@ export interface UniqueTargetMove {
 }
 
 /**
+ * Опции `findUniqueTargetMoves` (KS-3560).
+ */
+export interface FindUniqueTargetMovesOptions {
+  /**
+   * KS-3451 novelty-check включён (default `true`). Если `false`,
+   * пропускаем проверку «взаимодействие должно быть новым» — оставляем
+   * только базовое `|involved|=1`. Используется в `pickNextCompMove`
+   * как safe-relax pass (KS-3560), чтобы не возвращать null в
+   * «вырожденных» позициях с 3 фигурами + `progressionEnabled=false`.
+   */
+  requireNovelty?: boolean;
+}
+
+/**
  * Возвращает все ходы фигуры `targetPieceSquare` (далее `c`) в `position`
  * для blind-board, удовлетворяющие условиям:
  *
- *  (1) После хода `c` на `to` среди 4 оставшихся фигур ровно ОДНА
+ *  (1) После хода `c` на `to` среди оставшихся фигур ровно ОДНА
  *      «вовлечена»: либо `c@to` атакует её, либо она атакует клетку `to`.
  *      `involved = A ∪ B`, `|involved| = 1`.
  *
- *  (2) KS-3451: вовлечённая фигура — НОВАЯ. До хода (когда `c` ещё на
- *      `from`) НЕ должно быть взаимодействия между `c` и этой фигурой:
+ *  (2) KS-3451 (опц., default ON — `requireNovelty=true`): вовлечённая
+ *      фигура — НОВАЯ. До хода (когда `c` ещё на `from`) НЕ должно быть
+ *      взаимодействия между `c` и этой фигурой:
  *        - `attacks(c@from)` НЕ содержит её клетку, И
  *        - её собственные атаки НЕ содержат `from`.
- *      Если ЛЮБОЕ нарушено — ход отбрасывается (взаимодействие уже было).
+ *      Если ЛЮБОЕ нарушено — ход отбрасывается. Это «свежее
+ *      взаимодействие»: игрок видит ход `{from, to}` и понимает, что
+ *      после хода компа возникла новая связка.
  *
- * Это «свежее взаимодействие»: игрок видит ход `{from, to}` и понимает,
- * что после хода компа возникла новая связка — атака от c или под бой c.
+ *  KS-3560: при `requireNovelty=false` шаг (2) пропускается. Caller
+ *  (pickNextCompMove safe-relax) использует это когда строгая novelty
+ *  не оставила ни одного валидного хода ни для одной фигуры в позиции.
  *
  * Если `targetPieceSquare` не найдена в `position` — пустой массив.
  */
 export function findUniqueTargetMoves(
   position: BlindBoardPiece[],
   targetPieceSquare: BlindBoardSquare,
+  options: FindUniqueTargetMovesOptions = {},
 ): UniqueTargetMove[] {
+  const requireNovelty = options.requireNovelty ?? true;
   const target = position.find((p) => p.square === targetPieceSquare);
   if (!target) return [];
 
@@ -208,13 +228,15 @@ export function findUniqueTargetMoves(
     }
     if (involved.length !== 1) continue;
 
-    // KS-3451: «новизна» взаимодействия. Любое из двух нарушений → отбой.
-    const inv = involved[0];
-    const cAttackedInvBefore = cAttacksBefore.has(inv.square);
-    const invAttackedCBefore = attackersOfFrom.has(inv.square);
-    if (cAttackedInvBefore || invAttackedCBefore) continue;
+    if (requireNovelty) {
+      // KS-3451: «новизна» взаимодействия. Любое из двух нарушений → отбой.
+      const inv = involved[0];
+      const cAttackedInvBefore = cAttacksBefore.has(inv.square);
+      const invAttackedCBefore = attackersOfFrom.has(inv.square);
+      if (cAttackedInvBefore || invAttackedCBefore) continue;
+    }
 
-    candidates.push({ to, target: inv });
+    candidates.push({ to, target: involved[0] });
   }
   return candidates;
 }

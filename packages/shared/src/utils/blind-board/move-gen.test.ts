@@ -211,4 +211,49 @@ describe('findUniqueTargetMoves (§3 алгоритм + KS-3451 novelty)', () =>
   it('targetPieceSquare отсутствует в позиции → пустой результат', () => {
     expect(findUniqueTargetMoves([p('a1', 'R')], 'h8')).toEqual([]);
   });
+
+  // ─── KS-3560: requireNovelty=false (safe-relax pass) ────────────────
+
+  it('KS-3560: requireNovelty=false возвращает ходы даже с известным interaction', () => {
+    // R@a1, Q@h1 — взаимная атака уже есть. С novelty=true → 0 кандидатов
+    // (см. KS-3451 NEG выше). С novelty=false должен вернуть ходы,
+    // удовлетворяющие только `|involved|=1`.
+    const R = p('a1', 'R');
+    const Q = p('h1', 'Q');
+    const pos = [R, Q];
+    const strict = findUniqueTargetMoves(pos, 'a1');
+    const relaxed = findUniqueTargetMoves(pos, 'a1', { requireNovelty: false });
+    expect(strict).toEqual([]);
+    expect(relaxed.length).toBeGreaterThan(0);
+    // Каждый relaxed-ход имеет involved=Q (единственная другая фигура).
+    for (const c of relaxed) {
+      expect(c.target.square).toBe('h1');
+      expect(c.target.type).toBe('Q');
+    }
+  });
+
+  it('KS-3560: requireNovelty=true по умолчанию (back-compat)', () => {
+    const R = p('a1', 'R');
+    const Q = p('h1', 'Q');
+    const pos = [R, Q];
+    expect(findUniqueTargetMoves(pos, 'a1', {})).toEqual([]);
+    expect(findUniqueTargetMoves(pos, 'a1')).toEqual([]);
+  });
+
+  it('KS-3560: requireNovelty=false НЕ ослабляет |involved|=1 — невовлекающие ходы всё равно отсеяны', () => {
+    // R@a1 с Q@h2 (без интеракции — KS-3451 POS). При novelty=false
+    // result должен включать как минимум те же ходы, что и novelty=true,
+    // ПЛЮС возможно другие где involved уже был известен.
+    const R = p('a1', 'R');
+    const Q = p('h2', 'Q');
+    const pos = [R, Q];
+    const strict = findUniqueTargetMoves(pos, 'a1');
+    const relaxed = findUniqueTargetMoves(pos, 'a1', { requireNovelty: false });
+    expect(strict.length).toBeGreaterThan(0);
+    expect(relaxed.length).toBeGreaterThanOrEqual(strict.length);
+    // Все strict кандидаты должны быть и в relaxed.
+    for (const s of strict) {
+      expect(relaxed.some((r) => r.to === s.to)).toBe(true);
+    }
+  });
 });

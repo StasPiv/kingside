@@ -924,6 +924,82 @@ describe('BlindBoardService.submitAnswer — KS-3552 V3 progression', () => {
     });
   });
 
+  it('KS-3560: при null от pickNextCompMove submitAnswer финиширует dead-end (НЕ 503)', async () => {
+    // Мокаем pickNextCompMove вернуть null (как было бы в session
+    // 220e9293 если бы safe-relax тоже не помог). submitAnswer
+    // должен НЕ бросать 503 — финишировать сессию с
+    // finishReason='dead-end' и credit'ить streak.
+    const prisma = makePrisma();
+    const row = {
+      id: 's1',
+      userId: 'u1',
+      startPosition: [
+        { square: 'a1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      currentPosition: [
+        { square: 'e1', type: 'R' },
+        { square: 'a4', type: 'Q' },
+      ],
+      nextTargetPiece: { square: 'a4', type: 'Q' },
+      currentCompMove: { from: 'a1', to: 'e1' },
+      startConfig: {
+        startPieces: ['Q', 'N', 'R'],
+        addOrder: ['B', 'B', 'R', 'N'],
+        memorizeTimeSec: 5,
+        levelDurationRounds: 10,
+        progressionEnabled: false,
+      },
+      level: 1,
+      streak: 5,
+      bestStreak: 5,
+      status: 'active',
+      finishReason: null,
+      startedAt: new Date('2026-06-01T00:00:00Z'),
+      finishedAt: null,
+    };
+    prisma.blindBoardSession.findUnique.mockResolvedValue(row);
+    prisma.blindBoardAttempt.findMany.mockResolvedValue([{ round: 6 }]);
+    prisma.blindBoardSession.update.mockImplementation(({ data }: any) => ({
+      ...row,
+      ...data,
+      status: data.status ?? 'active',
+      finishReason: data.finishReason ?? null,
+      // Prisma.DbNull маркер в data заменяем на реальный null —
+      // Prisma при INSERT/UPDATE интерпретирует его как NULL в БД.
+      currentCompMove: null,
+      nextTargetPiece: null,
+    }));
+    prisma.user.findUnique.mockResolvedValue({ blindBoardBestStreak: 4 });
+    const svc = new BlindBoardService(prisma);
+    // Принудительно заставляем pickNextCompMove вернуть null —
+    // эмулируем геометрический dead-end даже после safe-relax.
+    jest
+      .spyOn(svc, 'pickNextCompMove')
+      .mockReturnValue(null);
+
+    const res = await svc.submitAnswer('u1', 's1', {
+      square: 'a4' as BlindBoardSquare,
+      pieceType: 'Q',
+    });
+
+    expect(res.correct).toBe(true);
+    expect(res.session.status).toBe('finished');
+    expect(res.session.finishReason).toBe('dead-end');
+    expect(res.session.nextMove).toBeNull();
+    // Streak инкрементировался (был 5, ответ верный → 6).
+    expect(res.session.streak).toBe(6);
+    // User обновлён по новому bestStreak.
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: {
+        blindBoardBestStreak: 6,
+        blindBoardBestLevel: 1,
+        blindBoardBestConfigIsDefault: false, // progressionEnabled=false
+      },
+    });
+  });
+
   it('finish без нового рекорда — User не обновляется', async () => {
     const prisma = makePrisma();
     const row = {
@@ -1380,6 +1456,76 @@ describe('BlindBoardService.pickNextCompMove — KS-3519', () => {
     }
     expect(pieces.size).toBeGreaterThanOrEqual(2);
   });
+});
+
+// ─── KS-3560: safe-relax pass для «всё-уже-знакомо» 3-фигурных позиций ─
+
+describe('BlindBoardService.pickNextCompMove — KS-3560 safe-relax', () => {
+  /**
+   * Прод-инцидент 2026-06-01 21:52 UTC, session 220e9293.
+   * Состояние: Q@d8, N@h8, R@d4. R только что ходила b4→d4.
+   *
+   * Q@d8 уже атакует и N@h8 (по 8-й гориз.), и R@d4 (по d-файлу).
+   * R@d4 уже атакует Q@d8. Любой ход даёт involved={Q или R или N}
+   * с УЖЕ существующим взаимодействием — строгая novelty (KS-3451)
+   * отбраковывает всё. Раньше pickNextCompMove возвращал null →
+   * submitAnswer бросал 503. Теперь safe-relax pass находит ход.
+   */
+  it('Q@d8 / N@h8 / R@d4 (session 220e9293) — safe-relax возвращает ход', () => {
+    const svc = new BlindBoardService(makePrisma());
+    svc.setRandom(() => 0);
+    const res = svc.pickNextCompMove(
+      [
+        { square: 'd8' as BlindBoardSquare, type: 'Q' },
+        { square: 'h8' as BlindBoardSquare, type: 'N' },
+        { square: 'd4' as BlindBoardSquare, type: 'R' },
+      ],
+      [
+        { from: 'b8' as BlindBoardSquare, to: 'b4' as BlindBoardSquare }, // R1
+        { from: 'd2' as BlindBoardSquare, to: 'd8' as BlindBoardSquare }, // R2 Q
+        { from: 'b4' as BlindBoardSquare, to: 'd4' as BlindBoardSquare }, // R3 R (prev mover)
+      ],
+    );
+    expect(res).not.toBeNull();
+    // Любой ход с |involved|=1 — допустим. Проверяем именно non-null.
+  });
+
+  /**
+   * Прод-инцидент 2026-06-01 21:51 UTC, session 960b50bf.
+   * Состояние: Q@g8, N@g1, R@g2. Q только что ходила c4→g8.
+   *
+   * Все три на g-файле; R@g2 заперт между Q@g8 (сверху) и N@g1 (снизу).
+   * Q@g8 атакует и R, и N по g-файлу. Любой ход — со знакомой парой.
+   */
+  it('Q@g8 / N@g1 / R@g2 (session 960b50bf) — safe-relax возвращает ход', () => {
+    const svc = new BlindBoardService(makePrisma());
+    svc.setRandom(() => 0);
+    const res = svc.pickNextCompMove(
+      [
+        { square: 'g8' as BlindBoardSquare, type: 'Q' },
+        { square: 'g1' as BlindBoardSquare, type: 'N' },
+        { square: 'g2' as BlindBoardSquare, type: 'R' },
+      ],
+      [
+        { from: 'a2' as BlindBoardSquare, to: 'g2' as BlindBoardSquare }, // R1 R
+        { from: 'c4' as BlindBoardSquare, to: 'g8' as BlindBoardSquare }, // R2 Q (prev mover)
+      ],
+    );
+    expect(res).not.toBeNull();
+  });
+
+  /**
+   * Контр-пример: позиция, где даже safe-relax не помогает —
+   * геометрически нет ходов с |involved|=1. Тогда pickNextCompMove
+   * корректно возвращает null, submitAnswer финиширует dead-end
+   * (тест ниже отдельно проверяет финиш).
+   *
+   * Конструируем: 2 коня далеко друг от друга, между ними никакого
+   * пересечения геометрии — но при ЛЮБОМ ходе коня всегда involved=0
+   * или involved=2... сложно построить. Пропустим конкретно — KS-3560
+   * fix не обещает «никогда не null»; гарантирует только что safe-relax
+   * пробуется до dead-end финиша.
+   */
 });
 
 // ─── KS-3520: levelUp.boardPosition snapshot ──────────────────────────
