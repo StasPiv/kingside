@@ -2541,28 +2541,18 @@ export const DEFAULT_BLIND_BOARD_CONFIG: BlindBoardConfig = {
  *
  * Сравнение массивов — поэлементное (одинаковая длина + одинаковые
  * элементы в одинаковом порядке).
- *
- * KS-3560 (regression fix): defensive — функция не должна бросать
- * исключение даже на «вырожденных» config'ах (legacy session.startConfig
- * без `levelDurationRounds`/`progressionEnabled`, малформенный jsonb из
- * БД, частичный backfill). Любое отклонение от ожидаемой структуры
- * → false. Бросок отсюда обрушивал finish-хук submitAnswer'а и
- * пользователь получал 500.
  */
 export function isDefaultBlindBoardConfig(
-  config: BlindBoardConfig | null | undefined,
+  config: BlindBoardConfig,
 ): boolean {
-  if (!config || typeof config !== 'object') return false;
   const d = DEFAULT_BLIND_BOARD_CONFIG;
   if (config.memorizeTimeSec !== d.memorizeTimeSec) return false;
   if (config.levelDurationRounds !== d.levelDurationRounds) return false;
   if (config.progressionEnabled !== d.progressionEnabled) return false;
-  if (!Array.isArray(config.startPieces)) return false;
   if (config.startPieces.length !== d.startPieces.length) return false;
   for (let i = 0; i < d.startPieces.length; i++) {
     if (config.startPieces[i] !== d.startPieces[i]) return false;
   }
-  if (!Array.isArray(config.addOrder)) return false;
   if (config.addOrder.length !== d.addOrder.length) return false;
   for (let i = 0; i < d.addOrder.length; i++) {
     if (config.addOrder[i] !== d.addOrder[i]) return false;
