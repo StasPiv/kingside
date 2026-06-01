@@ -18,6 +18,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BLIND_BOARD_LIMITS,
+  LEVEL_DURATION_PRESETS,
   type BlindBoardConfig,
   type BlindBoardPieceType,
 } from '@kingside/shared';
@@ -149,6 +150,28 @@ export function BlindBoardConfigForm({
     [value, disabled, onChange],
   );
 
+  // KS-3553 (ADR-088 V3 §16): прогрессия (level-up каждые
+  // `levelDurationRounds` раундов) глобально гасится чекбоксом.
+  // addOrder в выключенном режиме просто скрыт (значение в state
+  // сохраняется для возврата). levelDuration disabled аналогично —
+  // pill кликабелен только при включённой прогрессии.
+  const setProgressionEnabled = useCallback(
+    (next: boolean) => {
+      if (disabled) return;
+      onChange({ ...value, progressionEnabled: next });
+    },
+    [value, disabled, onChange],
+  );
+
+  const setLevelDuration = useCallback(
+    (rounds: number) => {
+      if (disabled) return;
+      if (!value.progressionEnabled) return;
+      onChange({ ...value, levelDurationRounds: rounds });
+    },
+    [value, disabled, onChange],
+  );
+
   return (
     <div
       className="blind-board-config-form"
@@ -265,7 +288,10 @@ export function BlindBoardConfigForm({
         </p>
       </section>
 
-      {/* ── Очередь добавления (sortable) ───────────────────────── */}
+      {/* ── Очередь добавления (sortable) ─────────────────────────
+          KS-3553: при выключенной прогрессии блок скрыт целиком,
+          значение addOrder остаётся в state. */}
+      {value.progressionEnabled && (
       <section
         className="blind-board-config-form__section"
         data-testid="blind-board-config-add-section"
@@ -277,9 +303,12 @@ export function BlindBoardConfigForm({
           className="blind-board-config-form__section-hint"
           data-testid="blind-board-config-add-hint"
         >
+          {/* KS-3553 (V3): подставляем levelDurationRounds вместо
+              жёсткого «% 10» — V3 делает его конфигурируемым. */}
           {t(
             'blindBoard.config.addOrderHint',
-            'Each entry adds one piece to the board on level-up (streak % 10).',
+            'Each entry adds one piece to the board on level-up (every {{n}} rounds).',
+            { n: value.levelDurationRounds },
           )}
         </p>
         {value.addOrder.length === 0 && (
@@ -395,6 +424,89 @@ export function BlindBoardConfigForm({
                   className="blind-board-config-form__piece-icon"
                 />
               </button>
+            );
+          })}
+        </div>
+      </section>
+      )}
+
+      {/* ── Прогрессия (KS-3553, ADR-088 V3 §16.4) ──────────────
+          Чекбокс «Повышать сложность автоматически» (дефолт on).
+          При включённой прогрессии — pill с пресетами длительности
+          уровня (5/10/15/20, дефолт 10). При выключенной — pill
+          disabled, addOrder выше скрыт. */}
+      <section
+        className="blind-board-config-form__section blind-board-config-form__progression"
+        data-testid="blind-board-config-progression-section"
+        data-enabled={value.progressionEnabled ? 'true' : 'false'}
+      >
+        <h3 className="blind-board-config-form__section-title">
+          {t('blindBoard.config.progressionTitle', 'Progression')}
+        </h3>
+        <label
+          className="blind-board-config-form__progression-toggle"
+          data-testid="blind-board-config-progression-toggle"
+        >
+          <input
+            type="checkbox"
+            checked={value.progressionEnabled}
+            disabled={disabled}
+            onChange={(e) => setProgressionEnabled(e.target.checked)}
+            data-testid="blind-board-config-progression-checkbox"
+          />
+          <span>
+            {t(
+              'blindBoard.config.progressionEnabledLabel',
+              'Auto-increase difficulty',
+            )}
+          </span>
+        </label>
+        <div
+          className="blind-board-config-form__level-duration"
+          role="radiogroup"
+          aria-label={t(
+            'blindBoard.config.levelDurationAria',
+            'Level duration in rounds',
+          )}
+          data-testid="blind-board-config-level-duration"
+          data-disabled={!value.progressionEnabled ? 'true' : 'false'}
+        >
+          <span className="blind-board-config-form__level-duration-label">
+            {t('blindBoard.config.levelDurationLabel', 'Level duration:')}
+          </span>
+          {LEVEL_DURATION_PRESETS.map((rounds) => {
+            const checked = value.levelDurationRounds === rounds;
+            const isDisabled = disabled || !value.progressionEnabled;
+            return (
+              <label
+                key={rounds}
+                className={`blind-board-config-form__level-duration-opt${
+                  checked
+                    ? ' blind-board-config-form__level-duration-opt--checked'
+                    : ''
+                }${
+                  isDisabled
+                    ? ' blind-board-config-form__level-duration-opt--disabled'
+                    : ''
+                }`}
+                data-testid={`blind-board-config-level-duration-${rounds}`}
+                data-checked={checked ? 'true' : 'false'}
+                data-disabled={isDisabled ? 'true' : 'false'}
+              >
+                <input
+                  type="radio"
+                  name="blind-board-level-duration"
+                  value={rounds}
+                  checked={checked}
+                  disabled={isDisabled}
+                  onChange={() => setLevelDuration(rounds)}
+                />
+                <span>
+                  {t('blindBoard.config.levelDurationOption', '{{n}}', {
+                    n: rounds,
+                  })}
+                </span>
+              </label>
             );
           })}
         </div>

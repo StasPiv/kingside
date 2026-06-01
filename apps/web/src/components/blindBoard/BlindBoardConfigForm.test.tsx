@@ -48,6 +48,8 @@ describe('<BlindBoardConfigForm>', () => {
           startPieces: ['Q', 'N', 'R'],
           addOrder: ['B'],
           memorizeTimeSec: 5,
+          progressionEnabled: true,
+          levelDurationRounds: 10,
         }}
         onChange={onChange}
       />,
@@ -153,6 +155,8 @@ describe('<BlindBoardConfigForm>', () => {
           startPieces: ['Q', 'N', 'R'],
           addOrder: ['B', 'B'],
           memorizeTimeSec: 5,
+          progressionEnabled: true,
+          levelDurationRounds: 10,
         }}
         onChange={() => {}}
       />,
@@ -184,6 +188,8 @@ describe('<BlindBoardConfigForm>', () => {
           startPieces: ['Q', 'N', 'R'],
           addOrder: ['B'],
           memorizeTimeSec: 5,
+          progressionEnabled: true,
+          levelDurationRounds: 10,
         }}
         onChange={() => {}}
       />,
@@ -214,5 +220,98 @@ describe('<BlindBoardConfigForm>', () => {
       (screen.getByTestId('blind-board-config-add-up-1') as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  describe('KS-3553 (V3): подгруппа «Прогрессия»', () => {
+    it('дефолт: чекбокс включён, выбран pill 10, секция addOrder видна', () => {
+      renderWithProviders(
+        <BlindBoardConfigForm value={DEFAULT_BLIND_BOARD_CONFIG} onChange={() => {}} />,
+      );
+      const cb = screen.getByTestId(
+        'blind-board-config-progression-checkbox',
+      ) as HTMLInputElement;
+      expect(cb.checked).toBe(true);
+      expect(
+        screen.getByTestId('blind-board-config-add-section'),
+      ).toBeInTheDocument();
+      expect(
+        screen
+          .getByTestId('blind-board-config-level-duration-10')
+          .getAttribute('data-checked'),
+      ).toBe('true');
+    });
+
+    it('снятие чекбокса: addOrder скрыт, pill disabled', async () => {
+      const onChange = vi.fn();
+      renderWithProviders(
+        <BlindBoardConfigForm
+          value={{ ...DEFAULT_BLIND_BOARD_CONFIG, progressionEnabled: false }}
+          onChange={onChange}
+        />,
+      );
+      // addOrder скрыт.
+      expect(
+        screen.queryByTestId('blind-board-config-add-section'),
+      ).toBeNull();
+      // Pill — data-disabled=true.
+      expect(
+        screen
+          .getByTestId('blind-board-config-level-duration')
+          .getAttribute('data-disabled'),
+      ).toBe('true');
+      const pill10 = screen.getByTestId(
+        'blind-board-config-level-duration-10',
+      );
+      expect(pill10.getAttribute('data-disabled')).toBe('true');
+      // Клик по pill не вызывает onChange.
+      await act(async () => {
+        (pill10.querySelector('input') as HTMLInputElement).click();
+      });
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('клик по чекбоксу шлёт onChange с новым progressionEnabled', async () => {
+      const onChange = vi.fn();
+      renderWithProviders(
+        <BlindBoardConfigForm value={DEFAULT_BLIND_BOARD_CONFIG} onChange={onChange} />,
+      );
+      await act(async () => {
+        (
+          screen.getByTestId(
+            'blind-board-config-progression-checkbox',
+          ) as HTMLInputElement
+        ).click();
+      });
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ progressionEnabled: false }),
+      );
+    });
+
+    it('клик по pill (включено) шлёт onChange с новым levelDurationRounds', async () => {
+      const onChange = vi.fn();
+      renderWithProviders(
+        <BlindBoardConfigForm value={DEFAULT_BLIND_BOARD_CONFIG} onChange={onChange} />,
+      );
+      const pill15 = screen.getByTestId(
+        'blind-board-config-level-duration-15',
+      );
+      await act(async () => {
+        (pill15.querySelector('input') as HTMLInputElement).click();
+      });
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ levelDurationRounds: 15 }),
+      );
+    });
+
+    it('addOrderHint подставляет levelDurationRounds (V3 — параметризован)', () => {
+      renderWithProviders(
+        <BlindBoardConfigForm
+          value={{ ...DEFAULT_BLIND_BOARD_CONFIG, levelDurationRounds: 20 }}
+          onChange={() => {}}
+        />,
+      );
+      const hint = screen.getByTestId('blind-board-config-add-hint');
+      expect(hint.textContent).toContain('20');
+    });
   });
 });

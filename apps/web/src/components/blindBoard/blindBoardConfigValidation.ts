@@ -7,6 +7,7 @@
  */
 import {
   BLIND_BOARD_LIMITS,
+  LEVEL_DURATION_PRESETS,
   type BlindBoardConfig,
   type BlindBoardPieceType,
 } from '@kingside/shared';
@@ -15,7 +16,8 @@ export type BlindBoardConfigError =
   | 'min-start'
   | 'max-total'
   | 'quota'
-  | 'memorize-time';
+  | 'memorize-time'
+  | 'level-duration';
 
 /** Подсчёт количества каждого типа в массиве. */
 export function countByType(
@@ -58,6 +60,14 @@ export function validateBlindBoardConfig(
   const allowed: readonly number[] = BLIND_BOARD_LIMITS.memorizeOptions;
   if (!allowed.includes(cfg.memorizeTimeSec)) {
     errors.push('memorize-time');
+  }
+  // KS-3553 (ADR-088 V3 §16): levelDurationRounds должен быть из
+  // пресетов (UI отдаёт только их). При progressionEnabled=false
+  // значение всё равно должно быть валидно — оно держится в state
+  // для возврата при повторном включении.
+  const durations: readonly number[] = LEVEL_DURATION_PRESETS;
+  if (!durations.includes(cfg.levelDurationRounds)) {
+    errors.push('level-duration');
   }
   return errors;
 }

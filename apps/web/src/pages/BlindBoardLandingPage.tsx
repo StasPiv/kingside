@@ -49,10 +49,23 @@ function loadConfigFromLs(): BlindBoardConfig {
       Array.isArray(parsed.addOrder) &&
       typeof parsed.memorizeTimeSec === 'number'
     ) {
+      // KS-3553 (V3): новые поля progressionEnabled / levelDurationRounds.
+      // Legacy LS (V2) их не имеет — для бэк-compat подставляем дефолт
+      // (`progressionEnabled: true`, `levelDurationRounds: 10`) и
+      // проходим валидацию. Это гарантирует, что юзер с сохранённым V2
+      // конфигом не получит «битый формат → reset to default».
       const candidate: BlindBoardConfig = {
         startPieces: parsed.startPieces,
         addOrder: parsed.addOrder,
         memorizeTimeSec: parsed.memorizeTimeSec,
+        progressionEnabled:
+          typeof parsed.progressionEnabled === 'boolean'
+            ? parsed.progressionEnabled
+            : DEFAULT_BLIND_BOARD_CONFIG.progressionEnabled,
+        levelDurationRounds:
+          typeof parsed.levelDurationRounds === 'number'
+            ? parsed.levelDurationRounds
+            : DEFAULT_BLIND_BOARD_CONFIG.levelDurationRounds,
       };
       if (isValidBlindBoardConfig(candidate)) return candidate;
     }
@@ -71,11 +84,19 @@ function saveConfigToLs(cfg: BlindBoardConfig): void {
   }
 }
 
-/** Краткий summary вида «Q+N+R / B,B,R,N / 5s» для свернутого блока. */
-function configSummary(cfg: BlindBoardConfig): string {
+/**
+ * Краткий summary для свернутого блока.
+ * KS-3553 (V3): при выключенной прогрессии addOrder заменяется на
+ * локализованный маркер «Без повышения» (передаётся в `noProgression`).
+ * Само форматирование чисто строковое — i18n-обёртка живёт в caller'е
+ * (BlindBoardLandingPage), здесь только composer.
+ */
+function configSummary(cfg: BlindBoardConfig, noProgression: string): string {
   const start = cfg.startPieces.join('+') || '∅';
-  const add = cfg.addOrder.join(',') || '∅';
-  return `${start} / ${add} / ${cfg.memorizeTimeSec}s`;
+  const middle = cfg.progressionEnabled
+    ? cfg.addOrder.join(',') || '∅'
+    : noProgression;
+  return `${start} / ${middle} / ${cfg.memorizeTimeSec}s`;
 }
 
 export function BlindBoardLandingPage() {
@@ -174,7 +195,10 @@ export function BlindBoardLandingPage() {
             className="blind-board-page__settings-summary"
             data-testid="blind-board-settings-summary"
           >
-            {configSummary(config)}
+            {configSummary(
+              config,
+              t('blindBoard.config.noProgression', 'No progression'),
+            )}
           </span>
         </button>
         {showSettings && (
