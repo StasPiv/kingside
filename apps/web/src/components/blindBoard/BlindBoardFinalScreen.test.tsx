@@ -294,4 +294,56 @@ describe('<BlindBoardFinalScreen>', () => {
       screen.queryByTestId('blind-board-final-leaderboard-level-2'),
     ).toBeNull();
   });
+
+  describe('KS-3554 (V3 §16.6): бейдж 🛠 при custom config', () => {
+    it('bestLevel приоритетнее maxLevel; isDefaultConfig=false → бейдж', async () => {
+      getLeaderboard.mockResolvedValue({
+        entries: [
+          {
+            userId: 'u-1',
+            username: 'GM',
+            bestStreak: 28,
+            // V3: bestLevel есть, fallback на maxLevel не используется.
+            bestLevel: 6,
+            maxLevel: 3,
+            isDefaultConfig: false,
+            achievedAt: '2026-05-01T00:00:00.000Z',
+          },
+          {
+            userId: 'u-2',
+            username: 'Default-Player',
+            bestStreak: 20,
+            bestLevel: 3,
+            isDefaultConfig: true,
+            achievedAt: '2026-05-02T00:00:00.000Z',
+          },
+        ],
+      } as BlindBoardLeaderboardResponse);
+      renderWithProviders(
+        <BlindBoardFinalScreen
+          session={session()}
+          lastAnswer={wrongAnswer}
+          api={api}
+        />,
+      );
+      await screen.findByTestId('blind-board-final-leaderboard-list');
+      // Row 1 — custom config: бейдж видим, level=6 (bestLevel).
+      expect(
+        screen.getByTestId('blind-board-final-leaderboard-row-1').textContent,
+      ).toContain('L6');
+      const badge = screen.getByTestId(
+        'blind-board-final-leaderboard-custom-1',
+      );
+      expect(badge).toBeInTheDocument();
+      expect(badge.textContent).toContain('🛠');
+      expect(badge.getAttribute('title')).toBe('Custom config');
+      // Row 2 — default config: бейджа нет, level=3.
+      expect(
+        screen.getByTestId('blind-board-final-leaderboard-row-2').textContent,
+      ).toContain('L3');
+      expect(
+        screen.queryByTestId('blind-board-final-leaderboard-custom-2'),
+      ).toBeNull();
+    });
+  });
 });

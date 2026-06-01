@@ -3819,6 +3819,9 @@
       "leaderboardError": "Could not load the leaderboard.",
       "leaderboardEmpty": "No entries yet.",
       "playAgain": "Play again"
+    },
+    "leaderboard": {
+      "customConfigTooltip": "Custom config"
     }
   }
 }

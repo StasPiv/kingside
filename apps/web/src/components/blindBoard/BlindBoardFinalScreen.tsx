@@ -290,16 +290,44 @@ export function BlindBoardFinalScreen({
                     data-testid={`blind-board-final-leaderboard-streak-${i + 1}`}
                   >
                     {e.bestStreak}
-                    {/* KS-3489 (V2 §15 F2): «28 · L3» — maxLevel
-                        backend считает как floor(bestStreak/10)+1
-                        (derived). Если backend ещё не V2 — поле
-                        отсутствует, рендер плавно деградирует. */}
-                    {typeof e.maxLevel === 'number' && (
+                    {/* KS-3489 (V2) → KS-3554 (V3 §16): `bestLevel`
+                        с учётом фактического levelDurationRounds.
+                        Fallback на `maxLevel` пока backend не
+                        отрапортует V3 для всех путей (back-compat). */}
+                    {(() => {
+                      const lvl =
+                        typeof e.bestLevel === 'number'
+                          ? e.bestLevel
+                          : typeof e.maxLevel === 'number'
+                            ? e.maxLevel
+                            : null;
+                      if (lvl === null) return null;
+                      return (
+                        <span
+                          className="blind-board-final__leaderboard-level"
+                          data-testid={`blind-board-final-leaderboard-level-${i + 1}`}
+                        >
+                          {' '}· L{lvl}
+                        </span>
+                      );
+                    })()}
+                    {/* KS-3554 (ADR-088 V3 §16.6): запись получена при
+                        не-дефолтном конфиге → ставим бейдж 🛠 с tooltip
+                        «Custom config». На дефолтных без бейджа. */}
+                    {e.isDefaultConfig === false && (
                       <span
-                        className="blind-board-final__leaderboard-level"
-                        data-testid={`blind-board-final-leaderboard-level-${i + 1}`}
+                        className="blind-board-final__leaderboard-custom"
+                        data-testid={`blind-board-final-leaderboard-custom-${i + 1}`}
+                        title={t(
+                          'blindBoard.leaderboard.customConfigTooltip',
+                          'Custom config',
+                        )}
+                        aria-label={t(
+                          'blindBoard.leaderboard.customConfigTooltip',
+                          'Custom config',
+                        )}
                       >
-                        {' '}· L{e.maxLevel}
+                        {' '}🛠
                       </span>
                     )}
                   </span>

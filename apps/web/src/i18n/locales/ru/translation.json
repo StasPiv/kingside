@@ -3861,6 +3861,9 @@
       "leaderboardError": "Не удалось загрузить лидерборд.",
       "leaderboardEmpty": "Пока нет записей.",
       "playAgain": "Играть ещё"
+    },
+    "leaderboard": {
+      "customConfigTooltip": "Нестандартный конфиг"
     }
   }
 }
