@@ -45,11 +45,11 @@ import { WasmEngineAdapter, type EngineAdapter } from '../../utils/engineAdapter
 
 const BATCH_LIMIT = 10;
 /**
- * KS-3480 (MVP): временно опускаем порог валидных партий 20 → 1 для
- * быстрого ручного тестирования сборки. После стабилизации flow
- * вернуть 20 (см. KS-3472).
+ * Сколько валидных партий нужно набрать, прежде чем строить дерево
+ * репертуара. ADR-090 V4 / KS-3472. KS-3480 временно держал 1 для
+ * ручного теста сборки; KS-3546 вернул 20.
  */
-const TARGET_VALID_GAMES = 1;
+const TARGET_VALID_GAMES = 20;
 const MAX_LINE_PLIES = 40;
 const LOSS_THRESHOLD_CP = 50;
 /** Глубина-потолок для analyze; реально SF остановится по movetime. */
