@@ -31,6 +31,7 @@ import { runDumpPuzzles } from './cli/dump-puzzles.cli';
 import { runAnalyzePgn } from './cli/analyze-pgn.cli';
 import { runBackfillPuzzleObjective } from './cli/backfill-puzzle-objective.cli';
 import { runBackfillPhase } from './cli/backfill-phase.cli';
+import { runBackfillEndgameSubtype } from './cli/backfill-endgame-subtype.cli';
 import { runGeneratePuzzlesFromTwic } from './cli/generate-puzzles-from-twic.cli';
 
 const SUBCOMMANDS = [
@@ -41,6 +42,7 @@ const SUBCOMMANDS = [
   'analyze-pgn',
   'backfill-puzzle-objective',
   'backfill-phase',
+  'backfill-endgame-subtype',
   'generate-puzzles-from-twic',
 ] as const;
 
@@ -100,6 +102,9 @@ async function main(): Promise<void> {
         break;
       case 'backfill-phase':
         await runBackfillPhase(app, rest);
+        break;
+      case 'backfill-endgame-subtype':
+        await runBackfillEndgameSubtype(app, rest);
         break;
       case 'generate-puzzles-from-twic':
         await runGeneratePuzzlesFromTwic(app, rest);
