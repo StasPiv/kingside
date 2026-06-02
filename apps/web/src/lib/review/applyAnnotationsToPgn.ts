@@ -38,16 +38,10 @@ const NAG_SYMBOL: Record<number, string> = {
   [NAG_DUBIOUS]: '?!',
 };
 
-// KS-3619: position-eval NAG (PGN 10-19) → текстовые символы для PGN.
-const EVAL_NAG_SYMBOL: Record<number, string> = {
-  11: '=',
-  14: '⩲',
-  15: '⩱',
-  16: '±',
-  17: '∓',
-  18: '+−',
-  19: '−+',
-};
+// KS-3619: position-eval NAG (PGN 10-19) рендерим в численной форме
+// `$N` — chess.js/PGN-парсеры это понимают штатно, UI мапит обратно
+// в символы (=, ⩲, ⩱, ±, ∓, +−, −+) на отображение.
+const EVAL_NAG_CODES: ReadonlySet<number> = new Set([11, 14, 15, 16, 17, 18, 19]);
 
 function nagSuffix(nags: readonly number[] | undefined): string {
   if (!nags || nags.length === 0) return '';
@@ -125,10 +119,11 @@ function buildVariationText(
     }
   }
 
-  // KS-3619: position-eval NAG в самом конце ветки (на последнюю
-  // позицию). Кладём как отдельный токен перед {[%cvc ...]}.
-  if (v.finalEvalNag != null && EVAL_NAG_SYMBOL[v.finalEvalNag]) {
-    tokens.push(EVAL_NAG_SYMBOL[v.finalEvalNag]);
+  // KS-3619: position-eval NAG в самом конце ветки. Эмитим как `$N`
+  // (PGN-стандарт): chess.js парсер штатно его сохраняет, при
+  // ре-сериализации не теряется.
+  if (v.finalEvalNag != null && EVAL_NAG_CODES.has(v.finalEvalNag)) {
+    tokens.push(`$${v.finalEvalNag}`);
   }
   // Цвет — через PGN-комментарий `{[%cvc <color>]}`. Кладём в самый
   // конец, чтобы рендерить «контейнер» цвета на всю ветку.

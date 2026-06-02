@@ -203,7 +203,7 @@ describe('applyAnnotationsToPgn', () => {
     expect((out.match(/\{main comment\}/g) ?? []).length).toBe(1);
   });
 
-  it('KS-3619: finalEvalNag → символ оценки в конце ветки', () => {
+  it('KS-3619: finalEvalNag → $N в конце ветки (chess.js-совместимо)', () => {
     const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
       {
         ply: 2,
@@ -213,11 +213,13 @@ describe('applyAnnotationsToPgn', () => {
         ],
       },
     ]);
-    // ± появляется внутри green-ветки, перед `{[%cvc green]}`.
-    expect(out).toMatch(/±\s*\{\[%cvc green\]\}/);
+    expect(out).toMatch(/\$16\s*\{\[%cvc green\]\}/);
+    // Round-trip: chess.js должен прочитать PGN без потерь.
+    const c = new Chess();
+    expect(() => c.loadPgn(out)).not.toThrow();
   });
 
-  it('KS-3619: без finalEvalNag — символ не добавляется', () => {
+  it('KS-3619: без finalEvalNag — $N не добавляется', () => {
     const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
       {
         ply: 2,
@@ -225,8 +227,8 @@ describe('applyAnnotationsToPgn', () => {
         variations: [{ uci: 'c7c5', color: 'green', subline: ['g1f3'] }],
       },
     ]);
-    expect(out).not.toContain('±');
-    expect(out).not.toContain('=');
+    expect(out).not.toContain('$16');
+    expect(out).not.toContain('$18');
   });
 
   it('KS-3616: пустая строка / только пробелы в commentByPly → не вставляем', () => {
