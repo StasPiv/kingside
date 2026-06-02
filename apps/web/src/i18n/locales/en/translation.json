@@ -919,6 +919,14 @@
       "retry": "Try again",
       "unavailable": "Maia unavailable"
     },
+    "engine": {
+      "sort": {
+        "eval": "Eval",
+        "maia": "Maia%",
+        "line": "Line",
+        "maiaUnavailableTip": "Maia unavailable — Stockfish order"
+      }
+    },
     "useAsRepertoire": {
       "menuItem": "Use as new repertoire",
       "creating": "Creating…",

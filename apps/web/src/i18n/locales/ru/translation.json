@@ -929,6 +929,14 @@
       "retry": "Попробовать снова",
       "unavailable": "Maia недоступна"
     },
+    "engine": {
+      "sort": {
+        "eval": "Оценка",
+        "maia": "Maia%",
+        "line": "Линия",
+        "maiaUnavailableTip": "Maia недоступна — порядок Stockfish"
+      }
+    },
     "useAsRepertoire": {
       "menuItem": "Использовать как новый репертуар",
       "creating": "Создаём…",

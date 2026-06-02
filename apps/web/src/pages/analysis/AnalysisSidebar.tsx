@@ -16,24 +16,11 @@ import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import { MaiaEloSelect } from '../../components/analysis/MaiaEloSelect';
 import { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { User } from '@kingside/shared';
-
-/**
- * KS-3579 helper: вытаскиваем первый UCI-ход из PV. EvalLine.pv в проде —
- * строка с пробелами («e2e4 e7e5 …»). Часть unit-тестов передаёт pv
- * как массив строк (AnalysisSidebar.test KS-2866) — поддерживаем оба
- * варианта defensive'но, чтобы не разводить рассинхрон с этими
- * тестами в одном PR.
- */
-function extractBestUci(pv: unknown): string | null {
-  if (typeof pv === 'string') {
-    const first = pv.split(' ')[0];
-    return first ? first : null;
-  }
-  if (Array.isArray(pv) && pv.length > 0 && typeof pv[0] === 'string') {
-    return pv[0];
-  }
-  return null;
-}
+import { useEngineSortMode } from '../../hooks/useEngineSortMode';
+// KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
+// чтобы переиспользовать из engineSort и не дублировать. Sidebar
+// продолжает звать `extractBestUci` для inline-вероятности Maia.
+import { extractBestUci, sortLines } from '../../utils/engineSort';
 import type { useEngineConfig } from '../../hooks/useEngineConfig';
 import { formatEval, formatPv } from '../../utils/chessFormat';
 import { EngineLoader } from '../../components/EngineLoader';
@@ -209,6 +196,16 @@ export function AnalysisSidebar({
     fen: currentFen,
     user: maiaUser,
   });
+
+  // KS-3593 (ADR-098): persisted sort-режим линий — `stockfish` (eval desc)
+  // или `maia` (probability desc + eval tiebreak). Меняется кликом по
+  // заголовку колонки `Eval` / `Maia%` в `.stockfish-lines-header`.
+  const { sortMode, setSortMode } = useEngineSortMode();
+  const sortedLines = sortLines(
+    displayedLines,
+    sortMode,
+    maia.getProbability,
+  );
 
   // KS-3258 follow-up: forfeit-fallback. Если history пуста и headers
   // указывают на [Termination "Unplayed"] / Result != "*" — рендерим
@@ -417,9 +414,55 @@ export function AnalysisSidebar({
                 onRetry={() => onEngineRetry?.()}
               />
             )}
+            {/* KS-3593 (ADR-098): заголовок-переключатель сортировки
+                линий. Eval / Maia% — кликабельны, Line — нерактивный
+                label. Maia%-кнопка не дизаблится даже при ошибке Maia
+                (иначе юзер бы застрял в режиме maia), но показывает
+                tooltip-tip когда `maia.status === 'error'`. */}
+            <div className="stockfish-lines-header">
+              <button
+                type="button"
+                className={`stockfish-lines-header__col stockfish-lines-header__col--eval${
+                  sortMode === 'stockfish'
+                    ? ' stockfish-lines-header__col--active'
+                    : ''
+                }`}
+                onClick={() => setSortMode('stockfish')}
+                data-testid="engine-sort-eval"
+              >
+                {t('analysis.engine.sort.eval', 'Eval')}
+                {sortMode === 'stockfish' && (
+                  <span aria-hidden="true"> ↓</span>
+                )}
+              </button>
+              <button
+                type="button"
+                className={`stockfish-lines-header__col stockfish-lines-header__col--maia${
+                  sortMode === 'maia'
+                    ? ' stockfish-lines-header__col--active'
+                    : ''
+                }`}
+                onClick={() => setSortMode('maia')}
+                title={
+                  maia.status === 'error'
+                    ? t(
+                        'analysis.engine.sort.maiaUnavailableTip',
+                        'Maia unavailable — Stockfish order',
+                      )
+                    : undefined
+                }
+                data-testid="engine-sort-maia"
+              >
+                {t('analysis.engine.sort.maia', 'Maia%')}
+                {sortMode === 'maia' && <span aria-hidden="true"> ↓</span>}
+              </button>
+              <span className="stockfish-lines-header__col stockfish-lines-header__col--label">
+                {t('analysis.engine.sort.line', 'Line')}
+              </span>
+            </div>
             <div className="stockfish-lines">
-              {(analysisEnabled || displayedLines.length > 0) &&
-                displayedLines.map((line) => {
+              {(analysisEnabled || sortedLines.length > 0) &&
+                sortedLines.map((line) => {
                   // KS-3588: inline-вероятность Maia рядом с eval.
                   const uci = extractBestUci(line.pv);
                   const prob = maia.getProbability(uci);
@@ -651,9 +694,51 @@ export function AnalysisSidebar({
                   onRetry={() => onEngineRetry?.()}
                 />
               )}
+              {/* KS-3593 (ADR-098): mobile-копия sort-header'а. */}
+              <div className="stockfish-lines-header">
+                <button
+                  type="button"
+                  className={`stockfish-lines-header__col stockfish-lines-header__col--eval${
+                    sortMode === 'stockfish'
+                      ? ' stockfish-lines-header__col--active'
+                      : ''
+                  }`}
+                  onClick={() => setSortMode('stockfish')}
+                  data-testid="engine-sort-eval-mobile"
+                >
+                  {t('analysis.engine.sort.eval', 'Eval')}
+                  {sortMode === 'stockfish' && (
+                    <span aria-hidden="true"> ↓</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`stockfish-lines-header__col stockfish-lines-header__col--maia${
+                    sortMode === 'maia'
+                      ? ' stockfish-lines-header__col--active'
+                      : ''
+                  }`}
+                  onClick={() => setSortMode('maia')}
+                  title={
+                    maia.status === 'error'
+                      ? t(
+                          'analysis.engine.sort.maiaUnavailableTip',
+                          'Maia unavailable — Stockfish order',
+                        )
+                      : undefined
+                  }
+                  data-testid="engine-sort-maia-mobile"
+                >
+                  {t('analysis.engine.sort.maia', 'Maia%')}
+                  {sortMode === 'maia' && <span aria-hidden="true"> ↓</span>}
+                </button>
+                <span className="stockfish-lines-header__col stockfish-lines-header__col--label">
+                  {t('analysis.engine.sort.line', 'Line')}
+                </span>
+              </div>
               <div className="stockfish-lines">
-                {(analysisEnabled || displayedLines.length > 0) &&
-                  displayedLines.map((line) => {
+                {(analysisEnabled || sortedLines.length > 0) &&
+                  sortedLines.map((line) => {
                     // KS-3588: inline-вероятность Maia.
                     const uci = extractBestUci(line.pv);
                     const prob = maia.getProbability(uci);
