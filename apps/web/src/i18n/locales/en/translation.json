@@ -911,15 +911,6 @@
     "castling": "Castling:",
     "clear": "Clear Board"
   },
-  "positionMaiaRating": {
-    "cta": "Get position rating",
-    "loading": "Computing rating…",
-    "matched": "This move is at level ~{{rating}}",
-    "aboveRange": "Above Maia range",
-    "fallbackTitle": "Maia prefers:",
-    "error": "Could not get rating",
-    "reset": "Try again"
-  },
   "analysis": {
     "maia": {
       "elo": "Maia",

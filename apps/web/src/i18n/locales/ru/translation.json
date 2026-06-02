@@ -921,15 +921,6 @@
     "castling": "Рокировка:",
     "clear": "Очистить доску"
   },
-  "positionMaiaRating": {
-    "cta": "Получить рейтинг позиции",
-    "loading": "Считаем рейтинг…",
-    "matched": "Этот ход на уровне ~{{rating}}",
-    "aboveRange": "Выше диапазона Maia",
-    "fallbackTitle": "Maia предпочитает:",
-    "error": "Не удалось получить рейтинг",
-    "reset": "Ещё раз"
-  },
   "analysis": {
     "maia": {
       "elo": "Maia",

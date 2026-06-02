@@ -13,7 +13,6 @@ import { ForfeitPlaceholder } from '../../components/ForfeitPlaceholder';
 import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
-import { PositionMaiaRatingButton } from '../../components/analysis/PositionMaiaRatingButton';
 import { MaiaEloSelect } from '../../components/analysis/MaiaEloSelect';
 import { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { User } from '@kingside/shared';
@@ -319,12 +318,11 @@ export function AnalysisSidebar({
                 stopPropagation на самой кнопке — чтобы клик не
                 сворачивал родительскую панель. */}
             <SidebarFontSizeButton />
-            {/* KS-3588 (ADR-097): селект ELO для inline-вероятностей Maia.
-                stopPropagation чтобы клик не сворачивал engine-panel. */}
-            <span
-              className="maia-elo-select-wrapper"
-              onClick={(e) => e.stopPropagation()}
-            >
+            {/* KS-3588 (ADR-097) / KS-3590: селект ELO для inline-Maia.
+                stopPropagation чтобы клик не сворачивал engine-panel.
+                Класса-обёртки нет — `.maia-elo-controls` уже задан
+                внутри `MaiaEloSelect` и подхватывает CSS из KS-3589. */}
+            <span onClick={(e) => e.stopPropagation()}>
               <MaiaEloSelect
                 value={maia.elo}
                 onChange={maia.setElo}
@@ -457,13 +455,9 @@ export function AnalysisSidebar({
                   );
                 })}
             </div>
-            {/* KS-3579: «Получить рейтинг позиции» — Maia-3 в воркере.
-                Best-ход берём из top-1 линии Stockfish (UCI первый ход
-                в PV). Если линий пока нет — кнопка disabled. */}
-            <PositionMaiaRatingButton
-              fen={currentFen}
-              stockfishBestUci={extractBestUci(displayedLines[0]?.pv)}
-            />
+            {/* KS-3590: блок «Получить рейтинг позиции» (KS-3579) удалён —
+                inline-вероятности Maia в Stockfish-линиях (KS-3588 ADR-097)
+                перекрывают его функционально. */}
           </div>
         )}
       </div>
@@ -697,11 +691,7 @@ export function AnalysisSidebar({
                     );
                   })}
               </div>
-              {/* KS-3579: mobile-вариант кнопки «Получить рейтинг позиции». */}
-              <PositionMaiaRatingButton
-                fen={currentFen}
-                stockfishBestUci={extractBestUci(displayedLines[0]?.pv)}
-              />
+              {/* KS-3590: mobile-кнопка KS-3579 удалена (см. desktop). */}
             </div>
           </div>
           <div

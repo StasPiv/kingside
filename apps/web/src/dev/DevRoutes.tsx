@@ -24,7 +24,6 @@ import { DevWdlChancesBarPage } from '../pages/DevWdlChancesBarPage';
 import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
 import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
-import DevPositionMaiaRatingPage from '../pages/DevPositionMaiaRatingPage';
 import DevMaiaInlinePage from '../pages/DevMaiaInlinePage';
 
 /**
@@ -99,8 +98,6 @@ export default function DevRoutes() {
       <Route path="analysis-repertoire-menu" element={<DevAnalysisRepertoireMenuPage />} />
       {/* KS-3404: настройки движка с тумблером «Без ограничения глубины». */}
       <Route path="engine-unlimited" element={<DevEngineUnlimitedPage />} />
-      {/* KS-3581: визуальная проверка блока «Рейтинг позиции» в обеих темах. */}
-      <Route path="position-maia-rating" element={<DevPositionMaiaRatingPage />} />
       {/* KS-3589: визуальная проверка inline-Maia (.maia-elo-select + .stockfish-maia-prob). */}
       <Route path="maia-inline" element={<DevMaiaInlinePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
