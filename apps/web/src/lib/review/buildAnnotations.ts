@@ -179,12 +179,15 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
     return NAG_BRILLIANT;
   }
 
-  // !: played=best (PV1) И playedProb<0.20.
+  // !: played=best (PV1) И playedProb<0.10 (KS-3617: было 0.20 — это
+  // вешало `!` на типовые дебютные ходы вроде `1...c5` где Maia
+  // даёт ~10%. Понижено до 0.10, чтобы `!` отмечал реально
+  // неочевидные ходы).
   if (
     playedClass === 'best' &&
     samePlayed &&
     input.playedProb !== undefined &&
-    input.playedProb < 0.2
+    input.playedProb < 0.1
   ) {
     return NAG_GOOD;
   }

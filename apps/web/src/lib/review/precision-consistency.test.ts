@@ -98,7 +98,7 @@ const SCENARIOS: Scenario[] = [
     }),
   },
   {
-    label: 'precision=best на SF top-1 + редкий playedProb<0.20 → авто-NAG !',
+    label: 'precision=best на SF top-1 + редкий playedProb<0.10 → авто-NAG !',
     expectedClass: 'best',
     expectedNag: [NAG_GOOD],
     input: makeInput({
@@ -106,7 +106,7 @@ const SCENARIOS: Scenario[] = [
       sfBestUci: 'e2e4',
       wdlBefore: wdl(0.5),
       wdlAfterPlayed: wdl(0.5),
-      playedProb: 0.1,
+      playedProb: 0.05,
     }),
   },
   {

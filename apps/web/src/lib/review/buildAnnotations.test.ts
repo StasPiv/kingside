@@ -109,7 +109,20 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
     expect(a.nag).toEqual([NAG_DUBIOUS]);
   });
 
-  it('! при playedClass=best (=sfBest) и playedProb < 0.20 (cpLoss≈0)', () => {
+  it('! при playedClass=best (=sfBest) и playedProb < 0.10 (cpLoss≈0)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        playedProb: 0.05,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_GOOD]);
+  });
+
+  it('! НЕ применяется если playedProb ≥ 0.10 (KS-3617: было 0.20)', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
@@ -117,19 +130,6 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
         wdlBefore: wdl(0.5),
         wdlAfterPlayed: wdl(0.5),
         playedProb: 0.15,
-      }),
-    );
-    expect(a.nag).toEqual([NAG_GOOD]);
-  });
-
-  it('! НЕ применяется если playedProb ≥ 0.20', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        wdlBefore: wdl(0.5),
-        wdlAfterPlayed: wdl(0.5),
-        playedProb: 0.25,
       }),
     );
     expect(a.nag).toEqual([]);
@@ -151,7 +151,7 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
   });
 
   it('!! не применяется если secondBestClass = good (нет «единственного спасения»)', () => {
-    // playedProb < 0.20 → откатываемся на !.
+    // playedProb < 0.10 → откатываемся на !.
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
