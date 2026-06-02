@@ -27,11 +27,13 @@ function Panel({
   staleProb = false,
   showWarning = false,
   emptyProb = false,
+  pendingEval = false,
 }: {
   label: string;
   staleProb?: boolean;
   showWarning?: boolean;
   emptyProb?: boolean;
+  pendingEval?: boolean;
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -87,9 +89,9 @@ function Panel({
             {ROWS.map((r, i) => (
               <div className="stockfish-line" key={i}>
                 <span
-                  className={`stockfish-eval${r.best ? ' best' : ''}`}
+                  className={`stockfish-eval${r.best ? ' best' : ''}${pendingEval ? ' stockfish-eval--pending' : ''}`}
                 >
-                  {r.eval}
+                  {pendingEval ? '--' : r.eval}
                 </span>
                 <span
                   className={`stockfish-maia-prob${staleProb ? ' stockfish-maia-prob--stale' : ''}`}
@@ -122,6 +124,7 @@ export default function DevMaiaInlinePage() {
       <Panel label="stale — старые данные пока считается новая позиция" staleProb />
       <Panel label="empty — Maia ещё не считала / отключена" emptyProb />
       <Panel label="error — иконка ⚠ рядом с селектом" showWarning />
+      <Panel label="pending — Stockfish ещё не прислал eval (KS-3598)" pendingEval />
     </div>
   );
 }
