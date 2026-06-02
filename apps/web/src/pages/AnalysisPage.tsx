@@ -1229,6 +1229,12 @@ function AnalysisPageInner({
 
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // KS-3619 hotfix: при первой загрузке дубля/saved analysis (новый
+  // localId, ещё ни одного autosave) запоминаем сериализованный
+  // снапшот и пропускаем первый PATCH — иначе фронт ре-сериализует
+  // загруженный PGN через chess.js, теряет UTF-8 NAG (±/⩲/+−/...) и
+  // обрезает PGN. Запись делаем только при реальной правке.
+  const lastSavedPgnRef = useRef<string | null>(null);
   const hasPgnHeaders = Object.keys(pgnHeaders).length > 0;
   const hasInitialAnnotations = !!initialAnnotations;
   useEffect(() => {
@@ -1273,6 +1279,16 @@ function AnalysisPageInner({
           );
         } catch { /* ignore */ }
       } else {
+        // KS-3619 hotfix: первый snapshot после загрузки не пишем
+        // (см. lastSavedPgnRef комментарий выше). Если pgn не
+        // изменился с прошлого сохранения — тоже пропускаем (нет
+        // смысла генерировать запросы).
+        if (lastSavedPgnRef.current === null) {
+          lastSavedPgnRef.current = pgn;
+          return;
+        }
+        if (lastSavedPgnRef.current === pgn) return;
+        lastSavedPgnRef.current = pgn;
         let savedPosition: number | null = null;
         const fen = currentFenRef.current;
         if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {

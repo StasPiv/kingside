@@ -249,25 +249,8 @@ export function applyAnnotationsToPgn(
     // Variations — после SAN сыгранного хода.
     if (ann && ann.variations.length > 0) {
       for (const v of ann.variations) {
-        try {
-          const vText = buildVariationText(fenBefore, v);
-          if (vText) tokens.push(`(${vText})`);
-          else {
-            // eslint-disable-next-line no-console
-            console.warn('[KS-3619] buildVariationText empty', { ply, v });
-          }
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error(
-            '[KS-3619] buildVariationText THREW at ply',
-            ply,
-            'color',
-            v.color,
-            'uci',
-            v.uci,
-            e,
-          );
-        }
+        const vText = buildVariationText(fenBefore, v);
+        if (vText) tokens.push(`(${vText})`);
       }
     }
 
@@ -278,15 +261,7 @@ export function applyAnnotationsToPgn(
         to: move.to,
         promotion: move.promotion,
       });
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error(
-        '[KS-3619] applyAnnotationsToPgn break at ply',
-        ply,
-        'san',
-        move.san,
-        e,
-      );
+    } catch {
       break;
     }
   }

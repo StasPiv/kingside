@@ -139,15 +139,11 @@ export function useGameReviewLauncher(
     setCreatingDuplicate(true);
     (async () => {
       try {
-        // eslint-disable-next-line no-console
-        console.log('[KS-3619] applyAnnotationsToPgn input PGN length:', pgn.length, 'annotations:', review.result!.annotations.length, 'commentByPly entries:', Object.keys(review.result!.commentByPly).length);
         const newPgn = applyAnnotationsToPgn(
           pgn,
           review.result!.annotations,
           { commentByPly: review.result!.commentByPly },
         );
-        // eslint-disable-next-line no-console
-        console.log('[KS-3619] applyAnnotationsToPgn output PGN length:', newPgn.length, 'tail:', newPgn.slice(-200));
         const created = await api.post<{ id: string }>(
           `/analyses/${analysisId}/duplicate-annotated`,
           {
