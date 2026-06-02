@@ -1603,6 +1603,97 @@ export type AnalysisResponse = {
  *    `currentPosition` (но для одной партии правильно дёргать
  *    `GET /api/analyses/:id`).
  */
+/**
+ * KS-3615 / ADR-102 §3.4. Факты о ходе для LLM-комментирования
+ * («Разобрать партию»). Каждый ход с NAG-меткой превращается в
+ * один объект; фронт собирает массив фактов и шлёт в
+ * `POST /api/analysis-review/comments`.
+ *
+ * Shape — точная копия фронтовской `extractFacts.ts` (KS-3614).
+ * Любое расширение делаем здесь и одновременно в DTO бэка.
+ *
+ * `move_class` (см. `MoveClass` в `utils/move-classification`) пока
+ * дублируется строковым union'ом — избегаем циклической зависимости
+ * между api-contracts и utils. Допустимые значения должны совпадать.
+ */
+export interface FactsInput {
+  /** Half-move index (0-based: 0 = первый ход белых). */
+  ply: number;
+  /** FEN ДО хода. */
+  fen: string;
+  /** Чей ход (играющая сторона на ply). */
+  side: 'white' | 'black';
+  move: {
+    san: string;
+    uci: string;
+    /** Что взяли (символ фигуры или null). */
+    capture: string | null;
+    /** Ход даёт шах? */
+    check: boolean;
+    /** Мат в N полуходов от позиции после хода (если есть). */
+    mate: number | null;
+    /** O-O / O-O-O если рокировка. */
+    castling: 'O-O' | 'O-O-O' | null;
+    /** Фигура продвижения (`'q' | 'r' | 'b' | 'n'`) если promotion. */
+    promotion: string | null;
+  };
+  /** Best/good/inaccuracy/mistake/blunder — совпадает с `MoveClass`. */
+  classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+  /** Дельта expected-score: [-1..+1] от лица решающей стороны. */
+  delta_e: number;
+  /** Лучший ход Stockfish (null если playedUci === sfBestUci). */
+  sf_best: { uci: string; san: string } | null;
+  /** Альтернатива по Maia + её probability (если есть и отличается от played). */
+  maia_alternative: {
+    uci: string;
+    san: string;
+    probability: number;
+    classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+  } | null;
+  /** Фаза партии в момент хода. */
+  stage: 'opening' | 'middlegame' | 'endgame';
+  /** Известное название дебюта (если резолвится). */
+  opening_name: string | null;
+  /** Материальный баланс в пешках, + если у `side` преимущество. */
+  material_balance: number;
+  /** Что изменилось материально на этом ходу (поднятая фигура, сторона). */
+  material_change: { piece: string; side: 'white' | 'black' } | null;
+  /** Висящая фигура после хода (если есть). */
+  hanging_piece: {
+    square: string;
+    piece: string;
+    side: 'white' | 'black';
+  } | null;
+  /** Угроза мата соперника в N полуходов после нашего хода, null если нет. */
+  mate_threat_after: number | null;
+  /** ELO пользователя (для подбора лексики комментариев). */
+  user_elo: number;
+  /** UI-локаль для комментариев. */
+  user_language: 'en' | 'ru';
+}
+
+/**
+ * KS-3615 / ADR-102 §4.2. Запрос на батч-комментирование ходов.
+ * Все факты + контекст идут одним запросом; LLM возвращает массив
+ * комментариев той же длины и в том же порядке.
+ */
+export interface BatchCommentRequest {
+  facts: FactsInput[];
+  /** ELO пользователя — для калибровки сложности комментариев. */
+  userElo: number;
+  /** Язык комментариев. */
+  language: 'en' | 'ru';
+}
+
+/**
+ * KS-3615 / ADR-102. Ответ батч-комментирования.
+ * `comments[i]` соответствует `facts[i]`. Пустая строка — LLM не смог
+ * (или сервер срезал по graceful-degradation: webhook down / parse fail).
+ */
+export interface BatchCommentResponse {
+  comments: string[];
+}
+
 export type AnalysisListItem = {
   id: string;
   title: string;

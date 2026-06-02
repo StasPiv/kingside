@@ -19,6 +19,7 @@ import { BlindBoardModule } from './blind-board/blind-board.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { AnalysisReviewModule } from './analysis-review/analysis-review.module';
 import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
@@ -87,6 +88,10 @@ import { HealthController } from './health.controller';
     BlindBoardModule,
     TournamentModule,
     AnalysisModule,
+    // KS-3615 / ADR-102 §8 B. LLM-комментарии к ходам через тот же
+    // webhook что AI Assistant. Принципиально отдельный модуль —
+    // другой prompt-конструктор, своё rate-limit-namespace в Redis.
+    AnalysisReviewModule,
     WorkshopModule,
     LiveTournamentModule,
     ClientLogsModule,
