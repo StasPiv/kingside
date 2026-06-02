@@ -44,7 +44,7 @@ export async function batchReviewComment(
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api/analyses/review/comments`, {
+    res = await fetch(`${API_URL}/analyses/review/comments`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ facts, userElo, language }),
