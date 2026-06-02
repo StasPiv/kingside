@@ -108,7 +108,7 @@ class Sf {
       if (this.queue.length) this.queue[0].handle(line);
     }
   }
-  analyze(fen, multipv = 3) {
+  analyze(fen, multipv = 3, searchmoves = null) {
     return new Promise((resolve) => {
       const lines = new Map();
       const job = { handle: (line) => {
@@ -129,7 +129,8 @@ class Sf {
         }
       }};
       this.queue.push(job);
-      this.p.stdin.write(`ucinewgame\nsetoption name MultiPV value ${multipv}\nposition fen ${fen}\ngo depth ${this.depth}\n`);
+      const sm = searchmoves ? ` searchmoves ${searchmoves.join(' ')}` : '';
+      this.p.stdin.write(`ucinewgame\nsetoption name MultiPV value ${multipv}\nposition fen ${fen}\ngo depth ${this.depth}${sm}\n`);
     });
   }
   close() { this.p.stdin.write('quit\n'); }
@@ -238,7 +239,8 @@ for (let i = 0; i < history.length; i++) {
   let wdlAfterPlayed;
   if (wdlByMove[playedUci]) wdlAfterPlayed = wdlByMove[playedUci];
   else {
-    const ev = await sf.analyze(fen, 1); // упрощённо: считаем все, иначе нужен searchmoves
+    // searchmoves <playedUci> — корректный wdl для сыгранного хода.
+    const ev = await sf.analyze(fen, 1, [playedUci]);
     wdlAfterPlayed = ev[0]?.wdl ?? top.wdl;
   }
   const input = {

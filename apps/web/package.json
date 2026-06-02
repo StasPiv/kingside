@@ -40,6 +40,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "happy-dom": "^20.8.3",
     "onnxruntime-node": "~1.20.1",
+    "tsx": "^4.19.2",
     "vite": "^6.4.1",
     "vitest": "^4.0.18"
   }
