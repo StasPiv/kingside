@@ -105,6 +105,48 @@ export async function runBackfillPhase(
   const stats = emptyStats();
   const t0 = Date.now();
 
+  // KS-3564 dry-run fix. Раньше dry-run крутился в бесконечном цикле,
+  // потому что батч-WHERE возвращал те же 500 строк (UPDATE'ов нет
+  // → row'ы не покидали выборку), а break срабатывал только на
+  // `batch.length < take`, что не наступало. devops зафиксировал
+  // 31M фантомных scanned за 580s до того как ECS waiter таймнул.
+  //
+  // Чиним: dry-run грузит ВСЁ за один SELECT (7K записей × 300 байт
+  // ≈ 2 MB — комфортно для памяти), считает фазы и выходит. Никакого
+  // батчинга dry-run больше не делает.
+  if (opts.dryRun) {
+    const limitClause =
+      opts.limit !== null ? `LIMIT ${opts.limit}` : '';
+    const allRows = (await prisma.$queryRawUnsafe(
+      `SELECT id, fen, themes
+         FROM puzzles
+        WHERE source = 'generated'
+          AND themes !~* $1
+        ${limitClause}`,
+      PHASE_REGEX,
+    )) as PuzzleRow[];
+    for (const row of allRows) {
+      stats.scanned++;
+      try {
+        const phase = detectPhase(row.fen);
+        stats.phases[phase]++;
+        stats.updated++;
+      } catch (err) {
+        logger.warn(
+          `detectPhase failed for id=${row.id}: ${(err as Error).message}`,
+        );
+        stats.skipped++;
+      }
+    }
+    const dt0 = Math.round((Date.now() - t0) / 1000);
+    logger.log(
+      `DONE scanned=${stats.scanned} updated=${stats.updated} ` +
+        `skipped=${stats.skipped} errors=${stats.errors} ` +
+        `phases=${JSON.stringify(stats.phases)} ${dt0}s dryRun=true`,
+    );
+    return stats;
+  }
+
   for (;;) {
     const remaining = opts.limit !== null ? opts.limit - stats.scanned : null;
     if (remaining !== null && remaining <= 0) {
@@ -128,60 +170,44 @@ export async function runBackfillPhase(
       break;
     }
 
-    if (opts.dryRun) {
-      for (const row of batch) {
-        stats.scanned++;
-        try {
-          const phase = detectPhase(row.fen);
-          stats.phases[phase]++;
-          stats.updated++;
-        } catch (err) {
-          logger.warn(
-            `detectPhase failed for id=${row.id}: ${(err as Error).message}`,
-          );
-          stats.skipped++;
-        }
-      }
-    } else {
-      try {
-        await prisma.$transaction(async (tx) => {
-          for (const row of batch) {
-            stats.scanned++;
-            let phase: 'opening' | 'middlegame' | 'endgame';
-            try {
-              phase = detectPhase(row.fen);
-            } catch (err) {
-              logger.warn(
-                `detectPhase failed for id=${row.id}: ` +
-                  `${(err as Error).message}`,
-              );
-              stats.skipped++;
-              continue;
-            }
-            const existing = (row.themes ?? '').trim();
-            const newThemes = existing ? `${existing} ${phase}` : phase;
-            try {
-              await tx.$executeRawUnsafe(
-                `UPDATE puzzles SET themes = $1 WHERE id = $2`,
-                newThemes,
-                row.id,
-              );
-              stats.phases[phase]++;
-              stats.updated++;
-            } catch (err) {
-              stats.errors++;
-              logger.warn(
-                `update failed for id=${row.id}: ${(err as Error).message}`,
-              );
-            }
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const row of batch) {
+          stats.scanned++;
+          let phase: 'opening' | 'middlegame' | 'endgame';
+          try {
+            phase = detectPhase(row.fen);
+          } catch (err) {
+            logger.warn(
+              `detectPhase failed for id=${row.id}: ` +
+                `${(err as Error).message}`,
+            );
+            stats.skipped++;
+            continue;
           }
-        });
-      } catch (err) {
-        logger.error(
-          `batch transaction failed: ${(err as Error).message} — abort`,
-        );
-        throw err;
-      }
+          const existing = (row.themes ?? '').trim();
+          const newThemes = existing ? `${existing} ${phase}` : phase;
+          try {
+            await tx.$executeRawUnsafe(
+              `UPDATE puzzles SET themes = $1 WHERE id = $2`,
+              newThemes,
+              row.id,
+            );
+            stats.phases[phase]++;
+            stats.updated++;
+          } catch (err) {
+            stats.errors++;
+            logger.warn(
+              `update failed for id=${row.id}: ${(err as Error).message}`,
+            );
+          }
+        }
+      });
+    } catch (err) {
+      logger.error(
+        `batch transaction failed: ${(err as Error).message} — abort`,
+      );
+      throw err;
     }
 
     const dt = Math.round((Date.now() - t0) / 1000);
