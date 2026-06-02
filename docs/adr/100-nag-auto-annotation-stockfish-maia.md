@@ -43,45 +43,69 @@
 
 ## 3. Правила NAG (MVP-пороги)
 
-### 3.1. Базовые метрики
+### 3.0. Источник метрики — `classifyMove` из shared
 
-Для каждого полухода:
-- `cpBefore` — Stockfish eval позиции **перед** сыгранным ходом, **с точки зрения ходящей стороны** (+ значит выгодно ходящей).
-- `cpBest` — Stockfish eval позиции **после** лучшего хода (SF top-1), с точки зрения ходящей стороны (после хода — это уже eval с точки зрения соперника, инвертируем при сравнении).
-- `cpPlayed` — то же для сыгранного хода.
-- `cpLoss = cpBest - cpPlayed` (всегда ≥ 0, в сантипешках).
-- `playedProb` — `policy[playedUci]` от Maia (выбираем ELO пользователя по `analysis.maia.elo`).
-- `sfBestProb` — `policy[sfBestUci]` от Maia.
-- `maiaTopUci`, `maiaTopProb` — самый вероятный ход по Maia.
-- `forcedMove` — все non-best ходы имеют `cpLoss >= 300` от best, либо у позиции один легальный ход.
+**Корневое решение (KS-3607 уточнение):** не используем чистый cpLoss в сантипешках. Используем **уже существующую** логику классификации хода по **WDL / win-probability** из shared-модуля `packages/shared/src/utils/move-classification.ts` (функция `classifyMove`, ADR-066). Та же логика лежит в основе раздела «Точность» (precision/accuracy) и обеспечивает единый источник истины: что «Точность» считает blunder'ом, то и авто-NAG помечает `??`.
 
-### 3.2. Таблица порогов
+Почему: cp +9 → +7 — большая величина в сантипешках, но обе позиции = win-probability ~100% (выигрыш). Метрика «потеря шансов на победу/ничью» (`loss_E = E_before - E_after`, где `E = (w + d/2) / 1000` от Stockfish WDL) корректно даёт `0` для такого хода. Сантипешковые пороги дали бы ложный `??`.
 
-| NAG | Symbol | Условие | Комментарий |
-|-----|--------|---------|-------------|
-| 4 | `??` | `cpLoss ≥ 200` | Blunder. ~2 пешки потеря. |
-| 2 | `?` | `100 ≤ cpLoss < 200` | Mistake. ~1 пешка. |
-| 6 | `?!` | `50 ≤ cpLoss < 100` **И** `playedUci ≠ sfBestUci` | Dubious. Чуть хуже best. |
-| 5 | `!?` | `cpLoss < 50` **И** `playedUci ≠ sfBestUci` **И** `playedProb ≥ 0.30` | Interesting. Не best, но почти не хуже, и популярно у людей. |
-| 1 | `!` | `playedUci = sfBestUci` **И** `playedProb < 0.20` **И** `cpLoss = 0` | Good move. Лучший ход, который большинство людей этого ELO не сыграли. |
-| 3 | `!!` | `playedUci = sfBestUci` **И** `playedProb < 0.05` **И** `cpLoss = 0` **И** **не** `forcedMove` **И** `cpBefore-secondBestCp ≥ 150` | Brilliant. Лучший ход, который почти никто не нашёл, и второй вариант на 1.5+ пешки хуже (т.е. ход реально решал партию). |
+### 3.1. Что собираем для каждого полухода
+
+С помощью Stockfish с включённой опцией `UCI_ShowWDL`:
+
+- `wdlBefore: { w, d, l }` — WDL позиции **перед** сыгранным ходом, POV ходящей стороны (per-mille).
+- `wdlAfterPlayed: { w, d, l }` — WDL позиции **после** сыгранного хода, POV того же игрока (фронт делает POV-инверсию через `invertWdl` из `wdl.ts`, потому что после хода Stockfish считает с POV соперника).
+- `wdlAfterBest: { w, d, l }` — WDL после SF-best, POV того же игрока (инвертировано). Если `playedUci === sfBestUci` — равно `wdlAfterPlayed`.
+- `wdlAfterSecondBest: { w, d, l }` — WDL после SF top-2, POV того же игрока. Используется для `!!`-критерия.
+- `wdlAfterMaiaTop: { w, d, l }` — WDL после Maia top-1, POV того же игрока. Для §4.2 Maia-trap.
+- `sfBestUci`, `sfBestPv: string[]` — лучший ход и PV (для variation глубины 3).
+- `playedProb`, `sfBestProb`, `maiaTopUci`, `maiaTopProb` — от Maia `policy` (под выбранным ELO).
+- `forcedMove: boolean` — у позиции один легальный ход, либо все non-best ходы имеют classification = `'blunder'` (т.е. позиция «вынужденная»).
+
+Helpers из `packages/shared/src/utils/wdl.ts`:
+- `expectedScoreFromWdl(wdl) = (w + d/2) / 1000` → E ∈ [0..1].
+- `wdlSigned(wdl) = (w − l) / 1000` → [-1..+1].
+- `invertWdl({w,d,l}) = {w:l, d, l:w}` — POV-зеркало при смене стороны.
+- `wdlOrMateFallback(wdl, score)` — заглушка `{w:1000,d:0,l:0}` для mate (когда WDL отсутствует).
+
+Helpers из `packages/shared/src/utils/move-classification.ts`:
+- `classifyMove({ wdlBefore, wdlAfter, cpBefore, cpAfter, isBestMove }) → 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder'`.
+
+### 3.2. Маппинг classification → NAG
+
+Каждый полуход прогоняем через `classifyMove`. Полученный класс маппим на NAG (с дополнительным фильтром по Maia probability для `!`/`!!`/`!?`):
+
+| NAG | Symbol | Условие |
+|-----|--------|---------|
+| 4 | `??` (blunder) | `classifyMove(played) === 'blunder'` (loss_E > 0.25 или `wdlAfterPlayed.l > 950`) |
+| 2 | `?` (mistake) | `classifyMove(played) === 'mistake'` (0.12 < loss_E ≤ 0.25) |
+| 6 | `?!` (dubious) | `classifyMove(played) === 'inaccuracy'` (0.05 < loss_E ≤ 0.12) |
+| 5 | `!?` (interesting) | `classifyMove(played) === 'good'` **И** `playedUci ≠ sfBestUci` **И** `playedProb ≥ 0.30` |
+| 1 | `!` (good move) | `classifyMove(played) === 'best'` **И** `playedUci === sfBestUci` **И** `playedProb < 0.20` |
+| 3 | `!!` (brilliant) | `classifyMove(played) === 'best'` **И** `playedUci === sfBestUci` **И** `playedProb < 0.05` **И** **не** `forcedMove` **И** `classifyMove(secondBest) ∈ {'mistake','blunder'}` (второй вариант минимум до mistake — ход реально решал) |
+
+Примечание: `classifyMove` для `secondBest` вызывается с `wdlBefore` той же позиции и `wdlAfter = wdlAfterSecondBest`. То есть «насколько хуже была бы вторая лучшая альтернатива».
 
 ### 3.3. Suppress-правила (никаких NAG)
 
-- **Forced move** (`forcedMove === true`): no-NAG. Нельзя «!» если выбора не было; нельзя «?» если иначе нельзя.
-- **Won / lost endgame**: если `|cpBefore| > 800`, не ставим quality-NAG. В выигранной/проигранной с разгромом позиции точность хода менее важна, NAG будут спамить.
-- **Mate-line**: если SF eval вернул `mate ±N`, и сыгранный ход — кратчайший мат / любое продолжение мата → no-NAG. Если сыгранный ход теряет мат (даёт сопернику ничью или выигрыш) — это автоматически `??` через cpLoss (mate ≡ cpEquivalent ~10000).
-- **Opening (первые N полуходов)**: в MVP **не пропускаем дебют** — даже первый ход может быть «!» если редкий и сильный. По обратной связи может оказаться шумно — в этом случае добавим `skipOpeningPlies = 8` в follow-up.
+- **Forced move** (`forcedMove === true`): no-NAG. Не «!» (выбора не было) и не «?» (иначе нельзя). Особый кейс: один легальный ход — тривиально skip.
+- **Decided position**: если `|wdlSigned(wdlBefore)| > 0.95` (позиция фактически решена ≥95% в одну сторону) — quality-NAG не ставим. Точность хода в безнадёжной/выигранной позиции мало значит, NAG будут спамить.
+- **Mate-line** обрабатывается самим `classifyMove`: `wdlAfter.l > 950` → blunder автоматически (для проигравшего мат); `wdlAfter.w > 950` → best (для удержавшего мат). Дополнительных правил не нужно.
+- **Opening (первые N полуходов)**: в MVP **не пропускаем дебют** — даже первый ход может быть `!` если редкий и сильный. По обратной связи может оказаться шумно — добавим `skipOpeningPlies = 8` в follow-up.
 
-### 3.4. Mate-конвертация cp
+### 3.4. Mate без WDL (legacy fallback)
 
-При сравнении `cpLoss` для mate-линий — конвертация: `mate +N → +10000 - N` (быстрее мат лучше), `mate −N → −10000 + N`. Никаких overflow — стандартный `Math.min/max` clamp на ±10000.
+Если Stockfish не отдал WDL (старые версии при mate), `wdlOrMateFallback(wdl, score)` подставляет per-mille заглушку (`{w:1000,d:0,l:0}` для mate-в-пользу). Дальше `classifyMove` работает с этой заглушкой штатно.
+
+cp-фолбек в `classifyMove` тоже есть (через `winPctFromCp`), но в наших условиях (свежий WASM Stockfish с `UCI_ShowWDL=true`) практически не задействуется.
 
 ## 4. Логика добавления вариантов
 
+Та же метрика — `classifyMove` из shared, без сантипешковых порогов.
+
 ### 4.1. «Как надо было» — для ошибок
 
-Условие: NAG ∈ {`??`, `?`} **И** `cpLoss ≥ 100` **И** `sfBestUci ≠ playedUci`.
+Условие: `classifyMove(played) ∈ {'mistake', 'blunder'}` **И** `sfBestUci ≠ playedUci`.
 
 Действие: добавить **side-variation**, начинающуюся с `sfBestUci`. Глубина = **3 полухода**:
 1. `sfBestUci` (наш ход, правильный).
@@ -92,9 +116,11 @@
 
 ### 4.2. «Что часто играют» — Maia-trap
 
-Условие: `maiaTopUci ≠ sfBestUci` **И** `maiaTopProb ≥ 0.25` **И** `maiaTopCpLoss ≥ 100` (Maia-top объективно ошибочен) **И** `playedUci ≠ maiaTopUci` (пользователь сам его не сыграл — иначе уже размечен через 4.1).
+Условие: `maiaTopUci ≠ sfBestUci` **И** `maiaTopProb ≥ 0.25` **И** `classifyMove(maiaTop) ∈ {'mistake', 'blunder'}` (Maia-top объективно ошибочен в WDL-смысле) **И** `playedUci ≠ maiaTopUci` (пользователь сам его не сыграл — иначе уже размечен через 4.1).
 
-Действие: добавить **отдельную side-variation** глубиной **1 полуход** с `maiaTopUci`. На этот ход вешаем NAG `?` или `??` (по cpLoss). Без продолжения — это «человеческая ловушка», достаточно показать сам ход.
+`classifyMove(maiaTop)` вызывается с `wdlBefore` той же позиции и `wdlAfter = wdlAfterMaiaTop` (требует доп. SF-вызова `searchmoves <maiaTopUci> multipv 1` на этой позиции для получения eval). Если получить `wdlAfterMaiaTop` невозможно (Maia top-1 совпал с одним из SF top-3 — берём из существующих линий; иначе skip variation, не делаем доп. SF-go в MVP).
+
+Действие: добавить **отдельную side-variation** глубиной **1 полуход** с `maiaTopUci`. На этот ход вешаем NAG соответственно классификации (`?` для mistake, `??` для blunder). Без продолжения — это «человеческая ловушка», достаточно показать сам ход.
 
 ### 4.3. Лимиты
 
@@ -136,7 +162,7 @@ Future user-controls (не MVP): preset «строгий/мягкий», skip-op
 **Stockfish** (`useStockfish` или прямой worker):
 - 1 inference на позицию × 80 = 80 SF-runs.
 - На `depth 18` ≈ 200-400 мс/run на WASM (по сегодняшним замерам). Total: **16-32 с**.
-- Запускаем `multipv 3` чтобы сразу получить `secondBestCp` для §3.2 `!!`-критерия.
+- Запускаем `multipv 3` + `UCI_ShowWDL=true` чтобы сразу получить `wdlBefore`, `wdlAfterBest`, `wdlAfterSecondBest`, `sfBestPv` за один прогон. Для сыгранного хода (если не совпал с SF top-3) — отдельный `searchmoves <playedUci> multipv 1` на позиции для `wdlAfterPlayed` (фронт POV-инвертирует).
 
 **Maia** (`predictMovesBatch`):
 - 1 inference на позицию × 80 = 80 Maia-runs, **но** `predictMovesBatch` уже умеет батч по N позициям одной модели сразу.
@@ -149,8 +175,8 @@ Future user-controls (не MVP): preset «строгий/мягкий», skip-op
 
 - **Параллельность** — SF и Maia в разных воркерах, оркестратор просто `Promise.all`.
 - **Early-skip** для очевидно не-NAG позиций:
-  - Если `|cpBefore| > 800` → можно пропустить Maia (для этого хода NAG не ставится, см. §3.3).
-  - Если позиция mate-in-N и сыгран mate-move → skip Maia.
+  - Если `|wdlSigned(wdlBefore)| > 0.95` → можно пропустить Maia (для этого хода NAG не ставится, см. §3.3 «Decided position»).
+  - Если позиция mate-in-N и сыгран mate-move → skip Maia (classifyMove даст `best` через wdlAfter.w > 950).
 - **Cancel** — пользователь нажал «Отмена» в модалке → оркестратор посылает `terminate()` обоим воркерам.
 
 ### 7.3. Оптимизации (follow-up)
@@ -278,10 +304,13 @@ UI-альтернатива — disable кнопки «Разобрать» на
 1. **Worker-оркестратор** `apps/web/src/lib/review/reviewWorker.ts` (или композиция в JS-thread, если Worker для оркестрации overkill — оба варианта обсуждаемы):
    - Input: `Array<{ fen, playedUci }>` (все полуходы партии).
    - Внутри — пул из 2 источников (`useStockfish`-обёртка и `MaiaWorkerEngine`).
+   - SF опции: включить `UCI_ShowWDL=true` (если не включено), запросить `multipv 3`. Для playedUci вне top-3 — отдельный `searchmoves` (см. §7.1).
+   - POV-инверсия `wdlAfter*` через `invertWdl` из `packages/shared/src/utils/wdl.ts` ДО передачи в `buildAnnotation` (на фронте, не в классификаторе — это правило ADR-066).
    - Yield progress: `{ done: N, total: M }`.
    - Output: `Array<{ ply, nag: number[], variations: Array<{ uci: string, color: 'green'|'red', subline?: string[], nag?: number[] }> }>`.
 2. **Алгоритм** `apps/web/src/lib/review/buildAnnotations.ts`:
-   - Чистая функция: на вход — собранные данные (`cpBefore`, `cpBest`, `cpPlayed`, `secondBestCp`, `playedProb`, `sfBestProb`, `maiaTopUci`, `maiaTopProb`, `maiaTopCpLoss`, `forcedMove`, `mate?`).
+   - Чистая функция: на вход — собранные WDL/probability данные (`wdlBefore`, `wdlAfterPlayed`, `wdlAfterBest`, `wdlAfterSecondBest`, `wdlAfterMaiaTop?`, `playedUci`, `sfBestUci`, `sfBestPv`, `playedProb`, `sfBestProb`, `maiaTopUci`, `maiaTopProb`, `forcedMove`).
+   - **Метрика классификации — ТОЛЬКО `classifyMove` из `packages/shared/src/utils/move-classification.ts`.** Самописная cp-логика **запрещена** (единый источник истины с precision-модулем).
    - На выход — `{ nag: number[], variations: Variation[] }` для одного полухода.
    - Полное покрытие unit-тестами таблицы §3.2 + §3.3 suppress + §4.1/4.2 variations.
 3. **Hook** `apps/web/src/hooks/useGameReview.ts`:
@@ -351,7 +380,9 @@ UI-альтернатива — disable кнопки «Разобрать» на
 
 ## 12. Резюме
 
-MVP — кнопка «Разобрать партию» → ~25-40 с прогресс-модалка → **новый авто-аннотированный дубль** в мастерской с припиской «(автоаннотация)» в title. Оригинал не трогается. Источник — клиентский Stockfish (depth 18, multipv 3) + Maia (батч по полуходам) в параллельных воркерах.
+MVP — кнопка «Разобрать партию» → ~25-40 с прогресс-модалка → **новый авто-аннотированный дубль** в мастерской с припиской «(автоаннотация)» в title. Оригинал не трогается. Источник — клиентский Stockfish (depth 18, multipv 3, `UCI_ShowWDL=true`) + Maia (батч по полуходам) в параллельных воркерах.
+
+Классификация ходов — через **уже существующую** `classifyMove` из `packages/shared/src/utils/move-classification.ts` (та же, что использует precision-модуль). Метрика — WDL / win-probability (`loss_E = E_before - E_after`), а не сантипешки. NAG-таблица — простой маппинг `classification` → NAG-код (§3.2).
 
 Backend: новое поле `Analysis.originalAnalysisId` + миграция + endpoint `POST /analyses/:id/duplicate-annotated` (create-or-update по `(userId, originalAnalysisId)` — идемпотентность). Дубль наследует все поля оригинала кроме `pgn`/`title`/`isPublic`/`sourceHash`/`guessSessionId`. На странице дубля — ссылка «← Исходный анализ».
 
