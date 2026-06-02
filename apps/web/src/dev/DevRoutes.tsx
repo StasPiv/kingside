@@ -24,6 +24,7 @@ import { DevWdlChancesBarPage } from '../pages/DevWdlChancesBarPage';
 import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
 import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
+import DevPositionMaiaRatingPage from '../pages/DevPositionMaiaRatingPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -97,6 +98,8 @@ export default function DevRoutes() {
       <Route path="analysis-repertoire-menu" element={<DevAnalysisRepertoireMenuPage />} />
       {/* KS-3404: настройки движка с тумблером «Без ограничения глубины». */}
       <Route path="engine-unlimited" element={<DevEngineUnlimitedPage />} />
+      {/* KS-3581: визуальная проверка блока «Рейтинг позиции» в обеих темах. */}
+      <Route path="position-maia-rating" element={<DevPositionMaiaRatingPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
