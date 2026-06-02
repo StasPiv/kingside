@@ -1,6 +1,6 @@
 /**
  * KS-3615 / ADR-102 §3.4 + §4.2. DTO для
- * `POST /api/analysis-review/comments`.
+ * `POST /api/analyses/review/comments`.
  *
  * Shape — 1:1 с `FactsInput` из `packages/shared/src/types/api-contracts.ts`
  * (тот же контракт фронт собирает в `extractFacts.ts`, KS-3614).
@@ -182,7 +182,7 @@ export class MoveFactsDto {
 
 /**
  * KS-3615 / ADR-102 §4.2 + §8 B-этап. Body для
- * `POST /api/analysis-review/comments`.
+ * `POST /api/analyses/review/comments`.
  *
  *  - `facts`: 1..40 элементов. Min — пустой массив не имеет смысла,
  *    Max — защита от перегруза LLM (типичная партия с NAG'ами укладывается

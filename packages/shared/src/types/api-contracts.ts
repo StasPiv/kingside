@@ -1607,7 +1607,9 @@ export type AnalysisResponse = {
  * KS-3615 / ADR-102 §3.4. Факты о ходе для LLM-комментирования
  * («Разобрать партию»). Каждый ход с NAG-меткой превращается в
  * один объект; фронт собирает массив фактов и шлёт в
- * `POST /api/analysis-review/comments`.
+ * `POST /api/analyses/review/comments` (KS-3615 follow-up: путь
+ * изменён с `/api/analysis-review/comments` — на проде верхнеуровневый
+ * сегмент `analysis-review` отдавал 404 из-за whitelist'а прокси).
  *
  * Shape — точная копия фронтовской `extractFacts.ts` (KS-3614).
  * Любое расширение делаем здесь и одновременно в DTO бэка.
