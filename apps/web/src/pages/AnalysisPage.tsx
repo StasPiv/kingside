@@ -842,6 +842,46 @@ function AnalysisPageInner({
     try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
   });
 
+  // KS-3603 (ADR-100 §8): originalAnalysisId подгружаем отдельным
+  // запросом — он нужен Sidebar для source-link «← Исходный анализ»
+  // и для disable кнопки «Разобрать партию» (на дубле). Lazy + best-
+  // effort; при ошибке остаётся null, UI рендерит как для оригинала.
+  const [analysisOriginalId, setAnalysisOriginalId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    const id = localIdRef.current;
+    if (!id) {
+      setAnalysisOriginalId(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ originalAnalysisId: string | null }>(`/analyses/${id}`)
+      .then((res) => {
+        if (!cancelled) setAnalysisOriginalId(res.originalAnalysisId ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalysisOriginalId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisId]);
+
+  // KS-3603 (ADR-100): свежий PGN для оркестратора. Берём
+  // `history`-сериализацию, чтобы клик «Разобрать» использовал
+  // именно те ходы, что юзер видит на доске сейчас.
+  const analysisPgn = useMemo<string>(() => {
+    if (history.length === 0) return '';
+    try {
+      return serializeToAnnotatedPgn(history);
+    } catch {
+      return '';
+    }
+  }, [history]);
+
   // KS-3597 (ADR-099 F2): Maia-hook и sort-режим на уровне AnalysisPage,
   // чтобы `useEngine` мог получить `searchmoves` (Maia top-N) для
   // `sortMode === 'maia'`. Sidebar получает всё через props.
@@ -2406,6 +2446,12 @@ function AnalysisPageInner({
         onSortModeChange={setSortMode}
         engineSupportsSearchmoves={engineSupportsSearchmoves}
         maiaTopMoves={maiaTopMoves}
+        /* KS-3603 (ADR-100 §9 этап B): данные для «Разобрать партию»
+           и source-link. `analysisOriginalId` lazy-fetch'ится отдельным
+           useEffect (см. ниже). */
+        analysisId={localIdRef.current ?? null}
+        analysisPgn={analysisPgn}
+        originalAnalysisId={analysisOriginalId}
         readOnly={ctx.readOnly}
         concealAfterPly={null}
         // KS-3258 follow-up: пробрасываем headers, чтобы при пустой

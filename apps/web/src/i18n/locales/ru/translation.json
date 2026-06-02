@@ -941,6 +941,23 @@
         "maiaUnsupportedTip": "Maia-режим недоступен для внешнего движка — порядок Stockfish"
       }
     },
+    "review": {
+      "runCta": "Разобрать партию",
+      "title": "Разбор партии",
+      "progress": "{{done}} из {{total}}",
+      "cancel": "Отмена",
+      "done": "Готово",
+      "retry": "Попробовать снова",
+      "error": "Не удалось разобрать",
+      "duplicateSuffix": "(автоаннотация)",
+      "disabledOnDuplicate": "Открой исходный анализ для повторного разбора",
+      "disabledEmpty": "Нет ходов для разбора",
+      "createDuplicateError": "Не удалось создать дубль"
+    },
+    "auto": {
+      "backToOriginal": "← Исходный анализ",
+      "originalDeleted": "Исходный анализ удалён"
+    },
     "useAsRepertoire": {
       "menuItem": "Использовать как новый репертуар",
       "creating": "Создаём…",

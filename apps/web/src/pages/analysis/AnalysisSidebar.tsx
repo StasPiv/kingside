@@ -15,6 +15,10 @@ import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import type { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { EngineSortMode } from '../../hooks/useEngineSortMode';
+// KS-3603 (ADR-100 §9 этап B): кнопка «Разобрать партию» в engine-panel
+// header + inline source-link «← Исходный анализ» для auto-дублей.
+import { GameReviewLauncher } from '../../components/analysis/GameReviewLauncher';
+import { Link } from 'react-router-dom';
 // KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
 // чтобы переиспользовать из engineSort и не дублировать. Sidebar
 // продолжает звать `extractBestUci` для inline-вероятности Maia.
@@ -122,6 +126,14 @@ export interface AnalysisSidebarProps {
    */
   pgnHeaders?: Record<string, string> | null;
   /**
+   * KS-3603 (ADR-100 §9 этап B): кнопка «Разобрать партию» в шапке
+   * engine-panel + source-link к оригиналу при `originalAnalysisId != null`.
+   * Поля передаёт AnalysisPage.
+   */
+  analysisId?: string | null;
+  analysisPgn?: string;
+  originalAnalysisId?: string | null;
+  /**
    * KS-3597 (ADR-099 F2): Maia-hook и sort-режим теперь живут на уровне
    * `AnalysisPage`, чтобы `useEngine` мог получить `searchmoves` без
    * дублирования экземпляров. Sidebar получает их через props и
@@ -195,6 +207,9 @@ export function AnalysisSidebar({
   onSortModeChange,
   engineSupportsSearchmoves,
   maiaTopMoves,
+  analysisId = null,
+  analysisPgn = '',
+  originalAnalysisId = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -312,6 +327,21 @@ export function AnalysisSidebar({
 
   return (
     <div className="analysis-sidebar" data-testid="analysis-sidebar">
+      {/* KS-3603 (ADR-100 §8): source-link для авто-аннотированных
+          дубликатов. Backend проставляет `originalAnalysisId` для
+          дубля; для оригинала / независимого анализа — null. */}
+      {originalAnalysisId && (
+        <div className="analysis-original-link-wrap analysis-desktop-only">
+          <Link
+            to={`/analysis/${originalAnalysisId}`}
+            className="analysis-original-link"
+            data-testid="analysis-original-link"
+          >
+            <span className="analysis-original-link__icon">←</span>
+            <span>{t('analysis.auto.backToOriginal', '← Original analysis')}</span>
+          </Link>
+        </div>
+      )}
       {/* Desktop-only: GameMetaBar */}
       {gameInfo && (
         <div className="analysis-desktop-only">
@@ -376,6 +406,16 @@ export function AnalysisSidebar({
             )}
           </span>
           <span className="analysis-panel-header-right">
+            {/* KS-3603 (ADR-100): «Разобрать партию» — модалка SF+Maia,
+                затем backend duplicate-annotated + redirect. */}
+            <span onClick={(e) => e.stopPropagation()}>
+              <GameReviewLauncher
+                analysisId={analysisId}
+                pgn={analysisPgn}
+                originalAnalysisId={originalAnalysisId}
+                historyLength={history.length}
+              />
+            </span>
             {/* KS-3099 v2: единый контрол размера шрифта правой
                 панели — Aa-кнопка с dropdown S/M/L. Размещён в шапке
                 первой панели (Stockfish-engine), управляет шрифтом

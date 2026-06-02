@@ -931,6 +931,23 @@
         "maiaUnsupportedTip": "Maia mode unavailable for external engine — Stockfish order"
       }
     },
+    "review": {
+      "runCta": "Analyze game",
+      "title": "Game review",
+      "progress": "{{done}} / {{total}}",
+      "cancel": "Cancel",
+      "done": "Done",
+      "retry": "Try again",
+      "error": "Failed to analyze",
+      "duplicateSuffix": "(auto-annotation)",
+      "disabledOnDuplicate": "Open original analysis to re-run",
+      "disabledEmpty": "No moves to analyze",
+      "createDuplicateError": "Failed to create duplicate"
+    },
+    "auto": {
+      "backToOriginal": "← Original analysis",
+      "originalDeleted": "Original deleted"
+    },
     "useAsRepertoire": {
       "menuItem": "Use as new repertoire",
       "creating": "Creating…",
