@@ -87,6 +87,9 @@ export function useGameReviewLauncher(
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
+  // KS-3618: пока идёт POST /duplicate-annotated, модалка показывает
+  // отдельную стадию «Создаю копию анализа…».
+  const [creatingDuplicate, setCreatingDuplicate] = useState(false);
 
   const isDuplicate = originalAnalysisId != null;
   const disabled =
@@ -133,6 +136,7 @@ export function useGameReviewLauncher(
     if (review.status !== 'done') return;
     if (!review.result || !analysisId) return;
     let cancelled = false;
+    setCreatingDuplicate(true);
     (async () => {
       try {
         const newPgn = applyAnnotationsToPgn(
@@ -151,10 +155,12 @@ export function useGameReviewLauncher(
           },
         );
         if (cancelled) return;
+        setCreatingDuplicate(false);
         setModalOpen(false);
         navigate(`/analysis/${created.id}`);
       } catch (e) {
         if (cancelled) return;
+        setCreatingDuplicate(false);
         if (e instanceof ApiError && e.status === 410) {
           setCreateError(
             t('analysis.auto.originalDeleted', 'Original deleted'),
@@ -180,7 +186,7 @@ export function useGameReviewLauncher(
       status={createError ? 'error' : review.status}
       done={review.progress.done}
       total={review.progress.total}
-      stage={review.progress.stage}
+      stage={creatingDuplicate ? 'creating' : review.progress.stage}
       error={createError ?? review.error}
       onCancel={handleCancel}
       onClose={handleClose}

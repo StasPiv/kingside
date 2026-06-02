@@ -141,11 +141,13 @@ export interface ReviewResult {
 }
 
 /**
- * KS-3616. Стадии прогресса. `engine` — основной SF+Maia прогон.
- * `comments` — батч-запрос LLM-комментариев (один HTTP). При cancel
- * остаётся последняя видимая стадия; status переходит в `cancelled`.
+ * KS-3616/KS-3618. Стадии прогресса.
+ *  - `engine` — основной SF+Maia прогон (done/total + %).
+ *  - `comments` — post-pass subline + LLM-комментарии (без процентов).
+ *  - `creating` — POST `/duplicate-annotated` после `status='done'`.
+ *    Используется launcher'ом (модалка показывает «Создаю копию…»).
  */
-export type ReviewStage = 'engine' | 'comments';
+export type ReviewStage = 'engine' | 'comments' | 'creating';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -525,6 +527,12 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         setError(e instanceof Error ? e.message : String(e));
         return;
       }
+
+      // KS-3618: сразу после main-pass'а переключаем на 'comments' —
+      // дальше идёт post-pass (доп. SF на красные variation, ~1с/ход)
+      // и LLM-фаза, без процентов. Иначе модалка зависает на 100%
+      // engine, пока всё это выполняется.
+      setProgress({ stage: 'comments', done: 0, total: 0 });
 
       // KS-3617. Subline'ы вариантов:
       //   - green: берётся напрямую из `sf.bestPv` (уже посчитано на

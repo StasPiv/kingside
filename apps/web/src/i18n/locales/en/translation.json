@@ -941,7 +941,8 @@
       "title": "Game review",
       "progress": {
         "engine": "{{done}} / {{total}}",
-        "comments": "Generating comments…"
+        "comments": "Generating comments…",
+        "creating": "Creating analysis copy…"
       },
       "cancel": "Cancel",
       "done": "Done",
