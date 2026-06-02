@@ -36,6 +36,25 @@ function wdlPair(lossE: number): { wdlBefore: WdlPerMille; wdlAfter: WdlPerMille
   };
 }
 
+/**
+ * KS-3615 follow-up. Конструктор WDL-входа для loss_E ∈ [0, 0.9].
+ * Нужен для тестов blunder (loss_E > 0.50) после расширения порога
+ * mistake с 0.25 до 0.50. Используем более выигранную стартовую
+ * позицию (E_before≈0.85), чтобы поместить большой loss без выхода
+ * в mate-edge (w/l ≤ 950).
+ *
+ * w=850, d=0, l=150 → wdlAfter переносит loss из w в l. Сохраняем
+ * d=0 как у границы; для тестов на чистый порог blunder это допустимо.
+ */
+function wdlPairLarge(lossE: number): { wdlBefore: WdlPerMille; wdlAfter: WdlPerMille } {
+  const clamped = Math.max(0, Math.min(0.9, lossE));
+  const deltaPerMille = Math.round(clamped * 1000);
+  return {
+    wdlBefore: { w: 850, d: 0, l: 150 },
+    wdlAfter: { w: 850 - deltaPerMille, d: 0, l: 150 + deltaPerMille },
+  };
+}
+
 describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
   // ─── §5 кейс 0: UX-bug repro ────────────────────────────────────
 
@@ -82,16 +101,20 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
       expect(classifyMove(wdlPair(0.20))).toBe('mistake');
     });
 
-    it('loss_E = 0.25 → mistake (граница mistake/blunder включительно)', () => {
+    it('loss_E = 0.25 → mistake (середина расширенного окна)', () => {
       expect(classifyMove(wdlPair(0.25))).toBe('mistake');
     });
 
-    it('loss_E = 0.30 → blunder (выше 0.25)', () => {
-      expect(classifyMove(wdlPair(0.30))).toBe('blunder');
+    it('loss_E = 0.30 → mistake (KS-3615 follow-up: расширен с 0.25 до 0.50)', () => {
+      expect(classifyMove(wdlPair(0.30))).toBe('mistake');
     });
 
-    it('loss_E = 0.5 (катастрофа без mate-edge) → blunder', () => {
-      expect(classifyMove(wdlPair(0.5))).toBe('blunder');
+    it('loss_E = 0.50 → mistake (граница mistake/blunder включительно)', () => {
+      expect(classifyMove(wdlPair(0.5))).toBe('mistake');
+    });
+
+    it('loss_E = 0.60 → blunder (выше 0.50, через wdlPairLarge)', () => {
+      expect(classifyMove(wdlPairLarge(0.6))).toBe('blunder');
     });
   });
 
@@ -200,9 +223,18 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
       expect(classifyMove({ cpBefore: 100, cpAfter: 70 })).toBe('good');
     });
 
-    it('cp loss большой → mistake/blunder в зависимости от величины', () => {
-      // cpBefore=200, cpAfter=-200: winPct(200)≈67, winPct(-200)≈33, loss≈34/100=0.34 → blunder.
-      expect(classifyMove({ cpBefore: 200, cpAfter: -200 })).toBe('blunder');
+    it('cp loss большой → blunder при потере > 50% expected score', () => {
+      // KS-3615 follow-up: blunder теперь loss_E > 0.50. Берём
+      // cpBefore=400, cpAfter=-400: winPct(400)≈77.5, winPct(-400)≈22.5,
+      // loss≈55/100=0.55 → blunder.
+      expect(classifyMove({ cpBefore: 400, cpAfter: -400 })).toBe('blunder');
+    });
+
+    it('cp loss средний (loss_E 0.12..0.50) → mistake', () => {
+      // KS-3615 follow-up: loss_E ∈ (0.12, 0.50] → mistake.
+      // cpBefore=200, cpAfter=-200: winPct(200)≈67, winPct(-200)≈33,
+      // loss≈34/100=0.34 → mistake (раньше попадало в blunder).
+      expect(classifyMove({ cpBefore: 200, cpAfter: -200 })).toBe('mistake');
     });
 
     it('cp в острой позиции 0/+50 → best (winPct loss < 2%)', () => {
@@ -274,7 +306,9 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
     it('WDL = blunder, cp = best → blunder (WDL primary)', () => {
       expect(
         classifyMove({
-          ...wdlPair(0.50),
+          // KS-3615 follow-up: blunder теперь требует loss_E > 0.50,
+          // поэтому wdlPairLarge.
+          ...wdlPairLarge(0.7),
           cpBefore: 50,
           cpAfter: 60, // cp-best
         }),
@@ -301,8 +335,8 @@ describe('classifyMove — KS-3020 / ADR-066 §5 (WDL primary)', () => {
       expect(classifyMove(wdlPair(0.20))).toBe('mistake');
     });
 
-    it('§5 кейс 6 (blunder): loss_E=0.30 → blunder', () => {
-      expect(classifyMove(wdlPair(0.30))).toBe('blunder');
+    it('§5 кейс 6 (blunder, KS-3615 follow-up: расширено с 0.25 до 0.50): loss_E=0.70 → blunder', () => {
+      expect(classifyMove(wdlPairLarge(0.70))).toBe('blunder');
     });
   });
 

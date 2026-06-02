@@ -15,9 +15,11 @@
  *                     ИЛИ `wdl_after.w > 950` (мат сопернику).
  *   - `good`        — 0.02 < loss_E ≤ 0.05.
  *   - `inaccuracy`  — 0.05 < loss_E ≤ 0.12.
- *   - `mistake`     — 0.12 < loss_E ≤ 0.25.
- *   - `blunder`     — loss_E > 0.25 ИЛИ `wdl_after.l > 950` (подставил
- *                     под мат).
+ *   - `mistake`     — 0.12 < loss_E ≤ 0.50.
+ *   - `blunder`     — loss_E > 0.50 ИЛИ `wdl_after.l > 950` (подставил
+ *                     под мат). KS-3615 follow-up: порог расширен с
+ *                     0.25 до 0.50, чтобы blunder ставился только при
+ *                     тяжёлой потере.
  *
  * Источник истины — серверный пересчёт. Клиентский результат не
  * считается доверенным (server-trust по ADR-056 §3.3): backend
@@ -54,8 +56,14 @@ export const MATE_CP_BASE = 100_000;
  *   loss_E ≤ 0.02 ⟺ accuracy ≥ 91.4  → best
  *   loss_E ≤ 0.05 ⟺ accuracy ≥ 79.8  → good
  *   loss_E ≤ 0.12 ⟺ accuracy ≥ 58.0  → inaccuracy
- *   loss_E ≤ 0.25 ⟺ accuracy ≥ 31.6  → mistake
- *   loss_E >  0.25 ⟺ accuracy <  31.6 → blunder
+ *   loss_E ≤ 0.50 ⟺ accuracy ≥ 12.0  → mistake
+ *   loss_E >  0.50 ⟺ accuracy <  12.0 → blunder
+ *
+ * KS-3615 follow-up (по запросу пользователя через координатора):
+ * `mistake` расширен с 0.25 до 0.50, чтобы blunder ставился только
+ * при тяжёлой потере. Раньше окно 0.25..1.0 давало слишком много
+ * `??`-меток в Game Review и precision. Изменение единое для всего
+ * проекта — затрагивает и precision-модуль (сознательно).
  *
  * Именованные константы для калибровки A1 (анализ распределения
  * после 7-14 дней живых данных).
@@ -67,8 +75,8 @@ export const WDL_LOSS_THRESHOLDS = {
   good: 0.05,
   /** 0.05 < loss_E ≤ 0.12 → `inaccuracy`. */
   inaccuracy: 0.12,
-  /** 0.12 < loss_E ≤ 0.25 → `mistake`. */
-  mistake: 0.25,
+  /** 0.12 < loss_E ≤ 0.50 → `mistake` (расширен с 0.25 в KS-3615 follow-up). */
+  mistake: 0.5,
 } as const;
 
 /**
