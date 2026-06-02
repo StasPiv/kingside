@@ -106,6 +106,25 @@ describe('<GameReviewProgressModal>', () => {
     ).toBeNull();
   });
 
+  it('KS-3616: stage="comments" — текст сообщает о генерации, без процентов', () => {
+    renderWithProviders(
+      <GameReviewProgressModal
+        open
+        status="running"
+        stage="comments"
+        done={0}
+        total={5}
+        onCancel={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const txt = screen.getByTestId('game-review-progress-text');
+    // Текст не содержит числа — это «Готовлю комментарии…» / «Generating comments…».
+    expect(txt.textContent).not.toContain('0 /');
+    expect(txt.textContent).not.toContain('%');
+    expect(txt.textContent && txt.textContent.length > 0).toBe(true);
+  });
+
   it('progress-bar fill = done/total * 100%', () => {
     renderWithProviders(
       <GameReviewProgressModal

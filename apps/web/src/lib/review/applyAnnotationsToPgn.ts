@@ -126,17 +126,55 @@ export interface ApplyAnnotationsOptions {
    * По умолчанию — `console.warn`.
    */
   onError?: (err: Error) => void;
+  /**
+   * KS-3616. Маппинг `ply (1-based) → текст PGN-комментария к ходу
+   * main-line`. Комментарий встраивается как `{...}` после SAN и
+   * NAG-суффикса. Не применяется внутри variations.
+   */
+  commentByPly?: Readonly<Record<number, string>>;
 }
 
 /**
- * @returns новый PGN со встроенными NAG и variations. Если входной PGN
- * не парсится — возвращает исходный без изменений (defensive).
+ * KS-3616. Максимальная длина PGN-комментария к ходу. Если LLM выдал
+ * больше — обрезаем + добавляем `...`. По ADR-102 модель не должна
+ * выходить за ~20 слов (≤100 символов), 200 — защита от форматных
+ * деградаций (например, длинных markdown'ов или повторяющегося шума).
+ */
+export const PGN_COMMENT_MAX_LENGTH = 200;
+
+/**
+ * KS-3616. Нормализация одного PGN-комментария:
+ *   - заменяем `{` / `}` на скобки `(` / `)` (иначе PGN не парсится);
+ *   - сжимаем переносы строк в пробелы;
+ *   - усекаем до `PGN_COMMENT_MAX_LENGTH` с `...` в конце.
+ */
+function sanitizeComment(raw: string): string {
+  const flattened = raw.replace(/[\r\n\t]+/g, ' ').trim();
+  const noBraces = flattened.replace(/[{}]/g, ' ');
+  const collapsed = noBraces.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= PGN_COMMENT_MAX_LENGTH) return collapsed;
+  // Усечение «по-человечески» — на границе слова, если возможно.
+  const cut = collapsed.slice(0, PGN_COMMENT_MAX_LENGTH - 3);
+  const lastSpace = cut.lastIndexOf(' ');
+  const head = lastSpace > 40 ? cut.slice(0, lastSpace) : cut;
+  return `${head}...`;
+}
+
+/**
+ * @returns новый PGN со встроенными NAG, variations и (опционально)
+ * PGN-комментариями к main-line ходам. Если входной PGN не парсится —
+ * возвращает исходный без изменений (defensive).
+ *
+ * `options.commentByPly` (KS-3616) — маппинг `ply (1-based) → текст
+ *   комментария`. Комментарии встраиваются в `{...}` после SAN (и
+ *   после NAG-суффикса). Применяются только к main-line.
  */
 export function applyAnnotationsToPgn(
   pgn: string,
   annotations: readonly Annotation[],
   options: ApplyAnnotationsOptions = {},
 ): string {
+  const commentByPly = options.commentByPly;
   const byPly = new Map<number, Annotation>();
   for (const a of annotations) byPly.set(a.ply, a);
 
@@ -182,6 +220,15 @@ export function applyAnnotationsToPgn(
     const ann = byPly.get(ply);
     const suffix = ann ? nagSuffix(ann.nag) : '';
     tokens.push(move.san + suffix);
+
+    // KS-3616: PGN-комментарий к main-line ходу (если задан). Кладём
+    // после SAN+NAG и до variations — стандартная PGN-семантика
+    // «комментарий к сыгранному ходу».
+    const rawComment = commentByPly?.[ply];
+    if (rawComment && rawComment.trim().length > 0) {
+      const safe = sanitizeComment(rawComment);
+      if (safe.length > 0) tokens.push(`{${safe}}`);
+    }
 
     // Variations — после SAN сыгранного хода.
     if (ann && ann.variations.length > 0) {

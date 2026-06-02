@@ -944,7 +944,10 @@
     "review": {
       "runCta": "Разобрать партию",
       "title": "Разбор партии",
-      "progress": "{{done}} из {{total}}",
+      "progress": {
+        "engine": "{{done}} из {{total}}",
+        "comments": "Готовлю комментарии…"
+      },
       "cancel": "Отмена",
       "done": "Готово",
       "retry": "Попробовать снова",
@@ -952,7 +955,8 @@
       "duplicateSuffix": "(автоаннотация)",
       "disabledOnDuplicate": "Открой исходный анализ для повторного разбора",
       "disabledEmpty": "Нет ходов для разбора",
-      "createDuplicateError": "Не удалось создать дубль"
+      "createDuplicateError": "Не удалось создать дубль",
+      "commentsUnavailable": "Комментарии не сгенерированы, попробуйте позже"
     },
     "auto": {
       "backToOriginal": "← Исходный анализ",

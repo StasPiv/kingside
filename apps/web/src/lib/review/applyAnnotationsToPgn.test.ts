@@ -6,7 +6,10 @@
 import { describe, it, expect } from 'vitest';
 import { Chess } from 'chess.js';
 
-import { applyAnnotationsToPgn } from './applyAnnotationsToPgn';
+import {
+  applyAnnotationsToPgn,
+  PGN_COMMENT_MAX_LENGTH,
+} from './applyAnnotationsToPgn';
 import {
   NAG_BLUNDER,
   NAG_GOOD,
@@ -129,6 +132,84 @@ describe('applyAnnotationsToPgn', () => {
       onError: () => {},
     });
     expect(out).toBe(broken);
+  });
+
+  it('KS-3616: commentByPly={} → поведение как раньше (без `{}`)', () => {
+    const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
+      { ply: 2, nag: [NAG_MISTAKE], variations: [] },
+    ]);
+    expect(out).not.toContain('{');
+    expect(out).toContain('e5?');
+  });
+
+  it('KS-3616: commentByPly с текстом → `{...}` после SAN+NAG', () => {
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [{ ply: 2, nag: [NAG_MISTAKE], variations: [] }],
+      { commentByPly: { 2: 'Лучше было c5' } },
+    );
+    expect(out).toContain('e5? {Лучше было c5}');
+    // chess.js может перепарсить main-line.
+    const c = new Chess();
+    c.loadPgn(out);
+    expect(c.history({ verbose: true }).length).toBe(3);
+  });
+
+  it('KS-3616: длинный комментарий обрезается до PGN_COMMENT_MAX_LENGTH', () => {
+    const long = 'A'.repeat(500);
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [{ ply: 1, nag: [], variations: [] }],
+      { commentByPly: { 1: long } },
+    );
+    const m = out.match(/\{([^}]*)\}/);
+    expect(m).toBeTruthy();
+    const body = m![1];
+    expect(body.length).toBeLessThanOrEqual(PGN_COMMENT_MAX_LENGTH);
+    expect(body.endsWith('...')).toBe(true);
+  });
+
+  it('KS-3616: фигурные скобки внутри комментария экранируются', () => {
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [{ ply: 1, nag: [], variations: [] }],
+      { commentByPly: { 1: 'Foo {bar} baz' } },
+    );
+    // Внутренние `{`/`}` заменены — иначе PGN не распарсится.
+    const inner = out.match(/\{([^}]*)\}/)?.[1] ?? '';
+    expect(inner).not.toContain('{');
+    expect(inner).toContain('Foo');
+    expect(inner).toContain('baz');
+    // round-trip:
+    const c = new Chess();
+    expect(() => c.loadPgn(out)).not.toThrow();
+  });
+
+  it('KS-3616: commentByPly не применяется внутри variations (только main-line)', () => {
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [
+        {
+          ply: 2,
+          nag: [NAG_MISTAKE],
+          variations: [{ uci: 'c7c5', color: 'green' }],
+        },
+      ],
+      { commentByPly: { 2: 'main comment' } },
+    );
+    // Комментарий main-line есть.
+    expect(out).toContain('{main comment}');
+    // А в variation никакого `{main comment}` дублироваться не должно.
+    expect((out.match(/\{main comment\}/g) ?? []).length).toBe(1);
+  });
+
+  it('KS-3616: пустая строка / только пробелы в commentByPly → не вставляем', () => {
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [{ ply: 1, nag: [], variations: [] }],
+      { commentByPly: { 1: '   ' } },
+    );
+    expect(out).not.toMatch(/\{\s*\}/);
   });
 
   it('KS-3610: nested-variations рендерятся как вложенные скобки PGN', () => {

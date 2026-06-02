@@ -9,6 +9,7 @@ import type { Wdl } from '@kingside/shared';
 
 import {
   useGameReview,
+  type CommentClient,
   type ReviewEngines,
   parsePgnPlies,
 } from './useGameReview';
@@ -164,6 +165,186 @@ describe('useGameReview', () => {
     // На 2. e5: playedUci=e7e5 — нет → evalMove зовётся.
     // На 3. Nf3: playedUci=g1f3 — нет → evalMove зовётся.
     expect(engines.evalMove).toHaveBeenCalledTimes(2);
+  });
+
+  // --- KS-3616 -----------------------------------------------------------
+
+  /**
+   * Мок engines, в котором 2-й полуход (e7e5) — blunder: SF говорит
+   * best=g8f6 ≠ played, wdlAfter[e7e5] = {w:0,d:0,l:1000}. На таких
+   * ходах buildAnnotation вешает NAG-blunder → попадают в facts.
+   */
+  function blunderEngines(extra: Partial<ReviewEngines> = {}): ReviewEngines {
+    const analyzeSf = vi.fn().mockImplementation((fen: string) => {
+      if (fen.includes(' b ')) {
+        return Promise.resolve({
+          bestUci: 'g8f6',
+          wdlBefore: NEUTRAL,
+          wdlAfterBest: NEUTRAL,
+          wdlAfterSecondBest: NEUTRAL,
+          bestPv: ['g8f6'],
+          wdlByMove: {
+            g8f6: NEUTRAL,
+            e7e5: { w: 0, d: 0, l: 1000 },
+          },
+          legalMovesCount: 20,
+        });
+      }
+      return Promise.resolve({
+        bestUci: 'e2e4',
+        wdlBefore: NEUTRAL,
+        wdlAfterBest: NEUTRAL,
+        wdlAfterSecondBest: NEUTRAL,
+        bestPv: ['e2e4'],
+        wdlByMove: { e2e4: NEUTRAL },
+        legalMovesCount: 20,
+      });
+    });
+    return {
+      analyzeSf,
+      evalMove: vi.fn().mockResolvedValue(NEUTRAL),
+      predictMaia: vi.fn().mockResolvedValue({
+        byUci: { e2e4: 0.4, e7e5: 0.4, g8f6: 0.1 },
+        topUci: 'e2e4',
+        topProb: 0.4,
+      }),
+      terminate: vi.fn(),
+      ...extra,
+    };
+  }
+
+  it('KS-3616: commentsEnabled=false → commentClient НЕ вызывается', async () => {
+    const commentClient: CommentClient = vi.fn().mockResolvedValue([]);
+    const { result } = renderHook(() =>
+      useGameReview({
+        engines: blunderEngines(),
+        commentsEnabled: false,
+        commentClient,
+      }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(commentClient).not.toHaveBeenCalled();
+    expect(result.current.result?.commentByPly).toEqual({});
+  });
+
+  it('KS-3616: нет ходов с NAG → commentClient НЕ вызывается', async () => {
+    // mockEngines() выдаёт sf=e2e4, played=e2e4 → best; no NAG.
+    const commentClient: CommentClient = vi.fn().mockResolvedValue([]);
+    const { result } = renderHook(() =>
+      useGameReview({ engines: mockEngines(), commentClient }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(commentClient).not.toHaveBeenCalled();
+    expect(result.current.result?.commentByPly).toEqual({});
+  });
+
+  it('KS-3616: ходы с NAG → commentClient вызван, commentByPly заполнен', async () => {
+    const commentClient: CommentClient = vi.fn().mockResolvedValue([
+      'Слабый ход; лучше Nf6.',
+    ]);
+    const { result } = renderHook(() =>
+      useGameReview({
+        engines: blunderEngines(),
+        commentClient,
+        openingName: 'King’s Pawn',
+        userLanguage: 'ru',
+        elo: 1500,
+      }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('done');
+    expect(commentClient).toHaveBeenCalledTimes(1);
+    const callArgs = (commentClient as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(Array.isArray(callArgs[0])).toBe(true);
+    // Один blunder в PGN → один factsToSend.
+    expect((callArgs[0] as unknown[]).length).toBe(1);
+    expect(callArgs[1]).toBe(1500);
+    expect(callArgs[2]).toBe('ru');
+    // commentByPly: ply=2 (e5) — единственный blunder.
+    expect(result.current.result?.commentByPly).toEqual({
+      2: 'Слабый ход; лучше Nf6.',
+    });
+    expect(result.current.commentsWarning).toBe(false);
+  });
+
+  it('KS-3616: backend возвращает пустые → commentsWarning=true, дубль создаётся', async () => {
+    const commentClient: CommentClient = vi.fn().mockResolvedValue(['']);
+    const { result } = renderHook(() =>
+      useGameReview({ engines: blunderEngines(), commentClient }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('done');
+    expect(result.current.commentsWarning).toBe(true);
+    expect(result.current.result?.commentByPly).toEqual({});
+    // Аннотации (NAG) при этом сохранены.
+    expect(result.current.result?.annotations).toHaveLength(3);
+  });
+
+  it('KS-3616: AbortError из commentClient → cancelled', async () => {
+    const commentClient: CommentClient = vi
+      .fn()
+      .mockRejectedValue(new DOMException('aborted', 'AbortError'));
+    const { result } = renderHook(() =>
+      useGameReview({ engines: blunderEngines(), commentClient }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('cancelled');
+  });
+
+  it('KS-3616: ошибка backend (не abort) → graceful warning, status=done', async () => {
+    const commentClient: CommentClient = vi
+      .fn()
+      .mockRejectedValue(new TypeError('Failed to fetch'));
+    const { result } = renderHook(() =>
+      useGameReview({ engines: blunderEngines(), commentClient }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('done');
+    expect(result.current.commentsWarning).toBe(true);
+    expect(result.current.result?.commentByPly).toEqual({});
+  });
+
+  it('KS-3616: cancel во время comments-фазы → cancelled + abort fetch', async () => {
+    let abortSignal: AbortSignal | undefined;
+    const commentClient: CommentClient = vi
+      .fn()
+      .mockImplementation((_facts, _elo, _lang, signal: AbortSignal) => {
+        abortSignal = signal;
+        return new Promise<string[]>((_, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+          });
+        });
+      });
+    const { result } = renderHook(() =>
+      useGameReview({ engines: blunderEngines(), commentClient }),
+    );
+    let runPromise: Promise<void> | null = null;
+    act(() => {
+      runPromise = result.current.run(PGN_3PLIES);
+    });
+    // Ждём пока дойдём до comments-фазы.
+    await waitFor(() =>
+      expect(result.current.progress.stage).toBe('comments'),
+    );
+    act(() => result.current.cancel());
+    await act(async () => {
+      await runPromise;
+    });
+    expect(result.current.status).toBe('cancelled');
+    expect(abortSignal?.aborted).toBe(true);
   });
 
   it('reset() → idle', async () => {

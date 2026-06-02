@@ -911,11 +911,20 @@ function AnalysisPageInner({
   // KS-3606: launcher «Разобрать партию» — выносится в пункт меню
   // через `onRunGameReview` (см. ниже buildAnalysisActionsItems).
   // Hook сам управляет modal-state'ом и POST'ом дубля.
+  // KS-3616: `openingName` уже вычислен ниже (`openingName` через
+  // classifyOpening) и в pgnHeaders. Пока партия не доиграна — берём
+  // из ECO-классификатора, иначе fallback на header `Opening`. На
+  // вход extractFacts'у нужен текстовый ярлык вроде «Sicilian Defense».
+  const opening_for_review =
+    classifyOpening(history.map((m) => m.san)) ||
+    pgnHeaders['Opening'] ||
+    null;
   const gameReviewLauncher = useGameReviewLauncher({
     analysisId: localIdRef.current ?? null,
     pgn: analysisPgn,
     originalAnalysisId: analysisOriginalId,
     historyLength: history.length,
+    openingName: opening_for_review,
   });
 
   // KS-3597 (ADR-099 F2): Maia-hook и sort-режим на уровне AnalysisPage,
@@ -2552,6 +2561,23 @@ function AnalysisPageInner({
           рендерится только когда пункт меню был нажат; hook сам
           управляет open/close и редиректит на дубль. */}
       {gameReviewLauncher.modal}
+
+      {/* KS-3616 (ADR-102): toast «комментарии не сгенерированы».
+          Показывается когда LLM-фаза провалилась; дубль всё равно
+          создан со всеми NAG/variations. UI-стиль повторяет
+          существующий `analysis-existing-toast` (см. KS-3261). */}
+      {gameReviewLauncher.commentsWarning && (
+        <div
+          className="analysis-existing-toast"
+          data-testid="analysis-comments-unavailable-toast"
+          role="status"
+        >
+          {t(
+            'analysis.review.commentsUnavailable',
+            'Comments unavailable, try later',
+          )}
+        </div>
+      )}
 
       {/* KS-2958: тот же PuzzleGeneratorModal, что в разделе «Тренировка
           точности» — единое окно с прогрессом и пост-flow (My drafts /

@@ -17,9 +17,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 
-import { invertWdl, type Wdl } from '@kingside/shared';
+import { classifyMove, invertWdl, type MoveClass, type Wdl } from '@kingside/shared';
 
+import { batchReviewComment as defaultCommentClient } from '../api/reviewComment';
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
+import { uciToSan } from '../lib/maia/uciToSan';
 import {
   buildAnnotation,
   type Annotation,
@@ -37,6 +39,7 @@ import {
   makeBudget,
   type NestedBuilderEngines,
 } from '../lib/review/buildNestedVariations';
+import { extractFacts, type FactsInput } from '../lib/review/extractFacts';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
 
@@ -96,6 +99,18 @@ export type ReviewStatus =
   | 'cancelled'
   | 'error';
 
+/**
+ * KS-3616. Клиент батча LLM-комментариев. По умолчанию используется
+ * `batchReviewComment` из `api/reviewComment`. Внедряется через
+ * `options.commentClient` для тестов.
+ */
+export type CommentClient = (
+  facts: readonly FactsInput[],
+  userElo: number,
+  language: 'en' | 'ru',
+  signal?: AbortSignal,
+) => Promise<string[]>;
+
 export interface UseGameReviewOptions {
   /** ELO Maia. Дефолт 1500. */
   elo?: number;
@@ -103,12 +118,36 @@ export interface UseGameReviewOptions {
   depth?: number;
   /** Кастомный engines-провайдер — для тестов. */
   engines?: ReviewEngines;
+  /**
+   * KS-3616. Включить ли фазу LLM-комментариев. По умолчанию `true`.
+   * Установить `false` чтобы пропустить запрос (например, в dev/тестах).
+   */
+  commentsEnabled?: boolean;
+  /** KS-3616. DI-клиент батча комментариев — для unit-тестов. */
+  commentClient?: CommentClient;
+  /** KS-3616. Название дебюта (если резолвено caller'ом). */
+  openingName?: string | null;
+  /** KS-3616. Язык комментариев. Дефолт `'ru'`. */
+  userLanguage?: 'en' | 'ru';
 }
 
 export interface ReviewResult {
   annotations: Annotation[];
   moveInputs: MoveInput[];
+  /**
+   * KS-3616. Маппинг `ply (1-based) → текст LLM-комментария`. Содержит
+   * только непустые строки. Если фаза комментариев была отключена или
+   * провалилась — пустой объект.
+   */
+  commentByPly: Record<number, string>;
 }
+
+/**
+ * KS-3616. Стадии прогресса. `engine` — основной SF+Maia прогон.
+ * `comments` — батч-запрос LLM-комментариев (один HTTP). При cancel
+ * остаётся последняя видимая стадия; status переходит в `cancelled`.
+ */
+export type ReviewStage = 'engine' | 'comments';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -353,20 +392,38 @@ export function createDefaultEngines(): ReviewEngines {
 // --- hook ------------------------------------------------------------------
 
 export function useGameReview(options: UseGameReviewOptions = {}) {
-  const { elo = 1500, depth = 18, engines: injectedEngines } = options;
+  const {
+    elo = 1500,
+    depth = 18,
+    engines: injectedEngines,
+    commentsEnabled = true,
+    commentClient = defaultCommentClient,
+    openingName = null,
+    userLanguage = 'ru',
+  } = options;
   const [status, setStatus] = useState<ReviewStatus>('idle');
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState<{
+    stage: ReviewStage;
+    done: number;
+    total: number;
+  }>({ stage: 'engine', done: 0, total: 0 });
   const [error, setError] = useState<string | undefined>(undefined);
   const [result, setResult] = useState<ReviewResult | undefined>(undefined);
+  // KS-3616. Если LLM не дал комментарии — UI показывает toast/баннер,
+  // не блокируя success-флоу (дубль создаётся в любом случае).
+  const [commentsWarning, setCommentsWarning] = useState<boolean>(false);
 
   const cancelRef = useRef(false);
   const enginesRef = useRef<ReviewEngines | null>(null);
+  // KS-3616. Для отмены LLM-fetch'а во время comments-стадии.
+  const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(
     async (pgn: string): Promise<void> => {
       cancelRef.current = false;
       setError(undefined);
       setResult(undefined);
+      setCommentsWarning(false);
       setStatus('running');
 
       let plies: ParsedGameMove[];
@@ -382,7 +439,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         setError('empty_game');
         return;
       }
-      setProgress({ done: 0, total: plies.length });
+      setProgress({ stage: 'engine', done: 0, total: plies.length });
 
       const engines = injectedEngines ?? createDefaultEngines();
       enginesRef.current = engines;
@@ -471,7 +528,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             forcedMove: isForcedMove(sf.legalMovesCount),
           };
           moveInputs.push(input);
-          setProgress({ done: i + 1, total: plies.length });
+          setProgress({ stage: 'engine', done: i + 1, total: plies.length });
         }
       } catch (e) {
         engines.terminate();
@@ -596,10 +653,122 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
       }
 
+      // KS-3616 (ADR-102 §7 этап C). Фаза LLM-комментариев. Собираем
+      // facts только для ходов с NAG-меткой (только main-line), шлём
+      // одним батчем. Любая ошибка backend'а — graceful: пустой
+      // commentByPly + флаг warning (UI покажет toast).
+      const commentByPly: Record<number, string> = {};
+      if (commentsEnabled && !cancelRef.current) {
+        const factsToSend: FactsInput[] = [];
+        const plyMap: number[] = [];
+        for (let i = 0; i < annotations.length; i++) {
+          const ann = annotations[i];
+          if (ann.nag.length === 0) continue;
+          const input = moveInputs[i];
+          const fenAfter =
+            stabilizedEngines.applyMoveToFen(input.fen, input.playedUci) ??
+            input.fen;
+          const playedSan = uciToSan(input.fen, input.playedUci);
+          const bestSan = input.sfBestUci
+            ? uciToSan(input.fen, input.sfBestUci)
+            : '';
+          // Класс хода для facts.classification — реальный, через
+          // shared classifyMove. NAG лишь маркер «о ходе есть что
+          // рассказать»; класс может расходиться (например, NAG `!?`
+          // на ходе с loss_E на уровне `good`).
+          const klass: MoveClass = classifyMove({
+            wdlBefore: input.wdlBefore,
+            wdlAfter: input.wdlAfterPlayed,
+            isBestMove: input.playedUci === input.sfBestUci,
+          });
+          const facts = extractFacts({
+            ply: input.ply,
+            fenBefore: input.fen,
+            fenAfter,
+            playedUci: input.playedUci,
+            playedSan,
+            sfData: {
+              bestUci: input.sfBestUci,
+              bestSan,
+              wdlBefore: input.wdlBefore,
+              wdlAfterPlayed: input.wdlAfterPlayed,
+              wdlAfterBest: input.wdlAfterBest,
+              sfBestPv: input.sfBestPv,
+              mateBefore: null,
+              mateAfter: null,
+            },
+            maiaData: {
+              playedProb: input.playedProb,
+              maiaTopUci: input.maiaTopUci,
+              maiaTopProb: input.maiaTopProb,
+              wdlAfterMaiaTop: input.wdlAfterMaiaTop,
+            },
+            classification: klass,
+            openingName,
+            userElo: elo,
+            userLanguage,
+          });
+          factsToSend.push(facts);
+          plyMap.push(input.ply);
+        }
+
+        if (factsToSend.length > 0 && !cancelRef.current) {
+          setProgress({
+            stage: 'comments',
+            done: 0,
+            total: factsToSend.length,
+          });
+          abortRef.current = new AbortController();
+          try {
+            const comments = await commentClient(
+              factsToSend,
+              elo,
+              userLanguage,
+              abortRef.current.signal,
+            );
+            if (cancelRef.current) {
+              engines.terminate();
+              enginesRef.current = null;
+              abortRef.current = null;
+              setStatus('cancelled');
+              return;
+            }
+            let nonEmpty = 0;
+            for (let i = 0; i < plyMap.length; i++) {
+              const c = (comments[i] ?? '').trim();
+              if (c) {
+                commentByPly[plyMap[i]] = c;
+                nonEmpty++;
+              }
+            }
+            // Все комментарии пустые — толкуем как «сервис не ответил».
+            if (nonEmpty === 0) setCommentsWarning(true);
+            setProgress({
+              stage: 'comments',
+              done: factsToSend.length,
+              total: factsToSend.length,
+            });
+          } catch (e) {
+            // AbortError → cancel; всё остальное — graceful (warning).
+            abortRef.current = null;
+            const isAbort =
+              e instanceof DOMException && e.name === 'AbortError';
+            if (isAbort || cancelRef.current) {
+              engines.terminate();
+              enginesRef.current = null;
+              setStatus('cancelled');
+              return;
+            }
+            setCommentsWarning(true);
+          }
+          abortRef.current = null;
+        }
+      }
+
       engines.terminate();
       enginesRef.current = null;
 
-      setResult({ annotations, moveInputs });
+      setResult({ annotations, moveInputs, commentByPly });
       setStatus('done');
     },
     [elo, depth, injectedEngines],
@@ -607,6 +776,15 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
 
   const cancel = useCallback(() => {
     cancelRef.current = true;
+    // KS-3616: оборвать LLM-fetch если он сейчас в полёте.
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort();
+      } catch {
+        /* ignore */
+      }
+      abortRef.current = null;
+    }
     if (enginesRef.current) {
       enginesRef.current.terminate();
       enginesRef.current = null;
@@ -616,12 +794,15 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
 
   const reset = useCallback(() => {
     cancelRef.current = false;
+    abortRef.current?.abort();
+    abortRef.current = null;
     enginesRef.current?.terminate();
     enginesRef.current = null;
     setStatus('idle');
     setError(undefined);
     setResult(undefined);
-    setProgress({ done: 0, total: 0 });
+    setCommentsWarning(false);
+    setProgress({ stage: 'engine', done: 0, total: 0 });
   }, []);
 
   // Подавляем "unused-import" предупреждение про `invertWdl` — он
@@ -634,6 +815,8 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
     progress,
     error,
     result,
+    /** KS-3616. `true` если LLM-фаза не выдала ни одного непустого комментария. */
+    commentsWarning,
     run,
     cancel,
     reset,

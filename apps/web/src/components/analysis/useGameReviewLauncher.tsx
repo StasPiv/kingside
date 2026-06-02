@@ -40,6 +40,8 @@ export interface UseGameReviewLauncherOptions {
   historyLength: number;
   /** ELO Maia (по умолчанию hook возьмёт 1500 / localStorage). */
   elo?: number;
+  /** KS-3616. Название дебюта — пробрасывается в `extractFacts.openingName`. */
+  openingName?: string | null;
 }
 
 export interface UseGameReviewLauncherResult {
@@ -51,15 +53,31 @@ export interface UseGameReviewLauncherResult {
   disabled: boolean;
   /** Tooltip для disabled-пункта. `undefined` если не disabled. */
   disabledHint: string | undefined;
+  /**
+   * KS-3616. `true` если фаза LLM-комментариев не вернула ни одного
+   * непустого комментария — UI показывает toast/баннер «Комментарии
+   * не сгенерированы». Дубль всё равно создаётся (NAG/variations).
+   */
+  commentsWarning: boolean;
 }
 
 export function useGameReviewLauncher(
   options: UseGameReviewLauncherOptions,
 ): UseGameReviewLauncherResult {
-  const { analysisId, pgn, originalAnalysisId, historyLength, elo } = options;
-  const { t } = useTranslation();
+  const {
+    analysisId,
+    pgn,
+    originalAnalysisId,
+    historyLength,
+    elo,
+    openingName = null,
+  } = options;
+  const { t, i18n: i18nInstance } = useTranslation();
   const navigate = useNavigate();
-  const review = useGameReview({ elo });
+  const userLanguage: 'en' | 'ru' = i18nInstance.language?.startsWith('ru')
+    ? 'ru'
+    : 'en';
+  const review = useGameReview({ elo, openingName, userLanguage });
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
 
@@ -110,7 +128,11 @@ export function useGameReviewLauncher(
     let cancelled = false;
     (async () => {
       try {
-        const newPgn = applyAnnotationsToPgn(pgn, review.result!.annotations);
+        const newPgn = applyAnnotationsToPgn(
+          pgn,
+          review.result!.annotations,
+          { commentByPly: review.result!.commentByPly },
+        );
         const created = await api.post<{ id: string }>(
           `/analyses/${analysisId}/duplicate-annotated`,
           {
@@ -151,6 +173,7 @@ export function useGameReviewLauncher(
       status={createError ? 'error' : review.status}
       done={review.progress.done}
       total={review.progress.total}
+      stage={review.progress.stage}
       error={createError ?? review.error}
       onCancel={handleCancel}
       onClose={handleClose}
@@ -160,5 +183,12 @@ export function useGameReviewLauncher(
     />
   ) : null;
 
-  return { trigger, modal, disabled, disabledHint };
+  return {
+    trigger,
+    modal,
+    disabled,
+    disabledHint,
+    /** KS-3616. UI может показать локальный toast/баннер при `true`. */
+    commentsWarning: review.commentsWarning,
+  };
 }

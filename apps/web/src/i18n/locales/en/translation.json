@@ -934,7 +934,10 @@
     "review": {
       "runCta": "Analyze game",
       "title": "Game review",
-      "progress": "{{done}} / {{total}}",
+      "progress": {
+        "engine": "{{done}} / {{total}}",
+        "comments": "Generating comments…"
+      },
       "cancel": "Cancel",
       "done": "Done",
       "retry": "Try again",
@@ -942,7 +945,8 @@
       "duplicateSuffix": "(auto-annotation)",
       "disabledOnDuplicate": "Open original analysis to re-run",
       "disabledEmpty": "No moves to analyze",
-      "createDuplicateError": "Failed to create duplicate"
+      "createDuplicateError": "Failed to create duplicate",
+      "commentsUnavailable": "Comments unavailable, try later"
     },
     "auto": {
       "backToOriginal": "← Original analysis",

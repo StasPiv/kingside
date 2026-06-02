@@ -6,13 +6,19 @@
  */
 import { useTranslation } from 'react-i18next';
 
-import type { ReviewStatus } from '../../hooks/useGameReview';
+import type { ReviewStage, ReviewStatus } from '../../hooks/useGameReview';
 
 export interface GameReviewProgressModalProps {
   open: boolean;
   status: ReviewStatus;
   done: number;
   total: number;
+  /**
+   * KS-3616. Стадия прогресса. `engine` — основной SF+Maia (показываем
+   * done/total). `comments` — батч LLM-комментариев (один HTTP, без
+   * пропорций — показываем спиннер-текст). Если не задано — `engine`.
+   */
+  stage?: ReviewStage;
   error?: string;
   onCancel: () => void;
   onClose: () => void;
@@ -24,6 +30,7 @@ export function GameReviewProgressModal({
   status,
   done,
   total,
+  stage = 'engine',
   error,
   onCancel,
   onClose,
@@ -32,6 +39,7 @@ export function GameReviewProgressModal({
   const { t } = useTranslation();
   if (!open) return null;
   const isError = status === 'error';
+  const isComments = stage === 'comments';
   const pct =
     total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
@@ -63,12 +71,18 @@ export function GameReviewProgressModal({
           className="game-review-progress-modal__progress"
           data-testid="game-review-progress-text"
         >
-          {t('analysis.review.progress', '{{done}} / {{total}}', {
-            done,
-            total,
-          })}
-          {' · '}
-          {pct}%
+          {isComments
+            ? t(
+                'analysis.review.progress.comments',
+                'Готовлю комментарии…',
+              )
+            : t('analysis.review.progress.engine', '{{done}} / {{total}}', {
+                done,
+                total,
+              }) +
+              ' · ' +
+              pct +
+              '%'}
         </p>
         <div
           className="game-review-progress-modal__bar"
