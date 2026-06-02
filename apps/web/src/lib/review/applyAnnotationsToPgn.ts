@@ -38,6 +38,17 @@ const NAG_SYMBOL: Record<number, string> = {
   [NAG_DUBIOUS]: '?!',
 };
 
+// KS-3619: position-eval NAG (PGN 10-19) → текстовые символы для PGN.
+const EVAL_NAG_SYMBOL: Record<number, string> = {
+  11: '=',
+  14: '⩲',
+  15: '⩱',
+  16: '±',
+  17: '∓',
+  18: '+−',
+  19: '−+',
+};
+
 function nagSuffix(nags: readonly number[] | undefined): string {
   if (!nags || nags.length === 0) return '';
   // Берём первый NAG (по нашей логике их всегда 0 или 1).
@@ -114,6 +125,11 @@ function buildVariationText(
     }
   }
 
+  // KS-3619: position-eval NAG в самом конце ветки (на последнюю
+  // позицию). Кладём как отдельный токен перед {[%cvc ...]}.
+  if (v.finalEvalNag != null && EVAL_NAG_SYMBOL[v.finalEvalNag]) {
+    tokens.push(EVAL_NAG_SYMBOL[v.finalEvalNag]);
+  }
   // Цвет — через PGN-комментарий `{[%cvc <color>]}`. Кладём в самый
   // конец, чтобы рендерить «контейнер» цвета на всю ветку.
   tokens.push(`{[%cvc ${v.color}]}`);

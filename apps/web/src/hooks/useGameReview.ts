@@ -24,7 +24,9 @@ import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
 import { uciToSan } from '../lib/maia/uciToSan';
 import {
   buildAnnotation,
+  pickFinalEvalNag,
   type Annotation,
+  type AnnotationVariation,
   type MoveInput,
 } from '../lib/review/buildAnnotations';
 import {
@@ -599,6 +601,51 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       // (и давал дубли вроде «58.b3?? (58.b3??)»). Возврат фичи —
       // отдельной задачей через async-движки и собственный budget на
       // дополнительные SF/Maia-вызовы.
+
+      // KS-3619: position-eval NAG (11/14-19) на финальной позиции
+      // каждой ветки. Для каждой main-variation проигрываем все её
+      // ходы (uci + subline), берём WDL финальной позиции одним SF-
+      // вызовом и присваиваем variation.finalEvalNag.
+      async function annotateFinalEval(
+        variation: AnnotationVariation,
+        startFen: string,
+      ): Promise<void> {
+        const ucis = [variation.uci, ...(variation.subline ?? [])];
+        let cur: string | null = startFen;
+        for (const u of ucis) {
+          if (!cur) break;
+          cur = applyMove(cur, u);
+        }
+        if (!cur) return;
+        try {
+          const sub = await engines.analyzeSf(cur, 1, depth);
+          if (!sub.wdlBefore) return;
+          const stmIsWhite = cur.split(' ')[1] === 'w';
+          variation.finalEvalNag = pickFinalEvalNag(
+            sub.wdlBefore,
+            stmIsWhite,
+          );
+        } catch {
+          /* graceful — без оценочного NAG */
+        }
+        // Рекурсивно — на случай если nested-pass снова включится.
+        for (const perNode of variation.nestedVariations ?? []) {
+          for (const child of perNode) {
+            await annotateFinalEval(child, startFen);
+          }
+        }
+      }
+
+      for (let i = 0; i < annotations.length; i++) {
+        if (cancelRef.current) break;
+        const ann = annotations[i];
+        if (ann.variations.length === 0) continue;
+        const fenAtMainMove = moveInputs[i].fen;
+        for (const variation of ann.variations) {
+          if (cancelRef.current) break;
+          await annotateFinalEval(variation, fenAtMainMove);
+        }
+      }
 
       // KS-3616 (ADR-102 §7 этап C). Фаза LLM-комментариев. Собираем
       // facts только для ходов с NAG-меткой (только main-line), шлём

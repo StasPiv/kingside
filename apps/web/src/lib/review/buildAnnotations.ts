@@ -79,6 +79,11 @@ export interface AnnotationVariation {
   subline?: string[];
   nag?: number[];
   /**
+   * KS-3619. Один position-eval NAG (11/14-19) на финальной позиции
+   * ветки. Ставится перед `{[%cvc <color>]}` в PGN-выводе.
+   */
+  finalEvalNag?: number;
+  /**
    * KS-3610 (ADR-101 §4.2 v2). Вложенные variations на каждом полуходе
    * этой ветки. Длина массива = 1 + (subline?.length ?? 0). Индекс
    * `i = 0` — variations на `uci` (первый ход), `i = N+1` — variations
@@ -105,6 +110,48 @@ export const NAG_DUBIOUS = 6; // ?!
 export const NAG_INTERESTING = 5; // !?
 export const NAG_GOOD = 1; // !
 export const NAG_BRILLIANT = 3; // !!
+
+// --- KS-3619 position-eval NAG (PGN 10-19) ---------------------------------
+
+export const NAG_EVAL_EQUAL = 11; // =
+export const NAG_EVAL_SLIGHT_WHITE = 14; // ⩲
+export const NAG_EVAL_SLIGHT_BLACK = 15; // ⩱
+export const NAG_EVAL_MODERATE_WHITE = 16; // ±
+export const NAG_EVAL_MODERATE_BLACK = 17; // ∓
+export const NAG_EVAL_DECISIVE_WHITE = 18; // +−
+export const NAG_EVAL_DECISIVE_BLACK = 19; // −+
+
+/**
+ * KS-3619. По WDL финальной позиции возвращает один position-eval
+ * NAG из набора 11/14-19.
+ *
+ * `wdlStmPov` — WDL POV side-to-move на финальной позиции (то есть
+ * того игрока, который БУДЕТ ходить в этой позиции — это конвенция
+ * Stockfish с `UCI_ShowWDL=true`).
+ *
+ * `stmIsWhite` — `true` если на ход белые в финальной позиции.
+ *
+ * Пороги (по `E_white = stmIsWhite ? E : 1−E`, `E = (w + d/2)/1000`):
+ *   |Δ| < 0.05 → 11 (=)
+ *   0.05 ≤ Δ < 0.15 → 14 (⩲), Δ ≤ −0.05 симметрично → 15 (⩱)
+ *   0.15 ≤ Δ < 0.35 → 16 (±), симметрично → 17 (∓)
+ *   Δ ≥ 0.35 → 18 (+−), симметрично → 19 (−+)
+ */
+export function pickFinalEvalNag(
+  wdlStmPov: Wdl,
+  stmIsWhite: boolean,
+): number {
+  const E = (wdlStmPov.w + wdlStmPov.d / 2) / 1000;
+  const eWhite = stmIsWhite ? E : 1 - E;
+  const d = eWhite - 0.5;
+  if (Math.abs(d) < 0.05) return NAG_EVAL_EQUAL;
+  if (d >= 0.35) return NAG_EVAL_DECISIVE_WHITE;
+  if (d >= 0.15) return NAG_EVAL_MODERATE_WHITE;
+  if (d >= 0.05) return NAG_EVAL_SLIGHT_WHITE;
+  if (d <= -0.35) return NAG_EVAL_DECISIVE_BLACK;
+  if (d <= -0.15) return NAG_EVAL_MODERATE_BLACK;
+  return NAG_EVAL_SLIGHT_BLACK;
+}
 
 /**
  * KS-3617. Симметричный «decided»-suppress quality-NAG.

@@ -203,6 +203,32 @@ describe('applyAnnotationsToPgn', () => {
     expect((out.match(/\{main comment\}/g) ?? []).length).toBe(1);
   });
 
+  it('KS-3619: finalEvalNag → символ оценки в конце ветки', () => {
+    const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
+      {
+        ply: 2,
+        nag: [NAG_MISTAKE],
+        variations: [
+          { uci: 'c7c5', color: 'green', subline: ['g1f3'], finalEvalNag: 16 },
+        ],
+      },
+    ]);
+    // ± появляется внутри green-ветки, перед `{[%cvc green]}`.
+    expect(out).toMatch(/±\s*\{\[%cvc green\]\}/);
+  });
+
+  it('KS-3619: без finalEvalNag — символ не добавляется', () => {
+    const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
+      {
+        ply: 2,
+        nag: [NAG_MISTAKE],
+        variations: [{ uci: 'c7c5', color: 'green', subline: ['g1f3'] }],
+      },
+    ]);
+    expect(out).not.toContain('±');
+    expect(out).not.toContain('=');
+  });
+
   it('KS-3616: пустая строка / только пробелы в commentByPly → не вставляем', () => {
     const out = applyAnnotationsToPgn(
       PGN_E4_E5_NF3,

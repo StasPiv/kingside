@@ -20,8 +20,16 @@ import {
   NAG_INTERESTING,
   NAG_GOOD,
   NAG_BRILLIANT,
+  NAG_EVAL_EQUAL,
+  NAG_EVAL_SLIGHT_WHITE,
+  NAG_EVAL_SLIGHT_BLACK,
+  NAG_EVAL_MODERATE_WHITE,
+  NAG_EVAL_MODERATE_BLACK,
+  NAG_EVAL_DECISIVE_WHITE,
+  NAG_EVAL_DECISIVE_BLACK,
   buildAnnotation,
   buildAnnotations,
+  pickFinalEvalNag,
   type MoveInput,
 } from './buildAnnotations';
 
@@ -531,5 +539,46 @@ describe('buildAnnotations — batch helper', () => {
       base({ ply: 3 }),
     ]);
     expect(out.map((a) => a.ply)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('KS-3619 pickFinalEvalNag', () => {
+  it('|E - 0.5| < 0.05 → NAG = (11)', () => {
+    expect(pickFinalEvalNag(wdl(0.5), true)).toBe(NAG_EVAL_EQUAL);
+    expect(pickFinalEvalNag(wdl(0.52), false)).toBe(NAG_EVAL_EQUAL);
+    expect(pickFinalEvalNag(wdl(0.48), true)).toBe(NAG_EVAL_EQUAL);
+  });
+
+  it('0.05 ≤ E_white − 0.5 < 0.15 → NAG ⩲ (14)', () => {
+    // E=0.6, stmWhite=true → eWhite=0.6, d=+0.1.
+    expect(pickFinalEvalNag(wdl(0.6), true)).toBe(NAG_EVAL_SLIGHT_WHITE);
+  });
+
+  it('0.05 ≤ 0.5 − E_white < 0.15 → NAG ⩱ (15)', () => {
+    // E=0.4, stmWhite=true → eWhite=0.4, d=-0.1.
+    expect(pickFinalEvalNag(wdl(0.4), true)).toBe(NAG_EVAL_SLIGHT_BLACK);
+  });
+
+  it('0.15 ≤ E_white − 0.5 < 0.35 → NAG ± (16)', () => {
+    // E=0.7, stmWhite=true → d=+0.2.
+    expect(pickFinalEvalNag(wdl(0.7), true)).toBe(NAG_EVAL_MODERATE_WHITE);
+    // POV black с E=0.3 → eWhite = 1 - 0.3 = 0.7 → d=+0.2 → ±.
+    expect(pickFinalEvalNag(wdl(0.3), false)).toBe(NAG_EVAL_MODERATE_WHITE);
+  });
+
+  it('0.15 ≤ 0.5 − E_white < 0.35 → NAG ∓ (17)', () => {
+    expect(pickFinalEvalNag(wdl(0.3), true)).toBe(NAG_EVAL_MODERATE_BLACK);
+    // POV black, E=0.7 → eWhite = 0.3 → d=-0.2 → ∓.
+    expect(pickFinalEvalNag(wdl(0.7), false)).toBe(NAG_EVAL_MODERATE_BLACK);
+  });
+
+  it('E_white − 0.5 ≥ 0.35 → NAG +− (18)', () => {
+    expect(pickFinalEvalNag(wdl(0.9), true)).toBe(NAG_EVAL_DECISIVE_WHITE);
+    expect(pickFinalEvalNag(wdl(0.1), false)).toBe(NAG_EVAL_DECISIVE_WHITE);
+  });
+
+  it('0.5 − E_white ≥ 0.35 → NAG −+ (19)', () => {
+    expect(pickFinalEvalNag(wdl(0.1), true)).toBe(NAG_EVAL_DECISIVE_BLACK);
+    expect(pickFinalEvalNag(wdl(0.9), false)).toBe(NAG_EVAL_DECISIVE_BLACK);
   });
 });
