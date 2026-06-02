@@ -134,7 +134,7 @@ describe('batchReviewComment', () => {
     );
     await batchReviewComment(dummyFacts(1), 1800, 'en');
     const call = fetchSpy.mock.calls[0];
-    expect(call[0]).toContain('/api/analysis-review/comments');
+    expect(call[0]).toContain('/api/analyses/review/comments');
     const init = call[1] as RequestInit;
     expect(init.method).toBe('POST');
     const body = JSON.parse(init.body as string);
