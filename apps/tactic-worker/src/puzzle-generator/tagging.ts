@@ -63,6 +63,60 @@ export function detectPhase(fen: string): Phase {
   return 'middlegame';
 }
 
+/**
+ * KS-3567 / ADR-094 §8.3. Подвид эндшпиля для уже-проставленного
+ * `endgame`-тега.
+ *
+ * 5 чистых подвидов + queenRookEndgame:
+ *  - `pawnEndgame`        — на доске только пешки (плюс короли).
+ *  - `rookEndgame`        — единственный нон-пешечный тип — ладьи.
+ *  - `queenEndgame`       — единственный нон-пешечный тип — ферзи.
+ *  - `knightEndgame`      — единственный нон-пешечный тип — кони.
+ *  - `bishopEndgame`      — единственный нон-пешечный тип — слоны.
+ *  - `queenRookEndgame`   — на доске ровно `{q, r}` без других тяжёлых
+ *                            или лёгких фигур. Особый «зонтичный»
+ *                            подвид: согласно ADR-094 §8.3 это самый
+ *                            частый смешанный эндшпиль и заслуживает
+ *                            отдельной метки.
+ *
+ * Если на доске встречаются другие смеси типов (R+N, B+N, Q+B, Q+N,
+ * Q+R+B и т.п.) — `null`: подвид не выставляется, остаётся только
+ * зонтичный `endgame`.
+ *
+ * Не учитываем цвет — считаем подмножество `{q,r,b,n}` совокупно
+ * по обеим сторонам. ADR-094 §8.3 явно: «подвид по типам на доске
+ * целиком, не по балансу сторон».
+ */
+export type EndgameSubtype =
+  | 'pawnEndgame'
+  | 'rookEndgame'
+  | 'queenEndgame'
+  | 'knightEndgame'
+  | 'bishopEndgame'
+  | 'queenRookEndgame';
+
+export function detectEndgameSubtype(fen: string): EndgameSubtype | null {
+  const chess = new Chess(fen);
+  const pieces = allPieces(chess);
+  const heavyOrMinor = pieces.filter(
+    (p) => p.type !== 'p' && p.type !== 'k',
+  );
+  const types = new Set(heavyOrMinor.map((p) => p.type));
+
+  if (types.size === 0) return 'pawnEndgame';
+  if (types.size === 1) {
+    const only = [...types][0];
+    if (only === 'r') return 'rookEndgame';
+    if (only === 'q') return 'queenEndgame';
+    if (only === 'n') return 'knightEndgame';
+    if (only === 'b') return 'bishopEndgame';
+  }
+  if (types.size === 2 && types.has('q') && types.has('r')) {
+    return 'queenRookEndgame';
+  }
+  return null;
+}
+
 export interface TagInput {
   /** Стартовая FEN puzzle. */
   startFen: string;
@@ -174,8 +228,16 @@ export function computeTags(input: TagInput): string[] {
 
   // KS-3562 / ADR-094 §3.1. Фаза партии — ровно один из
   // opening / middlegame / endgame, взаимоисключающие.
+  // KS-3567 / ADR-094 §8.3. Если фаза = endgame — добавляем подвид
+  // (pawn/rook/queen/knight/bishop/queenRookEndgame). Смешанные
+  // комбо без специфичного подвида — только зонтичный `endgame`.
   safe(() => {
-    tags.add(detectPhase(startFen));
+    const phase = detectPhase(startFen);
+    tags.add(phase);
+    if (phase === 'endgame') {
+      const subtype = detectEndgameSubtype(startFen);
+      if (subtype) tags.add(subtype);
+    }
   });
 
   // Фигура-исполнитель.

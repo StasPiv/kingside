@@ -1,4 +1,4 @@
-import { computeTags, detectPhase } from './tagging';
+import { computeTags, detectEndgameSubtype, detectPhase } from './tagging';
 
 describe('computeTags — алгоритмические теги', () => {
   it('endgame: ≤7 фигур → tag endgame', () => {
@@ -178,5 +178,121 @@ describe('detectPhase — KS-3562 / ADR-094 §3.1', () => {
     expect(tags).toContain('endgame');
     expect(tags).not.toContain('opening');
     expect(tags).not.toContain('middlegame');
+  });
+});
+
+// ─── KS-3567 / ADR-094 §8.3. Endgame subtype detection ───────────────
+
+describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
+  it('#1 K+P vs K → pawnEndgame', () => {
+    // Только короли и пешка. types {} → pawnEndgame.
+    const fen = '4k3/8/8/8/8/4P3/8/4K3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('pawnEndgame');
+  });
+
+  it('#2 K vs K → pawnEndgame (формально, types пустой)', () => {
+    // Краевой кейс: вообще без не-кинговых нон-пешечных. По алгоритму
+    // §8.3 — pawnEndgame, хотя реально такая позиция до tagger'а
+    // доходит редко (puzzle на K vs K не генерируется).
+    const fen = '4k3/8/8/8/8/8/8/4K3 w - - 0 50';
+    expect(detectEndgameSubtype(fen)).toBe('pawnEndgame');
+  });
+
+  it('#3 K+R+P vs K+P → rookEndgame', () => {
+    const fen = '4k3/4p3/8/8/8/8/4P3/3RK3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('rookEndgame');
+  });
+
+  it('#4 K+R vs K+N → null (смешанный R+N)', () => {
+    const fen = '4k3/8/8/8/8/2n5/8/3RK3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBeNull();
+  });
+
+  it('#5 K+Q+R vs K+R → queenRookEndgame', () => {
+    const fen = '3rk3/8/8/8/8/8/8/3QRK2 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('queenRookEndgame');
+  });
+
+  it('#6 K+Q+R+B vs K+R → null (Q+R+B смешанный)', () => {
+    const fen = '3rk3/8/8/8/8/8/8/2BQRK2 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBeNull();
+  });
+
+  it('#7 K+B+B vs K+N → null (B+N смешанный)', () => {
+    const fen = '4k3/8/8/8/8/2n5/8/2B1KB2 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBeNull();
+  });
+
+  it('#8 K+N+N vs K → knightEndgame', () => {
+    const fen = '4k3/8/8/8/8/8/8/1NN1K3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('knightEndgame');
+  });
+
+  it('#9 K+B vs K → bishopEndgame', () => {
+    const fen = '4k3/8/8/8/8/8/8/2B1K3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('bishopEndgame');
+  });
+
+  it('#10 K+R+R+P vs K+R+P → rookEndgame (несколько ладей у обеих сторон)', () => {
+    const fen = '3rk3/4p3/8/8/8/8/4P3/2RRK3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('rookEndgame');
+  });
+
+  it('#11 K+Q+P vs K+Q+P → queenEndgame (Q vs Q + пешки)', () => {
+    const fen = '3qk3/4p3/8/8/8/8/4P3/3QK3 w - - 0 30';
+    expect(detectEndgameSubtype(fen)).toBe('queenEndgame');
+  });
+
+  it('интеграция: computeTags для K+P vs K → endgame + pawnEndgame', () => {
+    const fen = '4k3/8/8/8/8/4P3/8/4K3 w - - 0 30';
+    const tags = computeTags({
+      startFen: fen,
+      moves: ['e3e4'],
+      finalCpForSolver: 200,
+      endsInMate: false,
+    });
+    expect(tags).toContain('endgame');
+    expect(tags).toContain('pawnEndgame');
+    expect(tags).not.toContain('rookEndgame');
+    expect(tags).not.toContain('queenEndgame');
+  });
+
+  it('интеграция: computeTags для смешанного R+N → endgame БЕЗ подвида', () => {
+    const fen = '4k3/8/8/8/8/2n5/8/3RK3 w - - 0 30';
+    const tags = computeTags({
+      startFen: fen,
+      moves: ['d1d2'],
+      finalCpForSolver: 200,
+      endsInMate: false,
+    });
+    expect(tags).toContain('endgame');
+    expect(tags).not.toContain('rookEndgame');
+    expect(tags).not.toContain('knightEndgame');
+    expect(tags).not.toContain('queenRookEndgame');
+    expect(tags).not.toContain('pawnEndgame');
+    expect(tags).not.toContain('bishopEndgame');
+    expect(tags).not.toContain('queenEndgame');
+  });
+
+  it('интеграция: middlegame НЕ получает подвидового тега', () => {
+    // Полная стартовая позиция → opening, не endgame. Подвид НЕ
+    // должен добавляться (даже если позиция «как бы похожа» на
+    // queenRookEndgame по списку типов — главное, что фаза не endgame).
+    const fen =
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const tags = computeTags({
+      startFen: fen,
+      moves: ['e2e4'],
+      finalCpForSolver: 0,
+      endsInMate: false,
+    });
+    expect(tags).toContain('opening');
+    expect(tags).not.toContain('endgame');
+    expect(tags).not.toContain('pawnEndgame');
+    expect(tags).not.toContain('rookEndgame');
+    expect(tags).not.toContain('queenEndgame');
+    expect(tags).not.toContain('knightEndgame');
+    expect(tags).not.toContain('bishopEndgame');
+    expect(tags).not.toContain('queenRookEndgame');
   });
 });
