@@ -719,21 +719,6 @@ export class AnalysisService implements OnModuleInit {
   }
 
   async update(userId: string, id: string, dto: UpdateAnalysisDto) {
-    // KS-3615 diag: при обновлении PGN — лог байт/хеш входящего тела.
-    // Если фронт после duplicate-annotated дёргает PUT с уже обрезанным
-    // pgn, этот лог покажет ровно сколько прислали.
-    if (dto.pgn !== undefined) {
-      const incomingHash = createHash('sha256')
-        .update(dto.pgn)
-        .digest('hex')
-        .slice(0, 12);
-      this.logger.log(
-        `update[user=${userId.slice(0, 8)} id=${id.slice(0, 8)}] ` +
-          `incoming pgn: bytes=${Buffer.byteLength(dto.pgn, 'utf8')} ` +
-          `chars=${dto.pgn.length} sha256_12=${incomingHash} ` +
-          `tail=${JSON.stringify(dto.pgn.slice(-40))}`,
-      );
-    }
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
@@ -898,22 +883,6 @@ export class AnalysisService implements OnModuleInit {
     id: string,
     dto: DuplicateAnnotatedDto,
   ) {
-    // KS-3615 diag: лог длины и хеша входящего pgn — для подтверждения
-    // что фронт прислал именно столько байт, сколько ждали (или меньше).
-    // sha256-prefix 12 символов даёт уникальный отпечаток без раскрытия
-    // содержимого в логах.
-    const incomingPgn = dto.pgn ?? '';
-    const incomingHash = createHash('sha256')
-      .update(incomingPgn)
-      .digest('hex')
-      .slice(0, 12);
-    this.logger.log(
-      `duplicateAnnotated[user=${userId.slice(0, 8)} target=${id.slice(0, 8)}] ` +
-        `incoming pgn: bytes=${Buffer.byteLength(incomingPgn, 'utf8')} ` +
-        `chars=${incomingPgn.length} sha256_12=${incomingHash} ` +
-        `tail=${JSON.stringify(incomingPgn.slice(-40))}`,
-    );
-
     // 1. Загружаем + проверяем владельца одним findFirst — чужие
     //    отдаём как 404, не светим существование.
     const target = await this.prisma.analysis.findFirst({
