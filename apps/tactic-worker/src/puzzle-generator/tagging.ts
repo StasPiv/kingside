@@ -8,8 +8,9 @@
  *      drill-семантику (после KS-2406/2408/2419 false-positive ≈ 0).
  *   б) Алгоритмические теги — длина линии, тип финального исхода
  *      (`mate` / `crushing` / `advantage`), материальный sacrifice
- *      на первом ходе (`sacrifice`), эндшпиль (≤7 фигур), фигура-
- *      исполнитель.
+ *      на первом ходе (`sacrifice`), фаза партии
+ *      (`opening`/`middlegame`/`endgame` — KS-3562 / ADR-094 §3.1),
+ *      фигура-исполнитель.
  *   в) `mateInN`, `mateIn1` / `mateIn2` — отдельно (для UI-фильтра).
  *
  * Drill-predicate'ы могут быть тяжёлыми; для tagging'а используется
@@ -21,6 +22,46 @@ import { findPin } from '../predicates/find-pin';
 import { findHangingPiece } from '../predicates/find-hanging-piece';
 import { findUndefendedAttack } from '../predicates/find-undefended-attack';
 import { allPieces, PIECE_VALUE } from '../predicates/types';
+
+/** KS-3562 / ADR-094 §3.1. Фаза партии для puzzle-tagging'а. */
+export type Phase = 'opening' | 'middlegame' | 'endgame';
+
+/**
+ * KS-3562 / ADR-094 §3.1. Определение фазы партии по FEN.
+ * Возвращает РОВНО ОДНО значение из union'а — фазы взаимоисключающие.
+ *
+ * Правила (по приоритету):
+ *  1. `endgame` если `total ≤ 5` нон-кинг ИЛИ
+ *     (`queens === 0 AND nonPawn ≤ 6`). Проверяется ПЕРВЫМ —
+ *     быстрый размен материала к 8-му ходу должен дать `endgame`,
+ *     а не `opening`.
+ *  2. `opening` если `fullmove ≤ 12`.
+ *  3. Иначе `middlegame`.
+ *
+ * Старая логика (KS-2431 / ADR-041 §4) использовала `total ≤ 7`
+ * включая королей — эквивалент `total ≤ 5` нон-кинг (back-compat).
+ * Расширение KS-3562: добавляется ветка «нет ферзей + лёгкий
+ * материал» под классический эндшпиль.
+ */
+export function detectPhase(fen: string): Phase {
+  const chess = new Chess(fen);
+  const pieces = allPieces(chess);
+  const nonKing = pieces.filter((p) => p.type !== 'k');
+  const total = nonKing.length;
+  const queens = nonKing.filter((p) => p.type === 'q').length;
+  const nonPawn = nonKing.filter((p) => p.type !== 'p').length;
+  const fullmoveRaw = fen.split(' ')[5];
+  const fullmove =
+    fullmoveRaw && Number.isFinite(Number(fullmoveRaw))
+      ? Number(fullmoveRaw)
+      : 1;
+
+  if (total <= 5) return 'endgame';
+  if (queens === 0 && nonPawn <= 6) return 'endgame';
+
+  if (fullmove <= 12) return 'opening';
+  return 'middlegame';
+}
 
 export interface TagInput {
   /** Стартовая FEN puzzle. */
@@ -131,11 +172,10 @@ export function computeTags(input: TagInput): string[] {
     }
   });
 
-  // Endgame: ≤ 7 фигур всего.
+  // KS-3562 / ADR-094 §3.1. Фаза партии — ровно один из
+  // opening / middlegame / endgame, взаимоисключающие.
   safe(() => {
-    const chess = new Chess(startFen);
-    const total = allPieces(chess).length;
-    if (total <= 7) tags.add('endgame');
+    tags.add(detectPhase(startFen));
   });
 
   // Фигура-исполнитель.
