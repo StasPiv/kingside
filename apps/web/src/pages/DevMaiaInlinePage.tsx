@@ -65,6 +65,24 @@ function Panel({
           </div>
         </div>
         <div className="analysis-panel-body" style={{ maxHeight: 'none' }}>
+          {/* KS-3594: заголовок-сортировка над .stockfish-lines. */}
+          <div className="stockfish-lines-header">
+            <button
+              type="button"
+              className="stockfish-lines-header__col stockfish-lines-header__col--eval stockfish-lines-header__col--active"
+            >
+              Eval <span className="stockfish-lines-header__arrow">↓</span>
+            </button>
+            <button
+              type="button"
+              className="stockfish-lines-header__col stockfish-lines-header__col--maia"
+            >
+              Maia%
+            </button>
+            <span className="stockfish-lines-header__col stockfish-lines-header__col--label">
+              Line
+            </span>
+          </div>
           <div className="stockfish-lines">
             {ROWS.map((r, i) => (
               <div className="stockfish-line" key={i}>

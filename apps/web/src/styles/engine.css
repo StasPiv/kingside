@@ -684,3 +684,142 @@
     padding: 2px 18px 2px 5px;
   }
 }
+
+/* ============================================================
+ * KS-3594 (ADR-098): заголовки колонок сортировки над .stockfish-lines.
+ *
+ * DOM (рендерится frontend'ом, KS-3593):
+ *   <div class="stockfish-lines-header">
+ *     <button class="stockfish-lines-header__col
+ *                   stockfish-lines-header__col--eval
+ *                   [stockfish-lines-header__col--active]">
+ *       Eval <span class="stockfish-lines-header__arrow">↓</span>
+ *     </button>
+ *     <button class="stockfish-lines-header__col
+ *                   stockfish-lines-header__col--maia
+ *                   [stockfish-lines-header__col--active]">
+ *       Maia% <span class="stockfish-lines-header__arrow">↓</span>
+ *     </button>
+ *     <span class="stockfish-lines-header__col
+ *                  stockfish-lines-header__col--label">Line</span>
+ *   </div>
+ *
+ * Колонки заголовка ровно над колонками .stockfish-line (eval 44px /
+ * prob 64px / pv flex:1, gap 8px). Активный modifier — color + bold.
+ * Цвета через токены палитры (--c-a0a0c0 / --c-e0e0e0 флипаются),
+ * обе темы без хардкода (урок KS-3581/3590).
+ * ============================================================ */
+.stockfish-lines-header {
+  display: flex;
+  /* gap копирует .stockfish-line — иначе ширины не сядут точно над данными. */
+  gap: 8px;
+  align-items: stretch;
+  margin: 0 0 4px 0;
+  padding: 0 0 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  width: 100%;
+  min-width: 0;
+}
+
+.stockfish-lines-header__col {
+  /* `.engine-multipv-btn`-style: transparent base, hover→slate, focus-ring
+     через accent. Шрифт компактный (как .stockfish-eval), uppercase для
+     визуального отличия от данных. */
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-family: inherit;
+  font-size: calc(11px * var(--analysis-sidebar-font-scale, 1));
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-a0a0c0);
+  cursor: pointer;
+  user-select: none;
+  /* Цвет/жирность активной колонки меняются — плавно. */
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.stockfish-lines-header__col:hover:not(:disabled) {
+  background-color: var(--c-3a3a6e);
+  color: var(--c-fff);
+}
+.stockfish-lines-header__col:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-30);
+}
+
+/* Колоночные модификаторы — те же flex-basis/min-width, что и у данных
+   (.stockfish-eval min-width:44px, .stockfish-maia-prob flex:0 0 64px).
+   Иначе колонки заголовка «уезжают» относительно цифр снизу. */
+.stockfish-lines-header__col--eval {
+  flex: 0 0 auto;
+  min-width: 44px;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.stockfish-lines-header__col--maia {
+  flex: 0 0 64px;
+  min-width: 64px;
+  /* Текст лейбла прижат к правому краю (как процент в .stockfish-maia-prob:
+     `text-align: right`). Стрелка ↓ идёт сразу после лейбла. */
+  justify-content: flex-end;
+  text-align: right;
+}
+
+/* Label-колонка — `<span>` от frontend, не кликабельна. */
+.stockfish-lines-header__col--label {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: left;
+  cursor: default;
+}
+.stockfish-lines-header__col--label:hover {
+  background: transparent;
+  color: var(--c-a0a0c0);
+}
+
+/* Активная колонка: контрастный цвет + bold. Стрелка рендерится frontend'ом. */
+.stockfish-lines-header__col--active {
+  color: var(--c-e0e0e0);
+  font-weight: 700;
+}
+.stockfish-lines-header__col--active:hover:not(:disabled) {
+  /* На active hover не делает белым — оставляем primary, иначе теряется
+     визуальное «нажато». Подсветка фоном — да, цвет — нет. */
+  color: var(--c-e0e0e0);
+}
+
+/* Стрелка ↓/↑ — отдельный <span> от frontend. Своих текстовых эффектов
+   не нужно, но дадим compact gap и tabular-nums alignment. */
+.stockfish-lines-header__arrow {
+  display: inline-block;
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+/* ─── mobile ─── */
+@media (max-width: 767px) {
+  .stockfish-lines-header {
+    gap: 4px;
+    /* tap-target высота — Apple HIG 44px съел бы экран; следуем общему
+       стилю compact-engine на mobile, ~32px через padding+line-height. */
+  }
+  .stockfish-lines-header__col {
+    font-size: 11px;
+    padding: 6px 4px;
+    min-height: 32px;
+  }
+  /* Ширина колонок повторяет mobile .stockfish-maia-prob (50px). */
+  .stockfish-lines-header__col--maia {
+    flex-basis: 50px;
+    min-width: 50px;
+  }
+}
