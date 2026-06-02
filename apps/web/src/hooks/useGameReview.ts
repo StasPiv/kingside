@@ -264,9 +264,15 @@ export function createDefaultEngines(): ReviewEngines {
   async function runGo(
     fen: string,
     multipv: number,
-    depth: number,
+    _depth: number,
     searchmoves?: string[],
   ) {
+    // KS-3617: на каждый полуход даём фиксированный бюджет времени
+    // (1 секунда) вместо фиксированной глубины. Аргумент `depth`
+    // остался в сигнатуре для обратной совместимости с моками/тестами,
+    // но фактически игнорируется. Это согласовано с остальной
+    // engine-инфрой (везде используется 1 секунда на ход).
+    void _depth;
     const w = await ensureSf();
     return new Promise<
       Array<{ multipv: number; pv: string[]; wdl: Wdl | null }>
@@ -281,7 +287,7 @@ export function createDefaultEngines(): ReviewEngines {
         searchmoves && searchmoves.length > 0
           ? ` searchmoves ${searchmoves.join(' ')}`
           : '';
-      w.postMessage(`go depth ${depth}${sm}`);
+      w.postMessage(`go movetime 1000${sm}`);
     });
   }
 
