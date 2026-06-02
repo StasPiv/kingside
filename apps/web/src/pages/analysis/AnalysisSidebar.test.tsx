@@ -79,6 +79,22 @@ function makeProps(overrides: Partial<AnalysisSidebarProps> = {}): AnalysisSideb
     onSetVariationColor: vi.fn(),
     mobileTab: 'moves',
     onMobileTabChange: vi.fn(),
+    // KS-3597 (ADR-099 F2): дефолтные значения для новых required props.
+    // Maia в idle (никакого UI-эффекта в существующих smoke), sortMode
+    // stockfish, supportsSearchmoves=true (типичный wasm-кейс).
+    maia: {
+      elo: 1500,
+      setElo: vi.fn(),
+      status: 'idle' as const,
+      error: null,
+      retry: vi.fn(),
+      getProbability: () => undefined,
+      policyByMove: {},
+    },
+    sortMode: 'stockfish' as const,
+    onSortModeChange: vi.fn(),
+    engineSupportsSearchmoves: true,
+    maiaTopMoves: [],
     ...overrides,
   };
 }

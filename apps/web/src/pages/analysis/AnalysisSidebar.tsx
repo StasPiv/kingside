@@ -14,9 +14,8 @@ import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import { MaiaEloSelect } from '../../components/analysis/MaiaEloSelect';
-import { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
-import type { User } from '@kingside/shared';
-import { useEngineSortMode } from '../../hooks/useEngineSortMode';
+import type { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
+import type { EngineSortMode } from '../../hooks/useEngineSortMode';
 // KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
 // чтобы переиспользовать из engineSort и не дублировать. Sidebar
 // продолжает звать `extractBestUci` для inline-вероятности Maia.
@@ -124,12 +123,32 @@ export interface AnalysisSidebarProps {
    */
   pgnHeaders?: Record<string, string> | null;
   /**
-   * KS-3584/KS-3588 (ADR-096 → ADR-097): пользователь — для подбора
-   * initial ELO Maia. AnalysisPage передаёт `useAuth().user`. После
-   * KS-3588 сам Sidebar держит один экземпляр `useMaiaAnalysis` и
-   * пробрасывает `getProbability` в каждую `.stockfish-line`.
+   * KS-3597 (ADR-099 F2): Maia-hook и sort-режим теперь живут на уровне
+   * `AnalysisPage`, чтобы `useEngine` мог получить `searchmoves` без
+   * дублирования экземпляров. Sidebar получает их через props и
+   * только рендерит селект ELO / inline-вероятности / sort-header.
    */
-  maiaUser?: User | null;
+  maia: ReturnType<typeof useMaiaAnalysis>;
+  sortMode: EngineSortMode;
+  onSortModeChange: (mode: EngineSortMode) => void;
+  /**
+   * KS-3597. Флаг от `useEngine.supportsSearchmoves` — для tooltip над
+   * `Maia%`-кнопкой при ситуации «sort=maia, но engine не поддерживает»
+   * (external bridge по R-этапу KS-3595). Tooltip объясняет: «Maia-
+   * режим недоступен для внешнего движка, показан порядок Stockfish».
+   */
+  engineSupportsSearchmoves: boolean;
+  /**
+   * KS-3597. Maia top-N (UCI), посчитанный на уровне AnalysisPage
+   * через `useMemo([maia.policyByMove, ec.multiPv])`. Sidebar
+   * использует его для:
+   *  - placeholder-карт `--` для тех ходов, по которым Stockfish ещё
+   *    не отдал eval (после смены `searchmoves`);
+   *  - inline-вероятности в порядке Maia при sortMode=maia.
+   * При sortMode='stockfish' или эскалации (no support / no ready) —
+   * массив пустой.
+   */
+  maiaTopMoves: string[];
 }
 
 export function AnalysisSidebar({
@@ -172,7 +191,11 @@ export function AnalysisSidebar({
   readOnly = false,
   concealAfterPly = null,
   pgnHeaders = null,
-  maiaUser = null,
+  maia,
+  sortMode,
+  onSortModeChange,
+  engineSupportsSearchmoves,
+  maiaTopMoves,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -188,24 +211,70 @@ export function AnalysisSidebar({
     setSheetSnap,
   } = useFocusMode();
 
-  // KS-3588 (ADR-097): один экземпляр Maia-хука на весь Sidebar.
-  // `getProbability` уходит в каждую `.stockfish-line` для inline-
-  // вероятности, `elo`/`setElo`/`status` — в `MaiaEloSelect` в шапке
-  // engine-panel.
-  const maia = useMaiaAnalysis({
-    fen: currentFen,
-    user: maiaUser,
-  });
-
-  // KS-3593 (ADR-098): persisted sort-режим линий — `stockfish` (eval desc)
-  // или `maia` (probability desc + eval tiebreak). Меняется кликом по
-  // заголовку колонки `Eval` / `Maia%` в `.stockfish-lines-header`.
-  const { sortMode, setSortMode } = useEngineSortMode();
+  // KS-3597: `maia` и `sortMode` приходят из `AnalysisPage` —
+  // их объединяет с `useEngine({ searchmoves })` единый источник.
+  const setSortMode = onSortModeChange;
   const sortedLines = sortLines(
     displayedLines,
     sortMode,
     maia.getProbability,
   );
+
+  /**
+   * KS-3597: финальный список slot'ов для рендера. В режиме maia
+   * (с support и ready) — гарантируем порядок Maia top-N и
+   * placeholder-карты `--` для тех ходов, по которым Stockfish ещё не
+   * отдал eval после смены `searchmoves`. В режиме stockfish (и при
+   * эскалации) — просто `sortedLines` как есть.
+   */
+  type EngineRow =
+    | { kind: 'eval'; line: EvalLine }
+    | { kind: 'pending'; uci: string; multipv: number };
+
+  const engineRows: EngineRow[] = (() => {
+    const maiaActive =
+      sortMode === 'maia' &&
+      engineSupportsSearchmoves &&
+      maia.status === 'ready' &&
+      maiaTopMoves.length > 0;
+    if (!maiaActive) {
+      return sortedLines.map((line) => ({ kind: 'eval', line }));
+    }
+    const byFirstUci = new Map<string, EvalLine>();
+    for (const line of sortedLines) {
+      const u = extractBestUci(line.pv);
+      if (u) byFirstUci.set(u, line);
+    }
+    return maiaTopMoves.map((uci, i): EngineRow => {
+      const line = byFirstUci.get(uci);
+      if (line) return { kind: 'eval', line };
+      return { kind: 'pending', uci, multipv: i + 1 };
+    });
+  })();
+
+  // KS-3597: tooltip для Maia%-кнопки. Два разных сценария:
+  //  - `maia.status === 'error'` — Maia вообще не загрузилась (worker
+  //    crash, network), показываем `analysis.engine.sort.maiaUnavailableTip`.
+  //  - `!engineSupportsSearchmoves && sortMode === 'maia'` — Maia ок, но
+  //    activный engine (external bridge) не умеет `searchmoves`, sort
+  //    деградирует на Stockfish-порядок. Показываем отдельный текст
+  //    `analysis.engine.sort.maiaUnsupportedTip`.
+  // Kнопка не дизаблится в обоих сценариях (KS-3593, ADR-098 §4.5).
+  const maiaSortTooltip = (() => {
+    if (maia.status === 'error') {
+      return t(
+        'analysis.engine.sort.maiaUnavailableTip',
+        'Maia unavailable — Stockfish order',
+      );
+    }
+    if (!engineSupportsSearchmoves && sortMode === 'maia') {
+      return t(
+        'analysis.engine.sort.maiaUnsupportedTip',
+        'Maia mode unavailable for external engine — Stockfish order',
+      );
+    }
+    return undefined;
+  })();
 
   // KS-3258 follow-up: forfeit-fallback. Если history пуста и headers
   // указывают на [Termination "Unplayed"] / Result != "*" — рендерим
@@ -443,14 +512,7 @@ export function AnalysisSidebar({
                     : ''
                 }`}
                 onClick={() => setSortMode('maia')}
-                title={
-                  maia.status === 'error'
-                    ? t(
-                        'analysis.engine.sort.maiaUnavailableTip',
-                        'Maia unavailable — Stockfish order',
-                      )
-                    : undefined
-                }
+                title={maiaSortTooltip}
                 data-testid="engine-sort-maia"
               >
                 {t('analysis.engine.sort.maia', 'Maia%')}
@@ -461,25 +523,33 @@ export function AnalysisSidebar({
               </span>
             </div>
             <div className="stockfish-lines">
-              {(analysisEnabled || sortedLines.length > 0) &&
-                sortedLines.map((line) => {
-                  // KS-3588: inline-вероятность Maia рядом с eval.
-                  const uci = extractBestUci(line.pv);
+              {(analysisEnabled || engineRows.length > 0) &&
+                engineRows.map((row) => {
+                  // KS-3597: одинаковая структура для `eval` (готовая
+                  // линия от Stockfish) и `pending` (placeholder `--`,
+                  // SF ещё не отдал eval по этому searchmove'у).
+                  const uci =
+                    row.kind === 'eval' ? extractBestUci(row.line.pv) : row.uci;
                   const prob = maia.getProbability(uci);
                   const probLabel =
                     prob == null ? '(--)' : `(${(prob * 100).toFixed(1)}%)`;
+                  const isMate = row.kind === 'eval' && row.line.score.type === 'mate';
+                  const isBest = row.kind === 'eval' && row.line.multipv === 1;
+                  const key =
+                    row.kind === 'eval' ? `eval-${row.line.multipv}` : `pending-${row.uci}`;
                   return (
-                    <div key={line.multipv} className="stockfish-line">
+                    <div
+                      key={key}
+                      className={`stockfish-line${row.kind === 'pending' ? ' stockfish-line--pending' : ''}`}
+                    >
                       <span
                         className={`stockfish-eval${
-                          line.score.type === 'mate'
-                            ? ' mate'
-                            : line.multipv === 1
-                              ? ' best'
-                              : ''
-                        }`}
+                          isMate ? ' mate' : isBest ? ' best' : ''
+                        }${row.kind === 'pending' ? ' stockfish-eval--pending' : ''}`}
                       >
-                        {formatEval(line, evalIsBlackTurn)}
+                        {row.kind === 'eval'
+                          ? formatEval(row.line, evalIsBlackTurn)
+                          : '--'}
                       </span>
                       <span
                         className={`stockfish-maia-prob${
@@ -487,12 +557,14 @@ export function AnalysisSidebar({
                             ? ' stockfish-maia-prob--stale'
                             : ''
                         }`}
-                        data-testid={`maia-prob-${line.multipv}`}
+                        data-testid={`maia-prob-${row.kind === 'eval' ? row.line.multipv : row.multipv}`}
                       >
                         {probLabel}
                       </span>
                       <span className="stockfish-pv">
-                        {formatPv(line.pv, currentFen)}
+                        {row.kind === 'eval'
+                          ? formatPv(row.line.pv, currentFen)
+                          : ''}
                       </span>
                     </div>
                   );
@@ -719,14 +791,7 @@ export function AnalysisSidebar({
                       : ''
                   }`}
                   onClick={() => setSortMode('maia')}
-                  title={
-                    maia.status === 'error'
-                      ? t(
-                          'analysis.engine.sort.maiaUnavailableTip',
-                          'Maia unavailable — Stockfish order',
-                        )
-                      : undefined
-                  }
+                  title={maiaSortTooltip}
                   data-testid="engine-sort-maia-mobile"
                 >
                   {t('analysis.engine.sort.maia', 'Maia%')}
@@ -737,27 +802,39 @@ export function AnalysisSidebar({
                 </span>
               </div>
               <div className="stockfish-lines">
-                {(analysisEnabled || sortedLines.length > 0) &&
-                  sortedLines.map((line) => {
-                    // KS-3588: inline-вероятность Maia.
-                    const uci = extractBestUci(line.pv);
+                {(analysisEnabled || engineRows.length > 0) &&
+                  engineRows.map((row) => {
+                    // KS-3597: тот же helper-pattern, что и в desktop.
+                    const uci =
+                      row.kind === 'eval'
+                        ? extractBestUci(row.line.pv)
+                        : row.uci;
                     const prob = maia.getProbability(uci);
                     const probLabel =
                       prob == null
                         ? '(--)'
                         : `(${(prob * 100).toFixed(1)}%)`;
+                    const isMate =
+                      row.kind === 'eval' && row.line.score.type === 'mate';
+                    const isBest =
+                      row.kind === 'eval' && row.line.multipv === 1;
+                    const key =
+                      row.kind === 'eval'
+                        ? `eval-${row.line.multipv}`
+                        : `pending-${row.uci}`;
                     return (
-                      <div key={line.multipv} className="stockfish-line">
+                      <div
+                        key={key}
+                        className={`stockfish-line${row.kind === 'pending' ? ' stockfish-line--pending' : ''}`}
+                      >
                         <span
                           className={`stockfish-eval${
-                            line.score.type === 'mate'
-                              ? ' mate'
-                              : line.multipv === 1
-                                ? ' best'
-                                : ''
-                          }`}
+                            isMate ? ' mate' : isBest ? ' best' : ''
+                          }${row.kind === 'pending' ? ' stockfish-eval--pending' : ''}`}
                         >
-                          {formatEval(line, evalIsBlackTurn)}
+                          {row.kind === 'eval'
+                            ? formatEval(row.line, evalIsBlackTurn)
+                            : '--'}
                         </span>
                         <span
                           className={`stockfish-maia-prob${
@@ -765,12 +842,14 @@ export function AnalysisSidebar({
                               ? ' stockfish-maia-prob--stale'
                               : ''
                           }`}
-                          data-testid={`maia-prob-mobile-${line.multipv}`}
+                          data-testid={`maia-prob-mobile-${row.kind === 'eval' ? row.line.multipv : row.multipv}`}
                         >
                           {probLabel}
                         </span>
                         <span className="stockfish-pv">
-                          {formatPv(line.pv, currentFen)}
+                          {row.kind === 'eval'
+                            ? formatPv(row.line.pv, currentFen)
+                            : ''}
                         </span>
                       </div>
                     );

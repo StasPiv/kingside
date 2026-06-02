@@ -17,6 +17,9 @@ import type { EvalLine } from '../hooks/useStockfish';
 import { clampMultiPvToLegalMoves } from '../hooks/useStockfish';
 import { useEngine } from '../hooks/useEngine';
 import type { EngineSource } from '../hooks/useEngine';
+// KS-3597 (ADR-099 F2): Maia top-N + sort-режим на уровне страницы.
+import { useMaiaAnalysis } from '../hooks/useMaiaAnalysis';
+import { useEngineSortMode } from '../hooks/useEngineSortMode';
 import { useEngineConfig } from '../hooks/useEngineConfig';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
@@ -839,12 +842,30 @@ function AnalysisPageInner({
     try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
   });
 
+  // KS-3597 (ADR-099 F2): Maia-hook и sort-режим на уровне AnalysisPage,
+  // чтобы `useEngine` мог получить `searchmoves` (Maia top-N) для
+  // `sortMode === 'maia'`. Sidebar получает всё через props.
+  const maia = useMaiaAnalysis({ fen: currentFen, user });
+  const { sortMode, setSortMode } = useEngineSortMode();
+
+  // KS-3597: финальный массив `searchmoves`. null/[] → обычный go
+  // без хвоста (mode=stockfish, или Maia не ready, или engine не
+  // поддерживает — последнее знает `useEngine` сам по source).
+  const maiaTopMoves = useMemo<string[]>(() => {
+    if (sortMode !== 'maia' || maia.status !== 'ready') return [];
+    const entries = Object.entries(maia.policyByMove);
+    if (entries.length === 0) return [];
+    entries.sort(([, a], [, b]) => b - a);
+    return entries.slice(0, Math.max(0, ec.multiPv)).map(([uci]) => uci);
+  }, [sortMode, maia.status, maia.policyByMove, ec.multiPv]);
+
   const {
     lines, analysisFen, evaluate, stop: stopEngine, setOption: setEngineOption,
     isReady, state: sfState, engineName, engineSource: activeSource,
     errorMessage: engineErrorMessage,
     loadProgress: engineLoadProgress, errorReason: engineErrorReason,
     init: engineInit,
+    supportsSearchmoves: engineSupportsSearchmoves,
   } = useEngine({
     source: ec.engineSource,
     externalConfig: ec.externalConfig,
@@ -856,6 +877,8 @@ function AnalysisPageInner({
     infinite: true,
     multiPv: ec.multiPv,
     autoStart: analysisEnabled,
+    // KS-3597: Maia top-N (или null) для sortMode=maia.
+    searchmoves: maiaTopMoves.length > 0 ? maiaTopMoves : null,
   });
 
   const lastLinesRef = useRef<EvalLine[]>([]);
@@ -2373,9 +2396,14 @@ function AnalysisPageInner({
         onSetVariationColor={setVariationColor}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
-        /* KS-3584 (ADR-096): user для подбора initial ELO Maia.
-           AnalysisPage уже зовёт useAuth(); прокидываем сюда. */
-        maiaUser={user}
+        /* KS-3597 (ADR-099 F2): поднятые на уровень страницы Maia-hook
+           и sort-режим, чтобы `useEngine` мог получить `searchmoves`
+           без дублирования экземпляров. */
+        maia={maia}
+        sortMode={sortMode}
+        onSortModeChange={setSortMode}
+        engineSupportsSearchmoves={engineSupportsSearchmoves}
+        maiaTopMoves={maiaTopMoves}
         readOnly={ctx.readOnly}
         concealAfterPly={null}
         // KS-3258 follow-up: пробрасываем headers, чтобы при пустой

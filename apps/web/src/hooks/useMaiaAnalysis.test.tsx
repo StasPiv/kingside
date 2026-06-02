@@ -117,6 +117,71 @@ describe('useMaiaAnalysis (KS-3588)', () => {
     // Null/undefined вход → undefined.
     expect(result.current.getProbability(null)).toBeUndefined();
     expect(result.current.getProbability(undefined)).toBeUndefined();
+
+    // KS-3597: policyByMove exposed.
+    expect(result.current.policyByMove).toMatchObject({
+      e2e4: expect.closeTo(0.3, 5),
+      d2d4: expect.closeTo(0.25, 5),
+      g1f3: expect.closeTo(0.15, 5),
+    });
+  });
+
+  // KS-3597 ------------------------------------------------------------
+
+  it('KS-3597: policyByMove пуст при status=idle/loading и error', async () => {
+    const engine: MaiaSinglePredictionEngine = {
+      predictMoves: vi.fn().mockRejectedValue(new Error('boom')),
+    };
+    const { result } = renderHook(() =>
+      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+    );
+    // loading → пустой
+    expect(result.current.status).toBe('loading');
+    expect(result.current.policyByMove).toEqual({});
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await flushPromises();
+    });
+    // error → тоже пустой (на смену fen внутри useEffect мы делаем
+    // setPolicyByMove({}), на reject — оставляем пустым).
+    expect(result.current.status).toBe('error');
+    expect(result.current.policyByMove).toEqual({});
+  });
+
+  it('KS-3597: смена fen → policyByMove обновляется на новую позицию', async () => {
+    const FEN_2 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const engine: MaiaSinglePredictionEngine = {
+      predictMoves: vi
+        .fn()
+        .mockResolvedValueOnce(makeResult([['e2e4', 0.5]]))
+        .mockResolvedValueOnce(makeResult([['e7e5', 0.6], ['c7c5', 0.2]])),
+    };
+
+    const { result, rerender } = renderHook(
+      (props: { fen: string }) =>
+        useMaiaAnalysis({ fen: props.fen, user: null, engine }),
+      { initialProps: { fen: STARTPOS } },
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await flushPromises();
+    });
+    expect(result.current.policyByMove).toEqual({ e2e4: 0.5 });
+
+    rerender({ fen: FEN_2 });
+    // На смену fen первое: useEffect → setPolicyByMove({}) → пустой
+    expect(result.current.policyByMove).toEqual({});
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await flushPromises();
+    });
+    expect(result.current.policyByMove).toMatchObject({
+      e7e5: expect.closeTo(0.6, 5),
+      c7c5: expect.closeTo(0.2, 5),
+    });
+    expect('e2e4' in result.current.policyByMove).toBe(false);
   });
 
   it('debounce: 3 быстрых смены fen дают 1 прогон с последним fen', async () => {

@@ -934,7 +934,8 @@
         "eval": "Оценка",
         "maia": "Maia%",
         "line": "Линия",
-        "maiaUnavailableTip": "Maia недоступна — порядок Stockfish"
+        "maiaUnavailableTip": "Maia недоступна — порядок Stockfish",
+        "maiaUnsupportedTip": "Maia-режим недоступен для внешнего движка — порядок Stockfish"
       }
     },
     "useAsRepertoire": {

@@ -213,8 +213,14 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
       error,
       retry,
       getProbability,
+      // KS-3597 (ADR-099 F2): raw карта `uci → probability` для
+      // выбора Maia top-N как `searchmoves`. Между прогонами и при
+      // `status !== 'ready'` объект пустой (см. useEffect выше:
+      // `setPolicyByMove({})` на смену fen). UI читает её через
+      // `Object.entries(policyByMove)` для построения списка ходов.
+      policyByMove,
     }),
-    [elo, setElo, status, error, retry, getProbability],
+    [elo, setElo, status, error, retry, getProbability, policyByMove],
   );
 }
 

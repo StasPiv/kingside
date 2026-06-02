@@ -924,7 +924,8 @@
         "eval": "Eval",
         "maia": "Maia%",
         "line": "Line",
-        "maiaUnavailableTip": "Maia unavailable — Stockfish order"
+        "maiaUnavailableTip": "Maia unavailable — Stockfish order",
+        "maiaUnsupportedTip": "Maia mode unavailable for external engine — Stockfish order"
       }
     },
     "useAsRepertoire": {
