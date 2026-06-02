@@ -65,9 +65,15 @@ const MATES_THEMES: PuzzleTheme[] = [
 ];
 
 /**
- * Темы эндшпиля. 10 элементов.
+ * Темы эндшпиля. 11 элементов.
  * ADR-080 упоминал `opposite-colors-bishops` — в `PuzzleTheme` enum
  * такого нет, пропускаем.
+ *
+ * KS-3574 / ADR-094 §8.11: добавлен `mixedEndgame` — для эндшпилей со
+ * смесью тяжёлых/лёгких фигур (R+N, B+N, Q+R+B и т.п.), которые не
+ * попадают ни в один из чистых подвидов. По audit'у KS-3569 этот класс
+ * составлял 69.7% всех generated-эндшпилей; раньше получал только
+ * зонтичный `endgame`, теперь дополнительно — `mixedEndgame`.
  */
 const ENDGAME_THEMES: PuzzleTheme[] = [
   'endgame',
@@ -77,6 +83,7 @@ const ENDGAME_THEMES: PuzzleTheme[] = [
   'knightEndgame',
   'bishopEndgame',
   'queenRookEndgame',
+  'mixedEndgame',
   'promotion',
   'underPromotion',
   'advancedPawn',
@@ -133,8 +140,8 @@ export const PRECISION_THEME_GROUPS: Record<
  * UI, но если задача имеет такой тег рядом с релевантным — фильтр
  * по релевантному корректно её найдёт.
  *
- * 53 элемента: tactics(15) + mates(14) + endgame(10) + phase(2) +
- * advantage(3) + misc(9).
+ * 54 элемента: tactics(15) + mates(14) + endgame(11) + phase(2) +
+ * advantage(3) + misc(9). KS-3574 расширил endgame на mixedEndgame.
  */
 export const PRECISION_RELEVANT_THEMES: readonly PuzzleTheme[] = [
   ...TACTICS_THEMES,

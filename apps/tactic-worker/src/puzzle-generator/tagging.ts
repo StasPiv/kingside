@@ -64,10 +64,10 @@ export function detectPhase(fen: string): Phase {
 }
 
 /**
- * KS-3567 / ADR-094 §8.3. Подвид эндшпиля для уже-проставленного
- * `endgame`-тега.
+ * KS-3567 / ADR-094 §8.3 + KS-3574 / ADR-094 §8.11. Подвид эндшпиля
+ * для уже-проставленного `endgame`-тега.
  *
- * 5 чистых подвидов + queenRookEndgame:
+ * 5 чистых подвидов + queenRookEndgame + зонтичный mixedEndgame:
  *  - `pawnEndgame`        — на доске только пешки (плюс короли).
  *  - `rookEndgame`        — единственный нон-пешечный тип — ладьи.
  *  - `queenEndgame`       — единственный нон-пешечный тип — ферзи.
@@ -78,14 +78,21 @@ export function detectPhase(fen: string): Phase {
  *                            подвид: согласно ADR-094 §8.3 это самый
  *                            частый смешанный эндшпиль и заслуживает
  *                            отдельной метки.
- *
- * Если на доске встречаются другие смеси типов (R+N, B+N, Q+B, Q+N,
- * Q+R+B и т.п.) — `null`: подвид не выставляется, остаётся только
- * зонтичный `endgame`.
+ *  - `mixedEndgame`       — KS-3574 / ADR-094 §8.11. Любые другие
+ *                            смеси типов (R+N, B+N, Q+B, Q+N, Q+R+B,
+ *                            R+B+P-only и т.п.) — теперь не `null`,
+ *                            а явный «mixed»-тег. По audit'у KS-3569
+ *                            это 69.7% всех generated-эндшпилей, что
+ *                            > порога 30% из §8.11 → отдельная метка.
  *
  * Не учитываем цвет — считаем подмножество `{q,r,b,n}` совокупно
  * по обеим сторонам. ADR-094 §8.3 явно: «подвид по типам на доске
  * целиком, не по балансу сторон».
+ *
+ * Семантическое изменение KS-3574: функция БОЛЬШЕ НЕ возвращает `null`.
+ * Если фаза endgame определена — всегда есть один из 7 подвидов.
+ * Это упрощает интеграцию: при `phase === 'endgame'` вызывающий
+ * безусловно добавляет результат как тег.
  */
 export type EndgameSubtype =
   | 'pawnEndgame'
@@ -93,9 +100,10 @@ export type EndgameSubtype =
   | 'queenEndgame'
   | 'knightEndgame'
   | 'bishopEndgame'
-  | 'queenRookEndgame';
+  | 'queenRookEndgame'
+  | 'mixedEndgame';
 
-export function detectEndgameSubtype(fen: string): EndgameSubtype | null {
+export function detectEndgameSubtype(fen: string): EndgameSubtype {
   const chess = new Chess(fen);
   const pieces = allPieces(chess);
   const heavyOrMinor = pieces.filter(
@@ -114,7 +122,7 @@ export function detectEndgameSubtype(fen: string): EndgameSubtype | null {
   if (types.size === 2 && types.has('q') && types.has('r')) {
     return 'queenRookEndgame';
   }
-  return null;
+  return 'mixedEndgame';
 }
 
 export interface TagInput {
@@ -228,15 +236,15 @@ export function computeTags(input: TagInput): string[] {
 
   // KS-3562 / ADR-094 §3.1. Фаза партии — ровно один из
   // opening / middlegame / endgame, взаимоисключающие.
-  // KS-3567 / ADR-094 §8.3. Если фаза = endgame — добавляем подвид
-  // (pawn/rook/queen/knight/bishop/queenRookEndgame). Смешанные
-  // комбо без специфичного подвида — только зонтичный `endgame`.
+  // KS-3567 / ADR-094 §8.3 + KS-3574 / ADR-094 §8.11. Если фаза =
+  // endgame — всегда добавляем один из 7 подвидов: pawn / rook /
+  // queen / knight / bishop / queenRookEndgame, либо `mixedEndgame`
+  // для любой другой смеси (KS-3574). null больше не возвращается.
   safe(() => {
     const phase = detectPhase(startFen);
     tags.add(phase);
     if (phase === 'endgame') {
-      const subtype = detectEndgameSubtype(startFen);
-      if (subtype) tags.add(subtype);
+      tags.add(detectEndgameSubtype(startFen));
     }
   });
 

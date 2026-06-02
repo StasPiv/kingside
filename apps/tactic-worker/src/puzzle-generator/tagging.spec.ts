@@ -203,9 +203,9 @@ describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
     expect(detectEndgameSubtype(fen)).toBe('rookEndgame');
   });
 
-  it('#4 K+R vs K+N → null (смешанный R+N)', () => {
+  it('#4 K+R vs K+N → mixedEndgame (смешанный R+N, KS-3574)', () => {
     const fen = '4k3/8/8/8/8/2n5/8/3RK3 w - - 0 30';
-    expect(detectEndgameSubtype(fen)).toBeNull();
+    expect(detectEndgameSubtype(fen)).toBe('mixedEndgame');
   });
 
   it('#5 K+Q+R vs K+R → queenRookEndgame', () => {
@@ -213,14 +213,14 @@ describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
     expect(detectEndgameSubtype(fen)).toBe('queenRookEndgame');
   });
 
-  it('#6 K+Q+R+B vs K+R → null (Q+R+B смешанный)', () => {
+  it('#6 K+Q+R+B vs K+R → mixedEndgame (Q+R+B смешанный, KS-3574)', () => {
     const fen = '3rk3/8/8/8/8/8/8/2BQRK2 w - - 0 30';
-    expect(detectEndgameSubtype(fen)).toBeNull();
+    expect(detectEndgameSubtype(fen)).toBe('mixedEndgame');
   });
 
-  it('#7 K+B+B vs K+N → null (B+N смешанный)', () => {
+  it('#7 K+B+B vs K+N → mixedEndgame (B+N смешанный, KS-3574)', () => {
     const fen = '4k3/8/8/8/8/2n5/8/2B1KB2 w - - 0 30';
-    expect(detectEndgameSubtype(fen)).toBeNull();
+    expect(detectEndgameSubtype(fen)).toBe('mixedEndgame');
   });
 
   it('#8 K+N+N vs K → knightEndgame', () => {
@@ -257,7 +257,7 @@ describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
     expect(tags).not.toContain('queenEndgame');
   });
 
-  it('интеграция: computeTags для смешанного R+N → endgame БЕЗ подвида', () => {
+  it('интеграция: computeTags для смешанного R+N → endgame + mixedEndgame (KS-3574)', () => {
     const fen = '4k3/8/8/8/8/2n5/8/3RK3 w - - 0 30';
     const tags = computeTags({
       startFen: fen,
@@ -266,12 +266,28 @@ describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
       endsInMate: false,
     });
     expect(tags).toContain('endgame');
+    expect(tags).toContain('mixedEndgame');
     expect(tags).not.toContain('rookEndgame');
     expect(tags).not.toContain('knightEndgame');
     expect(tags).not.toContain('queenRookEndgame');
     expect(tags).not.toContain('pawnEndgame');
     expect(tags).not.toContain('bishopEndgame');
     expect(tags).not.toContain('queenEndgame');
+  });
+
+  it('интеграция: computeTags для Q+R+B → endgame + mixedEndgame (KS-3574)', () => {
+    // R+B+Q (тяжёлая смесь) — типичная позиция miittel/late-mittelspiel.
+    // Здесь принудительно делаем endgame по фазе через ≤5 нон-кинг.
+    // Конструкция: K+Q+R+B vs K+R, нон-кинг = 4 → endgame.
+    const fen = '3rk3/8/8/8/8/8/8/2BQRK2 w - - 0 30';
+    const tags = computeTags({
+      startFen: fen,
+      moves: ['d1d2'],
+      finalCpForSolver: 200,
+      endsInMate: false,
+    });
+    expect(tags).toContain('endgame');
+    expect(tags).toContain('mixedEndgame');
   });
 
   it('интеграция: middlegame НЕ получает подвидового тега', () => {
@@ -294,5 +310,6 @@ describe('detectEndgameSubtype — KS-3567 / ADR-094 §8.3', () => {
     expect(tags).not.toContain('knightEndgame');
     expect(tags).not.toContain('bishopEndgame');
     expect(tags).not.toContain('queenRookEndgame');
+    expect(tags).not.toContain('mixedEndgame');
   });
 });

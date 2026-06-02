@@ -1,10 +1,16 @@
 /**
- * KS-3568 / ADR-094 §8.7, §8.10, §8.12. Subcommand
- * `backfill-endgame-subtype` — one-shot для проставления
- * подвидового тега (pawnEndgame / rookEndgame / queenEndgame /
- * knightEndgame / bishopEndgame / queenRookEndgame) для исторических
- * generated-puzzle'ов, у которых УЖЕ есть зонтичный `endgame` от
- * KS-3562 / KS-3564, но нет подвида от KS-3567.
+ * KS-3568 / ADR-094 §8.7, §8.10, §8.12 + KS-3574 / ADR-094 §8.11.
+ * Subcommand `backfill-endgame-subtype` — one-shot для проставления
+ * подвидового тега для исторических generated-puzzle'ов, у которых
+ * УЖЕ есть зонтичный `endgame` от KS-3562 / KS-3564, но нет подвида
+ * от KS-3567/KS-3574.
+ *
+ * Подвиды (7): pawnEndgame / rookEndgame / queenEndgame /
+ * knightEndgame / bishopEndgame / queenRookEndgame / mixedEndgame.
+ *
+ * Семантика после KS-3574: `detectEndgameSubtype` больше не возвращает
+ * null. Любой эндшпиль получает один из 7 тегов. Раньше смешанные
+ * (R+N, B+N, Q+R+B и т.п.) пропускались — теперь получают `mixedEndgame`.
  *
  * Алгоритм:
  *   1. SELECT id, fen, themes FROM puzzles
@@ -12,21 +18,22 @@
  *        AND themes ~* '(^| )endgame( |$)'
  *        AND themes !~* '(^| )(pawnEndgame|rookEndgame|queenEndgame
  *                              |knightEndgame|bishopEndgame
- *                              |queenRookEndgame)( |$)'
+ *                              |queenRookEndgame|mixedEndgame)( |$)'
  *        AND id > $lastId
  *      ORDER BY id LIMIT batchSize.
- *   2. detectEndgameSubtype(fen) → один из 6 подвидов или null
- *      (смешанные R+N / B+N / Q+B / Q+R+B и т.п.).
- *   3. non-null  → UPDATE themes = trim(existing) + ' ' + subtype.
- *      null      → пропускаем (только зонтичный endgame остаётся).
+ *   2. detectEndgameSubtype(fen) → один из 7 подвидов (всегда).
+ *   3. UPDATE themes = trim(existing) + ' ' + subtype.
  *   4. Прогресс per batch. По 500 строк — Prisma $transaction.
  *
- * Keyset-пагинация по `id > $lastId`: важно потому что null-subtype
- * row'ы не UPDATE'ятся и без keyset'а остались бы в WHERE-выборке
- * на каждой итерации (тот же баг что в KS-3564 dry-run).
+ * Keyset-пагинация по `id > $lastId` — оставлена для устойчивости к
+ * (теоретически возможным) ошибкам обновления: failed row не выпадет
+ * из WHERE'а и без keyset'а зацикливал бы выборку.
  *
  * Идемпотентно: WHERE-фильтр исключает уже размеченных. Повторный
- * запуск — no-op для уже обработанных.
+ * запуск — no-op для уже обработанных. **Важно**: после KS-3574
+ * первый запуск на проде допроставит `mixedEndgame` для row'ов,
+ * которые KS-3568 (предыдущая итерация backfill'а) пропустил как
+ * null-subtype. Audit KS-3569: таких 1612 строк (69.7% эндшпилей).
  *
  * НЕ trogaet `source='lichess'` — у них свои подвиды.
  *
@@ -75,9 +82,14 @@ function parseArgs(argv: string[]): CliOpts {
  *  KS-3563 audit'ом и KS-3564 backfill'ом для консистентности. */
 const ENDGAME_REGEX = '(^| )endgame( |$)';
 
-/** Exclusion regex — все 6 подвидов перечислены явно. */
+/**
+ * Exclusion regex — все 7 подвидов перечислены явно.
+ * KS-3574 добавил `mixedEndgame` — после первого прогона backfill'а
+ * row'ы со смешанной фигурной композицией получат этот тег и не
+ * попадут в выборку повторно.
+ */
 const SUBTYPE_REGEX =
-  '(^| )(pawnEndgame|rookEndgame|queenEndgame|knightEndgame|bishopEndgame|queenRookEndgame)( |$)';
+  '(^| )(pawnEndgame|rookEndgame|queenEndgame|knightEndgame|bishopEndgame|queenRookEndgame|mixedEndgame)( |$)';
 
 interface PuzzleRow {
   id: string;
@@ -88,7 +100,11 @@ interface PuzzleRow {
 export interface BackfillEndgameSubtypeStats {
   scanned: number;
   updated: number;
-  /** detectEndgameSubtype вернул null (смешанный) — пропустили. */
+  /**
+   * KS-3574: после расширения `detectEndgameSubtype` на `mixedEndgame`
+   * пропусков по null больше нет. Поле сохранено для back-compat с
+   * историческими стат-отчётами KS-3568 — всегда `0` в текущей версии.
+   */
   skippedMixed: number;
   /** detectEndgameSubtype бросил исключение. */
   errors: number;
@@ -108,6 +124,7 @@ function emptyStats(): BackfillEndgameSubtypeStats {
       knightEndgame: 0,
       bishopEndgame: 0,
       queenRookEndgame: 0,
+      mixedEndgame: 0,
     },
   };
 }
@@ -168,12 +185,8 @@ export async function runBackfillEndgameSubtype(
         stats.scanned++;
         try {
           const subtype = detectEndgameSubtype(row.fen);
-          if (subtype) {
-            stats.subtypes[subtype]++;
-            stats.updated++;
-          } else {
-            stats.skippedMixed++;
-          }
+          stats.subtypes[subtype]++;
+          stats.updated++;
         } catch (err) {
           logger.warn(
             `detectEndgameSubtype failed for id=${row.id}: ` +
@@ -187,7 +200,7 @@ export async function runBackfillEndgameSubtype(
         await prisma.$transaction(async (tx) => {
           for (const row of batch) {
             stats.scanned++;
-            let subtype: EndgameSubtype | null;
+            let subtype: EndgameSubtype;
             try {
               subtype = detectEndgameSubtype(row.fen);
             } catch (err) {
@@ -196,10 +209,6 @@ export async function runBackfillEndgameSubtype(
                   `${(err as Error).message}`,
               );
               stats.errors++;
-              continue;
-            }
-            if (!subtype) {
-              stats.skippedMixed++;
               continue;
             }
             const existing = (row.themes ?? '').trim();

@@ -41,6 +41,7 @@ export type PuzzleTheme =
   | 'mateIn4'
   | 'mateIn5'
   | 'middlegame'
+  | 'mixedEndgame'
   | 'oneMove'
   | 'opening'
   | 'pawnEndgame'
