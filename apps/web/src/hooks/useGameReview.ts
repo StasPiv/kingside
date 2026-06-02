@@ -611,22 +611,50 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         startFen: string,
       ): Promise<void> {
         const ucis = [variation.uci, ...(variation.subline ?? [])];
+        // eslint-disable-next-line no-console
+        console.log('[KS-3619] annotateFinalEval start', {
+          color: variation.color,
+          ucis,
+        });
         let cur: string | null = startFen;
         for (const u of ucis) {
           if (!cur) break;
-          cur = applyMove(cur, u);
+          const next = applyMove(cur, u);
+          if (!next) {
+            // eslint-disable-next-line no-console
+            console.warn('[KS-3619] applyMove FAILED on', u, 'fen=', cur);
+          }
+          cur = next;
         }
-        if (!cur) return;
+        if (!cur) {
+          // eslint-disable-next-line no-console
+          console.warn('[KS-3619] annotateFinalEval: cur=null, skip');
+          return;
+        }
         try {
           const sub = await engines.analyzeSf(cur, 1, depth);
-          if (!sub.wdlBefore) return;
+          if (!sub.wdlBefore) {
+            // eslint-disable-next-line no-console
+            console.warn('[KS-3619] sub.wdlBefore null on fen', cur);
+            return;
+          }
           const stmIsWhite = cur.split(' ')[1] === 'w';
           variation.finalEvalNag = pickFinalEvalNag(
             sub.wdlBefore,
             stmIsWhite,
           );
-        } catch {
-          /* graceful — без оценочного NAG */
+          // eslint-disable-next-line no-console
+          console.log(
+            '[KS-3619] annotateFinalEval OK',
+            variation.color,
+            'nag=',
+            variation.finalEvalNag,
+            'wdl=',
+            sub.wdlBefore,
+          );
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[KS-3619] annotateFinalEval THREW', e);
         }
         // Рекурсивно — на случай если nested-pass снова включится.
         for (const perNode of variation.nestedVariations ?? []) {
@@ -636,6 +664,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
       }
 
+      // eslint-disable-next-line no-console
+      console.log(
+        '[KS-3619] final-eval pass: variations to annotate =',
+        annotations.reduce((s, a) => s + a.variations.length, 0),
+      );
       for (let i = 0; i < annotations.length; i++) {
         if (cancelRef.current) break;
         const ann = annotations[i];
@@ -643,7 +676,12 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         const fenAtMainMove = moveInputs[i].fen;
         for (const variation of ann.variations) {
           if (cancelRef.current) break;
-          await annotateFinalEval(variation, fenAtMainMove);
+          try {
+            await annotateFinalEval(variation, fenAtMainMove);
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('[KS-3619] outer catch ply', ann.ply, e);
+          }
         }
       }
 
