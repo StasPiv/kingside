@@ -5,7 +5,12 @@ export function formatEval(line: EvalLine, isBlackTurn = false): string {
   const sign = isBlackTurn ? -1 : 1;
   if (line.score.type === 'mate') {
     const mateValue = sign * line.score.value;
-    return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
+    if (mateValue === 0) return '#';
+    // KS-3599: для мата за чёрных показываем `-M<N>` (как и у cp-знака
+    // отрицательная eval = «у side-to-move хуже»). Раньше `Math.abs`
+    // съедал знак и в UI всегда было `M<N>` — пользователь не мог
+    // отличить «я ставлю мат» от «меня матуют».
+    return mateValue > 0 ? `M${mateValue}` : `-M${Math.abs(mateValue)}`;
   }
   const cp = (sign * line.score.value) / 100;
   return (cp >= 0 ? '+' : '') + cp.toFixed(2);

@@ -23,7 +23,11 @@ type EvalLine = {
 
 function formatEval(line: EvalLine): string {
   if (line.score.type === 'mate') {
-    return line.score.value === 0 ? '#' : `M${Math.abs(line.score.value)}`;
+    if (line.score.value === 0) return '#';
+    // KS-3599: отрицательный mate → "-M<N>" (нас матуют).
+    return line.score.value > 0
+      ? `M${line.score.value}`
+      : `-M${Math.abs(line.score.value)}`;
   }
   const cp = line.score.value / 100;
   return (cp >= 0 ? '+' : '') + cp.toFixed(2);
@@ -135,7 +139,8 @@ describe('KS-308: formatEval', () => {
 
   it('мат', () => {
     expect(formatEval(line('mate', 3))).toBe('M3');
-    expect(formatEval(line('mate', -2))).toBe('M2');
+    // KS-3599: знак сохраняется для мата против stm.
+    expect(formatEval(line('mate', -2))).toBe('-M2');
     expect(formatEval(line('mate', 0))).toBe('#');
   });
 });

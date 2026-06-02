@@ -385,7 +385,7 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
   /**
    * Сценарий 1: Eval bar — мат для черных
    */
-  it('eval bar при мате для черных отображает M с абсолютным значением', async () => {
+  it('KS-3599: eval bar при мате для черных отображает -M<N> со знаком', async () => {
     stockfishState = 'analyzing';
     stockfishLines = [
       { depth: 18, multipv: 1, score: { type: 'mate', value: -2 }, pv: 'e2e4' },
@@ -396,7 +396,9 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
     renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getAllByText('M2').length).toBeGreaterThanOrEqual(1);
+      // KS-3599: «нас матуют» (value=-2 со стороны stm) рендерится
+      // как «-M2», чтобы отличать от собственного мата.
+      expect(screen.getAllByText('-M2').length).toBeGreaterThanOrEqual(1);
     });
   });
 

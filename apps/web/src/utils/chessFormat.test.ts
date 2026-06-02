@@ -5,9 +5,56 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  formatEval,
   wdlSignedToWinChancePercent,
   permilleToPercent,
 } from './chessFormat';
+import type { EvalLine } from '../hooks/useStockfish';
+
+function line(
+  type: 'cp' | 'mate',
+  value: number,
+): EvalLine {
+  return { depth: 20, multipv: 1, score: { type, value }, pv: 'e2e4' };
+}
+
+describe('formatEval — cp', () => {
+  it('положительный cp → "+N.NN"', () => {
+    expect(formatEval(line('cp', 35))).toBe('+0.35');
+    expect(formatEval(line('cp', 538))).toBe('+5.38');
+  });
+  it('отрицательный cp → "-N.NN"', () => {
+    expect(formatEval(line('cp', -150))).toBe('-1.50');
+  });
+  it('isBlackTurn инвертирует знак (POV stm)', () => {
+    expect(formatEval(line('cp', 538), true)).toBe('-5.38');
+    expect(formatEval(line('cp', -150), true)).toBe('+1.50');
+  });
+});
+
+describe('formatEval — mate (KS-3599)', () => {
+  it('положительный mate за stm → "M<N>"', () => {
+    expect(formatEval(line('mate', 3))).toBe('M3');
+    expect(formatEval(line('mate', 1))).toBe('M1');
+  });
+
+  it('KS-3599: отрицательный mate (нас матуют) → "-M<N>"', () => {
+    expect(formatEval(line('mate', -2))).toBe('-M2');
+    expect(formatEval(line('mate', -5))).toBe('-M5');
+  });
+
+  it('mate=0 → "#"', () => {
+    expect(formatEval(line('mate', 0))).toBe('#');
+  });
+
+  it('isBlackTurn инвертирует знак mate', () => {
+    // value=+2 (Stockfish: за stm) с isBlackTurn → мат за чёрных (от POV
+    // белого пользователя) = негативный → "-M2".
+    expect(formatEval(line('mate', 2), true)).toBe('-M2');
+    // value=-2 + isBlackTurn → мат за белых → "M2".
+    expect(formatEval(line('mate', -2), true)).toBe('M2');
+  });
+});
 
 describe('wdlSignedToWinChancePercent KS-2521', () => {
   it('+1 (полная победа) → 100%', () => {
