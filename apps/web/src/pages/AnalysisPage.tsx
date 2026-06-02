@@ -2373,6 +2373,9 @@ function AnalysisPageInner({
         onSetVariationColor={setVariationColor}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
+        /* KS-3584 (ADR-096): user для подбора initial ELO Maia.
+           AnalysisPage уже зовёт useAuth(); прокидываем сюда. */
+        maiaUser={user}
         readOnly={ctx.readOnly}
         concealAfterPly={null}
         // KS-3258 follow-up: пробрасываем headers, чтобы при пустой

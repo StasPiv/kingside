@@ -921,6 +921,13 @@
     "reset": "Try again"
   },
   "analysis": {
+    "maia": {
+      "title": "Human moves (Maia)",
+      "elo": "ELO",
+      "loading": "Loading Maia…",
+      "error": "Failed to load Maia",
+      "retry": "Try again"
+    },
     "useAsRepertoire": {
       "menuItem": "Use as new repertoire",
       "creating": "Creating…",

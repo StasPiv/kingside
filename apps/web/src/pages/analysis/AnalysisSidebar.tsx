@@ -14,6 +14,7 @@ import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import { PositionMaiaRatingButton } from '../../components/analysis/PositionMaiaRatingButton';
+import { MaiaAnalysisSection } from '../../components/analysis/MaiaAnalysisSection';
 
 /**
  * KS-3579 helper: вытаскиваем первый UCI-ход из PV. EvalLine.pv в проде —
@@ -134,6 +135,12 @@ export interface AnalysisSidebarProps {
    * рендерится `<ForfeitPlaceholder>` (см. AnalysisPage.tsx).
    */
   pgnHeaders?: Record<string, string> | null;
+  /**
+   * KS-3584 (ADR-096): пользователь — для подбора initial ELO в
+   * `MaiaAnalysisSection`. Опц.; если не передан — fallback на
+   * localStorage / 1500. AnalysisPage передаёт `useAuth().user`.
+   */
+  maiaUser?: import('@kingside/shared').User | null;
 }
 
 export function AnalysisSidebar({
@@ -176,6 +183,7 @@ export function AnalysisSidebar({
   readOnly = false,
   concealAfterPly = null,
   pgnHeaders = null,
+  maiaUser = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -369,7 +377,11 @@ export function AnalysisSidebar({
           </span>
         </div>
         {panelStates.engine && (
-          <div className="analysis-panel-body">
+          // KS-3584 (ADR-096): добавлен Maia-блок внутри engine-panel.
+          // Старый `.analysis-panel-body` имеет max-height: 132px (фикс
+          // под 3 PV Stockfish), Maia уходила под скролл с обрезкой.
+          // Модификатор `--scroll` снимает max-height (см. KS-3585).
+          <div className="analysis-panel-body analysis-panel-body--scroll">
             {/* KS-3067: индикатор загрузки/ошибки wasm-движка. Только для
                 wasm-источника — у external свой error-баннер выше. */}
             {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
@@ -402,6 +414,9 @@ export function AnalysisSidebar({
                   </div>
                 ))}
             </div>
+            {/* KS-3584 (ADR-096): постоянный Maia-анализ в engine-panel.
+                Работает независимо от Stockfish — собственный worker.  */}
+            <MaiaAnalysisSection fen={currentFen} user={maiaUser} />
             {/* KS-3579: «Получить рейтинг позиции» — Maia-3 в воркере.
                 Best-ход берём из top-1 линии Stockfish (UCI первый ход
                 в PV). Если линий пока нет — кнопка disabled. */}
@@ -583,7 +598,8 @@ export function AnalysisSidebar({
                 </button>
               )}
             </div>
-            <div className="analysis-panel-body">
+            {/* KS-3584: mobile engine-panel — снимаем max-height ради Maia. */}
+            <div className="analysis-panel-body analysis-panel-body--scroll">
               {/* KS-3067: тот же индикатор для мобильной вкладки «Engine». */}
               {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
                 <EngineLoader
@@ -615,6 +631,8 @@ export function AnalysisSidebar({
                     </div>
                   ))}
               </div>
+              {/* KS-3584 (ADR-096): mobile-блок Maia-анализа. */}
+              <MaiaAnalysisSection fen={currentFen} />
               {/* KS-3579: mobile-вариант кнопки «Получить рейтинг позиции». */}
               <PositionMaiaRatingButton
                 fen={currentFen}
