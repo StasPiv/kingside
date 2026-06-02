@@ -28,6 +28,7 @@ describe('<PositionMaiaRatingButton> KS-3579', () => {
     mockUseHook.mockReturnValue({
       status: 'idle',
       rating: null,
+      topMoves: [],
       error: null,
       compute: vi.fn(),
       reset: vi.fn(),
@@ -47,6 +48,7 @@ describe('<PositionMaiaRatingButton> KS-3579', () => {
     mockUseHook.mockReturnValue({
       status: 'idle',
       rating: null,
+      topMoves: [],
       error: null,
       compute,
       reset: vi.fn(),
@@ -68,6 +70,7 @@ describe('<PositionMaiaRatingButton> KS-3579', () => {
     mockUseHook.mockReturnValue({
       status: 'computing',
       rating: null,
+      topMoves: [],
       error: null,
       compute: vi.fn(),
       reset: vi.fn(),
@@ -86,6 +89,7 @@ describe('<PositionMaiaRatingButton> KS-3579', () => {
     mockUseHook.mockReturnValue({
       status: 'done',
       rating: 1700,
+      topMoves: [],
       error: null,
       compute: vi.fn(),
       reset: vi.fn(),
@@ -100,25 +104,65 @@ describe('<PositionMaiaRatingButton> KS-3579', () => {
     expect(screen.getByTestId('position-maia-rating-reset')).toBeTruthy();
   });
 
-  it('above-range: показывает дженерик-сообщение и кнопку «Ещё раз»', () => {
+  it('KS-3580: above-range показывает список вероятных ходов (SAN + %), без текста «above range»', () => {
     mockUseHook.mockReturnValue({
       status: 'above-range',
       rating: null,
+      topMoves: [
+        { move: 'e2e4', probability: 0.352 },
+        { move: 'd2d4', probability: 0.221 },
+        { move: 'g1f3', probability: 0.125 },
+      ],
       error: null,
       compute: vi.fn(),
       reset: vi.fn(),
     });
     renderWithProviders(
-      <PositionMaiaRatingButton fen={STARTPOS} stockfishBestUci="e2e4" />,
+      <PositionMaiaRatingButton fen={STARTPOS} stockfishBestUci="h2h3" />,
     );
-    const result = screen.getByTestId('position-maia-rating-result');
-    expect(result.textContent?.toLowerCase()).toContain('above');
+    const title = screen.getByTestId('position-maia-rating-fallback-title');
+    expect(title.textContent?.toLowerCase()).toContain('maia');
+
+    const list = screen.getByTestId('position-maia-rating-fallback-list');
+    expect(list.textContent).toContain('35.2%');
+    expect(list.textContent).toContain('22.1%');
+    expect(list.textContent).toContain('12.5%');
+
+    // SAN-конвертация из стартовой позиции: e2e4 → e4, d2d4 → d4, g1f3 → Nf3.
+    expect(list.textContent).toContain('e4');
+    expect(list.textContent).toContain('d4');
+    expect(list.textContent).toContain('Nf3');
+
+    // Acceptance: нет старого fallback-сообщения.
+    expect(screen.queryByText(/above maia range|above range/i)).toBeNull();
+    expect(screen.getByTestId('position-maia-rating-reset')).toBeTruthy();
+  });
+
+  it('KS-3580: нелегальный ход (или странный UCI) фоллбэчится в исходный UCI', () => {
+    mockUseHook.mockReturnValue({
+      status: 'above-range',
+      rating: null,
+      topMoves: [
+        // bogus-ход — chess.js не сможет его сделать в startpos.
+        { move: 'a1a8', probability: 0.55 },
+      ],
+      error: null,
+      compute: vi.fn(),
+      reset: vi.fn(),
+    });
+    renderWithProviders(
+      <PositionMaiaRatingButton fen={STARTPOS} stockfishBestUci="h2h3" />,
+    );
+    const list = screen.getByTestId('position-maia-rating-fallback-list');
+    expect(list.textContent).toContain('a1a8');
+    expect(list.textContent).toContain('55.0%');
   });
 
   it('error: показывает дженерик-ошибку без техдеталей', () => {
     mockUseHook.mockReturnValue({
       status: 'error',
       rating: null,
+      topMoves: [],
       error: 'WASM 500 internal-onnx-crash',
       compute: vi.fn(),
       reset: vi.fn(),

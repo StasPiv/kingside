@@ -576,3 +576,38 @@
 .position-maia-rating__result {
   color: var(--c-fff);
 }
+
+/* KS-3580: fallback-список ходов Maia при above-range. */
+.position-maia-rating__fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 100%;
+}
+.position-maia-rating__fallback-title {
+  color: var(--c-9ca3af);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.position-maia-rating__fallback-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.position-maia-rating__fallback-item {
+  display: flex;
+  align-items: baseline;
+  color: var(--c-fff);
+  font-variant-numeric: tabular-nums;
+}
+.position-maia-rating__fallback-move {
+  font-weight: 600;
+  min-width: 56px;
+}
+.position-maia-rating__fallback-prob {
+  color: var(--c-9ca3af);
+}
