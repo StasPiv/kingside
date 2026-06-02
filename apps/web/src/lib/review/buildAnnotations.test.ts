@@ -313,15 +313,49 @@ describe('buildAnnotation — §4.2 red-variation', () => {
     expect(red.nag).toEqual([NAG_BLUNDER]);
   });
 
-  it('НЕ добавляется при maiaTopProb < 0.25', () => {
+  it('KS-3610: НЕ добавляется при maiaTopProb < 0.20', () => {
     const a = buildAnnotation(
       base({
         maiaTopUci: 'g1f3',
-        maiaTopProb: 0.24,
+        maiaTopProb: 0.19,
         wdlAfterMaiaTop: wdl(0.1),
       }),
     );
     expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
+  });
+
+  it('KS-3610: добавляется при maiaTopProb = 0.20 (новая граница)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        maiaTopUci: 'g1f3',
+        maiaTopProb: 0.2,
+        wdlAfterMaiaTop: wdl(0.3),
+      }),
+    );
+    expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(1);
+  });
+
+  it('KS-3610: добавляется на inaccuracy (расширение покрытия — было только mistake/blunder)', () => {
+    // loss=0.10 → inaccuracy
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        maiaTopUci: 'g1f3',
+        maiaTopProb: 0.3,
+        wdlAfterMaiaTop: wdl(0.4),
+      }),
+    );
+    const red = a.variations.find((v) => v.color === 'red');
+    expect(red).toBeTruthy();
+    // На inaccuracy NAG не выставляем (nagForMaiaTrap → null).
+    expect(red!.nag).toBeUndefined();
   });
 
   it('НЕ добавляется при maiaTopClass = good/best (нет ловушки)', () => {
@@ -389,6 +423,75 @@ describe('buildAnnotation — §4.3 лимит ≤ 2', () => {
     );
     expect(a.variations).toHaveLength(2);
     expect(a.variations.map((v) => v.color).sort()).toEqual(['green', 'red']);
+  });
+});
+
+describe('buildAnnotation — KS-3610 stabilized subline', () => {
+  it('sfBestSubline (если задан) → используется вместо sfBestPv slice', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2), // blunder
+        sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
+        sfBestSubline: ['e7e5', 'g1f3', 'b8c6', 'f1c4'], // 4 хода (cap=8)
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.subline).toEqual(['e7e5', 'g1f3', 'b8c6', 'f1c4']);
+  });
+
+  it('sfBestSubline отсутствует → fallback на sfBestPv.slice(1, 3)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
+        sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.subline).toEqual(['e7e5', 'g1f3']);
+  });
+
+  it('maiaTopSubline кладётся в red-variation если задан', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        maiaTopUci: 'g1f3',
+        maiaTopProb: 0.3,
+        wdlAfterMaiaTop: wdl(0.3),
+        maiaTopSubline: ['e7e5', 'd2d4'],
+      }),
+    );
+    const red = a.variations.find((v) => v.color === 'red')!;
+    expect(red.subline).toEqual(['e7e5', 'd2d4']);
+  });
+
+  it('симметрия: то же правило применяется для позиции «ход чёрных» (без бранч на сторону)', () => {
+    // Позиция «ход чёрных»: после 1.e4.
+    const fenBlackToMove =
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const a = buildAnnotation(
+      base({
+        ply: 2,
+        fen: fenBlackToMove,
+        playedUci: 'h7h6',
+        sfBestUci: 'e7e5',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2), // blunder для чёрных
+        wdlAfterBest: wdl(0.5),
+        sfBestPv: ['e7e5', 'g1f3', 'b8c6'],
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BLUNDER]);
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.uci).toBe('e7e5');
   });
 });
 

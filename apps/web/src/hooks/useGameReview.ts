@@ -25,6 +25,13 @@ import {
   type Annotation,
   type MoveInput,
 } from '../lib/review/buildAnnotations';
+import {
+  buildStabilizedLine,
+  MAX_LINE_LENGTH_PLIES,
+  SUB_VARIATION_MAX_LENGTH_PLIES,
+  type StabilizedEngines,
+  type StabilizedFirstMove,
+} from '../lib/review/buildStabilizedLine';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
 
@@ -375,6 +382,21 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       const engines = injectedEngines ?? createDefaultEngines();
       enginesRef.current = engines;
 
+      // KS-3610 (ADR-101 §4): in-memory кэш SF-результатов по FEN.
+      // Используется для:
+      //  - main-pass: переиспользуем `analyzeSf` если позиция уже
+      //    встречалась (transpositions);
+      //  - построения stabilized subline (LINE_DEPTH=14) после
+      //    основного прогона: тот же `engineGetBestLine` ходит в кэш.
+      const sfCache = new Map<string, SfPositionResult>();
+      async function getSf(fen: string): Promise<SfPositionResult> {
+        const hit = sfCache.get(fen);
+        if (hit) return hit;
+        const res = await engines.analyzeSf(fen, 3, depth);
+        sfCache.set(fen, res);
+        return res;
+      }
+
       const moveInputs: MoveInput[] = [];
 
       try {
@@ -388,7 +410,8 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const { ply, fenBefore, playedUci } = plies[i];
 
           // SF на fenBefore: multipv=3 + UCI_ShowWDL → набор WDL.
-          const sf = await engines.analyzeSf(fenBefore, 3, depth);
+          // Через `getSf` — кэш на тот же FEN (transpositions, ADR-101 §4).
+          const sf = await getSf(fenBefore);
 
           // Maia policy.
           const maia = await engines.predictMaia(fenBefore, elo);
@@ -441,6 +464,73 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         setStatus('error');
         setError(e instanceof Error ? e.message : String(e));
         return;
+      }
+
+      // KS-3610 (ADR-101 §4.1/§4.2 v2): stabilized subline через
+      // `buildStabilizedLine`. Используем тот же `sfCache` — реально
+      // на каждую позицию сети уже посчитаны при main-pass'е, новых
+      // SF-вызовов в большинстве случаев нет. Если позиция в кэше
+      // отсутствует — adapter синхронно возвращает `null` (вариант
+      // обрывается на текущей длине; перерасчёт SF тут стоил бы
+      // лишнего бюджета).
+      const stabilizedEngines: StabilizedEngines = {
+        engineGetBestLine: (fen) => {
+          const cached = sfCache.get(fen);
+          if (!cached) return null;
+          return { bestUci: cached.bestUci, wdlAfter: cached.wdlAfterBest };
+        },
+        applyMoveToFen: (fen, uci) => {
+          try {
+            const b = new Chess(fen);
+            const m = b.move({
+              from: uci.slice(0, 2),
+              to: uci.slice(2, 4),
+              promotion: uci.length > 4 ? uci[4] : undefined,
+            });
+            return m ? b.fen() : null;
+          } catch {
+            return null;
+          }
+        },
+      };
+
+      for (const input of moveInputs) {
+        if (cancelRef.current) break;
+        // green: stabilized от позиции после sfBest, длина cap=MAX (8).
+        if (input.sfBestUci && input.sfBestUci !== input.playedUci) {
+          const fenAfterBest = stabilizedEngines.applyMoveToFen(
+            input.fen,
+            input.sfBestUci,
+          );
+          if (fenAfterBest) {
+            const firstMove: StabilizedFirstMove = {
+              uci: input.sfBestUci,
+              wdlAfter: input.wdlAfterBest,
+            };
+            const line = buildStabilizedLine(
+              input.fen,
+              firstMove,
+              stabilizedEngines,
+              MAX_LINE_LENGTH_PLIES,
+            );
+            // subline = ходы после firstMove.
+            if (line.length > 1) input.sfBestSubline = line.slice(1);
+          }
+        }
+        // red: stabilized от позиции после maiaTop, cap=SUB (4).
+        if (input.wdlAfterMaiaTop && input.maiaTopUci) {
+          const firstMove: StabilizedFirstMove = {
+            uci: input.maiaTopUci,
+            wdlAfter: input.wdlAfterMaiaTop,
+          };
+          const line = buildStabilizedLine(
+            input.fen,
+            firstMove,
+            stabilizedEngines,
+            SUB_VARIATION_MAX_LENGTH_PLIES,
+          );
+          if (line.length > 1) input.maiaTopSubline = line.slice(1);
+        }
       }
 
       engines.terminate();

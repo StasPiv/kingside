@@ -37,9 +37,23 @@ export interface MoveInput {
   /** WDL после `maiaTopUci`. `undefined` → §4.2 red-variation skip. */
   wdlAfterMaiaTop?: Wdl;
 
-  /** PV первой линии Stockfish (массив UCI). Для green-вариации
-   *  глубиной 3 (`pv[1..2]` после sfBest). */
+  /** PV первой линии Stockfish (массив UCI). Используется как fallback
+   *  для green-subline когда `sfBestSubline` не задан (KS-3603). */
   sfBestPv: string[];
+  /**
+   * KS-3610 (ADR-101 §4.1): готовый stabilized subline для green-
+   * вариации (от `buildStabilizedLine(fenAfterSfBest, sfBest, …)`).
+   * Если задан — используется он вместо `sfBestPv.slice(1, 3)`.
+   * Длина обычно 1..7 полуходов (после первого хода `sfBestUci`).
+   */
+  sfBestSubline?: string[];
+  /**
+   * KS-3610 (ADR-101 §4.2 v2): готовый stabilized subline для
+   * red-вариации (от `buildStabilizedLine(fenAfterMaiaTop, maiaTop,
+   * …, cap=4)`). Если задан — используется он. Длина обычно
+   * 1..3 полухода.
+   */
+  maiaTopSubline?: string[];
 
   /** `policy[playedUci]` от Maia. `undefined` если Maia не отвечала. */
   playedProb: number | undefined;
@@ -89,6 +103,13 @@ export const NAG_BRILLIANT = 3; // !!
  * accuracy: на 99% позиции мелкие колебания — норма).
  */
 const DECIDED_WDL_THRESHOLD = 0.95;
+
+/**
+ * KS-3610 (ADR-101 §4.2 v2). Минимальная Maia probability для добавления
+ * red-альтернативы. По ADR-100 было 0.25; в ADR-101 расширено до 0.20
+ * — больше «человеческих» альтернатив в выборку.
+ */
+export const MAIA_ALT_MIN_PROB = 0.2;
 
 // --- helpers (NAG для §4.2 red-vararation) ---------------------------------
 
@@ -157,10 +178,13 @@ function maybeGreenVariation(
 ): AnnotationVariation | null {
   if (playedClass !== 'mistake' && playedClass !== 'blunder') return null;
   if (input.sfBestUci === input.playedUci) return null;
+  // KS-3610: предпочитаем stabilized subline (если caller его посчитал);
+  // fallback на PV slice — для backward-compat с тестами KS-3603/3607.
+  const subline = input.sfBestSubline ?? input.sfBestPv.slice(1, 3);
   return {
     uci: input.sfBestUci,
     color: 'green',
-    subline: input.sfBestPv.slice(1, 3),
+    subline,
   };
 }
 
@@ -171,12 +195,18 @@ function maybeRedVariation(
   if (!maiaTopClass) return null; // §4.2 skip если wdlAfterMaiaTop undefined.
   if (input.maiaTopUci === input.sfBestUci) return null;
   if (input.maiaTopUci === input.playedUci) return null;
-  if (input.maiaTopProb < 0.25) return null;
-  if (maiaTopClass !== 'mistake' && maiaTopClass !== 'blunder') return null;
+  // KS-3610 (ADR-101 §4.2 v2): порог prob ≥ 0.20 (было 0.25).
+  if (input.maiaTopProb < MAIA_ALT_MIN_PROB) return null;
+  // KS-3610: classify !== 'best' (было 'mistake'|'blunder'). Это
+  // расширяет покрытие: inaccuracy / good / mistake / blunder —
+  // все попадают (best — нет, т.к. это не альтернатива «к лучшему»).
+  if (maiaTopClass === 'best') return null;
   const nag = nagForMaiaTrap(maiaTopClass);
   return {
     uci: input.maiaTopUci,
     color: 'red',
+    // KS-3610: stabilized subline (cap=4 для red-variation) если есть.
+    subline: input.maiaTopSubline,
     nag: nag != null ? [nag] : undefined,
   };
 }
