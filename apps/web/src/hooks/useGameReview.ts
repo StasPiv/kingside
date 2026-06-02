@@ -28,17 +28,9 @@ import {
   type MoveInput,
 } from '../lib/review/buildAnnotations';
 import {
-  buildStabilizedLine,
   MAX_LINE_LENGTH_PLIES,
   SUB_VARIATION_MAX_LENGTH_PLIES,
-  type StabilizedEngines,
-  type StabilizedFirstMove,
 } from '../lib/review/buildStabilizedLine';
-import {
-  buildNestedVariations,
-  makeBudget,
-  type NestedBuilderEngines,
-} from '../lib/review/buildNestedVariations';
 import { extractFacts, type FactsInput } from '../lib/review/extractFacts';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
@@ -444,30 +436,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       const engines = injectedEngines ?? createDefaultEngines();
       enginesRef.current = engines;
 
-      // KS-3610 (ADR-101 §4): in-memory кэш SF-результатов по FEN.
-      // Используется для:
-      //  - main-pass: переиспользуем `analyzeSf` если позиция уже
-      //    встречалась (transpositions);
-      //  - построения stabilized subline (LINE_DEPTH=14) после
-      //    основного прогона: тот же `engineGetBestLine` ходит в кэш.
-      const sfCache = new Map<string, SfPositionResult>();
-      async function getSf(fen: string): Promise<SfPositionResult> {
-        const hit = sfCache.get(fen);
-        if (hit) return hit;
-        const res = await engines.analyzeSf(fen, 3, depth);
-        sfCache.set(fen, res);
-        return res;
-      }
-
-      // KS-3610: maia-кэш по FEN (для nested-pass'а).
-      const maiaCache = new Map<string, MaiaPolicy>();
-      async function getMaiaCached(fen: string): Promise<MaiaPolicy> {
-        const hit = maiaCache.get(fen);
-        if (hit) return hit;
-        const res = await engines.predictMaia(fen, elo);
-        maiaCache.set(fen, res);
-        return res;
-      }
+      // KS-3617: убран `sfCache`/`maiaCache`. В партии без повторов
+      // позиции уникальные — кэш не приносит экономии, но скрывал
+      // главную причину фиксированной длины вариантов: post-pass
+      // ходил в пустой кэш и обрывал линию на 1 ходу, далее
+      // buildAnnotations падал в фолбэк `sfBestPv.slice(1, 3)`.
 
       const moveInputs: MoveInput[] = [];
 
@@ -482,11 +455,10 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const { ply, fenBefore, playedUci } = plies[i];
 
           // SF на fenBefore: multipv=3 + UCI_ShowWDL → набор WDL.
-          // Через `getSf` — кэш на тот же FEN (transpositions, ADR-101 §4).
-          const sf = await getSf(fenBefore);
+          const sf = await engines.analyzeSf(fenBefore, 3, depth);
 
           // Maia policy.
-          const maia = await getMaiaCached(fenBefore);
+          const maia = await engines.predictMaia(fenBefore, elo);
 
           // wdlAfterPlayed: если в top-3 — берём оттуда, иначе ещё
           // один SF-go с searchmoves <playedUci>.
@@ -538,120 +510,71 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         return;
       }
 
-      // KS-3610 (ADR-101 §4.1/§4.2 v2): stabilized subline через
-      // `buildStabilizedLine`. Используем тот же `sfCache` — реально
-      // на каждую позицию сети уже посчитаны при main-pass'е, новых
-      // SF-вызовов в большинстве случаев нет. Если позиция в кэше
-      // отсутствует — adapter синхронно возвращает `null` (вариант
-      // обрывается на текущей длине; перерасчёт SF тут стоил бы
-      // лишнего бюджета).
-      const stabilizedEngines: StabilizedEngines = {
-        engineGetBestLine: (fen) => {
-          const cached = sfCache.get(fen);
-          if (!cached) return null;
-          return { bestUci: cached.bestUci, wdlAfter: cached.wdlAfterBest };
-        },
-        applyMoveToFen: (fen, uci) => {
-          try {
-            const b = new Chess(fen);
-            const m = b.move({
-              from: uci.slice(0, 2),
-              to: uci.slice(2, 4),
-              promotion: uci.length > 4 ? uci[4] : undefined,
-            });
-            return m ? b.fen() : null;
-          } catch {
-            return null;
-          }
-        },
-      };
+      // KS-3617. Subline'ы вариантов:
+      //   - green: берётся напрямую из `sf.bestPv` (уже посчитано на
+      //     main-pass'е) — это PV1 от Stockfish на полную глубину.
+      //     `slice(1, MAX)` отрезает первый ход (= uci ветки) и cap'ит
+      //     длину. Никаких лишних SF-вызовов.
+      //   - red: PV1 на main-pass'е считалась от played-хода, не от
+      //     maiaTop. Делаем один доп. SF-вызов от позиции после maiaTop,
+      //     берём PV1 длиной cap=SUB. Без этого вызова продолжение
+      //     красного варианта отсутствует.
+      function applyMove(fen: string, uci: string): string | null {
+        try {
+          const b = new Chess(fen);
+          const m = b.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion: uci.length > 4 ? uci[4] : undefined,
+          });
+          return m ? b.fen() : null;
+        } catch {
+          return null;
+        }
+      }
 
       for (const input of moveInputs) {
         if (cancelRef.current) break;
-        // green: stabilized от позиции после sfBest, длина cap=MAX (8).
-        if (input.sfBestUci && input.sfBestUci !== input.playedUci) {
-          const fenAfterBest = stabilizedEngines.applyMoveToFen(
-            input.fen,
-            input.sfBestUci,
+        // green: subline из PV1 main-pass'а (без extra SF-вызовов).
+        if (
+          input.sfBestUci &&
+          input.sfBestUci !== input.playedUci &&
+          input.sfBestPv &&
+          input.sfBestPv.length > 1
+        ) {
+          input.sfBestSubline = input.sfBestPv.slice(
+            1,
+            MAX_LINE_LENGTH_PLIES,
           );
-          if (fenAfterBest) {
-            const firstMove: StabilizedFirstMove = {
-              uci: input.sfBestUci,
-              wdlAfter: input.wdlAfterBest,
-            };
-            const line = buildStabilizedLine(
-              input.fen,
-              firstMove,
-              stabilizedEngines,
-              MAX_LINE_LENGTH_PLIES,
-            );
-            // subline = ходы после firstMove.
-            if (line.length > 1) input.sfBestSubline = line.slice(1);
-          }
         }
-        // red: stabilized от позиции после maiaTop, cap=SUB (4).
+        // red: отдельный SF от позиции после maiaTop, cap=SUB.
         if (input.wdlAfterMaiaTop && input.maiaTopUci) {
-          const firstMove: StabilizedFirstMove = {
-            uci: input.maiaTopUci,
-            wdlAfter: input.wdlAfterMaiaTop,
-          };
-          const line = buildStabilizedLine(
-            input.fen,
-            firstMove,
-            stabilizedEngines,
-            SUB_VARIATION_MAX_LENGTH_PLIES,
-          );
-          if (line.length > 1) input.maiaTopSubline = line.slice(1);
+          const fenAfterMaia = applyMove(input.fen, input.maiaTopUci);
+          if (fenAfterMaia) {
+            try {
+              const sub = await engines.analyzeSf(fenAfterMaia, 1, depth);
+              if (sub.bestPv && sub.bestPv.length > 0) {
+                input.maiaTopSubline = sub.bestPv.slice(
+                  0,
+                  SUB_VARIATION_MAX_LENGTH_PLIES,
+                );
+              }
+            } catch {
+              /* fallthrough — без subline */
+            }
+          }
         }
       }
 
       const annotations: Annotation[] = moveInputs.map(buildAnnotation);
 
-      // KS-3610 (ADR-101 §4.0/§4.2/§5): nested-pass. На каждой main-
-      // variation проходим рекурсивно и добавляем Maia-альтернативы
-      // под каждым её полуходом. Лимиты §5: per-node 2, total 12 на
-      // main-полуход, depth ≤ 4.
-      //
-      // Источник данных — sfCache (positional) + maiaCache. Если
-      // позиция вне кэша (например, ход вглубь stabilized-варианта на
-      // которой не запускали SF) — adapter возвращает `null` и
-      // соответствующий полуход пропускается. Это и есть ADR-100 §7
-      // ограничение «не делаем второго SF на каждый альтернативный
-      // ход».
-      const nestedEngines: NestedBuilderEngines = {
-        stabilized: stabilizedEngines,
-        getMaia: (fen) => {
-          const m = maiaCache.get(fen);
-          if (!m || !m.topUci) return null;
-          return { topUci: m.topUci, topProb: m.topProb };
-        },
-        getWdlBefore: (fen) => sfCache.get(fen)?.wdlBefore ?? null,
-        getWdlAfterMove: (fen, uci) => sfCache.get(fen)?.wdlByMove[uci] ?? null,
-      };
-
-      for (let i = 0; i < annotations.length; i++) {
-        if (cancelRef.current) break;
-        const ann = annotations[i];
-        if (ann.variations.length === 0) continue;
-        const budget = makeBudget(ann.variations.length);
-        const fenAtMainMove = moveInputs[i].fen;
-        // KS-3613: стартовый ancestor — это main-line ход (что игрок
-        // реально сыграл). Без него Maia на FEN перед ним предложила
-        // бы тот же ход как «альтернативу к sfBest» и nested продублил
-        // бы сыгранную линию.
-        const initialAncestors = new Set<string>([moveInputs[i].playedUci]);
-        for (const variation of ann.variations) {
-          if (budget.remainingTotal <= 0) break;
-          buildNestedVariations(
-            variation,
-            fenAtMainMove,
-            nestedEngines,
-            1,
-            budget,
-            initialAncestors,
-          );
-        }
-      }
+      // KS-3617. Nested-pass отключён в этой итерации. Прежняя
+      // реализация работала через sfCache/maiaCache main-pass'а — но
+      // позиции внутри вариантов в этом кэше отсутствовали, поэтому
+      // nested либо не строился, либо строился по устаревшим данным
+      // (и давал дубли вроде «58.b3?? (58.b3??)»). Возврат фичи —
+      // отдельной задачей через async-движки и собственный budget на
+      // дополнительные SF/Maia-вызовы.
 
       // KS-3616 (ADR-102 §7 этап C). Фаза LLM-комментариев. Собираем
       // facts только для ходов с NAG-меткой (только main-line), шлём
@@ -665,9 +588,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const ann = annotations[i];
           if (ann.nag.length === 0) continue;
           const input = moveInputs[i];
-          const fenAfter =
-            stabilizedEngines.applyMoveToFen(input.fen, input.playedUci) ??
-            input.fen;
+          const fenAfter = applyMove(input.fen, input.playedUci) ?? input.fen;
           const playedSan = uciToSan(input.fen, input.playedUci);
           const bestSan = input.sfBestUci
             ? uciToSan(input.fen, input.sfBestUci)
