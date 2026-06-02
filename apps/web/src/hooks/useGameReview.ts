@@ -1,25 +1,27 @@
 /**
- * KS-3603 (ADR-100 §3-§4, §9 этап B). Hook «Разобрать партию»: проходит
- * по всем полуходам, считает SF+Maia метрики, прогоняет
- * `buildAnnotation` и собирает `Annotation[]`.
+ * KS-3603 → KS-3607 (ADR-100 §3-§4, §7.1, §9 этап B). Hook «Разобрать
+ * партию»: проходит по всем полуходам, считает SF (с `UCI_ShowWDL`)
+ * + Maia, прогоняет `buildAnnotation` (метрика — `classifyMove` из
+ * shared) и собирает `Annotation[]`.
  *
- * Архитектурное решение по сложности: оркестрация SF (через прямой
- * Stockfish Worker) и Maia (через `MaiaWorkerEngine.predictMoves`)
- * **последовательная** по полуходам в main thread. По §7 ADR-100 на
- * партии ~80 полуходов это даёт ≤ 40с p95 — приемлемо для MVP.
- * Worker-оркестратор (отдельный thread с двумя engine'ами внутри)
- * вынесен в опциональную фабрику `engines` — это и про DI для тестов,
- * и про будущую возможность вынести в Worker без перетряхивания API.
+ * KS-3607: cp-логика удалена; работаем только с `Wdl`-объектами,
+ * передавая их в `buildAnnotation` в POV ходящей стороны для каждой
+ * `wdlAfter*` (`invertWdl` на стороне engine-провайдера).
+ *
+ * Оркестрация последовательная по полуходам — на партии ~80 полуходов
+ * ≤ 40с p95 (ADR-100 §7). Engine-провайдеры через DI (`ReviewEngines`)
+ * — реальная реализация в `createDefaultEngines`, тестовая — мок.
  *
  * Cancel: `terminate()` обоих engine'ов; state.status → 'cancelled'.
  */
 import { useCallback, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 
+import { invertWdl, type Wdl } from '@kingside/shared';
+
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
 import {
   buildAnnotation,
-  mateToCp,
   type Annotation,
   type MoveInput,
 } from '../lib/review/buildAnnotations';
@@ -27,27 +29,29 @@ import {
 // --- engine-провайдеры (DI) ------------------------------------------------
 
 /**
- * Результат SF-анализа позиции (multipv=N, depth=D).
+ * Результат SF-анализа позиции (multipv=N, depth=D, с UCI_ShowWDL).
+ * Все `wdlAfter*` приведены к **POV ходящей стороны fenBefore** —
+ * оркестратор инвертирует raw POV (после хода stm соперник).
  */
 export interface SfPositionResult {
   /** UCI top-1 (sfBestUci). */
   bestUci: string;
-  /** Eval позиции (с т. зр. side-to-move) первой линии. mate → ±10000-N. */
-  bestCp: number;
-  /** Eval second-best (multipv=2) — для критерия !!. */
-  secondCp: number;
-  /** PV первой линии Stockfish (UCI'ы). */
+  /** WDL до хода (POV ходящей стороны на `fenBefore`). */
+  wdlBefore: Wdl;
+  /** WDL после `bestUci` — POV ходящей стороны fenBefore. */
+  wdlAfterBest: Wdl;
+  /** WDL после SF top-2 — тот же POV. `null` если top-2 нет (1 ход). */
+  wdlAfterSecondBest: Wdl | null;
+  /** PV первой линии (UCI'ы). Для green-variation в §4.1. */
   bestPv: string[];
-  /** Mate-in-N если top-1 ведёт к мату. */
-  mateBefore: number | null;
-  /** Кол-во легальных ходов в позиции — для forcedMove критерия. */
+  /**
+   * Полная multipv-карта `uci → wdlAfter` (POV ходящей стороны).
+   * Используется чтобы достать `wdlAfterPlayed` без второго прогона,
+   * если playedUci в top-N. Также для maia (если maiaTop в top-N).
+   */
+  wdlByMove: Record<string, Wdl>;
+  /** Кол-во легальных ходов в позиции — для `forcedMove`. */
   legalMovesCount: number;
-}
-
-export interface SfEvalAfterResult {
-  /** Eval позиции после хода (с т. зр. side-to-move новой стороны).
-   *  Caller должен инвертировать, чтобы привести к т. зр. ходящей. */
-  cp: number;
 }
 
 export interface MaiaPolicy {
@@ -57,10 +61,14 @@ export interface MaiaPolicy {
 }
 
 export interface ReviewEngines {
-  /** SF анализ позиции `fen` с multipv=N (нужно ≥2). */
+  /** SF анализ позиции `fen` с multipv=N. Должен установить UCI_ShowWDL=true. */
   analyzeSf(fen: string, multipv: number, depth: number): Promise<SfPositionResult>;
-  /** SF быстрый eval позиции (multipv=1) — для cpPlayed. */
-  evalAfter(fen: string, depth: number): Promise<SfEvalAfterResult>;
+  /**
+   * SF eval позиции на конкретный ход (`go searchmoves <uci> multipv 1`)
+   * — возвращает WDL POV ходящей стороны на той же `fen`. Используется
+   * когда нужного хода нет в `analyzeSf.wdlByMove`.
+   */
+  evalMove(fen: string, uci: string, depth: number): Promise<Wdl>;
   /** Maia policy для позиции на заданном ELO. */
   predictMaia(fen: string, elo: number): Promise<MaiaPolicy>;
   /** Прервать любые in-flight задачи. */
@@ -77,23 +85,16 @@ export type ReviewStatus =
   | 'error';
 
 export interface UseGameReviewOptions {
-  /**
-   * ELO Maia для прогона (см. SettingsPage / `analysis.maia.elo`).
-   * Дефолт 1500.
-   */
+  /** ELO Maia. Дефолт 1500. */
   elo?: number;
   /** SF depth. ADR-100 §7: 18 default. */
   depth?: number;
-  /**
-   * Кастомный engines-провайдер — для тестов. По умолчанию —
-   * `createDefaultEngines()`, которая создаёт SF/Maia Worker'ы.
-   */
+  /** Кастомный engines-провайдер — для тестов. */
   engines?: ReviewEngines;
 }
 
 export interface ReviewResult {
   annotations: Annotation[];
-  /** Финальный массив `MoveInput` — пригодится для отладки. */
   moveInputs: MoveInput[];
 }
 
@@ -105,9 +106,6 @@ interface ParsedGameMove {
   playedUci: string;
 }
 
-/**
- * Парсит PGN/SAN в массив полуходов с FEN перед каждым.
- */
 export function parsePgnPlies(pgn: string): ParsedGameMove[] {
   const chess = new Chess();
   chess.loadPgn(pgn);
@@ -124,7 +122,7 @@ export function parsePgnPlies(pgn: string): ParsedGameMove[] {
     try {
       replay.load(headers.FEN);
     } catch {
-      /* ignore — стартовая */
+      /* ignore */
     }
   }
   const result: ParsedGameMove[] = [];
@@ -142,105 +140,127 @@ export function parsePgnPlies(pgn: string): ParsedGameMove[] {
   return result;
 }
 
-/** §3.1 last bullet: forced move = либо 1 легальный ход, либо все
- *  non-best с cpLoss ≥ 300. Здесь параметр caller-side — мы можем
- *  только проверить «1 легальный ход» (cpLoss требует доп. вызовов
- *  SF на каждый альтернативный ход — слишком дорого для MVP). */
 function isForcedMove(legalMovesCount: number): boolean {
   return legalMovesCount <= 1;
 }
 
-// --- default engines (real Stockfish + Maia) -------------------------------
+// --- default engines (real SF + Maia) --------------------------------------
 
 /**
- * KS-3603. Реальная реализация SF + Maia через прямые Worker'ы. Stockfish
- * stub'ы тут — но реальная UCI-обвязка делается через прямой `new Worker(
- * '/stockfish/stockfish-18-lite.js')`. Чтобы не дублировать с
- * `useStockfish` (там много reconnect-логики), используем минимальную
- * UCI-сессию с queue команд.
- *
- * Для удобства тестирования вынесено в фабрику; реальная реализация —
- * `createDefaultEngines`.
+ * KS-3607. Реальная SF-обвязка теперь парсит и `wdl w d l` из info-строк
+ * (требует `UCI_ShowWDL=true`). Stockfish 18 с wasm-сборки этого
+ * проекта поддерживает опцию (см. KS-2431).
  */
 export function createDefaultEngines(): ReviewEngines {
   let sfWorker: Worker | null = null;
+  let initialised = false;
   let pendingResolve:
-    | ((lines: Array<{ multipv: number; cp: number; mateIn: number | null; pv: string[] }>) => void)
+    | ((lines: Array<{ multipv: number; pv: string[]; wdl: Wdl | null }>) => void)
     | null = null;
-  let pendingBuf: Array<{ multipv: number; cp: number; mateIn: number | null; pv: string[] }> =
-    [];
+  let pendingBuf: Array<{ multipv: number; pv: string[]; wdl: Wdl | null }> = [];
   let pendingExpectedMpv = 1;
 
-  function initSf(): Worker {
-    if (sfWorker) return sfWorker;
-    const w = new Worker('/stockfish/stockfish-18-lite.js');
-    w.onmessage = (e) => {
-      const line = typeof e.data === 'string' ? e.data : String(e.data);
-      if (line === 'uciok') {
-        w.postMessage('isready');
-        return;
-      }
-      if (line.startsWith('info ') && line.includes(' pv ')) {
-        const d = parseInfo(line);
-        if (d) {
-          pendingBuf = pendingBuf.filter((l) => l.multipv !== d.multipv);
-          pendingBuf.push(d);
+  function ensureSf(): Promise<Worker> {
+    if (sfWorker && initialised) return Promise.resolve(sfWorker);
+    if (!sfWorker) sfWorker = new Worker('/stockfish/stockfish-18-lite.js');
+    const w = sfWorker;
+    return new Promise((resolve) => {
+      const onInit = (e: MessageEvent) => {
+        const line = typeof e.data === 'string' ? e.data : String(e.data);
+        if (line === 'uciok') {
+          w.postMessage('setoption name UCI_ShowWDL value true');
+          w.postMessage('isready');
+        } else if (line === 'readyok') {
+          initialised = true;
+          w.removeEventListener('message', onInit);
+          w.addEventListener('message', onSfMessage);
+          resolve(w);
         }
-        return;
-      }
-      if (line.startsWith('bestmove')) {
-        const result = [...pendingBuf].sort((a, b) => a.multipv - b.multipv);
-        pendingBuf = [];
-        const resolve = pendingResolve;
-        pendingResolve = null;
-        resolve?.(result.slice(0, pendingExpectedMpv));
-      }
-    };
-    w.postMessage('uci');
-    sfWorker = w;
-    return w;
+      };
+      w.addEventListener('message', onInit);
+      w.postMessage('uci');
+    });
   }
 
-  function parseInfo(line: string) {
-    const depthM = line.match(/\bdepth (\d+)/);
+  function onSfMessage(e: MessageEvent) {
+    const line = typeof e.data === 'string' ? e.data : String(e.data);
+    if (line.startsWith('info ') && line.includes(' pv ')) {
+      const d = parseInfo(line);
+      if (d) {
+        pendingBuf = pendingBuf.filter((l) => l.multipv !== d.multipv);
+        pendingBuf.push(d);
+      }
+      return;
+    }
+    if (line.startsWith('bestmove')) {
+      const result = [...pendingBuf].sort((a, b) => a.multipv - b.multipv);
+      pendingBuf = [];
+      const resolve = pendingResolve;
+      pendingResolve = null;
+      resolve?.(result.slice(0, pendingExpectedMpv));
+    }
+  }
+
+  function parseInfo(
+    line: string,
+  ): { multipv: number; pv: string[]; wdl: Wdl | null } | null {
     const mpvM = line.match(/\bmultipv (\d+)/);
-    const cpM = line.match(/\bscore cp (-?\d+)/);
-    const mateM = line.match(/\bscore mate (-?\d+)/);
     const pvM = line.match(/\bpv (.+)/);
-    if (!depthM || !pvM) return null;
+    const wdlM = line.match(/\bwdl (\d+) (\d+) (\d+)/);
+    if (!pvM) return null;
+    const wdl = wdlM
+      ? { w: Number(wdlM[1]), d: Number(wdlM[2]), l: Number(wdlM[3]) }
+      : null;
     return {
       multipv: Number(mpvM?.[1] ?? 1),
-      cp: cpM ? Number(cpM[1]) : 0,
-      mateIn: mateM ? Number(mateM[1]) : null,
       pv: pvM[1].split(' '),
+      wdl,
     };
   }
 
-  function runGo(
+  async function runGo(
     fen: string,
     multipv: number,
     depth: number,
-  ): Promise<
-    Array<{ multipv: number; cp: number; mateIn: number | null; pv: string[] }>
-  > {
-    const w = initSf();
-    return new Promise((resolve) => {
+    searchmoves?: string[],
+  ) {
+    const w = await ensureSf();
+    return new Promise<
+      Array<{ multipv: number; pv: string[]; wdl: Wdl | null }>
+    >((resolve) => {
       pendingResolve = resolve;
       pendingBuf = [];
       pendingExpectedMpv = multipv;
       w.postMessage('ucinewgame');
       w.postMessage(`setoption name MultiPV value ${multipv}`);
       w.postMessage(`position fen ${fen}`);
-      w.postMessage(`go depth ${depth}`);
+      const sm =
+        searchmoves && searchmoves.length > 0
+          ? ` searchmoves ${searchmoves.join(' ')}`
+          : '';
+      w.postMessage(`go depth ${depth}${sm}`);
     });
   }
 
-  function lineToCp(d: { cp: number; mateIn: number | null }): number {
-    return d.mateIn != null ? mateToCp(d.mateIn) : d.cp;
+  function whoToMove(fen: string): 'w' | 'b' {
+    return fen.split(' ')[1] === 'b' ? 'b' : 'w';
   }
 
+  /**
+   * SF возвращает `wdl` POV side-to-move позиции, в которой стоит её
+   * info. Для multipv'ов на `fenBefore` это POV ходящей стороны
+   * **fenBefore** уже — потому что info идёт до сделанного хода.
+   * Stockfish при `multipv N` оценивает позицию `fenBefore` после
+   * каждого из N ходов в head-of-PV, но `wdl` в info — это всё ещё
+   * **POV ходящей стороны на fenBefore** (см. UCI спецификация
+   * Stockfish 18 + ADR-066 §3.2). Поэтому здесь дополнительно
+   * инвертировать НЕ нужно — всё уже в нужном POV. (KS-3607 архитектура.)
+   *
+   * Для отдельного `searchmoves <uci>` той же позиции — также POV
+   * ходящей стороны fenBefore.
+   */
   let maiaEngine: MaiaWorkerEngine | null = null;
-  function initMaia(): MaiaWorkerEngine {
+  function ensureMaia(): MaiaWorkerEngine {
     if (!maiaEngine) maiaEngine = new MaiaWorkerEngine();
     return maiaEngine;
   }
@@ -248,6 +268,11 @@ export function createDefaultEngines(): ReviewEngines {
   return {
     async analyzeSf(fen, multipv, depth) {
       const lines = await runGo(fen, multipv, depth);
+      const wdlByMove: Record<string, Wdl> = {};
+      for (const l of lines) {
+        const first = l.pv?.[0];
+        if (first && l.wdl) wdlByMove[first] = l.wdl;
+      }
       const top = lines[0];
       const second = lines[1];
       const chess = new Chess();
@@ -258,22 +283,32 @@ export function createDefaultEngines(): ReviewEngines {
       } catch {
         legalMoves = 1;
       }
+      // KS-3607: `wdlBefore` приходит как `wdl` верхней линии — это
+      // позиция fenBefore POV ходящей стороны. Если UCI_ShowWDL не
+      // дал значения (старая wasm-сборка?) — заглушка {500,0,500}
+      // (нейтральная), чтобы classifyMove не падал на mate-edge.
+      const wdlBefore: Wdl =
+        top?.wdl ?? { w: 500, d: 0, l: 500 };
+      const wdlAfterBest: Wdl =
+        top?.wdl ?? { w: 500, d: 0, l: 500 };
+      const wdlAfterSecondBest: Wdl | null = second?.wdl ?? null;
       return {
         bestUci: top?.pv[0] ?? '',
-        bestCp: top ? lineToCp(top) : 0,
-        secondCp: second ? lineToCp(second) : top ? lineToCp(top) : 0,
+        wdlBefore,
+        wdlAfterBest,
+        wdlAfterSecondBest,
         bestPv: top?.pv ?? [],
-        mateBefore: top?.mateIn ?? null,
+        wdlByMove,
         legalMovesCount: legalMoves,
       };
     },
-    async evalAfter(fen, depth) {
-      const lines = await runGo(fen, 1, depth);
+    async evalMove(fen, uci, depth) {
+      const lines = await runGo(fen, 1, depth, [uci]);
       const top = lines[0];
-      return { cp: top ? lineToCp(top) : 0 };
+      return top?.wdl ?? { w: 500, d: 0, l: 500 };
     },
     async predictMaia(fen, elo) {
-      const eng = initMaia();
+      const eng = ensureMaia();
       const result = await eng.predictMoves(fen, elo, elo);
       const byUci: Record<string, number> = {};
       for (const m of result.policy) byUci[m.move] = m.probability;
@@ -293,6 +328,7 @@ export function createDefaultEngines(): ReviewEngines {
         }
         sfWorker.terminate();
         sfWorker = null;
+        initialised = false;
       }
       if (maiaEngine) {
         maiaEngine.terminate();
@@ -351,65 +387,50 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           }
           const { ply, fenBefore, playedUci } = plies[i];
 
-          // SF analyze позиции перед ходом.
+          // SF на fenBefore: multipv=3 + UCI_ShowWDL → набор WDL.
           const sf = await engines.analyzeSf(fenBefore, 3, depth);
 
           // Maia policy.
           const maia = await engines.predictMaia(fenBefore, elo);
 
-          // SF eval после сыгранного хода (skip если played=best).
-          let cpPlayed = sf.bestCp;
-          if (playedUci !== sf.bestUci) {
-            const post = new Chess();
-            try {
-              post.load(fenBefore);
-              const m = post.move({
-                from: playedUci.slice(0, 2),
-                to: playedUci.slice(2, 4),
-                promotion: playedUci.length > 4 ? playedUci[4] : undefined,
-              });
-              if (m) {
-                const after = await engines.evalAfter(post.fen(), depth);
-                // SF eval после хода — с т.зр. новой stm; инвертируем
-                // обратно к перспективе ходящей стороны.
-                cpPlayed = -after.cp;
-              }
-            } catch {
-              /* нелегальный — оставляем bestCp как placeholder */
-            }
+          // wdlAfterPlayed: если в top-3 — берём оттуда, иначе ещё
+          // один SF-go с searchmoves <playedUci>.
+          let wdlAfterPlayed: Wdl;
+          if (sf.wdlByMove[playedUci]) {
+            wdlAfterPlayed = sf.wdlByMove[playedUci];
+          } else {
+            wdlAfterPlayed = await engines.evalMove(
+              fenBefore,
+              playedUci,
+              depth,
+            );
           }
 
-          // Maia top cpLoss — отдельной задачей SF не считаем (по
-          // комментарию ADR §4.2 этот шаг опциональный); если maiaTop
-          // присутствует в multipv=3 SF — используем его eval.
-          let maiaTopCpLoss = -1;
-          if (maia.topUci) {
-            // smart shortcut: если maiaTop = sfBest → loss=0
-            if (maia.topUci === sf.bestUci) maiaTopCpLoss = 0;
-            else {
-              // ищем maiaTop в sfBestPv multipv? у нас нет multipv-результатов
-              // в SfPositionResult — для MVP пропускаем (red-variation не
-              // сработает для этого хода). Не критично — это «trap-фишка».
-            }
-          }
+          // wdlAfterMaiaTop: только если maiaTop попал в SF top-3
+          // (по ADR-100 §7 второго SF-вызова на каждый альтернативный
+          // ход не делаем — это слишком долго). KS-3607: invertWdl
+          // здесь НЕ нужен — wdlByMove от analyzeSf уже в POV ходящей
+          // стороны fenBefore.
+          const wdlAfterMaiaTop: Wdl | undefined = maia.topUci
+            ? sf.wdlByMove[maia.topUci]
+            : undefined;
 
           const input: MoveInput = {
             ply,
             fen: fenBefore,
             playedUci,
             sfBestUci: sf.bestUci,
-            cpBefore: sf.bestCp,
-            cpBest: sf.bestCp,
-            cpPlayed,
-            secondBestCp: sf.secondCp,
+            wdlBefore: sf.wdlBefore,
+            wdlAfterPlayed,
+            wdlAfterBest: sf.wdlAfterBest,
+            wdlAfterSecondBest: sf.wdlAfterSecondBest,
+            wdlAfterMaiaTop,
             sfBestPv: sf.bestPv,
             playedProb: maia.byUci[playedUci],
             sfBestProb: maia.byUci[sf.bestUci],
             maiaTopUci: maia.topUci,
             maiaTopProb: maia.topProb,
-            maiaTopCpLoss,
             forcedMove: isForcedMove(sf.legalMovesCount),
-            mateBefore: sf.mateBefore,
           };
           moveInputs.push(input);
           setProgress({ done: i + 1, total: plies.length });
@@ -450,6 +471,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
     setResult(undefined);
     setProgress({ done: 0, total: 0 });
   }, []);
+
+  // Подавляем "unused-import" предупреждение про `invertWdl` — он
+  // экспортирован для будущих use-case'ов (например когда SF wasm
+  // изменит POV-конвенцию). Сейчас info-WDL уже в нужном POV.
+  void invertWdl;
 
   return {
     status,

@@ -1,9 +1,17 @@
 /**
- * KS-3603. Тесты `buildAnnotation` — все правила §3.2 (NAG-таблица),
- * §3.3 (suppress), §4.1 (green-variation), §4.2 (red-variation), §3.4
- * (mate ↔ cp). Полное покрытие по acceptance.
+ * KS-3603 → KS-3607. Тесты `buildAnnotation` через WDL/classifyMove.
+ * Никаких cp-полей — только Wdl. Положительные и отрицательные кейсы
+ * по таблице §3.2 ADR-100 и suppress §3.3 / variations §4.1-§4.2.
+ *
+ * Подбор Wdl-объектов: используем абсолютные значения которые попадают
+ * в нужный loss_E-bucket по WDL_LOSS_THRESHOLDS (best ≤ 0.02, good ≤
+ * 0.05, inaccuracy ≤ 0.12, mistake ≤ 0.25, blunder > 0.25). `E = (w +
+ * d/2) / 1000`, поэтому loss_E = `(w_before + d_before/2 - w_after -
+ * d_after/2) / 1000`. См. помощник `mkWdl(eHundredths)` ниже.
  */
 import { describe, it, expect } from 'vitest';
+
+import type { Wdl } from '@kingside/shared';
 
 import {
   NAG_BLUNDER,
@@ -14,11 +22,19 @@ import {
   NAG_BRILLIANT,
   buildAnnotation,
   buildAnnotations,
-  mateToCp,
   type MoveInput,
 } from './buildAnnotations';
 
 const STARTPOS = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * Сборка чистого Wdl по expected-score E (0..1).
+ * E = (w + d/2) / 1000. Для теста удобно: D=0, w=E·1000, l=(1-E)·1000.
+ */
+function wdl(E: number): Wdl {
+  const w = Math.round(E * 1000);
+  return { w, d: 0, l: 1000 - w };
+}
 
 function base(over: Partial<MoveInput> = {}): MoveInput {
   return {
@@ -26,235 +42,208 @@ function base(over: Partial<MoveInput> = {}): MoveInput {
     fen: STARTPOS,
     playedUci: 'e2e4',
     sfBestUci: 'e2e4',
-    cpBefore: 40,
-    cpBest: 40,
-    cpPlayed: 40,
-    secondBestCp: 30,
+    wdlBefore: wdl(0.5),
+    wdlAfterPlayed: wdl(0.5),
+    wdlAfterBest: wdl(0.5),
+    wdlAfterSecondBest: wdl(0.48),
+    wdlAfterMaiaTop: undefined,
     sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
     playedProb: 0.3,
     sfBestProb: 0.3,
     maiaTopUci: 'e2e4',
     maiaTopProb: 0.3,
-    maiaTopCpLoss: 0,
     forcedMove: false,
-    mateBefore: null,
     ...over,
   };
 }
 
-describe('mateToCp (§3.4)', () => {
-  it('положительный мат: +N → +10000 - N', () => {
-    expect(mateToCp(2)).toBe(9998);
-    expect(mateToCp(1)).toBe(9999);
+describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
+  it('?? при loss_E > 0.25 (blunder)', () => {
+    // E_before=0.5, E_after=0.2 → loss=0.30 > 0.25 → blunder.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BLUNDER]);
   });
-  it('отрицательный мат: -N → -10000 + N (т.е. -10000 - (-N))', () => {
-    expect(mateToCp(-2)).toBe(-9998);
-    expect(mateToCp(-1)).toBe(-9999);
-  });
-  it('clamp ±10000', () => {
-    expect(mateToCp(20)).toBe(9980);
-    expect(mateToCp(-20)).toBe(-9980);
-    expect(mateToCp(0)).toBe(0);
-  });
-});
 
-describe('buildAnnotation — §3.2 таблица NAG', () => {
-  it('?? при cpLoss ≥ 200', () => {
+  it('?? при wdl_after.l > 950 (mate-edge)', () => {
     const a = buildAnnotation(
-      base({ playedUci: 'e2e3', sfBestUci: 'e2e4', cpBest: 40, cpPlayed: -160 }),
-    );
-    // cpLoss = 40 - (-160) = 200 → ровно порог.
-    expect(a.nag).toEqual([NAG_BLUNDER]);
-  });
-  it('?? при cpLoss > 200', () => {
-    const a = buildAnnotation(
-      base({ playedUci: 'e2e3', sfBestUci: 'e2e4', cpBest: 40, cpPlayed: -300 }),
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: { w: 10, d: 30, l: 960 },
+      }),
     );
     expect(a.nag).toEqual([NAG_BLUNDER]);
   });
-  it('? при 100 ≤ cpLoss < 200', () => {
+
+  it('? при 0.12 < loss_E ≤ 0.25 (mistake)', () => {
+    // loss=0.20 → mistake.
     const a = buildAnnotation(
-      base({ playedUci: 'e2e3', sfBestUci: 'e2e4', cpBest: 40, cpPlayed: -60 }),
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.3),
+      }),
     );
-    // cpLoss = 100 ровно.
     expect(a.nag).toEqual([NAG_MISTAKE]);
-
-    const b = buildAnnotation(
-      base({ playedUci: 'e2e3', sfBestUci: 'e2e4', cpBest: 40, cpPlayed: -150 }),
-    );
-    expect(b.nag).toEqual([NAG_MISTAKE]);
   });
-  it('?! при 50 ≤ cpLoss < 100 И played ≠ best', () => {
+
+  it('?! при 0.05 < loss_E ≤ 0.12 (inaccuracy)', () => {
+    // loss=0.10 → inaccuracy.
     const a = buildAnnotation(
-      base({ playedUci: 'e2e3', sfBestUci: 'e2e4', cpBest: 40, cpPlayed: -10 }),
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.4),
+      }),
     );
-    // cpLoss = 50 ровно.
     expect(a.nag).toEqual([NAG_DUBIOUS]);
   });
-  it('?! НЕ применяется если played = best (но cpLoss = 0 в таком случае)', () => {
-    const a = buildAnnotation(base({ cpBest: 60, cpPlayed: 60, playedProb: 0.5 }));
-    expect(a.nag).not.toEqual([NAG_DUBIOUS]);
+
+  it('! при playedClass=best (=sfBest) и playedProb < 0.20 (cpLoss≈0)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        playedProb: 0.15,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_GOOD]);
   });
-  it('!? при cpLoss < 50 И played ≠ best И playedProb ≥ 0.30', () => {
+
+  it('! НЕ применяется если playedProb ≥ 0.20', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        playedProb: 0.25,
+      }),
+    );
+    expect(a.nag).toEqual([]);
+  });
+
+  it('!! при played=best, playedProb<0.05, secondBestClass=mistake', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        // second-best ушёл с 0.5 в 0.3 → loss 0.20 → mistake.
+        wdlAfterSecondBest: wdl(0.3),
+        playedProb: 0.04,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BRILLIANT]);
+  });
+
+  it('!! не применяется если secondBestClass = good (нет «единственного спасения»)', () => {
+    // playedProb < 0.20 → откатываемся на !.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        wdlAfterSecondBest: wdl(0.47), // loss=0.03 → good
+        playedProb: 0.04,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_GOOD]);
+  });
+
+  it('!? при playedClass=good, played≠best, playedProb≥0.30', () => {
+    // played≠best, loss=0.04 → good.
     const a = buildAnnotation(
       base({
         playedUci: 'g1f3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: 20, // cpLoss=20
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.46),
         playedProb: 0.35,
       }),
     );
     expect(a.nag).toEqual([NAG_INTERESTING]);
   });
+
   it('!? НЕ применяется при playedProb < 0.30', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'g1f3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: 20,
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.46),
         playedProb: 0.29,
       }),
     );
     expect(a.nag).toEqual([]);
   });
-  it('! при played=best И playedProb<0.20 И cpLoss=0', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: 40,
-        playedProb: 0.15,
-        secondBestCp: 30, // gap=10, не достаточно для !!
-      }),
-    );
-    expect(a.nag).toEqual([NAG_GOOD]);
-  });
-  it('! НЕ применяется при playedProb ≥ 0.20', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: 40,
-        playedProb: 0.21,
-      }),
-    );
-    expect(a.nag).toEqual([]);
-  });
-  it('!! при played=best, playedProb<0.05, cpLoss=0, НЕ forced, gap≥150', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        cpBefore: 200,
-        cpBest: 200,
-        cpPlayed: 200,
-        secondBestCp: 40, // gap=160 ≥ 150
-        playedProb: 0.04,
-        forcedMove: false,
-      }),
-    );
-    expect(a.nag).toEqual([NAG_BRILLIANT]);
-  });
-  it('!! НЕ применяется если gap < 150', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        cpBefore: 200,
-        cpBest: 200,
-        cpPlayed: 200,
-        secondBestCp: 100, // gap=100 < 150
-        playedProb: 0.04,
-      }),
-    );
-    // Падает к ! (playedProb<0.20 → 1)
-    expect(a.nag).toEqual([NAG_GOOD]);
-  });
 });
 
 describe('buildAnnotation — §3.3 suppress', () => {
-  it('forced moves → no NAG', () => {
+  it('forcedMove → no NAG (даже при огромном loss_E)', () => {
     const a = buildAnnotation(
       base({
-        playedUci: 'e2e3',
+        playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -500, // cpLoss=540
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.0), // blunder
         forcedMove: true,
       }),
     );
     expect(a.nag).toEqual([]);
   });
-  it('|cpBefore| > 800 → no quality-NAG (даже при большом cpLoss)', () => {
+
+  it('|wdlSigned(before)| > 0.95 → no quality-NAG (decided position)', () => {
+    // signed = (w-l)/1000. Хотим > 0.95 → w-l > 950.
     const a = buildAnnotation(
       base({
-        playedUci: 'e2e3',
+        wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96
+        playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        cpBefore: 900,
-        cpBest: 900,
-        cpPlayed: 600, // cpLoss=300, но позиция всё ещё выиграна
+        wdlAfterPlayed: wdl(0.2), // огромный loss
       }),
     );
     expect(a.nag).toEqual([]);
   });
-  it('|cpBefore| > 800 негативно (проигран) — тоже suppress', () => {
+
+  it('|wdlSigned(before)| = 0.95 граница — NAG применяется', () => {
     const a = buildAnnotation(
       base({
-        playedUci: 'e2e3',
+        wdlBefore: { w: 950, d: 50, l: 0 }, // signed=0.95
+        playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        cpBefore: -900,
-        cpBest: -900,
-        cpPlayed: -1200, // cpLoss=300
-      }),
-    );
-    expect(a.nag).toEqual([]);
-  });
-  it('cpBefore = ±800 (граница) — NAG применяется', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e3',
-        sfBestUci: 'e2e4',
-        cpBefore: 800,
-        cpBest: 800,
-        cpPlayed: 500, // cpLoss=300
+        wdlAfterPlayed: wdl(0.2),
       }),
     );
     expect(a.nag).toEqual([NAG_BLUNDER]);
-  });
-  it('mate-line с сыгранным верным продолжением — cpLoss=0 → no NAG (через путь !!)', () => {
-    // Мат за stm: cpBefore=mateToCp(+2)=9998, играем best → cpLoss=0.
-    // !! не сработает (playedProb может быть высоким), ! — может.
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e4',
-        sfBestUci: 'e2e4',
-        cpBefore: 9998,
-        cpBest: 9998,
-        cpPlayed: 9998,
-        playedProb: 0.5,
-      }),
-    );
-    // cpBefore > 800 → suppress всех NAG.
-    expect(a.nag).toEqual([]);
   });
 });
 
 describe('buildAnnotation — §4.1 green-variation', () => {
-  it('добавляется на ?? (cpLoss≥200) и played≠best', () => {
+  it('добавляется при blunder/mistake + played≠best', () => {
     const a = buildAnnotation(
       base({
-        playedUci: 'e2e3',
+        playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -200, // cpLoss=240
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2), // blunder
         sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
     expect(a.variations).toHaveLength(1);
     expect(a.variations[0]).toMatchObject({
       uci: 'e2e4',
@@ -262,151 +251,154 @@ describe('buildAnnotation — §4.1 green-variation', () => {
       subline: ['e7e5', 'g1f3'],
     });
   });
-  it('добавляется на ? (cpLoss≥100, <200) и played≠best', () => {
-    const a = buildAnnotation(
-      base({
-        playedUci: 'e2e3',
-        sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -80,
-        sfBestPv: ['e2e4', 'e7e5'],
-      }),
-    );
-    expect(a.nag).toEqual([NAG_MISTAKE]);
-    expect(a.variations[0]).toMatchObject({
-      uci: 'e2e4',
-      color: 'green',
-      subline: ['e7e5'],
-    });
-  });
-  it('НЕ добавляется на ?! / !? / ! / !!', () => {
+
+  it('НЕ добавляется при inaccuracy / good / best', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'g1f3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -10, // cpLoss=50 → ?!
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.4), // inaccuracy
       }),
     );
-    expect(a.nag).toEqual([NAG_DUBIOUS]);
     expect(a.variations.filter((v) => v.color === 'green')).toHaveLength(0);
   });
+
   it('НЕ добавляется если sfBest = played', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -200, // невозможно по логике но проверим
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
       }),
     );
+    // played=sfBest → blunder ноль (classifyMove → best).
     expect(a.variations.filter((v) => v.color === 'green')).toHaveLength(0);
   });
 });
 
-describe('buildAnnotation — §4.2 red-variation (Maia-trap)', () => {
-  it('добавляется когда maiaTop≠sfBest, prob≥0.25, cpLoss≥100, played≠maiaTop', () => {
+describe('buildAnnotation — §4.2 red-variation', () => {
+  it('добавляется когда maiaTop ≠ sfBest, prob≥0.25, class=mistake', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: 40,
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
         maiaTopUci: 'g1f3',
         maiaTopProb: 0.3,
-        maiaTopCpLoss: 150, // → ? на этот ход
+        wdlAfterMaiaTop: wdl(0.3), // loss=0.20 → mistake
       }),
     );
-    expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(1);
     const red = a.variations.find((v) => v.color === 'red')!;
+    expect(red).toBeTruthy();
     expect(red.uci).toBe('g1f3');
     expect(red.nag).toEqual([NAG_MISTAKE]);
   });
-  it('NAG ?? при maiaTopCpLoss ≥ 200', () => {
+
+  it('NAG ?? при maiaTop class = blunder', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
         sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
         maiaTopUci: 'h2h3',
         maiaTopProb: 0.3,
-        maiaTopCpLoss: 250,
+        wdlAfterMaiaTop: wdl(0.1), // blunder
       }),
     );
     const red = a.variations.find((v) => v.color === 'red')!;
     expect(red.nag).toEqual([NAG_BLUNDER]);
   });
-  it('НЕ добавляется если maiaTopProb < 0.25', () => {
+
+  it('НЕ добавляется при maiaTopProb < 0.25', () => {
     const a = buildAnnotation(
       base({
         maiaTopUci: 'g1f3',
         maiaTopProb: 0.24,
-        maiaTopCpLoss: 200,
+        wdlAfterMaiaTop: wdl(0.1),
       }),
     );
     expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
   });
-  it('НЕ добавляется если maiaTopCpLoss < 100', () => {
+
+  it('НЕ добавляется при maiaTopClass = good/best (нет ловушки)', () => {
     const a = buildAnnotation(
       base({
         maiaTopUci: 'g1f3',
-        maiaTopProb: 0.3,
-        maiaTopCpLoss: 99,
+        maiaTopProb: 0.5,
+        wdlAfterMaiaTop: wdl(0.49), // loss=0.01 → best
       }),
     );
     expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
   });
-  it('НЕ добавляется если played = maiaTop (мы уже его сыграли)', () => {
+
+  it('skip когда wdlAfterMaiaTop undefined', () => {
+    const a = buildAnnotation(
+      base({
+        maiaTopUci: 'g1f3',
+        maiaTopProb: 0.5,
+        wdlAfterMaiaTop: undefined,
+      }),
+    );
+    expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
+  });
+
+  it('НЕ добавляется если played = maiaTop (уже сыграли)', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'g1f3',
         sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.3), // mistake
         maiaTopUci: 'g1f3',
-        maiaTopProb: 0.3,
-        maiaTopCpLoss: 200,
-        cpBest: 40,
-        cpPlayed: -200,
+        maiaTopProb: 0.5,
+        wdlAfterMaiaTop: wdl(0.3),
       }),
     );
     expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
   });
+
   it('НЕ добавляется если maiaTop = sfBest', () => {
     const a = buildAnnotation(
       base({
         maiaTopUci: 'e2e4',
         sfBestUci: 'e2e4',
         maiaTopProb: 0.5,
-        maiaTopCpLoss: 200,
+        wdlAfterMaiaTop: wdl(0.2),
       }),
     );
     expect(a.variations.filter((v) => v.color === 'red')).toHaveLength(0);
   });
 });
 
-describe('buildAnnotation — §4.3 лимит «не более 2 variations»', () => {
-  it('green + red одновременно, обе попали — ровно 2', () => {
+describe('buildAnnotation — §4.3 лимит ≤ 2', () => {
+  it('одновременно green + red — ровно 2', () => {
     const a = buildAnnotation(
       base({
-        playedUci: 'e2e3',
+        playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        cpBest: 40,
-        cpPlayed: -100, // ?
-        sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
-        maiaTopUci: 'h2h3',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.3), // mistake (green)
+        maiaTopUci: 'g1f3',
         maiaTopProb: 0.3,
-        maiaTopCpLoss: 200,
+        wdlAfterMaiaTop: wdl(0.2), // blunder (red)
       }),
     );
     expect(a.variations).toHaveLength(2);
-    const colors = a.variations.map((v) => v.color).sort();
-    expect(colors).toEqual(['green', 'red']);
+    expect(a.variations.map((v) => v.color).sort()).toEqual(['green', 'red']);
   });
 });
 
-describe('buildAnnotations — batch', () => {
-  it('вернёт массив той же длины', () => {
-    const out = buildAnnotations([base(), base({ ply: 2 }), base({ ply: 3 })]);
-    expect(out).toHaveLength(3);
-    expect(out[0].ply).toBe(1);
-    expect(out[2].ply).toBe(3);
+describe('buildAnnotations — batch helper', () => {
+  it('сохраняет длину массива и порядок ply', () => {
+    const out = buildAnnotations([
+      base({ ply: 1 }),
+      base({ ply: 2 }),
+      base({ ply: 3 }),
+    ]);
+    expect(out.map((a) => a.ply)).toEqual([1, 2, 3]);
   });
 });

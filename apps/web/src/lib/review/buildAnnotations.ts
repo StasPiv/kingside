@@ -1,11 +1,20 @@
 /**
- * KS-3603 (ADR-100 §3 — NAG авто-аннотация, §4 — variations).
+ * KS-3603 → KS-3607 (ADR-100 §3-§4). Pure-функция NAG авто-аннотации
+ * партии. Метрика классификации хода — `classifyMove` из shared
+ * (ADR-066): WDL-loss с mate-edge, единый источник истины с
+ * precision-модулем.
  *
- * Pure-функция: на вход метрики SF+Maia по полуходу, на выход — NAG-set
- * и до двух side-variations (см. §4.3 «максимум 2»).
- *
- * Все пороги — захардкоженные дефолты ADR-100 §3.2, без конфигов на MVP.
+ * ВАЖНО (KS-3607): cp-логики тут больше нет. Старые поля `cpBefore`/
+ * `cpBest`/`cpPlayed`/`secondBestCp`/`maiaTopCpLoss`/`mateBefore`
+ * удалены из `MoveInput`. На вход — только Wdl-объекты (POV того же
+ * игрока для всех `wdlAfter*`).
  */
+import {
+  classifyMove,
+  wdlSigned,
+  type MoveClass,
+  type Wdl,
+} from '@kingside/shared';
 
 export interface MoveInput {
   /** 1-based индекс полухода. */
@@ -16,23 +25,22 @@ export interface MoveInput {
   playedUci: string;
   /** SF top-1 UCI. */
   sfBestUci: string;
-  /**
-   * Eval позиции с т. зр. ходящей стороны (мат → ±10000 ∓ N через
-   * `mateToCp`). Если позиция уже выиграна/проиграна (>800) — NAG
-   * suppress'ятся (§3.3).
-   */
-  cpBefore: number;
-  /** Eval после SF-best (та же сторона), мат → ±10000 ∓ N. */
-  cpBest: number;
-  /** Eval после сыгранного хода (та же сторона). */
-  cpPlayed: number;
-  /** Eval second-best SF (multipv=2). Нужен для критерия !! (§3.2). */
-  secondBestCp: number;
-  /**
-   * PV первой линии Stockfish (массив UCI). Используем `pv[0..2]` для
-   * green-variation глубиной 3 (§4.1).
-   */
+
+  /** WDL POV ходящей стороны на `fenBefore`. */
+  wdlBefore: Wdl;
+  /** WDL после `playedUci`, POV того же игрока (invertWdl сделан caller'ом). */
+  wdlAfterPlayed: Wdl;
+  /** WDL после `sfBestUci`, POV того же игрока. */
+  wdlAfterBest: Wdl;
+  /** WDL после SF top-2 (для !!-критерия). `null` если позиция вынужденная. */
+  wdlAfterSecondBest: Wdl | null;
+  /** WDL после `maiaTopUci`. `undefined` → §4.2 red-variation skip. */
+  wdlAfterMaiaTop?: Wdl;
+
+  /** PV первой линии Stockfish (массив UCI). Для green-вариации
+   *  глубиной 3 (`pv[1..2]` после sfBest). */
   sfBestPv: string[];
+
   /** `policy[playedUci]` от Maia. `undefined` если Maia не отвечала. */
   playedProb: number | undefined;
   /** `policy[sfBestUci]` от Maia. */
@@ -41,34 +49,20 @@ export interface MoveInput {
   maiaTopUci: string;
   /** Probability Maia top-1. */
   maiaTopProb: number;
+
   /**
-   * cpLoss если бы сыграли Maia top-1. Нужен для red-variation
-   * «Maia-trap» (§4.2). Если нет данных — поставить -1 (то есть
-   * red-variation не сработает).
-   */
-  maiaTopCpLoss: number;
-  /**
-   * §3.1 last bullet: forced move (все non-best с cpLoss ≥ 300 ИЛИ
-   * один легальный ход).
+   * Forced move (см. §3.1 ADR-100): 1 легальный ход или все non-best
+   * с cpLoss ≥ 300. Caller-side вычисление.
    */
   forcedMove: boolean;
-  /** SF mate-in-N перед ходом (`null` если нет мата). */
-  mateBefore: number | null;
 }
 
 export type VariationColor = 'green' | 'red';
 
 export interface AnnotationVariation {
-  /** UCI первого хода вариации. */
   uci: string;
   color: VariationColor;
-  /**
-   * Доп. ходы вариации (UCI). Для green (§4.1) — `pv[1..2]`
-   * (т.е. 2 ответных хода после первого). Для red (§4.2) — пусто
-   * (глубина 1).
-   */
   subline?: string[];
-  /** NAG на первый ход вариации (для red — ? или ?? по cpLoss). */
   nag?: number[];
 }
 
@@ -76,7 +70,7 @@ export interface Annotation {
   ply: number;
   /** Список NAG-кодов (см. §3.2). Пустой массив = нет NAG. */
   nag: number[];
-  /** Не более 2 (см. §4.3). */
+  /** ≤ 2 (см. §4.3). */
   variations: AnnotationVariation[];
 }
 
@@ -89,141 +83,137 @@ export const NAG_INTERESTING = 5; // !?
 export const NAG_GOOD = 1; // !
 export const NAG_BRILLIANT = 3; // !!
 
-// --- §3.4 mate ↔ cp --------------------------------------------------------
+/**
+ * §3.3 ADR-100: `|wdlSigned(before)| > 0.95` считается «decided»
+ * (выигран/проигран), quality-NAG не вешаем (как и в precision-
+ * accuracy: на 99% позиции мелкие колебания — норма).
+ */
+const DECIDED_WDL_THRESHOLD = 0.95;
 
-/** Конвертация SF score mate-in-N → integer cp-эквивалент. Положительный
- *  мат (за stm) → `+10000 - N`; отрицательный → `-10000 + N`. Clamp ±10000. */
-export function mateToCp(mateInN: number): number {
-  if (mateInN > 0) return Math.min(10000, 10000 - mateInN);
-  if (mateInN < 0) return Math.max(-10000, -10000 - mateInN);
-  return 0;
+// --- helpers (NAG для §4.2 red-vararation) ---------------------------------
+
+function nagForMaiaTrap(maiaTopClass: MoveClass): number | null {
+  if (maiaTopClass === 'blunder') return NAG_BLUNDER;
+  if (maiaTopClass === 'mistake') return NAG_MISTAKE;
+  return null;
 }
 
 // --- core ------------------------------------------------------------------
 
 /**
- * Выбирает NAG-код по таблице §3.2. Возвращает `null` если ни одно
- * правило не сработало или сработал suppress (§3.3).
+ * Выбирает NAG по таблице §3.2 ADR-100. Возвращает `null` если ни
+ * одно правило не сработало или сработал suppress (§3.3).
  */
-function pickNag(input: MoveInput): number | null {
-  const {
-    playedUci,
-    sfBestUci,
-    cpBefore,
-    cpBest,
-    cpPlayed,
-    secondBestCp,
-    playedProb,
-    forcedMove,
-  } = input;
+function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: MoveClass | null): number | null {
+  // §3.3 suppress.
+  if (input.forcedMove) return null;
+  if (Math.abs(wdlSigned(input.wdlBefore)) > DECIDED_WDL_THRESHOLD) return null;
 
-  // §3.3 suppress: forced moves.
-  if (forcedMove) return null;
-  // §3.3 suppress: уже выигранный/проигранный эндшпиль.
-  if (Math.abs(cpBefore) > 800) return null;
+  const samePlayed = input.playedUci === input.sfBestUci;
 
-  const cpLoss = Math.max(0, cpBest - cpPlayed);
-  const samePlayed = playedUci === sfBestUci;
+  // §3.2 порядок: ?? → ? → ?! → !! → ! → !?.
+  if (playedClass === 'blunder') return NAG_BLUNDER;
+  if (playedClass === 'mistake') return NAG_MISTAKE;
+  if (playedClass === 'inaccuracy') return NAG_DUBIOUS;
 
-  // §3.2 порядок: сначала самые серьёзные (??), затем по убыванию.
-  // ??: cpLoss ≥ 200.
-  if (cpLoss >= 200) return NAG_BLUNDER;
-  // ?: 100 ≤ cpLoss < 200.
-  if (cpLoss >= 100) return NAG_MISTAKE;
-  // ?!: 50 ≤ cpLoss < 100 И playedUci ≠ sfBestUci.
-  if (cpLoss >= 50 && !samePlayed) return NAG_DUBIOUS;
-  // !?: cpLoss < 50 И played≠best И playedProb ≥ 0.30.
+  // !!: played=best И playedProb<0.05 И НЕ forced И secondBest = mistake/blunder.
   if (
-    cpLoss < 50 &&
-    !samePlayed &&
-    playedProb !== undefined &&
-    playedProb >= 0.3
-  ) {
-    return NAG_INTERESTING;
-  }
-  // !!: played=best И playedProb<0.05 И cpLoss=0 И НЕ forced
-  //     И (cpBefore - secondBestCp) ≥ 150.
-  if (
+    playedClass === 'best' &&
     samePlayed &&
-    cpLoss === 0 &&
-    playedProb !== undefined &&
-    playedProb < 0.05 &&
-    cpBefore - secondBestCp >= 150
+    input.playedProb !== undefined &&
+    input.playedProb < 0.05 &&
+    !input.forcedMove &&
+    (secondBestClass === 'mistake' || secondBestClass === 'blunder')
   ) {
     return NAG_BRILLIANT;
   }
-  // !: played=best И playedProb<0.20 И cpLoss=0.
+
+  // !: played=best (PV1) И playedProb<0.20.
   if (
+    playedClass === 'best' &&
     samePlayed &&
-    cpLoss === 0 &&
-    playedProb !== undefined &&
-    playedProb < 0.2
+    input.playedProb !== undefined &&
+    input.playedProb < 0.2
   ) {
     return NAG_GOOD;
   }
 
+  // !?: good (не PV1, но достаточно близко) И played≠best И playedProb≥0.30.
+  if (
+    playedClass === 'good' &&
+    !samePlayed &&
+    input.playedProb !== undefined &&
+    input.playedProb >= 0.3
+  ) {
+    return NAG_INTERESTING;
+  }
+
   return null;
 }
 
-/** §4.2: NAG для Maia-trap хода — по его cpLoss. */
-function nagForMaiaTrap(maiaTopCpLoss: number): number | null {
-  if (maiaTopCpLoss >= 200) return NAG_BLUNDER;
-  if (maiaTopCpLoss >= 100) return NAG_MISTAKE;
-  return null;
-}
-
-/**
- * §4.1: green-вариант «как надо было». Срабатывает на NAG ∈ {??, ?},
- * cpLoss ≥ 100 (это и есть условие тех NAG'ов), sfBest ≠ played.
- */
 function maybeGreenVariation(
   input: MoveInput,
-  appliedNag: number | null,
+  playedClass: MoveClass,
 ): AnnotationVariation | null {
-  if (appliedNag !== NAG_BLUNDER && appliedNag !== NAG_MISTAKE) return null;
+  if (playedClass !== 'mistake' && playedClass !== 'blunder') return null;
   if (input.sfBestUci === input.playedUci) return null;
-  // pv[0..2] — три хода глубиной (включая sfBest); subline — это
-  // продолжение после first move, т.е. pv[1] и pv[2].
-  const subline = input.sfBestPv.slice(1, 3);
   return {
     uci: input.sfBestUci,
     color: 'green',
-    subline,
+    subline: input.sfBestPv.slice(1, 3),
   };
 }
 
-/**
- * §4.2: red-вариант «Maia-trap». Условие:
- * maiaTop ≠ sfBest И maiaTopProb ≥ 0.25 И maiaTopCpLoss ≥ 100
- * И played ≠ maiaTop.
- */
-function maybeRedVariation(input: MoveInput): AnnotationVariation | null {
-  const { maiaTopUci, sfBestUci, maiaTopProb, maiaTopCpLoss, playedUci } =
-    input;
-  if (maiaTopUci === sfBestUci) return null;
-  if (maiaTopUci === playedUci) return null;
-  if (maiaTopProb < 0.25) return null;
-  if (maiaTopCpLoss < 100) return null;
-  const trapNag = nagForMaiaTrap(maiaTopCpLoss);
+function maybeRedVariation(
+  input: MoveInput,
+  maiaTopClass: MoveClass | null,
+): AnnotationVariation | null {
+  if (!maiaTopClass) return null; // §4.2 skip если wdlAfterMaiaTop undefined.
+  if (input.maiaTopUci === input.sfBestUci) return null;
+  if (input.maiaTopUci === input.playedUci) return null;
+  if (input.maiaTopProb < 0.25) return null;
+  if (maiaTopClass !== 'mistake' && maiaTopClass !== 'blunder') return null;
+  const nag = nagForMaiaTrap(maiaTopClass);
   return {
-    uci: maiaTopUci,
+    uci: input.maiaTopUci,
     color: 'red',
-    nag: trapNag != null ? [trapNag] : undefined,
+    nag: nag != null ? [nag] : undefined,
   };
 }
 
-/**
- * Главная функция модуля — для каждого полухода считает Annotation.
- */
 export function buildAnnotation(input: MoveInput): Annotation {
-  const nag = pickNag(input);
+  // Шаг 1: classify сыгранного хода.
+  const playedClass = classifyMove({
+    wdlBefore: input.wdlBefore,
+    wdlAfter: input.wdlAfterPlayed,
+    isBestMove: input.playedUci === input.sfBestUci,
+  });
 
+  // Шаг 2: classify SF top-2 (для !!).
+  const secondBestClass: MoveClass | null = input.wdlAfterSecondBest
+    ? classifyMove({
+        wdlBefore: input.wdlBefore,
+        wdlAfter: input.wdlAfterSecondBest,
+      })
+    : null;
+
+  // Шаг 3: classify Maia top-1 (для §4.2).
+  const maiaTopClass: MoveClass | null = input.wdlAfterMaiaTop
+    ? classifyMove({
+        wdlBefore: input.wdlBefore,
+        wdlAfter: input.wdlAfterMaiaTop,
+      })
+    : null;
+
+  // Шаг 4-5: NAG.
+  const nag = pickNag(input, playedClass, secondBestClass);
+
+  // Шаг 6: variations.
   const variations: AnnotationVariation[] = [];
-  const green = maybeGreenVariation(input, nag);
+  const green = maybeGreenVariation(input, playedClass);
   if (green) variations.push(green);
-  const red = maybeRedVariation(input);
+  const red = maybeRedVariation(input, maiaTopClass);
   if (red) variations.push(red);
-  // §4.3: максимум 2 — уже гарантировано (один green + один red).
 
   return {
     ply: input.ply,
@@ -232,7 +222,6 @@ export function buildAnnotation(input: MoveInput): Annotation {
   };
 }
 
-/** Batch helper для удобства caller'а. */
 export function buildAnnotations(inputs: readonly MoveInput[]): Annotation[] {
   return inputs.map(buildAnnotation);
 }
