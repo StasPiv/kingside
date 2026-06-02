@@ -1176,9 +1176,14 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* KS-3571: первая колонка date — `auto` вместо 60px. Реальная дата
+   формата YYYY-MM-DD HH:MM ≈ 16 символов / ~96px при font-size:12, в
+   60px не помещалась и наезжала на соседний `__side`. С `auto` grid
+   берёт реальную ширину даты (она же `white-space: nowrap`),
+   зазор gap:12 сохраняется. */
 .guess-history__link {
   display: grid;
-  grid-template-columns: 60px 1fr auto auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;

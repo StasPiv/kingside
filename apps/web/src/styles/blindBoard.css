@@ -1842,11 +1842,16 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* KS-3571: первая колонка date — `auto` вместо 60px. Дата
+   YYYY-MM-DD HH:MM ≈ 96px при font-size:12 в 60px не помещалась и
+   наезжала на соседний `__level` (пилюлю с уровнем). Также бампнули
+   gap до 14 — между датой и пилюлей был визуально слишком плотный
+   стык. */
 .blind-board-history__link {
   display: grid;
-  grid-template-columns: 60px auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   padding: 12px 14px;
   color: var(--text-primary, var(--c-e0e0e0));
   text-decoration: none;
@@ -1965,7 +1970,10 @@
   .blind-board-breakdowns__pie {
     max-width: 160px;
   }
-  .blind-board-history__item {
+  /* KS-3571: исправление селектора — стили адресовались на `__item`,
+     но это flex-контейнер; grid-template-columns на нём не работает.
+     Реальный grid живёт на `.blind-board-history__link`. */
+  .blind-board-history__link {
     grid-template-columns: 1fr auto;
     gap: 6px;
     padding: 10px 12px;
