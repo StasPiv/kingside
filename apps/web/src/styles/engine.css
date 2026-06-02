@@ -554,76 +554,8 @@
  * DOM делает frontend (KS-3588). Здесь — только CSS.
  * ============================================================ */
 
-/* ELO селект в шапке engine-panel — рядом с MultiPV-контролами и
-   кнопкой ⚙. Стиль согласован с .engine-multipv-btn / .engine-settings-btn
-   (compact, тёмный фон, тонкая граница, focus-ring через accent). */
-.maia-elo-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.maia-elo-controls__label {
-  font-size: 11px;
-  color: var(--c-a0a0c0);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.maia-elo-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-color: var(--c-2a2a4e);
-  border: 1px solid var(--c-3a3a5e);
-  border-radius: 3px;
-  color: var(--c-a0a0c0);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px 20px 2px 6px;
-  cursor: pointer;
-  /* Стрелка через SVG в data-URI — для нативного select нельзя
-     использовать currentColor через mask, фиксируем серый
-     (--c-a0a0c0 = #a0a0c0 в dark, #4a5163 в light). */
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a0a0c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1.5,1.5 6,6 10.5,1.5'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 5px center;
-  background-size: 7px 5px;
-}
-.maia-elo-select:hover:not(:disabled) {
-  background-color: var(--c-3a3a6e);
-  color: var(--c-fff);
-  border-color: var(--c-4a4a8e);
-}
-.maia-elo-select:focus-visible {
-  outline: none;
-  border-color: var(--c-7c83ff);
-  box-shadow: 0 0 0 2px var(--ov-accent-30);
-}
-.maia-elo-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Иконка-предупреждение рядом с селектом (когда Maia в ошибке).
-   Unicode-символ ⚠ через text, без SVG. Tooltip via title= (HTML). */
-.maia-elo-warning {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--warning);
-  cursor: help;
-  user-select: none;
-  flex-shrink: 0;
-}
+/* KS-3600: блок `.maia-elo-controls*`/`.maia-elo-select`/`.maia-elo-warning`
+   удалён — селект ELO Maia переехал в общие настройки пользователя. */
 
 /* ─── inline-вероятность в .stockfish-line ───
  *
@@ -674,15 +606,8 @@
     min-width: 50px;
     font-size: 12px;
   }
-  /* В шапке mobile-engine-controls — label «Maia» скрываем, чтобы
-     селект не выдавил MultiPV/Start с экрана. Сам селект остаётся. */
-  .analysis-mobile-engine-controls .maia-elo-controls__label {
-    display: none;
-  }
-  .maia-elo-select {
-    font-size: 12px;
-    padding: 2px 18px 2px 5px;
-  }
+  /* KS-3600: mobile-overrides для `.maia-elo-*` удалены — селект в
+     engine-panel больше не рендерится. */
 }
 
 /* ============================================================

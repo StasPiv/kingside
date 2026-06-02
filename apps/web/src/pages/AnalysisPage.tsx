@@ -845,7 +845,9 @@ function AnalysisPageInner({
   // KS-3597 (ADR-099 F2): Maia-hook и sort-режим на уровне AnalysisPage,
   // чтобы `useEngine` мог получить `searchmoves` (Maia top-N) для
   // `sortMode === 'maia'`. Sidebar получает всё через props.
-  const maia = useMaiaAnalysis({ fen: currentFen, user });
+  // KS-3600: ELO Maia больше не зависит от профиля — только настройки
+  // (localStorage `analysis.maia.elo` → 1500).
+  const maia = useMaiaAnalysis({ fen: currentFen });
   const { sortMode, setSortMode } = useEngineSortMode();
 
   // KS-3597: финальный массив `searchmoves`. null/[] → обычный go

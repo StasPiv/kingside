@@ -403,6 +403,11 @@
     "pieceAnimationNone": "No animation",
     "pieceAnimationFast": "Fast (100ms)",
     "pieceAnimationNormal": "Normal (200ms)",
+    "maiaLevel": {
+      "title": "Maia level (analysis)",
+      "label": "Maia ELO",
+      "hint": "Maia uses this rating to predict human moves in the analysis engine panel. Default: 1500."
+    },
     "sound": "Sound",
     "soundEffects": "Sound effects",
     "soundTheme": {
@@ -913,11 +918,9 @@
   },
   "analysis": {
     "maia": {
-      "elo": "Maia",
       "loading": "Loading Maia…",
       "error": "Failed to load Maia",
-      "retry": "Try again",
-      "unavailable": "Maia unavailable"
+      "retry": "Try again"
     },
     "engine": {
       "sort": {

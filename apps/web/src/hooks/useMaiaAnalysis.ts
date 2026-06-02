@@ -11,10 +11,12 @@
  *  - `status` — `idle` / `loading` / `ready` / `error`;
  *  - `error` — техдеталь.
  *
- * Init ELO (приоритеты, как было в KS-3584):
- *  1. `user.rating{Blitz|Rapid|Classical|Bullet|Puzzle}` (clamp 1100..2400);
- *  2. localStorage `analysis.maia.elo`;
- *  3. 1500.
+ * Init ELO (KS-3600): только из настроек пользователя — localStorage
+ * ключ `analysis.maia.elo` (см. SettingsPage) → fallback 1500.
+ * `user.rating*` больше НЕ читается: рейтинг для блица/рапида к
+ * силе Maia не имеет смыслового отношения, и автоматический выбор
+ * вводил пользователей в заблуждение. Селектор перенесён в общие
+ * настройки (KS-3600), здесь только чтение значения.
  *
  * Поведение:
  *  - Эффект на смену `fen`/`elo` — debounce 250 мс → `predictMoves`.
@@ -26,8 +28,6 @@
  *  - Maia работает независимо от Stockfish `analysisEnabled`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-import type { User } from '@kingside/shared';
 
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
 import type { MovePrediction } from '../lib/maia/workerEngine';
@@ -57,14 +57,6 @@ export interface MaiaSinglePredictionEngine {
 
 export interface UseMaiaAnalysisOptions {
   fen: string;
-  user?: Pick<
-    User,
-    | 'ratingBlitz'
-    | 'ratingRapid'
-    | 'ratingClassical'
-    | 'ratingBullet'
-    | 'ratingPuzzle'
-  > | null;
   engine?: MaiaSinglePredictionEngine;
 }
 
@@ -72,25 +64,6 @@ function clampElo(value: number): number {
   if (!Number.isFinite(value)) return MAIA_ELO_DEFAULT;
   const rounded = Math.round(value / 100) * 100;
   return Math.max(MAIA_ELO_MIN, Math.min(MAIA_ELO_MAX, rounded));
-}
-
-function pickUserElo(
-  user: UseMaiaAnalysisOptions['user'],
-): number | null {
-  if (!user) return null;
-  const candidates = [
-    user.ratingBlitz,
-    user.ratingRapid,
-    user.ratingClassical,
-    user.ratingBullet,
-    user.ratingPuzzle,
-  ];
-  for (const c of candidates) {
-    if (typeof c === 'number' && Number.isFinite(c) && c > 0) {
-      return clampElo(c);
-    }
-  }
-  return null;
 }
 
 function readStoredElo(): number | null {
@@ -115,17 +88,38 @@ function writeStoredElo(value: number): void {
   }
 }
 
-/** Полная функция выбора initial ELO. Экспортируется для теста. */
-export function resolveInitialElo(
-  user: UseMaiaAnalysisOptions['user'],
-): number {
-  return pickUserElo(user) ?? readStoredElo() ?? MAIA_ELO_DEFAULT;
+/** Полная функция выбора initial ELO. Экспортируется для теста.
+ *  KS-3600: только localStorage → 1500 (профиль больше не учитываем). */
+export function resolveInitialElo(): number {
+  return readStoredElo() ?? MAIA_ELO_DEFAULT;
+}
+
+/**
+ * KS-3600. Лёгкий self-contained хук «уровень Maia» для SettingsPage —
+ * только чтение/запись в тот же localStorage-ключ `analysis.maia.elo`,
+ * без worker'а и без подключения к доске. Возвращает текущее ELO
+ * (clamp в шкалу) и сеттер с persistence.
+ */
+export function useMaiaEloSetting(): {
+  elo: number;
+  setElo: (next: number) => void;
+} {
+  const [elo, setEloState] = useState<number>(() => resolveInitialElo());
+  const setElo = useCallback((next: number) => {
+    const value = clampElo(next);
+    setEloState((prev) => {
+      if (prev === value) return prev;
+      writeStoredElo(value);
+      return value;
+    });
+  }, []);
+  return { elo, setElo };
 }
 
 export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
-  const { fen, user, engine: injectedEngine } = options;
+  const { fen, engine: injectedEngine } = options;
 
-  const [elo, setEloState] = useState<number>(() => resolveInitialElo(user));
+  const [elo, setEloState] = useState<number>(() => resolveInitialElo());
   const [policyByMove, setPolicyByMove] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<MaiaAnalysisStatus>('idle');
   const [error, setError] = useState<string | null>(null);

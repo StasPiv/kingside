@@ -13,7 +13,6 @@ import { ForfeitPlaceholder } from '../../components/ForfeitPlaceholder';
 import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
-import { MaiaEloSelect } from '../../components/analysis/MaiaEloSelect';
 import type { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { EngineSortMode } from '../../hooks/useEngineSortMode';
 // KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
@@ -384,17 +383,8 @@ export function AnalysisSidebar({
                 stopPropagation на самой кнопке — чтобы клик не
                 сворачивал родительскую панель. */}
             <SidebarFontSizeButton />
-            {/* KS-3588 (ADR-097) / KS-3590: селект ELO для inline-Maia.
-                stopPropagation чтобы клик не сворачивал engine-panel.
-                Класса-обёртки нет — `.maia-elo-controls` уже задан
-                внутри `MaiaEloSelect` и подхватывает CSS из KS-3589. */}
-            <span onClick={(e) => e.stopPropagation()}>
-              <MaiaEloSelect
-                value={maia.elo}
-                onChange={maia.setElo}
-                status={maia.status}
-              />
-            </span>
+            {/* KS-3600: ELO Maia переехал в общие настройки —
+                в engine-panel селекта больше нет. */}
             <span
               className="engine-multipv-controls"
               onClick={(e) => e.stopPropagation()}
@@ -702,12 +692,7 @@ export function AnalysisSidebar({
               {engineStatusSuffix}
             </div>
             <div className="analysis-mobile-engine-controls">
-              {/* KS-3588 (ADR-097): mobile-копия ELO-селекта Maia. */}
-              <MaiaEloSelect
-                value={maia.elo}
-                onChange={maia.setElo}
-                status={maia.status}
-              />
+              {/* KS-3600: ELO Maia в общих настройках, не здесь. */}
               <span className="engine-multipv-controls">
                 <button
                   className="engine-multipv-btn"

@@ -13,6 +13,11 @@ import {
   NAV_AUTO_REPEAT_MS_MAX,
   NAV_AUTO_REPEAT_MS_STEP,
 } from '../hooks/useBoardSettings';
+// KS-3600: ELO Maia переехал из engine-panel в общие настройки.
+import {
+  MAIA_ELO_OPTIONS,
+  useMaiaEloSetting,
+} from '../hooks/useMaiaAnalysis';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
 // KS-2423: drill-only mute для звуков тренажёров.
@@ -32,6 +37,9 @@ export function SettingsPage() {
     navAutoRepeatMs,
     setNavAutoRepeatMs,
   } = useBoardSettings();
+  // KS-3600: уровень Maia для анализа. Persist в localStorage
+  // `analysis.maia.elo`, дефолт 1500.
+  const { elo: maiaElo, setElo: setMaiaElo } = useMaiaEloSetting();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
   const [chesscomUsername, setChesscomUsername] = useState('');
@@ -295,6 +303,35 @@ export function SettingsPage() {
             <option value={200}>{t('settings.pieceAnimationNormal')}</option>
           </select>
         </div>
+      </section>
+
+      {/* KS-3600: уровень Maia (анализ) переехал из engine-panel в
+          общие настройки — дефолт 1500, persist в localStorage. */}
+      <section className="settings-section">
+        <h2>{t('settings.maiaLevel.title', 'Maia level (analysis)')}</h2>
+        <div className="settings-field">
+          <label htmlFor="maia-elo-select">
+            {t('settings.maiaLevel.label', 'Maia ELO')}
+          </label>
+          <select
+            id="maia-elo-select"
+            data-testid="settings-maia-elo-select"
+            value={maiaElo}
+            onChange={(e) => setMaiaElo(Number(e.currentTarget.value))}
+          >
+            {MAIA_ELO_OPTIONS.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="settings-hint">
+          {t(
+            'settings.maiaLevel.hint',
+            'Maia uses this rating to predict human moves in the analysis engine panel. Default: 1500.',
+          )}
+        </p>
       </section>
 
       <section className="settings-section">

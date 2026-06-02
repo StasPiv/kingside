@@ -413,6 +413,11 @@
     "pieceAnimationNone": "Без анимации",
     "pieceAnimationFast": "Быстрая (100мс)",
     "pieceAnimationNormal": "Нормальная (200мс)",
+    "maiaLevel": {
+      "title": "Уровень Maia (анализ)",
+      "label": "ELO Maia",
+      "hint": "Maia использует этот рейтинг чтобы предсказывать ходы людей в панели анализа. По умолчанию: 1500."
+    },
     "sound": "Звук",
     "soundEffects": "Звуковые эффекты",
     "soundTheme": {
@@ -923,11 +928,9 @@
   },
   "analysis": {
     "maia": {
-      "elo": "Maia",
       "loading": "Загружаем Maia…",
       "error": "Не удалось загрузить Maia",
-      "retry": "Попробовать снова",
-      "unavailable": "Maia недоступна"
+      "retry": "Попробовать снова"
     },
     "engine": {
       "sort": {

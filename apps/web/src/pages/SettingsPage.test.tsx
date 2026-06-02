@@ -93,3 +93,36 @@ describe('SettingsPage / auto-promote queen toggle (KS-2970)', () => {
     expect(toggle.checked).toBe(true);
   });
 });
+
+describe('SettingsPage / Maia level (KS-3600)', () => {
+  it('рендерит селект с 14 опциями 1100..2400 и дефолт 1500', () => {
+    renderWithProviders(<SettingsPage />);
+    const select = screen.getByTestId(
+      'settings-maia-elo-select',
+    ) as HTMLSelectElement;
+    expect(select).toBeInTheDocument();
+    expect(select.options).toHaveLength(14);
+    expect(select.options[0].value).toBe('1100');
+    expect(select.options[13].value).toBe('2400');
+    expect(select.value).toBe('1500');
+  });
+
+  it('смена значения пишется в localStorage `analysis.maia.elo`', () => {
+    renderWithProviders(<SettingsPage />);
+    const select = screen.getByTestId(
+      'settings-maia-elo-select',
+    ) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: '1900' } });
+    expect(select.value).toBe('1900');
+    expect(localStorage.getItem('analysis.maia.elo')).toBe('1900');
+  });
+
+  it('значение из localStorage пред-заполняет селект (1700)', () => {
+    localStorage.setItem('analysis.maia.elo', '1700');
+    renderWithProviders(<SettingsPage />);
+    const select = screen.getByTestId(
+      'settings-maia-elo-select',
+    ) as HTMLSelectElement;
+    expect(select.value).toBe('1700');
+  });
+});

@@ -40,41 +40,31 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('resolveInitialElo (KS-3588)', () => {
-  it('из user.ratingBlitz, clamp в 1100..2400 шаг 100', () => {
-    expect(
-      resolveInitialElo({
-        ratingBlitz: 1750,
-        ratingRapid: 0,
-        ratingClassical: 0,
-        ratingBullet: 0,
-      } as Parameters<typeof resolveInitialElo>[0]),
-    ).toBe(1800);
-  });
-
-  it('clamp выше 2400 → 2400', () => {
-    expect(
-      resolveInitialElo({
-        ratingBlitz: 3200,
-      } as Parameters<typeof resolveInitialElo>[0]),
-    ).toBe(2400);
-  });
-
-  it('clamp ниже 1100 → 1100', () => {
-    expect(
-      resolveInitialElo({
-        ratingBlitz: 600,
-      } as Parameters<typeof resolveInitialElo>[0]),
-    ).toBe(1100);
-  });
-
-  it('fallback на localStorage если нет user', () => {
+describe('resolveInitialElo (KS-3600)', () => {
+  it('из localStorage (clamp в шкалу) если задан', () => {
     localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, '1900');
-    expect(resolveInitialElo(null)).toBe(1900);
+    expect(resolveInitialElo()).toBe(1900);
   });
 
-  it('final fallback 1500 если ничего нет', () => {
-    expect(resolveInitialElo(null)).toBe(MAIA_INTERNAL.DEFAULT);
+  it('clamp значения из localStorage (1750 → 1800)', () => {
+    localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, '1750');
+    expect(resolveInitialElo()).toBe(1800);
+  });
+
+  it('clamp выше 2400 → 2400, ниже 1100 → 1100', () => {
+    localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, '3200');
+    expect(resolveInitialElo()).toBe(2400);
+    localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, '600');
+    expect(resolveInitialElo()).toBe(1100);
+  });
+
+  it('мусор в localStorage → fallback 1500', () => {
+    localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, 'wat');
+    expect(resolveInitialElo()).toBe(MAIA_INTERNAL.DEFAULT);
+  });
+
+  it('пустой localStorage → 1500', () => {
+    expect(resolveInitialElo()).toBe(MAIA_INTERNAL.DEFAULT);
   });
 });
 
@@ -91,7 +81,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
     };
 
     const { result } = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+      useMaiaAnalysis({ fen: STARTPOS, engine }),
     );
 
     expect(result.current.status).toBe('loading');
@@ -133,7 +123,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
       predictMoves: vi.fn().mockRejectedValue(new Error('boom')),
     };
     const { result } = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+      useMaiaAnalysis({ fen: STARTPOS, engine }),
     );
     // loading → пустой
     expect(result.current.status).toBe('loading');
@@ -160,7 +150,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
 
     const { result, rerender } = renderHook(
       (props: { fen: string }) =>
-        useMaiaAnalysis({ fen: props.fen, user: null, engine }),
+        useMaiaAnalysis({ fen: props.fen, engine }),
       { initialProps: { fen: STARTPOS } },
     );
     await act(async () => {
@@ -191,7 +181,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
 
     const { rerender } = renderHook(
       (props: { fen: string }) =>
-        useMaiaAnalysis({ fen: props.fen, user: null, engine }),
+        useMaiaAnalysis({ fen: props.fen, engine }),
       { initialProps: { fen: STARTPOS } },
     );
     rerender({ fen: 'f1' });
@@ -218,7 +208,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
     };
     const { result, rerender } = renderHook(
       (props: { fen: string }) =>
-        useMaiaAnalysis({ fen: props.fen, user: null, engine }),
+        useMaiaAnalysis({ fen: props.fen, engine }),
       { initialProps: { fen: STARTPOS } },
     );
     await act(async () => {
@@ -239,7 +229,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
     };
 
     const { result } = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+      useMaiaAnalysis({ fen: STARTPOS, engine }),
     );
 
     await act(async () => {
@@ -264,7 +254,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
       predictMoves: vi.fn().mockResolvedValue(makeResult([['e2e4', 0.5]])),
     };
     const { result } = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+      useMaiaAnalysis({ fen: STARTPOS, engine }),
     );
     act(() => result.current.setElo(1267));
     expect(result.current.elo).toBe(1300);
@@ -280,7 +270,7 @@ describe('useMaiaAnalysis (KS-3588)', () => {
         .mockResolvedValueOnce(makeResult([['e2e4', 0.4]])),
     };
     const { result } = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
+      useMaiaAnalysis({ fen: STARTPOS, engine }),
     );
     await act(async () => {
       vi.advanceTimersByTime(300);
@@ -298,35 +288,19 @@ describe('useMaiaAnalysis (KS-3588)', () => {
     expect(result.current.getProbability('e2e4')).toBeCloseTo(0.4);
   });
 
-  it('initial ELO из user.ratingBlitz, иначе localStorage, иначе 1500', () => {
+  it('KS-3600: initial ELO только из localStorage → 1500 (профиль не учитываем)', () => {
     const engine: MaiaSinglePredictionEngine = {
       predictMoves: vi.fn().mockResolvedValue(makeResult([['e2e4', 0.5]])),
     };
 
-    // 1) user
-    const u = {
-      ratingBlitz: 2050,
-      ratingRapid: 1800,
-      ratingClassical: 1700,
-      ratingBullet: 1600,
-    } as Parameters<typeof useMaiaAnalysis>[0]['user'];
-    const r1 = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: u, engine }),
-    );
-    expect(r1.result.current.elo).toBe(2100);
-
-    // 2) localStorage
+    // 1) localStorage задан → берётся.
     localStorage.setItem(MAIA_INTERNAL.STORAGE_KEY, '1700');
-    const r2 = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
-    );
-    expect(r2.result.current.elo).toBe(1700);
+    const r1 = renderHook(() => useMaiaAnalysis({ fen: STARTPOS, engine }));
+    expect(r1.result.current.elo).toBe(1700);
 
-    // 3) default
+    // 2) пусто → 1500.
     localStorage.clear();
-    const r3 = renderHook(() =>
-      useMaiaAnalysis({ fen: STARTPOS, user: null, engine }),
-    );
-    expect(r3.result.current.elo).toBe(1500);
+    const r2 = renderHook(() => useMaiaAnalysis({ fen: STARTPOS, engine }));
+    expect(r2.result.current.elo).toBe(1500);
   });
 });
