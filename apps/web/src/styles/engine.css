@@ -541,3 +541,38 @@
   background: var(--c-1e2a4a);
   border-color: var(--c-7c83ff);
 }
+
+/* KS-3579: «Получить рейтинг позиции» — Maia-3 в воркере. */
+.position-maia-rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: var(--c-1e2a4a);
+  border: 1px solid var(--c-4a4a8e);
+  border-radius: 6px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.position-maia-rating__btn {
+  padding: 4px 12px;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.position-maia-rating__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.position-maia-rating__btn--reset {
+  background: transparent;
+  color: var(--c-7c83ff);
+  border: 1px solid var(--c-4a4a8e);
+}
+.position-maia-rating__result {
+  color: var(--c-fff);
+}

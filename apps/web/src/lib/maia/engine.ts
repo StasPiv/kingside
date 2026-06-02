@@ -205,8 +205,11 @@ async function defaultFetch(modelUrl: string): Promise<ArrayBuffer> {
  *    P(W) + 0.5·P(D);
  *  - если ход был чёрных — зеркалим ходы обратно и инвертируем
  *    winProb.
+ *
+ * Экспортируется — используется и в `Maia` (in-process), и в
+ * `MaiaWorkerEngine` (worker), который получает сырые логиты из воркера.
  */
-function postprocessMaia3(
+export function postprocessMaia3(
   logitsMove: Float32Array,
   logitsValue: Float32Array,
   legalMoves: Float32Array,

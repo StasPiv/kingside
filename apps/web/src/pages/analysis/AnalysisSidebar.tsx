@@ -13,6 +13,25 @@ import { ForfeitPlaceholder } from '../../components/ForfeitPlaceholder';
 import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
+import { PositionMaiaRatingButton } from '../../components/analysis/PositionMaiaRatingButton';
+
+/**
+ * KS-3579 helper: вытаскиваем первый UCI-ход из PV. EvalLine.pv в проде —
+ * строка с пробелами («e2e4 e7e5 …»). Часть unit-тестов передаёт pv
+ * как массив строк (AnalysisSidebar.test KS-2866) — поддерживаем оба
+ * варианта defensive'но, чтобы не разводить рассинхрон с этими
+ * тестами в одном PR.
+ */
+function extractBestUci(pv: unknown): string | null {
+  if (typeof pv === 'string') {
+    const first = pv.split(' ')[0];
+    return first ? first : null;
+  }
+  if (Array.isArray(pv) && pv.length > 0 && typeof pv[0] === 'string') {
+    return pv[0];
+  }
+  return null;
+}
 import type { useEngineConfig } from '../../hooks/useEngineConfig';
 import { formatEval, formatPv } from '../../utils/chessFormat';
 import { EngineLoader } from '../../components/EngineLoader';
@@ -383,6 +402,13 @@ export function AnalysisSidebar({
                   </div>
                 ))}
             </div>
+            {/* KS-3579: «Получить рейтинг позиции» — Maia-3 в воркере.
+                Best-ход берём из top-1 линии Stockfish (UCI первый ход
+                в PV). Если линий пока нет — кнопка disabled. */}
+            <PositionMaiaRatingButton
+              fen={currentFen}
+              stockfishBestUci={extractBestUci(displayedLines[0]?.pv)}
+            />
           </div>
         )}
       </div>
@@ -589,6 +615,11 @@ export function AnalysisSidebar({
                     </div>
                   ))}
               </div>
+              {/* KS-3579: mobile-вариант кнопки «Получить рейтинг позиции». */}
+              <PositionMaiaRatingButton
+                fen={currentFen}
+                stockfishBestUci={extractBestUci(displayedLines[0]?.pv)}
+              />
             </div>
           </div>
           <div

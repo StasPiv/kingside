@@ -911,6 +911,14 @@
     "castling": "Castling:",
     "clear": "Clear Board"
   },
+  "positionMaiaRating": {
+    "cta": "Get position rating",
+    "loading": "Computing rating…",
+    "matched": "This move is at level ~{{rating}}",
+    "aboveRange": "Above Maia range",
+    "error": "Could not get rating",
+    "reset": "Try again"
+  },
   "analysis": {
     "useAsRepertoire": {
       "menuItem": "Use as new repertoire",
