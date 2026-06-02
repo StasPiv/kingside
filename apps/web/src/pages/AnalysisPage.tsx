@@ -73,6 +73,9 @@ import {
   type AnalysisActionItem,
 } from '../components/analysis/AnalysisActionsMenu';
 import { ANALYSIS_ACTIONS_MENU_V2_ENABLED } from '../config/analysisActionsMenu';
+// KS-3606 (ADR-100 §9): «Разобрать партию» теперь пункт в
+// AnalysisActionsMenu, а не отдельная кнопка в engine-panel.
+import { useGameReviewLauncher } from '../components/analysis/useGameReviewLauncher';
 // KS-3471 (ADR-090 V4 F1): модалка movetime для «репертуар из мастер-партий 2400+».
 import {
   ArchiveRepertoireMovetimeModal,
@@ -235,6 +238,15 @@ type BuildItemsContext = {
    * tooltip (auth-only по ADR-087 §8, вариант Б).
    */
   openArchiveRepertoireModal: () => void;
+  /**
+   * KS-3606 (ADR-100 §9). Пункт меню «Разобрать партию» — handler
+   * берётся от `useGameReviewLauncher` (см. AnalysisPage). disabled
+   * флаг и tooltip также подаются из hook'а (там же логика «дубль /
+   * пустая партия / running»).
+   */
+  onRunGameReview: () => void;
+  gameReviewDisabled: boolean;
+  gameReviewDisabledHint: string | undefined;
 };
 
 function buildAnalysisActionsItems(
@@ -266,6 +278,9 @@ function buildAnalysisActionsItems(
     setAddToRepertoireOpen,
     shareButtonRef,
     openArchiveRepertoireModal,
+    onRunGameReview,
+    gameReviewDisabled,
+    gameReviewDisabledHint,
   } = ctx;
 
   const isOwner =
@@ -320,6 +335,17 @@ function buildAnalysisActionsItems(
   });
 
   // — training —
+  // KS-3606 (ADR-100 §9): «Разобрать партию» — авто-NAG через
+  // SF+Maia, создаёт дубль через backend. Disabled если уже на
+  // дубле или партия пуста (логика в `useGameReviewLauncher`).
+  items.push({
+    id: 'analyze-game',
+    group: 'training',
+    label: t('analysis.review.runCta', 'Analyze game'),
+    onClick: onRunGameReview,
+    disabled: gameReviewDisabled,
+    disabledHint: gameReviewDisabledHint,
+  });
   if (kind === 'analysis' || kind === 'review') {
     items.push({
       id: 'generate-puzzle',
@@ -881,6 +907,16 @@ function AnalysisPageInner({
       return '';
     }
   }, [history]);
+
+  // KS-3606: launcher «Разобрать партию» — выносится в пункт меню
+  // через `onRunGameReview` (см. ниже buildAnalysisActionsItems).
+  // Hook сам управляет modal-state'ом и POST'ом дубля.
+  const gameReviewLauncher = useGameReviewLauncher({
+    analysisId: localIdRef.current ?? null,
+    pgn: analysisPgn,
+    originalAnalysisId: analysisOriginalId,
+    historyLength: history.length,
+  });
 
   // KS-3597 (ADR-099 F2): Maia-hook и sort-режим на уровне AnalysisPage,
   // чтобы `useEngine` мог получить `searchmoves` (Maia top-N) для
@@ -2247,6 +2283,9 @@ function AnalysisPageInner({
                     shareButtonRef,
                     openArchiveRepertoireModal: () =>
                       setShowArchiveRepMovetimeModal(true),
+                    onRunGameReview: gameReviewLauncher.trigger,
+                    gameReviewDisabled: gameReviewLauncher.disabled,
+                    gameReviewDisabledHint: gameReviewLauncher.disabledHint,
                   })}
                 />
               ) : (
@@ -2446,11 +2485,10 @@ function AnalysisPageInner({
         onSortModeChange={setSortMode}
         engineSupportsSearchmoves={engineSupportsSearchmoves}
         maiaTopMoves={maiaTopMoves}
-        /* KS-3603 (ADR-100 §9 этап B): данные для «Разобрать партию»
-           и source-link. `analysisOriginalId` lazy-fetch'ится отдельным
-           useEffect (см. ниже). */
-        analysisId={localIdRef.current ?? null}
-        analysisPgn={analysisPgn}
+        /* KS-3606 (ADR-100 §9): source-link «← Исходный анализ» на
+           дубле. `analysisOriginalId` lazy-fetch'ится отдельным
+           useEffect (см. ниже). Кнопка «Разобрать партию» переехала
+           в AnalysisActionsMenu — Sidebar её больше не получает. */
         originalAnalysisId={analysisOriginalId}
         readOnly={ctx.readOnly}
         concealAfterPly={null}
@@ -2509,6 +2547,11 @@ function AnalysisPageInner({
           onClose={() => setShowPgnHeaders(false)}
         />
       )}
+
+      {/* KS-3606 (ADR-100 §9): прогресс-модалка «Разобрать партию» —
+          рендерится только когда пункт меню был нажат; hook сам
+          управляет open/close и редиректит на дубль. */}
+      {gameReviewLauncher.modal}
 
       {/* KS-2958: тот же PuzzleGeneratorModal, что в разделе «Тренировка
           точности» — единое окно с прогрессом и пост-flow (My drafts /

@@ -15,9 +15,9 @@ import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import type { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { EngineSortMode } from '../../hooks/useEngineSortMode';
-// KS-3603 (ADR-100 §9 этап B): кнопка «Разобрать партию» в engine-panel
-// header + inline source-link «← Исходный анализ» для auto-дублей.
-import { GameReviewLauncher } from '../../components/analysis/GameReviewLauncher';
+// KS-3606 (ADR-100 §9): «Разобрать партию» перенесена из engine-panel в
+// `AnalysisActionsMenu` (см. AnalysisPage). Здесь оставлен только
+// source-link «← Исходный анализ» для auto-дублей.
 import { Link } from 'react-router-dom';
 // KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
 // чтобы переиспользовать из engineSort и не дублировать. Sidebar
@@ -126,12 +126,11 @@ export interface AnalysisSidebarProps {
    */
   pgnHeaders?: Record<string, string> | null;
   /**
-   * KS-3603 (ADR-100 §9 этап B): кнопка «Разобрать партию» в шапке
-   * engine-panel + source-link к оригиналу при `originalAnalysisId != null`.
-   * Поля передаёт AnalysisPage.
+   * KS-3603/KS-3606: source-link «← Исходный анализ» при
+   * `originalAnalysisId != null`. Кнопка «Разобрать партию»
+   * перенесена в `AnalysisActionsMenu` (KS-3606), сюда поля
+   * `analysisId`/`analysisPgn` больше не нужны.
    */
-  analysisId?: string | null;
-  analysisPgn?: string;
   originalAnalysisId?: string | null;
   /**
    * KS-3597 (ADR-099 F2): Maia-hook и sort-режим теперь живут на уровне
@@ -207,8 +206,6 @@ export function AnalysisSidebar({
   onSortModeChange,
   engineSupportsSearchmoves,
   maiaTopMoves,
-  analysisId = null,
-  analysisPgn = '',
   originalAnalysisId = null,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
@@ -406,16 +403,8 @@ export function AnalysisSidebar({
             )}
           </span>
           <span className="analysis-panel-header-right">
-            {/* KS-3603 (ADR-100): «Разобрать партию» — модалка SF+Maia,
-                затем backend duplicate-annotated + redirect. */}
-            <span onClick={(e) => e.stopPropagation()}>
-              <GameReviewLauncher
-                analysisId={analysisId}
-                pgn={analysisPgn}
-                originalAnalysisId={originalAnalysisId}
-                historyLength={history.length}
-              />
-            </span>
+            {/* KS-3606: «Разобрать партию» перенесена в
+                AnalysisActionsMenu (см. AnalysisPage). */}
             {/* KS-3099 v2: единый контрол размера шрифта правой
                 панели — Aa-кнопка с dropdown S/M/L. Размещён в шапке
                 первой панели (Stockfish-engine), управляет шрифтом
