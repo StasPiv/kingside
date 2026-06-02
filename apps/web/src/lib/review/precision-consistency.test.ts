@@ -158,10 +158,20 @@ describe('Precision ↔ авто-NAG consistency (KS-3607)', () => {
     expect(a.nag).toEqual([]);
   });
 
-  it('decided position (wdlSigned > 0.95) → precision=blunder, но авто-NAG suppress', () => {
+  it('KS-3617: decided до и после в одну сторону → suppress (шум в выигранной)', () => {
     const input = makeInput({
-      wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96
-      wdlAfterPlayed: wdl(0.2),
+      wdlBefore: { w: 970, d: 20, l: 10 }, // signed=+0.96
+      wdlAfterPlayed: { w: 980, d: 15, l: 5 }, // signed=+0.975 — оба decided one side
+    });
+    const a = buildAnnotation(input);
+    // Оба сигнала по одну сторону decided-границы — авто-NAG suppress.
+    expect(a.nag).toEqual([]);
+  });
+
+  it('KS-3617: decided до, после переход через границу → авто-NAG ставится', () => {
+    const input = makeInput({
+      wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96 (decided)
+      wdlAfterPlayed: wdl(0.2), // signed=-0.6 (упустили выигрыш)
     });
     const klass = classifyMove({
       wdlBefore: input.wdlBefore,
@@ -169,9 +179,8 @@ describe('Precision ↔ авто-NAG consistency (KS-3607)', () => {
     });
     expect(klass).toBe('blunder');
     const a = buildAnnotation(input);
-    // Авто-NAG в decided'е suppress по §3.3 — это сознательное
-    // отклонение от чистого classifyMove, чтобы UX-вывод оставался
-    // чистым (в выигранной позиции мелкие колебания не штрафуем).
-    expect(a.nag).toEqual([]);
+    // Симметричный suppress §3.3 (KS-3617): здесь позиция перешла из
+    // decided в not-decided — это упущение, NAG обязан стоять.
+    expect(a.nag).toEqual([NAG_BLUNDER]);
   });
 });

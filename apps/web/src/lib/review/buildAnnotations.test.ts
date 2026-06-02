@@ -207,17 +207,43 @@ describe('buildAnnotation — §3.3 suppress', () => {
     expect(a.nag).toEqual([]);
   });
 
-  it('|wdlSigned(before)| > 0.95 → no quality-NAG (decided position)', () => {
-    // signed = (w-l)/1000. Хотим > 0.95 → w-l > 950.
+  it('KS-3617: decided до и после, одна сторона → suppress (шум в decided)', () => {
+    // signed before = 0.96 (decided white), after = 0.99 (decided white).
     const a = buildAnnotation(
       base({
         wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96
         playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        wdlAfterPlayed: wdl(0.2), // огромный loss
+        wdlAfterPlayed: { w: 995, d: 0, l: 5 }, // signed=0.99
       }),
     );
     expect(a.nag).toEqual([]);
+  });
+
+  it('KS-3617: decided до, но после стало undecided → NAG ставится (упущение)', () => {
+    // signed before = 0.96 (decided), after = 0.0 (ничья) — упустил выигрыш.
+    const a = buildAnnotation(
+      base({
+        wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlAfterPlayed: wdl(0.5), // signed=0
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BLUNDER]);
+  });
+
+  it('KS-3617: decided до, перевернулось на проигрыш → NAG ставится', () => {
+    // signed before = +0.96, after = -0.96 (упустили выигрыш + проиграли).
+    const a = buildAnnotation(
+      base({
+        wdlBefore: { w: 970, d: 20, l: 10 }, // signed=+0.96
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlAfterPlayed: { w: 10, d: 20, l: 970 }, // signed=-0.96
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BLUNDER]);
   });
 
   it('|wdlSigned(before)| = 0.95 граница — NAG применяется', () => {

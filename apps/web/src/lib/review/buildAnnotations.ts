@@ -107,9 +107,22 @@ export const NAG_GOOD = 1; // !
 export const NAG_BRILLIANT = 3; // !!
 
 /**
- * §3.3 ADR-100: `|wdlSigned(before)| > 0.95` считается «decided»
- * (выигран/проигран), quality-NAG не вешаем (как и в precision-
- * accuracy: на 99% позиции мелкие колебания — норма).
+ * KS-3617. Симметричный «decided»-suppress quality-NAG.
+ *
+ *   До правки suppress был односторонним: если `|signed(before)| > 0.95`,
+ *   NAG возвращали `null` независимо от того, что произошло после. Это
+ *   маскировало упущение выигрыша: например, до хода у белых signed=1.0
+ *   (выигрыш), после хода signed ≈ 0 (ничья) — ход явно `??`, но
+ *   suppress гасил NAG.
+ *
+ *   Теперь suppress срабатывает только если позиция была decided **до**
+ *   хода И осталась decided **после** в **том же направлении**
+ *   (`sign(sigBefore) === sign(sigAfter)` при `|sigAfter| > threshold`).
+ *   То есть подавляем шум на ходах внутри уже выигранной/проигранной
+ *   позиции; не подавляем ходы, которые меняют исход.
+ *
+ *   Решение принято в рамках KS-3617 на основе прогона реальных партий
+ *   (см. `tools/ks3617-annotate-prod.ts`). Подлежит синку в ADR-100 §3.3.
  */
 const DECIDED_WDL_THRESHOLD = 0.95;
 
@@ -137,7 +150,15 @@ function nagForMaiaTrap(maiaTopClass: MoveClass): number | null {
 function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: MoveClass | null): number | null {
   // §3.3 suppress.
   if (input.forcedMove) return null;
-  if (Math.abs(wdlSigned(input.wdlBefore)) > DECIDED_WDL_THRESHOLD) return null;
+  // KS-3617: симметричный suppress. Гасим NAG только когда позиция
+  // была decided до хода И осталась decided после, в одну сторону.
+  // Если ход «уронил» оценку через decided-границу — NAG обязан стоять.
+  const sigBefore = wdlSigned(input.wdlBefore);
+  const sigAfter = wdlSigned(input.wdlAfterPlayed);
+  const decidedBefore = Math.abs(sigBefore) > DECIDED_WDL_THRESHOLD;
+  const decidedAfter = Math.abs(sigAfter) > DECIDED_WDL_THRESHOLD;
+  const sameSide = Math.sign(sigBefore) === Math.sign(sigAfter);
+  if (decidedBefore && decidedAfter && sameSide) return null;
 
   const samePlayed = input.playedUci === input.sfBestUci;
 
