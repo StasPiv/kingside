@@ -25,6 +25,7 @@ import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
 import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
 import DevMaiaInlinePage from '../pages/DevMaiaInlinePage';
+import DevGameReviewPage from '../pages/DevGameReviewPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -100,6 +101,8 @@ export default function DevRoutes() {
       <Route path="engine-unlimited" element={<DevEngineUnlimitedPage />} />
       {/* KS-3589: визуальная проверка inline-Maia (.maia-elo-select + .stockfish-maia-prob). */}
       <Route path="maia-inline" element={<DevMaiaInlinePage />} />
+      {/* KS-3604: progress-модалка NAG auto-annotation + source-link. */}
+      <Route path="game-review" element={<DevGameReviewPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

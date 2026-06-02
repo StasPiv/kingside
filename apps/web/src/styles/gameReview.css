@@ -1,0 +1,252 @@
+/**
+ * KS-3604 (ADR-100): NAG auto-annotation — progress-модалка и
+ * source-link «← Исходный анализ» на странице дубля.
+ *
+ * DOM делает frontend (KS-3603/B). Здесь — только CSS, обе темы
+ * через токены палитры (урок KS-3581/3590/3598), без хардкод-hex.
+ *
+ * Образец стиля модалки — .engine-modal (engine.css):
+ *   overlay --ov-black-60 z:1000, modal --c-1a1a2e + --c-2a2a4e
+ *   border, radius 10px, padding 20px, width 420px, max-width 90vw.
+ * Здесь — то же семейство с маленькими отличиями (фикс ширина чуть
+ * меньше, потому что внутри только бар + 2-3 строки текста).
+ */
+
+/* ─── progress-модалка ───────────────────────────────────────── */
+
+.game-review-progress-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--ov-black-60);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  /* iOS safe-area — backdrop через всю высоту, чтобы не было полосы. */
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+    env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
+
+.game-review-progress-modal {
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
+  border-radius: 10px;
+  padding: 20px;
+  width: 400px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Error-вариант: лёгкая красная рамка, текст остаётся читаемым. */
+.game-review-progress-modal--error {
+  border-color: var(--c-ef4444);
+}
+
+.game-review-progress-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.game-review-progress-modal__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-e0e0ff);
+  line-height: 1.3;
+}
+
+/* Стиль идентичен .engine-modal-close — единое семейство. */
+.game-review-progress-modal__close {
+  background: none;
+  border: none;
+  color: var(--c-808098);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  /* tap-target для mobile (Apple HIG 44px). */
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.game-review-progress-modal__close:hover {
+  color: var(--c-fff);
+}
+.game-review-progress-modal__close:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.game-review-progress-modal__progress {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* Прогресс-бар: outer — рельс на --c-2a2a4e (флипается в light на
+   серый), inner — accent с плавной шириной. */
+.game-review-progress-modal__bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-2a2a4e);
+  overflow: hidden;
+}
+.game-review-progress-modal__bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: inherit;
+  transition: width 200ms ease;
+  /* Без анимаций (KS-3598-урок): прогресс рисует frontend через
+     width-обновления. */
+  min-width: 0;
+}
+/* В error-варианте полоса красная — пользователь видит «упёрлись». */
+.game-review-progress-modal--error .game-review-progress-modal__bar-fill {
+  background: var(--c-ef4444);
+}
+
+/* Текст ошибки между bar и actions. */
+.game-review-progress-modal__error {
+  font-size: 13px;
+  color: var(--c-ef4444);
+  line-height: 1.4;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.game-review-progress-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* Кнопки модалки — единое семейство с .engine-save-btn / -connect-btn.
+   Primary — accent-фон + белый текст, secondary — outline.
+   Сделаны явно (без расчёта на global button-стили), чтобы не было
+   рассинхрона с темой. */
+.game-review-progress-modal__btn {
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+.game-review-progress-modal__btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-30);
+}
+.game-review-progress-modal__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.game-review-progress-modal__btn--primary {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+.game-review-progress-modal__btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.game-review-progress-modal__btn--secondary {
+  background: transparent;
+  color: var(--text-link);
+  border-color: var(--border-mid);
+}
+.game-review-progress-modal__btn--secondary:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--text-link);
+}
+
+/* ─── source-link «← Исходный анализ» ───────────────────────── */
+
+.analysis-original-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-link);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  /* Иконка ← — отдельный <span> от frontend через Unicode-символ,
+     лёгкая корректировка размера. */
+}
+.analysis-original-link__icon {
+  font-size: 0.95em;
+  line-height: 1;
+}
+.analysis-original-link:hover:not(.analysis-original-link--disabled) {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+.analysis-original-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-30);
+}
+
+/* Parent удалён — линк не кликабелен, цвет приглушённый. */
+.analysis-original-link--disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  pointer-events: auto; /* tooltip title= должен работать на hover */
+}
+.analysis-original-link--disabled .analysis-original-link__icon {
+  opacity: 0.7;
+}
+
+/* ─── responsive ─── */
+
+@media (max-width: 767px) {
+  .game-review-progress-modal {
+    padding: 14px;
+    gap: 10px;
+    width: 92vw;
+    max-width: 92vw;
+  }
+  .game-review-progress-modal__title {
+    font-size: 15px;
+  }
+  .game-review-progress-modal__actions {
+    /* Кнопки в столбик, full-width — proper tap-target на узком экране. */
+    flex-direction: column-reverse;
+    gap: 6px;
+  }
+  .game-review-progress-modal__btn {
+    width: 100%;
+    min-height: 40px;
+  }
+  .analysis-original-link {
+    font-size: 12px;
+  }
+}
