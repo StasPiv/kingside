@@ -30,6 +30,19 @@ type UseEngineOptions = {
    */
   infinite?: boolean;
   autoStart?: boolean;
+  /**
+   * KS-3596 (ADR-099 F1). UCI `searchmoves` — список ходов для
+   * ограничения поиска Stockfish/external engine. Проксируется в
+   * подлежащий хук. `null` / `undefined` / пустой массив → обычный
+   * `go` (поведение по умолчанию для всех существующих потребителей).
+   *
+   * Использование в F2: AnalysisSidebar при sortMode=='maia' передаёт
+   * top-N ходов от Maia (стабилизированных через useMemo), чтобы
+   * Stockfish ранжировал по eval именно их. Для external bridge
+   * поддержка не подтверждена R-этапом — `supportsSearchmoves: false`
+   * в возврате (caller сам решает про деградацию).
+   */
+  searchmoves?: string[] | null;
 };
 
 type EngineResult = {
@@ -50,6 +63,15 @@ type EngineResult = {
   loadProgress: number;
   /** KS-3067: причина error-состояния. Только для wasm. Для external — null. */
   errorReason: EngineErrorReason;
+  /**
+   * KS-3596 (ADR-099 F1). Поддерживает ли активный источник UCI
+   * `go searchmoves …`. WASM Stockfish — `true` (KS-3595 R-этап
+   * подтвердил); external bridge — `false` до явной проверки (по
+   * ADR-099 §7 консервативный fallback). F2 читает этот флаг чтобы
+   * деградировать mode=maia для external (сортировка через Maia top-N
+   * без помощи Stockfish).
+   */
+  supportsSearchmoves: boolean;
 };
 
 const STORAGE_KEY = 'externalEngineConfigs';
@@ -81,6 +103,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
     multiPv = 3,
     infinite = false,
     autoStart = true,
+    searchmoves = null,
   } = options;
 
   // KS-3112: debounce параметров engine. UI-state продолжает идти
@@ -93,12 +116,24 @@ export function useEngine(options: UseEngineOptions): EngineResult {
   // от предыдущего stop), что приводило к зависанию.
   const debouncedMultiPv = useDebouncedValue(multiPv, ENGINE_OPTION_DEBOUNCE_MS);
   const debouncedDepth = useDebouncedValue(depth, ENGINE_OPTION_DEBOUNCE_MS);
+  // KS-3596: тот же 250 мс debounce для searchmoves — F2 будет менять
+  // массив на смену sortMode/ELO Maia, и без debounce при быстрых
+  // переключениях получим серию stop+go.
+  const debouncedSearchmoves = useDebouncedValue(
+    searchmoves,
+    ENGINE_OPTION_DEBOUNCE_MS,
+  );
 
   const wasm = useStockfish({
     depth: debouncedDepth,
     multiPv: debouncedMultiPv,
     // KS-3404: infinite только для WASM-источника (внешний bridge — depth 99).
     infinite: source === 'wasm' && infinite,
+    // KS-3596: searchmoves только для wasm — у external поддержка не
+    // подтверждена R-этапом (KS-3595). External всё равно получает
+    // массив (proxy через bridge), но `supportsSearchmoves: false`
+    // подсказывает caller'у деградировать UX.
+    searchmoves: source === 'wasm' ? debouncedSearchmoves : null,
   });
 
   const external = useExternalEngine({
@@ -106,6 +141,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
     depth: debouncedDepth,
     multiPv: debouncedMultiPv,
     autoStart: autoStart && source === 'external',
+    searchmoves: source === 'external' ? debouncedSearchmoves : null,
   });
 
   return useMemo(() => {
@@ -126,6 +162,9 @@ export function useEngine(options: UseEngineOptions): EngineResult {
         errorMessage: external.errorMessage,
         loadProgress: 1,
         errorReason: null,
+        // KS-3596: external bridge — searchmoves поддержка не
+        // подтверждена. По дефолту ADR-099 §7 — `false`.
+        supportsSearchmoves: false,
       };
     }
 
@@ -145,6 +184,9 @@ export function useEngine(options: UseEngineOptions): EngineResult {
       errorMessage: null,
       loadProgress: wasm.loadProgress,
       errorReason: wasm.errorReason,
+      // KS-3596: wasm Stockfish 18 поддерживает searchmoves (R-этап
+      // KS-3595 подтвердил). UI может включать sort=maia без оговорок.
+      supportsSearchmoves: true,
     };
   }, [source, wasm, external, externalConfig]);
 }

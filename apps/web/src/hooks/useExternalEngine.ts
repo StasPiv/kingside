@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { EvalLine } from './useStockfish';
+import { filterLegalUci } from './useStockfish';
 
 type ExternalEngineState = 'idle' | 'connecting' | 'ready' | 'analyzing' | 'error';
 
@@ -15,6 +16,18 @@ type UseExternalEngineOptions = {
   depth?: number;
   multiPv?: number;
   autoStart?: boolean;
+  /**
+   * KS-3596 (ADR-099 F1). UCI `searchmoves` — список ходов для
+   * ограничения поиска. Прокидывается в `analyze`-сообщение bridge как
+   * поле `searchmoves`. **По R-этапу (KS-3595) поддержка во внешнем
+   * bridge не подтверждена** — `useEngine` экспортирует
+   * `supportsSearchmoves: false` для external, чтобы F2/UI мог
+   * деградировать (см. ADR-099 §7). Если bridge всё-таки поддерживает
+   * — будет работать без изменений; если нет — bridge просто
+   * проигнорирует поле, а UI зальёт mode=maia через top-N селекцию
+   * без помощи Stockfish.
+   */
+  searchmoves?: string[] | null;
 };
 
 const RECONNECT_DELAY = 3000;
@@ -53,7 +66,13 @@ function isLocalhostUrl(wsUrl: string): boolean {
  * Protocol: JSON messages (line, bestmove, engine_info, error, pong).
  */
 export function useExternalEngine(options: UseExternalEngineOptions) {
-  const { config, depth = 20, multiPv = 3, autoStart = true } = options;
+  const {
+    config,
+    depth = 20,
+    multiPv = 3,
+    autoStart = true,
+    searchmoves = null,
+  } = options;
 
   const [state, setState] = useState<ExternalEngineState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
@@ -183,7 +202,11 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
             setAnalysisFen(fen);
             setBestMove(null);
             setState('analyzing');
-            wsRef.current.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
+            // KS-3596: searchmoves опционально, фильтруем нелегальные.
+            const sm = filterLegalUci(fen, searchmoves ?? []);
+            const payload: Record<string, unknown> = { type: 'analyze', fen, depth, multiPv };
+            if (sm.length > 0) payload.searchmoves = sm;
+            wsRef.current.send(JSON.stringify(payload));
           } else if (stateRef.current === 'analyzing') {
             setState('ready');
           }
@@ -264,8 +287,12 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     setAnalysisFen(fen);
     setBestMove(null);
     setState('analyzing');
-    wsRef.current.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
-  }, [depth, multiPv]);
+    // KS-3596: searchmoves опционально, фильтруем нелегальные.
+    const sm = filterLegalUci(fen, searchmoves ?? []);
+    const payload: Record<string, unknown> = { type: 'analyze', fen, depth, multiPv };
+    if (sm.length > 0) payload.searchmoves = sm;
+    wsRef.current.send(JSON.stringify(payload));
+  }, [depth, multiPv, searchmoves]);
 
   // KS-3112: при изменении `multiPv`/`depth` во время активного анализа —
   // перезапускаем `analyze` с новыми значениями через `evaluate(fen)`.
@@ -279,7 +306,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     if (!fen) return;
     evaluate(fen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [multiPv, depth]);
+  }, [multiPv, depth, searchmoves]);
 
   const stop = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

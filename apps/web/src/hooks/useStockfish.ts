@@ -25,6 +25,36 @@ export function clampMultiPvToLegalMoves(fen: string, requested: number): number
   }
 }
 
+/**
+ * KS-3596 (ADR-099 F1). Фильтр UCI-ходов на легальность для данного
+ * FEN. Возвращает только ходы, которые `chess.js` считает легальными
+ * в исходной позиции, в исходном порядке. Дубликаты сохраняются.
+ *
+ * Зачем фильтр: Maia может выдать ход, который Stockfish посчитает
+ * нелегальным в редком edge-случае (промо без указания фигуры,
+ * неконсистентные castling-rights и т.п.). По KS-3595 (R-этап) wasm
+ * сам молча игнорирует нелегальные в `searchmoves`, но external bridge
+ * может задать UCI-ошибку и положить сессию — лучше фильтровать на
+ * нашей стороне.
+ */
+export function filterLegalUci(fen: string, moves: readonly string[]): string[] {
+  if (!moves || moves.length === 0) return [];
+  try {
+    const chess = new Chess(fen);
+    const legal = new Set<string>();
+    for (const m of chess.moves({ verbose: true }) as Array<{
+      from: string;
+      to: string;
+      promotion?: string;
+    }>) {
+      legal.add(`${m.from}${m.to}${m.promotion ?? ''}`);
+    }
+    return moves.filter((u) => typeof u === 'string' && legal.has(u));
+  } catch {
+    return [];
+  }
+}
+
 export type EvalLine = {
   depth: number;
   multipv: number;
@@ -96,6 +126,25 @@ type UseStockfishOptions = {
    * `evaluate()` и НЕ регрессируют.
    */
   prefetch?: boolean;
+  /**
+   * KS-3596 (ADR-099 F1). UCI `go searchmoves m1 m2 …` — ограничивает
+   * поиск Stockfish заданным набором ходов. Используется в режиме
+   * sort=maia: AnalysisSidebar передаёт top-N от Maia, чтобы Stockfish
+   * ранжировал по eval именно эти ходы.
+   *
+   * Контракт:
+   *  - `undefined` / `null` / `[]` → обычный `go depth/infinite/movetime`
+   *    без `searchmoves` (поведение по умолчанию для всех существующих
+   *    потребителей не меняется).
+   *  - непустой массив → перед отправкой фильтруем нелегальные через
+   *    `filterLegalUci`. Если после фильтра не осталось ходов —
+   *    отправляем обычный `go` (грейсфолим вместо «нет легальных
+   *    ходов» — engine отдаст bestmove из полного дерева).
+   *  - смена `searchmoves` во время активного анализа триггерит тот
+   *    же re-dispatch путь (stop → bestmove → isready → новый `go`),
+   *    что watcher'ы depth/multiPv/infinite/movetime.
+   */
+  searchmoves?: string[] | null;
 };
 
 const INIT_TIMEOUT_MS = 30_000;
@@ -173,16 +222,41 @@ async function prefetchWasm(
  * приоритета movetime упрощает caller'у переключение режимов без
  * cleanup'а старого `infinite`.
  */
-function buildGoCommand(
+export function buildGoCommand(
   movetime: number | undefined,
   infinite: boolean,
   depth: number,
+  searchmoves?: readonly string[] | null,
 ): string {
+  // KS-3596: `searchmoves` хвостом по UCI-стандарту. Передаётся только
+  // если массив непустой — пустой массив имеет тот же смысл, что
+  // отсутствие поля.
+  const sm =
+    searchmoves && searchmoves.length > 0
+      ? ` searchmoves ${searchmoves.join(' ')}`
+      : '';
   if (typeof movetime === 'number' && movetime > 0) {
-    return `go movetime ${movetime}`;
+    return `go movetime ${movetime}${sm}`;
   }
-  if (infinite) return 'go infinite';
-  return `go depth ${depth}`;
+  if (infinite) return `go infinite${sm}`;
+  return `go depth ${depth}${sm}`;
+}
+
+/**
+ * KS-3596 helper: собирает финальный go-список ходов для FEN.
+ * Фильтрует нелегальные через `filterLegalUci`. Если после фильтра
+ * ходов не осталось — возвращает `null`, caller отправит обычный `go`
+ * без `searchmoves` (грейсфолим — иначе Stockfish сразу ответил бы
+ * `bestmove (none)`).
+ */
+function resolveSearchmoves(
+  fen: string | null,
+  moves: readonly string[] | null | undefined,
+): string[] | null {
+  if (!moves || moves.length === 0) return null;
+  if (!fen) return null;
+  const filtered = filterLegalUci(fen, moves);
+  return filtered.length > 0 ? filtered : null;
 }
 
 function parseInfoLine(line: string): EvalLine | null {
@@ -227,6 +301,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     autoStart: _autoStart = true,
     skillLevel,
     prefetch = false,
+    searchmoves = null,
   } = options;
 
   const depthRef = useRef(depth);
@@ -235,11 +310,16 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   // KS-3470: movetime в мс, undefined → не используется.
   const movetimeRef = useRef<number | undefined>(movetime);
   const skillLevelRef = useRef<number | undefined>(skillLevel);
+  // KS-3596: searchmoves для UCI `go searchmoves …`. Храним в ref,
+  // чтобы все 3 точки отправки `go` (lazy после readyok, re-dispatch
+  // после stop, прямая из evaluate) читали актуальное значение.
+  const searchmovesRef = useRef<readonly string[] | null>(searchmoves);
   depthRef.current = depth;
   multiPvRef.current = multiPv;
   infiniteRef.current = infinite;
   movetimeRef.current = movetime;
   skillLevelRef.current = skillLevel;
+  searchmovesRef.current = searchmoves;
 
   const [state, setState] = useState<StockfishState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
@@ -380,13 +460,15 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(lazyFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${lazyFen}`);
-              // KS-3470: единая сборка `go` по приоритету
-              // movetime > infinite > depth (см. buildGoCommand).
+              // KS-3470/3596: единая сборка `go` по приоритету
+              // movetime > infinite > depth, опционально с
+              // `searchmoves <…>` (см. buildGoCommand).
               engine.postMessage(
                 buildGoCommand(
                   movetimeRef.current,
                   infiniteRef.current,
                   depthRef.current,
+                  resolveSearchmoves(lazyFen, searchmovesRef.current),
                 ),
               );
             } else {
@@ -410,13 +492,15 @@ export function useStockfish(options: UseStockfishOptions = {}) {
               const effectiveMpv = clampMultiPvToLegalMoves(pendingFen, multiPvRef.current);
               engine.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
               engine.postMessage(`position fen ${pendingFen}`);
-              // KS-3470: единая сборка `go` по приоритету
-              // movetime > infinite > depth (см. buildGoCommand).
+              // KS-3470/3596: единая сборка `go` по приоритету
+              // movetime > infinite > depth, опционально с
+              // `searchmoves <…>` (см. buildGoCommand).
               engine.postMessage(
                 buildGoCommand(
                   movetimeRef.current,
                   infiniteRef.current,
                   depthRef.current,
+                  resolveSearchmoves(pendingFen, searchmovesRef.current),
                 ),
               );
               return;
@@ -539,13 +623,14 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       const effectiveMpv = clampMultiPvToLegalMoves(fen, multiPvRef.current);
       engineRef.current.postMessage(`setoption name MultiPV value ${effectiveMpv}`);
       engineRef.current.postMessage(`position fen ${fen}`);
-      // KS-3470: единая сборка `go` по приоритету
-      // movetime > infinite > depth (см. buildGoCommand).
+      // KS-3470/3596: единая сборка `go` по приоритету
+      // movetime > infinite > depth, опц. searchmoves (см. buildGoCommand).
       engineRef.current.postMessage(
         buildGoCommand(
           movetimeRef.current,
           infiniteRef.current,
           depthRef.current,
+          resolveSearchmoves(fen, searchmovesRef.current),
         ),
       );
     },
@@ -635,6 +720,26 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     evaluate(fen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movetime]);
+
+  /**
+   * KS-3596 (ADR-099 F1): смена `searchmoves` во время активного
+   * анализа — re-dispatch с новой `go`-командой по той же
+   * `evaluate(fen)` → stop → bestmove → isready → новый `go` цепочке,
+   * что в watcher'ах depth/infinite/multiPv/movetime.
+   *
+   * Зависимость по reference: caller отвечает за стабильность массива
+   * (через `useMemo` / debounced-ссылку в `useEngine.ts`). Здесь же —
+   * как только новый массив пришёл (или сменился `null` ↔ непустой),
+   * рестартуем поиск.
+   */
+  useEffect(() => {
+    if (stateRef.current !== 'analyzing') return;
+    if (!engineRef.current) return;
+    const fen = fenRef.current;
+    if (!fen) return;
+    evaluate(fen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchmoves]);
 
   return {
     state,
