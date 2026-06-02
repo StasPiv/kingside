@@ -338,14 +338,16 @@ describe('<PostGameReview> KS-2534', () => {
 
 describe('buildPgnReviewTokens KS-2534', () => {
   it('партия с одним blunder + лучший ход в варианте', () => {
+    // KS-3617 follow-up: blunder теперь требует loss_E > 0.50; cp 100/-300
+    // даёт всего ~0.40 → mistake. Поднимаем до 200/-2000 для blunder.
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -300,
+        cpBefore: 200,
+        cpAfter: -2000,
       }),
     ];
     const tokens = buildPgnReviewTokens({

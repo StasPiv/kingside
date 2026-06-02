@@ -234,7 +234,19 @@ function maybeRedVariation(
   // расширяет покрытие: inaccuracy / good / mistake / blunder —
   // все попадают (best — нет, т.к. это не альтернатива «к лучшему»).
   if (maiaTopClass === 'best') return null;
-  const nag = nagForMaiaTrap(maiaTopClass);
+  let nag = nagForMaiaTrap(maiaTopClass);
+  // KS-3617: симметричный §3.3 — если позиция была decided до хода
+  // и осталась decided после maia-альт в ту же сторону, не вешаем
+  // NAG (декорация в уже выигранной/проигранной позиции — шум).
+  // Если ход меняет статус — NAG остаётся.
+  if (nag != null && input.wdlAfterMaiaTop) {
+    const sigBefore = wdlSigned(input.wdlBefore);
+    const sigAfterMaia = wdlSigned(input.wdlAfterMaiaTop);
+    const decidedBefore = Math.abs(sigBefore) > DECIDED_WDL_THRESHOLD;
+    const decidedAfter = Math.abs(sigAfterMaia) > DECIDED_WDL_THRESHOLD;
+    const sameSide = Math.sign(sigBefore) === Math.sign(sigAfterMaia);
+    if (decidedBefore && decidedAfter && sameSide) nag = null;
+  }
   return {
     uci: input.maiaTopUci,
     color: 'red',

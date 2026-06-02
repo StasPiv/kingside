@@ -62,11 +62,11 @@ interface Scenario {
 
 const SCENARIOS: Scenario[] = [
   {
-    label: 'precision=blunder → авто-NAG ?? (WDL-loss 0.30)',
+    label: 'precision=blunder → авто-NAG ?? (WDL-loss 0.60)',
     expectedClass: 'blunder',
     expectedNag: [NAG_BLUNDER],
     input: makeInput({
-      wdlBefore: wdl(0.5),
+      wdlBefore: wdl(0.8),
       wdlAfterPlayed: wdl(0.2),
     }),
   },

@@ -512,7 +512,10 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(best.textContent).toMatch(/^\(1\./);
   });
 
-  it('KS-2505/2506/KS-2509: cp=+50 → cp=-800 даёт класс blunder (cp-loss=850)', async () => {
+  it('KS-2505/2506/KS-2509: cp=+200 → cp=-2000 даёт класс blunder', async () => {
+    // KS-3617 follow-up: WDL_LOSS_THRESHOLDS.mistake расширен до 0.50,
+    // поэтому 850 cp loss (≈0.45 win-pct) теперь mistake; для blunder
+    // нужен loss_E > 0.50 → подняли cp до +200 / -2000.
     const puzzle = makePuzzle({
       playVsEngine: {
         blunderMove: 'd2d4',
@@ -522,14 +525,13 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // KS-3380: cpAfter теперь из pre-frame extra-analyze (POV user).
     const engine = new ScriptedEngine(
       [
         INITIAL_ANALYZE(),
-        result(line({ type: 'cp', value: 50 }, ['d2d4'])), // pre cpBefore=+50, PV1=d2d4 != played
-        result(line({ type: 'cp', value: 800 }, ['d7d5'])), // post (для engine reply, НЕ для snapshot)
+        result(line({ type: 'cp', value: 200 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 2000 }, ['d7d5'])),
       ],
-      [result(line({ type: 'cp', value: -800 }, ['e2e4']))], // extra POV user cpAfter=-800
+      [result(line({ type: 'cp', value: -2000 }, ['e2e4']))],
     );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
@@ -1320,15 +1322,15 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
         halfMovesN: 6,
       },
     });
-    // KS-3380: pre cp=+50 (PV1=d2d4 != played), extra cp=-800 POV user.
-    // cp-loss=850 → blunder.
+    // KS-3617 follow-up: для blunder нужен loss_E > 0.50, подняли
+    // cp до +200 / -2000.
     const engine = new ScriptedEngine(
       [
         INITIAL_ANALYZE(),
-        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-        result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+        result(line({ type: 'cp', value: 200 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 2000 }, ['d7d5'])),
       ],
-      [result(line({ type: 'cp', value: -800 }, ['e2e4']))],
+      [result(line({ type: 'cp', value: -2000 }, ['e2e4']))],
     );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,

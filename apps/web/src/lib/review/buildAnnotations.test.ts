@@ -5,7 +5,7 @@
  *
  * Подбор Wdl-объектов: используем абсолютные значения которые попадают
  * в нужный loss_E-bucket по WDL_LOSS_THRESHOLDS (best ≤ 0.02, good ≤
- * 0.05, inaccuracy ≤ 0.12, mistake ≤ 0.25, blunder > 0.25). `E = (w +
+ * 0.05, inaccuracy ≤ 0.12, mistake ≤ 0.50, blunder > 0.50). `E = (w +
  * d/2) / 1000`, поэтому loss_E = `(w_before + d_before/2 - w_after -
  * d_after/2) / 1000`. См. помощник `mkWdl(eHundredths)` ниже.
  */
@@ -58,13 +58,13 @@ function base(over: Partial<MoveInput> = {}): MoveInput {
 }
 
 describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
-  it('?? при loss_E > 0.25 (blunder)', () => {
-    // E_before=0.5, E_after=0.2 → loss=0.30 > 0.25 → blunder.
+  it('?? при loss_E > 0.50 (blunder)', () => {
+    // E_before=0.8, E_after=0.2 → loss=0.60 > 0.50 → blunder.
     const a = buildAnnotation(
       base({
         playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        wdlBefore: wdl(0.5),
+        wdlBefore: wdl(0.8),
         wdlAfterPlayed: wdl(0.2),
       }),
     );
@@ -83,14 +83,14 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
     expect(a.nag).toEqual([NAG_BLUNDER]);
   });
 
-  it('? при 0.12 < loss_E ≤ 0.25 (mistake)', () => {
-    // loss=0.20 → mistake.
+  it('? при 0.12 < loss_E ≤ 0.50 (mistake)', () => {
+    // loss=0.30 → mistake (по новому порогу 0.50).
     const a = buildAnnotation(
       base({
         playedUci: 'h2h3',
         sfBestUci: 'e2e4',
         wdlBefore: wdl(0.5),
-        wdlAfterPlayed: wdl(0.3),
+        wdlAfterPlayed: wdl(0.2),
       }),
     );
     expect(a.nag).toEqual([NAG_MISTAKE]);
@@ -221,13 +221,14 @@ describe('buildAnnotation — §3.3 suppress', () => {
   });
 
   it('KS-3617: decided до, но после стало undecided → NAG ставится (упущение)', () => {
-    // signed before = 0.96 (decided), after = 0.0 (ничья) — упустил выигрыш.
+    // signed before = 0.96 (decided), после хода E падает с 0.97 до 0.2
+    // (loss=0.77 → blunder), suppress §3.3 НЕ срабатывает (decidedAfter=false).
     const a = buildAnnotation(
       base({
-        wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96
+        wdlBefore: { w: 970, d: 20, l: 10 }, // signed=0.96, E=0.97
         playedUci: 'h2h3',
         sfBestUci: 'e2e4',
-        wdlAfterPlayed: wdl(0.5), // signed=0
+        wdlAfterPlayed: wdl(0.2), // E=0.2, signed=-0.6 → not decided
       }),
     );
     expect(a.nag).toEqual([NAG_BLUNDER]);
@@ -324,15 +325,16 @@ describe('buildAnnotation — §4.2 red-variation', () => {
   });
 
   it('NAG ?? при maiaTop class = blunder', () => {
+    // loss=0.7 > 0.5 → blunder (порог 0.50 после KS-3617).
     const a = buildAnnotation(
       base({
         playedUci: 'e2e4',
         sfBestUci: 'e2e4',
-        wdlBefore: wdl(0.5),
-        wdlAfterPlayed: wdl(0.5),
+        wdlBefore: wdl(0.8),
+        wdlAfterPlayed: wdl(0.8),
         maiaTopUci: 'h2h3',
         maiaTopProb: 0.3,
-        wdlAfterMaiaTop: wdl(0.1), // blunder
+        wdlAfterMaiaTop: wdl(0.1), // E=0.1, loss=0.7 → blunder
       }),
     );
     const red = a.variations.find((v) => v.color === 'red')!;
@@ -509,9 +511,9 @@ describe('buildAnnotation — KS-3610 stabilized subline', () => {
         fen: fenBlackToMove,
         playedUci: 'h7h6',
         sfBestUci: 'e7e5',
-        wdlBefore: wdl(0.5),
-        wdlAfterPlayed: wdl(0.2), // blunder для чёрных
-        wdlAfterBest: wdl(0.5),
+        wdlBefore: wdl(0.8),
+        wdlAfterPlayed: wdl(0.2), // loss=0.6 > 0.5 → blunder
+        wdlAfterBest: wdl(0.8),
         sfBestPv: ['e7e5', 'g1f3', 'b8c6'],
       }),
     );
