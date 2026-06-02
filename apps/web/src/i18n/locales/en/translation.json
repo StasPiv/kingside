@@ -408,6 +408,11 @@
       "label": "Maia ELO",
       "hint": "Maia uses this rating to predict human moves in the analysis engine panel. Default: 1500."
     },
+    "reviewMovetime": {
+      "title": "Game review — time per move",
+      "label": "Seconds per move",
+      "hint": "Stockfish time per half-move during “Analyze game”. Default: 1.0 s. Range: {{min}}–{{max}} s."
+    },
     "sound": "Sound",
     "soundEffects": "Sound effects",
     "soundTheme": {

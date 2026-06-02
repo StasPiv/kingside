@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { useGameReview } from '../../hooks/useGameReview';
+import { useGameReviewMovetime } from '../../hooks/useGameReviewMovetime';
 import { applyAnnotationsToPgn } from '../../lib/review/applyAnnotationsToPgn';
 import { GameReviewProgressModal } from './GameReviewProgressModal';
 
@@ -77,7 +78,13 @@ export function useGameReviewLauncher(
   const userLanguage: 'en' | 'ru' = i18nInstance.language?.startsWith('ru')
     ? 'ru'
     : 'en';
-  const review = useGameReview({ elo, openingName, userLanguage });
+  const { movetimeMs } = useGameReviewMovetime();
+  const review = useGameReview({
+    elo,
+    openingName,
+    userLanguage,
+    movetimeMs,
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
 

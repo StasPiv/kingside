@@ -106,8 +106,14 @@ export type CommentClient = (
 export interface UseGameReviewOptions {
   /** ELO Maia. Дефолт 1500. */
   elo?: number;
-  /** SF depth. ADR-100 §7: 18 default. */
+  /** SF depth. Не используется с KS-3617 (заменено на movetime). */
   depth?: number;
+  /**
+   * KS-3617. Время на ход в мс для Stockfish (`go movetime <N>`).
+   * Дефолт 1000. Пользовательская настройка хранится в
+   * `analysis.review.movetimeMs` (см. `useGameReviewMovetime`).
+   */
+  movetimeMs?: number;
   /** Кастомный engines-провайдер — для тестов. */
   engines?: ReviewEngines;
   /**
@@ -193,8 +199,12 @@ function isForcedMove(legalMovesCount: number): boolean {
  * KS-3607. Реальная SF-обвязка теперь парсит и `wdl w d l` из info-строк
  * (требует `UCI_ShowWDL=true`). Stockfish 18 с wasm-сборки этого
  * проекта поддерживает опцию (см. KS-2431).
+ *
+ * KS-3617: на каждый полуход даём фиксированный movetime (по умолчанию
+ * 1 сек), а не фиксированную глубину. Пользовательская настройка —
+ * `analysis.review.movetimeMs` через `useGameReviewMovetime`.
  */
-export function createDefaultEngines(): ReviewEngines {
+export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
   let sfWorker: Worker | null = null;
   let initialised = false;
   let pendingResolve:
@@ -267,11 +277,10 @@ export function createDefaultEngines(): ReviewEngines {
     _depth: number,
     searchmoves?: string[],
   ) {
-    // KS-3617: на каждый полуход даём фиксированный бюджет времени
-    // (1 секунда) вместо фиксированной глубины. Аргумент `depth`
-    // остался в сигнатуре для обратной совместимости с моками/тестами,
-    // но фактически игнорируется. Это согласовано с остальной
-    // engine-инфрой (везде используется 1 секунда на ход).
+    // KS-3617: на каждый полуход даём фиксированный movetime в мс
+    // (дефолт 1 секунда). Аргумент `depth` остался в сигнатуре для
+    // обратной совместимости с моками/тестами, но фактически
+    // игнорируется. Пользовательская настройка — `useGameReviewMovetime`.
     void _depth;
     const w = await ensureSf();
     return new Promise<
@@ -287,7 +296,7 @@ export function createDefaultEngines(): ReviewEngines {
         searchmoves && searchmoves.length > 0
           ? ` searchmoves ${searchmoves.join(' ')}`
           : '';
-      w.postMessage(`go movetime 1000${sm}`);
+      w.postMessage(`go movetime ${movetimeMs}${sm}`);
     });
   }
 
@@ -393,6 +402,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
   const {
     elo = 1500,
     depth = 18,
+    movetimeMs = 1000,
     engines: injectedEngines,
     commentsEnabled = true,
     commentClient = defaultCommentClient,
@@ -439,7 +449,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       }
       setProgress({ stage: 'engine', done: 0, total: plies.length });
 
-      const engines = injectedEngines ?? createDefaultEngines();
+      const engines = injectedEngines ?? createDefaultEngines(movetimeMs);
       enginesRef.current = engines;
 
       // KS-3617: убран `sfCache`/`maiaCache`. В партии без повторов
@@ -698,7 +708,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       setResult({ annotations, moveInputs, commentByPly });
       setStatus('done');
     },
-    [elo, depth, injectedEngines],
+    [elo, depth, movetimeMs, injectedEngines, commentsEnabled, commentClient, openingName, userLanguage],
   );
 
   const cancel = useCallback(() => {

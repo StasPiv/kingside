@@ -18,6 +18,11 @@ import {
   MAIA_ELO_OPTIONS,
   useMaiaEloSetting,
 } from '../hooks/useMaiaAnalysis';
+import {
+  useGameReviewMovetime,
+  MIN_MOVETIME_MS,
+  MAX_MOVETIME_MS,
+} from '../hooks/useGameReviewMovetime';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
 // KS-2423: drill-only mute для звуков тренажёров.
@@ -40,6 +45,9 @@ export function SettingsPage() {
   // KS-3600: уровень Maia для анализа. Persist в localStorage
   // `analysis.maia.elo`, дефолт 1500.
   const { elo: maiaElo, setElo: setMaiaElo } = useMaiaEloSetting();
+  // KS-3617: время на ход для «Разобрать партию», дефолт 1000 мс.
+  const { movetimeMs: reviewMovetimeMs, setMovetimeMs: setReviewMovetimeMs } =
+    useGameReviewMovetime();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
   const [chesscomUsername, setChesscomUsername] = useState('');
@@ -330,6 +338,37 @@ export function SettingsPage() {
           {t(
             'settings.maiaLevel.hint',
             'Maia uses this rating to predict human moves in the analysis engine panel. Default: 1500.',
+          )}
+        </p>
+      </section>
+
+      {/* KS-3617: время на ход Stockfish для «Разобрать партию». */}
+      <section className="settings-section">
+        <h2>
+          {t('settings.reviewMovetime.title', 'Game review — time per move')}
+        </h2>
+        <div className="settings-field">
+          <label htmlFor="review-movetime-input">
+            {t('settings.reviewMovetime.label', 'Seconds per move')}
+          </label>
+          <input
+            id="review-movetime-input"
+            data-testid="settings-review-movetime-input"
+            type="number"
+            min={MIN_MOVETIME_MS / 1000}
+            max={MAX_MOVETIME_MS / 1000}
+            step={0.1}
+            value={(reviewMovetimeMs / 1000).toFixed(1)}
+            onChange={(e) =>
+              setReviewMovetimeMs(Number(e.currentTarget.value) * 1000)
+            }
+          />
+        </div>
+        <p className="settings-hint">
+          {t(
+            'settings.reviewMovetime.hint',
+            'Stockfish time per half-move during “Analyze game”. Default: 1.0 s. Range: {{min}}–{{max}} s.',
+            { min: MIN_MOVETIME_MS / 1000, max: MAX_MOVETIME_MS / 1000 },
           )}
         </p>
       </section>
