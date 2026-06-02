@@ -25,6 +25,7 @@ import { DevPromotionPickerPage } from '../pages/DevPromotionPickerPage';
 import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMenuPage';
 import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
 import DevPositionMaiaRatingPage from '../pages/DevPositionMaiaRatingPage';
+import DevMaiaSectionPage from '../pages/DevMaiaSectionPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -100,6 +101,8 @@ export default function DevRoutes() {
       <Route path="engine-unlimited" element={<DevEngineUnlimitedPage />} />
       {/* KS-3581: визуальная проверка блока «Рейтинг позиции» в обеих темах. */}
       <Route path="position-maia-rating" element={<DevPositionMaiaRatingPage />} />
+      {/* KS-3585: визуальная проверка .maia-section в engine-panel (обе темы). */}
+      <Route path="maia-section" element={<DevMaiaSectionPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

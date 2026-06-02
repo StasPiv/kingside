@@ -613,3 +613,232 @@
 .position-maia-rating__fallback-prob {
   color: var(--text-muted);
 }
+
+/* ============================================================
+ * KS-3585 (ADR-096): Maia-подсекция в engine-panel.
+ *
+ * Рендерится как продолжение .stockfish-lines внутри
+ * .analysis-panel-body (engine-панель). Своего фона нет — наследует
+ * фон панели; разделитель — тонкая линия сверху. Цвета и шрифты —
+ * через семантические токены / raw-токены, флипающиеся в light-теме
+ * (см. tokens.css). Никаких хардкод-цветов — урок KS-3581.
+ *
+ * DOM-структуру делает frontend (KS-3584). Здесь — только CSS.
+ * ============================================================ */
+.maia-section {
+  /* Подсекция-продолжение, не самостоятельный «островок». */
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.maia-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* На широких — одна строка; на узких (см. media ниже) — wrap. */
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.maia-section-title {
+  /* Тот же ритм, что у .stockfish-pv: подзаголовок секции, не
+     самостоятельная panel-title. */
+  font-size: calc(12px * var(--analysis-sidebar-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maia-section-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Compact native <select> — вписан в шапку, согласован с
+   .engine-settings-input по фону/границе/font-size. */
+.maia-elo-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-3a3a5e);
+  border-radius: 4px;
+  color: var(--c-e0e0ff);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 22px 3px 8px;
+  cursor: pointer;
+  line-height: 1.4;
+  /* Стрелка через SVG в data-URI — currentColor через mask не работает
+     для нативного select, используем фиксированный slate (--c-a0a0c0)
+     который флипается в light на тёмный (--c-a0a0c0 → #4a5163). */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a0a0c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1.5,1.5 6,6 10.5,1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 8px 6px;
+}
+.maia-elo-select:hover {
+  border-color: var(--c-4a4a8e);
+}
+.maia-elo-select:focus {
+  outline: none;
+  border-color: var(--c-7c83ff);
+}
+.maia-elo-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Список ходов Maia — по геометрии аналогичен .stockfish-lines. */
+.maia-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.maia-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: calc(14px * var(--analysis-sidebar-font-scale, 1));
+  line-height: 1.4;
+  color: var(--text-secondary);
+  width: 100%;
+  min-width: 0;
+}
+
+.maia-prob {
+  /* Прибили колонку: monospace + tabular-nums — проценты выравниваются
+     по правому краю независимо от ширины (3.7% vs 47.1%). */
+  flex: 0 0 64px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.maia-move {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--c-e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Top-1 — жирнее, как .stockfish-eval.best (через --c-e0e0e0 — флипается
+   в light на #1f2937, не сольётся со светлым фоном). */
+.maia-line--top {
+  font-weight: 700;
+}
+.maia-line--top .maia-prob {
+  color: var(--c-e0e0e0);
+}
+
+/* ─── состояния ─── */
+
+/* Stale: данные предыдущей позиции, пока загружается новая —
+   полупрозрачный, без блокировки. */
+.maia-section--stale .maia-lines {
+  opacity: 0.5;
+}
+
+/* Loading-плейсхолдер: компактный текст той же высоты, что и строки. */
+.maia-section--loading .maia-lines {
+  min-height: calc(3 * (1.4em + 4px));
+}
+.maia-section__loading {
+  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+/* Error — текст ошибки + retry-кнопка в одну строку. */
+.maia-section__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--danger);
+  flex-wrap: wrap;
+}
+
+/* Retry-кнопка — outline-стиль на акцент-цвете, читается в обеих темах
+   (background --c-3a3a6e в light получался бледно-голубым). */
+.maia-error-retry {
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-link);
+  border: 1px solid var(--accent-primary);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.maia-error-retry:hover {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+.maia-error-retry:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* ─── responsive ─── */
+
+/* Mobile: уплотняем строки (как .stockfish-line в analysis.css media). */
+@media (max-width: 767px) {
+  .maia-section {
+    margin-top: 6px;
+    padding-top: 6px;
+    gap: 4px;
+  }
+  .maia-lines {
+    gap: 2px;
+    margin-top: 0;
+  }
+  .maia-line {
+    font-size: 12px;
+    gap: 6px;
+  }
+  .maia-prob {
+    flex-basis: 56px;
+  }
+  .maia-section-title {
+    font-size: 11px;
+  }
+}
+
+/* Совсем узкие экраны (<=400px): селект не помещается в одну строку —
+   переносим контролы вниз. flex-wrap включаем точечно, чтобы на 401-767px
+   шапка осталась одной строкой. */
+@media (max-width: 400px) {
+  .maia-section-header {
+    flex-wrap: wrap;
+  }
+  .maia-section-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .maia-elo-select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
