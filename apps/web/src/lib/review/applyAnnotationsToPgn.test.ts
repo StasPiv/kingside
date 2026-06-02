@@ -130,4 +130,80 @@ describe('applyAnnotationsToPgn', () => {
     });
     expect(out).toBe(broken);
   });
+
+  it('KS-3610: nested-variations рендерятся как вложенные скобки PGN', () => {
+    const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
+      {
+        ply: 2,
+        nag: [NAG_MISTAKE],
+        variations: [
+          {
+            uci: 'c7c5',
+            color: 'green',
+            subline: ['g1f3'],
+            // На первом ходу зелёной (c7c5) — вложенная red-альтернатива.
+            nestedVariations: [
+              [
+                {
+                  uci: 'd7d5',
+                  color: 'red',
+                  nag: [NAG_MISTAKE],
+                },
+              ],
+              [], // на 2-м ходе (g1f3) — пусто
+            ],
+          },
+        ],
+      },
+    ]);
+    // Должны увидеть две скобки: внешнюю (зелёная) и вложенную (red).
+    expect(out).toContain('[%cvc green]');
+    expect(out).toContain('[%cvc red]');
+    // Round-trip через chess.js — main-line всё ещё валидна.
+    const c = new Chess();
+    c.loadPgn(out);
+    expect(c.history({ verbose: true }).length).toBe(3);
+  });
+
+  it('KS-3610: nested до 3-го уровня — все скобки сохраняются', () => {
+    const out = applyAnnotationsToPgn(PGN_E4_E5_NF3, [
+      {
+        ply: 2,
+        nag: [NAG_MISTAKE],
+        variations: [
+          {
+            uci: 'c7c5',
+            color: 'green',
+            subline: ['g1f3'],
+            nestedVariations: [
+              [
+                {
+                  uci: 'd7d5',
+                  color: 'red',
+                  subline: ['e4d5'],
+                  nestedVariations: [
+                    [
+                      {
+                        uci: 'b8c6',
+                        color: 'red',
+                      },
+                    ],
+                    [],
+                  ],
+                },
+              ],
+              [],
+            ],
+          },
+        ],
+      },
+    ]);
+    // 3 уровня cvc: зелёный + 2 red.
+    expect(
+      (out.match(/\[%cvc (green|red)\]/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(3);
+    const c = new Chess();
+    c.loadPgn(out);
+    expect(c.history({ verbose: true }).length).toBe(3);
+  });
 });

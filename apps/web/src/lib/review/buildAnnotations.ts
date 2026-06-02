@@ -78,6 +78,15 @@ export interface AnnotationVariation {
   color: VariationColor;
   subline?: string[];
   nag?: number[];
+  /**
+   * KS-3610 (ADR-101 §4.2 v2). Вложенные variations на каждом полуходе
+   * этой ветки. Длина массива = 1 + (subline?.length ?? 0). Индекс
+   * `i = 0` — variations на `uci` (первый ход), `i = N+1` — variations
+   * на `subline[N]`. Пустой массив на конкретном индексе означает «нет
+   * вложений». Не задан целиком — ветка не обрабатывалась нестед-
+   * билдером (legacy / тесты).
+   */
+  nestedVariations?: AnnotationVariation[][];
 }
 
 export interface Annotation {

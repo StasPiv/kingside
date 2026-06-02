@@ -32,6 +32,11 @@ import {
   type StabilizedEngines,
   type StabilizedFirstMove,
 } from '../lib/review/buildStabilizedLine';
+import {
+  buildNestedVariations,
+  makeBudget,
+  type NestedBuilderEngines,
+} from '../lib/review/buildNestedVariations';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
 
@@ -397,6 +402,16 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         return res;
       }
 
+      // KS-3610: maia-кэш по FEN (для nested-pass'а).
+      const maiaCache = new Map<string, MaiaPolicy>();
+      async function getMaiaCached(fen: string): Promise<MaiaPolicy> {
+        const hit = maiaCache.get(fen);
+        if (hit) return hit;
+        const res = await engines.predictMaia(fen, elo);
+        maiaCache.set(fen, res);
+        return res;
+      }
+
       const moveInputs: MoveInput[] = [];
 
       try {
@@ -414,7 +429,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const sf = await getSf(fenBefore);
 
           // Maia policy.
-          const maia = await engines.predictMaia(fenBefore, elo);
+          const maia = await getMaiaCached(fenBefore);
 
           // wdlAfterPlayed: если в top-3 — берём оттуда, иначе ещё
           // один SF-go с searchmoves <playedUci>.
@@ -533,10 +548,51 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
       }
 
+      const annotations: Annotation[] = moveInputs.map(buildAnnotation);
+
+      // KS-3610 (ADR-101 §4.0/§4.2/§5): nested-pass. На каждой main-
+      // variation проходим рекурсивно и добавляем Maia-альтернативы
+      // под каждым её полуходом. Лимиты §5: per-node 2, total 12 на
+      // main-полуход, depth ≤ 4.
+      //
+      // Источник данных — sfCache (positional) + maiaCache. Если
+      // позиция вне кэша (например, ход вглубь stabilized-варианта на
+      // которой не запускали SF) — adapter возвращает `null` и
+      // соответствующий полуход пропускается. Это и есть ADR-100 §7
+      // ограничение «не делаем второго SF на каждый альтернативный
+      // ход».
+      const nestedEngines: NestedBuilderEngines = {
+        stabilized: stabilizedEngines,
+        getMaia: (fen) => {
+          const m = maiaCache.get(fen);
+          if (!m || !m.topUci) return null;
+          return { topUci: m.topUci, topProb: m.topProb };
+        },
+        getWdlBefore: (fen) => sfCache.get(fen)?.wdlBefore ?? null,
+        getWdlAfterMove: (fen, uci) => sfCache.get(fen)?.wdlByMove[uci] ?? null,
+      };
+
+      for (let i = 0; i < annotations.length; i++) {
+        if (cancelRef.current) break;
+        const ann = annotations[i];
+        if (ann.variations.length === 0) continue;
+        const budget = makeBudget(ann.variations.length);
+        const fenAtMainMove = moveInputs[i].fen;
+        for (const variation of ann.variations) {
+          if (budget.remainingTotal <= 0) break;
+          buildNestedVariations(
+            variation,
+            fenAtMainMove,
+            nestedEngines,
+            1,
+            budget,
+          );
+        }
+      }
+
       engines.terminate();
       enginesRef.current = null;
 
-      const annotations: Annotation[] = moveInputs.map(buildAnnotation);
       setResult({ annotations, moveInputs });
       setStatus('done');
     },

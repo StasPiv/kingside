@@ -44,75 +44,80 @@ function nagSuffix(nags: readonly number[] | undefined): string {
   return NAG_SYMBOL[nags[0]] ?? '';
 }
 
-/** Собирает строку side-variation. Глубина 1..3 ходов. */
+/**
+ * Собирает текст одной side-variation. KS-3610: рекурсивно
+ * расставляет вложенные `nestedVariations` после каждого SAN-хода.
+ *
+ * `startFen` — позиция перед первым ходом ветки (`v.uci`).
+ */
 function buildVariationText(
   startFen: string,
   v: AnnotationVariation,
 ): string {
-  // Считаем номер хода и сторону для SAN.
-  const tmp = new Chess(startFen);
-  const isWhiteToMove = startFen.split(' ')[1] === 'w';
-  const fullMoveNumber = Number(startFen.split(' ')[5] ?? '1');
-
-  const moves: string[] = [];
   const ucis = [v.uci, ...(v.subline ?? [])];
+  if (ucis.length === 0) return '';
+
+  // Симулируем ходы по позиции, чтобы получить SAN'ы и FEN'ы перед
+  // каждым полуходом ветки (нужно для рекурсии в nested-variations).
+  const fenBefore: string[] = [];
+  const sans: string[] = [];
+  let cur = startFen;
   for (const uci of ucis) {
-    const from = uci.slice(0, 2);
-    const to = uci.slice(2, 4);
-    const promotion = uci.length > 4 ? uci[4] : undefined;
-    let san: string;
+    fenBefore.push(cur);
     try {
-      const move = tmp.move({ from, to, promotion });
+      const b = new Chess(cur);
+      const move = b.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined,
+      });
       if (!move) return '';
-      san = move.san;
+      sans.push(move.san);
+      cur = b.fen();
     } catch {
       return '';
     }
-    moves.push(san);
   }
 
-  // Формируем «1. e4 e5 …» с правильной нумерацией и многоточием для
-  // вариаций, начинающихся с хода чёрных.
-  let out = '';
-  let movePtr = 0;
-  let curMoveNum = fullMoveNumber;
+  // Сборка токенов с правильной нумерацией.
+  const isWhiteToMove = startFen.split(' ')[1] === 'w';
+  const fullMoveNumber = Number(startFen.split(' ')[5] ?? '1');
+
+  const tokens: string[] = [];
   let whiteToPlay = isWhiteToMove;
-  while (movePtr < moves.length) {
+  let curMoveNum = fullMoveNumber;
+  for (let i = 0; i < sans.length; i++) {
+    // Префикс номера хода.
     if (whiteToPlay) {
-      out += (out ? ' ' : '') + `${curMoveNum}. ${moves[movePtr]}`;
-      movePtr++;
+      tokens.push(`${curMoveNum}.`);
+    } else if (i === 0) {
+      tokens.push(`${curMoveNum}...`);
+    }
+    // SAN + (если первый ход) NAG-суффикс.
+    const sanWithNag = i === 0 ? sans[i] + nagSuffix(v.nag) : sans[i];
+    tokens.push(sanWithNag);
+    // KS-3610: nested-variations после i-го полухода. Каждая —
+    // отдельная скобка `(...)`, рекурсивно через тот же
+    // `buildVariationText`. FEN ребёнка = `fenBefore[i]` (перед самим
+    // ходом nested-вариант предлагает альтернативу).
+    const nestedAtNode = v.nestedVariations?.[i] ?? [];
+    for (const nested of nestedAtNode) {
+      const inner = buildVariationText(fenBefore[i], nested);
+      if (inner) tokens.push(`(${inner})`);
+    }
+    // Переход хода / нумерация.
+    if (whiteToPlay) {
       whiteToPlay = false;
     } else {
-      if (movePtr === 0) {
-        // Чёрные на ходу первыми — добавляем «N…».
-        out += `${curMoveNum}... ${moves[movePtr]}`;
-      } else {
-        out += ` ${moves[movePtr]}`;
-      }
-      movePtr++;
       curMoveNum++;
       whiteToPlay = true;
     }
   }
 
-  // NAG на первый ход вариации (для red §4.2). Прикрепляем к первому SAN.
-  if (v.nag && v.nag.length > 0) {
-    // Заменим первый встретившийся SAN-токен (не «N.» / «N...»). Простой
-    // подход: добавляем символ к первому SAN — он у нас второй токен
-    // после «N.» или «N...».
-    const tokens = out.split(' ');
-    for (let i = 0; i < tokens.length; i++) {
-      if (!/^\d+\.+/.test(tokens[i])) {
-        tokens[i] = tokens[i] + nagSuffix(v.nag);
-        break;
-      }
-    }
-    out = tokens.join(' ');
-  }
-
-  // Цвет — через PGN-комментарий `{[%cvc green]}` (custom-variation-color).
-  out += ` {[%cvc ${v.color}]}`;
-  return out;
+  // Цвет — через PGN-комментарий `{[%cvc <color>]}`. Кладём в самый
+  // конец, чтобы рендерить «контейнер» цвета на всю ветку.
+  tokens.push(`{[%cvc ${v.color}]}`);
+  return tokens.join(' ');
 }
 
 export interface ApplyAnnotationsOptions {
