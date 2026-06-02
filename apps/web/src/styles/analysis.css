@@ -961,21 +961,14 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   min-width: 280px;
   min-height: 0;
   align-self: stretch;
-  /* KS-3118: было `overflow: hidden` — fix-доли блоков в процентах от
-     sidebar (engine 25% / archive 30% / moves 45%), переполнение лечил
-     internal scroll каждого блока.
-     KS-3586: после ADR-096 в engine-panel внутри Stockfish-линий
-     добавилась Maia-секция (3 PV + 5 строк Maia + кнопка KS-3579) —
-     это перестало вмещаться в 25% sidebar'а, лишние строки уходили
-     под обрезку (engine body имел `flex:1 1 auto` относительно жёстко
-     заданной высоты panel'а). Чтобы engine рос по контенту, panel-доля
-     снята (см. правило ниже), а sidebar получает fallback-скролл
-     `overflow-y: auto` — он включается ТОЛЬКО когда сумма высот
-     engine + archive + moves превышает sidebar (как было до KS-3118
-     с fallback-scroll'ом KS-3100). При обычной высоте окна (~850+)
-     контент помещается без скролла. */
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* KS-3118: возврат к `overflow: hidden` (после KS-3100 fallback-scroll).
+     Теперь высоты блоков фиксированы в процентах от sidebar'а
+     (см. `--analysis-sidebar-*-share` ниже), переполнение контента —
+     internal scroll каждого блока, fallback-скролл колонки не нужен.
+     KS-3586 ввёл fallback-scroll под Maia-секцию (ADR-096); ADR-097
+     отменил Maia-секцию (inline в Stockfish-линиях) — KS-3589 вернул
+     поведение KS-3118. */
+  overflow: hidden;
   /* iOS safe-area под home-indicator — внутренний padding sidebar'а. */
   padding-bottom: env(safe-area-inset-bottom, 0px);
   contain: inline-size;
@@ -989,35 +982,28 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 }
 
 /* KS-3118: Engine panel — collapsible. Раскрыта (`> .analysis-panel-body`
-   присутствует) — раньше `flex-basis: 25%`. Свёрнута (body отсутствует) —
+   присутствует) — `flex-basis: 25%`. Свёрнута (body отсутствует) —
    высота по контенту, т.е. только header (40px).
-   KS-3586: убрана жёсткая доля 25% — engine растёт по контенту
-   (Stockfish + Maia-секция). Переполнение sidebar'а лечится
-   fallback-скроллом всего sidebar (см. `.analysis-sidebar` выше). */
+   KS-3589: возврат к KS-3118 после отмены Maia-секции (ADR-097). */
 .analysis-sidebar > .analysis-panel:not(.analysis-panel--flex) {
   flex: 0 0 auto;
   min-height: 0;
 }
 .analysis-sidebar
   > .analysis-panel:not(.analysis-panel--flex):has(> .analysis-panel-body) {
-  /* KS-3586: было `flex: 0 0 var(--analysis-sidebar-engine-share)`. */
-  flex: 0 0 auto;
+  flex: 0 0 var(--analysis-sidebar-engine-share);
 }
-/* KS-3586: Engine body внутри desktop sidebar'а — высота по контенту,
-   без internal scrollbar'а. Раньше body имел `min/max-height: 132px`
-   (KS-2103) или `flex: 1 1 auto` под fix-доли panel'а (KS-3118) — оба
-   варианта обрезали Maia-секцию. Теперь body растёт по children'ам,
-   internal scroll не нужен, fallback — на уровне sidebar'а.
-   `overflow-x: hidden` — на случай длинных Stockfish-PV (там у самих
-   .stockfish-pv свой horizontal scroll, не дублируем). */
+/* Engine body внутри desktop sidebar'а растягивается на оставшееся
+   место в panel'е (panel.height - header 40px). Раньше body имел
+   `min/max-height: 132px` — фикс высота под 3 PV-линии, теперь высота
+   определяется flex-basis самого panel'а, а body внутри — flex:1 со
+   своим scrollbar'ом. */
 .analysis-sidebar
   > .analysis-panel:not(.analysis-panel--flex)
   > .analysis-panel-body {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
   max-height: none;
-  overflow-y: visible;
-  overflow-x: hidden;
 }
 
 /* KS-3118: Archive panel обёрнут в `<div class="analysis-desktop-only">`
