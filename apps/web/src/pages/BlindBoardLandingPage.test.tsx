@@ -6,7 +6,28 @@ import { BlindBoardLandingPage } from './BlindBoardLandingPage';
 
 /**
  * KS-3488 (ADR-088 V2 §15 F1) — лендинг с настройками сложности.
+ *
+ * KS-3556: KS-3511 добавил `BlindBoardSubNav` на лендинг, а он зовёт
+ * `useAuth()`. `renderWithProviders` из `test-utils.tsx` не оборачивает
+ * в `AuthProvider` — мокаем `AuthContext` локально по тому же паттерну,
+ * что и `GuessLandingPage.test.tsx` (KS-3503).
  */
+const { mockUseAuth } = vi.hoisted(() => ({
+  mockUseAuth: vi.fn(() => ({
+    user: { id: 'u-1', username: 'tester' },
+    token: 'jwt',
+    loading: false,
+    login: vi.fn(),
+    register: vi.fn(),
+    loginWithTokens: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  })),
+}));
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => mockUseAuth(),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 // SessionRunner мокаем — он рендерит лишний UI и фетчит api.
 vi.mock('../components/blindBoard/BlindBoardSessionRunner', () => ({

@@ -24,6 +24,17 @@ vi.mock('../api/archive', () => ({
   },
 }));
 
+// KS-3496: «Open in analysis» теперь идёт через openAnalysisFromPgn →
+// openAnalysis, которая POST'ит /analyses и навигирует на
+// `/analysis/<created.id>` (см. utils/openAnalysis.ts, KS-2603/KS-3263).
+// Без этого мока api.post падает, helper alert'ит и navigate НЕ зовётся.
+const mockApiPost = vi.fn();
+vi.mock('../api', () => ({
+  api: {
+    post: (...args: unknown[]) => mockApiPost(...args),
+  },
+}));
+
 const mockNavigate = vi.fn();
 const mockUseParams = vi.fn(() => ({ id: 'g-1' }));
 
@@ -71,6 +82,7 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockUseParams.mockReset();
   mockUseParams.mockReturnValue({ id: 'g-1' });
+  mockApiPost.mockReset();
   fetchMock.mockReset();
   // KS-2070: используем `vi.stubGlobal` (а не прямое присваивание
   // `globalThis.fetch = fetchMock`), чтобы `vi.unstubAllGlobals()` в
@@ -310,6 +322,11 @@ describe('ArchiveGamePage — навигация по ходам', () => {
 describe('ArchiveGamePage — кнопки действий', () => {
   it('«Open in analysis» зовёт navigate с правильным state', async () => {
     mockArchiveApi.getArchiveGameById.mockResolvedValueOnce(baseGame);
+    // KS-3263: helper POST'ит /analyses с минимальным body (PGN
+    // резолвится backend'ом по archiveGameId) и навигирует на
+    // /analysis/<created.id>. При source-id (archiveGameId) pgn/title
+    // в state НЕ кладутся (см. openAnalysis.ts KS-3263).
+    mockApiPost.mockResolvedValueOnce({ id: 'created-arch-1' });
     const user = (await import('@testing-library/user-event')).default.setup();
 
     renderWithProviders(<ArchiveGamePage />);
@@ -321,15 +338,25 @@ describe('ArchiveGamePage — кнопки действий', () => {
     );
 
     await user.click(screen.getByTestId('archive-game-page-open-in-analysis'));
-    expect(mockNavigate).toHaveBeenCalledWith(
-      '/analysis',
-      expect.objectContaining({
-        state: expect.objectContaining({
-          pgn: baseGame.pgn,
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/analyses',
+        expect.objectContaining({
           title: 'Magnus Carlsen vs Hikaru Nakamura',
-          breadcrumbBackUrl: '/archive/games/g-1',
+          category: 'analysis',
+          archiveGameId: 'g-1',
         }),
-      }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/analysis/created-arch-1',
+        expect.objectContaining({
+          state: expect.objectContaining({
+            breadcrumbBackUrl: '/archive/games/g-1',
+          }),
+        }),
+      ),
     );
   });
 

@@ -144,11 +144,18 @@ describe('<Sidebar> KS-2800 — 5 group nav-items', () => {
     expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
   });
 
-  it('KS-2811: «Тренировка» скрыта если puzzlesEnabled=false && drillsEnabled=false', () => {
+  // KS-3276 заменил поведение из KS-2811. Раньше пункт «Тренировка»
+  // прятался при `puzzlesEnabled=false && drillsEnabled=false`. После
+  // KS-3276 Opening Trainer стал всегда доступен (без feature-flag'а),
+  // поэтому пункт «Тренировка» виден даже когда обе старых фичи off —
+  // там как минимум есть Opening Trainer (и Puzzle Rush, тоже без флага).
+  // Сам внешний submenu гейтится через `customGate: () => true` в
+  // Sidebar.tsx (см. KS-3496).
+  it('KS-3276: «Тренировка» видна даже если puzzlesEnabled=false && drillsEnabled=false (Opening Trainer без gating)', () => {
     flagControls.puzzles = false;
     flagControls.drills = false;
     renderWithProviders(<Sidebar />);
-    expect(screen.queryByTitle(/^train$|^тренировка$/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle(/^train$|^тренировка$/i)).toBeInTheDocument();
   });
 
   it('KS-2811: «Тренировка» видна если хотя бы один из puzzlesEnabled/drillsEnabled = true', () => {

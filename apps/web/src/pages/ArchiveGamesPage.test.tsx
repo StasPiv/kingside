@@ -481,13 +481,29 @@ describe('ArchiveGamesPage — dispatch на by-position эндпоинт (KS-30
 
     await user.click(screen.getByTestId('archive-game-row-qg1'));
     await waitFor(() => expect(mockApiPost).toHaveBeenCalled());
+    // KS-3263 (см. ArchiveGamesPage.tsx:982): body POST `/analyses` стал
+    // минимальным — только `archiveGameId`/`title`/`category`. PGN
+    // backend резолвит сам, чтобы не зависеть от точности фронтового
+    // movetext (источник дрейфа source_hash). А navState (после
+    // KS-3261/3262) больше не несёт `pgn`/`title` — AnalysisPage берёт
+    // их через getById.
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/analyses',
+        expect.objectContaining({
+          title: 'A vs B',
+          category: 'analysis',
+          archiveGameId: 'qg1',
+        }),
+      ),
+    );
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith(
         '/analysis/created-uuid-ply?ply=7',
         expect.objectContaining({
           state: expect.objectContaining({
-            pgn: '1. d4 d5 2. c4 e6 3. Nc3 Nf6',
             initialPly: 7,
+            breadcrumbRootUrl: '/archive',
           }),
         }),
       ),
@@ -682,13 +698,16 @@ describe('ArchiveGamesPage — metadata режим', () => {
       expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('archive-game-row-g1'));
+    // KS-3263 (см. ArchiveGamesPage.tsx:982): минимальный body — PGN
+    // резолвит backend по archiveGameId. KS-3261/3262: navState без
+    // pgn/title.
     await waitFor(() =>
       expect(mockApiPost).toHaveBeenCalledWith(
         '/analyses',
         expect.objectContaining({
-          pgn: '1. e4 e5',
           title: 'Magnus Carlsen vs Hikaru Nakamura',
           category: 'analysis',
+          archiveGameId: 'g1',
         }),
       ),
     );
@@ -697,8 +716,6 @@ describe('ArchiveGamesPage — metadata режим', () => {
         '/analysis/created-uuid-1',
         expect.objectContaining({
           state: expect.objectContaining({
-            pgn: '1. e4 e5',
-            title: 'Magnus Carlsen vs Hikaru Nakamura',
             breadcrumbRootUrl: '/archive',
           }),
         }),
