@@ -14,7 +14,9 @@ import { isForfeitFromHeaders } from '../../utils/forfeitTermination';
 import type { ChessMove, VariationColor } from '../../review/types';
 import type { EvalLine, EngineErrorReason } from '../../hooks/useStockfish';
 import { PositionMaiaRatingButton } from '../../components/analysis/PositionMaiaRatingButton';
-import { MaiaAnalysisSection } from '../../components/analysis/MaiaAnalysisSection';
+import { MaiaEloSelect } from '../../components/analysis/MaiaEloSelect';
+import { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
+import type { User } from '@kingside/shared';
 
 /**
  * KS-3579 helper: вытаскиваем первый UCI-ход из PV. EvalLine.pv в проде —
@@ -136,11 +138,12 @@ export interface AnalysisSidebarProps {
    */
   pgnHeaders?: Record<string, string> | null;
   /**
-   * KS-3584 (ADR-096): пользователь — для подбора initial ELO в
-   * `MaiaAnalysisSection`. Опц.; если не передан — fallback на
-   * localStorage / 1500. AnalysisPage передаёт `useAuth().user`.
+   * KS-3584/KS-3588 (ADR-096 → ADR-097): пользователь — для подбора
+   * initial ELO Maia. AnalysisPage передаёт `useAuth().user`. После
+   * KS-3588 сам Sidebar держит один экземпляр `useMaiaAnalysis` и
+   * пробрасывает `getProbability` в каждую `.stockfish-line`.
    */
-  maiaUser?: import('@kingside/shared').User | null;
+  maiaUser?: User | null;
 }
 
 export function AnalysisSidebar({
@@ -198,6 +201,15 @@ export function AnalysisSidebar({
     sheetSnap,
     setSheetSnap,
   } = useFocusMode();
+
+  // KS-3588 (ADR-097): один экземпляр Maia-хука на весь Sidebar.
+  // `getProbability` уходит в каждую `.stockfish-line` для inline-
+  // вероятности, `elo`/`setElo`/`status` — в `MaiaEloSelect` в шапке
+  // engine-panel.
+  const maia = useMaiaAnalysis({
+    fen: currentFen,
+    user: maiaUser,
+  });
 
   // KS-3258 follow-up: forfeit-fallback. Если history пуста и headers
   // указывают на [Termination "Unplayed"] / Result != "*" — рендерим
@@ -307,6 +319,18 @@ export function AnalysisSidebar({
                 stopPropagation на самой кнопке — чтобы клик не
                 сворачивал родительскую панель. */}
             <SidebarFontSizeButton />
+            {/* KS-3588 (ADR-097): селект ELO для inline-вероятностей Maia.
+                stopPropagation чтобы клик не сворачивал engine-panel. */}
+            <span
+              className="maia-elo-select-wrapper"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MaiaEloSelect
+                value={maia.elo}
+                onChange={maia.setElo}
+                status={maia.status}
+              />
+            </span>
             <span
               className="engine-multipv-controls"
               onClick={(e) => e.stopPropagation()}
@@ -378,10 +402,12 @@ export function AnalysisSidebar({
         </div>
         {panelStates.engine && (
           // KS-3584 (ADR-096): добавлен Maia-блок внутри engine-panel.
-          // Старый `.analysis-panel-body` имеет max-height: 132px (фикс
-          // под 3 PV Stockfish), Maia уходила под скролл с обрезкой.
-          // Модификатор `--scroll` снимает max-height (см. KS-3585).
-          <div className="analysis-panel-body analysis-panel-body--scroll">
+          // KS-3588 (ADR-097): возвращаем `.analysis-panel-body` без
+          // `--scroll` — после удаления отдельной Maia-секции (KS-3584)
+          // в engine-panel остаются только PV Stockfish + кнопка KS-3579,
+          // max-height: 132px от KS-3585 опять подходит. CSS-решение —
+          // в задаче B/layout.
+          <div className="analysis-panel-body">
             {/* KS-3067: индикатор загрузки/ошибки wasm-движка. Только для
                 wasm-источника — у external свой error-баннер выше. */}
             {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
@@ -395,28 +421,42 @@ export function AnalysisSidebar({
             )}
             <div className="stockfish-lines">
               {(analysisEnabled || displayedLines.length > 0) &&
-                displayedLines.map((line) => (
-                  <div key={line.multipv} className="stockfish-line">
-                    <span
-                      className={`stockfish-eval${
-                        line.score.type === 'mate'
-                          ? ' mate'
-                          : line.multipv === 1
-                            ? ' best'
+                displayedLines.map((line) => {
+                  // KS-3588: inline-вероятность Maia рядом с eval.
+                  const uci = extractBestUci(line.pv);
+                  const prob = maia.getProbability(uci);
+                  const probLabel =
+                    prob == null ? '(--)' : `(${(prob * 100).toFixed(1)}%)`;
+                  return (
+                    <div key={line.multipv} className="stockfish-line">
+                      <span
+                        className={`stockfish-eval${
+                          line.score.type === 'mate'
+                            ? ' mate'
+                            : line.multipv === 1
+                              ? ' best'
+                              : ''
+                        }`}
+                      >
+                        {formatEval(line, evalIsBlackTurn)}
+                      </span>
+                      <span
+                        className={`stockfish-maia-prob${
+                          maia.status === 'loading'
+                            ? ' stockfish-maia-prob--stale'
                             : ''
-                      }`}
-                    >
-                      {formatEval(line, evalIsBlackTurn)}
-                    </span>
-                    <span className="stockfish-pv">
-                      {formatPv(line.pv, currentFen)}
-                    </span>
-                  </div>
-                ))}
+                        }`}
+                        data-testid={`maia-prob-${line.multipv}`}
+                      >
+                        {probLabel}
+                      </span>
+                      <span className="stockfish-pv">
+                        {formatPv(line.pv, currentFen)}
+                      </span>
+                    </div>
+                  );
+                })}
             </div>
-            {/* KS-3584 (ADR-096): постоянный Maia-анализ в engine-panel.
-                Работает независимо от Stockfish — собственный worker.  */}
-            <MaiaAnalysisSection fen={currentFen} user={maiaUser} />
             {/* KS-3579: «Получить рейтинг позиции» — Maia-3 в воркере.
                 Best-ход берём из top-1 линии Stockfish (UCI первый ход
                 в PV). Если линий пока нет — кнопка disabled. */}
@@ -553,6 +593,12 @@ export function AnalysisSidebar({
               {engineStatusSuffix}
             </div>
             <div className="analysis-mobile-engine-controls">
+              {/* KS-3588 (ADR-097): mobile-копия ELO-селекта Maia. */}
+              <MaiaEloSelect
+                value={maia.elo}
+                onChange={maia.setElo}
+                status={maia.status}
+              />
               <span className="engine-multipv-controls">
                 <button
                   className="engine-multipv-btn"
@@ -598,8 +644,9 @@ export function AnalysisSidebar({
                 </button>
               )}
             </div>
-            {/* KS-3584: mobile engine-panel — снимаем max-height ради Maia. */}
-            <div className="analysis-panel-body analysis-panel-body--scroll">
+            {/* KS-3588 (ADR-097): возвращаем `.analysis-panel-body`
+                без `--scroll`, см. desktop-комментарий выше. */}
+            <div className="analysis-panel-body">
               {/* KS-3067: тот же индикатор для мобильной вкладки «Engine». */}
               {activeSource === 'wasm' && analysisEnabled && (sfState === 'loading' || sfState === 'error') && (
                 <EngineLoader
@@ -612,27 +659,44 @@ export function AnalysisSidebar({
               )}
               <div className="stockfish-lines">
                 {(analysisEnabled || displayedLines.length > 0) &&
-                  displayedLines.map((line) => (
-                    <div key={line.multipv} className="stockfish-line">
-                      <span
-                        className={`stockfish-eval${
-                          line.score.type === 'mate'
-                            ? ' mate'
-                            : line.multipv === 1
-                              ? ' best'
+                  displayedLines.map((line) => {
+                    // KS-3588: inline-вероятность Maia.
+                    const uci = extractBestUci(line.pv);
+                    const prob = maia.getProbability(uci);
+                    const probLabel =
+                      prob == null
+                        ? '(--)'
+                        : `(${(prob * 100).toFixed(1)}%)`;
+                    return (
+                      <div key={line.multipv} className="stockfish-line">
+                        <span
+                          className={`stockfish-eval${
+                            line.score.type === 'mate'
+                              ? ' mate'
+                              : line.multipv === 1
+                                ? ' best'
+                                : ''
+                          }`}
+                        >
+                          {formatEval(line, evalIsBlackTurn)}
+                        </span>
+                        <span
+                          className={`stockfish-maia-prob${
+                            maia.status === 'loading'
+                              ? ' stockfish-maia-prob--stale'
                               : ''
-                        }`}
-                      >
-                        {formatEval(line, evalIsBlackTurn)}
-                      </span>
-                      <span className="stockfish-pv">
-                        {formatPv(line.pv, currentFen)}
-                      </span>
-                    </div>
-                  ))}
+                          }`}
+                          data-testid={`maia-prob-mobile-${line.multipv}`}
+                        >
+                          {probLabel}
+                        </span>
+                        <span className="stockfish-pv">
+                          {formatPv(line.pv, currentFen)}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
-              {/* KS-3584 (ADR-096): mobile-блок Maia-анализа. */}
-              <MaiaAnalysisSection fen={currentFen} />
               {/* KS-3579: mobile-вариант кнопки «Получить рейтинг позиции». */}
               <PositionMaiaRatingButton
                 fen={currentFen}

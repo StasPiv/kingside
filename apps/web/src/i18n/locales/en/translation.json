@@ -922,11 +922,11 @@
   },
   "analysis": {
     "maia": {
-      "title": "Human moves (Maia)",
-      "elo": "ELO",
+      "elo": "Maia",
       "loading": "Loading Maia…",
       "error": "Failed to load Maia",
-      "retry": "Try again"
+      "retry": "Try again",
+      "unavailable": "Maia unavailable"
     },
     "useAsRepertoire": {
       "menuItem": "Use as new repertoire",

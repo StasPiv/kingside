@@ -932,11 +932,11 @@
   },
   "analysis": {
     "maia": {
-      "title": "Ходы людей (Maia)",
-      "elo": "ELO",
+      "elo": "Maia",
       "loading": "Загружаем Maia…",
       "error": "Не удалось загрузить Maia",
-      "retry": "Попробовать снова"
+      "retry": "Попробовать снова",
+      "unavailable": "Maia недоступна"
     },
     "useAsRepertoire": {
       "menuItem": "Использовать как новый репертуар",
