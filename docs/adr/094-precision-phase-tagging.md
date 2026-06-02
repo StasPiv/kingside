@@ -1,10 +1,19 @@
 # ADR-094. Precision — автотегирование фазы партии (debut / middlegame / endgame)
 
-Статус: предложен (2026-06-02) — аналитический документ
-Связано: KS-3561 (этот ADR), ADR-080 (precision theme filters —
-whitelist уже включает `opening`/`middlegame`/`endgame`),
+Статус: предложен (2026-06-02, ревизия 2) — аналитический документ
+Связано: KS-3561 (M1, фазы), KS-3566 (M2, подвиды эндшпиля),
+ADR-080 (precision theme filters — whitelist уже включает
+`opening`/`middlegame`/`endgame` + подвиды),
 ADR-070 / ADR-041 (puzzle-generator tagging), ADR-079 (auto-pick
 по теме), ADR-085 (lichess-puzzler applicability).
+
+> **Ревизия 2 (2026-06-02).** Расширение M2 — подвиды эндшпиля
+> (см. §8). Скрин пользователя показал что секция «Эндшпиль»
+> разметила 2177 generated-задач зонтичным `endgame`, но 5
+> подвидов (pawn/rook/queen/knight/bishop) имеют counter 0 —
+> детектор подвида отсутствует. Добавляем `detectEndgameSubtype`
+> по составу не-пешечного материала, backfill 2177 эндшпилей.
+> Lichess не trogaem.
 
 ## 1. Контекст
 
@@ -303,3 +312,320 @@ audit покажет пропуски) → C1 (i18n проверка, парал
   поля до backfill. Митигация: до запуска B3 сделать
   `pg_dump puzzles --table puzzles --data-only > backup.sql`.
 - API contracts не меняются — откат не нужен.
+
+---
+
+## 8. Ревизия 2 — подвиды эндшпиля (KS-3566)
+
+### 8.1 Запрос пользователя
+
+Скрин `/tmp/telegram/326131278_0.jpg`: страница «Темы» precision
+показывает `Эндшпиль (2177)` — зонтичный тег работает (M1 §3.1).
+Но под ним 4 подвида с counter'ом 0:
+- Пешечный эндшпиль (0)
+- Ладейный эндшпиль (0)
+- Ферзевый эндшпиль (0)
+- Коневой эндшпиль (0)
+
+Слоновый эндшпиль присутствует в whitelist
+(`PRECISION_THEME_GROUPS.endgame` line 78 `precision-themes.ts`),
+на скрине обрезан скроллом. Все 5 подвидов рендерятся UI, но
+generated-задачи их не получают.
+
+Запрос: подвиды + смешанные. Lichess не трогать.
+
+### 8.2 Проверено по коду
+
+- **`PRECISION_THEME_GROUPS.endgame`** в `packages/shared/src/
+  utils/precision-themes.ts:72-83` уже содержит 10 эндшпильных
+  тем: `endgame`, `pawnEndgame`, `rookEndgame`, `queenEndgame`,
+  `knightEndgame`, `bishopEndgame`, `queenRookEndgame`,
+  `promotion`, `underPromotion`, `advancedPawn`. UI группы готов.
+- **i18n** уже содержит RU labels (видны на скрине: «Пешечный
+  эндшпиль», «Ладейный эндшпиль», ...). EN — проверить.
+- **`computeTags` (M1)** ставит только зонтичный `endgame` — без
+  подвида. Расширяем здесь.
+- **`opposite-colors-bishops`** — в whitelist precision-themes.ts
+  **отсутствует** (комментарий line 69-71 «пропускаем»). M3 если
+  потребуется.
+
+### 8.3 Решение — состав не-пешечного материала
+
+Подвид определяется по объединённому множеству типов не-пешечных
+не-королевских фигур ОБЕИХ сторон.
+
+```ts
+type EndgameSubtype =
+  | 'pawnEndgame'
+  | 'rookEndgame'
+  | 'queenEndgame'
+  | 'knightEndgame'
+  | 'bishopEndgame'
+  | 'queenRookEndgame'
+  | null;  // смешанный без специфичного подвида
+
+function detectEndgameSubtype(fen: string): EndgameSubtype {
+  const chess = new Chess(fen);
+  const pieces = allPieces(chess);  // {type, color}[]
+  // Не-пешечные и не-королевские фигуры обеих сторон.
+  const heavy = pieces.filter(p => p.type !== 'p' && p.type !== 'k');
+  const types = new Set(heavy.map(p => p.type));   // подмножество {q,r,b,n}
+
+  if (types.size === 0) {
+    // Только пешки и короли (или вообще K vs K — экзотика).
+    return 'pawnEndgame';
+  }
+  if (types.size === 1) {
+    const only = [...types][0];
+    if (only === 'r') return 'rookEndgame';
+    if (only === 'q') return 'queenEndgame';
+    if (only === 'n') return 'knightEndgame';
+    if (only === 'b') return 'bishopEndgame';
+  }
+  if (types.size === 2 && types.has('q') && types.has('r')) {
+    return 'queenRookEndgame';   // lichess-стандарт, в whitelist
+  }
+  // Остальные комбо: R+N, R+B, B+N, Q+N, Q+B и т.д.
+  // Без специфичного тега в M2.
+  return null;
+}
+```
+
+**Семантика «чистого» подвида:**
+- `pawnEndgame` — только пешки (или вообще без не-пешечного
+  материала). Включает асимметрию (K+P vs K).
+- `rookEndgame` — у обеих сторон ТОЛЬКО ладьи (среди не-пешечных).
+  Асимметрия R+P vs K+P тоже считается ладейным (у одной стороны
+  ладьи, у другой нет — но единственный тип НЕ-пешечной = ладья).
+- `queenEndgame`, `knightEndgame`, `bishopEndgame` — аналогично.
+- `queenRookEndgame` — ровно набор `{q, r}` (q+r vs q, q+r vs r,
+  q+r vs q+r, q vs r и т.п. — везде где НЕТ N и B).
+
+**«Смешанные» (M2):** все остальные комбо (R+N, R+B, B+N, Q+B,
+Q+N, и т.д.) → `null` → только зонтичный `endgame`, без
+подвидового тега. UI таких задач показывает в фильтре «Эндшпиль»
+(зонтичный), но НЕ в подсекциях.
+
+Альтернатива (отвергнута для M2): добавить общий
+`mixedEndgame`-тэг. Не делаем — нет в whitelist
+`precision-themes.ts`, требует S-задачи на расширение, и
+семантически «смешанный» — слабая категория для тренировки.
+Open Q1.
+
+### 8.4 Асимметрия и edge-cases
+
+| Позиция | types | Подвид |
+|---|---|---|
+| K+P vs K | ∅ | `pawnEndgame` |
+| K vs K | ∅ | `pawnEndgame` (формально; вряд ли встретится после фильтра ENDGAME §3.1) |
+| K+R+P vs K+P | {r} | `rookEndgame` |
+| K+R vs K+N | {r,n} | `null` (R vs N — смешанный) |
+| K+Q+R vs K+R | {q,r} | `queenRookEndgame` |
+| K+Q+R+B vs K+R | {q,r,b} | `null` (Q+R+B — смешанный) |
+| K+B+B vs K+N | {b,n} | `null` (B+N — смешанный) |
+| K+N+N vs K | {n} | `knightEndgame` |
+| K+B vs K | {b} | `bishopEndgame` |
+
+### 8.5 Хранение — зонтичный + подвид
+
+`Puzzle.themes` получает **оба** тега:
+- `endgame` (всегда, из M1 §3.1).
+- Дополнительно подвид если `detectEndgameSubtype` возвращает не
+  `null`.
+
+Пример: `"endgame rookEndgame quietMove"` или просто `"endgame"`
+для смешанных.
+
+Обоснование:
+- Lichess делает так же (puzzle с `pawnEndgame` имеет также
+  `endgame`).
+- Фильтр «все эндшпили» работает одной галкой `endgame`.
+- Фильтр «только пешечный» работает галкой `pawnEndgame`
+  (без `endgame`, т.к. ADR-080 фильтр работает на OR/AND).
+- Counter ADR-080 §4.3 unnest'ит оба тега независимо — счётчики
+  суммируются логично.
+
+### 8.6 Контракт API — без изменений
+
+`PuzzleListItem.themes` уже отдаёт строку. Whitelist
+`PRECISION_RELEVANT_THEMES` уже включает все 5 подвидов +
+`queenRookEndgame`. Frontend (`PrecisionThemesSheet`) уже умеет
+их рендерить (скрин подтверждает).
+
+**Никаких изменений** в:
+- `packages/shared/src/utils/precision-themes.ts` (whitelist).
+- `apps/api/src/precision/precision.controller.ts` (endpoint
+  `/theme-counts` сам подберёт новые counter'ы).
+- `apps/web/src/components/precision/PrecisionThemesSheet.tsx`.
+
+### 8.7 Backfill 2177 эндшпилей
+
+CLI-скрипт расширяет `backfill-phase.ts` (B3 из M1) или
+отдельный `backfill-endgame-subtype.ts`.
+
+```sql
+-- Audit: сколько эндшпилей generated без подвидового тега
+SELECT COUNT(*) FROM puzzles
+WHERE source = 'generated'
+  AND themes ~* '(^| )endgame( |$)'
+  AND themes !~* '(^| )(pawnEndgame|rookEndgame|queenEndgame|knightEndgame|bishopEndgame|queenRookEndgame)( |$)';
+```
+
+Ожидаемо ≈ 2177 (или меньше — часть может уже иметь подвид из
+lichess-теггера если puzzle хибридный, но source='generated' →
+все наши, без подвида).
+
+```sql
+-- Backfill: для каждой записи определить подвид и дописать
+-- (выполняется через Node.js script — нужен Chess parser).
+```
+
+Алгоритм CLI:
+1. SELECT id, fen, themes для всех generated endgame без подвида.
+2. Для каждой: `subtype = detectEndgameSubtype(fen)`.
+3. Если `subtype !== null` — `UPDATE themes = trim(themes || ' ' || subtype)`.
+4. Если `null` (смешанный) — пропускаем, оставляем только
+   зонтичный `endgame`.
+5. Batch 500, COMMIT после каждой пачки.
+6. Идемпотентно (повторный запуск пропускает уже размеченные —
+   за счёт `themes !~ subtype`).
+
+**Lichess НЕ trogaem:** `WHERE source = 'generated'` гарантирует.
+У lichess свои оригинальные подвиды (lichess-puzzler tagger).
+
+**Бэкап перед запуском:** `pg_dump --table puzzles --data-only >
+/tmp/puzzles-backup-subtype.sql`.
+
+### 8.8 UI — без правок
+
+Frontend `PrecisionThemesSheet` уже рендерит группу «Эндшпиль» с
+всеми подвидами (видно на скрине). После backfill counter'ы
+автоматически проставятся (через `GET /precision/theme-counts`
+ADR-080 §4.3).
+
+Frontend / layout — НЕТ задач.
+
+### 8.9 Что НЕ делаем (M2)
+
+- НЕ вводим `mixedEndgame`-тег (Open Q1).
+- НЕ пересчитываем lichess-задачи (§8.7).
+- НЕ детектируем `opposite-colors-bishops` (нет в whitelist —
+  M3).
+- НЕ детектируем `promotion` / `underPromotion` / `advancedPawn`
+  по FEN — они требуют анализа линии (продвижение в ходе
+  решения), а не позиции. Отдельная задача (M3).
+- НЕ переразмечаем уже размеченные подвидом (идемпотентность).
+
+### 8.10 Подзадачи M2
+
+Зависимости: B1-M2 → B2-M2 (backfill) → B3-M2 (audit).
+C1-M2 параллельно.
+
+#### KS (B1-M2) — `computeTags`: detectEndgameSubtype при `endgame`-фазе
+
+**Assignee:** backend (tactic-worker).
+**Labels:** `puzzle`, `analysis`.
+**Зависит:** KS-3562 (M1 detectPhase в `computeTags`).
+- В `apps/tactic-worker/src/puzzle-generator/tagging.ts` —
+  после установки тега `endgame` (M1) вызвать
+  `detectEndgameSubtype(startFen)` по §8.3.
+- Если возвращает не-null — `tags.add(subtype)`.
+- Если null — ничего не добавлять (только зонтичный `endgame`).
+- Unit-тесты на 9 кейсов из таблицы §8.4 + 2 регрессии (K+R+R+P
+  vs K+R+P → rookEndgame; K+Q+P vs K+Q+P → queenEndgame).
+- Acceptance: тесты зелёные; новые generated эндшпили получают
+  подвидовый тег где применимо.
+
+#### KS (B2-M2) — backfill подвидов для 2177 generated эндшпилей
+
+**Assignee:** backend.
+**Labels:** `puzzle`, `analysis`.
+**Зависит:** B1-M2 (нужна функция `detectEndgameSubtype`).
+- CLI-скрипт `apps/tactic-worker/scripts/backfill-endgame-subtype.ts`
+  (или расширение существующего backfill-phase.ts из M1 B3).
+- Алгоритм §8.7. Batch 500.
+- Lichess НЕ trogaем (`WHERE source='generated'`).
+- Бэкап до запуска (см. §8.7).
+- Acceptance: после прогона SQL audit (§8.7) возвращает 0 для
+  записей где подвид определим (смешанные остаются без подвида).
+  Spot-check 10 случайных подвидов — соответствуют визуально.
+
+#### KS (B3-M2) — audit распределения подвидов
+
+**Assignee:** backend.
+**Labels:** `puzzle`, `analysis`.
+**Зависит:** B2-M2.
+- SQL:
+  ```sql
+  SELECT
+    CASE
+      WHEN themes ~* '(^| )pawnEndgame( |$)'   THEN 'pawn'
+      WHEN themes ~* '(^| )rookEndgame( |$)'   THEN 'rook'
+      WHEN themes ~* '(^| )queenEndgame( |$)'  THEN 'queen'
+      WHEN themes ~* '(^| )knightEndgame( |$)' THEN 'knight'
+      WHEN themes ~* '(^| )bishopEndgame( |$)' THEN 'bishop'
+      WHEN themes ~* '(^| )queenRookEndgame( |$)' THEN 'queenRook'
+      ELSE 'mixed_no_subtype'
+    END AS subtype,
+    COUNT(*) AS cnt
+  FROM puzzles
+  WHERE source='generated'
+    AND themes ~* '(^| )endgame( |$)'
+  GROUP BY 1 ORDER BY 2 DESC;
+  ```
+- Отчёт в комментарий: какая доля «смешанных без подвида».
+  Если перекос (например, 80% mixed) — повод подумать про Q1
+  (mixedEndgame тэг или пары типа rookKnightEndgame).
+- Acceptance: цифры в комментарии.
+
+#### KS (C1-M2) — i18n проверка для bishopEndgame + queenRookEndgame
+
+**Assignee:** chess-expert (RU) + frontend (EN).
+**Labels:** `puzzle`, `i18n`.
+- Проверить в `apps/web/src/i18n/locales/{ru,en}/translation.json`:
+  - `puzzleTheme.bishopEndgame` — RU «Слоновый эндшпиль»,
+    EN «Bishop endgame».
+  - `puzzleTheme.queenRookEndgame` — RU «Ферзь и ладья»,
+    EN «Queen + rook endgame».
+- Если RU видно на скрине (пешечный/ладейный/ферзевый/коневой
+  уже есть — KS-3359), то slovariev уже добавлен; проверка
+  формальная.
+- Acceptance: оба ключа на обоих языках, без fallback на
+  camelCase.
+
+**Frontend / layout — НЕТ задач.** UI и whitelist готовы.
+
+### 8.11 Open questions M2
+
+1. **`mixedEndgame` тэг** — добавить общий для всех «не покрытых»
+   комбо (R+N, R+B, B+N, и т.д.) или оставить как сейчас
+   (только зонтичный `endgame`)? Решение по результату B3-M2
+   audit. Если доля «mixed_no_subtype» > 30% — добавить
+   `mixedEndgame` (требует расширения `PRECISION_THEME_GROUPS`
+   + i18n + миграции tagger).
+2. **Конкретные пары** (`rookKnightEndgame`, `rookBishopEndgame`,
+   `bishopKnightEndgame`) — добавить если M2 audit покажет
+   массовые комбо? Lichess их не имеет — за пределы стандарта.
+3. **`opposite-colors-bishops`** — добавить в whitelist
+   (`precision-themes.ts`) + детектор (B+B обеих сторон на
+   клетках разного цвета)? M3 — после feedback пользователей.
+4. **Lichess-сверка** — проверить как lichess-puzzler ставит
+   `pawnEndgame` etc и сверить пороги. Сейчас наш алгоритм
+   симметричный (учитывает обе стороны) — lichess может быть
+   асимметричным (только проигрывающая сторона). M3 если будут
+   жалобы на расхождение.
+5. **Promotion / underPromotion / advancedPawn** — детектор по
+   FEN невозможен (продвижение происходит В ходе линии). Нужен
+   анализ moves[]. M3, отдельная задача.
+6. **`endgame` без подвида** (смешанный) — оставить как сейчас
+   (зонтичный + ничего) ИЛИ добавить `mixedEndgame` сразу в M2
+   без audit? Моё — после audit (Q1).
+
+### 8.12 Откат M2
+
+- B1-M2: revert тэгирующего кода — новые generated не получают
+  подвид, старые backfill-данные остаются. Не блокирует ничего.
+- B2-M2 backfill: revert через бэкап `puzzles-backup-subtype.sql`
+  (см. §8.7). Без бэкапа — `UPDATE themes = trim(replace(themes,
+  ' pawnEndgame', '')) ...` (5 регексп-замен).
+- UI / API — без изменений, отката не требуют.
