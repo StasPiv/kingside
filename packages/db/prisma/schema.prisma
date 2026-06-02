@@ -786,6 +786,14 @@ model Analysis {
   /// идемпотентность endpoint'а (повторный клик возвращает existing).
   /// NULL для всех анализов, не созданных из guess-flow.
   guessSessionId  String? @map("guess_session_id") @db.Uuid
+  /// KS-3602 / ADR-100 §8.2. Soft-ссылка на оригинал для авто-
+  /// аннотированных дубликатов («Разобрать партию» через Stockfish+Maia).
+  /// NULL для оригиналов и независимо созданных анализов.
+  /// Без FK — оригинал может быть удалён пользователем, дубль остаётся
+  /// висячим (фронт обрабатывает 410 на регенерацию). Идемпотентность
+  /// duplicate-annotated endpoint'а — через findFirst+update/create
+  /// (UNIQUE индекс не ставим: §«Не делать», избегаем 409 на race).
+  originalAnalysisId String? @map("original_analysis_id") @db.Uuid
   /// KS-3261. LRU-сортировка списка «Мои анализы». Обновляется на каждое
   /// «открытие» (создание нового / повторный POST /analyses, который
   /// возвращает existing). Default = createdAt для бэкфила legacy-записей.
@@ -811,6 +819,9 @@ model Analysis {
   /// одна guess-сессия = один анализ. NULL повторяется (legacy и обычные
   /// анализы не из guess-flow).
   @@unique([userId, guessSessionId], map: "analyses_user_guess_session_uniq")
+  /// KS-3602 / ADR-100 §8.2. Поиск дубля для duplicate-annotated
+  /// endpoint'а (findFirst по userId+originalAnalysisId).
+  @@index([userId, originalAnalysisId])
   @@map("analyses")
 }
 

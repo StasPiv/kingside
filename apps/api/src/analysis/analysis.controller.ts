@@ -21,6 +21,7 @@ import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 import { ShareAnalysisDto } from './dto/share-analysis.dto';
 import { CheckExistingDto } from './dto/check-existing.dto';
+import { DuplicateAnnotatedDto } from './dto/duplicate-annotated.dto';
 import { McpTool } from '../mcp/decorators';
 
 /**
@@ -162,6 +163,23 @@ export class AnalysisController {
     @Body() dto: ShareAnalysisDto,
   ) {
     return this.analysisService.share(req.user.id, id, dto.isPublic);
+  }
+
+  // KS-3602 / ADR-100 §8.4. Идемпотентный дубль анализа с авто-NAG'ами.
+  // Frontend (KS-3603) собирает аннотированный PGN после клиентского
+  // прогона Stockfish+Maia на оригинале и шлёт сюда. Backend создаёт
+  // (или обновляет существующий) дубль с soft-ссылкой
+  // `originalAnalysisId` на оригинал.
+  //
+  // `@McpTool` НЕ добавляем: действие не имеет смысла для AI-ассистента
+  // без UI-контекста (см. описание KS-3602 §5 «MCP discovery»).
+  @Post(':id/duplicate-annotated')
+  duplicateAnnotated(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DuplicateAnnotatedDto,
+  ) {
+    return this.analysisService.duplicateAnnotated(req.user.id, id, dto);
   }
 
   @Patch(':id')

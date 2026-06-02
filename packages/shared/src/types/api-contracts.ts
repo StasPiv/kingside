@@ -1581,6 +1581,14 @@ export type AnalysisResponse = {
    * читал его cast'ом — теперь явная часть контракта.
    */
   isPublic: boolean;
+  /**
+   * KS-3602 / ADR-100 §8.2. Soft-ссылка на оригинал для авто-аннотированных
+   * дубликатов («Разобрать партию» через Stockfish+Maia). NULL для
+   * оригиналов и независимых анализов. Без FK — оригинал может быть
+   * удалён, дубль остаётся (фронт это обрабатывает: «← Исходный анализ»
+   * disabled при resolve 404 / 410).
+   */
+  originalAnalysisId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1607,6 +1615,14 @@ export type AnalysisListItem = {
   category: string | null;
   tags: string[];
   createdAt: string;
+  /**
+   * KS-3602 / ADR-100. Soft-ссылка на оригинал для авто-аннотированных
+   * дубликатов. NULL для оригиналов. Frontend (KS-3603) использует для:
+   *  - отображения badge/иконки «дубль с авто-аннотацией» в списке;
+   *  - переключения логики кнопки «Разобрать партию»
+   *    (на дубле → «Перегенерировать»).
+   */
+  originalAnalysisId: string | null;
   /** Присутствует только при `?withPgn=true`. */
   pgn?: string | null;
   /** Присутствует только при `?withPgn=true`. */

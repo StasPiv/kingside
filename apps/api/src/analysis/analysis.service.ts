@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,6 +10,7 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
+import { DuplicateAnnotatedDto } from './dto/duplicate-annotated.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 
 /**
@@ -850,5 +853,124 @@ export class AnalysisService implements OnModuleInit {
     if (analysis.userId !== userId) throw new ForbiddenException();
     await this.prisma.analysis.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  /**
+   * KS-3602 / ADR-100. NAG auto-annotation: создать или обновить
+   * дубль анализа с авто-NAG'ами и variations.
+   *
+   * Шаги (соответствуют ADR-100 §8.4–§8.5):
+   *  1. Загрузить целевой Analysis с проверкой владельца через
+   *     `findFirst({ id, userId })` — это маскирует чужие записи в 404
+   *     (не светим существование чужого анализа).
+   *  2. Если целевой сам является дублём (`originalAnalysisId != null`)
+   *     — резолвим в родителя (рекурсия защита: ровно один шаг).
+   *     Если родитель удалён — 410 Gone, регенерация невозможна.
+   *  3. Поиск существующего дубля парента по
+   *     `findFirst({ userId, originalAnalysisId: parent.id })`.
+   *     UNIQUE индекс не ставим (см. ADR §«Не делать»: race-обработка
+   *     проще в коде).
+   *  4. Если существует — `update` (новый pgn, lastOpenedAt). title НЕ
+   *     трогаем — пользователь мог переименовать вручную.
+   *  5. Если не существует — `create` с копированием метаданных партии
+   *     из parent (см. §«Скопированные поля»). pgn новый, title с
+   *     суффиксом, isPublic/sourceHash/guessSessionId — сброшены,
+   *     currentPosition=0.
+   *  6. Возврат в shape `findOne`-результата (tags разбиты на массив).
+   */
+  async duplicateAnnotated(
+    userId: string,
+    id: string,
+    dto: DuplicateAnnotatedDto,
+  ) {
+    // 1. Загружаем + проверяем владельца одним findFirst — чужие
+    //    отдаём как 404, не светим существование.
+    const target = await this.prisma.analysis.findFirst({
+      where: { id, userId },
+    });
+    if (!target) throw new NotFoundException('Analysis not found');
+
+    // 2. Резолв родителя: если target — сам дубль, ищем настоящий
+    //    оригинал. Гарантируем ровно один шаг рекурсии: parent сам
+    //    дублём не считаем (для simplicity и безопасности — глубина 1).
+    let parent = target;
+    if (target.originalAnalysisId) {
+      const resolved = await this.prisma.analysis.findFirst({
+        where: { id: target.originalAnalysisId, userId },
+      });
+      if (!resolved) {
+        // Оригинал удалён, но дубль ещё существует. Регенерировать
+        // невозможно — нет канонической метаданных партии. 410 Gone
+        // — стандартный HTTP-код для «ресурс был, теперь нет».
+        throw new HttpException(
+          'Исходный анализ удалён, регенерация невозможна',
+          HttpStatus.GONE,
+        );
+      }
+      parent = resolved;
+    }
+
+    // 3. Поиск существующего дубля родителя.
+    const existing = await this.prisma.analysis.findFirst({
+      where: { userId, originalAnalysisId: parent.id },
+    });
+
+    const now = new Date();
+
+    // 4. Update — обновляем только pgn + lastOpenedAt, остальное
+    //    оставляем (title могли переименовать, метаданные не дрифтуют).
+    if (existing) {
+      const updated = await this.prisma.analysis.update({
+        where: { id: existing.id },
+        data: { pgn: dto.pgn, lastOpenedAt: now },
+      });
+      return {
+        ...updated,
+        tags: updated.tags ? updated.tags.split(' ').filter(Boolean) : [],
+      };
+    }
+
+    // 5. Create — копируем метаданные партии из родителя.
+    const titleSuffix = dto.titleSuffix ?? '(автоаннотация)';
+    const created = await this.prisma.analysis.create({
+      data: {
+        userId,
+        title: `${parent.title} ${titleSuffix}`,
+        pgn: dto.pgn,
+        originalAnalysisId: parent.id,
+        // Метаданные партии — наследуем от родителя.
+        category: parent.category,
+        tags: parent.tags,
+        opening: parent.opening,
+        event: parent.event,
+        site: parent.site,
+        pgnDate: parent.pgnDate,
+        round: parent.round,
+        white: parent.white,
+        black: parent.black,
+        whiteElo: parent.whiteElo,
+        blackElo: parent.blackElo,
+        result: parent.result,
+        fen: parent.fen,
+        boardOrientation: parent.boardOrientation,
+        headline: parent.headline,
+        lichessGameId: parent.lichessGameId,
+        archiveGameId: parent.archiveGameId,
+        // Сброс согласно ADR-100 §8 / KS-3602 «Не копируются»:
+        //  - isPublic: дубль всегда приватный.
+        //  - sourceHash: не дедуплицируем дубль с оригиналом по партии.
+        //  - guessSessionId: soft-ссылка не наследуется.
+        //  - currentPosition: 0 — начинаем с начала анотированной партии.
+        isPublic: false,
+        sourceHash: null,
+        guessSessionId: null,
+        currentPosition: 0,
+        lastOpenedAt: now,
+      },
+    });
+    return {
+      ...created,
+      tags: created.tags ? created.tags.split(' ').filter(Boolean) : [],
+    };
   }
 }

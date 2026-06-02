@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common';
 import { AnalysisService } from './analysis.service';
 
 describe('AnalysisService', () => {
@@ -300,13 +304,11 @@ describe('AnalysisService', () => {
         expect(result).toMatchObject({ id: 'a-legacy', existing: true });
       });
 
-      it('KS-3263: source-id без pgn + удачный резолв из archive_games_remote → создаётся анализ с резолвленным pgn', async () => {
-        // dto без pgn, только archiveGameId. Резолвер пойдёт в FDW
-        // archive_games_remote (мокаем $queryRawUnsafe).
+      it('KS-3263: source-id без pgn + удачный FDW-резолв из archive_games_remote → анализ с резолвленным pgn', async () => {
+        // Резолвер делает SELECT из foreign table archive_games_remote
+        // (postgres_fdw, KS-2760). Мокаем $queryRawUnsafe.
         const archiveGameUuid = 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a';
         prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
-        (prisma.analysis as unknown as { $queryRawUnsafe?: jest.Mock }).$queryRawUnsafe;
-        // PrismaService.$queryRawUnsafe — на уровне prisma root, не на analysis:
         (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe = jest
           .fn()
           .mockResolvedValue([
@@ -336,7 +338,6 @@ describe('AnalysisService', () => {
           expect.stringContaining('archive_games_remote'),
           archiveGameUuid,
         );
-        // create вызван с resolvedPgn и archiveGameId.
         expect(prisma.analysis.create).toHaveBeenCalledWith({
           data: expect.objectContaining({
             archiveGameId: archiveGameUuid,
@@ -347,12 +348,11 @@ describe('AnalysisService', () => {
         expect(result).toMatchObject({ id: 'a-resolved', existing: false });
       });
 
-      it('KS-3263: source-id без pgn + резолв упал → создаётся анализ с pgn=null', async () => {
-        // archive_games_remote не нашёл — return null, create без pgn.
+      it('KS-3263: source-id без pgn + FDW вернул пустой результат → анализ с pgn=null', async () => {
         prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
         (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe = jest
           .fn()
-          .mockResolvedValue([]); // пустой результат
+          .mockResolvedValue([]);
         prisma.analysis.create.mockResolvedValue({
           ...mockAnalysis,
           id: 'a-stub',
@@ -1011,6 +1011,246 @@ describe('AnalysisService', () => {
       prisma.analysis.findUnique.mockResolvedValue(mockAnalysis);
 
       await expect(service.remove(otherId, 'analysis-1')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─── KS-3602 / ADR-100 §8 — duplicate-annotated ──────────────────────
+  describe('duplicateAnnotated (KS-3602)', () => {
+    const parentAnalysis = {
+      id: 'parent-1',
+      userId,
+      title: 'My game',
+      pgn: '1. e4 e5',
+      fen: null,
+      opening: 'Open Game',
+      event: 'Event',
+      site: 'Site',
+      pgnDate: '2026.06.01',
+      round: '1',
+      white: 'Alice',
+      black: 'Bob',
+      whiteElo: '2000',
+      blackElo: '1950',
+      result: '1-0',
+      category: 'analysis',
+      tags: 'foo bar',
+      currentPosition: 5,
+      boardOrientation: 'white' as 'white' | 'black' | null,
+      headline: 'Alice vs Bob, Event',
+      isPublic: true,
+      sourceHash: 'lichess:abc12345',
+      lichessGameId: 'abc12345',
+      archiveGameId: null,
+      guessSessionId: 'guess-1',
+      originalAnalysisId: null,
+      lastOpenedAt: new Date('2026-06-01T00:00:00Z'),
+      createdAt: new Date('2026-05-01T00:00:00Z'),
+      updatedAt: new Date('2026-06-01T00:00:00Z'),
+    };
+    const annotatedPgn = '1. e4 $1 e5 $2 (1... c5)';
+
+    beforeEach(() => {
+      // duplicateAnnotated не использует findUnique — он работает только
+      // через findFirst (одновременно проверка владельца). Добавляем mock.
+      prisma.analysis.findFirst = jest.fn();
+    });
+
+    it('creates new duplicate with originalAnalysisId, suffixed title, reset flags', async () => {
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(parentAnalysis) // load target → parent
+        .mockResolvedValueOnce(null);          // existing duplicate? → no
+      const createdDup = {
+        ...parentAnalysis,
+        id: 'dup-1',
+        title: 'My game (автоаннотация)',
+        pgn: annotatedPgn,
+        originalAnalysisId: 'parent-1',
+        isPublic: false,
+        sourceHash: null,
+        guessSessionId: null,
+        currentPosition: 0,
+      };
+      prisma.analysis.create.mockResolvedValue(createdDup);
+
+      const result = await service.duplicateAnnotated(userId, 'parent-1', {
+        pgn: annotatedPgn,
+      });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId,
+          title: 'My game (автоаннотация)',
+          pgn: annotatedPgn,
+          originalAnalysisId: 'parent-1',
+          isPublic: false,
+          sourceHash: null,
+          guessSessionId: null,
+          currentPosition: 0,
+          // Унаследованные поля.
+          category: 'analysis',
+          tags: 'foo bar',
+          opening: 'Open Game',
+          event: 'Event',
+          white: 'Alice',
+          black: 'Bob',
+          headline: 'Alice vs Bob, Event',
+          lichessGameId: 'abc12345',
+        }),
+      });
+      expect(result.id).toBe('dup-1');
+      // tags разбиты в массив — shape совпадает с findOne.
+      expect(result.tags).toEqual(['foo', 'bar']);
+    });
+
+    it('uses default titleSuffix `(автоаннотация)` when not provided', async () => {
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(parentAnalysis)
+        .mockResolvedValueOnce(null);
+      prisma.analysis.create.mockResolvedValue({
+        ...parentAnalysis,
+        id: 'dup-1',
+        title: 'My game (автоаннотация)',
+      });
+
+      await service.duplicateAnnotated(userId, 'parent-1', { pgn: annotatedPgn });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ title: 'My game (автоаннотация)' }),
+      });
+    });
+
+    it('respects custom titleSuffix', async () => {
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(parentAnalysis)
+        .mockResolvedValueOnce(null);
+      prisma.analysis.create.mockResolvedValue({
+        ...parentAnalysis,
+        id: 'dup-1',
+        title: 'My game [stockfish v18]',
+      });
+
+      await service.duplicateAnnotated(userId, 'parent-1', {
+        pgn: annotatedPgn,
+        titleSuffix: '[stockfish v18]',
+      });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ title: 'My game [stockfish v18]' }),
+      });
+    });
+
+    it('updates existing duplicate (idempotent): same id, new pgn, lastOpenedAt bumped, title untouched', async () => {
+      const existingDup = {
+        ...parentAnalysis,
+        id: 'dup-1',
+        title: 'Renamed by user',  // юзер переименовал — не трогаем
+        pgn: 'old annotated',
+        originalAnalysisId: 'parent-1',
+        isPublic: false,
+        sourceHash: null,
+        guessSessionId: null,
+        currentPosition: 0,
+      };
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(parentAnalysis) // load target → parent
+        .mockResolvedValueOnce(existingDup);   // existing duplicate?
+      prisma.analysis.update.mockResolvedValue({
+        ...existingDup,
+        pgn: annotatedPgn,
+      });
+
+      const result = await service.duplicateAnnotated(userId, 'parent-1', {
+        pgn: annotatedPgn,
+      });
+
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+      expect(prisma.analysis.update).toHaveBeenCalledWith({
+        where: { id: 'dup-1' },
+        data: { pgn: annotatedPgn, lastOpenedAt: expect.any(Date) },
+      });
+      expect(result.id).toBe('dup-1');
+      expect(result.title).toBe('Renamed by user');
+      expect(result.pgn).toBe(annotatedPgn);
+    });
+
+    it('on call against own duplicate — resolves to parent and updates duplicate', async () => {
+      // Target — это сам дубль. Резолв → parent, потом findFirst по
+      // (userId, originalAnalysisId=parent.id) опять найдёт этот же дубль.
+      const dupTarget = {
+        ...parentAnalysis,
+        id: 'dup-1',
+        originalAnalysisId: 'parent-1',
+        title: 'My game (автоаннотация)',
+        isPublic: false,
+        sourceHash: null,
+      };
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(dupTarget)        // load target (it's a dup)
+        .mockResolvedValueOnce(parentAnalysis)   // resolve parent
+        .mockResolvedValueOnce(dupTarget);       // existing duplicate? → yes, the same one
+      prisma.analysis.update.mockResolvedValue({
+        ...dupTarget,
+        pgn: annotatedPgn,
+      });
+
+      await service.duplicateAnnotated(userId, 'dup-1', { pgn: annotatedPgn });
+
+      // Resolve parent — вторая findFirst по id=parent.id.
+      expect(prisma.analysis.findFirst).toHaveBeenNthCalledWith(2, {
+        where: { id: 'parent-1', userId },
+      });
+      // Existing-dup поиск по originalAnalysisId=parent.id.
+      expect(prisma.analysis.findFirst).toHaveBeenNthCalledWith(3, {
+        where: { userId, originalAnalysisId: 'parent-1' },
+      });
+      expect(prisma.analysis.update).toHaveBeenCalledWith({
+        where: { id: 'dup-1' },
+        data: { pgn: annotatedPgn, lastOpenedAt: expect.any(Date) },
+      });
+    });
+
+    it('on call against orphan duplicate (parent deleted) → 410 Gone', async () => {
+      const orphanDup = {
+        ...parentAnalysis,
+        id: 'dup-1',
+        originalAnalysisId: 'parent-deleted',
+      };
+      prisma.analysis.findFirst!
+        .mockResolvedValueOnce(orphanDup) // load target (it's a dup)
+        .mockResolvedValueOnce(null);     // resolve parent → not found
+
+      await expect(
+        service.duplicateAnnotated(userId, 'dup-1', { pgn: annotatedPgn }),
+      ).rejects.toMatchObject({
+        status: 410,
+        message: expect.stringContaining('Исходный анализ удалён'),
+      });
+      // 410 — HttpException с конкретным статусом, не NotFound/Forbidden.
+      await expect(
+        service.duplicateAnnotated(userId, 'dup-1', { pgn: annotatedPgn }),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.analysis.update).not.toHaveBeenCalled();
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+    });
+
+    it('on foreign analysis → 404 (hides existence via findFirst+userId)', async () => {
+      // findFirst({id, userId}) для чужого вернёт null — это и даёт 404,
+      // не светим существование чужого анализа.
+      prisma.analysis.findFirst!.mockResolvedValueOnce(null);
+
+      await expect(
+        service.duplicateAnnotated(otherId, 'parent-1', { pgn: annotatedPgn }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.analysis.update).not.toHaveBeenCalled();
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+    });
+
+    it('on missing analysis (id not in DB) → 404', async () => {
+      prisma.analysis.findFirst!.mockResolvedValueOnce(null);
+
+      await expect(
+        service.duplicateAnnotated(userId, 'no-such-id', { pgn: annotatedPgn }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
