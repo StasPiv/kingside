@@ -224,6 +224,140 @@ describe('buildNestedVariations — лимит глубины', () => {
   });
 });
 
+describe('KS-3613: nested-варианты не дублируют ход родителя', () => {
+  /**
+   * Регрессия: до фикса рекурсия добавляла nested с uci = uci ветки,
+   * потому что Maia на одной позиции стабильно возвращает один и тот
+   * же top-1, и алгоритм не сравнивал его с уже сыгранным в ветке
+   * ходом. Получалось `3.Nc3 ( 3.Nc3 ( 3.Nc3 ( 3.Nc3 ) ) )`.
+   */
+  function makeStableEngines(
+    sfBest: string,
+    maiaTop: string,
+    maiaProb = 0.4,
+  ): NestedBuilderEngines {
+    return {
+      stabilized: {
+        engineGetBestLine: () => ({ bestUci: sfBest, wdlAfter: wdl(0.5) }),
+        applyMoveToFen,
+      },
+      getMaia: () => ({ topUci: maiaTop, topProb: maiaProb }),
+      getWdlBefore: () => wdl(0.5),
+      getWdlAfterMove: () => wdl(0.1), // blunder → класс не 'best'
+    };
+  }
+
+  it('nested.uci ≠ branch.uci на первом узле (Maia=branch — пропускаем)', () => {
+    // Ветка с uci = ходом, который Maia всегда возвращает. Без фикса:
+    // на узле i=0 fen=startFen, sf.bestUci=e2e4, maia.topUci=d2d4 =
+    // branch.uci → раньше создавали nested c uci=d2d4. Теперь пропуск.
+    const branch: AnnotationVariation = { uci: 'd2d4', color: 'red' };
+    const engines = makeStableEngines('e2e4', 'd2d4');
+    const budget = makeBudget(0);
+    buildNestedVariations(branch, STARTPOS, engines, 1, budget);
+    // На i=0 кандидат отсечён (maia === movesInBranch[0]).
+    const atNode0 = branch.nestedVariations?.[0] ?? [];
+    expect(atNode0).toHaveLength(0);
+  });
+
+  it('рекурсия не создаёт самокопирующих цепочек 3.Nc3 ( 3.Nc3 ( 3.Nc3 ) )', () => {
+    // Сценарий со скриншота KS-3613: Maia на стартовой позиции
+    // стабильно возвращает один и тот же ход (b1c3); main-line ход
+    // другой. Рекурсия должна не сделать ни одного nested на корне
+    // (Maia=branch.uci) и далее.
+    const branch: AnnotationVariation = { uci: 'b1c3', color: 'red' };
+    const engines = makeStableEngines('e2e4', 'b1c3', 0.5);
+    const budget = makeBudget(0);
+    buildNestedVariations(branch, STARTPOS, engines, 1, budget);
+
+    function collectUcis(v: AnnotationVariation): string[] {
+      const ucis: string[] = [v.uci];
+      for (const perNode of v.nestedVariations ?? []) {
+        for (const child of perNode) ucis.push(...collectUcis(child));
+      }
+      return ucis;
+    }
+    const all = collectUcis(branch);
+    // В скриншоте — 4 одинаковых уровня. После фикса — только сам
+    // branch; никакого 'b1c3' в nested под ним.
+    const dupCount = all.filter((u) => u === 'b1c3').length;
+    expect(dupCount).toBe(1);
+  });
+
+  it('Maia=branch.uci на subline-узлах тоже не дублирует (через ancestorMoves в рекурсии)', () => {
+    // На subline-узле Maia может вернуть ход, который равен uci
+    // главной ветки — расширенный ancestorMoves внутри рекурсии этот
+    // случай ловит. Берём branch с одним subline-полуходом, и Maia
+    // всегда отдаёт `b1c3` (= branch.uci). Без расширения ancestors
+    // на subline-узлах nested 'b1c3' проходил бы.
+    const branch: AnnotationVariation = {
+      uci: 'b1c3',
+      color: 'red',
+      subline: ['e7e5'],
+    };
+    const engines = makeStableEngines('e2e4', 'b1c3', 0.5);
+    const budget = makeBudget(0);
+    // ancestorMoves корня уже включает 'b1c3' (как если бы это была
+    // ветка, висящая под main move) — тогда даже на subline-узлах
+    // блокировка должна сработать.
+    buildNestedVariations(
+      branch,
+      STARTPOS,
+      engines,
+      1,
+      budget,
+      new Set(['b1c3']),
+    );
+    function flatNested(v: AnnotationVariation): string[] {
+      const acc: string[] = [];
+      for (const perNode of v.nestedVariations ?? []) {
+        for (const c of perNode) {
+          acc.push(c.uci);
+          acc.push(...flatNested(c));
+        }
+      }
+      return acc;
+    }
+    const nestedUcis = flatNested(branch);
+    expect(nestedUcis).not.toContain('b1c3');
+  });
+
+  it('ход main-line не дублируется в nested (через ancestorMoves)', () => {
+    // Имитируем вызов из useGameReview: main move = sf.bestUci, и мы
+    // строим red-вариант (uci = maiaTop). Если на той же позиции для
+    // nested Maia случайно вернула ход main move — отсекаем.
+    const branch: AnnotationVariation = { uci: 'd2d4', color: 'red' };
+    // sf=e2e4, maia=e2e4? нет, тогда sf===maia, отсечётся раньше.
+    // Сделаем так: sfBest=e2e4 (main move), maiaTop=g1f3 (≠main).
+    // На рекурсивном шаге внутри ветки {uci=d2d4}, fen=startFen,
+    // Maia=g1f3 (≠ branch.uci). Без ancestorMoves nested создался бы.
+    // С ancestorMoves={e2e4 ...} это не блокирует (g1f3 ≠ e2e4) —
+    // здесь проверяем что обратное (Maia предложила бы e2e4) — блок.
+    const engines: NestedBuilderEngines = {
+      stabilized: {
+        engineGetBestLine: () => ({ bestUci: 'e7e5', wdlAfter: wdl(0.5) }),
+        applyMoveToFen,
+      },
+      // Maia на любой позиции даёт e2e4 (= main move).
+      getMaia: () => ({ topUci: 'e2e4', topProb: 0.5 }),
+      getWdlBefore: () => wdl(0.5),
+      getWdlAfterMove: () => wdl(0.1),
+    };
+    const budget = makeBudget(0);
+    buildNestedVariations(
+      branch,
+      STARTPOS,
+      engines,
+      1,
+      budget,
+      new Set(['e2e4']), // main move в наборе предков
+    );
+    // На i=0: maia.topUci=e2e4 ∈ ancestorMoves → пропускаем.
+    const atNode0 = branch.nestedVariations?.[0] ?? [];
+    expect(atNode0).toHaveLength(0);
+  });
+});
+
 describe('buildNestedVariations — приоритет prob desc', () => {
   it('при превышении лимита выбирается высокий prob', () => {
     // Контролируем prob: получим 3+ кандидата на ветке (по одному на

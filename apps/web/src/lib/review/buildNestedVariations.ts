@@ -100,6 +100,11 @@ interface NestedCandidate {
  * Caller передаёт `fenAtBranchStart` — позицию перед `branch.uci`.
  * `depth` — текущая глубина (главная main-variation стартует с 1).
  * `budget` — общий счётчик на этот main-line полуход (мутируется).
+ * `ancestorMoves` — KS-3613: набор UCI-ходов всех родительских веток
+ *   (включая main-line ход, на котором висит главная variation).
+ *   Maia-альт-ход, совпадающий с любым из них, отсекается — иначе при
+ *   рекурсии на ту же позицию Maia предлагает тот же top-1, и nested
+ *   получается дублем родителя (`3.Nc3 ( 3.Nc3 ( 3.Nc3 ) )`).
  */
 export function buildNestedVariations(
   branch: AnnotationVariation,
@@ -107,6 +112,7 @@ export function buildNestedVariations(
   engines: NestedBuilderEngines,
   depth: number,
   budget: NestedBuilderBudget,
+  ancestorMoves: ReadonlySet<string> = new Set(),
 ): void {
   if (depth >= MAX_NESTED_DEPTH) return;
   if (budget.remainingTotal <= 0) return;
@@ -134,6 +140,14 @@ export function buildNestedVariations(
     const maia = engines.getMaia(fen);
     if (!maia || !maia.topUci) continue;
     if (maia.topUci === sf.bestUci) continue;
+    // KS-3613: Maia ≠ ход самой ветки на этом узле. Без этой проверки
+    // на узле i=0 ветки с `branch.uci = maiaTop` (red-variation) при
+    // рекурсии Maia опять предлагает тот же ход — получаем дубль.
+    if (maia.topUci === movesInBranch[i]) continue;
+    // KS-3613: Maia ≠ ходу любого из родительских узлов. Предотвращает
+    // случай когда на разной глубине рекурсии Maia натыкается на ход,
+    // который уже фигурирует выше по цепочке вариантов.
+    if (ancestorMoves.has(maia.topUci)) continue;
     if (maia.topProb < MAIA_ALT_MIN_PROB) continue;
     const wdlBefore = engines.getWdlBefore(fen);
     if (!wdlBefore) continue;
@@ -202,9 +216,20 @@ export function buildNestedVariations(
   }
 
   // Рекурсия: каждую выбранную nested-variation тоже обрабатываем,
-  // depth+1. Budget общий — продолжаем убывать.
+  // depth+1. Budget общий — продолжаем убывать. KS-3613: расширяем
+  // ancestorMoves ходами текущей ветки, чтобы вглубь по той же ветке
+  // Maia не предлагал тот же ход (классический self-copy).
+  const nextAncestors = new Set<string>(ancestorMoves);
+  for (const u of movesInBranch) nextAncestors.add(u);
   for (const c of chosen) {
-    buildNestedVariations(c.variation, c.fenAtNode, engines, depth + 1, budget);
+    buildNestedVariations(
+      c.variation,
+      c.fenAtNode,
+      engines,
+      depth + 1,
+      budget,
+      nextAncestors,
+    );
   }
 }
 

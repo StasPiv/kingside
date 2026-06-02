@@ -578,6 +578,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         if (ann.variations.length === 0) continue;
         const budget = makeBudget(ann.variations.length);
         const fenAtMainMove = moveInputs[i].fen;
+        // KS-3613: стартовый ancestor — это main-line ход (что игрок
+        // реально сыграл). Без него Maia на FEN перед ним предложила
+        // бы тот же ход как «альтернативу к sfBest» и nested продублил
+        // бы сыгранную линию.
+        const initialAncestors = new Set<string>([moveInputs[i].playedUci]);
         for (const variation of ann.variations) {
           if (budget.remainingTotal <= 0) break;
           buildNestedVariations(
@@ -586,6 +591,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             nestedEngines,
             1,
             budget,
+            initialAncestors,
           );
         }
       }
