@@ -58,6 +58,14 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/packages/maia-core ./packages/maia-core
+# KS-3632 / ADR-104 §4: admin-CLI бэкфилла Maia-разметки запускается
+# через ECS RunTask на этом же образе (containerOverrides.command).
+# tsx уже в корневом node_modules (devDep, остаётся после `npm prune
+# --omit=dev --ignore-scripts` — он dependency, не devDependency).
+COPY tools/maia-puzzle-annotation ./tools/maia-puzzle-annotation
+# Maia-3 ONNX-модель (44 МБ, gitignored). Нужна и для T1 (один прогон
+# через RunTask), и для T2 (continuous-annotation в воркере).
+COPY tools/maia3 ./tools/maia3
 COPY apps/tactic-worker/package.json ./apps/tactic-worker/
 # KS-2411: AWS RDS global CA bundle для verify-full подключения к
 # archive-RDS из CLI. Заменяет NODE_TLS_REJECT_UNAUTHORIZED=0.
