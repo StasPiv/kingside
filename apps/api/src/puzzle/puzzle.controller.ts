@@ -223,6 +223,15 @@ export class PuzzleController {
     // PRECISION_RELEVANT_THEMES (защита от LIKE-инъекций).
     @Query('themesAnd') themesAndParam?: string | string[],
     @Query('themesOr') themesOrParam?: string | string[],
+    // KS-3656 / ADR-106 §2.6. Серверный фильтр precision-каталога по
+    // вероятности Maia сыграть плохо. Когда задан и > 0:
+    //   WHERE maia_weak_choice_prob >= $threshold
+    //     AND maia_metric_version = 1
+    // (вторая часть отсеивает строки, не размеченные под актуальную
+    // версию формулы). null / undefined / 0 — без фильтра. Диапазон
+    // валидируется ниже как 0..1; вне — BadRequestException. Заменяет
+    // клиентский фильтр KS-3642 (ползунок UI KS-3654 → API KS-3657).
+    @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -378,6 +387,28 @@ export class PuzzleController {
         `NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = ${ph}::uuid)`,
       );
       params.push(userId);
+    }
+
+    // KS-3656 / ADR-106 §2.6. Парсим и валидируем порог Maia
+    // weak-choice prob; собираем условия только при threshold > 0
+    // (0 ≡ null ≡ без фильтра, см. описание задачи).
+    if (minMaiaWeakChoiceProbStr !== undefined) {
+      const v = parseFloat(minMaiaWeakChoiceProbStr);
+      if (!Number.isFinite(v) || v < 0 || v > 1) {
+        throw new BadRequestException(
+          `minMaiaWeakChoiceProb must be a number in [0, 1] (got '${minMaiaWeakChoiceProbStr}')`,
+        );
+      }
+      if (v > 0) {
+        conditions.push(`p.maia_weak_choice_prob >= ${next()}`);
+        params.push(v);
+        // Текущая версия формулы — 1 (см. ADR-106 §2.5 + сводный
+        // комментарий в schema.prisma). Если в будущем метрика
+        // пересчитается под новую формулу — поднимаем константу.
+        // Захардкожен здесь, потому что browse-эндпоинт держит query
+        // через $queryRawUnsafe; нет смысла тянуть в шаблон.
+        conditions.push('p.maia_metric_version = 1');
+      }
     }
 
     // KS-2560 keyset cursor: `(created_at, id) < (cursor.c, cursor.i)`.

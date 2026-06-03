@@ -336,6 +336,127 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 });
 
 /**
+ * KS-3656 / ADR-106 §2.6. Серверный фильтр precision-каталога по
+ * `minMaiaWeakChoiceProb`. Должен:
+ *  - null/undefined → без WHERE-фильтра по maia_weak_choice_prob;
+ *  - 0 → без WHERE-фильтра (0 ≡ null, см. описание задачи);
+ *  - 0 < v ≤ 1 → добавить
+ *      `p.maia_weak_choice_prob >= $threshold
+ *       AND p.maia_metric_version = 1`;
+ *  - v вне [0, 1] → BadRequestException.
+ */
+describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
+  // browse(req, limit, cursor?, mine?, themes?, ratingMin?, ratingMax?,
+  //        hideSolved?, source?, visibility?, blunderMin?, blunderMax?,
+  //        excludeMine?, themesAnd?, themesOr?, minMaiaWeakChoiceProb?)
+  const callBrowseWithThreshold = async (threshold: string | undefined) => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      threshold,
+    );
+    return (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0] as [
+      string,
+      ...unknown[],
+    ];
+  };
+
+  it('null/undefined → нет WHERE по maia_weak_choice_prob', async () => {
+    const [sql, ...params] = await callBrowseWithThreshold(undefined);
+    expect(sql).not.toContain('maia_weak_choice_prob');
+    expect(sql).not.toContain('maia_metric_version');
+    expect(params).not.toContain(0);
+  });
+
+  it('threshold = 0 → без фильтра (трактуется как null)', async () => {
+    const [sql, ...params] = await callBrowseWithThreshold('0');
+    expect(sql).not.toContain('maia_weak_choice_prob');
+    expect(sql).not.toContain('maia_metric_version');
+    expect(params).not.toContain(0);
+  });
+
+  it('threshold = 0.5 → WHERE >= 0.5 AND metric_version = 1', async () => {
+    const [sql, ...params] = await callBrowseWithThreshold('0.5');
+    expect(sql).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
+    expect(sql).toContain('p.maia_metric_version = 1');
+    expect(params).toContain(0.5);
+  });
+
+  it('threshold = 1 → WHERE >= 1 (пройдут только prob = 1)', async () => {
+    const [sql, ...params] = await callBrowseWithThreshold('1');
+    expect(sql).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
+    expect(sql).toContain('p.maia_metric_version = 1');
+    expect(params).toContain(1);
+  });
+
+  it('threshold вне [0, 1] (отрицательный) → 400', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await expect(
+      controller.browse(
+        anonReq,
+        20,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined,
+        '-0.1',
+      ),
+    ).rejects.toThrow(/minMaiaWeakChoiceProb must be a number in \[0, 1\]/);
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('threshold вне [0, 1] (>1) → 400', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await expect(
+      controller.browse(
+        anonReq,
+        20,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined,
+        '1.5',
+      ),
+    ).rejects.toThrow(/minMaiaWeakChoiceProb must be a number in \[0, 1\]/);
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('threshold не число → 400', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await expect(
+      controller.browse(
+        anonReq,
+        20,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined,
+        'abc',
+      ),
+    ).rejects.toThrow(/minMaiaWeakChoiceProb must be a number in \[0, 1\]/);
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
  * KS-2582: visibility=public|draft|all для GET /puzzles/browse.
  *
  * Логика (ADR-050 §3 #3):
