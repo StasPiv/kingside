@@ -256,7 +256,20 @@ function maybeGreenVariation(
   input: MoveInput,
   playedClass: MoveClass,
 ): AnnotationVariation | null {
-  if (playedClass !== 'mistake' && playedClass !== 'blunder') return null;
+  // Зелёная вариация (SF-best) ставится на любую «не-best»-классификацию,
+  // которая получает знак вопроса: ?! (inaccuracy), ? (mistake), ??
+  // (blunder). До правки фильтр включал только mistake/blunder — на
+  // inaccuracy вариант не появлялся, и если Maia-top совпадал с
+  // SF-best (типовая ситуация — обе модели согласны), красная тоже
+  // отрезалась как дубль зелёной, и ход вообще оставался без
+  // альтернативы. Это закрывает кейс «4...Bg7 ?! без `(4...dxc3 …)`».
+  if (
+    playedClass !== 'inaccuracy' &&
+    playedClass !== 'mistake' &&
+    playedClass !== 'blunder'
+  ) {
+    return null;
+  }
   if (input.sfBestUci === input.playedUci) return null;
   // KS-3610: предпочитаем stabilized subline (если caller его посчитал);
   // fallback на PV slice — для backward-compat с тестами KS-3603/3607.

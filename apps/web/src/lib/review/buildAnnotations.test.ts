@@ -287,7 +287,7 @@ describe('buildAnnotation — §4.1 green-variation', () => {
     });
   });
 
-  it('НЕ добавляется при inaccuracy / good / best', () => {
+  it('ДОБАВЛЯЕТСЯ при inaccuracy (?!) — иначе ход остаётся без альтернативы, если Maia-top совпадает с SF-best', () => {
     const a = buildAnnotation(
       base({
         playedUci: 'g1f3',
@@ -296,7 +296,29 @@ describe('buildAnnotation — §4.1 green-variation', () => {
         wdlAfterPlayed: wdl(0.4), // inaccuracy
       }),
     );
-    expect(a.variations.filter((v) => v.color === 'green')).toHaveLength(0);
+    expect(a.variations.filter((v) => v.color === 'green')).toHaveLength(1);
+  });
+
+  it('НЕ добавляется при good / best', () => {
+    const aGood = buildAnnotation(
+      base({
+        playedUci: 'g1f3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.47), // good
+      }),
+    );
+    expect(aGood.variations.filter((v) => v.color === 'green')).toHaveLength(0);
+
+    const aBest = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5), // best
+      }),
+    );
+    expect(aBest.variations.filter((v) => v.color === 'green')).toHaveLength(0);
   });
 
   it('НЕ добавляется если sfBest = played', () => {
