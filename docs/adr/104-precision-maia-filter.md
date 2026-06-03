@@ -1,8 +1,8 @@
 # ADR-104. Фильтрация Precision-пазлов по предсказанию Maia
 
-Статус: предложен (KS-3630).
+Статус: **заменён ADR-106 (KS-3638)**. Историческая версия — top-1 метрика отменена в реализации, т.к. при нескольких равно-сильных по Stockfish ходах Maia может присваивать «решающему» ходу низкую вероятность, а высокую — другому равно-сильному; top-1 вероятность одного выбранного хода ≠ мера лёгкости позиции для человека.
 Дата: 2026-06-03.
-Связано: ADR-048 (Precision section), ADR-066 (classify-WDL), ADR-079 (precision scopes), ADR-080 (precision theme filters), KS-3577 (Maia-3 simplified on client).
+Связано: ADR-048 (Precision section), ADR-066 (classify-WDL), ADR-079 (precision scopes), ADR-080 (precision theme filters), KS-3577 (Maia-3 simplified on client), ADR-106 (заменяющая метрика).
 
 ## 1. Контекст
 
