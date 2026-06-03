@@ -1,53 +1,58 @@
 /**
- * KS-3632 / ADR-104 §4 (MVP-2 Precision-Maia, T1).
+ * KS-3641 / ADR-106 §2.1 (Precision-Maia v2, T1).
  *
- * Admin-CLI для разовой Maia-3 разметки существующих Precision-пазлов.
- * После прогона каждый `puzzle WHERE solution_mode='play-vs-engine'`
- * получает `maia_top1_prob` (вероятность правильного хода) и
- * `maia_top1_elo` (ELO, под которым прогнали — для воспроизводимости).
+ * Admin-CLI разовой Maia-разметки Precision-пазлов по новому алгоритму
+ * `maiaWeakChoiceProb` (сумма policy Maia по «слабым» ходам — loss_E
+ * > 0.02 относительно лучшего из {firstMovePV1} ∪ MaiaTopK).
  *
- * Запуск (из корня репо):
+ * Заменяет старую top-1 реализацию (ADR-104, отменено). После прогона
+ * каждый `puzzle WHERE solution_mode='play-vs-engine'` получает тройку:
+ *   - `maia_weak_choice_prob` (REAL, 0..1)
+ *   - `maia_metric_version` (INT, текущая версия алгоритма из
+ *     `@kingside/maia-core` → `MAIA_WEAK_CHOICE_METRIC_VERSION`)
+ *   - `maia_top1_elo` (INT, ELO разметки — audit-поле)
+ *
+ * Запуск (из корня репо локально либо из `/app/tools/maia-puzzle-
+ * annotation/` в проде):
  *
  *   ARCHIVE_DATABASE_URL=... DATABASE_URL=... \
  *     node --import tsx tools/maia-puzzle-annotation/src/index.ts \
- *       --elo 1500 \
- *       --batch-size 1000 \
- *       --resume \
- *       [--solution-mode play-vs-engine] \
- *       [--force] \
- *       [--model-path /app/tools/maia3/maia3_simplified.onnx]
+ *       --elo=1500 \
+ *       --batch-size=1000 \
+ *       --force \
+ *       [--solution-mode=play-vs-engine] \
+ *       [--model-path=/app/tools/maia3/maia3_simplified.onnx] \
+ *       [--sf-depth=15]
  *
- * Допускаются оба формата `--key=value` и `--key value`. Неизвестные
- * флаги и positional-аргументы валят CLI с ненулевым exit-кодом —
- * раньше `--elo 1500` (с пробелом) молча игнорировалось, дефолт 1500
- * подменял переданное значение (KS-3635).
- *
- * Идемпотентность:
- *   - `--resume` (default): пропускает строки с `maia_top1_prob IS NOT
- *     NULL AND maia_top1_elo = $ELO`. Безопасно для прерывания.
- *   - `--force`: перепрогоняет всё (для смены ELO глобально или замены
- *     модели).
+ * `--force` ОБЯЗАТЕЛЕН для основного прогона (annotate). Сразу после
+ * миграции KS-3639 поле `maia_weak_choice_prob` содержит «грязные»
+ * значения от старой top-1 формулы — `--resume` сам по себе их не
+ * увидит как валидные (там же maia_metric_version IS NULL), но для
+ * страховки требуем явный `--force` — чтобы не запускать аннотацию
+ * случайно. `--report` и `--dry-run` работают без `--force`.
  *
  * Алгоритм:
- *   1. Загрузка Maia-3 ONNX через `@kingside/maia-core` (Node-провайдер
- *      на onnxruntime-web/WASM). Сессия лениво поднимается при первом
- *      inference.
- *   2. Чтение `Puzzle` батчами по `--batch-size` `ORDER BY id`
- *      (детерминированный порядок). Селектится также `sourceMetadata`
- *      — оттуда берётся правильный ход (`firstMovePV1`), у play-vs-
- *      engine `moves` пустая строка (см. `solution-uci.ts`).
- *   3. Для каждой строки: `predictMoves(fen, elo, elo)`, поиск
- *      вероятности правильного хода (с учётом mirror).
- *   4. Batch UPDATE через `prisma.puzzle.update` (по одному, без
- *      транзакции — независимые строки).
- *   5. Лог `[annotation] processed=K updated=U errors=E elapsed=Tms`.
- *   6. По завершении — сводка по типам ошибок (`errorsByReason`)
- *      и первые до 20 строк с (id, reason, message) в stderr на
- *      время прогона.
+ *   1. Maia.predictMoves(fen, elo, elo) → policy.
+ *   2. buildMaiaSearchMoves(policy, firstMovePV1) → searchMoves
+ *      (Maia top-K по porогу policy > 0.10, max K=8, плюс
+ *      firstMovePV1 из sourceMetadata).
+ *   3. SF `go depth N searchmoves m1 m2 …` → MultiPV-линии с WDL.
+ *   4. expectedScores из wdl через `expectedScoreFromWdl` (+
+ *      `wdlOrMateFallback` для mate-без-WDL).
+ *   5. computeWeakChoiceProb({policy, firstMovePV1, expectedScores})
+ *      → результат.
+ *   6. UPDATE puzzle с тройкой полей.
  *
- * Отчёт по гистограмме и %% отсева для порогов 0.3/0.5/0.7 — отдельный
- * sub-команд `--report` (без записи) либо post-prod SQL-агрегация
- * (см. README).
+ * Идемпотентность:
+ *   - `--resume` (default): пропустить строки, уже размеченные под
+ *     текущим (`elo`, `metric_version`) — WHERE учитывает
+ *     `maia_weak_choice_prob IS NULL OR maia_top1_elo != $elo OR
+ *      maia_metric_version IS NULL OR maia_metric_version != $version`.
+ *   - `--force`: игнорирует фильтр resume, перепрогоняет всё.
+ *
+ * Отчёт по гистограмме (`--report`) считает только строки с
+ * актуальной `maia_metric_version` — старые «грязные» не путают
+ * статистику.
  */
 import { performance } from 'node:perf_hooks';
 import path from 'node:path';
@@ -55,20 +60,26 @@ import { fileURLToPath } from 'node:url';
 
 import { PrismaClient } from '@kingside/db';
 import {
+  MAIA_WEAK_CHOICE_METRIC_VERSION,
   Maia,
+  buildMaiaSearchMoves,
+  computeWeakChoiceProb,
   createNodeProvider,
   loadModelFromFs,
-  mirrorMove,
 } from '@kingside/maia-core';
+import {
+  expectedScoreFromWdl,
+  wdlOrMateFallback,
+} from '@kingside/shared';
 
 import { resolvePveSolutionUci } from './solution-uci.js';
+import { StockfishSession } from './stockfish.js';
 
-// __dirname-эквивалент для ESM. CLI запускается через `node --import
-// tsx`, у tsx ESM-режим по умолчанию. До фикса дефолтный modelPath
-// был относительный к CWD ('tools/maia3/...'), что ломалось в
-// контейнере (CWD ≠ /app, см. KS-3635).
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_MODEL_PATH = path.resolve(HERE, '../../maia3/maia3_simplified.onnx');
+const DEFAULT_MODEL_PATH = path.resolve(
+  HERE,
+  '../../maia3/maia3_simplified.onnx',
+);
 
 interface CliOpts {
   elo: number;
@@ -77,19 +88,19 @@ interface CliOpts {
   force: boolean;
   solutionMode: string;
   modelPath: string;
+  sfDepth: number;
   report: boolean;
   dryRun: boolean;
 }
 
-// Флаги, которым нужно value (--key value или --key=value).
 const VALUE_FLAGS = new Set<string>([
   'elo',
   'batch-size',
   'solution-mode',
   'model-path',
+  'sf-depth',
 ]);
 
-// Boolean-флаги (без value).
 const BOOL_FLAGS = new Set<string>([
   'resume',
   'no-resume',
@@ -108,6 +119,7 @@ function parseArgs(argv: string[]): CliOpts {
     force: false,
     solutionMode: 'play-vs-engine',
     modelPath: process.env.PRECISION_MAIA_MODEL_PATH ?? DEFAULT_MODEL_PATH,
+    sfDepth: parseInt(process.env.PRECISION_MAIA_SF_DEPTH ?? '15', 10),
     report: false,
     dryRun: false,
   };
@@ -128,7 +140,6 @@ function parseArgs(argv: string[]): CliOpts {
     if (eqIdx >= 0) {
       value = arg.slice(eqIdx + 1);
     } else if (VALUE_FLAGS.has(key)) {
-      // --key value: следующий arg — значение, если это не флаг.
       const next = argv[i + 1];
       if (next === undefined || next.startsWith('--')) {
         process.stderr.write(
@@ -151,7 +162,7 @@ function parseArgs(argv: string[]): CliOpts {
       case 'elo': {
         const n = parseInt(value as string, 10);
         if (!Number.isFinite(n)) {
-          process.stderr.write(`[maia-annotate] --elo: ожидалось число, получено '${value}'\n`);
+          process.stderr.write(`[maia-annotate] --elo: число, получено '${value}'\n`);
           process.exit(2);
         }
         opts.elo = n;
@@ -160,10 +171,19 @@ function parseArgs(argv: string[]): CliOpts {
       case 'batch-size': {
         const n = parseInt(value as string, 10);
         if (!Number.isFinite(n) || n < 1) {
-          process.stderr.write(`[maia-annotate] --batch-size: ожидалось положительное число, получено '${value}'\n`);
+          process.stderr.write(`[maia-annotate] --batch-size: положительное число, получено '${value}'\n`);
           process.exit(2);
         }
         opts.batchSize = n;
+        break;
+      }
+      case 'sf-depth': {
+        const n = parseInt(value as string, 10);
+        if (!Number.isFinite(n) || n < 1 || n > 30) {
+          process.stderr.write(`[maia-annotate] --sf-depth: 1..30, получено '${value}'\n`);
+          process.exit(2);
+        }
+        opts.sfDepth = n;
         break;
       }
       case 'resume':
@@ -193,7 +213,6 @@ function parseArgs(argv: string[]): CliOpts {
         printUsage();
         process.exit(0);
     }
-
     i += 1;
   }
   return opts;
@@ -201,17 +220,18 @@ function parseArgs(argv: string[]): CliOpts {
 
 function printUsage(): void {
   process.stdout.write(
-    `tools/maia-puzzle-annotation — KS-3632 / ADR-104 §4\n\n` +
+    `tools/maia-puzzle-annotation — KS-3641 / ADR-106 §2.1 (v2 weak-choice prob)\n\n` +
       `Usage: node --import tsx tools/maia-puzzle-annotation/src/index.ts [flags]\n` +
       `       (формат --key=value и --key value оба поддержаны)\n\n` +
       `Flags:\n` +
       `  --elo N           ELO разметки (default ENV PRECISION_MAIA_ANNOTATION_ELO / 1500)\n` +
-      `  --batch-size N    Размер пакета чтения (default 1000)\n` +
-      `  --resume          Пропускать уже размеченные под текущим ELO (default)\n` +
-      `  --no-resume       Не пропускать (но и не перезаписывать non-NULL под другим ELO)\n` +
-      `  --force           Перезаписать всё (включая non-NULL под другим ELO)\n` +
+      `  --batch-size N    Размер пакета чтения из БД (default 1000)\n` +
+      `  --sf-depth N      Stockfish depth для оценки кандидатов (1..30, default 15)\n` +
+      `  --resume          Пропускать строки уже размеченные под текущим (elo, metric_version) (default)\n` +
+      `  --no-resume       Не пропускать (но не перезаписывать non-NULL под другим elo/version)\n` +
+      `  --force           Перезаписать всё (ОБЯЗАТЕЛЕН для основного прогона)\n` +
       `  --solution-mode M Фильтр (default play-vs-engine)\n` +
-      `  --model-path P    Путь к ONNX (default — резолвится от файла CLI: ${DEFAULT_MODEL_PATH})\n` +
+      `  --model-path P    Путь к ONNX (default ${DEFAULT_MODEL_PATH})\n` +
       `  --report          Сделать отчёт по гистограмме (без записи)\n` +
       `  --dry-run         Не писать в БД (только лог)\n`,
   );
@@ -224,23 +244,27 @@ async function fetchBatch(
 ): Promise<
   Array<{ id: string; fen: string; moves: string; sourceMetadata: string | null }>
 > {
-  // KS-3639: поля переименованы по ADR-106 §2.5 (top-1 → weak-choice).
-  // Семантика resume-фильтра сохранена (логику алгоритма меняет T1).
   type Where = {
     solutionMode: string;
     id?: { gt: string };
     OR?: Array<
       | { maiaWeakChoiceProb: null }
       | { maiaTop1Elo: { not: number } }
+      | { maiaMetricVersion: null }
+      | { maiaMetricVersion: { not: number } }
     >;
   };
   const where: Where = { solutionMode: opts.solutionMode };
   if (cursorId) where.id = { gt: cursorId };
   if (opts.resume && !opts.force) {
-    // resume → пропустить строки уже размеченные под текущим ELO.
+    // KS-3641: строка считается «уже размечена под текущим запуском»
+    // если есть значение + elo совпадает + metric_version совпадает.
+    // Любое отклонение → попадает в выборку (re-annotate).
     where.OR = [
       { maiaWeakChoiceProb: null },
       { maiaTop1Elo: { not: opts.elo } },
+      { maiaMetricVersion: null },
+      { maiaMetricVersion: { not: MAIA_WEAK_CHOICE_METRIC_VERSION } },
     ];
   }
   return prisma.puzzle.findMany({
@@ -253,49 +277,84 @@ async function fetchBatch(
 
 interface RowResult {
   id: string;
-  prob: number | null;
-  /** Категория ошибки (для сводки по типам). */
+  weakChoiceProb: number | null;
   errorReason?: string;
-  /** Детальное сообщение (первые N — печатается в stderr). */
   errorMessage?: string;
 }
 
 async function annotateRow(
   maia: Maia,
+  sf: StockfishSession,
   row: { id: string; fen: string; moves: string; sourceMetadata: string | null },
-  elo: number,
+  opts: CliOpts,
 ): Promise<RowResult> {
-  const solutionUci = resolvePveSolutionUci(row.moves, row.sourceMetadata);
-  if (!solutionUci) {
+  const firstMovePV1 = resolvePveSolutionUci(row.moves, row.sourceMetadata);
+  if (!firstMovePV1) {
     return {
       id: row.id,
-      prob: null,
+      weakChoiceProb: null,
       errorReason: 'no-solution-uci',
       errorMessage: 'firstMovePV1 отсутствует в sourceMetadata и moves[0] пустой',
     };
   }
+
+  let maiaResult;
   try {
-    const result = await maia.predictMoves(row.fen, elo, elo);
-    const direct =
-      result.policy.find((p) => p.move === solutionUci)?.probability ?? 0;
-    const mirrored =
-      result.policy.find((p) => p.move === mirrorMove(solutionUci))
-        ?.probability ?? 0;
-    return { id: row.id, prob: Math.max(direct, mirrored) };
+    maiaResult = await maia.predictMoves(row.fen, opts.elo, opts.elo);
   } catch (e) {
     return {
       id: row.id,
-      prob: null,
-      errorReason: 'inference-exception',
+      weakChoiceProb: null,
+      errorReason: 'maia-exception',
       errorMessage: (e as Error).message,
     };
   }
+  if (maiaResult.policy.length === 0) {
+    return {
+      id: row.id,
+      weakChoiceProb: null,
+      errorReason: 'maia-empty-policy',
+      errorMessage: 'Maia не вернула ни одного легального хода',
+    };
+  }
+
+  const { searchMoves } = buildMaiaSearchMoves(maiaResult.policy, firstMovePV1);
+  if (searchMoves.length === 0) {
+    // policy слабая (все < 0.10) и firstMovePV1 пустой — крайне редкий
+    // кейс. Пишем 0 (нечего считать слабым).
+    return { id: row.id, weakChoiceProb: 0 };
+  }
+
+  let sfLines;
+  try {
+    sfLines = await sf.analyzeWithSearchMoves(row.fen, opts.sfDepth, searchMoves);
+  } catch (e) {
+    return {
+      id: row.id,
+      weakChoiceProb: null,
+      errorReason: 'sf-exception',
+      errorMessage: (e as Error).message,
+    };
+  }
+
+  const expectedScores = new Map<string, number>();
+  for (const line of sfLines) {
+    const wdl = wdlOrMateFallback(line.wdl, line.score);
+    if (!wdl) continue;
+    expectedScores.set(line.bestMove, expectedScoreFromWdl(wdl));
+  }
+
+  const result = computeWeakChoiceProb({
+    policy: maiaResult.policy,
+    firstMovePV1,
+    expectedScores,
+  });
+
+  return { id: row.id, weakChoiceProb: result.weakChoiceProb };
 }
 
 interface ErrorAggregator {
-  /** Сколько ошибок уже выведено в stderr (cap = ERROR_SAMPLE_CAP). */
   samplePrinted: number;
-  /** Сколько ошибок каждого типа суммарно. */
   byReason: Map<string, number>;
 }
 
@@ -327,7 +386,7 @@ async function writeBatchUpdate(
   let updated = 0;
   let errors = 0;
   for (const r of results) {
-    if (r.errorReason || r.prob === null) {
+    if (r.errorReason || r.weakChoiceProb === null) {
       errors++;
       recordError(
         agg,
@@ -342,12 +401,13 @@ async function writeBatchUpdate(
       continue;
     }
     try {
-      // KS-3639: пишем в `maia_weak_choice_prob`; metric_version пока
-      // NULL — формула ещё top-1 (ADR-104), значение «грязное» по
-      // семантике ADR-106 §5. T1 потом перепишет под новую формулу.
       await prisma.puzzle.update({
         where: { id: r.id },
-        data: { maiaWeakChoiceProb: r.prob, maiaTop1Elo: elo },
+        data: {
+          maiaWeakChoiceProb: r.weakChoiceProb,
+          maiaMetricVersion: MAIA_WEAK_CHOICE_METRIC_VERSION,
+          maiaTop1Elo: elo,
+        },
       });
       updated++;
     } catch (e) {
@@ -359,40 +419,52 @@ async function writeBatchUpdate(
 }
 
 /**
- * Гистограмма + % отсева для порогов из ADR (§4.5 report).
+ * Гистограмма + % отсева для порогов ADR-106 §2.6.
+ *
+ * Семантика инвертирована относительно отменённой ADR-104: пазл
+ * проходит фильтр, если `weakChoiceProb >= threshold` (вероятность
+ * сыграть плохо). Отчёт показывает «сколько пройдёт» для каждого
+ * порога (а не «сколько отсеется» — терминология ADR изменилась).
+ *
+ * Считаются только строки с актуальной `maia_metric_version` —
+ * старые «грязные» значения от ADR-104 не должны путать статистику.
  */
 async function runReport(prisma: PrismaClient, opts: CliOpts): Promise<void> {
   const rows = await prisma.puzzle.findMany({
     where: {
       solutionMode: opts.solutionMode,
       maiaWeakChoiceProb: { not: null },
+      maiaMetricVersion: MAIA_WEAK_CHOICE_METRIC_VERSION,
     },
     select: { maiaWeakChoiceProb: true },
   });
   if (rows.length === 0) {
     process.stdout.write(
-      `[report] нет размеченных строк (solution_mode=${opts.solutionMode}).\n`,
+      `[report] нет строк с актуальной metric_version=${MAIA_WEAK_CHOICE_METRIC_VERSION} ` +
+        `(solution_mode=${opts.solutionMode}). Прогон CLI не делался либо был под старой формулой.\n`,
     );
     return;
   }
   const total = rows.length;
   const buckets = new Array<number>(10).fill(0);
-  let cutoff30 = 0;
-  let cutoff50 = 0;
-  let cutoff70 = 0;
+  let pass30 = 0;
+  let pass50 = 0;
+  let pass70 = 0;
   for (const r of rows) {
     const p = r.maiaWeakChoiceProb as number;
     const b = Math.min(9, Math.floor(p * 10));
     buckets[b]++;
-    if (p > 0.3) cutoff30++;
-    if (p > 0.5) cutoff50++;
-    if (p > 0.7) cutoff70++;
+    if (p >= 0.3) pass30++;
+    if (p >= 0.5) pass50++;
+    if (p >= 0.7) pass70++;
   }
   const avg = rows.reduce((a, r) => a + (r.maiaWeakChoiceProb as number), 0) / total;
 
-  process.stdout.write(`\n=== Maia annotation report ===\n`);
-  process.stdout.write(`Total annotated: ${total}\n`);
-  process.stdout.write(`Avg prob: ${avg.toFixed(4)}\n`);
+  process.stdout.write(`\n=== Maia weak-choice annotation report (KS-3641 / ADR-106) ===\n`);
+  process.stdout.write(
+    `Total annotated (metric_version=${MAIA_WEAK_CHOICE_METRIC_VERSION}): ${total}\n`,
+  );
+  process.stdout.write(`Avg weakChoiceProb: ${avg.toFixed(4)}\n`);
   process.stdout.write(`Histogram (0..1, 10 buckets):\n`);
   for (let i = 0; i < 10; i++) {
     const lo = (i / 10).toFixed(1);
@@ -403,38 +475,55 @@ async function runReport(prisma: PrismaClient, opts: CliOpts): Promise<void> {
     );
   }
   process.stdout.write(
-    `\nCut-off (prob > threshold = пазл отсеется):\n` +
-      `  N=0.30: ${cutoff30}/${total} (${((cutoff30 / total) * 100).toFixed(2)}%)\n` +
-      `  N=0.50: ${cutoff50}/${total} (${((cutoff50 / total) * 100).toFixed(2)}%)\n` +
-      `  N=0.70: ${cutoff70}/${total} (${((cutoff70 / total) * 100).toFixed(2)}%)\n` +
+    `\nПропустит фильтр (prob >= threshold = пазл считается «сложным» по Maia):\n` +
+      `  N=0.30: ${pass30}/${total} (${((pass30 / total) * 100).toFixed(2)}%)\n` +
+      `  N=0.50: ${pass50}/${total} (${((pass50 / total) * 100).toFixed(2)}%)\n` +
+      `  N=0.70: ${pass70}/${total} (${((pass70 / total) * 100).toFixed(2)}%)\n` +
       `=== end ===\n`,
   );
 }
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
+
+  // KS-3641: --force обязателен для основного прогона. --report и
+  // --dry-run работают без него.
+  if (!opts.report && !opts.dryRun && !opts.force) {
+    process.stderr.write(
+      `[maia-annotate] ОШИБКА: --force обязателен для annotate-прогона.\n` +
+        `  После миграции KS-3639 (ADR-106 §2.5) старые значения maia_top1_prob\n` +
+        `  физически переименованы в maia_weak_choice_prob, но семантически\n` +
+        `  непригодны под новой формулой (ADR-106 §5). Прогон с --force\n` +
+        `  гарантирует полную перезапись.\n` +
+        `  Для отчёта по уже размеченным используй --report (без --force).\n`,
+    );
+    process.exit(2);
+  }
+
   process.stdout.write(
     `[maia-annotate] start elo=${opts.elo} batch=${opts.batchSize} ` +
       `mode=${opts.solutionMode} resume=${opts.resume} force=${opts.force} ` +
-      `dryRun=${opts.dryRun} model=${opts.modelPath}\n`,
+      `dryRun=${opts.dryRun} sfDepth=${opts.sfDepth} ` +
+      `metricVersion=${MAIA_WEAK_CHOICE_METRIC_VERSION} model=${opts.modelPath}\n`,
   );
 
   const prisma = new PrismaClient();
+  const sf = new StockfishSession();
   try {
     if (opts.report) {
       await runReport(prisma, opts);
       return;
     }
 
-    process.stdout.write(`[maia-annotate] loading model...\n`);
+    process.stdout.write(`[maia-annotate] loading model + spawning stockfish...\n`);
     const t0 = performance.now();
     const maia = new Maia({
       provider: createNodeProvider(),
       fetchBuffer: () => loadModelFromFs(opts.modelPath),
     });
-    await maia.ensureSession();
+    await Promise.all([maia.ensureSession(), sf.init()]);
     process.stdout.write(
-      `[maia-annotate] model loaded in ${(performance.now() - t0).toFixed(0)}ms\n`,
+      `[maia-annotate] ready in ${(performance.now() - t0).toFixed(0)}ms\n`,
     );
 
     let cursor: string | null = null;
@@ -454,7 +543,7 @@ async function main(): Promise<void> {
       const batchStart = performance.now();
       const results: RowResult[] = [];
       for (const row of batch) {
-        const r = await annotateRow(maia, row, opts.elo);
+        const r = await annotateRow(maia, sf, row, opts);
         results.push(r);
       }
       const { updated, errors } = await writeBatchUpdate(
@@ -475,7 +564,7 @@ async function main(): Promise<void> {
           `total=${totalProcessed} (${(
             totalProcessed /
             Math.max((performance.now() - start) / 1000, 0.001)
-          ).toFixed(1)} puzzles/sec)\n`,
+          ).toFixed(2)} puzzles/sec)\n`,
       );
     }
 
@@ -483,7 +572,7 @@ async function main(): Promise<void> {
     process.stdout.write(
       `\n[maia-annotate] done. processed=${totalProcessed} updated=${totalUpdated} ` +
         `errors=${totalErrors} time=${totalSec.toFixed(1)}s ` +
-        `rate=${(totalProcessed / Math.max(totalSec, 0.001)).toFixed(1)} puzzles/sec\n`,
+        `rate=${(totalProcessed / Math.max(totalSec, 0.001)).toFixed(2)} puzzles/sec\n`,
     );
     if (errorAgg.byReason.size > 0) {
       process.stdout.write(`[maia-annotate] errors by reason:\n`);
@@ -496,6 +585,7 @@ async function main(): Promise<void> {
       }
     }
   } finally {
+    sf.close();
     await prisma.$disconnect().catch(() => undefined);
   }
 }
