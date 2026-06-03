@@ -283,6 +283,41 @@ describe('buildAnnotation — eval-NAG в основной линии после
     expect(a.nag[1]).toBe(NAG_EVAL_MODERATE_WHITE);
   });
 
+  it('KS-3637 (ADR-105 §3.1): NAG_EVAL_EQUAL (=) на ходе-ошибке НЕ добавляется', () => {
+    // wdlBefore E=0.60 (POV white), wdlAfterPlayed E=0.50 →
+    // loss_E = 0.10 → inaccuracy. POV black после: eWhite = 1 − 0.50 =
+    // 0.50, d = 0 → pickFinalEvalNag вернул бы NAG_EVAL_EQUAL.
+    // Без правки в массиве было бы [NAG_DUBIOUS, NAG_EVAL_EQUAL],
+    // ожидаем только [NAG_DUBIOUS] — «=» рядом с «?!» бессмысленно.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.6),
+        wdlAfterPlayed: wdl(0.5),
+      }),
+    );
+    expect(a.nag).toEqual([NAG_DUBIOUS]);
+  });
+
+  it('KS-3637 (ADR-105 §3.1): ?? без =, если eval остался ≈ равным', () => {
+    // wdlBefore E=0.95 (POV white почти выиграно),
+    // wdlAfterPlayed E=0.50 → loss=0.45 → mistake (по ADR-066 §3.2
+    // mistake ≤ 0.50). Чтобы получить blunder, делаем loss > 0.50:
+    // wdlBefore E=0.97, wdlAfterPlayed E=0.46 → loss=0.51 → blunder.
+    // POV black после: eWhite=1-0.46=0.54, d=+0.04 → equal (|d|<0.05).
+    // Ожидаем [NAG_BLUNDER], без NAG_EVAL_EQUAL.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.97),
+        wdlAfterPlayed: wdl(0.46),
+      }),
+    );
+    expect(a.nag).toEqual([NAG_BLUNDER]);
+  });
+
   it('best/good/!/!! НЕ получают eval-NAG в основной линии', () => {
     const aBest = buildAnnotation(
       base({
@@ -304,6 +339,128 @@ describe('buildAnnotation — eval-NAG в основной линии после
       }),
     );
     expect(aGood.nag).toEqual([NAG_GOOD]); // только !
+  });
+});
+
+// ─── KS-3637 (ADR-105 §3.2): запрет !/!? в проигранных позициях ─────
+describe('buildAnnotation — KS-3637 (ADR-105 §3.2) запрет !/!? в проигрыше', () => {
+  it('! НЕ ставится в основной линии, если игрок проигрывал и остался в проигрыше', () => {
+    // E_before_pov = 0.20 (проигрыш), E_after_pov = 0.22 (всё ещё
+    // проигрыш, прирост 0.02 < 0.10). playedProb=0.05 < 0.10 — без
+    // запрета был бы «!». С запретом — пусто.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.22),
+        playedProb: 0.05,
+      }),
+    );
+    expect(a.nag).toEqual([]);
+  });
+
+  it('! ставится в основной линии при выходе из проигрыша (Δ ≥ 0.10)', () => {
+    // E_before_pov = 0.20 (проигрыш), E_after_pov = 0.32 (прирост 0.12 ≥ 0.10).
+    // playedProb=0.05 → «!» разрешён.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.32),
+        playedProb: 0.05,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_GOOD]);
+  });
+
+  it('!? НЕ ставится при E_before ≤ 0.25 и приросте < 0.10', () => {
+    // good (loss=0.04) с маленьким приростом из проигрыша.
+    // E_before=0.20, E_after=0.16 (loss=0.04 → good). played≠best,
+    // playedProb=0.35 ≥ 0.30 — без запрета был бы «!?». E_before<0.25,
+    // прирост 0.16−0.20=−0.04 < 0.10 → запрет.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'g1f3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.16),
+        playedProb: 0.35,
+      }),
+    );
+    expect(a.nag).toEqual([]);
+  });
+
+  it('!? разрешён в ничейной → ничейной (E_before > 0.25)', () => {
+    // E_before=0.50 (ничья), E_after=0.46 (loss=0.04 → good). Без
+    // прироста, но E_before=0.50 > 0.25 — «!?» разрешён.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'g1f3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.46),
+        playedProb: 0.35,
+      }),
+    );
+    expect(a.nag).toEqual([NAG_INTERESTING]);
+  });
+
+  it('зелёная вариация: «!» НЕТ, если subline кончается всё ещё проигранно', () => {
+    // Ошибка пользователя (mistake), playedClass=mistake → зелёная
+    // активируется. sfBestProb=0.05 — кандидат на «!».
+    // wdlBefore E=0.20 (мы проигрывали), sfBestSublineFinalWdl E=0.22
+    // (всё ещё проигрыш) → правило запрещает «!».
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.05), // blunder, чтобы green точно был
+        wdlAfterBest: wdl(0.25),
+        sfBestProb: 0.05,
+        sfBestSublineFinalWdl: wdl(0.22),
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toBeUndefined();
+  });
+
+  it('зелёная вариация: «!» ЕСТЬ, если subline выводит из проигрыша', () => {
+    // То же что выше, но sfBestSublineFinalWdl E=0.40 (выход из
+    // проигрыша на 0.20 пунктов).
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.05),
+        wdlAfterBest: wdl(0.40),
+        sfBestProb: 0.05,
+        sfBestSublineFinalWdl: wdl(0.4),
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toEqual([NAG_GOOD]);
+  });
+
+  it('зелёная вариация: fallback на wdlAfterBest, если sfBestSublineFinalWdl не задан', () => {
+    // sfBestSublineFinalWdl undefined → используется wdlAfterBest.
+    // wdlBefore E=0.20, wdlAfterBest E=0.45 (прирост 0.25 ≥ 0.10) → «!».
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.2),
+        wdlAfterPlayed: wdl(0.05),
+        wdlAfterBest: wdl(0.45),
+        sfBestProb: 0.05,
+        // sfBestSublineFinalWdl не задан
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toEqual([NAG_GOOD]);
   });
 });
 

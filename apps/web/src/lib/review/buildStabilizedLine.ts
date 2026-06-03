@@ -70,17 +70,40 @@ export interface StabilizedFirstMove {
   wdlAfter: Wdl;
 }
 
+/**
+ * KS-3637 (ADR-105 §3.3). Результат построения стабилизированной линии.
+ *
+ *  - `moves` — массив UCI'ев в порядке полуходов, включая `firstMove`.
+ *  - `finalWdl` — WDL **POV того же игрока, что и `startFen` STM**, на
+ *    позиции после **последнего** хода в `moves`. Используется в
+ *    `buildAnnotations.maybeGreenVariation` для проверки правила
+ *    `LOSING_E_THRESHOLD_POV` / `QUALITY_NAG_MIN_E_GAIN_POV` (ADR-105
+ *    §3.2): `!` не ставится, если subline кончается всё ещё проигранно.
+ *
+ *  Каждый `sf.wdlAfter` от `engineGetBestLine` приходит как POV
+ *  *исходного* игрока (это контракт `StabilizedEngines`), поэтому
+ *  достаточно сохранять последний полученный (после firstMove — берём
+ *  `firstMove.wdlAfter`).
+ */
+export interface StabilizedLineResult {
+  moves: string[];
+  finalWdl: Wdl;
+}
+
 export function buildStabilizedLine(
   startFen: string,
   firstMove: StabilizedFirstMove,
   engines: StabilizedEngines,
   maxLengthPlies: number = MAX_LINE_LENGTH_PLIES,
-): string[] {
+): StabilizedLineResult {
   const line: string[] = [firstMove.uci];
+  // KS-3637: храним WDL POV игрока, начавшего вариант (= startFen STM).
+  // Обновляем на каждом успешном шаге; после firstMove — `firstMove.wdlAfter`.
+  let lastWdlOriginalPov: Wdl = firstMove.wdlAfter;
 
   // FEN после первого хода.
   let curFen = engines.applyMoveToFen(startFen, firstMove.uci);
-  if (curFen == null) return line;
+  if (curFen == null) return { moves: line, finalWdl: lastWdlOriginalPov };
 
   // Текущий E_score POV ходящей-на-`startFen` стороны (после
   // firstMove). Каждый next-step будет переводить POV — поэтому
@@ -92,7 +115,7 @@ export function buildStabilizedLine(
   // Decided-check: если firstMove уже привёл к выигранной/проигранной
   // позиции (по originalPov), не продлеваем дальше — фиксируем 1 ход.
   if (Math.abs(wdlSigned(firstMove.wdlAfter)) > DECIDED_WDL_SIGNED_ABS) {
-    return line;
+    return { moves: line, finalWdl: lastWdlOriginalPov };
   }
 
   let consecutiveStable = 0;
@@ -122,8 +145,9 @@ export function buildStabilizedLine(
     );
     const isStable = lossAbsolute < STABILIZED_LOSS_E_THRESHOLD;
 
-    // Применяем ход в линию.
+    // Применяем ход в линию и обновляем «последний WDL POV исходного».
     line.push(sf.bestUci);
+    lastWdlOriginalPov = sf.wdlAfter;
 
     // Декларируем decided'ную: если после хода |signed| > 0.95 —
     // обрываем линию (этот ход последний).
@@ -164,9 +188,9 @@ export function buildStabilizedLine(
   // Гарантия MIN.
   if (line.length < MIN_LINE_LENGTH_PLIES) {
     // Невозможно по построению — firstMove уже добавлен.
-    return line;
+    return { moves: line, finalWdl: lastWdlOriginalPov };
   }
-  return line;
+  return { moves: line, finalWdl: lastWdlOriginalPov };
 }
 
 // Re-export для удобства тестов.

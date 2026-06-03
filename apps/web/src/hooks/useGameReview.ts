@@ -317,10 +317,6 @@ export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
     });
   }
 
-  function whoToMove(fen: string): 'w' | 'b' {
-    return fen.split(' ')[1] === 'b' ? 'b' : 'w';
-  }
-
   /**
    * SF возвращает `wdl` POV side-to-move позиции, в которой стоит её
    * info. Для multipv'ов на `fenBefore` это POV ходящей стороны
@@ -618,6 +614,37 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             1,
             MAX_LINE_LENGTH_PLIES,
           );
+          // KS-3637 (ADR-105 §3.3). WDL в конце subline POV игрока,
+          // начинавшего ветку, нужен для запрета «!» в проигранной
+          // зелёной вариации (`maybeGreenVariation`). PV-based subline
+          // не даёт промежуточных WDL'ов, поэтому делаем один SF-вызов
+          // на финальной позиции subline (~1 на ход-ошибку = +N вызовов
+          // на партию). Граceful: при ошибке оставляем поле undefined,
+          // `buildAnnotations` сделает fallback на `wdlAfterBest`.
+          try {
+            let finalFen: string | null = input.fen;
+            for (const u of [input.sfBestUci, ...input.sfBestSubline]) {
+              if (!finalFen) break;
+              finalFen = applyMove(finalFen, u);
+            }
+            if (finalFen) {
+              const sub = await engines.analyzeSf(finalFen, 1, depth);
+              // sub.wdlBefore — POV STM на finalFen. Игрок, начинавший
+              // ветку = STM на input.fen. STM чередуется по полуходам.
+              const plies = 1 + input.sfBestSubline.length;
+              const sameSide = plies % 2 === 0;
+              const wdlStmFinal = sub.wdlBefore;
+              input.sfBestSublineFinalWdl = sameSide
+                ? wdlStmFinal
+                : {
+                    w: wdlStmFinal.l,
+                    d: wdlStmFinal.d,
+                    l: wdlStmFinal.w,
+                  };
+            }
+          } catch {
+            /* fallthrough — fallback на wdlAfterBest в buildAnnotations */
+          }
         }
         // red: отдельный SF от позиции после maiaTop, cap=SUB.
         if (input.wdlAfterMaiaTop && input.maiaTopUci) {

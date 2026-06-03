@@ -11,6 +11,7 @@
  */
 import {
   classifyMove,
+  expectedScoreFromWdl,
   wdlSigned,
   type MoveClass,
   type Wdl,
@@ -54,6 +55,18 @@ export interface MoveInput {
    * 1..3 полухода.
    */
   maiaTopSubline?: string[];
+  /**
+   * KS-3637 (ADR-105 §3.3). WDL **в конце** `sfBestSubline`, POV того
+   * же игрока, что и `fen`'s STM (= игрок, начинавший зелёную ветку).
+   * Используется в `maybeGreenVariation` для проверки правила
+   * `LOSING_E_THRESHOLD_POV` / `QUALITY_NAG_MIN_E_GAIN_POV`: если ветка
+   * заканчивается всё ещё проигранно за того же игрока — `!` не ставим.
+   *
+   * Если поле не задано — fallback на `wdlAfterBest` (это WDL после
+   * первого хода subline; обратно-совместимо с тестами KS-3603/3607,
+   * где stabilized-цепочка не считается).
+   */
+  sfBestSublineFinalWdl?: Wdl;
 
   /** `policy[playedUci]` от Maia. `undefined` если Maia не отвечала. */
   playedProb: number | undefined;
@@ -180,6 +193,39 @@ const DECIDED_WDL_THRESHOLD = 0.95;
  */
 export const MAIA_ALT_MIN_PROB = 0.2;
 
+// --- KS-3637 (ADR-105 §3.2) пороги для запрета !/!? в проигранных -----
+
+/**
+ * Игрок считается «проигрывающим» в позиции, если его E_pov ≤ 0.25
+ * (signed_pov ≤ −0.5). Нижняя граница «±»-диапазона `pickFinalEvalNag`,
+ * симметрично к 0.75 (≥ — явно выигрывает). Меньше = «решительно
+ * проиграно за игрока».
+ */
+export const LOSING_E_THRESHOLD_POV = 0.25;
+
+/**
+ * Минимальный прирост E POV игрока (`E_after_pov − E_before_pov`), при
+ * котором `!`/`!?` уместен в позиции, начинавшейся проигрышем. Меньше —
+ * оценка фактически не выросла. 0.10 = половина шага шкалы ± (0.20).
+ */
+export const QUALITY_NAG_MIN_E_GAIN_POV = 0.1;
+
+/**
+ * Правило ADR-105 §3.2. `!` (NAG 1) и `!?` (NAG 5) разрешены тогда и
+ * только тогда, когда выполнено ХОТЯ БЫ ОДНО:
+ *  - `eBeforePov > LOSING_E_THRESHOLD_POV` — исходно НЕ проигрывал, ИЛИ
+ *  - `eAfterPov − eBeforePov ≥ QUALITY_NAG_MIN_E_GAIN_POV` — оценка
+ *    реально выросла (выход из проигрыша или удержание ничьей за счёт
+ *    неочевидного хода).
+ *
+ * Edge-case «ничья → ничья» (E ≈ 0.5) проходит первый аргумент
+ * (0.5 > 0.25), поэтому `!?` за удержание ничьей остаётся.
+ */
+function isQualityNagAllowed(eBeforePov: number, eAfterPov: number): boolean {
+  if (eBeforePov > LOSING_E_THRESHOLD_POV) return true;
+  return eAfterPov - eBeforePov >= QUALITY_NAG_MIN_E_GAIN_POV;
+}
+
 // --- helpers (NAG для §4.2 red-vararation) ---------------------------------
 
 function nagForMaiaTrap(maiaTopClass: MoveClass): number | null {
@@ -236,6 +282,11 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
     input.playedProb !== undefined &&
     input.playedProb < GOOD_MAIA_PROB_THRESHOLD
   ) {
+    // KS-3637 (ADR-105 §3.2): «!» не уместен, если игрок был в проигрыше
+    // и остался в проигрыше. Шкала E POV ходящего.
+    const eBefore = expectedScoreFromWdl(input.wdlBefore);
+    const eAfter = expectedScoreFromWdl(input.wdlAfterPlayed);
+    if (!isQualityNagAllowed(eBefore, eAfter)) return null;
     return NAG_GOOD;
   }
 
@@ -246,6 +297,10 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
     input.playedProb !== undefined &&
     input.playedProb >= 0.3
   ) {
+    // KS-3637 (ADR-105 §3.2): тот же запрет для «!?» в основной линии.
+    const eBefore = expectedScoreFromWdl(input.wdlBefore);
+    const eAfter = expectedScoreFromWdl(input.wdlAfterPlayed);
+    if (!isQualityNagAllowed(eBefore, eAfter)) return null;
     return NAG_INTERESTING;
   }
 
@@ -293,7 +348,18 @@ function maybeGreenVariation(
     input.sfBestProb !== undefined &&
     input.sfBestProb < GOOD_MAIA_PROB_THRESHOLD
   ) {
-    greenNags.push(NAG_GOOD);
+    // KS-3637 (ADR-105 §3.2): «!» в зелёной вариации запрещён, если
+    // subline начинался проигрышем и закончился всё ещё проигрышем.
+    // E_after — в конце subline POV нашего игрока. Если caller не
+    // прокинул `sfBestSublineFinalWdl` — fallback на `wdlAfterBest`
+    // (WDL после ПЕРВОГО хода subline; обратно-совместимо с тестами,
+    // не вычисляющими full stabilized line).
+    const eBefore = expectedScoreFromWdl(input.wdlBefore);
+    const finalWdl = input.sfBestSublineFinalWdl ?? input.wdlAfterBest;
+    const eAfter = expectedScoreFromWdl(finalWdl);
+    if (isQualityNagAllowed(eBefore, eAfter)) {
+      greenNags.push(NAG_GOOD);
+    }
   }
 
   return {
@@ -368,9 +434,14 @@ export function buildAnnotation(input: MoveInput): Annotation {
   const nags: number[] = nag != null ? [nag] : [];
 
   // Пользовательский запрос: после неточности / ошибки / зевка в основной
-  // линии оценка позиции изменилась — добавляем eval-NAG (=, ⩲/⩱, ±/∓,
+  // линии оценка позиции изменилась — добавляем eval-NAG (⩲/⩱, ±/∓,
   // +−/−+) рядом с ?!/?/??. Без этого читатель видел только сам знак
   // ошибки, но не понимал, насколько именно она поменяла оценку.
+  //
+  // KS-3637 (ADR-105 §3.1): NAG_EVAL_EQUAL (`=`) на ходе-ошибке НЕ
+  // ставим. Знак `?`/`??` уже означает «стало хуже»; добавлять `=` рядом
+  // — противоречиво. На финальной позиции варианта `=` оставляется
+  // отдельной логикой (`annotateFinalEval` в useGameReview).
   if (
     nag === NAG_DUBIOUS ||
     nag === NAG_MISTAKE ||
@@ -389,7 +460,10 @@ export function buildAnnotation(input: MoveInput): Annotation {
       d: input.wdlAfterPlayed.d,
       l: input.wdlAfterPlayed.w,
     };
-    nags.push(pickFinalEvalNag(wdlStmPov, stmAfterIsWhite));
+    const evalNag = pickFinalEvalNag(wdlStmPov, stmAfterIsWhite);
+    if (evalNag !== NAG_EVAL_EQUAL) {
+      nags.push(evalNag);
+    }
   }
 
   // Шаг 6: variations.

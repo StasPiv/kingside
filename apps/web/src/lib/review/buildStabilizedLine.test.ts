@@ -86,10 +86,13 @@ describe('buildStabilizedLine', () => {
       [fenAfterNf3]: { bestUci: 'b8c6', eAfter: 0.55 },
     });
 
-    const line = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
-    expect(line.length).toBeGreaterThanOrEqual(3);
-    expect(line.length).toBeLessThanOrEqual(4);
-    expect(line[0]).toBe('e2e4');
+    const result = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
+    expect(result.moves.length).toBeGreaterThanOrEqual(3);
+    expect(result.moves.length).toBeLessThanOrEqual(4);
+    expect(result.moves[0]).toBe('e2e4');
+    // KS-3637: finalWdl POV игрока, начинавшего вариант. Все шаги
+    // стабилизированы на E=0.55, finalWdl должен это отражать.
+    expect(result.finalWdl).toEqual(wdl(0.55));
   });
 
   it('cap = MAX_LINE_LENGTH_PLIES уважается даже без стабилизации (флуктуация)', () => {
@@ -119,9 +122,9 @@ describe('buildStabilizedLine', () => {
       };
     }
     const engine = makeEngine(table);
-    const line = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
-    expect(line.length).toBeLessThanOrEqual(MAX_LINE_LENGTH_PLIES);
-    expect(line.length).toBe(MAX_LINE_LENGTH_PLIES);
+    const result = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
+    expect(result.moves.length).toBeLessThanOrEqual(MAX_LINE_LENGTH_PLIES);
+    expect(result.moves.length).toBe(MAX_LINE_LENGTH_PLIES);
   });
 
   it('decided position (|signed| > 0.95) → линия фиксируется на текущей длине', () => {
@@ -132,12 +135,15 @@ describe('buildStabilizedLine', () => {
       [fenAfterE4]: { bestUci: 'e7e5', eAfter: 0.99 },
       [fenAfterE5]: { bestUci: 'g1f3', eAfter: 0.99 },
     });
-    const line = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
+    const result = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
     // Декларируем decided'ную на втором шаге → break.
     // Итого line содержит firstMove + 1 ход = 2 элемента.
-    expect(line.length).toBe(2);
-    expect(line[0]).toBe('e2e4');
-    expect(line[1]).toBe('e7e5');
+    expect(result.moves.length).toBe(2);
+    expect(result.moves[0]).toBe('e2e4');
+    expect(result.moves[1]).toBe('e7e5');
+    // KS-3637: finalWdl — POV игрока, начинавшего вариант, на decided'ной
+    // позиции после e7e5 (E=0.99).
+    expect(result.finalWdl).toEqual(wdl(0.99));
   });
 
   it('firstMove уже даёт decided → возвращает только [firstMove]', () => {
@@ -146,8 +152,10 @@ describe('buildStabilizedLine', () => {
       wdlAfter: { w: 970, d: 20, l: 10 }, // signed > 0.95
     };
     const engine = makeEngine({});
-    const line = buildStabilizedLine(STARTPOS, firstDecided, engine);
-    expect(line).toEqual(['e2e4']);
+    const result = buildStabilizedLine(STARTPOS, firstDecided, engine);
+    expect(result.moves).toEqual(['e2e4']);
+    // KS-3637: finalWdl = firstMove.wdlAfter, ведь дальше не пошли.
+    expect(result.finalWdl).toEqual(firstDecided.wdlAfter);
   });
 
   it('null от engineGetBestLine (мат/cancel) → завершение линии', () => {
@@ -155,8 +163,10 @@ describe('buildStabilizedLine', () => {
       engineGetBestLine: () => null,
       applyMoveToFen,
     };
-    const line = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
-    expect(line).toEqual(['e2e4']);
+    const result = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
+    expect(result.moves).toEqual(['e2e4']);
+    // KS-3637: при сразу-null от engine остаёмся на firstMove.wdlAfter.
+    expect(result.finalWdl).toEqual(FIRST_E2E4.wdlAfter);
   });
 
   it('SUB_VARIATION_MAX_LENGTH_PLIES — отдельный cap для sub-vararation', () => {
@@ -175,14 +185,14 @@ describe('buildStabilizedLine', () => {
       };
     }
     const engine = makeEngine(table);
-    const line = buildStabilizedLine(
+    const result = buildStabilizedLine(
       STARTPOS,
       FIRST_E2E4,
       engine,
       SUB_VARIATION_MAX_LENGTH_PLIES,
     );
-    expect(line.length).toBeLessThanOrEqual(SUB_VARIATION_MAX_LENGTH_PLIES);
-    expect(line.length).toBe(SUB_VARIATION_MAX_LENGTH_PLIES);
+    expect(result.moves.length).toBeLessThanOrEqual(SUB_VARIATION_MAX_LENGTH_PLIES);
+    expect(result.moves.length).toBe(SUB_VARIATION_MAX_LENGTH_PLIES);
   });
 
   it('forcing-move (capture) продлевает линию ещё на 1 после первой стабилизации', () => {
@@ -207,10 +217,12 @@ describe('buildStabilizedLine', () => {
       [fenAfterAny]: { bestUci: 'g1f3', eAfter: 0.55 },
     });
 
-    const line = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
+    const result = buildStabilizedLine(STARTPOS, FIRST_E2E4, engine);
     // С forcing-продлением длина = firstMove + 3 = 4 элемента
     // (e2e4, d7d5, e4d5, d8d5).
-    expect(line.length).toBe(4);
-    expect(line).toEqual(['e2e4', 'd7d5', 'e4d5', 'd8d5']);
+    expect(result.moves.length).toBe(4);
+    expect(result.moves).toEqual(['e2e4', 'd7d5', 'e4d5', 'd8d5']);
+    // KS-3637: finalWdl — после последнего хода, всё на E=0.55.
+    expect(result.finalWdl).toEqual(wdl(0.55));
   });
 });
