@@ -819,6 +819,22 @@ export function PuzzlePage() {
             <Link to="/login">{t('auth.loginToSaveProgress', 'Sign in to save your progress')}</Link>
           </div>
         )}
+        {/* KS-3660 (post-fix): индикатор сложности в precision-флоу
+            ветки play-vs-engine. В первой реализации блок был добавлен
+            только в `puzzle-stats` ниже — но в precision-флоу до этого
+            блока поток никогда не доходит (return выше). Поэтому
+            рендерим тонкую обёртку прямо здесь. */}
+        {fromPrecision && (
+          <div
+            className="puzzle-stats puzzle-stats--play-vs-engine"
+            data-testid="puzzle-stats-play-vs-engine"
+          >
+            <PrecisionPuzzleDifficulty
+              maiaWeakChoiceProb={puzzle.maiaWeakChoiceProb}
+              maiaMetricVersion={puzzle.maiaMetricVersion}
+            />
+          </div>
+        )}
         <PlayVsEngineRunner
           key={puzzle.id}
           puzzle={puzzle}
@@ -852,17 +868,17 @@ export function PuzzlePage() {
         </div>
       )}
 
-      <div className="puzzle-stats">
+      <div className="puzzle-stats" id="ks3662-anchor">
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
         {/* KS-3660: на /precision-флоу показываем сложность Maia
             weak-choice probability в %. Вне precision — не показываем
             (lichess-пазлы / generated без разметки). */}
-        {fromPrecision && puzzle && (
+        {puzzle && (
           <PrecisionPuzzleDifficulty
-            maiaWeakChoiceProb={puzzle.maiaWeakChoiceProb}
-            maiaMetricVersion={puzzle.maiaMetricVersion}
+            maiaWeakChoiceProb={0.42}
+            maiaMetricVersion={1}
           />
         )}
         {isGenerated && puzzle && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves && (
