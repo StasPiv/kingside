@@ -3443,6 +3443,183 @@ input[type='range'].precision-elo-filter__range:focus-visible::-moz-range-thumb 
 }
 
 /* ============================================================
+ * KS-3655 / KS-3654 — single-range slider фильтра «Сложность» на /precision.
+ * DOM от KS-3654:
+ *
+ *   <div class="precision-difficulty-filter">
+ *     <span class="precision-difficulty-filter__label">Сложность</span>
+ *     <span class="precision-difficulty-filter__value">Средние</span>
+ *     <input class="precision-difficulty-filter__range" type="range" />
+ *     <span class="precision-difficulty-filter__hint">Доступно ≈ 75% выборки</span>
+ *   </div>
+ *
+ * Раскладка (desktop):
+ *   - label слева, slider в центре (flex:1), value справа.
+ *   - hint — на новой строке через flex-basis:100% (dual-line).
+ *   - DOM-порядок: label, value, input, hint → переставляем CSS-order:
+ *     label(1) → range(2) → value(3) → hint(4).
+ *
+ * Цвета согласованы с .precision-elo-filter:
+ *   - track: var(--border-mid);
+ *   - filled-trail (до thumb): var(--accent-primary) через accent-color;
+ *   - thumb: var(--accent-primary) 16×16 desktop / 22×22 mobile.
+ * ============================================================ */
+.precision-difficulty-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+
+.precision-difficulty-filter__label {
+  order: 1;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.precision-difficulty-filter__value {
+  order: 3;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 96px;
+  text-align: right;
+}
+
+input[type='range'].precision-difficulty-filter__range {
+  order: 2;
+  flex: 1 1 240px;
+  max-width: 360px;
+  min-width: 200px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* Заливка trail слева от thumb — accent. Track снизу серый. */
+  accent-color: var(--accent-primary);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type='range'].precision-difficulty-filter__range:focus {
+  outline: none;
+}
+
+/* Webkit (Chrome/Safari) */
+input[type='range'].precision-difficulty-filter__range::-webkit-slider-runnable-track {
+  background: var(--border-mid);
+  height: 4px;
+  border-radius: 999px;
+}
+
+input[type='range'].precision-difficulty-filter__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px; /* центрируем по 4px треку */
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-canvas);
+  box-shadow: 0 1px 4px var(--ov-black-30);
+  cursor: grab;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+input[type='range'].precision-difficulty-filter__range::-webkit-slider-thumb:hover {
+  transform: scale(1.08);
+}
+
+input[type='range'].precision-difficulty-filter__range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.12);
+}
+
+input[type='range'].precision-difficulty-filter__range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+}
+
+/* Firefox */
+input[type='range'].precision-difficulty-filter__range::-moz-range-track {
+  background: var(--border-mid);
+  border: 0;
+  height: 4px;
+  border-radius: 999px;
+}
+
+input[type='range'].precision-difficulty-filter__range::-moz-range-progress {
+  background: var(--accent-primary);
+  height: 4px;
+  border-radius: 999px;
+}
+
+input[type='range'].precision-difficulty-filter__range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-canvas);
+  box-shadow: 0 1px 4px var(--ov-black-30);
+  cursor: grab;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+input[type='range'].precision-difficulty-filter__range::-moz-range-thumb:hover {
+  transform: scale(1.08);
+}
+
+input[type='range'].precision-difficulty-filter__range::-moz-range-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.12);
+}
+
+input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+}
+
+.precision-difficulty-filter__hint {
+  order: 4;
+  flex-basis: 100%;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .precision-difficulty-filter {
+    gap: 6px 10px;
+  }
+  .precision-difficulty-filter__value {
+    min-width: 0;
+    margin-left: auto;
+  }
+  input[type='range'].precision-difficulty-filter__range {
+    order: 4;
+    flex: 1 1 100%;
+    max-width: none;
+    height: 32px;
+  }
+  .precision-difficulty-filter__hint {
+    order: 5;
+  }
+  input[type='range'].precision-difficulty-filter__range::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+    margin-top: -9px;
+  }
+  input[type='range'].precision-difficulty-filter__range::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* ============================================================
  * KS-2756 — empty-state «У тебя пока нет попыток / Начать тренировку».
  * Раньше plain `<p>` + кнопка стандартного размера, без воздуха,
  * сетка позиций прилипала снизу. Делаем светлую панель с центровкой
