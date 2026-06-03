@@ -1,0 +1,1518 @@
+From 87921c03fb8fb5a46840bfbacd3f40f0a76e87cc Mon Sep 17 00:00:00 2001
+From: Kingside Backend Agent <backend@kingside.local>
+Date: Wed, 3 Jun 2026 17:23:41 +0000
+Subject: [PATCH 1/3] Phase 1: Trace::Subterm enum + add_sub + Eval::trace_json
+ + UCI 'eval json'
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KS-3648 / ADR-107 rev 2 §3. Каркас расширенного Trace-API:
+- evaluate.cpp namespace Trace: enum Subterm с 51 ID (соответствует
+  packages/shared PositionalSubtermId, KS-3649), struct SubtermEntry,
+  std::vector<SubtermEntry> subterms, add_sub(Subterm,Color,Score,Square),
+  clear_sub(), subterm_id_names[], subterm_to_json().
+- Макросы TRACE_ADD_SUB(id,c,s,sq) / TRACE_ADD_SUB_NS(id,c,s) — пустые при
+  T=NO_TRACE (zero overhead в основном поиске).
+- evaluate.h: объявление Eval::trace_json(Position&).
+- evaluate.cpp::Eval::trace_json() — принудительный проход
+  Evaluation<TRACE>, сериализация subterms в JSON {position, subterms[], total}.
+- uci.cpp: команда 'eval json' (распознаётся как подкоманда после
+  'eval'); 'eval' без аргумента сохраняет старое поведение (табличный
+  trace 13 терминов).
+
+Vector subterms пока пуст — вызовы TRACE_ADD_SUB добавляются в
+Phase 2-9 (pawns.cpp + evaluate.cpp::pieces/king/threats/passed/space).
+
+Сборка: g++ 12.2.0, ARCH=x86-64 — чисто (warning add_sub unused
+исчезнет с вставкой вызовов). 'eval json' на startpos выводит
+корректный JSON с пустым subterms[].
+---
+ src/evaluate.cpp | 245 +++++++++++++++++++++++++++++++++++++++++++++++
+ src/evaluate.h   |   9 ++
+ src/uci.cpp      |  28 +++++-
+ 3 files changed, 281 insertions(+), 1 deletion(-)
+
+diff --git a/src/evaluate.cpp b/src/evaluate.cpp
+index 35d0542..bfb7f3a 100644
+--- a/src/evaluate.cpp
++++ b/src/evaluate.cpp
+@@ -157,6 +157,145 @@ namespace Trace {
+ 
+   Score scores[TERM_NB][COLOR_NB];
+ 
++  // KS-3648 / ADR-107 rev 2 §3. Расширенный enum подкомпонент
++  // classical-оценки. Не пересекается с `Term` (тот используется
++  // существующей `Eval::trace()` для таблицы 13 терминов). Источник
++  // истины — таблицы ADR-107 §2.2 (привязка к строкам evaluate.cpp /
++  // pawns.cpp в данном коммите SF 16).
++  enum Subterm {
++    // pawns.cpp::evaluate<Color> (7 подкомпонент)
++    SUBT_PAWN_DOUBLED_EARLY,
++    SUBT_PAWN_CONNECTED,
++    SUBT_PAWN_DOUBLED,
++    SUBT_PAWN_ISOLATED,
++    SUBT_PAWN_BACKWARD,
++    SUBT_PAWN_LEVER_DOUBLE,
++    SUBT_PAWN_BLOCKED,
++    // pawns.cpp::Entry::evaluate_shelter (4)
++    SUBT_KING_SHELTER_STRENGTH,
++    SUBT_KING_BLOCKED_STORM,
++    SUBT_KING_UNBLOCKED_STORM,
++    SUBT_KING_ON_FILE,
++    // evaluate.cpp::pieces (17)
++    SUBT_ROOK_ON_KING_RING,
++    SUBT_BISHOP_ON_KING_RING,
++    SUBT_KNIGHT_UNCONTESTED_OUTPOST,
++    SUBT_OUTPOST_KNIGHT,
++    SUBT_OUTPOST_BISHOP,
++    SUBT_KNIGHT_REACHABLE_OUTPOST,
++    SUBT_MINOR_BEHIND_PAWN,
++    SUBT_KNIGHT_KING_PROTECTOR_DISTANCE,
++    SUBT_BISHOP_KING_PROTECTOR_DISTANCE,
++    SUBT_BISHOP_PAWNS,
++    SUBT_BISHOP_XRAY_PAWNS,
++    SUBT_BISHOP_LONG_DIAGONAL,
++    SUBT_BISHOP_CORNERED,
++    SUBT_ROOK_ON_OPEN_FILE,
++    SUBT_ROOK_ON_CLOSED_FILE,
++    SUBT_ROOK_TRAPPED,
++    SUBT_QUEEN_WEAK,
++    // evaluate.cpp::king (8)
++    SUBT_KING_SAFETY_PAWN,
++    SUBT_KING_DANGER,
++    SUBT_KING_SAFE_CHECK_ROOK,
++    SUBT_KING_SAFE_CHECK_QUEEN,
++    SUBT_KING_SAFE_CHECK_BISHOP,
++    SUBT_KING_SAFE_CHECK_KNIGHT,
++    SUBT_KING_PAWNLESS_FLANK,
++    SUBT_KING_FLANK_ATTACKS,
++    // evaluate.cpp::threats (10)
++    SUBT_THREAT_BY_MINOR,
++    SUBT_THREAT_BY_ROOK,
++    SUBT_THREAT_BY_KING,
++    SUBT_THREAT_HANGING,
++    SUBT_THREAT_WEAK_QUEEN_PROTECTION,
++    SUBT_THREAT_RESTRICTED_PIECE,
++    SUBT_THREAT_BY_SAFE_PAWN,
++    SUBT_THREAT_BY_PAWN_PUSH,
++    SUBT_THREAT_KNIGHT_ON_QUEEN,
++    SUBT_THREAT_SLIDER_ON_QUEEN,
++    // evaluate.cpp::passed (4)
++    SUBT_PASSED_RANK,
++    SUBT_PASSED_KING_PROXIMITY,
++    SUBT_PASSED_PATH_ADVANCE,
++    SUBT_PASSED_FILE_EDGE,
++    // evaluate.cpp::space (1)
++    SUBT_SPACE,
++    SUBT_NB
++  };
++
++  // Стабильные строковые ID для JSON-вывода (порядок совпадает с
++  // enum Subterm). Должен синхронизоваться с
++  // `packages/shared/src/types/api-contracts.ts::PositionalSubtermId`
++  // в основном репозитории Kingside (KS-3649).
++  static const char* const subterm_id_names[SUBT_NB] = {
++    "pawn_doubled_early",
++    "pawn_connected",
++    "pawn_doubled",
++    "pawn_isolated",
++    "pawn_backward",
++    "pawn_lever_double",
++    "pawn_blocked",
++    "king_shelter_strength",
++    "king_blocked_storm",
++    "king_unblocked_storm",
++    "king_on_file",
++    "rook_on_king_ring",
++    "bishop_on_king_ring",
++    "knight_uncontested_outpost",
++    "outpost_knight",
++    "outpost_bishop",
++    "knight_reachable_outpost",
++    "minor_behind_pawn",
++    "knight_king_protector_distance",
++    "bishop_king_protector_distance",
++    "bishop_pawns",
++    "bishop_xray_pawns",
++    "bishop_long_diagonal",
++    "bishop_cornered",
++    "rook_on_open_file",
++    "rook_on_closed_file",
++    "rook_trapped",
++    "queen_weak",
++    "king_safety_pawn",
++    "king_danger",
++    "king_safe_check_rook",
++    "king_safe_check_queen",
++    "king_safe_check_bishop",
++    "king_safe_check_knight",
++    "king_pawnless_flank",
++    "king_flank_attacks",
++    "threat_by_minor",
++    "threat_by_rook",
++    "threat_by_king",
++    "threat_hanging",
++    "threat_weak_queen_protection",
++    "threat_restricted_piece",
++    "threat_by_safe_pawn",
++    "threat_by_pawn_push",
++    "threat_knight_on_queen",
++    "threat_slider_on_queen",
++    "passed_rank",
++    "passed_king_proximity",
++    "passed_path_advance",
++    "passed_file_edge",
++    "space"
++  };
++
++  struct SubtermEntry {
++    Subterm id;
++    Color   color;
++    Square  sq;   // SQ_NONE если подкомпонента не привязана к квадрату.
++    Score   score;
++  };
++
++  // Накопитель подкомпонент за один вызов evaluate в TRACE-режиме.
++  // Очищается в `Eval::trace_json()` перед каждым вызовом.
++  // Запись из `Trace::add_sub` происходит ТОЛЬКО при `T == TRACE`
++  // (см. макрос TRACE_ADD_SUB ниже), поэтому в основном поиске
++  // (`Eval::evaluate` → шаблон с NO_TRACE) накладных нет.
++  std::vector<SubtermEntry> subterms;
++
+   static double to_cp(Value v) { return double(v) / UCI::NormalizeToPawnValue; }
+ 
+   static void add(int idx, Color c, Score s) {
+@@ -168,6 +307,17 @@ namespace Trace {
+     scores[idx][BLACK] = b;
+   }
+ 
++  // KS-3648 / ADR-107 rev 2 §3. Записать одну подкомпоненту в
++  // накопитель. Должна вызываться ТОЛЬКО под `if constexpr (T)` в
++  // template'ах Evaluation<TRACE> / pawns.cpp::evaluate<TRACE, Color>.
++  static void add_sub(Subterm id, Color c, Score s, Square sq = SQ_NONE) {
++    subterms.push_back({id, c, sq, s});
++  }
++
++  static void clear_sub() {
++    subterms.clear();
++  }
++
+   static std::ostream& operator<<(std::ostream& os, Score s) {
+     os << std::setw(5) << to_cp(mg_value(s)) << " "
+        << std::setw(5) << to_cp(eg_value(s));
+@@ -184,8 +334,37 @@ namespace Trace {
+     os << " | " << scores[t][WHITE] - scores[t][BLACK] << " |\n";
+     return os;
+   }
++
++  // Сериализатор JSON. UCI-square `SQ_NONE` опускается в выводе,
++  // остальные представляются стандартной алгебраической нотацией
++  // (a1..h8). `value_mg`/`value_eg` — в пешечных-cp (поделено на
++  // NormalizeToPawnValue, как и `Eval::trace`).
++  static std::string subterm_to_json(const SubtermEntry& e) {
++    std::ostringstream os;
++    os << "    {\"id\":\"" << subterm_id_names[e.id]
++       << "\",\"color\":\"" << (e.color == WHITE ? "w" : "b")
++       << "\"";
++    if (e.sq != SQ_NONE) {
++      char file = char('a' + file_of(e.sq));
++      char rank = char('1' + rank_of(e.sq));
++      os << ",\"square\":\"" << file << rank << "\"";
++    }
++    os << ",\"value_mg\":" << to_cp(mg_value(e.score))
++       << ",\"value_eg\":" << to_cp(eg_value(e.score))
++       << "}";
++    return os.str();
++  }
+ }
+ 
++// KS-3648 / ADR-107 rev 2 §3. Макрос-обёртка вокруг `Trace::add_sub`.
++// При `T == NO_TRACE` шаблонизатор полностью удалит вызов, при
++// `T == TRACE` развернёт в одну запись в накопитель. Применяется
++// внутри `template<Tracing T>` Evaluation/pawns.cpp.
++#define TRACE_ADD_SUB(id, c, s, sq) \
++    do { if constexpr (T) Trace::add_sub(id, c, s, sq); } while (0)
++#define TRACE_ADD_SUB_NS(id, c, s) \
++    do { if constexpr (T) Trace::add_sub(id, c, s); } while (0)
++
+ using namespace Trace;
+ 
+ namespace {
+@@ -1155,4 +1334,70 @@ std::string Eval::trace(Position& pos) {
+   return ss.str();
+ }
+ 
++
++/// KS-3648 / ADR-107 rev 2 §3.4. JSON-сериализация всех позиционных
++/// подкомпонент classical-оценки. Доступно через UCI команду
++/// `eval json`. Используется фронтом Kingside (apps/web) для
++/// LLM-комментариев в разборе партии. Эта функция:
++///
++///  - принудительно делает один проход `Evaluation<TRACE>` (что
++///    активирует все `TRACE_ADD_SUB(...)` вставки в pawns.cpp /
++///    evaluate.cpp);
++///  - формирует JSON-объект `{ position, subterms[], total }` с
++///    `value_mg` / `value_eg` в пешечных-cp (как и таблица `eval`);
++///  - НЕ ломает существующую `eval`-таблицу 13 терминов — это
++///    отдельный вход.
++///
++/// При шахе позиции — возвращает корректный JSON с пустым массивом
++/// (как `Eval::trace` возвращает «in check» текстом).
++std::string Eval::trace_json(Position& pos) {
++
++  std::stringstream ss;
++
++  if (pos.checkers()) {
++    ss << "{\"position\":{\"fen\":\"" << pos.fen() << "\","
++       << "\"sideToMove\":\""
++       << (pos.side_to_move() == WHITE ? "w" : "b")
++       << "\",\"in_check\":true},"
++       << "\"subterms\":[],\"total\":{\"mg\":0,\"eg\":0,\"v\":0}}";
++    return ss.str();
++  }
++
++  std::memset(scores, 0, sizeof(scores));
++  clear_sub();
++
++  // Reset any global variable used in eval (как в Eval::trace).
++  pos.this_thread()->bestValue       = VALUE_ZERO;
++  pos.this_thread()->optimism[WHITE] = VALUE_ZERO;
++  pos.this_thread()->optimism[BLACK] = VALUE_ZERO;
++
++  Value v = Evaluation<TRACE>(pos).value();
++  v = pos.side_to_move() == WHITE ? v : -v;
++
++  ss << std::showpoint << std::noshowpos << std::fixed << std::setprecision(2);
++
++  ss << "{\"position\":{\"fen\":\"" << pos.fen() << "\","
++     << "\"sideToMove\":\""
++     << (pos.side_to_move() == WHITE ? "w" : "b") << "\"},\n";
++
++  ss << "  \"subterms\":[\n";
++  for (size_t i = 0; i < subterms.size(); ++i) {
++    ss << subterm_to_json(subterms[i]);
++    if (i + 1 < subterms.size()) ss << ",";
++    ss << "\n";
++  }
++  ss << "  ],\n";
++
++  Score total = scores[TOTAL][WHITE];
++  ss << "  \"total\":{"
++     << "\"mg\":" << to_cp(mg_value(total))
++     << ",\"eg\":" << to_cp(eg_value(total))
++     << ",\"v\":" << to_cp(v)
++     << "}\n";
++
++  ss << "}";
++
++  return ss.str();
++}
++
+ } // namespace Stockfish
+diff --git a/src/evaluate.h b/src/evaluate.h
+index b9d7231..fa35e86 100644
+--- a/src/evaluate.h
++++ b/src/evaluate.h
+@@ -31,6 +31,15 @@ class Position;
+ namespace Eval {
+ 
+   std::string trace(Position& pos);
++
++  // KS-3648 / ADR-107 rev 2 §3. Расширенный classical-trace с
++  // per-subterm выводом в JSON. Вызывается из UCI команды
++  // `eval json`. Внутри: классическая оценка с template<Tracing T =
++  // TRACE> + сбор всех ~50 подкомпонент с привязкой к квадрату/цвету
++  // через Trace::add_sub. Pawn-cache в TRACE режиме обходится
++  // (см. pawns.cpp::evaluate<TRACE, Color>).
++  std::string trace_json(Position& pos);
++
+   Value evaluate(const Position& pos);
+ 
+   extern bool useNNUE;
+diff --git a/src/uci.cpp b/src/uci.cpp
+index ed16f24..5aca009 100644
+--- a/src/uci.cpp
++++ b/src/uci.cpp
+@@ -93,6 +93,21 @@ namespace {
+   }
+ 
+ 
++  // KS-3648 / ADR-107 rev 2 §3.4. JSON-вывод всех позиционных
++  // подкомпонент classical-оценки. Активируется UCI-командой
++  // `eval json`. См. evaluate.cpp::Eval::trace_json для деталей.
++  void trace_eval_json(Position& pos) {
++
++    StateListPtr states(new std::deque<StateInfo>(1));
++    Position p;
++    p.set(pos.fen(), Options["UCI_Chess960"], &states->back(), Threads.main());
++
++    Eval::NNUE::verify();
++
++    sync_cout << Eval::trace_json(p) << sync_endl;
++  }
++
++
+   // setoption() is called when the engine receives the "setoption" UCI command.
+   // The function updates the UCI option ("name") to the given value ("value").
+ 
+@@ -279,7 +294,18 @@ void UCI::loop(int argc, char* argv[]) {
+       else if (token == "flip")     pos.flip();
+       else if (token == "bench")    bench(pos, is, states);
+       else if (token == "d")        sync_cout << pos << sync_endl;
+-      else if (token == "eval")     trace_eval(pos);
++      else if (token == "eval")
++      {
++          // KS-3648 / ADR-107 rev 2 §3.4. Поддержка субкоманды
++          // `eval json` — машинно-читаемый вывод подкомпонент. Если
++          // после `eval` идёт токен `json` — выводим JSON; иначе
++          // (включая `eval` без аргумента) — старая табличная форма.
++          std::string sub;
++          if (is >> sub && sub == "json")
++              trace_eval_json(pos);
++          else
++              trace_eval(pos);
++      }
+       else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
+       else if (token == "export_net")
+       {
+-- 
+2.39.5
+
+
+From 9396d08bfbe5b8fc1ba68129563d7985cbd126ae Mon Sep 17 00:00:00 2001
+From: Kingside Backend Agent <backend@kingside.local>
+Date: Wed, 3 Jun 2026 17:33:29 +0000
+Subject: [PATCH 2/3] =?UTF-8?q?Phase=202-3:=20pawns.cpp=20=D0=BF=D0=B0?=
+ =?UTF-8?q?=D1=80=D0=B0=D0=BC=D0=B5=D1=82=D1=80=D0=B8=D0=B7=D0=B0=D1=86?=
+ =?UTF-8?q?=D0=B8=D1=8F=20+=2011=20SUBT=5FPAWN=5F*=20/=20SUBT=5FKING=5FSHE?=
+ =?UTF-8?q?LTER=5F*?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KS-3648 / ADR-107 rev 2 §3, §2.4. Перенос Eval::Tracing в evaluate.h,
+параметризация pawns.cpp шаблоном <Eval::Tracing T, Color> для двух
+ключевых функций + добавление 11 точек SF_TRACE_ADD_SUB.
+
+evaluate.h:
+- enum Eval::Tracing { NO_TRACE, TRACE } (перенесён из evaluate.cpp,
+  теперь публичный — нужен pawns.cpp).
+- void Eval::add_subterm(Subterm, Color, Score, Square).
+- Макросы SF_TRACE_ADD_SUB(id,c,s,sq) и SF_TRACE_ADD_SUB_NS(id,c,s)
+  с if constexpr (T == Eval::TRACE) — zero overhead при NO_TRACE.
+
+evaluate.cpp:
+- Локальный enum Trace::Subterm удалён (using Eval::Subterm).
+- Локальный enum Trace::Tracing удалён (using Eval::Tracing).
+- Реализация Eval::add_subterm — push в Trace::subterms.
+- В Eval::trace_json перед Evaluation<TRACE> добавлен вызов
+  Pawns::trace_for<WHITE/BLACK>(pos) — pawn-subterms эмитятся
+  отдельным проходом (минуя кэш Pawns::probe).
+
+pawns.h:
+- #include 'evaluate.h' (Eval::Tracing).
+- evaluate_shelter параметризовано <Eval::Tracing T, Color>.
+- Объявление Pawns::trace_for<Color>(pos).
+
+pawns.cpp:
+- evaluate<Color> переименовано в evaluate<Eval::Tracing T, Color>.
+  7 SF_TRACE_ADD_SUB точек (по таблице ADR §2.2):
+    SUBT_PAWN_DOUBLED_EARLY (pawns.cpp:135 эквивалент)
+    SUBT_PAWN_CONNECTED     (:168)
+    SUBT_PAWN_DOUBLED       (:179 + :190 — две точки в SF)
+    SUBT_PAWN_ISOLATED      (:181-182)
+    SUBT_PAWN_BACKWARD      (:186-187)
+    SUBT_PAWN_LEVER_DOUBLE  (:191)
+    SUBT_PAWN_BLOCKED       (:194)
+  Доминированный if (!support) … раздельная развёртка
+  Doubled-doubled и WeakLever — эмитим как отдельные подкомпоненты.
+- evaluate_shelter<Color> → <Eval::Tracing T, Color> с 4 SF_TRACE_ADD_SUB:
+    SUBT_KING_SHELTER_STRENGTH (:251)
+    SUBT_KING_BLOCKED_STORM    (:254)
+    SUBT_KING_UNBLOCKED_STORM  (:256)
+    SUBT_KING_ON_FILE          (:260)
+- Pawns::probe() вызывает evaluate<Eval::NO_TRACE> — макросы
+  удаляются, накладные нулевые (как и было).
+- Entry::do_king_safety<Us> вызывает evaluate_shelter<Eval::NO_TRACE, Us>.
+- Pawns::trace_for<Color>(pos) — новый wrapper для trace-режима:
+  evaluate<TRACE> + evaluate_shelter<TRACE> на временном Entry, без
+  кэширования. Эксплицитные инстанциации для WHITE / BLACK.
+
+Тест: eval json на Caro-Kann (rnbqkbnr/pp2pppp/2p5/3p4/3P4/2N1P3/...)
+показывает 30 подкомпонент (11 типов × обе стороны × несколько пешек/
+файлов): pawn_connected на квадрате каждой пешки, king_shelter_strength
+/ blocked_storm / unblocked_storm / on_file на квадрате короля. JSON
+валидный, total верный, in_check ветка не нарушена.
+
+Не вошло (Phase 4-8, следующие коммиты):
+- evaluate.cpp::pieces: 17 SF_TRACE_ADD_SUB (per-piece outpost,
+  bishop_pawns, rook_on_open_file и т.д.)
+- evaluate.cpp::king: 8 (safe_check ×4, danger, pawnless_flank,
+  flank_attacks)
+- evaluate.cpp::threats: 10 (by_minor/rook/king, hanging, restricted,
+  by_safe_pawn, knight_on_queen и т.д.)
+- evaluate.cpp::passed: 4 (rank, proximity, advance, file_edge)
+- evaluate.cpp::space: 1
+- 50 эталонных FEN — инвариант сумма subterms = агрегат 13 терминов.
+---
+ src/evaluate.cpp | 131 +++++++++++++++-------------------------------
+ src/evaluate.h   |  96 +++++++++++++++++++++++++++++++++-
+ src/pawns.cpp    | 133 +++++++++++++++++++++++++++++++++++++++--------
+ src/pawns.h      |  12 ++++-
+ 4 files changed, 258 insertions(+), 114 deletions(-)
+
+diff --git a/src/evaluate.cpp b/src/evaluate.cpp
+index bfb7f3a..6ba8a18 100644
+--- a/src/evaluate.cpp
++++ b/src/evaluate.cpp
+@@ -149,7 +149,12 @@ namespace Eval {
+ 
+ namespace Trace {
+ 
+-  enum Tracing { NO_TRACE, TRACE };
++  // KS-3648: Tracing flag перенесён в Eval (evaluate.h) — теперь
++  // используется и pawns.cpp. Здесь используем алиас для совместимости
++  // с существующими использованиями `NO_TRACE` / `TRACE` в namespace Trace.
++  using Eval::Tracing;
++  using Eval::NO_TRACE;
++  using Eval::TRACE;
+ 
+   enum Term { // The first 8 entries are reserved for PieceType
+     MATERIAL = 8, IMBALANCE, MOBILITY, THREAT, PASSED, SPACE, WINNABLE, TOTAL, TERM_NB
+@@ -157,77 +162,15 @@ namespace Trace {
+ 
+   Score scores[TERM_NB][COLOR_NB];
+ 
+-  // KS-3648 / ADR-107 rev 2 §3. Расширенный enum подкомпонент
+-  // classical-оценки. Не пересекается с `Term` (тот используется
+-  // существующей `Eval::trace()` для таблицы 13 терминов). Источник
+-  // истины — таблицы ADR-107 §2.2 (привязка к строкам evaluate.cpp /
+-  // pawns.cpp в данном коммите SF 16).
+-  enum Subterm {
+-    // pawns.cpp::evaluate<Color> (7 подкомпонент)
+-    SUBT_PAWN_DOUBLED_EARLY,
+-    SUBT_PAWN_CONNECTED,
+-    SUBT_PAWN_DOUBLED,
+-    SUBT_PAWN_ISOLATED,
+-    SUBT_PAWN_BACKWARD,
+-    SUBT_PAWN_LEVER_DOUBLE,
+-    SUBT_PAWN_BLOCKED,
+-    // pawns.cpp::Entry::evaluate_shelter (4)
+-    SUBT_KING_SHELTER_STRENGTH,
+-    SUBT_KING_BLOCKED_STORM,
+-    SUBT_KING_UNBLOCKED_STORM,
+-    SUBT_KING_ON_FILE,
+-    // evaluate.cpp::pieces (17)
+-    SUBT_ROOK_ON_KING_RING,
+-    SUBT_BISHOP_ON_KING_RING,
+-    SUBT_KNIGHT_UNCONTESTED_OUTPOST,
+-    SUBT_OUTPOST_KNIGHT,
+-    SUBT_OUTPOST_BISHOP,
+-    SUBT_KNIGHT_REACHABLE_OUTPOST,
+-    SUBT_MINOR_BEHIND_PAWN,
+-    SUBT_KNIGHT_KING_PROTECTOR_DISTANCE,
+-    SUBT_BISHOP_KING_PROTECTOR_DISTANCE,
+-    SUBT_BISHOP_PAWNS,
+-    SUBT_BISHOP_XRAY_PAWNS,
+-    SUBT_BISHOP_LONG_DIAGONAL,
+-    SUBT_BISHOP_CORNERED,
+-    SUBT_ROOK_ON_OPEN_FILE,
+-    SUBT_ROOK_ON_CLOSED_FILE,
+-    SUBT_ROOK_TRAPPED,
+-    SUBT_QUEEN_WEAK,
+-    // evaluate.cpp::king (8)
+-    SUBT_KING_SAFETY_PAWN,
+-    SUBT_KING_DANGER,
+-    SUBT_KING_SAFE_CHECK_ROOK,
+-    SUBT_KING_SAFE_CHECK_QUEEN,
+-    SUBT_KING_SAFE_CHECK_BISHOP,
+-    SUBT_KING_SAFE_CHECK_KNIGHT,
+-    SUBT_KING_PAWNLESS_FLANK,
+-    SUBT_KING_FLANK_ATTACKS,
+-    // evaluate.cpp::threats (10)
+-    SUBT_THREAT_BY_MINOR,
+-    SUBT_THREAT_BY_ROOK,
+-    SUBT_THREAT_BY_KING,
+-    SUBT_THREAT_HANGING,
+-    SUBT_THREAT_WEAK_QUEEN_PROTECTION,
+-    SUBT_THREAT_RESTRICTED_PIECE,
+-    SUBT_THREAT_BY_SAFE_PAWN,
+-    SUBT_THREAT_BY_PAWN_PUSH,
+-    SUBT_THREAT_KNIGHT_ON_QUEEN,
+-    SUBT_THREAT_SLIDER_ON_QUEEN,
+-    // evaluate.cpp::passed (4)
+-    SUBT_PASSED_RANK,
+-    SUBT_PASSED_KING_PROXIMITY,
+-    SUBT_PASSED_PATH_ADVANCE,
+-    SUBT_PASSED_FILE_EDGE,
+-    // evaluate.cpp::space (1)
+-    SUBT_SPACE,
+-    SUBT_NB
+-  };
+-
+-  // Стабильные строковые ID для JSON-вывода (порядок совпадает с
+-  // enum Subterm). Должен синхронизоваться с
++  // KS-3648 / ADR-107 rev 2 §3. Стабильные строковые ID для JSON-
++  // вывода (порядок совпадает с `Eval::Subterm` в evaluate.h).
++  // Должен синхронизоваться с
+   // `packages/shared/src/types/api-contracts.ts::PositionalSubtermId`
+-  // в основном репозитории Kingside (KS-3649).
++  // в основном репозитории Kingside (KS-3649). Имена в `Eval::`
++  // — `SUBT_*`; здесь используются короткие индексы.
++  using Eval::Subterm;
++  using Eval::SUBT_NB;
++
+   static const char* const subterm_id_names[SUBT_NB] = {
+     "pawn_doubled_early",
+     "pawn_connected",
+@@ -290,10 +233,11 @@ namespace Trace {
+   };
+ 
+   // Накопитель подкомпонент за один вызов evaluate в TRACE-режиме.
+-  // Очищается в `Eval::trace_json()` перед каждым вызовом.
+-  // Запись из `Trace::add_sub` происходит ТОЛЬКО при `T == TRACE`
+-  // (см. макрос TRACE_ADD_SUB ниже), поэтому в основном поиске
+-  // (`Eval::evaluate` → шаблон с NO_TRACE) накладных нет.
++  // Очищается в `Eval::trace_json()` перед каждым вызовом. Запись
++  // идёт через `Eval::add_subterm` (publicly видно из pawns.cpp),
++  // вызывается ТОЛЬКО под `if constexpr (T == TRACE)`. В основном
++  // поиске (NO_TRACE) накладных нет — макрос разворачивается в пустую
++  // конструкцию.
+   std::vector<SubtermEntry> subterms;
+ 
+   static double to_cp(Value v) { return double(v) / UCI::NormalizeToPawnValue; }
+@@ -307,13 +251,8 @@ namespace Trace {
+     scores[idx][BLACK] = b;
+   }
+ 
+-  // KS-3648 / ADR-107 rev 2 §3. Записать одну подкомпоненту в
+-  // накопитель. Должна вызываться ТОЛЬКО под `if constexpr (T)` в
+-  // template'ах Evaluation<TRACE> / pawns.cpp::evaluate<TRACE, Color>.
+-  static void add_sub(Subterm id, Color c, Score s, Square sq = SQ_NONE) {
+-    subterms.push_back({id, c, sq, s});
+-  }
+-
++  // KS-3648 / ADR-107 rev 2 §3. Сбросить накопитель перед новым
++  // прогоном trace_json.
+   static void clear_sub() {
+     subterms.clear();
+   }
+@@ -356,14 +295,8 @@ namespace Trace {
+   }
+ }
+ 
+-// KS-3648 / ADR-107 rev 2 §3. Макрос-обёртка вокруг `Trace::add_sub`.
+-// При `T == NO_TRACE` шаблонизатор полностью удалит вызов, при
+-// `T == TRACE` развернёт в одну запись в накопитель. Применяется
+-// внутри `template<Tracing T>` Evaluation/pawns.cpp.
+-#define TRACE_ADD_SUB(id, c, s, sq) \
+-    do { if constexpr (T) Trace::add_sub(id, c, s, sq); } while (0)
+-#define TRACE_ADD_SUB_NS(id, c, s) \
+-    do { if constexpr (T) Trace::add_sub(id, c, s); } while (0)
++// KS-3648: макросы SF_TRACE_ADD_SUB / SF_TRACE_ADD_SUB_NS перенесены
++// в evaluate.h — теперь доступны и из pawns.cpp.
+ 
+ using namespace Trace;
+ 
+@@ -1335,6 +1268,15 @@ std::string Eval::trace(Position& pos) {
+ }
+ 
+ 
++/// KS-3648 / ADR-107 rev 2 §3. Запись одной подкомпоненты в общий
++/// накопитель `Trace::subterms`. Объявлена в evaluate.h, чтобы быть
++/// доступной из pawns.cpp (тот вызывает её под `if constexpr (T ==
++/// TRACE)`).
++void Eval::add_subterm(Subterm id, Color c, Score s, Square sq) {
++  subterms.push_back({id, c, sq, s});
++}
++
++
+ /// KS-3648 / ADR-107 rev 2 §3.4. JSON-сериализация всех позиционных
+ /// подкомпонент classical-оценки. Доступно через UCI команду
+ /// `eval json`. Используется фронтом Kingside (apps/web) для
+@@ -1371,6 +1313,15 @@ std::string Eval::trace_json(Position& pos) {
+   pos.this_thread()->optimism[WHITE] = VALUE_ZERO;
+   pos.this_thread()->optimism[BLACK] = VALUE_ZERO;
+ 
++  // KS-3648 / ADR-107 rev 2 §3 + §2.4. Pawn-кэш в `Pawns::probe`
++  // вызывает `evaluate<NO_TRACE>` — для trace нужно отдельным
++  // проходом перебрать обе стороны с TRACE и эмитить 7 + 4
++  // подкомпоненты пешек/щита. Делается ДО `Evaluation<TRACE>` чтобы
++  // pawn-subterms лежали в накопителе раньше piece/king/threats
++  // (для удобства чтения JSON, порядок результата не критичен).
++  Pawns::trace_for<WHITE>(pos);
++  Pawns::trace_for<BLACK>(pos);
++
+   Value v = Evaluation<TRACE>(pos).value();
+   v = pos.side_to_move() == WHITE ? v : -v;
+ 
+diff --git a/src/evaluate.h b/src/evaluate.h
+index fa35e86..74d35ae 100644
+--- a/src/evaluate.h
++++ b/src/evaluate.h
+@@ -30,18 +30,101 @@ class Position;
+ 
+ namespace Eval {
+ 
++  // KS-3648 / ADR-107 rev 2 §3. Идентификаторы позиционных
++  // подкомпонент classical-оценки (~50 штук, соответствует
++  // packages/shared `PositionalSubtermId`, KS-3649). Используется
++  // pawns.cpp и evaluate.cpp для вызова Eval::add_subterm в TRACE-
++  // режиме. Порядок согласован с таблицей `subterm_id_names` в
++  // evaluate.cpp.
++  enum Subterm {
++    // pawns.cpp::evaluate<Color> (7 подкомпонент)
++    SUBT_PAWN_DOUBLED_EARLY,
++    SUBT_PAWN_CONNECTED,
++    SUBT_PAWN_DOUBLED,
++    SUBT_PAWN_ISOLATED,
++    SUBT_PAWN_BACKWARD,
++    SUBT_PAWN_LEVER_DOUBLE,
++    SUBT_PAWN_BLOCKED,
++    // pawns.cpp::Entry::evaluate_shelter (4)
++    SUBT_KING_SHELTER_STRENGTH,
++    SUBT_KING_BLOCKED_STORM,
++    SUBT_KING_UNBLOCKED_STORM,
++    SUBT_KING_ON_FILE,
++    // evaluate.cpp::pieces (17)
++    SUBT_ROOK_ON_KING_RING,
++    SUBT_BISHOP_ON_KING_RING,
++    SUBT_KNIGHT_UNCONTESTED_OUTPOST,
++    SUBT_OUTPOST_KNIGHT,
++    SUBT_OUTPOST_BISHOP,
++    SUBT_KNIGHT_REACHABLE_OUTPOST,
++    SUBT_MINOR_BEHIND_PAWN,
++    SUBT_KNIGHT_KING_PROTECTOR_DISTANCE,
++    SUBT_BISHOP_KING_PROTECTOR_DISTANCE,
++    SUBT_BISHOP_PAWNS,
++    SUBT_BISHOP_XRAY_PAWNS,
++    SUBT_BISHOP_LONG_DIAGONAL,
++    SUBT_BISHOP_CORNERED,
++    SUBT_ROOK_ON_OPEN_FILE,
++    SUBT_ROOK_ON_CLOSED_FILE,
++    SUBT_ROOK_TRAPPED,
++    SUBT_QUEEN_WEAK,
++    // evaluate.cpp::king (8)
++    SUBT_KING_SAFETY_PAWN,
++    SUBT_KING_DANGER,
++    SUBT_KING_SAFE_CHECK_ROOK,
++    SUBT_KING_SAFE_CHECK_QUEEN,
++    SUBT_KING_SAFE_CHECK_BISHOP,
++    SUBT_KING_SAFE_CHECK_KNIGHT,
++    SUBT_KING_PAWNLESS_FLANK,
++    SUBT_KING_FLANK_ATTACKS,
++    // evaluate.cpp::threats (10)
++    SUBT_THREAT_BY_MINOR,
++    SUBT_THREAT_BY_ROOK,
++    SUBT_THREAT_BY_KING,
++    SUBT_THREAT_HANGING,
++    SUBT_THREAT_WEAK_QUEEN_PROTECTION,
++    SUBT_THREAT_RESTRICTED_PIECE,
++    SUBT_THREAT_BY_SAFE_PAWN,
++    SUBT_THREAT_BY_PAWN_PUSH,
++    SUBT_THREAT_KNIGHT_ON_QUEEN,
++    SUBT_THREAT_SLIDER_ON_QUEEN,
++    // evaluate.cpp::passed (4)
++    SUBT_PASSED_RANK,
++    SUBT_PASSED_KING_PROXIMITY,
++    SUBT_PASSED_PATH_ADVANCE,
++    SUBT_PASSED_FILE_EDGE,
++    // evaluate.cpp::space (1)
++    SUBT_SPACE,
++    SUBT_NB
++  };
++
++  // KS-3648. Записать одну подкомпоненту в общий накопитель
++  // (`Trace::subterms` в evaluate.cpp). Безопасно для multi-call'ов
++  // — caller'у достаточно один раз позвать `Eval::trace_json()`,
++  // который вызовет `Trace::clear_sub` перед накоплением. Pawns.cpp
++  // вызывает её под `if constexpr (T == TRACE)`.
++  void add_subterm(Subterm id, Color c, Score s, Square sq = SQ_NONE);
++
+   std::string trace(Position& pos);
+ 
+   // KS-3648 / ADR-107 rev 2 §3. Расширенный classical-trace с
+   // per-subterm выводом в JSON. Вызывается из UCI команды
+   // `eval json`. Внутри: классическая оценка с template<Tracing T =
+   // TRACE> + сбор всех ~50 подкомпонент с привязкой к квадрату/цвету
+-  // через Trace::add_sub. Pawn-cache в TRACE режиме обходится
+-  // (см. pawns.cpp::evaluate<TRACE, Color>).
++  // через Eval::add_subterm. Pawn-cache в TRACE режиме обходится
++  // отдельным вызовом `Pawns::trace_for<Color>`.
+   std::string trace_json(Position& pos);
+ 
+   Value evaluate(const Position& pos);
+ 
++  // KS-3648 / ADR-107 rev 2 §3. Tracing-флаг для template'ов
++  // `Evaluation<T>` в evaluate.cpp и `evaluate<T, Color>` /
++  // `evaluate_shelter<T, Color>` в pawns.cpp. NO_TRACE = накладные
++  // расходы нулевые (макрос-обёртка под `if constexpr (T)` удаляется
++  // компилятором); TRACE = вызывает `add_subterm` для каждой
++  // подкомпоненты.
++  enum Tracing { NO_TRACE, TRACE };
++
+   extern bool useNNUE;
+   extern std::string currentEvalFileName;
+ 
+@@ -59,6 +142,15 @@ namespace Eval {
+ 
+ } // namespace Eval
+ 
++// KS-3648 / ADR-107 rev 2 §3. Макросы-обёртки вокруг
++// `Eval::add_subterm`. Применяются внутри `template<Tracing T>`
++// функций. При `T == NO_TRACE` компилятор полностью удаляет вызов
++// (zero overhead).
++#define SF_TRACE_ADD_SUB(id, c, s, sq) \
++    do { if constexpr (T == Eval::TRACE) Eval::add_subterm(id, c, s, sq); } while (0)
++#define SF_TRACE_ADD_SUB_NS(id, c, s) \
++    do { if constexpr (T == Eval::TRACE) Eval::add_subterm(id, c, s); } while (0)
++
+ } // namespace Stockfish
+ 
+ #endif // #ifndef EVALUATE_H_INCLUDED
+diff --git a/src/pawns.cpp b/src/pawns.cpp
+index 0ccafd9..000d922 100644
+--- a/src/pawns.cpp
++++ b/src/pawns.cpp
+@@ -20,6 +20,7 @@
+ #include <cassert>
+ 
+ #include "bitboard.h"
++#include "evaluate.h"  // KS-3648: Eval::Subterm + Eval::Tracing + SF_TRACE_ADD_SUB
+ #include "pawns.h"
+ #include "position.h"
+ #include "thread.h"
+@@ -83,8 +84,14 @@ namespace {
+   /// We cannot use the location of pieces or king in this function, as the evaluation
+   /// of the pawn structure will be stored in a small cache for speed reasons, and will
+   /// be re-used even when the pieces have moved.
+-
+-  template<Color Us>
++  ///
++  /// KS-3648 / ADR-107 rev 2 §3 + §2.4. Параметризована `Eval::Tracing T`:
++  /// в основном поиске вызывается с `Eval::NO_TRACE` (через `Pawns::probe`),
++  /// все `SF_TRACE_ADD_SUB` устраняются компилятором (zero overhead). В
++  /// trace-режиме (через `Pawns::trace_for`) накапливает 7 pawn-подкомпонент
++  /// в `Trace::subterms` evaluate.cpp с привязкой к квадрату пешки.
++
++  template<Eval::Tracing T, Color Us>
+   Score evaluate(const Position& pos, Pawns::Entry* e) {
+ 
+     constexpr Color     Them = ~Us;
+@@ -132,7 +139,10 @@ namespace {
+         {
+             // Additional doubled penalty if none of their pawns is fixed
+             if (!(ourPawns & shift<Down>(theirPawns | pawn_attacks_bb<Them>(theirPawns))))
++            {
+                 score -= DoubledEarly;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_DOUBLED_EARLY, Us, -DoubledEarly, s);
++            }
+         }
+ 
+         // A pawn is backward when it is behind all pawns of the same color on
+@@ -168,7 +178,9 @@ namespace {
+             int v =  Connected[r] * (2 + bool(phalanx) - bool(opposed))
+                    + 22 * popcount(support);
+ 
+-            score += make_score(v, v * (r - 2) / 4);
++            Score connectedScore = make_score(v, v * (r - 2) / 4);
++            score += connectedScore;
++            SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_CONNECTED, Us, connectedScore, s);
+         }
+ 
+         else if (!neighbours)
+@@ -176,22 +188,49 @@ namespace {
+             if (     opposed
+                 &&  (ourPawns & forward_file_bb(Them, s))
+                 && !(theirPawns & adjacent_files_bb(s)))
++            {
+                 score -= Doubled;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_DOUBLED, Us, -Doubled, s);
++            }
+             else
+-                score -=  Isolated
+-                        + WeakUnopposed * !opposed;
++            {
++                Score isoScore = Isolated + WeakUnopposed * !opposed;
++                score -= isoScore;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_ISOLATED, Us, -isoScore, s);
++            }
+         }
+ 
+         else if (backward)
+-            score -=  Backward
+-                    + WeakUnopposed * !opposed * bool(~(FileABB | FileHBB) & s);
++        {
++            Score bwdScore = Backward
++                           + WeakUnopposed * !opposed * bool(~(FileABB | FileHBB) & s);
++            score -= bwdScore;
++            SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_BACKWARD, Us, -bwdScore, s);
++        }
+ 
+         if (!support)
+-            score -=  Doubled * doubled
+-                    + WeakLever * more_than_one(lever);
++        {
++            // Здесь две независимых подкомпоненты: Doubled (when doubled)
++            // и WeakLever (per multi-lever). Эмитим раздельно — каждая
++            // имеет свой ID в `Eval::Subterm`.
++            if (doubled)
++            {
++                score -= Doubled;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_DOUBLED, Us, -Doubled, s);
++            }
++            if (more_than_one(lever))
++            {
++                score -= WeakLever;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_LEVER_DOUBLE, Us, -WeakLever, s);
++            }
++        }
+ 
+         if (blocked && r >= RANK_5)
+-            score += BlockedPawn[r - RANK_5];
++        {
++            Score blkScore = BlockedPawn[r - RANK_5];
++            score += blkScore;
++            SF_TRACE_ADD_SUB(Eval::SUBT_PAWN_BLOCKED, Us, blkScore, s);
++        }
+     }
+ 
+     return score;
+@@ -217,8 +256,10 @@ Entry* probe(const Position& pos) {
+ 
+   e->key = key;
+   e->blockedCount = 0;
+-  e->scores[WHITE] = evaluate<WHITE>(pos, e);
+-  e->scores[BLACK] = evaluate<BLACK>(pos, e);
++  // KS-3648: основной (NO_TRACE) путь — макросы SF_TRACE_ADD_SUB
++  // в `evaluate<>` устраняются компилятором, накладных нет.
++  e->scores[WHITE] = evaluate<Eval::NO_TRACE, WHITE>(pos, e);
++  e->scores[BLACK] = evaluate<Eval::NO_TRACE, BLACK>(pos, e);
+ 
+   return e;
+ }
+@@ -226,8 +267,15 @@ Entry* probe(const Position& pos) {
+ 
+ /// Entry::evaluate_shelter() calculates the shelter bonus and the storm
+ /// penalty for a king, looking at the king file and the two closest files.
+-
+-template<Color Us>
++///
++/// KS-3648 / ADR-107 rev 2 §3. Параметризована `Eval::Tracing T`:
++/// в основном пути (через `do_king_safety<Us>` → этот шаблон с
++/// `Eval::NO_TRACE`) накладных нет; в trace-режиме (через
++/// `Pawns::trace_for_shelter<Color>`) эмитит 4 shelter-подкомпоненты
++/// с привязкой к квадрату пешки (или королевскому квадрату для
++/// KING_ON_FILE).
++
++template<Eval::Tracing T, Color Us>
+ Score Entry::evaluate_shelter(const Position& pos, Square ksq) const {
+ 
+   constexpr Color Them = ~Us;
+@@ -248,16 +296,28 @@ Score Entry::evaluate_shelter(const Position& pos, Square ksq) const {
+       int theirRank = b ? relative_rank(Us, frontmost_sq(Them, b)) : 0;
+ 
+       int d = edge_distance(f);
+-      bonus += make_score(ShelterStrength[d][ourRank], 0);
++      Score shelterScore = make_score(ShelterStrength[d][ourRank], 0);
++      bonus += shelterScore;
++      SF_TRACE_ADD_SUB(Eval::SUBT_KING_SHELTER_STRENGTH, Us, shelterScore, ksq);
+ 
+       if (ourRank && (ourRank == theirRank - 1))
+-          bonus -= BlockedStorm[theirRank];
++      {
++          Score blockedStormScore = BlockedStorm[theirRank];
++          bonus -= blockedStormScore;
++          SF_TRACE_ADD_SUB(Eval::SUBT_KING_BLOCKED_STORM, Us, -blockedStormScore, ksq);
++      }
+       else
+-          bonus -= make_score(UnblockedStorm[d][theirRank], 0);
++      {
++          Score unblockedStormScore = make_score(UnblockedStorm[d][theirRank], 0);
++          bonus -= unblockedStormScore;
++          SF_TRACE_ADD_SUB(Eval::SUBT_KING_UNBLOCKED_STORM, Us, -unblockedStormScore, ksq);
++      }
+   }
+ 
+   // King On File
+-  bonus -= KingOnFile[pos.is_on_semiopen_file(Us, ksq)][pos.is_on_semiopen_file(Them, ksq)];
++  Score kingOnFileScore = KingOnFile[pos.is_on_semiopen_file(Us, ksq)][pos.is_on_semiopen_file(Them, ksq)];
++  bonus -= kingOnFileScore;
++  SF_TRACE_ADD_SUB(Eval::SUBT_KING_ON_FILE, Us, -kingOnFileScore, ksq);
+ 
+   return bonus;
+ }
+@@ -274,15 +334,17 @@ Score Entry::do_king_safety(const Position& pos) {
+   castlingRights[Us] = pos.castling_rights(Us);
+   auto compare = [](Score a, Score b) { return mg_value(a) < mg_value(b); };
+ 
+-  Score shelter = evaluate_shelter<Us>(pos, ksq);
++  // KS-3648: основной путь — NO_TRACE; trace-режим использует
++  // отдельный wrapper `Pawns::trace_for_shelter<Color>`.
++  Score shelter = evaluate_shelter<Eval::NO_TRACE, Us>(pos, ksq);
+ 
+   // If we can castle use the bonus after castling if it is bigger
+ 
+   if (pos.can_castle(Us & KING_SIDE))
+-      shelter = std::max(shelter, evaluate_shelter<Us>(pos, relative_square(Us, SQ_G1)), compare);
++      shelter = std::max(shelter, evaluate_shelter<Eval::NO_TRACE, Us>(pos, relative_square(Us, SQ_G1)), compare);
+ 
+   if (pos.can_castle(Us & QUEEN_SIDE))
+-      shelter = std::max(shelter, evaluate_shelter<Us>(pos, relative_square(Us, SQ_C1)), compare);
++      shelter = std::max(shelter, evaluate_shelter<Eval::NO_TRACE, Us>(pos, relative_square(Us, SQ_C1)), compare);
+ 
+   // In endgame we like to bring our king near our closest pawn
+   Bitboard pawns = pos.pieces(Us, PAWN);
+@@ -300,6 +362,35 @@ Score Entry::do_king_safety(const Position& pos) {
+ template Score Entry::do_king_safety<WHITE>(const Position& pos);
+ template Score Entry::do_king_safety<BLACK>(const Position& pos);
+ 
++
++// KS-3648 / ADR-107 rev 2 §3. Trace-режим для pawn-подкомпонент. В
++// отличие от `probe()`, обходит кэш (создаёт временный Entry и не
++// сохраняет его в HashTable), вызывает `evaluate<Eval::TRACE, Us>`
++// и `evaluate_shelter<Eval::TRACE, Us>` — оба эмитят соответствующие
++// `SUBT_PAWN_*` / `SUBT_KING_SHELTER_*` в общий накопитель
++// `Trace::subterms` в evaluate.cpp.
++
++template<Color Us>
++void trace_for(const Position& pos) {
++  Entry tmp{};
++  tmp.passedPawns[Us] = 0;
++  tmp.kingSquares[Us] = SQ_NONE;
++  tmp.blockedCount    = 0;
++
++  // 7 pawn-подкомпонент.
++  (void) evaluate<Eval::TRACE, Us>(pos, &tmp);
++
++  // 4 shelter/storm подкомпоненты. Вызываем с реальным `ksq` короля
++  // — кэш-fallback на относительные G1/C1 квадраты в `do_king_safety`
++  // полезен лишь для финального бонуса, но для трассировки нас
++  // интересует именно текущее положение короля.
++  Square ksq = pos.square<KING>(Us);
++  (void) tmp.evaluate_shelter<Eval::TRACE, Us>(pos, ksq);
++}
++
++template void trace_for<WHITE>(const Position&);
++template void trace_for<BLACK>(const Position&);
++
+ } // namespace Pawns
+ 
+ } // namespace Stockfish
+diff --git a/src/pawns.h b/src/pawns.h
+index d20e7c2..a0e03b4 100644
+--- a/src/pawns.h
++++ b/src/pawns.h
+@@ -19,6 +19,7 @@
+ #ifndef PAWNS_H_INCLUDED
+ #define PAWNS_H_INCLUDED
+ 
++#include "evaluate.h"  // KS-3648: Eval::Tracing для template-параметра
+ #include "misc.h"
+ #include "position.h"
+ #include "types.h"
+@@ -47,7 +48,9 @@ struct Entry {
+   template<Color Us>
+   Score do_king_safety(const Position& pos);
+ 
+-  template<Color Us>
++  // KS-3648 / ADR-107 rev 2 §3. Параметризовано Eval::Tracing для
++  // trace-режима — см. pawns.cpp комментарий.
++  template<Eval::Tracing T, Color Us>
+   Score evaluate_shelter(const Position& pos, Square ksq) const;
+ 
+   Key key;
+@@ -65,6 +68,13 @@ using Table = HashTable<Entry, 131072>;
+ 
+ Entry* probe(const Position& pos);
+ 
++// KS-3648 / ADR-107 rev 2 §3. Trace-режим: посчитать 7 pawn-
++// подкомпонент и 4 shelter/storm подкомпоненты, эмитить их в
++// `Trace::subterms` evaluate.cpp через `Eval::add_subterm`. Не
++// кэширует результат — для одноразовой trace-разметки в `eval json`.
++template<Color Us>
++void trace_for(const Position& pos);
++
+ } // namespace Stockfish::Pawns
+ 
+ #endif // #ifndef PAWNS_H_INCLUDED
+-- 
+2.39.5
+
+
+From 6d504a4b1e6076404d511f6d6b620f502f6a213a Mon Sep 17 00:00:00 2001
+From: Kingside Backend Agent <backend@kingside.local>
+Date: Wed, 3 Jun 2026 17:59:42 +0000
+Subject: [PATCH 3/3] =?UTF-8?q?Phase=204-8:=20evaluate.cpp=20pieces/king/t?=
+ =?UTF-8?q?hreats/passed/space=20=E2=80=94=2040=20SF=5FTRACE=5FADD=5FSUB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KS-3648 / ADR-107 rev 2 §3. Полная разметка оставшихся 40 точек
+в evaluate.cpp; вместе с Phase 1-3 покрыт весь caталог из 51
+Eval::Subterm (PositionalSubtermId).
+
+Phase 4 — pieces() (17 точек по таблице ADR §2.2):
+- SUBT_ROOK_ON_KING_RING / BISHOP_ON_KING_RING (per piece square)
+- SUBT_KNIGHT_UNCONTESTED_OUTPOST, SUBT_OUTPOST_KNIGHT/BISHOP,
+  SUBT_KNIGHT_REACHABLE_OUTPOST, SUBT_MINOR_BEHIND_PAWN
+- SUBT_KNIGHT/BISHOP_KING_PROTECTOR_DISTANCE
+- SUBT_BISHOP_PAWNS, SUBT_BISHOP_XRAY_PAWNS,
+  SUBT_BISHOP_LONG_DIAGONAL, SUBT_BISHOP_CORNERED
+- SUBT_ROOK_ON_OPEN_FILE, SUBT_ROOK_ON_CLOSED_FILE, SUBT_ROOK_TRAPPED
+- SUBT_QUEEN_WEAK
+Все с привязкой к квадрату фигуры (через цикл по фигурам типа Pt).
+
+Phase 5 — king() (8 точек):
+- SUBT_KING_SAFETY_PAWN — начальный score из pe->king_safety()
+- SUBT_KING_SAFE_CHECK_{ROOK,QUEEN,BISHOP,KNIGHT} — вклад в kingDanger;
+  эмитятся как -make_score(v,v) с привязкой к ksq (т.к. SafeCheck —
+  это int, а Score нужен потребителю в единых cp; знак отрицательный,
+  потому что финальный score -= kingDanger через формулу на :613).
+- SUBT_KING_DANGER — итоговый make_score(kingDanger^2/4096, kingDanger/16)
+  если kingDanger > 100, с минусом.
+- SUBT_KING_PAWNLESS_FLANK, SUBT_KING_FLANK_ATTACKS — прямой score-вклад.
+
+Phase 6 — threats() (10 точек):
+- SUBT_THREAT_BY_MINOR / BY_ROOK — в loop per attacked square (через
+  pop_lsb с сохранением ts перед записью).
+- SUBT_THREAT_BY_KING, SUBT_THREAT_HANGING,
+  SUBT_THREAT_WEAK_QUEEN_PROTECTION, SUBT_THREAT_RESTRICTED_PIECE,
+  SUBT_THREAT_BY_SAFE_PAWN, SUBT_THREAT_BY_PAWN_PUSH — без square
+  (через SF_TRACE_ADD_SUB_NS).
+- SUBT_THREAT_KNIGHT_ON_QUEEN, SUBT_THREAT_SLIDER_ON_QUEEN — с
+  привязкой к квадрату вражеского ферзя.
+
+Phase 7 — passed() (4 точки, per passed pawn square):
+- SUBT_PASSED_RANK — PassedRank[r]
+- SUBT_PASSED_KING_PROXIMITY — сумма make_score(0, kingProx*...) +
+  опциональная коррекция second-push.
+- SUBT_PASSED_PATH_ADVANCE — make_score(k*w, k*w) когда блок-квадрат
+  пуст.
+- SUBT_PASSED_FILE_EDGE — -PassedFile * edge_distance(file_of(s)).
+
+Phase 8 — space() (1 точка):
+- SUBT_SPACE — то же значение что и Trace::add(SPACE, ...);
+  без square, side-обладатель.
+
+Технические детали:
+- Литералы вида '4 * make_score(...)' заменены на 'make_score(...) * 4',
+  потому что Score определён как 'enum Score : int' без операторов
+  int * Score, только Score * int. Прежде литералы compile'ились
+  через score -= неявную int-конверсию, но при сохранении в Score
+  локальную переменную это разваливается. Семантика идентична.
+- Логические if-блоки (вокруг score +=) сохраняют ту же сумму, так
+  как SF использует *bool как 0/1-фактор; явный if просто отделяет
+  trace-вызов от случая когда вклад равен 0.
+
+Сборка: g++ 12.2.0, ARCH=x86-64, без warning'ов.
+
+Smoke на Свешникове (r1bqkb1r/pp3ppp/2np1n2/1N2p3/4P3/2N5/PPP2PPP/
+R1BQKB1R w KQkq - 0 7): 71 запись, включая ключевые позиционные
+сигналы Свешникова — knight_reachable_outpost c3 (конь готов на d5),
+threat_slider_on_queen, bishop_pawns для обеих сторон. Total
+0.10 mg / 0.17 eg / +0.10 совпадает с baseline upstream-SF (агрегат
+13 терминов не нарушен).
+---
+ src/evaluate.cpp | 185 +++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 153 insertions(+), 32 deletions(-)
+
+diff --git a/src/evaluate.cpp b/src/evaluate.cpp
+index 6ba8a18..d8333f4 100644
+--- a/src/evaluate.cpp
++++ b/src/evaluate.cpp
+@@ -532,10 +532,16 @@ namespace {
+         }
+ 
+         else if (Pt == ROOK && (file_bb(s) & kingRing[Them]))
++        {
+             score += RookOnKingRing;
++            SF_TRACE_ADD_SUB(Eval::SUBT_ROOK_ON_KING_RING, Us, RookOnKingRing, s);
++        }
+ 
+         else if (Pt == BISHOP && (attacks_bb<BISHOP>(s, pos.pieces(PAWN)) & kingRing[Them]))
++        {
+             score += BishopOnKingRing;
++            SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_ON_KING_RING, Us, BishopOnKingRing, s);
++        }
+ 
+         int mob = popcount(b & mobilityArea[Us]);
+         mobility[Us] += MobilityBonus[Pt - 2][mob];
+@@ -552,18 +558,40 @@ namespace {
+                 && bb & s & ~CenterFiles // on a side outpost
+                 && !(b & targets)        // no relevant attacks
+                 && (!more_than_one(targets & (s & QueenSide ? QueenSide : KingSide))))
+-                score += UncontestedOutpost * popcount(pos.pieces(PAWN) & (s & QueenSide ? QueenSide : KingSide));
++            {
++                Score uncontestedScore = UncontestedOutpost * popcount(pos.pieces(PAWN) & (s & QueenSide ? QueenSide : KingSide));
++                score += uncontestedScore;
++                SF_TRACE_ADD_SUB(Eval::SUBT_KNIGHT_UNCONTESTED_OUTPOST, Us, uncontestedScore, s);
++            }
+             else if (bb & s)
+-                score += Outpost[Pt == BISHOP];
++            {
++                Score outpostScore = Outpost[Pt == BISHOP];
++                score += outpostScore;
++                if constexpr (Pt == BISHOP)
++                    SF_TRACE_ADD_SUB(Eval::SUBT_OUTPOST_BISHOP, Us, outpostScore, s);
++                else
++                    SF_TRACE_ADD_SUB(Eval::SUBT_OUTPOST_KNIGHT, Us, outpostScore, s);
++            }
+             else if (Pt == KNIGHT && bb & b & ~pos.pieces(Us))
++            {
+                 score += ReachableOutpost;
++                SF_TRACE_ADD_SUB(Eval::SUBT_KNIGHT_REACHABLE_OUTPOST, Us, ReachableOutpost, s);
++            }
+ 
+             // Bonus for a knight or bishop shielded by pawn
+             if (shift<Down>(pos.pieces(PAWN)) & s)
++            {
+                 score += MinorBehindPawn;
++                SF_TRACE_ADD_SUB(Eval::SUBT_MINOR_BEHIND_PAWN, Us, MinorBehindPawn, s);
++            }
+ 
+             // Penalty if the piece is far from the king
+-            score -= KingProtector[Pt == BISHOP] * distance(pos.square<KING>(Us), s);
++            Score kingProtectorPenalty = KingProtector[Pt == BISHOP] * distance(pos.square<KING>(Us), s);
++            score -= kingProtectorPenalty;
++            if constexpr (Pt == BISHOP)
++                SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_KING_PROTECTOR_DISTANCE, Us, -kingProtectorPenalty, s);
++            else
++                SF_TRACE_ADD_SUB(Eval::SUBT_KNIGHT_KING_PROTECTOR_DISTANCE, Us, -kingProtectorPenalty, s);
+ 
+             if constexpr (Pt == BISHOP)
+             {
+@@ -572,15 +600,22 @@ namespace {
+                 // when the bishop is outside the pawn chain.
+                 Bitboard blocked = pos.pieces(Us, PAWN) & shift<Down>(pos.pieces());
+ 
+-                score -= BishopPawns[edge_distance(file_of(s))] * pos.pawns_on_same_color_squares(Us, s)
+-                                     * (!(attackedBy[Us][PAWN] & s) + popcount(blocked & CenterFiles));
++                Score bishopPawnsPenalty = BishopPawns[edge_distance(file_of(s))] * pos.pawns_on_same_color_squares(Us, s)
++                                         * (!(attackedBy[Us][PAWN] & s) + popcount(blocked & CenterFiles));
++                score -= bishopPawnsPenalty;
++                SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_PAWNS, Us, -bishopPawnsPenalty, s);
+ 
+                 // Penalty for all enemy pawns x-rayed
+-                score -= BishopXRayPawns * popcount(attacks_bb<BISHOP>(s) & pos.pieces(Them, PAWN));
++                Score bishopXrayPenalty = BishopXRayPawns * popcount(attacks_bb<BISHOP>(s) & pos.pieces(Them, PAWN));
++                score -= bishopXrayPenalty;
++                SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_XRAY_PAWNS, Us, -bishopXrayPenalty, s);
+ 
+                 // Bonus for bishop on a long diagonal which can "see" both center squares
+                 if (more_than_one(attacks_bb<BISHOP>(s, pos.pieces(PAWN)) & Center))
++                {
+                     score += LongDiagonalBishop;
++                    SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_LONG_DIAGONAL, Us, LongDiagonalBishop, s);
++                }
+ 
+                 // An important Chess960 pattern: a cornered bishop blocked by a friendly
+                 // pawn diagonally in front of it is a very serious problem, especially
+@@ -590,8 +625,13 @@ namespace {
+                 {
+                     Direction d = pawn_push(Us) + (file_of(s) == FILE_A ? EAST : WEST);
+                     if (pos.piece_on(s + d) == make_piece(Us, PAWN))
+-                        score -= !pos.empty(s + d + pawn_push(Us)) ? 4 * make_score(CorneredBishop, CorneredBishop)
+-                                                                   : 3 * make_score(CorneredBishop, CorneredBishop);
++                    {
++                        Score corneredPenalty = !pos.empty(s + d + pawn_push(Us))
++                                              ? make_score(CorneredBishop, CorneredBishop) * 4
++                                              : make_score(CorneredBishop, CorneredBishop) * 3;
++                        score -= corneredPenalty;
++                        SF_TRACE_ADD_SUB(Eval::SUBT_BISHOP_CORNERED, Us, -corneredPenalty, s);
++                    }
+                 }
+             }
+         }
+@@ -601,7 +641,9 @@ namespace {
+             // Bonuses for rook on a (semi-)open or closed file
+             if (pos.is_on_semiopen_file(Us, s))
+             {
+-                score += RookOnOpenFile[pos.is_on_semiopen_file(Them, s)];
++                Score rookOpenScore = RookOnOpenFile[pos.is_on_semiopen_file(Them, s)];
++                score += rookOpenScore;
++                SF_TRACE_ADD_SUB(Eval::SUBT_ROOK_ON_OPEN_FILE, Us, rookOpenScore, s);
+             }
+             else
+             {
+@@ -611,6 +653,7 @@ namespace {
+                    & file_bb(s))
+                 {
+                     score -= RookOnClosedFile;
++                    SF_TRACE_ADD_SUB(Eval::SUBT_ROOK_ON_CLOSED_FILE, Us, -RookOnClosedFile, s);
+                 }
+ 
+                 // Penalty when trapped by the king, even more if the king cannot castle
+@@ -618,7 +661,11 @@ namespace {
+                 {
+                     File kf = file_of(pos.square<KING>(Us));
+                     if ((kf < FILE_E) == (file_of(s) < kf))
+-                        score -= TrappedRook * (1 + !pos.castling_rights(Us));
++                    {
++                        Score trappedPenalty = TrappedRook * (1 + !pos.castling_rights(Us));
++                        score -= trappedPenalty;
++                        SF_TRACE_ADD_SUB(Eval::SUBT_ROOK_TRAPPED, Us, -trappedPenalty, s);
++                    }
+                 }
+             }
+         }
+@@ -628,7 +675,10 @@ namespace {
+             // Penalty if any relative pin or discovered attack against the queen
+             Bitboard queenPinners;
+             if (pos.slider_blockers(pos.pieces(Them, ROOK, BISHOP), s, queenPinners))
++            {
+                 score -= WeakQueen;
++                SF_TRACE_ADD_SUB(Eval::SUBT_QUEEN_WEAK, Us, -WeakQueen, s);
++            }
+         }
+     }
+     if constexpr (T)
+@@ -654,6 +704,7 @@ namespace {
+ 
+     // Init the score with king shelter and enemy pawns storm
+     Score score = pe->king_safety<Us>(pos);
++    SF_TRACE_ADD_SUB(Eval::SUBT_KING_SAFETY_PAWN, Us, score, ksq);
+ 
+     // Attacked squares defended at most once by our queen or king
+     weak =  attackedBy[Them][ALL_PIECES]
+@@ -670,7 +721,14 @@ namespace {
+     // Enemy rooks checks
+     rookChecks = b1 & attackedBy[Them][ROOK] & safe;
+     if (rookChecks)
+-        kingDanger += SafeCheck[ROOK][more_than_one(rookChecks)];
++    {
++        int v = SafeCheck[ROOK][more_than_one(rookChecks)];
++        kingDanger += v;
++        // SafeCheck-вклад в king_danger (отрицательный для нашей
++        // стороны, т.к. финальный score -= ...). Эмитим как
++        // make_score(v,v) с минусом для удобства потребителя.
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_SAFE_CHECK_ROOK, Us, -make_score(v, v), ksq);
++    }
+     else
+         unsafeChecks |= b1 & attackedBy[Them][ROOK];
+ 
+@@ -679,22 +737,33 @@ namespace {
+     queenChecks =  (b1 | b2) & attackedBy[Them][QUEEN] & safe
+                  & ~(attackedBy[Us][QUEEN] | rookChecks);
+     if (queenChecks)
+-        kingDanger += SafeCheck[QUEEN][more_than_one(queenChecks)];
++    {
++        int v = SafeCheck[QUEEN][more_than_one(queenChecks)];
++        kingDanger += v;
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_SAFE_CHECK_QUEEN, Us, -make_score(v, v), ksq);
++    }
+ 
+     // Enemy bishops checks: count them only if they are from squares from which
+     // opponent cannot give a queen check, because queen checks are more valuable.
+     bishopChecks =  b2 & attackedBy[Them][BISHOP] & safe
+                   & ~queenChecks;
+     if (bishopChecks)
+-        kingDanger += SafeCheck[BISHOP][more_than_one(bishopChecks)];
+-
++    {
++        int v = SafeCheck[BISHOP][more_than_one(bishopChecks)];
++        kingDanger += v;
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_SAFE_CHECK_BISHOP, Us, -make_score(v, v), ksq);
++    }
+     else
+         unsafeChecks |= b2 & attackedBy[Them][BISHOP];
+ 
+     // Enemy knights checks
+     knightChecks = attacks_bb<KNIGHT>(ksq) & attackedBy[Them][KNIGHT];
+     if (knightChecks & safe)
+-        kingDanger += SafeCheck[KNIGHT][more_than_one(knightChecks & safe)];
++    {
++        int v = SafeCheck[KNIGHT][more_than_one(knightChecks & safe)];
++        kingDanger += v;
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_SAFE_CHECK_KNIGHT, Us, -make_score(v, v), ksq);
++    }
+     else
+         unsafeChecks |= knightChecks;
+ 
+@@ -722,14 +791,23 @@ namespace {
+ 
+     // Transform the kingDanger units into a Score, and subtract it from the evaluation
+     if (kingDanger > 100)
+-        score -= make_score(kingDanger * kingDanger / 4096, kingDanger / 16);
++    {
++        Score dangerScore = make_score(kingDanger * kingDanger / 4096, kingDanger / 16);
++        score -= dangerScore;
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_DANGER, Us, -dangerScore, ksq);
++    }
+ 
+     // Penalty when our king is on a pawnless flank
+     if (!(pos.pieces(PAWN) & KingFlank[file_of(ksq)]))
++    {
+         score -= PawnlessFlank;
++        SF_TRACE_ADD_SUB(Eval::SUBT_KING_PAWNLESS_FLANK, Us, -PawnlessFlank, ksq);
++    }
+ 
+     // Penalty if king flank is under attack, potentially moving toward the king
+-    score -= FlankAttacks * kingFlankAttack;
++    Score flankAttacksPenalty = FlankAttacks * kingFlankAttack;
++    score -= flankAttacksPenalty;
++    SF_TRACE_ADD_SUB(Eval::SUBT_KING_FLANK_ATTACKS, Us, -flankAttacksPenalty, ksq);
+ 
+     if constexpr (T)
+         Trace::add(KING, Us, score);
+@@ -770,28 +848,47 @@ namespace {
+     {
+         b = (defended | weak) & (attackedBy[Us][KNIGHT] | attackedBy[Us][BISHOP]);
+         while (b)
+-            score += ThreatByMinor[type_of(pos.piece_on(pop_lsb(b)))];
++        {
++            Square ts = pop_lsb(b);
++            Score thrScore = ThreatByMinor[type_of(pos.piece_on(ts))];
++            score += thrScore;
++            SF_TRACE_ADD_SUB(Eval::SUBT_THREAT_BY_MINOR, Us, thrScore, ts);
++        }
+ 
+         b = weak & attackedBy[Us][ROOK];
+         while (b)
+-            score += ThreatByRook[type_of(pos.piece_on(pop_lsb(b)))];
++        {
++            Square ts = pop_lsb(b);
++            Score thrScore = ThreatByRook[type_of(pos.piece_on(ts))];
++            score += thrScore;
++            SF_TRACE_ADD_SUB(Eval::SUBT_THREAT_BY_ROOK, Us, thrScore, ts);
++        }
+ 
+         if (weak & attackedBy[Us][KING])
++        {
+             score += ThreatByKing;
++            SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_BY_KING, Us, ThreatByKing);
++        }
+ 
+         b =  ~attackedBy[Them][ALL_PIECES]
+            | (nonPawnEnemies & attackedBy2[Us]);
+-        score += Hanging * popcount(weak & b);
++        Score hangingScore = Hanging * popcount(weak & b);
++        score += hangingScore;
++        SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_HANGING, Us, hangingScore);
+ 
+         // Additional bonus if weak piece is only protected by a queen
+-        score += WeakQueenProtection * popcount(weak & attackedBy[Them][QUEEN]);
++        Score weakQueenProtScore = WeakQueenProtection * popcount(weak & attackedBy[Them][QUEEN]);
++        score += weakQueenProtScore;
++        SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_WEAK_QUEEN_PROTECTION, Us, weakQueenProtScore);
+     }
+ 
+     // Bonus for restricting their piece moves
+     b =   attackedBy[Them][ALL_PIECES]
+        & ~stronglyProtected
+        &  attackedBy[Us][ALL_PIECES];
+-    score += RestrictedPiece * popcount(b);
++    Score restrictedScore = RestrictedPiece * popcount(b);
++    score += restrictedScore;
++    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_RESTRICTED_PIECE, Us, restrictedScore);
+ 
+     // Protected or unattacked squares
+     safe = ~attackedBy[Them][ALL_PIECES] | attackedBy[Us][ALL_PIECES];
+@@ -799,7 +896,9 @@ namespace {
+     // Bonus for attacking enemy pieces with our relatively safe pawns
+     b = pos.pieces(Us, PAWN) & safe;
+     b = pawn_attacks_bb<Us>(b) & nonPawnEnemies;
+-    score += ThreatBySafePawn * popcount(b);
++    Score safePawnThreatScore = ThreatBySafePawn * popcount(b);
++    score += safePawnThreatScore;
++    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_BY_SAFE_PAWN, Us, safePawnThreatScore);
+ 
+     // Find squares where our pawns can push on the next move
+     b  = shift<Up>(pos.pieces(Us, PAWN)) & ~pos.pieces();
+@@ -810,7 +909,9 @@ namespace {
+ 
+     // Bonus for safe pawn threats on the next move
+     b = pawn_attacks_bb<Us>(b) & nonPawnEnemies;
+-    score += ThreatByPawnPush * popcount(b);
++    Score pawnPushThreatScore = ThreatByPawnPush * popcount(b);
++    score += pawnPushThreatScore;
++    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_BY_PAWN_PUSH, Us, pawnPushThreatScore);
+ 
+     // Bonus for threats on the next moves against enemy queen
+     if (pos.count<QUEEN>(Them) == 1)
+@@ -824,12 +925,16 @@ namespace {
+ 
+         b = attackedBy[Us][KNIGHT] & attacks_bb<KNIGHT>(s);
+ 
+-        score += KnightOnQueen * popcount(b & safe) * (1 + queenImbalance);
++        Score knightOnQueenScore = KnightOnQueen * popcount(b & safe) * (1 + queenImbalance);
++        score += knightOnQueenScore;
++        SF_TRACE_ADD_SUB(Eval::SUBT_THREAT_KNIGHT_ON_QUEEN, Us, knightOnQueenScore, s);
+ 
+         b =  (attackedBy[Us][BISHOP] & attacks_bb<BISHOP>(s, pos.pieces()))
+            | (attackedBy[Us][ROOK  ] & attacks_bb<ROOK  >(s, pos.pieces()));
+ 
+-        score += SliderOnQueen * popcount(b & safe & attackedBy2[Us]) * (1 + queenImbalance);
++        Score sliderOnQueenScore = SliderOnQueen * popcount(b & safe & attackedBy2[Us]) * (1 + queenImbalance);
++        score += sliderOnQueenScore;
++        SF_TRACE_ADD_SUB(Eval::SUBT_THREAT_SLIDER_ON_QUEEN, Us, sliderOnQueenScore, s);
+     }
+ 
+     if constexpr (T)
+@@ -878,7 +983,9 @@ namespace {
+ 
+         int r = relative_rank(Us, s);
+ 
+-        Score bonus = PassedRank[r];
++        Score rankBonus = PassedRank[r];
++        Score bonus = rankBonus;
++        SF_TRACE_ADD_SUB(Eval::SUBT_PASSED_RANK, Us, rankBonus, s);
+ 
+         if (r > RANK_3)
+         {
+@@ -886,12 +993,18 @@ namespace {
+             Square blockSq = s + Up;
+ 
+             // Adjust bonus based on the king's proximity
+-            bonus += make_score(0, (  king_proximity(Them, blockSq) * 19 / 4
+-                                    - king_proximity(Us,   blockSq) *  2) * w);
++            Score kingProxScore = make_score(0, (  king_proximity(Them, blockSq) * 19 / 4
++                                                 - king_proximity(Us,   blockSq) *  2) * w);
++            bonus += kingProxScore;
+ 
+             // If blockSq is not the queening square then consider also a second push
+             if (r != RANK_7)
+-                bonus -= make_score(0, king_proximity(Us, blockSq + Up) * w);
++            {
++                Score secondPushAdjust = make_score(0, king_proximity(Us, blockSq + Up) * w);
++                bonus -= secondPushAdjust;
++                kingProxScore -= secondPushAdjust;
++            }
++            SF_TRACE_ADD_SUB(Eval::SUBT_PASSED_KING_PROXIMITY, Us, kingProxScore, s);
+ 
+             // If the pawn is free to advance, then increase the bonus
+             if (pos.empty(blockSq))
+@@ -918,11 +1031,15 @@ namespace {
+                 if ((pos.pieces(Us) & bb) || (attackedBy[Us][ALL_PIECES] & blockSq))
+                     k += 5;
+ 
+-                bonus += make_score(k * w, k * w);
++                Score pathAdvanceScore = make_score(k * w, k * w);
++                bonus += pathAdvanceScore;
++                SF_TRACE_ADD_SUB(Eval::SUBT_PASSED_PATH_ADVANCE, Us, pathAdvanceScore, s);
+             }
+         } // r > RANK_3
+ 
+-        score += bonus - PassedFile * edge_distance(file_of(s));
++        Score fileEdgePenalty = PassedFile * edge_distance(file_of(s));
++        score += bonus - fileEdgePenalty;
++        SF_TRACE_ADD_SUB(Eval::SUBT_PASSED_FILE_EDGE, Us, -fileEdgePenalty, s);
+     }
+ 
+     if constexpr (T)
+@@ -969,6 +1086,10 @@ namespace {
+     if constexpr (T)
+         Trace::add(SPACE, Us, score);
+ 
++    // KS-3648 / ADR-107 rev 2 §3. Space-агрегат и subterm совпадают
++    // (одна формула), эмитим то же значение.
++    SF_TRACE_ADD_SUB_NS(Eval::SUBT_SPACE, Us, score);
++
+     return score;
+   }
+ 
+-- 
+2.39.5
+
