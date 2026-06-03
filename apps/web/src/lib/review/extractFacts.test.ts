@@ -297,11 +297,13 @@ describe('extractFacts — hanging_piece', () => {
         sfData: { ...baseInput().sfData, bestUci: 'a8a7', bestSan: 'Ka7' },
       }),
     );
-    expect(f.hanging_piece).toEqual({
-      square: 'e5',
-      piece: 'q',
-      side: 'black',
-    });
+    expect(f.hanging_piece?.square).toBe('e5');
+    expect(f.hanging_piece?.piece).toBe('q');
+    expect(f.hanging_piece?.side).toBe('black');
+    expect(f.hanging_piece?.attackers.length).toBeGreaterThanOrEqual(1);
+    expect(f.hanging_piece?.defenders.length).toBe(0);
+    // SEE: берём ферзя (9), терять нечего → net ≈ 9
+    expect(f.hanging_piece?.net_material_if_taken).toBeGreaterThanOrEqual(5);
   });
 
   it('ладья атакована пешкой (cheaper attacker) → hanging', () => {
@@ -372,7 +374,7 @@ describe('extractFacts — sf_best', () => {
         sfData: { ...baseInput().sfData, bestUci: 'e2e4', bestSan: 'e4' },
       }),
     );
-    expect(f.sf_best).toEqual({ uci: 'e2e4', san: 'e4' });
+    expect(f.sf_best).toEqual({ uci: 'e2e4', san: 'e4', line: ['e4'] });
   });
 });
 
@@ -458,4 +460,321 @@ describe('extractFacts — classification, side, ply, user fields', () => {
     );
     expect(f.mate_threat_after).toBe(3);
   });
+
+  it('fen_after прокидывается в FactsInput', () => {
+    const f = extractFacts(baseInput());
+    expect(f.fen_after).toBe(
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+    );
+  });
+
+  it('positional_shifts всегда [] на фронте (заполняется backend)', () => {
+    const f = extractFacts(baseInput());
+    expect(f.positional_shifts).toEqual([]);
+  });
 });
+
+// --- MVP-2 ----------------------------------------------------------------
+// KS-3623 / ADR-103 §3.2, §5: тактические мотивы, расширенный
+// hanging_piece, threats_created / threats_missed, sf_best.line.
+
+describe('extractFacts MVP-2 — hanging_piece расширенный', () => {
+  it('без защиты, чистый выигрыш → net = piece value', () => {
+    // Чёрный ферзь на e5 атакован белой ладьёй e1 без защиты.
+    const fen = 'k7/8/8/4q3/8/8/8/4R2K b - - 0 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore: fen,
+        fenAfter: fen,
+        playedUci: 'a8a7',
+        playedSan: 'Ka7',
+        sfData: { ...baseInput().sfData, bestUci: 'a8a7', bestSan: 'Ka7' },
+      }),
+    );
+    expect(f.hanging_piece?.piece).toBe('q');
+    expect(f.hanging_piece?.attackers.length).toBe(1);
+    expect(f.hanging_piece?.attackers[0].piece).toBe('r');
+    expect(f.hanging_piece?.attackers[0].square).toBe('e1');
+    expect(f.hanging_piece?.defenders.length).toBe(0);
+    expect(f.hanging_piece?.net_material_if_taken).toBe(9);
+  });
+
+  it('размен в плюс через дешёвого атакующего', () => {
+    // Чёрная ладья на c4 атакована белой пешкой b3, защитников нет.
+    const fen = '4k3/8/8/8/2r5/1P6/8/4K3 b - - 0 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore: fen,
+        fenAfter: fen,
+        playedUci: 'e1e2',
+        playedSan: 'Ke2',
+        sfData: { ...baseInput().sfData, bestUci: 'e1e2', bestSan: 'Ke2' },
+      }),
+    );
+    expect(f.hanging_piece?.piece).toBe('r');
+    expect(f.hanging_piece?.attackers[0].piece).toBe('p');
+    expect(f.hanging_piece?.defenders.length).toBe(0);
+    expect(f.hanging_piece?.net_material_if_taken).toBe(5);
+  });
+});
+
+describe('extractFacts MVP-2 — sf_best.line', () => {
+  it('берёт 2–3 хода из sfBestPv и переводит в SAN', () => {
+    const f = extractFacts(
+      baseInput({
+        playedUci: 'a2a4',
+        playedSan: 'a4',
+        sfData: {
+          ...baseInput().sfData,
+          bestUci: 'e2e4',
+          bestSan: 'e4',
+          sfBestPv: ['e2e4', 'e7e5', 'g1f3'],
+        },
+      }),
+    );
+    expect(f.sf_best?.line).toEqual(['e4', 'e5', 'Nf3']);
+  });
+
+  it('пустой sfBestPv → line = []', () => {
+    const f = extractFacts(
+      baseInput({
+        playedUci: 'a2a4',
+        playedSan: 'a4',
+        sfData: {
+          ...baseInput().sfData,
+          bestUci: 'e2e4',
+          bestSan: 'e4',
+          sfBestPv: [],
+        },
+      }),
+    );
+    expect(f.sf_best?.line).toEqual([]);
+  });
+
+  it('sf_best == null когда playedUci == bestUci', () => {
+    const f = extractFacts(baseInput());
+    expect(f.sf_best).toBe(null);
+  });
+});
+
+describe('extractFacts MVP-2 — мотив fork', () => {
+  it('конь d6 атакует короля e8 и ферзя c8 → fork', () => {
+    // Белый конь только что пришёл на d6 с b5. С d6 атакует c8 (ферзь)
+    // и e8 (король) — классическая семейная вилка.
+    const fenBefore = '2q1k3/8/8/1N6/8/8/8/4K3 w - - 0 1';
+    const fenAfter = '2q1k3/8/3N4/8/8/8/8/4K3 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'b5d6',
+        playedSan: 'Nd6+',
+        sfData: { ...baseInput().sfData, bestUci: 'b5d6', bestSan: 'Nd6+' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('fork');
+  });
+
+  it('обычный ход без атак → fork не сработал', () => {
+    const f = extractFacts(baseInput());
+    expect(f.tactical_motifs).not.toContain('fork');
+  });
+});
+
+describe('extractFacts MVP-2 — мотив double_attack', () => {
+  it('ход создаёт 2 новые угрозы → double_attack', () => {
+    // Конь b5→d6 — две новые угрозы (король e8 + ферзь c8).
+    const f = extractFacts(
+      baseInput({
+        fenBefore: '2q1k3/8/8/1N6/8/8/8/4K3 w - - 0 1',
+        fenAfter: '2q1k3/8/3N4/8/8/8/8/4K3 b - - 1 1',
+        playedUci: 'b5d6',
+        playedSan: 'Nd6+',
+        sfData: { ...baseInput().sfData, bestUci: 'b5d6', bestSan: 'Nd6+' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('double_attack');
+  });
+
+  it('тихий ход → double_attack не сработал', () => {
+    const f = extractFacts(baseInput());
+    expect(f.tactical_motifs).not.toContain('double_attack');
+  });
+});
+
+describe('extractFacts MVP-2 — мотив pin', () => {
+  it('белая ладья d1 связывает чёрного коня d4 с королём d8 → pin', () => {
+    // fenBefore с `w to move`, чтобы side ходящего = white.
+    const fenBefore = '3k4/8/8/8/3n4/8/4K3/3R4 w - - 0 1';
+    const fenAfter = '3k4/8/8/8/3n4/4K3/8/3R4 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'e2e3',
+        playedSan: 'Ke3',
+        sfData: { ...baseInput().sfData, bestUci: 'e2e3', bestSan: 'Ke3' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('pin');
+  });
+
+  it('обычная позиция без связки → pin не сработал', () => {
+    const f = extractFacts(baseInput());
+    expect(f.tactical_motifs).not.toContain('pin');
+  });
+});
+
+describe('extractFacts MVP-2 — мотив skewer', () => {
+  it('белая ладья d1 видит ферзя d5 (впереди) и коня d7 (сзади) → skewer', () => {
+    // Ферзь (9) вынужден уйти, ладья берёт коня (3) за ним.
+    const fenBefore = '7k/3n4/8/3q4/8/8/4K3/3R4 w - - 0 1';
+    const fenAfter = '7k/3n4/8/3q4/8/4K3/8/3R4 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'e2e3',
+        playedSan: 'Ke3',
+        sfData: { ...baseInput().sfData, bestUci: 'e2e3', bestSan: 'Ke3' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('skewer');
+  });
+
+  it('начальная позиция → skewer не сработал', () => {
+    const f = extractFacts(baseInput());
+    expect(f.tactical_motifs).not.toContain('skewer');
+  });
+});
+
+describe('extractFacts MVP-2 — мотив discovered_attack', () => {
+  it('конь сходил с d4 на f5, открыв ладью d1 на ферзя d8 → discovered', () => {
+    // Before: Rd1, Nd4, Qd8, kh8, Ke1.
+    // After: Rd1, Nf5, Qd8 — ладья теперь видит ферзя по вертикали d
+    // через пустую d4.
+    const fenBefore = '3q3k/8/8/8/3N4/8/8/3RK3 w - - 0 1';
+    const fenAfter = '3q3k/8/8/5N2/8/8/8/3RK3 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'd4f5',
+        playedSan: 'Nf5',
+        sfData: { ...baseInput().sfData, bestUci: 'd4f5', bestSan: 'Nf5' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('discovered_attack');
+  });
+
+  it('тихий ход не открывает луч → discovered не сработал', () => {
+    const f = extractFacts(baseInput());
+    expect(f.tactical_motifs).not.toContain('discovered_attack');
+  });
+});
+
+describe('extractFacts MVP-2 — мотив back_rank_weak', () => {
+  it('чёрный король h8 заперт пешками f7/g7/h7, белая ладья d1 → back_rank_weak', () => {
+    const fenBefore = '7k/5ppp/8/8/8/8/8/3R3K w - - 0 1';
+    const fenAfter = '7k/5ppp/8/8/8/8/7K/3R4 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'h1h2',
+        playedSan: 'Kh2',
+        sfData: { ...baseInput().sfData, bestUci: 'h1h2', bestSan: 'Kh2' },
+      }),
+    );
+    expect(f.tactical_motifs).toContain('back_rank_weak');
+  });
+
+  it('открытая позиция короля → back_rank_weak не сработал', () => {
+    // Чёрный король e8, пешек перед ним нет.
+    const fenBefore = '4k3/8/8/8/8/8/8/3R3K w - - 0 1';
+    const fenAfter = '4k3/8/8/8/8/8/7K/3R4 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter,
+        playedUci: 'h1h2',
+        playedSan: 'Kh2',
+        sfData: { ...baseInput().sfData, bestUci: 'h1h2', bestSan: 'Kh2' },
+      }),
+    );
+    expect(f.tactical_motifs).not.toContain('back_rank_weak');
+  });
+});
+
+describe('extractFacts MVP-2 — threats_created', () => {
+  it('ход создаёт вилку → wins_material + double_attack + targets', () => {
+    const f = extractFacts(
+      baseInput({
+        fenBefore: '2q1k3/8/8/1N6/8/8/8/4K3 w - - 0 1',
+        fenAfter: '2q1k3/8/3N4/8/8/8/8/4K3 b - - 1 1',
+        playedUci: 'b5d6',
+        playedSan: 'Nd6+',
+        sfData: { ...baseInput().sfData, bestUci: 'b5d6', bestSan: 'Nd6+' },
+      }),
+    );
+    expect(f.threats_created.double_attack).toBe(true);
+    // Цели: король e8 + ферзь c8.
+    const targetSquares = (f.threats_created.targets ?? []).map(
+      (t) => t.square,
+    );
+    expect(targetSquares).toEqual(expect.arrayContaining(['e8', 'c8']));
+    // wins_material — ферзь (король исключён).
+    expect(f.threats_created.wins_material?.piece).toBe('q');
+    expect(f.threats_created.wins_material?.square).toBe('c8');
+  });
+
+  it('mate_in переносится в threats_created.mate_in при mateAfter > 0', () => {
+    const f = extractFacts(
+      baseInput({
+        sfData: { ...baseInput().sfData, mateAfter: 2 },
+      }),
+    );
+    expect(f.threats_created.mate_in).toBe(2);
+  });
+
+  it('тихий ход без угроз → threats_created пустой', () => {
+    const f = extractFacts(baseInput());
+    expect(f.threats_created.wins_material).toBeUndefined();
+    expect(f.threats_created.double_attack).toBeUndefined();
+  });
+});
+
+describe('extractFacts MVP-2 — threats_missed', () => {
+  it('played проиграл темп: best (Nd6+) делал вилку, played (Nc7) нет → wins_material упущен', () => {
+    // Before: белый конь b5, чёрный король e8, чёрный ферзь c8.
+    // best: Nd6+ — вилка короля и ферзя (выигрыш ~9).
+    // played: Nc7 — атакует только... нет, c7 атакует короля e8? Нет.
+    // Возьму Nxc7+: с b5 на c7. Атакует e8(K) — да, +шах. Но это
+    // выигрыш материала тоже (нет фигуры на c7). Лучше: Na3 — тихий
+    // отход назад без атак.
+    const fenBefore = '2q1k3/8/8/1N6/8/8/8/4K3 w - - 0 1';
+    const fenAfterPlayed = '2q1k3/8/8/8/8/N7/8/4K3 b - - 1 1';
+    const f = extractFacts(
+      baseInput({
+        fenBefore,
+        fenAfter: fenAfterPlayed,
+        playedUci: 'b5a3',
+        playedSan: 'Na3',
+        sfData: {
+          ...baseInput().sfData,
+          bestUci: 'b5d6',
+          bestSan: 'Nd6+',
+          sfBestPv: ['b5d6'],
+        },
+      }),
+    );
+    expect(f.threats_missed.wins_material).toBeDefined();
+    expect(f.threats_missed.wins_material?.piece).toBe('q');
+  });
+
+  it('played == best → threats_missed пустой', () => {
+    const f = extractFacts(baseInput());
+    expect(f.threats_missed).toEqual({});
+  });
+});
+
