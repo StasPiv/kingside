@@ -83,8 +83,13 @@ export class MaiaAnnotationService {
     const enabledRaw = (env.PRECISION_MAIA_ANNOTATION_ENABLED ?? 'true').toLowerCase();
     const enabled = !(enabledRaw === 'false' || enabledRaw === '0' || enabledRaw === 'off');
     const elo = parseInt(env.PRECISION_MAIA_ANNOTATION_ELO ?? '1500', 10);
+    // Default — `tools/maia3/maia3_simplified.onnx` (KS-3633: координатор
+    // положил модель туда; apps/web/public/maia3/ не примонтирована в
+    // tactic-worker-контейнере). В prod-Docker tactic-worker'а модели
+    // пока нет в образе — kill-switch graceful переведёт сервис в
+    // disabled-режим (новые пазлы с NULL, фронт не отсеет).
     const modelPath =
-      env.PRECISION_MAIA_MODEL_PATH ?? 'apps/web/public/maia3/maia3_simplified.onnx';
+      env.PRECISION_MAIA_MODEL_PATH ?? 'tools/maia3/maia3_simplified.onnx';
     return new MaiaAnnotationService({
       modelPath,
       elo: Number.isFinite(elo) ? elo : 1500,

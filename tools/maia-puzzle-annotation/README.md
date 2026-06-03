@@ -44,7 +44,7 @@ node --import tsx tools/maia-puzzle-annotation/src/index.ts \
 | `--no-resume` | — | Не пропускать (но non-NULL под другим ELO остаются) |
 | `--force` | off | Перезаписать всё (для смены ELO глобально) |
 | `--solution-mode M` | `play-vs-engine` | Фильтр |
-| `--model-path P` | `apps/web/public/maia3/maia3_simplified.onnx` | Путь к ONNX |
+| `--model-path P` | `tools/maia3/maia3_simplified.onnx` | Путь к ONNX (gitignored, 44 МБ) |
 | `--report` | — | Не размечать; вывести гистограмму уже размеченных |
 | `--dry-run` | — | Не писать в БД (только лог) |
 

@@ -70,7 +70,7 @@ function parseArgs(argv: string[]): CliOpts {
     solutionMode: 'play-vs-engine',
     modelPath:
       process.env.PRECISION_MAIA_MODEL_PATH ??
-      'apps/web/public/maia3/maia3_simplified.onnx',
+      'tools/maia3/maia3_simplified.onnx',
     report: false,
     dryRun: false,
   };
