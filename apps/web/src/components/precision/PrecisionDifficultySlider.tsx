@@ -1,17 +1,21 @@
 /**
- * KS-3654 / ADR-106 §2.6. Слайдер сложности Precision-пазлов.
+ * KS-3654 → KS-3657 / ADR-106 §2.6. Слайдер сложности Precision-пазлов.
  *
- * Управляет порогом `maiaWeakChoiceProb`, по которому фильтрует выдачу
- * `pickEligiblePrecisionPuzzle`. Чем выше значение порога — тем выше
- * требуемая вероятность того, что Maia 1500 сыграет один из слабых
- * ходов в позиции, тем меньше пазлов проходят фильтр (остаются только
+ * Управляет порогом `maiaWeakChoiceProb`, по которому фильтруется
+ * выдача `/puzzles/browse` (backend KS-3656). Чем выше значение порога —
+ * тем выше требуемая вероятность того, что Maia 1500 сыграет один из
+ * слабых ходов в позиции, тем меньше пазлов проходят (остаются только
  * самые «обманчивые»).
  *
- * Значение хранится в localStorage по ключу `precision.maiaThreshold`
- * (см. `config/precisionMaiaThreshold.ts`). Существующий
- * `readPrecisionMaiaThreshold()` в `PrecisionStartTrainingButton`
- * автоматически подхватит новое значение при следующем нажатии «Начать
- * тренировку» — без перезагрузки страницы.
+ * Управляемый компонент: родитель держит `value` в своём состоянии,
+ * передаёт через `value`/`onChange`. Сам компонент только пишет в
+ * `localStorage.precision.maiaThreshold` при изменении — это нужно для
+ * автоподбора пазла в `pickEligiblePrecisionPuzzle` (тот читает значение
+ * лениво через `readPrecisionMaiaThreshold()` при каждом клике).
+ *
+ * Если `value`/`onChange` не переданы (например, в legacy-тесте) —
+ * fallback на uncontrolled-режим со state'ом внутри компонента и
+ * чтением начального значения из localStorage.
  */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,27 +25,35 @@ import {
   PRECISION_MAIA_THRESHOLD_STORAGE_KEY,
   readPrecisionMaiaThreshold,
 } from '../../config/precisionMaiaThreshold';
-import {
-  isPuzzleEligible,
-  type PuzzleEligibilityFields,
-} from '../../utils/isPuzzleEligible';
 
 const STEP = 0.05;
 
 export interface PrecisionDifficultySliderProps {
   /**
-   * Загруженная выборка пазлов (например, из `useInfinitePuzzles`).
-   * Если передана — под слайдером отображается доля пазлов, которые
-   * пройдут фильтр при текущем пороге. Подсчёт локальный, по уже
-   * загруженной странице каталога — точное число по всему каталогу
-   * потребовало бы отдельного backend-endpoint'а (нет).
+   * Текущее значение порога (0..1). Если задано — компонент работает в
+   * controlled-режиме. Если не задано — uncontrolled, начальное значение
+   * читается из `localStorage` через `readPrecisionMaiaThreshold()`.
    */
-  puzzlesSample?: ReadonlyArray<PuzzleEligibilityFields>;
+  value?: number;
   /**
-   * Колбэк, вызывается при каждом изменении порога. Используется
-   * родителем для повторной выборки пазлов / обновления подсказки.
+   * Колбэк изменения порога. В controlled-режиме обязателен — родитель
+   * должен прокинуть новое значение обратно в `value`. В uncontrolled —
+   * опционален (компонент обновит внутренний state сам).
    */
   onChange?: (value: number) => void;
+  /**
+   * Кол-во пазлов, уже загруженных текущим запросом каталога. Если
+   * задан — под слайдером показывается «Найдено: N» или «N+» если есть
+   * ещё страницы (`hasMore`). После KS-3657 фильтр живёт на сервере,
+   * поэтому реальное количество видно по уже отфильтрованной выдаче.
+   */
+  loadedCount?: number;
+  /**
+   * `true` если у текущего запроса есть ещё страницы. С `loadedCount`
+   * используется для индикации «N+» (точное число неизвестно до конца
+   * прокрутки).
+   */
+  hasMore?: boolean;
 }
 
 /**
@@ -59,19 +71,22 @@ function labelForThreshold(value: number, t: TFunction): string {
 }
 
 export function PrecisionDifficultySlider({
-  puzzlesSample,
+  value: controlledValue,
   onChange,
+  loadedCount,
+  hasMore,
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
-  const [value, setValue] = useState<number>(() =>
+  const isControlled = controlledValue !== undefined;
+  const [uncontrolledValue, setUncontrolledValue] = useState<number>(() =>
     readPrecisionMaiaThreshold(),
   );
+  const value = isControlled ? controlledValue : uncontrolledValue;
 
   const handleChange = useCallback(
     (raw: number) => {
       const rounded = Math.round(raw / STEP) * STEP;
       const clamped = Math.max(0, Math.min(1, rounded));
-      setValue(clamped);
       try {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem(
@@ -82,18 +97,21 @@ export function PrecisionDifficultySlider({
       } catch {
         /* localStorage недоступен (private mode и т.п.) — пропускаем */
       }
+      if (!isControlled) setUncontrolledValue(clamped);
       onChange?.(clamped);
     },
-    [onChange],
+    [isControlled, onChange],
   );
 
-  const eligibleCount = puzzlesSample
-    ? puzzlesSample.filter((p) => isPuzzleEligible(p, value)).length
-    : null;
-  const sampleSize = puzzlesSample?.length ?? 0;
-  const percent =
-    sampleSize > 0 && eligibleCount != null
-      ? Math.round((eligibleCount / sampleSize) * 100)
+  const hint =
+    loadedCount != null && loadedCount >= 0
+      ? hasMore
+        ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
+            count: loadedCount,
+          })
+        : t('precision.difficulty.found', 'Найдено: {{count}}', {
+            count: loadedCount,
+          })
       : null;
 
   return (
@@ -124,16 +142,12 @@ export function PrecisionDifficultySlider({
         className="precision-difficulty-filter__range"
         onChange={(e) => handleChange(Number(e.target.value))}
       />
-      {percent != null && (
+      {hint != null && (
         <span
           className="precision-difficulty-filter__hint"
           data-testid="precision-difficulty-filter-hint"
         >
-          {t(
-            'precision.difficulty.percent',
-            'Доступно ≈ {{percent}}% выборки',
-            { percent },
-          )}
+          {hint}
         </span>
       )}
     </div>

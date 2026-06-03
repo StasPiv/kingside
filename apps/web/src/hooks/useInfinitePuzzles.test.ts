@@ -102,6 +102,55 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(url).toMatch(/visibility=draft/);
   });
 
+  it('KS-3657: minMaiaWeakChoiceProb > 0 → передаётся в query', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    renderHook(() =>
+      useInfinitePuzzles({ minMaiaWeakChoiceProb: 0.5, limit: 10 }),
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/minMaiaWeakChoiceProb=0\.5/);
+  });
+
+  it('KS-3657: minMaiaWeakChoiceProb=0 → параметр НЕ передаётся (0 трактуется как «без фильтра»)', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    renderHook(() =>
+      useInfinitePuzzles({ minMaiaWeakChoiceProb: 0, limit: 10 }),
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).not.toMatch(/minMaiaWeakChoiceProb/);
+  });
+
+  it('KS-3657: смена minMaiaWeakChoiceProb → новый запрос', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    const { rerender } = renderHook(
+      ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>
+        useInfinitePuzzles(filters),
+      {
+        initialProps: {
+          filters: { minMaiaWeakChoiceProb: 0.3 } as Parameters<
+            typeof useInfinitePuzzles
+          >[0],
+        },
+      },
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    rerender({
+      filters: { minMaiaWeakChoiceProb: 0.7 } as Parameters<
+        typeof useInfinitePuzzles
+      >[0],
+    });
+    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
+    expect(apiGet.mock.calls[0][0] as string).toMatch(
+      /minMaiaWeakChoiceProb=0\.3/,
+    );
+    expect(apiGet.mock.calls[1][0] as string).toMatch(
+      /minMaiaWeakChoiceProb=0\.7/,
+    );
+  });
+
   it('KS-2586: смена visibility → новый запрос с другим параметром', async () => {
     apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
     const { rerender } = renderHook(

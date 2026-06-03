@@ -141,6 +141,15 @@ export interface InfinitePuzzleFilters {
    */
   blundererEloMin?: number;
   blundererEloMax?: number;
+  /**
+   * KS-3657 / ADR-106 §2.6. Минимальное значение `maia_weak_choice_prob`
+   * (порог сложности). При `> 0` backend применяет
+   * `WHERE maia_weak_choice_prob >= $v AND maia_metric_version = 1` —
+   * не размеченные / устаревшие пазлы из выдачи выпадают. При `null`/
+   * `undefined`/`0` параметр не передаётся, выдача без фильтра.
+   * Диапазон строго `(0, 1]`; backend возвращает 400 при выходе.
+   */
+  minMaiaWeakChoiceProb?: number;
   /** Размер страницы. По умолчанию 30. */
   limit?: number;
 }
@@ -188,6 +197,10 @@ function buildQuery(
     params.set('blundererEloMin', String(filters.blundererEloMin));
   if (filters.blundererEloMax != null)
     params.set('blundererEloMax', String(filters.blundererEloMax));
+  // KS-3657: 0 трактуется как «нет фильтра» (синоним null), параметр
+  // не передаётся — backend в этом случае не накладывает WHERE-условие.
+  if (filters.minMaiaWeakChoiceProb != null && filters.minMaiaWeakChoiceProb > 0)
+    params.set('minMaiaWeakChoiceProb', String(filters.minMaiaWeakChoiceProb));
   return params.toString();
 }
 
@@ -234,6 +247,8 @@ export function useInfinitePuzzles(
     visibility: filters.visibility,
     blundererEloMin: filters.blundererEloMin,
     blundererEloMax: filters.blundererEloMax,
+    // KS-3657: re-fetch при смене порога maia weak-choice.
+    minMaiaWeakChoiceProb: filters.minMaiaWeakChoiceProb,
     limit: filters.limit,
   });
 

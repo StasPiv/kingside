@@ -56,6 +56,10 @@ import {
 } from '../utils/precisionUrlMigrate';
 import { precisionApi } from '../api/precisionApi';
 import type { PrecisionScopeCountsResponse } from '@kingside/shared';
+// KS-3657 (ADR-106 §2.6). Порог Maia weak-choice — состояние держим в
+// PrecisionPage, проброс в `useInfinitePuzzles` (server-side фильтр) и
+// в `<PrecisionDifficultySlider value/onChange>` (controlled).
+import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -259,6 +263,16 @@ export function PrecisionPage() {
     [searchParams],
   );
 
+  // KS-3657 (ADR-106 §2.6). Порог Maia weak-choice. Source-of-truth —
+  // local state в PrecisionPage; начальное значение читаем из
+  // localStorage (туда же пишет ползунок при изменении, чтобы
+  // `pickEligiblePrecisionPuzzle` подобрал тот же порог при клике
+  // «Начать тренировку»). Передаём в `useInfinitePuzzles` как фильтр и
+  // в `<PrecisionDifficultySlider value/onChange>` как controlled-prop.
+  const [maiaThreshold, setMaiaThreshold] = useState<number>(() =>
+    readPrecisionMaiaThreshold(),
+  );
+
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
   // нужен `patchLocally` для оптимистичного апдейта после publish'а.
   // Поведение page state'а сохраняем тем же набором значений.
@@ -281,6 +295,8 @@ export function PrecisionPage() {
       // UI пока выставляет ТОЛЬКО OR (выбрал «pin+fork» → задачи с
       // pin ИЛИ fork). AND-режим — задел на будущий «продвинутый».
       themesOr: selectedThemes.length > 0 ? selectedThemes : undefined,
+      // KS-3657: серверный фильтр по maia weak-choice (0 = без фильтра).
+      minMaiaWeakChoiceProb: maiaThreshold > 0 ? maiaThreshold : undefined,
       limit: LIMIT,
     }),
     [
@@ -292,6 +308,7 @@ export function PrecisionPage() {
       blundererEloMax,
       objectiveFilter,
       selectedThemes,
+      maiaThreshold,
     ],
   );
 
@@ -906,10 +923,19 @@ export function PrecisionPage() {
             />
           </div>
         </div>
-        {/* KS-3654 (ADR-106 §2.6). Слайдер сложности — порог Maia
-            weak-choice probability. Сохраняется в localStorage и
-            подхватывается следующим кликом «Начать тренировку». */}
-        <PrecisionDifficultySlider puzzlesSample={puzzles} />
+        {/* KS-3654 → KS-3657 (ADR-106 §2.6). Ползунок сложности —
+            порог Maia weak-choice probability. Source-of-truth держит
+            PrecisionPage (`maiaThreshold`), значение пробрасывается
+            в `useInfinitePuzzles` (server-side фильтр) и в
+            ползунок (controlled). Запись в localStorage делает сам
+            ползунок — оттуда же читает `pickEligiblePrecisionPuzzle`
+            при клике «Начать тренировку». */}
+        <PrecisionDifficultySlider
+          value={maiaThreshold}
+          onChange={setMaiaThreshold}
+          loadedCount={puzzles.length}
+          hasMore={hasMore}
+        />
         {/* KS-3382: compact-bar со статистикой (точность/удержано-упущено)
             убран — рейтинг-pill в шапке достаточно, подробная статистика
             на вкладке «Прогресс» (/precision/stats). Empty-CTA «Начать
