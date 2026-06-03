@@ -12,6 +12,7 @@ import {
   classifyMove,
   expectedScoreFromWdl,
   type MoveClass,
+  type PositionalSubterm,
   type Wdl,
 } from '@kingside/shared';
 
@@ -145,6 +146,15 @@ export interface FactsInput {
   threats_missed: ThreatsMissed;
   /** ADR-103 §6.5 — на фронте всегда []; заполняется backend. */
   positional_shifts: PositionalShiftId[];
+  /**
+   * KS-3650 / ADR-107 rev 2 §3.5 — сырые позиционные подкомпоненты
+   * classical-оценки Stockfish 16 (`subterms` из UCI `eval json`).
+   * Заполняется оркестратором (`useGameReview`) через `evalTrace()`
+   * над WASM-сборкой `stockfish-16-trace.*`. Если WASM не загрузился
+   * или вернул пусто — `[]` (graceful, prompt продолжит работать с
+   * агрегатными `positional_shifts`).
+   */
+  positional_subterms: PositionalSubterm[];
   user_elo: number;
   user_language: 'en' | 'ru';
 }
@@ -177,6 +187,14 @@ export interface ExtractFactsInput {
   openingName: string | null;
   userElo: number;
   userLanguage: 'en' | 'ru';
+  /**
+   * KS-3650 / ADR-107 rev 2 §6 F1. Опционально — массив позиционных
+   * подкомпонент от `evalTrace(fenAfter)`. Передаётся оркестратором
+   * только на NAG-фокус ходах (где LLM-комментарий действительно
+   * нужен). При отсутствии — `positional_subterms` в выходном
+   * `FactsInput` будет `[]`.
+   */
+  positionalSubterms?: PositionalSubterm[];
 }
 
 // --- constants -------------------------------------------------------------
@@ -1164,6 +1182,7 @@ export function extractFacts(input: ExtractFactsInput): FactsInput {
     threats_created,
     threats_missed,
     positional_shifts: [],
+    positional_subterms: input.positionalSubterms ?? [],
     user_elo: input.userElo,
     user_language: input.userLanguage,
   };

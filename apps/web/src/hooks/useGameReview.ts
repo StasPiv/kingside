@@ -17,7 +17,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 
-import { classifyMove, invertWdl, type MoveClass, type Wdl } from '@kingside/shared';
+import {
+  classifyMove,
+  invertWdl,
+  type MoveClass,
+  type PositionalSubterm,
+  type Wdl,
+} from '@kingside/shared';
 
 import { batchReviewComment as defaultCommentClient } from '../api/reviewComment';
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
@@ -34,6 +40,7 @@ import {
   SUB_VARIATION_MAX_LENGTH_PLIES,
 } from '../lib/review/buildStabilizedLine';
 import { extractFacts, type FactsInput } from '../lib/review/extractFacts';
+import { evalTrace as evalStockfishTrace } from '../lib/review/stockfishTrace';
 import {
   PositionalEvalEngine,
   type PositionalEvalEngine as PositionalEvalEngineType,
@@ -771,6 +778,23 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             wdlAfter: input.wdlAfterPlayed,
             isBestMove: input.playedUci === input.sfBestUci,
           });
+          // KS-3650 / ADR-107 rev 2 §6 F1. Сырые подкомпоненты от
+          // нашего WASM-форка SF 16 (`stockfish-16-trace`) — для backend
+          // few-shot prompt'а V2. Делаем только на ход с NAG (фокус
+          // комментирования). Graceful: при отказе WASM — `[]`,
+          // backend продолжит работать с агрегатными `positional_shifts`.
+          // Cancel-aware: между ходами проверяем флаг.
+          if (cancelRef.current) break;
+          let positionalSubterms: PositionalSubterm[] = [];
+          try {
+            positionalSubterms = await evalStockfishTrace(fenAfter);
+          } catch (err) {
+            // evalTrace сам ловит ошибки, но на всякий — здесь тоже.
+            console.warn(
+              '[useGameReview] evalStockfishTrace failed:',
+              err,
+            );
+          }
           const facts = extractFacts({
             ply: input.ply,
             fenBefore: input.fen,
@@ -797,6 +821,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             openingName,
             userElo: elo,
             userLanguage,
+            positionalSubterms,
           });
           factsToSend.push(facts);
           plyMap.push(input.ply);
