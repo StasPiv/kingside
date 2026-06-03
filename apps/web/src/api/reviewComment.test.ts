@@ -150,3 +150,158 @@ describe('batchReviewComment', () => {
     expect(body.facts).toHaveLength(1);
   });
 });
+
+// --- KS-3629: чанкование -------------------------------------------------
+
+describe('batchReviewComment — чанкование (KS-3629)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  /**
+   * Хелпер: мокаем fetch так, чтобы каждый вызов возвращал валидный
+   * ответ длиной = размеру batch'а в request body. Содержимое каждой
+   * строки — `chunk{N}:{i}` где N — порядковый номер вызова fetch.
+   */
+  function mockChunkedResponses(
+    transform: (
+      facts: unknown[],
+      callIdx: number,
+    ) => { status?: number; body?: unknown } = (facts) => ({
+      body: {
+        comments: (facts as Array<{ ply: number }>).map((f) => `c${f.ply}`),
+      },
+    }),
+  ): void {
+    let callIdx = 0;
+    fetchSpy.mockImplementation(async (_url, init) => {
+      const body = JSON.parse((init as RequestInit).body as string);
+      const r = transform(body.facts, callIdx++);
+      const status = r.status ?? 200;
+      if (r.body === undefined)
+        return new Response('', { status }) as Response;
+      return new Response(JSON.stringify(r.body), { status }) as Response;
+    });
+  }
+
+  it.each([1, 24, 25, 26, 100])(
+    'разбивает N=%i фактов на чанки по 25 и склеивает по индексам',
+    async (n) => {
+      mockChunkedResponses();
+      const out = await batchReviewComment(dummyFacts(n), 1500, 'ru');
+      expect(out).toHaveLength(n);
+      // Все строки должны соответствовать факту по индексу (`ply = i+1`).
+      for (let i = 0; i < n; i++) {
+        expect(out[i]).toBe(`c${i + 1}`);
+      }
+      const expectedCalls = Math.ceil(n / 25);
+      expect(fetchSpy).toHaveBeenCalledTimes(expectedCalls);
+    },
+  );
+
+  it('кастомный chunkSize — N=10 фактов с chunkSize=4 даёт 3 запроса', async () => {
+    mockChunkedResponses();
+    const out = await batchReviewComment(dummyFacts(10), 1500, 'ru', undefined, {
+      chunkSize: 4,
+    });
+    expect(out).toHaveLength(10);
+    for (let i = 0; i < 10; i++) expect(out[i]).toBe(`c${i + 1}`);
+    expect(fetchSpy).toHaveBeenCalledTimes(3); // 4+4+2
+  });
+
+  it('частичный сбой одного чанка → остальные доходят, упавший = пустые', async () => {
+    // 6 фактов, chunkSize=2 → 3 запроса. Второй упадёт 500.
+    mockChunkedResponses((facts, callIdx) => {
+      if (callIdx === 1) return { status: 500 };
+      return {
+        body: {
+          comments: (facts as Array<{ ply: number }>).map((f) => `c${f.ply}`),
+        },
+      };
+    });
+    const out = await batchReviewComment(dummyFacts(6), 1500, 'ru', undefined, {
+      chunkSize: 2,
+      concurrency: 1, // последовательно, чтобы callIdx был предсказуем
+    });
+    // chunk 0 (facts 1,2) → ok; chunk 1 (3,4) → 500; chunk 2 (5,6) → ok.
+    expect(out).toEqual(['c1', 'c2', '', '', 'c5', 'c6']);
+  });
+
+  it('LLM trim: чанк вернул меньше строк → паддинг пустыми в правильных позициях', async () => {
+    mockChunkedResponses((facts, callIdx) => {
+      if (callIdx === 0) {
+        return { body: { comments: ['c1'] } }; // только 1 из 2
+      }
+      return {
+        body: {
+          comments: (facts as Array<{ ply: number }>).map((f) => `c${f.ply}`),
+        },
+      };
+    });
+    const out = await batchReviewComment(dummyFacts(4), 1500, 'ru', undefined, {
+      chunkSize: 2,
+      concurrency: 1,
+    });
+    expect(out).toEqual(['c1', '', 'c3', 'c4']);
+  });
+
+  it('onProgress тикает кумулятивно по факту завершения каждого чанка', async () => {
+    mockChunkedResponses();
+    const ticks: number[] = [];
+    await batchReviewComment(dummyFacts(7), 1500, 'ru', undefined, {
+      chunkSize: 3,
+      concurrency: 1,
+      onProgress: (done) => ticks.push(done),
+    });
+    // 3+3+1 = три тика, кумулятивно
+    expect(ticks).toEqual([3, 6, 7]);
+  });
+
+  it('AbortError в одном чанке → throw наверх (cancel cascade)', async () => {
+    const err = new DOMException('aborted', 'AbortError');
+    let callIdx = 0;
+    fetchSpy.mockImplementation(async () => {
+      callIdx++;
+      if (callIdx === 2) throw err;
+      return new Response(JSON.stringify({ comments: ['x', 'x'] }), {
+        status: 200,
+      }) as Response;
+    });
+    await expect(
+      batchReviewComment(dummyFacts(6), 1500, 'ru', undefined, {
+        chunkSize: 2,
+        concurrency: 1,
+      }),
+    ).rejects.toBe(err);
+  });
+
+  it('signal abort до начала → AbortError из первого fetch пробрасывается', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    fetchSpy.mockImplementation(async (_u, init) => {
+      const sig = (init as RequestInit).signal;
+      if (sig?.aborted) {
+        throw new DOMException('aborted', 'AbortError');
+      }
+      return new Response(JSON.stringify({ comments: [] }), { status: 200 });
+    });
+    await expect(
+      batchReviewComment(dummyFacts(3), 1500, 'ru', ctrl.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('100 фактов проходят без ошибки 400 от ArrayMaxSize (regression KS-3629)', async () => {
+    // До чанкования бэк отвергал >40 фактов 400, фронт graceful делал пустые.
+    // Теперь — 4 чанка по 25, все 100 строк непустые.
+    mockChunkedResponses();
+    const out = await batchReviewComment(dummyFacts(100), 1500, 'ru');
+    expect(out).toHaveLength(100);
+    expect(out.filter((c) => c === '')).toHaveLength(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+});

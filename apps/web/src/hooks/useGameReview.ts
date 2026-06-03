@@ -108,6 +108,7 @@ export type CommentClient = (
   userElo: number,
   language: 'en' | 'ru',
   signal?: AbortSignal,
+  options?: { onProgress?: (done: number) => void },
 ) => Promise<string[]>;
 
 export interface UseGameReviewOptions {
@@ -780,6 +781,18 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
               elo,
               userLanguage,
               abortRef.current.signal,
+              {
+                // KS-3629: тик по чанкам — прогресс обновляется по мере
+                // прихода ответов, а не разово в конце.
+                onProgress: (done) => {
+                  if (cancelRef.current) return;
+                  setProgress({
+                    stage: 'comments',
+                    done,
+                    total: factsToSend.length,
+                  });
+                },
+              },
             );
             if (cancelRef.current) {
               engines.terminate();
