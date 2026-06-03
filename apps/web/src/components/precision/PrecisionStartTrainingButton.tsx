@@ -19,7 +19,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../context/AuthContext';
 import { precisionApi } from '../../api/precisionApi';
+import { puzzleApi } from '../../api-puzzle';
 import { buildPrecisionNextParams } from '../../utils/puzzleNav';
+import { readPrecisionMaiaThreshold } from '../../config/precisionMaiaThreshold';
+import { pickEligiblePrecisionPuzzle } from '../../utils/pickEligiblePrecisionPuzzle';
 
 type Status = 'idle' | 'loading' | 'empty' | 'emptyThemes' | 'error';
 
@@ -34,20 +37,32 @@ export function PrecisionStartTrainingButton() {
     setStatus('loading');
     try {
       const params = buildPrecisionNextParams(searchParams, Boolean(user));
-      const res = await precisionApi.pickNext(params);
-      if (res.puzzleId) {
+      // KS-3634 / ADR-104 §8: клиентский Maia-фильтр. До 5 попыток
+      // подбираем пазл с `maiaTop1Prob <= threshold`; на 5-й неудаче
+      // отдаём как есть, чтобы не зависнуть. `null` от backend
+      // (no_puzzles_available / no_puzzles_for_themes) пропускается
+      // ниже — там логика fallback'а на toast'ы.
+      const threshold = readPrecisionMaiaThreshold();
+      const eligible = await pickEligiblePrecisionPuzzle(
+        params,
+        { threshold },
+        {
+          pickNext: precisionApi.pickNext,
+          getPuzzleById: puzzleApi.getById,
+        },
+      );
+      if (eligible) {
         // Сохраняем текущие фильтры в URL пазла — для возврата через
         // back-link и для последующей «Следующая».
         const sp = new URLSearchParams(searchParams);
         sp.set('source', 'precision');
-        navigate(`/puzzle/${res.puzzleId}?${sp.toString()}`);
+        navigate(`/puzzle/${eligible.puzzleId}?${sp.toString()}`);
         // Не сбрасываем `loading` — компонент unmount'ится при navigate.
       } else {
-        // KS-3348 / KS-3362: 404. Discriminated reason
-        // (PickNextPrecisionEmptyReason):
-        //   - no_puzzles_for_themes — выбранные темы не дают пазлов,
-        //     показываем спец-сообщение «расширьте фильтр».
-        //   - no_puzzles_available — общий «нет задач» (рейтинг-окно).
+        // KS-3348 / KS-3362: 404. Чтобы не терять discriminated reason
+        // (`no_puzzles_for_themes`), дёрнем pickNext ещё раз — это та
+        // же попытка что и в retry-loop, дешёво и без расхождений.
+        const res = await precisionApi.pickNext(params);
         const reason = (res as { reason?: string }).reason;
         setStatus(reason === 'no_puzzles_for_themes' ? 'emptyThemes' : 'empty');
       }

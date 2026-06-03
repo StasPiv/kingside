@@ -32,6 +32,8 @@ import {
 // KS-3349 / KS-3350 (ADR-079 §3.4–3.5). API для авто-подбора +
 // текущего precision-рейтинга (для дельты).
 import { precisionApi } from '../api/precisionApi';
+import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
+import { pickEligiblePrecisionPuzzle } from '../utils/pickEligiblePrecisionPuzzle';
 
 type PuzzleStatus = 'thinking' | 'checking' | 'correct' | 'incorrect';
 
@@ -676,14 +678,23 @@ export function PuzzlePage() {
     if (!user || !fromPrecision) return;
     try {
       const params = buildPrecisionNextParams(searchParams, true);
-      const res = await precisionApi.pickNext(params);
-      if (res.puzzleId) {
+      // KS-3634 / ADR-104 §8: клиентский Maia-фильтр (до 5 попыток).
+      const threshold = readPrecisionMaiaThreshold();
+      const eligible = await pickEligiblePrecisionPuzzle(
+        params,
+        { threshold },
+        {
+          pickNext: precisionApi.pickNext,
+          getPuzzleById: puzzleApi.getById,
+        },
+      );
+      if (eligible) {
         // Сохраняем те же query-params на новой странице пазла —
         // buildPrecisionPuzzleQuery работает с любыми URLSearchParams,
         // но здесь у нас уже preserved-набор. Просто перенесём текущие.
         const sp = new URLSearchParams(searchParams);
         sp.set('source', 'precision');
-        navigate(`/puzzle/${res.puzzleId}?${sp.toString()}`);
+        navigate(`/puzzle/${eligible.puzzleId}?${sp.toString()}`);
         // Сброс delta — новый пазл, новый baseline (snapshot useEffect
         // перечитает rating).
         setPrecisionRatingChange(null);
