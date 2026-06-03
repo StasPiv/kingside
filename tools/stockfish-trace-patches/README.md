@@ -18,14 +18,15 @@
 | Файл | Этапы | Описание |
 |---|---|---|
 | `0001-phase1-3-trace-skeleton-and-pawns.patch` | Фазы 1-3 | Промежуточная контрольная точка (только pawns.cpp). Можно пропустить — заменён следующим. |
-| `0002-phase1-8-full-coverage.patch` | **Фазы 1-8 (полное покрытие)** | Сводный — весь патч C1a с 51/51 точками `SF_TRACE_ADD_SUB`. Этот файл нужен devops для C1b. |
+| `0002-phase1-8-full-coverage.patch` | Фазы 1-8 | 51 ID — полное покрытие именованных классических подкомпонент SF 16. Заменён следующим. |
+| `0003-phase1-10-with-psqt-mobility-attackers.patch` | **Фазы 1-10 (последний, для devops)** | 63 ID. Добавлены PSQT per-piece (6), mobility per-piece (4), king_attackers count/weight (2). Этот файл правок передаётся в C1b. |
 
 ## Применение
 
 ```bash
 git clone --branch sf_16 https://github.com/official-stockfish/Stockfish.git
 cd Stockfish
-git am /path/to/0002-phase1-8-full-coverage.patch
+git am /path/to/0003-phase1-10-with-psqt-mobility-attackers.patch
 make -C src build ARCH=x86-64   # нативная сборка для тестов
 # WASM-сборка — задача C1b (devops): форк lichess-org/stockfish.wasm
 # + наложение этого файла правок поверх + сборка emscripten Makefile.
@@ -88,13 +89,29 @@ per attacked square), `threat_by_king`, `threat_hanging`,
 ### Space (фаза 8)
 1 точка: `space` (агрегат, side-обладатель).
 
+### PSQT + mobility + king attackers (фаза 10)
+
+**PSQT (6 точек):** `psqt_pawn / knight / bishop / rook / queen / king`. Эмитятся в `Eval::trace_json` циклом по всей доске — каждая фигура получает запись со своим квадратом и mg/eg-вкладом из таблицы `PSQT::psq[piece][square]`. Знак уже POV владельца (SF в `psqt.cpp::init` инвертирует через `psq[~pc][flip_rank(s)] = -psq[pc][s]`).
+
+**Mobility per-piece (4 точки):** `mobility_knight / bishop / rook / queen`. В цикле `evaluate.cpp::pieces` после `mobility[Us] += MobilityBonus[Pt-2][mob]` через `if constexpr (Pt == ...)` — каждая лёгкая/тяжёлая фигура получает свой вклад с привязкой к квадрату.
+
+**King attackers (2 точки):** `king_attackers_count / weight`. В начале `evaluate.cpp::king<Us>` эмитим один раз per side: `kingAttackersCount/Weight[Them]` = атакующие стороны Them на наш kingRing. Запись с `color=Them` (атакующие их фигур), без квадрата, как `make_score(v, v)` для удобства потребителя (в kingDanger хранится int, а Score нужен в пешечных-cp).
+
 ## Не вошло
 
 - **Фаза 9 — инвариант на 50 эталонных FEN**:
   `Σ subterms по группе == агрегат соответствующего из 13 классических
-  терминов upstream-SF`. Требует FEN'ов от пользователя; делается
+  терминов вышестоящего SF`. Требует FEN'ов от пользователя; делается
   отдельным проходом после получения списка.
-- **Фаза 10 (C1b, devops) — WASM-сборка** через emscripten на форке
+- **Фаза 11 (резерв)** — дополнительные подкомпоненты, которые
+  технически можно вытащить из SF 16:
+  - `material_per_piece_type` (6 ID) — расчёт через `PieceValue[]` +
+    `pos.count<Pt>(c)`. Низкая ценность — дублирует FEN.
+  - `imbalance_*` (5 ID) — `material.cpp::QuadraticOurs/Theirs` матрица.
+    Требует структурных правок `material.cpp`.
+  - `winnable_*` (4 ID) — `evaluate.cpp::winnable()`, булевы факторы
+    эндшпильной корректировки.
+- **C1b (devops) — WASM-сборка** через emscripten на форке
   `lichess-org/stockfish.wasm`.
 
 ## Известные особенности
