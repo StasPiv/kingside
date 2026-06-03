@@ -8,8 +8,9 @@ Stockfish, используемые фронтом Kingside на страниц�
 
 | Файл | Что это | Источник |
 |---|---|---|
-| `stockfish-16-lite.js` / `stockfish-16-lite.wasm` | Stockfish 16 (lite, classical evaluator с возможностью отключить NNUE). Используется для извлечения позиционной разбивки 13 терминов через команду `eval`. | Стандартная сборка Stockfish 16, ветка `sf_16`. Подлежит замене на собственное ответвление `kingside/stockfish-trace` в рамках KS-3644 / ADR-107 rev 2 §6 C1 (расширенный `eval json` с подкомпонентами). |
-| `stockfish-18-lite.js` / `stockfish-18-lite.wasm` | Stockfish 18 (lite, NNUE). Используется для основного анализа позиции в Game Review. | Вышестоящий проект Stockfish, ветка `sf_18`. |
+| `stockfish-16-trace.js` / `stockfish-16-trace.wasm` / `stockfish-16-trace.worker.js` | **Наше ответвление Stockfish 16** с расширенной командой `eval json` (выводит подкомпоненты позиционной оценки — pawns, pieces, king, threats, passed, space — с привязкой к квадратам). Используется для извлечения детальной позиционной разбивки на странице разбора партии (KS-3645). Собрано через emscripten 3.1.55 с `Use NNUE = false` (NNUE-сеть выкинута для уменьшения размера), pthread + SharedArrayBuffer обязательны. Подробнее — `scripts/wasm-build/HANDOVER.md`. | Наше ответвление `kingside/stockfish-trace` (см. KS-3653 / ADR-107 rev 2 §6 C1, репозиторий планируется к публикации перед публичным релизом). |
+| `stockfish-16-lite.js` / `stockfish-16-lite.wasm` | Stockfish 16 (lite, classical evaluator с возможностью отключить NNUE). Стандартная upstream-сборка. Используется в текущей реализации `positionalEval.ts` для извлечения 13 терминов через `eval`. Будет заменена на `stockfish-16-trace.*` после интеграции (KS-3645). | Стандартная сборка Stockfish 16, ветка `sf_16`. |
+| `stockfish-18-lite.js` / `stockfish-18-lite.wasm` | Stockfish 18 (lite, NNUE, multi-thread). Используется для основного анализа позиции в Game Review. | Вышестоящий проект Stockfish, ветка `sf_18`. |
 | `stockfish-18-single.js` / `stockfish-18-single.wasm` | Stockfish 18 (single-thread). Используется как запасной вариант для окружений без поддержки SharedArrayBuffer. | Вышестоящий проект Stockfish, ветка `sf_18`. |
 | `nn-5af11540bbfe.nnue` | Файл NNUE-весов для Stockfish 18. | Вышестоящий проект Stockfish (релиз SF 18). |
 
@@ -31,14 +32,20 @@ GPL-3 требует, чтобы при распространении бина�
 
 ## Модификации
 
-На дату текущего коммита собственных модификаций исходного кода
-Stockfish в распространяемых WASM-бинарниках **нет** — это стандартные
-сборки вышестоящего проекта.
+`stockfish-16-trace.*` — собственная модификация SF 16: расширен `Trace::add`
+с per-square ёмкостью, добавлена команда `eval json` (выводит JSON с
+подкомпонентами по группам Pawns / Pieces / King / Threats / Passed /
+Space — с указанием квадрата для каждой подкомпоненты). Сборка через
+emscripten 3.1.55 с `NNUE_EMBEDDING_OFF` и `FILESYSTEM=0` (FS не нужен —
+обмен идёт через emcc-stdin callback). Патч на Makefile зафиксирован в
+`tools/stockfish-trace-patches/0004-wasm-makefile-emcc.patch`.
 
-При появлении модификаций (C1 KS-3644 — расширение `Trace::add` и
-команда `eval json`) в `kingside/stockfish-trace` публикуется
-изменённый исходный код, а в этот README добавляется ссылка на
-конкретный коммит/тег сборки.
+Исходный код модификации публикуется в репозитории `kingside/stockfish-trace`
+(см. KS-3653). До его публичной публикации исходники доступны по запросу.
+
+Остальные бинарники (`stockfish-16-lite.*`, `stockfish-18-lite.*`,
+`stockfish-18-single.*`) — стандартные сборки вышестоящего проекта без
+наших модификаций.
 
 ## Совместимость с остальным кодом приложения
 
