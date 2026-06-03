@@ -84,6 +84,11 @@ export function useGameReviewLauncher(
     openingName,
     userLanguage,
     movetimeMs,
+    // LLM-комментарии временно отключены по решению пользователя —
+    // фича сырая, требует доработки расстановки NAG/вариантов до
+    // подключения текстовых пояснений. Сборка PGN идёт штатно
+    // (annotations + variations), `commentByPly` остаётся пустым.
+    commentsEnabled: false,
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
