@@ -1,0 +1,13 @@
+[Event "Eval fixture #10 — positional pawn weakness h6"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "18"]
+[ExpectedMotifs ""]
+[ExpectedShifts "pawn_structure_weakened_on_ply18,king_exposed_on_ply18"]
+[Note "Чисто позиционная ошибка: 9...h6 в закрытой позиции без угроз. Полуход 18 — само h6. Хочу проверить: модель НЕ говорит 'неточность' / 'не лучший ход', а объясняет что пешка h6 даст белым крюк для атаки (king_exposed как ярлык), pawn_structure_weakened — общий сдвиг позиционной оценки. Чёткий маркер: если модель повторяет только NAG-знак, тест провален."]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 d5 4. cxd5 exd5 5. Bg5 Be7 6. e3 O-O 7. Bd3 c6 8. Nf3 Nbd7 9. Qc2 h6 10. Bh4 *

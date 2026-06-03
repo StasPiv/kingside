@@ -1,0 +1,13 @@
+[Event "Eval fixture #08 — hanging piece blunder"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "10,11"]
+[ExpectedMotifs "fork:false"]
+[ExpectedShifts "material_lost_on_ply10,material_gained_on_ply11"]
+[Note "Зевок коня. Полуход 10 (5...Nxe4??) — чёрный конь f6 берёт защищённую пешку e4 (защитник Nc3). Hanging_piece расширенный должен показать attackers=[Nc3], defenders=[], net=-3. Полуход 11 (6.Nxe4) — белые забирают коня. Хочу проверить: на 5...Nxe4 модель говорит о незащищённости коня и net=-3, а не пишет 'грубая ошибка' без причины. На 6.Nxe4 — модель не повторяет 'сильный ход', а упоминает выигранную фигуру."]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. d3 Bc5 5. Nc3 Nxe4 6. Nxe4 *

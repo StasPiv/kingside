@@ -1,0 +1,13 @@
+[Event "Eval fixture #06 — pin on knight c6"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "5,11"]
+[ExpectedMotifs "pin_on_ply5,double_attack:false"]
+[ExpectedShifts "bishop_more_active_on_ply5"]
+[Note "Испанка: 3.Bb5 ставит связку коня c6 относительно короля. Полуход 5 — сам пин. Полуход 11 (6.Bxc6) — реализация связки разменом. Хочу проверить: модель на 3.Bb5 упоминает pin (мотив есть в фактах) и активацию слона, на 6.Bxc6 — разрушение пешечной структуры противника (pawn_structure_weakened) и упрощение позиции."]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Bxc6 bxc6 7. d3 d6 8. Nbd2 O-O *

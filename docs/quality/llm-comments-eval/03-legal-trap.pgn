@@ -1,0 +1,13 @@
+[Event "Eval fixture #03 — discovered attack sacrifice"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "1-0"]
+[ExpectedFocusPly "9,10,11,13"]
+[ExpectedMotifs "discovered_attack_on_ply9,fork:false"]
+[ExpectedShifts "threats_grew_on_ply9,material_lost_on_ply10"]
+[Note "Légal's Mate. На полуходе 9 (5.Nxe5!) — псевдожертва ферзя (если 5...Bxd1, то discovered_attack через Bxf7+ и Nd5#). На полуходе 10 (5...Bxd1??) чёрные забирают ферзя но получают мат через 4 хода. Хочу проверить: модель НЕ говорит на 5...Bxd1 'отличный ход — выигран ферзь', а упоминает counter_threat (мат через 2 хода). Комментарий на 7.Nd5# должен быть про smothered/closed mate, а не просто 'мат'."]
+
+1. e4 e5 2. Nf3 d6 3. Bc4 Bg4 4. Nc3 g6 5. Nxe5 Bxd1 6. Bxf7+ Ke7 7. Nd5# 1-0

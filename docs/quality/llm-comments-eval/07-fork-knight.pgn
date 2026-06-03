@@ -1,0 +1,13 @@
+[Event "Eval fixture #07 — knight fork on f7"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "7,8"]
+[ExpectedMotifs "fork_on_ply7"]
+[ExpectedShifts "threats_grew_on_ply7,material_gained_on_ply7"]
+[Note "Fried Liver Attack: 4.Ng5 угрожает Nxf7 — вилка короля и ладьи + атака. Полуход 7 (4.Ng5) — мотив fork. Полуход 8 (4...d5? — обычно ОК, но если 4...h6?? то Nxf7) — здесь черные защищаются. Хочу проверить, что на 4.Ng5 модель упоминает fork (атака на f7 + ладья h8), а не пишет 'хороший ход'."]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7 Kxf7 7. Qf3+ Ke6 8. Nc3 *

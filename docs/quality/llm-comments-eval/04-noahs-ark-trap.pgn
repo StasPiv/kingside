@@ -1,0 +1,13 @@
+[Event "Eval fixture #04 — bishop trap / pawn squeeze"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "0-1"]
+[ExpectedFocusPly "15,17"]
+[ExpectedMotifs "pin:false,fork:false"]
+[ExpectedShifts "bishop_passive_on_ply15,material_lost_on_ply17"]
+[Note "Noah's Ark Trap в испанке. На 8.dxe5 белые входят в ловушку. Полуход 15 (8...c5) — пешки запирают слона b3. Полуход 17 (9...c4) — слон ловится. Хочу проверить: модель упоминает зажатый слон (bishop_passive) на 8...c5 и сам факт потери фигуры на 9...c4, не сводится к 'хороший ход'."]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 d6 5. d4 b5 6. Bb3 Nxd4 7. Nxd4 exd4 8. Qxd4 c5 9. Qd5 Be6 10. Qc6+ Bd7 11. Qd5 c4 0-1

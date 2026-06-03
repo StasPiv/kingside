@@ -1,0 +1,13 @@
+[Event "Eval fixture #12 — rook on open file / positional gain"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "21"]
+[ExpectedMotifs ""]
+[ExpectedShifts "rook_on_open_file_on_ply21,space_gained_on_ply21"]
+[Note "Сицилианка Шевенинген, классическая расстановка с f4. Полуход 21 (11.Rad1) — ладья a1 встаёт на полу-открытую вертикаль d (после раннего размена cxd4 d-файл открыт для белых). Хочу проверить: модель упоминает полу-открытую вертикаль и активизацию ладьи (rook_on_open_file как ярлык), не пишет 'хороший развивающий ход'."]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be2 e6 7. O-O Be7 8. f4 O-O 9. Be3 Nc6 10. Qd2 Bd7 11. Rad1 *

@@ -1,0 +1,13 @@
+[Event "Eval fixture #05 — Bxh7+ Greek gift sacrifice"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "*"]
+[ExpectedFocusPly "22,23"]
+[ExpectedMotifs "discovered_attack:false"]
+[ExpectedShifts "king_exposed_on_ply23,threats_grew_on_ply23"]
+[Note "Греческий подарок Bxh7+. На 11.Bd3 (полуход 21) белые выставляют батарею слон+ферзь на h7. Полуход 22 (11...N5f6) — чёрные уводят коня обратно, не заметив угрозы. Полуход 23 (12.Bxh7+) — жертва слона со взрывом крыла. Хочу проверить: на 12.Bxh7+ модель упоминает мотив греческого подарка / king_exposed, не пишет 'сильный ход'. На 11...N5f6 модель указывает на пропущенную угрозу Bxh7+."]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 6. Nf3 Nbd7 7. Bd3 c6 8. O-O dxc4 9. Bxc4 Nd5 10. Bxe7 Qxe7 11. Bd3 N5f6 12. Bxh7+ *

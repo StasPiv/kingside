@@ -1,0 +1,13 @@
+[Event "Eval fixture #01 — mate threat / king safety"]
+[Site "Kingside ADR-103 fixture"]
+[Date "2026.06.03"]
+[Round "?"]
+[White "Sample"]
+[Black "Sample"]
+[Result "1-0"]
+[ExpectedFocusPly "5,7"]
+[ExpectedMotifs "back_rank_weak:false,fork:false,mate_in_1_on_ply7"]
+[ExpectedShifts "king_exposed_on_ply5,material_lost_on_ply5"]
+[Note "Scholar's Mate. На полуходе 5 (3...Nf6??) чёрные допускают Qxf7#. Хочу проверить, что комментарий на 3...Nf6 объясняет mate_threat_after=1 и king_exposed; что комментарий на 4. Qxf7# не сводится к 'мат' / 'отличный ход', а описывает мотив (ферзь и слон бьют незащищённый f7)."]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6?? 4. Qxf7# 1-0
