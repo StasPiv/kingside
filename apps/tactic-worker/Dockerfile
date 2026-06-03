@@ -24,6 +24,9 @@ COPY package.json package-lock.json ./
 COPY apps/tactic-worker/package.json apps/tactic-worker/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
+# KS-3633 / ADR-104 §5: maia-core нужен для T2 (continuous Maia
+# annotation новых Precision-пазлов в CLI-генераторах).
+COPY packages/maia-core/package.json packages/maia-core/
 RUN npm ci --ignore-scripts
 # Postinstall @prisma/engines: качаем schema-engine для текущей платформы
 # (нужен `prisma generate` внутри packages/db build).
@@ -31,9 +34,12 @@ RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
+COPY packages/maia-core ./packages/maia-core
 COPY apps/tactic-worker ./apps/tactic-worker
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
+RUN rm -f packages/maia-core/tsconfig.tsbuildinfo
+RUN npx tsc --build packages/maia-core
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/tactic-worker && npx nest build
 # KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules.
@@ -51,12 +57,16 @@ COPY --from=build /app/apps/tactic-worker/dist ./apps/tactic-worker/dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
+COPY --from=build /app/packages/maia-core ./packages/maia-core
 COPY apps/tactic-worker/package.json ./apps/tactic-worker/
 # KS-2411: AWS RDS global CA bundle для verify-full подключения к
 # archive-RDS из CLI. Заменяет NODE_TLS_REJECT_UNAUTHORIZED=0.
 COPY apps/tactic-worker/certs ./apps/tactic-worker/certs
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
+# KS-3633 / ADR-104 §5: symlink на maia-core для @kingside/maia-core
+# import в tactic-worker CLI-генераторах.
+RUN rm -rf node_modules/@kingside/maia-core && ln -s ../../packages/maia-core node_modules/@kingside/maia-core
 
 ENV NODE_ENV=production
 # Stockfish-бинарь от apt (Debian Bookworm: SF 15.x). Версионирование
