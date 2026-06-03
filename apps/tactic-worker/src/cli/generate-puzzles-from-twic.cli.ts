@@ -37,6 +37,7 @@ import {
   type PuzzleRecord,
 } from '../puzzle-generator/types';
 import { runPuzzleGenerator } from '../puzzle-generator/generator-pipeline';
+import { MaiaAnnotationService } from '../maia/maia-annotation.service';
 
 export interface TwicCliFlags {
   twicIssue: number | null;
@@ -245,6 +246,15 @@ export async function runGeneratePuzzlesFromTwic(
   const prisma = app.get(PrismaService);
   const engine = app.get(StockfishService);
 
+  // KS-3633 / ADR-104 §5: Maia continuous annotation. См. комментарий
+  // в `generate-puzzles.cli.ts`. Тот же сервис, инстанс на CLI-процесс.
+  const maiaAnnotation = MaiaAnnotationService.fromEnv();
+  if (!maiaAnnotation.isEnabled()) {
+    process.stdout.write(
+      `[twic-puzzle-gen] maia-annotation DISABLED (PRECISION_MAIA_ANNOTATION_ENABLED=false).\n`,
+    );
+  }
+
   const pgConfig = buildArchivePgClientConfig(
     archiveUrl,
     process.env,
@@ -318,6 +328,38 @@ export async function runGeneratePuzzlesFromTwic(
           stats.inserted++;
           if (objective === 'convertAdvantage') stats.savedConvertAdvantage++;
           else if (objective === 'saveEquality') stats.savedSaveEquality++;
+          // KS-3633 / ADR-104 §5: continuous Maia-annotation. Только
+          // для PVE пазлов (precision-каталог); graceful — null при
+          // сбое оставляет поля NULL.
+          if (
+            puzzle.solutionMode === 'play-vs-engine' &&
+            maiaAnnotation.isEnabled()
+          ) {
+            const solutionUci = puzzle.moves.split(' ')[0]?.trim();
+            if (solutionUci) {
+              const ann = await maiaAnnotation.annotate(
+                puzzle.id,
+                puzzle.fen,
+                solutionUci,
+              );
+              if (ann) {
+                try {
+                  await prisma.puzzle.update({
+                    where: { id: puzzle.id },
+                    data: {
+                      maiaTop1Prob: ann.prob,
+                      maiaTop1Elo: ann.elo,
+                    },
+                  });
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  logger.warn(
+                    `maia-annotation UPDATE failed for ${puzzle.id}: ${msg}`,
+                  );
+                }
+              }
+            }
+          }
           return true;
         }
         stats.duplicateOrInsertFailed++;

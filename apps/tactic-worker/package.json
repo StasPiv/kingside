@@ -10,12 +10,14 @@
   },
   "dependencies": {
     "@kingside/db": "*",
+    "@kingside/maia-core": "*",
     "@kingside/shared": "*",
     "@nestjs/common": "^11.1.16",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.16",
     "@nestjs/platform-express": "^11.1.16",
     "chess.js": "^1.4.0",
+    "onnxruntime-web": "^1.20.0",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"

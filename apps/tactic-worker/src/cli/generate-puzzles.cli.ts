@@ -46,6 +46,7 @@ import {
   type PuzzleRecord,
 } from '../puzzle-generator/types';
 import { runPuzzleGenerator } from '../puzzle-generator/generator-pipeline';
+import { MaiaAnnotationService } from '../maia/maia-annotation.service';
 
 interface CliFlags {
   options: Omit<GeneratorOptions, 'insertPuzzle'>;
@@ -224,6 +225,19 @@ export async function runGeneratePuzzles(
   const prisma = app.get(PrismaService);
   const engine = app.get(StockfishService);
 
+  // KS-3633 / ADR-104 §5: Singleton Maia annotation сервис — после
+  // каждого успешного INSERT нового PVE-пазла дёргаем `annotate(...)`
+  // и заполняем `maia_top1_prob` / `maia_top1_elo` UPDATE-ом. Lazy:
+  // ONNX-сессия создаётся при первом вызове annotate. Disabled через
+  // ENV `PRECISION_MAIA_ANNOTATION_ENABLED=false` — annotate всегда null.
+  const maiaAnnotation = MaiaAnnotationService.fromEnv();
+  if (!maiaAnnotation.isEnabled()) {
+    process.stdout.write(
+      `[puzzle-gen] maia-annotation DISABLED (PRECISION_MAIA_ANNOTATION_ENABLED=false). ` +
+        `Новые пазлы получат NULL в maia_top1_prob — фронт их не отсеет.\n`,
+    );
+  }
+
   // KS-2776. Если --exclude-used — выгрузим source_id всех PVE-пазлов
   // из main `puzzles` и передадим в pipeline для исключения из выборки
   // archive_games. Тем самым на одной партии-источнике не плодим
@@ -279,6 +293,41 @@ export async function runGeneratePuzzles(
       const inserted = r.count > 0;
       if (inserted && dumpFile && dumpBuffer.length < 30) {
         dumpBuffer.push(puzzle);
+      }
+      // KS-3633 / ADR-104 §5: continuous Maia-annotation для новых
+      // play-vs-engine пазлов. Только при успешной вставке (inserted)
+      // и только для precision-каталога. Граceful: при null —
+      // оставляем поля NULL (фронт не отсеивает; admin-CLI T1
+      // позже допилит при `--force` или новом ELO).
+      if (
+        inserted &&
+        puzzle.solutionMode === 'play-vs-engine' &&
+        maiaAnnotation.isEnabled()
+      ) {
+        const solutionUci = puzzle.moves.split(' ')[0]?.trim();
+        if (solutionUci) {
+          const ann = await maiaAnnotation.annotate(
+            puzzle.id,
+            puzzle.fen,
+            solutionUci,
+          );
+          if (ann) {
+            try {
+              await prisma.puzzle.update({
+                where: { id: puzzle.id },
+                data: {
+                  maiaTop1Prob: ann.prob,
+                  maiaTop1Elo: ann.elo,
+                },
+              });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.warn(
+                `maia-annotation UPDATE failed for ${puzzle.id}: ${msg}`,
+              );
+            }
+          }
+        }
       }
       return inserted;
     } catch (err) {
