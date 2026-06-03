@@ -1,219 +1,350 @@
-# ADR-107 — Детальные позиционные признаки: расширение JS-детектора вместо fork'а Stockfish
+# ADR-107 — Извлечение детальных позиционных подкомпонент Stockfish через ответвление SF 16
 
-Статус: предложен (KS-3644).
+Статус: предложен (KS-3644), редакция 2 (rev 1 ошибочно предлагала JS-эвристику вместо доступа к SF-подкомпонентам — отозвано).
 Дата: 2026-06-03.
-Связано: ADR-103 rev 3 (LLM-комментарии MVP-2: `positional_shifts` через WASM SF 16), ADR-105 (NAG-постобработка), KS-3623 (`extractFacts.ts` — tactical_motifs).
+Связано: ADR-103 rev 3 (LLM-комментарии MVP-2: `positional_shifts` через WASM SF 16 — агрегат из 13 терминов), KS-3623 (`extractFacts.ts` — tactical_motifs).
 
 ## 1. Контекст
 
-Stockfish внутри `evaluation.cpp` / `pawns.cpp` / `pieces.cpp` / `king.cpp` / `threats.cpp` / `passed.cpp` / `space.cpp` считает много отдельных позиционных подкомпонент (isolated/doubled/passed/backward pawns, outposts, weak squares, open/semi-open files, bishop pawn count, king shelter/storm, threat-by-minor/-by-rook/-by-pawn и так далее). На выходе `UCI eval` в classical-режиме они **схлопываются в 13 агрегатных терминов** (Material, Imbalance, Pawns, Knights, Bishops, Rooks, Queens, Mobility, King safety, Threats, Passed, Space, Winnable; см. ADR-103 §6 — фиксация).
+Stockfish внутри `evaluate.cpp` / `pawns.cpp` считает много отдельных позиционных подкомпонент. Через UCI команду `eval` в classical-режиме (`Use NNUE = false`) наружу выходят **только 13 агрегатов** (MATERIAL, IMBALANCE, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, MOBILITY, KING, THREAT, PASSED, SPACE, WINNABLE; см. `evaluate.cpp:154` — `enum Term` в `namespace Trace`).
 
-Пользователь хочет в разборе партии видеть человеческие объяснения именно подкомпонент («плохой слон h2», «слабая клетка d5», «открытая линия e», «изолированная пешка c4»), а не агрегатов.
+Пользователь хочет видеть в разборе партии **именно подкомпоненты** — изолированную пешку c4 с привязкой к квадрату, плохой слон h2 с количеством пешек на цвете, форпост на d5 со scaling-фактором, конкретный safe-check от ладьи и так далее. Запрос — доступ к настоящим cp-числам из SF, а не к нашей эвристике, аппроксимирующей похожие категории.
 
-KS-3644 — анализ: можно ли вытащить подкомпоненты дёшево, или придётся ответвлять SF.
+KS-3644 — анализ: что реально считается в SF, как это вытащить, во сколько обойдётся, лицензионные обязательства.
 
-## 2. Что внутри SF 15/16 и доступно ли через UCI
+## 2. Что внутри SF 16: фактическая инвентаризация
 
-### 2.1. Стандартный SF не выводит подкомпоненты
+Источник: `git clone --branch sf_16 https://github.com/official-stockfish/Stockfish` в `/tmp/stockfish-sf16`. Все ссылки ниже — на конкретные строки в этом дереве.
 
-Проверено локально (`/usr/games/stockfish`, SF 15.1, `setoption name Use NNUE value false; position …; eval`): на выходе ровно те 13 терминов, что и описаны выше. Команд `trace`, `eval verbose`, `eval json`, `eval detail` нет (`Unknown command`).
+### 2.1. Текущий `Trace` API (evaluate.cpp:150–187)
 
-В исходниках есть структура `Trace` (см. `evaluation.cpp` в SF 15/16, `namespace Trace`), но она:
-- содержит ровно те же 13 терминов (MATERIAL, IMBALANCE, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, MOBILITY, THREAT, PASSED, SPACE, KING, WINNABLE), плюс TOTAL;
-- активна только при compile-time флаге `-DUSE_DEBUG_TRACE` (или эквивалент в конкретной версии), которого нет в стандартной сборке.
+```cpp
+namespace Trace {
+  enum Tracing { NO_TRACE, TRACE };
+  enum Term {            // первые 8 — это PieceType (PAWN..KING)
+    MATERIAL = 8, IMBALANCE, MOBILITY, THREAT, PASSED, SPACE, WINNABLE, TOTAL, TERM_NB
+  };
+  Score scores[TERM_NB][COLOR_NB];     // плоский массив 16×2
+  static void add(int idx, Color c, Score s);
+  static void add(int idx, Score w, Score b = SCORE_ZERO);
+}
+```
 
-То есть **штатного способа** получить разложение Pawns на isolated/doubled/passed/backward или Bishops на trapped/long-diagonal/pawn-count **нет**.
+Вызовы `Trace::add` в коде (8 мест):
+- `evaluate.cpp:523` — `Pt` (одна из KNIGHT/BISHOP/ROOK/QUEEN, всего 4 вызова на каждый цикл по фигурам).
+- `evaluate.cpp:623` — KING (агрегат king safety).
+- `evaluate.cpp:724` — THREAT (агрегат всех угроз).
+- `evaluate.cpp:817` — PASSED (агрегат проходных).
+- `evaluate.cpp:858` — SPACE.
+- `evaluate.cpp:954–955` — WINNABLE, TOTAL.
+- `evaluate.cpp:1028–1031` — MATERIAL, IMBALANCE, PAWN, MOBILITY (в функции `Eval::trace`).
 
-### 2.2. Подкомпоненты как локальные переменные кода
+Никаких других `Trace::add`-вызовов нет. То есть **наружу выходят ровно 13 терминов**, всё остальное складывается в эти агрегаты внутри функций.
 
-Все эти подкомпоненты считаются как локальные накопители внутри `pawns.cpp` / `pieces.cpp` / `king.cpp` / `threats.cpp`. Примеры по SF 15.1:
+### 2.2. Подкомпоненты, агрегируемые в каждый из 13 терминов
 
-| Файл | Подкомпоненты (фрагмент) |
-|---|---|
-| `pawns.cpp` | Isolated, Backward, Doubled, Connected[7][2], WeakUnopposed, WeakLever, BlockedPawn[2], passed-pawn маска для span |
-| `pieces.cpp` | Outpost[knight/bishop], ReachableOutpost, MinorBehindPawn, BishopPawns (количество пешек на цвете слона), LongDiagonalBishop, TrappedBishopA8/H8/A7/H7, RookOnFile[open/semi-open], TrappedRookByKing, KingProtector |
-| `king.cpp` | ShelterStrength, StormDanger, KingAttackersCount/Weight, KingAttacksCount, WeakSquares around king, SafeChecks[knight/bishop/rook/queen], UnsafeChecks |
-| `threats.cpp` | ThreatByMinor[type], ThreatByRook[type], ThreatByKing, Hanging, WeakQueen, RestrictedPiece, ThreatByPawnPush, ThreatBySafePawn, KnightOnQueen, SliderOnQueen |
-| `passed.cpp` | PassedRank[r], PassedBlock, PassedFile, KingProximity |
-| `space.cpp` | Safe space (число «безопасных» клеток за пешками на 2-4 рядах) |
+Точная инвентаризация по строкам кода (где `score += / -=` накапливается):
 
-Получить их **только** через ответвление и патч.
+**Pawns** — `pawns.cpp:30–198`, локальная `evaluate<Color>`:
 
-## 3. Способ извлечения — fork Stockfish
-
-### 3.1. Объём работ
-
-1. Добавить enum-список подкомпонент в `Trace`.
-2. В каждом блоке `pawns.cpp` / `pieces.cpp` / … — вставить `Trace::add(component, color, score)` вокруг локальных накоплений.
-3. Расширить вывод `eval` сериализацией расширенного `Trace` в текстовом или JSON-виде.
-4. Собрать собственный бинарь и WASM-сборку (через emscripten — используется в `lichess-org/stockfish.wasm`, `nmrugg/stockfish.wasm`).
-5. Раздать WASM рядом с проектом, держать репозиторий fork'а публично.
-
-Объём: ~300–500 строк C++ патча + поддержание WASM-сборки в актуальном состоянии. Время C++ разработчика — 3–5 рабочих дней разово, плюс поддержка.
-
-### 3.2. Поддержка
-
-SF 17+ classical-evaluator выпилен, развития ветки SF ≤ 16 не будет. То есть fork — это **навсегда зафиксированная** ветка от SF 16. Обновлений сверху не приедет, но и поддержка падает (нет диффов с upstream'а).
-
-### 3.3. Лицензия GPL-3
-
-SF — GPL-3. Применительно к нам:
-
-| Сценарий | GPL-обязательства |
-|---|---|
-| Backend subprocess (вызов `/usr/games/stockfish`) | Нет linkage, наш код не GPL. |
-| Распространение WASM-бинаря пользователям через `apps/web/public/` | Это distribution. WASM-бинарь — производное произведение, обязан быть под GPL-3. Наш репозиторий fork'а **публичен под GPL-3**, рядом с WASM-бинарём — ссылка на исходники и текст лицензии. Сам же остальной код приложения (TS/React/NestJS) — отдельная программа, общается с движком через postMessage-IPC; это «aggregate», не «combined work» (та же логика, по которой Lichess и chess.com раздают SF-WASM в проприетарных продуктах). |
-| Linkage в одном бинаре (например, статическая компиляция SF-кода в Node-модуль и распространение этого модуля) | Полностью GPL-3, не подходит. |
-
-Вывод по лицензии: **не блокер**. Достаточно публичного fork'а + ссылки рядом с WASM. Сам фронт остаётся под нашей лицензией.
-
-### 3.4. Альтернативные движки
-
-- **Ethereal** (GPL-3): classical eval похожего объёма, WASM-сборки нет, нужно собирать самим.
-- **Komodo / Houdini / Stoofvlees**: закрытый исходник, без бесплатной лицензии для нашего сценария.
-- **Berserk, Koivisto, Lc0**: только NNUE, classical нет.
-- **Crystal**, **Brainfish**, прочие fork'и SF: используют ту же `Trace`-структуру, ничего не дают сверх.
-
-Альтернативных движков, отдающих подкомпоненты **из коробки**, не существует.
-
-## 4. Альтернатива дешевле — расширить наш JS-детектор
-
-Большая часть полезных подкомпонент для разбора **категориальная** (есть/нет признака с указанием квадрата/фигуры), а не численная. Их можно вычислять самим на `chess.js` без SF.
-
-### 4.1. Что уже есть
-
-`apps/web/src/lib/review/extractFacts.ts` (1170 строк, KS-3623 / ADR-103) уже содержит детекторы:
-
-- Tactical motifs: fork, double_attack, pin, skewer, discovered_attack, back_rank_weak (`detectMotifs`).
-- Висячая фигура: `findHangingPiece` с `attackers[]`, `defenders[]`, `net_material_if_taken`.
-- Threats created/missed: `buildThreatsCreated`, `buildThreatsMissed` через статический материальный подсчёт.
-- Stockfish best line (3 хода): `buildSfBestLine`.
-
-Шкала «силы» для позиционных сдвигов — `positional_shifts` (ADR-103 §6, реализовано в `positionalShifts.ts`) — численная, через дельту 13 терминов classical eval (получаем из WASM SF 16). То есть **численный сигнал у нас есть**, в позиционных тегах нужна только **типизация**.
-
-### 4.2. Что добавить (новый модуль `positionalFeatures.ts`)
-
-Категориальные признаки, вычисляемые из FEN через `chess.js` + bitboard-эвристики, без движка:
-
-| Группа | Признак | Логика |
+| Подкомпонента | Строка | Константа |
 |---|---|---|
-| **Пешечная структура** | `isolated_pawn[file]` | Нет своих пешек на соседних вертикалях. |
-|  | `doubled_pawn[file]` | Две и более своих пешек на одной вертикали. |
-|  | `passed_pawn[square]` | Нет пешек противника впереди (своя вертикаль + 2 соседние). |
-|  | `backward_pawn[square]` | Нельзя продвинуть без потери, нет защиты пешками. |
-|  | `pawn_chain[squares]` | Связь ≥ 3 пешек по диагонали. |
-|  | `pawn_island_count[side]` | Число «островов» (групп пешек по соседним вертикалям). |
-| **Слоны** | `bad_bishop[square]` | Bishop на цвете, где ≥ 4 своих пешек на том же цвете. |
-|  | `fianchetto[g2/b2/g7/b7]` | Слон на длинной диагонали + пешка на g3/b3/g6/b6. |
-|  | `bishop_pair[side]` | У стороны два слона. |
-| **Кони** | `knight_outpost[square]` | Конь на 4-6 ряду, не атакуется пешкой противника, защищён своей пешкой. |
-|  | `bad_knight_rim[square]` | Конь на a/h-вертикали. |
-| **Ладьи** | `rook_on_open_file[file]` | Ладья на вертикали без пешек. |
-|  | `rook_on_semi_open_file[file]` | Ладья на вертикали без своих пешек. |
-|  | `rook_on_7th[side]` | Ладья на 7-й (или 2-й для чёрных) горизонтали. |
-|  | `rook_battery[file]` | Две ладьи / ладья+ферзь по одной вертикали. |
-| **Поля** | `weak_square[square, side]` | Квадрат, не контролируемый ни одной пешкой стороны, в её половине. |
-|  | `hole[square, side]` | Слабая клетка + рядом своих пешек нет (нельзя прикрыть). |
-| **Линии и диагонали** | `open_file[file]` | Нет пешек ни одной стороны. |
-|  | `semi_open_file[file, side]` | Нет своих пешек у одной стороны. |
-|  | `long_diagonal_clear[a1h8 / a8h1]` | Главная диагональ без блокировки. |
-| **Король** | `king_in_corner[side]` | Король на одной из 4 угловых клеток. |
-|  | `king_pawn_shield_weakened[side]` | Из трёх пешек перед королём ≤ 1 на исходной позиции. |
-|  | `king_open_file_nearby[side]` | Открытая/полуоткрытая линия рядом с королём. |
-|  | `king_uncastled[side]` | Сторона не рокировалась и потеряла оба права. |
+| `DoubledEarly` | :135 | `S(17, 7)` |
+| `Connected[r] × phalanx/opposed factor + 22·support` | :168 | array[7] |
+| `Doubled` (opposed, no neighbour) | :179 | `S(11, 51)` |
+| `Isolated + WeakUnopposed · !opposed` | :181 | `S(1, 20) + S(15, 18)` |
+| `Backward + WeakUnopposed · …` | :186 | `S(6, 19)` |
+| `Doubled · doubled + WeakLever · multi-lever` | :190 | `S(11, 51) + S(2, 57)` |
+| `BlockedPawn[r−5]` | :194 | `S(−19, −8)` / `S(−7, 3)` |
 
-Итого: **~25 новых тегов**, реализуемы за ~2–3 дня frontend-работы. Покрывают все типовые «человеческие» позиционные комментарии, которые перечислены в постановке KS-3644.
+Плюс **shelter/storm** (`pawns.cpp:230–263`, `evaluate_shelter`):
 
-### 4.3. Сила признака
-
-Каждый тег — категориальный (есть/нет с привязкой к квадрату/фигуре/вертикали). Численная сила («насколько этот плохой слон плохой») — берётся из существующего `positional_shifts` (дельта classical eval). Получаем «комбо»: категория + ярлык силы.
-
-Например: тег `bad_bishop[h2]` + `positional_shifts: ["bishop_passive"]` (из дельты Bishops в classical eval) → LLM-prompt получает: «У белых плохой слон h2 (4 пешки на белых полях); по eval позиционный сдвиг — слон пассивен».
-
-### 4.4. Что **нельзя** покрыть без fork'а
-
-- Численный вклад каждой подкомпоненты SF в общую оценку (например, «эта изолированная пешка стоит -0.18 cp по pawn_table SF»). Для разбора партии этот уровень детализации **избыточен** — текстовый комментарий «слабость на изолированной пешке c4» не требует знания cp.
-- Сложные подкомпоненты king-safety (safe checks, unsafe checks по фигурам). Часть из них покрывается через наши tactical motifs (`fork` / `discovered_attack` на короля). Полностью совпасть с SF king-safety без fork'а не получится — но и нужды нет.
-
-## 5. Решение
-
-**Не делать fork Stockfish.** Расширить JS-детектор на ~25 категориальных позиционных тегов в новом модуле `apps/web/src/lib/review/positionalFeatures.ts`. Использовать вместе с существующим `positional_shifts` для grade силы. LLM-prompt получает комбинацию «категориальные теги + численные сдвиги», что покрывает запрос пользователя «объяснять плохой/хороший слон, изолированные пешки, открытые линии и т.п. человеческим языком».
-
-### 5.1. Аргументы
-
-| Критерий | Fork SF | JS-детектор |
+| Подкомпонента | Строка | Константа |
 |---|---|---|
-| Объём разовой работы | 3–5 дней C++ + WASM-сборка | 2–3 дня TS |
-| Поддержка | Постоянная (свой fork, чужой код C++) | Низкая (наш код, наш стек) |
-| Размер WASM | +2 МБ (другая сборка) | 0 (только JS) |
-| Лицензия | GPL-3 fork публично, ссылка рядом с WASM | Без изменений |
-| Покрытие запроса KS-3644 | 100% численно + 100% категорий (но категории мы и так умеем) | ~95% категорий (полезных для разбора); численная сила — из готового positional_shifts |
-| Уязвимость к SF 17+ | Фиксация на SF 16 навсегда (engine не развивается) | Не зависит от SF |
+| `ShelterStrength[edge][rank]` | :251 | matrix `4×8` |
+| `BlockedStorm[rank]` (если своя пешка непосредственно перед чужой) | :254 | array[8] |
+| `UnblockedStorm[edge][rank]` | :256 | matrix `4×8` |
+| `KingOnFile[semi-open us][semi-open them]` | :260 | matrix `2×2` |
 
-JS-детектор покрывает запрос за меньшие деньги и без долгосрочной зависимости от C++ ветки. Численная разбивка по cp на уровне подкомпонент — теряется, но для разбора партии она не нужна.
+**Pieces** — `evaluate.cpp:384–526`, цикл по фигурам:
 
-### 5.2. Когда вернуться к fork'у
+| Подкомпонента | Строка | Константа | Применима к |
+|---|---|---|---|
+| `RookOnKingRing` | :423 | `S(16, 0)` | ROOK |
+| `BishopOnKingRing` | :426 | `S(24, 0)` | BISHOP |
+| `UncontestedOutpost · pawn_count` | :443 | `S(0, 10)` | KNIGHT (side outpost) |
+| `Outpost[N/B]` | :445 | `S(54, 34)` / `S(31, 25)` | KNIGHT / BISHOP |
+| `ReachableOutpost` | :447 | `S(33, 19)` | KNIGHT |
+| `MinorBehindPawn` | :451 | `S(18, 3)` | KNIGHT / BISHOP |
+| `−KingProtector · distance(king, sq)` | :454 | `S(9, 9) / S(7, 9)` | KNIGHT / BISHOP |
+| `−BishopPawns[edge_dist] · pawns_on_same_color · (1 + blocked_center)` | :463 | array[4] | BISHOP (плохой слон) |
+| `−BishopXRayPawns · count` | :467 | `S(4, 5)` | BISHOP |
+| `LongDiagonalBishop` | :471 | `S(45, 0)` | BISHOP |
+| `−CorneredBishop` (Chess960) | :481 | `S(50, 50) × 3 или 4` | BISHOP |
+| `RookOnOpenFile[their semi-open]` | :492 | `S(18, 8)` / `S(49, 26)` | ROOK |
+| `−RookOnClosedFile` | :501 | `S(10, 5)` | ROOK |
+| `−TrappedRook · (1 + !castling)` | :509 | (внутри) | ROOK |
+| `−WeakQueen` (рентген на ферзя) | :519 | (внутри) | QUEEN |
 
-Только если на eval-фикстурах (`docs/quality/llm-comments-eval/`) обнаружится, что LLM регулярно ошибается без знания численной силы подкомпонент, и эта ошибка устраняется именно cp-цифрами. Такого кейса в текущем наборе фикстур нет; перепроверять после A1-прогона (KS-3626a) с реальными метриками §9.2.
+**King** — `evaluate.cpp:531–626`:
 
-## 6. Воздействие на код
+| Подкомпонента | Строка | Описание |
+|---|---|---|
+| `pe->king_safety()` (shelter + storm) | :544 | агрегат из pawns.cpp |
+| `kingDanger` composite | :598–609 | сумма из 10 слагаемых: `kingAttackersCount · weight`, `183·popcount(weak ring)`, `148·popcount(unsafe checks)`, `98·blockers`, `69·kingAttacksCount`, `flankAttack²/8 + 3·…`, `mg(mobility diff)`, `-873·!enemyQueen`, `-100·N+K coverage`, `-6·mg(score)/8`, `-4·flankDef`, `+37` |
+| `−SafeCheck[ROOK][single/multi]` | :561 | `{805, 1292}` |
+| `−SafeCheck[QUEEN][…]` | :570 | `{650, 984}` |
+| `−SafeCheck[BISHOP][…]` | :577 | `{1071, 1886}` |
+| `−SafeCheck[KNIGHT][…]` | :585 | `{730, 1128}` |
+| `−PawnlessFlank` | :617 | `S(19, 97)` |
+| `−FlankAttacks · kingFlankAttack` | :620 | `S(8, 0)` |
 
-| Файл | Изменение |
+**Threats** — `evaluate.cpp:632–727`:
+
+| Подкомпонента | Строка | Константа |
+|---|---|---|
+| `ThreatByMinor[piece type]` (loop) | :661 | array[6] |
+| `ThreatByRook[piece type]` (loop) | :665 | array[6] |
+| `ThreatByKing` (на слабую фигуру под атакой короля) | :668 | `S(24, 87)` |
+| `Hanging · popcount(weak ∧ undefended)` | :672 | `S(72, 40)` |
+| `WeakQueenProtection · popcount(weak ∧ defended only by queen)` | :675 | (внутри) |
+| `RestrictedPiece · popcount(restricted moves)` | :682 | `S(6, 7)` |
+| `ThreatBySafePawn · popcount` | :690 | `S(167, 99)` |
+| `ThreatByPawnPush · popcount` | :701 | `S(48, 39)` |
+| `KnightOnQueen · popcount · (1 + queenImbalance)` | :715 | `S(16, 11)` |
+| `SliderOnQueen · popcount · (1 + queenImbalance)` | :720 | `S(62, 21)` |
+
+**Passed** — `evaluate.cpp:732–820`:
+
+| Подкомпонента | Строка | Константа |
+|---|---|---|
+| `PassedRank[r]` (база) | :769 | array[8] |
+| King-proximity adjust | :777–782 | формула |
+| Path-advance bonus (`k`) | :799–809 | k ∈ {0, 7, 17, 30, 36} плюс +5 если block-square защищён |
+| `−PassedFile · edge_distance` | :813 | `S(13, 8)` |
+
+**Space** — `evaluate.cpp:828–859`: один интегральный счёт `popcount(safe) + popcount(behind ∧ safe ∧ ~attackedByThem)`, умноженный на динамический `weight`.
+
+**Итого подкомпонент: ~40–45**, многие с привязкой к конкретному квадрату/файлу (Outpost-square, BishopPawns по слону, RookOnOpenFile по файлу, Hanging по списку фигур, PassedRank по квадрату пешки).
+
+### 2.3. Tracing-инфраструктура — что нужно дописать
+
+Текущий `Trace::add` — плоская матрица `scores[16][2]`. Чтобы хранить per-square информацию (без неё подкомпоненты теряют 90% смысла — «плохой слон» без указания квадрата бесполезен), нужно:
+
+- Расширить `enum Term` с 16 до ~60 идентификаторов.
+- Заменить `Score scores[TERM_NB][COLOR_NB]` структурой `std::vector<TracedItem>` где `TracedItem = {term_id, color, square_or_file, score}`. Либо более компактный массив `vector<Score>` для каждого term с дополнительным `vector<Square>`.
+- В каждом `score += / -=` в коде (37 точек в evaluate.cpp + 7 в pawns.cpp) добавить `if constexpr (T) Trace::add(SUB_TERM, Us, square, delta)`. Делается через макрос-обёртку, чтобы не плодить условные блоки.
+- Расширить функцию `Eval::trace(Position&)` (evaluate.cpp:1092–1158) — вместо текущей таблицы 13×3 эмитить JSON-структуру со всеми подкомпонентами.
+- Добавить UCI команду `eval json` (или `eval verbose`) в `uci.cpp:282`, чтобы machine-readable вывод не ломал текущий `eval`-формат.
+
+### 2.4. Сложность с `Pawns::Entry` кэшем
+
+Pawn-оценка кэшируется по `pawn_key` (pawns.cpp:210–224, `Pawns::probe`). Функция `evaluate<Color>` в `namespace { ... }` (анонимном) **не имеет `template<Tracing T>`** — она просто возвращает скалярный `score`. То есть в текущей архитектуре подкомпоненты пешек теряются до выхода из этой функции, и затем извлекаются только агрегатом `pe->pawn_score(WHITE/BLACK)`.
+
+Чтобы вытащить per-square пешечные подкомпоненты, нужно одно из:
+1. Вынести `evaluate<Color>` из anonymous namespace и параметризовать `template<Tracing T>`. В режиме TRACE — обходить кэш, эмитить per-square в Trace. Объём: ~80 LOC правки.
+2. Завести `thread_local bool TraceMode` и в TRACE-режиме игнорировать кэш + эмитить per-square. Чуть короче, но добавляет глобал.
+
+Оба варианта рабочие, выбор — на этапе реализации.
+
+### 2.5. Альтернативные движки и форки
+
+Я не лазил в их исходники сейчас; вывод по доступной литературе о проекте:
+
+- **Ethereal** (GPL-3) — собственный classical eval с похожим объёмом подкомпонент. WASM-сборки в основной ветке нет. Если форкать его — те же C++-усилия плюс делать WASM с нуля. Не дешевле SF.
+- **Komodo, Houdini, Stoofvlees** — closed source.
+- **Lc0, Berserk, Koivisto** — NNUE only, classical decomposition отсутствует.
+- **Crystal**, **Brainfish** и прочие SF-форки — те же 13 терминов в Trace (тот же базовый код).
+
+Готовых движков, выводящих подкомпоненты прямо из коробки, нет.
+
+## 3. Решение — ответвление SF 16 с расширением `Trace`
+
+### 3.1. Why SF 16, not SF 15.1 (наш системный)
+
+- SF 16 — последняя ветка с classical fallback (`Use NNUE = false`). SF 17/18 classical-evaluator удалён из исходников полностью.
+- SF 16 — текущая база для `lichess-org/stockfish.wasm` (WASM-сборка для браузера), на которую мы и так смотрим в ADR-103 rev 3 для `positional_shifts`. Унификация версии.
+- Между 15.1 и 16 differences в подкомпонентах минимальные — для нашей задачи безразлично.
+
+### 3.2. План правки
+
+1. **Расширить enum Term** с ~16 до ~60 идентификаторов (по таблицам §2.2).
+2. **Заменить `Trace::scores[16][2]`** на структуру с per-square ёмкостью.
+3. **Вставить `Trace::add(SUB_TERM, Us, sq, delta)`** в 37 точек evaluate.cpp и 7 точек pawns.cpp (через макрос-обёртку для уменьшения визуального шума).
+4. **Параметризовать `pawns.cpp::evaluate<Color>`** через `template<Tracing T>`, обходить кэш в TRACE-режиме.
+5. **Переписать `Eval::trace(Position&)`** — JSON-сериализация всех подкомпонент. Сохранить текущую табличную форму как `eval` для совместимости, новый формат — на `eval json`.
+6. **Добавить UCI диспетчер `eval json`** в `uci.cpp:282`.
+7. **Тесты**: сверка summы подкомпонент с агрегатом по каждому из 13 терминов (инварианты), плюс несколько тестовых FEN со снимком ожидаемого JSON.
+
+### 3.3. WASM-сборка
+
+База — `lichess-org/stockfish.wasm` (это публичный fork SF 16/16.1 под emscripten с `Makefile.emscripten`). Действия:
+1. Форкнуть `lichess-org/stockfish.wasm` (а не основной SF), наложить наш патч поверх `src/`.
+2. Собрать через docker emscripten (документировано у lichess) — получаем `stockfish-nnue-16.wasm` + JS-glue.
+3. Положить в `apps/web/public/stockfish/stockfish-16-trace.{js,wasm}` (отдельно от существующего `stockfish-16-lite.{js,wasm}` из ADR-103, чтобы не ломать `positional_shifts`).
+4. Размер: ~2–3 МБ (lazy-load по требованию «Разобрать партию»).
+
+Время сборки и тестов: 1 рабочий день, включая локальную проверку через `node` + headless.
+
+### 3.4. TS-парсер на фронте
+
+Worker-обёртка `apps/web/src/lib/review/stockfishTrace.ts`:
+
+```ts
+interface TraceJson {
+  position: { fen: string; sideToMove: 'w' | 'b' };
+  terms: TraceTerm[];
+  total: { mg: number; eg: number; v: number };
+}
+interface TraceTerm {
+  id: string;                 // 'pawn_isolated' | 'bishop_pawns' | ...
+  color: 'w' | 'b';
+  square?: string;            // 'h2' для per-square (BishopPawns)
+  file?: string;              // 'd' для RookOnOpenFile
+  mg: number;
+  eg: number;
+  total: number;              // в pawn-units
+}
+```
+
+Парсер JSON из UCI-вывода + типизированный API. Объём: ~150–200 LOC + тесты.
+
+### 3.5. Интеграция в `FactsInput`
+
+Расширить `FactsInput` (`packages/shared/src/types/api-contracts.ts`) новым полем:
+
+```ts
+positional_subterms: PositionalSubterm[]
+```
+
+где `PositionalSubterm = { id, color, square?, file?, cp_mg, cp_eg }`. Это **сырые числа из SF**, не наша эвристика. LLM-prompt получит их вместе с существующими `positional_shifts` (агрегатные дельты) — комбинация даёт и категорию (id+square), и численную силу (cp).
+
+### 3.6. Соотнесение с человеческими ярлыками
+
+Для prompt'а LLM каждый `PositionalSubterm.id` маппится на человеческое описание:
+- `bishop_pawns h2` (cp_mg=−14, cp_eg=−21) → «слон h2 заперт пешками на белых полях».
+- `pawn_isolated c4` (cp_mg=−1, cp_eg=−20) → «изолированная пешка c4».
+- `rook_on_open_file d` (cp_mg=49, cp_eg=26) → «ладья на открытой линии d».
+- `outpost_knight d5` (cp_mg=54, cp_eg=34) → «конь на форпосте d5».
+- И так далее — отдельная константа-таблица `subterm-labels.ts` (RU + EN).
+
+Few-shot пары prompt'а V2 расширяются 2–3 примерами с такими тегами.
+
+## 4. Лицензия GPL-3
+
+**Backend subprocess** (`/usr/games/stockfish`, наш subprocess через `apps/tactic-worker/src/stockfish/stockfish.service.ts`): SF и приложение — отдельные программы, общение по стандартному UCI-IPC. GPL не задевает наш код. Текущая практика проекта.
+
+**WASM-бинарь** на фронте (`apps/web/public/stockfish/stockfish-16-trace.wasm`):
+
+| Что | Требование |
 |---|---|
-| `apps/web/src/lib/review/positionalFeatures.ts` | Новый. Детекторы по таблице §4.2. Pure-функции от `Chess`-инстанса и `fen`. |
-| `apps/web/src/lib/review/extractFacts.ts` | Импорт `positionalFeatures` + дополнение `FactsInput` полем `positional_features: PositionalFeature[]`. |
-| `packages/shared/src/types/api-contracts.ts` | Расширение `FactsInput`: `positional_features: { id: PositionalFeatureId; square?: string; file?: string; side: 'w'|'b' }[]`. ID — union строк. |
-| `apps/api/src/analysis-review/review-comment.service.ts` | Few-shot пары prompt'а V2 (ADR-103 §7) — добавить 2–3 примера с использованием новых тегов («плохой слон», «слабая клетка», «открытая линия»). |
-| `apps/web/src/lib/review/positionalFeatures.test.ts` | Юнит-тесты для каждого детектора. |
+| Сам WASM-бинарь | производное произведение от SF, **под GPL-3** |
+| Наш fork исходников | публичный репозиторий под GPL-3 |
+| Рядом с бинарём в публичной выдаче | файл `COPYING.txt` (текст GPL-3) + ссылка на репозиторий fork'а |
+| Наш TS/JS-код, общающийся с WASM через postMessage | **отдельная программа** (aggregate), copyleft не задевает |
+| `package.json` / Apache/MIT файлы остального проекта | без изменений |
 
-## 7. Декомпозиция
+Прецеденты: Lichess, chess.com раздают `stockfish.wasm` в проприетарных продуктах по этой схеме. Конкретно `lichess-org/stockfish.wasm` — публичный fork под GPL-3, остальной код Lichess — отдельная лицензия.
 
-**F1 — frontend, ~2 дня. Модуль `positionalFeatures.ts` + интеграция в `extractFacts`.**
-- Реализация 25 детекторов по таблице §4.2.
-- Pure-функции, входы: `Chess`, `fen`, `side`. Выход: массив тегов.
-- Юнит-тесты на каждый тег с эталонными FEN-позициями.
-- Интеграция в `extractFacts.ts` — поле `positional_features` в `FactsInput`.
+Действия по соблюдению лицензии:
+1. Завести публичный репозиторий `kingside/stockfish-trace` (форк от `lichess-org/stockfish.wasm`).
+2. В корне репозитория — текст GPL-3 (как уже есть в SF).
+3. В `apps/web/public/stockfish/` рядом с бинарём положить `STOCKFISH_LICENSE.txt` со ссылкой на наш fork + копией GPL-3.
+4. В README проекта Kingside — раздел «Third-party engine» с описанием.
+
+## 5. Стоимость
+
+Реальная оценка (после анализа кода, не догадки):
+
+| Этап | Объём | Время |
+|---|---|---|
+| C++ патч SF 16 (enum, Trace struct, 44 точек вставки, pawns.cpp параметризация, JSON-вывод, UCI команда) | ~600–800 LOC дифф | 5–7 дней |
+| WASM-сборка (форк lichess.wasm + наш патч + проверка) | сборочный конфиг | 1 день |
+| TS-парсер `stockfishTrace.ts` + Worker-обёртка | ~200 LOC + тесты | 1 день |
+| Расширение `FactsInput` + интеграция в `extractFacts.ts` + `useGameReview.ts` | ~150 LOC | 0.5–1 день |
+| Few-shot prompt V2: 2–3 примера с новыми тегами + subterm-labels.ts | ~80 LOC + тесты | 0.5–1 день |
+| Licensing: публичный fork + LICENSE-файлы + README | организационное | 0.25 дня |
+| **Итого** | | **9–12 рабочих дней** |
+
+Это **разовая** работа. После — поддержка ограничена: SF 17+ classical выпилен, ветка SF 16 не развивается, апстрим-патчи не приедут.
+
+## 6. Декомпозиция
+
+**C1 — C++/инфра, ~7 дней. Ответвление SF 16 + расширенный Trace.**
+- Публичный fork `kingside/stockfish-trace` от `lichess-org/stockfish.wasm`.
+- Патч `src/evaluate.cpp` + `src/pawns.cpp` + `src/uci.cpp` по плану §3.2.
+- WASM-сборка через emscripten, артефакт `stockfish-16-trace.{js,wasm}` ~2–3 МБ.
+- Тесты-инварианты (сумма подкомпонент = агрегат соответствующего из 13 терминов).
+- Снимок JSON для 5 эталонных FEN.
+- Метки: `analysis`, `infra`.
+- Исполнитель: backend или специально приглашённый C++ engineer (в команде такого нет — нужно решение пользователя, кто).
+
+**F1 — frontend, ~1 день. Worker + парсер + lazy-load.**
+- `apps/web/src/lib/review/stockfishTrace.ts` — Worker, парсер JSON, типизированный API.
+- Lazy-load бинаря из `apps/web/public/stockfish/stockfish-16-trace.{js,wasm}`.
+- Юнит-тесты на парсер.
+- Метки: `analysis`, `performance`.
+
+**F2 — frontend, ~0.5 дня. `FactsInput` + интеграция.**
+- В `packages/shared` тип `PositionalSubterm` + `positional_subterms: PositionalSubterm[]` в `FactsInput`.
+- `extractFacts.ts` — вызов `stockfishTrace.evaluate(fen)` и запись subterms в факты.
+- `useGameReview.ts` — прокидка.
 - Метки: `analysis`.
 
-**F2 — shared, ~0.25 дня. Расширение типа `FactsInput` в `packages/shared`.**
-- Union `PositionalFeatureId` (25 значений).
-- Поле `positional_features` в `FactsInput`.
-- Перегенерация `packages/shared/dist`.
-- Метки: `analysis`.
-
-**B1 — backend, ~0.5 дня. Обновление few-shot prompt'а V2.**
-- В `review-comment.service.ts` ветка `REVIEW_COMMENT_V2=on` — добавить 2–3 few-shot пары, использующие новые теги.
-- Тесты на наличие новых ключевых слов в prompt'е.
+**B1 — backend, ~1 день. Prompt V2 + subterm-labels.**
+- `apps/web/src/lib/review/subterm-labels.ts` (RU + EN таблица для каждого `PositionalSubterm.id`).
+- В `apps/api/src/analysis-review/review-comment.service.ts` (ветка `REVIEW_COMMENT_V2=on`) — 2–3 новых few-shot примера с subterm-тегами; обновление инструкций prompt'а («когда есть subterm с cp_mg ≤ −10 на конкретном квадрате — обязательно объясни причину»).
+- Тесты на prompt и на labels.
 - Метки: `analysis`, `chat`.
 
-**A1 (опционально, после прогона KS-3626a) — architect, ~0.25 дня. Решение о fork'е.**
-- Если ручная оценка показала, что LLM регулярно теряет численную силу подкомпонент — открываем follow-up задачу на fork SF 16.
-- Иначе — фиксируем JS-детектор как финальный ответ KS-3644.
+**D1 — devops/legal, ~0.25 дня. Лицензионная обвязка.**
+- Подключить `STOCKFISH_LICENSE.txt` к раздаче `apps/web/public/stockfish/`.
+- README — раздел «Third-party: Stockfish (GPL-3)» со ссылкой на наш fork.
+- Метки: `infra`.
 
-Зависимости: F2 → F1 → B1. A1 — после прогона KS-3626a.
+### Зависимости
 
-Срок: ~3 рабочих дня с минимальным распараллеливанием (F2 быстрый, F1 — основной).
+```
+C1 ──┬─> F1 ──> F2 ──> B1
+     └─> D1
+```
 
-## 8. Известные минусы и риски
+C1 — критический путь (5–7 дней), всё остальное параллельно/после. Полный срок ~7–9 рабочих дней с минимальным распараллеливанием.
 
-- **Численная сила подкомпонент теряется** (§4.4). Для текстового разбора партии — некритично; если потребуется — отдельный follow-up на fork.
-- **Расхождение с SF-эвристиками.** Наши пороги «4 пешки на цвете слона = bad bishop», «конь на 4-6 ряду, защищённый своей пешкой = outpost» близки к SF, но не 1:1. Калибровать тесты на типичных позициях; LLM в ответе всё равно работает с категориальным сигналом, не с cp.
-- **Дубли с tactical motifs.** Некоторые признаки пересекаются (например, `discovered_attack` ↔ открытая линия). Дедупликация в `extractFacts` — приоритет tactical_motifs (как сильный сигнал), positional_features — фон. Зафиксировать правила в коде.
+## 7. Известные минусы и риски
 
-## 9. Откат
+- **Объём C++ работы значительный** (~7 дней). В команде нет специалиста по SF; либо делает backend (с погружением в чужой C++), либо приглашаем со стороны.
+- **Тестирование** — инвариант «сумма подкомпонент = агрегат» нетривиален, потому что в SF есть `LazyThreshold1/2` (раннее завершение, evaluate.cpp:995, :1015) — в trace-режиме придётся принудительно отключить lazy-skip для воспроизводимости.
+- **Размер WASM** — ещё +2–3 МБ к раздаче. Lazy-load по требованию «Разобрать партию» уменьшает влияние на initial bundle.
+- **Поддержка форка** — bug-fix'ы upstream к SF 16 не приедут (ветка не развивается). Если найдётся баг в самом SF 16 — фиксим сами.
+- **Lichess WASM-сборка** опирается на конкретную версию emscripten; апгрейд emscripten может потребовать корректировки Makefile.
+- **Pawn cache** в TRACE-режиме отключается → trace-вызов в ~2 раза медленнее обычного `eval`. Для нашего use-case (один вызов на ply разбора партии) допустимо.
 
-Если позже понадобятся cp-цифры подкомпонент — открываем follow-up задачу на fork SF 16:
-1. Fork в публичный репозиторий, патч `Trace`.
-2. WASM-сборка через emscripten (toolchain как у `lichess-org/stockfish.wasm`).
-3. Замена `apps/web/public/stockfish/stockfish-16-lite.{js,wasm}` (ADR-103 §3.4) на свой бинарь.
-4. JS-API — без изменений, добавляется парсер расширенного eval-вывода.
+## 8. Откат
 
-Текущее JS-решение не блокирует этот апгрейд: численные cp можно подмешать в `FactsInput` отдельным полем, не ломая категориальные теги.
+- При срыве C1 — временно вернуться к существующему `positional_shifts` (агрегатам из 13 терминов через `lichess-org/stockfish.wasm`, ADR-103 rev 3). LLM-prompt продолжит работать на менее детальных данных. Никакой части продукта не сломается.
+- Поле `positional_subterms` в `FactsInput` — необязательное; если пустое — prompt просто не использует subterm-теги.
+
+## 9. Что я **проверил по факту**, а не по памяти
+
+- Прочитал `evaluate.cpp` (строки 140–270, 350–960, 980–1158 — все ключевые блоки) и `pawns.cpp` целиком в SF 16.
+- Выписал все 8 точек `Trace::add` + 44 точки `score += / −=` с привязкой к строкам.
+- Извлёк все константы штрафов/бонусов (BishopPawns, Outpost, RookOnOpenFile, ThreatByMinor/Rook, PassedRank, ShelterStrength, и так далее).
+- Проверил UCI-диспетчер (`uci.cpp:282 token == "eval"` → `trace_eval` → `Eval::trace`).
+- Подтвердил отсутствие альтернативных UCI-команд для подкомпонент.
+- Подтвердил архитектурный блокер с pawn-кэшем (анонимный namespace, без template-параметра Tracing).
+
+Я **не** проверял:
+- Лицензионную совместимость с конкретным юристом — пользуюсь общеизвестной практикой Lichess/chess.com. Если есть требование формального юр-разбора — отдельный шаг до C1.
+- Точную скорость emscripten-сборки на нашей сборочной среде — оценка «1 день» по документации `lichess-org/stockfish.wasm`.
+- Время C++ разработчика в команде — это решение пользователя (нанимать / делать своими силами).
 
 ## 10. Резюме
 
-Stockfish не отдаёт подкомпоненты через UCI; чтобы получить — нужен fork с патчем `Trace`. Объём — 3–5 дней C++ + WASM, лицензия GPL-3 разрешает раздачу WASM при наличии публичного fork'а.
+Stockfish внутри считает ~40–45 позиционных подкомпонент с привязкой к квадратам/файлам, но через UCI отдаёт только 13 агрегатов. Чтобы вытащить — нужно расширение `Trace`-инфраструктуры в `evaluate.cpp` + `pawns.cpp` (объём ~600–800 LOC), сборка собственного WASM-бинаря через emscripten (на базе `lichess-org/stockfish.wasm`), парсер на TS и интеграция в `FactsInput`. Лицензия GPL-3 разрешает при публичном fork'е и ссылке рядом с бинарём; прецеденты — Lichess, chess.com.
 
-Дешевле и эффективнее — расширить наш JS-детектор `extractFacts.ts` модулем `positionalFeatures.ts` на ~25 категориальных тегов (изолированные/сдвоенные/проходные пешки, плохой/хороший слон, форпосты, открытые линии, слабые клетки, fianchetto, ладья на 7-й, и так далее). Численная сила — через готовый `positional_shifts` (ADR-103). Запрос пользователя «объяснять подкомпоненты человеческим языком» покрывается на ~95% за 2–3 дня frontend-работы, без долгосрочной зависимости от C++.
+Реальная стоимость — 9–12 рабочих дней, разово. Долгосрочная зависимость минимальна: SF 16 — финальная ветка classical eval, апстрим-патчи не приедут, поддерживаем сами.
 
-Декомпозиция: F1 (детектор), F2 (типы в shared), B1 (few-shot prompt'а). Срок ~3 рабочих дня. Откат к fork'у возможен без перестройки текущих данных, если eval-фикстуры покажут необходимость.
+Альтернатива «считать самим на JS» отвергается: пользователь явно запрашивает cp-числа SF, а не нашу эвристику; категориальный сигнал без точных cp-цифр не отвечает на исходный запрос KS-3644.
+
+Декомпозиция: C1 (C++/WASM, ~7 дней) → F1 (Worker/парсер) → F2 (`FactsInput`) → B1 (prompt + labels). D1 (лицензионная обвязка) параллельно.
