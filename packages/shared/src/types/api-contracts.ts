@@ -507,6 +507,17 @@ export interface PickNextPrecisionRequest {
    * учебного flow важно не зацикливаться на одной задаче.
    */
   hideSolved?: boolean;
+  /**
+   * KS-3661 / ADR-106 §2.6. Серверный фильтр precision-каталога по
+   * вероятности Maia сыграть плохо (та же семантика, что в
+   * KS-3656 на `GET /puzzles/browse`):
+   *  - `undefined` / `0` — без фильтра;
+   *  - `0 < v ≤ 1` — `WHERE maia_weak_choice_prob >= v AND
+   *    maia_metric_version = 1` (вторая часть отсеивает
+   *    строки, не размеченные под актуальную формулу, ADR-106 §5);
+   *  - значение вне `[0, 1]` — `400`.
+   */
+  minMaiaWeakChoiceProb?: number;
 }
 
 /**

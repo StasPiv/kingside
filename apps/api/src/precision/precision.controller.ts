@@ -179,6 +179,13 @@ export class PrecisionController {
     @Query('hideSolved') hideSolvedParam?: string,
     @Query('themesAnd') themesAndParam?: string | string[],
     @Query('themesOr') themesOrParam?: string | string[],
+    // KS-3661 / ADR-106 §2.6. Серверный фильтр precision-каталога
+    // (тот же контракт, что в KS-3656 на GET /puzzles/browse):
+    //   null/undefined/0 → без фильтра;
+    //   0 < v ≤ 1 → WHERE maia_weak_choice_prob >= v AND
+    //               maia_metric_version = 1;
+    //   вне [0, 1] либо не число → BadRequestException 400.
+    @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
   ) {
     const ALLOWED_SCOPES = new Set(['server', 'drafts', 'published']);
     const scope: 'server' | 'drafts' | 'published' =
@@ -234,6 +241,18 @@ export class PrecisionController {
       throw new BadRequestException('themesOr[] limit 10');
     }
 
+    // KS-3661: parse + validate minMaiaWeakChoiceProb (см. KS-3656).
+    let minMaiaWeakChoiceProb: number | undefined;
+    if (minMaiaWeakChoiceProbStr !== undefined) {
+      const v = parseFloat(minMaiaWeakChoiceProbStr);
+      if (!Number.isFinite(v) || v < 0 || v > 1) {
+        throw new BadRequestException(
+          `minMaiaWeakChoiceProb must be a number in [0, 1] (got '${minMaiaWeakChoiceProbStr}')`,
+        );
+      }
+      minMaiaWeakChoiceProb = v;
+    }
+
     const picked = await this.precision.pickNext(userId, {
       scope,
       objective,
@@ -242,6 +261,7 @@ export class PrecisionController {
       hideSolved,
       themesAnd,
       themesOr,
+      minMaiaWeakChoiceProb,
     });
     if (!picked) {
       throw new NotFoundException({

@@ -1452,5 +1452,115 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         .map((x) => x.themes!.contains);
       expect(contains).toEqual(['convertAdvantage', 'pin']);
     });
+
+    // ── KS-3661 / ADR-106 §2.6: minMaiaWeakChoiceProb ─────────────
+    // Серверный фильтр precision-каталога (1:1 с KS-3656 для
+    // GET /puzzles/browse). 0/undefined → без фильтра; > 0 →
+    // WHERE maiaWeakChoiceProb >= v AND maiaMetricVersion = 1.
+    describe('KS-3661 minMaiaWeakChoiceProb', () => {
+      it('undefined → без фильтра maia в where', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-m1', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', { scope: 'server' });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toBeUndefined();
+        expect(call.where.maiaMetricVersion).toBeUndefined();
+      });
+
+      it('0 → без фильтра maia в where (1:1 с KS-3656)', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-m2', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 0,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toBeUndefined();
+        expect(call.where.maiaMetricVersion).toBeUndefined();
+      });
+
+      it('0.5 → maiaWeakChoiceProb >= 0.5 + maiaMetricVersion = 1', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-m3', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 0.5,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toEqual({ gte: 0.5 });
+        expect(call.where.maiaMetricVersion).toBe(1);
+      });
+
+      it('1 → maiaWeakChoiceProb >= 1 + maiaMetricVersion = 1', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-m4', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 1,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toEqual({ gte: 1 });
+        expect(call.where.maiaMetricVersion).toBe(1);
+      });
+
+      it('фильтр сохраняется на расширенных окнах при пустом первом', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany
+          .mockResolvedValueOnce([]) // окно 150
+          .mockResolvedValueOnce([{ id: 'p-m5', rating: 1500 }]); // 300
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 0.3,
+        });
+        // На обоих вызовах maia-условия присутствуют.
+        for (const call of prisma.puzzle.findMany.mock.calls) {
+          expect(call[0].where.maiaWeakChoiceProb).toEqual({ gte: 0.3 });
+          expect(call[0].where.maiaMetricVersion).toBe(1);
+        }
+      });
+
+      it('фильтр совместим с themesAnd + objective (общий AND-блок не теряется)', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-m6', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          objective: 'convertAdvantage',
+          themesAnd: ['pin'],
+          minMaiaWeakChoiceProb: 0.4,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toEqual({ gte: 0.4 });
+        expect(call.where.maiaMetricVersion).toBe(1);
+        const andItems = call.where.AND as Array<{
+          themes?: { contains: string };
+        }>;
+        const contains = andItems
+          .filter((x) => x.themes !== undefined)
+          .map((x) => x.themes!.contains);
+        expect(contains).toEqual(['convertAdvantage', 'pin']);
+      });
+    });
   });
 });

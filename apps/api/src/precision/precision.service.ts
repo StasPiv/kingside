@@ -90,6 +90,10 @@ export class PrecisionService {
       // что значения уже отвалидированы against whitelist (controller).
       themesAnd?: string[];
       themesOr?: string[];
+      // KS-3661 / ADR-106 §2.6. Серверный фильтр precision-каталога
+      // по weak-choice prob. Семантика и валидация — на controller'е
+      // (см. PrecisionController.pickNext). Здесь только использование.
+      minMaiaWeakChoiceProb?: number;
     },
   ): Promise<
     | { puzzleId: string; rating: number; ratingDelta: number }
@@ -157,6 +161,7 @@ export class PrecisionService {
         hideSolved,
         themesAnd,
         themesOr,
+        filters.minMaiaWeakChoiceProb,
       );
       if (picked) {
         return {
@@ -215,12 +220,24 @@ export class PrecisionService {
     hideSolved: boolean,
     themesAnd: string[] = [],
     themesOr: string[] = [],
+    minMaiaWeakChoiceProb?: number,
   ): Promise<{ id: string; rating: number | null } | null> {
     const where: Record<string, unknown> = {
       source: 'generated',
       isPublic: scopeWhere.isPublic,
       rating: { gte: ratingMin, lte: ratingMax },
     };
+    // KS-3661 / ADR-106 §2.6. Серверный фильтр по Maia weak-choice
+    // prob. 0/undefined → без фильтра; > 0 — добавляем условия (1:1
+    // с KS-3656 на /puzzles/browse). Валидация диапазона — на
+    // controller'е; здесь полагаемся на pre-validated input.
+    if (
+      minMaiaWeakChoiceProb !== undefined &&
+      minMaiaWeakChoiceProb > 0
+    ) {
+      where.maiaWeakChoiceProb = { gte: minMaiaWeakChoiceProb };
+      where.maiaMetricVersion = 1;
+    }
     if (scopeWhere.createdByMatch === 'self') {
       where.createdBy = userId;
     } else if (scopeWhere.createdByMatch === 'other' && userId) {
