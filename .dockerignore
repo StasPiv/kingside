@@ -13,6 +13,10 @@ apps/api/.env
 apps/api/dist
 docs
 tools
+!tools/maia-puzzle-annotation
+!tools/maia-puzzle-annotation/**
+!tools/maia3
+!tools/maia3/**
 scripts
 infra
 .turbo

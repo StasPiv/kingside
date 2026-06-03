@@ -15,6 +15,24 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
 
+from agent_validator import validate_outbound, format_violations
+
+
+def _log_validation_reject(channel: str, agent: str, attempt: int, text: str, verdict: dict):
+    """Пишет отклонённое сообщение в logs/validator-rejects.log для аудита."""
+    try:
+        with open(os.path.join(LOG_DIR, "validator-rejects.log"), "a") as f:
+            f.write(json.dumps({
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "channel": channel,
+                "agent": agent,
+                "attempt": attempt,
+                "text": text,
+                "violations": verdict.get("violations", []),
+            }, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROJECT_DIR = "/opt/kingside"
@@ -230,6 +248,11 @@ class AgentDaemon:
         self._current_replied: bool = False
         # Текущая активность для UI: kind in {idle,thinking,tool,writing,compacting,offline}
         self._activity: dict = {"kind": "offline", "detail": "", "ts": time.time()}
+        # Буфер assistant-строк текущего turn'а для пост-валидации перед публикацией в agents.log.
+        # text-blocks накапливаются в _turn_text; на result событии — валидация склейки.
+        self._turn_buffer: list[str] = []
+        self._turn_text: list[str] = []
+        self._validation_attempts: int = 0
 
     def _emit_status(self, kind: str, detail: str = ""):
         """Обновляет self._activity и пишет событие agent_status в agents.log.
@@ -315,35 +338,53 @@ class AgentDaemon:
         self._reader_thread.start()
 
     def _read_stdout(self):
-        """Читает stdout daemon-процесса, логирует и ловит session_id / result."""
+        """Читает stdout daemon-процесса, логирует и ловит session_id / result.
+
+        Пост-валидация: assistant-строки текущего turn'а с текстовым контентом
+        буферизуются и не пишутся в agents.log сразу. На result-событии вся
+        склейка текста валидируется через validate_outbound. ok → flush буфера.
+        violation → буфер отбрасывается (UI не видит грязный текст), агенту
+        отправляется корректирующее [SYSTEM]-сообщение. Лимит 3 попытки.
+        """
         log_file = os.path.join(LOG_DIR, "agents.log")
         proc = self.proc
+
+        def write_immediate(payload):
+            with open(log_file, "a") as lf:
+                lf.write(_json_with_ts(payload))
+
+        def flush_buffer():
+            if self._turn_buffer:
+                with open(log_file, "a") as lf:
+                    for buffered in self._turn_buffer:
+                        lf.write(_json_with_ts(buffered))
+            self._turn_buffer = []
+            self._turn_text = []
+
         try:
             for line in iter(proc.stdout.readline, ""):
-                with open(log_file, "a") as lf:
-                    lf.write(_json_with_ts(line))
                 line_s = line.strip()
-                if not line_s:
-                    continue
-                try:
-                    data = json.loads(line_s)
-                except (json.JSONDecodeError, ValueError):
-                    continue
+                data = None
+                if line_s:
+                    try:
+                        data = json.loads(line_s)
+                    except (json.JSONDecodeError, ValueError):
+                        data = None
 
                 # Захватываем session_id
-                sid = data.get("session_id")
-                if sid and sid != self.session_id:
-                    self.session_id = sid
-                    log(f"Daemon {self.name}: session_id={sid}")
-                    _save_session(self.name, sid)
-                    # Обновляем agent_init в логе с реальным session_id
-                    with open(log_file, "a") as lf:
-                        lf.write(_json_with_ts({"type": "agent_init", "agent": self.name, "session_id": sid}))
+                if data:
+                    sid = data.get("session_id")
+                    if sid and sid != self.session_id:
+                        self.session_id = sid
+                        log(f"Daemon {self.name}: session_id={sid}")
+                        _save_session(self.name, sid)
+                        write_immediate({"type": "agent_init", "agent": self.name, "session_id": sid})
 
                 # Отслеживаем tool_use: если агент вызвал agent_message/telegram_send
                 # с правильным адресатом — считаем что ответ отправителю дан.
-                # Параллельно обновляем UI-статус активности.
-                t = data.get("type")
+                # Параллельно обновляем UI-статус активности и копим текст для валидации.
+                turn_has_text_now = False
+                t = data.get("type") if data else None
                 if t == "assistant":
                     msg = data.get("message") or {}
                     for c in msg.get("content") or []:
@@ -352,6 +393,10 @@ class AgentDaemon:
                             self._emit_status("thinking")
                         elif ct == "text":
                             self._emit_status("writing")
+                            text_chunk = c.get("text", "")
+                            if text_chunk.strip():
+                                turn_has_text_now = True
+                                self._turn_text.append(text_chunk)
                         elif ct == "tool_use":
                             tname = c.get("name", "")
                             short = tname.replace("mcp__agent__", "").replace("mcp__", "")
@@ -375,8 +420,35 @@ class AgentDaemon:
                 elif t == "system" and data.get("subtype") == "compact_boundary":
                     self._emit_status("compacting")
 
-                # result означает что агент закончил обработку текущего сообщения
-                if data.get("type") == "result":
+                # Буферим ТОЛЬКО строки с assistant-text. tool_use,
+                # tool_result, thinking-блоки пускаем в agents.log сразу —
+                # чтобы UI видел действия агента в реальном времени.
+                # Текст всплывёт после result (если прошёл валидацию).
+                is_result = t == "result"
+                if not is_result:
+                    if turn_has_text_now:
+                        self._turn_buffer.append(line)
+                    else:
+                        write_immediate(line)
+                    continue
+
+                # === result event: валидация накопленного текста ===
+                full_text = "".join(self._turn_text).strip()
+                if full_text:
+                    verdict = validate_outbound(full_text)
+                else:
+                    verdict = {"ok": True}
+
+                publish = verdict.get("ok") or self._validation_attempts >= 2
+                if not verdict.get("ok") and publish:
+                    log(f"Daemon {self.name}: validation exhausted "
+                        f"({self._validation_attempts + 1} attempts), publishing as-is")
+
+                if publish:
+                    flush_buffer()
+                    write_immediate(line)
+                    self._validation_attempts = 0
+
                     cost = data.get("total_cost_usd", 0)
                     self._total_cost += cost
                     self._message_count += 1
@@ -411,6 +483,25 @@ class AgentDaemon:
                             sender="system",
                             reply_channel=None,
                         )
+                else:
+                    # Reject: отбрасываем буфер + result-строку (turn «не состоялся»
+                    # для UI), отправляем агенту корректирующее с перечнем нарушений.
+                    # _current_* НЕ сбрасываем — оригинальное входящее всё ещё ждёт ответа.
+                    violations_text = format_violations(verdict)
+                    self._validation_attempts += 1
+                    log(f"Daemon {self.name}: validation REJECTED attempt "
+                        f"{self._validation_attempts}/3 — {violations_text[:200]}")
+                    _log_validation_reject("agent-chat", self.name, self._validation_attempts, full_text, verdict)
+                    self._turn_buffer = []
+                    self._turn_text = []
+                    correction = (
+                        f"[SYSTEM] Твой предыдущий ответ нарушил правила CLAUDE.md "
+                        f"и НЕ был опубликован пользователю.\n\nНарушения:\n{violations_text}\n\n"
+                        f"Перепиши ответ на исходное сообщение, соблюдая правила. "
+                        f"Не извиняйся и не комментируй замечание — дай чистый переписанный ответ. "
+                        f"Попытка {self._validation_attempts}/3."
+                    )
+                    self.send_message(correction, sender="system", reply_channel=None)
 
         except Exception as e:
             log(f"Daemon {self.name}: ошибка чтения stdout: {e}")
@@ -755,6 +846,24 @@ def handle_telegram_send(handler, payload):
         handler.send_response(400)
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
+        return
+
+    verdict = validate_outbound(message)
+    if not verdict.get("ok"):
+        violations_text = format_violations(verdict)
+        log(f"Telegram send REJECTED by validator: {message[:80]} | {violations_text[:200]}")
+        _log_validation_reject("telegram", payload.get("agent", "?"), 1, message, verdict)
+        handler.send_response(422)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({
+            "error": "validation_failed",
+            "message": (
+                "Сообщение нарушает правила CLAUDE.md и в Telegram не отправлено. "
+                "Перепиши и вызови telegram_send снова.\n\nНарушения:\n" + violations_text
+            ),
+            "violations": verdict.get("violations", []),
+        }, ensure_ascii=False).encode())
         return
 
     # Таблицы Telegram не рендерит — оборачиваем в моноширинный блок
@@ -1322,6 +1431,30 @@ def handle_ai_chat(handler):
             handler.end_headers()
             handler.wfile.write(json.dumps({"error": "timeout"}).encode())
             return
+
+        # Пост-валидация ответа. На нарушении просим daemon переписать,
+        # передавая ему список нарушенных пунктов CLAUDE.md. Лимит 3 попытки.
+        for attempt in range(1, 4):
+            verdict = validate_outbound(response_text)
+            if verdict.get("ok"):
+                break
+            violations_text = format_violations(verdict)
+            log(f"AI chat: validation failed attempt {attempt}/3 — {violations_text[:200]}")
+            _log_validation_reject("ai-chat", f"user:{user_id[:8]}", attempt, response_text, verdict)
+            if attempt == 3:
+                log(f"AI chat: validation exhausted, publishing as-is")
+                break
+            correction = (
+                "Твой предыдущий ответ нарушил правила CLAUDE.md:\n"
+                + violations_text
+                + "\n\nПерепиши ответ на тот же вопрос, соблюдая правила. "
+                "Не извиняйся, не комментируй замечания — просто дай чистый переписанный ответ."
+            )
+            retry_text = daemon.send_and_wait(correction, timeout=AI_CHAT_TIMEOUT)
+            if not retry_text:
+                log(f"AI chat: retry {attempt} produced empty/timeout, publishing previous")
+                break
+            response_text = retry_text
 
         log(f"AI chat response: {response_text[:100]}")
         handler.send_response(200)
