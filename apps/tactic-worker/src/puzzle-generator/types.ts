@@ -39,6 +39,14 @@ export interface EngineApi {
     limit: AnalysisLimit,
     multiPV: number,
     label?: string,
+    earlyStop?: (depth: number, pvs: MultiPvLine[]) => boolean,
+    /**
+     * KS-3640 / ADR-106 §2.4. UCI-ходы для `go searchmoves m1 m2 …`.
+     * Использует MaiaAnnotationService для оценки только Maia-
+     * кандидатов + firstMovePV1. Если переданы, MultiPV в реализации
+     * подтянется до `searchMoves.length` (см. StockfishService).
+     */
+    searchMoves?: string[],
   ): Promise<MultiPvLine[]>;
 }
 

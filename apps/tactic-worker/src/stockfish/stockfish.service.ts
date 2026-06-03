@@ -59,6 +59,7 @@ export interface AnalysisLimit {
 }
 
 interface Worker {
+  id: number;
   process: ChildProcessWithoutNullStreams;
   busy: boolean;
 }
@@ -91,8 +92,12 @@ export class StockfishService implements OnModuleDestroy {
     proc.stderr.on('data', (data: Buffer) => {
       this.logger.warn(`Stockfish stderr: ${data.toString().trim()}`);
     });
-    const worker: Worker = { process: proc, busy: false };
+    const worker: Worker = { id: this.workers.length, process: proc, busy: false };
     this.sendCommand(worker, 'uci');
+    // По умолчанию Threads=1 для детерминированности (lazy SMP даёт
+    // нерепродуцируемость). Можно повысить через ENV `STOCKFISH_THREADS`.
+    const threads = Number(process.env.STOCKFISH_THREADS ?? 1) || 1;
+    this.sendCommand(worker, `setoption name Threads value ${threads}`);
     return worker;
   }
 
@@ -203,25 +208,70 @@ export class StockfishService implements OnModuleDestroy {
    *
    * Для puzzle-generator: prevWdl/currentWdl сравниваются для
    * детекции зевка, spread между PV1 и PV2 — для уникальности.
+   *
+   * KS-3640 / ADR-106 §2.4. Добавлен опциональный `searchMoves`:
+   * UCI-ходы для ограничения корня поиска (`go searchmoves m1 m2 …`).
+   * Используется Maia-аннотацией: SF оценивает только заранее выбранные
+   * Maia-кандидаты + опорный `firstMovePV1` (N ≤ 9), что даёт WDL по
+   * каждому ходу за одно обращение к движку без полного MultiPV. MultiPV
+   * cap поднят с 5 → 10, чтобы поместились до 9 кандидатов с запасом.
+   * При непустом `searchMoves` MultiPV принудительно ≥ `searchMoves.length`
+   * (но всё равно ≤ 10) — иначе SF вернёт меньше линий, чем кандидатов.
    */
   async analyzePositionWdl(
     fen: string,
     limit: AnalysisLimit,
     multiPV: number,
+    label?: string,
+    earlyStop?: (depth: number, pvs: MultiPvLine[]) => boolean,
+    searchMoves?: string[],
   ): Promise<MultiPvLine[]> {
-    const mpv = Math.max(1, Math.min(5, multiPV));
+    const hasSearchMoves = !!searchMoves && searchMoves.length > 0;
+    // searchMoves диктует минимальный MultiPV — без этого SF вернёт
+    // меньше линий чем кандидатов и часть expectedScore окажется
+    // null'ом в caller'е.
+    const desiredMpv = hasSearchMoves
+      ? Math.max(multiPV, searchMoves!.length)
+      : multiPV;
+    const mpv = Math.max(1, Math.min(10, desiredMpv));
+    const labelStr = label ? ` ${label}` : '';
+    const fenShort = fen.split(' ').slice(0, 2).join(' ');
+    process.stdout.write(
+      `[${new Date().toISOString().substring(11, 23)}] [sf ENTER${labelStr}] fen=${fenShort}\n`,
+    );
     const worker = await this.acquireWorker();
+    const startedAt = Date.now();
+    process.stdout.write(
+      `[${new Date().toISOString().substring(11, 23)}] [sf w=${worker.id}${labelStr}] start fen=${fenShort}\n`,
+    );
     try {
+      // Threads — из spawnWorker (по дефолту 1, можно переопределить
+      // через STOCKFISH_THREADS). Перед каждым вызовом сбрасываем TT
+      // (`ucinewgame` + `Clear Hash`) — детерминированность.
+      const threads = Number(process.env.STOCKFISH_THREADS ?? 1) || 1;
+      this.sendCommand(worker, `setoption name Threads value ${threads}`);
       this.sendCommand(worker, 'ucinewgame');
+      this.sendCommand(worker, 'setoption name Clear Hash');
       await this.waitForReady(worker);
       this.sendCommand(worker, 'setoption name Skill Level value 20');
       this.sendCommand(worker, 'setoption name UCI_ShowWDL value true');
       this.sendCommand(worker, `setoption name MultiPV value ${mpv}`);
       this.sendCommand(worker, `position fen ${fen}`);
       await this.waitForReady(worker);
-      const lines = await this.searchMultiPV(worker, undefined, mpv, limit, true);
+      const lines = await this.searchMultiPV(
+        worker,
+        undefined,
+        mpv,
+        limit,
+        true,
+        earlyStop,
+        hasSearchMoves ? searchMoves : undefined,
+      );
       this.sendCommand(worker, 'setoption name MultiPV value 1');
       this.sendCommand(worker, 'setoption name UCI_ShowWDL value false');
+      process.stdout.write(
+        `[${new Date().toISOString().substring(11, 23)}] [sf w=${worker.id}${labelStr}] done  fen=${fenShort} time=${Date.now() - startedAt}ms\n`,
+      );
       return lines;
     } finally {
       this.releaseWorker(worker);
@@ -276,6 +326,8 @@ export class StockfishService implements OnModuleDestroy {
     multiPV: number,
     limit: AnalysisLimit | undefined,
     captureWdl: boolean,
+    earlyStop?: (depth: number, pvs: MultiPvLine[]) => boolean,
+    searchMoves?: string[],
   ): Promise<MultiPvLine[]> {
     return new Promise((resolve, reject) => {
       // Расчёт timeout: берём явный timeMs если есть, иначе оценка
@@ -288,6 +340,8 @@ export class StockfishService implements OnModuleDestroy {
       }, limitTimeMs + safetyMs);
       const pvLines = new Map<number, MultiPvLine>();
       let maxDepthSeen = 0;
+      let lastCheckedDepth = 0;
+      let stopSent = false;
       const onData = (data: Buffer) => {
         const lines = data.toString().split('\n');
         for (const line of lines) {
@@ -321,6 +375,27 @@ export class StockfishService implements OnModuleDestroy {
                 wdl,
               });
             }
+            // Чекпоинт: после получения последнего PV на новой глубине
+            // вызываем earlyStop. На multiPV=2 это pvIndex===2.
+            if (
+              earlyStop &&
+              !stopSent &&
+              pvIndex === multiPV &&
+              lineDepth > lastCheckedDepth
+            ) {
+              const snapshot: MultiPvLine[] = [];
+              for (let i = 1; i <= multiPV; i++) {
+                const e = pvLines.get(i);
+                if (e) snapshot.push(e);
+              }
+              if (snapshot.length === multiPV) {
+                lastCheckedDepth = lineDepth;
+                if (earlyStop(lineDepth, snapshot)) {
+                  stopSent = true;
+                  this.sendCommand(worker, 'stop');
+                }
+              }
+            }
           }
           if (line.match(/^bestmove /)) {
             clearTimeout(timeout);
@@ -336,7 +411,7 @@ export class StockfishService implements OnModuleDestroy {
       };
       worker.process.stdout.on('data', onData);
       // Собираем команду `go ...` из лимита/depth.
-      const goCmd = this.buildGoCommand(depth, limit);
+      const goCmd = this.buildGoCommand(depth, limit, searchMoves);
       this.sendCommand(worker, goCmd);
     });
   }
@@ -344,13 +419,31 @@ export class StockfishService implements OnModuleDestroy {
   private buildGoCommand(
     depth: number | undefined,
     limit: AnalysisLimit | undefined,
+    searchMoves?: string[],
   ): string {
+    // Детерминированность: если задана `depth`, передаём ТОЛЬКО её,
+    // movetime/nodes игнорируем (они привязаны к wall-clock и дают
+    // разный фактический depth между запусками). Если depth не задана —
+    // fallback на movetime, иначе nodes, иначе depth=15.
     const parts: string[] = ['go'];
     const d = limit?.depth ?? depth;
-    if (d != null) parts.push('depth', String(Math.max(1, Math.min(50, d))));
-    if (limit?.timeMs != null) parts.push('movetime', String(limit.timeMs));
-    if (limit?.nodes != null) parts.push('nodes', String(limit.nodes));
-    if (parts.length === 1) parts.push('depth', '15');
+    if (d != null) {
+      parts.push('depth', String(Math.max(1, Math.min(50, d))));
+    } else if (limit?.timeMs != null) {
+      parts.push('movetime', String(limit.timeMs));
+    } else if (limit?.nodes != null) {
+      parts.push('nodes', String(limit.nodes));
+    } else {
+      parts.push('depth', '15');
+    }
+    // KS-3640 / ADR-106 §2.4: ограничение корня поиска заданными UCI-
+    // ходами через `go searchmoves m1 m2 …`. SF возвращает MultiPV-линии
+    // только по этим ходам (если MultiPV ≥ их количества, иначе по
+    // top-MultiPV из них по силе). Должно идти ПОСЛЕ depth/movetime/nodes
+    // — UCI требует именно такого порядка в `go`-команде.
+    if (searchMoves && searchMoves.length > 0) {
+      parts.push('searchmoves', ...searchMoves);
+    }
     return parts.join(' ');
   }
 

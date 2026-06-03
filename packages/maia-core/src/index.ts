@@ -46,3 +46,16 @@ export {
   createNodeProvider,
   loadModelFromFs,
 } from './node-provider.js';
+
+export {
+  MAIA_TOP_K_MAX,
+  MAIA_TOP_K_POLICY_THRESHOLD,
+  MAIA_WEAK_CHOICE_METRIC_VERSION,
+  WEAK_LOSS_E_THRESHOLD,
+  buildMaiaSearchMoves,
+  computeWeakChoiceProb,
+  type PolicyEntry,
+  type WeakChoiceInput,
+  type WeakChoiceResult,
+  type WeakSetEntry,
+} from './weak-choice.js';

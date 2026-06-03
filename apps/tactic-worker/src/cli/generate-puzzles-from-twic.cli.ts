@@ -247,9 +247,11 @@ export async function runGeneratePuzzlesFromTwic(
   const prisma = app.get(PrismaService);
   const engine = app.get(StockfishService);
 
-  // KS-3633 / ADR-104 §5: Maia continuous annotation. См. комментарий
+  // KS-3640 / ADR-106 §2.1: Maia continuous annotation v2. См. комментарий
   // в `generate-puzzles.cli.ts`. Тот же сервис, инстанс на CLI-процесс.
-  const maiaAnnotation = MaiaAnnotationService.fromEnv();
+  // SF (engine) инжектится — Maia дёргает analyzePositionWdl с
+  // searchmoves для оценки своих топ-K кандидатов.
+  const maiaAnnotation = MaiaAnnotationService.fromEnv(engine);
   if (!maiaAnnotation.isEnabled()) {
     process.stdout.write(
       `[twic-puzzle-gen] maia-annotation DISABLED (PRECISION_MAIA_ANNOTATION_ENABLED=false).\n`,
@@ -350,12 +352,13 @@ export async function runGeneratePuzzlesFromTwic(
               );
               if (ann) {
                 try {
-                  // KS-3639: пишем в новое поле `maia_weak_choice_prob`,
-                  // metric_version оставляем NULL до T2 (см. ADR-106 §5).
+                  // KS-3640 / ADR-106 §2.1: пишем новые поля по новой формуле,
+                  // включая metric_version (фронт по нему фильтрует).
                   await prisma.puzzle.update({
                     where: { id: puzzle.id },
                     data: {
-                      maiaWeakChoiceProb: ann.prob,
+                      maiaWeakChoiceProb: ann.weakChoiceProb,
+                      maiaMetricVersion: ann.metricVersion,
                       maiaTop1Elo: ann.elo,
                     },
                   });

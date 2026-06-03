@@ -226,19 +226,17 @@ export async function runGeneratePuzzles(
   const prisma = app.get(PrismaService);
   const engine = app.get(StockfishService);
 
-  // KS-3633 / ADR-104 §5 (поля переименованы под ADR-106 §2.5, KS-3639):
-  // Singleton Maia annotation сервис — после каждого успешного INSERT
-  // нового PVE-пазла дёргаем `annotate(...)` и заполняем
-  // `maia_weak_choice_prob` / `maia_top1_elo` UPDATE-ом. Lazy:
+  // KS-3640 / ADR-106 §2.1 (Precision-Maia v2): Singleton Maia annotation
+  // сервис. После каждого успешного INSERT нового PVE-пазла дёргаем
+  // `annotate(...)` и заполняем `maia_weak_choice_prob` /
+  // `maia_metric_version` / `maia_top1_elo` UPDATE-ом. Lazy:
   // ONNX-сессия создаётся при первом вызове annotate. Disabled через
   // ENV `PRECISION_MAIA_ANNOTATION_ENABLED=false` — annotate всегда null.
   //
-  // ВАЖНО: сама формула расчёта и значение `maia_metric_version` ещё
-  // НЕ обновлены под ADR-106 (это задача T2). До T2 текущий annotate()
-  // возвращает значение по отменённой ADR-104 (top-1 prob). Чтобы фронт
-  // не интерпретировал устаревшие значения как weak-choice prob,
-  // `maia_metric_version` оставляем NULL (см. ADR-106 §5).
-  const maiaAnnotation = MaiaAnnotationService.fromEnv();
+  // Maia использует SF (`engine`) для оценки expectedScore по своим
+  // top-K кандидатам + firstMovePV1 — поэтому инжектим тот же
+  // singleton StockfishService, что и в puzzle-генератор.
+  const maiaAnnotation = MaiaAnnotationService.fromEnv(engine);
   if (!maiaAnnotation.isEnabled()) {
     process.stdout.write(
       `[puzzle-gen] maia-annotation DISABLED (PRECISION_MAIA_ANNOTATION_ENABLED=false). ` +
@@ -328,14 +326,15 @@ export async function runGeneratePuzzles(
           );
           if (ann) {
             try {
-              // KS-3639: пишем в новое поле `maia_weak_choice_prob`,
-              // metric_version оставляем NULL — формула ещё ADR-104
-              // (top-1), значение «грязное» по семантике ADR-106 §5,
-              // T1 `--force` потом перезапишет.
+              // KS-3640 / ADR-106 §2.1: пишем новые поля по новой формуле.
+              // metric_version проставляется константой из maia-core,
+              // что говорит фронту что эти значения свежие и могут
+              // фильтроваться.
               await prisma.puzzle.update({
                 where: { id: puzzle.id },
                 data: {
-                  maiaWeakChoiceProb: ann.prob,
+                  maiaWeakChoiceProb: ann.weakChoiceProb,
+                  maiaMetricVersion: ann.metricVersion,
                   maiaTop1Elo: ann.elo,
                 },
               });
