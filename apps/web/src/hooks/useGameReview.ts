@@ -34,6 +34,11 @@ import {
   SUB_VARIATION_MAX_LENGTH_PLIES,
 } from '../lib/review/buildStabilizedLine';
 import { extractFacts, type FactsInput } from '../lib/review/extractFacts';
+import {
+  PositionalEvalEngine,
+  type PositionalEvalEngine as PositionalEvalEngineType,
+} from '../lib/review/positionalEval';
+import { computePositionalShifts } from '../lib/review/positionalShifts';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
 
@@ -129,6 +134,13 @@ export interface UseGameReviewOptions {
   openingName?: string | null;
   /** KS-3616. Язык комментариев. Дефолт `'ru'`. */
   userLanguage?: 'en' | 'ru';
+  /**
+   * KS-3628 / ADR-103 §6. Фабрика клиентского SF 16 lite для
+   * positional_shifts. По умолчанию — реальный WASM-движок через
+   * Worker. В тестах — мок или `null` (positional_shifts всегда []).
+   * `null` → пропускаем шаг (тестовый и серверный режимы).
+   */
+  createPositionalEval?: (() => PositionalEvalEngineType) | null;
 }
 
 export interface ReviewResult {
@@ -412,6 +424,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
     commentClient = defaultCommentClient,
     openingName = null,
     userLanguage = 'ru',
+    createPositionalEval,
   } = options;
   const [status, setStatus] = useState<ReviewStatus>('idle');
   const [progress, setProgress] = useState<{
@@ -705,6 +718,56 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
 
         if (factsToSend.length > 0 && !cancelRef.current) {
+          // KS-3628 / ADR-103 §6. Запрашиваем `positional_shifts` через
+          // клиентский SF 16 lite. Lazy-load исключительно по жмёт
+          // «Разобрать партию» — initial bundle не растёт.
+          //
+          // Graceful: любая ошибка (no Worker, init timeout, eval
+          // timeout) → оставляем `positional_shifts: []` и продолжаем
+          // разбор. Это допустимо — комментарии без позиционных
+          // ярлыков всё равно осмысленны (мат/тактика/материал — есть).
+          if (createPositionalEval !== null) {
+            let posEngine: PositionalEvalEngineType | null = null;
+            try {
+              posEngine = (createPositionalEval ?? (() => new PositionalEvalEngine()))();
+              await posEngine.init();
+              for (let i = 0; i < factsToSend.length; i++) {
+                if (cancelRef.current) break;
+                const f = factsToSend[i];
+                const [evalBefore, evalAfter] = await Promise.all([
+                  posEngine.evalPosition(f.fen),
+                  posEngine.evalPosition(f.fen_after),
+                ]);
+                if (!evalBefore || !evalAfter) continue;
+                const shifts = computePositionalShifts(
+                  evalBefore,
+                  evalAfter,
+                  f.stage,
+                  f.side,
+                  {
+                    material_change: f.material_change,
+                    threats_created: f.threats_created,
+                  },
+                );
+                // Мутируем in-place — facts ещё не ушли в batch.
+                (f as { positional_shifts: typeof shifts }).positional_shifts =
+                  shifts;
+              }
+            } catch (err) {
+              // Не блокируем разбор; positional_shifts остаются [].
+              console.warn(
+                '[useGameReview] positional_shifts skipped:',
+                err,
+              );
+            } finally {
+              try {
+                posEngine?.destroy();
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+
           setProgress({
             stage: 'comments',
             done: 0,
@@ -763,7 +826,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       setResult({ annotations, moveInputs, commentByPly });
       setStatus('done');
     },
-    [elo, depth, movetimeMs, injectedEngines, commentsEnabled, commentClient, openingName, userLanguage],
+    [elo, depth, movetimeMs, injectedEngines, commentsEnabled, commentClient, openingName, userLanguage, createPositionalEval],
   );
 
   const cancel = useCallback(() => {

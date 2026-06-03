@@ -12,6 +12,8 @@ function dummyFacts(n: number): FactsInput[] {
   return new Array(n).fill(null).map((_, i) => ({
     ply: i + 1,
     fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    fen_after:
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
     side: 'white',
     move: {
       san: 'e4',
@@ -33,6 +35,10 @@ function dummyFacts(n: number): FactsInput[] {
     material_change: null,
     hanging_piece: null,
     mate_threat_after: null,
+    tactical_motifs: [],
+    threats_created: {},
+    threats_missed: {},
+    positional_shifts: [],
     user_elo: 1500,
     user_language: 'ru',
   }));
