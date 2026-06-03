@@ -135,9 +135,14 @@ describe('Precision ↔ авто-NAG consistency (KS-3607)', () => {
     });
     expect(klass).toBe(sc.expectedClass);
 
-    // buildAnnotation выдаёт ожидаемый NAG-код:
+    // buildAnnotation выдаёт ожидаемый NAG-код. Pull-фильтр на
+    // quality-NAG: с тем же тикетом про «оценку в основной линии»
+    // buildAnnotation теперь дополнительно добавляет eval-NAG (11/14-19)
+    // после $6/$2/$4. Здесь нас интересует только quality-часть.
+    const QUALITY_NAGS_SET = new Set([1, 2, 3, 4, 5, 6]);
     const a = buildAnnotation(sc.input);
-    expect(a.nag).toEqual(sc.expectedNag);
+    const qualityOnly = a.nag.filter((n) => QUALITY_NAGS_SET.has(n));
+    expect(qualityOnly).toEqual(sc.expectedNag);
   });
 
   it('обратная согласованность: при precision=good (loss 0.04) — нет quality-NAG', () => {
@@ -181,6 +186,11 @@ describe('Precision ↔ авто-NAG consistency (KS-3607)', () => {
     const a = buildAnnotation(input);
     // Симметричный suppress §3.3 (KS-3617): здесь позиция перешла из
     // decided в not-decided — это упущение, NAG обязан стоять.
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    // К $4 теперь также прибавляется eval-NAG (оценка после ошибки);
+    // здесь нас интересует только quality-часть.
+    const QUALITY_NAGS_SET = new Set([1, 2, 3, 4, 5, 6]);
+    expect(a.nag.filter((n) => QUALITY_NAGS_SET.has(n))).toEqual([
+      NAG_BLUNDER,
+    ]);
   });
 });

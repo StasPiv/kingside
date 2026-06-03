@@ -36,6 +36,16 @@ import {
 const STARTPOS = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 /**
+ * После пользовательского запроса buildAnnotation на $6/$2/$4 (NAG 2/4/6)
+ * прибавляет eval-NAG (11/14-19) — оценка после ошибки. Тесты, написанные
+ * до этой правки, сверяют только quality-часть; для удобства — хелпер.
+ */
+const QUALITY_NAGS_SET = new Set([1, 2, 3, 4, 5, 6]);
+function qualityOnly(nags: readonly number[]): number[] {
+  return nags.filter((n) => QUALITY_NAGS_SET.has(n));
+}
+
+/**
  * Сборка чистого Wdl по expected-score E (0..1).
  * E = (w + d/2) / 1000. Для теста удобно: D=0, w=E·1000, l=(1-E)·1000.
  */
@@ -76,7 +86,7 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
         wdlAfterPlayed: wdl(0.2),
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
   });
 
   it('?? при wdl_after.l > 950 (mate-edge)', () => {
@@ -88,7 +98,7 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
         wdlAfterPlayed: { w: 10, d: 30, l: 960 },
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
   });
 
   it('? при 0.12 < loss_E ≤ 0.50 (mistake)', () => {
@@ -101,7 +111,7 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
         wdlAfterPlayed: wdl(0.2),
       }),
     );
-    expect(a.nag).toEqual([NAG_MISTAKE]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_MISTAKE]);
   });
 
   it('?! при 0.05 < loss_E ≤ 0.12 (inaccuracy)', () => {
@@ -114,7 +124,7 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
         wdlAfterPlayed: wdl(0.4),
       }),
     );
-    expect(a.nag).toEqual([NAG_DUBIOUS]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_DUBIOUS]);
   });
 
   it('! при playedClass=best (=sfBest) и playedProb < 0.10 (cpLoss≈0)', () => {
@@ -201,6 +211,102 @@ describe('buildAnnotation — §3.2 NAG по classifyMove (ADR-066)', () => {
   });
 });
 
+// ─── Пользовательский запрос: eval-NAG в основной линии после ─────────
+// ?!/?/?? — оценка позиции после ошибки должна быть видна сразу.
+describe('buildAnnotation — eval-NAG в основной линии после ?!/?/??', () => {
+  it('blunder (??) белых → к $4 добавляется eval-NAG для stm=black', () => {
+    // white сыграл плохо, теперь black at-the-move с большим перевесом.
+    // wdlAfterPlayed POV white: E=0.2 → POV black: E=0.8 → eWhite на ходу
+    // black = 1 - 0.8 = 0.2 → +−... подожди:
+    // pickFinalEvalNag(wdlStmPov, stmIsWhite=false):
+    //   E = (w+d/2)/1000  POV stm (black). wdlStmPov.w = wdlAfterPlayed.l = 800.
+    //   eWhite = 1 - 0.8 = 0.2 → d = -0.3 → moderate black = 17.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.8),
+        wdlAfterPlayed: wdl(0.2), // POV white loss > 0.5 → blunder
+      }),
+    );
+    expect(a.nag[0]).toBe(NAG_BLUNDER);
+    expect(a.nag.length).toBe(2);
+    // black перехватил с большим перевесом.
+    expect(a.nag[1]).toBe(NAG_EVAL_MODERATE_BLACK);
+  });
+
+  it('mistake (?) белых → к $2 добавляется eval-NAG', () => {
+    // loss=0.30 (mistake). POV white до 0.5, после 0.2 → POV black eWhite=0.2.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
+      }),
+    );
+    expect(a.nag[0]).toBe(NAG_MISTAKE);
+    expect(a.nag.length).toBe(2);
+    // d = 0.2 - 0.5 = -0.3 → moderate black.
+    expect(a.nag[1]).toBe(NAG_EVAL_MODERATE_BLACK);
+  });
+
+  it('inaccuracy (?!) белых → к $6 добавляется eval-NAG', () => {
+    // loss=0.10 (inaccuracy). wdlAfterPlayed POV white: 0.4.
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.4),
+      }),
+    );
+    expect(a.nag[0]).toBe(NAG_DUBIOUS);
+    expect(a.nag.length).toBe(2);
+    // POV black eWhite=0.4, d=-0.1 → slight black ($15).
+    expect(a.nag[1]).toBe(NAG_EVAL_SLIGHT_BLACK);
+  });
+
+  it('blunder чёрных → eval-NAG для stm=white', () => {
+    const a = buildAnnotation(
+      base({
+        ply: 2,
+        fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+        playedUci: 'h7h6',
+        sfBestUci: 'e7e5',
+        wdlBefore: wdl(0.8), // POV black E=0.8 (black хорошо)
+        wdlAfterPlayed: wdl(0.2), // POV black упал до 0.2
+      }),
+    );
+    expect(a.nag[0]).toBe(NAG_BLUNDER);
+    // POV white после хода: eWhite = 1 - 0.2 = 0.8 → d=+0.3 → moderate white.
+    expect(a.nag[1]).toBe(NAG_EVAL_MODERATE_WHITE);
+  });
+
+  it('best/good/!/!! НЕ получают eval-NAG в основной линии', () => {
+    const aBest = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5), // best
+      }),
+    );
+    expect(aBest.nag).toEqual([]);
+
+    const aGood = buildAnnotation(
+      base({
+        playedUci: 'e2e4',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.5),
+        playedProb: 0.05,
+      }),
+    );
+    expect(aGood.nag).toEqual([NAG_GOOD]); // только !
+  });
+});
+
 describe('buildAnnotation — §3.3 suppress', () => {
   it('forcedMove → no NAG (даже при огромном loss_E)', () => {
     const a = buildAnnotation(
@@ -239,7 +345,7 @@ describe('buildAnnotation — §3.3 suppress', () => {
         wdlAfterPlayed: wdl(0.2), // E=0.2, signed=-0.6 → not decided
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
   });
 
   it('KS-3617: decided до, перевернулось на проигрыш → NAG ставится', () => {
@@ -252,7 +358,7 @@ describe('buildAnnotation — §3.3 suppress', () => {
         wdlAfterPlayed: { w: 10, d: 20, l: 970 }, // signed=-0.96
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
   });
 
   it('|wdlSigned(before)| = 0.95 граница — NAG применяется', () => {
@@ -264,7 +370,7 @@ describe('buildAnnotation — §3.3 suppress', () => {
         wdlAfterPlayed: wdl(0.2),
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
   });
 });
 
@@ -297,6 +403,48 @@ describe('buildAnnotation — §4.1 green-variation', () => {
       }),
     );
     expect(a.variations.filter((v) => v.color === 'green')).toHaveLength(1);
+  });
+
+  it('зелёная вариация получает «!» если sfBestProb < 0.10 (тот же порог что и для основной линии)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2), // blunder
+        sfBestProb: 0.05,
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toEqual([NAG_GOOD]);
+  });
+
+  it('зелёная вариация БЕЗ «!» если sfBestProb >= 0.10', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
+        sfBestProb: 0.25,
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toBeUndefined();
+  });
+
+  it('зелёная вариация БЕЗ «!» если sfBestProb отсутствует (undefined)', () => {
+    const a = buildAnnotation(
+      base({
+        playedUci: 'h2h3',
+        sfBestUci: 'e2e4',
+        wdlBefore: wdl(0.5),
+        wdlAfterPlayed: wdl(0.2),
+        sfBestProb: undefined,
+      }),
+    );
+    const green = a.variations.find((v) => v.color === 'green')!;
+    expect(green.nag).toBeUndefined();
   });
 
   it('НЕ добавляется при good / best', () => {
@@ -547,7 +695,7 @@ describe('buildAnnotation — KS-3610 stabilized subline', () => {
         sfBestPv: ['e7e5', 'g1f3', 'b8c6'],
       }),
     );
-    expect(a.nag).toEqual([NAG_BLUNDER]);
+    expect(qualityOnly(a.nag)).toEqual([NAG_BLUNDER]);
     const green = a.variations.find((v) => v.color === 'green')!;
     expect(green.uci).toBe('e7e5');
   });

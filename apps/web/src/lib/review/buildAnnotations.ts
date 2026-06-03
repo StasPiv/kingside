@@ -219,7 +219,7 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
     playedClass === 'best' &&
     samePlayed &&
     input.playedProb !== undefined &&
-    input.playedProb < 0.05 &&
+    input.playedProb < BRILLIANT_MAIA_PROB_THRESHOLD &&
     !input.forcedMove &&
     (secondBestClass === 'mistake' || secondBestClass === 'blunder')
   ) {
@@ -234,7 +234,7 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
     playedClass === 'best' &&
     samePlayed &&
     input.playedProb !== undefined &&
-    input.playedProb < 0.1
+    input.playedProb < GOOD_MAIA_PROB_THRESHOLD
   ) {
     return NAG_GOOD;
   }
@@ -251,6 +251,13 @@ function pickNag(input: MoveInput, playedClass: MoveClass, secondBestClass: Move
 
   return null;
 }
+
+/**
+ * KS-3617: тот же порог что и для `!` в основной линии — `playedProb < 0.10`.
+ * Применяется к `sfBestProb` для зелёной вариации (первый ход).
+ */
+const BRILLIANT_MAIA_PROB_THRESHOLD = 0.05;
+const GOOD_MAIA_PROB_THRESHOLD = 0.1;
 
 function maybeGreenVariation(
   input: MoveInput,
@@ -274,10 +281,26 @@ function maybeGreenVariation(
   // KS-3610: предпочитаем stabilized subline (если caller его посчитал);
   // fallback на PV slice — для backward-compat с тестами KS-3603/3607.
   const subline = input.sfBestSubline ?? input.sfBestPv.slice(1, 3);
+
+  // Пользовательский запрос: тот же критерий «!» что и в основной линии,
+  // только применённый к SF-лучшему ходу в зелёной вариации. Если Maia
+  // редко находит этот ход (`sfBestProb < 0.10`), это и есть «неочевидный
+  // сильный ход» — заслуживает «!». Без этого `!` ставился только если
+  // пользователь сам нашёл лучший ход, а в варианте-альтернативе шёл без
+  // знака — и подсказка теряла часть информации.
+  const greenNags: number[] = [];
+  if (
+    input.sfBestProb !== undefined &&
+    input.sfBestProb < GOOD_MAIA_PROB_THRESHOLD
+  ) {
+    greenNags.push(NAG_GOOD);
+  }
+
   return {
     uci: input.sfBestUci,
     color: 'green',
     subline,
+    nag: greenNags.length > 0 ? greenNags : undefined,
   };
 }
 
@@ -342,6 +365,32 @@ export function buildAnnotation(input: MoveInput): Annotation {
 
   // Шаг 4-5: NAG.
   const nag = pickNag(input, playedClass, secondBestClass);
+  const nags: number[] = nag != null ? [nag] : [];
+
+  // Пользовательский запрос: после неточности / ошибки / зевка в основной
+  // линии оценка позиции изменилась — добавляем eval-NAG (=, ⩲/⩱, ±/∓,
+  // +−/−+) рядом с ?!/?/??. Без этого читатель видел только сам знак
+  // ошибки, но не понимал, насколько именно она поменяла оценку.
+  if (
+    nag === NAG_DUBIOUS ||
+    nag === NAG_MISTAKE ||
+    nag === NAG_BLUNDER
+  ) {
+    // wdlAfterPlayed уже в POV ходящей стороны (см. MoveInput-комментарии),
+    // то есть POV того, кто только что сыграл. На ходу теперь противник:
+    // stmAfter = !stmBefore. pickFinalEvalNag хочет POV side-to-move.
+    const stmBeforeIsWhite = input.fen.split(' ')[1] !== 'b';
+    const stmAfterIsWhite = !stmBeforeIsWhite;
+    // wdlAfterPlayed — POV ходившего; нам нужно POV stm после хода (=
+    // POV соперника). Инвертируем W↔L, чтобы pickFinalEvalNag получил
+    // правильную POV.
+    const wdlStmPov: Wdl = {
+      w: input.wdlAfterPlayed.l,
+      d: input.wdlAfterPlayed.d,
+      l: input.wdlAfterPlayed.w,
+    };
+    nags.push(pickFinalEvalNag(wdlStmPov, stmAfterIsWhite));
+  }
 
   // Шаг 6: variations.
   const variations: AnnotationVariation[] = [];
@@ -352,7 +401,7 @@ export function buildAnnotation(input: MoveInput): Annotation {
 
   return {
     ply: input.ply,
-    nag: nag != null ? [nag] : [],
+    nag: nags,
     variations,
   };
 }
