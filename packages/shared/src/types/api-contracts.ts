@@ -1670,6 +1670,116 @@ export type PositionalShiftId =
   | 'position_more_winnable'
   | 'position_less_winnable';
 
+/**
+ * KS-3649 / ADR-107 rev 2 §3. Идентификаторы позиционных подкомпонент
+ * (subterm) classical-оценки Stockfish 16, извлекаемые расширенным
+ * `Trace`-API (C1, KS-3648). В отличие от 19 агрегатных
+ * `PositionalShiftId` (delta classical eval по 13 терминам), здесь
+ * сырые сcp-числа per-subterm с привязкой к квадрату/файлу/цвету —
+ * напрямую из `evaluate.cpp` / `pawns.cpp` / `pieces.cpp` / `king.cpp`
+ * / `threats.cpp` / `passed.cpp` / `space.cpp`.
+ *
+ * Группировка соответствует разделам ADR-107 §2.2 (инвентаризация по
+ * исходникам SF 16). Список финализируется при реализации C1; здесь
+ * фиксируется ожидаемое покрытие подкомпонент. Если в коде SF
+ * обнаружится дополнительный subterm или формулировка изменится —
+ * union обновляется отдельным MR совместно с патчем.
+ *
+ * Источник истины — таблицы ADR-107 §2.2.
+ */
+export type PositionalSubtermId =
+  // Pawns (pawns.cpp::evaluate<Color>, ~7 подкомпонент).
+  | 'pawn_doubled_early'
+  | 'pawn_connected'
+  | 'pawn_doubled'
+  | 'pawn_isolated'
+  | 'pawn_backward'
+  | 'pawn_lever_double'
+  | 'pawn_blocked'
+  // Shelter & storm (pawns.cpp::evaluate_shelter, 4 матрицы).
+  | 'king_shelter_strength'
+  | 'king_blocked_storm'
+  | 'king_unblocked_storm'
+  | 'king_on_file'
+  // Pieces — цикл по фигурам evaluate.cpp:384-526 (~17 подкомпонент).
+  | 'rook_on_king_ring'
+  | 'bishop_on_king_ring'
+  | 'knight_uncontested_outpost'
+  | 'outpost_knight'
+  | 'outpost_bishop'
+  | 'knight_reachable_outpost'
+  | 'minor_behind_pawn'
+  | 'knight_king_protector_distance'
+  | 'bishop_king_protector_distance'
+  | 'bishop_pawns'
+  | 'bishop_xray_pawns'
+  | 'bishop_long_diagonal'
+  | 'bishop_cornered'
+  | 'rook_on_open_file'
+  | 'rook_on_closed_file'
+  | 'rook_trapped'
+  | 'queen_weak'
+  // King — evaluate.cpp:531-626 (~8 подкомпонент).
+  | 'king_safety_pawn'
+  | 'king_danger'
+  | 'king_safe_check_rook'
+  | 'king_safe_check_queen'
+  | 'king_safe_check_bishop'
+  | 'king_safe_check_knight'
+  | 'king_pawnless_flank'
+  | 'king_flank_attacks'
+  // Threats — evaluate.cpp:632-727 (~10 подкомпонент).
+  | 'threat_by_minor'
+  | 'threat_by_rook'
+  | 'threat_by_king'
+  | 'threat_hanging'
+  | 'threat_weak_queen_protection'
+  | 'threat_restricted_piece'
+  | 'threat_by_safe_pawn'
+  | 'threat_by_pawn_push'
+  | 'threat_knight_on_queen'
+  | 'threat_slider_on_queen'
+  // Passed pawns — evaluate.cpp:732-820 (4 подкомпоненты).
+  | 'passed_rank'
+  | 'passed_king_proximity'
+  | 'passed_path_advance'
+  | 'passed_file_edge'
+  // Space — evaluate.cpp:828-859 (1 интегральный счёт).
+  | 'space';
+
+/**
+ * KS-3649 / ADR-107 rev 2 §3.4, §3.5. Одна позиционная подкомпонента
+ * classical-оценки Stockfish, извлечённая через расширенный `Trace`
+ * (C1, KS-3648). Соответствует одной строке `score += ...` в `pawns.cpp`
+ * / `evaluate.cpp`.
+ *
+ * - `id` — какая подкомпонента (см. `PositionalSubtermId`).
+ * - `square` — UCI-квадрат (`a1..h8`) для тегов с привязкой к фигуре
+ *   или конкретной клетке (`outpost_knight d5`, `bishop_pawns h2`,
+ *   `passed_rank c7`). Для агрегатов (`king_danger`, `space`) —
+ *   отсутствует.
+ * - `color` — `'w'`/`'b'` сторона-обладатель подкомпоненты (короткий
+ *   формат SF). Для side-agnostic подкомпонент (если будут) —
+ *   отсутствует.
+ * - `value_mg` / `value_eg` — middlegame и endgame составляющие
+ *   `Score` из SF в пешечных-cp единицах (после деления на
+ *   `PawnValueMg`/`PawnValueEg`). Знак — POV `color` (положительный —
+ *   в пользу стороны).
+ *
+ * Финальный пешечный вклад вычисляется на стороне потребителя через
+ * tapered eval `(value_mg * phase + value_eg * (PHASE_MAX − phase)) /
+ *  PHASE_MAX` либо упрощённой суммой; backend (B1) и LLM-prompt
+ *  используют непосредственно `value_mg`/`value_eg` для калибровки
+ *  по фазе.
+ */
+export interface PositionalSubterm {
+  id: PositionalSubtermId;
+  square?: string;
+  color?: 'w' | 'b';
+  value_mg: number;
+  value_eg: number;
+}
+
 /** Участник размена на квадрате висячей фигуры (атакующий или защитник). */
 export interface FactsExchangeParticipant {
   piece: FactsAnyPiece;
@@ -1824,6 +1934,20 @@ export interface FactsInput {
    * стабилен в обоих направлениях.
    */
   positional_shifts: PositionalShiftId[];
+  /**
+   * KS-3649 / ADR-107 rev 2 §3.5 — сырые позиционные подкомпоненты
+   * classical-оценки Stockfish 16 (cp_mg/cp_eg per-subterm с
+   * привязкой к квадрату/файлу/цвету). Заполняется фронтом через
+   * Worker-обёртку (F1, KS-3650) над WASM-сборкой `stockfish-16-
+   * trace.{js,wasm}` (C1, KS-3648). Backend (B1, KS-3651) использует
+   * в few-shot prompt'е V2 для человеческих ярлыков («плохой слон
+   * h2», «изолированная пешка c4», «форпост d5»).
+   *
+   * Пустой массив, если WASM-разметка не сделана или вернула пусто
+   * (graceful — prompt продолжит работать с агрегатными
+   * `positional_shifts`).
+   */
+  positional_subterms: PositionalSubterm[];
   /** ELO пользователя (для подбора лексики комментариев). */
   user_elo: number;
   /** UI-локаль для комментариев. */
