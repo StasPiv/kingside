@@ -1,49 +1,45 @@
 # ADR-103. Качество LLM-комментариев к ходам (MVP-2)
 
-Статус: предложен (KS-3620, ревизия 2).
+Статус: предложен (KS-3620, ревизия 3).
 Дата: 2026-06-03.
 Связано: ADR-102 (MVP-1), KS-3614 / KS-3615 / KS-3616 (реализация MVP-1).
 
 ## История ревизий
 
-- **rev 1** (8:11 UTC) — детекторы мотивов на frontend как единственный источник позиционных фактов; chess-expert делает eval-набор с эталонными комментариями.
-- **rev 2** (текущая) — позиционные факты берутся из Stockfish `eval` (classical breakdown по 13 терминам) на backend; собственные детекторы на frontend оставлены только для тактических мотивов, которые `eval` не различает по типам; chess-expert из плана убран, eval-набор делает architect сам без эталонных комментариев.
+- **rev 1** — детекторы мотивов на frontend как единственный источник позиционных фактов; chess-expert делает eval-набор с эталонными комментариями.
+- **rev 2** — позиционные факты берутся из системного Stockfish `eval` (classical breakdown по 13 терминам) на backend; собственные детекторы оставлены только для тактических мотивов; chess-expert убран.
+- **rev 3** (текущая) — **движок только на клиенте** (правило проекта). Позиционные ярлыки считаем на frontend через ВТОРУЮ WASM-сборку Stockfish — SF 16 (Lichess fork, последняя версия с classical eval). Backend больше не запускает SF subprocess. StockfishEvalService отменён. Объём B1 сокращён: prompt V2 + post-валидация + DTO.
 
 ## 1. Контекст
 
-ADR-102 / KS-3614+3615+3616 завели MVP-1: фронт собирает 15–25 фактов о ходах с NAG-метками (`extractFacts.ts`), бэк (`ReviewCommentService.batchComment`) шлёт батч в `AI_CHAT_WEBHOOK_URL`, ответ применяется к PGN-дублю.
+ADR-102 / KS-3614+3615+3616 — MVP-1. На живой партии три проблемы:
 
-На живой партии видно три проблемы:
+1. **Тавтология NAG.** `?!`→«неточность», `?`→«ошибка», `!`→«сильный ход» — пересказ `classification`.
+2. **«Фигура висит» без причины.** Нет attackers/defenders/исхода размена.
+3. **Молчание о позиционных мотивах и тактике.** Prompt запрещает выдумывать, фактов недостаточно.
 
-1. **Тавтология NAG.** На `?!` — «неточность», на `?` — «ошибка», на `!` — «сильный ход». Это пересказ `classification`, содержания нет.
-2. **«Фигура висит» без причины.** «Конь висит на f6» — без атакующего, защитника, исхода размена.
-3. **Молчание о позиционных мотивах и тактике.** Prompt запрещает выдумывать, фактов недостаточно — модель молчит даже там, где мотив очевиден (вилка, ослабление короля, потерянная мобильность).
-
-Причины:
-- **Бедные факты.** `FactsInput` (ADR-102 §3.4) содержит `classification`, `delta_e`, `sf_best`, плоский `hanging_piece`. Нет ни позиционных дельт (king safety, mobility, pawn structure), ни тактических мотивов, ни деталей размена.
-- **Жёсткие ограничения prompt'а.** «ONE short sentence (max 20 words)», `CRITICAL RULES` запрещают любую оценку сверх `classification`. Few-shot нет.
-- **Нет post-валидации.** Бессодержательные ответы пропускаются как есть.
+Причины: бедные факты, жёсткий prompt, нет post-валидации.
 
 ## 2. Граница MVP-2
 
 ### Входит
 
-1. **Positional facts** — backend дёргает `eval` у Stockfish для каждой позиции из батча (fenBefore + fenAfter), считает дельты по 13 классическим терминам, переводит топ-N в текстовые ярлыки.
-2. **Tactical motifs** — frontend (chess.js), 6 дёшевых детекторов для конкретных названий: fork, double_attack, pin, skewer, discovered_attack, back_rank_weak.
-3. **Расширение `hanging_piece`** — attackers, defenders, net_material_if_taken (frontend, chess.js).
+1. **Positional facts** — frontend через **WASM SF 16** (Lichess fork с classical eval, отдельная сборка рядом с SF 18). Парсим breakdown по 13 терминам, дельта на ход, top-N ярлыков.
+2. **Tactical motifs** — frontend (chess.js), 6 дёшевых детекторов: fork, double_attack, pin, skewer, discovered_attack, back_rank_weak.
+3. **Расширение `hanging_piece`** — attackers, defenders, net_material_if_taken (frontend).
 4. **`threats_created` / `threats_missed`** — frontend, статический подсчёт + sf_best.line (2–3 хода SAN).
-5. **Переписать prompt** — запрет NAG-тавтологии, требование причины, лимит 30–60 слов, 6–8 few-shot пар, расширенная калибровка по ELO.
+5. **Переписать prompt** — запрет NAG-тавтологии, требование причины, лимит 30–60 слов, 6–8 few-shot пар.
 6. **Post-валидация** — backend: NAG-blacklist + min-length.
-7. **Eval-фикстуры (architect)** — 10–15 партий PGN с разнотипными ошибками (позиционные/тактические), без эталонных комментариев. Прогон pipeline, ручная оценка содержательности.
+7. **Eval-фикстуры** — 12 PGN-партий в `docs/quality/llm-comments-eval/` (готово, KS-3626).
 8. **Feature-flag rollout** — ENV `REVIEW_COMMENT_V2=on|off`.
 
 ### НЕ входит
 
-- Сложные тактические мотивы (overloaded defender, deflection, decoy, interference, zwischenzug) — требуют мини-поискового движка.
+- Запуск движка на backend (правило проекта: engine только на клиенте).
+- Сложные тактические мотивы (overloaded defender, deflection, decoy, interference, zwischenzug).
 - Дообучение LLM на корпусе мастеров.
 - Streaming SSE, TTS, кэш комментариев в БД.
-- Эталонные комментарии от chess-expert (пользователь убрал эту роль из плана).
-- Бюджет токенов как ограничение (пользователь сказал: расход не критичен, оптимизируем под качество).
+- Эталонные комментарии от chess-expert.
 
 ## 3. Источники фактов
 
@@ -52,17 +48,17 @@ ADR-102 / KS-3614+3615+3616 завели MVP-1: фронт собирает 15�
 | Группа фактов | Источник | Сторона | Метод |
 |---|---|---|---|
 | Mechanical (san, uci, capture, check, mate, castling, promotion, en_passant) | chess.js | frontend | как в MVP-1 |
-| `classification`, `delta_e`, `sf_best`, `maia_alternative`, `mate_threat_after` | SF/Maia + classifyMove | frontend | как в MVP-1 |
+| `classification`, `delta_e`, `sf_best`, `maia_alternative`, `mate_threat_after` | SF 18 + Maia + classifyMove | frontend | как в MVP-1 |
 | `stage`, `opening_name`, `material_balance`, `material_change` | chess.js + Analysis | frontend | как в MVP-1 |
-| **`hanging_piece` расширенное** (attackers / defenders / net) | chess.js | frontend | новое в MVP-2 |
-| **`tactical_motifs[]`** (6 мотивов) | chess.js + детекторы | frontend | новое в MVP-2 |
-| **`threats_created` / `threats_missed`** | chess.js + sf_best.line | frontend | новое в MVP-2 |
-| **`sf_best.line`** (2–3 хода SAN) | sfBestPv | frontend | новое в MVP-2 |
-| **`positional_shifts[]`** (ярлыки из classical eval) | Stockfish `eval` (SF 15.1) | **backend** | новое в MVP-2 |
+| **`hanging_piece` расширенное** (attackers / defenders / net) | chess.js | frontend | сделано в F1 (KS-3623) |
+| **`tactical_motifs[]`** (6 мотивов) | chess.js + детекторы | frontend | сделано в F1 (KS-3623) |
+| **`threats_created` / `threats_missed`** | chess.js + sf_best.line | frontend | сделано в F1 (KS-3623) |
+| **`sf_best.line`** (2–3 хода SAN) | sfBestPv | frontend | сделано в F1 (KS-3623) |
+| **`positional_shifts[]`** (ярлыки из classical eval) | **WASM SF 16** (Lichess fork) | **frontend** | новый F1.5 |
 
-### 3.2. Почему positional_shifts — на backend
+### 3.2. Почему WASM SF 16 на frontend
 
-Stockfish `eval` в classical-режиме отдаёт breakdown по терминам:
+Stockfish `eval` в classical-режиме даёт breakdown по терминам:
 
 ```
 Term: Material, Imbalance, Pawns, Knights, Bishops, Rooks, Queens,
@@ -70,71 +66,30 @@ Term: Material, Imbalance, Pawns, Knights, Bishops, Rooks, Queens,
 Columns: MG (midgame), EG (endgame), Total (white-perspective).
 ```
 
-Это закрывает позиционные ходы лучше, чем любые собственные эвристики на chess.js, без переизобретения evaluator'а.
+Это даёт позиционные ярлыки без переизобретения evaluator'а.
 
-Проверено фактическим запуском:
+**Где этот breakdown доступен:**
+- Системный SF 15.1 на api-контейнере: есть. **Запрещено** правилом проекта (engine только на клиенте).
+- WASM SF 18 (`apps/web/public/stockfish/stockfish-18-*`): classical evaluator выпилен в SF 17 и 18 полностью. `eval` отдаёт NNUE accumulator, не 13 терминов.
+- **WASM SF 16** (Lichess fork `lichess-org/stockfish.wasm`, или nmrugg `stockfish.js` v15/v16): classical fallback есть, `setoption name Use NNUE value false` → `eval` отдаёт 13-term breakdown как у системного SF 15.1.
 
-```
-$ /usr/games/stockfish
-> uci → id name Stockfish 15.1, option name Use NNUE
-> setoption name Use NNUE value false
-> position startpos moves e2e4 e7e5 ... (Ruy Lopez)
-> eval
-  info string classical evaluation enabled
-  Contributing terms for the classical eval:
-  +------------+ Material / Imbalance / Pawns / Knights / Bishops /
-                 Rooks / Queens / Mobility / King safety / Threats /
-                 Passed / Space / Winnable
-  Classical evaluation -0.27 (white side)
-```
+SF 16 — последняя ветка с classical evaluator в WASM. SF 17 и 18 — без него. Поэтому в качестве positional-engine кладём именно SF 16 lite.
 
-**Почему не на frontend (WASM):**
-- В `apps/web/public/stockfish/` лежит `stockfish-18-*.js/.wasm` (Stockfish.js 18, Chess.com fork). SF 17 и SF 18 classical evaluator выпилен полностью — нет ни HCE-кода, ни команды `eval` в classical-формате. `eval` отдаёт NNUE accumulator/PSQT, не 13 терминов.
-- Системный SF 15.1 — последняя версия в нашем образе, у которой classical breakdown работает. SF 16 ещё работает, SF 17+ — нет.
-- Перенос classical-evaluator в WASM-сборку → нужен другой WASM-binary, замена не оправдана для одной фичи.
+### 3.3. Тактические мотивы остаются на chess.js
 
-Решение: classical eval только через системный SF на backend.
+SF eval даёт численную дельту по `Threats` (например, `+0.30` в MG). Это полезно для общего фона, но не различает мотив по типу (вилка vs связка vs скрытое нападение) и не показывает атакованные фигуры. Дешёвые детекторы (6 мотивов) дают конкретные ярлыки + targets. Это дополняющие источники.
 
-### 3.3. Риск: апгрейд системного Stockfish
+6 мотивов реализованы в F1 (KS-3623, коммит ea447240): fork, double_attack, pin, skewer, discovered_attack, back_rank_weak.
 
-Если devops обновит `/usr/games/stockfish` до SF 17+, classical eval перестанет работать. Меры:
+### 3.4. Сложные мотивы вне MVP-2
 
-- В Docker-образе фиксируем версию SF при сборке (ровно 15.1 или 16-final).
-- В `StockfishEvalService` после запуска парсим `id name` — если major ≥ 17, в лог WARN и `positional_shifts: []` graceful (комментарии не сломаются, просто не будут содержать позиционных ярлыков).
-- В `.env.example` явный комментарий: «STOCKFISH_BIN должен указывать на SF ≤16 для classical eval».
+`overloaded_defender`, `deflection`, `decoy`, `interference`, `zwischenzug` — требуют мини-поиска. Включаем позже, если eval-фикстуры покажут, что критично.
 
-## 4. Тактические мотивы (frontend, chess.js)
+## 4. Расширенная схема `FactsInput`
 
-### 4.1. Зачем оставлены, раз есть Threats из eval
-
-SF eval даёт численную дельту по `Threats` (например, `+0.30` в MG). Это полезно для общего фона, но не различает мотив по типу. Модель не сможет сказать «вилка на короля и ферзя» по числу — нужны конкретные ярлыки и атакованные фигуры.
-
-Дёшевые детекторы на chess.js дают то, что eval не различает:
-- название мотива (`fork` / `pin` / `skewer` / `discovered_attack` / `double_attack` / `back_rank_weak`);
-- список атакованных фигур (`targets`).
-
-### 4.2. 6 мотивов
-
-| Мотив | Алгоритм | Стоимость |
-|---|---|---|
-| `fork` | После played-хода: ходившая фигура атакует ≥2 фигуры противника, net > 0. | O(1) |
-| `double_attack` | Любые 2 атакованных объекта (фигуры или поле рядом с королём). | O(1) |
-| `pin` | Ray-scan от нашего слона/ладьи/ферзя к королю противника: один фигура между. | O(линий × 7) |
-| `skewer` | Ray-scan; впереди ценнее, сзади дешевле. | O(линий × 7) |
-| `discovered_attack` | Сравнить attackers после played-хода: появился новый, который не двигался. | O(scan board) |
-| `back_rank_weak` | Король на 1/8 горизонтали, перед ним только свои пешки, ладья/ферзь противника на этой линии. | O(8) |
-
-### 4.3. Сложные мотивы вне MVP-2
-
-`overloaded_defender`, `deflection`, `decoy`, `interference`, `zwischenzug` требуют мини-поиска. Включаем позже, если eval-фикстуры покажут, что их отсутствие критично.
-
-## 5. Расширенная схема `FactsInput`
+Сделано в F2 (KS-3624). Полная схема — в `packages/shared/src/types/api-contracts.ts`. Ключевое:
 
 ```ts
-type TacticalMotif =
-  | 'fork' | 'pin' | 'skewer'
-  | 'discovered_attack' | 'double_attack' | 'back_rank_weak';
-
 type PositionalShiftId =
   | 'material_gained' | 'material_lost'
   | 'pawn_structure_improved' | 'pawn_structure_weakened'
@@ -146,108 +101,32 @@ type PositionalShiftId =
   | 'passed_pawn_strong' | 'space_gained'
   | 'position_more_winnable' | 'position_less_winnable';
 
-type ThreatTarget = {
-  piece: 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
-  square: string;
-};
-
 type FactsInput = {
-  // ── из MVP-1 (без изменений) ─────────────────────────────────────
-  ply: number;
-  fen: string;        // fenBefore — нужен бэку для eval позиции ДО хода
-  side: 'white' | 'black';
-  move: { san; uci; capture; check; mate; castling; promotion; en_passant };
-  classification: MoveClass;
-  delta_e: number;
-  maia_alternative: { uci; san; probability; classification } | null;
-  stage: 'opening' | 'middlegame' | 'endgame';
-  opening_name: string | null;
-  material_balance: number;
-  material_change: { piece; side } | null;
-  mate_threat_after: number | null;
-  user_elo: number;
-  user_language: 'en' | 'ru';
-
-  // ── расширения MVP-2 (frontend) ──────────────────────────────────
-
-  /** FEN позиции ПОСЛЕ played-хода. Нужен бэку для eval. */
-  fen_after: string;
-
-  /** sf_best дополнен 2–3 ходами SAN продолжения. */
-  sf_best: {
-    uci: string;
-    san: string;
-    line: string[];
-  } | null;
-
-  /** Висящая фигура с атакующими, защитниками и итогом размена. */
-  hanging_piece: {
-    square: string;
-    piece: 'p' | 'n' | 'b' | 'r' | 'q';
-    side: 'white' | 'black';
-    attackers: Array<{ piece; square }>;
-    defenders: Array<{ piece; square }>;
-    net_material_if_taken: number;
-  } | null;
-
-  /** Что создаёт played-ход. */
-  threats_created: {
-    mate_in?: number;
-    wins_material?: ThreatTarget & { net: number };
-    targets?: ThreatTarget[];
-  } | null;
-
-  /** Что упустил слабый ход (по сравнению с sf_best). */
-  threats_missed: {
-    mate_in?: number;
-    wins_material?: ThreatTarget & { net: number };
-    counter_threat?: { mate_in?: number; wins_material?: ThreatTarget & { net: number } };
-  } | null;
-
-  /** Тактические мотивы. */
-  tactical_motifs: TacticalMotif[];
-
-  // ── расширения MVP-2 (backend) ───────────────────────────────────
-
-  /**
-   * Заполняется бэком после получения батча от фронта, ПЕРЕД prompt-builder'ом.
-   * Фронт всегда шлёт `[]`. Сервер вычисляет дельту classical eval
-   * (fen → fen_after), берёт топ-N значимых терминов (см. §6.3),
-   * переводит в ярлыки, кладёт сюда.
-   */
-  positional_shifts: PositionalShiftId[];
+  // ... (см. реализацию F2)
+  positional_shifts: PositionalShiftId[];   // фронт заполняет до отправки батча
 };
 ```
 
-`packages/shared/api-contracts.ts` отражает shape 1:1. `positional_shifts` объявлено в shared как frontend-входящее `[]`, бэк не нарушает контракт — он мутирует поле на своей стороне до prompt'а.
+В rev 2 `positional_shifts` подразумевалось заполнить на backend. В rev 3 — заполнение целиком на frontend (через F1.5), backend получает уже готовый массив. Контракт типа не меняется.
 
-## 6. Backend: StockfishEvalService
+## 5. Frontend: positional eval через WASM SF 16
 
-### 6.1. Назначение
+### 5.1. Состав
 
-Новый компонент в `apps/api/src/analysis-review/`:
+- WASM-сборка SF 16 lite (~2 МБ) — кладём в `apps/web/public/stockfish/` рядом с существующим SF 18. Источник: `lichess-org/stockfish.wasm` (maintained Lichess fork) или `nmrugg/stockfish.js` v16. Точный выбор за frontend на этапе F1.5 (важно: версия должна поддерживать `eval` в classical-режиме с `Use NNUE false`).
+- `apps/web/src/lib/review/positionalEval.ts` — обёртка над Web Worker:
+  - инициализирует SF 16 в Worker;
+  - `setoption name Use NNUE value false` после `uci`;
+  - публичный метод `evalPosition(fen: string): Promise<ClassicalEvalBreakdown>` — парсит таблицу `eval`-output и отдаёт структуру.
+- `apps/web/src/lib/review/positionalShifts.ts` — pure-функция: дельта между двумя `ClassicalEvalBreakdown`, выбор top-N ярлыков, дедупликация. Без зависимостей.
 
-```
-stockfish-eval.service.ts          — spawn /usr/games/stockfish, пул процессов
-stockfish-eval.service.spec.ts     — мок subprocess
-positional-shifts.ts               — pure-функция: парсинг + дельта + ярлыки
-positional-shifts.spec.ts          — unit-тесты ярлыков
-```
+### 5.2. Жизненный цикл worker'а
 
-### 6.2. Жизненный цикл и пул
+- Worker лениво поднимается при первом обращении в рамках «Разобрать партию» (внутри `useGameReview`, после готовности SF 18 + Maia анализа, перед сборкой батча фактов).
+- Один worker на весь прогон партии. Завершается после отправки батча (или по таймауту неактивности 60 с).
+- Очередь команд внутри worker'а — sequential `position + eval`.
 
-- Один или два долгоживущих subprocess SF (`/usr/games/stockfish`), запущенных при старте модуля. После старта — `uci` → `setoption name Use NNUE value false` → готов.
-- Каждый запрос `evalPosition(fen)`: `position fen <fen>` → `eval` → читать до строки `Final evaluation` (или эквивалентной для classical) → парсить таблицу.
-- Очередь: запросы сериализуются на одном процессе через простую `Promise`-цепочку.
-- Таймаут одной операции — 500 мс (eval — синхронный, обычно <10 мс; защита от зависания).
-- ENV:
-  - `STOCKFISH_BIN=/usr/games/stockfish` (дефолт),
-  - `REVIEW_COMMENT_SF_POOL_SIZE=2` (количество процессов),
-  - `REVIEW_COMMENT_SF_TIMEOUT_MS=500`.
-
-### 6.3. Парсинг eval-output
-
-После команды `eval` SF выдаёт:
+### 5.3. Парсинг eval-output
 
 ```
  Contributing terms for the classical eval:
@@ -258,20 +137,17 @@ positional-shifts.spec.ts          — unit-тесты ярлыков
 |   Material |  ----  ---- |  ----  ---- |  0.14 -0.29 |
 |  Imbalance |  ----  ---- |  ----  ---- |  0.00  0.00 |
 |      Pawns |  0.12 -0.02 |  0.18 -0.02 | -0.06 -0.00 |
-...
+... (13 terms total)
 |      Total |  ----  ---- |  ----  ---- | -0.30 -0.96 |
 +------------+-------------+-------------+-------------+
 Classical evaluation   -0.27 (white side)
 Final evaluation       -0.24 (white side)
 ```
 
-Регексп на строки таблицы: `^\|\s*(\w[\w\s]*?)\s*\|.*?\|\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*\|$` — берём имя термина, total MG, total EG.
-
-Структура:
+Regex на строки таблицы: `^\|\s*(\w[\w\s]*?)\s*\|.*?\|\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*\|$` — имя термина, total MG, total EG.
 
 ```ts
 type ClassicalEvalBreakdown = {
-  // Все значения в pawn units, белая сторона.
   material:    { mg: number; eg: number };
   imbalance:   { mg: number; eg: number };
   pawns:       { mg: number; eg: number };
@@ -289,342 +165,242 @@ type ClassicalEvalBreakdown = {
 };
 ```
 
-### 6.4. Дельты и стадия
+### 5.4. Дельта и стадия
 
-На каждый `FactsInput`:
-
+На каждый ply с NAG:
 1. `before = evalPosition(facts.fen)`, `after = evalPosition(facts.fen_after)`.
-2. Дельта по каждому термину: `delta = after.term - before.term`. Знак — с белой стороны; если `facts.side === 'black'`, инвертируем (`delta = -delta`).
-3. По стадии (`facts.stage`):
-   - `opening` / `middlegame` → используем MG-компоненту.
-   - `endgame` → EG-компоненту.
-4. Получаем 13 чисел в pawn units, POV ходящей стороны.
+2. Дельта по термину = `after.term - before.term`. POV ходящей стороны: для чёрных инвертируем.
+3. По стадии: `opening`/`middlegame` → MG, `endgame` → EG.
 
-### 6.5. Перевод в ярлыки
+### 5.5. Перевод в ярлыки
 
 ```ts
 const SHIFT_THRESHOLD = 0.10;   // pawn units
-const TOP_N = 2;                 // топ-2 ярлыка на ход
+const TOP_N = 2;
 
-// Карта: term → (positive_id, negative_id, special?)
-// Если ID отсутствует — direction не интересен (например, +Material и -Material маппим в material_gained/lost, а +Imbalance ярлыка не имеет, бросаем).
 const SHIFT_MAP = {
-  material:    ['material_gained',          'material_lost'],
-  pawns:       ['pawn_structure_improved',  'pawn_structure_weakened'],
-  knights:     ['knight_more_active',        null],
-  bishops:     ['bishop_more_active',        'bishop_passive'],
-  rooks:       ['rook_on_open_file',         null],         // спец: рост Rooks с открытыми линиями
-  queens:      ['queen_more_active',         null],
-  mobility:    ['mobility_increased',        'mobility_decreased'],
-  king_safety: ['king_safer',                'king_exposed'],
-  threats:     ['threats_grew',              'threats_weakened'],
-  passed:      ['passed_pawn_strong',        null],
-  space:       ['space_gained',              null],
-  winnable:    ['position_more_winnable',    'position_less_winnable'],
+  material:    ['material_gained',         'material_lost'],
+  pawns:       ['pawn_structure_improved', 'pawn_structure_weakened'],
+  knights:     ['knight_more_active',       null],
+  bishops:     ['bishop_more_active',       'bishop_passive'],
+  rooks:       ['rook_on_open_file',        null],
+  queens:      ['queen_more_active',        null],
+  mobility:    ['mobility_increased',       'mobility_decreased'],
+  king_safety: ['king_safer',               'king_exposed'],
+  threats:     ['threats_grew',             'threats_weakened'],
+  passed:      ['passed_pawn_strong',       null],
+  space:       ['space_gained',             null],
+  winnable:    ['position_more_winnable',   'position_less_winnable'],
 };
 ```
 
 Алгоритм:
-- На вход — массив 13 дельт по терминам.
-- Отфильтровать: `abs(delta) >= SHIFT_THRESHOLD` и для данного знака есть ID в карте.
-- Отсортировать по `abs(delta)` убыванию.
-- Взять первые `TOP_N`, вернуть массив `PositionalShiftId`.
-- Если ничего не прошло порог — пустой массив.
+1. Берём 13 дельт по терминам, POV стороны.
+2. Фильтр: `abs(delta) >= 0.10`, для знака есть ID в карте.
+3. Сортировка по `abs(delta)`, топ-2.
+4. **Дедупликация с явными фактами**:
+   - `material_gained`/`material_lost` подавляется если уже есть `material_change` (capture был известен).
+   - `threats_grew` подавляется если уже есть `threats_created.wins_material` (явная угроза описывает лучше).
+5. Возврат `PositionalShiftId[]`.
 
-`Imbalance` и `Material` оба отражают материал. Чтобы не дублировать («material_gained» + ничего), берём их сумму как одну «material»-метрику; ярлык `material_gained` ставится только если `material_change` уже не отражает то же самое (capture был — мы знаем кого, ярлык избыточен).
+### 5.6. Latency
 
-Защита от двойного покрытия:
-- Если `facts.material_change` != null И ярлык кандидат — `material_gained`/`material_lost` — пропускаем (`material_change` уже описывает).
-- Если `facts.threats_created.wins_material` != null И кандидат — `threats_grew` — пропускаем (явная угроза описывает лучше).
+- 1 eval в WASM SF 16 lite: ~5–30 мс (зависит от устройства).
+- На батч 25 фактов × 2 позиции = 50 evals.
+- Worker последовательно: ~250–1500 мс на батч.
+- На фоне SF 18 анализа (15–30 с per партия) и LLM-вебхука (~10–25 с) — незаметно.
 
-### 6.6. Latency
+### 5.7. Graceful degradation
 
-- 1 eval на SF 15.1: ~5–10 мс.
-- На батч 25 фактов × 2 позиции (fen + fen_after) = 50 evals.
-- Сериализованно на 1 процессе: ~250–500 мс.
-- На пуле из 2 процессов: ~150–300 мс.
-- Webhook-вызов LLM остаётся в ~10–25 с — eval-добавка незаметна.
+- WASM не загрузился → ловим promise reject, `positional_shifts: []` на всём батче. Комментарии всё равно генерируются (на тактических мотивах + hanging_piece + threats).
+- Один eval не распарсился → этот факт получает `[]`, остальные обрабатываются.
+- Прогон отвалился по таймауту → весь батч получает `[]`.
 
-### 6.7. Graceful degradation
+В UI ничего не показываем — graceful fallback, пользователь не видит разницы кроме отсутствия позиционных деталей в комментариях.
 
-- SF не запустился → лог ERROR при старте, `evalPosition()` всегда возвращает `null`, `positional_shifts: []` на каждом факте. Комментарии всё равно генерируются (на тактических мотивах и hanging_piece).
-- eval-таймаут на одной позиции → этот факт получает `positional_shifts: []`, остальные обрабатываются.
-- SF major ≥ 17 (нет classical eval) → `positional_shifts: []` graceful, лог WARN при старте.
+### 5.8. Бандл и lazy-load
+
+- SF 16 lite WASM (~2 МБ) и JS-loader (~30 КБ) лежат в `apps/web/public/stockfish/stockfish-16-lite.{js,wasm}`.
+- Загрузка — динамическим `import()` или `new Worker('/stockfish/stockfish-16-lite.js')` внутри `positionalEval.ts`.
+- Не попадает в основной бандл Vite — не влияет на initial-page-load.
+- Грузится только при «Разобрать партию» (как и SF 18).
+
+## 6. Backend: только prompt + post-валидация (никакого engine)
+
+### 6.1. Состав
+
+`apps/api/src/analysis-review/`:
+- `review-comment.service.ts` (обновляется):
+  - `buildSystemPrompt` — ветка V2 (§7.1) с few-shot;
+  - `postValidate(comments[])` — NAG-blacklist + min-length (§8);
+  - ENV-флаг `REVIEW_COMMENT_V2`.
+- `dto/batch-comment.dto.ts` (обновляется): новые поля (`positional_shifts`, расширенный `hanging_piece`, `tactical_motifs`, `threats_*`, `sf_best.line`, `fen_after`) с class-validator.
+- `review-comment.service.spec.ts` (обновляется): тесты на blacklist, min-length, prompt V2.
+
+`StockfishEvalService` и `positional-shifts.ts` на backend — **не создаём** (отменено rev 3).
+
+### 6.2. Поток
+
+`POST /api/analyses/review/comments` принимает батч с уже заполненными фронтом `positional_shifts[]`. Backend не делает eval, не запускает subprocess. Сразу строит prompt и шлёт в `AI_CHAT_WEBHOOK_URL`, парсит ответ, прогоняет через post-валидацию, возвращает.
+
+### 6.3. Объём B1 (после rev 3)
+
+Сокращён с ~2 дней до ~1 дня. Меньше кода (нет subprocess, нет парсера таблицы), меньше зависимостей (нет child_process), нет рисков с версией SF на бэке.
 
 ## 7. Новый prompt
 
-### 7.1. Системный prompt (RU, EN зеркальный)
-
-```
-Ты — шахматный тренер. Комментируешь ходы конкретного учащегося.
-Язык ответа: {language}. ELO ученика: {userElo}.
-
-ВХОД: JSON-массив фактов о ходах. Каждый факт — один полуход.
-
-ВЫХОД: JSON-массив строк той же длины, в том же порядке. Каждая строка — один комментарий.
-
-ТРЕБОВАНИЯ К КАЖДОМУ КОММЕНТАРИЮ:
-- 1–2 предложения, 15–60 слов.
-- Объясни ПРИЧИНУ: что выигрывает / что теряет / какую угрозу создаёт / какой мотив реализован.
-- positional_shifts — список текстовых ярлыков, отражающих сдвиг позиционной оценки движка:
-    * material_gained/lost, pawn_structure_improved/weakened,
-    * knight_more_active, bishop_more_active/passive,
-    * rook_on_open_file, queen_more_active,
-    * mobility_increased/decreased, king_safer/exposed,
-    * threats_grew/weakened, passed_pawn_strong, space_gained,
-    * position_more_winnable/less_winnable.
-  Если массив непуст — упомяни ярлык(и) человеческим языком, без жаргона про «оценку движка».
-- Если есть hanging_piece — назови атакующую фигуру и есть ли защита; если защищена — короткая оценка размена через `net_material_if_taken`.
-- Если есть tactical_motifs — назови мотив (вилка / связка / вскрытое нападение / задняя горизонталь / двойное нападение / связка по линии) и какие фигуры он атакует.
-- Если есть threats_created — опиши угрозу.
-- Если есть threats_missed.wins_material — покажи правильный план через `sf_best.line`.
-
-ЧТО ЗАПРЕЩЕНО:
-- Не дублировать NAG словами без объяснения: фразы «сильный ход», «отличный ход», «лучший ход», «хороший ход», «слабый ход», «неточность», «ошибка», «грубая ошибка», «зевок» САМИ ПО СЕБЕ ЗАПРЕЩЕНЫ. Если не из чего собрать причину — верни пустую строку "".
-- Не выдумывать тактические мотивы, которых нет в `tactical_motifs`.
-- Не упоминать численные оценки движка, сантипешки, ELO.
-- Не давать общих советов («играй активнее», «развивай фигуры»).
-
-КАЛИБРОВКА ПО ELO:
-- userElo < 1500: простые слова — «теряет ферзя», «вилка на короля и ладью», «король под боем», «защищён конём, можно брать».
-- 1500 ≤ userElo < 2000: «инициатива», «темп», «упускает компенсацию», «связка», «открытая линия для ладьи».
-- userElo ≥ 2000: «изолированная пешка», «слабый комплекс», «активность фигур», «жертва качества», «структурная перевеса».
-
-ПРИМЕРЫ (few-shot):
-
-Факты:
-{ "move": { "san": "Nxe5", "capture": "p" }, "classification": "best",
-  "tactical_motifs": ["fork"],
-  "threats_created": { "targets": [{"piece":"q","square":"d7"},{"piece":"r","square":"f7"}] },
-  "positional_shifts": ["threats_grew"] }
-ПЛОХО: "Сильный ход."
-ХОРОШО: "Конь забирает пешку и одновременно атакует ферзя и ладью — вилка с двойным выигрышем материала."
-
-Факты:
-{ "move": { "san": "Qd5" }, "classification": "blunder", "delta_e": -0.6,
-  "hanging_piece": { "square":"d5","piece":"q","side":"white","attackers":[{"piece":"n","square":"f6"}],"defenders":[],"net_material_if_taken": -8 },
-  "sf_best": { "san":"Qe2", "line":["Qe2","O-O","Nf3"] },
-  "positional_shifts": ["material_lost"] }
-ПЛОХО: "Грубая ошибка."
-ХОРОШО: "Ферзь становится под удар коня f6 без защиты — теряется фигура. Спокойнее Qe2 с рокировкой."
-
-Факты:
-{ "move": { "san": "Bxf7+", "capture": "p", "check": true }, "classification": "good",
-  "tactical_motifs": ["discovered_attack"],
-  "threats_created": { "wins_material": {"piece":"q","square":"d8","net": 6} },
-  "positional_shifts": ["threats_grew","king_exposed"] }
-ПЛОХО: "Хороший ход."
-ХОРОШО: "Жертва слона со вскрытым шахом — после взятия открывается ферзь и теряется на следующем ходу, король противника обнажён."
-
-Факты:
-{ "move": { "san": "h6" }, "classification": "inaccuracy", "delta_e": 0.15,
-  "threats_missed": { "wins_material": {"piece":"p","square":"e4","net":1} },
-  "sf_best": { "san":"Nxe4", "line":["Nxe4","Bxe4","d5"] },
-  "positional_shifts": ["king_safer"] }
-ПЛОХО: "Неточность."
-ХОРОШО: "Профилактика короля, но пропущен Nxe4 с выигрышем центральной пешки."
-
-Факты:
-{ "move": { "san": "Rxd1" }, "classification": "good", "material_change": {"piece":"r","side":"white"},
-  "tactical_motifs": [], "positional_shifts": ["mobility_decreased"] }
-ПЛОХО: "Хорошо."
-ХОРОШО: "Размен ладей упрощает позицию, но снижает подвижность фигур в эндшпиле."
-
-Факты:
-{ "move": { "san": "Kg1" }, "classification": "best",
-  "tactical_motifs": ["back_rank_weak"], "positional_shifts": ["king_safer"] }
-ПЛОХО: "Лучший ход."
-ХОРОШО: "Король уходит с задней линии — иначе мат ладьёй после размена на e1."
-
-Факты:
-{ "move": { "san": "Bb5" }, "classification": "good",
-  "tactical_motifs": ["pin"],
-  "positional_shifts": ["bishop_more_active","mobility_increased"] }
-ПЛОХО: "Хорошо."
-ХОРОШО: "Слон связывает коня c6 с ферзём d8, заодно даёт белым активную фигуру и большую подвижность."
-
-Факты:
-{ "move": { "san": "Re1" }, "classification": "best",
-  "tactical_motifs": [],
-  "positional_shifts": ["rook_on_open_file","space_gained"] }
-ПЛОХО: "Лучший ход."
-ХОРОШО: "Ладья встаёт на открытую вертикаль e, белые забирают пространство в центре."
-
-[аналогичный блок EN из 7–8 пар]
-```
-
-### 7.2. Параметры запроса
-
-- `temperature: 0.4`.
-- `max_tokens` per fact: 160 (запас под 60 слов).
-- Few-shot прибавит ~2000 input-tokens, один раз на батч. Бюджет неограничен — оптимизация под качество.
-
-### 7.3. Калибровка по ELO
-
-Параметры остались как в rev 1 (см. §5.3 ниже):
-- <1500 — один мотив на ход простыми словами;
-- 1500–2000 — короткая цепочка причина → следствие;
-- ≥2000 — позиционные термины (изолированная, плохой слон, компенсация).
+Без изменений vs rev 2. Текст системного prompt'а — §5.1 rev 2 (8 few-shot пар, 30–60 слов, лимит max_tokens 160 на факт, temperature 0.4, упоминание PositionalShiftId-ярлыков в правилах).
 
 ## 8. Post-валидация
 
-В `ReviewCommentService.parseAndValidate` после успешного парсинга — пройти по массиву.
+Без изменений vs rev 2.
 
-### 8.1. Чёрный список NAG-тавтологий
+- NAG-blacklist (RU + EN), нормализация: trim, lowercase, без `.!?,:;`. Точное совпадение → `""`.
+- Минимум 4 слова или 25 символов → иначе `""`.
+- Фронт уже умеет показывать дубль с пустыми комментариями (KS-3616).
 
-Нормализация: trim, lowercase, убрать пунктуацию `.!?,:;`. Точное совпадение — заменить пустой строкой.
+## 9. Eval-фикстуры
 
-RU: «сильный ход», «отличный ход», «лучший ход», «хороший ход», «слабый ход», «плохой ход», «ошибка», «грубая ошибка», «зевок», «неточность».
+Сделано в A1 (KS-3626): 12 PGN-партий в `docs/quality/llm-comments-eval/` (см. README там). Покрытие — тактика, hanging_piece расширенный, 8 типов positional_shifts ярлыков, ловушки на NAG-тавтологию.
 
-EN: «strong move», «excellent move», «best move», «good move», «weak move», «poor move», «mistake», «big mistake», «blunder», «inaccuracy».
+Все 12 валидируются `chess.js@1.4`.
 
-Regexp (ru):
-```ts
-const NAG_TAUTOLOGY_RU = /^(сильный|отличный|лучший|хороший|слабый|плохой)\s+ход[.!?]*$/i;
-const NAG_SHORT_RU = /^(ошибка|грубая\s+ошибка|зевок|неточность)[.!?]*$/i;
-```
-
-### 8.2. Минимальная содержательность
-
-После очистки: минимум **4 слова** или **25 символов**. Иначе → `""`.
-
-Игнорируем `""` (валидно — модель сама вернула пустоту).
-
-### 8.3. Поведение фронта
-
-KS-3616 уже умеет дубль с пустыми комментариями — пустая строка просто опускает подпись под NAG-знаком. Изменений на фронте не нужно.
-
-## 9. Eval-фикстуры (architect, без chess-expert)
-
-### 9.1. Состав
-
-- 10–15 партий PGN разного типа:
-  - 3–4 партии с позиционными ошибками (плохой слон, проигранный темп, ослабление пешечной структуры);
-  - 3–4 партии с явной тактикой (вилки, связки, скрытые нападения, мат-угрозы);
-  - 3–4 партии смешанного типа;
-  - 2 партии с back-rank-проблемами.
-- Без эталонных комментариев — задача не сравнивать «слово в слово», а оценить читаемость на глаз.
-
-Положить в `docs/quality/llm-comments-eval/` как `.pgn`-файлы. Метаданные (что хотим проверить на каждой) — в `README.md` рядом.
-
-### 9.2. Метрики
-
-| Метрика | Цель | Метод сбора |
-|---|---|---|
-| Доля комментариев, отсеянных post-валидацией | ≤ 5 % на партию | автомат, по логу |
-| Доля с глаголом-причиной («выигрывает», «теряет», «атакует», «угрожает», «защищает», «улучшает», «ослабляет», «открывает», «связывает», «уходит», «возникает») | ≥ 80 % | автомат, regexp по комментариям |
-| Доля с упоминанием мотива/ярлыка, которого нет в фактах (галлюцинация) | ≤ 5 % | вручную, выборочная сверка на 5 партиях |
-| Subjective: 5-bal на 5 партиях, 1 ревьюер (architect) | ≥ 3.5/5 | вручную |
-
-### 9.3. Процесс
-
-1. После реализации F1+F2+B1 — architect берёт фикстуры, прогоняет pipeline локально (`POST /api/analyses/review/comments` с подготовленными батчами фактов).
-2. Снимает метрики.
-3. Если ниже целей — итерация: правка prompt'а, докрутка детекторов, корректировка ярлыков.
-4. Отчёт в KS-3620 как комментарий.
+Метрики прогона — §9.2 rev 2:
+- % отсева post-валидацией ≤ 5 %,
+- % с глаголом-причиной ≥ 80 %,
+- % галлюцинаций ≤ 5 %,
+- subjective ≥ 3.5/5 на 5 партиях.
 
 ## 10. Rollout
 
 ### 10.1. ENV-флаг
 
 ```
-REVIEW_COMMENT_V2=on
-STOCKFISH_BIN=/usr/games/stockfish
-REVIEW_COMMENT_SF_POOL_SIZE=2
-REVIEW_COMMENT_SF_TIMEOUT_MS=500
+REVIEW_COMMENT_V2=on     # default off в .env.example
 REVIEW_COMMENT_MIN_WORDS=4
 REVIEW_COMMENT_MIN_CHARS=25
 ```
 
-`REVIEW_COMMENT_V2=off` — поведение MVP-1: prompt без few-shot, без positional_shifts, без расширенного hanging_piece (бэк игнорирует новые поля), post-валидация всё равно включена.
+Никаких ENV для Stockfish на бэке — нет subprocess, нет конфигурации.
 
-`REVIEW_COMMENT_V2=on` — полный пайплайн MVP-2.
+### 10.2. Поведение при rollback (V2=off)
 
-### 10.2. Поведение фронта при rollback
-
-`extractFacts.ts` всегда отдаёт расширенный shape. При `V2=off` бэк игнорирует новые поля и шлёт старый prompt. Фронт не различает режимы, дубль создаётся одинаково.
+- Frontend всегда отдаёт расширенный shape, включая `positional_shifts[]` (или `[]` если SF 16 worker недоступен).
+- Backend при `V2=off` строит prompt MVP-1 (без few-shot, игнорирует positional_shifts/motifs/threats/расширенный hanging_piece).
+- Post-валидация всегда включена.
 
 ### 10.3. Включение
 
-После прохождения eval-фикстур (architect A1):
-- devops ставит `REVIEW_COMMENT_V2=on` на проде;
-- 24 часа мониторинг `ReviewCommentService` и `StockfishEvalService` (5xx, latency, eval-таймауты).
+После A1-прогона (eval-фикстуры зелёные) → D1 (devops): `REVIEW_COMMENT_V2=on` на проде, 24 часа мониторинг `ReviewCommentService` (5xx, latency).
 
-## 11. Декомпозиция
+DevOps в rev 3 НЕ трогает Docker-образ — серверный SF не используется. Только переменная окружения.
 
-### F1 (frontend, ~2 дня) — расширение `extractFacts.ts`
+## 11. Декомпозиция rev 3
 
-- Расширить `FactsInput` (см. §5): `fen_after`, расширенный `hanging_piece`, `tactical_motifs`, `threats_created`, `threats_missed`, `sf_best.line`, заглушка `positional_shifts: []`.
-- 6 детекторов мотивов: fork, double_attack, pin, skewer, discovered_attack, back_rank_weak.
-- `threats_created` / `threats_missed` — статический подсчёт после played-хода / после sf_best.
-- Расширить `findHangingPiece` (attackers/defenders/net).
-- Добавить `sf_best.line` (срез из `sfBestPv` на 2–3 хода).
-- Unit-тесты на каждый мотив и расширенный hanging_piece.
+### Готово
+
+- **F1 (KS-3623)** — frontend extractFacts расширение (tactical_motifs, threats, hanging_piece расширенный, sf_best.line, fen_after). Коммит `ea447240`.
+- **F2 (KS-3624)** — shared/api-contracts.ts `FactsInput` с `positional_shifts: PositionalShiftId[]`. Типы менять не нужно.
+- **A1 фикстуры (часть KS-3626)** — 12 PGN-партий + README в `docs/quality/llm-comments-eval/`.
+
+### Новые / переписанные тикеты
+
+**F1.5 (новый, frontend, ~2 дня) — WASM SF 16 для positional_shifts.**
+
+- Подобрать и положить WASM-сборку SF 16 lite в `apps/web/public/stockfish/stockfish-16-lite.{js,wasm}`. Источник: Lichess fork или nmrugg. Главное — поддержка `eval` в classical-режиме с `Use NNUE value false`.
+- `apps/web/src/lib/review/positionalEval.ts` — Web Worker обёртка, `evalPosition(fen): Promise<ClassicalEvalBreakdown>`, парсер eval-output (§5.3).
+- `apps/web/src/lib/review/positionalShifts.ts` — pure-функция (§5.5): дельта + top-2 ярлыка + дедупликация.
+- Интеграция в `useGameReview`: после готовности SF 18 + Maia, перед `POST /api/analyses/review/comments` — поднять SF 16 worker, прогнать `fen` + `fen_after` для каждого NAG-ply, заполнить `positional_shifts`. Один worker на весь прогон, lazy-load.
+- Graceful degradation: worker fail → `positional_shifts: []`, без блокировки flow.
+- Unit-тесты:
+  - `positionalShifts.ts` на синтетических `ClassicalEvalBreakdown` парах (top-N, threshold, дедупликация);
+  - `positionalEval.ts` smoke (worker грузится, парсится таблица для startpos).
+- Метки: `analysis`, `chat`, `performance`.
+
+**B1' (KS-3625, переписать from rollback) — backend prompt V2 + post-валидация + DTO.**
+
+- Убрать из плана: `StockfishEvalService`, `positional-shifts.ts` на backend, ENV для STOCKFISH_BIN / SF_POOL_SIZE / SF_TIMEOUT.
+- Оставить:
+  - `dto/batch-comment.dto.ts` — добавить новые поля (`positional_shifts`, расширенный `hanging_piece`, `tactical_motifs`, `threats_*`, `sf_best.line`, `fen_after`) с class-validator;
+  - `review-comment.service.ts`:
+    - `buildSystemPrompt` — ветка V2 (см. §5.1 rev 2) с 6–8 few-shot пар, 30–60 слов;
+    - `postValidate(comments[])` — NAG-blacklist regex + min-length;
+    - ENV: `REVIEW_COMMENT_V2`, `REVIEW_COMMENT_MIN_WORDS`, `REVIEW_COMMENT_MIN_CHARS`;
+  - Тесты: blacklist срезает «Сильный ход.»/«Mistake.», min-length, prompt V2 содержит запрет и few-shot, V2=off → старый prompt.
+- Срок ~1 день (вместо 2 в rev 2).
 - Метки: `analysis`, `chat`.
 
-### F2 (frontend, ~0.5 дня) — `packages/shared/api-contracts.ts`
+**A1 прогон (часть KS-3626, после F1.5 + B1') — eval-фикстуры → метрики → отчёт.**
 
-- `FactsInput` с новыми полями 1:1 с фронтом (включая `positional_shifts: PositionalShiftId[]`, на фронте всегда `[]`).
-- Перегенерация `dist`.
+- 12 PGN уже готовы.
+- Прогон pipeline локально на каждом, сбор метрик §9.2.
+- Отчёт в KS-3620.
+- При недостаточных метриках — итерация prompt / детекторов / ярлыков.
+
+**D1 (KS-3627) — включение V2 на проде.**
+
+- `REVIEW_COMMENT_V2=on` на проде, 24 часа мониторинг.
+- НИКАКОГО Stockfish на api-контейнере. НИКАКИХ изменений Docker-образа.
 - Метки: `analysis`.
 
-### B1 (backend, ~2 дня) — SF eval + DTO + prompt + post-валидация
+### Опциональный F1.6 (factor-out, не блокер MVP-2)
 
-- Новый `StockfishEvalService` (spawn `/usr/games/stockfish`, пул, `evalPosition(fen)` с парсером classical breakdown).
-- `positional-shifts.ts` — pure-функция: дельта, top-N ярлыков (см. §6.5).
-- Обновить DTO (`batch-comment.dto.ts`) под новые поля + class-validator.
-- `ReviewCommentService`:
-  - перед prompt-builder'ом — для каждого факта вызвать SF eval на fenBefore/fenAfter, заполнить `positional_shifts`;
-  - `buildSystemPrompt` — ветка V2 (§7.1) с few-shot;
-  - `postValidate(comments[])` — NAG-blacklist + min-length (§8);
-  - ENV-флаги (§10.1).
-- Unit-тесты: парсер eval-output на снимках реальных табличек, ярлыки top-N, blacklist срезает «Сильный ход.» / «Mistake.», min-length, prompt V2 содержит запрет и few-shot.
-- Метки: `analysis`, `chat`.
-
-### A1 (architect, ~0.5 дня) — eval-фикстуры + прогон
-
-- Подобрать 10–15 партий PGN (см. §9.1).
-- Положить в `docs/quality/llm-comments-eval/`.
-- Прогнать pipeline на каждой, снять метрики §9.2.
-- Отчёт в комментарий KS-3620.
-- При необходимости — короткая итерация по prompt'у / детекторам / ярлыкам.
-
-### D1 (devops, ~0.1 дня) — включение V2 на проде
-
-- После A1 «зелёного» — `REVIEW_COMMENT_V2=on` на проде, 24 часа мониторинг.
-- Зафиксировать в Docker-образе версию SF (15.1 или 16-final). При следующей пересборке образа devops проверяет, что classical eval живой.
-- Метки: `analysis`, `infra`.
+Мини-детектор пешечной типизации на chess.js — `isolated_pawn`, `doubled_pawn`, `passed_pawn` как явные ярлыки (SF eval даёт агрегированный `Pawns` без типизации). Добавляет 100–200 строк кода + тесты. Можно сделать в F1.5 если хватит времени, либо отдельный тикет после A1, если на фикстурах окажется, что модель плохо различает типы пешечных слабостей.
 
 ### Зависимости
 
 ```
-F1 ──┬─> F2 ──> B1 ──> A1 ──> D1
-     │                  ▲
-     └──────────────────┘  (A1 нужны фронт-факты + бэк-pipeline)
+F1 (done) ──┐
+F1.5 (new) ─┼─> A1 прогон ──> D1
+B1' ────────┘
+A1 фикстуры (done)
 ```
 
-Параллелизация ограничена: B1 ждёт F2 (новые типы в shared). F1 и подготовка фикстур A1 (выбор партий, без прогона) могут идти параллельно.
+F1.5 и B1' идут параллельно. A1 прогон стартует после обоих.
 
-## 12. Открытые вопросы
+### Прогноз
+
+- F1.5 ~2 дня, B1' ~1 день (параллельно) → 2 рабочих дня до A1.
+- A1 прогон + отчёт — 0.5 дня.
+- D1 — 0.1 дня.
+- **Итого до прода: ~3 рабочих дня** от старта F1.5/B1'.
+
+## 12. Риски rev 3
+
+| Риск | Митигация |
+|---|---|
+| WASM SF 16 сборка не найдётся в готовом виде | Lichess fork (`lichess-org/stockfish.wasm`) — Maintained, есть в npm. nmrugg/stockfish.js v15/v16 — альтернатива. F1.5 на этапе подбора фиксирует точный source. |
+| Bundle +2–10 МБ к /public | Lazy-load по запросу «Разобрать партию», не в initial-page-load. На фоне SF 18 single (108 МБ) — незаметно. |
+| Latency eval-прогона на слабых клиентах | 50 evals × 5–30 мс = 0.5–1.5 с на батч. На фоне 70–130 с общего разбора — терпимо. Graceful degradation если worker не отвечает. |
+| `Use NNUE false` в SF 16 WASM не поддерживается (хотя ожидаем что поддерживается) | На F1.5 первым делом проверить `uci → setoption Use NNUE value false → eval startpos`. Если нет — fallback на SF 11 ASMJS (последняя точно classical-only сборка), или Вариант 2 (свой детектор). |
+| Memory leak в long-lived worker | Завершать worker по `timeout 60s` после батча или после `useGameReview.cleanup()`. |
+
+## 13. Открытые вопросы
 
 Нет. Все развилки закрыты:
-- Источник позиционных фактов — SF classical eval (backend, SF 15.1).
-- Источник тактических мотивов — собственные детекторы на frontend (6 мотивов), потому что Threats из eval не различает мотив по типу.
-- Версия SF — зафиксирована в образе ≤16 (риск §3.3 закрыт через guard в `StockfishEvalService` + ENV-комментарий).
-- Chess-expert — вне scope MVP-2; eval-фикстуры собирает architect (10–15 партий PGN без эталонов).
-- Бюджет токенов — не ограничен (пользователь снял вопрос, оптимизируем под качество).
+- Engine на клиенте — правило проекта соблюдено.
+- WASM SF 16 — известная стабильная сборка (Lichess fork).
+- F1.5 — добавляется как новый тикет, объём ~2 дня.
+- B1 переписывается с сокращением, СF subprocess отменён.
+- F2 уже закрыт типами, менять не нужно.
+- Бюджет токенов снят с радара.
 
-## 13. Резюме
+## 14. Резюме
 
-MVP-2 закрывает три проблемы MVP-1 (NAG-тавтология, висит без причины, молчание о тактике/позиции) тремя ортогональными источниками фактов:
+MVP-2 закрывает три проблемы MVP-1 ортогональными источниками фактов, **все на клиенте**:
 
-1. **Positional shifts** — backend парсит classical eval breakdown системного Stockfish (SF 15.1), переводит дельту по 13 терминам в человеко-читаемые ярлыки (top-2 на ход).
-2. **Tactical motifs + threats + расширенный hanging_piece** — frontend (chess.js), 6 детекторов даёт конкретные названия мотивов и атакованные фигуры; eval Threats эту специфику не различает.
-3. **Переписан prompt** — запрет NAG-тавтологии, требование причины, 6–8 few-shot пар, 30–60 слов, расширенная калибровка.
-4. **Post-валидация** — backend режет тавтологичные и слишком короткие ответы.
+1. **Positional shifts** — frontend через WASM SF 16 (Lichess fork с classical eval), парсим breakdown по 13 терминам, переводим топ-2 в ярлыки.
+2. **Tactical motifs + threats + расширенный hanging_piece** — frontend (chess.js), сделано в F1.
+3. **Переписан prompt** — backend, без вызовов engine; few-shot, запрет тавтологии, 30–60 слов.
+4. **Post-валидация** — backend, режет NAG-тавтологию и слишком короткие ответы.
 
-Источник eval разнесён по сторонам сознательно: классический evaluator есть только в системном SF ≤16, WASM-сборка SF 18 на фронте его не предоставляет.
+Engine только на клиенте: SF 18 как сейчас (для анализа и classification) + SF 16 (для positional eval, новый F1.5). Backend остаётся stateless с точки зрения engine. StockfishEvalService отменён вместе с subprocess и Docker-зависимостями.
 
-Eval-фикстуры (10–15 партий без эталонных комментариев) делает architect — chess-expert убран из scope. Rollout через `REVIEW_COMMENT_V2` ENV, откат одним переключателем.
+Eval-фикстуры (12 PGN) уже лежат в `docs/quality/llm-comments-eval/`.
 
-Decompose: F1 (frontend extractor 2 д) → F2 (shared 0.5 д) → B1 (backend SF eval + prompt + post-validate 2 д) → A1 (architect фикстуры + прогон 0.5 д) → D1 (devops rollout). Суммарно ~5 рабочих дней.
+Декомпозиция:
+- Готово: F1 (KS-3623), F2 (KS-3624), фикстуры (часть KS-3626).
+- Новое: F1.5 (frontend positional eval ~2 дня).
+- Переписать: B1' (KS-3625, ~1 день, без StockfishEvalService).
+- Без изменений: A1 прогон (KS-3626, ~0.5 дня), D1 (KS-3627, без правок Docker).
+- Срок до прода: ~3 рабочих дня от старта F1.5/B1'.
