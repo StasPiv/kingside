@@ -40,6 +40,7 @@ export function GameReviewProgressModal({
   if (!open) return null;
   const isError = status === 'error';
   const isComments = stage === 'comments';
+  const isFinalizing = stage === 'finalizing';
   const isCreating = stage === 'creating';
   const pct =
     total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -82,14 +83,19 @@ export function GameReviewProgressModal({
                   'analysis.review.progress.comments',
                   'Готовлю комментарии…',
                 )
-              : t(
-                  'analysis.review.progress.engine',
-                  '{{done}} / {{total}}',
-                  { done, total },
-                ) +
-                ' · ' +
-                pct +
-                '%'}
+              : isFinalizing
+                ? t(
+                    'analysis.review.progress.finalizing',
+                    'Завершаю анализ…',
+                  )
+                : t(
+                    'analysis.review.progress.engine',
+                    '{{done}} / {{total}}',
+                    { done, total },
+                  ) +
+                  ' · ' +
+                  pct +
+                  '%'}
         </p>
         <div
           className="game-review-progress-modal__bar"

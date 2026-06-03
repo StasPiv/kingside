@@ -952,6 +952,7 @@
       "progress": {
         "engine": "{{done}} из {{total}}",
         "comments": "Готовлю комментарии…",
+        "finalizing": "Завершаю анализ…",
         "creating": "Создаю копию анализа…"
       },
       "cancel": "Отмена",

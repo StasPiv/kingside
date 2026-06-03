@@ -942,6 +942,7 @@
       "progress": {
         "engine": "{{done}} / {{total}}",
         "comments": "Generating comments…",
+        "finalizing": "Finalizing analysis…",
         "creating": "Creating analysis copy…"
       },
       "cancel": "Cancel",

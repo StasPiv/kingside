@@ -162,7 +162,7 @@ export interface ReviewResult {
  *  - `creating` — POST `/duplicate-annotated` после `status='done'`.
  *    Используется launcher'ом (модалка показывает «Создаю копию…»).
  */
-export type ReviewStage = 'engine' | 'comments' | 'creating';
+export type ReviewStage = 'engine' | 'finalizing' | 'comments' | 'creating';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -568,11 +568,19 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         return;
       }
 
-      // KS-3618: сразу после main-pass'а переключаем на 'comments' —
-      // дальше идёт post-pass (доп. SF на красные variation, ~1с/ход)
-      // и LLM-фаза, без процентов. Иначе модалка зависает на 100%
-      // engine, пока всё это выполняется.
-      setProgress({ stage: 'comments', done: 0, total: 0 });
+      // KS-3618: сразу после main-pass'а переключаем стадию — дальше
+      // идёт post-pass (доп. SF на красные variation, ~1с/ход) и
+      // (опционально) LLM-фаза, без процентов. Без переключения
+      // модалка зависает на 100% engine, пока всё это выполняется.
+      //
+      // Если LLM-комментарии отключены — показываем нейтральное
+      // «Завершаю анализ…» вместо «Готовлю комментарии…» (UX-фикс:
+      // плашка про комментарии не должна мелькать, если их не будет).
+      setProgress({
+        stage: commentsEnabled ? 'comments' : 'finalizing',
+        done: 0,
+        total: 0,
+      });
 
       // KS-3617. Subline'ы вариантов:
       //   - green: берётся напрямую из `sf.bestPv` (уже посчитано на
