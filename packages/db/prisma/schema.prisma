@@ -339,18 +339,36 @@ model Puzzle {
   //     'forced-line' через DEFAULT.
   solutionMode String @default("forced-line") @map("solution_mode")
 
-  /// KS-3631 / ADR-104 §4. Вероятность правильного хода по Maia-3
-  /// (top-1 совпадает с первым ходом из `moves`). Заполняется offline-
-  /// разметкой admin-CLI `tools/maia-puzzle-annotation/` либо tactic-
-  /// worker'ом сразу при создании нового пазла. `NULL` — ещё не
-  /// размечен (safe fallback: фронт по умолчанию включает такие пазлы
-  /// в выдачу).
-  maiaTop1Prob Float? @map("maia_top1_prob")
+  /// KS-3639 / ADR-106 §2.5. Суммарная вероятность Maia сыграть один
+  /// из «слабых» ходов (`loss_E > 0.02` относительно лучшего из
+  /// `{firstMovePV1} ∪ MaiaTopK`). Заполняется offline-разметкой
+  /// admin-CLI `tools/maia-puzzle-annotation/` (T1) либо tactic-
+  /// worker'ом при создании нового пазла (T2). `NULL` — ещё не
+  /// размечен (safe fallback: фронт пропускает такие пазлы).
+  ///
+  /// Семантика инвертирована относительно отменённой ADR-104:
+  /// пазл проходит фильтр, если значение `>=` порога
+  /// `PRECISION_MAIA_DEFAULT_THRESHOLD` (default 0.3). Историческое имя
+  /// колонки `maia_top1_prob` переименовано миграцией KS-3639; значения
+  /// под старой семантикой считаются «грязными» до T1 `--force`
+  /// (ADR-106 §5).
+  maiaWeakChoiceProb Float? @map("maia_weak_choice_prob")
 
-  /// KS-3631 / ADR-104 §4. ELO, под которым прогоняли Maia. Хранится
-  /// для воспроизводимости и для проверки актуальности значения при
-  /// смене ENV `PRECISION_MAIA_ANNOTATION_ELO`: если ENV !=
-  /// `maiaTop1Elo` — admin-CLI с `--force --elo NEW` перерасчитывает.
+  /// KS-3639 / ADR-106 §2.5. Версия алгоритма расчёта
+  /// `maiaWeakChoiceProb`. `1` = ADR-106 §2.1 (динамический MaiaTopK
+  /// порог `policy > 0.10`, K_max=8, weak = `loss_E > 0.02`).
+  /// Инкрементируется при любой смене формулы (K_max / порог policy /
+  /// порог loss_E). `NULL` — значение либо не размечено, либо
+  /// унаследовано от отменённой ADR-104; фронт по `maiaMetricVersion
+  /// != 1` исключает такие строки из активного фильтра (см. ADR-106 §5
+  /// и WHERE для `--resume` в T1).
+  maiaMetricVersion Int? @map("maia_metric_version")
+
+  /// KS-3631 / ADR-104 §4 (поле сохранено в ADR-106 §2.5). ELO, под
+  /// которым прогоняли Maia. Хранится для воспроизводимости и для
+  /// проверки актуальности значения при смене ENV
+  /// `PRECISION_MAIA_ANNOTATION_ELO`: если ENV != `maiaTop1Elo` —
+  /// admin-CLI с `--force --elo NEW` перерасчитывает.
   maiaTop1Elo  Int?   @map("maia_top1_elo")
 
   attempts           PuzzleAttempt[]
@@ -370,11 +388,13 @@ model Puzzle {
   // запрос пробегает по source_*_elo (CASE по side-to-move).
   @@index([sourceWhiteElo])
   @@index([sourceBlackElo])
-  /// KS-3631 / ADR-104 §4. Composite-индекс под основной precision-
-  /// запрос: `WHERE solution_mode = 'play-vs-engine' AND (maia_top1_prob
-  /// IS NULL OR maia_top1_prob <= threshold)`. Покрывает основной
-  /// фильтр без лишних seq-scan'ов.
-  @@index([solutionMode, maiaTop1Prob])
+  /// KS-3639 / ADR-106 §2.5. Composite-индекс под основной precision-
+  /// запрос: `WHERE solution_mode = 'play-vs-engine' AND
+  /// (maia_weak_choice_prob IS NULL OR maia_weak_choice_prob >=
+  /// threshold)`. Покрывает основной фильтр без лишних seq-scan'ов.
+  /// (Историческое имя `puzzles_solution_mode_maia_top1_prob_idx`
+  /// переименовано той же миграцией.)
+  @@index([solutionMode, maiaWeakChoiceProb])
   // KS-2562: getNextPuzzle делает range scan по rating + ORDER BY
   // popularity DESC LIMIT 10. Полный composite на 6M строк не вмещается
   // в shared_buffers t3.micro — partial WHERE popularity >= 50

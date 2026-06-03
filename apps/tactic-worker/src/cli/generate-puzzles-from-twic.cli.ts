@@ -350,10 +350,12 @@ export async function runGeneratePuzzlesFromTwic(
               );
               if (ann) {
                 try {
+                  // KS-3639: пишем в новое поле `maia_weak_choice_prob`,
+                  // metric_version оставляем NULL до T2 (см. ADR-106 §5).
                   await prisma.puzzle.update({
                     where: { id: puzzle.id },
                     data: {
-                      maiaTop1Prob: ann.prob,
+                      maiaWeakChoiceProb: ann.prob,
                       maiaTop1Elo: ann.elo,
                     },
                   });

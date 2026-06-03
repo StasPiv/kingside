@@ -1463,9 +1463,11 @@ export class PuzzleService {
     gameUrl?: string | null;
     sourceType?: string | null;
     sourceId?: string | null;
-    /** KS-3631 / ADR-104 §4. Maia-3 top-1 prob (null = ещё не размечен). */
-    maiaTop1Prob?: number | null;
-    /** KS-3631 / ADR-104 §4. ELO, под которым прогоняли разметку. */
+    /** KS-3639 / ADR-106 §2.5. Maia weak-choice prob (null = ещё не размечен). */
+    maiaWeakChoiceProb?: number | null;
+    /** KS-3639 / ADR-106 §2.5. Версия алгоритма расчёта weak-choice prob. */
+    maiaMetricVersion?: number | null;
+    /** KS-3631 / ADR-104 §4 (сохранено в ADR-106). ELO разметки. */
     maiaTop1Elo?: number | null;
   }) {
     const mode = this.resolveSolutionMode(
@@ -1489,9 +1491,10 @@ export class PuzzleService {
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
       ...(sourceGame ? { sourceGame } : {}),
-      // KS-3631 / ADR-104 §5. Поля прокидываются как есть; null —
+      // KS-3639 / ADR-106 §2.5. Поля прокидываются как есть; null —
       // safe-fallback (фронт не отсеивает неразмеченные пазлы).
-      maiaTop1Prob: puzzle.maiaTop1Prob ?? null,
+      maiaWeakChoiceProb: puzzle.maiaWeakChoiceProb ?? null,
+      maiaMetricVersion: puzzle.maiaMetricVersion ?? null,
       maiaTop1Elo: puzzle.maiaTop1Elo ?? null,
     };
   }
@@ -1550,8 +1553,9 @@ export class PuzzleService {
     source_metadata?: string | null;
     source_type?: string | null;
     source_id?: string | null;
-    /** KS-3631 / ADR-104 §4. Поля из snake_case raw-row. */
-    maia_top1_prob?: number | null;
+    /** KS-3639 / ADR-106 §2.5. Поля из snake_case raw-row. */
+    maia_weak_choice_prob?: number | null;
+    maia_metric_version?: number | null;
     maia_top1_elo?: number | null;
   }) {
     const mode = this.resolveSolutionMode(
@@ -1577,8 +1581,9 @@ export class PuzzleService {
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
       ...(sourceGame ? { sourceGame } : {}),
-      // KS-3631 / ADR-104 §5. snake→camel.
-      maiaTop1Prob: p.maia_top1_prob ?? null,
+      // KS-3639 / ADR-106 §2.5. snake→camel.
+      maiaWeakChoiceProb: p.maia_weak_choice_prob ?? null,
+      maiaMetricVersion: p.maia_metric_version ?? null,
       maiaTop1Elo: p.maia_top1_elo ?? null,
     };
   }

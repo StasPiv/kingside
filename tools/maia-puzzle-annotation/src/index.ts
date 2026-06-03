@@ -224,11 +224,13 @@ async function fetchBatch(
 ): Promise<
   Array<{ id: string; fen: string; moves: string; sourceMetadata: string | null }>
 > {
+  // KS-3639: поля переименованы по ADR-106 §2.5 (top-1 → weak-choice).
+  // Семантика resume-фильтра сохранена (логику алгоритма меняет T1).
   type Where = {
     solutionMode: string;
     id?: { gt: string };
     OR?: Array<
-      | { maiaTop1Prob: null }
+      | { maiaWeakChoiceProb: null }
       | { maiaTop1Elo: { not: number } }
     >;
   };
@@ -236,7 +238,10 @@ async function fetchBatch(
   if (cursorId) where.id = { gt: cursorId };
   if (opts.resume && !opts.force) {
     // resume → пропустить строки уже размеченные под текущим ELO.
-    where.OR = [{ maiaTop1Prob: null }, { maiaTop1Elo: { not: opts.elo } }];
+    where.OR = [
+      { maiaWeakChoiceProb: null },
+      { maiaTop1Elo: { not: opts.elo } },
+    ];
   }
   return prisma.puzzle.findMany({
     where,
@@ -337,9 +342,12 @@ async function writeBatchUpdate(
       continue;
     }
     try {
+      // KS-3639: пишем в `maia_weak_choice_prob`; metric_version пока
+      // NULL — формула ещё top-1 (ADR-104), значение «грязное» по
+      // семантике ADR-106 §5. T1 потом перепишет под новую формулу.
       await prisma.puzzle.update({
         where: { id: r.id },
-        data: { maiaTop1Prob: r.prob, maiaTop1Elo: elo },
+        data: { maiaWeakChoiceProb: r.prob, maiaTop1Elo: elo },
       });
       updated++;
     } catch (e) {
@@ -357,9 +365,9 @@ async function runReport(prisma: PrismaClient, opts: CliOpts): Promise<void> {
   const rows = await prisma.puzzle.findMany({
     where: {
       solutionMode: opts.solutionMode,
-      maiaTop1Prob: { not: null },
+      maiaWeakChoiceProb: { not: null },
     },
-    select: { maiaTop1Prob: true },
+    select: { maiaWeakChoiceProb: true },
   });
   if (rows.length === 0) {
     process.stdout.write(
@@ -373,14 +381,14 @@ async function runReport(prisma: PrismaClient, opts: CliOpts): Promise<void> {
   let cutoff50 = 0;
   let cutoff70 = 0;
   for (const r of rows) {
-    const p = r.maiaTop1Prob as number;
+    const p = r.maiaWeakChoiceProb as number;
     const b = Math.min(9, Math.floor(p * 10));
     buckets[b]++;
     if (p > 0.3) cutoff30++;
     if (p > 0.5) cutoff50++;
     if (p > 0.7) cutoff70++;
   }
-  const avg = rows.reduce((a, r) => a + (r.maiaTop1Prob as number), 0) / total;
+  const avg = rows.reduce((a, r) => a + (r.maiaWeakChoiceProb as number), 0) / total;
 
   process.stdout.write(`\n=== Maia annotation report ===\n`);
   process.stdout.write(`Total annotated: ${total}\n`);
