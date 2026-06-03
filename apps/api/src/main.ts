@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
@@ -57,6 +58,13 @@ async function bootstrap() {
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
     credentials: true,
   });
+  // KS-3629: подняли лимит body-parser с дефолтных 100KB до 1MB.
+  // Под `/api/analyses/review/comments` приходит расширенный shape
+  // FactsInput (MVP-2: ~325 байт/факт) × несколько десятков фактов
+  // на партию. Дефолт упирался уже на средних разборах. Защита от
+  // перегруза остаётся через JWT + rate-limit в ReviewCommentService.
+  app.use(json({ limit: '1mb' }));
+  app.use(urlencoded({ extended: true, limit: '1mb' }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
 

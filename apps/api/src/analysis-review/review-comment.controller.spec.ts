@@ -73,18 +73,16 @@ describe('BatchCommentDto — class-validator', () => {
     });
   });
 
-  it('`facts.length > 40` → 400 через ArrayMaxSize', async () => {
+  it('`facts.length === 500` (длинная партия) → проходит (KS-3629)', async () => {
+    // KS-3629: верхняя граница на уровне DTO снята. Защита остаётся
+    // через JWT + rate-limit + body-parser limit в main.ts.
     const dto = plainToInstance(BatchCommentDto, {
-      facts: Array.from({ length: 41 }, validFact),
+      facts: Array.from({ length: 500 }, validFact),
       userElo: 1500,
       language: 'en',
     });
     const errs = await validate(dto);
-    expect(errs.length).toBeGreaterThan(0);
-    expect(errs[0].property).toBe('facts');
-    expect(errs[0].constraints).toMatchObject({
-      arrayMaxSize: expect.any(String),
-    });
+    expect(errs).toEqual([]);
   });
 
   it('неверный `language` → 400 через IsIn', async () => {

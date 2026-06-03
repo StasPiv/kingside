@@ -15,7 +15,6 @@
  */
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -339,12 +338,18 @@ export class MoveFactsDto {
 }
 
 /**
- * KS-3615 / ADR-102 §4.2 + §8 B-этап. Body для
+ * KS-3615 / ADR-102 §4.2 + KS-3625 B1' + KS-3629 hotfix. Body для
  * `POST /api/analyses/review/comments`.
  *
- *  - `facts`: 1..40 элементов. Min — пустой массив не имеет смысла,
- *    Max — защита от перегруза LLM (типичная партия с NAG'ами укладывается
- *    в 15-25 ходов; верхний потолок 40 даёт запас).
+ *  - `facts`: непустой массив. Верхняя граница не задаётся на уровне
+ *    DTO — это произвольное число без обоснования. Защита от перегруза
+ *    обеспечивается:
+ *      1) JWT auth (контроллер за JwtAuthGuard);
+ *      2) rate-limit в `review-comment.service.ts`: 10 запросов/мин,
+ *         30/день per user, 200/день global (Redis);
+ *      3) body-parser limit в `main.ts` (см. `bodyParser.json({limit})`).
+ *    Старый `@ArrayMaxSize(40)` (KS-3615 MVP-1) был занижен и резал
+ *    длинные партии при NAG-плотности >40 (KS-3629 регрессия).
  *  - `userElo`: 800..3000 — диапазон калибровки промпта.
  *  - `language`: совпадает с user_language в фактах; явно повторяем на
  *    верхнем уровне для удобства промпт-конструктора.
@@ -352,7 +357,6 @@ export class MoveFactsDto {
 export class BatchCommentDto {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(40)
   @ValidateNested({ each: true })
   @Type(() => MoveFactsDto)
   facts!: MoveFactsDto[];
