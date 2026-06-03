@@ -38,6 +38,7 @@ import {
 } from '../puzzle-generator/types';
 import { runPuzzleGenerator } from '../puzzle-generator/generator-pipeline';
 import { MaiaAnnotationService } from '../maia/maia-annotation.service';
+import { resolvePveSolutionUci } from '../maia/solution-uci';
 
 export interface TwicCliFlags {
   twicIssue: number | null;
@@ -335,7 +336,12 @@ export async function runGeneratePuzzlesFromTwic(
             puzzle.solutionMode === 'play-vs-engine' &&
             maiaAnnotation.isEnabled()
           ) {
-            const solutionUci = puzzle.moves.split(' ')[0]?.trim();
+            // KS-3632 / KS-3635: см. generate-puzzles.cli.ts — у PVE
+            // `moves` пустая строка, ход в `sourceMetadata.firstMovePV1`.
+            const solutionUci = resolvePveSolutionUci(
+              puzzle.moves,
+              puzzle.sourceMetadata,
+            );
             if (solutionUci) {
               const ann = await maiaAnnotation.annotate(
                 puzzle.id,

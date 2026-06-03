@@ -15,7 +15,12 @@
  *       --resume \
  *       [--solution-mode play-vs-engine] \
  *       [--force] \
- *       [--model-path apps/web/public/maia3/maia3_simplified.onnx]
+ *       [--model-path /app/tools/maia3/maia3_simplified.onnx]
+ *
+ * Допускаются оба формата `--key=value` и `--key value`. Неизвестные
+ * флаги и positional-аргументы валят CLI с ненулевым exit-кодом —
+ * раньше `--elo 1500` (с пробелом) молча игнорировалось, дефолт 1500
+ * подменял переданное значение (KS-3635).
  *
  * Идемпотентность:
  *   - `--resume` (default): пропускает строки с `maia_top1_prob IS NOT
@@ -28,19 +33,25 @@
  *      на onnxruntime-web/WASM). Сессия лениво поднимается при первом
  *      inference.
  *   2. Чтение `Puzzle` батчами по `--batch-size` `ORDER BY id`
- *      (детерминированный порядок).
+ *      (детерминированный порядок). Селектится также `sourceMetadata`
+ *      — оттуда берётся правильный ход (`firstMovePV1`), у play-vs-
+ *      engine `moves` пустая строка (см. `solution-uci.ts`).
  *   3. Для каждой строки: `predictMoves(fen, elo, elo)`, поиск
- *      вероятности `puzzle.moves[0]` (с учётом mirror) — записывается
- *      в `maia_top1_prob`.
+ *      вероятности правильного хода (с учётом mirror).
  *   4. Batch UPDATE через `prisma.puzzle.update` (по одному, без
  *      транзакции — независимые строки).
- *   5. Лог `[annotation] processed=K skipped=S errors=E elapsed=Tms`.
+ *   5. Лог `[annotation] processed=K updated=U errors=E elapsed=Tms`.
+ *   6. По завершении — сводка по типам ошибок (`errorsByReason`)
+ *      и первые до 20 строк с (id, reason, message) в stderr на
+ *      время прогона.
  *
  * Отчёт по гистограмме и %% отсева для порогов 0.3/0.5/0.7 — отдельный
  * sub-команд `--report` (без записи) либо post-prod SQL-агрегация
  * (см. README).
  */
 import { performance } from 'node:perf_hooks';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { PrismaClient } from '@kingside/db';
 import {
@@ -49,6 +60,15 @@ import {
   loadModelFromFs,
   mirrorMove,
 } from '@kingside/maia-core';
+
+import { resolvePveSolutionUci } from './solution-uci.js';
+
+// __dirname-эквивалент для ESM. CLI запускается через `node --import
+// tsx`, у tsx ESM-режим по умолчанию. До фикса дефолтный modelPath
+// был относительный к CWD ('tools/maia3/...'), что ломалось в
+// контейнере (CWD ≠ /app, см. KS-3635).
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_MODEL_PATH = path.resolve(HERE, '../../maia3/maia3_simplified.onnx');
 
 interface CliOpts {
   elo: number;
@@ -61,6 +81,25 @@ interface CliOpts {
   dryRun: boolean;
 }
 
+// Флаги, которым нужно value (--key value или --key=value).
+const VALUE_FLAGS = new Set<string>([
+  'elo',
+  'batch-size',
+  'solution-mode',
+  'model-path',
+]);
+
+// Boolean-флаги (без value).
+const BOOL_FLAGS = new Set<string>([
+  'resume',
+  'no-resume',
+  'force',
+  'report',
+  'dry-run',
+  'help',
+  'h',
+]);
+
 function parseArgs(argv: string[]): CliOpts {
   const opts: CliOpts = {
     elo: parseInt(process.env.PRECISION_MAIA_ANNOTATION_ELO ?? '1500', 10),
@@ -68,24 +107,65 @@ function parseArgs(argv: string[]): CliOpts {
     resume: true,
     force: false,
     solutionMode: 'play-vs-engine',
-    modelPath:
-      process.env.PRECISION_MAIA_MODEL_PATH ??
-      'tools/maia3/maia3_simplified.onnx',
+    modelPath: process.env.PRECISION_MAIA_MODEL_PATH ?? DEFAULT_MODEL_PATH,
     report: false,
     dryRun: false,
   };
-  for (const arg of argv) {
-    const m = arg.match(/^--([^=]+)(?:=(.*))?$/);
-    if (!m) continue;
-    const [, key, valueRaw] = m;
-    const value = valueRaw ?? '';
+
+  let i = 0;
+  while (i < argv.length) {
+    const arg = argv[i];
+    if (!arg.startsWith('--')) {
+      process.stderr.write(
+        `[maia-annotate] positional argument не поддерживается: ${arg}\n`,
+      );
+      printUsage();
+      process.exit(2);
+    }
+    const eqIdx = arg.indexOf('=');
+    const key = eqIdx >= 0 ? arg.slice(2, eqIdx) : arg.slice(2);
+    let value: string | null = null;
+    if (eqIdx >= 0) {
+      value = arg.slice(eqIdx + 1);
+    } else if (VALUE_FLAGS.has(key)) {
+      // --key value: следующий arg — значение, если это не флаг.
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('--')) {
+        process.stderr.write(
+          `[maia-annotate] флагу --${key} требуется значение\n`,
+        );
+        printUsage();
+        process.exit(2);
+      }
+      value = next;
+      i += 1;
+    }
+
+    if (!VALUE_FLAGS.has(key) && !BOOL_FLAGS.has(key)) {
+      process.stderr.write(`[maia-annotate] неизвестный флаг: --${key}\n`);
+      printUsage();
+      process.exit(2);
+    }
+
     switch (key) {
-      case 'elo':
-        opts.elo = parseInt(value, 10);
+      case 'elo': {
+        const n = parseInt(value as string, 10);
+        if (!Number.isFinite(n)) {
+          process.stderr.write(`[maia-annotate] --elo: ожидалось число, получено '${value}'\n`);
+          process.exit(2);
+        }
+        opts.elo = n;
         break;
-      case 'batch-size':
-        opts.batchSize = Math.max(1, parseInt(value, 10));
+      }
+      case 'batch-size': {
+        const n = parseInt(value as string, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          process.stderr.write(`[maia-annotate] --batch-size: ожидалось положительное число, получено '${value}'\n`);
+          process.exit(2);
+        }
+        opts.batchSize = n;
         break;
+      }
       case 'resume':
         opts.resume = true;
         break;
@@ -97,10 +177,10 @@ function parseArgs(argv: string[]): CliOpts {
         opts.resume = false;
         break;
       case 'solution-mode':
-        opts.solutionMode = value;
+        opts.solutionMode = value as string;
         break;
       case 'model-path':
-        opts.modelPath = value;
+        opts.modelPath = value as string;
         break;
       case 'report':
         opts.report = true;
@@ -112,19 +192,18 @@ function parseArgs(argv: string[]): CliOpts {
       case 'h':
         printUsage();
         process.exit(0);
-      default:
-        process.stderr.write(`[maia-annotate] unknown flag: --${key}\n`);
     }
+
+    i += 1;
   }
-  if (!Number.isFinite(opts.elo)) opts.elo = 1500;
-  if (!Number.isFinite(opts.batchSize)) opts.batchSize = 1000;
   return opts;
 }
 
 function printUsage(): void {
   process.stdout.write(
     `tools/maia-puzzle-annotation — KS-3632 / ADR-104 §4\n\n` +
-      `Usage: node --import tsx tools/maia-puzzle-annotation/src/index.ts [flags]\n\n` +
+      `Usage: node --import tsx tools/maia-puzzle-annotation/src/index.ts [flags]\n` +
+      `       (формат --key=value и --key value оба поддержаны)\n\n` +
       `Flags:\n` +
       `  --elo N           ELO разметки (default ENV PRECISION_MAIA_ANNOTATION_ELO / 1500)\n` +
       `  --batch-size N    Размер пакета чтения (default 1000)\n` +
@@ -132,7 +211,7 @@ function printUsage(): void {
       `  --no-resume       Не пропускать (но и не перезаписывать non-NULL под другим ELO)\n` +
       `  --force           Перезаписать всё (включая non-NULL под другим ELO)\n` +
       `  --solution-mode M Фильтр (default play-vs-engine)\n` +
-      `  --model-path P    Путь к ONNX (default apps/web/public/maia3/maia3_simplified.onnx)\n` +
+      `  --model-path P    Путь к ONNX (default — резолвится от файла CLI: ${DEFAULT_MODEL_PATH})\n` +
       `  --report          Сделать отчёт по гистограмме (без записи)\n` +
       `  --dry-run         Не писать в БД (только лог)\n`,
   );
@@ -142,7 +221,9 @@ async function fetchBatch(
   prisma: PrismaClient,
   opts: CliOpts,
   cursorId: string | null,
-): Promise<Array<{ id: string; fen: string; moves: string }>> {
+): Promise<
+  Array<{ id: string; fen: string; moves: string; sourceMetadata: string | null }>
+> {
   type Where = {
     solutionMode: string;
     id?: { gt: string };
@@ -159,7 +240,7 @@ async function fetchBatch(
   }
   return prisma.puzzle.findMany({
     where,
-    select: { id: true, fen: true, moves: true },
+    select: { id: true, fen: true, moves: true, sourceMetadata: true },
     orderBy: { id: 'asc' },
     take: opts.batchSize,
   });
@@ -168,16 +249,26 @@ async function fetchBatch(
 interface RowResult {
   id: string;
   prob: number | null;
-  error?: string;
+  /** Категория ошибки (для сводки по типам). */
+  errorReason?: string;
+  /** Детальное сообщение (первые N — печатается в stderr). */
+  errorMessage?: string;
 }
 
 async function annotateRow(
   maia: Maia,
-  row: { id: string; fen: string; moves: string },
+  row: { id: string; fen: string; moves: string; sourceMetadata: string | null },
   elo: number,
 ): Promise<RowResult> {
-  const solutionUci = row.moves.split(' ')[0]?.trim();
-  if (!solutionUci) return { id: row.id, prob: null, error: 'empty-moves' };
+  const solutionUci = resolvePveSolutionUci(row.moves, row.sourceMetadata);
+  if (!solutionUci) {
+    return {
+      id: row.id,
+      prob: null,
+      errorReason: 'no-solution-uci',
+      errorMessage: 'firstMovePV1 отсутствует в sourceMetadata и moves[0] пустой',
+    };
+  }
   try {
     const result = await maia.predictMoves(row.fen, elo, elo);
     const direct =
@@ -187,7 +278,37 @@ async function annotateRow(
         ?.probability ?? 0;
     return { id: row.id, prob: Math.max(direct, mirrored) };
   } catch (e) {
-    return { id: row.id, prob: null, error: (e as Error).message };
+    return {
+      id: row.id,
+      prob: null,
+      errorReason: 'inference-exception',
+      errorMessage: (e as Error).message,
+    };
+  }
+}
+
+interface ErrorAggregator {
+  /** Сколько ошибок уже выведено в stderr (cap = ERROR_SAMPLE_CAP). */
+  samplePrinted: number;
+  /** Сколько ошибок каждого типа суммарно. */
+  byReason: Map<string, number>;
+}
+
+const ERROR_SAMPLE_CAP = 20;
+
+function recordError(
+  agg: ErrorAggregator,
+  id: string,
+  reason: string,
+  message: string,
+): void {
+  agg.byReason.set(reason, (agg.byReason.get(reason) ?? 0) + 1);
+  if (agg.samplePrinted < ERROR_SAMPLE_CAP) {
+    process.stderr.write(
+      `[maia-annotate] error sample ${agg.samplePrinted + 1}/${ERROR_SAMPLE_CAP} ` +
+        `puzzle=${id} reason=${reason} msg=${message}\n`,
+    );
+    agg.samplePrinted += 1;
   }
 }
 
@@ -196,12 +317,19 @@ async function writeBatchUpdate(
   results: RowResult[],
   elo: number,
   dryRun: boolean,
+  agg: ErrorAggregator,
 ): Promise<{ updated: number; errors: number }> {
   let updated = 0;
   let errors = 0;
   for (const r of results) {
-    if (r.error || r.prob === null) {
+    if (r.errorReason || r.prob === null) {
       errors++;
+      recordError(
+        agg,
+        r.id,
+        r.errorReason ?? 'unknown',
+        r.errorMessage ?? 'unknown',
+      );
       continue;
     }
     if (dryRun) {
@@ -216,9 +344,7 @@ async function writeBatchUpdate(
       updated++;
     } catch (e) {
       errors++;
-      process.stderr.write(
-        `[maia-annotate] update failed for ${r.id}: ${(e as Error).message}\n`,
-      );
+      recordError(agg, r.id, 'update-failed', (e as Error).message);
     }
   }
   return { updated, errors };
@@ -307,6 +433,10 @@ async function main(): Promise<void> {
     let totalProcessed = 0;
     let totalUpdated = 0;
     let totalErrors = 0;
+    const errorAgg: ErrorAggregator = {
+      samplePrinted: 0,
+      byReason: new Map(),
+    };
     const start = performance.now();
 
     for (;;) {
@@ -324,6 +454,7 @@ async function main(): Promise<void> {
         results,
         opts.elo,
         opts.dryRun,
+        errorAgg,
       );
       totalProcessed += batch.length;
       totalUpdated += updated;
@@ -334,8 +465,8 @@ async function main(): Promise<void> {
         `[maia-annotate] batch=${batch.length} updated=${updated} ` +
           `errors=${errors} elapsed=${batchMs.toFixed(0)}ms ` +
           `total=${totalProcessed} (${(
-            (totalProcessed / ((performance.now() - start) / 1000)) /
-            1
+            totalProcessed /
+            Math.max((performance.now() - start) / 1000, 0.001)
           ).toFixed(1)} puzzles/sec)\n`,
       );
     }
@@ -346,6 +477,16 @@ async function main(): Promise<void> {
         `errors=${totalErrors} time=${totalSec.toFixed(1)}s ` +
         `rate=${(totalProcessed / Math.max(totalSec, 0.001)).toFixed(1)} puzzles/sec\n`,
     );
+    if (errorAgg.byReason.size > 0) {
+      process.stdout.write(`[maia-annotate] errors by reason:\n`);
+      const sorted = Array.from(errorAgg.byReason.entries()).sort(
+        (a, b) => b[1] - a[1],
+      );
+      for (const [reason, count] of sorted) {
+        const pct = ((count / Math.max(totalProcessed, 1)) * 100).toFixed(2);
+        process.stdout.write(`  ${reason}: ${count} (${pct}%)\n`);
+      }
+    }
   } finally {
     await prisma.$disconnect().catch(() => undefined);
   }

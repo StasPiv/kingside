@@ -1,0 +1,7 @@
+{
+  "name": "@kingside/maia-puzzle-annotation",
+  "version": "0.0.1",
+  "private": true,
+  "description": "KS-3632 / ADR-104 §4. Admin-CLI Maia-3 разметки Precision-пазлов.",
+  "type": "module"
+}

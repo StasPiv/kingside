@@ -47,6 +47,7 @@ import {
 } from '../puzzle-generator/types';
 import { runPuzzleGenerator } from '../puzzle-generator/generator-pipeline';
 import { MaiaAnnotationService } from '../maia/maia-annotation.service';
+import { resolvePveSolutionUci } from '../maia/solution-uci';
 
 interface CliFlags {
   options: Omit<GeneratorOptions, 'insertPuzzle'>;
@@ -304,7 +305,14 @@ export async function runGeneratePuzzles(
         puzzle.solutionMode === 'play-vs-engine' &&
         maiaAnnotation.isEnabled()
       ) {
-        const solutionUci = puzzle.moves.split(' ')[0]?.trim();
+        // KS-3632 / KS-3635: у play-vs-engine `moves` пустая строка, а
+        // правильный ход лежит в `sourceMetadata.firstMovePV1`. До фикса
+        // тут было `moves.split(' ')[0]` — все новые PVE-пазлы тихо
+        // оставались без Maia-разметки.
+        const solutionUci = resolvePveSolutionUci(
+          puzzle.moves,
+          puzzle.sourceMetadata,
+        );
         if (solutionUci) {
           const ann = await maiaAnnotation.annotate(
             puzzle.id,
