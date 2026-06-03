@@ -37,6 +37,10 @@ import { PrecisionRatingPill } from '../components/precision/PrecisionRatingPill
 import { PrecisionStartTrainingButton } from '../components/precision/PrecisionStartTrainingButton';
 // KS-3361 (ADR-080 §7 F1). Bottom-sheet выбора тем.
 import { PrecisionThemesSheet } from '../components/precision/PrecisionThemesSheet';
+// KS-3654 (ADR-106 §2.6). Слайдер сложности (Maia weak-choice
+// probability). Запись значения идёт в localStorage; следующий клик
+// «Начать тренировку» подхватит новый порог через readPrecisionMaiaThreshold.
+import { PrecisionDifficultySlider } from '../components/precision/PrecisionDifficultySlider';
 // KS-3362 (ADR-080 §7 F2). Парсер/писатель URL-state для тем.
 import {
   readPrecisionThemesFromUrl,
@@ -902,6 +906,10 @@ export function PrecisionPage() {
             />
           </div>
         </div>
+        {/* KS-3654 (ADR-106 §2.6). Слайдер сложности — порог Maia
+            weak-choice probability. Сохраняется в localStorage и
+            подхватывается следующим кликом «Начать тренировку». */}
+        <PrecisionDifficultySlider puzzlesSample={puzzles} />
         {/* KS-3382: compact-bar со статистикой (точность/удержано-упущено)
             убран — рейтинг-pill в шапке достаточно, подробная статистика
             на вкладке «Прогресс» (/precision/stats). Empty-CTA «Начать
