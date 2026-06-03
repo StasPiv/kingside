@@ -1,5 +1,14 @@
 /**
- * KS-3615 / ADR-102 §8 B. Unit-тесты ReviewCommentService.
+ * KS-3615 / ADR-102 §8 B (MVP-1) + KS-3625 / ADR-103 rev 3 §7/§8
+ * (MVP-2 B1'). Unit-тесты ReviewCommentService.
+ *
+ * Сервис stateless: серверного Stockfish нет (отменён в rev 3 — eval
+ * полностью уехал на клиент). Тесты покрывают:
+ *  - graceful degradation webhook'а;
+ *  - V1 prompt (default — REVIEW_COMMENT_V2 off);
+ *  - V2 prompt (few-shot, запреты, ELO-калибровка);
+ *  - postValidate (NAG-blacklist + min-length, активна в ОБЕИХ ветках);
+ *  - rate-limit (namespace review:*).
  *
  * Webhook'овые вызовы делаются через глобальный `fetch` — мокаем
  * `global.fetch` напрямую, без http-моков. RedisService — stub.
@@ -7,7 +16,7 @@
 import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReviewCommentService } from './review-comment.service';
-import type { BatchCommentDto } from './dto/batch-comment.dto';
+import type { BatchCommentDto, MoveFactsDto } from './dto/batch-comment.dto';
 
 type ConfigMap = Record<string, string>;
 
@@ -52,9 +61,10 @@ function makeRedisStub() {
 }
 
 function makeFacts(n: number): BatchCommentDto {
-  const facts = Array.from({ length: n }, (_, i) => ({
+  const facts: MoveFactsDto[] = Array.from({ length: n }, (_, i) => ({
     ply: i,
     fen: '8/8/8/8/8/8/8/8 w - - 0 1',
+    fen_after: '8/8/8/8/8/8/8/8 b - - 0 1',
     side: 'white' as const,
     move: {
       san: `m${i}`,
@@ -75,6 +85,10 @@ function makeFacts(n: number): BatchCommentDto {
     material_change: null,
     hanging_piece: null,
     mate_threat_after: null,
+    tactical_motifs: [],
+    threats_created: {},
+    threats_missed: {},
+    positional_shifts: [],
     user_elo: 1500,
     user_language: 'en' as const,
   }));
@@ -107,13 +121,19 @@ describe('ReviewCommentService', () => {
       const dto = makeFacts(2);
       global.fetch = jest.fn(async () =>
         new Response(
-          JSON.stringify({ response: '["First comment.", "Second comment."]' }),
+          JSON.stringify({
+            response:
+              '["First long enough comment about the move.", "Another lengthy explanation here."]',
+          }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       ) as any;
 
       const result = await svc.batchComment('user-1', dto);
-      expect(result).toEqual(['First comment.', 'Second comment.']);
+      expect(result).toEqual([
+        'First long enough comment about the move.',
+        'Another lengthy explanation here.',
+      ]);
     });
 
     it('webhook 5xx → массив пустых строк, не падаем', async () => {
@@ -188,7 +208,7 @@ describe('ReviewCommentService', () => {
       );
       const dto = makeFacts(2);
       const fenced =
-        '```json\n["From a code block.", "Second."]\n```';
+        '```json\n["From a code block long enough comment.", "Second comment with enough words inside."]\n```';
       global.fetch = jest.fn(async () =>
         new Response(JSON.stringify({ response: fenced }), {
           status: 200,
@@ -197,11 +217,14 @@ describe('ReviewCommentService', () => {
       ) as any;
 
       const result = await svc.batchComment('user-1', dto);
-      expect(result).toEqual(['From a code block.', 'Second.']);
+      expect(result).toEqual([
+        'From a code block long enough comment.',
+        'Second comment with enough words inside.',
+      ]);
     });
   });
 
-  describe('buildSystemPrompt — содержит все CRITICAL RULES', () => {
+  describe('buildSystemPrompt V1 (default — REVIEW_COMMENT_V2 off)', () => {
     const svc = new ReviewCommentService(
       makeConfigService({}),
       makeRedisStub(),
@@ -227,6 +250,73 @@ describe('ReviewCommentService', () => {
       expect(svc.buildSystemPrompt('en', 2200)).toContain(
         'Use technical terms.',
       );
+    });
+
+    it('isV2Enabled() === false при дефолтном ENV', () => {
+      expect(svc.isV2Enabled()).toBe(false);
+    });
+
+    it('V1 prompt НЕ содержит V2-специфичных блоков (regression)', () => {
+      const p = svc.buildSystemPrompt('ru', 1500);
+      expect(p).not.toContain('ЗАПРЕЩЕНО');
+      expect(p).not.toContain('few-shot');
+      expect(p).not.toContain('positional_shifts');
+      expect(p).not.toContain('tactical_motifs');
+    });
+  });
+
+  describe('buildSystemPrompt V2 (REVIEW_COMMENT_V2=on)', () => {
+    const svc = new ReviewCommentService(
+      makeConfigService({ REVIEW_COMMENT_V2: 'on' }),
+      makeRedisStub(),
+    );
+
+    it('isV2Enabled() === true', () => {
+      expect(svc.isV2Enabled()).toBe(true);
+    });
+
+    it('RU prompt содержит запрет NAG-тавтологии и few-shot маркеры', () => {
+      const p = svc.buildSystemPrompt('ru', 1500);
+      expect(p).toContain('User language: ru');
+      expect(p).toContain('ЗАПРЕЩЕНО');
+      expect(p).toContain('«сильный ход»');
+      expect(p).toContain('positional_shifts');
+      expect(p).toContain('tactical_motifs');
+      expect(p).toContain('threats_created');
+      // Few-shot пары
+      expect(p).toContain('ПЛОХО');
+      expect(p).toContain('ХОРОШО');
+      // должны быть оба вида примеров — RU и EN — для устойчивости
+      expect(p).toContain('BAD');
+      expect(p).toContain('GOOD');
+    });
+
+    it('EN prompt содержит запрет NAG-тавтологии и few-shot маркеры', () => {
+      const p = svc.buildSystemPrompt('en', 1500);
+      expect(p).toContain('User language: en');
+      expect(p).toContain('FORBIDDEN');
+      expect(p).toContain('"strong move"');
+      expect(p).toContain('BAD');
+      expect(p).toContain('GOOD');
+    });
+
+    it('ELO калибровка переключает подсказку лексики', () => {
+      expect(svc.buildSystemPrompt('ru', 1200)).toContain('Простые слова');
+      expect(svc.buildSystemPrompt('ru', 2100)).toContain(
+        'Позиционные термины',
+      );
+      expect(svc.buildSystemPrompt('en', 1200)).toContain('Simple words');
+      expect(svc.buildSystemPrompt('en', 2100)).toContain('Positional terms');
+    });
+
+    it('Few-shot содержит минимум 8 пар (по 4 RU + 4 EN, но реально 8+8)', () => {
+      const p = svc.buildSystemPrompt('en', 1500);
+      // Каждая пара = одна BAD-строка. Считаем число BAD: в EN-блоке.
+      const badCount = (p.match(/^BAD:/gm) ?? []).length;
+      const plohoCount = (p.match(/^ПЛОХО:/gm) ?? []).length;
+      // 8 EN-пар + 8 RU-пар (RU тоже идёт как reference).
+      expect(badCount).toBeGreaterThanOrEqual(8);
+      expect(plohoCount).toBeGreaterThanOrEqual(8);
     });
   });
 
@@ -265,6 +355,101 @@ describe('ReviewCommentService', () => {
 
     it('массив другой длины → throw', () => {
       expect(() => svc.parseAndValidate('["a", "b", "c"]', 2)).toThrow();
+    });
+  });
+
+  describe('postValidate — NAG-blacklist и min-length (ADR-103 §8)', () => {
+    const svc = new ReviewCommentService(
+      makeConfigService({}),
+      makeRedisStub(),
+    );
+
+    it('NAG RU: «Сильный ход.» → пустая строка', () => {
+      expect(svc.postValidate(['Сильный ход.'])).toEqual(['']);
+      expect(svc.postValidate(['сильный ход'])).toEqual(['']);
+      expect(svc.postValidate(['Грубая ошибка!'])).toEqual(['']);
+      expect(svc.postValidate(['Неточность.'])).toEqual(['']);
+      expect(svc.postValidate(['Зевок'])).toEqual(['']);
+    });
+
+    it('NAG EN: «Mistake.» / «Blunder» → пустая строка', () => {
+      expect(svc.postValidate(['Mistake.'])).toEqual(['']);
+      expect(svc.postValidate(['Blunder!'])).toEqual(['']);
+      expect(svc.postValidate(['Good move.'])).toEqual(['']);
+      expect(svc.postValidate(['Inaccuracy'])).toEqual(['']);
+    });
+
+    it('Короткий комментарий (<4 слов И <25 символов) → пустая строка', () => {
+      expect(svc.postValidate(['Очень кратко.'])).toEqual(['']);
+      expect(svc.postValidate(['Too short'])).toEqual(['']);
+    });
+
+    it('Содержательный комментарий проходит', () => {
+      const ok =
+        'Ферзь становится под удар коня f6 без защиты — теряется фигура.';
+      expect(svc.postValidate([ok])).toEqual([ok]);
+    });
+
+    it('Длинный по символам (≥25) но мало слов — проходит', () => {
+      // 3 слова, но 30+ символов → правило (минимум слов ИЛИ символов).
+      const s = 'Aaaaaaaa bbbbbbbb ccccccccccccccc';
+      expect(s.length).toBeGreaterThanOrEqual(25);
+      expect(svc.postValidate([s])).toEqual([s]);
+    });
+
+    it('Пустая строка остаётся пустой (валидно — модель сама вернула пустоту)', () => {
+      expect(svc.postValidate([''])).toEqual(['']);
+    });
+
+    it('postValidate активна и при V2=off', () => {
+      // Тот же сервис без REVIEW_COMMENT_V2 — всё равно режет NAG.
+      const v1 = new ReviewCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      expect(v1.isV2Enabled()).toBe(false);
+      expect(v1.postValidate(['Strong move.'])).toEqual(['']);
+    });
+
+    it('postValidate применяется поверх parseAndValidate в batchComment', async () => {
+      const svc = new ReviewCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const dto = makeFacts(2);
+      // Модель вернула одну NAG-тавтологию и один содержательный — после
+      // post-валидации NAG превратится в пустую строку.
+      global.fetch = jest.fn(async () =>
+        new Response(
+          JSON.stringify({
+            response:
+              '["Strong move.", "The knight grabs the pawn and forks queen and rook."]',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ) as any;
+
+      const result = await svc.batchComment('u', dto);
+      expect(result).toEqual([
+        '',
+        'The knight grabs the pawn and forks queen and rook.',
+      ]);
+    });
+
+    it('Кастомные пороги MIN_WORDS/MIN_CHARS уважаются', () => {
+      const svc = new ReviewCommentService(
+        makeConfigService({
+          REVIEW_COMMENT_MIN_WORDS: '6',
+          REVIEW_COMMENT_MIN_CHARS: '40',
+        }),
+        makeRedisStub(),
+      );
+      // 5 слов, 30 символов — не пройдёт ни по словам (<6), ни по символам (<40).
+      expect(svc.postValidate(['One two three four five.'])).toEqual(['']);
+      // 6 слов — проходит.
+      expect(svc.postValidate(['One two three four five six.'])).toEqual([
+        'One two three four five six.',
+      ]);
     });
   });
 

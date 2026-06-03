@@ -1,6 +1,7 @@
 /**
- * KS-3615 / ADR-102 §8 B-этап. NestJS-модуль для LLM-комментариев
- * к ходам («Разобрать партию»).
+ * KS-3615 / ADR-102 §8 B-этап (MVP-1) + KS-3625 / ADR-103 rev 3
+ * (MVP-2 B1'). NestJS-модуль для LLM-комментариев к ходам
+ * («Разобрать партию»).
  *
  * Зависимости:
  *  - `AuthModule` — JwtAuthGuard на контроллере.
@@ -11,6 +12,9 @@
  * Не реэкспортируем `ReviewCommentService` — он используется только
  * собственным контроллером, других потребителей нет (фронт идёт
  * исключительно через HTTP).
+ *
+ * MVP-2 (rev 3): серверного Stockfish нет. `positional_shifts` приходят
+ * готовыми с фронта (WASM SF 16), бэк stateless относительно eval'а.
  */
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';

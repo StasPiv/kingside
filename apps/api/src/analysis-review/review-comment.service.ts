@@ -1,13 +1,26 @@
 /**
- * KS-3615 / ADR-102 §8 B-этап. Backend-сервис LLM-комментариев к ходам.
+ * KS-3615 / ADR-102 §8 B-этап (MVP-1) + KS-3625 / ADR-103 rev 3
+ * §7/§8 (MVP-2 B1'). Backend-сервис LLM-комментариев к ходам.
  *
- * Flow: контроллер собирает batch фактов от фронта → сервис строит
- * системный prompt → шлёт в тот же webhook что и AI Assistant
- * (`AI_CHAT_WEBHOOK_URL`) → парсит JSON-массив строк → возвращает.
+ * Flow:
+ *  - контроллер собирает batch фактов от фронта (вместе с готовыми
+ *    `positional_shifts` от WASM SF 16 на клиенте — ADR-103 rev 3);
+ *  - строит системный prompt (V1 или V2 — по ENV `REVIEW_COMMENT_V2`);
+ *  - шлёт в тот же webhook что и AI Assistant (`AI_CHAT_WEBHOOK_URL`);
+ *  - парсит JSON-массив строк;
+ *  - применяет post-валидацию (NAG-blacklist + min-length);
+ *  - возвращает comments.
+ *
+ * Сервис stateless: серверного Stockfish нет (отменён в rev 3 — eval
+ * полностью уехал на клиент). Все факты, включая позиционные ярлыки,
+ * приходят готовыми с фронта и сериализуются в prompt как есть.
  *
  * Graceful degradation (ADR-102 §4.2 «Дефолты»): webhook down, парсинг
  * сломался, длина не сошлась — отдаём массив пустых строк той же длины.
  * Фронт (KS-3616 C) понимает: дубль создан, комментариев нет.
+ *
+ * Post-валидация активна в ОБЕИХ ветках (V1 и V2): даже на старом
+ * prompt'е резать NAG-тавтологии в любом случае (ADR-103 §8.3).
  */
 import {
   HttpException,
@@ -28,6 +41,10 @@ export class ReviewCommentService {
   private readonly model: string;
   private readonly maxTokensPerFact: number;
   private readonly fetchTimeoutMs: number;
+  /** ADR-103 §10.1 — ENV-флаг V2. */
+  private readonly v2Enabled: boolean;
+  private readonly minWords: number;
+  private readonly minChars: number;
 
   readonly rateLimitPerMin: number;
   readonly rateLimitPerDay: number;
@@ -39,25 +56,31 @@ export class ReviewCommentService {
   ) {
     this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
     this.webhookSecret = this.config.get<string>('WEBHOOK_AUTH_TOKEN', '');
-    // Дефолт совпадает с CHAT_MODEL в ChatAssistantService — тот же
-    // claude, только отдельная ENV-переменная, чтобы model для review
-    // можно было поменять (например haiku для дешевизны) без влияния
-    // на чат-ассистента.
     this.model = this.config.get<string>(
       'REVIEW_COMMENT_MODEL',
       'claude-sonnet-4-20250514',
     );
     this.maxTokensPerFact = parseInt(
-      this.config.get<string>('REVIEW_COMMENT_MAX_TOKENS_PER_FACT', '80'),
+      this.config.get<string>('REVIEW_COMMENT_MAX_TOKENS_PER_FACT', '160'),
       10,
     );
-    // 180c — то же что в ChatAssistantService.callWebhookOnce
-    // (комментарий KS-3219/3227/3228: длинные tool-chain'ы + retry в
-    // самом webhook'е могут занять до ~90c, держим 180c с запасом).
     this.fetchTimeoutMs = parseInt(
       this.config.get<string>('REVIEW_COMMENT_FETCH_TIMEOUT_MS', '180000'),
       10,
     );
+    const v2Raw = this.config
+      .get<string>('REVIEW_COMMENT_V2', 'off')
+      .toLowerCase();
+    this.v2Enabled = v2Raw === 'on' || v2Raw === 'true' || v2Raw === '1';
+    this.minWords = Math.max(
+      0,
+      parseInt(this.config.get<string>('REVIEW_COMMENT_MIN_WORDS', '4'), 10),
+    );
+    this.minChars = Math.max(
+      0,
+      parseInt(this.config.get<string>('REVIEW_COMMENT_MIN_CHARS', '25'), 10),
+    );
+
     this.rateLimitPerMin = parseInt(
       this.config.get<string>('REVIEW_COMMENT_RATE_LIMIT_PER_MIN', '10'),
       10,
@@ -70,6 +93,10 @@ export class ReviewCommentService {
       this.config.get<string>('REVIEW_COMMENT_GLOBAL_DAILY_LIMIT', '200'),
       10,
     );
+  }
+
+  isV2Enabled(): boolean {
+    return this.v2Enabled;
   }
 
   // ─── Rate-limit (паттерн зеркалит ChatAssistantService) ────────────
@@ -169,6 +196,11 @@ export class ReviewCommentService {
    */
   async batchComment(userId: string, dto: BatchCommentDto): Promise<string[]> {
     const n = dto.facts.length;
+
+    // ADR-103 rev 3: positional_shifts приходят готовыми с фронта
+    // (WASM SF 16). Бэк ничего не дозаполняет — факты идут в prompt
+    // как есть.
+
     if (!this.webhookUrl) {
       this.logger.warn(
         `batchComment user=${userId.slice(0, 8)} n=${n}: ` +
@@ -187,7 +219,7 @@ export class ReviewCommentService {
         userMessage,
       );
       const parsed = this.parseAndValidate(response, n);
-      return parsed;
+      return this.postValidate(parsed);
     } catch (e) {
       this.logger.error(
         `batchComment user=${userId.slice(0, 8)} n=${n} failed: ` +
@@ -201,15 +233,20 @@ export class ReviewCommentService {
   // ─── Промпт ─────────────────────────────────────────────────────────
 
   /**
-   * KS-3615 / ADR-102 §5. Жёсткий системный prompt:
-   *  - язык, ELO-калибровка;
-   *  - INPUT/OUTPUT-формат (батч JSON → массив строк той же длины);
-   *  - CRITICAL RULES — против галлюцинаций тактических мотивов и
-   *    «ты должен был сыграть».
+   * Маршрутизатор V1/V2. V2 включается ENV `REVIEW_COMMENT_V2=on`
+   * (ADR-103 §10.1).
    *
-   * Метод public — чтобы spec мог проверить наличие правил.
+   * Метод public — чтобы spec мог проверить содержимое в обоих режимах.
    */
   buildSystemPrompt(language: 'en' | 'ru', userElo: number): string {
+    return this.v2Enabled
+      ? this.buildSystemPromptV2(language, userElo)
+      : this.buildSystemPromptV1(language, userElo);
+  }
+
+  // ─── V1 prompt (MVP-1, ADR-102 §5) ──────────────────────────────────
+
+  private buildSystemPromptV1(language: 'en' | 'ru', userElo: number): string {
     const lexCal =
       userElo < 1500
         ? 'Use simple terms.'
@@ -236,6 +273,219 @@ export class ReviewCommentService {
       'OUTPUT: JSON array of strings, one per input fact, in the same order.',
       'Example: ["You captured the knight, losing your bishop.", "Sharp move winning the queen."]',
     ].join('\n');
+  }
+
+  // ─── V2 prompt (ADR-103 rev 3 §7.1) ─────────────────────────────────
+
+  /**
+   * ADR-103 rev 3 §7.1. Системный prompt V2:
+   *  - Запрет NAG-тавтологии (явный список фраз RU и EN).
+   *  - Требование объяснять причину (что выигрывает / теряет / создаёт).
+   *  - Лимит 15–60 слов на комментарий.
+   *  - 8 few-shot пар «ПЛОХО / ХОРОШО».
+   *  - Калибровка по ELO (<1500 / 1500-2000 / ≥2000).
+   *
+   * Few-shot блок выдаётся на обоих языках, ведущий — `language`. Это
+   * мягкая подсказка — формальный язык ответа задан в верхней строке.
+   */
+  private buildSystemPromptV2(language: 'en' | 'ru', userElo: number): string {
+    const eloHint =
+      userElo < 1500
+        ? language === 'ru'
+          ? 'Простые слова: «теряет ферзя», «вилка на короля и ладью», «король под боем», «защищён конём, можно брать».'
+          : 'Simple words: "loses the queen", "fork on king and rook", "king is exposed", "defended by knight — fine to take".'
+        : userElo >= 2000
+          ? language === 'ru'
+            ? 'Позиционные термины: «изолированная пешка», «слабый комплекс», «активность фигур», «жертва качества», «структурный перевес».'
+            : 'Positional terms: "isolated pawn", "weak square complex", "piece activity", "exchange sacrifice", "structural advantage".'
+          : language === 'ru'
+            ? 'Средний уровень: «инициатива», «темп», «упускает компенсацию», «связка», «открытая линия для ладьи».'
+            : 'Intermediate level: "initiative", "tempo", "loses compensation", "pin", "open file for the rook".';
+
+    const head = [
+      language === 'ru'
+        ? 'Ты — шахматный тренер. Комментируешь ходы конкретного учащегося.'
+        : 'You are a chess coach commenting moves for a specific learner.',
+      `User language: ${language}.`,
+      `User ELO: ${userElo}.`,
+      `${eloHint}`,
+      '',
+      language === 'ru'
+        ? 'ВХОД: JSON-массив фактов о ходах. Каждый факт — один полуход.'
+        : 'INPUT: JSON array of facts about moves. Each fact = one half-move.',
+      language === 'ru'
+        ? 'ВЫХОД: JSON-массив строк той же длины, в том же порядке.'
+        : 'OUTPUT: JSON array of strings of the same length, in the same order.',
+      '',
+      language === 'ru' ? 'ТРЕБОВАНИЯ:' : 'REQUIREMENTS:',
+      language === 'ru'
+        ? '- 1–2 предложения, 15–60 слов на комментарий.'
+        : '- 1–2 sentences, 15–60 words per comment.',
+      language === 'ru'
+        ? '- Объясняй ПРИЧИНУ: что выигрывает / теряет / какую угрозу создаёт / какой мотив реализован.'
+        : '- Explain the REASON: what gains / loses / threat created / motif realized.',
+      language === 'ru'
+        ? '- Поле positional_shifts — список ярлыков сдвига позиционной оценки (king_safer, mobility_decreased, bishop_passive и т.д.). Если непуст — упомяни ярлык(и) человеческим языком, БЕЗ слова «оценка» и без цифр.'
+        : '- Field positional_shifts — labels of the positional shift (king_safer, mobility_decreased, bishop_passive, etc.). If non-empty — mention them in human words, WITHOUT the word "evaluation" or numbers.',
+      language === 'ru'
+        ? '- hanging_piece: назови атакующую фигуру и есть ли защита. Если защищена — короткая оценка размена через net_material_if_taken.'
+        : '- hanging_piece: name the attacker and whether it is defended. If defended — brief evaluation of the exchange via net_material_if_taken.',
+      language === 'ru'
+        ? '- tactical_motifs: назови мотив (вилка, связка, вскрытое нападение, задняя горизонталь, двойное нападение, связка по линии) и какие фигуры он атакует.'
+        : '- tactical_motifs: name the motif (fork, pin, discovered attack, back rank, double attack, skewer) and which pieces it targets.',
+      language === 'ru'
+        ? '- threats_created: опиши угрозу (мат-в-N, выигрыш материала, цели атаки).'
+        : '- threats_created: describe the threat (mate-in-N, material win, attack targets).',
+      language === 'ru'
+        ? '- threats_missed.wins_material: покажи правильный план через sf_best.line.'
+        : '- threats_missed.wins_material: show the correct plan via sf_best.line.',
+      '',
+      language === 'ru' ? 'ЗАПРЕЩЕНО:' : 'FORBIDDEN:',
+      language === 'ru'
+        ? '- Дублировать NAG словами без объяснения. Фразы «сильный ход», «отличный ход», «лучший ход», «хороший ход», «слабый ход», «неточность», «ошибка», «грубая ошибка», «зевок» САМИ ПО СЕБЕ запрещены. Если не из чего собрать причину — верни пустую строку "".'
+        : '- Echo the NAG without explanation. Phrases "strong move", "excellent move", "best move", "good move", "weak move", "inaccuracy", "mistake", "big mistake", "blunder" ALONE are forbidden. If there is nothing to build the reason from — return an empty string "".',
+      language === 'ru'
+        ? '- Выдумывать тактические мотивы, которых нет в tactical_motifs.'
+        : '- Invent tactical motifs not present in tactical_motifs.',
+      language === 'ru'
+        ? '- Упоминать численные оценки движка, сантипешки, ELO.'
+        : '- Mention numeric engine evaluations, centipawns, ELO.',
+      language === 'ru'
+        ? '- Давать общие советы («играй активнее», «развивай фигуры»).'
+        : '- Give generic advice ("play actively", "develop pieces").',
+      '',
+    ].join('\n');
+
+    const fewShotRu =
+      `ПРИМЕРЫ (few-shot, ${language === 'ru' ? 'основной язык' : 'reference'}):` +
+      `
+
+Факты:
+{ "move": { "san": "Nxe5", "capture": "p" }, "classification": "best",
+  "tactical_motifs": ["fork"],
+  "threats_created": { "targets": [{"piece":"q","square":"d7"},{"piece":"r","square":"f7"}] },
+  "positional_shifts": ["threats_grew"] }
+ПЛОХО: "Сильный ход."
+ХОРОШО: "Конь забирает пешку и одновременно атакует ферзя и ладью — вилка с двойным выигрышем материала."
+
+Факты:
+{ "move": { "san": "Qd5" }, "classification": "blunder", "delta_e": -0.6,
+  "hanging_piece": { "square":"d5","piece":"q","side":"white","attackers":[{"piece":"n","square":"f6"}],"defenders":[],"net_material_if_taken": -8 },
+  "sf_best": { "san":"Qe2", "line":["Qe2","O-O","Nf3"] },
+  "positional_shifts": ["material_lost"] }
+ПЛОХО: "Грубая ошибка."
+ХОРОШО: "Ферзь становится под удар коня f6 без защиты — теряется фигура. Спокойнее Qe2 с рокировкой."
+
+Факты:
+{ "move": { "san": "Bxf7+", "capture": "p", "check": true }, "classification": "good",
+  "tactical_motifs": ["discovered_attack"],
+  "threats_created": { "wins_material": {"piece":"q","square":"d8","net_value": 6} },
+  "positional_shifts": ["threats_grew","king_exposed"] }
+ПЛОХО: "Хороший ход."
+ХОРОШО: "Жертва слона со вскрытым шахом — после взятия открывается ферзь и теряется на следующем ходу, король противника обнажён."
+
+Факты:
+{ "move": { "san": "h6" }, "classification": "inaccuracy", "delta_e": 0.15,
+  "threats_missed": { "wins_material": {"piece":"p","square":"e4","net_value":1} },
+  "sf_best": { "san":"Nxe4", "line":["Nxe4","Bxe4","d5"] },
+  "positional_shifts": ["king_safer"] }
+ПЛОХО: "Неточность."
+ХОРОШО: "Профилактика короля, но пропущен Nxe4 с выигрышем центральной пешки."
+
+Факты:
+{ "move": { "san": "Rxd1" }, "classification": "good", "material_change": {"piece":"r","side":"white"},
+  "tactical_motifs": [], "positional_shifts": ["mobility_decreased"] }
+ПЛОХО: "Хорошо."
+ХОРОШО: "Размен ладей упрощает позицию, но снижает подвижность фигур в эндшпиле."
+
+Факты:
+{ "move": { "san": "Kg1" }, "classification": "best",
+  "tactical_motifs": ["back_rank_weak"], "positional_shifts": ["king_safer"] }
+ПЛОХО: "Лучший ход."
+ХОРОШО: "Король уходит с задней линии — иначе мат ладьёй после размена на e1."
+
+Факты:
+{ "move": { "san": "Bb5" }, "classification": "good",
+  "tactical_motifs": ["pin"],
+  "positional_shifts": ["bishop_more_active","mobility_increased"] }
+ПЛОХО: "Хорошо."
+ХОРОШО: "Слон связывает коня c6 с ферзём d8, заодно даёт белым активную фигуру и большую подвижность."
+
+Факты:
+{ "move": { "san": "Re1" }, "classification": "best",
+  "tactical_motifs": [],
+  "positional_shifts": ["rook_on_open_file","space_gained"] }
+ПЛОХО: "Лучший ход."
+ХОРОШО: "Ладья встаёт на открытую вертикаль e, белые забирают пространство в центре."
+`;
+
+    const fewShotEn = `EXAMPLES (few-shot):
+
+Facts:
+{ "move": { "san": "Nxe5", "capture": "p" }, "classification": "best",
+  "tactical_motifs": ["fork"],
+  "threats_created": { "targets": [{"piece":"q","square":"d7"},{"piece":"r","square":"f7"}] },
+  "positional_shifts": ["threats_grew"] }
+BAD: "Strong move."
+GOOD: "The knight grabs the pawn and forks queen and rook at once, winning material on the next move."
+
+Facts:
+{ "move": { "san": "Qd5" }, "classification": "blunder", "delta_e": -0.6,
+  "hanging_piece": { "square":"d5","piece":"q","side":"white","attackers":[{"piece":"n","square":"f6"}],"defenders":[],"net_material_if_taken": -8 },
+  "sf_best": { "san":"Qe2", "line":["Qe2","O-O","Nf3"] },
+  "positional_shifts": ["material_lost"] }
+BAD: "Blunder."
+GOOD: "The queen walks into Nxd5 with no defender and is lost. Quieter Qe2 followed by castling kept everything safe."
+
+Facts:
+{ "move": { "san": "Bxf7+", "capture": "p", "check": true }, "classification": "good",
+  "tactical_motifs": ["discovered_attack"],
+  "threats_created": { "wins_material": {"piece":"q","square":"d8","net_value": 6} },
+  "positional_shifts": ["threats_grew","king_exposed"] }
+BAD: "Good move."
+GOOD: "Bishop sacrifice with a discovered check — once the king moves, the queen on d8 falls and the enemy king is left exposed."
+
+Facts:
+{ "move": { "san": "h6" }, "classification": "inaccuracy", "delta_e": 0.15,
+  "threats_missed": { "wins_material": {"piece":"p","square":"e4","net_value":1} },
+  "sf_best": { "san":"Nxe4", "line":["Nxe4","Bxe4","d5"] },
+  "positional_shifts": ["king_safer"] }
+BAD: "Inaccuracy."
+GOOD: "A useful luft, but Nxe4 was free — Black missed a central pawn."
+
+Facts:
+{ "move": { "san": "Rxd1" }, "classification": "good", "material_change": {"piece":"r","side":"white"},
+  "tactical_motifs": [], "positional_shifts": ["mobility_decreased"] }
+BAD: "Good."
+GOOD: "Trading rooks simplifies the game but the remaining pieces lose mobility in the endgame."
+
+Facts:
+{ "move": { "san": "Kg1" }, "classification": "best",
+  "tactical_motifs": ["back_rank_weak"], "positional_shifts": ["king_safer"] }
+BAD: "Best move."
+GOOD: "The king steps off the back rank — otherwise Re1+ followed by mate becomes a real threat."
+
+Facts:
+{ "move": { "san": "Bb5" }, "classification": "good",
+  "tactical_motifs": ["pin"],
+  "positional_shifts": ["bishop_more_active","mobility_increased"] }
+BAD: "Good."
+GOOD: "Bishop pins the knight on c6 to the queen on d8 and at the same time becomes very active, opening lines for the rooks."
+
+Facts:
+{ "move": { "san": "Re1" }, "classification": "best",
+  "tactical_motifs": [],
+  "positional_shifts": ["rook_on_open_file","space_gained"] }
+BAD: "Best move."
+GOOD: "Rook claims the open e-file and White grabs central space, squeezing Black's pieces."
+`;
+
+    // Подаём few-shot в первую очередь на языке ответа; противоположный
+    // — как reference, помогает модели в смешанных ситуациях.
+    const examples =
+      language === 'ru' ? `${fewShotRu}\n---\n${fewShotEn}` : `${fewShotEn}\n---\n${fewShotRu}`;
+
+    return `${head}${examples}`;
   }
 
   // ─── Webhook call ───────────────────────────────────────────────────
@@ -357,4 +607,54 @@ export class ReviewCommentService {
     }
     return parsed as string[];
   }
+
+  // ─── Post-валидация (ADR-103 §8) ───────────────────────────────────
+
+  /**
+   * Применяется к успешно распарсенному массиву. Применяется ВСЕГДА —
+   * NAG-тавтологии запрещены в любой ветке (ADR-103 §8.3).
+   *
+   *   1. Чёрный список NAG-тавтологий (RU + EN). Точное совпадение
+   *      нормализованной строки → `''`.
+   *   2. Минимум `minWords` (default 4) ИЛИ `minChars` (default 25).
+   *      Иначе → `''`.
+   *
+   * Пустые строки на входе пропускаем как есть (валидно — модель сама
+   * вернула пустоту, например на безфактовом ходу).
+   *
+   * Public для unit-тестов.
+   */
+  postValidate(comments: string[]): string[] {
+    return comments.map((c) => this.validateOne(c));
+  }
+
+  private validateOne(comment: string): string {
+    const raw = (comment ?? '').trim();
+    if (raw === '') return '';
+
+    // Нормализация для blacklist'а: lowercase, убрать пунктуацию края.
+    const norm = raw.toLowerCase().replace(/[.!?,:;"'`«»\s]+$/u, '').trim();
+    if (NAG_TAUTOLOGY_RU.test(norm) || NAG_TAUTOLOGY_EN.test(norm)) {
+      return '';
+    }
+
+    // Min-length: считаем слова в исходной строке (по whitespace).
+    const wordCount = raw.split(/\s+/).filter(Boolean).length;
+    if (wordCount < this.minWords && raw.length < this.minChars) {
+      return '';
+    }
+    return raw;
+  }
 }
+
+// ─── NAG-blacklist regexes (ADR-103 §8.1) ─────────────────────────────
+
+/**
+ * RU: одиночные фразы-тавтологии. Точное совпадение нормализованной
+ * строки целиком.
+ */
+const NAG_TAUTOLOGY_RU =
+  /^(сильный\s+ход|отличный\s+ход|лучший\s+ход|хороший\s+ход|слабый\s+ход|плохой\s+ход|ошибка|грубая\s+ошибка|зевок|неточность|хорошо)$/i;
+
+const NAG_TAUTOLOGY_EN =
+  /^(strong\s+move|excellent\s+move|best\s+move|good\s+move|weak\s+move|poor\s+move|mistake|big\s+mistake|blunder|inaccuracy|good)$/i;

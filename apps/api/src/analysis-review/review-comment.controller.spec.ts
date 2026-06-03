@@ -12,9 +12,13 @@ import { BatchCommentDto } from './dto/batch-comment.dto';
 import { ReviewCommentController } from './review-comment.controller';
 
 function validFact() {
+  // MVP-2 shape (ADR-103 rev 3 §5): добавлены fen_after, tactical_motifs,
+  // threats_created, threats_missed, positional_shifts (фронт всегда
+  // прокидывает эти поля; принимаются как есть).
   return {
     ply: 0,
     fen: '8/8/8/8/8/8/8/8 w - - 0 1',
+    fen_after: '8/8/8/8/8/8/8/8 b - - 0 1',
     side: 'white',
     move: {
       san: 'e4',
@@ -35,6 +39,10 @@ function validFact() {
     material_change: null,
     hanging_piece: null,
     mate_threat_after: null,
+    tactical_motifs: [],
+    threats_created: {},
+    threats_missed: {},
+    positional_shifts: [],
     user_elo: 1500,
     user_language: 'en',
   };
