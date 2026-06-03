@@ -86,6 +86,17 @@ export const precisionApi = {
     if (themed.themesOr && themed.themesOr.length > 0) {
       qs.set('themesOr', themed.themesOr.join(','));
     }
+    // KS-3659 / KS-3661 (ADR-106 §2.6). Порог Maia weak-choice для
+    // фильтра следующей задачи. 0 трактуется как «без фильтра» (синоним
+    // null/undefined) — параметр не передаётся, backend без него
+    // отдаёт всю доступную выдачу. Семантика 1:1 с KS-3656
+    // (`/puzzles/browse`).
+    if (
+      params.minMaiaWeakChoiceProb != null &&
+      params.minMaiaWeakChoiceProb > 0
+    ) {
+      qs.set('minMaiaWeakChoiceProb', String(params.minMaiaWeakChoiceProb));
+    }
     return api.get<PickNextPrecisionResponse>(`${BASE}/next?${qs.toString()}`);
   },
 

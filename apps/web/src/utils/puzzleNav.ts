@@ -30,6 +30,7 @@ import type {
   PrecisionScope,
 } from '@kingside/shared';
 import { readPrecisionThemesFromUrl } from './precisionThemesUrl';
+import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
 
 export type PuzzleSection = 'precision' | 'puzzles';
 
@@ -174,6 +175,16 @@ export function buildPrecisionNextParams(
   const themes = readPrecisionThemesFromUrl(searchParams);
   if (themes.length > 0) {
     result.themesOr = themes;
+  }
+
+  // KS-3659 / KS-3661 (ADR-106 §2.6). Порог сложности Maia weak-choice —
+  // тот же, что использует каталог через `PrecisionDifficultySlider`
+  // (`localStorage.precision.maiaThreshold`). 0 → параметр в `pickNext`
+  // не уходит (см. `precisionApi.pickNext`). Backend применяет
+  // `WHERE maia_weak_choice_prob >= $v AND maia_metric_version = 1`.
+  const threshold = readPrecisionMaiaThreshold();
+  if (threshold > 0) {
+    result.minMaiaWeakChoiceProb = threshold;
   }
 
   return result;

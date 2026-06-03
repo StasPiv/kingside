@@ -14,6 +14,8 @@ import { HelpButton } from '../components/HelpButton';
 import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
 // KS-2488: блок «Из партии» (sourceGame) под доской пазла.
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
+// KS-3660: индикатор сложности (maiaWeakChoiceProb в %) для precision-флоу.
+import { PrecisionPuzzleDifficulty } from '../components/puzzle/PrecisionPuzzleDifficulty';
 import {
   PlayVsEngineRunner,
   type PlayVsEngineSubmit,
@@ -854,6 +856,15 @@ export function PuzzlePage() {
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
+        {/* KS-3660: на /precision-флоу показываем сложность Maia
+            weak-choice probability в %. Вне precision — не показываем
+            (lichess-пазлы / generated без разметки). */}
+        {fromPrecision && puzzle && (
+          <PrecisionPuzzleDifficulty
+            maiaWeakChoiceProb={puzzle.maiaWeakChoiceProb}
+            maiaMetricVersion={puzzle.maiaMetricVersion}
+          />
+        )}
         {isGenerated && puzzle && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves && (
           <span className="puzzle-multi-hint">
             {t('puzzle.findOneOfN', 'Find 1 of {{n}}', { n: ((puzzle as unknown as { acceptedMoves: string }).acceptedMoves.split(' ').length) })}

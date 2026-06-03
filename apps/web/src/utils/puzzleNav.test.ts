@@ -1,10 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildBackUrl,
   buildPrecisionNextParams,
   buildPrecisionPuzzleQuery,
   detectPuzzleSection,
 } from './puzzleNav';
+import { PRECISION_MAIA_THRESHOLD_STORAGE_KEY } from '../config/precisionMaiaThreshold';
+
+// KS-3659 чтение `localStorage.precision.maiaThreshold` встроено в
+// `buildPrecisionNextParams`. Чтобы старые кейсы (написанные до KS-3659)
+// не упирались в новый параметр, в beforeEach явно ставим `0` —
+// «фильтр выключен», в этом случае поле в результат не попадает.
+// Кейсы под KS-3659 ниже сами ставят нужное значение.
+beforeEach(() => {
+  localStorage.setItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY, '0');
+});
 
 /**
  * KS-2688 / KS-3349. Тесты хелперов навигации между /precision и
@@ -183,6 +193,24 @@ describe('buildPrecisionNextParams (KS-3349)', () => {
       true,
     );
     expect(r.themesOr).toBeUndefined();
+  });
+
+  it('KS-3659: localStorage порог 0.5 → minMaiaWeakChoiceProb=0.5 в результате', () => {
+    localStorage.setItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY, '0.5');
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true);
+    expect(r.minMaiaWeakChoiceProb).toBe(0.5);
+  });
+
+  it('KS-3659: localStorage порог 0 → minMaiaWeakChoiceProb отсутствует', () => {
+    localStorage.setItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY, '0');
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true);
+    expect(r.minMaiaWeakChoiceProb).toBeUndefined();
+  });
+
+  it('KS-3659: localStorage пуст → дефолт 0.3 уходит в результат', () => {
+    localStorage.removeItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY);
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true);
+    expect(r.minMaiaWeakChoiceProb).toBe(0.3);
   });
 
   it('KS-3362: невалидная тема в URL → отброшена', () => {
