@@ -37,11 +37,12 @@ export function PrecisionStartTrainingButton() {
     setStatus('loading');
     try {
       const params = buildPrecisionNextParams(searchParams, Boolean(user));
-      // KS-3634 / ADR-104 §8: клиентский Maia-фильтр. До 5 попыток
-      // подбираем пазл с `maiaTop1Prob <= threshold`; на 5-й неудаче
-      // отдаём как есть, чтобы не зависнуть. `null` от backend
-      // (no_puzzles_available / no_puzzles_for_themes) пропускается
-      // ниже — там логика fallback'а на toast'ы.
+      // KS-3634 / KS-3642 / ADR-106 §2.6: клиентский Maia-фильтр. До 5
+      // попыток подбираем пазл с `maiaWeakChoiceProb >= threshold` при
+      // актуальной `maiaMetricVersion`; на 5-й неудаче отдаём как есть,
+      // чтобы не зависнуть. `null` от backend (no_puzzles_available /
+      // no_puzzles_for_themes) пропускается ниже — там логика
+      // fallback'а на toast'ы.
       const threshold = readPrecisionMaiaThreshold();
       const eligible = await pickEligiblePrecisionPuzzle(
         params,

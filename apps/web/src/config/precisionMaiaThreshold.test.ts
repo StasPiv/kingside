@@ -20,8 +20,8 @@ function mockStorage(value: string | null): Pick<Storage, 'getItem'> {
 }
 
 describe('readPrecisionMaiaThreshold', () => {
-  it('константа = 0.5 (ADR-104 §8)', () => {
-    expect(PRECISION_MAIA_DEFAULT_THRESHOLD).toBe(0.5);
+  it('константа = 0.3 (ADR-106 §2.6)', () => {
+    expect(PRECISION_MAIA_DEFAULT_THRESHOLD).toBe(0.3);
   });
 
   it('storage отсутствует → дефолт', () => {

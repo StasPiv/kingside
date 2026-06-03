@@ -1,6 +1,8 @@
 /**
- * KS-3634 / ADR-104 §8. Тесты `pickEligiblePrecisionPuzzle` — retry до 5
- * и fallback после исчерпания.
+ * KS-3634 / KS-3642 / ADR-106 §2.6. Тесты `pickEligiblePrecisionPuzzle`
+ * — retry до 5 и fallback после исчерпания, с инвертированной семантикой
+ * Maia-фильтра (`maiaWeakChoiceProb >= threshold` при актуальной
+ * `maiaMetricVersion`).
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -11,8 +13,13 @@ import type {
 } from '@kingside/shared';
 
 import { pickEligiblePrecisionPuzzle } from './pickEligiblePrecisionPuzzle';
+import { MAIA_METRIC_VERSION } from '../config/precisionMaiaThreshold';
 
-function puzzle(id: string, prob: number | null | undefined): PuzzleDto {
+function puzzle(
+  id: string,
+  prob: number | null | undefined,
+  version: number | null = MAIA_METRIC_VERSION,
+): PuzzleDto {
   return {
     id,
     fen: '8/8/8/8/8/8/8/k6K w - - 0 1',
@@ -24,7 +31,8 @@ function puzzle(id: string, prob: number | null | undefined): PuzzleDto {
     nbPlays: 0,
     solutionMode: 'forced-line',
     objective: 'all',
-    maiaTop1Prob: prob,
+    maiaWeakChoiceProb: prob,
+    maiaMetricVersion: version,
   } as unknown as PuzzleDto;
 }
 
@@ -37,9 +45,9 @@ const PARAMS: PickNextPrecisionRequest = {
 };
 
 describe('pickEligiblePrecisionPuzzle', () => {
-  it('первая итерация — eligible → отдаём, getById вызван 1 раз', async () => {
+  it('первая итерация — eligible (prob >= threshold) → отдаём, getById вызван 1 раз', async () => {
     const pickNext = vi.fn().mockResolvedValue(pickRes('p1'));
-    const getPuzzleById = vi.fn().mockResolvedValue(puzzle('p1', 0.3));
+    const getPuzzleById = vi.fn().mockResolvedValue(puzzle('p1', 0.7));
 
     const out = await pickEligiblePrecisionPuzzle(
       PARAMS,
@@ -55,8 +63,8 @@ describe('pickEligiblePrecisionPuzzle', () => {
     expect(getPuzzleById).toHaveBeenCalledTimes(1);
   });
 
-  it('4 неподходящих + 5-й подходящий → отдаём 5-й, attempts=5', async () => {
-    const probs = [0.9, 0.8, 0.7, 0.6, 0.3];
+  it('4 неподходящих (prob < threshold) + 5-й подходящий → отдаём 5-й, attempts=5', async () => {
+    const probs = [0.1, 0.2, 0.3, 0.4, 0.7];
     let i = 0;
     const pickNext = vi.fn().mockImplementation(async () => pickRes(`p${i + 1}`));
     const getPuzzleById = vi.fn().mockImplementation(async () => {
@@ -80,7 +88,7 @@ describe('pickEligiblePrecisionPuzzle', () => {
   });
 
   it('5 неподходящих → отдаём последний как fallback, eligible=false, attempts=5', async () => {
-    const probs = [0.9, 0.85, 0.8, 0.75, 0.7];
+    const probs = [0.1, 0.15, 0.2, 0.25, 0.3];
     let i = 0;
     const pickNext = vi.fn().mockImplementation(async () => pickRes(`p${i + 1}`));
     const getPuzzleById = vi.fn().mockImplementation(async () => {
@@ -128,7 +136,7 @@ describe('pickEligiblePrecisionPuzzle', () => {
     ];
     let i = 0;
     const pickNext = vi.fn().mockImplementation(async () => ress[i++]);
-    const probs = [0.9, 0.8];
+    const probs = [0.1, 0.2];
     let j = 0;
     const getPuzzleById = vi
       .fn()
@@ -145,7 +153,7 @@ describe('pickEligiblePrecisionPuzzle', () => {
     expect(getPuzzleById).toHaveBeenCalledTimes(2);
   });
 
-  it('null maiaTop1Prob (safe fallback) считается eligible с первой итерации', async () => {
+  it('null maiaWeakChoiceProb (safe fallback) считается eligible с первой итерации', async () => {
     const pickNext = vi.fn().mockResolvedValue(pickRes('p1'));
     const getPuzzleById = vi.fn().mockResolvedValue(puzzle('p1', null));
 
@@ -159,8 +167,26 @@ describe('pickEligiblePrecisionPuzzle', () => {
     expect(out!.attempts).toBe(1);
   });
 
+  it('устаревшая maiaMetricVersion → eligible (значение не валидно для нового фильтра)', async () => {
+    // prob ниже порога, но версия не совпадает с MAIA_METRIC_VERSION —
+    // пазл должен пройти как «не размечен».
+    const pickNext = vi.fn().mockResolvedValue(pickRes('p1'));
+    const getPuzzleById = vi
+      .fn()
+      .mockResolvedValue(puzzle('p1', 0.1, MAIA_METRIC_VERSION + 1));
+
+    const out = await pickEligiblePrecisionPuzzle(
+      PARAMS,
+      { threshold: 0.5 },
+      { pickNext, getPuzzleById },
+    );
+
+    expect(out!.eligible).toBe(true);
+    expect(out!.attempts).toBe(1);
+  });
+
   it('кастомный maxRetries=2', async () => {
-    const probs = [0.9, 0.9, 0.9];
+    const probs = [0.1, 0.1, 0.1];
     let i = 0;
     const pickNext = vi.fn().mockImplementation(async () => pickRes(`p${i + 1}`));
     const getPuzzleById = vi.fn().mockImplementation(async () => {
