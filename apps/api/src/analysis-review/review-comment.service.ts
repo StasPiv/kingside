@@ -30,7 +30,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
-import { BatchCommentDto } from './dto/batch-comment.dto';
+import { BatchCommentDto, MoveFactsDto } from './dto/batch-comment.dto';
+import { KNOWN_SUBTERM_IDS } from './subterm-labels';
 
 @Injectable()
 export class ReviewCommentService {
@@ -97,6 +98,52 @@ export class ReviewCommentService {
 
   isV2Enabled(): boolean {
     return this.v2Enabled;
+  }
+
+  /**
+   * KS-3651 / ADR-107 rev 2 §6. Отбрасывает `positional_subterms[]`
+   * с неизвестными `id` (не в `KNOWN_SUBTERM_IDS`) и логирует WARN
+   * с агрегатом. Это терпимое поведение для случая когда фронт-форк
+   * (KS-3650 / KS-3648) опередил бэк по списку идентификаторов
+   * (новые subterm добавились в WASM SF до синхронизации с
+   * `PositionalSubtermId` в shared).
+   *
+   * Возвращает новый массив фактов с отфильтрованными subterms;
+   * остальные поля каждого факта не трогает.
+   */
+  pruneUnknownSubterms(facts: MoveFactsDto[]): MoveFactsDto[] {
+    const unknownByPly = new Map<number, Set<string>>();
+    const pruned: MoveFactsDto[] = facts.map((f) => {
+      if (!f.positional_subterms || f.positional_subterms.length === 0) {
+        return f;
+      }
+      const kept = f.positional_subterms.filter((s) => {
+        if (KNOWN_SUBTERM_IDS.has(s.id)) return true;
+        const set = unknownByPly.get(f.ply) ?? new Set<string>();
+        set.add(s.id);
+        unknownByPly.set(f.ply, set);
+        return false;
+      });
+      if (kept.length === f.positional_subterms.length) return f;
+      return { ...f, positional_subterms: kept };
+    });
+    if (unknownByPly.size > 0) {
+      const total = Array.from(unknownByPly.values()).reduce(
+        (acc, set) => acc + set.size,
+        0,
+      );
+      const sample = Array.from(unknownByPly.entries())
+        .slice(0, 5)
+        .map(([ply, ids]) => `ply=${ply}:[${Array.from(ids).join(',')}]`)
+        .join('; ');
+      this.logger.warn(
+        `pruneUnknownSubterms: dropped ${total} unknown subterm-id(s) across ` +
+          `${unknownByPly.size} ply (sample: ${sample}). Update ` +
+          `PositionalSubtermId in @kingside/shared and SUBTERM_LABELS ` +
+          `in subterm-labels.ts if these are valid new ids.`,
+      );
+    }
+    return pruned;
   }
 
   // ─── Rate-limit (паттерн зеркалит ChatAssistantService) ────────────
@@ -210,7 +257,12 @@ export class ReviewCommentService {
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.language, dto.userElo);
-    const userMessage = JSON.stringify({ facts: dto.facts });
+    // KS-3651 / ADR-107 rev 2: prune unknown positional_subterms перед
+    // отправкой в LLM. DTO принимает любой `id` (не whitelist),
+    // фронт-форк может опередить бэк по списку ID — отбрасываем
+    // unknown с WARN, чтобы prompt не содержал мусорных идентификаторов.
+    const sanitizedFacts = this.pruneUnknownSubterms(dto.facts);
+    const userMessage = JSON.stringify({ facts: sanitizedFacts });
 
     try {
       const response = await this.callWebhook(
@@ -328,6 +380,12 @@ export class ReviewCommentService {
         ? '- Поле positional_shifts — список ярлыков сдвига позиционной оценки (king_safer, mobility_decreased, bishop_passive и т.д.). Если непуст — упомяни ярлык(и) человеческим языком, БЕЗ слова «оценка» и без цифр.'
         : '- Field positional_shifts — labels of the positional shift (king_safer, mobility_decreased, bishop_passive, etc.). If non-empty — mention them in human words, WITHOUT the word "evaluation" or numbers.',
       language === 'ru'
+        ? '- Поле positional_subterms — список конкретных позиционных подкомпонент Stockfish с привязкой к квадрату/фигуре (bishop_pawns, outpost_knight, rook_on_open_file, pawn_isolated, threat_by_minor, passed_rank, king_shelter_strength и др.). Используй ИХ для глубоких структурных объяснений: например «плохой слон h2 — пешки на белых полях стоят стеной», «конь на форпосте d5», «открытая линия для ладьи e», «отсталая пешка d6». Имена subterm — внутренние, в текст КОММЕНТАРИЯ их НЕ копируй (пиши человеческими словами).'
+        : '- Field positional_subterms — list of concrete Stockfish positional subterms with squares/pieces (bishop_pawns, outpost_knight, rook_on_open_file, pawn_isolated, threat_by_minor, passed_rank, king_shelter_strength etc.). Use them for deep structural explanations: e.g. "bad bishop on h2 with pawns locking the diagonal", "knight on the d5 outpost", "rook on the open e-file", "backward pawn on d6". Subterm names are internal — do NOT copy them verbatim; translate into human chess words.',
+      language === 'ru'
+        ? '- Дедупликация: если та же фигура/мотив уже описан через tactical_motifs (более сильный сигнал) или через positional_shifts (более грубый сдвиг) — НЕ дублируй её через positional_subterms. Subterms — фоновое уточнение, а не повтор.'
+        : '- Deduplication: if the same piece/motif is already described via tactical_motifs (stronger signal) or positional_shifts (coarser shift) — do NOT duplicate via positional_subterms. Subterms are background detail, not repetition.',
+      language === 'ru'
         ? '- hanging_piece: назови атакующую фигуру и есть ли защита. Если защищена — короткая оценка размена через net_material_if_taken.'
         : '- hanging_piece: name the attacker and whether it is defended. If defended — brief evaluation of the exchange via net_material_if_taken.',
       language === 'ru'
@@ -417,6 +475,51 @@ export class ReviewCommentService {
   "positional_shifts": ["rook_on_open_file","space_gained"] }
 ПЛОХО: "Лучший ход."
 ХОРОШО: "Ладья встаёт на открытую вертикаль e, белые забирают пространство в центре."
+
+Факты:
+{ "move": { "san": "Bd3" }, "classification": "inaccuracy",
+  "positional_subterms": [
+    {"id":"bishop_pawns","color":"w","square":"d3","value_mg":-0.07,"value_eg":-0.21},
+    {"id":"bishop_king_protector_distance","color":"w","square":"d3","value_mg":-0.04,"value_eg":-0.05}
+  ] }
+ПЛОХО: "Неточность."
+ХОРОШО: "Слон выходит на d3, но у белых много пешек на белых полях — фигура упирается в собственную структуру, в эндшпиле штраф растёт."
+
+Факты:
+{ "move": { "san": "Nd5" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"outpost_knight","color":"w","square":"d5","value_mg":0.16,"value_eg":0.10},
+    {"id":"knight_uncontested_outpost","color":"w","square":"d5","value_mg":0.06,"value_eg":0.04}
+  ] }
+ПЛОХО: "Сильный ход."
+ХОРОШО: "Конь на d5 — неоспоримый форпост, чёрные пешки уже не смогут его прогнать."
+
+Факты:
+{ "move": { "san": "Re1" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"rook_on_open_file","color":"w","square":"e1","value_mg":0.15,"value_eg":0.08},
+    {"id":"rook_on_king_ring","color":"w","square":"e1","value_mg":0.05,"value_eg":0}
+  ] }
+ПЛОХО: "Лучший ход."
+ХОРОШО: "Ладья встаёт на открытую e-линию, заодно направлена в сторону чёрного короля."
+
+Факты:
+{ "move": { "san": "g6" }, "classification": "inaccuracy",
+  "positional_subterms": [
+    {"id":"king_shelter_strength","color":"b","square":"g8","value_mg":-0.18,"value_eg":0},
+    {"id":"king_flank_attacks","color":"b","square":"g8","value_mg":-0.27,"value_eg":0}
+  ] }
+ПЛОХО: "Неточность."
+ХОРОШО: "Пешка g6 ослабляет щит короля и даёт белым давление по королевскому флангу."
+
+Факты:
+{ "move": { "san": "d5" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"passed_rank","color":"w","square":"d5","value_mg":0.05,"value_eg":0.17},
+    {"id":"passed_path_advance","color":"w","square":"d5","value_mg":0.18,"value_eg":0.18}
+  ] }
+ПЛОХО: "Лучший ход."
+ХОРОШО: "Пешка d5 становится опасной проходной — путь к превращению пока свободен, эндшпиль будет тяжёлым для чёрных."
 `;
 
     const fewShotEn = `EXAMPLES (few-shot):
@@ -478,6 +581,51 @@ Facts:
   "positional_shifts": ["rook_on_open_file","space_gained"] }
 BAD: "Best move."
 GOOD: "Rook claims the open e-file and White grabs central space, squeezing Black's pieces."
+
+Facts:
+{ "move": { "san": "Bd3" }, "classification": "inaccuracy",
+  "positional_subterms": [
+    {"id":"bishop_pawns","color":"w","square":"d3","value_mg":-0.07,"value_eg":-0.21},
+    {"id":"bishop_king_protector_distance","color":"w","square":"d3","value_mg":-0.04,"value_eg":-0.05}
+  ] }
+BAD: "Inaccuracy."
+GOOD: "The bishop comes to d3, but White has too many pawns on light squares — the piece bumps into its own structure, with the endgame penalty growing."
+
+Facts:
+{ "move": { "san": "Nd5" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"outpost_knight","color":"w","square":"d5","value_mg":0.16,"value_eg":0.10},
+    {"id":"knight_uncontested_outpost","color":"w","square":"d5","value_mg":0.06,"value_eg":0.04}
+  ] }
+BAD: "Strong move."
+GOOD: "Knight lands on d5 — an uncontested outpost; Black's pawns can no longer chase it away."
+
+Facts:
+{ "move": { "san": "Re1" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"rook_on_open_file","color":"w","square":"e1","value_mg":0.15,"value_eg":0.08},
+    {"id":"rook_on_king_ring","color":"w","square":"e1","value_mg":0.05,"value_eg":0}
+  ] }
+BAD: "Best move."
+GOOD: "The rook claims the open e-file, also aiming at the enemy king's zone."
+
+Facts:
+{ "move": { "san": "g6" }, "classification": "inaccuracy",
+  "positional_subterms": [
+    {"id":"king_shelter_strength","color":"b","square":"g8","value_mg":-0.18,"value_eg":0},
+    {"id":"king_flank_attacks","color":"b","square":"g8","value_mg":-0.27,"value_eg":0}
+  ] }
+BAD: "Inaccuracy."
+GOOD: "Pushing g6 weakens the king's shelter and hands White pressure along the kingside."
+
+Facts:
+{ "move": { "san": "d5" }, "classification": "best",
+  "positional_subterms": [
+    {"id":"passed_rank","color":"w","square":"d5","value_mg":0.05,"value_eg":0.17},
+    {"id":"passed_path_advance","color":"w","square":"d5","value_mg":0.18,"value_eg":0.18}
+  ] }
+BAD: "Best move."
+GOOD: "The d-pawn becomes a dangerous passer — the path to promotion is clear, and the endgame will be hard for Black."
 `;
 
     // Подаём few-shot в первую очередь на языке ответа; противоположный

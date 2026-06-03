@@ -309,14 +309,129 @@ describe('ReviewCommentService', () => {
       expect(svc.buildSystemPrompt('en', 2100)).toContain('Positional terms');
     });
 
-    it('Few-shot содержит минимум 8 пар (по 4 RU + 4 EN, но реально 8+8)', () => {
+    it('Few-shot содержит минимум 8 базовых ADR-103 пар + 5 ADR-107 (KS-3651)', () => {
       const p = svc.buildSystemPrompt('en', 1500);
       // Каждая пара = одна BAD-строка. Считаем число BAD: в EN-блоке.
       const badCount = (p.match(/^BAD:/gm) ?? []).length;
       const plohoCount = (p.match(/^ПЛОХО:/gm) ?? []).length;
-      // 8 EN-пар + 8 RU-пар (RU тоже идёт как reference).
-      expect(badCount).toBeGreaterThanOrEqual(8);
-      expect(plohoCount).toBeGreaterThanOrEqual(8);
+      // 8 базовых ADR-103 + 5 новых под subterm (KS-3651) = 13 пар
+      // в каждом из RU/EN блоков (оба блока всегда подаются вместе).
+      expect(badCount).toBeGreaterThanOrEqual(13);
+      expect(plohoCount).toBeGreaterThanOrEqual(13);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // KS-3651 / ADR-107 rev 2 §6. Prompt V2 учит модель использовать
+  // `positional_subterms` (PSQT/mobility/king-attackers и др.).
+  // pruneUnknownSubterms terplikt unknown id с WARN.
+  // ─────────────────────────────────────────────────────────────────
+  describe('KS-3651 positional_subterms (V2 prompt + pruneUnknownSubterms)', () => {
+    const svc = new ReviewCommentService(
+      makeConfigService({ REVIEW_COMMENT_V2: 'on' }),
+      makeRedisStub(),
+    );
+
+    it('V2 RU prompt описывает positional_subterms (название поля + правило дедупликации)', () => {
+      const p = svc.buildSystemPrompt('ru', 1500);
+      expect(p).toContain('positional_subterms');
+      expect(p).toMatch(/плохой слон|форпост/);
+      expect(p).toContain('Дедупликация');
+    });
+
+    it('V2 EN prompt описывает positional_subterms + deduplication rule', () => {
+      const p = svc.buildSystemPrompt('en', 1500);
+      expect(p).toContain('positional_subterms');
+      expect(p).toMatch(/bad bishop|outpost/);
+      expect(p).toContain('Deduplication');
+    });
+
+    it('V2 prompt содержит few-shot пары с ключевыми subterm-ID (KS-3651 acceptance)', () => {
+      const p = svc.buildSystemPrompt('en', 1500);
+      // Координатор просил BishopPawns, Outpost, RookOnOpenFile,
+      // ShelterStrength, PassedRank — все должны быть в EN-блоке few-shot.
+      expect(p).toContain('"bishop_pawns"');
+      expect(p).toContain('"outpost_knight"');
+      expect(p).toContain('"rook_on_open_file"');
+      expect(p).toContain('"king_shelter_strength"');
+      expect(p).toContain('"passed_rank"');
+    });
+
+    it('pruneUnknownSubterms: известные id сохраняются, неизвестные отбрасываются', () => {
+      const dto = makeFacts(1);
+      dto.facts[0].positional_subterms = [
+        {
+          id: 'outpost_knight',
+          color: 'w',
+          square: 'd5',
+          value_mg: 0.16,
+          value_eg: 0.1,
+        },
+        {
+          id: 'totally_made_up_id',
+          color: 'b',
+          square: 'a1',
+          value_mg: 0.0,
+          value_eg: 0.0,
+        },
+        {
+          id: 'bishop_pawns',
+          color: 'w',
+          square: 'h2',
+          value_mg: -0.07,
+          value_eg: -0.21,
+        },
+      ];
+      const pruned = svc.pruneUnknownSubterms(dto.facts);
+      expect(pruned[0].positional_subterms).toHaveLength(2);
+      expect(pruned[0].positional_subterms?.map((s) => s.id)).toEqual([
+        'outpost_knight',
+        'bishop_pawns',
+      ]);
+    });
+
+    it('pruneUnknownSubterms: пустой/отсутствующий массив остаётся как есть', () => {
+      const dto = makeFacts(2);
+      // Первый факт — нет positional_subterms вообще; второй — пустой массив.
+      dto.facts[1].positional_subterms = [];
+      const pruned = svc.pruneUnknownSubterms(dto.facts);
+      expect(pruned[0].positional_subterms).toBeUndefined();
+      expect(pruned[1].positional_subterms).toEqual([]);
+    });
+
+    it('pruneUnknownSubterms: при наличии unknown id логируется WARN с aggregated counts', () => {
+      const warnSpy = jest
+        .spyOn((svc as any).logger, 'warn')
+        .mockImplementation(() => {});
+      const dto = makeFacts(1);
+      dto.facts[0].positional_subterms = [
+        { id: 'fake_a', value_mg: 0, value_eg: 0 },
+        { id: 'fake_b', value_mg: 0, value_eg: 0 },
+      ];
+      svc.pruneUnknownSubterms(dto.facts);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const msg = warnSpy.mock.calls[0][0] as string;
+      expect(msg).toContain('dropped 2 unknown subterm-id(s)');
+      expect(msg).toContain('fake_a');
+      expect(msg).toContain('fake_b');
+    });
+
+    it('pruneUnknownSubterms: только известные id → WARN не логируется', () => {
+      const warnSpy = jest
+        .spyOn((svc as any).logger, 'warn')
+        .mockImplementation(() => {});
+      const dto = makeFacts(1);
+      dto.facts[0].positional_subterms = [
+        {
+          id: 'pawn_isolated',
+          color: 'w',
+          square: 'd4',
+          value_mg: -0.003,
+          value_eg: -0.061,
+        },
+      ];
+      svc.pruneUnknownSubterms(dto.facts);
+      expect(warnSpy).not.toHaveBeenCalled();
     });
   });
 

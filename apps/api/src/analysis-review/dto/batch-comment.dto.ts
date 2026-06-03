@@ -220,6 +220,37 @@ class ThreatsCreatedDto {
   targets?: ThreatTargetDto[];
 }
 
+/**
+ * KS-3651 / ADR-107 rev 2 §3.5. Одна позиционная подкомпонента из
+ * `PositionalSubterm` (shared). Соответствует одной строке `score +=`
+ * в нашем форке SF 16 (KS-3648).
+ *
+ * - `id` — `PositionalSubtermId` (см. shared); whitelist НЕ применяем —
+ *   неизвестные id graceful с WARN в сервисе.
+ * - `square` — UCI-квадрат (опц.) для тегов с привязкой к фигуре.
+ * - `color` — `'w'`/`'b'` (опц.) сторона-обладатель.
+ * - `value_mg` / `value_eg` — middlegame/endgame составляющие в
+ *   пешечных-cp, POV `color`.
+ */
+class PositionalSubtermDto {
+  @IsString()
+  id!: string;
+
+  @IsOptional()
+  @IsString()
+  square?: string;
+
+  @IsOptional()
+  @IsIn(['w', 'b'] as const)
+  color?: 'w' | 'b';
+
+  @IsNumber()
+  value_mg!: number;
+
+  @IsNumber()
+  value_eg!: number;
+}
+
 class ThreatsMissedDto {
   @IsOptional()
   @IsInt()
@@ -327,6 +358,29 @@ export class MoveFactsDto {
   @IsArray()
   @IsIn(POSITIONAL_SHIFT_IDS as readonly string[], { each: true })
   positional_shifts!: (typeof POSITIONAL_SHIFT_IDS)[number][];
+
+  /**
+   * KS-3651 / ADR-107 rev 2 §3.5. Позиционные подкомпоненты classical-
+   * оценки Stockfish с привязкой к квадрату/файлу/цвету (см.
+   * `PositionalSubterm` в shared, KS-3649). Фронт (KS-3650) собирает
+   * массив из JSON-вывода `eval json` нашего форка SF (KS-3648).
+   *
+   * Валидация:
+   *  - `@IsArray` + `@ValidateNested` + `@Type(PositionalSubtermDto)` —
+   *    проверяем shape каждой записи.
+   *  - id НЕ ограничен whitelist'ом (`@IsString` без `@IsIn`) — это
+   *    намеренно: новые ID в форке могут появиться раньше синхронизации
+   *    с этим DTO. Неизвестные id отбрасываются graceful в
+   *    `ReviewCommentService` с WARN, см. `KNOWN_SUBTERM_IDS` в
+   *    `subterm-labels.ts`.
+   *  - Допустимо отсутствие поля либо пустой массив — для пазлов и
+   *    позиций где Maia/SF-разметка не сделана.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PositionalSubtermDto)
+  positional_subterms?: PositionalSubtermDto[];
 
   @IsInt()
   @Min(0)
