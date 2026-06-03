@@ -695,25 +695,35 @@ export class BroadcastStandingsSyncService {
       throw new Error(`parseRrCrosstable failed: ${parsed.reason}`);
     }
     const refs = this.composeRefs(broadcast, parsed.data.players);
-    // Заполнить gameRef в matrix-cells по (rowRank, opponentRank, roundLabel).
-    // Для RR roundLabel вычислим по «классическому» round-robin сопоставлению —
-    // chess-results art=5 сам не отдаёт roundNumber для конкретной ячейки;
-    // sync-service делает best-effort: если в game.round.name есть число,
-    // используем его. Иначе — оставляем gameRef=null и UI без клика.
+    // KS-3658: name-based fallback по нормализованным именам. RR-ячейки
+    // от chess-results art=5 не несут round (см. parse-rr-crosstable.ts),
+    // поэтому индекс собираем БЕЗ round — `pair → ref` (берём первую
+    // партию между двумя игроками). Для одно-кругового RR этого
+    // достаточно. Для двух-кругового берётся первая встретившаяся —
+    // улучшать имеет смысл когда фронт начнёт различать ячейки по
+    // цвету (parseRrCrosstable пока ставит `color: undefined`).
+    const gamesByPair = this.buildRrGamesByPairMap(broadcast);
+
+    // Заполнить gameRef в matrix-cells по (rowRank, opponentRank).
+    // Сначала rank-based lookup через composeRefs (имена в chess-results
+    // и в lichess-game должны нормализоваться к одному виду). Если не
+    // сматчилось — name-based fallback по нормализованным именам
+    // (см. KS-3658: парсер не возвращал gameRef из-за расхождений
+    // нормализации rank vs game-headers).
+    let matchedCells = 0;
+    let unmatchedCells = 0;
     const matrix: CrosstableCell[][] = parsed.data.matrix.map(
       (row, rowIdx) => {
         const playerRank = parsed.data.players[rowIdx]?.rank ?? rowIdx + 1;
+        const playerNorm =
+          parsed.data.players[rowIdx]?.normalizedName ?? '';
         return row.map((cell) => {
           if (cell.opponentRank == null || cell.result == null) {
             return cell;
           }
-          // Перебираем все refs, ищем подходящий (rowRank vs oppRank).
-          for (const [, ref] of refs) {
-            // key = "<round>:<white>:<black>". Не знаем кто белый — допустим
-            // оба варианта.
-            // (см. composeGameRefs key format).
-          }
-          // Простая эвристика: ищем по indexes без знания цвета.
+          // Primary: rank-based lookup (composeRefs). Перебираем все
+          // refs — key format `"<roundKey>:<white>:<black>"`. Не знаем
+          // кто белый в этой ячейке, поэтому допускаем оба порядка.
           let gameRef: CrosstableCell['gameRef'] = null;
           for (const [key, ref] of refs) {
             const parts = key.split(':');
@@ -727,10 +737,33 @@ export class BroadcastStandingsSyncService {
               break;
             }
           }
+          // KS-3658: name-based fallback. Когда rank-based composeRefs
+          // не сматчил игроков (расхождение нормализации в chess-
+          // results и в lichess-game.whitePlayer/blackPlayer), идём
+          // напрямую через pair-индекс по нормализованным именам.
+          if (gameRef === null && playerNorm) {
+            const oppNorm =
+              parsed.data.players[cell.opponentRank - 1]?.normalizedName ??
+              '';
+            if (oppNorm) {
+              gameRef =
+                gamesByPair.get(`${playerNorm}|${oppNorm}`) ?? null;
+            }
+          }
+          if (gameRef !== null) matchedCells++;
+          else unmatchedCells++;
           return { ...cell, gameRef };
         });
       },
     );
+    if (unmatchedCells > 0) {
+      this.logger.warn(
+        `[rr crosstable] broadcast=${broadcast.id} tid=${tid}: matched ` +
+          `${matchedCells}/${matchedCells + unmatchedCells} cells with ` +
+          `gameRef; ${unmatchedCells} cells remain null (likely name ` +
+          `mismatch between chess-results and lichess-game headers).`,
+      );
+    }
     return {
       tournamentType: 'round-robin',
       sourceType: 'chess-results',
@@ -1428,6 +1461,46 @@ export class BroadcastStandingsSyncService {
       );
     }
     return null;
+  }
+
+  /**
+   * KS-3658. Строит Map keyed by `"<normA>|<normB>"` (оба порядка)
+   * для name-based gameRef fallback в Round-Robin crosstable. В
+   * отличие от `buildGamesByNormMap` (Swiss-вариант), здесь НЕ
+   * привязываемся к номеру тура — `parseRrCrosstable` от
+   * chess-results art=5 не отдаёт roundNumber per ячейку, поэтому
+   * индексируем по паре игроков. Для одно-кругового RR этого
+   * достаточно (одна партия на пару); для двух-кругового берётся
+   * первая встретившаяся — можно расширить, когда parser начнёт
+   * различать ячейки по цвету (`cell.color`).
+   *
+   * Только partii из round'ов, удовлетворяющих `isCrosstableRound`
+   * (то же правило, что в `composeRefs` — чтобы не ссылаться на
+   * тайбрейк-игры).
+   */
+  private buildRrGamesByPairMap(
+    broadcast: BroadcastWithRounds,
+  ): Map<string, CrosstableGameRef> {
+    const map = new Map<string, CrosstableGameRef>();
+    const crosstableRounds = broadcast.rounds.filter(isCrosstableRound);
+    const roundsById = new Map(crosstableRounds.map((r) => [r.id, r]));
+    for (const g of crosstableRounds.flatMap((r) => r.games)) {
+      const round = roundsById.get(g.roundId);
+      if (!round) continue;
+      const wNorm = normalizePlayerName(g.whitePlayer);
+      const bNorm = normalizePlayerName(g.blackPlayer);
+      if (!wNorm || !bNorm) continue;
+      const ref: CrosstableGameRef = {
+        gameId: g.id,
+        roundId: round.id,
+        roundName: round.name,
+      };
+      const k1 = `${wNorm}|${bNorm}`;
+      const k2 = `${bNorm}|${wNorm}`;
+      if (!map.has(k1)) map.set(k1, ref);
+      if (!map.has(k2)) map.set(k2, ref);
+    }
+    return map;
   }
 
   /**

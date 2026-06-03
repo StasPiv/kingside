@@ -850,6 +850,104 @@ describe('BroadcastStandingsSyncService — refresh round-robin happy', () => {
   });
 });
 
+/**
+ * KS-3658. До правки кросс-таблица круговой схемы оставляла `gameRef`
+ * для всех ячеек = null: `buildRoundRobin` опирался ИСКЛЮЧИТЕЛЬНО на
+ * ранговый матчинг через `composeGameRefs`, который тихо отбрасывал
+ * партии при расхождениях нормализации имён между `chess-results`-
+ * таблицей и заголовками `game.whitePlayer/blackPlayer` (lichess).
+ *
+ * Правка: после рангового матчинга есть резервная схема по нормализованной
+ * паре имён (`buildRrGamesByPairMap`). Этот тест воспроизводит сценарий
+ * с реальными именами из фикстуры — даже когда есть один путь матчинга,
+ * матрица должна содержать `gameRef` для соответствующих ячеек.
+ */
+describe('BroadcastStandingsSyncService — KS-3658 RR name-based fallback', () => {
+  it('round-robin: партии из rounds[].games[] с совпадающими именами → gameRef в ячейках не null', async () => {
+    const html = loadFixture('rr-art5-crosstable.html');
+    const fetchPage = jest.fn().mockResolvedValue(html);
+    const fetcher = makeFetcher(fetchPage);
+    // В фикстуре rank=1 — Karunasena A P Chenitha Sihas Dinsara,
+    // rank=2 — Dabarera G W D M.
+    const broadcastWithGame = {
+      ...baseBroadcast,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-04-01T15:00:00Z'),
+          games: [
+            {
+              id: 'game-karu-vs-daba',
+              roundId: 'round-1',
+              whitePlayer: 'Karunasena, A P Chenitha Sihas Dinsara',
+              blackPlayer: 'Dabarera, G W D M',
+              whiteElo: null,
+              blackElo: null,
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({
+      broadcast: broadcastWithGame,
+      lifecycle: 'live',
+    });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher });
+
+    const r = await svc.refresh('bc-1');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+
+    // Находим индексы игроков в матрице по нормализованному имени.
+    const idxKaru = r.players.findIndex(
+      (p) => p.normalizedName === 'a p chenitha sihas dinsara karunasena',
+    );
+    const idxDaba = r.players.findIndex(
+      (p) => p.normalizedName === 'g w d m dabarera',
+    );
+    expect(idxKaru).toBeGreaterThanOrEqual(0);
+    expect(idxDaba).toBeGreaterThanOrEqual(0);
+
+    // Ячейка Karu vs Daba должна получить gameRef = 'game-karu-vs-daba'.
+    const cellKaruVsDaba = r.matrix[idxKaru].find(
+      (c) => c.opponentRank === r.players[idxDaba].rank,
+    );
+    expect(cellKaruVsDaba?.gameRef?.gameId).toBe('game-karu-vs-daba');
+    expect(cellKaruVsDaba?.gameRef?.roundId).toBe('round-1');
+
+    // Обратная ячейка тоже должна указывать на ту же партию.
+    const cellDabaVsKaru = r.matrix[idxDaba].find(
+      (c) => c.opponentRank === r.players[idxKaru].rank,
+    );
+    expect(cellDabaVsKaru?.gameRef?.gameId).toBe('game-karu-vs-daba');
+  });
+
+  it('round-robin: партий нет → gameRef всех ячеек = null (поведение без регрессий)', async () => {
+    const html = loadFixture('rr-art5-crosstable.html');
+    const fetchPage = jest.fn().mockResolvedValue(html);
+    const fetcher = makeFetcher(fetchPage);
+    // baseBroadcast уже имеет rounds[0].games = [] → ни один матчинг
+    // (ранговый/именной) не найдёт партию. Все gameRef = null.
+    const prisma = makePrisma({ broadcast: baseBroadcast, lifecycle: 'live' });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher });
+
+    const r = await svc.refresh('bc-1');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+
+    // У ячеек без opponentRank/result `gameRef` остаётся undefined
+    // (не трогается), у остальных — null (партия не найдена).
+    for (const row of r.matrix) {
+      for (const cell of row) {
+        expect(cell.gameRef ?? null).toBeNull();
+      }
+    }
+  });
+});
+
 describe('BroadcastStandingsSyncService — fetch error → internal-fallback (KS-1749)', () => {
   it('fetcher throws (round-robin) → internal-fallback с tournamentType=round-robin', async () => {
     const fetchPage = jest
