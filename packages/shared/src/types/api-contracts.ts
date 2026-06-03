@@ -1604,54 +1604,192 @@ export type AnalysisResponse = {
  *    `GET /api/analyses/:id`).
  */
 /**
- * KS-3615 / ADR-102 §3.4. Факты о ходе для LLM-комментирования
- * («Разобрать партию»). Каждый ход с NAG-меткой превращается в
- * один объект; фронт собирает массив фактов и шлёт в
- * `POST /api/analyses/review/comments` (KS-3615 follow-up: путь
- * изменён с `/api/analysis-review/comments` — на проде верхнеуровневый
- * сегмент `analysis-review` отдавал 404 из-за whitelist'а прокси).
+ * KS-3615 / ADR-102 §3.4 (MVP-1) + KS-3623/KS-3624 / ADR-103 rev 2 §5, §6.5
+ * (MVP-2). Факты о ходе для LLM-комментирования («Разобрать партию»).
  *
- * Shape — точная копия фронтовской `extractFacts.ts` (KS-3614).
- * Любое расширение делаем здесь и одновременно в DTO бэка.
+ * Каждый ход с NAG-меткой превращается в один объект; фронт собирает
+ * массив фактов и шлёт в `POST /api/analyses/review/comments`
+ * (KS-3615 follow-up: путь изменён с `/api/analysis-review/comments`
+ * — на проде верхнеуровневый сегмент `analysis-review` отдавал 404
+ * из-за whitelist'а прокси).
+ *
+ * Shape — точная копия фронтовской `apps/web/src/lib/review/extractFacts.ts`
+ * (KS-3614, расширено KS-3623). Любое расширение делаем здесь и
+ * одновременно в DTO бэка.
  *
  * `move_class` (см. `MoveClass` в `utils/move-classification`) пока
  * дублируется строковым union'ом — избегаем циклической зависимости
  * между api-contracts и utils. Допустимые значения должны совпадать.
  */
+
+/** Фигура в любой роли, включая короля (для целей атак/угроз). */
+export type FactsAnyPiece = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
+
+/** Не-королевская фигура (для висящей материальной цели). */
+export type FactsNonKingPiece = 'p' | 'n' | 'b' | 'r' | 'q';
+
+/**
+ * ADR-103 §3.2 — 6 дешёвых детекторов тактических мотивов на frontend
+ * (chess.js). Сложные мотивы (deflection/decoy/interference/zwischenzug/
+ * overloaded_defender) вне scope MVP-2 — требуют мини-поискового движка.
+ */
+export type TacticalMotif =
+  | 'fork'
+  | 'double_attack'
+  | 'pin'
+  | 'skewer'
+  | 'discovered_attack'
+  | 'back_rank_weak';
+
+/**
+ * ADR-103 §6.5 — позиционные ярлыки, top-N (TOP_N=2) из дельты classical
+ * eval Stockfish 15.1. Backend (`StockfishEvalService`, KS-3625) заполняет
+ * это поле после получения батча; frontend всегда шлёт `[]`. Union из 19
+ * категорий зеркалит карту `SHIFT_MAP` из §6.5: 7 пар «+/−» (material,
+ * pawns, bishops, mobility, king_safety, threats, winnable) + 5
+ * однонаправленных (knights, rooks, queens, passed, space).
+ */
+export type PositionalShiftId =
+  | 'material_gained'
+  | 'material_lost'
+  | 'pawn_structure_improved'
+  | 'pawn_structure_weakened'
+  | 'knight_more_active'
+  | 'bishop_more_active'
+  | 'bishop_passive'
+  | 'rook_on_open_file'
+  | 'queen_more_active'
+  | 'mobility_increased'
+  | 'mobility_decreased'
+  | 'king_safer'
+  | 'king_exposed'
+  | 'threats_grew'
+  | 'threats_weakened'
+  | 'passed_pawn_strong'
+  | 'space_gained'
+  | 'position_more_winnable'
+  | 'position_less_winnable';
+
+/** Участник размена на квадрате висячей фигуры (атакующий или защитник). */
+export interface FactsExchangeParticipant {
+  piece: FactsAnyPiece;
+  square: string;
+}
+
+/**
+ * ADR-103 §5 — расширенный `hanging_piece`. К MVP-1 (square/piece/side)
+ * добавлены attackers/defenders и SEE-подобный `net_material_if_taken`
+ * (>0 — взятие выгодно атакующему).
+ */
+export interface FactsHangingPiece {
+  square: string;
+  piece: FactsNonKingPiece;
+  side: 'white' | 'black';
+  /** Атакующие фигуры стороны, противоположной владельцу висячей. */
+  attackers: FactsExchangeParticipant[];
+  /** Защитники той же стороны, что и висячая фигура. */
+  defenders: FactsExchangeParticipant[];
+  /** SEE-подобный итог размена (>0 — выгодно взять). */
+  net_material_if_taken: number;
+}
+
+/**
+ * ADR-103 §5 — `sf_best` расширен полем `line`: 2–3 хода SAN
+ * продолжения из `sfBestPv`. Пустой массив, если PV нет.
+ */
+export interface FactsSfBest {
+  uci: string;
+  san: string;
+  line: string[];
+}
+
+/** Цель атаки/угрозы — фигура противника на конкретном квадрате. */
+export interface FactsThreatTarget {
+  piece: FactsAnyPiece;
+  square: string;
+}
+
+/** Материальная угроза с оценкой исхода размена (SEE, pawn units). */
+export interface FactsWinsMaterialThreat {
+  piece: FactsAnyPiece;
+  square: string;
+  net_value: number;
+}
+
+/**
+ * ADR-103 §5 — что создаёт played-ход: угроза мата, выигрыш материала,
+ * флаг двойной атаки, список целей. Любое поле опционально; пустой
+ * объект `{}` валиден.
+ */
+export interface FactsThreatsCreated {
+  mate_in?: number;
+  wins_material?: FactsWinsMaterialThreat;
+  double_attack?: boolean;
+  targets?: FactsThreatTarget[];
+}
+
+/**
+ * ADR-103 §5 — что упустил слабый ход (относительно `sf_best`).
+ * `counter_threat` — текстовое описание ответной угрозы соперника
+ * (на текущем этапе зарезервировано, фронт его не заполняет).
+ */
+export interface FactsThreatsMissed {
+  mate_in?: number;
+  wins_material?: FactsWinsMaterialThreat;
+  counter_threat?: string;
+}
+
+/** Изменение материала на ходу (фигура, которой не стало на доске). */
+export interface FactsMaterialChange {
+  piece: string;
+  side: 'white' | 'black';
+}
+
+/** Альтернатива Maia (имитация хода живого игрока на близком ELO). */
+export interface FactsMaiaAlternative {
+  uci: string;
+  san: string;
+  probability: number;
+  classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+}
+
+/** Описание played-хода в нейтральной форме (без оценок). */
+export interface FactsMove {
+  san: string;
+  uci: string;
+  /** Что взяли (символ фигуры или null). */
+  capture: string | null;
+  /** Ход даёт шах? */
+  check: boolean;
+  /** Мат в N полуходов от позиции после хода (если есть). */
+  mate: number | null;
+  /** O-O / O-O-O если рокировка. */
+  castling: 'O-O' | 'O-O-O' | null;
+  /** Фигура продвижения (`'q' | 'r' | 'b' | 'n'`) если promotion. */
+  promotion: string | null;
+}
+
 export interface FactsInput {
   /** Half-move index (0-based: 0 = первый ход белых). */
   ply: number;
   /** FEN ДО хода. */
   fen: string;
+  /**
+   * ADR-103 §5 — FEN позиции ПОСЛЕ played-хода. Нужен бэку для
+   * `evalPosition(fen_after)` при вычислении `positional_shifts`.
+   */
+  fen_after: string;
   /** Чей ход (играющая сторона на ply). */
   side: 'white' | 'black';
-  move: {
-    san: string;
-    uci: string;
-    /** Что взяли (символ фигуры или null). */
-    capture: string | null;
-    /** Ход даёт шах? */
-    check: boolean;
-    /** Мат в N полуходов от позиции после хода (если есть). */
-    mate: number | null;
-    /** O-O / O-O-O если рокировка. */
-    castling: 'O-O' | 'O-O-O' | null;
-    /** Фигура продвижения (`'q' | 'r' | 'b' | 'n'`) если promotion. */
-    promotion: string | null;
-  };
+  move: FactsMove;
   /** Best/good/inaccuracy/mistake/blunder — совпадает с `MoveClass`. */
   classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
   /** Дельта expected-score: [-1..+1] от лица решающей стороны. */
   delta_e: number;
   /** Лучший ход Stockfish (null если playedUci === sfBestUci). */
-  sf_best: { uci: string; san: string } | null;
+  sf_best: FactsSfBest | null;
   /** Альтернатива по Maia + её probability (если есть и отличается от played). */
-  maia_alternative: {
-    uci: string;
-    san: string;
-    probability: number;
-    classification: 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
-  } | null;
+  maia_alternative: FactsMaiaAlternative | null;
   /** Фаза партии в момент хода. */
   stage: 'opening' | 'middlegame' | 'endgame';
   /** Известное название дебюта (если резолвится). */
@@ -1659,15 +1797,33 @@ export interface FactsInput {
   /** Материальный баланс в пешках, + если у `side` преимущество. */
   material_balance: number;
   /** Что изменилось материально на этом ходу (поднятая фигура, сторона). */
-  material_change: { piece: string; side: 'white' | 'black' } | null;
+  material_change: FactsMaterialChange | null;
   /** Висящая фигура после хода (если есть). */
-  hanging_piece: {
-    square: string;
-    piece: string;
-    side: 'white' | 'black';
-  } | null;
+  hanging_piece: FactsHangingPiece | null;
   /** Угроза мата соперника в N полуходов после нашего хода, null если нет. */
   mate_threat_after: number | null;
+  /**
+   * ADR-103 §5 — тактические мотивы, обнаруженные после хода
+   * (см. `TacticalMotif`). Пустой массив, если мотивов нет.
+   */
+  tactical_motifs: TacticalMotif[];
+  /**
+   * ADR-103 §5 — что создаёт played-ход. Может быть пустым объектом
+   * `{}` — тихий ход без угроз.
+   */
+  threats_created: FactsThreatsCreated;
+  /**
+   * ADR-103 §5 — что упустил слабый ход относительно `sf_best`. `{}`
+   * если ход совпадает с лучшим или ничего не упущено.
+   */
+  threats_missed: FactsThreatsMissed;
+  /**
+   * ADR-103 §6.5 — позиционные ярлыки top-N из classical eval (SF 15.1).
+   * Frontend всегда шлёт `[]`; backend (`StockfishEvalService`) мутирует
+   * это поле перед сборкой prompt'а. Контракт не нарушается: shape
+   * стабилен в обоих направлениях.
+   */
+  positional_shifts: PositionalShiftId[];
   /** ELO пользователя (для подбора лексики комментариев). */
   user_elo: number;
   /** UI-локаль для комментариев. */
