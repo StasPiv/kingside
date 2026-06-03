@@ -17,8 +17,8 @@ import type { useMaiaAnalysis } from '../../hooks/useMaiaAnalysis';
 import type { EngineSortMode } from '../../hooks/useEngineSortMode';
 // KS-3606 (ADR-100 §9): «Разобрать партию» перенесена из engine-panel в
 // `AnalysisActionsMenu` (см. AnalysisPage). Здесь оставлен только
-// source-link «← Исходный анализ» для auto-дублей.
-import { Link } from 'react-router-dom';
+// source-link «← Исходный анализ» для auto-дублей. Импорт `Link` — выше
+// (строка 2).
 // KS-3593 (ADR-098): extractBestUci/sortLines вынесены в общий utils,
 // чтобы переиспользовать из engineSort и не дублировать. Sidebar
 // продолжает звать `extractBestUci` для inline-вероятности Maia.
