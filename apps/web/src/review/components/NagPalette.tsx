@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
-  POSITION_EVAL_NAGS,
+  POSITION_EVAL_NAG_PALETTE,
   QUALITY_NAGS,
   setNagInCategory,
 } from '../../utils/nagCategories';
@@ -391,7 +391,7 @@ export function NagPalette({
           {t('nag.group.evaluation', 'Position evaluation')}
         </div>
         <div className="nag-palette__buttons">
-          {POSITION_EVAL_NAGS.map((nag) => (
+          {POSITION_EVAL_NAG_PALETTE.map((nag) => (
             <NagButton
               key={nag}
               nag={nag}
