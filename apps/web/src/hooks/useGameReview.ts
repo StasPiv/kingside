@@ -663,6 +663,31 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           cur = applyMove(cur, u);
         }
         if (!cur) return;
+        // KS-3619 follow-up: на терминальной позиции (мат/пат/ничья) SF
+        // не отдаёт осмысленный WDL — `pickFinalEvalNag` падает в `=`,
+        // и в варианте, заканчивающемся матом, появлялся $11 вместо
+        // $18/$19. Различаем результат через chess.js напрямую, без
+        // SF-вызова на терминалках.
+        try {
+          const board = new Chess(cur);
+          if (board.isCheckmate()) {
+            // На ходу — проигравшая сторона. white получил мат → −+ (19),
+            // black получил мат → +− (18).
+            const stmIsWhite = cur.split(' ')[1] === 'w';
+            variation.finalEvalNag = stmIsWhite ? 19 : 18;
+            return;
+          }
+          if (
+            board.isStalemate() ||
+            board.isInsufficientMaterial() ||
+            board.isDraw()
+          ) {
+            variation.finalEvalNag = 11;
+            return;
+          }
+        } catch {
+          /* chess.js падает — продолжим обычным SF-путём */
+        }
         try {
           const sub = await engines.analyzeSf(cur, 1, depth);
           if (!sub.wdlBefore) return;
