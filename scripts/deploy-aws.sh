@@ -1532,7 +1532,30 @@ if $DEPLOY_TACTIC_WORKER; then
     _perf_stamp "tactic_ecr_login_done"
 
     echo "[tactic-worker] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker build -t "kingside-tactic-worker:${DEPLOY_SHA}" -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR"
+    # KS-3633: tee полного docker-build лога в /project/logs, симметрично
+    # api-блоку (см. KS-2441). Без этого MCP-тул deploy обрезает stdout, и при
+    # падении на этапе COPY/npm install (например, workspace-deps не скопирован
+    # в образ) полная причина не видна — приходится гадать. С `--progress=plain`
+    # каждый шаг идёт построчно с префиксом #N <step>, tee гарантирует полный
+    # лог в файле. /project/logs/ шарится между webhook-сервером и агентским
+    # контейнером — devops читает лог сразу после деплоя.
+    BUILD_LOG="$REPO_DIR/logs/tactic-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-tactic-worker:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo ""
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        echo "  --- npm / docker error context ---"
+        grep -E 'npm (error|warn) (code|Missing|Invalid|EUSAGE|peer|require|Tracker)|npm ci|COPY failed|ERROR \[|failed to compute cache key|no such file|not found' "$BUILD_LOG" \
+            | head -120 || true
+        echo "  --- last 80 lines of build log ---"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
     _perf_stamp "tactic_docker_build_done"
 
     echo "[tactic-worker] Pushing ${ECR_REPO_TACTIC_WORKER}:${DEPLOY_SHA} to ECR..."
