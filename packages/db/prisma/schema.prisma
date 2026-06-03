@@ -339,6 +339,20 @@ model Puzzle {
   //     'forced-line' через DEFAULT.
   solutionMode String @default("forced-line") @map("solution_mode")
 
+  /// KS-3631 / ADR-104 §4. Вероятность правильного хода по Maia-3
+  /// (top-1 совпадает с первым ходом из `moves`). Заполняется offline-
+  /// разметкой admin-CLI `tools/maia-puzzle-annotation/` либо tactic-
+  /// worker'ом сразу при создании нового пазла. `NULL` — ещё не
+  /// размечен (safe fallback: фронт по умолчанию включает такие пазлы
+  /// в выдачу).
+  maiaTop1Prob Float? @map("maia_top1_prob")
+
+  /// KS-3631 / ADR-104 §4. ELO, под которым прогоняли Maia. Хранится
+  /// для воспроизводимости и для проверки актуальности значения при
+  /// смене ENV `PRECISION_MAIA_ANNOTATION_ELO`: если ENV !=
+  /// `maiaTop1Elo` — admin-CLI с `--force --elo NEW` перерасчитывает.
+  maiaTop1Elo  Int?   @map("maia_top1_elo")
+
   attempts           PuzzleAttempt[]
   dailyPuzzles       DailyPuzzle[]
   rushSessionPuzzles PuzzleRushSessionPuzzle[]
@@ -356,6 +370,11 @@ model Puzzle {
   // запрос пробегает по source_*_elo (CASE по side-to-move).
   @@index([sourceWhiteElo])
   @@index([sourceBlackElo])
+  /// KS-3631 / ADR-104 §4. Composite-индекс под основной precision-
+  /// запрос: `WHERE solution_mode = 'play-vs-engine' AND (maia_top1_prob
+  /// IS NULL OR maia_top1_prob <= threshold)`. Покрывает основной
+  /// фильтр без лишних seq-scan'ов.
+  @@index([solutionMode, maiaTop1Prob])
   // KS-2562: getNextPuzzle делает range scan по rating + ORDER BY
   // popularity DESC LIMIT 10. Полный composite на 6M строк не вмещается
   // в shared_buffers t3.micro — partial WHERE popularity >= 50

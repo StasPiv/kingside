@@ -839,6 +839,75 @@ describe('PuzzleService', () => {
       await expect(service.getPuzzle('nonexistent')).rejects.toThrow(NotFoundException);
     });
 
+    // ── KS-3631 / ADR-104 §4-5. Maia top-1 поля в DTO ────────────────
+
+    it('KS-3631: maiaTop1Prob/Elo прокидываются из puzzle-row в DTO', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-maia',
+        fen: 'fen-after-blunder',
+        moves: 'e2e4',
+        rating: 1700,
+        themes: 'fork',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: null,
+        maiaTop1Prob: 0.42,
+        maiaTop1Elo: 1500,
+      });
+
+      const result = await service.getPuzzle('pve-maia');
+
+      expect(result.maiaTop1Prob).toBe(0.42);
+      expect(result.maiaTop1Elo).toBe(1500);
+    });
+
+    it('KS-3631: отсутствующая разметка (legacy puzzle) → maiaTop1Prob/Elo = null', async () => {
+      // Regression: старый пазл без полей в БД — formatPuzzle отдаёт null,
+      // фронт по ADR-104 §7 такой пазл не отсеивает (safe fallback).
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'legacy-pf',
+        fen: 'fen-classic',
+        moves: 'e2e4 e7e5 g1f3',
+        rating: 1500,
+        themes: 'fork',
+        source: 'lichess',
+        solutionMode: 'forced-line',
+        sourceMetadata: null,
+        // maiaTop1Prob / maiaTop1Elo отсутствуют — для до-разметочных пазлов это норма.
+      });
+
+      const result = await service.getPuzzle('legacy-pf');
+
+      expect(result.maiaTop1Prob).toBeNull();
+      expect(result.maiaTop1Elo).toBeNull();
+    });
+
+    it('KS-3631: regression — поля maiaTop1Prob/Elo не ломают solutionMode и playVsEngine', async () => {
+      const meta = {
+        blunderMove: 'e2e4',
+        wdlAfterBlunder: 0.78,
+      };
+      prisma.puzzle.findUnique.mockResolvedValue({
+        id: 'pve-with-maia',
+        fen: 'fen-after-blunder',
+        moves: '',
+        rating: 1700,
+        themes: 'sacrifice',
+        source: 'generated',
+        solutionMode: 'play-vs-engine',
+        sourceMetadata: JSON.stringify(meta),
+        maiaTop1Prob: 0.18,
+        maiaTop1Elo: 1500,
+      });
+
+      const result = await service.getPuzzle('pve-with-maia');
+
+      expect(result.solutionMode).toBe('play-vs-engine');
+      expect((result as { playVsEngine?: unknown }).playVsEngine).toBeDefined();
+      expect(result.maiaTop1Prob).toBe(0.18);
+      expect(result.maiaTop1Elo).toBe(1500);
+    });
+
     // ── KS-2465 / ADR-044 §5.5. solutionMode + playVsEngine ─────────
 
     it("KS-2465: forced-line puzzle получает solutionMode='forced-line' без блока playVsEngine", async () => {

@@ -1463,6 +1463,10 @@ export class PuzzleService {
     gameUrl?: string | null;
     sourceType?: string | null;
     sourceId?: string | null;
+    /** KS-3631 / ADR-104 §4. Maia-3 top-1 prob (null = ещё не размечен). */
+    maiaTop1Prob?: number | null;
+    /** KS-3631 / ADR-104 §4. ELO, под которым прогоняли разметку. */
+    maiaTop1Elo?: number | null;
   }) {
     const mode = this.resolveSolutionMode(
       puzzle.id,
@@ -1485,6 +1489,10 @@ export class PuzzleService {
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
       ...(sourceGame ? { sourceGame } : {}),
+      // KS-3631 / ADR-104 §5. Поля прокидываются как есть; null —
+      // safe-fallback (фронт не отсеивает неразмеченные пазлы).
+      maiaTop1Prob: puzzle.maiaTop1Prob ?? null,
+      maiaTop1Elo: puzzle.maiaTop1Elo ?? null,
     };
   }
 
@@ -1542,6 +1550,9 @@ export class PuzzleService {
     source_metadata?: string | null;
     source_type?: string | null;
     source_id?: string | null;
+    /** KS-3631 / ADR-104 §4. Поля из snake_case raw-row. */
+    maia_top1_prob?: number | null;
+    maia_top1_elo?: number | null;
   }) {
     const mode = this.resolveSolutionMode(
       p.id,
@@ -1566,6 +1577,9 @@ export class PuzzleService {
       solutionMode: mode.solutionMode,
       ...(mode.playVsEngine ? { playVsEngine: mode.playVsEngine } : {}),
       ...(sourceGame ? { sourceGame } : {}),
+      // KS-3631 / ADR-104 §5. snake→camel.
+      maiaTop1Prob: p.maia_top1_prob ?? null,
+      maiaTop1Elo: p.maia_top1_elo ?? null,
     };
   }
 

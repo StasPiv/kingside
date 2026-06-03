@@ -182,6 +182,24 @@ export type PuzzleDto = {
    * не выставляется (фронт не рисует блок).
    */
   sourceGame?: PuzzleSourceGame;
+  /**
+   * KS-3631 / ADR-104 §4. Вероятность правильного хода по Maia-3
+   * (первый ход из `moves`). Заполняется offline-разметкой через
+   * admin-CLI `tools/maia-puzzle-annotation/` (T1) либо tactic-worker'ом
+   * при создании нового пазла (T2). `null` — ещё не размечен (safe
+   * fallback: фронт по умолчанию включает такие пазлы в выдачу).
+   *
+   * Поле опциональное — старые клиенты не упадут, новые клиенты
+   * фильтруют precision-выдачу по порогу
+   * `PRECISION_MAIA_DEFAULT_THRESHOLD` (см. F1, KS-3634).
+   */
+  maiaTop1Prob?: number | null;
+  /**
+   * KS-3631 / ADR-104 §4. ELO, под которым прогоняли Maia-разметку
+   * (для воспроизводимости и проверки актуальности при смене ENV
+   * `PRECISION_MAIA_ANNOTATION_ELO`). `null` — не размечен.
+   */
+  maiaTop1Elo?: number | null;
 };
 
 export interface PuzzleSourceGame {
