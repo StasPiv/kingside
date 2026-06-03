@@ -11,6 +11,9 @@ describe('nagToSymbol', () => {
     expect(nagToSymbol(6)).toBe('?!');
     expect(nagToSymbol(7)).toBe('□');
     expect(nagToSymbol(10)).toBe('=');
+    expect(nagToSymbol(11)).toBe('=');
+    expect(nagToSymbol(12)).toBe('=');
+    expect(nagToSymbol(13)).toBe('∞');
     expect(nagToSymbol(14)).toBe('⩲');
     expect(nagToSymbol(18)).toBe('+−');
     expect(nagToSymbol(19)).toBe('−+');
