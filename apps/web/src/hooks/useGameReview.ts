@@ -507,14 +507,38 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             );
           }
 
-          // wdlAfterMaiaTop: только если maiaTop попал в SF top-3
-          // (по ADR-100 §7 второго SF-вызова на каждый альтернативный
-          // ход не делаем — это слишком долго). KS-3607: invertWdl
-          // здесь НЕ нужен — wdlByMove от analyzeSf уже в POV ходящей
-          // стороны fenBefore.
-          const wdlAfterMaiaTop: Wdl | undefined = maia.topUci
-            ? sf.wdlByMove[maia.topUci]
-            : undefined;
+          // wdlAfterMaiaTop: берём из multipv-карты если Maia-top
+          // совпадает с одним из SF top-N. Если нет — делаем
+          // отдельный `evalMove(fenBefore, maiaTop)`, как уже сделано
+          // для playedUci. Раньше при miss отдавали undefined и red-
+          // вариация скипалась целиком; но именно «человек чаще играет
+          // плохо и SF не считает этот ход топом» — основной use-case
+          // Maia-альтернативы. Прежний компромисс ADR-100 §7 не имел
+          // смысла, переоцениваем.
+          //
+          // Дубль не делаем: если maiaTop == playedUci — берём
+          // wdlAfterPlayed (уже посчитан); если == sfBestUci — берём
+          // wdlAfterBest.
+          let wdlAfterMaiaTop: Wdl | undefined;
+          if (!maia.topUci) {
+            wdlAfterMaiaTop = undefined;
+          } else if (maia.topUci === playedUci) {
+            wdlAfterMaiaTop = wdlAfterPlayed;
+          } else if (maia.topUci === sf.bestUci) {
+            wdlAfterMaiaTop = sf.wdlAfterBest;
+          } else if (sf.wdlByMove[maia.topUci]) {
+            wdlAfterMaiaTop = sf.wdlByMove[maia.topUci];
+          } else {
+            try {
+              wdlAfterMaiaTop = await engines.evalMove(
+                fenBefore,
+                maia.topUci,
+                depth,
+              );
+            } catch {
+              wdlAfterMaiaTop = undefined;
+            }
+          }
 
           const input: MoveInput = {
             ply,
