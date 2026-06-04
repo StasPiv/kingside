@@ -232,6 +232,14 @@ export class PuzzleController {
     // валидируется ниже как 0..1; вне — BadRequestException. Заменяет
     // клиентский фильтр KS-3642 (ползунок UI KS-3654 → API KS-3657).
     @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
+    // KS-3670 / ADR-106 §2.6. Парный параметр под двусторонний
+    // ползунок KS-3665: верхняя граница диапазона. Семантика:
+    //   undefined / >= 1 → без фильтра;
+    //   0 ≤ v < 1 → WHERE maia_weak_choice_prob <= $max
+    //               AND maia_metric_version = 1;
+    //   вне [0, 1] либо не число → BadRequestException 400.
+    // При наличии и min, и max получаем `BETWEEN $min AND $max`.
+    @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, Math.max(1, limit));
@@ -389,26 +397,55 @@ export class PuzzleController {
       params.push(userId);
     }
 
-    // KS-3656 / ADR-106 §2.6. Парсим и валидируем порог Maia
-    // weak-choice prob; собираем условия только при threshold > 0
-    // (0 ≡ null ≡ без фильтра, см. описание задачи).
-    if (minMaiaWeakChoiceProbStr !== undefined) {
-      const v = parseFloat(minMaiaWeakChoiceProbStr);
+    // KS-3656 / KS-3670 / ADR-106 §2.6. Парсим и валидируем границы
+    // диапазона Maia weak-choice prob. Семантика:
+    //   min: undefined / 0 → без gte; > 0 → добавляем `>= $min`.
+    //   max: undefined / >= 1 → без lte; < 1 → добавляем `<= $max`.
+    // Хотя бы одна граница активна — выставляем `maia_metric_version=1`
+    // (иначе строки, размеченные под отменённую формулу, прошли бы
+    // через NULL-сравнения). Версия 1 захардкожена: см. ADR-106 §2.5;
+    // browse-эндпоинт держит query через $queryRawUnsafe — нет смысла
+    // тянуть в шаблон.
+    const parseMaiaProb = (raw: string | undefined, paramName: string) => {
+      if (raw === undefined) return undefined;
+      const v = parseFloat(raw);
       if (!Number.isFinite(v) || v < 0 || v > 1) {
         throw new BadRequestException(
-          `minMaiaWeakChoiceProb must be a number in [0, 1] (got '${minMaiaWeakChoiceProbStr}')`,
+          `${paramName} must be a number in [0, 1] (got '${raw}')`,
         );
       }
-      if (v > 0) {
-        conditions.push(`p.maia_weak_choice_prob >= ${next()}`);
-        params.push(v);
-        // Текущая версия формулы — 1 (см. ADR-106 §2.5 + сводный
-        // комментарий в schema.prisma). Если в будущем метрика
-        // пересчитается под новую формулу — поднимаем константу.
-        // Захардкожен здесь, потому что browse-эндпоинт держит query
-        // через $queryRawUnsafe; нет смысла тянуть в шаблон.
-        conditions.push('p.maia_metric_version = 1');
-      }
+      return v;
+    };
+    const minMaiaProb = parseMaiaProb(
+      minMaiaWeakChoiceProbStr,
+      'minMaiaWeakChoiceProb',
+    );
+    const maxMaiaProb = parseMaiaProb(
+      maxMaiaWeakChoiceProbStr,
+      'maxMaiaWeakChoiceProb',
+    );
+    // KS-3670: семантическая проверка диапазона (min > max бессмыслен).
+    if (
+      minMaiaProb !== undefined &&
+      maxMaiaProb !== undefined &&
+      minMaiaProb > maxMaiaProb
+    ) {
+      throw new BadRequestException(
+        `minMaiaWeakChoiceProb (${minMaiaProb}) must be <= maxMaiaWeakChoiceProb (${maxMaiaProb})`,
+      );
+    }
+    const wantMin = minMaiaProb !== undefined && minMaiaProb > 0;
+    const wantMax = maxMaiaProb !== undefined && maxMaiaProb < 1;
+    if (wantMin) {
+      conditions.push(`p.maia_weak_choice_prob >= ${next()}`);
+      params.push(minMaiaProb as number);
+    }
+    if (wantMax) {
+      conditions.push(`p.maia_weak_choice_prob <= ${next()}`);
+      params.push(maxMaiaProb as number);
+    }
+    if (wantMin || wantMax) {
+      conditions.push('p.maia_metric_version = 1');
     }
 
     // KS-2560 keyset cursor: `(created_at, id) < (cursor.c, cursor.i)`.

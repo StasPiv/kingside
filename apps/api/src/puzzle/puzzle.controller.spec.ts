@@ -510,6 +510,113 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
   });
 });
 
+/**
+ * KS-3670 / ADR-106 §2.6. Парный maxMaiaWeakChoiceProb (верхняя
+ * граница диапазона) — под двусторонний ползунок сложности KS-3665.
+ * Семантика 1:1 с minMaiaWeakChoiceProb (KS-3656):
+ *  - undefined / >= 1 → без WHERE по верхней границе;
+ *  - 0 ≤ v < 1 → WHERE p.maia_weak_choice_prob <= v
+ *                  AND p.maia_metric_version = 1;
+ *  - min и max заданы оба → BETWEEN $min AND $max (две условия + один
+ *                            common `metric_version = 1`).
+ */
+describe('PuzzleController.browse — KS-3670 maxMaiaWeakChoiceProb', () => {
+  const callBrowseWithRange = async (
+    min: string | undefined,
+    max: string | undefined,
+  ) => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      min,
+      max,
+    );
+    return (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0] as [
+      string,
+      ...unknown[],
+    ];
+  };
+
+  it('max=undefined → нет WHERE по верхней границе', async () => {
+    const [sql] = await callBrowseWithRange(undefined, undefined);
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob <=/);
+  });
+
+  it('max=1 → без WHERE по верхней границе (трактуется как полный диапазон)', async () => {
+    const [sql, ...params] = await callBrowseWithRange(undefined, '1');
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob <=/);
+    expect(sql).not.toContain('p.maia_metric_version = 1');
+    expect(params).not.toContain(1);
+  });
+
+  it('max=0.7 → WHERE <= 0.7 AND metric_version = 1', async () => {
+    const [sql, ...params] = await callBrowseWithRange(undefined, '0.7');
+    expect(sql).toMatch(/p\.maia_weak_choice_prob <= \$\d+/);
+    expect(sql).toContain('p.maia_metric_version = 1');
+    expect(params).toContain(0.7);
+  });
+
+  it('max=0 → WHERE <= 0 (граничный, отсекает почти всё)', async () => {
+    const [sql, ...params] = await callBrowseWithRange(undefined, '0');
+    expect(sql).toMatch(/p\.maia_weak_choice_prob <= \$\d+/);
+    expect(sql).toContain('p.maia_metric_version = 1');
+    expect(params).toContain(0);
+  });
+
+  it('min=0.4 + max=0.7 → BETWEEN + metric_version = 1 один раз', async () => {
+    const [sql, ...params] = await callBrowseWithRange('0.4', '0.7');
+    expect(sql).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
+    expect(sql).toMatch(/p\.maia_weak_choice_prob <= \$\d+/);
+    // metric_version = 1 должен появиться РОВНО один раз даже при
+    // двух активных границах.
+    const metricMatches = sql.match(/p\.maia_metric_version = 1/g) ?? [];
+    expect(metricMatches).toHaveLength(1);
+    expect(params).toContain(0.4);
+    expect(params).toContain(0.7);
+  });
+
+  it('min=0 + max=1 → без WHERE по maia (полный диапазон)', async () => {
+    const [sql, ...params] = await callBrowseWithRange('0', '1');
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob >=/);
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob <=/);
+    expect(sql).not.toContain('p.maia_metric_version = 1');
+    expect(params).not.toContain(0);
+    expect(params).not.toContain(1);
+  });
+
+  it('max вне [0, 1] (отрицательный) → 400', async () => {
+    await expect(callBrowseWithRange(undefined, '-0.1')).rejects.toThrow(
+      /maxMaiaWeakChoiceProb must be a number in \[0, 1\]/,
+    );
+  });
+
+  it('max вне [0, 1] (>1) → 400', async () => {
+    await expect(callBrowseWithRange(undefined, '1.5')).rejects.toThrow(
+      /maxMaiaWeakChoiceProb must be a number in \[0, 1\]/,
+    );
+  });
+
+  it('max не число → 400', async () => {
+    await expect(callBrowseWithRange(undefined, 'abc')).rejects.toThrow(
+      /maxMaiaWeakChoiceProb must be a number in \[0, 1\]/,
+    );
+  });
+
+  it('min > max → 400 (диапазон бессмыслен)', async () => {
+    await expect(callBrowseWithRange('0.8', '0.3')).rejects.toThrow(
+      /minMaiaWeakChoiceProb \(0\.8\) must be <= maxMaiaWeakChoiceProb \(0\.3\)/,
+    );
+  });
+});
+
 
 /**
  * KS-2582: visibility=public|draft|all для GET /puzzles/browse.

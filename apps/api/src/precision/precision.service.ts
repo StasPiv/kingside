@@ -94,6 +94,11 @@ export class PrecisionService {
       // по weak-choice prob. Семантика и валидация — на controller'е
       // (см. PrecisionController.pickNext). Здесь только использование.
       minMaiaWeakChoiceProb?: number;
+      // KS-3670 / ADR-106 §2.6. Верхняя граница диапазона weak-choice
+      // prob (под двусторонний ползунок KS-3665). Семантика 1:1 с
+      // нижней границей: undefined / >= 1 → без фильтра; иначе
+      // добавляем `lte`. Валидация диапазона — на controller'е.
+      maxMaiaWeakChoiceProb?: number;
     },
   ): Promise<
     | {
@@ -173,6 +178,7 @@ export class PrecisionService {
         themesAnd,
         themesOr,
         filters.minMaiaWeakChoiceProb,
+        filters.maxMaiaWeakChoiceProb,
       );
       if (picked) {
         return {
@@ -237,6 +243,8 @@ export class PrecisionService {
     themesAnd: string[] = [],
     themesOr: string[] = [],
     minMaiaWeakChoiceProb?: number,
+    // KS-3670 / ADR-106 §2.6. Верхняя граница диапазона.
+    maxMaiaWeakChoiceProb?: number,
   ): Promise<{
     id: string;
     rating: number | null;
@@ -251,15 +259,26 @@ export class PrecisionService {
       isPublic: scopeWhere.isPublic,
       rating: { gte: ratingMin, lte: ratingMax },
     };
-    // KS-3661 / ADR-106 §2.6. Серверный фильтр по Maia weak-choice
-    // prob. 0/undefined → без фильтра; > 0 — добавляем условия (1:1
-    // с KS-3656 на /puzzles/browse). Валидация диапазона — на
-    // controller'е; здесь полагаемся на pre-validated input.
+    // KS-3661 / KS-3670 / ADR-106 §2.6. Серверный фильтр по Maia
+    // weak-choice prob. Симметричные правила:
+    //   min: undefined / 0 → без gte; > 0 → gte=min.
+    //   max: undefined / >= 1 → без lte; < 1 → lte=max.
+    // Хотя бы одна граница активна — добавляем `maia_metric_version=1`
+    // (иначе строки, размеченные под отменённую формулу, прошли бы
+    // в выборку). 1:1 с KS-3656/KS-3670 на /puzzles/browse. Валидация
+    // диапазона — на controller'е; здесь полагаемся на pre-validated input.
+    const maiaProbRange: { gte?: number; lte?: number } = {};
+    if (minMaiaWeakChoiceProb !== undefined && minMaiaWeakChoiceProb > 0) {
+      maiaProbRange.gte = minMaiaWeakChoiceProb;
+    }
+    if (maxMaiaWeakChoiceProb !== undefined && maxMaiaWeakChoiceProb < 1) {
+      maiaProbRange.lte = maxMaiaWeakChoiceProb;
+    }
     if (
-      minMaiaWeakChoiceProb !== undefined &&
-      minMaiaWeakChoiceProb > 0
+      maiaProbRange.gte !== undefined ||
+      maiaProbRange.lte !== undefined
     ) {
-      where.maiaWeakChoiceProb = { gte: minMaiaWeakChoiceProb };
+      where.maiaWeakChoiceProb = maiaProbRange;
       where.maiaMetricVersion = 1;
     }
     if (scopeWhere.createdByMatch === 'self') {

@@ -1645,5 +1645,108 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         expect(contains).toEqual(['convertAdvantage', 'pin']);
       });
     });
+
+    // KS-3670 / ADR-106 §2.6. Парная верхняя граница диапазона
+    // под двусторонний ползунок KS-3665.
+    describe('KS-3670 maxMaiaWeakChoiceProb', () => {
+      it('undefined → без фильтра по lte', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-mx1', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', { scope: 'server' });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toBeUndefined();
+        expect(call.where.maiaMetricVersion).toBeUndefined();
+      });
+
+      it('1 → без фильтра по lte (1:1 с KS-3656 для min=0)', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-mx2', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          maxMaiaWeakChoiceProb: 1,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toBeUndefined();
+        expect(call.where.maiaMetricVersion).toBeUndefined();
+      });
+
+      it('0.7 → maiaWeakChoiceProb { lte: 0.7 } + maiaMetricVersion = 1', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-mx3', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          maxMaiaWeakChoiceProb: 0.7,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toEqual({ lte: 0.7 });
+        expect(call.where.maiaMetricVersion).toBe(1);
+      });
+
+      it('min=0.4 + max=0.7 → объединённый { gte, lte } + metric_version = 1', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-mx4', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 0.4,
+          maxMaiaWeakChoiceProb: 0.7,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toEqual({
+          gte: 0.4,
+          lte: 0.7,
+        });
+        expect(call.where.maiaMetricVersion).toBe(1);
+      });
+
+      it('min=0 + max=1 → без фильтра (полный диапазон)', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          { id: 'p-mx5', rating: 1500 },
+        ]);
+        await service.pickNext('u-1', {
+          scope: 'server',
+          minMaiaWeakChoiceProb: 0,
+          maxMaiaWeakChoiceProb: 1,
+        });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.where.maiaWeakChoiceProb).toBeUndefined();
+        expect(call.where.maiaMetricVersion).toBeUndefined();
+      });
+
+      it('верхняя граница сохраняется на расширенных окнах', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany
+          .mockResolvedValueOnce([]) // окно 150
+          .mockResolvedValueOnce([{ id: 'p-mx6', rating: 1500 }]); // 300
+        await service.pickNext('u-1', {
+          scope: 'server',
+          maxMaiaWeakChoiceProb: 0.6,
+        });
+        for (const call of prisma.puzzle.findMany.mock.calls) {
+          expect(call[0].where.maiaWeakChoiceProb).toEqual({ lte: 0.6 });
+          expect(call[0].where.maiaMetricVersion).toBe(1);
+        }
+      });
+    });
   });
 });

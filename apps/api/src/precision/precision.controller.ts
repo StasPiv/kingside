@@ -186,6 +186,12 @@ export class PrecisionController {
     //               maia_metric_version = 1;
     //   вне [0, 1] либо не число → BadRequestException 400.
     @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
+    // KS-3670 / ADR-106 §2.6. Парный параметр под двусторонний
+    // ползунок KS-3665: верхняя граница диапазона `[min, max]`.
+    // Семантика: undefined / >= 1 → без фильтра; 0 ≤ v < 1 → WHERE
+    // maia_weak_choice_prob <= v AND maia_metric_version = 1; вне
+    // [0, 1] либо не число → BadRequestException 400.
+    @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
   ) {
     const ALLOWED_SCOPES = new Set(['server', 'drafts', 'published']);
     const scope: 'server' | 'drafts' | 'published' =
@@ -253,6 +259,29 @@ export class PrecisionController {
       minMaiaWeakChoiceProb = v;
     }
 
+    // KS-3670: симметричный парс/валидация maxMaiaWeakChoiceProb.
+    let maxMaiaWeakChoiceProb: number | undefined;
+    if (maxMaiaWeakChoiceProbStr !== undefined) {
+      const v = parseFloat(maxMaiaWeakChoiceProbStr);
+      if (!Number.isFinite(v) || v < 0 || v > 1) {
+        throw new BadRequestException(
+          `maxMaiaWeakChoiceProb must be a number in [0, 1] (got '${maxMaiaWeakChoiceProbStr}')`,
+        );
+      }
+      maxMaiaWeakChoiceProb = v;
+    }
+
+    // KS-3670: семантическая проверка диапазона — min > max бессмыслен.
+    if (
+      minMaiaWeakChoiceProb !== undefined &&
+      maxMaiaWeakChoiceProb !== undefined &&
+      minMaiaWeakChoiceProb > maxMaiaWeakChoiceProb
+    ) {
+      throw new BadRequestException(
+        `minMaiaWeakChoiceProb (${minMaiaWeakChoiceProb}) must be <= maxMaiaWeakChoiceProb (${maxMaiaWeakChoiceProb})`,
+      );
+    }
+
     const picked = await this.precision.pickNext(userId, {
       scope,
       objective,
@@ -262,6 +291,7 @@ export class PrecisionController {
       themesAnd,
       themesOr,
       minMaiaWeakChoiceProb,
+      maxMaiaWeakChoiceProb,
     });
     if (!picked) {
       throw new NotFoundException({
