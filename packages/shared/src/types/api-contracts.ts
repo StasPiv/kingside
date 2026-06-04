@@ -1756,7 +1756,23 @@ export type PositionalSubtermId =
   | 'passed_path_advance'
   | 'passed_file_edge'
   // Space — evaluate.cpp:828-859 (1 интегральный счёт).
-  | 'space';
+  | 'space'
+  // KS-3677 / ADR-107 rev 2 §2.2. Фаза 10 расширения C1a: mobility
+  // per-piece (4 id) и king attackers агрегаты (2 id). WASM
+  // Stockfish-trace их эмитит, фронт прокидывает на бэк → LLM.
+  // `psqt_*` (8 id) сознательно исключены — внутренняя декомпозиция
+  // оценки без шахматной семантики, для модели шум.
+  | 'mobility_knight'
+  | 'mobility_bishop'
+  | 'mobility_rook'
+  | 'mobility_queen'
+  | 'king_attackers_count'
+  | 'king_attackers_weight'
+  // KS-3678 follow-up: материал и имбаланс из evaluate(). WASM
+  // Stockfish-trace эмитит их как отдельные subterms, чтобы фронт
+  // не собирал материал из chess.js — единый источник из движка.
+  | 'material'
+  | 'imbalance';
 
 /**
  * KS-3649 / ADR-107 rev 2 §3.4, §3.5. Одна позиционная подкомпонента

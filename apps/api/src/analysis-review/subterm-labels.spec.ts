@@ -85,12 +85,15 @@ const EXPECTED_IDS_SOURCE_OF_TRUTH = [
   // King attackers (2) — KS-3677
   'king_attackers_count',
   'king_attackers_weight',
+  // Material / imbalance (2) — KS-3678 follow-up
+  'material',
+  'imbalance',
 ];
 
 describe('KS-3651 SUBTERM_LABELS', () => {
-  it('содержит ровно 57 идентификаторов (синхронизация с shared, KS-3677)', () => {
-    expect(EXPECTED_IDS_SOURCE_OF_TRUTH).toHaveLength(57);
-    expect(Object.keys(SUBTERM_LABELS)).toHaveLength(57);
+  it('содержит ровно 59 идентификаторов (синхронизация с shared, KS-3678)', () => {
+    expect(EXPECTED_IDS_SOURCE_OF_TRUTH).toHaveLength(59);
+    expect(Object.keys(SUBTERM_LABELS)).toHaveLength(59);
   });
 
   it('все ожидаемые ID присутствуют в таблице (нет пропусков)', () => {

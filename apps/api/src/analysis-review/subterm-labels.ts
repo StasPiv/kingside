@@ -276,6 +276,16 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     ru: 'суммарный вес атакующих короля фигур',
     en: 'total weight of pieces attacking the king',
   },
+
+  // ─── Material / imbalance (KS-3678 follow-up) ───────────────────
+  material: {
+    ru: 'материальный перевес',
+    en: 'material advantage',
+  },
+  imbalance: {
+    ru: 'имбаланс — комбинация фигур, дающая позиционный вклад',
+    en: 'imbalance — piece-combination positional contribution',
+  },
 };
 
 /**

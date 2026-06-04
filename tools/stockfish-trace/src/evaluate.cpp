@@ -258,7 +258,10 @@ namespace Trace {
     "mobility_queen",
     // Phase 10: king attackers агрегаты
     "king_attackers_count",
-    "king_attackers_weight"
+    "king_attackers_weight",
+    // KS-3678 follow-up: material / imbalance из evaluate()
+    "material",
+    "imbalance"
   };
 
   struct SubtermEntry {
@@ -1506,6 +1509,15 @@ std::string Eval::trace_json(Position& pos) {
 
   Value v = Evaluation<TRACE>(pos).value();
   v = pos.side_to_move() == WHITE ? v : -v;
+
+  // KS-3678 follow-up: материал и имбаланс из evaluate() — отдельные
+  // subterms, чтобы фронт не собирал материал из разных источников.
+  // scores[MATERIAL][WHITE] = pos.psq_score() (включает PSQT — уже
+  // разнесён ниже по piece-type, держим ради общей суммы);
+  // scores[IMBALANCE][WHITE] = me->imbalance(). Цвет WHITE — общая
+  // шкала POV белых; знак показывает чью сторону.
+  Eval::add_subterm(Eval::SUBT_MATERIAL, WHITE, scores[MATERIAL][WHITE]);
+  Eval::add_subterm(Eval::SUBT_IMBALANCE, WHITE, scores[IMBALANCE][WHITE]);
 
   // KS-3648 Phase 10: PSQT-разметка. PSQT::psq[piece][square]
   // содержит mg/eg-таблицу позиционной премии за каждую фигуру на

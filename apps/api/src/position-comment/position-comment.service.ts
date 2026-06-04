@@ -61,6 +61,7 @@ export class PositionCommentService {
     const userMessage = JSON.stringify({
       fen: dto.fen,
       factors: dto.factors,
+      ...(dto.eval ? { eval: dto.eval } : {}),
     });
 
     try {

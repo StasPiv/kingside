@@ -120,6 +120,13 @@ namespace Eval {
     // суммарные подкомпоненты per side (без square).
     SUBT_KING_ATTACKERS_COUNT,
     SUBT_KING_ATTACKERS_WEIGHT,
+    // KS-3678 follow-up: материал и имбаланс из evaluate(), эмитятся
+    // в trace_json после Evaluation<TRACE>. Material = pos.psq_score()
+    // (включает PSQT-составляющую, уже разнесённую по piece-type выше);
+    // Imbalance = me->imbalance() — несимметричные комбинации фигур.
+    // Без square / без color (общая мера, POV WHITE).
+    SUBT_MATERIAL,
+    SUBT_IMBALANCE,
     SUBT_NB
   };
 
