@@ -250,6 +250,103 @@ describe('useAiPositionComment', () => {
     });
   });
 
+  it('KS-3685: engineBestLine добавляет sf18_eval + sf18_pv в factors', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'space', value_mg: 0.05, value_eg: 0 },
+    ]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 24,
+          multipv: 1,
+          score: { type: 'cp', value: 35 },
+          pv: 'e2e4 e7e5 g1f3',
+        },
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(capturedBody).not.toBeNull();
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(Array.isArray(factors)).toBe(true);
+    // Базовый фактор + sf18_eval + sf18_pv.
+    expect(factors).toHaveLength(3);
+    expect(factors[1]).toMatchObject({
+      id: 'sf18_eval',
+      engine: 'stockfish-18',
+      depth: 24,
+      multipv: 1,
+      score: { type: 'cp', value: 35 },
+      side_to_move: 'w',
+    });
+    expect(factors[2]).toMatchObject({
+      id: 'sf18_pv',
+      engine: 'stockfish-18',
+      depth: 24,
+      multipv: 1,
+      pv: ['e2e4', 'e7e5', 'g1f3'],
+    });
+  });
+
+  it('KS-3685: engineBestLine=null → factors без sf18-элементов, запрос идёт', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'space', value_mg: 0.05, value_eg: 0 },
+    ]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineBestLine: null,
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(1);
+    expect((factors[0] as { id: string }).id).toBe('space');
+  });
+
+  it('KS-3685: engineBestLine с пустым pv → только sf18_eval (без sf18_pv)', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 18,
+          multipv: 1,
+          score: { type: 'mate', value: 3 },
+          pv: '   ',
+        },
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(1);
+    expect(factors[0]).toMatchObject({
+      id: 'sf18_eval',
+      score: { type: 'mate', value: 3 },
+    });
+  });
+
   it('soft-counter растёт на каждый отправленный запрос', async () => {
     (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     // mockResolvedValue вернул бы один и тот же Response — `res.json()`

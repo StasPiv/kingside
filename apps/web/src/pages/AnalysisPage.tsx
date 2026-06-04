@@ -936,22 +936,12 @@ function AnalysisPageInner({
   const maia = useMaiaAnalysis({ fen: currentFen });
   const { sortMode, setSortMode } = useEngineSortMode();
 
-  // KS-3680 (ADR-108): контроллер AI-комментария позиции для панели в
-  // engine-panel (desktop + mobile-Engine). Поднимаем сюда, чтобы при
-  // навигации между ходами хук успевал увидеть смену `currentFen` и
-  // отменить in-flight запрос. `fullReviewComment` берём из текущего
-  // хода — если в нём уже есть комментарий из полного разбора, панель
-  // покажет его как `success(source='full-review')` до перегенерации.
-  // `language` — текущая i18n-локаль, fallback на 'ru'.
+  // KS-3680/KS-3685: контроллер AI-комментария позиции теперь поднят
+  // ниже, после объявления `displayedLines`, чтобы пробросить лучшую
+  // линию Stockfish 18 как дополнительный фактор. См. блок после
+  // `const displayedLines = …`.
   const aiCommentLanguage: 'ru' | 'en' =
     (i18n.language || '').toLowerCase().startsWith('en') ? 'en' : 'ru';
-  const aiPositionComment = useAiPositionComment({
-    fen: currentFen,
-    user: user ? { id: user.id } : null,
-    fullReviewComment:
-      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
-    language: aiCommentLanguage,
-  });
 
   // KS-3597: финальный массив `searchmoves`. null/[] → обычный go
   // без хвоста (mode=stockfish, или Maia не ready, или engine не
@@ -1016,6 +1006,28 @@ function AnalysisPageInner({
     lastLinesRef.current = lines;
   }
   const displayedLines = lastLinesRef.current.length > 0 ? lastLinesRef.current : lines;
+
+  // KS-3680/KS-3685: контроллер AI-комментария позиции для панели в
+  // engine-panel (desktop + mobile-Engine). `engineBestLine` — лучшая
+  // линия Stockfish 18 на момент клика; хук читает её через ref, поэтому
+  // объект, пересоздаваемый на каждом рендере, не сбрасывает кэш doRequest.
+  // Если движок ещё не отдал ни одной линии — передаём null, запрос уйдёт
+  // без `sf18_eval` / `sf18_pv`, пользователя это не блокирует.
+  const aiPositionComment = useAiPositionComment({
+    fen: currentFen,
+    user: user ? { id: user.id } : null,
+    fullReviewComment:
+      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
+    language: aiCommentLanguage,
+    engineBestLine: displayedLines[0]
+      ? {
+          depth: displayedLines[0].depth,
+          multipv: displayedLines[0].multipv,
+          score: displayedLines[0].score,
+          pv: displayedLines[0].pv,
+        }
+      : null,
+  });
 
   // --- Data loading ---
   useEffect(() => {

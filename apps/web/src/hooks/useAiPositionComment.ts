@@ -126,6 +126,22 @@ export interface UseAiPositionCommentOptions {
    * Если undefined — поле в теле запроса не отправляется.
    */
   engineEvalCp?: number | null;
+  /**
+   * KS-3685: лучшая (multipv=1) линия от работающего экземпляра
+   * Stockfish 18 в окне анализа на момент клика по кнопке. Если есть —
+   * добавляем в `factors` два дополнительных элемента:
+   *   { id: 'sf18_eval', score, depth, multipv: 1, sideToMove }
+   *   { id: 'sf18_pv',   pv: string[uci], depth, multipv: 1 }
+   * Если null/undefined (движок ещё не успел думать) — запрос уходит
+   * без них, пользователя не блокируем.
+   */
+  engineBestLine?: {
+    depth: number;
+    multipv: number;
+    score: { type: 'cp' | 'mate'; value: number };
+    /** UCI-строка, пробелы между ходами. */
+    pv: string;
+  } | null;
 }
 
 export interface UseAiPositionCommentResult {
@@ -247,7 +263,14 @@ async function postPositionComment(
 export function useAiPositionComment(
   options: UseAiPositionCommentOptions,
 ): UseAiPositionCommentResult {
-  const { fen, user, fullReviewComment, language, engineEvalCp } = options;
+  const {
+    fen,
+    user,
+    fullReviewComment,
+    language,
+    engineEvalCp,
+    engineBestLine,
+  } = options;
   const normalizedFen = normalizeFen(fen);
   // KS-3680: важно сравнивать пользователя по `id`, а не по ссылке.
   // В AnalysisPage объект `user` (или production wrapper `{ id: user.id }`)
@@ -295,6 +318,12 @@ export function useAiPositionComment(
   // FEN: при смене FEN отменяем in-flight и сбрасываем).
   const abortRef = useRef<AbortController | null>(null);
   const inFlightFenRef = useRef<string | null>(null);
+
+  // KS-3685: engineBestLine читаем через ref, чтобы каждое обновление
+  // EvalLine (новая глубина SF каждые ~80 мс) не пересоздавало
+  // `doRequest` и не сбрасывало useEffect-зависимости.
+  const engineBestLineRef = useRef(engineBestLine);
+  engineBestLineRef.current = engineBestLine;
 
   // Перезагрузка состояния при смене FEN / user / fullReviewComment.
   useEffect(() => {
@@ -369,7 +398,41 @@ export function useAiPositionComment(
       if (ctrl.signal.aborted) return;
 
       // 2) Тело запроса. `language` и `eval` — опциональные.
-      const payload: PositionCommentPayload = { fen, factors };
+      //
+      // KS-3685: если в окне анализа уже работает Stockfish 18 и успел
+      // вернуть хотя бы одну линию — дописываем в `factors` две дополнительные
+      // записи (`sf18_eval` + `sf18_pv`), чтобы языковая модель могла
+      // опираться на реальную оценку движка и его рекомендованную линию.
+      // Если движок ещё не успел думать (engineBestLine = null/undefined) —
+      // запрос уходит без них, пользователя не блокируем.
+      const bestLine = engineBestLineRef.current;
+      const factorsWithEngine: unknown[] = [...factors];
+      if (bestLine && Number.isFinite(bestLine.score?.value)) {
+        const sideToMove: 'w' | 'b' = fen.split(/\s+/)[1] === 'b' ? 'b' : 'w';
+        factorsWithEngine.push({
+          id: 'sf18_eval',
+          engine: 'stockfish-18',
+          depth: bestLine.depth,
+          multipv: bestLine.multipv,
+          score: bestLine.score,
+          side_to_move: sideToMove,
+        });
+        const pvList = (bestLine.pv ?? '').trim().split(/\s+/).filter(Boolean);
+        if (pvList.length > 0) {
+          factorsWithEngine.push({
+            id: 'sf18_pv',
+            engine: 'stockfish-18',
+            depth: bestLine.depth,
+            multipv: bestLine.multipv,
+            pv: pvList,
+          });
+        }
+      }
+
+      const payload: PositionCommentPayload = {
+        fen,
+        factors: factorsWithEngine,
+      };
       if (language) payload.language = language;
       if (engineEvalCp != null && Number.isFinite(engineEvalCp)) {
         payload.eval = engineEvalCp;
