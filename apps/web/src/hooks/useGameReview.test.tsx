@@ -7,6 +7,20 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { Wdl } from '@kingside/shared';
 
+// KS-3676: stockfishTrace в jsdom не загружает реальный <script> —
+// фабрика бросает factory-error. Тесты useGameReview не проверяют
+// сам трейс, поэтому мокаем его на пустой массив.
+vi.mock('../lib/review/stockfishTrace', () => ({
+  evalTrace: vi.fn().mockResolvedValue([]),
+  parseTraceJson: vi.fn().mockReturnValue([]),
+  StockfishTraceEngineError: class extends Error {
+    constructor(public readonly reason: string) {
+      super(`mock-stockfish-trace: ${reason}`);
+      this.name = 'StockfishTraceEngineError';
+    }
+  },
+}));
+
 import {
   useGameReview,
   type CommentClient,

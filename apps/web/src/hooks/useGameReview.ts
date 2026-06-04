@@ -850,11 +850,6 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         try {
         const factsToSend: FactsInput[] = [];
         const plyMap: number[] = [];
-        // KS-3681: если первая попытка SF-trace упала с системной
-        // ошибкой — отключаем дальнейшие вызовы на этот разбор, чтобы
-        // не ждать 8 с × N ходов. Сбрасывается при следующем нажатии
-        // «Разобрать партию» (новый run → новый флаг).
-        let skipTraceForThisRun = false;
         for (let i = 0; i < annotations.length; i++) {
           const ann = annotations[i];
           if (ann.nag.length === 0) continue;
@@ -881,38 +876,26 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // Cancel-aware: между ходами проверяем флаг.
           if (cancelRef.current) break;
           let positionalSubterms: PositionalSubterm[] = [];
-          // KS-3681: возвращаем graceful запасной путь. Текущая сборка
-          // `stockfish-16-trace.js` не отвечает на UCI в Worker (devops
-          // готовит пересборку). До неё каждый вызов гарантированно
-          // ловит таймаут 8 с. Бросать ошибку наверх — значит блокировать
-          // разбор полностью. Лучше отдать `positional_subterms: []`,
-          // как было ДО работ по ADR-107: остальные сигналы
-          // (positional_shifts, sf_best, maia_alternative, tactical_motifs)
-          // полностью функциональны, LLM-комментарии собираются.
-          //
-          // Системную ошибку дублируем в console.warn — диагностика
-          // сохраняется, после пересборки достаточно убрать try/catch.
-          // Первая попытка бросает StockfishTraceEngineError → отключаем
-          // дальнейшие вызовы на остаток разбора (флаг ниже), чтобы не
-          // ждать 8 с × N ходов = много минут впустую.
-          if (!skipTraceForThisRun) {
-            const traceStart = performance.now();
+          // KS-3676: новая сборка SF-trace работает (devops). Если
+          // исполнитель всё же упадёт — это системная поломка,
+          // разбор переходит в `status='error'` с понятным сообщением
+          // в UI. Мягкий запасной путь убран по решению пользователя
+          // (KS-3681 отменён).
+          const traceStart = performance.now();
+          console.info(
+            `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+          );
+          try {
+            positionalSubterms = await evalStockfishTrace(fenAfter);
             console.info(
-              `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+              `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
             );
-            try {
-              positionalSubterms = await evalStockfishTrace(fenAfter);
-              console.info(
-                `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
-              );
-            } catch (err) {
-              console.warn(
-                `[useGameReview] evalStockfishTrace skipped for rest of run (cause:`,
-                err,
-                ')',
-              );
-              skipTraceForThisRun = true;
-            }
+          } catch (err) {
+            console.warn(
+              '[useGameReview] evalStockfishTrace fatal:',
+              err,
+            );
+            throw err;
           }
           const facts = extractFacts({
             ply: input.ply,
