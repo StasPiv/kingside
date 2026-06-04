@@ -250,6 +250,7 @@ describe('useGameReview', () => {
       useGameReview({
         engines: blunderEngines(),
         commentClient,
+        createPositionalEval: null,
         openingName: 'King’s Pawn',
         userLanguage: 'ru',
         elo: 1500,
@@ -276,7 +277,7 @@ describe('useGameReview', () => {
   it('KS-3616: backend возвращает пустые → commentsWarning=true, дубль создаётся', async () => {
     const commentClient: CommentClient = vi.fn().mockResolvedValue(['']);
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient }),
+      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -293,7 +294,7 @@ describe('useGameReview', () => {
       .fn()
       .mockRejectedValue(new DOMException('aborted', 'AbortError'));
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient }),
+      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -306,7 +307,7 @@ describe('useGameReview', () => {
       .fn()
       .mockRejectedValue(new TypeError('Failed to fetch'));
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient }),
+      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -329,7 +330,7 @@ describe('useGameReview', () => {
         });
       });
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient }),
+      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
     );
     let runPromise: Promise<void> | null = null;
     act(() => {
@@ -345,6 +346,66 @@ describe('useGameReview', () => {
     });
     expect(result.current.status).toBe('cancelled');
     expect(abortSignal?.aborted).toBe(true);
+  });
+
+  it('KS-3619: variation.finalEvalNag проставляется по WDL финальной позиции', async () => {
+    // Сценарий: blunder на 2-м полуходе (e7e5 в нашем мок-движке).
+    // engines.analyzeSf на финальной позиции возвращает WDL «выигран
+    // белыми» → eWhite≈1.0 → ожидаем NAG_EVAL_DECISIVE_WHITE (18).
+    const decisive: Wdl = { w: 950, d: 50, l: 0 };
+    const analyzeSf = vi.fn().mockImplementation((fen: string) => {
+      // Чёрные на ходу → blunder на e7e5.
+      if (fen.includes(' b ')) {
+        return Promise.resolve({
+          bestUci: 'g8f6',
+          wdlBefore: NEUTRAL,
+          wdlAfterBest: NEUTRAL,
+          wdlAfterSecondBest: NEUTRAL,
+          bestPv: ['g8f6', 'd2d4', 'e7e6'],
+          wdlByMove: {
+            g8f6: NEUTRAL,
+            e7e5: { w: 0, d: 0, l: 1000 },
+          },
+          legalMovesCount: 20,
+        });
+      }
+      // Любая «дальняя» (после применения sub-line) или белый ход —
+      // отдаём decisive POV white.
+      return Promise.resolve({
+        bestUci: 'e2e4',
+        wdlBefore: decisive,
+        wdlAfterBest: decisive,
+        wdlAfterSecondBest: NEUTRAL,
+        bestPv: ['e2e4'],
+        wdlByMove: { e2e4: decisive },
+        legalMovesCount: 20,
+      });
+    });
+    const engines: ReviewEngines = {
+      analyzeSf,
+      evalMove: vi.fn().mockResolvedValue(NEUTRAL),
+      predictMaia: vi.fn().mockResolvedValue({
+        byUci: { e2e4: 0.4 },
+        topUci: 'e2e4',
+        topProb: 0.4,
+      }),
+      terminate: vi.fn(),
+    };
+    const { result } = renderHook(() =>
+      useGameReview({ engines, commentsEnabled: false }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('done');
+    // ply=2 (e7e5) — blunder, green-variation должна быть с
+    // finalEvalNag=18 (+−) или 16 (±), но не undefined.
+    const ann = result.current.result?.annotations.find((a) => a.ply === 2);
+    const green = ann?.variations.find((v) => v.color === 'green');
+    expect(green).toBeTruthy();
+    expect(green?.finalEvalNag).toBeTypeOf('number');
+    // По мокам — decisive POV white на финальной позиции.
+    expect([16, 18]).toContain(green!.finalEvalNag);
   });
 
   it('reset() → idle', async () => {

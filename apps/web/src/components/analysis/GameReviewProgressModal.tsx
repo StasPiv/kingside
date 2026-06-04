@@ -40,10 +40,17 @@ export function GameReviewProgressModal({
   if (!open) return null;
   const isError = status === 'error';
   const isComments = stage === 'comments';
+  const isStabilizing = stage === 'stabilizing';
+  const isPositional = stage === 'positional';
   const isFinalizing = stage === 'finalizing';
   const isCreating = stage === 'creating';
   const pct =
     total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  // KS-3677: подстадии `stabilizing` / `positional` ставятся с
+  // `total=0` на старте — рендерим неопределённый индикатор (полоса с
+  // анимацией), чтобы пользователю было видно, что процесс идёт.
+  const indeterminate =
+    (isStabilizing || isPositional || isComments) && total === 0;
 
   return (
     <div
@@ -78,32 +85,45 @@ export function GameReviewProgressModal({
                 'analysis.review.progress.creating',
                 'Создаю копию анализа…',
               )
-            : isComments
+            : isStabilizing
               ? t(
-                  'analysis.review.progress.comments',
-                  'Готовлю комментарии…',
-                )
-              : isFinalizing
+                  'analysis.review.progress.stabilizing',
+                  'Стабилизация вариантов…',
+                ) +
+                (total > 0 ? ` · ${done} / ${total}` : '')
+              : isPositional
                 ? t(
-                    'analysis.review.progress.finalizing',
-                    'Завершаю анализ…',
-                  )
-                : t(
-                    'analysis.review.progress.engine',
-                    '{{done}} / {{total}}',
-                    { done, total },
+                    'analysis.review.progress.positional',
+                    'Расчёт позиционных факторов…',
                   ) +
-                  ' · ' +
-                  pct +
-                  '%'}
+                  (total > 0 ? ` · ${done} / ${total}` : '')
+                : isComments
+                  ? t(
+                      'analysis.review.progress.comments',
+                      'Готовлю комментарии…',
+                    ) +
+                    (total > 0 ? ` · ${done} / ${total}` : '')
+                  : isFinalizing
+                    ? t(
+                        'analysis.review.progress.finalizing',
+                        'Завершаю анализ…',
+                      )
+                    : t(
+                        'analysis.review.progress.engine',
+                        '{{done}} / {{total}}',
+                        { done, total },
+                      ) +
+                      ' · ' +
+                      pct +
+                      '%'}
         </p>
         <div
           className="game-review-progress-modal__bar"
           aria-hidden="true"
         >
           <div
-            className="game-review-progress-modal__bar-fill"
-            style={{ width: `${pct}%` }}
+            className={`game-review-progress-modal__bar-fill${indeterminate ? ' game-review-progress-modal__bar-fill--indeterminate' : ''}`}
+            style={indeterminate ? undefined : { width: `${pct}%` }}
             data-testid="game-review-progress-bar-fill"
           />
         </div>
@@ -112,7 +132,18 @@ export function GameReviewProgressModal({
             className="game-review-progress-modal__error"
             data-testid="game-review-progress-error"
           >
-            {error || t('analysis.review.error', 'Failed to analyze')}
+            {/* KS-3677: специальные ключи `stockfish_trace_unavailable` /
+                `positional_engine_unavailable` — системные поломки WASM-
+                исполнителей. Показываем понятное сообщение и предлагаем
+                повторить. Остальные ошибки выводим как есть. */}
+            {error === 'stockfish_trace_unavailable' ||
+            error === 'positional_engine_unavailable'
+              ? t(
+                  'analysis.review.error.engineUnavailable',
+                  'Не удалось запустить позиционный анализ. Попробуйте ещё раз.',
+                )
+              : error ||
+                t('analysis.review.error', 'Failed to analyze')}
           </p>
         )}
         <div className="game-review-progress-modal__actions">

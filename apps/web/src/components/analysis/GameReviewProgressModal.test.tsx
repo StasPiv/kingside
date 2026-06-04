@@ -119,10 +119,11 @@ describe('<GameReviewProgressModal>', () => {
       />,
     );
     const txt = screen.getByTestId('game-review-progress-text');
-    // Текст не содержит числа — это «Готовлю комментарии…» / «Generating comments…».
-    expect(txt.textContent).not.toContain('0 /');
+    // KS-3677: текст теперь содержит «Готовлю комментарии…» + «· 0 / 5»
+    // (прогресс по факт-пакетам), но без процентов.
+    expect(txt.textContent).toMatch(/Готовлю|Generating/);
+    expect(txt.textContent).toContain('0 / 5');
     expect(txt.textContent).not.toContain('%');
-    expect(txt.textContent && txt.textContent.length > 0).toBe(true);
   });
 
   it('progress-bar fill = done/total * 100%', () => {

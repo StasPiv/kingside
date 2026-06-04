@@ -169,7 +169,21 @@ export interface ReviewResult {
  *  - `creating` — POST `/duplicate-annotated` после `status='done'`.
  *    Используется launcher'ом (модалка показывает «Создаю копию…»).
  */
-export type ReviewStage = 'engine' | 'finalizing' | 'comments' | 'creating';
+/**
+ * KS-3677: подстадии вместо одной общей `comments`. Пользователю
+ * видно, где сейчас тратится время, и прогресс-индикатор заполняется
+ * на каждой подстадии отдельно.
+ *  - `stabilizing` — post-pass субвариантов на красные NAG-факты.
+ *  - `positional` — расчёт `positional_shifts` (PositionalEvalEngine).
+ *  - `comments` — отправка пакетов на `/analyses/review/comments`.
+ */
+export type ReviewStage =
+  | 'engine'
+  | 'stabilizing'
+  | 'positional'
+  | 'finalizing'
+  | 'comments'
+  | 'creating';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -454,6 +468,9 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       setResult(undefined);
       setCommentsWarning(false);
       setStatus('running');
+      // KS-3677: общий старт прогона — нужен для логов с относительными
+      // временными метками.
+      const reviewStartedAt = performance.now();
 
       let plies: ParsedGameMove[];
       try {
@@ -567,20 +584,32 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         engines.terminate();
         enginesRef.current = null;
         setStatus('error');
-        setError(e instanceof Error ? e.message : String(e));
+        // KS-3677: системную поломку исполнителя SF-trace помечаем
+        // отдельным ключом — UI покажет понятное сообщение
+        // «Не удалось запустить позиционный анализ».
+        if (
+          e &&
+          typeof e === 'object' &&
+          (e as { name?: string }).name === 'StockfishTraceEngineError'
+        ) {
+          setError('stockfish_trace_unavailable');
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
         return;
       }
 
-      // KS-3618: сразу после main-pass'а переключаем стадию — дальше
-      // идёт post-pass (доп. SF на красные variation, ~1с/ход) и
-      // (опционально) LLM-фаза, без процентов. Без переключения
-      // модалка зависает на 100% engine, пока всё это выполняется.
-      //
-      // Если LLM-комментарии отключены — показываем нейтральное
-      // «Завершаю анализ…» вместо «Готовлю комментарии…» (UX-фикс:
-      // плашка про комментарии не должна мелькать, если их не будет).
+      // KS-3618 → KS-3677. После main-pass'а идёт сначала post-pass
+      // (стабилизация субвариантов на красные NAG-факты, ~1 с/ход).
+      // Стадия `stabilizing` — пользователю видно конкретный текст
+      // «Стабилизация вариантов» в модалке. `total` ставится по числу
+      // факт-сборок, накопленных в main-pass'е, `done` тикает по
+      // мере обработки.
+      console.info(
+        `[useGameReview] stage → stabilizing (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+      );
       setProgress({
-        stage: commentsEnabled ? 'comments' : 'finalizing',
+        stage: commentsEnabled ? 'stabilizing' : 'finalizing',
         done: 0,
         total: 0,
       });
@@ -789,11 +818,17 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           try {
             positionalSubterms = await evalStockfishTrace(fenAfter);
           } catch (err) {
-            // evalTrace сам ловит ошибки, но на всякий — здесь тоже.
+            // KS-3677: при системной поломке исполнителя (таймаут или
+            // ошибка инициализации WASM) — останавливаем разбор и
+            // переходим в `status='error'`. Не молчим с `[]`, иначе
+            // пользователь получит «успешный» разбор без половины
+            // данных. Локальную ошибку парсинга оставляет `[]` —
+            // evalTrace бросает только системные.
             console.warn(
-              '[useGameReview] evalStockfishTrace failed:',
+              '[useGameReview] evalStockfishTrace fatal:',
               err,
             );
+            throw err;
           }
           const facts = extractFacts({
             ply: input.ply,
@@ -837,6 +872,15 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // разбор. Это допустимо — комментарии без позиционных
           // ярлыков всё равно осмысленны (мат/тактика/материал — есть).
           if (createPositionalEval !== null) {
+            // KS-3677: подстадия `positional`, прогресс по факт-парам.
+            console.info(
+              `[useGameReview] stage → positional (facts=${factsToSend.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+            );
+            setProgress({
+              stage: 'positional',
+              done: 0,
+              total: factsToSend.length,
+            });
             let posEngine: PositionalEvalEngineType | null = null;
             // KS-3676. Подробное логирование причин пустого
             // `positional_shifts`. До этой правки ошибки исполнителя
@@ -860,7 +904,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
               posEngine = (createPositionalEval ?? (() =>
                 new PositionalEvalEngine({ onError: reportEngineError })
               ))();
+              const posInitStart = performance.now();
               await posEngine.init();
+              console.info(
+                `[useGameReview] positional engine ready in ${Math.round(performance.now() - posInitStart)}ms`,
+              );
               for (let i = 0; i < factsToSend.length; i++) {
                 if (cancelRef.current) break;
                 const f = factsToSend[i];
@@ -870,6 +918,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
                 ]);
                 if (!evalBefore || !evalAfter) {
                   nullEvalCount++;
+                  setProgress({
+                    stage: 'positional',
+                    done: i + 1,
+                    total: factsToSend.length,
+                  });
                   continue;
                 }
                 const shifts = computePositionalShifts(
@@ -885,6 +938,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
                 // Мутируем in-place — facts ещё не ушли в batch.
                 (f as { positional_shifts: typeof shifts }).positional_shifts =
                   shifts;
+                setProgress({
+                  stage: 'positional',
+                  done: i + 1,
+                  total: factsToSend.length,
+                });
               }
               if (nullEvalCount > 0) {
                 console.warn(
@@ -892,11 +950,25 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
                 );
               }
             } catch (err) {
-              // Не блокируем разбор; positional_shifts остаются [].
+              // KS-3677: системная поломка позиционного исполнителя —
+              // прерываем разбор и переходим в `status='error'`.
+              // Пользователь увидит понятное сообщение и сможет
+              // повторить, а не получит «успешный» разбор без
+              // позиционных факторов.
               console.warn(
-                '[useGameReview] positional_shifts skipped:',
+                '[useGameReview] positional_shifts engine fatal:',
                 err,
               );
+              try {
+                posEngine?.destroy();
+              } catch {
+                /* ignore */
+              }
+              engines.terminate();
+              enginesRef.current = null;
+              setStatus('error');
+              setError('positional_engine_unavailable');
+              return;
             } finally {
               try {
                 posEngine?.destroy();
@@ -906,12 +978,16 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             }
           }
 
+          console.info(
+            `[useGameReview] stage → comments (facts=${factsToSend.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+          );
           setProgress({
             stage: 'comments',
             done: 0,
             total: factsToSend.length,
           });
           abortRef.current = new AbortController();
+          const llmStart = performance.now();
           try {
             const comments = await commentClient(
               factsToSend,
@@ -948,6 +1024,9 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             }
             // Все комментарии пустые — толкуем как «сервис не ответил».
             if (nonEmpty === 0) setCommentsWarning(true);
+            console.info(
+              `[useGameReview] LLM batch done in ${Math.round(performance.now() - llmStart)}ms (nonEmpty=${nonEmpty}/${factsToSend.length})`,
+            );
             setProgress({
               stage: 'comments',
               done: factsToSend.length,

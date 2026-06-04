@@ -44,6 +44,34 @@ import type {
 
 const MODULE_URL = '/stockfish/stockfish-16-trace.js';
 const EVAL_TIMEOUT_MS = 5000;
+/**
+ * KS-3677: тайм-аут на сам вызов `factory(...)`. Раньше его не было —
+ * если исполнитель WASM не отвечает (нет SharedArrayBuffer, ошибка
+ * инициализации), `await factory(...)` висел навсегда, а `EVAL_TIMEOUT_MS`
+ * на ожидание JSON в этом случае не спасал.
+ */
+const FACTORY_TIMEOUT_MS = 8000;
+
+/**
+ * KS-3677: класс системной поломки исполнителя, который вызывающий
+ * код должен показать пользователю (а не молча подставить `[]`).
+ *
+ * - `factory-timeout`: фабрика WASM не отвечает за `FACTORY_TIMEOUT_MS`.
+ * - `factory-error`: фабрика выбросила исключение при init.
+ * - `eval-timeout`: после init JSON не пришёл за `EVAL_TIMEOUT_MS`.
+ */
+export class StockfishTraceEngineError extends Error {
+  constructor(
+    public readonly reason:
+      | 'factory-timeout'
+      | 'factory-error'
+      | 'eval-timeout',
+    public readonly cause?: unknown,
+  ) {
+    super(`[stockfishTrace] engine error: ${reason}`);
+    this.name = 'StockfishTraceEngineError';
+  }
+}
 
 /**
  * Все валидные `PositionalSubtermId` — синхронизировано с union в
@@ -323,17 +351,40 @@ export async function evalTrace(
     }
   };
 
+  // KS-3677: оборачиваем factory() в таймаут. Без него ожидание
+  // инициализации WASM может длиться неограниченно долго (типичная
+  // причина — нет SharedArrayBuffer в окружении исполнителя).
+  let factoryTimer: ReturnType<typeof setTimeout> | null = null;
+  const factoryStartedAt = performance.now();
   try {
-    await factory({
-      print,
-      printErr: () => {},
-      stdin,
-      locateFile: (name: string) => `/stockfish/${name}`,
-    });
+    await Promise.race([
+      factory({
+        print,
+        printErr: () => {},
+        stdin,
+        locateFile: (name: string) => `/stockfish/${name}`,
+      }),
+      new Promise((_, reject) => {
+        factoryTimer = setTimeout(() => {
+          reject(new StockfishTraceEngineError('factory-timeout'));
+        }, FACTORY_TIMEOUT_MS);
+      }),
+    ]);
   } catch (err) {
+    if (err instanceof StockfishTraceEngineError) {
+      console.warn(
+        `[stockfishTrace] factory timeout (${FACTORY_TIMEOUT_MS}ms exceeded)`,
+      );
+      throw err;
+    }
     console.warn('[stockfishTrace] WASM init failed:', err);
-    return [];
+    throw new StockfishTraceEngineError('factory-error', err);
+  } finally {
+    if (factoryTimer) clearTimeout(factoryTimer);
   }
+  console.info(
+    `[stockfishTrace] factory ready in ${Math.round(performance.now() - factoryStartedAt)}ms`,
+  );
 
   const raw = await Promise.race([
     jsonPromise,
@@ -341,7 +392,7 @@ export async function evalTrace(
   ]);
   if (raw == null) {
     console.warn('[stockfishTrace] eval timeout / no JSON in stdout');
-    return [];
+    throw new StockfishTraceEngineError('eval-timeout');
   }
   return parseTraceJson(raw, (id) =>
     console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
