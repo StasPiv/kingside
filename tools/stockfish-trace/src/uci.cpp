@@ -442,14 +442,15 @@ int uci_command(const char* cmd_str) {
     static StateListPtr uci_states;
     static bool uci_initialized = false;
     if (!uci_initialized) {
-        // KS-3676 / ADR-107 rev 2. init-цепочка возвращена в main()
-        // (см. комментарий в main.cpp): без `-s PROXY_TO_PTHREAD=1`
-        // main() и ccall исполняются в одном и том же основном
-        // потоке исполнителя, изоляции памяти больше нет, глобальные
-        // таблицы заполнены к моменту первого ccall. Здесь только
-        // ленивое создание Position/StateListPtr — первый раз потому,
-        // что Threads.main() должен быть жив (его создаёт `Threads.set`
-        // в main()) к моменту вызова Position::set.
+        std::cout << engine_info() << std::endl;
+        UCI::init(Options);
+        Tune::init();
+        PSQT::init();
+        Bitboards::init();
+        Position::init();
+        Bitbases::init();
+        Threads.set(size_t(Options["Threads"]));
+        Eval::NNUE::init();
         uci_states.reset(new std::deque<StateInfo>(1));
         uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
         uci_initialized = true;

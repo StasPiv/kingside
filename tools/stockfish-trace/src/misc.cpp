@@ -396,7 +396,12 @@ void dbg_print() {
 /// the same time.
 
 std::ostream& operator<<(std::ostream& os, SyncCout sc) {
-
+#ifdef __EMSCRIPTEN__
+  // KS-3676. Под emscripten без -pthread `static std::mutex` magic-
+  // statics инициализация падает с memory-out-of-bounds. Конкурентного
+  // доступа нет (один поток исполнителя), синхронизация не нужна — no-op.
+  (void)sc;
+#else
   static std::mutex m;
 
   if (sc == IO_LOCK)
@@ -404,6 +409,7 @@ std::ostream& operator<<(std::ostream& os, SyncCout sc) {
 
   if (sc == IO_UNLOCK)
       m.unlock();
+#endif
 
   return os;
 }

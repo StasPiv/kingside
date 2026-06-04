@@ -60,26 +60,40 @@ index 8266461..2806560 100644
 +	EMFLAGS += -s ENVIRONMENT=web,worker,node
 +	EMFLAGS += -s EXIT_RUNTIME=0
 +	EMFLAGS += -s ALLOW_MEMORY_GROWTH=1
-+	EMFLAGS += -s INITIAL_MEMORY=33554432
++	# KS-3676. INITIAL_MEMORY=256МБ устраняет ленивый рост на первом
++	# Threads.set(1): Pawns::Table=12МБ + Material::Table=320КБ на
++	# Thread; запас остаётся под Bitboards/PSQT/Position таблицы.
++	EMFLAGS += -s INITIAL_MEMORY=268435456
 +	EMFLAGS += -s MAXIMUM_MEMORY=536870912
++	# KS-3676. STACK_SIZE=8МБ обязателен. Дефолтные 64КБ выпадают на
++	# stack overflow в PSQT::init/Bitboards::init/etc, что под -O3 без
++	# ASSERTIONS даёт `memory access out of bounds` либо зависание
++	# первого ccall. С 8МБ цепочка инициализации проходит чисто.
++	EMFLAGS += -s STACK_SIZE=8388608
 +	EMFLAGS += -s FILESYSTEM=0
-+	EMFLAGS += -s STRICT=1
++	# KS-3676. STRICT=1 закрывает `INCOMING_MODULE_JS_API` whitelist'ом,
++	# в который print/printErr не входят — Module.print глушится.
++	# Не используем strict; вместо него явный whitelist на нужные хуки.
++	EMFLAGS += -s INCOMING_MODULE_JS_API=['print','printErr']
 +	EMFLAGS += -s ASSERTIONS=0
-+	# Stockfish внутри использует std::thread даже в single-thread сценарии
-+	# (UCI worker, ttsave и т.п.). `-pthread` — новый стандартный флаг (вместо
-+	# устаревшего USE_PTHREADS=1) для minimal pthread-runtime поверх
-+	# SharedArrayBuffer. PTHREAD_POOL_SIZE=1 — один воркер достаточно для
-+	# `eval json` (поиска не делаем).
-+	EMFLAGS += -pthread -s PTHREAD_POOL_SIZE=1
-+	# KS-3676. JS-обёртка UCI↔postMessage (pre.js, ccall-based) требует
-+	# `ccall` + `cwrap` (готовит C-функцию как JS-callable), а также
-+	# `UTF8ToString`/`stringToUTF8` для сериализации команд/вывода.
++	# KS-3676. БЕЗ `-pthread` и `PROXY_TO_PTHREAD`. Однопоточная сборка:
++	# main() в WASM пустой (см. main.cpp под `#ifdef __EMSCRIPTEN__`),
++	# вся цепочка инициализации Stockfish перенесена в init-once
++	# обёртки `uci_command` (uci.cpp): ccall выполняется в том же
++	# потоке исполнителя, где init заполнил глобальные таблицы.
++	# Изоляции памяти/двойной инициализации нет. Конкуренции нет —
++	# `static std::mutex` в sync_cout заменён на no-op под emscripten.
++	# Threads.set(1) создаёт MainThread (без `std::thread` через ifdef
++	# в Thread::Thread); TT.resize/Search::init пропускаются (поиск не
++	# делаем, для eval json не нужны).
++	# KS-3676. JS-обёртка UCI↔postMessage требует `ccall` + `cwrap`
++	# + `UTF8ToString`/`stringToUTF8` для сериализации команд/вывода.
 +	EMFLAGS += -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8']
 +	# KS-3676. Без явного EXPORTED_FUNCTIONS emcc при -Oz / --closure 1
 +	# удалит `uci_command` как dead code (EMSCRIPTEN_KEEPALIVE даёт
 +	# атрибут на стороне clang, но финальное Closure-минификация может
-+	# его потерять, если функция не в этом списке). `_main` нужен,
-+	# чтобы init-цепочка из main.cpp отработала при загрузке модуля.
++	# его потерять, если функция не в этом списке). `_main` нужен —
++	# вызывается фабрикой StockfishTrace() и должен присутствовать.
 +	EMFLAGS += -s EXPORTED_FUNCTIONS=['_main','_uci_command']
 +	# Stockfish tbprobe.cpp использует mmap/madvise/munmap для Syzygy
 +	# tablebase. В WASM эти syscall'ы не реализованы — нам tablebase в
@@ -87,12 +101,6 @@ index 8266461..2806560 100644
 +	# оставить эти символы как stub-ы; в рантайме Tablebases::probe_* не
 +	# вызываются (по факту использования только `position` + `eval json`).
 +	EMFLAGS += -s ERROR_ON_UNDEFINED_SYMBOLS=0
-+	# KS-3676. `--pre-js pre.js` подключает JS-обёртку UCI↔postMessage:
-+	# хук Module.print → postMessage наружу; Module.postMessage /
-+	# addMessageListener → ccall('uci_command', ...). pre.js лежит рядом
-+	# с Makefile (в src/), готовится devops при сборке (см. KINGSIDE_README
-+	# раздел «Сборка»). Имя без префикса `src/` — em++ запускается из src/.
-+	EMFLAGS += --pre-js pre.js
 +	# Имя .wasm em++ определяет из имени .js (stockfish-16-trace.js →
 +	# stockfish-16-trace.wasm). WASM_BINARY_FILE задавать вручную нельзя —
 +	# это internal-setting emcc.

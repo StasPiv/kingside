@@ -1,3 +1,4 @@
+
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2023 The Stockfish developers (see AUTHORS file)
@@ -179,16 +180,21 @@ void ThreadPool::set(size_t requested) {
   if (requested > 0)   // create new thread(s)
   {
       threads.push_back(new MainThread(0));
-
       while (threads.size() < requested)
           threads.push_back(new Thread(threads.size()));
       clear();
-
+#ifndef __EMSCRIPTEN__
+      // KS-3676: TT.resize пропускаем под emscripten — TT для поиска,
+      // в `eval json` не используется. Options["Hash"] на этом этапе
+      // ещё не зарегистрирован (init Options обрывается до Hash),
+      // size_t(o) для default-Option возвращает мусор → TT.resize
+      // уходит в висение/огромную аллокацию.
       // Reallocate the hash with the new threadpool size
       TT.resize(size_t(Options["Hash"]));
 
       // Init thread number dependent search params.
       Search::init();
+#endif
   }
 }
 
