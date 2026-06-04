@@ -12,6 +12,8 @@ import { initClientLogger } from './utils/clientLogger';
 import { initGA4 } from './utils/analytics';
 import './i18n';
 import { attachLessonsResourceLoader } from './i18n/lessonsResourceLoader';
+// KS-3682: окно консоли для проверки SF-trace через window.__sfTrace.
+import './lib/review/__devtools/sfTraceConsole';
 import './styles.css';
 
 initClientLogger();

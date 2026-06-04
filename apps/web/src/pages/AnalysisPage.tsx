@@ -1354,6 +1354,16 @@ function AnalysisPageInner({
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
+  // KS-3682. Выставляем currentFen в window.__sfTraceFen для devtools-
+  // утилиты `window.__sfTrace()` — пользователь из консоли браузера
+  // может получить массив positional_subterms по текущей позиции на
+  // доске, чтобы проверить работу stockfish-16-trace.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__sfTraceFen = currentFen;
+    }
+  }, [currentFen]);
+
   // --- Promotion detection ---
   const isPromotionMove = useCallback((from: string, to: string): boolean => {
     const piece = game.get(from as Square);
