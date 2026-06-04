@@ -442,17 +442,45 @@ int uci_command(const char* cmd_str) {
     static StateListPtr uci_states;
     static bool uci_initialized = false;
     if (!uci_initialized) {
-        // KS-3676 / ADR-107 rev 2. Гипотеза «переинициализировать
-        // PSQT/Bitboards/Position/Bitbases в контексте ccall-потока»
-        // (был коммит cd105f41) опровергнута на практике: повторный
-        // вызов `*::init()` из основного потока даёт `operation does
-        // not support unaligned accesses` и `table index is out of
-        // bounds`. То есть таблицы уже существуют в shared-памяти,
-        // и попытка их перезаписи упирается в alignment/sharing
-        // constraint. Откат сделан, оставляем init только в main()
-        // pthread. Корень расхождения 8 subterm-ID и `total` 0.05 vs
-        // 0.10 будем искать иначе — через прямое чтение таблиц
-        // (команда `diag2` ниже).
+        // KS-3676 / ADR-107 rev 2. По данным diag2 (см. main.cpp
+        // комментарий) изоляция памяти между `_main_thread` pthread
+        // и основным потоком worker'а подтверждена. Стратегия: вся
+        // init-цепочка переносится в ЭТУ функцию, потому что она
+        // исполняется в основном потоке worker'а — именно там, где
+        // позже идут `Evaluation<TRACE>::value()` через
+        // `Eval::trace_json`. Глобальные таблицы (`PopCnt16`,
+        // `SquareDistance`, `LineBB`, `BetweenBB`, `PSQT::psq`)
+        // оказываются записаны в видимом этом потоку module image'е.
+        // main() в pthread main теперь только держит runtime через
+        // `emscripten_exit_with_live_runtime()` — не вызывает ни
+        // одного init'а.
+        //
+        // Предыдущая попытка (cd105f41) добавляла init-вызовы
+        // ДОПОЛНИТЕЛЬНО к выполняемым в pthread main — это давало
+        // `unaligned accesses` (двойной init с alignment-конфликтом).
+        // Теперь pthread main НЕ выполняет init вообще, конфликта нет.
+        //
+        // Endgames::init и Search::clear пропускаем по тем же
+        // причинам что и раньше: endgame-таблицы не нужны для
+        // `eval json`, Search::clear дёргает TT.clear/Tablebases::init.
+        // engine_info() через sync_cout — фронт услышит при первом
+        // ccall (раньше шло из main(), но мы оттуда теперь сразу
+        // emscripten_exit_with_live_runtime).
+        sync_cout << engine_info() << sync_endl;
+        // CommandLine::init НЕ вызываем: внутри argv[0] → file-path
+        // расчёт; на WASM с FILESYSTEM=0 это бессмысленно. Поле
+        // `CommandLine::binaryDirectory` нужно только для NNUE-file-
+        // probe, у нас он принудительно classical (`Eval::NNUE::init`
+        // под emscripten ставит useNNUE=false и возвращается).
+        UCI::init(Options);
+        Tune::init();
+        PSQT::init();
+        Bitboards::init();
+        Position::init();
+        Bitbases::init();
+        Threads.set(size_t(Options["Threads"]));
+        Eval::NNUE::init();
+
         uci_states.reset(new std::deque<StateInfo>(1));
         uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
         uci_initialized = true;
