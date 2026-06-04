@@ -54,39 +54,72 @@ describe('PositionCommentService', () => {
     jest.restoreAllMocks();
   });
 
-  describe('buildSystemPrompt (KS-3681 / ADR-108 §8.2)', () => {
+  describe('buildSystemPrompt (KS-3681 / ADR-108 §8.2 + KS-3686)', () => {
     const svc = new PositionCommentService(
       makeConfigService({}),
       makeRedisStub(),
     );
 
     it('RU при вызове без аргумента — дефолт', () => {
-      expect(svc.buildSystemPrompt()).toBe(
-        'Прокомментируй пожалуйста позицию человеческим языком на основании факторов',
+      const p = svc.buildSystemPrompt();
+      expect(p).toMatch(
+        /^Прокомментируй пожалуйста позицию человеческим языком на основании факторов\./,
       );
     });
 
-    it('RU при явном language=ru', () => {
-      expect(svc.buildSystemPrompt('ru')).toBe(
-        'Прокомментируй пожалуйста позицию человеческим языком на основании факторов',
+    it('RU при явном language=ru — то же что без аргумента', () => {
+      expect(svc.buildSystemPrompt('ru')).toBe(svc.buildSystemPrompt());
+    });
+
+    it('EN при language=en начинается с инструкции на английском', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(
+        /^Please comment on this chess position in plain language using the given positional factors\./,
       );
     });
 
-    it('EN при language=en', () => {
-      expect(svc.buildSystemPrompt('en')).toBe(
-        'Please comment on this chess position in plain language using the given positional factors',
-      );
+    it('KS-3686 RU: упоминает sf18_eval и sf18_pv, их формат и обязательность отразить', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toContain('sf18_eval');
+      expect(p).toContain('sf18_pv');
+      expect(p).toContain('Stockfish 18');
+      // Тип cp и mate должны быть упомянуты с пояснением.
+      expect(p).toContain('cp');
+      expect(p).toContain('mate');
+      expect(p).toContain('side_to_move');
+      expect(p).toContain('UCI');
+      // Обязательность отразить + перевод в слова + план.
+      expect(p).toContain('ОБЯЗАТЕЛЬНО');
+      expect(p).toContain('план');
+      // Backward-compat подсказка.
+      expect(p).toMatch(/Если их нет/);
     });
 
-    it('обе версии — одна короткая фраза без обучающих примеров и калибровки', () => {
+    it('KS-3686 EN: упоминает sf18_eval и sf18_pv, формат и обязательность отразить', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('sf18_eval');
+      expect(p).toContain('sf18_pv');
+      expect(p).toContain('Stockfish 18');
+      expect(p).toContain('cp');
+      expect(p).toContain('mate');
+      expect(p).toContain('side_to_move');
+      expect(p).toContain('UCI');
+      expect(p).toMatch(/MUST reflect both/);
+      expect(p).toContain('plan');
+      expect(p).toMatch(/When they are absent/);
+    });
+
+    it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
       for (const p of [ru, en]) {
-        expect(p.length).toBeLessThan(200);
         expect(p).not.toContain('CRITICAL RULES');
         expect(p).not.toContain('FORBIDDEN');
         expect(p).not.toContain('ЗАПРЕЩЕНО');
         expect(p).not.toContain('few-shot');
+        expect(p).not.toContain('ELO');
+        // Короткий объём (≤ 1500 символов на локаль).
+        expect(p.length).toBeLessThan(1500);
       }
     });
   });
@@ -126,7 +159,7 @@ describe('PositionCommentService', () => {
   });
 
   describe('comment — webhook получает инструкцию в нужной локали', () => {
-    it('language=en → systemPrompt в payload — EN', async () => {
+    it('language=en → systemPrompt в payload — EN (содержит sf18_eval/pv-инструкцию)', async () => {
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -148,12 +181,14 @@ describe('PositionCommentService', () => {
         makeDto({ language: 'en' }),
       );
       expect(result).toBe('comment text');
-      expect(captured.systemPrompt).toBe(
-        'Please comment on this chess position in plain language using the given positional factors',
+      expect(captured.systemPrompt).toMatch(
+        /^Please comment on this chess position in plain language/,
       );
+      expect(captured.systemPrompt).toContain('sf18_eval');
+      expect(captured.systemPrompt).toContain('sf18_pv');
     });
 
-    it('language=ru → systemPrompt в payload — RU', async () => {
+    it('language=ru → systemPrompt в payload — RU (содержит sf18_eval/pv-инструкцию)', async () => {
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -171,9 +206,11 @@ describe('PositionCommentService', () => {
       }) as any;
 
       await svc.comment('user-1', makeDto({ language: 'ru' }));
-      expect(captured.systemPrompt).toBe(
-        'Прокомментируй пожалуйста позицию человеческим языком на основании факторов',
+      expect(captured.systemPrompt).toMatch(
+        /^Прокомментируй пожалуйста позицию человеческим языком/,
       );
+      expect(captured.systemPrompt).toContain('sf18_eval');
+      expect(captured.systemPrompt).toContain('sf18_pv');
     });
 
     it('без поля language → RU (backward-compat)', async () => {
@@ -196,9 +233,40 @@ describe('PositionCommentService', () => {
       const dto = makeDto();
       delete dto.language;
       await svc.comment('user-1', dto);
-      expect(captured.systemPrompt).toBe(
-        'Прокомментируй пожалуйста позицию человеческим языком на основании факторов',
+      expect(captured.systemPrompt).toMatch(
+        /^Прокомментируй пожалуйста позицию человеческим языком/,
       );
+    });
+
+    it('KS-3686 backward-compat: factors без sf18_* — запрос уходит как раньше', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      let captured: any = null;
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        captured = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({ response: 'без линии' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        );
+      }) as any;
+
+      // Только классические факторы без sf18_eval/sf18_pv.
+      const dto = makeDto({
+        factors: [{ id: 'space', value_mg: 0.05, value_eg: 0 }],
+      });
+      const result = await svc.comment('user-1', dto);
+      expect(result).toBe('без линии');
+      // В payload нет sf18_*, но инструкция всё равно содержит описание —
+      // модель сама поймёт что этих факторов нет и комментирует по
+      // остальным (см. фразу «Если их нет — комментируй только…»).
+      const userMessage = JSON.parse(captured.message);
+      expect(JSON.stringify(userMessage.factors)).not.toContain('sf18_eval');
+      expect(JSON.stringify(userMessage.factors)).not.toContain('sf18_pv');
     });
   });
 
