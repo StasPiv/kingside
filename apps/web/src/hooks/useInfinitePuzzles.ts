@@ -87,6 +87,14 @@ export interface BrowsePuzzleDto {
 interface BrowseResponse {
   data: BrowsePuzzleDto[];
   nextCursor: string | null;
+  /**
+   * KS-3666 / KS-3672 (ADR-106). Точное число пазлов под текущие
+   * фильтры (без учёта cursor-пагинации). Возвращается backend'ом для
+   * каждой страницы. Опционально — старые клиенты или ответ от не
+   * обновлённого backend'а получают `undefined` и используют fallback
+   * «загружено + N+» (см. `PrecisionDifficultySlider`).
+   */
+  total?: number;
 }
 
 export interface InfinitePuzzleFilters {
@@ -170,6 +178,14 @@ export interface InfinitePuzzlesState {
   error: string | null;
   /** `true` пока сервер прислал не `null` в `nextCursor`. */
   hasMore: boolean;
+  /**
+   * KS-3666 / KS-3672. Точное число пазлов под текущие фильтры
+   * (`/puzzles/browse` `total`). `null` пока первая страница не
+   * загружена, либо если backend поле не вернул (старый ответ).
+   * Под cursor-пагинацией значение стабильно между страницами —
+   * берём из первой ответа и не обновляем (refetch вызывает сброс).
+   */
+  total: number | null;
   /** Запросить следующую страницу. Игнорируется, если `hasMore=false`. */
   loadMore: () => void;
   /** Удаляет пазл из локального состояния (после backend `DELETE`). */
@@ -226,6 +242,9 @@ export function useInfinitePuzzles(
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KS-3666 / KS-3672. Точное число пазлов под фильтры. `null` —
+  // пока не загружена первая страница или backend не вернул поле.
+  const [total, setTotal] = useState<number | null>(null);
 
   // KS-2149-pattern: seq-guard. Каждое новое требование (init / loadMore)
   // увеличивает счётчик; ответы со старыми seq игнорируются.
@@ -286,6 +305,9 @@ export function useInfinitePuzzles(
     setError(null);
     setPuzzles([]);
     setNextCursor(null);
+    // KS-3672: сбрасываем total — для новых фильтров будет переписан
+    // первой страницей. До этого UI показывает fallback «N+».
+    setTotal(null);
     api
       .get<BrowseResponse>(
         `/puzzles/browse?${buildQuery(filters, null)}`,
@@ -295,6 +317,9 @@ export function useInfinitePuzzles(
         setPuzzles(res.data ?? []);
         setNextCursor(res.nextCursor ?? null);
         cursorRef.current = res.nextCursor ?? null;
+        // KS-3672: backend (KS-3666) кладёт total в каждый ответ.
+        // Если поле не пришло (старый backend / 4xx) — оставляем null.
+        setTotal(typeof res.total === 'number' ? res.total : null);
       })
       .catch((e) => {
         if (mySeq !== seqRef.current) return;
@@ -370,6 +395,7 @@ export function useInfinitePuzzles(
     loadingMore,
     error,
     hasMore: nextCursor !== null,
+    total,
     loadMore,
     removeLocally,
     patchLocally,

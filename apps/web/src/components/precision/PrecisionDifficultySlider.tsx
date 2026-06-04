@@ -48,14 +48,22 @@ export interface PrecisionDifficultySliderProps {
   /**
    * Кол-во пазлов, уже загруженных текущим запросом каталога. Если
    * задан — под слайдером показывается «Найдено: N» / «N+» с учётом
-   * `hasMore`.
+   * `hasMore`. Используется как fallback, если `total` не пришёл от
+   * backend'а (KS-3666 ещё не развёрнут / ошибка ответа).
    */
   loadedCount?: number;
   /**
    * `true` если у текущего запроса есть ещё страницы. С `loadedCount`
-   * используется для индикации «N+».
+   * используется для индикации «N+» в fallback-ветке.
    */
   hasMore?: boolean;
+  /**
+   * KS-3666 / KS-3672. Точное число пазлов под фильтры, пришедшее в
+   * `/puzzles/browse` (`total`). Если задано — подпись показывает
+   * именно его («Найдено: N»). `null`/`undefined` — fallback на
+   * `loadedCount + hasMore`.
+   */
+  total?: number | null;
 }
 
 function clampStep(raw: number): number {
@@ -70,6 +78,7 @@ export function PrecisionDifficultySlider({
   onChange,
   loadedCount,
   hasMore,
+  total,
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
   const isControlled = controlledValue !== undefined;
@@ -114,16 +123,22 @@ export function PrecisionDifficultySlider({
   const minPercent = Math.round(value.min * 100);
   const maxPercent = Math.round(value.max * 100);
 
-  const hint =
-    loadedCount != null && loadedCount >= 0
-      ? hasMore
-        ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
-            count: loadedCount,
-          })
-        : t('precision.difficulty.found', 'Найдено: {{count}}', {
-            count: loadedCount,
-          })
-      : null;
+  // KS-3672: приоритет — точный total из backend'а; fallback на
+  // loadedCount+hasMore только если total не пришёл.
+  let hint: string | null = null;
+  if (typeof total === 'number' && total >= 0) {
+    hint = t('precision.difficulty.found', 'Найдено: {{count}}', {
+      count: total,
+    });
+  } else if (loadedCount != null && loadedCount >= 0) {
+    hint = hasMore
+      ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
+          count: loadedCount,
+        })
+      : t('precision.difficulty.found', 'Найдено: {{count}}', {
+          count: loadedCount,
+        });
+  }
 
   return (
     <div

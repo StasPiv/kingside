@@ -157,6 +157,55 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(url).toMatch(/maxMaiaWeakChoiceProb=0\.7/);
   });
 
+  it('KS-3672: total из ответа /puzzles/browse прокидывается в state', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: null,
+      total: 42,
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({ limit: 10 }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.total).toBe(42);
+  });
+
+  it('KS-3672: backend не прислал total → state = null (fallback', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: null,
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({ limit: 10 }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.total).toBeNull();
+  });
+
+  it('KS-3672: смена фильтров → total сбрасывается до прихода нового ответа', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: null,
+      total: 42,
+    });
+    const { result, rerender } = renderHook(
+      ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>
+        useInfinitePuzzles(filters),
+      { initialProps: { filters: { limit: 10 } } },
+    );
+    await waitFor(() => expect(result.current.total).toBe(42));
+
+    // Новые фильтры → effect успевает обнулить total до прихода ответа.
+    // Используем "висящий" промис, чтобы зафиксировать промежуточное
+    // состояние total=null между сбросом и следующим успехом.
+    let resolveSecond: (v: unknown) => void = () => {};
+    apiGet.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveSecond = res;
+      }),
+    );
+    rerender({ filters: { limit: 10, minMaiaWeakChoiceProb: 0.5 } });
+    await waitFor(() => expect(result.current.total).toBeNull());
+    resolveSecond({ data: [PUZZLE_B], nextCursor: null, total: 7 });
+    await waitFor(() => expect(result.current.total).toBe(7));
+  });
+
   it('KS-3657: смена minMaiaWeakChoiceProb → новый запрос', async () => {
     apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
     const { rerender } = renderHook(

@@ -216,6 +216,51 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
       screen.queryByTestId('precision-difficulty-filter-hint'),
     ).toBeNull();
   });
+
+  it('KS-3672: total задан → "Найдено: N" без плюса (точное число)', () => {
+    renderWithProviders(
+      <PrecisionDifficultySlider
+        loadedCount={20}
+        hasMore={true}
+        total={137}
+      />,
+    );
+    const hint = screen.getByTestId('precision-difficulty-filter-hint');
+    expect(hint.textContent).toContain('137');
+    expect(hint.textContent).not.toContain('+');
+    expect(hint.textContent).not.toContain('20');
+  });
+
+  it('KS-3672: total=0 → "Найдено: 0"', () => {
+    renderWithProviders(
+      <PrecisionDifficultySlider loadedCount={0} hasMore={false} total={0} />,
+    );
+    const hint = screen.getByTestId('precision-difficulty-filter-hint');
+    expect(hint.textContent).toContain('0');
+    expect(hint.textContent).not.toContain('+');
+  });
+
+  it('KS-3672: total=null → fallback на loadedCount + hasMore', () => {
+    renderWithProviders(
+      <PrecisionDifficultySlider
+        loadedCount={20}
+        hasMore={true}
+        total={null}
+      />,
+    );
+    const hint = screen.getByTestId('precision-difficulty-filter-hint');
+    expect(hint.textContent).toContain('20');
+    expect(hint.textContent).toContain('+');
+  });
+
+  it('KS-3672: total=undefined → fallback на loadedCount + hasMore', () => {
+    renderWithProviders(
+      <PrecisionDifficultySlider loadedCount={20} hasMore={false} />,
+    );
+    const hint = screen.getByTestId('precision-difficulty-filter-hint');
+    expect(hint.textContent).toContain('20');
+    expect(hint.textContent).not.toContain('+');
+  });
 });
 
 describe('<PrecisionDifficultySlider /> — подпись значения', () => {
