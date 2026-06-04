@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
-import { PositionCommentDto } from './dto/position-comment.dto';
+import {
+  PositionCommentDto,
+  PositionCommentLanguage,
+} from './dto/position-comment.dto';
 
 @Injectable()
 export class PositionCommentService {
@@ -45,11 +48,29 @@ export class PositionCommentService {
     );
   }
 
-  buildSystemPrompt(): string {
+  /**
+   * KS-3681 / ADR-108 §8.2. Две короткие версии инструкции — RU и EN.
+   * Симметричный перевод; стиль продолжает упрощённую инструкцию
+   * из KS-3678 (без калибровок, без обучающих примеров, без запретов).
+   *
+   * Дефолт — `'ru'` (старые клиенты без поля `language` получают
+   * русский комментарий, как до KS-3681).
+   */
+  buildSystemPrompt(language: PositionCommentLanguage = 'ru'): string {
+    if (language === 'en') {
+      return 'Please comment on this chess position in plain language using the given positional factors';
+    }
     return 'Прокомментируй пожалуйста позицию человеческим языком на основании факторов';
   }
 
   async comment(userId: string, dto: PositionCommentDto): Promise<string> {
+    // KS-3681 / ADR-108 §11 B1: пустой `factors` — мгновенный пустой
+    // ответ, без обращения к webhook'у. Экономит квоту Pro/Max и
+    // время пользователя (фронт всё равно отрисует state `empty`).
+    if (!dto.factors || dto.factors.length === 0) {
+      return '';
+    }
+
     if (!this.webhookUrl) {
       this.logger.warn(
         `comment user=${userId.slice(0, 8)}: AI_CHAT_WEBHOOK_URL not configured — returning empty`,
@@ -57,7 +78,7 @@ export class PositionCommentService {
       return '';
     }
 
-    const systemPrompt = this.buildSystemPrompt();
+    const systemPrompt = this.buildSystemPrompt(dto.language);
     const userMessage = JSON.stringify({
       fen: dto.fen,
       factors: dto.factors,

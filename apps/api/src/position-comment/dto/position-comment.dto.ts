@@ -1,6 +1,6 @@
 import {
-  ArrayMinSize,
   IsArray,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -25,6 +25,10 @@ export class PositionEvalDto {
   v!: number;
 }
 
+/** ADR-108 §8.2. Язык ответа модели. */
+const POSITION_COMMENT_LANG = ['ru', 'en'] as const;
+export type PositionCommentLanguage = (typeof POSITION_COMMENT_LANG)[number];
+
 export class PositionCommentDto {
   @IsString()
   fen!: string;
@@ -34,9 +38,12 @@ export class PositionCommentDto {
    * вывода `eval json` (поле `subterms`) либо строки/любые объекты.
    * Структура каждого элемента не фиксируется; сервис сериализует
    * массив в JSON как есть.
+   *
+   * KS-3681 / ADR-108 §11 B1: `@ArrayMinSize(1)` снят. Пустой массив —
+   * валиден; сервис при пустых факторах сразу возвращает `""` без
+   * обращения к webhook'у (экономия квоты).
    */
   @IsArray()
-  @ArrayMinSize(1)
   factors!: unknown[];
 
   /**
@@ -50,4 +57,13 @@ export class PositionCommentDto {
   @ValidateNested()
   @Type(() => PositionEvalDto)
   eval?: PositionEvalDto;
+
+  /**
+   * KS-3681 / ADR-108 §8. Язык ответа модели. По умолчанию `'ru'`.
+   * Frontend подставляет значение из `i18n.language`. Старые клиенты
+   * без поля продолжают получать русский комментарий — backward-compat.
+   */
+  @IsOptional()
+  @IsIn(POSITION_COMMENT_LANG as readonly string[])
+  language?: PositionCommentLanguage;
 }
