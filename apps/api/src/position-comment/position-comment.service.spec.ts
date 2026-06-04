@@ -95,6 +95,19 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/Если их нет/);
     });
 
+    it('KS-3686 RU: явный запрет числовой оценки + словесные шаблоны', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Явный запрет упоминать числа/единицы.
+      expect(p).toContain('Никогда не приводи численное');
+      expect(p).toContain('сантипешки');
+      // Перечень разрешённых словесных формул.
+      expect(p).toContain('примерное равенство');
+      expect(p).toContain('небольшой перевес');
+      expect(p).toContain('заметное преимущество');
+      expect(p).toContain('решающее преимущество');
+      expect(p).toContain('мат в N');
+    });
+
     it('KS-3686 EN: упоминает sf18_eval и sf18_pv, формат и обязательность отразить', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toContain('sf18_eval');
@@ -107,6 +120,17 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/MUST reflect both/);
       expect(p).toContain('plan');
       expect(p).toMatch(/When they are absent/);
+    });
+
+    it('KS-3686 EN: явный запрет числовой оценки + словесные шаблоны', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Never quote the numeric evaluation');
+      expect(p).toContain('centipawns');
+      expect(p).toContain('roughly equal');
+      expect(p).toContain('slight edge');
+      expect(p).toContain('clear advantage');
+      expect(p).toContain('decisive advantage');
+      expect(p).toContain('mate in N');
     });
 
     it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {

@@ -69,20 +69,24 @@ export class PositionCommentService {
         'Please comment on this chess position in plain language using the given positional factors.',
         '',
         'Two factors are the most important if present:',
-        '- sf18_eval: Stockfish 18 evaluation. score.type="cp" — centipawns from the side-to-move point of view (side_to_move): positive means the side to move is better; divide by 100 to get pawns. score.type="mate" — mate in N half-moves: positive N means the side to move is delivering mate, negative means the opponent is.',
+        '- sf18_eval: Stockfish 18 evaluation. score.type="cp" — centipawns from the side-to-move point of view (side_to_move): positive means the side to move is better. score.type="mate" — mate in N half-moves: positive N means the side to move is delivering mate, negative means the opponent is.',
         '- sf18_pv: Stockfish 18 principal variation, an array of UCI moves (e.g. ["e2e4","e7e5","g1f3"]).',
         '',
-        'When these factors are present, you MUST reflect both: turn the score into plain words ("+0.8, slight edge for White", "roughly equal", "mate in 3") and mention the first two or three moves of pv as the recommended plan. When they are absent, comment using the remaining factors only.',
+        'When these factors are present, you MUST reflect both: describe the evaluation in plain words and mention the first two or three moves of pv as the recommended plan. When they are absent, comment using the remaining factors only.',
+        '',
+        'Never quote the numeric evaluation in your answer — no "+0.8", no "cp", no "centipawns", no "score 23". Use words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N".',
       ].join('\n');
     }
     return [
       'Прокомментируй пожалуйста позицию человеческим языком на основании факторов.',
       '',
       'Среди факторов могут быть два приоритетных:',
-      '- sf18_eval: оценка позиции от Stockfish 18. score.type="cp" — сантипешки с точки зрения стороны, чей ход (side_to_move): положительное значение значит, что эта сторона стоит лучше; делишь на 100, чтобы получить пешечную оценку. score.type="mate" — мат за N полуходов: положительное N — сторона, чей ход, объявляет мат, отрицательное — соперник.',
+      '- sf18_eval: оценка позиции от Stockfish 18. score.type="cp" — сантипешки с точки зрения стороны, чей ход (side_to_move): положительное значение значит, что эта сторона стоит лучше. score.type="mate" — мат за N полуходов: положительное N — сторона, чей ход, объявляет мат, отрицательное — соперник.',
       '- sf18_pv: первая линия Stockfish 18, массив ходов в UCI (например ["e2e4","e7e5","g1f3"]).',
       '',
-      'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: переведи оценку в человеческие слова («+0.8, небольшой перевес белых», «примерное равенство», «мат в 3») и упомяни первые два-три хода pv как рекомендованный план. Если их нет — комментируй только по остальным факторам.',
+      'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: опиши оценку человеческими словами и упомяни первые два-три хода pv как рекомендованный план. Если их нет — комментируй только по остальным факторам.',
+      '',
+      'Никогда не приводи численное значение оценки в ответе — ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес белых/чёрных», «заметное преимущество белых/чёрных», «решающее преимущество белых/чёрных», «мат в N».',
     ].join('\n');
   }
 
