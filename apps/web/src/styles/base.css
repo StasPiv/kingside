@@ -69,8 +69,14 @@ a {
   text-decoration: none;
 }
 
+/* KS-3668: глобальное подчёркивание ссылок на hover убрано по запросу
+   пользователя — достаточно курсора и подсветки. Места, где
+   подчёркивание остаётся осмысленным (хлебные крошки, ссылки внутри
+   статей в `.docs-content`, баннер гостя `.guest-banner`, тестовый
+   баннер `.test-mode-banner`), задают `text-decoration: underline`
+   локальными правилами и продолжают работать без изменений. */
 a:hover {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 button {
