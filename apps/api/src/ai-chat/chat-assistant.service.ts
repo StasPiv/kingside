@@ -552,7 +552,7 @@ export class ChatAssistantService {
       bodyJson: { response?: string } | null;
     }> => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 180_000);
+      const timer = setTimeout(() => controller.abort(), 900_000);
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
