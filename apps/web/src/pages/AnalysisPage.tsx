@@ -98,6 +98,7 @@ import {
   mergeSquareStyleLayers,
   omitLastMoveIfAiOverlayActive,
 } from './analysis/aiOverlayMerge';
+import { panelToggleReducer } from './analysis/accordionTogglePanel';
 // KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
 // discriminated union review/analysis/puzzle. Заменяет разбросанные
 // `params.id`/`params.gameId`/`puzzleFen`/`localId` производные.
@@ -820,13 +821,36 @@ function AnalysisPageInner({
   // KS-3687: добавлен collapsible-блок `ai` — отдельная панель AI-комментария
   // справа от engine-panel (см. AnalysisSidebar). По умолчанию открыт на
   // desktop, свёрнут на узких экранах (как engine-panel).
+  // KS-3696: правая колонка работает как accordion — одна открытая панель
+  // за раз среди (engine | moves | ai | book). `gameInfo` не входит в
+  // accordion (это header-плашка). Дефолт: открыт `engine`. На узких
+  // экранах сворачиваем сразу, чтобы не занимать высоту.
   const [panelStates, setPanelStates] = useState(() => {
     const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
-    return { gameInfo: !narrow, engine: !narrow, moves: true, ai: !narrow };
+    return {
+      gameInfo: !narrow,
+      engine: !narrow,
+      moves: false,
+      ai: false,
+      book: false,
+    };
   });
+  // KS-3696. Ref-обёртка для «приостановить движок при схлопывании
+  // engine-панели». Сама функция `toggleAnalysis`/`stopEngine` объявлена
+  // ниже (после useEngine), поэтому здесь читаем её через ref. До
+  // инициализации — no-op.
+  const pauseEngineForAccordionRef = useRef<() => void>(() => {});
   const togglePanel = useCallback(
-    (panel: 'gameInfo' | 'engine' | 'moves' | 'ai') => {
-      setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
+    (panel: 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book') => {
+      setPanelStates((prev) => {
+        const { next, engineWillCollapse } = panelToggleReducer(prev, panel);
+        if (engineWillCollapse) {
+          // queueMicrotask: вызываем после применения setPanelStates,
+          // чтобы стек состояний остался согласованным.
+          queueMicrotask(() => pauseEngineForAccordionRef.current());
+        }
+        return next;
+      });
     },
     [],
   );
@@ -1416,6 +1440,24 @@ function AnalysisPageInner({
       return next;
     });
   }, []);
+
+  // KS-3696. Реализация ref-функции «приостановить движок при
+  // схлопывании engine-панели». Если анализ активен — выключаем (то же
+  // самое, что нажать кнопку «Стоп»); если уже выключен — ничего не
+  // делаем. Stockfish-воркер остаётся, при повторном открытии engine
+  // пользователь нажмёт «Старт» и анализ возобновится.
+  pauseEngineForAccordionRef.current = () => {
+    setAnalysisEnabled((cur) => {
+      if (!cur) return cur;
+      stopEngine();
+      try {
+        localStorage.setItem('analysisRunning', 'false');
+      } catch {
+        /* ignore */
+      }
+      return false;
+    });
+  };
 
   // KS-3680/KS-3685/KS-3687: контроллер AI-комментария позиции для
   // отдельной вкладки/блока «AI». В options два ключевых для KS-3687

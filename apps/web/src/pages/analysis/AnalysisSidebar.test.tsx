@@ -60,7 +60,7 @@ function makeProps(overrides: Partial<AnalysisSidebarProps> = {}): AnalysisSideb
     engineFailed: false,
     onToggleAnalysis: vi.fn(),
     ec: makeEc(),
-    panelStates: { gameInfo: true, engine: true, moves: true, ai: true },
+    panelStates: { gameInfo: true, engine: true, moves: true, ai: true, book: true },
     onTogglePanel: vi.fn(),
     displayedLines: [],
     evalIsBlackTurn: false,
@@ -166,7 +166,7 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
     renderWithProviders(
       <AnalysisSidebar
         {...makeProps({
-          panelStates: { gameInfo: true, engine: false, moves: true, ai: true },
+          panelStates: { gameInfo: true, engine: false, moves: true, ai: true, book: true },
           analysisEnabled: true,
           displayedLines: [
             {
@@ -235,6 +235,68 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
     expect(
       mobileSection?.querySelector('[data-testid="ai-position-comment-mobile"]'),
     ).not.toBeNull();
+  });
+
+  it('KS-3696: клик по заголовку desktop-AI-блока вызывает onTogglePanel("ai")', () => {
+    const onToggle = vi.fn();
+    const aiCtl = {
+      state: { kind: 'idle' as const },
+      request: vi.fn(),
+      regenerate: vi.fn(),
+      softCounter: { used: 0, limit: 20, windowMin: 20 },
+      overlay: null,
+      overlayHidden: false,
+      toggleOverlay: vi.fn(),
+    };
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          aiPositionComment: aiCtl,
+          onTogglePanel: onToggle,
+        })}
+      />,
+    );
+    const aiPanel = document.querySelector(
+      '[data-testid="analysis-ai-panel"]',
+    );
+    const header = aiPanel?.querySelector('.analysis-panel-header');
+    expect(header).not.toBeNull();
+    fireEvent.click(header as Element);
+    expect(onToggle).toHaveBeenCalledWith('ai');
+  });
+
+  it('KS-3696: клик по заголовку ArchiveTreePanel вызывает onTogglePanel("book")', () => {
+    const onToggle = vi.fn();
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          onTogglePanel: onToggle,
+        })}
+      />,
+    );
+    const treeHeader = document.querySelector(
+      '.archive-tree-panel .archive-tree-panel__header',
+    );
+    expect(treeHeader).not.toBeNull();
+    fireEvent.click(treeHeader as Element);
+    expect(onToggle).toHaveBeenCalledWith('book');
+  });
+
+  it('KS-3696: при panelStates.book=false тело ArchiveTreePanel скрыто', () => {
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          panelStates: {
+            gameInfo: true,
+            engine: true,
+            moves: true,
+            ai: true,
+            book: false,
+          },
+        })}
+      />,
+    );
+    expect(document.querySelector('.archive-tree-panel__body')).toBeNull();
   });
 
   it('KS-3687: aiPositionComment отсутствует → AI-блок и mobile-секция не рендерятся', () => {

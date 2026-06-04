@@ -11,6 +11,14 @@ interface ArchiveTreePanelProps {
   opening?: string | null;
   onSelectMove: (uci: string) => void;
   onHoverMove: (uci: string | null) => void;
+  /**
+   * KS-3696: контролируемый режим сворачивания (accordion). Если задан —
+   * внутренний `useState` игнорируется, состояние и обработчик берутся
+   * из AnalysisPage (`panelStates.book` / `togglePanel('book')`). Если
+   * не задан — поведение прежнее, локальный toggle.
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 const MAX_ROWS = 12;
@@ -26,6 +34,8 @@ export function ArchiveTreePanel({
   opening,
   onSelectMove,
   onHoverMove,
+  collapsed: controlledCollapsed,
+  onToggleCollapsed,
 }: ArchiveTreePanelProps) {
   const { t } = useTranslation();
   // KS-2263: dropdown переключения базы (Masters / Lichess 2000+ / All)
@@ -35,7 +45,11 @@ export function ArchiveTreePanel({
   // селект, восстановить useState и `<BucketSelect value={bucket} onChange={setBucket} />`
   // в header (см. git history до коммита KS-2263).
   const bucket: BucketValue = 'master';
-  const [collapsed, setCollapsed] = useState(false);
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  // KS-3696: controlled-mode имеет приоритет. AnalysisPage в accordion
+  // выставляет `collapsed=!panelStates.book` и пробрасывает toggle.
+  const collapsed =
+    controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
 
   const filters = useMemo<UseArchiveTreeFilters>(
     () => ({ bucket }),
@@ -47,7 +61,13 @@ export function ArchiveTreePanel({
   const rows = data?.moves ? data.moves.slice(0, MAX_ROWS) : [];
   const totalGames = data?.totalGames ?? 0;
 
-  const handleHeaderClick = () => setCollapsed((c) => !c);
+  const handleHeaderClick = () => {
+    if (onToggleCollapsed) {
+      onToggleCollapsed();
+    } else {
+      setInternalCollapsed((c) => !c);
+    }
+  };
 
   return (
     <div className="archive-tree-panel" data-testid="archive-tree-panel">

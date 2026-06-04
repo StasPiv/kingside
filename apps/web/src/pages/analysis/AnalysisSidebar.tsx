@@ -51,7 +51,9 @@ import { useFocusMode } from '../../context/FocusModeContext';
 
 // KS-3687: 4-й collapsible-блок «AI» (desktop) и 4-я вкладка `ai` (mobile).
 // Панель AI-комментария вынесена из engine-panel в отдельный блок.
-export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai';
+// KS-3696: добавлен ключ `book` — ArchiveTreePanel получил контролируемое
+// сворачивание, чтобы участвовать в accordion-режиме правой колонки.
+export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book';
 export type AnalysisMobileTab = 'moves' | 'engine' | 'tree' | 'ai';
 
 export interface AnalysisSidebarProps {
@@ -643,13 +645,17 @@ export function AnalysisSidebar({
         </div>
       )}
 
-      {/* Desktop: Archive tree panel (Database) */}
+      {/* Desktop: Archive tree panel (Database). KS-3696 — теперь часть
+          accordion: сворачивание контролируется panelStates.book +
+          togglePanel('book'). */}
       <div className="analysis-desktop-only">
         <ArchiveTreePanel
           currentFen={currentFen}
           opening={treeOpeningName}
           onSelectMove={onTreeMove}
           onHoverMove={onTreeHover}
+          collapsed={!panelStates.book}
+          onToggleCollapsed={() => onTogglePanel('book')}
         />
       </div>
 
