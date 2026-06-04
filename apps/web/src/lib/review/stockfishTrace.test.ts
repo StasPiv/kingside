@@ -219,11 +219,11 @@ describe('parseTraceJson — сверка с baseline (KS-3650 acceptance)', () 
 });
 
 describe('evalTrace — с моковой фабрикой', () => {
-  it('graceful: factory undefined → []', async () => {
-    // При отсутствии options.factory подгружается реальный WASM. В
-    // jsdom/happy-dom динамический import url'а не работает (нет
-    // worker/sharedarraybuffer), promise отклоняется → loadFactory
-    // вернёт null → evalTrace вернёт []. Проверяем именно эту ветку.
+  it('graceful: factory undefined → [] (нет Worker в jsdom)', async () => {
+    // KS-3680. Основной путь идёт через `new Worker(url)`. В jsdom
+    // глобального Worker нет — evalTraceViaWorker отдаёт пустой
+    // массив (graceful, как было до KS-3680, чтобы прежние тесты
+    // KS-3616 useGameReview не падали).
     const result = await evalTrace(
       'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     );

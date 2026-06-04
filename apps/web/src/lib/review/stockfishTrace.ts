@@ -227,7 +227,7 @@ const GLOBAL_NAME = 'StockfishTrace';
  * В SSR/jsdom-окружении (где нет `document` / `window`) — мгновенно `null`,
  * чтобы тесты не падали с ReferenceError.
  */
-async function loadFactory(): Promise<ModuleFactory | null> {
+async function _loadFactoryLegacy(): Promise<ModuleFactory | null> {
   if (cachedFactory) return cachedFactory;
   if (factoryPromise) return factoryPromise;
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -272,6 +272,109 @@ async function loadFactory(): Promise<ModuleFactory | null> {
 export function _resetStockfishTraceCacheForTests(): void {
   cachedFactory = null;
   factoryPromise = null;
+  if (cachedWorker) {
+    try {
+      cachedWorker.terminate();
+    } catch {
+      /* ignore */
+    }
+    cachedWorker = null;
+  }
+}
+
+// --- worker-based path (KS-3680) -----------------------------------------
+
+/**
+ * KS-3680. Один общий Worker на жизненный цикл вкладки. Раньше для
+ * `stockfish-16-trace.js` я грузил скрипт в основной поток и вызывал
+ * `factory(...)` синхронно — emscripten внутри блокировал поток на
+ * инициализации, `setTimeout`-таймауты не срабатывали, разбор висел
+ * после баннера «Stockfish 16…».
+ *
+ * Запуск через `new Worker(url)` переносит ВСЁ выполнение исполнителя
+ * в отдельный поток. Основной поток жив, таймеры работают, при
+ * зависании можно `worker.terminate()`. Этот путь — копия подхода из
+ * `PositionalEvalEngine` (stockfish-16-lite), который уже работает.
+ */
+let cachedWorker: Worker | null = null;
+let cachedWorkerReady: Promise<Worker> | null = null;
+
+const INIT_TIMEOUT_MS = 8000;
+const NO_WORKER_SENTINEL = Symbol('no-worker');
+
+async function getWorker(): Promise<Worker> {
+  if (cachedWorker) return cachedWorker;
+  if (cachedWorkerReady) return cachedWorkerReady;
+  if (typeof Worker === 'undefined') {
+    // KS-3680. Нет Worker'ов (SSR / jsdom) → возвращаем sentinel.
+    // Вызывающий код в `evalTraceViaWorker` поймает null и вернёт []
+    // вместо ошибки. Бросать здесь — значит ломать прежнее поведение
+    // тестов KS-3616 useGameReview, которые не подключают Worker.
+    throw NO_WORKER_SENTINEL;
+  }
+  cachedWorkerReady = new Promise<Worker>((resolve, reject) => {
+    let w: Worker;
+    try {
+      w = new Worker(MODULE_URL);
+    } catch (err) {
+      cachedWorkerReady = null;
+      reject(new StockfishTraceEngineError('factory-error', err));
+      return;
+    }
+    const initStart = performance.now();
+    const timer = setTimeout(() => {
+      console.warn(
+        `[stockfishTrace] worker init timeout (${INIT_TIMEOUT_MS}ms exceeded)`,
+      );
+      w.removeEventListener('message', onMessage);
+      w.removeEventListener('error', onError);
+      try {
+        w.terminate();
+      } catch {
+        /* ignore */
+      }
+      cachedWorkerReady = null;
+      reject(new StockfishTraceEngineError('factory-timeout'));
+    }, INIT_TIMEOUT_MS);
+
+    const onMessage = (e: MessageEvent) => {
+      const data = typeof e.data === 'string' ? e.data : '';
+      if (data && data.length < 200) {
+        console.info('[stockfishTrace] ←', data);
+      }
+      if (data === 'uciok') {
+        w.postMessage('setoption name Use NNUE value false');
+        w.postMessage('isready');
+      } else if (data === 'readyok') {
+        clearTimeout(timer);
+        w.removeEventListener('message', onMessage);
+        w.removeEventListener('error', onError);
+        cachedWorker = w;
+        cachedWorkerReady = null;
+        console.info(
+          `[stockfishTrace] worker ready in ${Math.round(performance.now() - initStart)}ms`,
+        );
+        resolve(w);
+      }
+    };
+    const onError = (err: ErrorEvent) => {
+      clearTimeout(timer);
+      w.removeEventListener('message', onMessage);
+      w.removeEventListener('error', onError);
+      try {
+        w.terminate();
+      } catch {
+        /* ignore */
+      }
+      cachedWorkerReady = null;
+      console.warn('[stockfishTrace] worker error:', err.message);
+      reject(new StockfishTraceEngineError('factory-error', err));
+    };
+    w.addEventListener('message', onMessage);
+    w.addEventListener('error', onError);
+    w.postMessage('uci');
+  });
+  return cachedWorkerReady;
 }
 
 // --- evalTrace: one-shot per FEN -----------------------------------------
@@ -289,8 +392,13 @@ export async function evalTrace(
   fen: string,
   options: { factory?: ModuleFactory } = {},
 ): Promise<PositionalSubterm[]> {
-  const factory = options.factory ?? (await loadFactory());
-  if (!factory) return [];
+  // KS-3680: основной путь — через Worker. Если в опциях передана
+  // factory (тесты) — идём старым путём с print/stdin (он не блокирует
+  // основной поток в тестах, у которых фабрика — обычная async-функция).
+  if (!options.factory) {
+    return evalTraceViaWorker(fen);
+  }
+  const factory = options.factory;
 
   // Очередь UCI-команд. `quit` после `eval json` — чтобы main() корректно
   // завершилась после ответа (см. описание выше про одноразовый instance).
@@ -392,6 +500,90 @@ export async function evalTrace(
   ]);
   if (raw == null) {
     console.warn('[stockfishTrace] eval timeout / no JSON in stdout');
+    throw new StockfishTraceEngineError('eval-timeout');
+  }
+  return parseTraceJson(raw, (id) =>
+    console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
+  );
+}
+
+/**
+ * KS-3680. Основной путь evalTrace — через переиспользуемый Worker.
+ * Один раз поднимаем Worker (init: `uci` → `uciok` → `setoption NNUE
+ * off` → `isready` → `readyok`), дальше на каждый FEN шлём
+ * `position fen … / eval json`, собираем JSON из stdout, парсим.
+ */
+async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
+  let w: Worker;
+  try {
+    w = await getWorker();
+  } catch (e) {
+    // KS-3680. Нет Worker (SSR / jsdom) — graceful [] для тестов.
+    // Реальные системные ошибки (timeout / error) поднимаются выше.
+    if (e === NO_WORKER_SENTINEL) return [];
+    throw e;
+  }
+
+  // Сборка JSON из приходящих stdout-строк.
+  let collecting = false;
+  let braceDepth = 0;
+  const buf: string[] = [];
+  let resolveJson: (j: unknown) => void = () => {};
+  const jsonPromise = new Promise<unknown>((r) => {
+    resolveJson = r;
+  });
+
+  const onMessage = (e: MessageEvent) => {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (!collecting) {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith('{')) {
+        collecting = true;
+        buf.length = 0;
+        braceDepth = 0;
+      } else {
+        return;
+      }
+    }
+    buf.push(line);
+    for (let i = 0; i < line.length; i++) {
+      const ch = line.charCodeAt(i);
+      if (ch === 0x7b) braceDepth++;
+      else if (ch === 0x7d) braceDepth--;
+    }
+    if (collecting && braceDepth <= 0 && buf.length > 0) {
+      collecting = false;
+      try {
+        resolveJson(JSON.parse(buf.join('\n')));
+      } catch {
+        resolveJson(null);
+      }
+    }
+  };
+  w.addEventListener('message', onMessage);
+  w.postMessage(`position fen ${fen}`);
+  w.postMessage('eval json');
+
+  let evalTimer: ReturnType<typeof setTimeout> | null = null;
+  const raw = await Promise.race([
+    jsonPromise,
+    new Promise<unknown>((r) => {
+      evalTimer = setTimeout(() => r(null), EVAL_TIMEOUT_MS);
+    }),
+  ]);
+  if (evalTimer) clearTimeout(evalTimer);
+  w.removeEventListener('message', onMessage);
+
+  if (raw == null) {
+    console.warn(
+      `[stockfishTrace] eval timeout (${EVAL_TIMEOUT_MS}ms) — terminating worker`,
+    );
+    try {
+      w.terminate();
+    } catch {
+      /* ignore */
+    }
+    cachedWorker = null;
     throw new StockfishTraceEngineError('eval-timeout');
   }
   return parseTraceJson(raw, (id) =>
