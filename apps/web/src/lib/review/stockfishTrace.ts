@@ -612,14 +612,12 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   };
   sf.addMessageListener(onLine);
 
-  // KS-3683: основной канал — `_uci_command` (прямой syscall в
-  // Stockfish). Сборка от devops не передаёт команды через
-  // `postMessage` (после отправки команды отвечал только баннер, ни
-  // `uciok`, ни `id name`). При дублировании всех каналов команда
-  // выполнялась несколько раз и Stockfish падал. `_uci_command`
-  // работает сам по себе.
-  if (typeof sf._uci_command !== 'function') {
-    console.warn('[stockfishTrace] _uci_command не экспортирован');
+  // KS-3683: основной канал — `ccall('uci_command', null, ['string'],
+  // [cmd])`. Через postMessage и прямой _uci_command в браузере на
+  // команду uci приходит только баннер, без uciok. По KS-3683 (лог с
+  // дублированием) ccall успел дать отклик до падения eval json.
+  if (typeof sf.ccall !== 'function') {
+    console.warn('[stockfishTrace] ccall не экспортирован');
     try {
       sf.terminate();
     } catch {
@@ -627,14 +625,14 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     }
     throw new StockfishTraceEngineError(
       'factory-error',
-      new Error('_uci_command export missing'),
+      new Error('ccall export missing'),
     );
   }
   const sendCmd = (cmd: string) => {
     try {
-      sf._uci_command!(cmd);
+      sf.ccall!('uci_command', null, ['string'], [cmd]);
     } catch (err) {
-      console.warn('[stockfishTrace] _uci_command threw:', err);
+      console.warn('[stockfishTrace] ccall(uci_command) threw:', err);
     }
   };
   console.info('[stockfishTrace] → uci');
