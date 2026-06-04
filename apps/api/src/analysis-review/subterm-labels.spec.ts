@@ -1,6 +1,9 @@
 /**
- * KS-3651 / ADR-107 rev 2 §6. Тесты subterm-labels.ts:
- *  - все 51 идентификатор `PositionalSubtermId` имеют RU+EN-описание;
+ * KS-3651 / ADR-107 rev 2 §6 + KS-3677 (расширение enum на 6 ID:
+ * mobility per-piece + king_attackers).
+ *
+ * Тесты subterm-labels.ts:
+ *  - все 57 идентификаторов `PositionalSubtermId` имеют RU+EN-описание;
  *  - `KNOWN_SUBTERM_IDS` совпадает с ключами `SUBTERM_LABELS`;
  *  - `labelForSubtermId` возвращает корректную локализацию,
  *    `null` для неизвестных id.
@@ -11,9 +14,10 @@ import {
   labelForSubtermId,
 } from './subterm-labels';
 
-// Источник истины — PositionalSubtermId в shared (51 ID, KS-3649).
-// Дублирую список здесь как массив строк для прямой сверки —
-// независимо от type-level union, чтобы regression на снимке.
+// Источник истины — PositionalSubtermId в shared (57 ID после KS-3677,
+// исходные 51 — KS-3649). Дублирую список здесь как массив строк для
+// прямой сверки — независимо от type-level union, чтобы regression на
+// снимке.
 const EXPECTED_IDS_SOURCE_OF_TRUTH = [
   // Pawns (7)
   'pawn_doubled_early',
@@ -73,12 +77,20 @@ const EXPECTED_IDS_SOURCE_OF_TRUTH = [
   'passed_file_edge',
   // Space (1)
   'space',
+  // Mobility per-piece (4) — KS-3677
+  'mobility_knight',
+  'mobility_bishop',
+  'mobility_rook',
+  'mobility_queen',
+  // King attackers (2) — KS-3677
+  'king_attackers_count',
+  'king_attackers_weight',
 ];
 
 describe('KS-3651 SUBTERM_LABELS', () => {
-  it('содержит ровно 51 идентификатор (синхронизация с shared)', () => {
-    expect(EXPECTED_IDS_SOURCE_OF_TRUTH).toHaveLength(51);
-    expect(Object.keys(SUBTERM_LABELS)).toHaveLength(51);
+  it('содержит ровно 57 идентификаторов (синхронизация с shared, KS-3677)', () => {
+    expect(EXPECTED_IDS_SOURCE_OF_TRUTH).toHaveLength(57);
+    expect(Object.keys(SUBTERM_LABELS)).toHaveLength(57);
   });
 
   it('все ожидаемые ID присутствуют в таблице (нет пропусков)', () => {
