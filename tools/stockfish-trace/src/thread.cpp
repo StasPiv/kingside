@@ -33,23 +33,48 @@ ThreadPool Threads; // Global object
 
 /// Thread constructor launches the thread and waits until it goes to sleep
 /// in idle_loop(). Note that 'searching' and 'exit' should be already set.
+///
+/// KS-3676 / ADR-107 rev 2. В WASM-сборке (em++) `std::thread` обходим:
+/// `pthread_create` под `-pthread + PROXY_TO_PTHREAD=1` падает с
+/// `RuntimeError: remainder by zero` (внутреннее деление emscripten libc
+/// при распределении proxy-queue). Для `eval json` (наш единственный
+/// сценарий) поиск не нужен — нужен только живой объект MainThread,
+/// чтобы `Threads.main()`/`pos.this_thread()` отдавали валидный
+/// указатель, а `bestValue/optimism[WHITE]/[BLACK]` были доступны для
+/// записи в `Eval::trace_json`. `Thread::stdThread` остаётся
+/// default-constructed (joinable=false), idle_loop не запускается,
+/// `Search::clear()::wait_for_search_finished` возвращается сразу
+/// (предикат `!searching` уже истинен).
 
-Thread::Thread(size_t n) : idx(n), stdThread(&Thread::idle_loop, this) {
-
+Thread::Thread(size_t n) : idx(n)
+#ifndef __EMSCRIPTEN__
+  , stdThread(&Thread::idle_loop, this)
+#endif
+{
+#ifndef __EMSCRIPTEN__
   wait_for_search_finished();
+#endif
 }
 
 
 /// Thread destructor wakes up the thread in idle_loop() and waits
 /// for its termination. Thread should be already waiting.
+///
+/// KS-3676. В WASM-сборке деструктор просто помечает `exit = true`;
+/// ни `start_searching`, ни `stdThread.join()` не делаем — поток не
+/// запускался (см. конструктор). `join()` на default-constructed
+/// `std::thread` бросает `system_error` — поэтому именно ifdef, а не
+/// руntime-чек на `joinable()`.
 
 Thread::~Thread() {
 
   assert(!searching);
 
   exit = true;
+#ifndef __EMSCRIPTEN__
   start_searching();
   stdThread.join();
+#endif
 }
 
 
