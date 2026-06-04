@@ -1,13 +1,21 @@
 /**
- * KS-3696. Чистая редюсер-функция для accordion-поведения правой
- * колонки `AnalysisPage`. Открытие одной панели схлопывает остальные
- * три; повторный клик по уже открытой — закрывает её. `gameInfo`
- * не входит в accordion, его флаг переключается независимо.
+ * KS-3696 (исправлено по уточнению пользователя). Правило правой
+ * колонки: взаимно исключаются ТОЛЬКО панели «Движок» (`engine`) и
+ * «AI» (`ai`) — пользователь не должен видеть одновременно анализ
+ * движком и оценку AI, потому что Stockfish при этом молотит и
+ * путает восприятие. Остальные панели — «Нотация» (`moves`) и
+ * «Книга» (`book`) — открываются и закрываются независимо и могут
+ * сосуществовать с любой из engine/ai и друг с другом.
+ *
+ * Итог: в один момент могут быть открыты до трёх панелей одновременно
+ * (engine ИЛИ ai) + moves + book.
+ *
+ * `gameInfo` (плашка-заголовок) переключается независимо.
  *
  * Дополнительно возвращает `engineWillCollapse: boolean` — каллер
  * (AnalysisPage) использует это, чтобы поставить Stockfish на паузу,
  * когда engine-блок закрывается (мешает молотить впустую под скрытым
- * блоком, см. acceptance KS-3696).
+ * блоком).
  */
 export interface PanelStates {
   gameInfo: boolean;
@@ -35,15 +43,27 @@ export function panelToggleReducer(
     };
   }
   const wasOpen = prev[panel];
-  const engineWillCollapse =
-    (panel === 'engine' && wasOpen) ||
-    (panel !== 'engine' && prev.engine);
-  const next: PanelStates = {
-    gameInfo: prev.gameInfo,
-    engine: panel === 'engine' ? !wasOpen : false,
-    moves: panel === 'moves' ? !wasOpen : false,
-    ai: panel === 'ai' ? !wasOpen : false,
-    book: panel === 'book' ? !wasOpen : false,
-  };
+  const willBeOpen = !wasOpen;
+  const next: PanelStates = { ...prev, [panel]: willBeOpen };
+  let engineWillCollapse = false;
+
+  if (panel === 'engine') {
+    if (wasOpen) {
+      // engine закрывается по клику — пользователь сам убирает анализ.
+      engineWillCollapse = true;
+    } else if (prev.ai) {
+      // engine открывается — закрываем ai (они взаимно исключаются).
+      next.ai = false;
+    }
+  } else if (panel === 'ai') {
+    if (willBeOpen && prev.engine) {
+      // ai открывается — закрываем engine и ставим Stockfish на паузу.
+      next.engine = false;
+      engineWillCollapse = true;
+    }
+    // ai сам по себе закрывается — engine не трогаем.
+  }
+  // moves / book — независимые, ничего больше не меняют.
+
   return { next, engineWillCollapse };
 }

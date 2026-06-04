@@ -1,12 +1,13 @@
 /**
- * KS-3696. Тесты accordion-редюсера правой колонки `AnalysisPage`.
- * Логика вынесена в чистую функцию `panelToggleReducer`, чтобы не
- * поднимать AnalysisPage в jsdom. Здесь проверяем:
- *  - одна открытая панель за раз среди engine/moves/ai/book;
- *  - повторный клик по уже открытой панели — закрывает её;
- *  - gameInfo не входит в accordion;
- *  - engineWillCollapse=true в правильных случаях (для AnalysisPage —
- *    сигнал на «приостановить Stockfish»).
+ * KS-3696 (исправлено по уточнению пользователя). Правило правой
+ * колонки: взаимно исключаются ТОЛЬКО `engine` ↔ `ai`. Остальные
+ * (`moves`, `book`) — независимые и могут сосуществовать с любой
+ * из них и друг с другом. В пределе одновременно открыто до трёх:
+ * (engine ИЛИ ai) + moves + book. `gameInfo` (плашка-заголовок) —
+ * отдельный переключатель.
+ *
+ * `engineWillCollapse` — сигнал для AnalysisPage, что Stockfish
+ * нужно поставить на паузу (engine закрывается).
  */
 import { describe, it, expect } from 'vitest';
 
@@ -15,7 +16,7 @@ import {
   type PanelStates,
 } from './accordionTogglePanel';
 
-const ALL_CLOSED: PanelStates = {
+const BASE: PanelStates = {
   gameInfo: true,
   engine: false,
   moves: false,
@@ -23,88 +24,158 @@ const ALL_CLOSED: PanelStates = {
   book: false,
 };
 
-const ENGINE_OPEN: PanelStates = {
-  ...ALL_CLOSED,
-  engine: true,
-};
-
-const AI_OPEN: PanelStates = {
-  ...ALL_CLOSED,
-  ai: true,
-};
-
-describe('panelToggleReducer — accordion (KS-3696)', () => {
-  it('открытие engine → engine: true, остальные false', () => {
-    const { next } = panelToggleReducer(ALL_CLOSED, 'engine');
-    expect(next).toEqual({ ...ALL_CLOSED, engine: true });
-  });
-
-  it('engine открыт → клик на ai → engine схлопывается, ai открыт', () => {
-    const { next } = panelToggleReducer(ENGINE_OPEN, 'ai');
-    expect(next).toEqual({ ...ALL_CLOSED, ai: true });
-  });
-
-  it('ai открыт → клик на book → ai схлопывается, book открыт', () => {
-    const { next } = panelToggleReducer(AI_OPEN, 'book');
-    expect(next).toEqual({ ...ALL_CLOSED, book: true });
-  });
-
-  it('повторный клик по уже открытой панели — схлопывает её, 0 открытых', () => {
-    const { next } = panelToggleReducer(ENGINE_OPEN, 'engine');
-    expect(next).toEqual(ALL_CLOSED);
-  });
-
-  it('gameInfo не входит в accordion — переключается отдельно', () => {
-    const start: PanelStates = { ...ENGINE_OPEN, gameInfo: false };
-    const { next } = panelToggleReducer(start, 'gameInfo');
-    // engine остался открытым, gameInfo поменялся.
-    expect(next).toEqual({ ...ENGINE_OPEN, gameInfo: true });
-  });
-
-  it('клик по gameInfo не меняет accordion-флаги', () => {
-    const { next } = panelToggleReducer(AI_OPEN, 'gameInfo');
-    expect(next.ai).toBe(true);
+describe('panelToggleReducer — engine ↔ ai взаимное исключение (KS-3696)', () => {
+  it('engine открыт, клик на ai → engine закрывается, ai открывается', () => {
+    const prev: PanelStates = { ...BASE, engine: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'ai');
     expect(next.engine).toBe(false);
-    expect(next.moves).toBe(false);
-    expect(next.book).toBe(false);
+    expect(next.ai).toBe(true);
+    expect(engineWillCollapse).toBe(true);
   });
 
-  it('последовательно: engine → moves → book → ai — открыта всегда последняя', () => {
-    let st = ALL_CLOSED;
-    st = panelToggleReducer(st, 'engine').next;
-    expect(st.engine).toBe(true);
-    st = panelToggleReducer(st, 'moves').next;
-    expect(st).toMatchObject({ engine: false, moves: true });
-    st = panelToggleReducer(st, 'book').next;
-    expect(st).toMatchObject({ moves: false, book: true });
-    st = panelToggleReducer(st, 'ai').next;
-    expect(st).toMatchObject({ book: false, ai: true });
+  it('ai открыт, клик на engine → ai закрывается, engine открывается', () => {
+    const prev: PanelStates = { ...BASE, ai: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'engine');
+    expect(next.ai).toBe(false);
+    expect(next.engine).toBe(true);
+    // engine открывается, а не закрывается — на паузу ставить нечего.
+    expect(engineWillCollapse).toBe(false);
+  });
+
+  it('оба закрыты, клик на engine → открывается только engine', () => {
+    const { next, engineWillCollapse } = panelToggleReducer(BASE, 'engine');
+    expect(next).toEqual({ ...BASE, engine: true });
+    expect(engineWillCollapse).toBe(false);
+  });
+
+  it('оба закрыты, клик на ai → открывается только ai', () => {
+    const { next, engineWillCollapse } = panelToggleReducer(BASE, 'ai');
+    expect(next).toEqual({ ...BASE, ai: true });
+    expect(engineWillCollapse).toBe(false);
+  });
+
+  it('engine открыт, клик на engine — закрывается, engineWillCollapse=true', () => {
+    const prev: PanelStates = { ...BASE, engine: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'engine');
+    expect(next.engine).toBe(false);
+    expect(engineWillCollapse).toBe(true);
+  });
+
+  it('ai открыт, клик на ai — закрывается, engineWillCollapse=false', () => {
+    const prev: PanelStates = { ...BASE, ai: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'ai');
+    expect(next.ai).toBe(false);
+    expect(engineWillCollapse).toBe(false);
   });
 });
 
-describe('panelToggleReducer — engineWillCollapse (KS-3696)', () => {
-  it('engine открыт → клик на ai → engineWillCollapse=true', () => {
-    const { engineWillCollapse } = panelToggleReducer(ENGINE_OPEN, 'ai');
+describe('panelToggleReducer — moves и book независимы (KS-3696)', () => {
+  it('engine открыт, клик на moves → engine остаётся, moves открывается', () => {
+    const prev: PanelStates = { ...BASE, engine: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'moves');
+    expect(next).toEqual({ ...BASE, engine: true, moves: true });
+    expect(engineWillCollapse).toBe(false);
+  });
+
+  it('ai открыт, клик на book → ai остаётся, book открывается', () => {
+    const prev: PanelStates = { ...BASE, ai: true };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'book');
+    expect(next).toEqual({ ...BASE, ai: true, book: true });
+    expect(engineWillCollapse).toBe(false);
+  });
+
+  it('moves + book + engine открыты, клик на ai → engine→ai, moves+book остаются', () => {
+    const prev: PanelStates = {
+      ...BASE,
+      engine: true,
+      moves: true,
+      book: true,
+    };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'ai');
+    expect(next).toEqual({
+      ...BASE,
+      engine: false,
+      ai: true,
+      moves: true,
+      book: true,
+    });
     expect(engineWillCollapse).toBe(true);
   });
 
-  it('engine открыт → клик на engine (закрытие) → engineWillCollapse=true', () => {
-    const { engineWillCollapse } = panelToggleReducer(ENGINE_OPEN, 'engine');
-    expect(engineWillCollapse).toBe(true);
-  });
-
-  it('engine закрыт → клик на ai → engineWillCollapse=false', () => {
-    const { engineWillCollapse } = panelToggleReducer(ALL_CLOSED, 'ai');
+  it('клик по moves не затрагивает engine/ai/book', () => {
+    const prev: PanelStates = {
+      ...BASE,
+      engine: true,
+      ai: false,
+      book: true,
+    };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'moves');
+    expect(next).toEqual({ ...prev, moves: true });
     expect(engineWillCollapse).toBe(false);
   });
 
-  it('engine закрыт → клик на engine (открытие) → engineWillCollapse=false', () => {
-    const { engineWillCollapse } = panelToggleReducer(ALL_CLOSED, 'engine');
+  it('клик по book не затрагивает engine/ai/moves', () => {
+    const prev: PanelStates = {
+      ...BASE,
+      engine: false,
+      ai: true,
+      moves: true,
+    };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'book');
+    expect(next).toEqual({ ...prev, book: true });
     expect(engineWillCollapse).toBe(false);
   });
+});
 
-  it('клик по gameInfo → engineWillCollapse=false независимо от engine', () => {
-    const { engineWillCollapse } = panelToggleReducer(ENGINE_OPEN, 'gameInfo');
+describe('panelToggleReducer — gameInfo (KS-3696)', () => {
+  it('gameInfo переключается независимо, остальные не меняются', () => {
+    const prev: PanelStates = { ...BASE, engine: true, ai: false };
+    const { next, engineWillCollapse } = panelToggleReducer(prev, 'gameInfo');
+    expect(next).toEqual({ ...prev, gameInfo: !prev.gameInfo });
     expect(engineWillCollapse).toBe(false);
+  });
+});
+
+describe('panelToggleReducer — одновременно до трёх панелей (KS-3696)', () => {
+  it('engine + moves + book — допустимая комбинация', () => {
+    let st: PanelStates = BASE;
+    st = panelToggleReducer(st, 'engine').next;
+    st = panelToggleReducer(st, 'moves').next;
+    st = panelToggleReducer(st, 'book').next;
+    expect(st).toMatchObject({
+      engine: true,
+      moves: true,
+      book: true,
+      ai: false,
+    });
+  });
+
+  it('ai + moves + book — допустимая комбинация', () => {
+    let st: PanelStates = BASE;
+    st = panelToggleReducer(st, 'ai').next;
+    st = panelToggleReducer(st, 'moves').next;
+    st = panelToggleReducer(st, 'book').next;
+    expect(st).toMatchObject({
+      engine: false,
+      ai: true,
+      moves: true,
+      book: true,
+    });
+  });
+
+  it('engine + ai одновременно недопустимо — открытие ai закрывает engine', () => {
+    let st: PanelStates = BASE;
+    st = panelToggleReducer(st, 'engine').next;
+    st = panelToggleReducer(st, 'moves').next;
+    st = panelToggleReducer(st, 'book').next;
+    expect(st.engine).toBe(true);
+    st = panelToggleReducer(st, 'ai').next;
+    // engine принудительно закрыт, остальные сохраняются.
+    expect(st).toMatchObject({
+      engine: false,
+      ai: true,
+      moves: true,
+      book: true,
+    });
   });
 });
