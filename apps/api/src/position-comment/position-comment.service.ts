@@ -5,12 +5,20 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { PositionCommentResponse } from '@kingside/shared';
 import { RedisService } from '../redis/redis.service';
 import { SUBTERM_LABELS } from '../analysis-review/subterm-labels';
 import {
   PositionCommentDto,
   PositionCommentLanguage,
 } from './dto/position-comment.dto';
+import { parseModelOutput } from './parse-model-output';
+
+const EMPTY_RESPONSE: PositionCommentResponse = {
+  comment: '',
+  highlights: [],
+  arrows: [],
+};
 
 @Injectable()
 export class PositionCommentService {
@@ -96,6 +104,21 @@ export class PositionCommentService {
         'Never quote the numeric evaluation in your answer either — no "+0.8", no "cp", no "centipawns", no "score 23". Use words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N".',
         '',
         'Forbidden word: "slider" / "sliders" / "sliding piece(s)". Use proper chess terms instead: "long-range pieces" (rook, bishop, queen), "major pieces" (rook, queen), "minor pieces" (knight, bishop).',
+        '',
+        'Output format — ONE JSON object:',
+        '{ "comment": "<text>", "highlights": [...], "arrows": [...] }',
+        '',
+        '- comment — your commentary in plain words (as above).',
+        '- highlights — 0–4 items of shape { "square": "e4", "color": "red" }.',
+        '- arrows — 0–2 items of shape { "from": "e2", "to": "e4", "color": "green" }.',
+        '',
+        'Color convention:',
+        '- red — weakness / threat / piece in danger;',
+        '- green — recommended plan or best move;',
+        '- yellow — key idea / focal point;',
+        '- blue — reserved for the user, do not use.',
+        '',
+        'Highlight at most 1–2 key factors in total. If there is nothing to highlight, return empty arrays. Do not wrap the JSON in code fences. Do not add any text outside the JSON object.',
       ].join('\n');
     }
     return [
@@ -115,22 +138,43 @@ export class PositionCommentService {
       'Также никогда не приводи численное значение общей оценки — ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес белых/чёрных», «заметное преимущество белых/чёрных», «решающее преимущество белых/чёрных», «мат в N».',
       '',
       'Запрещённые слова: «слайдер», «слайдеры», «слайдинг», «sliding piece(s)». Вместо них — «фигуры дальнего боя» (ладьи, слоны, ферзи), «тяжёлые фигуры» (ладья, ферзь), «лёгкие фигуры» (конь, слон).',
+      '',
+      'Формат ответа — ОДИН JSON-объект:',
+      '{ "comment": "<текст>", "highlights": [...], "arrows": [...] }',
+      '',
+      '- comment — текстовый комментарий человеческими словами (как выше).',
+      '- highlights — 0–4 элемента вида { "square": "e4", "color": "red" }.',
+      '- arrows — 0–2 элемента вида { "from": "e2", "to": "e4", "color": "green" }.',
+      '',
+      'Цветовая конвенция:',
+      '- red — слабость / угроза / опасная фигура;',
+      '- green — рекомендуемый план или лучший ход;',
+      '- yellow — ключевая идея / точка внимания;',
+      '- blue — резерв пользователя, не используй.',
+      '',
+      'Выдели не больше 1–2 факторов суммарно. Если выделять нечего — верни пустые массивы. Не оборачивай JSON в код-fences. Не добавляй текст вне JSON-объекта.',
     ].join('\n');
   }
 
-  async comment(userId: string, dto: PositionCommentDto): Promise<string> {
+  async comment(
+    userId: string,
+    dto: PositionCommentDto,
+  ): Promise<PositionCommentResponse> {
     // KS-3681 / ADR-108 §11 B1: пустой `factors` — мгновенный пустой
     // ответ, без обращения к webhook'у. Экономит квоту Pro/Max и
     // время пользователя (фронт всё равно отрисует state `empty`).
+    //
+    // KS-3690 / ADR-108b §6.3: возвращаем новый шейп всегда — с
+    // пустыми массивами highlights/arrows.
     if (!dto.factors || dto.factors.length === 0) {
-      return '';
+      return { ...EMPTY_RESPONSE };
     }
 
     if (!this.webhookUrl) {
       this.logger.warn(
         `comment user=${userId.slice(0, 8)}: AI_CHAT_WEBHOOK_URL not configured — returning empty`,
       );
-      return '';
+      return { ...EMPTY_RESPONSE };
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.language);
@@ -146,13 +190,15 @@ export class PositionCommentService {
         systemPrompt,
         userMessage,
       );
-      return (response ?? '').trim();
+      // KS-3690: парсер pure-функция, фолбэк внутри. На пустую строку
+      // ответа отдаём шейп с пустым comment и пустыми массивами.
+      return parseModelOutput(response ?? '');
     } catch (e) {
       this.logger.error(
         `comment user=${userId.slice(0, 8)} failed: ${(e as Error).message}`,
         (e as Error).stack,
       );
-      return '';
+      return { ...EMPTY_RESPONSE };
     }
   }
 

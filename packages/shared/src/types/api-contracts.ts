@@ -1807,6 +1807,57 @@ export interface PositionalSubterm {
   value_eg: number;
 }
 
+/**
+ * KS-3690 / ADR-108b §3, §5. Цветовая палитра подсветок и стрелок
+ * AI-комментария позиции. Совпадает с пользовательской палитрой
+ * аннотаций (lichess, см. `AnnotationColor` в
+ * `apps/web/src/review/types.ts`).
+ *
+ *  - `red` — слабость / угроза / опасная фигура;
+ *  - `green` — рекомендуемый план / лучший ход;
+ *  - `yellow` — ключевая идея / внимание;
+ *  - `blue` — резерв пользователя (модель не использует, но фронт
+ *    может рисовать пользовательские синие подсветки рядом с AI).
+ */
+export type AiOverlayColor = 'red' | 'green' | 'yellow' | 'blue';
+
+/**
+ * KS-3690 / ADR-108b §3. Подсветка клетки в overlay AI-комментария.
+ *  - `square` — UCI-клетка `a1..h8`.
+ *  - `color` — из палитры `AiOverlayColor`.
+ */
+export interface AiHighlight {
+  square: string;
+  color: AiOverlayColor;
+}
+
+/**
+ * KS-3690 / ADR-108b §3. Стрелка в overlay AI-комментария.
+ *  - `from` / `to` — UCI-клетки `a1..h8`, должны различаться.
+ *  - `color` — из палитры `AiOverlayColor`.
+ */
+export interface AiArrow {
+  from: string;
+  to: string;
+  color: AiOverlayColor;
+}
+
+/**
+ * KS-3690 / ADR-108b §3, §5. Тело ответа `POST /analyses/position/comment`.
+ * Старые клиенты читают только `comment` (обратная совместимость) —
+ * `highlights` и `arrows` опциональны, но всегда сериализуются (могут
+ * быть пустыми массивами).
+ *
+ * Лимиты на стороне `parseModelOutput` (apps/api):
+ *  - `highlights` — ≤ 4 элементов;
+ *  - `arrows` — ≤ 2 элементов.
+ */
+export interface PositionCommentResponse {
+  comment: string;
+  highlights: AiHighlight[];
+  arrows: AiArrow[];
+}
+
 /** Участник размена на квадрате висячей фигуры (атакующий или защитник). */
 export interface FactsExchangeParticipant {
   piece: FactsAnyPiece;

@@ -1,4 +1,5 @@
 import { Body, Controller, Post, Request, UseGuards } from '@nestjs/common';
+import type { PositionCommentResponse } from '@kingside/shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PositionCommentDto } from './dto/position-comment.dto';
@@ -13,11 +14,10 @@ export class PositionCommentController {
   async comment(
     @Request() req: AuthenticatedRequest,
     @Body() dto: PositionCommentDto,
-  ): Promise<{ comment: string }> {
+  ): Promise<PositionCommentResponse> {
     await this.svc.checkRateLimit(req.user.id);
     await this.svc.incrementRateLimit(req.user.id);
 
-    const comment = await this.svc.comment(req.user.id, dto);
-    return { comment };
+    return this.svc.comment(req.user.id, dto);
   }
 }

@@ -231,8 +231,8 @@ describe('PositionCommentService', () => {
     });
   });
 
-  describe('comment — пустой factors (KS-3681 / ADR-108 §5.3)', () => {
-    it('factors=[] → возвращает "" без вызова webhook', async () => {
+  describe('comment — пустой factors (KS-3681 / ADR-108 §5.3, KS-3690 шейп)', () => {
+    it('factors=[] → возвращает шейп с пустым comment без вызова webhook', async () => {
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -244,11 +244,11 @@ describe('PositionCommentService', () => {
         'user-1',
         makeDto({ factors: [] }),
       );
-      expect(result).toBe('');
+      expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('factors=[] и без webhookUrl → тоже возвращает "" без вызова', async () => {
+    it('factors=[] и без webhookUrl → тот же шейп без вызова', async () => {
       const svc = new PositionCommentService(
         makeConfigService({}),
         makeRedisStub(),
@@ -260,7 +260,7 @@ describe('PositionCommentService', () => {
         'user-1',
         makeDto({ factors: [] }),
       );
-      expect(result).toBe('');
+      expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
       expect(spy).not.toHaveBeenCalled();
     });
   });
@@ -274,8 +274,15 @@ describe('PositionCommentService', () => {
       let captured: any = null;
       global.fetch = jest.fn(async (_url: any, init: any) => {
         captured = JSON.parse(init.body);
+        // KS-3690: модель отдаёт JSON-шейп; сервис парсит и возвращает.
         return new Response(
-          JSON.stringify({ response: 'comment text' }),
+          JSON.stringify({
+            response: JSON.stringify({
+              comment: 'comment text',
+              highlights: [],
+              arrows: [],
+            }),
+          }),
           {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -287,7 +294,11 @@ describe('PositionCommentService', () => {
         'user-1',
         makeDto({ language: 'en' }),
       );
-      expect(result).toBe('comment text');
+      expect(result).toEqual({
+        comment: 'comment text',
+        highlights: [],
+        arrows: [],
+      });
       expect(captured.systemPrompt).toMatch(
         /^Please comment on this chess position in plain language/,
       );
@@ -304,7 +315,9 @@ describe('PositionCommentService', () => {
       global.fetch = jest.fn(async (_url: any, init: any) => {
         captured = JSON.parse(init.body);
         return new Response(
-          JSON.stringify({ response: 'комментарий' }),
+          JSON.stringify({
+            response: JSON.stringify({ comment: 'комментарий' }),
+          }),
           {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -329,7 +342,9 @@ describe('PositionCommentService', () => {
       global.fetch = jest.fn(async (_url: any, init: any) => {
         captured = JSON.parse(init.body);
         return new Response(
-          JSON.stringify({ response: 'комментарий' }),
+          JSON.stringify({
+            response: JSON.stringify({ comment: 'комментарий' }),
+          }),
           {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -354,7 +369,9 @@ describe('PositionCommentService', () => {
       global.fetch = jest.fn(async (_url: any, init: any) => {
         captured = JSON.parse(init.body);
         return new Response(
-          JSON.stringify({ response: 'без линии' }),
+          JSON.stringify({
+            response: JSON.stringify({ comment: 'без линии' }),
+          }),
           {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -367,7 +384,11 @@ describe('PositionCommentService', () => {
         factors: [{ id: 'space', value_mg: 0.05, value_eg: 0 }],
       });
       const result = await svc.comment('user-1', dto);
-      expect(result).toBe('без линии');
+      expect(result).toEqual({
+        comment: 'без линии',
+        highlights: [],
+        arrows: [],
+      });
       // В payload нет sf18_*, но инструкция всё равно содержит описание —
       // модель сама поймёт что этих факторов нет и комментирует по
       // остальным (см. фразу «Если их нет — комментируй только…»).
@@ -377,8 +398,62 @@ describe('PositionCommentService', () => {
     });
   });
 
-  describe('comment — graceful degradation', () => {
-    it('webhookUrl пуст → возвращает "" без обращения', async () => {
+  describe('comment — JSON-шейп с overlay (KS-3690)', () => {
+    it('модель отдала JSON с highlights и arrows → распарсены и возвращены', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      global.fetch = jest.fn(async () =>
+        new Response(
+          JSON.stringify({
+            response: JSON.stringify({
+              comment: 'Слон сильный, ферзь под боем.',
+              highlights: [
+                { square: 'd5', color: 'yellow' },
+                { square: 'c5', color: 'red' },
+              ],
+              arrows: [{ from: 'e2', to: 'e4', color: 'green' }],
+            }),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ) as any;
+
+      const result = await svc.comment('user-1', makeDto());
+      expect(result.comment).toBe('Слон сильный, ферзь под боем.');
+      expect(result.highlights).toEqual([
+        { square: 'd5', color: 'yellow' },
+        { square: 'c5', color: 'red' },
+      ]);
+      expect(result.arrows).toEqual([
+        { from: 'e2', to: 'e4', color: 'green' },
+      ]);
+    });
+
+    it('модель отдала чистый текст без JSON → comment = raw, массивы пустые', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      global.fetch = jest.fn(async () =>
+        new Response(
+          JSON.stringify({ response: 'просто текст без структуры' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ) as any;
+
+      const result = await svc.comment('user-1', makeDto());
+      expect(result).toEqual({
+        comment: 'просто текст без структуры',
+        highlights: [],
+        arrows: [],
+      });
+    });
+  });
+
+  describe('comment — graceful degradation (KS-3690 шейп)', () => {
+    it('webhookUrl пуст → шейп с пустым comment без обращения', async () => {
       const svc = new PositionCommentService(
         makeConfigService({}),
         makeRedisStub(),
@@ -386,11 +461,11 @@ describe('PositionCommentService', () => {
       const spy = jest.fn();
       global.fetch = spy as any;
       const result = await svc.comment('user-1', makeDto());
-      expect(result).toBe('');
+      expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('webhook 5xx → пустая строка', async () => {
+    it('webhook 5xx → шейп с пустым comment (fallback)', async () => {
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -402,7 +477,46 @@ describe('PositionCommentService', () => {
         }),
       ) as any;
       const result = await svc.comment('user-1', makeDto());
-      expect(result).toBe('');
+      expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
+    });
+  });
+
+  describe('buildSystemPrompt (KS-3690 ADR-108b §5.1) — JSON-формат ответа', () => {
+    const svc = new PositionCommentService(
+      makeConfigService({}),
+      makeRedisStub(),
+    );
+
+    it('RU: содержит блок про JSON-формат, цветовую конвенцию и лимиты', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toContain('Формат ответа — ОДИН JSON-объект');
+      expect(p).toContain('"comment"');
+      expect(p).toContain('"highlights"');
+      expect(p).toContain('"arrows"');
+      expect(p).toContain('0–4 элемента');
+      expect(p).toContain('0–2 элемента');
+      expect(p).toContain('Цветовая конвенция');
+      expect(p).toContain('red — слабость / угроза');
+      expect(p).toContain('green — рекомендуемый план');
+      expect(p).toContain('yellow — ключевая идея');
+      expect(p).toContain('blue — резерв пользователя');
+      expect(p).toContain('Не оборачивай JSON в код-fences');
+    });
+
+    it('EN: содержит блок про JSON-формат, цветовую конвенцию и лимиты', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Output format — ONE JSON object');
+      expect(p).toContain('"comment"');
+      expect(p).toContain('"highlights"');
+      expect(p).toContain('"arrows"');
+      expect(p).toContain('0–4 items');
+      expect(p).toContain('0–2 items');
+      expect(p).toContain('Color convention');
+      expect(p).toContain('red — weakness / threat');
+      expect(p).toContain('green — recommended plan');
+      expect(p).toContain('yellow — key idea');
+      expect(p).toContain('blue — reserved for the user');
+      expect(p).toContain('Do not wrap the JSON in code fences');
     });
   });
 });
