@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useAiPositionComment } from '../hooks/useAiPositionComment';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import type { GameMetaInfo } from '../components/GameMetaBar';
@@ -528,7 +529,7 @@ function AnalysisPageInner({
   // ссылки. Берём navState приоритетнее (без round-trip через
   // URLSearchParams), URL — как fallback.
   const [analysisSearchParams] = useSearchParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   // KS-2114: размер доски на странице анализа (S/M/L) — пресет из общего
   // BoardSettingsContext, сохраняется в localStorage (см. ключ
@@ -934,6 +935,23 @@ function AnalysisPageInner({
   // (localStorage `analysis.maia.elo` → 1500).
   const maia = useMaiaAnalysis({ fen: currentFen });
   const { sortMode, setSortMode } = useEngineSortMode();
+
+  // KS-3680 (ADR-108): контроллер AI-комментария позиции для панели в
+  // engine-panel (desktop + mobile-Engine). Поднимаем сюда, чтобы при
+  // навигации между ходами хук успевал увидеть смену `currentFen` и
+  // отменить in-flight запрос. `fullReviewComment` берём из текущего
+  // хода — если в нём уже есть комментарий из полного разбора, панель
+  // покажет его как `success(source='full-review')` до перегенерации.
+  // `language` — текущая i18n-локаль, fallback на 'ru'.
+  const aiCommentLanguage: 'ru' | 'en' =
+    (i18n.language || '').toLowerCase().startsWith('en') ? 'en' : 'ru';
+  const aiPositionComment = useAiPositionComment({
+    fen: currentFen,
+    user: user ? { id: user.id } : null,
+    fullReviewComment:
+      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
+    language: aiCommentLanguage,
+  });
 
   // KS-3597: финальный массив `searchmoves`. null/[] → обычный go
   // без хвоста (mode=stockfish, или Maia не ready, или engine не
@@ -2520,6 +2538,8 @@ function AnalysisPageInner({
         onSortModeChange={setSortMode}
         engineSupportsSearchmoves={engineSupportsSearchmoves}
         maiaTopMoves={maiaTopMoves}
+        /* KS-3680 (ADR-108): контроллер AI-комментария позиции. */
+        aiPositionComment={aiPositionComment}
         /* KS-3606 (ADR-100 §9): source-link «← Исходный анализ» на
            дубле. `analysisOriginalId` lazy-fetch'ится отдельным
            useEffect (см. ниже). Кнопка «Разобрать партию» переехала

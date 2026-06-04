@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useLocation, useSearchParams, useParams, useNa
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
+// KS-3680 dev-only: песочница для приёмочных скриншотов AI-панели.
+import AiCommentSandboxPage from './pages/dev/AiCommentSandboxPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -193,9 +195,13 @@ const BlindBoardLandingPage = lazy(() =>
 // rollup'а — вся поддерево dev-страниц (включая `DevReviewsUiPage`,
 // `DevPlayoffBracketPage` и т.д.) tree-shake'ается и в prod-бандл не
 // попадает ни чанком, ни ссылкой.
-const DevRoutesLazy = import.meta.env.DEV
-  ? lazy(() => import('./dev/DevRoutes'))
-  : null;
+// KS-3684: VITE_INCLUDE_DEV_ROUTES=1 включает dev-маршруты в production-
+// сборке для локальной отладки (например, SF-trace через статический
+// сервер с COOP/COEP). На прод-сборке переменная не выставлена.
+const DevRoutesLazy =
+  import.meta.env.DEV || import.meta.env.VITE_INCLUDE_DEV_ROUTES === '1'
+    ? lazy(() => import('./dev/DevRoutes'))
+    : null;
 
 function LazyFallback() {
   const { t } = useTranslation();
@@ -393,6 +399,8 @@ export function App() {
     <Routes>
       <Route element={<MainLayout />}>
         <Route index element={<HomePage />} />
+        {/* KS-3680 dev-only песочница AI-панели. */}
+        <Route path="/__dev/ai-comment-panel" element={<AiCommentSandboxPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />

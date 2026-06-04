@@ -6,6 +6,8 @@ import { GameMetaBar } from '../../components/GameMetaBar';
 import type { GameMetaInfo } from '../../components/GameMetaBar';
 import { MaterialBalance } from '../../components/MaterialBalance';
 import { ArchiveTreePanel } from '../../components/analysis/ArchiveTreePanel';
+import { AiPositionCommentPanel } from '../../components/analysis/AiPositionCommentPanel';
+import type { UseAiPositionCommentResult } from '../../hooks/useAiPositionComment';
 
 import { ReviewMoveList } from '../../review/components/ReviewMoveList';
 // KS-3258 follow-up: forfeit-плашка для broadcast-партий без ходов.
@@ -159,6 +161,15 @@ export interface AnalysisSidebarProps {
    * массив пустой.
    */
   maiaTopMoves: string[];
+  /**
+   * KS-3680 (ADR-108). Контроллер кнопки «Оценка позиции от AI» — то
+   * что возвращает `useAiPositionComment` на уровне AnalysisPage.
+   * Sidebar монтирует панель в engine-panel (desktop + mobile) до
+   * `.stockfish-lines-header`. Может быть `undefined`, если страница
+   * не хочет показывать панель (например, в режиме read-only / для
+   * каких-то режимов тренировки) — тогда блок просто не рендерится.
+   */
+  aiPositionComment?: UseAiPositionCommentResult;
 }
 
 export function AnalysisSidebar({
@@ -207,6 +218,7 @@ export function AnalysisSidebar({
   engineSupportsSearchmoves,
   maiaTopMoves,
   originalAnalysisId = null,
+  aiPositionComment,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -502,6 +514,14 @@ export function AnalysisSidebar({
                 onRetry={() => onEngineRetry?.()}
               />
             )}
+            {/* KS-3680 (ADR-108): панель AI-комментария над списком
+                Stockfish-линий. Контроллер приходит из AnalysisPage. */}
+            {aiPositionComment && (
+              <AiPositionCommentPanel
+                controller={aiPositionComment}
+                testIdSuffix="desktop"
+              />
+            )}
             {/* KS-3593 (ADR-098): заголовок-переключатель сортировки
                 линий. Eval / Maia% — кликабельны, Line — нерактивный
                 label. Maia%-кнопка не дизаблится даже при ошибке Maia
@@ -778,6 +798,13 @@ export function AnalysisSidebar({
                   loadProgress={engineLoadProgress}
                   errorReason={engineErrorReason}
                   onRetry={() => onEngineRetry?.()}
+                />
+              )}
+              {/* KS-3680 (ADR-108): mobile-копия AI-панели. */}
+              {aiPositionComment && (
+                <AiPositionCommentPanel
+                  controller={aiPositionComment}
+                  testIdSuffix="mobile"
                 />
               )}
               {/* KS-3593 (ADR-098): mobile-копия sort-header'а. */}
