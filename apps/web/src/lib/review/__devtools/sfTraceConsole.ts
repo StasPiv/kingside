@@ -143,8 +143,8 @@ if (typeof window !== 'undefined') {
     // eslint-disable-next-line no-console
     console.info(
       ids && ids.length > 0
-        ? `[sfReviewProbe] got ${subterms.length} subterms, filtered to ${filtered.length} by ids=[${ids.join(', ')}]; POST /analyses/review/comments`
-        : `[sfReviewProbe] got ${subterms.length} subterms; POST /analyses/review/comments`,
+        ? `[sfReviewProbe] got ${subterms.length} subterms, filtered to ${filtered.length} by ids=[${ids.join(', ')}]; POST /analyses/position/comment`
+        : `[sfReviewProbe] got ${subterms.length} subterms; POST /analyses/position/comment`,
     );
 
     const fact = buildProbeFact(target, filtered, userElo, userLanguage);
