@@ -612,15 +612,29 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   };
   sf.addMessageListener(onLine);
 
-  // KS-3683: один канал — postMessage. Дублирование (postMessage +
-  // _uci_command + ccall + cwrap) приводит к выполнению команды N раз
-  // и падению Stockfish после второго eval json (`memory access out of
-  // bounds`). Остаются только логи отправки/получения.
+  // KS-3683: основной канал — `_uci_command` (прямой syscall в
+  // Stockfish). Сборка от devops не передаёт команды через
+  // `postMessage` (после отправки команды отвечал только баннер, ни
+  // `uciok`, ни `id name`). При дублировании всех каналов команда
+  // выполнялась несколько раз и Stockfish падал. `_uci_command`
+  // работает сам по себе.
+  if (typeof sf._uci_command !== 'function') {
+    console.warn('[stockfishTrace] _uci_command не экспортирован');
+    try {
+      sf.terminate();
+    } catch {
+      /* ignore */
+    }
+    throw new StockfishTraceEngineError(
+      'factory-error',
+      new Error('_uci_command export missing'),
+    );
+  }
   const sendCmd = (cmd: string) => {
     try {
-      sf.postMessage(cmd);
+      sf._uci_command!(cmd);
     } catch (err) {
-      console.warn('[stockfishTrace] postMessage threw:', err);
+      console.warn('[stockfishTrace] _uci_command threw:', err);
     }
   };
   console.info('[stockfishTrace] → uci');
