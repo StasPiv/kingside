@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstddef>   // KS-3676: offsetof для команды diag (см. ниже).
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -304,6 +305,28 @@ void dispatch_uci_token(
             trace_eval_json(pos);
         else
             trace_eval(pos);
+    }
+    else if (token == "diag")
+    {
+        // KS-3676 / ADR-107 rev 2. Диагностика padding/alignment полей
+        // `Stockfish::Thread`, чтение которых идёт из формул
+        // `Evaluation<TRACE>::value()` через `pos.this_thread()`
+        // (`bestValue` в lazy_skip, `optimism[]` в evaluate.cpp:1343).
+        // Под emscripten wasm32 структура может иметь иной paddings/
+        // alignment, чем нативный x86-64 — записи в `bestValue`/
+        // `optimism` из `Eval::trace_json` (evaluate.cpp:1474-1476)
+        // тогда попадут в неправильные смещения, и условия эмиссии
+        // некоторых subterm-ID (king_attackers_count, king_danger,
+        // pawn_backward, threat_by_minor и т.д.) сработают на мусоре.
+        // Команда печатает sizeof + ключевые offset'ы; сверяем с
+        // эталоном из нативной сборки x86-64.
+        sync_cout << "diag"
+                  << " sizeof(Thread)=" << sizeof(Thread)
+                  << " sizeof(Value)=" << sizeof(Value)
+                  << " offsetof(Thread,bestValue)=" << offsetof(Thread, bestValue)
+                  << " offsetof(Thread,optimism)=" << offsetof(Thread, optimism)
+                  << " sizeof(MainThread)=" << sizeof(MainThread)
+                  << sync_endl;
     }
     else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
     else if (token == "export_net")
