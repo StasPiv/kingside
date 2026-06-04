@@ -612,61 +612,15 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   };
   sf.addMessageListener(onLine);
 
-  // KS-3683: дублируем через все доступные каналы — postMessage,
-  // прямой _uci_command, ccall и cwrap. Какой сработает — увидим
-  // в логе [stockfishTrace] ← raw=. Если ни один — поверх Stockfish
-  // нет рабочего канала ввода в этой сборке.
-  let cwrapUciCommand: ((cmd: string) => void) | null = null;
-  if (typeof sf.cwrap === 'function') {
-    try {
-      cwrapUciCommand = sf.cwrap('uci_command', null, ['string']) as (
-        cmd: string,
-      ) => void;
-      console.info('[stockfishTrace] cwrap(uci_command) prepared');
-    } catch (err) {
-      console.warn('[stockfishTrace] cwrap(uci_command) threw:', err);
-    }
-  }
+  // KS-3683: один канал — postMessage. Дублирование (postMessage +
+  // _uci_command + ccall + cwrap) приводит к выполнению команды N раз
+  // и падению Stockfish после второго eval json (`memory access out of
+  // bounds`). Остаются только логи отправки/получения.
   const sendCmd = (cmd: string) => {
-    let any = false;
     try {
       sf.postMessage(cmd);
-      console.info('[stockfishTrace]   ✓ postMessage:', cmd);
-      any = true;
     } catch (err) {
       console.warn('[stockfishTrace] postMessage threw:', err);
-    }
-    if (typeof sf._uci_command === 'function') {
-      try {
-        sf._uci_command(cmd);
-        console.info('[stockfishTrace]   ✓ _uci_command:', cmd);
-        any = true;
-      } catch (err) {
-        console.warn('[stockfishTrace] _uci_command threw:', err);
-      }
-    }
-    if (typeof sf.ccall === 'function') {
-      try {
-        sf.ccall('uci_command', null, ['string'], [cmd]);
-        console.info('[stockfishTrace]   ✓ ccall(uci_command):', cmd);
-        any = true;
-      } catch (err) {
-        console.warn('[stockfishTrace] ccall(uci_command) threw:', err);
-      }
-    }
-    if (cwrapUciCommand) {
-      try {
-        cwrapUciCommand(cmd);
-        console.info('[stockfishTrace]   ✓ cwrap(uci_command):', cmd);
-        any = true;
-      } catch (err) {
-        console.warn('[stockfishTrace] cwrap(uci_command) threw:', err);
-      }
-    }
-    if (!any) {
-      console.warn(
-        '[stockfishTrace] sendCmd: ни один канал не доступен/не сработал',
-      );
     }
   };
   console.info('[stockfishTrace] → uci');
