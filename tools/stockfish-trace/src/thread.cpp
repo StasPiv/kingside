@@ -149,6 +149,25 @@ void Thread::idle_loop() {
 
 void ThreadPool::set(size_t requested) {
 
+#ifdef __EMSCRIPTEN__
+  // KS-3676 / ADR-107 rev 2. В WASM-сборке избегаем цикла
+  // destroy + recreate при `setoption name Threads value N` с тем же
+  // N, что уже установлено. Без этого фронт (или smoke) даже на
+  // тривиальном `setoption Threads 1` уходит в:
+  //   delete threads.back() → ~Thread() (под нашим ifdef безопасный),
+  //   push_back(new MainThread(0)),
+  //   TT.resize(size_t(Options["Hash"])).
+  // Последний вызов опасен: `Options` в WASM по факту обрывается
+  // (поведение наблюдалось devops при первой интеграции — `Hash`
+  // не зарегистрирован). `Options["Hash"]` создаёт default-Option с
+  // `type=""`, `size_t(o)` → 0, `TT.resize(0)` в emscripten libc-
+  // mimalloc может уходить в `aligned_alloc(_, 0)` → memory-out-of-
+  // bounds. Корневая причина (обрыв Options) решается отдельно;
+  // здесь защищаемся от destroy-recreate цикла как такового.
+  // На нативе семантика 1:1 с upstream — фрейм не задет.
+  if (threads.size() == requested) return;
+#endif
+
   if (threads.size() > 0)   // destroy any existing thread(s)
   {
       main()->wait_for_search_finished();
