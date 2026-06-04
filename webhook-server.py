@@ -1432,30 +1432,6 @@ def handle_ai_chat(handler):
             handler.wfile.write(json.dumps({"error": "timeout"}).encode())
             return
 
-        # Пост-валидация ответа. На нарушении просим daemon переписать,
-        # передавая ему список нарушенных пунктов CLAUDE.md. Лимит 3 попытки.
-        for attempt in range(1, 4):
-            verdict = validate_outbound(response_text)
-            if verdict.get("ok"):
-                break
-            violations_text = format_violations(verdict)
-            log(f"AI chat: validation failed attempt {attempt}/3 — {violations_text[:200]}")
-            _log_validation_reject("ai-chat", f"user:{user_id[:8]}", attempt, response_text, verdict)
-            if attempt == 3:
-                log(f"AI chat: validation exhausted, publishing as-is")
-                break
-            correction = (
-                "Твой предыдущий ответ нарушил правила CLAUDE.md:\n"
-                + violations_text
-                + "\n\nПерепиши ответ на тот же вопрос, соблюдая правила. "
-                "Не извиняйся, не комментируй замечания — просто дай чистый переписанный ответ."
-            )
-            retry_text = daemon.send_and_wait(correction, timeout=AI_CHAT_TIMEOUT)
-            if not retry_text:
-                log(f"AI chat: retry {attempt} produced empty/timeout, publishing previous")
-                break
-            response_text = retry_text
-
         log(f"AI chat response: {response_text[:100]}")
         handler.send_response(200)
         handler.send_header("Content-Type", "application/json")
