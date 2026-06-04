@@ -278,45 +278,43 @@ export function _resetStockfishTraceCacheForTests(): void {
 // --- модульная фабрика StockfishTrace (KS-3676) --------------------------
 
 /**
- * KS-3676 / devops. Новая сборка `stockfish-16-trace.js` — это модульная
- * фабрика emscripten (`MODULARIZE=1, EXPORT_NAME=StockfishTrace`,
- * `PROXY_TO_PTHREAD=1`). Загружаем JS-файл через `<script>` тег один
- * раз (фабрика складывается в `window.StockfishTrace`). На каждый
- * `evalTrace(fen)` вызываем `await StockfishTrace()` — получаем
- * sf-объект с `addMessageListener` / `postMessage` / `terminate`.
+ * KS-3676 v2 (бэкенд). Финальная сборка `stockfish-16-trace.js` —
+ * однопоточная (без -pthread / PROXY_TO_PTHREAD), `STACK_SIZE=8MB`,
+ * `INITIAL_MEMORY=256MB`, `EXIT_RUNTIME=0`, пустой `main()` под
+ * `__EMSCRIPTEN__`, инициализация Stockfish — в init-once обёртки
+ * `uci_command`. Локальная проба (`tools/sf-trace-probe.mjs ccall`)
+ * подтверждает: на startpos и на FEN Свешникова возвращает 118
+ * записей в 37 уникальных id, total совпадает с эталоном нативного
+ * запуска (mg=0.10, eg=0.17, v=0.10).
  *
- * Главный поток НЕ блокируется: фабрика возвращает Promise, а
- * фактическое исполнение Stockfish идёт в пулe потоков-исполнителей,
- * созданных эмскриптеном через `PROXY_TO_PTHREAD`.
+ * Канал отправки команд — `Module.ccall('uci_command', null, ['string'],
+ * [cmd])` (единственный, по которому Stockfish реально реагирует;
+ * postMessage/_uci_command сами по себе не пробуждают исполнитель).
+ * Канал приёма — print/printErr колбэки, передаваемые в опции фабрики
+ * (`INCOMING_MODULE_JS_API=['print','printErr']`).
  *
- * Ограничения новой сборки (devops):
- *  1. НЕ слать `setoption ...` — падает с `remainder by zero` из-за
- *     `FILESYSTEM=0`. Поэтому шлём только `uci → uciok → position fen
- *     → eval json`. NNUE отключена при сборке (`NNUE_EMBEDDING_OFF`),
- *     `eval json` сам уходит на классическую оценку.
- *  2. Один Module instance — один `eval json`. После выдачи JSON sf
- *     падает с `memory access out of bounds`. Поэтому на каждый FEN —
- *     своя фабрика-инстанс, terminate сразу после получения JSON.
+ * Главный поток не блокируется надолго: `uci` отдаёт `uciok` за ~80 мс,
+ * `eval json` — за единицы мс.
+ *
+ * Один Module instance — несколько eval безопасно (Stockfish переиспользует
+ * Position / Thread::Pawns/Material таблицы между вызовами), но для
+ * простоты и совместимости с предыдущим API на каждый FEN создаём
+ * новый instance. terminate не нужен — в этой сборке его нет, GC сам
+ * освобождает.
  */
-type SfTraceInstance = {
-  addMessageListener: (cb: (line: unknown) => void) => void;
-  removeMessageListener: (cb: (line: unknown) => void) => void;
-  postMessage: (cmd: string) => void;
-  terminate: () => void;
-  _uci_command?: (cmd: string) => void;
-  ccall?: (
+interface SfFactoryOptions {
+  print?: (line: string) => void;
+  printErr?: (line: string) => void;
+}
+interface SfTraceInstance {
+  ccall: (
     name: string,
     returnType: string | null,
     argTypes: string[],
     args: unknown[],
   ) => unknown;
-  cwrap?: (
-    name: string,
-    returnType: string | null,
-    argTypes: string[],
-  ) => (...args: unknown[]) => unknown;
-};
-type SfTraceFactory = () => Promise<SfTraceInstance>;
+}
+type SfTraceFactory = (opts?: SfFactoryOptions) => Promise<SfTraceInstance>;
 
 const FACTORY_GLOBAL_NAME = 'StockfishTrace';
 const INIT_TIMEOUT_MS = 8000;
@@ -512,40 +510,15 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   try {
     factory = await loadFactoryScript();
   } catch (e) {
-    // KS-3680. Нет document/window (SSR/jsdom) — мягкий запасной путь.
+    // SSR/jsdom — мягкий запасной путь.
     if (e === NO_WORKER_SENTINEL) return [];
     throw e;
   }
 
-  const sfStart = performance.now();
-  let sf: SfTraceInstance;
-  try {
-    sf = await factory();
-  } catch (err) {
-    console.warn('[stockfishTrace] factory() failed:', err);
-    throw new StockfishTraceEngineError('factory-error', err);
-  }
-  console.info(
-    `[stockfishTrace] instance ready in ${Math.round(performance.now() - sfStart)}ms`,
-  );
-  // KS-3683: дамп API экземпляра — чтобы видеть какие методы реально
-  // экспортированы и какого они типа.
-  try {
-    const keys = Object.keys(sf as unknown as Record<string, unknown>);
-    console.info('[stockfishTrace] sf keys:', keys);
-    console.info('[stockfishTrace] api types:', {
-      postMessage: typeof sf.postMessage,
-      addMessageListener: typeof sf.addMessageListener,
-      _uci_command: typeof sf._uci_command,
-      ccall: typeof sf.ccall,
-      cwrap: typeof sf.cwrap,
-      terminate: typeof sf.terminate,
-    });
-  } catch (err) {
-    console.warn('[stockfishTrace] api dump failed:', err);
-  }
-
-  // Сборка JSON из приходящих stdout-строк.
+  // KS-3676 v2: print/printErr передаются в опции фабрики
+  // (INCOMING_MODULE_JS_API=['print','printErr']). Все stdout-строки
+  // от Stockfish приходят сюда. На стороне eval json — многострочный
+  // JSON, собираем по braceDepth.
   let collecting = false;
   let braceDepth = 0;
   const buf: string[] = [];
@@ -559,31 +532,10 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     resolveJson = r;
   });
 
-  const onLine = (raw: unknown) => {
-    // KS-3683: raw-лог, чтобы видеть тип и содержимое каждого
-    // сообщения от исполнителя. Раньше я фильтровал по line.trim() ===
-    // 'uciok' и при объекте/иной структуре сообщения молча игнорировал
-    // всё. Теперь видно реальный поток.
-    console.info('[stockfishTrace] ← raw=', raw);
-    let line: string;
-    if (typeof raw === 'string') {
-      line = raw;
-    } else if (
-      raw &&
-      typeof raw === 'object' &&
-      'data' in raw &&
-      typeof (raw as { data: unknown }).data === 'string'
-    ) {
-      // На случай если сборка шлёт MessageEvent-подобные объекты.
-      line = (raw as { data: string }).data;
-    } else {
-      return;
-    }
-    if (!uciOk) {
-      if (line.trim() === 'uciok') {
-        uciOk = true;
-        resolveUciOk();
-      }
+  const onPrint = (line: string) => {
+    if (!uciOk && line.trim() === 'uciok') {
+      uciOk = true;
+      resolveUciOk();
     }
     if (!collecting) {
       const trimmed = line.trimStart();
@@ -610,19 +562,25 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
       }
     }
   };
-  sf.addMessageListener(onLine);
 
-  // KS-3683: основной канал — `ccall('uci_command', null, ['string'],
-  // [cmd])`. Через postMessage и прямой _uci_command в браузере на
-  // команду uci приходит только баннер, без uciok. По KS-3683 (лог с
-  // дублированием) ccall успел дать отклик до падения eval json.
+  const sfStart = performance.now();
+  let sf: SfTraceInstance;
+  try {
+    sf = await factory({
+      print: onPrint,
+      printErr: (line: string) =>
+        console.warn('[stockfishTrace] stderr:', line),
+    });
+  } catch (err) {
+    console.warn('[stockfishTrace] factory() failed:', err);
+    throw new StockfishTraceEngineError('factory-error', err);
+  }
+  console.info(
+    `[stockfishTrace] instance ready in ${Math.round(performance.now() - sfStart)}ms`,
+  );
+
   if (typeof sf.ccall !== 'function') {
     console.warn('[stockfishTrace] ccall не экспортирован');
-    try {
-      sf.terminate();
-    } catch {
-      /* ignore */
-    }
     throw new StockfishTraceEngineError(
       'factory-error',
       new Error('ccall export missing'),
@@ -630,12 +588,13 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   }
   const sendCmd = (cmd: string) => {
     try {
-      sf.ccall!('uci_command', null, ['string'], [cmd]);
+      sf.ccall('uci_command', null, ['string'], [cmd]);
     } catch (err) {
       console.warn('[stockfishTrace] ccall(uci_command) threw:', err);
     }
   };
-  console.info('[stockfishTrace] → uci');
+
+  // Init.
   sendCmd('uci');
   let initTimer: ReturnType<typeof setTimeout> | null = null;
   const uciResult = await Promise.race([
@@ -649,18 +608,11 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     console.warn(
       `[stockfishTrace] uciok timeout (${INIT_TIMEOUT_MS}ms exceeded)`,
     );
-    try {
-      sf.terminate();
-    } catch {
-      /* ignore */
-    }
     throw new StockfishTraceEngineError('factory-timeout');
   }
 
   // Eval.
-  console.info('[stockfishTrace] → position fen ...');
   sendCmd(`position fen ${fen}`);
-  console.info('[stockfishTrace] → eval json');
   sendCmd('eval json');
   let evalTimer: ReturnType<typeof setTimeout> | null = null;
   const raw = await Promise.race([
@@ -670,16 +622,10 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     }),
   ]);
   if (evalTimer) clearTimeout(evalTimer);
-  try {
-    sf.removeMessageListener(onLine);
-  } catch {
-    /* ignore */
-  }
-  try {
-    sf.terminate();
-  } catch {
-    /* ignore */
-  }
+  // KS-3676 v2: addMessageListener/removeMessageListener/terminate в
+  // этой сборке нет — print-канал отвязывается естественно вместе с GC
+  // Module-instance. Просто отпускаем ссылку.
+  void sf;
 
   if (raw == null) {
     console.warn(
