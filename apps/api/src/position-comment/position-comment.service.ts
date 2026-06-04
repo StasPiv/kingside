@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
+import { SUBTERM_LABELS } from '../analysis-review/subterm-labels';
 import {
   PositionCommentDto,
   PositionCommentLanguage,
@@ -63,7 +64,20 @@ export class PositionCommentService {
    * Дефолт — `'ru'` (старые клиенты без поля `language` получают
    * русский комментарий, как до KS-3681).
    */
+  /**
+   * KS-3689: словарь расшифровок id позиционных подкомпонент. Берём
+   * `SUBTERM_LABELS` из analysis-review — там 59 ID синхронизированы
+   * с `PositionalSubtermId` в shared. Возвращает многострочный текст
+   * `- <id> → <человеческое имя>` для подстановки в инструкцию.
+   */
+  private buildSubtermGlossary(language: PositionCommentLanguage): string {
+    return Object.entries(SUBTERM_LABELS)
+      .map(([id, label]) => `- ${id} → ${label[language]}`)
+      .join('\n');
+  }
+
   buildSystemPrompt(language: PositionCommentLanguage = 'ru'): string {
+    const glossary = this.buildSubtermGlossary(language);
     if (language === 'en') {
       return [
         'Please comment on this chess position in plain language using the given positional factors.',
@@ -74,7 +88,14 @@ export class PositionCommentService {
         '',
         'When these factors are present, you MUST reflect both: describe the evaluation in plain words and mention the first two or three moves of pv as the recommended plan. When they are absent, comment using the remaining factors only.',
         '',
-        'Never quote the numeric evaluation in your answer — no "+0.8", no "cp", no "centipawns", no "score 23". Use words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N".',
+        'Glossary — translate each subterm id to its human name before writing about it. Never put a technical id in the answer (king_danger, outpost_knight, mobility_rook, etc.). Use the human name from the table:',
+        glossary,
+        '',
+        'Never quote raw numeric values of subterms (value_mg, value_eg, mg, eg, value, or any bare number like 0.323). Instead use words: "barely noticeable", "noticeable", "sharply increased", "dropped", "the highest in the position", "the lowest", "moderate". When comparing factors use: "the most", "the least", "moderate", "barely noticeable".',
+        '',
+        'Never quote the numeric evaluation in your answer either — no "+0.8", no "cp", no "centipawns", no "score 23". Use words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N".',
+        '',
+        'Forbidden word: "slider" / "sliders" / "sliding piece(s)". Use proper chess terms instead: "long-range pieces" (rook, bishop, queen), "major pieces" (rook, queen), "minor pieces" (knight, bishop).',
       ].join('\n');
     }
     return [
@@ -86,7 +107,14 @@ export class PositionCommentService {
       '',
       'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: опиши оценку человеческими словами и упомяни первые два-три хода pv как рекомендованный план. Если их нет — комментируй только по остальным факторам.',
       '',
-      'Никогда не приводи численное значение оценки в ответе — ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес белых/чёрных», «заметное преимущество белых/чёрных», «решающее преимущество белых/чёрных», «мат в N».',
+      'Словарь расшифровок — каждый id подкомпоненты переводи в человеческое имя из таблицы перед тем, как писать о нём. Никогда не пиши технический id в ответе (king_danger, outpost_knight, mobility_rook и т.п.). Используй человеческое имя из таблицы:',
+      glossary,
+      '',
+      'Никогда не приводи сырые числовые значения подкомпонент (value_mg, value_eg, mg, eg, value, ни любое голое число вроде 0,323 или 0.323). Используй слова: «едва заметно», «заметно», «резко вырос», «упал», «стал максимальным в позиции», «минимальный в позиции», «средне». При сравнении факторов: «больше всего», «меньше всего», «средне», «едва заметно».',
+      '',
+      'Также никогда не приводи численное значение общей оценки — ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес белых/чёрных», «заметное преимущество белых/чёрных», «решающее преимущество белых/чёрных», «мат в N».',
+      '',
+      'Запрещённые слова: «слайдер», «слайдеры», «слайдинг», «sliding piece(s)». Вместо них — «фигуры дальнего боя» (ладьи, слоны, ферзи), «тяжёлые фигуры» (ладья, ферзь), «лёгкие фигуры» (конь, слон).',
     ].join('\n');
   }
 

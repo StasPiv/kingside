@@ -97,8 +97,8 @@ describe('PositionCommentService', () => {
 
     it('KS-3686 RU: явный запрет числовой оценки + словесные шаблоны', () => {
       const p = svc.buildSystemPrompt('ru');
-      // Явный запрет упоминать числа/единицы.
-      expect(p).toContain('Никогда не приводи численное');
+      // Запрет на численное значение общей оценки.
+      expect(p).toContain('никогда не приводи численное значение общей оценки');
       expect(p).toContain('сантипешки');
       // Перечень разрешённых словесных формул.
       expect(p).toContain('примерное равенство');
@@ -106,6 +106,49 @@ describe('PositionCommentService', () => {
       expect(p).toContain('заметное преимущество');
       expect(p).toContain('решающее преимущество');
       expect(p).toContain('мат в N');
+    });
+
+    it('KS-3689 RU: словарь расшифровок (≥5 ключевых id) + запрет технических id', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Заголовок словаря и общее правило про запрет id в тексте.
+      expect(p).toContain('Словарь расшифровок');
+      expect(p).toContain('Никогда не пиши технический id в ответе');
+      // 5+ ключевых строк-расшифровок: маркер + id + стрелка + RU-имя.
+      const sample: Array<[string, RegExp]> = [
+        ['king_danger', /общая опасность королю/],
+        ['outpost_knight', /конь на форпосте/],
+        ['mobility_rook', /мобильность ладьи/],
+        ['king_attackers_count', /количество фигур, атакующих короля/],
+        ['king_attackers_weight', /суммарный вес атакующих короля фигур/],
+        ['rook_on_open_file', /ладья на открытой или полу-открытой линии/],
+        ['bishop_pawns', /плохой слон/],
+      ];
+      for (const [id, ru] of sample) {
+        expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${ru.source}`));
+      }
+    });
+
+    it('KS-3689 RU: запрет сырых чисел подкомпонент и словесные замены', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toContain('Никогда не приводи сырые числовые значения подкомпонент');
+      // Технические имена полей подкомпонент должны быть упомянуты в запрете.
+      expect(p).toContain('value_mg');
+      expect(p).toContain('value_eg');
+      // Словесные шаблоны замены.
+      expect(p).toContain('едва заметно');
+      expect(p).toContain('заметно');
+      expect(p).toContain('резко вырос');
+      expect(p).toContain('стал максимальным в позиции');
+      expect(p).toContain('больше всего');
+    });
+
+    it('KS-3689 RU: запрет «слайдер» и предложенные замены', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toContain('Запрещённые слова');
+      expect(p).toContain('слайдер');
+      expect(p).toContain('фигуры дальнего боя');
+      expect(p).toContain('тяжёлые фигуры');
+      expect(p).toContain('лёгкие фигуры');
     });
 
     it('KS-3686 EN: упоминает sf18_eval и sf18_pv, формат и обязательность отразить', () => {
@@ -133,6 +176,44 @@ describe('PositionCommentService', () => {
       expect(p).toContain('mate in N');
     });
 
+    it('KS-3689 EN: словарь расшифровок (≥5 ключевых id) + запрет технических id', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Glossary');
+      expect(p).toContain('Never put a technical id in the answer');
+      const sample: Array<[string, RegExp]> = [
+        ['king_danger', /overall king danger/],
+        ['outpost_knight', /knight on an outpost/],
+        ['mobility_rook', /rook mobility/],
+        ['king_attackers_count', /count of pieces attacking the king/],
+        ['king_attackers_weight', /total weight of pieces attacking the king/],
+        ['rook_on_open_file', /rook on \(semi-\)open file/],
+        ['bishop_pawns', /bad bishop/],
+      ];
+      for (const [id, en] of sample) {
+        expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${en.source}`));
+      }
+    });
+
+    it('KS-3689 EN: запрет сырых чисел подкомпонент и словесные замены', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Never quote raw numeric values of subterms');
+      expect(p).toContain('value_mg');
+      expect(p).toContain('value_eg');
+      expect(p).toContain('barely noticeable');
+      expect(p).toContain('sharply increased');
+      expect(p).toContain('the highest in the position');
+      expect(p).toContain('the most');
+    });
+
+    it('KS-3689 EN: запрет «slider» и предложенные замены', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Forbidden word');
+      expect(p).toContain('slider');
+      expect(p).toContain('long-range pieces');
+      expect(p).toContain('major pieces');
+      expect(p).toContain('minor pieces');
+    });
+
     it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
@@ -142,8 +223,10 @@ describe('PositionCommentService', () => {
         expect(p).not.toContain('ЗАПРЕЩЕНО');
         expect(p).not.toContain('few-shot');
         expect(p).not.toContain('ELO');
-        // Короткий объём (≤ 1500 символов на локаль).
-        expect(p.length).toBeLessThan(1500);
+        // KS-3689: словарь расшифровок добавил ~3.3 КБ; ограничение
+        // подняли до 6 КБ. Это ещё всё ещё короче, чем V2-prompt'ы
+        // из старого review-comment (~10 КБ с few-shot).
+        expect(p.length).toBeLessThan(6000);
       }
     });
   });
