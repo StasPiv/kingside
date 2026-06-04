@@ -121,6 +121,15 @@ const VALID_IDS: ReadonlySet<string> = new Set<PositionalSubtermId>([
   'king_safe_check_knight',
   'king_pawnless_flank',
   'king_flank_attacks',
+  'king_attackers_count',
+  'king_attackers_weight',
+  // Mobility (KS-3677: добавлены после расширения PositionalSubtermId
+  // в shared, коммит backend 754e4cd1 — WASM их уже выводил, фронт ронял
+  // через WARN «unknown subterm id»).
+  'mobility_knight',
+  'mobility_bishop',
+  'mobility_rook',
+  'mobility_queen',
   // Threats.
   'threat_by_minor',
   'threat_by_rook',
