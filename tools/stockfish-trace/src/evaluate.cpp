@@ -74,9 +74,29 @@ namespace Eval {
 
   void NNUE::init() {
 
+#ifdef __EMSCRIPTEN__
+    // KS-3676 / ADR-107 rev 2. В WASM-сборке принудительно идём по
+    // classical-evaluation:
+    //   - `FILESYSTEM=0` (см. 0004 EMFLAGS) — нет POSIX-FS, любая
+    //     попытка `ifstream(...)` из тела ниже падает с
+    //     `___syscall_openat → RuntimeError: remainder by zero`
+    //     внутри emscripten libc.
+    //   - `NNUE_EMBEDDING_OFF` (см. 0004 CXXFLAGS) — `gEmbeddedNNUEData`
+    //     пуст, `<internal>`-ветка тоже не загрузит сетку.
+    //   - Для `eval json` (наш единственный сценарий) classical-
+    //     evaluation достаточна — ровно её данные нужны для подкомпонент
+    //     `Eval::trace_json`.
+    // Игнорируем Options["Use NNUE"] — даже если фронт случайно прислал
+    // `setoption name Use NNUE value true`, NNUE-ветка всё равно не
+    // сработает. `verify()` ниже увидит useNNUE=false и просто напечатает
+    // `info string classical evaluation enabled` без exit.
+    useNNUE = false;
+    return;
+#else
     useNNUE = Options["Use NNUE"];
     if (!useNNUE)
         return;
+#endif
 
     string eval_file = string(Options["EvalFile"]);
     if (eval_file.empty())
