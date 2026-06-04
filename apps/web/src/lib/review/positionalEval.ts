@@ -17,7 +17,11 @@ import type {
 } from './positionalShifts';
 
 const ENGINE_JS_URL = '/stockfish/stockfish-16-lite.js';
-const INIT_TIMEOUT_MS = 30_000;
+// KS-3678: было 30 секунд, что слишком много для UX — если исполнитель
+// действительно сломан, пользователь почти полминуты ждёт перед
+// ошибкой. Сокращаем до 12 секунд: на исправном WASM init обычно
+// 1–3 секунды, 12 с — с запасом.
+const INIT_TIMEOUT_MS = 12_000;
 const DEFAULT_EVAL_TIMEOUT_MS = 500;
 
 /** Возможные причины фатальной ошибки voida. Для логов и telemetry. */
@@ -210,8 +214,17 @@ export class PositionalEvalEngine {
         reject(new Error('PositionalEval worker error'));
       };
 
+      // KS-3678: логи входящих сообщений на этапе init. Если приходит
+      // баннер «Stockfish 16 by the Stockfish developers», но дальше
+      // не приходит `uciok` — это будет видно в консоли и можно
+      // отличить «исполнитель не стартовал» от «UCI-протокол не
+      // отвечает». Без этих логов причина зависания была неотличима.
       const handler = (e: MessageEvent) => {
         const data = typeof e.data === 'string' ? e.data : '';
+        if (data && data.length < 200) {
+          // Длинные строки (например, debug-вывод) не логируем — спам.
+          console.info('[positionalEval] ←', data);
+        }
         if (data === 'uciok') {
           // Включаем classical: NNUE off.
           this.worker?.postMessage('setoption name Use NNUE value false');

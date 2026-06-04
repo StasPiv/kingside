@@ -41,6 +41,7 @@ export function GameReviewProgressModal({
   const isError = status === 'error';
   const isComments = stage === 'comments';
   const isStabilizing = stage === 'stabilizing';
+  const isFinalEval = stage === 'finalEval';
   const isPositional = stage === 'positional';
   const isFinalizing = stage === 'finalizing';
   const isCreating = stage === 'creating';
@@ -50,7 +51,7 @@ export function GameReviewProgressModal({
   // `total=0` на старте — рендерим неопределённый индикатор (полоса с
   // анимацией), чтобы пользователю было видно, что процесс идёт.
   const indeterminate =
-    (isStabilizing || isPositional || isComments) && total === 0;
+    (isStabilizing || isFinalEval || isPositional || isComments) && total === 0;
 
   return (
     <div
@@ -91,6 +92,12 @@ export function GameReviewProgressModal({
                   'Стабилизация вариантов…',
                 ) +
                 (total > 0 ? ` · ${done} / ${total}` : '')
+              : isFinalEval
+                ? t(
+                    'analysis.review.progress.finalEval',
+                    'Оценка финальных позиций…',
+                  ) +
+                  (total > 0 ? ` · ${done} / ${total}` : '')
               : isPositional
                 ? t(
                     'analysis.review.progress.positional',

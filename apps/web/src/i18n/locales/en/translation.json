@@ -942,6 +942,7 @@
       "progress": {
         "engine": "{{done}} / {{total}}",
         "stabilizing": "Stabilizing variations…",
+        "finalEval": "Evaluating final positions…",
         "positional": "Computing positional factors…",
         "comments": "Generating comments…",
         "finalizing": "Finalizing analysis…",

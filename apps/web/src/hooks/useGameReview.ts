@@ -180,6 +180,7 @@ export interface ReviewResult {
 export type ReviewStage =
   | 'engine'
   | 'stabilizing'
+  | 'finalEval'
   | 'positional'
   | 'finalizing'
   | 'comments'
@@ -606,13 +607,17 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       // факт-сборок, накопленных в main-pass'е, `done` тикает по
       // мере обработки.
       console.info(
-        `[useGameReview] stage → stabilizing (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+        `[useGameReview] stage → stabilizing (moves=${moveInputs.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
       );
+      // KS-3678. Реальный прогресс по ходам: до этого `total=0` давал
+      // пустой индикатор, который браузер рендерил «полным» и создавал
+      // ложное впечатление зависания. Теперь видно `12 / 47`.
       setProgress({
         stage: commentsEnabled ? 'stabilizing' : 'finalizing',
         done: 0,
-        total: 0,
+        total: moveInputs.length,
       });
+      const stabilizeStart = performance.now();
 
       // KS-3617. Subline'ы вариантов:
       //   - green: берётся напрямую из `sf.bestPv` (уже посчитано на
@@ -637,8 +642,16 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
       }
 
-      for (const input of moveInputs) {
+      for (let mi = 0; mi < moveInputs.length; mi++) {
+        const input = moveInputs[mi];
         if (cancelRef.current) break;
+        // KS-3678: лог раз в 10 ходов + обновление прогресс-индикатора
+        // на каждой итерации. Без этого стадия выглядела «зависшей».
+        if (mi > 0 && mi % 10 === 0) {
+          console.info(
+            `[useGameReview] stabilizing ${mi}/${moveInputs.length} (t=+${Math.round(performance.now() - reviewStartedAt)}ms, +${Math.round(performance.now() - stabilizeStart)}ms in stage)`,
+          );
+        }
         // green: subline из PV1 main-pass'а (без extra SF-вызовов).
         if (
           input.sfBestUci &&
@@ -699,7 +712,16 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             }
           }
         }
+        // KS-3678: тикаем прогресс на каждой итерации цикла стабилизации.
+        setProgress({
+          stage: commentsEnabled ? 'stabilizing' : 'finalizing',
+          done: mi + 1,
+          total: moveInputs.length,
+        });
       }
+      console.info(
+        `[useGameReview] stabilizing done in ${Math.round(performance.now() - stabilizeStart)}ms`,
+      );
 
       const annotations: Annotation[] = moveInputs.map(buildAnnotation);
 
@@ -770,16 +792,45 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         }
       }
 
+      // KS-3678. annotateFinalEval делает 1 SF-вызов на каждый
+      // вариант — итого до N (annotation) × M (variations) вызовов.
+      // Раньше всё это шло без отдельного индикатора и сливалось со
+      // «стабилизацией». Теперь — отдельная подстадия `finalEval` с
+      // прогрессом по аннотациям.
+      console.info(
+        `[useGameReview] stage → finalEval (annotations=${annotations.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+      );
+      const finalEvalStart = performance.now();
+      setProgress({
+        stage: 'finalEval',
+        done: 0,
+        total: annotations.length,
+      });
       for (let i = 0; i < annotations.length; i++) {
         if (cancelRef.current) break;
         const ann = annotations[i];
-        if (ann.variations.length === 0) continue;
+        if (ann.variations.length === 0) {
+          setProgress({
+            stage: 'finalEval',
+            done: i + 1,
+            total: annotations.length,
+          });
+          continue;
+        }
         const fenAtMainMove = moveInputs[i].fen;
         for (const variation of ann.variations) {
           if (cancelRef.current) break;
           await annotateFinalEval(variation, fenAtMainMove);
         }
+        setProgress({
+          stage: 'finalEval',
+          done: i + 1,
+          total: annotations.length,
+        });
       }
+      console.info(
+        `[useGameReview] finalEval done in ${Math.round(performance.now() - finalEvalStart)}ms`,
+      );
 
       // KS-3616 (ADR-102 §7 этап C). Фаза LLM-комментариев. Собираем
       // facts только для ходов с NAG-меткой (только main-line), шлём
