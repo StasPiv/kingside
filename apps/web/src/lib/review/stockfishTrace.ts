@@ -130,6 +130,10 @@ const VALID_IDS: ReadonlySet<string> = new Set<PositionalSubtermId>([
   'mobility_bishop',
   'mobility_rook',
   'mobility_queen',
+  // Material & imbalance (KS-3678: новые идентификаторы из пересобранного
+  // WASM stockfish-16-trace, .js/.wasm в apps/web/public/stockfish/).
+  'material',
+  'imbalance',
   // Threats.
   'threat_by_minor',
   'threat_by_rook',

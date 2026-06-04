@@ -98,11 +98,10 @@ describe('parseTraceJson', () => {
     const out = parseTraceJson(
       {
         subterms: [
-          // psqt_* и imbalance — заведомо не входят в VALID_IDS (KS-3677:
-          // PSQT исключены архитектором как шум; imbalance ещё не
-          // добавлен в shared, ждёт пересборки WASM).
+          // psqt_* — заведомо не входят в VALID_IDS (PSQT исключены
+          // архитектором как шум для модели).
           { id: 'psqt_rook', color: 'w', square: 'a1', value_mg: 3.79, value_eg: 4.18 },
-          { id: 'imbalance', color: 'w', value_mg: -0.05, value_eg: -0.09 },
+          { id: 'psqt_knight', color: 'w', square: 'g1', value_mg: -0.05, value_eg: -0.09 },
           { id: 'pawn_connected', color: 'w', square: 'a2', value_mg: 0.018, value_eg: 0 },
         ],
       },
@@ -110,7 +109,7 @@ describe('parseTraceJson', () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe('pawn_connected');
-    expect(unknownIds.sort()).toEqual(['imbalance', 'psqt_rook']);
+    expect(unknownIds.sort()).toEqual(['psqt_knight', 'psqt_rook']);
   });
 
   it('невалидные числа / отсутствие полей → пропуск элемента', () => {
