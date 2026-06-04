@@ -49,8 +49,10 @@ import { useFocusMode } from '../../context/FocusModeContext';
  * через resolver, engine — через useEngine-обёртку).
  */
 
-export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves';
-export type AnalysisMobileTab = 'moves' | 'engine' | 'tree';
+// KS-3687: 4-й collapsible-блок «AI» (desktop) и 4-я вкладка `ai` (mobile).
+// Панель AI-комментария вынесена из engine-panel в отдельный блок.
+export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai';
+export type AnalysisMobileTab = 'moves' | 'engine' | 'tree' | 'ai';
 
 export interface AnalysisSidebarProps {
   /* ---------- desktop-only мета ---------- */
@@ -514,14 +516,8 @@ export function AnalysisSidebar({
                 onRetry={() => onEngineRetry?.()}
               />
             )}
-            {/* KS-3680 (ADR-108): панель AI-комментария над списком
-                Stockfish-линий. Контроллер приходит из AnalysisPage. */}
-            {aiPositionComment && (
-              <AiPositionCommentPanel
-                controller={aiPositionComment}
-                testIdSuffix="desktop"
-              />
-            )}
+            {/* KS-3687: AI-панель вынесена из engine-panel в отдельный
+                collapsible-блок «AI» (см. ниже). */}
             {/* KS-3593 (ADR-098): заголовок-переключатель сортировки
                 линий. Eval / Maia% — кликабельны, Line — нерактивный
                 label. Maia%-кнопка не дизаблится даже при ошибке Maia
@@ -615,6 +611,37 @@ export function AnalysisSidebar({
           </div>
         )}
       </div>
+
+      {/* KS-3687: Desktop AI panel — отдельный collapsible-блок над
+          ArchiveTreePanel. Контроллер приходит из AnalysisPage. */}
+      {aiPositionComment && (
+        <div className="analysis-panel analysis-desktop-only" data-testid="analysis-ai-panel">
+          <div
+            className="analysis-panel-header"
+            onClick={() => onTogglePanel('ai')}
+          >
+            <span className="analysis-panel-header-left">
+              <span className="analysis-panel-icon">★</span>
+              <span className="analysis-panel-title">
+                {t('analysis.aiTab.title', 'AI')}
+              </span>
+            </span>
+            <span className="analysis-panel-header-right">
+              <span className="analysis-panel-chevron">
+                {panelStates.ai ? '▾' : '▸'}
+              </span>
+            </span>
+          </div>
+          {panelStates.ai && (
+            <div className="analysis-panel-body">
+              <AiPositionCommentPanel
+                controller={aiPositionComment}
+                testIdSuffix="desktop"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Desktop: Archive tree panel (Database) */}
       <div className="analysis-desktop-only">
@@ -718,6 +745,17 @@ export function AnalysisSidebar({
           >
             {t('archive.tree', 'Tree')}
           </button>
+          {/* KS-3687: 4-я mobile-вкладка «AI». Кнопка показывается всегда —
+              если контроллер не пришёл, секция ниже просто пустая. */}
+          <button
+            className={`analysis-mobile-tab${
+              mobileTab === 'ai' ? ' active' : ''
+            }`}
+            data-testid="analysis-mobile-tab-ai"
+            onClick={() => handleTabTap('ai')}
+          >
+            {t('analysis.aiTab.title', 'AI')}
+          </button>
         </div>
         <div className="analysis-mobile-panel__content">
           <div
@@ -800,13 +838,8 @@ export function AnalysisSidebar({
                   onRetry={() => onEngineRetry?.()}
                 />
               )}
-              {/* KS-3680 (ADR-108): mobile-копия AI-панели. */}
-              {aiPositionComment && (
-                <AiPositionCommentPanel
-                  controller={aiPositionComment}
-                  testIdSuffix="mobile"
-                />
-              )}
+              {/* KS-3687: AI-панель вынесена из engine-секции в отдельную
+                  4-ю вкладку «AI» (см. ниже). */}
               {/* KS-3593 (ADR-098): mobile-копия sort-header'а. */}
               <div className="stockfish-lines-header">
                 <button
@@ -927,6 +960,19 @@ export function AnalysisSidebar({
                 onSelectMove={onTreeMove}
                 onHoverMove={onTreeHover}
               />
+            </div>
+          )}
+          {/* KS-3687: 4-я mobile-вкладка «AI». Lazy-mount по mobileTab —
+              панель не дёргает свои эффекты, пока пользователь не открыл
+              вкладку (как сделано для `tree`). */}
+          {mobileTab === 'ai' && aiPositionComment && (
+            <div className="analysis-mobile-section analysis-mobile-section--ai active">
+              <div className="analysis-panel-body">
+                <AiPositionCommentPanel
+                  controller={aiPositionComment}
+                  testIdSuffix="mobile"
+                />
+              </div>
             </div>
           )}
         </div>

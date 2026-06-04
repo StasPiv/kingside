@@ -318,6 +318,109 @@ describe('useAiPositionComment', () => {
     expect((factors[0] as { id: string }).id).toBe('space');
   });
 
+  it('KS-3687: engineProbe возвращает линию → она попадает в factors даже без engineBestLine', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const probe = vi.fn().mockResolvedValue({
+      depth: 20,
+      multipv: 1,
+      score: { type: 'cp', value: -55 },
+      pv: 'd2d4 d7d5',
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineProbe: probe,
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(probe).toHaveBeenCalledTimes(1);
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(2);
+    expect(factors[0]).toMatchObject({ id: 'sf18_eval', score: { value: -55 } });
+    expect(factors[1]).toMatchObject({ id: 'sf18_pv', pv: ['d2d4', 'd7d5'] });
+  });
+
+  it('KS-3687: engineProbe приоритетнее engineBestLine, если вернул значение', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 5,
+          multipv: 1,
+          score: { type: 'cp', value: 5 },
+          pv: 'a2a3',
+        },
+        engineProbe: vi.fn().mockResolvedValue({
+          depth: 30,
+          multipv: 1,
+          score: { type: 'cp', value: 99 },
+          pv: 'e2e4',
+        }),
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors[0]).toMatchObject({ score: { value: 99 }, depth: 30 });
+  });
+
+  it('KS-3687: engineProbe вернул null → запрос без sf18-факторов', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'space', value_mg: 0, value_eg: 0 },
+    ]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineProbe: vi.fn().mockResolvedValue(null),
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(1);
+    expect((factors[0] as { id: string }).id).toBe('space');
+  });
+
+  it('KS-3687: engineProbe бросил исключение → запрос всё равно идёт без sf18', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineProbe: vi.fn().mockRejectedValue(new Error('engine error')),
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(0);
+  });
+
   it('KS-3685: engineBestLine с пустым pv → только sf18_eval (без sf18_pv)', async () => {
     (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     let capturedBody: Record<string, unknown> | null = null;

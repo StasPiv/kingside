@@ -540,7 +540,9 @@ function AnalysisPageInner({
   const [error, setError] = useState('');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   // KS-2434: вкладка 'report' удалена вместе с серверным game-report'ом.
-  type MobileTabId = 'moves' | 'engine' | 'tree';
+  // KS-3687: добавлена вкладка 'ai' (4-я). Синхронизировано с
+  // AnalysisMobileTab в AnalysisSidebar.tsx.
+  type MobileTabId = 'moves' | 'engine' | 'tree' | 'ai';
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
@@ -810,13 +812,19 @@ function AnalysisPageInner({
   // анализа теперь только клиентский WASM/external Stockfish.
 
   // Panel collapse state
+  // KS-3687: добавлен collapsible-блок `ai` — отдельная панель AI-комментария
+  // справа от engine-panel (см. AnalysisSidebar). По умолчанию открыт на
+  // desktop, свёрнут на узких экранах (как engine-panel).
   const [panelStates, setPanelStates] = useState(() => {
     const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
-    return { gameInfo: !narrow, engine: !narrow, moves: true };
+    return { gameInfo: !narrow, engine: !narrow, moves: true, ai: !narrow };
   });
-  const togglePanel = useCallback((panel: 'gameInfo' | 'engine' | 'moves') => {
-    setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
-  }, []);
+  const togglePanel = useCallback(
+    (panel: 'gameInfo' | 'engine' | 'moves' | 'ai') => {
+      setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
+    },
+    [],
+  );
 
   const handleTitleClick = useCallback(() => {
     if (gameId) return;
@@ -1007,27 +1015,9 @@ function AnalysisPageInner({
   }
   const displayedLines = lastLinesRef.current.length > 0 ? lastLinesRef.current : lines;
 
-  // KS-3680/KS-3685: контроллер AI-комментария позиции для панели в
-  // engine-panel (desktop + mobile-Engine). `engineBestLine` — лучшая
-  // линия Stockfish 18 на момент клика; хук читает её через ref, поэтому
-  // объект, пересоздаваемый на каждом рендере, не сбрасывает кэш doRequest.
-  // Если движок ещё не отдал ни одной линии — передаём null, запрос уйдёт
-  // без `sf18_eval` / `sf18_pv`, пользователя это не блокирует.
-  const aiPositionComment = useAiPositionComment({
-    fen: currentFen,
-    user: user ? { id: user.id } : null,
-    fullReviewComment:
-      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
-    language: aiCommentLanguage,
-    engineBestLine: displayedLines[0]
-      ? {
-          depth: displayedLines[0].depth,
-          multipv: displayedLines[0].multipv,
-          score: displayedLines[0].score,
-          pv: displayedLines[0].pv,
-        }
-      : null,
-  });
+  // KS-3680/KS-3685/KS-3687: контроллер AI-комментария поднят ниже
+  // объявления `toggleAnalysis`, чтобы `engineProbe` мог дёргать
+  // движок при выключенном анализе. См. блок после `toggleAnalysis`.
 
   // --- Data loading ---
   useEffect(() => {
@@ -1421,6 +1411,101 @@ function AnalysisPageInner({
       return next;
     });
   }, []);
+
+  // KS-3680/KS-3685/KS-3687: контроллер AI-комментария позиции для
+  // отдельной вкладки/блока «AI». В options два ключевых для KS-3687
+  // параметра:
+  //   - `engineBestLine` — снимок displayedLines[0] для случая, когда
+  //     движок уже думает и линия есть;
+  //   - `engineProbe`    — fallback на случай выключенного движка:
+  //     кратковременно включаем анализ, ждём первую линию (≤2 с),
+  //     возвращаем её и выключаем, если включали. Если линия так и не
+  //     пришла — `null`, хук уходит в KS-3685-поведение (запрос без
+  //     `sf18_eval`/`sf18_pv`).
+  const displayedLinesRef = useRef(displayedLines);
+  displayedLinesRef.current = displayedLines;
+  const analysisEnabledRef = useRef(analysisEnabled);
+  analysisEnabledRef.current = analysisEnabled;
+  const currentFenForProbeRef = useRef(currentFen);
+  currentFenForProbeRef.current = currentFen;
+  const engineProbeForAi = useCallback(async () => {
+    const ready = displayedLinesRef.current[0];
+    if (ready) {
+      return {
+        depth: ready.depth,
+        multipv: ready.multipv,
+        score: ready.score,
+        pv: ready.pv,
+      };
+    }
+    const wasOff = !analysisEnabledRef.current;
+    if (wasOff) toggleAnalysis();
+    const fenAtStart = currentFenForProbeRef.current;
+    const start = performance.now();
+    const POLL_MS = 80;
+    const WAIT_MAX_MS = 2000;
+    return new Promise<{
+      depth: number;
+      multipv: number;
+      score: { type: 'cp' | 'mate'; value: number };
+      pv: string;
+    } | null>((resolve) => {
+      const interval = setInterval(() => {
+        const elapsed = performance.now() - start;
+        const fenStillSame =
+          currentFenForProbeRef.current === fenAtStart;
+        if (!fenStillSame) {
+          clearInterval(interval);
+          if (wasOff && analysisEnabledRef.current) toggleAnalysis();
+          resolve(null);
+          return;
+        }
+        const line = displayedLinesRef.current[0];
+        if (line && elapsed >= 1000) {
+          clearInterval(interval);
+          if (wasOff && analysisEnabledRef.current) toggleAnalysis();
+          resolve({
+            depth: line.depth,
+            multipv: line.multipv,
+            score: line.score,
+            pv: line.pv,
+          });
+          return;
+        }
+        if (elapsed >= WAIT_MAX_MS) {
+          clearInterval(interval);
+          if (wasOff && analysisEnabledRef.current) toggleAnalysis();
+          if (line) {
+            resolve({
+              depth: line.depth,
+              multipv: line.multipv,
+              score: line.score,
+              pv: line.pv,
+            });
+          } else {
+            resolve(null);
+          }
+        }
+      }, POLL_MS);
+    });
+  }, [toggleAnalysis]);
+
+  const aiPositionComment = useAiPositionComment({
+    fen: currentFen,
+    user: user ? { id: user.id } : null,
+    fullReviewComment:
+      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
+    language: aiCommentLanguage,
+    engineBestLine: displayedLines[0]
+      ? {
+          depth: displayedLines[0].depth,
+          multipv: displayedLines[0].multipv,
+          score: displayedLines[0].score,
+          pv: displayedLines[0].pv,
+        }
+      : null,
+    engineProbe: engineProbeForAi,
+  });
 
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {

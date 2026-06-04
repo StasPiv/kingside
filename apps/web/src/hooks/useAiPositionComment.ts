@@ -135,14 +135,36 @@ export interface UseAiPositionCommentOptions {
    * Если null/undefined (движок ещё не успел думать) — запрос уходит
    * без них, пользователя не блокируем.
    */
-  engineBestLine?: {
-    depth: number;
-    multipv: number;
-    score: { type: 'cp' | 'mate'; value: number };
-    /** UCI-строка, пробелы между ходами. */
-    pv: string;
-  } | null;
+  engineBestLine?: EngineBestLineInput | null;
+  /**
+   * KS-3687: опциональная функция автозапуска движка перед отправкой
+   * запроса. Если задана — хук вызывает её на каждом `request()`/
+   * `regenerate()` и ждёт результат с потолком {@link ENGINE_PROBE_TIMEOUT_MS}.
+   * Возвращаемое значение приоритетнее `engineBestLine` из ref.
+   *
+   * Логика обязанности caller'а (AnalysisPage):
+   *  - если движок уже думает над текущей позицией и есть свежая
+   *    линия — вернуть её мгновенно;
+   *  - иначе — на короткое время включить движок, дождаться первой
+   *    линии (~1 с), вернуть её и выключить движок, если включали;
+   *  - если по таймауту 2 с линии нет — вернуть `null`.
+   *
+   * Если promise бросил/таймаут — запрос всё равно уходит, просто без
+   * `sf18_eval` / `sf18_pv` (поведение KS-3685).
+   */
+  engineProbe?: () => Promise<EngineBestLineInput | null>;
 }
+
+export interface EngineBestLineInput {
+  depth: number;
+  multipv: number;
+  score: { type: 'cp' | 'mate'; value: number };
+  /** UCI-строка, пробелы между ходами. */
+  pv: string;
+}
+
+/** Потолок ожидания engineProbe перед отправкой запроса. */
+export const ENGINE_PROBE_TIMEOUT_MS = 2000;
 
 export interface UseAiPositionCommentResult {
   state: AiCommentState;
@@ -270,6 +292,7 @@ export function useAiPositionComment(
     language,
     engineEvalCp,
     engineBestLine,
+    engineProbe,
   } = options;
   const normalizedFen = normalizeFen(fen);
   // KS-3680: важно сравнивать пользователя по `id`, а не по ссылке.
@@ -324,6 +347,10 @@ export function useAiPositionComment(
   // `doRequest` и не сбрасывало useEffect-зависимости.
   const engineBestLineRef = useRef(engineBestLine);
   engineBestLineRef.current = engineBestLine;
+  // KS-3687: engineProbe тоже через ref — caller обычно пересоздаёт
+  // callback на каждом рендере (зависит от `toggleAnalysis`/refs).
+  const engineProbeRef = useRef(engineProbe);
+  engineProbeRef.current = engineProbe;
 
   // Перезагрузка состояния при смене FEN / user / fullReviewComment.
   useEffect(() => {
@@ -405,7 +432,30 @@ export function useAiPositionComment(
       // опираться на реальную оценку движка и его рекомендованную линию.
       // Если движок ещё не успел думать (engineBestLine = null/undefined) —
       // запрос уходит без них, пользователя не блокируем.
-      const bestLine = engineBestLineRef.current;
+      //
+      // KS-3687: если caller передал `engineProbe` — даём ему шанс
+      // запустить движок (или забрать готовую линию), ждём с потолком
+      // ENGINE_PROBE_TIMEOUT_MS. Результат приоритетнее ref-значения.
+      let bestLine: EngineBestLineInput | null | undefined =
+        engineBestLineRef.current;
+      const probe = engineProbeRef.current;
+      if (probe) {
+        try {
+          const probed = await Promise.race<
+            EngineBestLineInput | null
+          >([
+            probe(),
+            new Promise<EngineBestLineInput | null>((resolve) =>
+              setTimeout(() => resolve(null), ENGINE_PROBE_TIMEOUT_MS),
+            ),
+          ]);
+          if (ctrl.signal.aborted) return;
+          if (inFlightFenRef.current !== normalizedFen) return;
+          if (probed) bestLine = probed;
+        } catch {
+          // engineProbe бросил — игнорируем, отправим без sf18-факторов.
+        }
+      }
       const factorsWithEngine: unknown[] = [...factors];
       if (bestLine && Number.isFinite(bestLine.score?.value)) {
         const sideToMove: 'w' | 'b' = fen.split(/\s+/)[1] === 'b' ? 'b' : 'w';

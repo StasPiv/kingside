@@ -932,6 +932,9 @@
     "clear": "Очистить доску"
   },
   "analysis": {
+    "aiTab": {
+      "title": "AI"
+    },
     "aiComment": {
       "title": "Комментарий AI",
       "cta": "Получить оценку от AI",

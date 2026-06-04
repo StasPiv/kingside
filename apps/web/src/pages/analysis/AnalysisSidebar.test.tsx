@@ -60,7 +60,7 @@ function makeProps(overrides: Partial<AnalysisSidebarProps> = {}): AnalysisSideb
     engineFailed: false,
     onToggleAnalysis: vi.fn(),
     ec: makeEc(),
-    panelStates: { gameInfo: true, engine: true, moves: true },
+    panelStates: { gameInfo: true, engine: true, moves: true, ai: true },
     onTogglePanel: vi.fn(),
     displayedLines: [],
     evalIsBlackTurn: false,
@@ -166,7 +166,7 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
     renderWithProviders(
       <AnalysisSidebar
         {...makeProps({
-          panelStates: { gameInfo: true, engine: false, moves: true },
+          panelStates: { gameInfo: true, engine: false, moves: true, ai: true },
           analysisEnabled: true,
           displayedLines: [
             {
@@ -195,9 +195,55 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
       <AnalysisSidebar {...makeProps({ onMobileTabChange: onChange })} />,
     );
     const tabs = document.querySelectorAll('.analysis-mobile-tab');
-    expect(tabs.length).toBe(3);
+    // KS-3687: добавлена 4-я вкладка «AI».
+    expect(tabs.length).toBe(4);
     fireEvent.click(tabs[1]); // Engine
     expect(onChange).toHaveBeenCalledWith('engine');
+    fireEvent.click(tabs[3]); // AI
+    expect(onChange).toHaveBeenCalledWith('ai');
+  });
+
+  it('KS-3687: при aiPositionComment рендерится отдельный desktop-блок AI и mobile-секция', () => {
+    // Минимальный контроллер для AiPositionCommentPanel.
+    const aiCtl = {
+      state: { kind: 'idle' as const },
+      request: vi.fn(),
+      regenerate: vi.fn(),
+      softCounter: { used: 0, limit: 20, windowMin: 20 },
+    };
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          aiPositionComment: aiCtl,
+          mobileTab: 'ai',
+        })}
+      />,
+    );
+    // Desktop: отдельная collapsible-панель с заголовком «AI».
+    const aiPanel = document.querySelector(
+      '[data-testid="analysis-ai-panel"]',
+    );
+    expect(aiPanel).not.toBeNull();
+    // Mobile: секция активна, внутри сам AiPositionCommentPanel.
+    const mobileSection = document.querySelector(
+      '.analysis-mobile-section--ai.active',
+    );
+    expect(mobileSection).not.toBeNull();
+    expect(
+      mobileSection?.querySelector('[data-testid="ai-position-comment-mobile"]'),
+    ).not.toBeNull();
+  });
+
+  it('KS-3687: aiPositionComment отсутствует → AI-блок и mobile-секция не рендерятся', () => {
+    renderWithProviders(
+      <AnalysisSidebar {...makeProps({ mobileTab: 'ai' })} />,
+    );
+    expect(
+      document.querySelector('[data-testid="analysis-ai-panel"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('.analysis-mobile-section--ai'),
+    ).toBeNull();
   });
 
   it('multiPv − / + кнопки вызывают ec.setMultiPv', () => {

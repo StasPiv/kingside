@@ -922,6 +922,9 @@
     "clear": "Clear Board"
   },
   "analysis": {
+    "aiTab": {
+      "title": "AI"
+    },
     "aiComment": {
       "title": "AI position comment",
       "cta": "Get AI evaluation",
