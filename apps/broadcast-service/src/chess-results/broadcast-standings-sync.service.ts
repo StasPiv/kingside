@@ -26,6 +26,7 @@ import {
   composeGameRefs,
   normalizePlayerName,
   parseRoundNumber,
+  sortNameTokens,
   type BroadcastGameInput,
   type BroadcastRoundInput,
   type MatcherMetrics,
@@ -741,13 +742,33 @@ export class BroadcastStandingsSyncService {
           // не сматчил игроков (расхождение нормализации в chess-
           // results и в lichess-game.whitePlayer/blackPlayer), идём
           // напрямую через pair-индекс по нормализованным именам.
+          // Пробуем оба варианта токенов для каждой стороны: исходный
+          // normalized и sortNameTokens(normalized). Это закрывает
+          // случай «Robson Ray» (chess-results, фамилия первая, без
+          // запятой) vs «Robson, Ray» (lichess PGN, нормализуется в
+          // «ray robson» через comma-swap).
           if (gameRef === null && playerNorm) {
             const oppNorm =
               parsed.data.players[cell.opponentRank - 1]?.normalizedName ??
               '';
             if (oppNorm) {
-              gameRef =
-                gamesByPair.get(`${playerNorm}|${oppNorm}`) ?? null;
+              const pSorted = sortNameTokens(playerNorm);
+              const oSorted = sortNameTokens(oppNorm);
+              const playerKeys =
+                pSorted && pSorted !== playerNorm
+                  ? [playerNorm, pSorted]
+                  : [playerNorm];
+              const oppKeys =
+                oSorted && oSorted !== oppNorm ? [oppNorm, oSorted] : [oppNorm];
+              outer: for (const pk of playerKeys) {
+                for (const ok of oppKeys) {
+                  const ref = gamesByPair.get(`${pk}|${ok}`);
+                  if (ref) {
+                    gameRef = ref;
+                    break outer;
+                  }
+                }
+              }
             }
           }
           if (gameRef !== null) matchedCells++;
@@ -1495,10 +1516,23 @@ export class BroadcastStandingsSyncService {
         roundId: round.id,
         roundName: round.name,
       };
-      const k1 = `${wNorm}|${bNorm}`;
-      const k2 = `${bNorm}|${wNorm}`;
-      if (!map.has(k1)) map.set(k1, ref);
-      if (!map.has(k2)) map.set(k2, ref);
+      // KS-3658: дублируем ключ в форме sorted-tokens для каждой стороны,
+      // чтобы lookup по `${playerNorm}|${oppNorm}` сработал и когда
+      // chess-results-сторона осталась в форме «фамилия имя» без запятой
+      // (Robson Ray → robson ray) — нет совпадения с lichess формой
+      // (Robson, Ray → ray robson). См. `sortNameTokens` в player-matcher.
+      const wSorted = sortNameTokens(wNorm);
+      const bSorted = sortNameTokens(bNorm);
+      const wKeys = wSorted && wSorted !== wNorm ? [wNorm, wSorted] : [wNorm];
+      const bKeys = bSorted && bSorted !== bNorm ? [bNorm, bSorted] : [bNorm];
+      for (const wk of wKeys) {
+        for (const bk of bKeys) {
+          const k1 = `${wk}|${bk}`;
+          const k2 = `${bk}|${wk}`;
+          if (!map.has(k1)) map.set(k1, ref);
+          if (!map.has(k2)) map.set(k2, ref);
+        }
+      }
     }
     return map;
   }

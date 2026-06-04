@@ -120,6 +120,29 @@ function extractLastName(normalized: string): string {
 }
 
 /**
+ * KS-3658. Возвращает ключ из отсортированных по алфавиту токенов имени.
+ * Нужен для матчинга при ОБРАТНОМ порядке токенов без запятой:
+ *
+ *   chess-results: `"Robson Ray"`  → norm `"robson ray"`  → sorted `"ray robson"`
+ *   lichess  PGN:  `"Robson, Ray"` → norm `"ray robson"` (после comma-swap)
+ *                                  → sorted `"ray robson"`
+ *
+ * Текущий comma-swap в `normalizePlayerName` сводит lichess к «имя фамилия»,
+ * но chess-results остаётся в форме «фамилия имя» (запятой там нет). Точный
+ * lookup `normalized === normalized` промахивается. Sorted-tokens key
+ * нормализует обе формы к одному виду.
+ *
+ * Каждое имя индексится дважды: по `normalized` и по `sortNameTokens(normalized)`.
+ * При совпадении только по sorted-tokens — это ambiguous-кандидат (см. matchOne).
+ */
+export function sortNameTokens(normalized: string): string {
+  if (!normalized) return '';
+  const tokens = normalized.split(' ').filter(Boolean);
+  if (tokens.length < 2) return normalized;
+  return [...tokens].sort().join(' ');
+}
+
+/**
  * Результат сопоставления одной партии: rank'и из `chess-results`-таблицы
  * для обеих сторон. `null` — игрок не найден.
  */
@@ -142,6 +165,11 @@ function matchOne(
   rawElo: number | null,
   byNormalized: Map<string, CrosstablePlayer[]>,
   byLastName: Map<string, CrosstablePlayer[]>,
+  // KS-3658. Индекс по отсортированным токенам имени — fallback для
+  // случая, когда chess-results и lichess дают токены имени в разном
+  // порядке без запятой (Robson Ray ↔ Ray Robson). Передаётся caller'ом;
+  // если не задан — fallback пропускается (обратная совместимость).
+  bySortedTokens?: Map<string, CrosstablePlayer[]>,
 ): MatchOneResult {
   const norm = normalizePlayerName(rawName);
   if (!norm) return { rank: null };
@@ -171,6 +199,43 @@ function matchOne(
     }
     // Все за пределами окна → берём первого + метрика.
     return { rank: exact[0].rank, reason: 'elo-out-of-range' };
+  }
+
+  // KS-3658 fallback: одинаковый набор токенов в произвольном порядке.
+  // Решает «Robson, Ray» (lichess) ↔ «Robson Ray» (chess-results), когда
+  // в chess-results фамилия идёт первой без запятой и текущий comma-swap
+  // её не разворачивает. Совпадение по sorted-tokens применяется только
+  // если кандидат ровно один — иначе слишком слабый сигнал.
+  if (bySortedTokens) {
+    const sortedKey = sortNameTokens(norm);
+    // Lookup ВСЕГДА по sorted-key — даже если sortedKey === norm
+    // (наша сторона уже в сортированной форме, индекс bySortedTokens
+    // содержит candidate-ы, чьи имена в обратном порядке). Условие
+    // `sortedKey !== norm` здесь — баг (срывает основной KS-3658 кейс).
+    if (sortedKey) {
+      const cands = bySortedTokens.get(sortedKey);
+      if (cands && cands.length === 1) {
+        return { rank: cands[0].rank };
+      }
+      if (cands && cands.length > 1 && rawElo != null) {
+        // Несколько одинаковых по token-set — дизамбигуация по Elo
+        // в пределах ±50 (то же окно что для byNormalized).
+        let best: CrosstablePlayer | null = null;
+        let bestDelta = Infinity;
+        for (const cand of cands) {
+          const elo = cand.elo;
+          if (elo == null) continue;
+          const delta = Math.abs(elo - rawElo);
+          if (delta < bestDelta) {
+            bestDelta = delta;
+            best = cand;
+          }
+        }
+        if (best && bestDelta <= 50) {
+          return { rank: best.rank };
+        }
+      }
+    }
   }
 
   // Fallback: substring по фамилии. Полезно для PGN-тэгов вида "Carlsen".
@@ -208,6 +273,8 @@ export function matchGameToPlayers(
   // (см. `composeGameRefs`, который индекс'ит один раз per-tournament).
   const byNormalized = new Map<string, CrosstablePlayer[]>();
   const byLastName = new Map<string, CrosstablePlayer[]>();
+  // KS-3658: индекс по sorted-tokens для матчинга при обратном порядке.
+  const bySortedTokens = new Map<string, CrosstablePlayer[]>();
   for (const p of chessResultsPlayers) {
     const norm = p.normalizedName;
     const arr = byNormalized.get(norm);
@@ -223,6 +290,19 @@ export function matchGameToPlayers(
       // Односложные — кладём только в byNormalized; substring'ом ничего не
       // улучшим.
     }
+
+    // KS-3658: индексируем КАЖДОГО игрока по sorted-tokens (включая
+    // имена, уже находящиеся в отсортированной форме) — иначе lookup
+    // со стороны game в форме «фамилия имя» промахнётся, когда
+    // chess-results-сторона нормализована к «фамилия имя» (sorted == norm).
+    // Для имён в 1 токен sortNameTokens возвращает само имя, дубль с
+    // byNormalized не страшен (используется только при miss точного).
+    const sorted = sortNameTokens(norm);
+    if (sorted) {
+      const sarr = bySortedTokens.get(sorted);
+      if (sarr) sarr.push(p);
+      else bySortedTokens.set(sorted, [p]);
+    }
   }
 
   const w = matchOne(
@@ -230,12 +310,14 @@ export function matchGameToPlayers(
     game.whiteElo,
     byNormalized,
     byLastName,
+    bySortedTokens,
   );
   const b = matchOne(
     game.blackPlayer,
     game.blackElo,
     byNormalized,
     byLastName,
+    bySortedTokens,
   );
 
   if (w.reason) metrics.recordAmbiguousMatch({ reason: w.reason });

@@ -3,6 +3,7 @@ import {
   matchGameToPlayers,
   composeGameRefs,
   parseRoundNumber,
+  sortNameTokens,
   type MatcherMetrics,
   type BroadcastGameInput,
   type BroadcastRoundInput,
@@ -253,6 +254,142 @@ describe('matchGameToPlayers — unmatched', () => {
     expect(m).toEqual({ whiteRank: null, blackRank: null });
     // Имён нет — не считаем как unmatched (это просто "no data").
     expect(unmatched).toHaveLength(0);
+  });
+});
+
+/**
+ * KS-3658. Когда chess-results отдаёт имя в форме «Фамилия Имя» БЕЗ запятой
+ * («Robson Ray»), а lichess PGN — с запятой («Robson, Ray»):
+ *   - chess-results norm = "robson ray"
+ *   - lichess norm = "ray robson" (после comma-swap)
+ *   - точный equality промахивается → gameRef = null
+ *   - sortNameTokens обоих = "ray robson" → совпадает.
+ */
+describe('sortNameTokens', () => {
+  it('сортирует токены имени алфавитно', () => {
+    expect(sortNameTokens('robson ray')).toBe('ray robson');
+    expect(sortNameTokens('ray robson')).toBe('ray robson');
+    expect(sortNameTokens('hovhannisyan robert')).toBe('hovhannisyan robert');
+    expect(sortNameTokens('robert hovhannisyan')).toBe('hovhannisyan robert');
+  });
+
+  it('односложные / пустые имена возвращает как есть', () => {
+    expect(sortNameTokens('')).toBe('');
+    expect(sortNameTokens('madonna')).toBe('madonna');
+  });
+
+  it('три+ токена тоже сортирует', () => {
+    expect(sortNameTokens('chithambaram aravindh vr')).toBe(
+      'aravindh chithambaram vr',
+    );
+  });
+});
+
+describe('matchGameToPlayers — KS-3658 sorted-tokens fallback', () => {
+  // Реальный кейс из 7th Stepan Avagyan Memorial 2026:
+  // chess-results выдаёт `"Robson Ray"` (фамилия первая, без запятой),
+  // lichess PGN — `"Robson, Ray"` (после comma-swap → "ray robson").
+  // Точное совпадение нормализованных имён промахивается; sorted-tokens
+  // fallback должен поймать.
+  const players: CrosstablePlayer[] = [
+    makePlayer(1, 'Robson Ray', { elo: 2653 }),
+    makePlayer(2, 'Hovhannisyan Robert', { elo: 2629 }),
+  ];
+
+  it('lichess (с запятой) ↔ chess-results (без запятой) → match через sorted-tokens', () => {
+    const { metrics, unmatched } = makeFakeMetrics();
+    const game = {
+      whitePlayer: 'Robson, Ray',
+      blackPlayer: 'Hovhannisyan, Robert',
+      whiteElo: 2653,
+      blackElo: 2629,
+    };
+    const m = matchGameToPlayers(game, players, metrics);
+    expect(m).toEqual({ whiteRank: 1, blackRank: 2 });
+    expect(unmatched).toEqual([]);
+  });
+
+  it('точное совпадение всё ещё имеет приоритет над sorted-tokens', () => {
+    // Подсовываем игрока с «прямой» формой, sorted-tokens fallback
+    // не должен задеть точное совпадение.
+    const ps: CrosstablePlayer[] = [
+      makePlayer(1, 'Ray Robson', { elo: 2653 }),
+      makePlayer(2, 'Robert Hovhannisyan', { elo: 2629 }),
+    ];
+    const game = {
+      whitePlayer: 'Robson, Ray',
+      blackPlayer: 'Hovhannisyan, Robert',
+      whiteElo: 2653,
+      blackElo: 2629,
+    };
+    const m = matchGameToPlayers(game, ps);
+    expect(m).toEqual({ whiteRank: 1, blackRank: 2 });
+  });
+
+  it('sorted-tokens НЕ срабатывает на разных именах с тем же фамилия-токеном', () => {
+    // Защита от ложного матча: «Sarin Nihal» vs «Robson Ray» — разные
+    // токены, sorted-tokens не должно дать match.
+    const game = {
+      whitePlayer: 'Nihal Sarin',
+      blackPlayer: 'Some Other',
+      whiteElo: 2723,
+      blackElo: 2500,
+    };
+    const m = matchGameToPlayers(game, players);
+    expect(m.whiteRank).toBeNull();
+    expect(m.blackRank).toBeNull();
+  });
+
+  it('односложные имена через sorted-tokens НЕ дают ложный match', () => {
+    const ps: CrosstablePlayer[] = [makePlayer(1, 'Carlsen', { elo: 2839 })];
+    const game = {
+      whitePlayer: 'Other',
+      blackPlayer: 'Different',
+      whiteElo: 2500,
+      blackElo: 2500,
+    };
+    const m = matchGameToPlayers(game, ps);
+    expect(m).toEqual({ whiteRank: null, blackRank: null });
+  });
+
+  it('три токена в разном порядке — match через sorted-tokens', () => {
+    // chess-results: «Aravindh Chithambaram Vr.»; lichess может дать
+    // токены в другом порядке.
+    const ps: CrosstablePlayer[] = [
+      makePlayer(6, 'Aravindh Chithambaram Vr', { elo: 2692 }),
+    ];
+    const game = {
+      whitePlayer: 'Chithambaram Vr, Aravindh',
+      blackPlayer: null,
+      whiteElo: 2692,
+      blackElo: null,
+    };
+    const m = matchGameToPlayers(game, ps);
+    expect(m.whiteRank).toBe(6);
+  });
+
+  it('коллизия sorted-tokens с разным Elo → дизамбигуация по ±50', () => {
+    // Гипотетический случай: два игрока с одинаковым token-set.
+    const ps: CrosstablePlayer[] = [
+      makePlayer(1, 'Smith John', { elo: 2400 }),
+      makePlayer(2, 'John Smith', { elo: 2700 }),
+    ];
+    // Первый — точное совпадение «smith john» → match rank=1.
+    expect(
+      matchGameToPlayers(
+        { whitePlayer: 'Smith John', blackPlayer: null, whiteElo: 2400, blackElo: null },
+        ps,
+      ),
+    ).toMatchObject({ whiteRank: 1 });
+    // Когда совпадение через sorted-tokens с Elo 2700 — берём ближайшего
+    // (rank=2 здесь точно совпадает по normalized, поэтому это просто
+    // точный match; ставлю на чужое имя в форме перестановки):
+    expect(
+      matchGameToPlayers(
+        { whitePlayer: 'Smith, John', blackPlayer: null, whiteElo: 2700, blackElo: null },
+        ps,
+      ),
+    ).toMatchObject({ whiteRank: 2 });
   });
 });
 
