@@ -20,6 +20,7 @@ import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { AnalysisReviewModule } from './analysis-review/analysis-review.module';
+import { PositionCommentModule } from './position-comment/position-comment.module';
 import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
@@ -92,6 +93,7 @@ import { HealthController } from './health.controller';
     // webhook что AI Assistant. Принципиально отдельный модуль —
     // другой prompt-конструктор, своё rate-limit-namespace в Redis.
     AnalysisReviewModule,
+    PositionCommentModule,
     WorkshopModule,
     LiveTournamentModule,
     ClientLogsModule,
