@@ -24,9 +24,11 @@
 #include <string>
 
 #include "benchmark.h"
+#include "bitboard.h"   // KS-3676: Bitboards::init для emscripten init-once.
 #include "evaluate.h"
 #include "movegen.h"
 #include "position.h"
+#include "psqt.h"       // KS-3676: PSQT::init для emscripten init-once.
 #include "search.h"
 #include "thread.h"
 #include "timeman.h"
@@ -414,6 +416,32 @@ int uci_command(const char* cmd_str) {
     static StateListPtr uci_states;
     static bool uci_initialized = false;
     if (!uci_initialized) {
+        // KS-3676 / ADR-107 rev 2. Принудительная переинициализация
+        // глобальных таблиц В КОНТЕКСТЕ ccall-потока.
+        // Симптом: 8 subterm-ID не эмитятся в WASM (`pawn_backward`,
+        // `knight_reachable_outpost`, `king_attackers_count/weight`,
+        // `king_danger`, `king_pawnless_flank`, `threat_by_minor`,
+        // `threat_hanging`, `threat_weak_queen_protection`), `total`
+        // 0.05 вместо нативного 0.10. Все они либо зависят от
+        // `popcount`, либо от `attacks_bb<...>` / `pawn_attacks`,
+        // т.е. от глобальных таблиц `PopCnt16`/`SquareDistance`/
+        // `LineBB`/`BetweenBB` (объявлены `extern` в bitboard.cpp).
+        // Девопс отладочный след стека (Стек A) показал, что main()
+        // запускается в `_main_thread` pthread под
+        // `PROXY_TO_PTHREAD=1`. Гипотеза: даже хотя static storage
+        // должна быть shared через SharedArrayBuffer, при некоторых
+        // emscripten-конфигурациях запись из pthread main не
+        // становится видна основному потоку worker'а (где работает
+        // ccall) — таблицы читаются как нули, popcount() возвращает 0,
+        // условия эмиссии subterm-ID не срабатывают.
+        // Лекарство — переинициализировать таблицы в ccall-потоке.
+        // Идемпотентно: повторная инициализация записывает те же
+        // значения, не ломает нативную семантику (под `__EMSCRIPTEN__`
+        // ifdef'а нет — здесь вся функция уже под ним).
+        PSQT::init();
+        Bitboards::init();
+        Position::init();
+        Bitbases::init();
         uci_states.reset(new std::deque<StateInfo>(1));
         uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
         uci_initialized = true;
