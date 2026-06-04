@@ -1,36 +1,44 @@
 /**
- * KS-3616 / ADR-102 §7 этап C — клиент `POST /analyses/review/comments`.
- * KS-3629 — чанкование батча для устойчивости к длинным партиям.
+ * Клиент `POST /analyses/position/comment` — комментарий к одной позиции
+ * по списку позиционных факторов (`PositionalSubterm[]`, как отдаёт
+ * `evalTrace` / `window.__sfTrace`).
  *
- * Большие партии (60+ NAG-ходов) раньше падали целиком при любой
- * валидации/лимите на бэке. Теперь батч делится на чанки и шлётся
- * с ограниченной concurrency. Если один чанк упал — остальные доходят
- * и заполняют свои позиции, упавший — пустыми строками. AbortController
- * один на все запросы: cancel валит всё разом.
+ * Контракт обработчика:
+ *   Запрос:  { fen: string, factors: PositionalSubterm[] }
+ *   Ответ:   { comment: string }   // "" — штатное снижение при сбое модели
+ *   Заголовки: Authorization: Bearer <jwt>, Content-Type: application/json
  *
- * Graceful (как было): любая нефатальная ошибка → пустые строки в
- * результате, вызывающий код собирает PGN без `{}` и показывает toast.
- * `AbortError` пробрасывается, чтобы хук завершил `status='cancelled'`.
+ * Снаружи функция сохраняет старую сигнатуру `batchReviewComment(facts, …)`
+ * → `string[]`, чтобы не ломать `useGameReview` и `window.__sfReviewProbe`.
+ * Внутри теперь N независимых запросов с ограничением параллелизма —
+ * новый обработчик принимает по одной позиции за вызов.
+ *
+ * Graceful: любая нефатальная ошибка (4xx/5xx/network/парс) → пустая
+ * строка в соответствующей позиции. `AbortError` пробрасывается, чтобы
+ * вызывающий хук завершился `status='cancelled'`.
  */
+import type { PositionalSubterm } from '@kingside/shared';
+
 import type { FactsInput } from '../lib/review/extractFacts';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
-/** Размер одного чанка (фактов в запросе). По умолчанию 25 — с запасом
- *  под прежний лимит DTO `@ArrayMaxSize(40)` и под LLM-context Claude. */
-export const DEFAULT_CHUNK_SIZE = 25;
-
-/** Сколько чанков шлём параллельно. По умолчанию 3 — не съедает
- *  rate-limit бэка (10/мин per user) за один разбор и не перегружает
- *  Claude rate per minute. */
+/** Сколько позиций шлём параллельно. 3 — компромисс между скоростью
+ *  разбора и ограничением запросов на стороне backend (20/мин). */
 export const DEFAULT_CONCURRENCY = 3;
 
+/** Совместимость со старой опцией. Новый обработчик принимает позицию
+ *  по одной, поэтому значение не используется. Оставлено в типе, чтобы
+ *  не ломать вызывающий код. */
+export const DEFAULT_CHUNK_SIZE = 1;
+
 export interface BatchReviewCommentOptions {
+  /** Не используется новым обработчиком (одна позиция за запрос),
+   *  оставлено для обратной совместимости сигнатуры. */
   chunkSize?: number;
   concurrency?: number;
-  /** Тик по завершении каждого чанка: `done` — кумулятивное число
-   *  обработанных фактов (вне зависимости от того, вернул чанк
-   *  непустые строки или нет). Используется для прогресс-бара. */
+  /** Тик по завершении каждой позиции: `done` — кумулятивное число
+   *  обработанных фактов. Используется для прогресс-бара. */
   onProgress?: (done: number) => void;
 }
 
@@ -50,10 +58,6 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-function emptyComments(n: number): string[] {
-  return new Array(n).fill('');
-}
-
 function isAbortError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === 'AbortError') return true;
   if (e instanceof Error && e.name === 'AbortError') return true;
@@ -61,61 +65,39 @@ function isAbortError(e: unknown): boolean {
 }
 
 /**
- * Один POST с порцией facts. Возвращает массив строк длиной = facts.length:
- *   - успех: нормализованные комментарии (LLM trim → паддинг пустыми);
- *   - 4xx/5xx/network/парс: массив пустых строк (graceful);
- *   - abort: пробрасывает AbortError.
+ * Один POST `/analyses/position/comment` для одной позиции. Возвращает
+ * строку-комментарий (пустую при любой нефатальной ошибке). `AbortError`
+ * пробрасывается.
  */
-async function sendChunk(
-  facts: readonly FactsInput[],
-  userElo: number,
-  language: 'en' | 'ru',
+async function sendOne(
+  fen: string,
+  factors: readonly PositionalSubterm[],
   signal: AbortSignal | undefined,
-): Promise<string[]> {
+): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/analyses/review/comments`, {
+    res = await fetch(`${API_URL}/analyses/position/comment`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ facts, userElo, language }),
+      body: JSON.stringify({ fen, factors }),
       signal,
     });
   } catch (e) {
     if (isAbortError(e)) throw e;
-    return emptyComments(facts.length);
+    return '';
   }
 
-  if (!res.ok) return emptyComments(facts.length);
+  if (!res.ok) return '';
 
   let data: unknown;
   try {
     data = await res.json();
   } catch {
-    return emptyComments(facts.length);
+    return '';
   }
 
-  const comments = (data as { comments?: unknown } | null)?.comments;
-  if (!Array.isArray(comments)) return emptyComments(facts.length);
-
-  // Нормализуем + паддинг до длины чанка (LLM мог вернуть меньше).
-  const out = new Array<string>(facts.length).fill('');
-  for (let i = 0; i < Math.min(comments.length, facts.length); i++) {
-    const c = comments[i];
-    out[i] = typeof c === 'string' ? c : '';
-  }
-  return out;
-}
-
-/**
- * Резка `arr` на куски по `size`. Сохраняет порядок.
- */
-export function chunkFacts<T>(arr: readonly T[], size: number): T[][] {
-  if (size <= 0) return [arr.slice() as T[]];
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size) as T[]);
-  }
-  return out;
+  const comment = (data as { comment?: unknown } | null)?.comment;
+  return typeof comment === 'string' ? comment : '';
 }
 
 /**
@@ -141,32 +123,38 @@ async function runWithConcurrency<T>(
   return results;
 }
 
+/**
+ * Для каждого факта берёт `fen` и `positional_subterms` и шлёт отдельный
+ * запрос на `/analyses/position/comment`. Возвращает массив комментариев
+ * длиной = `facts.length`. Сохраняет старую сигнатуру ради совместимости
+ * с `useGameReview` и dev-tool `window.__sfReviewProbe`.
+ *
+ * Параметры `userElo` и `language` оставлены в сигнатуре для совместимости
+ * вызовов, но новым обработчиком не используются: контракт нового
+ * обработчика — только `{ fen, factors }`.
+ */
 export async function batchReviewComment(
   facts: readonly FactsInput[],
-  userElo: number,
-  language: 'en' | 'ru',
+  _userElo: number,
+  _language: 'en' | 'ru',
   signal?: AbortSignal,
   options?: BatchReviewCommentOptions,
 ): Promise<string[]> {
   if (facts.length === 0) return [];
 
-  const chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
   const concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
   const onProgress = options?.onProgress;
 
-  const chunks = chunkFacts(facts, chunkSize);
-  // Параллельно тяжёлый массив переиспользуем как буфер ответа,
-  // склейка строго по индексам исходных facts.
   const result = new Array<string>(facts.length).fill('');
   let cumulativeDone = 0;
 
-  const tasks = chunks.map((chunk, chunkIdx) => async () => {
-    const startIdx = chunkIdx * chunkSize;
-    const out = await sendChunk(chunk, userElo, language, signal);
-    for (let i = 0; i < out.length; i++) {
-      result[startIdx + i] = out[i];
-    }
-    cumulativeDone += chunk.length;
+  const tasks = facts.map((fact, idx) => async () => {
+    const factors = Array.isArray(fact.positional_subterms)
+      ? fact.positional_subterms
+      : [];
+    const out = await sendOne(fact.fen, factors, signal);
+    result[idx] = out;
+    cumulativeDone += 1;
     onProgress?.(cumulativeDone);
   });
 
@@ -174,8 +162,8 @@ export async function batchReviewComment(
     await runWithConcurrency(tasks, concurrency);
   } catch (e) {
     if (isAbortError(e)) throw e;
-    // Не должно прилетать — sendChunk сам graceful. Защита от регрессии.
-    return emptyComments(facts.length);
+    // Не должно прилетать — sendOne сам graceful. Защита от регрессии.
+    return new Array<string>(facts.length).fill('');
   }
   return result;
 }
