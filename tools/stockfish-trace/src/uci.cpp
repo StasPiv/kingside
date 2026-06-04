@@ -442,45 +442,14 @@ int uci_command(const char* cmd_str) {
     static StateListPtr uci_states;
     static bool uci_initialized = false;
     if (!uci_initialized) {
-        // KS-3676 / ADR-107 rev 2. По данным diag2 (см. main.cpp
-        // комментарий) изоляция памяти между `_main_thread` pthread
-        // и основным потоком worker'а подтверждена. Стратегия: вся
-        // init-цепочка переносится в ЭТУ функцию, потому что она
-        // исполняется в основном потоке worker'а — именно там, где
-        // позже идут `Evaluation<TRACE>::value()` через
-        // `Eval::trace_json`. Глобальные таблицы (`PopCnt16`,
-        // `SquareDistance`, `LineBB`, `BetweenBB`, `PSQT::psq`)
-        // оказываются записаны в видимом этом потоку module image'е.
-        // main() в pthread main теперь только держит runtime через
-        // `emscripten_exit_with_live_runtime()` — не вызывает ни
-        // одного init'а.
-        //
-        // Предыдущая попытка (cd105f41) добавляла init-вызовы
-        // ДОПОЛНИТЕЛЬНО к выполняемым в pthread main — это давало
-        // `unaligned accesses` (двойной init с alignment-конфликтом).
-        // Теперь pthread main НЕ выполняет init вообще, конфликта нет.
-        //
-        // Endgames::init и Search::clear пропускаем по тем же
-        // причинам что и раньше: endgame-таблицы не нужны для
-        // `eval json`, Search::clear дёргает TT.clear/Tablebases::init.
-        // engine_info() через sync_cout — фронт услышит при первом
-        // ccall (раньше шло из main(), но мы оттуда теперь сразу
-        // emscripten_exit_with_live_runtime).
-        sync_cout << engine_info() << sync_endl;
-        // CommandLine::init НЕ вызываем: внутри argv[0] → file-path
-        // расчёт; на WASM с FILESYSTEM=0 это бессмысленно. Поле
-        // `CommandLine::binaryDirectory` нужно только для NNUE-file-
-        // probe, у нас он принудительно classical (`Eval::NNUE::init`
-        // под emscripten ставит useNNUE=false и возвращается).
-        UCI::init(Options);
-        Tune::init();
-        PSQT::init();
-        Bitboards::init();
-        Position::init();
-        Bitbases::init();
-        Threads.set(size_t(Options["Threads"]));
-        Eval::NNUE::init();
-
+        // KS-3676 / ADR-107 rev 2. init-цепочка возвращена в main()
+        // (см. комментарий в main.cpp): без `-s PROXY_TO_PTHREAD=1`
+        // main() и ccall исполняются в одном и том же основном
+        // потоке исполнителя, изоляции памяти больше нет, глобальные
+        // таблицы заполнены к моменту первого ccall. Здесь только
+        // ленивое создание Position/StateListPtr — первый раз потому,
+        // что Threads.main() должен быть жив (его создаёт `Threads.set`
+        // в main()) к моменту вызова Position::set.
         uci_states.reset(new std::deque<StateInfo>(1));
         uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
         uci_initialized = true;
