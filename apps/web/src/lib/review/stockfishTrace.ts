@@ -28,10 +28,14 @@
  *   - JSON не распарсился → `[]`;
  *   - неизвестные `id` в `subterms` → отбрасываются с WARN.
  *
- * Импорт модуля идёт через runtime `import(MODULE_URL)` с магическим
- * комментарием `vite-ignore`, потому что путь — публичный URL
- * `/stockfish/...`, не модуль из исходников (Vite не должен
- * резолвить его в bundle).
+ * KS-3675: emscripten-сборка `/stockfish/stockfish-16-trace.js` — это
+ * UMD (`var StockfishTrace = …; module.exports = …; define([], …)`),
+ * без ES-default. До этого фронт грузил её через динамический `import()`
+ * — браузер отдавал пустой ES-объект, `mod.default ?? mod` оказывался
+ * не функцией, в консоли писалось
+ * `[stockfishTrace] module factory is not a function`, `positional_subterms`
+ * везде оставались пустыми. Теперь файл подключаем через `<script>`-тег
+ * и берём глобальный `window.StockfishTrace`.
  */
 import type {
   PositionalSubterm,
@@ -181,34 +185,55 @@ type ModuleFactory = (options: ModuleOptions) => Promise<unknown>;
 let cachedFactory: ModuleFactory | null = null;
 let factoryPromise: Promise<ModuleFactory | null> | null = null;
 
+/** Имя глобала, в который emscripten кладёт UMD-фабрику. */
+const GLOBAL_NAME = 'StockfishTrace';
+
 /**
- * Загружает emcc-фабрику единожды. Повторные вызовы возвращают тот же
+ * Загружает UMD-фабрику единожды. Повторные вызовы возвращают тот же
  * promise. Любая ошибка загрузки → `null` (graceful — caller вернёт `[]`).
+ *
+ * KS-3675: подключаем через `<script>` и читаем `window.StockfishTrace`.
+ * Динамический `import()` не подходит — модуль не ES, у него нет
+ * `default`-экспорта, в браузере он отдаёт пустой объект.
+ *
+ * В SSR/jsdom-окружении (где нет `document` / `window`) — мгновенно `null`,
+ * чтобы тесты не падали с ReferenceError.
  */
 async function loadFactory(): Promise<ModuleFactory | null> {
   if (cachedFactory) return cachedFactory;
   if (factoryPromise) return factoryPromise;
-  factoryPromise = (async () => {
-    try {
-      // Динамический импорт URL'а в `public/`. Vite не должен резолвить
-      // путь в bundle — оставляем как есть (`@vite-ignore`).
-      const mod = (await import(/* @vite-ignore */ MODULE_URL)) as {
-        default?: ModuleFactory;
-      } & ModuleFactory;
-      const f = (mod.default ?? mod) as ModuleFactory;
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return null;
+  }
+  factoryPromise = new Promise<ModuleFactory | null>((resolve) => {
+    const win = window as unknown as Record<string, unknown>;
+    const existing = win[GLOBAL_NAME];
+    if (typeof existing === 'function') {
+      cachedFactory = existing as ModuleFactory;
+      resolve(cachedFactory);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = MODULE_URL;
+    s.async = true;
+    s.onload = () => {
+      const f = win[GLOBAL_NAME];
       if (typeof f !== 'function') {
         console.warn('[stockfishTrace] module factory is not a function');
         factoryPromise = null;
-        return null;
+        resolve(null);
+        return;
       }
-      cachedFactory = f;
-      return f;
-    } catch (err) {
+      cachedFactory = f as ModuleFactory;
+      resolve(cachedFactory);
+    };
+    s.onerror = (err) => {
       console.warn('[stockfishTrace] failed to load WASM module:', err);
       factoryPromise = null;
-      return null;
-    }
-  })();
+      resolve(null);
+    };
+    document.head.appendChild(s);
+  });
   return factoryPromise;
 }
 
