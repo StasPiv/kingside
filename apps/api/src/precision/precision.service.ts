@@ -96,7 +96,18 @@ export class PrecisionService {
       minMaiaWeakChoiceProb?: number;
     },
   ): Promise<
-    | { puzzleId: string; rating: number; ratingDelta: number }
+    | {
+        puzzleId: string;
+        rating: number;
+        ratingDelta: number;
+        // KS-3663 / ADR-106 §2.5. Поля Maia-разметки нужны фронту
+        // для индикатора сложности (KS-3660 / KS-3662). Null — пазл
+        // ещё не размечен либо размечен под отменённую формулу
+        // (`maia_metric_version != 1`).
+        maiaWeakChoiceProb: number | null;
+        maiaMetricVersion: number | null;
+        maiaTop1Elo: number | null;
+      }
     | { puzzleId: null; reason: 'no_puzzles_for_themes' }
     | null
   > {
@@ -168,6 +179,11 @@ export class PrecisionService {
           puzzleId: picked.id,
           rating: picked.rating ?? 1500,
           ratingDelta: (picked.rating ?? 1500) - target,
+          // KS-3663 / ADR-106 §2.5. Прокидываем maia-поля для
+          // индикатора сложности на фронте (KS-3660/KS-3662).
+          maiaWeakChoiceProb: picked.maiaWeakChoiceProb ?? null,
+          maiaMetricVersion: picked.maiaMetricVersion ?? null,
+          maiaTop1Elo: picked.maiaTop1Elo ?? null,
         };
       }
     }
@@ -221,7 +237,15 @@ export class PrecisionService {
     themesAnd: string[] = [],
     themesOr: string[] = [],
     minMaiaWeakChoiceProb?: number,
-  ): Promise<{ id: string; rating: number | null } | null> {
+  ): Promise<{
+    id: string;
+    rating: number | null;
+    // KS-3663 / ADR-106 §2.5. Прокидываем поля Maia-разметки наверх
+    // в pickNext → controller → DTO для индикатора сложности.
+    maiaWeakChoiceProb: number | null;
+    maiaMetricVersion: number | null;
+    maiaTop1Elo: number | null;
+  } | null> {
     const where: Record<string, unknown> = {
       source: 'generated',
       isPublic: scopeWhere.isPublic,
@@ -300,7 +324,17 @@ export class PrecisionService {
     // «нет full-scan, но и не идеально равномерно по выборке»).
     const candidates = await this.prisma.puzzle.findMany({
       where: where as never,
-      select: { id: true, rating: true },
+      select: {
+        id: true,
+        rating: true,
+        // KS-3663 / ADR-106 §2.5. Поля Maia нужны фронту для
+        // индикатора сложности (KS-3660/KS-3662). До KS-3663
+        // select их не запрашивал — DTO `/precision/next` шёл
+        // без них, фронт получал undefined и не рисовал блок.
+        maiaWeakChoiceProb: true,
+        maiaMetricVersion: true,
+        maiaTop1Elo: true,
+      },
       take: 50,
     });
     if (candidates.length === 0) return null;

@@ -1189,7 +1189,9 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         { id: 'p-1', rating: 1250 },
       ]);
       const r = await service.pickNext(null, { scope: 'drafts' });
-      expect(r).toEqual({ puzzleId: 'p-1', rating: 1250, ratingDelta: 50 });
+      // KS-3663: результат теперь содержит maia-поля (null, т.к. в mock'е
+      // их нет). Прежний `toEqual` без них — обновлён через toMatchObject.
+      expect(r).toMatchObject({ puzzleId: 'p-1', rating: 1250, ratingDelta: 50 });
       // userPrecisionRating НЕ запрашивается для гостя.
       expect(prisma.userPrecisionRating.findUnique).not.toHaveBeenCalled();
       // findMany вызывался с isPublic=true (server scope).
@@ -1209,7 +1211,8 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         { id: 'p-2', rating: 1750 },
       ]);
       const r = await service.pickNext('u-1', { scope: 'server' });
-      expect(r).toEqual({ puzzleId: 'p-2', rating: 1750, ratingDelta: -50 });
+      // KS-3663: см. выше — toMatchObject вместо toEqual.
+      expect(r).toMatchObject({ puzzleId: 'p-2', rating: 1750, ratingDelta: -50 });
       // Первое окно: 1650..1950.
       const call = prisma.puzzle.findMany.mock.calls[0][0];
       expect(call.where.rating).toEqual({ gte: 1650, lte: 1950 });
@@ -1451,6 +1454,86 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         .filter((x) => x.themes !== undefined)
         .map((x) => x.themes!.contains);
       expect(contains).toEqual(['convertAdvantage', 'pin']);
+    });
+
+    // ── KS-3663 / ADR-106 §2.5: maia-поля в ответе pickNext ────────
+    // Фронт индикатора сложности (KS-3660/KS-3662) ожидает в DTO
+    // `/precision/next` поля maiaWeakChoiceProb/maiaMetricVersion/
+    // maiaTop1Elo. До KS-3663 ни select в tryPickInWindow, ни
+    // pickNext-возврат их не содержали — поле в DTO было undefined,
+    // фронт не рисовал блок.
+    describe('KS-3663 maia-поля в ответе pickNext', () => {
+      it('select запрашивает maiaWeakChoiceProb/maiaMetricVersion/maiaTop1Elo', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          {
+            id: 'p-maia',
+            rating: 1500,
+            maiaWeakChoiceProb: 0.42,
+            maiaMetricVersion: 1,
+            maiaTop1Elo: 1500,
+          },
+        ]);
+        await service.pickNext('u-1', { scope: 'server' });
+        const call = prisma.puzzle.findMany.mock.calls[0][0];
+        expect(call.select).toEqual({
+          id: true,
+          rating: true,
+          maiaWeakChoiceProb: true,
+          maiaMetricVersion: true,
+          maiaTop1Elo: true,
+        });
+      });
+
+      it('размеченный пазл → maia-поля прокидываются в ответ', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          {
+            id: 'p-marked',
+            rating: 1500,
+            maiaWeakChoiceProb: 0.42,
+            maiaMetricVersion: 1,
+            maiaTop1Elo: 1500,
+          },
+        ]);
+        const r = await service.pickNext('u-1', { scope: 'server' });
+        expect(r).toEqual({
+          puzzleId: 'p-marked',
+          rating: 1500,
+          ratingDelta: 0,
+          maiaWeakChoiceProb: 0.42,
+          maiaMetricVersion: 1,
+          maiaTop1Elo: 1500,
+        });
+      });
+
+      it('неразмеченный пазл → maia-поля = null (safe fallback ADR-106 §2.6)', async () => {
+        prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+          rating: 1500,
+        });
+        prisma.puzzle.findMany.mockResolvedValueOnce([
+          {
+            id: 'p-unmarked',
+            rating: 1500,
+            maiaWeakChoiceProb: null,
+            maiaMetricVersion: null,
+            maiaTop1Elo: null,
+          },
+        ]);
+        const r = await service.pickNext('u-1', { scope: 'server' });
+        expect(r).toEqual({
+          puzzleId: 'p-unmarked',
+          rating: 1500,
+          ratingDelta: 0,
+          maiaWeakChoiceProb: null,
+          maiaMetricVersion: null,
+          maiaTop1Elo: null,
+        });
+      });
     });
 
     // ── KS-3661 / ADR-106 §2.6: minMaiaWeakChoiceProb ─────────────

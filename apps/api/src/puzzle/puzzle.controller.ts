@@ -448,7 +448,13 @@ export class PuzzleController {
     // живут локально в `puzzles.source_white_elo` / `source_black_elo`
     // (заполняет tactic-worker). Это снимает ~8 сек на проде (см.
     // devops EXPLAIN ANALYZE 2026-05-11 на KS-2761).
-    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at, ${blundererEloExpr} AS blunderer_elo${solvedStatusSelect}
+    // KS-3663 / ADR-106 §2.5. Добавлены p.maia_weak_choice_prob,
+    // p.maia_metric_version, p.maia_top1_elo — фронт индикатора
+    // сложности (KS-3660/KS-3662) их ожидает в DTO. До KS-3663
+    // эти поля не выбирались SQL'ем, и /puzzles/browse возвращал
+    // строки без них (хотя в БД для 11685 пазлов значения есть
+    // после прогона KS-3643).
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source, p.source_type, p.source_id, p.source_metadata, p.source_move_num, p.game_url, p.solution_mode, p.is_public, p.created_by, p.created_at, p.maia_weak_choice_prob, p.maia_metric_version, p.maia_top1_elo, ${blundererEloExpr} AS blunderer_elo${solvedStatusSelect}
       FROM puzzles p
       WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.id DESC
@@ -471,6 +477,10 @@ export class PuzzleController {
         is_public: boolean;
         created_by: string | null;
         created_at: Date | string;
+        // KS-3663 / ADR-106 §2.5.
+        maia_weak_choice_prob: number | null;
+        maia_metric_version: number | null;
+        maia_top1_elo: number | null;
         blunderer_elo: number | null;
         solved_status: string | null;
       }>
@@ -510,6 +520,12 @@ export class PuzzleController {
         // null для lichess/legacy (нет source_id в archive_games) и для
         // пазлов без fenBeforeBlunder.
         blundererElo: p.blunderer_elo,
+        // KS-3663 / ADR-106 §2.5. Maia-поля для индикатора сложности
+        // (KS-3660/KS-3662). null — пазл не размечен либо размечен под
+        // отменённую формулу (maiaMetricVersion != 1).
+        maiaWeakChoiceProb: p.maia_weak_choice_prob ?? null,
+        maiaMetricVersion: p.maia_metric_version ?? null,
+        maiaTop1Elo: p.maia_top1_elo ?? null,
         // KS-2754. playVsEngine.blunderMove = UCI зевка; sourceGame =
         // {white, black, event, date, ...}; sourceMoveNum = номер хода
         // в исходной партии. Все три поля опциональны — отсутствуют

@@ -333,6 +333,58 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     expect(typeof res.data[0].createdAt).toBe('string');
     expect(res.data[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
+
+  // ── KS-3663 / ADR-106 §2.5. Maia-поля в DTO browse ─────────────────
+  // Регрессия: до KS-3663 SQL `$queryRawUnsafe` не выбирал
+  // p.maia_weak_choice_prob / p.maia_metric_version / p.maia_top1_elo,
+  // и фронт индикатора сложности (KS-3660/KS-3662) получал undefined
+  // на всех пазлах в боевой среде.
+  it('KS-3663: SELECT включает maia_weak_choice_prob/metric_version/top1_elo', async () => {
+    const prisma = makePrisma([]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(anonReq, 20);
+    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    expect(sql).toContain('p.maia_weak_choice_prob');
+    expect(sql).toContain('p.maia_metric_version');
+    expect(sql).toContain('p.maia_top1_elo');
+  });
+
+  it('KS-3663: размеченный пазл → maia-поля в response (snake → camel)', async () => {
+    const prisma = makePrisma([
+      makeRow(1, {
+        maia_weak_choice_prob: 0.42,
+        maia_metric_version: 1,
+        maia_top1_elo: 1500,
+      }),
+    ]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.data[0]).toMatchObject({
+      maiaWeakChoiceProb: 0.42,
+      maiaMetricVersion: 1,
+      maiaTop1Elo: 1500,
+    });
+  });
+
+  it('KS-3663: неразмеченный пазл (отсутствующие поля) → null в response', async () => {
+    const prisma = makePrisma([makeRow(1)]);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.data[0]).toMatchObject({
+      maiaWeakChoiceProb: null,
+      maiaMetricVersion: null,
+      maiaTop1Elo: null,
+    });
+  });
 });
 
 /**
@@ -370,16 +422,19 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
   };
 
   it('null/undefined → нет WHERE по maia_weak_choice_prob', async () => {
+    // KS-3663: maia_weak_choice_prob / maia_metric_version присутствуют
+    // в SELECT (нужны фронту для индикатора сложности), поэтому
+    // проверяем отсутствие именно WHERE-условия, а не подстроки.
     const [sql, ...params] = await callBrowseWithThreshold(undefined);
-    expect(sql).not.toContain('maia_weak_choice_prob');
-    expect(sql).not.toContain('maia_metric_version');
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob >=/);
+    expect(sql).not.toContain('p.maia_metric_version = 1');
     expect(params).not.toContain(0);
   });
 
   it('threshold = 0 → без фильтра (трактуется как null)', async () => {
     const [sql, ...params] = await callBrowseWithThreshold('0');
-    expect(sql).not.toContain('maia_weak_choice_prob');
-    expect(sql).not.toContain('maia_metric_version');
+    expect(sql).not.toMatch(/p\.maia_weak_choice_prob >=/);
+    expect(sql).not.toContain('p.maia_metric_version = 1');
     expect(params).not.toContain(0);
   });
 
