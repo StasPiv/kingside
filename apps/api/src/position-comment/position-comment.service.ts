@@ -184,15 +184,38 @@ export class PositionCommentService {
       ...(dto.eval ? { eval: dto.eval } : {}),
     });
 
+    // KS-3694: временная диагностика регрессии. На скриншоте пользователя
+    // в проде модель снова выдаёт `king_safe_check_knight -2,45` —
+    // словарь и запреты KS-3689 не доходят. Логируем длину prompt'а,
+    // его начало и конец (где должен быть блок про запреты), а также
+    // первый и последний 200 символов ответа webhook. После
+    // подтверждения причины — лог снять.
+    this.logger.log(
+      `KS-3694 systemPrompt lang=${dto.language ?? 'ru'} ` +
+        `len=${systemPrompt.length} ` +
+        `head=${JSON.stringify(systemPrompt.slice(0, 200))} ` +
+        `tail=${JSON.stringify(systemPrompt.slice(-200))} ` +
+        `hasGlossary=${systemPrompt.includes('king_danger →')} ` +
+        `hasNumericBan=${
+          systemPrompt.includes('сырые числовые') ||
+          systemPrompt.includes('raw numeric values')
+        }`,
+    );
+
     try {
       const response = await this.callWebhook(
         userId,
         systemPrompt,
         userMessage,
       );
+      const rawForLog = response ?? '';
+      this.logger.log(
+        `KS-3694 webhook response len=${rawForLog.length} ` +
+          `head=${JSON.stringify(rawForLog.slice(0, 200))}`,
+      );
       // KS-3690: парсер pure-функция, фолбэк внутри. На пустую строку
       // ответа отдаём шейп с пустым comment и пустыми массивами.
-      return parseModelOutput(response ?? '');
+      return parseModelOutput(rawForLog);
     } catch (e) {
       this.logger.error(
         `comment user=${userId.slice(0, 8)} failed: ${(e as Error).message}`,
