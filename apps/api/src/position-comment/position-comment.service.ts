@@ -96,6 +96,12 @@ export class PositionCommentService {
         '',
         'When these factors are present, you MUST reflect both: describe the evaluation in plain words and mention the first two or three moves of pv as the recommended plan. When they are absent, comment using the remaining factors only.',
         '',
+        'Hierarchy of truth — sf18_eval and sf18_pv are the main source of truth. Static factors (anything from the glossary below) describe FORM, not RESULT. Before presenting any static factor as a plus or minus, check it against sf18_eval and sf18_pv:',
+        '- If sf18_eval is roughly equal or against the side that "owns" the factor — the factor is tactically refuted. Use hedged language: "nominally", "structurally", "on the surface", "however", "Stockfish does not see this as an advantage". Do NOT conclude that the side has an advantage from this factor alone.',
+        '- Check sf18_pv: if in the principal variation the opponent immediately captures the piece or pawn the factor relies on, the factor is unreliable — say so. If the principal variation pushes, protects or activates the factor, the factor is real.',
+        '- Order of priority: 1) sf18_eval (the truth about the position now); 2) sf18_pv (the truth about the next few moves); 3) static factors — only the part that agrees with the two above.',
+        'Example: "Nominally White has a passed pawn, but Stockfish sees the position as equal — in the main line Black takes that pawn next move, so the passed pawn is not a real advantage."',
+        '',
         'Glossary — translate each subterm id to its human name before writing about it. Never put a technical id in the answer (king_danger, outpost_knight, mobility_rook, etc.). Use the human name from the table:',
         glossary,
         '',
@@ -129,6 +135,12 @@ export class PositionCommentService {
       '- sf18_pv: первая линия Stockfish 18, массив ходов в UCI (например ["e2e4","e7e5","g1f3"]).',
       '',
       'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: опиши оценку человеческими словами и упомяни первые два-три хода pv как рекомендованный план. Если их нет — комментируй только по остальным факторам.',
+      '',
+      'Иерархия достоверности — sf18_eval и sf18_pv главнее всего остального. Статические факторы (любой пункт словаря ниже) описывают ФОРМУ, а не РЕЗУЛЬТАТ. Перед тем как преподнести любой статический фактор как «плюс» или «минус», сверь его с sf18_eval и sf18_pv:',
+      '- Если sf18_eval показывает примерное равенство или против стороны, которой «принадлежит» фактор, — фактор тактически опровергнут. Используй оговорки: «формально», «структурно», «на первый взгляд», «по структуре, но», «несмотря на это», «Stockfish не считает это преимуществом». НЕ делай вывод о преимуществе только на основании такого статического фактора.',
+      '- Сверка с sf18_pv: если в первой линии соперник на ближайшем ходу забирает фигуру или пешку, на которой держится фактор, — фактор недостоверен, скажи это прямо. Если в первой линии фактор продвигается, защищается или усиливается — фактор реальный.',
+      '- Порядок приоритетов: 1) sf18_eval (что в позиции по факту прямо сейчас); 2) sf18_pv (что произойдёт ближайшими ходами); 3) статические факторы — комментируй только то, что согласуется с двумя выше.',
+      'Пример: «Формально у белых есть проходная пешка, но Stockfish оценивает позицию как равную — в первой линии чёрные на следующем ходу её забирают, так что проходная не даёт реального преимущества».',
       '',
       'Словарь расшифровок — каждый id подкомпоненты переводи в человеческое имя из таблицы перед тем, как писать о нём. Никогда не пиши технический id в ответе (king_danger, outpost_knight, mobility_rook и т.п.). Используй человеческое имя из таблицы:',
       glossary,
@@ -184,17 +196,17 @@ export class PositionCommentService {
       ...(dto.eval ? { eval: dto.eval } : {}),
     });
 
-    // KS-3694: webhook за AI_CHAT_WEBHOOK_URL переиспользует одну и ту
-    // же claude-сессию (claude --resume <sessionId>); системная
-    // инструкция, переданная отдельным полем `systemPrompt`, в Claude-
-    // CLI применяется только при создании сессии — на последующих
-    // запросах игнорируется. Поэтому inline-инструкция в самом
-    // `message` — это единственный надёжный путь донести наш свежий
-    // prompt до модели на каждом запросе. `systemPrompt` в payload
-    // оставляем для совместимости со старым контрактом и для случаев,
-    // когда webhook начнёт создавать новые сессии под position-
-    // comment'ы (тогда наш prompt просто будет учтён дважды — не
-    // навредит, форма короткая).
+    // KS-3694: обработчик внешнего вызова за AI_CHAT_WEBHOOK_URL
+    // переиспользует одну и ту же claude-сессию через
+    // `claude --resume <sessionId>`. Системная инструкция, переданная
+    // отдельным полем `systemPrompt`, в Claude-CLI применяется только
+    // при создании сессии — на последующих запросах игнорируется.
+    // Поэтому встроенная инструкция в самом `message` — это
+    // единственный надёжный путь донести наш свежий prompt до модели
+    // на каждом запросе. `systemPrompt` в payload оставляем для
+    // совместимости со старым контрактом и для случаев, когда внешний
+    // обработчик начнёт создавать новые сессии под position-comment'ы
+    // (тогда наш prompt будет учтён дважды — дубль безвреден).
     const userMessage = [
       systemPrompt,
       '',
@@ -202,33 +214,13 @@ export class PositionCommentService {
       dataJson,
     ].join('\n');
 
-    // KS-3694 диагностика: длина prompt'а, маркеры словаря и запретов.
-    // Лог временный — снять после подтверждения, что обновлённая
-    // инструкция доходит.
-    this.logger.log(
-      `KS-3694 systemPrompt lang=${dto.language ?? 'ru'} ` +
-        `len=${systemPrompt.length} ` +
-        `head=${JSON.stringify(systemPrompt.slice(0, 200))} ` +
-        `hasGlossary=${systemPrompt.includes('king_danger →')} ` +
-        `hasNumericBan=${
-          systemPrompt.includes('сырые числовые') ||
-          systemPrompt.includes('raw numeric values')
-        } ` +
-        `messageLen=${userMessage.length}`,
-    );
-
     try {
       const response = await this.callWebhook(
         userId,
         systemPrompt,
         userMessage,
       );
-      const rawForLog = response ?? '';
-      this.logger.log(
-        `KS-3694 webhook response len=${rawForLog.length} ` +
-          `head=${JSON.stringify(rawForLog.slice(0, 200))}`,
-      );
-      return parseModelOutput(rawForLog);
+      return parseModelOutput(response ?? '');
     } catch (e) {
       this.logger.error(
         `comment user=${userId.slice(0, 8)} failed: ${(e as Error).message}`,

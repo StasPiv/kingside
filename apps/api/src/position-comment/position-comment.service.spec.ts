@@ -151,6 +151,25 @@ describe('PositionCommentService', () => {
       expect(p).toContain('лёгкие фигуры');
     });
 
+    it('KS-3697 RU: блок иерархии достоверности sf18_eval/sf18_pv vs статика', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toContain('Иерархия достоверности');
+      expect(p).toContain('главнее всего остального');
+      expect(p).toContain('тактически опровергнут');
+      // Перечень разрешённых оговорок.
+      expect(p).toContain('формально');
+      expect(p).toContain('структурно');
+      expect(p).toContain('на первый взгляд');
+      expect(p).toContain('Stockfish не считает это преимуществом');
+      // Правило сверки с sf18_pv.
+      expect(p).toContain('Сверка с sf18_pv');
+      expect(p).toMatch(/соперник.*забирает/);
+      // Порядок приоритетов.
+      expect(p).toContain('Порядок приоритетов');
+      // Конкретный пример с проходной (как в задаче пользователя).
+      expect(p).toMatch(/проходная.*равную.*забирают/);
+    });
+
     it('KS-3686 EN: упоминает sf18_eval и sf18_pv, формат и обязательность отразить', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toContain('sf18_eval');
@@ -214,6 +233,25 @@ describe('PositionCommentService', () => {
       expect(p).toContain('minor pieces');
     });
 
+    it('KS-3697 EN: блок иерархии достоверности sf18_eval/sf18_pv vs static', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Hierarchy of truth');
+      expect(p).toContain('main source of truth');
+      expect(p).toContain('tactically refuted');
+      // Перечень разрешённых оговорок.
+      expect(p).toContain('nominally');
+      expect(p).toContain('structurally');
+      expect(p).toContain('on the surface');
+      expect(p).toContain('Stockfish does not see this as an advantage');
+      // Правило сверки с sf18_pv.
+      expect(p).toContain('Check sf18_pv');
+      expect(p).toMatch(/opponent.*captures/);
+      // Порядок приоритетов.
+      expect(p).toContain('Order of priority');
+      // Конкретный пример.
+      expect(p).toMatch(/passed pawn.*equal.*takes that pawn/);
+    });
+
     it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
@@ -223,10 +261,11 @@ describe('PositionCommentService', () => {
         expect(p).not.toContain('ЗАПРЕЩЕНО');
         expect(p).not.toContain('few-shot');
         expect(p).not.toContain('ELO');
-        // KS-3689: словарь расшифровок добавил ~3.3 КБ; ограничение
-        // подняли до 6 КБ. Это ещё всё ещё короче, чем V2-prompt'ы
-        // из старого review-comment (~10 КБ с few-shot).
-        expect(p.length).toBeLessThan(6000);
+        // KS-3689: словарь расшифровок ~3.3 КБ. KS-3697: блок про
+        // иерархию достоверности добавил ещё ~1.3 КБ. Верхнюю границу
+        // подняли до 7.5 КБ. Это всё ещё короче, чем V2-prompt'ы из
+        // старого review-comment (~10 КБ с few-shot).
+        expect(p.length).toBeLessThan(7500);
       }
     });
   });
