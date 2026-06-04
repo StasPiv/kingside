@@ -23,13 +23,10 @@ import { buildPrecisionPuzzleQuery } from '../utils/puzzleNav';
 // — на главной их больше нет, чтобы сетка позиций была видна на первом
 // экране без скролла.
 import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
-// KS-3243 (ADR-076 §7 F1): mobile-only chips-bar + bottom-sheet для
-// фильтров. На desktop оба компонента скрыты CSS-ом (см. puzzle.css).
+// KS-3243 (ADR-076 §7 F1): mobile-only chips-bar для остальных фильтров.
+// На desktop скрыт CSS-ом (см. puzzle.css). KS-3664: bottom-sheet с
+// фильтром рейтинга (`PrecisionRatingSheet`) удалён вместе со слайдером.
 import { PrecisionFilterChipsBar } from '../components/precision/PrecisionFilterChipsBar';
-import {
-  PrecisionRatingSheet,
-  ratingLabelFromUrl,
-} from '../components/precision/PrecisionRatingSheet';
 // KS-3350 (ADR-079 §3.5). Pill с текущим precision-рейтингом юзера.
 import { PrecisionRatingPill } from '../components/precision/PrecisionRatingPill';
 // KS-3348 (ADR-079 §3.4). Sticky-кнопка «Начать тренировку» — авто-подбор
@@ -96,12 +93,6 @@ import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
  */
 
 const LIMIT = 20;
-
-/**
- * KS-2763: границы рейтинга для двухстороннего слайдера. Шаг 50.
- * Крайние значения = «нет фильтра», параметр удаляется из URL.
- */
-const ELO_BOUNDS = { min: 800, max: 3000, step: 50 } as const;
 
 function sideFromFen(fen: string): 'white' | 'black' {
   const parts = fen.split(' ');
@@ -211,49 +202,11 @@ export function PrecisionPage() {
   // (`hideSolved=true` → выкидывает удержанные позиции из выдачи).
   const showSolvedParam = searchParams.get('showSolved') === 'true';
   const hideSolved = !showSolvedParam;
-  // KS-2758 / backend 363216cf: фильтр по рейтингу сыгравших игроков.
-  // Backend смотрит `GREATEST(white_elo, black_elo)` — партия попадает
-  // если хотя бы один игрок в диапазоне. Невалидные/пустые — undefined.
-  const blundererEloMinRaw = searchParams.get('blundererEloMin');
-  const blundererEloMaxRaw = searchParams.get('blundererEloMax');
-  const blundererEloMin =
-    blundererEloMinRaw && /^\d+$/.test(blundererEloMinRaw)
-      ? Number(blundererEloMinRaw)
-      : undefined;
-  const blundererEloMax =
-    blundererEloMaxRaw && /^\d+$/.test(blundererEloMaxRaw)
-      ? Number(blundererEloMaxRaw)
-      : undefined;
-
-  // KS-2763: двухсторонний range-slider для фильтра «Рейтинг».
-  // Диапазон 800..3000 (типичный шахматный), шаг 50. URL-state
-  // прежний: `blundererEloMin/Max`. Крайние позиции (800 / 3000) =
-  // нет фильтра — параметр в URL удаляется. API-запрос дёргается
-  // через debounce 300ms, чтобы drag не флудил сеть.
-  const eloMinValue = blundererEloMin ?? ELO_BOUNDS.min;
-  const eloMaxValue = blundererEloMax ?? ELO_BOUNDS.max;
-  const sliderTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    return () => {
-      if (sliderTimerRef.current) window.clearTimeout(sliderTimerRef.current);
-    };
-  }, []);
-  const debouncedSyncSliders = useCallback(
-    (newMin: number, newMax: number) => {
-      if (sliderTimerRef.current) window.clearTimeout(sliderTimerRef.current);
-      sliderTimerRef.current = window.setTimeout(() => {
-        const sp = new URLSearchParams(searchParams);
-        if (newMin <= ELO_BOUNDS.min) sp.delete('blundererEloMin');
-        else sp.set('blundererEloMin', String(newMin));
-        if (newMax >= ELO_BOUNDS.max) sp.delete('blundererEloMax');
-        else sp.set('blundererEloMax', String(newMax));
-        if (sp.toString() !== searchParams.toString()) {
-          setSearchParams(sp, { replace: true });
-        }
-      }, 300);
-    },
-    [searchParams, setSearchParams],
-  );
+  // KS-3664: фильтр по рейтингу сыгравших игроков (`blundererEloMin/Max`)
+  // и связанный с ним двухсторонний слайдер удалены — после ввода
+  // ползунка «Сложность» (`maiaWeakChoiceProb`) фильтр по рейтингу
+  // оказался избыточным и сбивал пользователя. URL-параметры больше
+  // не парсятся и в `useInfinitePuzzles`/`getThemeCounts` не передаются.
 
   // KS-3361 (ADR-080 §7 F1+F2). Выбранные темы из URL (parsed) — нужны
   // и для useInfinitePuzzles, и для PrecisionThemesSheet. Объявляем
@@ -285,8 +238,6 @@ export function PrecisionPage() {
       // KS-3353: scope=server + auth → NULL-aware «не мои публичные».
       excludeMine: scopeExcludeMine,
       hideSolved: hideSolved ? true : undefined,
-      blundererEloMin,
-      blundererEloMax,
       // KS-3147 (ADR-069 §3.4): themes-LIKE по выбранному жанру.
       // 'all' → undefined (фильтр не передаём, показываем оба).
       themes:
@@ -304,8 +255,6 @@ export function PrecisionPage() {
       scopeVisibility,
       scopeExcludeMine,
       hideSolved,
-      blundererEloMin,
-      blundererEloMax,
       objectiveFilter,
       selectedThemes,
       maiaThreshold,
@@ -416,11 +365,9 @@ export function PrecisionPage() {
   // фильтров (в текущем сеансе показ свежесгенерированных идёт через
   // отдельный success-screen внутри модалки → KS-2585/86).
   const [showGenerator, setShowGenerator] = useState(false);
-  // KS-3243: открыт ли mobile bottom-sheet с фильтром рейтинга.
-  // Управляется из chips-bar (pill «+ Рейтинг»). На desktop никто не
-  // вызывает setRatingSheetOpen(true), sheet никогда не рендерится.
-  const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
-  const ratingLabel = ratingLabelFromUrl(searchParams);
+  // KS-3664: pill «+ Рейтинг» и bottom-sheet `PrecisionRatingSheet`
+  // удалены — слайдер был избыточен на каталоге после ввода ползунка
+  // «Сложность».
 
   // KS-3361 (ADR-080 §7 F1). Bottom-sheet выбора тем.
   const [themesSheetOpen, setThemesSheetOpen] = useState(false);
@@ -448,8 +395,8 @@ export function PrecisionPage() {
         objective:
           objectiveFilter === 'all' ? undefined : objectiveFilter,
         hideSolved: user ? hideSolved : undefined,
-        ratingMin: blundererEloMin,
-        ratingMax: blundererEloMax,
+        // KS-3664: фильтр по рейтингу с каталога убран — `ratingMin/Max`
+        // в счётчики тем больше не передаём.
       })
       .then((res) => {
         if (!cancelled) setThemeCounts(res);
@@ -464,8 +411,6 @@ export function PrecisionPage() {
     scope,
     objectiveFilter,
     hideSolved,
-    blundererEloMin,
-    blundererEloMax,
     user,
   ]);
 
@@ -671,10 +616,10 @@ export function PrecisionPage() {
         onGenerateClick={user ? () => setShowGenerator(true) : undefined}
       />
       {/* KS-3243 (ADR-076 §7 F1): mobile-only chips-bar. На desktop
-          скрыт CSS-ом (display:none), фильтры остаются inline в header. */}
+          скрыт CSS-ом (display:none), фильтры остаются inline в header.
+          KS-3664: pill «+ Рейтинг» убран вместе со слайдером — пропсы
+          `onOpenRatingSheet` / `ratingLabel` больше не передаём. */}
       <PrecisionFilterChipsBar
-        onOpenRatingSheet={() => setRatingSheetOpen(true)}
-        ratingLabel={ratingLabel}
         scopeCounts={scopeCounts}
         // KS-3361 (ADR-080 §7 F1): chip «+ Темы» / «Темы: N».
         onOpenThemesSheet={() => setThemesSheetOpen(true)}
@@ -849,80 +794,10 @@ export function PrecisionPage() {
             {t('precision.showSolved', 'Show solved')}
           </label>
         )}
-        {/* KS-2763: двухсторонний range-slider. Два <input type=range>
-            на одной track (накладываются через CSS). При перетаскивании
-            обновляется local state + дебаунс 300ms → URL. Крайние
-            значения (800/3000) удаляют параметр (нет фильтра). */}
-        <div
-          className="precision-elo-filter"
-          data-testid="precision-elo-filter"
-        >
-          <span className="precision-elo-filter__label">
-            {t('precision.eloFilter.label', 'Rating')}
-          </span>
-          <span
-            className="precision-elo-filter__value"
-            data-testid="precision-elo-filter-value"
-          >
-            {eloMinValue} — {eloMaxValue}
-          </span>
-          <div
-            className="precision-elo-filter__slider"
-            data-testid="precision-elo-filter-slider"
-            style={
-              {
-                // KS-2767: доли 0..1 для accent-сегмента между thumb'ами
-                // (CSS dual-range из KS-2766). 0 = левый край, 1 = правый.
-                // React требует string для custom properties — number
-                // не доходит до element.style.setProperty (вызывало
-                // `accent-сегмент идёт от 0 до --p-max`).
-                '--p-min': String(
-                  (eloMinValue - ELO_BOUNDS.min) /
-                    (ELO_BOUNDS.max - ELO_BOUNDS.min),
-                ),
-                '--p-max': String(
-                  (eloMaxValue - ELO_BOUNDS.min) /
-                    (ELO_BOUNDS.max - ELO_BOUNDS.min),
-                ),
-              } as React.CSSProperties
-            }
-          >
-            <input
-              type="range"
-              min={ELO_BOUNDS.min}
-              max={ELO_BOUNDS.max}
-              step={ELO_BOUNDS.step}
-              value={eloMinValue}
-              aria-label={t('precision.eloFilter.minAria', 'Minimum rating')}
-              data-testid="precision-elo-filter-min"
-              className="precision-elo-filter__range precision-elo-filter__range--min"
-              onChange={(e) => {
-                const v = Math.min(
-                  Number(e.target.value),
-                  eloMaxValue - ELO_BOUNDS.step,
-                );
-                debouncedSyncSliders(v, eloMaxValue);
-              }}
-            />
-            <input
-              type="range"
-              min={ELO_BOUNDS.min}
-              max={ELO_BOUNDS.max}
-              step={ELO_BOUNDS.step}
-              value={eloMaxValue}
-              aria-label={t('precision.eloFilter.maxAria', 'Maximum rating')}
-              data-testid="precision-elo-filter-max"
-              className="precision-elo-filter__range precision-elo-filter__range--max"
-              onChange={(e) => {
-                const v = Math.max(
-                  Number(e.target.value),
-                  eloMinValue + ELO_BOUNDS.step,
-                );
-                debouncedSyncSliders(eloMinValue, v);
-              }}
-            />
-          </div>
-        </div>
+        {/* KS-3664: двухсторонний range-slider «Рейтинг 800–3000»
+            удалён. Он дублировал работу ползунка «Сложность» и сбивал
+            пользователя при подборе пазлов. URL-параметры
+            `blundererEloMin/Max` больше не парсятся в PrecisionPage. */}
         {/* KS-3654 → KS-3657 (ADR-106 §2.6). Ползунок сложности —
             порог Maia weak-choice probability. Source-of-truth держит
             PrecisionPage (`maiaThreshold`), значение пробрасывается
@@ -1415,13 +1290,8 @@ export function PrecisionPage() {
         />
       )}
 
-      {/* KS-3243 (ADR-076 §7 F1): bottom-sheet с ELO-slider'ом. Открывается
-          из chips-bar. Backdrop / Esc / «Готово» закрывают. URL-state и
-          slider-метрики — те же что в desktop-inline-фильтре. */}
-      <PrecisionRatingSheet
-        open={ratingSheetOpen}
-        onClose={() => setRatingSheetOpen(false)}
-      />
+      {/* KS-3664: `PrecisionRatingSheet` (mobile bottom-sheet с
+          ELO-slider'ом) удалён вместе с pill «+ Рейтинг» из chips-bar. */}
 
       {/* KS-3361 (ADR-080 §7 F1): bottom-sheet выбора тем. Открывается
           из chips-bar. URL ?themes=pin,fork,… (KS-3362). */}

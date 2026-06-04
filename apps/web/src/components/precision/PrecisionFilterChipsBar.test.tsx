@@ -10,10 +10,12 @@ import { PrecisionFilterChipsBar } from './PrecisionFilterChipsBar';
  *  - переключение «Все/Мои» меняет ?mine=true.
  *  - segment «Тип» меняет ?objective=...
  *  - show-solved toggle меняет ?showSolved.
- *  - «+ Рейтинг» pill дёргает onOpenRatingSheet.
- *  - ↺ Reset очищает все фильтры включая ELO.
+ *  - ↺ Reset очищает все фильтры включая legacy ELO-параметры.
  *  - testid'ы из desktop-фильтров (precision-tab-all/mine,
  *    precision-objective-{key}, precision-show-solved) переиспользованы.
+ *
+ * KS-3664: pill «+ Рейтинг» удалён вместе со слайдером — тесты на
+ * onOpenRatingSheet/ratingLabel сняты.
  */
 
 const authMock: { user: { id: string; username: string } | null } = {
@@ -38,17 +40,11 @@ function ParamsSink({ onParams }: { onParams: (sp: URLSearchParams) => void }) {
 
 function renderBar(opts: {
   initialUrl?: string;
-  ratingLabel?: string | null;
-  onOpen?: () => void;
   onParams?: (sp: URLSearchParams) => void;
 }) {
-  const onOpen = opts.onOpen ?? vi.fn();
   return renderWithProviders(
     <>
-      <PrecisionFilterChipsBar
-        onOpenRatingSheet={onOpen}
-        ratingLabel={opts.ratingLabel ?? null}
-      />
+      <PrecisionFilterChipsBar />
       {opts.onParams && <ParamsSink onParams={opts.onParams} />}
     </>,
     { route: opts.initialUrl ?? '/precision' },
@@ -126,18 +122,9 @@ describe('<PrecisionFilterChipsBar> (KS-3243)', () => {
     expect(captured?.has('showSolved')).toBe(false);
   });
 
-  it('«+ Рейтинг» pill дёргает onOpenRatingSheet', () => {
-    const onOpen = vi.fn();
-    renderBar({ onOpen });
-    fireEvent.click(screen.getByTestId('precision-chips-rating-open'));
-    expect(onOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it('ratingLabel="1600–2200" подсвечивает «+ Рейтинг» pill активным', () => {
-    renderBar({ ratingLabel: '1600–2200' });
-    const btn = screen.getByTestId('precision-chips-rating-open');
-    expect(btn.className).toContain('precision-chip--active');
-    expect(btn.textContent).toContain('1600–2200');
+  it('KS-3664: pill «+ Рейтинг» больше не рендерится', () => {
+    renderBar({});
+    expect(screen.queryByTestId('precision-chips-rating-open')).toBeNull();
   });
 
   it('Reset показывается только при активных фильтрах и очищает URL', () => {
@@ -147,9 +134,10 @@ describe('<PrecisionFilterChipsBar> (KS-3243)', () => {
 
     let captured: URLSearchParams | null = null;
     renderBar({
+      // KS-3664: blundererEloMin в URL остался от legacy-ссылок — reset
+      // должен их вычищать, даже если самого слайдера в UI больше нет.
       initialUrl:
         '/precision?scope=drafts&objective=convertAdvantage&showSolved=true&blundererEloMin=1600',
-      ratingLabel: '1600–3000',
       onParams: (sp) => (captured = sp),
     });
     const reset = screen.getByTestId('precision-chips-reset');

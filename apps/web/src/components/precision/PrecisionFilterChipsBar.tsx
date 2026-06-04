@@ -21,26 +21,16 @@ import type { PrecisionScope, PrecisionScopeCountsResponse } from '@kingside/sha
  *   - `mine=true` — только мои пазлы (только для авторизованных).
  *   - `objective=convertAdvantage|saveEquality` — фильтр по жанру.
  *   - `showSolved=true` — показать удержанные позиции.
- *   - `blundererEloMin/Max` — открывается через отдельный
- *     RatingSheet (см. `onOpenRatingSheet` ниже).
  *
  * test-id'ы prev-компонентов (precision-tab-all/mine,
  * precision-objective-{key}, precision-show-solved) переиспользуются
  * для chips — тесты не ломаются. Дополнительно вводим
- * `precision-chips-rating-open` и `precision-chips-reset`.
+ * `precision-chips-reset`.
+ *
+ * KS-3664: pill «+ Рейтинг» и параметры `blundererEloMin/Max` удалены —
+ * фильтр был избыточен после ввода ползунка «Сложность».
  */
 export interface PrecisionFilterChipsBarProps {
-  /**
-   * Открыть PrecisionRatingSheet. PrecisionPage хранит флаг `open`
-   * выше, чтобы reset мог его закрыть.
-   */
-  onOpenRatingSheet: () => void;
-  /**
-   * Текстовое значение фильтра рейтинга для бейджа над «+ Рейтинг»
-   * pill'ом. Пусто, если фильтр не активен (slider на крайних позициях).
-   * Передаётся из PrecisionPage, чтобы не дублировать парсинг.
-   */
-  ratingLabel: string | null;
   /**
    * KS-3347 (ADR-079). Счётчики на 3 scope-pill'ах из
    * `GET /precision/scope-counts`. `null` пока загружается / для гостя.
@@ -63,8 +53,6 @@ const OBJECTIVES = ['all', 'convertAdvantage', 'saveEquality'] as const;
 type Objective = (typeof OBJECTIVES)[number];
 
 export function PrecisionFilterChipsBar({
-  onOpenRatingSheet,
-  ratingLabel,
   scopeCounts,
   onOpenThemesSheet,
   selectedThemes,
@@ -85,12 +73,12 @@ export function PrecisionFilterChipsBar({
   // KS-3361: учитываем выбранные темы в активных фильтрах.
   const selectedThemesCount = selectedThemes ? selectedThemes.length : 0;
   // Активный фильтр для бейджа `↺` (показываем кнопку «Сбросить»
-  // только когда хоть что-то применено).
+  // только когда хоть что-то применено). KS-3664: проверку ratingLabel
+  // удалили вместе с pill «+ Рейтинг».
   const hasActiveFilters =
     scope !== 'server' ||
     objective !== 'all' ||
     showSolved ||
-    ratingLabel !== null ||
     selectedThemesCount > 0;
 
   const setScope = (next: PrecisionScope) => {
@@ -122,6 +110,8 @@ export function PrecisionFilterChipsBar({
     sp.delete('visibility');
     sp.delete('objective');
     sp.delete('showSolved');
+    // KS-3664: legacy URL-параметры рейтинга — сбрасываем для совместимости
+    // (могли остаться в сохранённых ссылках), сам слайдер удалён.
     sp.delete('blundererEloMin');
     sp.delete('blundererEloMax');
     // KS-3361: тоже сбрасываем выбранные темы.
@@ -238,20 +228,8 @@ export function PrecisionFilterChipsBar({
         </button>
       )}
 
-      {/* + Рейтинг pill → открыть bottom-sheet со слайдером. */}
-      <button
-        type="button"
-        className={`precision-chip precision-chip--rating${ratingLabel ? ' precision-chip--active' : ''}`}
-        data-testid="precision-chips-rating-open"
-        onClick={onOpenRatingSheet}
-      >
-        {ratingLabel
-          ? t('precision.filterChips.ratingActive', {
-              defaultValue: 'Rating: {{range}}',
-              range: ratingLabel,
-            })
-          : t('precision.filterChips.ratingOpen', '+ Rating')}
-      </button>
+      {/* KS-3664: pill «+ Рейтинг» удалён вместе со слайдером — фильтр
+          по рейтингу сыгравших дублировал ползунок «Сложность». */}
 
       {/* Reset — только когда есть активные фильтры. */}
       {hasActiveFilters && (
