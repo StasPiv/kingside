@@ -838,6 +838,16 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       // commentByPly + флаг warning (UI покажет toast).
       const commentByPly: Record<number, string> = {};
       if (commentsEnabled && !cancelRef.current) {
+        // KS-3679. Подготовка фактов перед LLM вызывает evalStockfishTrace
+        // на каждом NAG-ходе. Если исполнитель WASM выбросит
+        // StockfishTraceEngineError — раньше она улетала за пределы
+        // всех обработчиков и UI висел навсегда. Оборачиваем весь блок
+        // (factsToSend + positional_shifts + LLM batch) в try/catch.
+        const llmPrepStart = performance.now();
+        console.info(
+          `[useGameReview] stage → factsCollect (annotations=${annotations.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+        );
+        try {
         const factsToSend: FactsInput[] = [];
         const plyMap: number[] = [];
         for (let i = 0; i < annotations.length; i++) {
@@ -866,8 +876,17 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // Cancel-aware: между ходами проверяем флаг.
           if (cancelRef.current) break;
           let positionalSubterms: PositionalSubterm[] = [];
+          // KS-3679: лог на каждый вызов, чтобы видеть, на каком ходе
+          // именно завис исполнитель.
+          const traceStart = performance.now();
+          console.info(
+            `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+          );
           try {
             positionalSubterms = await evalStockfishTrace(fenAfter);
+            console.info(
+              `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
+            );
           } catch (err) {
             // KS-3677: при системной поломке исполнителя (таймаут или
             // ошибка инициализации WASM) — останавливаем разбор и
@@ -1097,6 +1116,32 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             setCommentsWarning(true);
           }
           abortRef.current = null;
+        }
+        } catch (prepErr) {
+          // KS-3679: системная поломка SF-trace / позиционного исполнителя
+          // в подготовке перед LLM. Без этого catch ошибка улетала
+          // выше run() как unhandled rejection, UI оставался в
+          // `status='running'` навсегда. Теперь — явная ошибка
+          // с возможностью повторить.
+          console.warn(
+            `[useGameReview] factsCollect/positional/comments failed after ${Math.round(performance.now() - llmPrepStart)}ms:`,
+            prepErr,
+          );
+          engines.terminate();
+          enginesRef.current = null;
+          setStatus('error');
+          if (
+            prepErr &&
+            typeof prepErr === 'object' &&
+            (prepErr as { name?: string }).name === 'StockfishTraceEngineError'
+          ) {
+            setError('stockfish_trace_unavailable');
+          } else {
+            setError(
+              prepErr instanceof Error ? prepErr.message : String(prepErr),
+            );
+          }
+          return;
         }
       }
 
