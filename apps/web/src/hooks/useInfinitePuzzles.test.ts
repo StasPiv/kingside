@@ -122,6 +122,41 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(url).not.toMatch(/minMaiaWeakChoiceProb/);
   });
 
+  it('KS-3665: maxMaiaWeakChoiceProb < 1 → передаётся в query', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    renderHook(() =>
+      useInfinitePuzzles({ maxMaiaWeakChoiceProb: 0.7, limit: 10 }),
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/maxMaiaWeakChoiceProb=0\.7/);
+  });
+
+  it('KS-3665: maxMaiaWeakChoiceProb=1 → параметр НЕ передаётся (1 = без верхней границы)', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    renderHook(() =>
+      useInfinitePuzzles({ maxMaiaWeakChoiceProb: 1, limit: 10 }),
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).not.toMatch(/maxMaiaWeakChoiceProb/);
+  });
+
+  it('KS-3665: min и max вместе → оба параметра в query', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+    renderHook(() =>
+      useInfinitePuzzles({
+        minMaiaWeakChoiceProb: 0.3,
+        maxMaiaWeakChoiceProb: 0.7,
+        limit: 10,
+      }),
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).toMatch(/minMaiaWeakChoiceProb=0\.3/);
+    expect(url).toMatch(/maxMaiaWeakChoiceProb=0\.7/);
+  });
+
   it('KS-3657: смена minMaiaWeakChoiceProb → новый запрос', async () => {
     apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
     const { rerender } = renderHook(

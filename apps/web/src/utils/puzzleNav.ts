@@ -30,7 +30,7 @@ import type {
   PrecisionScope,
 } from '@kingside/shared';
 import { readPrecisionThemesFromUrl } from './precisionThemesUrl';
-import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
+import { readPrecisionMaiaRange } from '../config/precisionMaiaThreshold';
 
 export type PuzzleSection = 'precision' | 'puzzles';
 
@@ -177,14 +177,20 @@ export function buildPrecisionNextParams(
     result.themesOr = themes;
   }
 
-  // KS-3659 / KS-3661 (ADR-106 §2.6). Порог сложности Maia weak-choice —
-  // тот же, что использует каталог через `PrecisionDifficultySlider`
-  // (`localStorage.precision.maiaThreshold`). 0 → параметр в `pickNext`
-  // не уходит (см. `precisionApi.pickNext`). Backend применяет
-  // `WHERE maia_weak_choice_prob >= $v AND maia_metric_version = 1`.
-  const threshold = readPrecisionMaiaThreshold();
-  if (threshold > 0) {
-    result.minMaiaWeakChoiceProb = threshold;
+  // KS-3659 / KS-3661 → KS-3665 (ADR-106 §2.6). Диапазон сложности Maia
+  // weak-choice — тот же, что использует каталог через
+  // `PrecisionDifficultySlider` (`localStorage.precision.maiaThresholdRange`).
+  // Крайние значения трактуются как «без ограничения»: 0 → нижняя не
+  // уходит, 1 → верхняя не уходит. Backend (KS-3661/KS-3670) применяет
+  // `WHERE maia_weak_choice_prob >= $min AND maia_weak_choice_prob <= $max
+  // AND maia_metric_version = 1`.
+  const range = readPrecisionMaiaRange();
+  if (range.min > 0) {
+    result.minMaiaWeakChoiceProb = range.min;
+  }
+  if (range.max < 1) {
+    (result as { maxMaiaWeakChoiceProb?: number }).maxMaiaWeakChoiceProb =
+      range.max;
   }
 
   return result;

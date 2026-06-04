@@ -5,15 +5,20 @@ import {
   buildPrecisionPuzzleQuery,
   detectPuzzleSection,
 } from './puzzleNav';
-import { PRECISION_MAIA_THRESHOLD_STORAGE_KEY } from '../config/precisionMaiaThreshold';
+import {
+  PRECISION_MAIA_RANGE_STORAGE_KEY,
+  PRECISION_MAIA_THRESHOLD_STORAGE_KEY,
+} from '../config/precisionMaiaThreshold';
 
-// KS-3659 чтение `localStorage.precision.maiaThreshold` встроено в
-// `buildPrecisionNextParams`. Чтобы старые кейсы (написанные до KS-3659)
-// не упирались в новый параметр, в beforeEach явно ставим `0` —
-// «фильтр выключен», в этом случае поле в результат не попадает.
-// Кейсы под KS-3659 ниже сами ставят нужное значение.
+// KS-3659/KS-3665 чтение localStorage встроено в `buildPrecisionNextParams`
+// (диапазон Maia). Чтобы старые кейсы (написанные до KS-3659/KS-3665) не
+// упирались в новый параметр, в beforeEach явно ставим `0` в single-key
+// (legacy) и снимаем range-key — это даёт `{min:0, max:1}` после
+// readPrecisionMaiaRange, оба параметра в результат не уходят.
+// Кейсы под KS-3659/KS-3665 ниже сами ставят нужное значение.
 beforeEach(() => {
   localStorage.setItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY, '0');
+  localStorage.removeItem(PRECISION_MAIA_RANGE_STORAGE_KEY);
 });
 
 /**
@@ -211,6 +216,45 @@ describe('buildPrecisionNextParams (KS-3349)', () => {
     localStorage.removeItem(PRECISION_MAIA_THRESHOLD_STORAGE_KEY);
     const r = buildPrecisionNextParams(new URLSearchParams(''), true);
     expect(r.minMaiaWeakChoiceProb).toBe(0.3);
+  });
+
+  it('KS-3665: range {min:0.4, max:0.7} → min и max в результате', () => {
+    localStorage.setItem(
+      PRECISION_MAIA_RANGE_STORAGE_KEY,
+      JSON.stringify({ min: 0.4, max: 0.7 }),
+    );
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true) as {
+      minMaiaWeakChoiceProb?: number;
+      maxMaiaWeakChoiceProb?: number;
+    };
+    expect(r.minMaiaWeakChoiceProb).toBe(0.4);
+    expect(r.maxMaiaWeakChoiceProb).toBe(0.7);
+  });
+
+  it('KS-3665: range {min:0, max:1} → ни min ни max не уходят', () => {
+    localStorage.setItem(
+      PRECISION_MAIA_RANGE_STORAGE_KEY,
+      JSON.stringify({ min: 0, max: 1 }),
+    );
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true) as {
+      minMaiaWeakChoiceProb?: number;
+      maxMaiaWeakChoiceProb?: number;
+    };
+    expect(r.minMaiaWeakChoiceProb).toBeUndefined();
+    expect(r.maxMaiaWeakChoiceProb).toBeUndefined();
+  });
+
+  it('KS-3665: range {min:0.2, max:1} → только min уходит (верх. край = без ограничения)', () => {
+    localStorage.setItem(
+      PRECISION_MAIA_RANGE_STORAGE_KEY,
+      JSON.stringify({ min: 0.2, max: 1 }),
+    );
+    const r = buildPrecisionNextParams(new URLSearchParams(''), true) as {
+      minMaiaWeakChoiceProb?: number;
+      maxMaiaWeakChoiceProb?: number;
+    };
+    expect(r.minMaiaWeakChoiceProb).toBe(0.2);
+    expect(r.maxMaiaWeakChoiceProb).toBeUndefined();
   });
 
   it('KS-3362: невалидная тема в URL → отброшена', () => {

@@ -1,73 +1,68 @@
 /**
- * KS-3654 → KS-3657 / ADR-106 §2.6. Слайдер сложности Precision-пазлов.
+ * KS-3654 → KS-3657 → KS-3665 / ADR-106 §2.6. Слайдер сложности
+ * Precision-пазлов.
  *
- * Управляет порогом `maiaWeakChoiceProb`, по которому фильтруется
- * выдача `/puzzles/browse` (backend KS-3656). Чем выше значение порога —
- * тем выше требуемая вероятность того, что Maia 1500 сыграет один из
- * слабых ходов в позиции, тем меньше пазлов проходят (остаются только
- * самые «обманчивые»).
+ * До KS-3665 — единичный порог `maiaWeakChoiceProb` (фильтр
+ * `>= threshold`). KS-3665: ползунок стал двухсторонним —
+ * диапазон `[min, max]`. Backend (KS-3670) накладывает `prob >= min
+ * AND prob <= max AND metric_version = 1`. Крайние значения трактуются
+ * как «без ограничения»: `min = 0` → `minMaiaWeakChoiceProb` не уходит,
+ * `max = 1` → `maxMaiaWeakChoiceProb` не уходит.
  *
- * Управляемый компонент: родитель держит `value` в своём состоянии,
- * передаёт через `value`/`onChange`. Сам компонент только пишет в
- * `localStorage.precision.maiaThreshold` при изменении — это нужно для
- * автоподбора пазла в `pickEligiblePrecisionPuzzle` (тот читает значение
- * лениво через `readPrecisionMaiaThreshold()` при каждом клике).
+ * Управляемый компонент: родитель держит `value` (объект `{min, max}`)
+ * в своём состоянии, передаёт через `value`/`onChange`. Компонент
+ * параллельно пишет диапазон в `localStorage` (новый ключ
+ * `precision.maiaThresholdRange`) + дублирует `min` в legacy-ключ
+ * `precision.maiaThreshold` — старые читатели (`pickEligiblePrecisionPuzzle`)
+ * продолжают работать без правок.
  *
- * Если `value`/`onChange` не переданы (например, в legacy-тесте) —
- * fallback на uncontrolled-режим со state'ом внутри компонента и
- * чтением начального значения из localStorage.
+ * Если `value`/`onChange` не переданы (legacy-тест) — fallback на
+ * uncontrolled-режим, начальное значение из localStorage через
+ * `readPrecisionMaiaRange()`.
  */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 
 import {
-  PRECISION_MAIA_THRESHOLD_STORAGE_KEY,
-  readPrecisionMaiaThreshold,
+  PrecisionMaiaRange,
+  readPrecisionMaiaRange,
+  writePrecisionMaiaRange,
 } from '../../config/precisionMaiaThreshold';
 
 const STEP = 0.05;
 
 export interface PrecisionDifficultySliderProps {
   /**
-   * Текущее значение порога (0..1). Если задано — компонент работает в
-   * controlled-режиме. Если не задано — uncontrolled, начальное значение
-   * читается из `localStorage` через `readPrecisionMaiaThreshold()`.
+   * Текущий диапазон порогов (оба значения в `[0, 1]`, `min <= max`).
+   * Если задан — компонент работает в controlled-режиме. Если не задан —
+   * uncontrolled, начальное значение читается из localStorage через
+   * `readPrecisionMaiaRange()`.
    */
-  value?: number;
+  value?: PrecisionMaiaRange;
   /**
-   * Колбэк изменения порога. В controlled-режиме обязателен — родитель
+   * Колбэк изменения диапазона. В controlled-режиме обязателен — родитель
    * должен прокинуть новое значение обратно в `value`. В uncontrolled —
    * опционален (компонент обновит внутренний state сам).
    */
-  onChange?: (value: number) => void;
+  onChange?: (value: PrecisionMaiaRange) => void;
   /**
    * Кол-во пазлов, уже загруженных текущим запросом каталога. Если
-   * задан — под слайдером показывается «Найдено: N» или «N+» если есть
-   * ещё страницы (`hasMore`). После KS-3657 фильтр живёт на сервере,
-   * поэтому реальное количество видно по уже отфильтрованной выдаче.
+   * задан — под слайдером показывается «Найдено: N» / «N+» с учётом
+   * `hasMore`.
    */
   loadedCount?: number;
   /**
    * `true` если у текущего запроса есть ещё страницы. С `loadedCount`
-   * используется для индикации «N+» (точное число неизвестно до конца
-   * прокрутки).
+   * используется для индикации «N+».
    */
   hasMore?: boolean;
 }
 
-/**
- * Подпись для текущего порога. Шкала подобрана так, чтобы крайние
- * значения (0 и 1) были явно «Все» и «Максимум», а промежуточные —
- * читаемые «лёгкие/средние/сложные/эксперт».
- */
-function labelForThreshold(value: number, t: TFunction): string {
-  if (value < 0.1) return t('precision.difficulty.all', 'Все');
-  if (value < 0.3) return t('precision.difficulty.easy', 'Лёгкие+');
-  if (value < 0.5) return t('precision.difficulty.medium', 'Средние');
-  if (value < 0.7) return t('precision.difficulty.hard', 'Сложные');
-  if (value < 0.9) return t('precision.difficulty.expert', 'Эксперт');
-  return t('precision.difficulty.max', 'Максимум');
+function clampStep(raw: number): number {
+  const rounded = Math.round(raw / STEP) * STEP;
+  const clamped = Math.max(0, Math.min(1, rounded));
+  // 0.05-шаг даёт хвосты вида 0.30000000000000004 → нормализуем до 2 знаков.
+  return Math.round(clamped * 100) / 100;
 }
 
 export function PrecisionDifficultySlider({
@@ -78,30 +73,46 @@ export function PrecisionDifficultySlider({
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
   const isControlled = controlledValue !== undefined;
-  const [uncontrolledValue, setUncontrolledValue] = useState<number>(() =>
-    readPrecisionMaiaThreshold(),
+  const [uncontrolledValue, setUncontrolledValue] = useState<PrecisionMaiaRange>(
+    () => readPrecisionMaiaRange(),
   );
   const value = isControlled ? controlledValue : uncontrolledValue;
 
-  const handleChange = useCallback(
-    (raw: number) => {
-      const rounded = Math.round(raw / STEP) * STEP;
-      const clamped = Math.max(0, Math.min(1, rounded));
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(
-            PRECISION_MAIA_THRESHOLD_STORAGE_KEY,
-            clamped.toFixed(2),
-          );
-        }
-      } catch {
-        /* localStorage недоступен (private mode и т.п.) — пропускаем */
-      }
-      if (!isControlled) setUncontrolledValue(clamped);
-      onChange?.(clamped);
+  const commit = useCallback(
+    (next: PrecisionMaiaRange) => {
+      writePrecisionMaiaRange(next);
+      if (!isControlled) setUncontrolledValue(next);
+      onChange?.(next);
     },
     [isControlled, onChange],
   );
+
+  const handleMinChange = useCallback(
+    (raw: number) => {
+      const v = clampStep(raw);
+      const next: PrecisionMaiaRange = {
+        min: Math.min(v, value.max),
+        max: value.max,
+      };
+      commit(next);
+    },
+    [commit, value.max],
+  );
+
+  const handleMaxChange = useCallback(
+    (raw: number) => {
+      const v = clampStep(raw);
+      const next: PrecisionMaiaRange = {
+        min: value.min,
+        max: Math.max(v, value.min),
+      };
+      commit(next);
+    },
+    [commit, value.min],
+  );
+
+  const minPercent = Math.round(value.min * 100);
+  const maxPercent = Math.round(value.max * 100);
 
   const hint =
     loadedCount != null && loadedCount >= 0
@@ -116,8 +127,10 @@ export function PrecisionDifficultySlider({
 
   return (
     <div
-      className="precision-difficulty-filter"
+      className="precision-difficulty-filter precision-difficulty-filter--range"
       data-testid="precision-difficulty-filter"
+      data-min={value.min.toFixed(2)}
+      data-max={value.max.toFixed(2)}
     >
       <span className="precision-difficulty-filter__label">
         {t('precision.difficulty.label', 'Сложность')}
@@ -126,22 +139,49 @@ export function PrecisionDifficultySlider({
         className="precision-difficulty-filter__value"
         data-testid="precision-difficulty-filter-value"
       >
-        {labelForThreshold(value, t)}
+        {minPercent}% – {maxPercent}%
       </span>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={STEP}
-        value={value}
-        aria-label={t(
-          'precision.difficulty.ariaLabel',
-          'Сложность пазлов',
-        )}
-        data-testid="precision-difficulty-filter-input"
-        className="precision-difficulty-filter__range"
-        onChange={(e) => handleChange(Number(e.target.value))}
-      />
+      <div
+        className="precision-difficulty-filter__slider"
+        data-testid="precision-difficulty-filter-slider"
+        style={
+          {
+            // Доли 0..1 для accent-сегмента между двумя бегунками
+            // (CSS dual-range, паттерн из удалённого elo-фильтра).
+            '--p-min': String(value.min),
+            '--p-max': String(value.max),
+          } as React.CSSProperties
+        }
+      >
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={STEP}
+          value={value.min}
+          aria-label={t(
+            'precision.difficulty.minAriaLabel',
+            'Минимальная сложность пазлов',
+          )}
+          data-testid="precision-difficulty-filter-min"
+          className="precision-difficulty-filter__range precision-difficulty-filter__range--min"
+          onChange={(e) => handleMinChange(Number(e.target.value))}
+        />
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={STEP}
+          value={value.max}
+          aria-label={t(
+            'precision.difficulty.maxAriaLabel',
+            'Максимальная сложность пазлов',
+          )}
+          data-testid="precision-difficulty-filter-max"
+          className="precision-difficulty-filter__range precision-difficulty-filter__range--max"
+          onChange={(e) => handleMaxChange(Number(e.target.value))}
+        />
+      </div>
       {hint != null && (
         <span
           className="precision-difficulty-filter__hint"

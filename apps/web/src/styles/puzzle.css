@@ -3620,6 +3620,115 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
 }
 
 /* ============================================================
+ * KS-3665 — двухсторонний слайдер сложности.
+ *
+ * DOM:
+ *   <div class="precision-difficulty-filter precision-difficulty-filter--range">
+ *     <span class="precision-difficulty-filter__label">Сложность</span>
+ *     <span class="precision-difficulty-filter__value">30% – 100%</span>
+ *     <div class="precision-difficulty-filter__slider" style="--p-min;--p-max">
+ *       <input class="precision-difficulty-filter__range --min" type="range" />
+ *       <input class="precision-difficulty-filter__range --max" type="range" />
+ *     </div>
+ *     <span class="precision-difficulty-filter__hint">Найдено: 12+</span>
+ *   </div>
+ *
+ * Два input'а накладываются на одной шкале (по образцу удалённого
+ * `.precision-elo-filter` из KS-2766). Между бегунками — accent-сегмент
+ * (псевдоэлемент ::after, ширина по `--p-min`/`--p-max`). Каждый input
+ * получает `pointer-events: none` на треке и `auto` на thumb — клик по
+ * шкале попадает к ближайшему бегунку, а не съедается верхним.
+ * ============================================================ */
+.precision-difficulty-filter--range
+  input[type='range'].precision-difficulty-filter__range {
+  /* Перебиваем flex layout одинарного слайдера — в range-варианте
+     inputs живут внутри .precision-difficulty-filter__slider. */
+  flex: none;
+  max-width: none;
+}
+.precision-difficulty-filter__slider {
+  order: 3;
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 180px;
+  height: 28px;
+  --p-min: 0;
+  --p-max: 1;
+}
+.precision-difficulty-filter__slider::before {
+  /* Базовый трек (серый). */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: var(--ov-track, rgba(124, 131, 255, 0.18));
+}
+.precision-difficulty-filter__slider::after {
+  /* Активный сегмент между бегунками. */
+  content: '';
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  left: calc(var(--p-min) * 100%);
+  right: calc((1 - var(--p-max)) * 100%);
+  background: var(--ov-accent, #7c83ff);
+}
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none; /* трек не ловит — только thumb (см. ниже). */
+}
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+  height: 4px;
+}
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range::-moz-range-track {
+  background: transparent;
+  border: none;
+  height: 4px;
+}
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range::-webkit-slider-thumb {
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range::-moz-range-thumb {
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+/* Верхний (max) бегунок должен лежать над нижним для overlap'ов
+   на крайних позициях, но всё равно отдавать клик ближайшему. */
+.precision-difficulty-filter__slider
+  input[type='range'].precision-difficulty-filter__range--max {
+  z-index: 1;
+}
+
+@media (max-width: 640px) {
+  .precision-difficulty-filter--range .precision-difficulty-filter__slider {
+    order: 4;
+    flex: 1 1 100%;
+    height: 32px;
+  }
+}
+
+/* ============================================================
  * KS-2756 — empty-state «У тебя пока нет попыток / Начать тренировку».
  * Раньше plain `<p>` + кнопка стандартного размера, без воздуха,
  * сетка позиций прилипала снизу. Делаем светлую панель с центровкой

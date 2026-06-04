@@ -21,7 +21,7 @@ import { useAuth } from '../../context/AuthContext';
 import { precisionApi } from '../../api/precisionApi';
 import { puzzleApi } from '../../api-puzzle';
 import { buildPrecisionNextParams } from '../../utils/puzzleNav';
-import { readPrecisionMaiaThreshold } from '../../config/precisionMaiaThreshold';
+import { readPrecisionMaiaRange } from '../../config/precisionMaiaThreshold';
 import { pickEligiblePrecisionPuzzle } from '../../utils/pickEligiblePrecisionPuzzle';
 
 type Status = 'idle' | 'loading' | 'empty' | 'emptyThemes' | 'error';
@@ -37,16 +37,17 @@ export function PrecisionStartTrainingButton() {
     setStatus('loading');
     try {
       const params = buildPrecisionNextParams(searchParams, Boolean(user));
-      // KS-3634 / KS-3642 / ADR-106 §2.6: клиентский Maia-фильтр. До 5
-      // попыток подбираем пазл с `maiaWeakChoiceProb >= threshold` при
+      // KS-3634 / KS-3642 → KS-3665 / ADR-106 §2.6: клиентский Maia-фильтр.
+      // До 5 попыток подбираем пазл с `maiaWeakChoiceProb >= range.min` при
       // актуальной `maiaMetricVersion`; на 5-й неудаче отдаём как есть,
-      // чтобы не зависнуть. `null` от backend (no_puzzles_available /
-      // no_puzzles_for_themes) пропускается ниже — там логика
-      // fallback'а на toast'ы.
-      const threshold = readPrecisionMaiaThreshold();
+      // чтобы не зависнуть. Верхняя граница уже отсекается backend'ом
+      // (KS-3670), retry проверяет только нижнюю как safety-net.
+      // `null` от backend (no_puzzles_available / no_puzzles_for_themes)
+      // пропускается ниже — там логика fallback'а на toast'ы.
+      const range = readPrecisionMaiaRange();
       const eligible = await pickEligiblePrecisionPuzzle(
         params,
-        { threshold },
+        { threshold: range.min },
         {
           pickNext: precisionApi.pickNext,
           getPuzzleById: puzzleApi.getById,

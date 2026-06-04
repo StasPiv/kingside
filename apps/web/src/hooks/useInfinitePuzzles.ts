@@ -150,6 +150,15 @@ export interface InfinitePuzzleFilters {
    * Диапазон строго `(0, 1]`; backend возвращает 400 при выходе.
    */
   minMaiaWeakChoiceProb?: number;
+  /**
+   * KS-3665 / KS-3670 / ADR-106 §2.6. Верхняя граница диапазона
+   * `maia_weak_choice_prob`. При `< 1` backend добавляет
+   * `AND maia_weak_choice_prob <= $v`. `null` / `undefined` / `1` —
+   * параметр не передаётся (без верхней границы).
+   * Диапазон строго `[0, 1]`; backend возвращает 400 при выходе или
+   * при `max < min`.
+   */
+  maxMaiaWeakChoiceProb?: number;
   /** Размер страницы. По умолчанию 30. */
   limit?: number;
 }
@@ -201,6 +210,11 @@ function buildQuery(
   // не передаётся — backend в этом случае не накладывает WHERE-условие.
   if (filters.minMaiaWeakChoiceProb != null && filters.minMaiaWeakChoiceProb > 0)
     params.set('minMaiaWeakChoiceProb', String(filters.minMaiaWeakChoiceProb));
+  // KS-3665 / KS-3670: 1 (или undefined) → без верхней границы. Параметр
+  // в этом случае не передаётся; backend не накладывает WHERE-условие
+  // на верхнюю границу.
+  if (filters.maxMaiaWeakChoiceProb != null && filters.maxMaiaWeakChoiceProb < 1)
+    params.set('maxMaiaWeakChoiceProb', String(filters.maxMaiaWeakChoiceProb));
   return params.toString();
 }
 
@@ -249,6 +263,8 @@ export function useInfinitePuzzles(
     blundererEloMax: filters.blundererEloMax,
     // KS-3657: re-fetch при смене порога maia weak-choice.
     minMaiaWeakChoiceProb: filters.minMaiaWeakChoiceProb,
+    // KS-3665: re-fetch при смене верхней границы диапазона.
+    maxMaiaWeakChoiceProb: filters.maxMaiaWeakChoiceProb,
     limit: filters.limit,
   });
 

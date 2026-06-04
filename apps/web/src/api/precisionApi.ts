@@ -97,6 +97,17 @@ export const precisionApi = {
     ) {
       qs.set('minMaiaWeakChoiceProb', String(params.minMaiaWeakChoiceProb));
     }
+    // KS-3665 / KS-3670 (ADR-106 §2.6). Верхняя граница диапазона. `1`
+    // (или undefined) — без ограничения сверху, параметр не уходит.
+    // Тип-расширение локальное (shared-контракт обновится backend'ом
+    // отдельно; на момент написания фронт уже работает с прод-API).
+    const withMax = params as { maxMaiaWeakChoiceProb?: number };
+    if (
+      withMax.maxMaiaWeakChoiceProb != null &&
+      withMax.maxMaiaWeakChoiceProb < 1
+    ) {
+      qs.set('maxMaiaWeakChoiceProb', String(withMax.maxMaiaWeakChoiceProb));
+    }
     return api.get<PickNextPrecisionResponse>(`${BASE}/next?${qs.toString()}`);
   },
 

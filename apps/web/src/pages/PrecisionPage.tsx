@@ -53,10 +53,13 @@ import {
 } from '../utils/precisionUrlMigrate';
 import { precisionApi } from '../api/precisionApi';
 import type { PrecisionScopeCountsResponse } from '@kingside/shared';
-// KS-3657 (ADR-106 §2.6). Порог Maia weak-choice — состояние держим в
-// PrecisionPage, проброс в `useInfinitePuzzles` (server-side фильтр) и
-// в `<PrecisionDifficultySlider value/onChange>` (controlled).
-import { readPrecisionMaiaThreshold } from '../config/precisionMaiaThreshold';
+// KS-3657 (ADR-106 §2.6) → KS-3665. Диапазон Maia weak-choice — состояние
+// держим в PrecisionPage, проброс в `useInfinitePuzzles` (server-side
+// фильтр) и в `<PrecisionDifficultySlider value/onChange>` (controlled).
+import {
+  readPrecisionMaiaRange,
+  type PrecisionMaiaRange,
+} from '../config/precisionMaiaThreshold';
 
 /**
  * KS-2484 (ADR-044) → KS-2578 → KS-2585/KS-2586 — список тренировки
@@ -216,14 +219,14 @@ export function PrecisionPage() {
     [searchParams],
   );
 
-  // KS-3657 (ADR-106 §2.6). Порог Maia weak-choice. Source-of-truth —
-  // local state в PrecisionPage; начальное значение читаем из
-  // localStorage (туда же пишет ползунок при изменении, чтобы
-  // `pickEligiblePrecisionPuzzle` подобрал тот же порог при клике
+  // KS-3657 → KS-3665 (ADR-106 §2.6). Диапазон Maia weak-choice.
+  // Source-of-truth — local state в PrecisionPage; начальное значение
+  // читаем из localStorage (туда же пишет ползунок при изменении, чтобы
+  // `pickEligiblePrecisionPuzzle` подобрал то же значение при клике
   // «Начать тренировку»). Передаём в `useInfinitePuzzles` как фильтр и
   // в `<PrecisionDifficultySlider value/onChange>` как controlled-prop.
-  const [maiaThreshold, setMaiaThreshold] = useState<number>(() =>
-    readPrecisionMaiaThreshold(),
+  const [maiaRange, setMaiaRange] = useState<PrecisionMaiaRange>(() =>
+    readPrecisionMaiaRange(),
   );
 
   // KS-2586: миграция с raw `api.get` на `useInfinitePuzzles` —
@@ -246,8 +249,11 @@ export function PrecisionPage() {
       // UI пока выставляет ТОЛЬКО OR (выбрал «pin+fork» → задачи с
       // pin ИЛИ fork). AND-режим — задел на будущий «продвинутый».
       themesOr: selectedThemes.length > 0 ? selectedThemes : undefined,
-      // KS-3657: серверный фильтр по maia weak-choice (0 = без фильтра).
-      minMaiaWeakChoiceProb: maiaThreshold > 0 ? maiaThreshold : undefined,
+      // KS-3657 → KS-3665: серверный фильтр по диапазону maia weak-choice.
+      // Крайние значения трактуются как «без ограничения» (0 для нижней,
+      // 1 для верхней) — backend в этих случаях не добавляет WHERE.
+      minMaiaWeakChoiceProb: maiaRange.min > 0 ? maiaRange.min : undefined,
+      maxMaiaWeakChoiceProb: maiaRange.max < 1 ? maiaRange.max : undefined,
       limit: LIMIT,
     }),
     [
@@ -257,7 +263,7 @@ export function PrecisionPage() {
       hideSolved,
       objectiveFilter,
       selectedThemes,
-      maiaThreshold,
+      maiaRange,
     ],
   );
 
@@ -806,8 +812,8 @@ export function PrecisionPage() {
             ползунок — оттуда же читает `pickEligiblePrecisionPuzzle`
             при клике «Начать тренировку». */}
         <PrecisionDifficultySlider
-          value={maiaThreshold}
-          onChange={setMaiaThreshold}
+          value={maiaRange}
+          onChange={setMaiaRange}
           loadedCount={puzzles.length}
           hasMore={hasMore}
         />
