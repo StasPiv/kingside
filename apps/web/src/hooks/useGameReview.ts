@@ -838,8 +838,28 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // ярлыков всё равно осмысленны (мат/тактика/материал — есть).
           if (createPositionalEval !== null) {
             let posEngine: PositionalEvalEngineType | null = null;
+            // KS-3676. Подробное логирование причин пустого
+            // `positional_shifts`. До этой правки ошибки исполнителя
+            // молча проглатывались (`onError` не подключён, тихий null
+            // от `evalPosition` пропускался без сообщения), и
+            // в боевой среде нельзя было отличить «движок не стартовал»
+            // от «парсер не нашёл термины». Теперь видно конкретную
+            // причину в console.
+            let nullEvalCount = 0;
+            const reportEngineError = (
+              reason: string,
+              err?: unknown,
+            ) => {
+              console.warn(
+                '[useGameReview] positional_shifts engine error:',
+                reason,
+                err,
+              );
+            };
             try {
-              posEngine = (createPositionalEval ?? (() => new PositionalEvalEngine()))();
+              posEngine = (createPositionalEval ?? (() =>
+                new PositionalEvalEngine({ onError: reportEngineError })
+              ))();
               await posEngine.init();
               for (let i = 0; i < factsToSend.length; i++) {
                 if (cancelRef.current) break;
@@ -848,7 +868,10 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
                   posEngine.evalPosition(f.fen),
                   posEngine.evalPosition(f.fen_after),
                 ]);
-                if (!evalBefore || !evalAfter) continue;
+                if (!evalBefore || !evalAfter) {
+                  nullEvalCount++;
+                  continue;
+                }
                 const shifts = computePositionalShifts(
                   evalBefore,
                   evalAfter,
@@ -862,6 +885,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
                 // Мутируем in-place — facts ещё не ушли в batch.
                 (f as { positional_shifts: typeof shifts }).positional_shifts =
                   shifts;
+              }
+              if (nullEvalCount > 0) {
+                console.warn(
+                  `[useGameReview] positional_shifts: parser returned null for ${nullEvalCount}/${factsToSend.length * 2} positions (output of SF не содержал все 13 терминов).`,
+                );
               }
             } catch (err) {
               // Не блокируем разбор; positional_shifts остаются [].
