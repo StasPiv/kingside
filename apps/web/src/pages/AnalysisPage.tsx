@@ -818,21 +818,21 @@ function AnalysisPageInner({
   // анализа теперь только клиентский WASM/external Stockfish.
 
   // Panel collapse state
-  // KS-3687: добавлен collapsible-блок `ai` — отдельная панель AI-комментария
-  // справа от engine-panel (см. AnalysisSidebar). По умолчанию открыт на
-  // desktop, свёрнут на узких экранах (как engine-panel).
-  // KS-3696: правая колонка работает как accordion — одна открытая панель
-  // за раз среди (engine | moves | ai | book). `gameInfo` не входит в
-  // accordion (это header-плашка). Дефолт: открыт `engine`. На узких
-  // экранах сворачиваем сразу, чтобы не занимать высоту.
+  // KS-3687: добавлен collapsible-блок `ai` — отдельная панель
+  // AI-комментария. KS-3696: правая колонка — «Движок»/«Нотация»/«Книга»/«AI»
+  // в порядке вёрстки. «Движок» и «AI» взаимно исключаются, «Нотация»
+  // и «Книга» — независимые.
+  // Дефолт на desktop: открыты «Движок», «Нотация», «Книга»; «AI» закрыт
+  // (раз «Движок» открыт). На узких экранах всё свёрнуто, чтобы не
+  // занимать высоту.
   const [panelStates, setPanelStates] = useState(() => {
     const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
     return {
       gameInfo: !narrow,
       engine: !narrow,
-      moves: false,
+      moves: !narrow,
       ai: false,
-      book: false,
+      book: !narrow,
     };
   });
   // KS-3696. Ref-обёртка для «приостановить движок при схлопывании
