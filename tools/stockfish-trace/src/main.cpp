@@ -41,9 +41,28 @@ int main(int argc, char* argv[]) {
   Bitboards::init();
   Position::init();
   Bitbases::init();
+#ifndef __EMSCRIPTEN__
+  // KS-3676 / ADR-107 rev 2. Под emscripten пропускаем endgame-таблицы.
+  // Devops отладочный след стека (`-g3 -s ASSERTIONS=1`):
+  //   dlmalloc → operator new → unordered_map::__do_rehash →
+  //     Endgames::add → Endgames::init → main
+  // Падение на повреждении кучи (по гипотезе — раздельные heap arenas
+  // между `_main_thread` под `PROXY_TO_PTHREAD=1` и основным потоком
+  // ccall). Для нашего единственного сценария `eval json`
+  // endgame-таблицы не нужны: `Material::probe` через
+  // `Endgames::probe<Value>(key)` получит nullptr из пустого
+  // `endgameFunctions` — это штатное «нет специальной функции для
+  // этого материала», EVALUATE идёт по обычной классической оценке.
   Endgames::init();
+#endif
   Threads.set(size_t(Options["Threads"]));
+#ifndef __EMSCRIPTEN__
+  // KS-3676. Search::clear дёргает Threads.main()->wait_for_search_finished
+  // (в WASM возвращается мгновенно, ОК), TT.clear (heap-heavy при
+  // повреждённой куче) и Tablebases::init (file-probe — не работает
+  // при FILESYSTEM=0). Для eval json ни одно из трёх не нужно.
   Search::clear(); // After threads are up
+#endif
   Eval::NNUE::init();
 
   // KS-3676 / ADR-107 rev 2. В WASM-сборке UCI работает не через stdin,
