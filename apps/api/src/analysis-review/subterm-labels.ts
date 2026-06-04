@@ -248,6 +248,34 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     ru: 'пространственный перевес',
     en: 'space advantage',
   },
+
+  // ─── Mobility per piece (KS-3677, ADR-107 rev 2 §2.2, фаза 10 C1a) ──
+  mobility_knight: {
+    ru: 'мобильность коня',
+    en: 'knight mobility',
+  },
+  mobility_bishop: {
+    ru: 'мобильность слона',
+    en: 'bishop mobility',
+  },
+  mobility_rook: {
+    ru: 'мобильность ладьи',
+    en: 'rook mobility',
+  },
+  mobility_queen: {
+    ru: 'мобильность ферзя',
+    en: 'queen mobility',
+  },
+
+  // ─── King attackers агрегаты (KS-3677) ──────────────────────────
+  king_attackers_count: {
+    ru: 'количество фигур, атакующих короля',
+    en: 'count of pieces attacking the king',
+  },
+  king_attackers_weight: {
+    ru: 'суммарный вес атакующих короля фигур',
+    en: 'total weight of pieces attacking the king',
+  },
 };
 
 /**
