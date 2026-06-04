@@ -84,11 +84,10 @@ export function useGameReviewLauncher(
     openingName,
     userLanguage,
     movetimeMs,
-    // LLM-комментарии временно отключены по решению пользователя —
-    // фича сырая, требует доработки расстановки NAG/вариантов до
-    // подключения текстовых пояснений. Сборка PGN идёт штатно
-    // (annotations + variations), `commentByPly` остаётся пустым.
-    commentsEnabled: false,
+    // KS-3650/KS-3651/KS-3673: эпика ADR-107 rev 2 (positional_subterms)
+    // готова, V2-разметка на боевой среде включена — LLM-комментарии
+    // снова собираются. По умолчанию `useGameReview` берёт
+    // `commentsEnabled = true`, явно не задаём.
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
