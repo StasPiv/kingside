@@ -17,8 +17,10 @@ import { describe, it, expect } from 'vitest';
 import {
   composeArrowLayers,
   mergeSquareStyleLayers,
+  omitLastMoveIfAiOverlayActive,
   type AiArrowRender,
 } from './analysis/aiOverlayMerge';
+import { LAST_MOVE_COLOR } from '../hooks/useBoardHighlights';
 
 describe('mergeSquareStyleLayers — порядок слоёв (KS-3691)', () => {
   it('пустые слои → пустой результат', () => {
@@ -110,6 +112,121 @@ describe('composeArrowLayers — порядок стрелок (KS-3691)', () =>
       arr('e2', 'e4', 'sys'),
       arr('a2', 'a4', 'user'),
     ]);
+  });
+});
+
+// --- KS-3695: фильтр last-move под AI overlay ----------------------------
+
+describe('omitLastMoveIfAiOverlayActive (KS-3695)', () => {
+  it('AI overlay выключен → системные стили проходят как есть, last-move сохранён', () => {
+    const sys = {
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      e4: { backgroundColor: LAST_MOVE_COLOR },
+    };
+    const out = omitLastMoveIfAiOverlayActive(
+      sys,
+      { from: 'e2', to: 'e4' },
+      LAST_MOVE_COLOR,
+      false,
+    );
+    expect(out).toEqual(sys);
+  });
+
+  it('AI overlay включён → клетки last-move удаляются', () => {
+    const sys = {
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      e4: { backgroundColor: LAST_MOVE_COLOR },
+    };
+    const out = omitLastMoveIfAiOverlayActive(
+      sys,
+      { from: 'e2', to: 'e4' },
+      LAST_MOVE_COLOR,
+      true,
+    );
+    expect(out).toEqual({});
+  });
+
+  it('AI overlay включён, но клетка перекрыта selected-цветом → НЕ удаляется', () => {
+    const sys = {
+      // last-move from
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      // last-move to уже стал selected (пользователь кликнул на e4)
+      e4: { backgroundColor: 'rgba(255, 213, 0, 0.55)' },
+    };
+    const out = omitLastMoveIfAiOverlayActive(
+      sys,
+      { from: 'e2', to: 'e4' },
+      LAST_MOVE_COLOR,
+      true,
+    );
+    expect(out).toEqual({
+      e4: { backgroundColor: 'rgba(255, 213, 0, 0.55)' },
+    });
+  });
+
+  it('AI overlay включён, lastMoveSquares=null → системные стили без изменений', () => {
+    const sys = { a1: { backgroundColor: 'sys' } };
+    expect(
+      omitLastMoveIfAiOverlayActive(sys, null, LAST_MOVE_COLOR, true),
+    ).toEqual(sys);
+  });
+
+  it('переключение AI overlay → last-move возвращается синхронно', () => {
+    const sys = {
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      e4: { backgroundColor: LAST_MOVE_COLOR },
+    };
+    const lm = { from: 'e2', to: 'e4' };
+    // AI overlay включён → пусто
+    const hidden = omitLastMoveIfAiOverlayActive(
+      sys,
+      lm,
+      LAST_MOVE_COLOR,
+      true,
+    );
+    expect(hidden).toEqual({});
+    // AI overlay выключен → клетки last-move обратно
+    const shown = omitLastMoveIfAiOverlayActive(
+      sys,
+      lm,
+      LAST_MOVE_COLOR,
+      false,
+    );
+    expect(shown).toEqual(sys);
+  });
+
+  it('возвращает новый объект, не мутирует входной', () => {
+    const sys = {
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      e4: { backgroundColor: LAST_MOVE_COLOR },
+    };
+    const before = JSON.stringify(sys);
+    omitLastMoveIfAiOverlayActive(
+      sys,
+      { from: 'e2', to: 'e4' },
+      LAST_MOVE_COLOR,
+      true,
+    );
+    expect(JSON.stringify(sys)).toBe(before);
+  });
+
+  it('интеграция с mergeSquareStyleLayers — AI overlay поверх отфильтрованного системного слоя', () => {
+    const sys = {
+      e2: { backgroundColor: LAST_MOVE_COLOR },
+      e4: { backgroundColor: LAST_MOVE_COLOR },
+    };
+    const ai = { d5: { backgroundColor: 'rgba(82, 184, 72, 0.8)' } };
+    const user = {};
+    const effective = omitLastMoveIfAiOverlayActive(
+      sys,
+      { from: 'e2', to: 'e4' },
+      LAST_MOVE_COLOR,
+      true,
+    );
+    const merged = mergeSquareStyleLayers(effective, ai, user);
+    expect(merged).toEqual({
+      d5: { backgroundColor: 'rgba(82, 184, 72, 0.8)' },
+    });
   });
 });
 

@@ -26,7 +26,7 @@ import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
-import { useBoardHighlights } from '../hooks/useBoardHighlights';
+import { useBoardHighlights, LAST_MOVE_COLOR } from '../hooks/useBoardHighlights';
 import { HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
@@ -96,6 +96,7 @@ import { AnalysisSidebar } from './analysis/AnalysisSidebar';
 import {
   composeArrowLayers,
   mergeSquareStyleLayers,
+  omitLastMoveIfAiOverlayActive,
 } from './analysis/aiOverlayMerge';
 // KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
 // discriminated union review/analysis/puzzle. Заменяет разбросанные
@@ -1787,7 +1788,7 @@ function AnalysisPageInner({
     [makeVariantMove, isPromotionMove],
   );
 
-  const { squareStyles, arrows, setLastMove, onSquareClick, setSuggestedArrow } = useBoardHighlights({
+  const { squareStyles, arrows, lastMoveSquares, setLastMove, onSquareClick, setSuggestedArrow } = useBoardHighlights({
     game, playerColor: null, enabled: true,
     onMove: onClickMove,
   });
@@ -1983,14 +1984,31 @@ function AnalysisPageInner({
     }));
   }, [aiOverlayVisible, aiPositionComment.overlay]);
 
+  // KS-3695: когда поверх доски активен AI overlay, last-move-подсветка
+  // системного слоя мешает восприятию цветных пометок модели. Убираем
+  // её, оставляя selected/legal (это другая семантика интерактива).
+  // Сравниваем `backgroundColor` с экспортированной константой —
+  // если квадрат уже стал selected/legal (другой цвет), оставляем как
+  // есть, чтобы не сбрасывать пользовательский клик.
+  const systemStylesEffective = useMemo(
+    () =>
+      omitLastMoveIfAiOverlayActive(
+        squareStyles,
+        lastMoveSquares ?? null,
+        LAST_MOVE_COLOR,
+        aiOverlayVisible,
+      ),
+    [squareStyles, lastMoveSquares, aiOverlayVisible],
+  );
+
   // Объединённые стили: системный слой → AI overlay → пользовательские
   // правые клики. Каждый следующий слой перезаписывает background-color
   // предыдущего по той же клетке. Сама логика — в чистом хелпере, чтобы
   // её можно было проверять без подъёма всего AnalysisPage (см.
   // aiOverlayMerge.test.ts).
   const mergedSquareStyles = useMemo(
-    () => mergeSquareStyleLayers(squareStyles, aiSquareStyles, highlightStyles),
-    [squareStyles, aiSquareStyles, highlightStyles],
+    () => mergeSquareStyleLayers(systemStylesEffective, aiSquareStyles, highlightStyles),
+    [systemStylesEffective, aiSquareStyles, highlightStyles],
   );
 
   // Объединённые стрелки: hover-suggestion → AI стрелки → пользовательские

@@ -3,7 +3,10 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 
 // Colors for last-move highlight
-const LAST_MOVE_COLOR = 'rgba(255, 213, 0, 0.45)';
+// KS-3695: экспортируем константу — AnalysisPage сравнивает по ней
+// background-color, чтобы отличить last-move-стиль от selected/legal
+// и убрать его, когда поверх показан AI overlay.
+export const LAST_MOVE_COLOR = 'rgba(255, 213, 0, 0.45)';
 
 // Colors for legal move highlights
 const MOVE_DOT_COLOR = 'rgba(0, 0, 0, 0.22)';
@@ -43,6 +46,13 @@ interface UseBoardHighlightsResult {
   squareStyles: Record<string, React.CSSProperties>;
   /** arrows to pass to MemoChessboard boardOptions */
   arrows: ArrowData[];
+  /**
+   * KS-3695: квадраты последнего сделанного хода, отдельно от
+   * `squareStyles`. AnalysisPage использует их, чтобы убрать last-move
+   * подсветку, когда поверх показан AI overlay (selected/legal клики
+   * пользователя при этом остаются).
+   */
+  lastMoveSquares: { from: Square; to: Square } | null;
   /** Call when a square/piece is clicked */
   onSquareClick: (square: Square) => void;
   /** Call after a move is made to record the last move */
@@ -200,6 +210,9 @@ export function useBoardHighlights({
   return {
     squareStyles,
     arrows,
+    // KS-3695: исходные квадраты last-move для AnalysisPage (фильтр
+    // под AI overlay). null — last-move ещё не задан.
+    lastMoveSquares: lastMove,
     onSquareClick,
     setLastMove,
     clearLastMove,
