@@ -303,9 +303,6 @@ type SfTraceInstance = {
   removeMessageListener: (cb: (line: unknown) => void) => void;
   postMessage: (cmd: string) => void;
   terminate: () => void;
-  // Прямой syscall в Stockfish — запасной путь, если postMessage по
-  // какой-то причине не работает в браузере (есть в списке экспортов
-  // от devops). Принимает UCI-команду строкой, ничего не возвращает.
   _uci_command?: (cmd: string) => void;
   ccall?: (
     name: string,
@@ -313,6 +310,11 @@ type SfTraceInstance = {
     argTypes: string[],
     args: unknown[],
   ) => unknown;
+  cwrap?: (
+    name: string,
+    returnType: string | null,
+    argTypes: string[],
+  ) => (...args: unknown[]) => unknown;
 };
 type SfTraceFactory = () => Promise<SfTraceInstance>;
 
@@ -526,6 +528,22 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   console.info(
     `[stockfishTrace] instance ready in ${Math.round(performance.now() - sfStart)}ms`,
   );
+  // KS-3683: дамп API экземпляра — чтобы видеть какие методы реально
+  // экспортированы и какого они типа.
+  try {
+    const keys = Object.keys(sf as unknown as Record<string, unknown>);
+    console.info('[stockfishTrace] sf keys:', keys);
+    console.info('[stockfishTrace] api types:', {
+      postMessage: typeof sf.postMessage,
+      addMessageListener: typeof sf.addMessageListener,
+      _uci_command: typeof sf._uci_command,
+      ccall: typeof sf.ccall,
+      cwrap: typeof sf.cwrap,
+      terminate: typeof sf.terminate,
+    });
+  } catch (err) {
+    console.warn('[stockfishTrace] api dump failed:', err);
+  }
 
   // Сборка JSON из приходящих stdout-строк.
   let collecting = false;
@@ -594,27 +612,61 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   };
   sf.addMessageListener(onLine);
 
-  // Init. KS-3683: дублируем через _uci_command если экспорт доступен —
-  // в Node у devops работал postMessage, в браузере возможно другой
-  // канал. Будем слать обе команды; если оба фейлятся — таймаут.
+  // KS-3683: дублируем через все доступные каналы — postMessage,
+  // прямой _uci_command, ccall и cwrap. Какой сработает — увидим
+  // в логе [stockfishTrace] ← raw=. Если ни один — поверх Stockfish
+  // нет рабочего канала ввода в этой сборке.
+  let cwrapUciCommand: ((cmd: string) => void) | null = null;
+  if (typeof sf.cwrap === 'function') {
+    try {
+      cwrapUciCommand = sf.cwrap('uci_command', null, ['string']) as (
+        cmd: string,
+      ) => void;
+      console.info('[stockfishTrace] cwrap(uci_command) prepared');
+    } catch (err) {
+      console.warn('[stockfishTrace] cwrap(uci_command) threw:', err);
+    }
+  }
   const sendCmd = (cmd: string) => {
+    let any = false;
     try {
       sf.postMessage(cmd);
+      console.info('[stockfishTrace]   ✓ postMessage:', cmd);
+      any = true;
     } catch (err) {
       console.warn('[stockfishTrace] postMessage threw:', err);
     }
     if (typeof sf._uci_command === 'function') {
       try {
         sf._uci_command(cmd);
+        console.info('[stockfishTrace]   ✓ _uci_command:', cmd);
+        any = true;
       } catch (err) {
         console.warn('[stockfishTrace] _uci_command threw:', err);
       }
-    } else if (typeof sf.ccall === 'function') {
+    }
+    if (typeof sf.ccall === 'function') {
       try {
         sf.ccall('uci_command', null, ['string'], [cmd]);
+        console.info('[stockfishTrace]   ✓ ccall(uci_command):', cmd);
+        any = true;
       } catch (err) {
-        console.warn('[stockfishTrace] ccall uci_command threw:', err);
+        console.warn('[stockfishTrace] ccall(uci_command) threw:', err);
       }
+    }
+    if (cwrapUciCommand) {
+      try {
+        cwrapUciCommand(cmd);
+        console.info('[stockfishTrace]   ✓ cwrap(uci_command):', cmd);
+        any = true;
+      } catch (err) {
+        console.warn('[stockfishTrace] cwrap(uci_command) threw:', err);
+      }
+    }
+    if (!any) {
+      console.warn(
+        '[stockfishTrace] sendCmd: ни один канал не доступен/не сработал',
+      );
     }
   };
   console.info('[stockfishTrace] → uci');
