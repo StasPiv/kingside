@@ -299,10 +299,20 @@ export function _resetStockfishTraceCacheForTests(): void {
  *     своя фабрика-инстанс, terminate сразу после получения JSON.
  */
 type SfTraceInstance = {
-  addMessageListener: (cb: (line: string) => void) => void;
-  removeMessageListener: (cb: (line: string) => void) => void;
+  addMessageListener: (cb: (line: unknown) => void) => void;
+  removeMessageListener: (cb: (line: unknown) => void) => void;
   postMessage: (cmd: string) => void;
   terminate: () => void;
+  // Прямой syscall в Stockfish — запасной путь, если postMessage по
+  // какой-то причине не работает в браузере (есть в списке экспортов
+  // от devops). Принимает UCI-команду строкой, ничего не возвращает.
+  _uci_command?: (cmd: string) => void;
+  ccall?: (
+    name: string,
+    returnType: string | null,
+    argTypes: string[],
+    args: unknown[],
+  ) => unknown;
 };
 type SfTraceFactory = () => Promise<SfTraceInstance>;
 
@@ -531,7 +541,26 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     resolveJson = r;
   });
 
-  const onLine = (line: string) => {
+  const onLine = (raw: unknown) => {
+    // KS-3683: raw-лог, чтобы видеть тип и содержимое каждого
+    // сообщения от исполнителя. Раньше я фильтровал по line.trim() ===
+    // 'uciok' и при объекте/иной структуре сообщения молча игнорировал
+    // всё. Теперь видно реальный поток.
+    console.info('[stockfishTrace] ← raw=', raw);
+    let line: string;
+    if (typeof raw === 'string') {
+      line = raw;
+    } else if (
+      raw &&
+      typeof raw === 'object' &&
+      'data' in raw &&
+      typeof (raw as { data: unknown }).data === 'string'
+    ) {
+      // На случай если сборка шлёт MessageEvent-подобные объекты.
+      line = (raw as { data: string }).data;
+    } else {
+      return;
+    }
     if (!uciOk) {
       if (line.trim() === 'uciok') {
         uciOk = true;
@@ -565,8 +594,31 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   };
   sf.addMessageListener(onLine);
 
-  // Init.
-  sf.postMessage('uci');
+  // Init. KS-3683: дублируем через _uci_command если экспорт доступен —
+  // в Node у devops работал postMessage, в браузере возможно другой
+  // канал. Будем слать обе команды; если оба фейлятся — таймаут.
+  const sendCmd = (cmd: string) => {
+    try {
+      sf.postMessage(cmd);
+    } catch (err) {
+      console.warn('[stockfishTrace] postMessage threw:', err);
+    }
+    if (typeof sf._uci_command === 'function') {
+      try {
+        sf._uci_command(cmd);
+      } catch (err) {
+        console.warn('[stockfishTrace] _uci_command threw:', err);
+      }
+    } else if (typeof sf.ccall === 'function') {
+      try {
+        sf.ccall('uci_command', null, ['string'], [cmd]);
+      } catch (err) {
+        console.warn('[stockfishTrace] ccall uci_command threw:', err);
+      }
+    }
+  };
+  console.info('[stockfishTrace] → uci');
+  sendCmd('uci');
   let initTimer: ReturnType<typeof setTimeout> | null = null;
   const uciResult = await Promise.race([
     uciOkPromise.then(() => 'ok' as const),
@@ -588,8 +640,10 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   }
 
   // Eval.
-  sf.postMessage(`position fen ${fen}`);
-  sf.postMessage('eval json');
+  console.info('[stockfishTrace] → position fen ...');
+  sendCmd(`position fen ${fen}`);
+  console.info('[stockfishTrace] → eval json');
+  sendCmd('eval json');
   let evalTimer: ReturnType<typeof setTimeout> | null = null;
   const raw = await Promise.race([
     jsonPromise,
