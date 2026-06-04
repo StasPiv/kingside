@@ -8,7 +8,7 @@
  *  - rating range.
  *  - hideSolved для login.
  *  - nextCursor выставляется когда rows.length > take.
- *  - count(*) НЕ вызывается (только один $queryRawUnsafe per browse).
+ *  - KS-3666: count(*) ВЫЗЫВАЕТСЯ всегда (total под фильтры).
  */
 import { PuzzleController } from './puzzle.controller';
 import {
@@ -19,12 +19,44 @@ import type { PuzzleService } from './puzzle.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedRequest } from '../common/authenticated-request';
 
-function makePrisma(rows: unknown[] = []) {
+/**
+ * KS-3666: browse теперь делает ДВА $queryRawUnsafe — count и data.
+ * Mock различает их по SQL-сигнатуре `COUNT(*)`. `total` по умолчанию
+ * равен `rows.length`; передать явное значение можно через второй
+ * аргумент (для тестов где данные на странице != общему количеству).
+ */
+function makePrisma(rows: unknown[] = [], total?: number) {
+  const queryFn = jest
+    .fn<Promise<unknown>, [string, ...unknown[]]>()
+    .mockImplementation((sql: string) => {
+      if (sql.includes('COUNT(*)')) {
+        return Promise.resolve([{ total: total ?? rows.length }]);
+      }
+      return Promise.resolve(rows);
+    });
   return {
-    $queryRawUnsafe: jest
-      .fn<Promise<unknown>, [string, ...unknown[]]>()
-      .mockResolvedValueOnce(rows),
+    $queryRawUnsafe: queryFn,
   } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+}
+
+/**
+ * KS-3666: помощник для тестов KS-3656/KS-3670 — найти именно
+ * data-вызов (SELECT p.id ...), потому что в mock.calls теперь два
+ * вызова (count + data), порядок которых зависит от Promise.all
+ * resolve order.
+ */
+function getDataCall(prisma: PrismaService & { $queryRawUnsafe: jest.Mock }): [
+  string,
+  ...unknown[],
+] {
+  const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+  const dataCall = calls.find((c) => c[0].includes('SELECT p.id'));
+  if (!dataCall) {
+    throw new Error(
+      'data-вызов $queryRawUnsafe не найден (есть только COUNT)',
+    );
+  }
+  return dataCall;
 }
 
 function makeRow(i: number, override: Partial<Record<string, unknown>> = {}) {
@@ -80,7 +112,8 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
     expect(res.data).toHaveLength(3);
     expect(res.nextCursor).toBeNull();
-    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1); // нет COUNT
+    // KS-3666: теперь два вызова — count (для total) + data.
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
   });
 
   it('nextCursor выставляется когда rows.length === limit+1', async () => {
@@ -107,7 +140,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
     await controller.browse(anonReq, 20, cursor);
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     expect(sql).toContain('p.created_at < $');
     expect(sql).toContain('p.id < $');
     expect(params).toContain('2026-05-07T10:00:00.000Z');
@@ -126,7 +159,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       'fork,pin,mate',
     );
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     // OR-выражение: (p.themes LIKE $X OR p.themes LIKE $Y OR p.themes LIKE $Z).
     expect(sql).toMatch(/p\.themes LIKE \$\d+ OR p\.themes LIKE \$\d+ OR p\.themes LIKE \$\d+/);
     expect(params).toContain('%fork%');
@@ -148,7 +181,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       '1800',
     );
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     expect(sql).toContain('p.rating >= $');
     expect(sql).toContain('p.rating <= $');
     expect(params).toContain(1500);
@@ -171,7 +204,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       'lichess',
     );
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     expect(sql).toContain('p.source = $');
     expect(params).toContain('lichess');
   });
@@ -192,7 +225,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       "evil'; DROP TABLE puzzles --",
     );
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     expect(sql).not.toContain('p.source =');
     expect(params.some((p: unknown) => typeof p === 'string' && p.includes('DROP'))).toBe(false);
   });
@@ -203,7 +236,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
     await controller.browse(anonReq, 20);
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toContain('p.is_public = true');
     // Visibility: created_by фильтра нет (есть только в select-list).
     expect(sql).not.toMatch(/p\.created_by = \$/);
@@ -215,7 +248,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
     await controller.browse(loginReq('user-1'), 20);
 
-    const [sql, ...params] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql, ...params] = getDataCall(prisma);
     expect(sql).toContain('OR p.is_public = true');
     expect(params).toContain('user-1');
   });
@@ -226,7 +259,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
     await controller.browse(loginReq('user-1'), 20, undefined, 'true');
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
     expect(sql).not.toContain('OR p.is_public');
   });
@@ -292,7 +325,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       undefined,
       'true',
     );
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     // Anon → просто is_public=true, без NULL-фильтра по created_by.
     expect(sql).toContain('p.is_public = true');
     expect(sql).not.toContain('created_by IS NULL');
@@ -313,7 +346,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       'true',
     );
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toContain('NOT EXISTS');
     expect(sql).toContain('puzzle_attempts');
   });
@@ -346,7 +379,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       prisma,
     );
     await controller.browse(anonReq, 20);
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toContain('p.maia_weak_choice_prob');
     expect(sql).toContain('p.maia_metric_version');
     expect(sql).toContain('p.maia_top1_elo');
@@ -415,7 +448,7 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
       undefined, undefined, undefined,
       threshold,
     );
-    return (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0] as [
+    return getDataCall(prisma) as [
       string,
       ...unknown[],
     ];
@@ -539,7 +572,7 @@ describe('PuzzleController.browse — KS-3670 maxMaiaWeakChoiceProb', () => {
       min,
       max,
     );
-    return (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0] as [
+    return getDataCall(prisma) as [
       string,
       ...unknown[],
     ];
@@ -619,6 +652,168 @@ describe('PuzzleController.browse — KS-3670 maxMaiaWeakChoiceProb', () => {
 
 
 /**
+ * KS-3666: точный счётчик `total` под текущие фильтры в ответе
+ * /puzzles/browse. Заменяет UI-заглушку «N+» из KS-3654 на «Найдено: N».
+ *
+ * Контракт:
+ *  - всегда выполняется ВТОРОЙ $queryRawUnsafe — COUNT(*) с теми же
+ *    WHERE-условиями, что и dataQuery, но БЕЗ keyset cursor (total
+ *    стабилен между страницами);
+ *  - возвращается в ответе как `total: number`;
+ *  - source whitelist / theme-фильтры / rating-range / mine /
+ *    visibility / minMaiaWeakChoiceProb / maxMaiaWeakChoiceProb —
+ *    все участвуют в count;
+ *  - cursor — НЕ участвует в count.
+ */
+describe('PuzzleController.browse — KS-3666 total', () => {
+  it('делает count + data (два $queryRawUnsafe)', async () => {
+    const prisma = makePrisma([makeRow(1), makeRow(2)], 42);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.some((c) => c[0].includes('COUNT(*)'))).toBe(true);
+    expect(calls.some((c) => c[0].includes('SELECT p.id'))).toBe(true);
+    expect(res.total).toBe(42);
+  });
+
+  it('total из count, не из rows.length (страница 2 из 42)', async () => {
+    const prisma = makePrisma([makeRow(1), makeRow(2)], 42);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.data).toHaveLength(2);
+    expect(res.total).toBe(42);
+  });
+
+  it('total = 0 когда countRows пустой', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn<Promise<unknown>, [string, ...unknown[]]>()
+        .mockImplementation((sql: string) => {
+          if (sql.includes('COUNT(*)')) return Promise.resolve([]);
+          return Promise.resolve([]);
+        }),
+    } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.total).toBe(0);
+  });
+
+  it('count использует те же фильтры что dataQuery (source + rating)', async () => {
+    const prisma = makePrisma([], 7);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined, // cursor
+      undefined, // mine
+      undefined, // themes
+      '1200',    // ratingMin
+      '1600',    // ratingMax
+      undefined, // hideSolved
+      'lichess', // source
+    );
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall[0]).toContain('p.source = $');
+    expect(countCall[0]).toContain('p.rating >= $');
+    expect(countCall[0]).toContain('p.rating <= $');
+    expect(countCall.slice(1)).toContain('lichess');
+    expect(countCall.slice(1)).toContain(1200);
+    expect(countCall.slice(1)).toContain(1600);
+  });
+
+  it('count НЕ содержит keyset-cursor условие (total стабилен между страницами)', async () => {
+    const prisma = makePrisma([makeRow(1)], 100);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    const cursor = encodePuzzleCursor({
+      c: '2026-05-07T10:00:00.000Z',
+      i: 'pz-5',
+    });
+    await controller.browse(anonReq, 20, cursor);
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    // dataQuery содержит cursor-условие, count — нет.
+    expect(countCall[0]).not.toContain('p.created_at <');
+    const dataCall = calls.find((c) => c[0].includes('SELECT p.id'))!;
+    expect(dataCall[0]).toContain('p.created_at <');
+  });
+
+  it('count НЕ содержит ORDER BY / LIMIT', async () => {
+    const prisma = makePrisma([makeRow(1)], 100);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(anonReq, 20);
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall[0]).not.toContain('ORDER BY');
+    expect(countCall[0]).not.toContain('LIMIT');
+  });
+
+  it('count учитывает minMaiaWeakChoiceProb', async () => {
+    const prisma = makePrisma([], 3);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      '0.5', // minMaiaWeakChoiceProb
+    );
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
+    expect(countCall[0]).toContain('p.maia_metric_version = 1');
+    expect(countCall.slice(1)).toContain(0.5);
+  });
+
+  it('count учитывает maxMaiaWeakChoiceProb (диапазон [0.4, 0.7])', async () => {
+    const prisma = makePrisma([], 5);
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+    );
+    await controller.browse(
+      anonReq,
+      20,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      '0.4',
+      '0.7',
+    );
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
+    expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob <= \$\d+/);
+    expect(countCall.slice(1)).toContain(0.4);
+    expect(countCall.slice(1)).toContain(0.7);
+  });
+});
+
+
+/**
  * KS-2582: visibility=public|draft|all для GET /puzzles/browse.
  *
  * Логика (ADR-050 §3 #3):
@@ -647,7 +842,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
       'draft',
     );
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
     expect(sql).toContain('p.is_public = false');
     expect(sql).not.toContain('p.is_public = true');
@@ -670,7 +865,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
       'public',
     );
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
     expect(sql).toContain('p.is_public = true');
     expect(sql).not.toContain('p.is_public = false');
@@ -693,7 +888,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
       'all',
     );
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
     // Нет ни одного is_public-условия в WHERE (поле в SELECT-list — ок).
     expect(sql).not.toContain('p.is_public = true');
@@ -706,7 +901,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
     await controller.browse(loginReq('user-1'), 20, undefined, 'true');
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toMatch(/p\.created_by = \$\d+::uuid/);
     expect(sql).not.toContain('p.is_public = true');
     expect(sql).not.toContain('p.is_public = false');
@@ -820,7 +1015,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
       'public',
     );
 
-    const [sql] = (prisma.$queryRawUnsafe as jest.Mock).mock.calls[0];
+    const [sql] = getDataCall(prisma);
     expect(sql).toContain('p.is_public = true');
   });
 });

@@ -448,6 +448,14 @@ export class PuzzleController {
       conditions.push('p.maia_metric_version = 1');
     }
 
+    // KS-3666: snapshot WHERE-условий и параметров ДО добавления
+    // курсора/solvedStatus/limit. На этом срезе строится `countQuery`
+    // (total = общее число подходящих под фильтры пазлов, не
+    // зависит от позиции пагинации — стабильно при переходе на
+    // следующую страницу).
+    const filterConditionsSnapshot = [...conditions];
+    const filterParamsSnapshot = [...params];
+
     // KS-2560 keyset cursor: `(created_at, id) < (cursor.c, cursor.i)`.
     // Декодируем cursor; если невалидный — игнорируем (первая страница).
     const decoded = decodePuzzleCursor(cursor);
@@ -497,31 +505,48 @@ export class PuzzleController {
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT ${limitPh}`;
 
-    const rows = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: string;
-        fen: string;
-        moves: string;
-        rating: number;
-        themes: string;
-        source: string;
-        source_type: string | null;
-        source_id: string | null;
-        source_metadata: string | null;
-        source_move_num: number | null;
-        game_url: string | null;
-        solution_mode: string | null;
-        is_public: boolean;
-        created_by: string | null;
-        created_at: Date | string;
-        // KS-3663 / ADR-106 §2.5.
-        maia_weak_choice_prob: number | null;
-        maia_metric_version: number | null;
-        maia_top1_elo: number | null;
-        blunderer_elo: number | null;
-        solved_status: string | null;
-      }>
-    >(dataQuery, ...params);
+    // KS-3666 / ADR-106. Точный счётчик «Найдено: N» в UI каталога.
+    // Считается на snapshot conditions/params до cursor — total
+    // стабилен при переходе на следующую страницу. Параллельно с
+    // dataQuery через Promise.all (две поездки в БД, но без
+    // последовательного ожидания).
+    const countWhere = filterConditionsSnapshot.join(' AND ');
+    const countQuery = `SELECT COUNT(*)::int AS total
+      FROM puzzles p
+      WHERE ${countWhere}`;
+
+    const [rows, countRows] = await Promise.all([
+      this.prisma.$queryRawUnsafe<
+        Array<{
+          id: string;
+          fen: string;
+          moves: string;
+          rating: number;
+          themes: string;
+          source: string;
+          source_type: string | null;
+          source_id: string | null;
+          source_metadata: string | null;
+          source_move_num: number | null;
+          game_url: string | null;
+          solution_mode: string | null;
+          is_public: boolean;
+          created_by: string | null;
+          created_at: Date | string;
+          // KS-3663 / ADR-106 §2.5.
+          maia_weak_choice_prob: number | null;
+          maia_metric_version: number | null;
+          maia_top1_elo: number | null;
+          blunderer_elo: number | null;
+          solved_status: string | null;
+        }>
+      >(dataQuery, ...params),
+      this.prisma.$queryRawUnsafe<Array<{ total: number }>>(
+        countQuery,
+        ...filterParamsSnapshot,
+      ),
+    ]);
+    const total = countRows[0]?.total ?? 0;
 
     const hasMore = rows.length > take;
     const slice = hasMore ? rows.slice(0, take) : rows;
@@ -578,6 +603,10 @@ export class PuzzleController {
         }),
       })),
       nextCursor,
+      // KS-3666. Общее число подходящих пазлов под текущие фильтры
+      // (БЕЗ учёта курсора — стабилен между страницами). Фронт
+      // KS-3672 отображает «Найдено: N» вместо «N+».
+      total,
     };
   }
 
