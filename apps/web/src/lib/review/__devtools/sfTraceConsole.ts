@@ -39,9 +39,9 @@ declare global {
   }
 }
 
-function sideFromFen(fen: string): 'w' | 'b' {
+function sideFromFen(fen: string): 'white' | 'black' {
   const parts = fen.split(' ');
-  return parts[1] === 'b' ? 'b' : 'w';
+  return parts[1] === 'b' ? 'black' : 'white';
 }
 
 /**
@@ -60,9 +60,19 @@ function buildProbeFact(
 ): FactsInput {
   const side = sideFromFen(fen);
   // Псевдо-ход — не используется LLM (classification='good' + sf_best=null
-  // означают «пользователь не делал заметного хода», на бэке в prompt идёт
-  // только то, что есть). UCI/SAN — заглушка для типа.
-  const dummyMove = { uci: 'e2e4', san: 'e4' } as FactsInput['move'];
+  // означают «пользователь не делал заметного хода», на бэке в подсказке
+  // идёт только то, что есть). Все поля FactsMove заполнены нейтрально,
+  // чтобы DTO-валидатор бэкенда (class-validator) пропустил факт.
+  const dummyMove: FactsInput['move'] = {
+    uci: 'e2e4',
+    san: 'e4',
+    capture: null,
+    check: false,
+    mate: null,
+    castling: null,
+    promotion: null,
+    en_passant: false,
+  };
   return {
     ply: 1,
     fen,
