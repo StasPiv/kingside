@@ -178,28 +178,43 @@ export class PositionCommentService {
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.language);
-    const userMessage = JSON.stringify({
+    const dataJson = JSON.stringify({
       fen: dto.fen,
       factors: dto.factors,
       ...(dto.eval ? { eval: dto.eval } : {}),
     });
 
-    // KS-3694: временная диагностика регрессии. На скриншоте пользователя
-    // в проде модель снова выдаёт `king_safe_check_knight -2,45` —
-    // словарь и запреты KS-3689 не доходят. Логируем длину prompt'а,
-    // его начало и конец (где должен быть блок про запреты), а также
-    // первый и последний 200 символов ответа webhook. После
-    // подтверждения причины — лог снять.
+    // KS-3694: webhook за AI_CHAT_WEBHOOK_URL переиспользует одну и ту
+    // же claude-сессию (claude --resume <sessionId>); системная
+    // инструкция, переданная отдельным полем `systemPrompt`, в Claude-
+    // CLI применяется только при создании сессии — на последующих
+    // запросах игнорируется. Поэтому inline-инструкция в самом
+    // `message` — это единственный надёжный путь донести наш свежий
+    // prompt до модели на каждом запросе. `systemPrompt` в payload
+    // оставляем для совместимости со старым контрактом и для случаев,
+    // когда webhook начнёт создавать новые сессии под position-
+    // comment'ы (тогда наш prompt просто будет учтён дважды — не
+    // навредит, форма короткая).
+    const userMessage = [
+      systemPrompt,
+      '',
+      'Исходные данные (JSON):',
+      dataJson,
+    ].join('\n');
+
+    // KS-3694 диагностика: длина prompt'а, маркеры словаря и запретов.
+    // Лог временный — снять после подтверждения, что обновлённая
+    // инструкция доходит.
     this.logger.log(
       `KS-3694 systemPrompt lang=${dto.language ?? 'ru'} ` +
         `len=${systemPrompt.length} ` +
         `head=${JSON.stringify(systemPrompt.slice(0, 200))} ` +
-        `tail=${JSON.stringify(systemPrompt.slice(-200))} ` +
         `hasGlossary=${systemPrompt.includes('king_danger →')} ` +
         `hasNumericBan=${
           systemPrompt.includes('сырые числовые') ||
           systemPrompt.includes('raw numeric values')
-        }`,
+        } ` +
+        `messageLen=${userMessage.length}`,
     );
 
     try {
@@ -213,8 +228,6 @@ export class PositionCommentService {
         `KS-3694 webhook response len=${rawForLog.length} ` +
           `head=${JSON.stringify(rawForLog.slice(0, 200))}`,
       );
-      // KS-3690: парсер pure-функция, фолбэк внутри. На пустую строку
-      // ответа отдаём шейп с пустым comment и пустыми массивами.
       return parseModelOutput(rawForLog);
     } catch (e) {
       this.logger.error(

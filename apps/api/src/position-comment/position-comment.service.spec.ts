@@ -392,9 +392,16 @@ describe('PositionCommentService', () => {
       // В payload нет sf18_*, но инструкция всё равно содержит описание —
       // модель сама поймёт что этих факторов нет и комментирует по
       // остальным (см. фразу «Если их нет — комментируй только…»).
-      const userMessage = JSON.parse(captured.message);
-      expect(JSON.stringify(userMessage.factors)).not.toContain('sf18_eval');
-      expect(JSON.stringify(userMessage.factors)).not.toContain('sf18_pv');
+      // KS-3694: message теперь — это «инструкция + JSON-блок данных».
+      // Чтобы проверить состав factors, выдёргиваем JSON-блок после
+      // «Исходные данные (JSON):». В нём не должно быть sf18_*.
+      const m = String(captured.message).match(
+        /Исходные данные \(JSON\):\n([\s\S]+)$/,
+      );
+      expect(m).not.toBeNull();
+      const data = JSON.parse((m as RegExpMatchArray)[1]);
+      expect(JSON.stringify(data.factors)).not.toContain('sf18_eval');
+      expect(JSON.stringify(data.factors)).not.toContain('sf18_pv');
     });
   });
 
