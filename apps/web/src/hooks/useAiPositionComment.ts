@@ -46,6 +46,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { AiArrow, AiHighlight } from '@kingside/shared';
+
 import { evalTrace } from '../lib/review/stockfishTrace';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -68,12 +70,23 @@ export function normalizeFen(fen: string): string {
   return parts.slice(0, 4).join(' ');
 }
 
+/**
+ * KS-3691 / ADR-108b §5. В кэше теперь храним не только текст комментария,
+ * но и overlay (подсветки + стрелки) от модели. Пустые overlay (`comment===''`)
+ * тоже кэшируются — обозначаются `comment===''` и пустыми массивами.
+ */
+interface CacheEntry {
+  comment: string;
+  highlights: AiHighlight[];
+  arrows: AiArrow[];
+}
+
 // Модульный LRU. Map в JS сохраняет порядок вставки — этого хватает
 // для классического LRU: при чтении `get` мы переустанавливаем ключ
 // (delete + set), при превышении лимита удаляем «голову» (первый ключ).
-const cache: Map<string, string> = new Map();
+const cache: Map<string, CacheEntry> = new Map();
 
-function cacheGet(key: string): string | undefined {
+function cacheGet(key: string): CacheEntry | undefined {
   if (!cache.has(key)) return undefined;
   const v = cache.get(key)!;
   cache.delete(key);
@@ -81,7 +94,7 @@ function cacheGet(key: string): string | undefined {
   return v;
 }
 
-function cacheSet(key: string, value: string): void {
+function cacheSet(key: string, value: CacheEntry): void {
   if (cache.has(key)) cache.delete(key);
   cache.set(key, value);
   while (cache.size > CACHE_LIMIT) {
@@ -101,12 +114,26 @@ export type AiCommentSource = 'live' | 'cache' | 'full-review';
 export type AiCommentState =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'success'; comment: string; source: AiCommentSource }
+  | {
+      kind: 'success';
+      comment: string;
+      source: AiCommentSource;
+      /** KS-3691 / ADR-108b §3. Подсветки клеток от модели. */
+      highlights: AiHighlight[];
+      /** KS-3691 / ADR-108b §3. Стрелки от модели. */
+      arrows: AiArrow[];
+    }
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
   | { kind: 'rate-limited'; retryAfterSec: number }
   | { kind: 'unauthenticated' }
   | { kind: 'unsupported' };
+
+/** KS-3691: безопасный фасад overlay для AnalysisPage. */
+export interface AiOverlay {
+  highlights: AiHighlight[];
+  arrows: AiArrow[];
+}
 
 export interface UseAiPositionCommentOptions {
   fen: string;
@@ -174,6 +201,18 @@ export interface UseAiPositionCommentResult {
   regenerate: () => void;
   /** Текущее значение софт-счётчика для UI-индикатора. */
   softCounter: { used: number; limit: number; windowMin: number };
+  /**
+   * KS-3691 / ADR-108b §5. overlay в `success(live|cache)` либо `null`
+   * для всех прочих состояний (включая `full-review` — в PGN нет структуры,
+   * только текст). AnalysisPage подмешивает его в `mergedSquareStyles`
+   * и `mergedArrows` между системным слоем и пользовательскими аннотациями.
+   */
+  overlay: AiOverlay | null;
+  /** Скрыт ли overlay пользовательским кликом. Сбрасывается на смену FEN,
+   *  новый `request()`/`regenerate()` и новый success. */
+  overlayHidden: boolean;
+  /** Переключатель скрытия overlay. Никаких side-effects, кроме setState. */
+  toggleOverlay: () => void;
 }
 
 interface PositionCommentPayload {
@@ -186,6 +225,8 @@ interface PositionCommentPayload {
 interface FetchOk {
   ok: true;
   comment: string;
+  highlights: AiHighlight[];
+  arrows: AiArrow[];
 }
 interface FetchRateLimited {
   ok: false;
@@ -274,12 +315,57 @@ async function postPositionComment(
   }
 
   try {
-    const data = (await res.json()) as { comment?: unknown };
+    const data = (await res.json()) as {
+      comment?: unknown;
+      highlights?: unknown;
+      arrows?: unknown;
+    };
     const comment = typeof data?.comment === 'string' ? data.comment : '';
-    return { ok: true, comment };
+    const highlights = sanitizeHighlights(data?.highlights);
+    const arrows = sanitizeArrows(data?.arrows);
+    return { ok: true, comment, highlights, arrows };
   } catch {
     return { ok: false, kind: 'error', message: 'parse' };
   }
+}
+
+const ALLOWED_OVERLAY_COLORS = new Set(['red', 'green', 'yellow', 'blue']);
+const SQUARE_RE = /^[a-h][1-8]$/;
+
+function sanitizeHighlights(input: unknown): AiHighlight[] {
+  if (!Array.isArray(input)) return [];
+  const out: AiHighlight[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as { square?: unknown; color?: unknown };
+    if (typeof obj.square !== 'string' || !SQUARE_RE.test(obj.square)) continue;
+    if (typeof obj.color !== 'string' || !ALLOWED_OVERLAY_COLORS.has(obj.color)) {
+      continue;
+    }
+    out.push({ square: obj.square, color: obj.color as AiHighlight['color'] });
+  }
+  return out;
+}
+
+function sanitizeArrows(input: unknown): AiArrow[] {
+  if (!Array.isArray(input)) return [];
+  const out: AiArrow[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as { from?: unknown; to?: unknown; color?: unknown };
+    if (typeof obj.from !== 'string' || !SQUARE_RE.test(obj.from)) continue;
+    if (typeof obj.to !== 'string' || !SQUARE_RE.test(obj.to)) continue;
+    if (obj.from === obj.to) continue;
+    if (typeof obj.color !== 'string' || !ALLOWED_OVERLAY_COLORS.has(obj.color)) {
+      continue;
+    }
+    out.push({
+      from: obj.from,
+      to: obj.to,
+      color: obj.color as AiArrow['color'],
+    });
+  }
+  return out;
 }
 
 export function useAiPositionComment(
@@ -321,21 +407,39 @@ export function useAiPositionComment(
     if (!user) return { kind: 'unauthenticated' };
     const cached = cacheGet(normalizedFen);
     if (cached !== undefined) {
-      return cached === ''
+      return cached.comment === ''
         ? { kind: 'empty' }
-        : { kind: 'success', comment: cached, source: 'cache' };
+        : {
+            kind: 'success',
+            comment: cached.comment,
+            source: 'cache',
+            highlights: cached.highlights,
+            arrows: cached.arrows,
+          };
     }
     if (fullReviewComment && fullReviewComment.trim() !== '') {
+      // KS-3691 / ADR-108b §5: full-review-комментарий из PGN не несёт
+      // overlay — массивы всегда пустые. AnalysisPage не покажет AI-слой
+      // (overlay=null в результате), и кнопка-переключатель в панели не
+      // появится.
       return {
         kind: 'success',
         comment: fullReviewComment,
         source: 'full-review',
+        highlights: [],
+        arrows: [],
       };
     }
     return { kind: 'idle' };
   };
 
   const [state, setState] = useState<AiCommentState>(initialState);
+  // KS-3691: пользовательский «скрыть подсветку». Сбрасывается в false
+  // при смене FEN и любом новом запросе.
+  const [overlayHidden, setOverlayHidden] = useState(false);
+  const toggleOverlay = useCallback(() => {
+    setOverlayHidden((v) => !v);
+  }, []);
 
   // Активный AbortController + признак «свежий ли запрос» (по нормализованному
   // FEN: при смене FEN отменяем in-flight и сбрасываем).
@@ -360,6 +464,8 @@ export function useAiPositionComment(
       abortRef.current = null;
       inFlightFenRef.current = null;
     }
+    // KS-3691: сброс «скрыто» по смене FEN — новая позиция, новый overlay.
+    setOverlayHidden(false);
     if (!userId) {
       setState({ kind: 'unauthenticated' });
       return;
@@ -367,9 +473,15 @@ export function useAiPositionComment(
     const cached = cacheGet(normalizedFen);
     if (cached !== undefined) {
       setState(
-        cached === ''
+        cached.comment === ''
           ? { kind: 'empty' }
-          : { kind: 'success', comment: cached, source: 'cache' },
+          : {
+              kind: 'success',
+              comment: cached.comment,
+              source: 'cache',
+              highlights: cached.highlights,
+              arrows: cached.arrows,
+            },
       );
       return;
     }
@@ -378,6 +490,8 @@ export function useAiPositionComment(
         kind: 'success',
         comment: fullReviewComment,
         source: 'full-review',
+        highlights: [],
+        arrows: [],
       });
       return;
     }
@@ -390,13 +504,22 @@ export function useAiPositionComment(
         setState({ kind: 'unauthenticated' });
         return;
       }
+      // KS-3691: новый запрос/перегенерация всегда показывают overlay
+      // (если придёт). Сбрасываем пользовательское скрытие.
+      setOverlayHidden(false);
       if (!opts.ignoreCache) {
         const cached = cacheGet(normalizedFen);
         if (cached !== undefined) {
           setState(
-            cached === ''
+            cached.comment === ''
               ? { kind: 'empty' }
-              : { kind: 'success', comment: cached, source: 'cache' },
+              : {
+                  kind: 'success',
+                  comment: cached.comment,
+                  source: 'cache',
+                  highlights: cached.highlights,
+                  arrows: cached.arrows,
+                },
           );
           return;
         }
@@ -507,7 +630,14 @@ export function useAiPositionComment(
       inFlightFenRef.current = null;
 
       if (outcome.ok) {
-        cacheSet(normalizedFen, outcome.comment);
+        cacheSet(normalizedFen, {
+          comment: outcome.comment,
+          highlights: outcome.highlights,
+          arrows: outcome.arrows,
+        });
+        // KS-3691: новый success всегда раскрывает overlay (пользователь
+        // мог скрыть предыдущий, но это уже неактуальное состояние).
+        setOverlayHidden(false);
         if (outcome.comment === '') {
           setState({ kind: 'empty' });
         } else {
@@ -515,6 +645,8 @@ export function useAiPositionComment(
             kind: 'success',
             comment: outcome.comment,
             source: 'live',
+            highlights: outcome.highlights,
+            arrows: outcome.arrows,
           });
         }
         return;
@@ -551,6 +683,15 @@ export function useAiPositionComment(
   // каждый раз, когда мы пушим timestamp.
   void softCounterTick;
 
+  // KS-3691: overlay есть только в `success(live|cache)` — в `full-review`
+  // массивы пустые, кнопка-переключатель в панели для него не показывается.
+  const overlay: AiOverlay | null =
+    state.kind === 'success' &&
+    state.source !== 'full-review' &&
+    (state.highlights.length > 0 || state.arrows.length > 0)
+      ? { highlights: state.highlights, arrows: state.arrows }
+      : null;
+
   return {
     state,
     request,
@@ -560,5 +701,8 @@ export function useAiPositionComment(
       limit: SOFT_LIMIT,
       windowMin: SOFT_WINDOW_MIN,
     },
+    overlay,
+    overlayHidden,
+    toggleOverlay,
   };
 }

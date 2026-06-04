@@ -949,7 +949,9 @@
       "guestTooltip": "Войдите, чтобы пользоваться оценкой AI",
       "guestLink": "Войти",
       "counterTitle": "{{used}} из {{limit}} запросов за последние {{minutes}} мин",
-      "counterUnit": "мин"
+      "counterUnit": "мин",
+      "hideOverlay": "Скрыть подсветку",
+      "showOverlay": "Показать подсветку"
     },
     "maia": {
       "loading": "Загружаем Maia…",

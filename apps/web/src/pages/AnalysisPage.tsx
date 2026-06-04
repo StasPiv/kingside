@@ -93,6 +93,10 @@ import { AnalysisBoard } from './analysis/AnalysisBoard';
 // archive tree + ReviewMoveList + mobile tabs. На FR4 большая часть
 // props переедет в AnalysisContext.
 import { AnalysisSidebar } from './analysis/AnalysisSidebar';
+import {
+  composeArrowLayers,
+  mergeSquareStyleLayers,
+} from './analysis/aiOverlayMerge';
 // KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
 // discriminated union review/analysis/puzzle. Заменяет разбросанные
 // `params.id`/`params.gameId`/`puzzleFen`/`localId` производные.
@@ -1952,20 +1956,48 @@ function AnalysisPageInner({
     }));
   }, [currentAnnotations]);
 
-  // Объединённые стили: подсветка из useBoardHighlights + правый клик (annotations).
-  // Annotations имеют приоритет (показываются поверх).
-  const mergedSquareStyles = useMemo(() => {
-    const merged: Record<string, React.CSSProperties> = { ...squareStyles };
-    for (const [square, style] of Object.entries(highlightStyles)) {
-      merged[square] = { ...merged[square], ...style };
+  // KS-3691 / ADR-108b §7. AI overlay подмешиваем между системным слоем
+  // (last-move/selected/legal из useBoardHighlights) и пользовательскими
+  // правыми кликами/стрелками. Если пользователь скрыл overlay через
+  // переключатель в панели — слой пуст.
+  const aiOverlayVisible =
+    aiPositionComment.overlay !== null && !aiPositionComment.overlayHidden;
+  const aiSquareStyles = useMemo<
+    Record<string, React.CSSProperties>
+  >(() => {
+    if (!aiOverlayVisible || !aiPositionComment.overlay) return {};
+    const styles: Record<string, React.CSSProperties> = {};
+    for (const h of aiPositionComment.overlay.highlights) {
+      styles[h.square] = { backgroundColor: HIGHLIGHT_COLORS[h.color] };
     }
-    return merged;
-  }, [squareStyles, highlightStyles]);
+    return styles;
+  }, [aiOverlayVisible, aiPositionComment.overlay]);
+  const aiArrows = useMemo(() => {
+    if (!aiOverlayVisible || !aiPositionComment.overlay) {
+      return [] as Array<{ startSquare: string; endSquare: string; color: string }>;
+    }
+    return aiPositionComment.overlay.arrows.map((a) => ({
+      startSquare: a.from,
+      endSquare: a.to,
+      color: HIGHLIGHT_COLORS[a.color],
+    }));
+  }, [aiOverlayVisible, aiPositionComment.overlay]);
 
-  // Объединённые стрелки: hover-suggestion (useBoardHighlights) + аннотации.
+  // Объединённые стили: системный слой → AI overlay → пользовательские
+  // правые клики. Каждый следующий слой перезаписывает background-color
+  // предыдущего по той же клетке. Сама логика — в чистом хелпере, чтобы
+  // её можно было проверять без подъёма всего AnalysisPage (см.
+  // aiOverlayMerge.test.ts).
+  const mergedSquareStyles = useMemo(
+    () => mergeSquareStyleLayers(squareStyles, aiSquareStyles, highlightStyles),
+    [squareStyles, aiSquareStyles, highlightStyles],
+  );
+
+  // Объединённые стрелки: hover-suggestion → AI стрелки → пользовательские
+  // аннотации.
   const mergedArrows = useMemo(
-    () => [...arrows, ...annotationArrows],
-    [arrows, annotationArrows],
+    () => composeArrowLayers(arrows, aiArrows, annotationArrows),
+    [arrows, aiArrows, annotationArrows],
   );
 
   // KS-2152: Ремоунт MemoChessboard при смене ноды/позиции И при изменении
@@ -1980,8 +2012,12 @@ function AnalysisPageInner({
   // handleArrowsChange — no-op, поэтому initial useEffect onArrowsChange
   // в Chessboard после ремоунта ничего не сбросит.
   const annotationsKey = useMemo(
-    () => `${currentGlobalIndex}|${currentFen}|${JSON.stringify(currentAnnotations?.arrows ?? null)}`,
-    [currentGlobalIndex, currentFen, currentAnnotations?.arrows],
+    () =>
+      // KS-3691: ключ ремоунта дополнительно зависит от AI-стрелок —
+      // иначе react-chessboard не сбрасывает internal-arrows при смене
+      // overlay (показал/скрыл/обновил по новому ответу модели).
+      `${currentGlobalIndex}|${currentFen}|${JSON.stringify(currentAnnotations?.arrows ?? null)}|${JSON.stringify(aiArrows)}`,
+    [currentGlobalIndex, currentFen, currentAnnotations?.arrows, aiArrows],
   );
 
   // --- Archive tree handlers ---

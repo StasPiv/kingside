@@ -939,7 +939,9 @@
       "guestTooltip": "Sign in to use AI evaluation",
       "guestLink": "Sign in",
       "counterTitle": "{{used}} of {{limit}} requests in last {{minutes}} min",
-      "counterUnit": "min"
+      "counterUnit": "min",
+      "hideOverlay": "Hide overlay",
+      "showOverlay": "Show overlay"
     },
     "maia": {
       "loading": "Loading Maia…",

@@ -450,6 +450,178 @@ describe('useAiPositionComment', () => {
     });
   });
 
+  // --- KS-3691: overlay ----------------------------------------------------
+
+  it('KS-3691: success → overlay из highlights/arrows, кэш сохраняет их', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockImplementation(async () =>
+      jsonResponse({
+        comment: 'хороший конь на d5',
+        highlights: [
+          { square: 'd5', color: 'green' },
+          { square: 'c6', color: 'yellow' },
+        ],
+        arrows: [{ from: 'g1', to: 'f3', color: 'red' }],
+      }),
+    );
+    const { result, rerender } = renderHook(
+      (props: { fen: string }) =>
+        useAiPositionComment({ fen: props.fen, user: { id: 'u1' } }),
+      { initialProps: { fen: FEN_A } },
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(result.current.overlay).toEqual({
+      highlights: [
+        { square: 'd5', color: 'green' },
+        { square: 'c6', color: 'yellow' },
+      ],
+      arrows: [{ from: 'g1', to: 'f3', color: 'red' }],
+    });
+    expect(result.current.overlayHidden).toBe(false);
+
+    // Кэш сохранил overlay: уход на другой FEN и возврат — overlay тот же,
+    // fetch не вызывается заново.
+    rerender({ fen: FEN_B });
+    expect(result.current.overlay).toBeNull();
+    rerender({ fen: FEN_A });
+    expect(result.current.overlay).not.toBeNull();
+    expect(result.current.overlay?.highlights).toHaveLength(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('KS-3691: смена FEN сбрасывает overlayHidden', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockImplementation(async () =>
+      jsonResponse({
+        comment: 'ок',
+        highlights: [{ square: 'e4', color: 'green' }],
+        arrows: [],
+      }),
+    );
+    const { result, rerender } = renderHook(
+      (props: { fen: string }) =>
+        useAiPositionComment({ fen: props.fen, user: { id: 'u1' } }),
+      { initialProps: { fen: FEN_A } },
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    act(() => result.current.toggleOverlay());
+    expect(result.current.overlayHidden).toBe(true);
+    rerender({ fen: FEN_B });
+    expect(result.current.overlayHidden).toBe(false);
+  });
+
+  it('KS-3691: regenerate сбрасывает overlayHidden и применяет новый overlay', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let call = 0;
+    fetchSpy.mockImplementation(async () => {
+      call += 1;
+      return call === 1
+        ? jsonResponse({
+            comment: 'первый',
+            highlights: [{ square: 'a1', color: 'red' }],
+            arrows: [],
+          })
+        : jsonResponse({
+            comment: 'второй',
+            highlights: [{ square: 'h8', color: 'yellow' }],
+            arrows: [{ from: 'h1', to: 'a8', color: 'green' }],
+          });
+    });
+    const { result } = renderHook(() =>
+      useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    act(() => result.current.toggleOverlay());
+    expect(result.current.overlayHidden).toBe(true);
+    act(() => result.current.regenerate());
+    await waitFor(() =>
+      expect(
+        result.current.overlay?.highlights[0]?.square === 'h8',
+      ).toBe(true),
+    );
+    expect(result.current.overlayHidden).toBe(false);
+  });
+
+  it('KS-3691: full-review → overlay всегда null (даже при наличии комментария)', () => {
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        fullReviewComment: 'из полного разбора',
+      }),
+    );
+    expect(result.current.state).toMatchObject({ source: 'full-review' });
+    expect(result.current.overlay).toBeNull();
+  });
+
+  it('KS-3691: пустые highlights+arrows → overlay null, кнопка-переключатель не нужна', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockImplementation(async () =>
+      jsonResponse({ comment: 'ок', highlights: [], arrows: [] }),
+    );
+    const { result } = renderHook(() =>
+      useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(result.current.overlay).toBeNull();
+  });
+
+  it('KS-3691: невалидные элементы overlay (плохой square/color) отбрасываются', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockImplementation(async () =>
+      jsonResponse({
+        comment: 'ок',
+        highlights: [
+          { square: 'd5', color: 'green' },
+          { square: 'zz', color: 'red' }, // невалидная клетка
+          { square: 'a1', color: 'purple' }, // несуществующий цвет
+        ],
+        arrows: [
+          { from: 'e2', to: 'e4', color: 'green' },
+          { from: 'e2', to: 'e2', color: 'red' }, // from===to
+          { from: 'foo', to: 'e4', color: 'green' }, // невалидная клетка
+        ],
+      }),
+    );
+    const { result } = renderHook(() =>
+      useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(result.current.overlay?.highlights).toEqual([
+      { square: 'd5', color: 'green' },
+    ]);
+    expect(result.current.overlay?.arrows).toEqual([
+      { from: 'e2', to: 'e4', color: 'green' },
+    ]);
+  });
+
+  it('KS-3691: toggleOverlay переключает overlayHidden без изменения overlay', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockImplementation(async () =>
+      jsonResponse({
+        comment: 'ок',
+        highlights: [{ square: 'd4', color: 'green' }],
+        arrows: [],
+      }),
+    );
+    const { result } = renderHook(() =>
+      useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(result.current.overlayHidden).toBe(false);
+    act(() => result.current.toggleOverlay());
+    expect(result.current.overlayHidden).toBe(true);
+    expect(result.current.overlay).not.toBeNull();
+    act(() => result.current.toggleOverlay());
+    expect(result.current.overlayHidden).toBe(false);
+  });
+
   it('soft-counter растёт на каждый отправленный запрос', async () => {
     (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     // mockResolvedValue вернул бы один и тот же Response — `res.json()`

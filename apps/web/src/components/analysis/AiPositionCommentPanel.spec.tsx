@@ -46,6 +46,11 @@ function controllerOf(
     request: vi.fn(),
     regenerate: vi.fn(),
     softCounter: { used: 0, limit: SOFT_LIMIT, windowMin: SOFT_WINDOW_MIN },
+    // KS-3691: дефолт — overlay отсутствует, чтобы тесты по умолчанию
+    // продолжали работать как раньше.
+    overlay: null,
+    overlayHidden: false,
+    toggleOverlay: vi.fn(),
     ...overrides,
   };
 }
@@ -81,7 +86,13 @@ describe('AiPositionCommentPanel — рендер 8 состояний', () => {
 
   it('success(live): показывает текст из state.comment', () => {
     renderPanel(
-      controllerOf({ kind: 'success', comment: 'хорошая структура', source: 'live' }),
+      controllerOf({
+        kind: 'success',
+        comment: 'хорошая структура',
+        source: 'live',
+        highlights: [],
+        arrows: [],
+      }),
     );
     expect(screen.getByTestId('ai-position-comment-desktop-text')).toHaveTextContent(
       'хорошая структура',
@@ -97,6 +108,8 @@ describe('AiPositionCommentPanel — рендер 8 состояний', () => {
         kind: 'success',
         comment: 'из полного разбора',
         source: 'full-review',
+        highlights: [],
+        arrows: [],
       }),
     );
     expect(
@@ -158,6 +171,8 @@ describe('AiPositionCommentPanel — клики', () => {
       kind: 'success',
       comment: 'старый',
       source: 'full-review',
+      highlights: [],
+      arrows: [],
     });
     renderPanel(ctl);
     fireEvent.click(screen.getByTestId(T_BTN));
@@ -178,6 +193,108 @@ describe('AiPositionCommentPanel — клики', () => {
     renderPanel(ctl);
     fireEvent.click(screen.getByTestId(T_BTN));
     expect(ctl.request).not.toHaveBeenCalled();
+  });
+});
+
+// --- KS-3691: overlay-переключатель -------------------------------------
+
+describe('AiPositionCommentPanel — overlay toggle (KS-3691)', () => {
+  const T_TOGGLE = 'ai-position-comment-desktop-overlay-toggle';
+
+  it('overlay=null → кнопки нет', () => {
+    renderPanel(
+      controllerOf(
+        {
+          kind: 'success',
+          comment: 'ок',
+          source: 'live',
+          highlights: [],
+          arrows: [],
+        },
+        { overlay: null },
+      ),
+    );
+    expect(screen.queryByTestId(T_TOGGLE)).toBeNull();
+  });
+
+  it('overlay есть и не скрыт → кнопка «Hide overlay»', () => {
+    renderPanel(
+      controllerOf(
+        {
+          kind: 'success',
+          comment: 'ок',
+          source: 'live',
+          highlights: [{ square: 'd5', color: 'green' }],
+          arrows: [],
+        },
+        {
+          overlay: { highlights: [{ square: 'd5', color: 'green' }], arrows: [] },
+          overlayHidden: false,
+        },
+      ),
+    );
+    const btn = screen.getByTestId(T_TOGGLE);
+    expect(btn).toHaveTextContent('Hide overlay');
+  });
+
+  it('overlay есть и скрыт → кнопка «Show overlay»', () => {
+    renderPanel(
+      controllerOf(
+        {
+          kind: 'success',
+          comment: 'ок',
+          source: 'live',
+          highlights: [{ square: 'd5', color: 'green' }],
+          arrows: [],
+        },
+        {
+          overlay: { highlights: [{ square: 'd5', color: 'green' }], arrows: [] },
+          overlayHidden: true,
+        },
+      ),
+    );
+    const btn = screen.getByTestId(T_TOGGLE);
+    expect(btn).toHaveTextContent('Show overlay');
+  });
+
+  it('клик по кнопке вызывает toggleOverlay', () => {
+    const toggle = vi.fn();
+    renderPanel(
+      controllerOf(
+        {
+          kind: 'success',
+          comment: 'ок',
+          source: 'live',
+          highlights: [{ square: 'd5', color: 'green' }],
+          arrows: [],
+        },
+        {
+          overlay: { highlights: [{ square: 'd5', color: 'green' }], arrows: [] },
+          overlayHidden: false,
+          toggleOverlay: toggle,
+        },
+      ),
+    );
+    fireEvent.click(screen.getByTestId(T_TOGGLE));
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('source=full-review → overlay=null, кнопки нет даже при наличии highlights в state', () => {
+    // Хук в этом сценарии всегда отдаёт overlay=null, проверяем что UI
+    // действительно от него и зависит.
+    renderPanel(
+      controllerOf(
+        {
+          kind: 'success',
+          comment: 'из полного разбора',
+          source: 'full-review',
+          highlights: [],
+          arrows: [],
+        },
+        { overlay: null },
+      ),
+    );
+    expect(screen.queryByTestId(T_TOGGLE)).toBeNull();
   });
 });
 

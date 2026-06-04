@@ -210,6 +210,9 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
       request: vi.fn(),
       regenerate: vi.fn(),
       softCounter: { used: 0, limit: 20, windowMin: 20 },
+      overlay: null,
+      overlayHidden: false,
+      toggleOverlay: vi.fn(),
     };
     renderWithProviders(
       <AnalysisSidebar

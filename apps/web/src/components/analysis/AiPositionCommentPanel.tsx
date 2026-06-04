@@ -78,7 +78,7 @@ export function AiPositionCommentPanel({
   testIdSuffix,
 }: AiPositionCommentPanelProps) {
   const { t } = useTranslation();
-  const { state, request, regenerate, softCounter } = controller;
+  const { state, request, regenerate, softCounter, overlay, overlayHidden, toggleOverlay } = controller;
   const retryRemaining = useRetryAfterCountdown(state);
 
   const testId = testIdSuffix ? `${TESTID_BASE}-${testIdSuffix}` : TESTID_BASE;
@@ -216,6 +216,24 @@ export function AiPositionCommentPanel({
         >
           {state.comment}
         </div>
+      )}
+
+      {/* KS-3691 / ADR-108b §5. Кнопка-переключатель overlay. Видна, только
+          когда модель прислала непустой overlay (либо `overlay !== null`,
+          либо overlay скрыт пользователем — иначе пользователь не сможет
+          снова показать). Для `source='full-review'` overlay всегда `null`
+          (массивы пустые), кнопка не появляется. */}
+      {overlay !== null && (
+        <button
+          type="button"
+          className="ai-position-comment__overlay-toggle"
+          onClick={toggleOverlay}
+          data-testid={`${testId}-overlay-toggle`}
+        >
+          {overlayHidden
+            ? t('analysis.aiComment.showOverlay', 'Show overlay')
+            : t('analysis.aiComment.hideOverlay', 'Hide overlay')}
+        </button>
       )}
 
       {state.kind === 'empty' && (
