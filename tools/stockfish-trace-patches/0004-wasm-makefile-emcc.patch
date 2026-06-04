@@ -71,13 +71,28 @@ index 8266461..2806560 100644
 +	# SharedArrayBuffer. PTHREAD_POOL_SIZE=1 — один воркер достаточно для
 +	# `eval json` (поиска не делаем).
 +	EMFLAGS += -pthread -s PTHREAD_POOL_SIZE=1
-+	EMFLAGS += -s EXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString','stringToUTF8']
++	# KS-3676. JS-обёртка UCI↔postMessage (pre.js, ccall-based) требует
++	# `ccall` + `cwrap` (готовит C-функцию как JS-callable), а также
++	# `UTF8ToString`/`stringToUTF8` для сериализации команд/вывода.
++	EMFLAGS += -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8']
++	# KS-3676. Без явного EXPORTED_FUNCTIONS emcc при -Oz / --closure 1
++	# удалит `uci_command` как dead code (EMSCRIPTEN_KEEPALIVE даёт
++	# атрибут на стороне clang, но финальное Closure-минификация может
++	# его потерять, если функция не в этом списке). `_main` нужен,
++	# чтобы init-цепочка из main.cpp отработала при загрузке модуля.
++	EMFLAGS += -s EXPORTED_FUNCTIONS=['_main','_uci_command']
 +	# Stockfish tbprobe.cpp использует mmap/madvise/munmap для Syzygy
 +	# tablebase. В WASM эти syscall'ы не реализованы — нам tablebase в
 +	# браузерном `eval json` не нужны, поэтому даём линкеру разрешение
 +	# оставить эти символы как stub-ы; в рантайме Tablebases::probe_* не
 +	# вызываются (по факту использования только `position` + `eval json`).
 +	EMFLAGS += -s ERROR_ON_UNDEFINED_SYMBOLS=0
++	# KS-3676. `--pre-js pre.js` подключает JS-обёртку UCI↔postMessage:
++	# хук Module.print → postMessage наружу; Module.postMessage /
++	# addMessageListener → ccall('uci_command', ...). pre.js лежит рядом
++	# с Makefile (в src/), готовится devops при сборке (см. KINGSIDE_README
++	# раздел «Сборка»). Имя без префикса `src/` — em++ запускается из src/.
++	EMFLAGS += --pre-js pre.js
 +	# Имя .wasm em++ определяет из имени .js (stockfish-16-trace.js →
 +	# stockfish-16-trace.wasm). WASM_BINARY_FILE задавать вручную нельзя —
 +	# это internal-setting emcc.

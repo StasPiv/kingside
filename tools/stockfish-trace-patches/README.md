@@ -19,7 +19,9 @@
 |---|---|---|
 | `0001-phase1-3-trace-skeleton-and-pawns.patch` | Фазы 1-3 | Промежуточная контрольная точка (только pawns.cpp). Можно пропустить — заменён следующим. |
 | `0002-phase1-8-full-coverage.patch` | Фазы 1-8 | 51 ID — полное покрытие именованных классических подкомпонент SF 16. Заменён следующим. |
-| `0003-phase1-10-with-psqt-mobility-attackers.patch` | **Фазы 1-10 (последний, для devops)** | 63 ID. Добавлены PSQT per-piece (6), mobility per-piece (4), king_attackers count/weight (2). Этот файл правок передаётся в C1b. |
+| `0003-phase1-10-with-psqt-mobility-attackers.patch` | **Фазы 1-10 (для devops)** | 63 ID. Добавлены PSQT per-piece (6), mobility per-piece (4), king_attackers count/weight (2). Этот файл правок передаётся в C1b как trace-инфраструктура. |
+| `0004-wasm-makefile-emcc.patch` | WASM Makefile | `ARCH=wasm` цель в src/Makefile + EMFLAGS (MODULARIZE/EXPORT_NAME/pthread/EXPORTED_FUNCTIONS/EXPORTED_RUNTIME_METHODS/--pre-js). KS-3676: расширен EXPORTED_FUNCTIONS=['_main','_uci_command'], в EXPORTED_RUNTIME_METHODS добавлен `cwrap`, добавлен `--pre-js pre.js`. |
+| `tools/stockfish-trace/src/{uci.cpp,main.cpp}` | KS-3676 — UCI↔postMessage обёртка | НЕ patch-файл: правки лежат в самом репо `tools/stockfish-trace/src/` поверх 0003. `dispatch_uci_token` (вынесен из тела `UCI::loop`); `extern "C" int uci_command(const char*)` под `#ifdef __EMSCRIPTEN__`; `UCI::loop` + `Threads.set(0)` обёрнуты `#ifndef __EMSCRIPTEN__` в `main.cpp`. Devops C1b берёт файлы напрямую из репо. |
 
 ## Применение
 

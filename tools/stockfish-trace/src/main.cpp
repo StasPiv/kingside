@@ -46,8 +46,19 @@ int main(int argc, char* argv[]) {
   Search::clear(); // After threads are up
   Eval::NNUE::init();
 
+  // KS-3676 / ADR-107 rev 2. В WASM-сборке UCI работает не через stdin,
+  // а через JS → `ccall('uci_command', ...)` (см. `extern "C" uci_command`
+  // в uci.cpp). `UCI::loop` пытался бы блокировать на `getline(cin, ...)`,
+  // что в Web Worker без ASYNCIFY вешает рантайм. В WASM main() отрабаты-
+  // вает только init-цепочку и возвращается; worker остаётся живым
+  // благодаря `-s EXIT_RUNTIME=0` в EMFLAGS (см. 0004 patch), последу-
+  // ющие команды идут через uci_command. `Threads.set(0)` тоже не вызы-
+  // ваем — нет stdin-EOF, нет «конца сессии», worker завершают сверху
+  // через `worker.terminate()`.
+#ifndef __EMSCRIPTEN__
   UCI::loop(argc, argv);
 
   Threads.set(0);
+#endif
   return 0;
 }

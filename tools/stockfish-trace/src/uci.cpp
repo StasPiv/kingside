@@ -34,6 +34,16 @@
 #include "syzygy/tbprobe.h"
 #include "nnue/evaluate_nnue.h"
 
+// KS-3676 / ADR-107 rev 2. В WASM-сборке (em++) UCI работает не через
+// stdin, а через `ccall('uci_command', ...)` из JS-обёртки (pre.js).
+// `emscripten/emscripten.h` нужен только для `EMSCRIPTEN_KEEPALIVE` —
+// атрибут отмечает символ как непригодный к dead-code-elimination, чтобы
+// `EXPORTED_FUNCTIONS=['_uci_command']` Makefile'а не потерял функцию
+// при -Oz / --closure 1. Под нативной сборкой блок не активируется.
+#ifdef __EMSCRIPTEN__
+  #include <emscripten/emscripten.h>
+#endif
+
 using namespace std;
 
 namespace Stockfish {
@@ -238,6 +248,83 @@ namespace {
      return int(0.5 + 1000 / (1 + std::exp((a - x) / b)));
   }
 
+// KS-3676 / ADR-107 rev 2. Вынесена switch-цепочка из тела `UCI::loop`
+// — единая точка обработки одного UCI-токена. Используется и в нативном
+// loop (через stdin), и в WASM-обёртке `uci_command` (через JS ccall).
+// Семантика идентична: токены quit/stop обрабатываются caller'ом
+// (loop выходит из цикла; uci_command ставит Threads.stop и возвращает),
+// остальные команды диспетчеризуются здесь.
+//
+// Параметры:
+//   pos    — UCI-позиция (live между вызовами).
+//   states — стек StateInfo для make_move (live между вызовами).
+//   is     — istringstream, спозиционированный сразу ПОСЛЕ token
+//            (caller считал `is >> token` до вызова).
+//   token  — уже считанный первый токен команды.
+//   cmd    — оригинальная строка команды (для error-сообщения
+//            "Unknown command").
+void dispatch_uci_token(
+    Position& pos,
+    StateListPtr& states,
+    istringstream& is,
+    const string& token,
+    const string& cmd)
+{
+    // The GUI sends 'ponderhit' to tell that the user has played the expected move.
+    // So, 'ponderhit' is sent if pondering was done on the same move that the user
+    // has played. The search should continue, but should also switch from pondering
+    // to the normal search.
+    if (token == "ponderhit")
+        Threads.main()->ponder = false; // Switch to the normal search
+
+    else if (token == "uci")
+        sync_cout << "id name " << engine_info(true)
+                  << "\n"       << Options
+                  << "\nuciok"  << sync_endl;
+
+    else if (token == "setoption")  setoption(is);
+    else if (token == "go")         go(pos, is, states);
+    else if (token == "position")   position(pos, is, states);
+    else if (token == "ucinewgame") Search::clear();
+    else if (token == "isready")    sync_cout << "readyok" << sync_endl;
+
+    // Add custom non-UCI commands, mainly for debugging purposes.
+    // These commands must not be used during a search!
+    else if (token == "flip")     pos.flip();
+    else if (token == "bench")    bench(pos, is, states);
+    else if (token == "d")        sync_cout << pos << sync_endl;
+    else if (token == "eval")
+    {
+        // KS-3648 / ADR-107 rev 2 §3.4. Поддержка субкоманды
+        // `eval json` — машинно-читаемый вывод подкомпонент. Если
+        // после `eval` идёт токен `json` — выводим JSON; иначе
+        // (включая `eval` без аргумента) — старая табличная форма.
+        std::string sub;
+        if (is >> sub && sub == "json")
+            trace_eval_json(pos);
+        else
+            trace_eval(pos);
+    }
+    else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
+    else if (token == "export_net")
+    {
+        std::optional<std::string> filename;
+        std::string f;
+        if (is >> skipws >> f)
+            filename = f;
+        Eval::NNUE::save_eval(filename);
+    }
+    else if (token == "--help" || token == "help" || token == "--license" || token == "license")
+        sync_cout << "\nStockfish is a powerful chess engine for playing and analyzing."
+                     "\nIt is released as free software licensed under the GNU GPLv3 License."
+                     "\nStockfish is normally used with a graphical user interface (GUI) and implements"
+                     "\nthe Universal Chess Interface (UCI) protocol to communicate with a GUI, an API, etc."
+                     "\nFor any further information, visit https://github.com/official-stockfish/Stockfish#readme"
+                     "\nor read the corresponding README.md and Copying.txt files distributed along with this program.\n" << sync_endl;
+    else if (!token.empty() && token[0] != '#')
+        sync_cout << "Unknown command: '" << cmd << "'. Type help for more information." << sync_endl;
+}
+
 } // namespace
 
 
@@ -270,63 +357,59 @@ void UCI::loop(int argc, char* argv[]) {
       if (    token == "quit"
           ||  token == "stop")
           Threads.stop = true;
-
-      // The GUI sends 'ponderhit' to tell that the user has played the expected move.
-      // So, 'ponderhit' is sent if pondering was done on the same move that the user
-      // has played. The search should continue, but should also switch from pondering
-      // to the normal search.
-      else if (token == "ponderhit")
-          Threads.main()->ponder = false; // Switch to the normal search
-
-      else if (token == "uci")
-          sync_cout << "id name " << engine_info(true)
-                    << "\n"       << Options
-                    << "\nuciok"  << sync_endl;
-
-      else if (token == "setoption")  setoption(is);
-      else if (token == "go")         go(pos, is, states);
-      else if (token == "position")   position(pos, is, states);
-      else if (token == "ucinewgame") Search::clear();
-      else if (token == "isready")    sync_cout << "readyok" << sync_endl;
-
-      // Add custom non-UCI commands, mainly for debugging purposes.
-      // These commands must not be used during a search!
-      else if (token == "flip")     pos.flip();
-      else if (token == "bench")    bench(pos, is, states);
-      else if (token == "d")        sync_cout << pos << sync_endl;
-      else if (token == "eval")
-      {
-          // KS-3648 / ADR-107 rev 2 §3.4. Поддержка субкоманды
-          // `eval json` — машинно-читаемый вывод подкомпонент. Если
-          // после `eval` идёт токен `json` — выводим JSON; иначе
-          // (включая `eval` без аргумента) — старая табличная форма.
-          std::string sub;
-          if (is >> sub && sub == "json")
-              trace_eval_json(pos);
-          else
-              trace_eval(pos);
-      }
-      else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
-      else if (token == "export_net")
-      {
-          std::optional<std::string> filename;
-          std::string f;
-          if (is >> skipws >> f)
-              filename = f;
-          Eval::NNUE::save_eval(filename);
-      }
-      else if (token == "--help" || token == "help" || token == "--license" || token == "license")
-          sync_cout << "\nStockfish is a powerful chess engine for playing and analyzing."
-                       "\nIt is released as free software licensed under the GNU GPLv3 License."
-                       "\nStockfish is normally used with a graphical user interface (GUI) and implements"
-                       "\nthe Universal Chess Interface (UCI) protocol to communicate with a GUI, an API, etc."
-                       "\nFor any further information, visit https://github.com/official-stockfish/Stockfish#readme"
-                       "\nor read the corresponding README.md and Copying.txt files distributed along with this program.\n" << sync_endl;
-      else if (!token.empty() && token[0] != '#')
-          sync_cout << "Unknown command: '" << cmd << "'. Type help for more information." << sync_endl;
+      else
+          dispatch_uci_token(pos, states, is, token, cmd);
 
   } while (token != "quit" && argc == 1); // The command-line arguments are one-shot
 }
+
+
+// KS-3676 / ADR-107 rev 2. WASM-обёртка UCI: JS-сторона (pre.js, Worker
+// onmessage) дёргает `Module.ccall('uci_command', 'number', ['string'],
+// [cmd])` для каждой команды. Состояние `pos`/`states` инициализируется
+// при первом вызове и переиспользуется между командами — UCI-сессия
+// держится тем же worker'ом, как и в нативном `UCI::loop`. Вывод по-
+// прежнему идёт через `sync_cout` → stdout → `Module.print` (JS-обвязка
+// перехватывает Module.print и постит наружу через postMessage).
+//
+// Возвращаемое значение: 0 — команда обработана; зарезервирован для
+// будущих кодов (например, 1 = busy/retry-later если потребуется).
+// quit/stop ставят `Threads.stop = true` (стандартная семантика SF),
+// JS-сторона сама решает закрывать ли worker.
+#ifdef __EMSCRIPTEN__
+extern "C" EMSCRIPTEN_KEEPALIVE
+int uci_command(const char* cmd_str) {
+    if (cmd_str == nullptr) return 0;
+
+    // Локальный singleton-state. Position/StateListPtr держатся живыми
+    // через `static` — между ccall-вызовами не пересоздаются. Инициа-
+    // лизация ленивая, по факту первого вызова: на момент `main()` тред
+    // ещё может не быть готов (Threads.main() требует, чтобы init-
+    // цепочка main() прошла), а первый `uci_command` приходит уже
+    // после возврата из main.
+    static Position uci_pos;
+    static StateListPtr uci_states;
+    static bool uci_initialized = false;
+    if (!uci_initialized) {
+        uci_states.reset(new std::deque<StateInfo>(1));
+        uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
+        uci_initialized = true;
+    }
+
+    string cmd(cmd_str);
+    istringstream is(cmd);
+    string token;
+    is >> skipws >> token;
+
+    if (token == "quit" || token == "stop") {
+        Threads.stop = true;
+        return 0;
+    }
+
+    dispatch_uci_token(uci_pos, uci_states, is, token, cmd);
+    return 0;
+}
+#endif // __EMSCRIPTEN__
 
 
 /// UCI::value() converts a Value to a string by adhering to the UCI protocol specification:
