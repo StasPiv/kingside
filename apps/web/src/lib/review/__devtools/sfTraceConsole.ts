@@ -33,6 +33,7 @@ declare global {
     __sfTrace?: (fen?: string) => Promise<PositionalSubterm[]>;
     __sfReviewProbe?: (
       fen?: string,
+      ids?: ReadonlyArray<string> | null,
       opts?: { userElo?: number; userLanguage?: 'en' | 'ru' },
     ) => Promise<ReviewProbeResult>;
     __sfTraceFen?: string;
@@ -114,6 +115,7 @@ if (typeof window !== 'undefined') {
 
   window.__sfReviewProbe = async (
     fen?: string,
+    ids?: ReadonlyArray<string> | null,
     opts?: { userElo?: number; userLanguage?: 'en' | 'ru' },
   ): Promise<ReviewProbeResult> => {
     const target = fen ?? window.__sfTraceFen;
@@ -128,12 +130,24 @@ if (typeof window !== 'undefined') {
     // eslint-disable-next-line no-console
     console.info(`[sfReviewProbe] eval trace for ${target}…`);
     const subterms = await evalTrace(target);
+
+    // KS-3688. Опциональный фильтр по id. Если массив задан и не пуст,
+    // оставляем в payload только те подкомпоненты, у которых id входит
+    // в список — удобно прицельно проверить, как LLM реагирует на
+    // конкретный критерий (например, ['outpost_knight'] /
+    // ['king_shelter_strength','king_unblocked_storm']).
+    const filtered =
+      ids && ids.length > 0
+        ? subterms.filter((s) => ids.includes(s.id))
+        : subterms;
     // eslint-disable-next-line no-console
     console.info(
-      `[sfReviewProbe] got ${subterms.length} subterms; building fact and POST /analyses/review/comments`,
+      ids && ids.length > 0
+        ? `[sfReviewProbe] got ${subterms.length} subterms, filtered to ${filtered.length} by ids=[${ids.join(', ')}]; POST /analyses/review/comments`
+        : `[sfReviewProbe] got ${subterms.length} subterms; POST /analyses/review/comments`,
     );
 
-    const fact = buildProbeFact(target, subterms, userElo, userLanguage);
+    const fact = buildProbeFact(target, filtered, userElo, userLanguage);
     const rawComments = await batchReviewComment(
       [fact],
       userElo,
@@ -152,6 +166,6 @@ if (typeof window !== 'undefined') {
 
   // eslint-disable-next-line no-console
   console.info(
-    '[sfTraceConsole] готово: window.__sfTrace(fen?) и window.__sfReviewProbe(fen?, { userElo?, userLanguage? })',
+    '[sfTraceConsole] готово: window.__sfTrace(fen?) и window.__sfReviewProbe(fen?, ids?, { userElo?, userLanguage? }). ids — массив имён подкомпонент для фильтра.',
   );
 }
