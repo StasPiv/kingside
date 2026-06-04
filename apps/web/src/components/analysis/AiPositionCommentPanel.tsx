@@ -131,31 +131,15 @@ export function AiPositionCommentPanel({
         >
           {t('analysis.aiComment.title', 'AI position comment')}
         </span>
-        <span
-          className="ai-position-comment__counter"
-          data-testid={`${testId}-counter`}
-          title={t(
-            'analysis.aiComment.counterTitle',
-            '{{used}} of {{limit}} requests in last {{minutes}} min',
-            {
-              used: softCounter.used,
-              limit: softCounter.limit,
-              minutes: softCounter.windowMin,
-            },
-          )}
-        >
-          {softCounter.used}/{softCounter.limit}
-        </span>
+        {showFromFullReview && (
+          <span
+            className="ai-position-comment__source-label"
+            data-testid={`${testId}-source-label`}
+          >
+            {t('analysis.aiComment.fromFullReview', 'From full review')}
+          </span>
+        )}
       </div>
-
-      {showFromFullReview && (
-        <div
-          className="ai-position-comment__source-label"
-          data-testid={`${testId}-source-label`}
-        >
-          {t('analysis.aiComment.fromFullReview', 'From full review')}
-        </div>
-      )}
 
       <div
         className="ai-position-comment__action-row"
@@ -182,9 +166,38 @@ export function AiPositionCommentPanel({
             onClick={handleClick}
             data-testid={`${testId}-btn`}
           >
-            {buttonLabel}
+            {isLoading && (
+              <span
+                className="ai-position-comment__spinner"
+                aria-hidden="true"
+              />
+            )}
+            <span className="ai-position-comment__btn-label">
+              {buttonLabel}
+            </span>
           </button>
         )}
+        <span
+          className="ai-position-comment__counter"
+          data-testid={`${testId}-counter`}
+          title={t(
+            'analysis.aiComment.counterTitle',
+            '{{used}} of {{limit}} requests in last {{minutes}} min',
+            {
+              used: softCounter.used,
+              limit: softCounter.limit,
+              minutes: softCounter.windowMin,
+            },
+          )}
+        >
+          {softCounter.used}/{softCounter.limit}
+          <span className="ai-position-comment__counter-unit">
+            {' '}
+            {t('analysis.aiComment.counterUnit', 'min', {
+              minutes: softCounter.windowMin,
+            })}
+          </span>
+        </span>
         {isGuest && (
           <Link
             to="/login"

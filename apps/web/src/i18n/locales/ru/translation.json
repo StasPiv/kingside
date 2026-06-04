@@ -945,7 +945,8 @@
       "fromFullReview": "Из полного разбора",
       "guestTooltip": "Войдите, чтобы пользоваться оценкой AI",
       "guestLink": "Войти",
-      "counterTitle": "{{used}} из {{limit}} запросов за последние {{minutes}} мин"
+      "counterTitle": "{{used}} из {{limit}} запросов за последние {{minutes}} мин",
+      "counterUnit": "мин"
     },
     "maia": {
       "loading": "Загружаем Maia…",

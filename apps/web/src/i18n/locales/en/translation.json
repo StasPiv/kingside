@@ -935,7 +935,8 @@
       "fromFullReview": "From full review",
       "guestTooltip": "Sign in to use AI evaluation",
       "guestLink": "Sign in",
-      "counterTitle": "{{used}} of {{limit}} requests in last {{minutes}} min"
+      "counterTitle": "{{used}} of {{limit}} requests in last {{minutes}} min",
+      "counterUnit": "min"
     },
     "maia": {
       "loading": "Loading Maia…",

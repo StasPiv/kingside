@@ -773,3 +773,296 @@
      понятия «лучшая линия» нет — цвет тот же приглушённый. */
   color: var(--c-606078);
 }
+
+/* ============================================================
+ * KS-3682 (ADR-108 §3.1): AI Position Comment panel.
+ *
+ * Подблок внутри engine-panel (desktop) и mobile section--engine.
+ * DOM рисует `AiPositionCommentPanel`:
+ *   <div class="ai-position-comment" data-state="<kind>">
+ *     <div class="ai-position-comment__header">
+ *       <span class="ai-position-comment__title">…</span>
+ *       <span class="ai-position-comment__source-label">…</span>
+ *     </div>
+ *     <div class="ai-position-comment__action-row">
+ *       <button class="ai-position-comment__btn">
+ *         [<span class="ai-position-comment__spinner"/>]
+ *         <span class="ai-position-comment__btn-label">…</span>
+ *       </button>
+ *       <span class="ai-position-comment__counter">N/20 <span/>мин</span>
+ *       [<a class="ai-position-comment__guest-link">…</a>]
+ *     </div>
+ *     [<div class="ai-position-comment__text|empty|error|rate-limited|unsupported">…</div>]
+ *   </div>
+ *
+ * Состояния различаются через [data-state="…"]: border-left, цвет
+ * сообщения, spinner у кнопки. Базируется на стиле bridge-promo
+ * (фон-градиент с accent-tint + бордер).
+ * ============================================================ */
+.ai-position-comment {
+  /* Локальные переменные — переопределяются модификаторами состояний. */
+  --aipc-accent: var(--c-7c83ff);
+  --aipc-border: var(--c-2a2a4e);
+  --aipc-bg: var(--ov-accent-06);
+  --aipc-text-muted: var(--c-808098);
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0 0 6px;
+  background: var(--aipc-bg);
+  border: 1px solid var(--aipc-border);
+  border-left: 3px solid var(--aipc-accent);
+  border-radius: 8px;
+  font-size: calc(13px * var(--analysis-sidebar-font-scale, 1));
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+/* ─── модификаторы состояний (через data-state) ─── */
+.ai-position-comment[data-state='loading'] {
+  --aipc-accent: var(--c-7c83ff);
+  --aipc-bg: var(--ov-accent-08);
+}
+.ai-position-comment[data-state='error'] {
+  --aipc-accent: #d4543b;
+  --aipc-border: #4a2a2a;
+  --aipc-bg: rgba(212, 84, 59, 0.08);
+}
+.ai-position-comment[data-state='rate-limited'] {
+  --aipc-accent: #d4a14b;
+  --aipc-border: #4a3a1f;
+  --aipc-bg: rgba(212, 161, 75, 0.08);
+}
+.ai-position-comment[data-state='unauthenticated'] {
+  --aipc-accent: var(--c-808098);
+  --aipc-bg: var(--ov-accent-05);
+}
+.ai-position-comment[data-state='unsupported'] {
+  --aipc-accent: var(--c-606078);
+  --aipc-bg: rgba(96, 96, 120, 0.08);
+}
+.ai-position-comment[data-state='empty'] {
+  --aipc-accent: var(--c-606078);
+}
+
+/* ─── header (title + source-label badge) ─── */
+.ai-position-comment__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ai-position-comment__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-c0c0ff);
+}
+
+/* «Из полного разбора» — soft accent-pill. */
+.ai-position-comment__source-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--ov-accent-15);
+  color: var(--c-c0c0ff);
+  border: 1px solid var(--ov-accent-30);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+/* ─── action-row: кнопка + счётчик + guest-link ─── */
+.ai-position-comment__action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-position-comment__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  min-height: 32px;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border: 1px solid var(--c-7c83ff);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out,
+    box-shadow 120ms ease-out, opacity 120ms ease-out;
+}
+.ai-position-comment__btn:hover:not(:disabled) {
+  background: var(--c-9b9fff, var(--c-7c83ff));
+  border-color: var(--c-9b9fff, var(--c-7c83ff));
+}
+.ai-position-comment__btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-35);
+}
+.ai-position-comment__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Inline-spinner внутри кнопки (loading). */
+.ai-position-comment__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: var(--c-fff);
+  border-radius: 50%;
+  animation: ai-position-comment-spin 700ms linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ai-position-comment-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Soft-counter pill (N/20 мин). */
+.ai-position-comment__counter {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 3px 9px;
+  background: var(--ov-accent-08);
+  color: var(--c-a0a0c0);
+  border: 1px solid var(--aipc-border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ai-position-comment__counter-unit {
+  color: var(--c-808098);
+  margin-left: 2px;
+}
+
+/* Guest-ссылка «Войти». */
+.ai-position-comment__guest-link {
+  color: var(--c-7c83ff);
+  font-size: 12px;
+  text-decoration: none;
+}
+.ai-position-comment__guest-link:hover {
+  text-decoration: underline;
+}
+
+/* ─── body: success-text / empty / error / rate-limited / unsupported ─── */
+.ai-position-comment__text,
+.ai-position-comment__empty,
+.ai-position-comment__error,
+.ai-position-comment__rate-limited,
+.ai-position-comment__unsupported {
+  font-size: 13px;
+  color: var(--c-e0e0e0);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+/* Длинный комментарий — на desktop ограничен по высоте и скроллится. */
+.ai-position-comment__text {
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Иконка-маркер слева от текста для error/rate-limited/unsupported/empty. */
+.ai-position-comment__empty,
+.ai-position-comment__error,
+.ai-position-comment__rate-limited,
+.ai-position-comment__unsupported {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ai-position-comment__empty::before,
+.ai-position-comment__error::before,
+.ai-position-comment__rate-limited::before,
+.ai-position-comment__unsupported::before {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+.ai-position-comment__empty {
+  color: var(--c-a0a0c0);
+}
+.ai-position-comment__empty::before {
+  content: 'i';
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--c-606078);
+  border-radius: 50%;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+}
+.ai-position-comment__error {
+  color: #e08070;
+}
+.ai-position-comment__error::before {
+  content: '⚠';
+  color: #d4543b;
+}
+.ai-position-comment__rate-limited {
+  color: #d4a14b;
+}
+.ai-position-comment__rate-limited::before {
+  content: '⏱';
+  color: #d4a14b;
+}
+.ai-position-comment__unsupported {
+  color: var(--c-808098);
+}
+.ai-position-comment__unsupported::before {
+  content: '⊘';
+  color: var(--c-808098);
+}
+
+/* ─── mobile: full-width кнопка, tap-target ≥44px, без scroll'а body ─── */
+@media (max-width: 767px) {
+  .ai-position-comment {
+    padding: 10px 10px;
+    margin: 0 0 4px;
+  }
+  .ai-position-comment__action-row {
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ai-position-comment__btn {
+    min-height: 44px;
+    flex: 1 1 100%;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  .ai-position-comment__counter {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+  .ai-position-comment__guest-link {
+    align-self: center;
+  }
+  .ai-position-comment__text {
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+}
