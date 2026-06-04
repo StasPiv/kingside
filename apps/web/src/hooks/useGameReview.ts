@@ -850,6 +850,14 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
         try {
         const factsToSend: FactsInput[] = [];
         const plyMap: number[] = [];
+        // KS-3685: возвращаю мягкий запасной путь (KS-3681). Сборка
+        // stockfish-16-trace от devops падает на втором UCI-вызове
+        // (см. KS-3684 — локальное воспроизведение). До стабильной
+        // пересборки разбор партии должен идти штатно, без
+        // status='error', даже когда positional_subterms собрать не
+        // удалось. Положительный сценарий вернётся, когда devops
+        // отдаст рабочие артефакты.
+        let skipTraceForThisRun = false;
         for (let i = 0; i < annotations.length; i++) {
           const ann = annotations[i];
           if (ann.nag.length === 0) continue;
@@ -876,26 +884,30 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // Cancel-aware: между ходами проверяем флаг.
           if (cancelRef.current) break;
           let positionalSubterms: PositionalSubterm[] = [];
-          // KS-3676: новая сборка SF-trace работает (devops). Если
-          // исполнитель всё же упадёт — это системная поломка,
-          // разбор переходит в `status='error'` с понятным сообщением
-          // в UI. Мягкий запасной путь убран по решению пользователя
-          // (KS-3681 отменён).
-          const traceStart = performance.now();
-          console.info(
-            `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
-          );
-          try {
-            positionalSubterms = await evalStockfishTrace(fenAfter);
+          // KS-3685 (revert KS-3676 → KS-3681 поведение). При системной
+          // поломке исполнителя — НЕ блокируем разбор. Отключаем
+          // дальнейшие вызовы трейса на остаток run (флаг ниже), чтобы
+          // не ждать таймаут 8 с × N ходов. Остальные сигналы
+          // (positional_shifts, sf_best, maia_alternative, tactical_motifs)
+          // полностью работают, LLM-комментарии собираются.
+          if (!skipTraceForThisRun) {
+            const traceStart = performance.now();
             console.info(
-              `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
+              `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
             );
-          } catch (err) {
-            console.warn(
-              '[useGameReview] evalStockfishTrace fatal:',
-              err,
-            );
-            throw err;
+            try {
+              positionalSubterms = await evalStockfishTrace(fenAfter);
+              console.info(
+                `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
+              );
+            } catch (err) {
+              console.warn(
+                `[useGameReview] evalStockfishTrace skipped for rest of run (cause:`,
+                err,
+                ')',
+              );
+              skipTraceForThisRun = true;
+            }
           }
           const facts = extractFacts({
             ply: input.ply,
