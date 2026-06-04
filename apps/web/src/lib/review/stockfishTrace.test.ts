@@ -219,15 +219,14 @@ describe('parseTraceJson — сверка с baseline (KS-3650 acceptance)', () 
 });
 
 describe('evalTrace — с моковой фабрикой', () => {
-  it('graceful: factory undefined → [] (нет Worker в jsdom)', async () => {
-    // KS-3680. Основной путь идёт через `new Worker(url)`. В jsdom
-    // глобального Worker нет — evalTraceViaWorker отдаёт пустой
-    // массив (graceful, как было до KS-3680, чтобы прежние тесты
-    // KS-3616 useGameReview не падали).
-    const result = await evalTrace(
-      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-    );
-    expect(result).toEqual([]);
+  it('graceful: factory undefined → бросает factory-error (в happy-dom скрипт не загружается)', async () => {
+    // KS-3676. Основной путь — `<script>` + `window.StockfishTrace()`.
+    // В happy-dom есть `document`, но реально файл не подгружается —
+    // `s.onerror` срабатывает, evalTrace бросает StockfishTraceEngineError.
+    // В реальном браузере на боевой среде скрипт грузится штатно.
+    await expect(
+      evalTrace('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'),
+    ).rejects.toThrow(/factory-error/);
   });
 
   it('моковая factory: команды собираются через stdin, JSON парсится', async () => {
