@@ -4407,6 +4407,18 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   color: inherit;
   text-decoration: none;
 }
+.precision-attempts__row-btn:hover,
+.precision-attempts__row-btn:focus,
+.precision-attempts__row-btn:focus-visible,
+.precision-attempts__row-btn:active,
+.precision-attempts__row-btn:visited {
+  /* KS-3667: глобальное `a:hover { text-decoration: underline }` из
+     base.css по специфичности (0,1,1) перебивает default `none`
+     (0,1,0) у `.precision-attempts__row-btn` и подчёркивает строки
+     «Точность», «±N», «N полуходов» внутри ссылки-карточки. Явно
+     гасим во всех интерактивных состояниях. */
+  text-decoration: none;
+}
 .precision-attempts__row-btn:hover {
   background: rgba(124, 131, 255, 0.06);
 }
