@@ -308,6 +308,32 @@ void dispatch_uci_token(
         else
             trace_eval(pos);
     }
+    else if (token == "diag2")
+    {
+        // KS-3676 / ADR-107 rev 2. Прямое чтение глобальных таблиц,
+        // заполняемых в `Bitboards::init()`, `PSQT::init()`. Цель —
+        // проверить, видны ли значения, записанные в pthread main,
+        // из основного потока ccall. Эталоны (нативная сборка):
+        //   PopCnt16[1]=1, [3]=2, [7]=3, [255]=8
+        //   SquareDistance[A1][H8]=7, [A1][B2]=1
+        //   LineBB[A1][H8] != 0, BetweenBB[A1][C3] != 0
+        //   PSQT::psq[W_KNIGHT][D4] != 0
+        // В WASM-сборке значения ≡ 0 → подтверждаем изоляцию памяти
+        // pthread vs основной поток (тогда static таблицы видны как
+        // нули в ccall). Значения корректные → причина расхождения в
+        // ином месте (см. комментарий в команде `diag`).
+        sync_cout << "diag2"
+                  << " PopCnt16[1]=" << int(PopCnt16[1])
+                  << " PopCnt16[3]=" << int(PopCnt16[3])
+                  << " PopCnt16[7]=" << int(PopCnt16[7])
+                  << " PopCnt16[255]=" << int(PopCnt16[255])
+                  << " SquareDistance[A1][H8]=" << int(SquareDistance[SQ_A1][SQ_H8])
+                  << " SquareDistance[A1][B2]=" << int(SquareDistance[SQ_A1][SQ_B2])
+                  << " LineBB[A1][H8]=" << LineBB[SQ_A1][SQ_H8]
+                  << " BetweenBB[A1][C3]=" << BetweenBB[SQ_A1][SQ_C3]
+                  << " psq[W_KNIGHT][D4]=" << PSQT::psq[W_KNIGHT][SQ_D4]
+                  << sync_endl;
+    }
     else if (token == "diag")
     {
         // KS-3676 / ADR-107 rev 2. Диагностика padding/alignment полей
@@ -416,32 +442,17 @@ int uci_command(const char* cmd_str) {
     static StateListPtr uci_states;
     static bool uci_initialized = false;
     if (!uci_initialized) {
-        // KS-3676 / ADR-107 rev 2. Принудительная переинициализация
-        // глобальных таблиц В КОНТЕКСТЕ ccall-потока.
-        // Симптом: 8 subterm-ID не эмитятся в WASM (`pawn_backward`,
-        // `knight_reachable_outpost`, `king_attackers_count/weight`,
-        // `king_danger`, `king_pawnless_flank`, `threat_by_minor`,
-        // `threat_hanging`, `threat_weak_queen_protection`), `total`
-        // 0.05 вместо нативного 0.10. Все они либо зависят от
-        // `popcount`, либо от `attacks_bb<...>` / `pawn_attacks`,
-        // т.е. от глобальных таблиц `PopCnt16`/`SquareDistance`/
-        // `LineBB`/`BetweenBB` (объявлены `extern` в bitboard.cpp).
-        // Девопс отладочный след стека (Стек A) показал, что main()
-        // запускается в `_main_thread` pthread под
-        // `PROXY_TO_PTHREAD=1`. Гипотеза: даже хотя static storage
-        // должна быть shared через SharedArrayBuffer, при некоторых
-        // emscripten-конфигурациях запись из pthread main не
-        // становится видна основному потоку worker'а (где работает
-        // ccall) — таблицы читаются как нули, popcount() возвращает 0,
-        // условия эмиссии subterm-ID не срабатывают.
-        // Лекарство — переинициализировать таблицы в ccall-потоке.
-        // Идемпотентно: повторная инициализация записывает те же
-        // значения, не ломает нативную семантику (под `__EMSCRIPTEN__`
-        // ifdef'а нет — здесь вся функция уже под ним).
-        PSQT::init();
-        Bitboards::init();
-        Position::init();
-        Bitbases::init();
+        // KS-3676 / ADR-107 rev 2. Гипотеза «переинициализировать
+        // PSQT/Bitboards/Position/Bitbases в контексте ccall-потока»
+        // (был коммит cd105f41) опровергнута на практике: повторный
+        // вызов `*::init()` из основного потока даёт `operation does
+        // not support unaligned accesses` и `table index is out of
+        // bounds`. То есть таблицы уже существуют в shared-памяти,
+        // и попытка их перезаписи упирается в alignment/sharing
+        // constraint. Откат сделан, оставляем init только в main()
+        // pthread. Корень расхождения 8 subterm-ID и `total` 0.05 vs
+        // 0.10 будем искать иначе — через прямое чтение таблиц
+        // (команда `diag2` ниже).
         uci_states.reset(new std::deque<StateInfo>(1));
         uci_pos.set(StartFEN, false, &uci_states->back(), Threads.main());
         uci_initialized = true;
