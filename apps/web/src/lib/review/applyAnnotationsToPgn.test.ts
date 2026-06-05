@@ -14,7 +14,6 @@ import {
   NAG_BLUNDER,
   NAG_GOOD,
   NAG_MISTAKE,
-  type Annotation,
 } from './buildAnnotations';
 
 const PGN_E4_E5_NF3 =
@@ -155,8 +154,9 @@ describe('applyAnnotationsToPgn', () => {
     expect(c.history({ verbose: true }).length).toBe(3);
   });
 
-  it('KS-3616: длинный комментарий обрезается до PGN_COMMENT_MAX_LENGTH', () => {
-    const long = 'A'.repeat(500);
+  it('KS-3616: комментарий сверх PGN_COMMENT_MAX_LENGTH обрезается с `...`', () => {
+    // Превышаем потолок на ~200 символов — обрезка штатно срабатывает.
+    const long = 'A'.repeat(PGN_COMMENT_MAX_LENGTH + 200);
     const out = applyAnnotationsToPgn(
       PGN_E4_E5_NF3,
       [{ ply: 1, nag: [], variations: [] }],
@@ -167,6 +167,34 @@ describe('applyAnnotationsToPgn', () => {
     const body = m![1];
     expect(body.length).toBeLessThanOrEqual(PGN_COMMENT_MAX_LENGTH);
     expect(body.endsWith('...')).toBe(true);
+  });
+
+  it('KS-3705: типовой длинный комментарий ИИ (~1500 символов) сохраняется без обрезки', () => {
+    // Реалистичный сценарий: модель в режиме полного разбора партии
+    // отдаёт развёрнутый комментарий 1300–1500 символов (подтверждено
+    // по логам бэкенда). До KS-3705 константа была 200 — на середине
+    // фразы появлялось «...», см. жалобу пользователя в KS-3705.
+    const sentence =
+      'По форме позиции — примерное равенство с лёгкой инициативой на стороне чёрных. ';
+    // 18 повторов ≈ 1440 символов, заведомо больше старого порога 200,
+    // но в пределах нового 5000.
+    const long = sentence.repeat(18).trim();
+    expect(long.length).toBeGreaterThan(1300);
+    expect(long.length).toBeLessThan(PGN_COMMENT_MAX_LENGTH);
+    const out = applyAnnotationsToPgn(
+      PGN_E4_E5_NF3,
+      [{ ply: 1, nag: [], variations: [] }],
+      { commentByPly: { 1: long } },
+    );
+    const m = out.match(/\{([^}]*)\}/);
+    expect(m).toBeTruthy();
+    const body = m![1];
+    // Текст пришёл целиком, без «...» в конце.
+    expect(body).toBe(long);
+    expect(body.endsWith('...')).toBe(false);
+    // PGN остаётся валидным после round-trip через chess.js.
+    const c = new Chess();
+    expect(() => c.loadPgn(out)).not.toThrow();
   });
 
   it('KS-3616: фигурные скобки внутри комментария экранируются', () => {
