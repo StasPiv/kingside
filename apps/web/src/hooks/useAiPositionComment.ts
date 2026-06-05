@@ -46,8 +46,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AiArrow, AiHighlight } from '@kingside/shared';
+import type {
+  AiArrow,
+  AiHighlight,
+  PositionalSubterm,
+} from '@kingside/shared';
 
+import { mergeFactors, playOutPv } from '../lib/review/factorsMerge';
 import { evalTrace } from '../lib/review/stockfishTrace';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -534,7 +539,7 @@ export function useAiPositionComment(
 
       // 1) Собираем факторы через evalTrace. На любой ошибке движка —
       //    состояние `unsupported`: без факторов запрос не имеет смысла.
-      let factors: unknown[];
+      let factors: PositionalSubterm[];
       try {
         factors = await evalTrace(fen);
       } catch (e) {
@@ -579,7 +584,32 @@ export function useAiPositionComment(
           // engineProbe бросил — игнорируем, отправим без sf18-факторов.
         }
       }
-      const factorsWithEngine: unknown[] = [...factors];
+      // KS-3699: если в bestLine есть непустой pv — проигрываем линию
+      // через chess.js до конечной позиции и собираем второй набор
+      // факторов через evalTrace для конца линии. Объединяем с исходными
+      // в один массив (см. `mergeFactors`): у общих факторов будут оба
+      // значения, у уникальных — только своё. Это даёт модели срез
+      // «как изменится позиция через ~20 ходов» без удвоения payload.
+      //
+      // Любая проблема (нелегальный pv, фабрика WASM не отвечает на
+      // втором вызове, тайм-аут) — graceful fallback: отправляем
+      // исходный массив без terminal-значений, пользователя не блокируем.
+      let mergedFactors: ReadonlyArray<unknown> = factors;
+      if (bestLine && bestLine.pv && bestLine.pv.trim().length > 0) {
+        const terminalFen = playOutPv(fen, bestLine.pv);
+        if (terminalFen) {
+          try {
+            const terminalFactors = await evalTrace(terminalFen);
+            if (ctrl.signal.aborted) return;
+            if (inFlightFenRef.current !== normalizedFen) return;
+            mergedFactors = mergeFactors(factors, terminalFactors);
+          } catch {
+            // Терминальные факторы не собрались — остаёмся с исходными.
+          }
+        }
+      }
+
+      const factorsWithEngine: unknown[] = [...mergedFactors];
       if (bestLine && Number.isFinite(bestLine.score?.value)) {
         const sideToMove: 'w' | 'b' = fen.split(/\s+/)[1] === 'b' ? 'b' : 'w';
         factorsWithEngine.push({
