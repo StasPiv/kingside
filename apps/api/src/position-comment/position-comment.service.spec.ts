@@ -87,7 +87,11 @@ describe('PositionCommentService', () => {
       // Тип cp и mate должны быть упомянуты с пояснением.
       expect(p).toContain('cp');
       expect(p).toContain('mate');
-      expect(p).toContain('side_to_move');
+      // KS-3702: знак всегда со стороны белых, прежняя формулировка
+      // про `side_to_move` удалена синхронно с правкой на фронте.
+      expect(p).toContain('с точки зрения белых');
+      expect(p).not.toContain('side_to_move');
+      expect(p).toMatch(/независимо от того, чей ход/);
       expect(p).toContain('UCI');
       // Обязательность отразить + перевод в слова + план.
       expect(p).toContain('ОБЯЗАТЕЛЬНО');
@@ -178,7 +182,11 @@ describe('PositionCommentService', () => {
       expect(p).toContain('Stockfish 18');
       expect(p).toContain('cp');
       expect(p).toContain('mate');
-      expect(p).toContain('side_to_move');
+      // KS-3702: знак всегда со стороны белых, прежняя формулировка
+      // про `side-to-move` удалена синхронно с правкой на фронте.
+      expect(p).toContain("White's point of view");
+      expect(p).not.toContain('side_to_move');
+      expect(p).toContain('regardless of whose move');
       expect(p).toContain('UCI');
       expect(p).toMatch(/MUST reflect both/);
       expect(p).toContain('plan');
