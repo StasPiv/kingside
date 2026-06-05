@@ -1153,7 +1153,7 @@ class ChatDaemon:
         cmd.extend([
             "kingside-agent",
             "-p",
-            "--model", "sonnet",
+            "--model", "default",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
@@ -1262,35 +1262,44 @@ class ChatDaemon:
             self._response_ready.set()
 
     def send_and_wait(self, message: str, timeout: float = AI_CHAT_TIMEOUT) -> str | None:
-        """Отправляет сообщение и ждёт ответа. Возвращает текст или None при таймауте."""
+        """Отправляет сообщение и ждёт ответа. Возвращает текст или None при таймауте.
+
+        Сериализуется через self.lock: один turn на daemon одновременно.
+        Без сериализации параллельные вызовы делили _response_text/_response_ready
+        и все возвращали ответ на первое сообщение (KS-3714).
+        """
         if not self.proc or self.proc.poll() is not None:
             return None
 
-        self._response_text = ""
-        self._response_ready.clear()
-        self._collecting = True
-        self._last_activity = time.time()
+        with self.lock:
+            if not self.proc or self.proc.poll() is not None:
+                return None
 
-        msg_json = json.dumps({
-            "type": "user",
-            "message": {"role": "user", "content": message},
-        })
-
-        try:
-            self.proc.stdin.write(msg_json + "\n")
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError) as e:
-            log(f"ChatDaemon {self.user_id[:8]}: write error: {e}")
-            self._collecting = False
-            return None
-
-        if self._response_ready.wait(timeout=timeout):
+            self._response_text = ""
+            self._response_ready.clear()
+            self._collecting = True
             self._last_activity = time.time()
-            return self._response_text
-        else:
-            log(f"ChatDaemon {self.user_id[:8]}: timeout ({timeout}s)")
-            self._collecting = False
-            return None
+
+            msg_json = json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": message},
+            })
+
+            try:
+                self.proc.stdin.write(msg_json + "\n")
+                self.proc.stdin.flush()
+            except (BrokenPipeError, OSError) as e:
+                log(f"ChatDaemon {self.user_id[:8]}: write error: {e}")
+                self._collecting = False
+                return None
+
+            if self._response_ready.wait(timeout=timeout):
+                self._last_activity = time.time()
+                return self._response_text
+            else:
+                log(f"ChatDaemon {self.user_id[:8]}: timeout ({timeout}s)")
+                self._collecting = False
+                return None
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
