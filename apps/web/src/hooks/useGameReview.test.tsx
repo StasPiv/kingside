@@ -9,9 +9,15 @@ import type { Wdl } from '@kingside/shared';
 
 // KS-3676: stockfishTrace в jsdom не загружает реальный <script> —
 // фабрика бросает factory-error. Тесты useGameReview не проверяют
-// сам трейс, поэтому мокаем его на пустой массив.
+// сам трейс, поэтому мокаем его минимальным валидным набором
+// подкомпонент.
+// KS-3712: один непустой `PositionalSubterm` имитирует штатную
+// трассировку — иначе ход пропускается из LLM-batch (см. фильтр
+// `positionalSubterms.length === 0` в `useGameReview`).
 vi.mock('../lib/review/stockfishTrace', () => ({
-  evalTrace: vi.fn().mockResolvedValue([]),
+  evalTrace: vi.fn().mockResolvedValue([
+    { id: 'space', value_mg: 0, value_eg: 0 },
+  ]),
   parseTraceJson: vi.fn().mockReturnValue([]),
   StockfishTraceEngineError: class extends Error {
     constructor(public readonly reason: string) {
@@ -23,7 +29,7 @@ vi.mock('../lib/review/stockfishTrace', () => ({
 
 import {
   useGameReview,
-  type CommentClient,
+  type MoveCommentClient,
   type ReviewEngines,
   parsePgnPlies,
 } from './useGameReview';
@@ -43,6 +49,8 @@ function mockEngines(over: Partial<ReviewEngines> = {}): ReviewEngines {
       bestPv: ['e2e4', 'e7e5'],
       wdlByMove: { e2e4: NEUTRAL },
       legalMovesCount: 20,
+      topScore: { type: 'cp', value: 0 },
+      topDepth: 20,
     }),
     evalMove: vi.fn().mockResolvedValue(NEUTRAL),
     predictMaia: vi.fn().mockResolvedValue({
@@ -227,43 +235,43 @@ describe('useGameReview', () => {
     };
   }
 
-  it('KS-3616: commentsEnabled=false → commentClient НЕ вызывается', async () => {
-    const commentClient: CommentClient = vi.fn().mockResolvedValue([]);
+  it('KS-3616: commentsEnabled=false → moveCommentClient НЕ вызывается', async () => {
+    const moveCommentClient: MoveCommentClient = vi.fn().mockResolvedValue('');
     const { result } = renderHook(() =>
       useGameReview({
         engines: blunderEngines(),
         commentsEnabled: false,
-        commentClient,
+        moveCommentClient,
       }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
     });
-    expect(commentClient).not.toHaveBeenCalled();
+    expect(moveCommentClient).not.toHaveBeenCalled();
     expect(result.current.result?.commentByPly).toEqual({});
   });
 
-  it('KS-3616: нет ходов с NAG → commentClient НЕ вызывается', async () => {
+  it('KS-3616: нет ходов с NAG → moveCommentClient НЕ вызывается', async () => {
     // mockEngines() выдаёт sf=e2e4, played=e2e4 → best; no NAG.
-    const commentClient: CommentClient = vi.fn().mockResolvedValue([]);
+    const moveCommentClient: MoveCommentClient = vi.fn().mockResolvedValue('');
     const { result } = renderHook(() =>
-      useGameReview({ engines: mockEngines(), commentClient }),
+      useGameReview({ engines: mockEngines(), moveCommentClient }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
     });
-    expect(commentClient).not.toHaveBeenCalled();
+    expect(moveCommentClient).not.toHaveBeenCalled();
     expect(result.current.result?.commentByPly).toEqual({});
   });
 
-  it('KS-3616: ходы с NAG → commentClient вызван, commentByPly заполнен', async () => {
-    const commentClient: CommentClient = vi.fn().mockResolvedValue([
-      'Слабый ход; лучше Nf6.',
-    ]);
+  it('KS-3712: ход с NAG → moveCommentClient вызван на каждый ход, commentByPly заполнен', async () => {
+    const moveCommentClient: MoveCommentClient = vi
+      .fn()
+      .mockResolvedValue('Слабый ход; лучше Nf6.');
     const { result } = renderHook(() =>
       useGameReview({
         engines: blunderEngines(),
-        commentClient,
+        moveCommentClient,
         createPositionalEval: null,
         openingName: 'King’s Pawn',
         userLanguage: 'ru',
@@ -274,13 +282,24 @@ describe('useGameReview', () => {
       await result.current.run(PGN_3PLIES);
     });
     expect(result.current.status).toBe('done');
-    expect(commentClient).toHaveBeenCalledTimes(1);
-    const callArgs = (commentClient as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(Array.isArray(callArgs[0])).toBe(true);
-    // Один blunder в PGN → один factsToSend.
-    expect((callArgs[0] as unknown[]).length).toBe(1);
-    expect(callArgs[1]).toBe(1500);
-    expect(callArgs[2]).toBe('ru');
+    // Один blunder в PGN → один атомарный запрос.
+    expect(moveCommentClient).toHaveBeenCalledTimes(1);
+    const callArgs = (moveCommentClient as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    const request = callArgs[0] as {
+      move: { uci: string; classification: string };
+      before: { fen: string; factors: unknown[] };
+      after: { fen: string; factors: unknown[] };
+      language: string;
+    };
+    expect(request.move.uci).toBe('e7e5');
+    expect(request.move.classification).toBe('blunder');
+    expect(request.language).toBe('ru');
+    expect(request.before.fen).toContain(' b ');
+    expect(request.after.fen).toContain(' w ');
+    // factors включают подкомпоненты + sf18_eval (+ опционально sf18_pv).
+    expect(request.before.factors.length).toBeGreaterThan(0);
+    expect(request.after.factors.length).toBeGreaterThan(0);
     // commentByPly: ply=2 (e5) — единственный blunder.
     expect(result.current.result?.commentByPly).toEqual({
       2: 'Слабый ход; лучше Nf6.',
@@ -289,9 +308,13 @@ describe('useGameReview', () => {
   });
 
   it('KS-3616: backend возвращает пустые → commentsWarning=true, дубль создаётся', async () => {
-    const commentClient: CommentClient = vi.fn().mockResolvedValue(['']);
+    const moveCommentClient: MoveCommentClient = vi.fn().mockResolvedValue('');
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
+      useGameReview({
+        engines: blunderEngines(),
+        moveCommentClient,
+        createPositionalEval: null,
+      }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -303,12 +326,16 @@ describe('useGameReview', () => {
     expect(result.current.result?.annotations).toHaveLength(3);
   });
 
-  it('KS-3616: AbortError из commentClient → cancelled', async () => {
-    const commentClient: CommentClient = vi
+  it('KS-3616: AbortError из moveCommentClient → cancelled', async () => {
+    const moveCommentClient: MoveCommentClient = vi
       .fn()
       .mockRejectedValue(new DOMException('aborted', 'AbortError'));
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
+      useGameReview({
+        engines: blunderEngines(),
+        moveCommentClient,
+        createPositionalEval: null,
+      }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -316,12 +343,16 @@ describe('useGameReview', () => {
     expect(result.current.status).toBe('cancelled');
   });
 
-  it('KS-3616: ошибка backend (не abort) → graceful warning, status=done', async () => {
-    const commentClient: CommentClient = vi
+  it('KS-3616: ошибка бэкенда (не abort) → graceful warning, status=done', async () => {
+    const moveCommentClient: MoveCommentClient = vi
       .fn()
       .mockRejectedValue(new TypeError('Failed to fetch'));
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
+      useGameReview({
+        engines: blunderEngines(),
+        moveCommentClient,
+        createPositionalEval: null,
+      }),
     );
     await act(async () => {
       await result.current.run(PGN_3PLIES);
@@ -333,18 +364,22 @@ describe('useGameReview', () => {
 
   it('KS-3616: cancel во время comments-фазы → cancelled + abort fetch', async () => {
     let abortSignal: AbortSignal | undefined;
-    const commentClient: CommentClient = vi
+    const moveCommentClient: MoveCommentClient = vi
       .fn()
-      .mockImplementation((_facts, _elo, _lang, signal: AbortSignal) => {
+      .mockImplementation((_request, signal: AbortSignal | undefined) => {
         abortSignal = signal;
-        return new Promise<string[]>((_, reject) => {
+        return new Promise<string>((_, reject) => {
           signal?.addEventListener('abort', () => {
             reject(new DOMException('aborted', 'AbortError'));
           });
         });
       });
     const { result } = renderHook(() =>
-      useGameReview({ engines: blunderEngines(), commentClient, createPositionalEval: null }),
+      useGameReview({
+        engines: blunderEngines(),
+        moveCommentClient,
+        createPositionalEval: null,
+      }),
     );
     let runPromise: Promise<void> | null = null;
     act(() => {

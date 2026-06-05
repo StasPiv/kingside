@@ -25,7 +25,10 @@ import {
   type Wdl,
 } from '@kingside/shared';
 
-import { batchReviewComment as defaultCommentClient } from '../api/reviewComment';
+import {
+  postMoveComment as defaultPostMoveComment,
+  type MoveCommentRequest,
+} from '../api/moveComment';
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
 import { uciToSan } from '../lib/maia/uciToSan';
 import {
@@ -35,17 +38,18 @@ import {
   type AnnotationVariation,
   type MoveInput,
 } from '../lib/review/buildAnnotations';
+import { buildMoveCommentMove } from '../lib/review/buildMoveCommentMove';
+import { buildSnapshotFactors } from '../lib/review/buildSnapshotFactors';
 import {
   MAX_LINE_LENGTH_PLIES,
   SUB_VARIATION_MAX_LENGTH_PLIES,
 } from '../lib/review/buildStabilizedLine';
-import { extractFacts, type FactsInput } from '../lib/review/extractFacts';
+import type { FactsInput } from '../lib/review/extractFacts';
 import { evalTrace as evalStockfishTrace } from '../lib/review/stockfishTrace';
 import {
   PositionalEvalEngine,
   type PositionalEvalEngine as PositionalEvalEngineType,
 } from '../lib/review/positionalEval';
-import { computePositionalShifts } from '../lib/review/positionalShifts';
 
 // --- engine-провайдеры (DI) ------------------------------------------------
 
@@ -73,6 +77,19 @@ export interface SfPositionResult {
   wdlByMove: Record<string, Wdl>;
   /** Кол-во легальных ходов в позиции — для `forcedMove`. */
   legalMovesCount: number;
+  /**
+   * KS-3712: «честный» score первой линии — `cp` или `mate`, POV ходящей
+   * стороны на `fen`. Используется при сборке `sf18_eval` для пары
+   * `before`/`after` снимков в `move-comment`. `null` или отсутствует —
+   * если движок не вернул score (старая обвязка/тестовый мок).
+   * Поле опциональное ради обратной совместимости с тестами/моками.
+   */
+  topScore?: { type: 'cp' | 'mate'; value: number } | null;
+  /**
+   * KS-3712: глубина, на которой получена первая линия. Поле опциональное
+   * ради обратной совместимости с тестами/моками.
+   */
+  topDepth?: number;
 }
 
 export interface MaiaPolicy {
@@ -106,9 +123,11 @@ export type ReviewStatus =
   | 'error';
 
 /**
- * KS-3616. Клиент батча LLM-комментариев. По умолчанию используется
- * `batchReviewComment` из `api/reviewComment`. Внедряется через
- * `options.commentClient` для тестов.
+ * KS-3616. Клиент пакета LLM-комментариев старого формата
+ * (`POST /analyses/position/comment`, list-of-FactsInput). Оставлен в
+ * типе ради совместимости с `window.__sfReviewProbe` и переходного
+ * периода тестов. С KS-3712 хук вызывает не этот клиент, а
+ * {@link MoveCommentClient}.
  */
 export type CommentClient = (
   facts: readonly FactsInput[],
@@ -117,6 +136,19 @@ export type CommentClient = (
   signal?: AbortSignal,
   options?: { onProgress?: (done: number) => void },
 ) => Promise<string[]>;
+
+/**
+ * KS-3712. Клиент атомарного запроса комментария к одному ходу
+ * (`POST /analyses/review/move-comment`). Один ход = один запрос с
+ * парой `before`/`after` снимков в формате `position-comment`.
+ * Возвращает текст комментария или пустую строку при нефатальной
+ * ошибке (тогда `commentByPly` не получит запись на этот ход).
+ * `AbortError` пробрасывается.
+ */
+export type MoveCommentClient = (
+  request: MoveCommentRequest,
+  signal?: AbortSignal,
+) => Promise<string>;
 
 export interface UseGameReviewOptions {
   /** ELO Maia. Дефолт 1500. */
@@ -136,17 +168,21 @@ export interface UseGameReviewOptions {
    * Установить `false` чтобы пропустить запрос (например, в dev/тестах).
    */
   commentsEnabled?: boolean;
-  /** KS-3616. DI-клиент батча комментариев — для unit-тестов. */
-  commentClient?: CommentClient;
+  /**
+   * KS-3712. DI-клиент атомарного запроса `move-comment` для unit-тестов.
+   * По умолчанию — `postMoveComment` из `api/moveComment`.
+   */
+  moveCommentClient?: MoveCommentClient;
   /** KS-3616. Название дебюта (если резолвено caller'ом). */
   openingName?: string | null;
   /** KS-3616. Язык комментариев. Дефолт `'ru'`. */
   userLanguage?: 'en' | 'ru';
   /**
    * KS-3628 / ADR-103 §6. Фабрика клиентского SF 16 lite для
-   * positional_shifts. По умолчанию — реальный WASM-движок через
-   * Worker. В тестах — мок или `null` (positional_shifts всегда []).
-   * `null` → пропускаем шаг (тестовый и серверный режимы).
+   * positional_shifts. После KS-3712 поле сохранено в типе ради
+   * обратной совместимости с тестами/dev-tool'ами; реально не
+   * используется — в новом payload `move-comment` поле
+   * `positional_shifts` отсутствует.
    */
   createPositionalEval?: (() => PositionalEvalEngineType) | null;
 }
@@ -247,9 +283,23 @@ export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
   let sfWorker: Worker | null = null;
   let initialised = false;
   let pendingResolve:
-    | ((lines: Array<{ multipv: number; pv: string[]; wdl: Wdl | null }>) => void)
+    | ((
+        lines: Array<{
+          multipv: number;
+          pv: string[];
+          wdl: Wdl | null;
+          score: { type: 'cp' | 'mate'; value: number } | null;
+          depth: number;
+        }>,
+      ) => void)
     | null = null;
-  let pendingBuf: Array<{ multipv: number; pv: string[]; wdl: Wdl | null }> = [];
+  let pendingBuf: Array<{
+    multipv: number;
+    pv: string[];
+    wdl: Wdl | null;
+    score: { type: 'cp' | 'mate'; value: number } | null;
+    depth: number;
+  }> = [];
   let pendingExpectedMpv = 1;
 
   function ensureSf(): Promise<Worker> {
@@ -295,18 +345,36 @@ export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
 
   function parseInfo(
     line: string,
-  ): { multipv: number; pv: string[]; wdl: Wdl | null } | null {
+  ): {
+    multipv: number;
+    pv: string[];
+    wdl: Wdl | null;
+    /** KS-3712: cp/mate score, POV ходящей на анализируемой позиции. */
+    score: { type: 'cp' | 'mate'; value: number } | null;
+    /** KS-3712: глубина info-строки (для информационного поля sf18_eval). */
+    depth: number;
+  } | null {
     const mpvM = line.match(/\bmultipv (\d+)/);
     const pvM = line.match(/\bpv (.+)/);
     const wdlM = line.match(/\bwdl (\d+) (\d+) (\d+)/);
+    const cpM = line.match(/\bscore cp (-?\d+)/);
+    const mateM = line.match(/\bscore mate (-?\d+)/);
+    const depthM = line.match(/\bdepth (\d+)/);
     if (!pvM) return null;
     const wdl = wdlM
       ? { w: Number(wdlM[1]), d: Number(wdlM[2]), l: Number(wdlM[3]) }
       : null;
+    const score: { type: 'cp' | 'mate'; value: number } | null = mateM
+      ? { type: 'mate', value: Number(mateM[1]) }
+      : cpM
+        ? { type: 'cp', value: Number(cpM[1]) }
+        : null;
     return {
       multipv: Number(mpvM?.[1] ?? 1),
       pv: pvM[1].split(' '),
       wdl,
+      score,
+      depth: depthM ? Number(depthM[1]) : 0,
     };
   }
 
@@ -323,7 +391,13 @@ export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
     void _depth;
     const w = await ensureSf();
     return new Promise<
-      Array<{ multipv: number; pv: string[]; wdl: Wdl | null }>
+      Array<{
+        multipv: number;
+        pv: string[];
+        wdl: Wdl | null;
+        score: { type: 'cp' | 'mate'; value: number } | null;
+        depth: number;
+      }>
     >((resolve) => {
       pendingResolve = resolve;
       pendingBuf = [];
@@ -393,6 +467,8 @@ export function createDefaultEngines(movetimeMs: number = 1000): ReviewEngines {
         bestPv: top?.pv ?? [],
         wdlByMove,
         legalMovesCount: legalMoves,
+        topScore: top?.score ?? null,
+        topDepth: top?.depth ?? 0,
       };
     },
     async evalMove(fen, uci, depth) {
@@ -440,11 +516,15 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
     movetimeMs = 1000,
     engines: injectedEngines,
     commentsEnabled = true,
-    commentClient = defaultCommentClient,
+    moveCommentClient = defaultPostMoveComment,
     openingName = null,
     userLanguage = 'ru',
     createPositionalEval,
   } = options;
+  // KS-3712: `openingName` сохранён в API ради совместимости с
+  // вызывающими компонентами, но в новом payload `move-comment`
+  // не используется (модель получает обе позиции через FEN).
+  void openingName;
   const [status, setStatus] = useState<ReviewStatus>('idle');
   const [progress, setProgress] = useState<{
     stage: ReviewStage;
@@ -498,6 +578,14 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       // buildAnnotations падал в фолбэк `sfBestPv.slice(1, 3)`.
 
       const moveInputs: MoveInput[] = [];
+      // KS-3712: snapshot топ-1 score и depth Stockfish для позиции ПЕРЕД
+      // каждым полуходом — пригодится в comments-фазе для `before.factors`
+      // (`sf18_eval`/`sf18_pv`). Размер = `plies.length`, индекс = i.
+      const sfBeforeByIndex: Array<{
+        topScore: { type: 'cp' | 'mate'; value: number } | null;
+        topDepth: number;
+        topPv: string[];
+      } | null> = [];
 
       try {
         for (let i = 0; i < plies.length; i++) {
@@ -511,6 +599,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
 
           // SF на fenBefore: multipv=3 + UCI_ShowWDL → набор WDL.
           const sf = await engines.analyzeSf(fenBefore, 3, depth);
+          sfBeforeByIndex.push({
+            topScore: sf.topScore ?? null,
+            topDepth: sf.topDepth ?? 0,
+            topPv: sf.bestPv ?? [],
+          });
 
           // Maia policy.
           const maia = await engines.predictMaia(fenBefore, elo);
@@ -848,283 +941,212 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           `[useGameReview] stage → factsCollect (annotations=${annotations.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
         );
         try {
-        const factsToSend: FactsInput[] = [];
-        const plyMap: number[] = [];
-        // KS-3685: возвращаю мягкий запасной путь (KS-3681). Сборка
-        // stockfish-16-trace от devops падает на втором UCI-вызове
-        // (см. KS-3684 — локальное воспроизведение). До стабильной
-        // пересборки разбор партии должен идти штатно, без
-        // status='error', даже когда positional_subterms собрать не
-        // удалось. Положительный сценарий вернётся, когда devops
-        // отдаст рабочие артефакты.
-        let skipTraceForThisRun = false;
+        // KS-3712: новый формат полного разбора — атомарные запросы на
+        // `POST /analyses/review/move-comment`. Для каждого NAG-хода
+        // собираем пару снимков `before`/`after` в формате
+        // `position-comment` (`fen` + список факторов: позиционные
+        // подкомпоненты от `evalTrace` + `sf18_eval`/`sf18_pv`). Затем
+        // шлём задания по очереди с малым параллелизмом — KS-3711
+        // подтвердил лимит 60/мин, на партию из 30 ходов хватает.
+        //
+        // `createPositionalEval` (вычисление `positional_shifts`) и
+        // `extractFacts` (старый DTO `FactsInput`) больше не нужны —
+        // в новом payload этих полей нет.
+        void createPositionalEval;
+        void PositionalEvalEngine;
+        type MoveCommentTask = { ply: number; request: MoveCommentRequest };
+        const tasks: MoveCommentTask[] = [];
+
         for (let i = 0; i < annotations.length; i++) {
           const ann = annotations[i];
           if (ann.nag.length === 0) continue;
+          if (cancelRef.current) break;
           const input = moveInputs[i];
-          const fenAfter = applyMove(input.fen, input.playedUci) ?? input.fen;
-          const playedSan = uciToSan(input.fen, input.playedUci);
-          const bestSan = input.sfBestUci
-            ? uciToSan(input.fen, input.sfBestUci)
-            : '';
-          // Класс хода для facts.classification — реальный, через
-          // shared classifyMove. NAG лишь маркер «о ходе есть что
-          // рассказать»; класс может расходиться (например, NAG `!?`
-          // на ходе с loss_E на уровне `good`).
+          const fenBefore = input.fen;
+          const fenAfter = applyMove(fenBefore, input.playedUci) ?? fenBefore;
+
+          // before-снимок: позиционные подкомпоненты от stockfish-16-trace.
+          // Один повтор при сбое. Пусто → ход пропускаем (без подкомпонент
+          // модель сваливается в шаблонный текст).
+          let beforeSubterms: PositionalSubterm[] = [];
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              beforeSubterms = await evalStockfishTrace(fenBefore);
+              break;
+            } catch (err) {
+              console.warn(
+                `[useGameReview] evalStockfishTrace(before) failed for ply=${input.ply} (attempt ${attempt}/2):`,
+                err,
+              );
+              beforeSubterms = [];
+            }
+          }
+          if (beforeSubterms.length === 0) {
+            console.warn(
+              `[useGameReview] ply=${input.ply} skipped (empty subterms on fenBefore)`,
+            );
+            continue;
+          }
+          if (cancelRef.current) break;
+
+          // after-снимок: тот же приём.
+          let afterSubterms: PositionalSubterm[] = [];
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              afterSubterms = await evalStockfishTrace(fenAfter);
+              break;
+            } catch (err) {
+              console.warn(
+                `[useGameReview] evalStockfishTrace(after) failed for ply=${input.ply} (attempt ${attempt}/2):`,
+                err,
+              );
+              afterSubterms = [];
+            }
+          }
+          if (afterSubterms.length === 0) {
+            console.warn(
+              `[useGameReview] ply=${input.ply} skipped (empty subterms on fenAfter)`,
+            );
+            continue;
+          }
+          if (cancelRef.current) break;
+
+          // Дополнительный SF-анализ позиции после played-хода (нужны
+          // `score` и `bestPv` для `sf18_eval`/`sf18_pv` в `after.factors`).
+          // multipv=1 + те же engines, что и в main-pass — экземпляр
+          // движка один, параллельных Stockfish не создаём.
+          let sfAfter: SfPositionResult | null = null;
+          try {
+            sfAfter = await engines.analyzeSf(fenAfter, 1, depth);
+          } catch (err) {
+            console.warn(
+              `[useGameReview] analyzeSf(after) failed for ply=${input.ply}, skipping:`,
+              err,
+            );
+            continue;
+          }
+          if (cancelRef.current) break;
+
+          // Класс хода (best/good/inaccuracy/mistake/blunder) — нужен в
+          // поле `move.classification` нового payload.
           const klass: MoveClass = classifyMove({
             wdlBefore: input.wdlBefore,
             wdlAfter: input.wdlAfterPlayed,
             isBestMove: input.playedUci === input.sfBestUci,
           });
-          // KS-3650 / ADR-107 rev 2 §6 F1. Сырые подкомпоненты от
-          // нашего WASM-форка SF 16 (`stockfish-16-trace`) — для backend
-          // few-shot prompt'а V2. Делаем только на ход с NAG (фокус
-          // комментирования). Graceful: при отказе WASM — `[]`,
-          // backend продолжит работать с агрегатными `positional_shifts`.
-          // Cancel-aware: между ходами проверяем флаг.
-          if (cancelRef.current) break;
-          let positionalSubterms: PositionalSubterm[] = [];
-          // KS-3685 (revert KS-3676 → KS-3681 поведение). При системной
-          // поломке исполнителя — НЕ блокируем разбор. Отключаем
-          // дальнейшие вызовы трейса на остаток run (флаг ниже), чтобы
-          // не ждать таймаут 8 с × N ходов. Остальные сигналы
-          // (positional_shifts, sf_best, maia_alternative, tactical_motifs)
-          // полностью работают, LLM-комментарии собираются.
-          if (!skipTraceForThisRun) {
-            const traceStart = performance.now();
-            console.info(
-              `[useGameReview] evalStockfishTrace start ply=${input.ply} (t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
-            );
-            try {
-              positionalSubterms = await evalStockfishTrace(fenAfter);
-              console.info(
-                `[useGameReview] evalStockfishTrace ply=${input.ply} done in ${Math.round(performance.now() - traceStart)}ms (subterms=${positionalSubterms.length})`,
-              );
-            } catch (err) {
-              console.warn(
-                `[useGameReview] evalStockfishTrace skipped for rest of run (cause:`,
-                err,
-                ')',
-              );
-              skipTraceForThisRun = true;
-            }
-          }
-          const facts = extractFacts({
-            ply: input.ply,
-            fenBefore: input.fen,
-            fenAfter,
-            playedUci: input.playedUci,
+          const playedSan = uciToSan(fenBefore, input.playedUci);
+
+          const move = buildMoveCommentMove({
+            fenBefore,
+            uci: input.playedUci,
             playedSan,
-            sfData: {
-              bestUci: input.sfBestUci,
-              bestSan,
-              wdlBefore: input.wdlBefore,
-              wdlAfterPlayed: input.wdlAfterPlayed,
-              wdlAfterBest: input.wdlAfterBest,
-              sfBestPv: input.sfBestPv,
-              mateBefore: null,
-              mateAfter: null,
-            },
-            maiaData: {
-              playedProb: input.playedProb,
-              maiaTopUci: input.maiaTopUci,
-              maiaTopProb: input.maiaTopProb,
-              wdlAfterMaiaTop: input.wdlAfterMaiaTop,
-            },
             classification: klass,
-            openingName,
-            userElo: elo,
-            userLanguage,
-            positionalSubterms,
+            engineMateAfter:
+              sfAfter.topScore?.type === 'mate'
+                ? sfAfter.topScore.value
+                : null,
           });
-          factsToSend.push(facts);
-          plyMap.push(input.ply);
+
+          const sfBefore = sfBeforeByIndex[i];
+          const before = buildSnapshotFactors({
+            fen: fenBefore,
+            subterms: beforeSubterms,
+            engine: sfBefore
+              ? {
+                  score: sfBefore.topScore,
+                  depth: sfBefore.topDepth,
+                  pv: sfBefore.topPv,
+                }
+              : null,
+          });
+          const after = buildSnapshotFactors({
+            fen: fenAfter,
+            subterms: afterSubterms,
+            engine: {
+              score: sfAfter.topScore ?? null,
+              depth: sfAfter.topDepth ?? 0,
+              pv: sfAfter.bestPv ?? [],
+            },
+          });
+
+          tasks.push({
+            ply: input.ply,
+            request: { move, before, after, language: userLanguage },
+          });
         }
 
-        if (factsToSend.length > 0 && !cancelRef.current) {
-          // KS-3628 / ADR-103 §6. Запрашиваем `positional_shifts` через
-          // клиентский SF 16 lite. Lazy-load исключительно по жмёт
-          // «Разобрать партию» — initial bundle не растёт.
-          //
-          // Graceful: любая ошибка (no Worker, init timeout, eval
-          // timeout) → оставляем `positional_shifts: []` и продолжаем
-          // разбор. Это допустимо — комментарии без позиционных
-          // ярлыков всё равно осмысленны (мат/тактика/материал — есть).
-          if (createPositionalEval !== null) {
-            // KS-3677: подстадия `positional`, прогресс по факт-парам.
-            console.info(
-              `[useGameReview] stage → positional (facts=${factsToSend.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
-            );
-            setProgress({
-              stage: 'positional',
-              done: 0,
-              total: factsToSend.length,
-            });
-            let posEngine: PositionalEvalEngineType | null = null;
-            // KS-3676. Подробное логирование причин пустого
-            // `positional_shifts`. До этой правки ошибки исполнителя
-            // молча проглатывались (`onError` не подключён, тихий null
-            // от `evalPosition` пропускался без сообщения), и
-            // в боевой среде нельзя было отличить «движок не стартовал»
-            // от «парсер не нашёл термины». Теперь видно конкретную
-            // причину в console.
-            let nullEvalCount = 0;
-            const reportEngineError = (
-              reason: string,
-              err?: unknown,
-            ) => {
-              console.warn(
-                '[useGameReview] positional_shifts engine error:',
-                reason,
-                err,
-              );
-            };
-            try {
-              posEngine = (createPositionalEval ?? (() =>
-                new PositionalEvalEngine({ onError: reportEngineError })
-              ))();
-              const posInitStart = performance.now();
-              await posEngine.init();
-              console.info(
-                `[useGameReview] positional engine ready in ${Math.round(performance.now() - posInitStart)}ms`,
-              );
-              for (let i = 0; i < factsToSend.length; i++) {
-                if (cancelRef.current) break;
-                const f = factsToSend[i];
-                const [evalBefore, evalAfter] = await Promise.all([
-                  posEngine.evalPosition(f.fen),
-                  posEngine.evalPosition(f.fen_after),
-                ]);
-                if (!evalBefore || !evalAfter) {
-                  nullEvalCount++;
-                  setProgress({
-                    stage: 'positional',
-                    done: i + 1,
-                    total: factsToSend.length,
-                  });
-                  continue;
-                }
-                const shifts = computePositionalShifts(
-                  evalBefore,
-                  evalAfter,
-                  f.stage,
-                  f.side,
-                  {
-                    material_change: f.material_change,
-                    threats_created: f.threats_created,
-                  },
-                );
-                // Мутируем in-place — facts ещё не ушли в batch.
-                (f as { positional_shifts: typeof shifts }).positional_shifts =
-                  shifts;
-                setProgress({
-                  stage: 'positional',
-                  done: i + 1,
-                  total: factsToSend.length,
-                });
-              }
-              if (nullEvalCount > 0) {
-                console.warn(
-                  `[useGameReview] positional_shifts: parser returned null for ${nullEvalCount}/${factsToSend.length * 2} positions (output of SF не содержал все 13 терминов).`,
-                );
-              }
-            } catch (err) {
-              // KS-3677: системная поломка позиционного исполнителя —
-              // прерываем разбор и переходим в `status='error'`.
-              // Пользователь увидит понятное сообщение и сможет
-              // повторить, а не получит «успешный» разбор без
-              // позиционных факторов.
-              console.warn(
-                '[useGameReview] positional_shifts engine fatal:',
-                err,
-              );
-              try {
-                posEngine?.destroy();
-              } catch {
-                /* ignore */
-              }
-              engines.terminate();
-              enginesRef.current = null;
-              setStatus('error');
-              setError('positional_engine_unavailable');
-              return;
-            } finally {
-              try {
-                posEngine?.destroy();
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-
+        if (tasks.length > 0 && !cancelRef.current) {
           console.info(
-            `[useGameReview] stage → comments (facts=${factsToSend.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
+            `[useGameReview] stage → comments (tasks=${tasks.length}, t=+${Math.round(performance.now() - reviewStartedAt)}ms)`,
           );
           setProgress({
             stage: 'comments',
             done: 0,
-            total: factsToSend.length,
+            total: tasks.length,
           });
           abortRef.current = new AbortController();
+          const signal = abortRef.current.signal;
           const llmStart = performance.now();
-          try {
-            const comments = await commentClient(
-              factsToSend,
-              elo,
-              userLanguage,
-              abortRef.current.signal,
-              {
-                // KS-3629: тик по чанкам — прогресс обновляется по мере
-                // прихода ответов, а не разово в конце.
-                onProgress: (done) => {
-                  if (cancelRef.current) return;
-                  setProgress({
-                    stage: 'comments',
-                    done,
-                    total: factsToSend.length,
-                  });
-                },
-              },
-            );
-            if (cancelRef.current) {
-              engines.terminate();
-              enginesRef.current = null;
-              abortRef.current = null;
-              setStatus('cancelled');
-              return;
-            }
-            let nonEmpty = 0;
-            for (let i = 0; i < plyMap.length; i++) {
-              const c = (comments[i] ?? '').trim();
-              if (c) {
-                commentByPly[plyMap[i]] = c;
-                nonEmpty++;
+
+          // Малый параллелизм: при лимите бэкенда 60/мин (KS-3711) и
+          // ~1с/ответ от модели три воркера дают комфортную скорость без
+          // упора в потолок. Прогресс — по факту прихода ответов.
+          const CONCURRENCY = 3;
+          let nextIdx = 0;
+          let done = 0;
+          let nonEmpty = 0;
+          let aborted = false;
+
+          const isAbortError = (err: unknown) =>
+            (err instanceof DOMException && err.name === 'AbortError') ||
+            (err instanceof Error && err.name === 'AbortError');
+
+          const worker = async (): Promise<void> => {
+            while (!cancelRef.current && !aborted) {
+              const idx = nextIdx++;
+              if (idx >= tasks.length) return;
+              const { ply, request } = tasks[idx];
+              try {
+                const text = await moveCommentClient(request, signal);
+                if (cancelRef.current) return;
+                const trimmed = text.trim();
+                if (trimmed) {
+                  commentByPly[ply] = trimmed;
+                  nonEmpty++;
+                }
+              } catch (err) {
+                if (isAbortError(err)) {
+                  aborted = true;
+                  return;
+                }
+                // Прочие сбои — пустой комментарий, продолжаем.
               }
+              done++;
+              setProgress({
+                stage: 'comments',
+                done,
+                total: tasks.length,
+              });
             }
-            // Все комментарии пустые — толкуем как «сервис не ответил».
-            if (nonEmpty === 0) setCommentsWarning(true);
-            console.info(
-              `[useGameReview] LLM batch done in ${Math.round(performance.now() - llmStart)}ms (nonEmpty=${nonEmpty}/${factsToSend.length})`,
-            );
-            setProgress({
-              stage: 'comments',
-              done: factsToSend.length,
-              total: factsToSend.length,
-            });
-          } catch (e) {
-            // AbortError → cancel; всё остальное — graceful (warning).
-            abortRef.current = null;
-            const isAbort =
-              e instanceof DOMException && e.name === 'AbortError';
-            if (isAbort || cancelRef.current) {
-              engines.terminate();
-              enginesRef.current = null;
-              setStatus('cancelled');
-              return;
-            }
-            setCommentsWarning(true);
-          }
+          };
+          const workerCount = Math.max(
+            1,
+            Math.min(CONCURRENCY, tasks.length),
+          );
+          await Promise.all(
+            Array.from({ length: workerCount }, () => worker()),
+          );
           abortRef.current = null;
+          if (aborted || cancelRef.current) {
+            engines.terminate();
+            enginesRef.current = null;
+            setStatus('cancelled');
+            return;
+          }
+          if (nonEmpty === 0) setCommentsWarning(true);
+          console.info(
+            `[useGameReview] move-comment done in ${Math.round(performance.now() - llmStart)}ms (nonEmpty=${nonEmpty}/${tasks.length})`,
+          );
         }
         } catch (prepErr) {
           // KS-3679: системная поломка SF-trace / позиционного исполнителя
@@ -1160,7 +1182,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
       setResult({ annotations, moveInputs, commentByPly });
       setStatus('done');
     },
-    [elo, depth, movetimeMs, injectedEngines, commentsEnabled, commentClient, openingName, userLanguage, createPositionalEval],
+    [elo, depth, movetimeMs, injectedEngines, commentsEnabled, moveCommentClient, userLanguage, createPositionalEval],
   );
 
   const cancel = useCallback(() => {
