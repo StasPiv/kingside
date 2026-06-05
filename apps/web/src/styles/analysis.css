@@ -1162,6 +1162,30 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
      иначе на L три PV-линии обрезались бы по высоте. */
   min-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
   max-height: calc(132px * var(--analysis-sidebar-font-scale, 1));
+  /* KS-3704: единый стилизованный скролл всех аккордеон-панелей
+     sidebar'а анализа — повторяет стиль блока «Ходы»
+     (.review-moves-container), узкий фиолетовый трек. */
+  scrollbar-color: var(--c-7c83ff) var(--c-2a3a5e);
+  scrollbar-width: thin;
+}
+
+.analysis-panel-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.analysis-panel-body::-webkit-scrollbar-track {
+  background: var(--c-2a3a5e);
+  border-radius: 4px;
+}
+
+.analysis-panel-body::-webkit-scrollbar-thumb {
+  background: var(--c-7c83ff);
+  border-radius: 4px;
+  min-height: 30px;
+}
+
+.analysis-panel-body::-webkit-scrollbar-thumb:hover {
+  background: var(--c-9ba0ff);
 }
 
 .analysis-panel-body--scroll {
