@@ -1103,6 +1103,11 @@ function AnalysisPageInner({
           const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
           if (fenMatch) setInitialFen(fenMatch[1]);
           loadFromPgn(parseAnnotatedPgn(pgn), extractInitialAnnotations(pgn));
+          // KS-3724: state.pgn-путь — это явный «открой эту партию», и в
+          // нём заведомо есть PGN-тело. Помечаем pgnLoadedRef, чтобы
+          // первый autosave-PATCH ниже не перетёр загруженный PGN
+          // ре-сериализацией через chess.js (см. KS-3619 hotfix).
+          pgnLoadedRef.current = true;
           // KS-3092: viewer должен встать на `initialPly` (полу-ход,
           // на котором искомая позиция встретилась — by-position click
           // из архива). Используем уже существующий отложенный
@@ -1122,15 +1127,32 @@ function AnalysisPageInner({
       } else if (localIdRef.current) {
         const id = localIdRef.current;
         (publicMode ? getPublicById(id) : getById(id)).then((saved) => {
+          // KS-3724: предпочитаем колонку `analyses.fen` (источник
+          // истины с момента таска). Регексп по PGN — fallback на
+          // случай legacy-записей, где fen хранился ТОЛЬКО в хедере
+          // `[FEN "..."]` PGN, а отдельная колонка не заполнялась
+          // (до этого тикета — поведение фронта по умолчанию для
+          // анализов без ходов).
+          if (saved?.fen) {
+            setInitialFen(saved.fen);
+          }
           if (saved?.pgn) {
             try {
-              // Restore custom starting position if FEN header present
-              const fenMatch = saved.pgn.match(/\[FEN\s+"([^"]+)"\]/);
-              if (fenMatch) setInitialFen(fenMatch[1]);
+              // Fallback для legacy-записей без `saved.fen`.
+              if (!saved.fen) {
+                const fenMatch = saved.pgn.match(/\[FEN\s+"([^"]+)"\]/);
+                if (fenMatch) setInitialFen(fenMatch[1]);
+              }
               loadFromPgn(parseAnnotatedPgn(saved.pgn), extractInitialAnnotations(saved.pgn));
               if (saved.currentPosition != null && saved.currentPosition > 0) {
                 pendingPositionRef.current = saved.currentPosition;
               }
+              // KS-3724: пометить «PGN был загружен» — это сигнал
+              // autosave'у пропустить первый PATCH, чтобы не потерять
+              // UTF-8 NAG (см. KS-3619 hotfix). Для фреш-анализа
+              // без pgn флаг остаётся false и первый PATCH дойдёт
+              // до бэка с актуальным fen.
+              pgnLoadedRef.current = true;
             } catch { /* ignore */ }
             setPgnHeaders(parsePgnHeaders(saved.pgn));
           }
@@ -1294,6 +1316,13 @@ function AnalysisPageInner({
   // загруженный PGN через chess.js, теряет UTF-8 NAG (±/⩲/+−/...) и
   // обрезает PGN. Запись делаем только при реальной правке.
   const lastSavedPgnRef = useRef<string | null>(null);
+  // KS-3724: первый PATCH пропускаем ТОЛЬКО когда мы действительно
+  // загрузили сохранённый PGN (round-trip-safety для UTF-8 NAG). Для
+  // фреш-анализа из Мастерской («+ Новый» → POST с пустым pgn) загрузки
+  // не было, и первый PATCH после пользовательского `setInitialFen`
+  // обязан долететь до бэка — иначе кастомная стартовая позиция
+  // теряется при reload (см. описание KS-3724).
+  const pgnLoadedRef = useRef(false);
   const hasPgnHeaders = Object.keys(pgnHeaders).length > 0;
   const hasInitialAnnotations = !!initialAnnotations;
   useEffect(() => {
@@ -1304,7 +1333,19 @@ function AnalysisPageInner({
     // владелец, открывший public-URL своего анализа, тоже read-only —
     // для редактирования пусть перейдёт на /analysis/:id.
     if (publicMode) return;
-    if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
+    // KS-3724: `hasCustomFen` — кастомная стартовая позиция,
+    // выставленная пользователем через «Установить позицию», тоже
+    // должна триггерить autosave даже когда история ходов пустая и
+    // нет ни PGN-заголовков, ни startup-аннотаций. Без этого
+    // условия autosave молча возвращался — и FEN терялся при
+    // reload (root cause KS-3724).
+    const hasCustomFen = initialFen !== DEFAULT_FEN;
+    if (
+      history.length === 0 &&
+      !hasPgnHeaders &&
+      !hasInitialAnnotations &&
+      !hasCustomFen
+    ) return;
     if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
@@ -1312,10 +1353,23 @@ function AnalysisPageInner({
       // KS-2152: initialAnnotations попадают в leading-комментарий PGN
       const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
       const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+      // KS-3724: кастомная стартовая позиция уходит отдельной колонкой
+      // `analyses.fen` (см. CreateAnalysisRequest / UpdateAnalysisRequest).
+      // Отправляем поле ТОЛЬКО когда FEN отличается от стандартной
+      // начальной позиции — это совпадает с серверным DTO `fen?: string`
+      // (отдельная семантика «сбросить в null» в текущей версии бэка
+      // не нужна: для нового анализа `analyses.fen` уже null).
       if (!localIdRef.current) {
         try {
           const category = gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
-          const entry = await createAnalysis(pgn, analysisTitle, category);
+          const entry = await createAnalysis(
+            pgn,
+            analysisTitle,
+            category,
+            // POST принимает только определённое значение fen — иначе
+            // оставляем undefined, бэк по умолчанию пишет null.
+            hasCustomFen ? initialFen : undefined,
+          );
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
           // KS-3046: до этого момента у анализа не было id и PATCH
@@ -1342,12 +1396,19 @@ function AnalysisPageInner({
         // (см. lastSavedPgnRef комментарий выше). Если pgn не
         // изменился с прошлого сохранения — тоже пропускаем (нет
         // смысла генерировать запросы).
+        //
+        // KS-3724: пропуск действует ТОЛЬКО когда мы реально загрузили
+        // PGN из БД (`pgnLoadedRef.current === true`). Для фреш-анализа
+        // из Мастерской pgn не был загружен — первый PATCH с актуальным
+        // fen обязан долететь до бэка, иначе кастомная стартовая
+        // позиция теряется (root cause тикета).
         if (lastSavedPgnRef.current === null) {
           lastSavedPgnRef.current = pgn;
-          return;
+          if (pgnLoadedRef.current) return;
+        } else {
+          if (lastSavedPgnRef.current === pgn) return;
+          lastSavedPgnRef.current = pgn;
         }
-        if (lastSavedPgnRef.current === pgn) return;
-        lastSavedPgnRef.current = pgn;
         let savedPosition: number | null = null;
         const fen = currentFenRef.current;
         if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
@@ -1358,6 +1419,7 @@ function AnalysisPageInner({
         }
         updateAnalysis(localIdRef.current, {
           pgn,
+          ...(hasCustomFen && { fen: initialFen }),
           ...(savedPosition != null && { currentPosition: savedPosition }),
         }).catch(() => {});
       }
@@ -1376,26 +1438,42 @@ function AnalysisPageInner({
     // KS-2672: в publicMode не сохраняем PGN на unload — read-only.
     if (publicMode) return;
     if (!localIdRef.current) return;
-    if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
+    // KS-3724: учитываем кастомный FEN в guard'е unload-flush — иначе
+    // пользователь, который успел задать позицию и сразу закрыл вкладку
+    // до debounce'а 600мс, всё равно потеряет старт-позицию.
+    const hasCustomFen = initialFen !== DEFAULT_FEN;
+    if (
+      history.length === 0 &&
+      !hasPgnHeaders &&
+      !hasInitialAnnotations &&
+      !hasCustomFen
+    ) return;
     if (localSaveTimerRef.current) {
       clearTimeout(localSaveTimerRef.current);
       localSaveTimerRef.current = null;
     }
     const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
     const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+    // KS-3724: тот же контракт, что у debounced autosave выше —
+    // отдельная колонка `analyses.fen` отправляется ТОЛЬКО когда
+    // стартовая позиция кастомная.
+    const body: { pgn: string; fen?: string } = {
+      pgn,
+      ...(hasCustomFen && { fen: initialFen }),
+    };
     // sendBeacon — единственный надёжный способ сохранить во время unload.
     try {
       const url = `${import.meta.env.VITE_API_URL ?? ''}/analyses/${localIdRef.current}`;
       const token = localStorage.getItem('token');
-      const blob = new Blob([JSON.stringify({ pgn })], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
       // sendBeacon does PATCH-like POST; fallback на updateAnalysis
       if (navigator.sendBeacon && !token) {
         navigator.sendBeacon(url, blob);
       } else {
-        updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
+        updateAnalysis(localIdRef.current, body).catch(() => {});
       }
     } catch {
-      updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
+      updateAnalysis(localIdRef.current, body).catch(() => {});
     }
   }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis, publicMode]);
 

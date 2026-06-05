@@ -22,11 +22,22 @@ export function parsePgnHeaders(pgn: string): Record<string, string> {
 
 export function useSavedAnalyses() {
   const create = useCallback(
-    async (pgn: string, title?: string, category?: string): Promise<AnalysisResponse> => {
+    async (
+      pgn: string,
+      title?: string,
+      category?: string,
+      fen?: string,
+    ): Promise<AnalysisResponse> => {
       return api.post<AnalysisResponse>('/analyses', {
         pgn,
         title: title ?? getDefaultTitle(),
         ...(category ? { category } : {}),
+        // KS-3724: стартовая позиция (если задана пользователем в Мастерской
+        // через «Установить позицию») сохраняется в отдельной колонке
+        // `analyses.fen`. Раньше FEN жил только в `[FEN "..."]` хедере PGN
+        // и при пустой истории (история=0, заголовки=0, аннотации=0) первый
+        // PATCH вообще не отправлялся — позиция терялась при reload.
+        ...(fen ? { fen } : {}),
       });
     },
     [],
