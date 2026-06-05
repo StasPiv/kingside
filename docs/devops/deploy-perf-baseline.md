@@ -171,3 +171,81 @@ warm-сценария дают минимальный эффект; основн
   `services-stable` + `smoke` прошли.
 - В прод записаны те же образы (`:cb2c36c4`), что и были — никаких
   изменений кода, только повторные деплои.
+
+## 12. KS-3719 — пошаговая разбивка `docker build` и `docker push`
+
+С коммита **`6b36c8a3`** в `_perf_summary` добавлены два дополнительных блока
+для каждого сервиса, который реально билдил/пушил в текущем прогоне:
+
+```
+--- docker build steps (<service>) ---
+  <dur>s  #<step>  <command>
+  ...
+--- docker push layers (<service>) ---
+  <dur>s  <status>  <layer-id>
+  ...
+```
+
+Блоки печатаются ПОСЛЕ строки `raw trace: ...` основного perf-summary.
+Существующие метки `*_docker_build_done` / `*_docker_push_done` сохранены
+1-в-1.
+
+### Источники данных
+
+| Файл | Что внутри | Как пишется |
+|------|------------|-------------|
+| `$REPO_DIR/logs/<svc>-build-${DEPLOY_SHA}.log` | Полный stdout/stderr `docker build --progress=plain`. Каждая строка с префиксом `[NNNN.NNN] ` — секунды от старта pipe. | `docker build --progress=plain ... 2>&1 \| _with_ts \| tee $BUILD_LOG` |
+| `$REPO_DIR/logs/<svc>-push-${DEPLOY_SHA}.log` | Полный stdout/stderr `docker push`. Такой же префикс таймштампа. | `docker push ... 2>&1 \| _with_ts \| tee $PUSH_LOG \| tail -3` |
+
+`<svc>` — один из: `api`, `game-service`, `broadcast-service`,
+`archive-service`, `tactic-worker`. Имя для `tactic-worker` унифицировано на
+`tactic-worker-build-*.log` (ранее было `tactic-build-*.log`).
+
+### Helper `_with_ts`
+
+Perl + `Time::HiRes`. Префиксует каждую строку stdin секундами от старта pipe
+в формате `[NNNN.NNN] <line>`. `ts` из `moreutils` на хосте не гарантирован,
+поэтому используется perl.
+
+### Парсер `_parse_build_steps`
+
+Понимает оба формата вывода `docker build --progress=plain`:
+
+1. **Classic builder** — строки вида `[ 12.345] Step 6/24 : RUN apt-get install ...`.
+   Длительность шага = разница таймштампов до следующей строки `Step`
+   (или до `Successfully built`).
+2. **BuildKit / buildx** — строки `[ 1.234] #6 [build 3/15] RUN apt-get install ...`
+   (описание шага) и `[ 12.345] #6 DONE 11.1s` (длительность).
+   `#N CACHED` показывается как `0.00s [CACHED]`.
+
+Технические строки BuildKit (`transferring`, `sha256:`, `naming to`,
+`exporting`, `writing`, размеры) пропускаются. Сортировка — по убыванию
+длительности.
+
+### Парсер `_parse_push_layers`
+
+Берёт `<id>: Preparing|Pushing|Waiting` как старт слоя и
+`<id>: Pushed|Layer already exists|Mounted from` как финал. Статус выводится
+как:
+
+- `uploaded` — слой реально ушёл в сеть (`Pushed`)
+- `cached` — `Layer already exists` в ECR
+- `mounted` — `Mounted from <repo>` (cross-repo deduplication)
+
+Сортировка — по убыванию длительности.
+
+### Как читать
+
+- Жирный шаг в build (`#N DONE Xs` сверху списка) → кандидат на кэширование
+  или вынос в отдельный слой.
+- Длинная серия `uploaded` слоёв в push с большой длительностью → раздутые
+  слои в Dockerfile (например, `COPY node_modules` без prune dev-deps,
+  см. меру E4 ADR-045).
+- Если все слои `cached` / `mounted`, а суммарный push-этап всё равно
+  ощутимый — узкое место в HTTP-overhead к ECR, не в самих слоях.
+
+### Поведение при отсутствии журналов
+
+Если для текущего `DEPLOY_SHA` журналы не найдены (например, сервис не
+деплоился в этом прогоне или `*_SKIPPED=1`) — блок просто не печатается,
+ошибки нет.
