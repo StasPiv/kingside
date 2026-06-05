@@ -297,20 +297,75 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/growth from value to terminal/);
     });
 
-    it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
+    it('KS-3727 RU: шкала cp → вердикт и запрет «у белых перевес» при отрицательном sf18_eval', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Карта порогов cp → словесная оценка (все диапазоны и обе стороны).
+      expect(p).toContain('Соответствие sf18_eval → вердикт');
+      expect(p).toMatch(/cp от -30 до \+30.*«примерное равенство»/);
+      expect(p).toMatch(/cp от \+30 до \+100.*небольшой перевес белых/);
+      expect(p).toMatch(/cp от -30 до -100.*небольшой перевес чёрных/);
+      expect(p).toMatch(/cp от \+100 до \+300.*заметное преимущество белых/);
+      expect(p).toMatch(/cp от -100 до -300.*заметное преимущество чёрных/);
+      expect(p).toMatch(/cp ≥ \+300.*решающее преимущество белых/);
+      expect(p).toMatch(/cp ≤ -300.*решающее преимущество чёрных/);
+      expect(p).toMatch(/mate.*положительным N.*за белых/);
+      expect(p).toMatch(/mate.*отрицательным N.*за чёрных/);
+      // Прямой запрет на «у белых …» при отрицательном eval.
+      expect(p).toContain('ЗАПРЕЩЕНО');
+      expect(p).toContain('«у белых перевес»');
+      expect(p).toContain('«у белых преимущество»');
+      expect(p).toContain('«заметное преимущество белых»');
+      expect(p).toContain('«решающее преимущество белых»');
+      expect(p).toMatch(/sf18_eval\.cp\s*<\s*0/);
+      expect(p).toMatch(/Симметричный запрет для чёрных/);
+      // Материал не отменяет знак eval.
+      expect(p).toMatch(/Материальный перевес.*не отменяет знак sf18_eval/);
+      // Конкретный пример из жалобы пользователя.
+      expect(p).toMatch(/cp=-665.*лишняя фигура.*решающее преимущество чёрных.*а не «у белых перевес»/);
+    });
+
+    it('KS-3727 EN: cp → verdict mapping and ban on "White is better" at negative sf18_eval', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('Mapping sf18_eval → verdict');
+      expect(p).toMatch(/cp from -30 to \+30.*"roughly equal"/);
+      expect(p).toMatch(/cp from \+30 to \+100.*slight edge for White/);
+      expect(p).toMatch(/cp from -30 to -100.*slight edge for Black/);
+      expect(p).toMatch(/cp from \+100 to \+300.*clear advantage for White/);
+      expect(p).toMatch(/cp from -100 to -300.*clear advantage for Black/);
+      expect(p).toMatch(/cp ≥ \+300.*decisive advantage for White/);
+      expect(p).toMatch(/cp ≤ -300.*decisive advantage for Black/);
+      expect(p).toMatch(/mate.*positive N.*for White/);
+      expect(p).toMatch(/mate.*negative N.*for Black/);
+      // Прямой запрет на "White is better" при отрицательном eval.
+      expect(p).toContain('FORBIDDEN');
+      expect(p).toContain('"White is better"');
+      expect(p).toContain('"clear advantage for White"');
+      expect(p).toContain('"decisive advantage for White"');
+      expect(p).toMatch(/sf18_eval\.cp\s*<\s*0/);
+      expect(p).toMatch(/Symmetric ban for Black/);
+      // Material does not override.
+      expect(p).toMatch(/override the sign of sf18_eval/);
+      // Конкретный пример из жалобы пользователя.
+      expect(p).toMatch(/cp=-665.*extra piece.*decisive advantage for Black.*not "White is better"/);
+    });
+
+    it('обе версии — без преамбул в стиле CRITICAL RULES / few-shot / ELO', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
       for (const p of [ru, en]) {
         expect(p).not.toContain('CRITICAL RULES');
-        expect(p).not.toContain('FORBIDDEN');
-        expect(p).not.toContain('ЗАПРЕЩЕНО');
         expect(p).not.toContain('few-shot');
         expect(p).not.toContain('ELO');
+        // KS-3727: слова FORBIDDEN/ЗАПРЕЩЕНО используются как
+        // точечные запреты на конкретные формулировки (а не как
+        // преамбула в стиле V2-промпта), поэтому проверки на их
+        // отсутствие сняты.
         // KS-3721: блоки про sf18_pv (формат, инструкция отразить,
         // сверка с pv, порядок приоритетов, пример с проходной)
-        // удалены, добавлены явные запреты на манёвры/планы. Общий
-        // объём сравним с предыдущей версией, верхняя граница 9500
-        // сохраняется.
+        // удалены, добавлены явные запреты на манёвры/планы.
+        // KS-3727: добавлена шкала cp → вердикт и явный пример
+        // расхождения материала и sf18_eval. Верхняя граница 9500
+        // символов сохранена.
         expect(p.length).toBeLessThan(9500);
       }
     });
