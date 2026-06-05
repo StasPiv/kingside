@@ -403,6 +403,7 @@ export class PositionCommentService {
           history: [],
           userId,
           userToken: '',
+          noMcp: true,
         }),
       });
       const ct = res.headers.get('content-type') || '';
